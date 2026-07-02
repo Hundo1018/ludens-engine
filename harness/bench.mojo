@@ -11,11 +11,30 @@ are plain programs run with `mojo run -I build`.
 """
 
 from std.time import perf_counter_ns
+from std.benchmark import keep
 
 
 def now() -> Int:
     """Monotonic timestamp in nanoseconds as an `Int` (perf_counter returns UInt)."""
     return Int(perf_counter_ns())
+
+
+def measure[body: def () capturing [_] -> None](warmup: Int = 3, reps: Int = 20) -> Int:
+    """Hardened timing: run `body` `warmup` times to warm caches/branch predictors,
+    then `reps` times and return the **min** wall-clock ns (min rejects scheduler
+    noise better than mean). Pin the process to a P-core (`taskset -c`) for stable
+    numbers. Callers divide by the op count for ns/op."""
+    for _ in range(warmup):
+        body()
+    var best = Int.MAX
+    for _ in range(reps):
+        var t0 = now()
+        body()
+        var t1 = now()
+        keep(t1)
+        if t1 - t0 < best:
+            best = t1 - t0
+    return best
 
 
 def _fmt2(x: Float64) -> String:
@@ -80,7 +99,7 @@ struct BenchTable(Movable):
         out += "|---|---:|---|---:|---:|---:|\n"
         for ref r in self.rows:
             out += "| " + r.variant + " | " + String(r.n) + " | " + r.op
-            out += " | " + _round_i(r.ns_per_op())
+            out += " | " + _fmt2(r.ns_per_op())
             out += " | " + _fmt2(r.mops())
             out += " | " + _fmt2(Float64(r.total_ns) / 1.0e6) + " |\n"
         out += "\n"

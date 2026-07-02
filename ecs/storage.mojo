@@ -43,3 +43,12 @@ trait StorageBackend(Defaultable, Movable, ImplicitlyDeletable):
     def matching3[
         A: ComponentType, B: ComponentType, C: ComponentType
     ](self) -> List[Entity]: ...
+
+    # zero-allocation iteration: invoke `func(mut a, b)` for every entity that has
+    # both A and B, passing mutable/read refs straight into storage (no per-frame
+    # `List[Entity]`, no per-access entity-index lookup). See `World.for_each2`.
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        func: def (mut A, B) capturing [_] -> None,
+    ](mut self): ...

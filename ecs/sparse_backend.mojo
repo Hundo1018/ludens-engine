@@ -17,32 +17,29 @@ from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend
 
-comptime DEFAULT_CAP = 4096  # default maximum live entity id
 comptime Slot = type_of(alloc[NoneType](1))
 
 
-struct SparseSetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
-    StorageBackend
-):
+struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
     comptime N: Int = len(Self.CTs)
     var slots: List[Slot]  # slot i -> heap SparseSet[CTs[i], cap]
-    var alive: SparseSet[Int, Self.cap]  # entity id -> generation
+    var alive: SparseSet[Int]  # entity id -> generation
     var counter: Int
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[SparseSet[T, Self.cap]](1)
-            p.init_pointee_move(SparseSet[T, Self.cap]())
+            var p = alloc[SparseSet[T]](1)
+            p.init_pointee_move(SparseSet[T]())
             self.slots.append(p.bitcast[NoneType]())
-        self.alive = SparseSet[Int, Self.cap]()
+        self.alive = SparseSet[Int]()
         self.counter = 0
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[SparseSet[T, Self.cap]]()
+            var p = self.slots[i].bitcast[SparseSet[T]]()
             p.destroy_pointee()
             p.free()
 
@@ -53,8 +50,8 @@ struct SparseSetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
                 return i
         return -1
 
-    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C, Self.cap]](1)):
-        return self.slots[Self._slot_of[C]()].bitcast[SparseSet[C, Self.cap]]()
+    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](1)):
+        return self.slots[Self._slot_of[C]()].bitcast[SparseSet[C]]()
 
     # --- lifecycle ---
     def spawn(mut self) -> Entity:
@@ -128,3 +125,27 @@ struct SparseSetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
             if self._store[B]()[].contains(id) and self._store[C]()[].contains(id):
                 out.append(self._entity(id))
         return out^
+
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        func: def (mut A, B) capturing [_] -> None,
+    ](mut self):
+        # Iterate the smaller dense store, probe the larger. No List[Entity]
+        # allocation (the win); A is read/run/written-back (small-value copy).
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        if sa[].dense_len() <= sb[].dense_len():
+            for i in range(sa[].dense_len()):
+                var id = sa[].key_at(i)
+                if sb[].contains(id):
+                    var a = sa[].value_at(i)
+                    func(a, sb[].get(id))
+                    sa[].set(id, a)
+        else:
+            for i in range(sb[].dense_len()):
+                var id = sb[].key_at(i)
+                if sa[].contains(id):
+                    var a = sa[].get(id)
+                    func(a, sb[].value_at(i))
+                    sa[].set(id, a)

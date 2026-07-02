@@ -7,18 +7,22 @@ from geometry.vec import Vec2, Real
 from ecs.world import World
 from ecs.archetype import ArchetypeBackend
 from ecs.system import integrate2_simd
-from ecs.component import ComponentType
+from ecs.component import ComponentType, SimdComponent
 
 
 @fieldwise_init
-struct Pos2(ComponentType):
+struct Pos2(SimdComponent):
     comptime ID: Int = 0
+    comptime Dtype = DType.float32
+    comptime Width = 2
     var p: Vec2
 
 
 @fieldwise_init
-struct Vel2(ComponentType):
+struct Vel2(SimdComponent):
     comptime ID: Int = 1
+    comptime Dtype = DType.float32
+    comptime Width = 2
     var v: Vec2
 
 

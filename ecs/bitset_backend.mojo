@@ -18,7 +18,6 @@ from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
 
-comptime DEFAULT_CAP = 4096  # default maximum live entity id
 comptime Slot = type_of(alloc[NoneType](1))
 
 
@@ -30,9 +29,8 @@ def _bit(i: Int) -> UInt64:
     return UInt64(1) << UInt64(i & 63)
 
 
-struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend):
+struct BitsetBackend[*CTs: ComponentType](StorageBackend):
     comptime N: Int = len(Self.CTs)
-    comptime WORDS: Int = (Self.cap + 63) // 64
     var slots: List[Slot]  # slot i -> heap List[Optional[CTs[i]]], indexed by id
     var masks: List[List[UInt64]]  # masks[slot][word] -> component presence bits
     var live_mask: List[UInt64]  # liveness bits
@@ -48,13 +46,8 @@ struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend
             self.slots.append(p.bitcast[NoneType]())
         self.masks = List[List[UInt64]]()
         comptime for i in range(Self.N):
-            var col = List[UInt64]()
-            for _ in range(Self.WORDS):
-                col.append(0)
-            self.masks.append(col^)
+            self.masks.append(List[UInt64]())
         self.live_mask = List[UInt64]()
-        for _ in range(Self.WORDS):
-            self.live_mask.append(0)
         self.counter = 0
         self.n_live = 0
 
@@ -83,11 +76,19 @@ struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend
         var w = _word(id)
         self.masks[slot][w] = self.masks[slot][w] & ~_bit(id)
 
+    def _ensure_word(mut self, w: Int):
+        """Grow all presence bitsets + the liveness bitset to include word `w`."""
+        while len(self.live_mask) <= w:
+            self.live_mask.append(0)
+            comptime for i in range(Self.N):
+                self.masks[i].append(0)
+
     # --- lifecycle ---
     def spawn(mut self) -> Entity:
         var id = self.counter
         self.counter += 1
         var w = _word(id)
+        self._ensure_word(w)
         self.live_mask[w] = self.live_mask[w] | _bit(id)
         self.n_live += 1
         comptime for i in range(Self.N):
@@ -140,7 +141,7 @@ struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend
     def matching1[A: ComponentType](self) -> List[Entity]:
         var out = List[Entity]()
         var sa = Self._slot_of[A]()
-        for w in range(Self.WORDS):
+        for w in range(len(self.live_mask)):
             self._emit(self.masks[sa][w] & self.live_mask[w], w * 64, out)
         return out^
 
@@ -148,7 +149,7 @@ struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend
         var out = List[Entity]()
         var sa = Self._slot_of[A]()
         var sb = Self._slot_of[B]()
-        for w in range(Self.WORDS):
+        for w in range(len(self.live_mask)):
             var bits = self.masks[sa][w] & self.masks[sb][w] & self.live_mask[w]
             self._emit(bits, w * 64, out)
         return out^
@@ -160,7 +161,7 @@ struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend
         var sa = Self._slot_of[A]()
         var sb = Self._slot_of[B]()
         var sc = Self._slot_of[C]()
-        for w in range(Self.WORDS):
+        for w in range(len(self.live_mask)):
             var bits = (
                 self.masks[sa][w]
                 & self.masks[sb][w]
@@ -169,3 +170,23 @@ struct BitsetBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend
             )
             self._emit(bits, w * 64, out)
         return out^
+
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        func: def (mut A, B) capturing [_] -> None,
+    ](mut self):
+        # AND the presence bitsets word-by-word, walk set bits, read/run/write-back.
+        # No List[Entity] allocation.
+        var sla = Self._slot_of[A]()
+        var slb = Self._slot_of[B]()
+        var sta = self._store[A]()
+        var stb = self._store[B]()
+        for w in range(len(self.live_mask)):
+            var bits = self.masks[sla][w] & self.masks[slb][w] & self.live_mask[w]
+            while bits != 0:
+                var id = w * 64 + Int(count_trailing_zeros(bits))
+                bits &= bits - 1
+                var a = sta[][id].value()
+                func(a, stb[][id].value())
+                sta[][id] = Optional[A](a)

@@ -24,7 +24,7 @@ from ecs.reactive_backend import ReactiveBackend
 from ecs.naive_backend import NaiveBackend
 from ecs.component import ComponentType
 from oop.engine import Scene
-from harness.bench import BenchTable, now
+from harness.bench import BenchTable, now, measure
 
 
 @fieldwise_init
@@ -123,22 +123,46 @@ def run_oop(mut table: BenchTable, n: Int, frames: Int):
     table.add("oop", n, "update", t3 - t2, n * frames)
 
 
+def run_foreach[
+    B: StorageBackend
+](mut table: BenchTable, variant: String, n: Int):
+    """The zero-allocation `for_each2` path (WS3) — the fast replacement for the
+    `query2 + get/set` handle loop. Hardened: warmup + min-of-reps per frame."""
+    var w = World[B]()
+    for i in range(n):
+        _ = w.spawn2(Pos2(Vec2(Real(i), 0)), Vel2(Vec2(1, 1)))
+
+    @parameter
+    def integrate(mut p: Pos2, v: Vel2):
+        p = Pos2(p.p + v.v)
+
+    @parameter
+    def frame():
+        w.for_each2[Pos2, Vel2, integrate]()
+
+    table.add(variant, n, "update(for_each2)", measure[frame](3, 20), n)
+
+
 def bench_all(mut table: BenchTable, n: Int, frames: Int):
     run_movement[SparseSetBackend[Pos2, Vel2]](table, "sparse", n, frames)
+    run_foreach[SparseSetBackend[Pos2, Vel2]](table, "sparse (for_each2)", n)
     run_movement[ArchetypeBackend[Pos2, Vel2]](table, "archetype (handle)", n, frames)
     run_archetype_soa(table, n, frames)
+    run_foreach[ArchetypeBackend[Pos2, Vel2]](table, "archetype (for_each2)", n)
     run_movement[BitsetBackend[Pos2, Vel2]](table, "bitset", n, frames)
     run_movement[ReactiveBackend[Pos2, Vel2]](table, "reactive", n, frames)
+    run_foreach[ReactiveBackend[Pos2, Vel2]](table, "reactive (for_each2)", n)
     run_movement[NaiveBackend[Pos2, Vel2]](table, "naive", n, frames)
     run_oop(table, n, frames)
 
 
 def fill(mut table: BenchTable):
-    # N is capped by the inline-array sparse store (default cap=4096).
+    # The 4096 sparse cap is gone (WS1: heap-backed sparse index), so N now sweeps
+    # across the cache hierarchy — 4000 fits L2, 65536 spills toward L3/RAM.
     var frames = 20
     bench_all(table, 500, frames)
-    bench_all(table, 1_000, frames)
     bench_all(table, 4_000, frames)
+    bench_all(table, 65_536, frames)
 
 
 def main() raises:

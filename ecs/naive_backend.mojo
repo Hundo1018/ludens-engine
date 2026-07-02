@@ -17,11 +17,10 @@ from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
 
-comptime DEFAULT_CAP = 4096  # unused by storage; kept for API symmetry
 comptime Slot = type_of(alloc[NoneType](1))
 
 
-struct NaiveBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend):
+struct NaiveBackend[*CTs: ComponentType](StorageBackend):
     comptime N: Int = len(Self.CTs)
     var slots: List[Slot]  # slot i -> heap List[Optional[CTs[i]]], indexed by id
     var live: List[Bool]  # live[id] -> is entity id alive
@@ -122,3 +121,18 @@ struct NaiveBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](StorageBackend)
             if self.live[id] and sa[][id] and sb[][id] and sc[][id]:
                 out.append(Entity(id, 0))
         return out^
+
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        func: def (mut A, B) capturing [_] -> None,
+    ](mut self):
+        # Optional-column storage: read a/b, run func on a local `a`, write it
+        # back. No List[Entity] allocation (the actual win vs matching2 + get/set).
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        for id in range(len(self.live)):
+            if self.live[id] and sa[][id] and sb[][id]:
+                var a = sa[][id].value()
+                func(a, sb[][id].value())
+                sa[][id] = Optional[A](a)

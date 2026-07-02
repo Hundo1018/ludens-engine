@@ -4,8 +4,9 @@ Two parallel dense arrays hold keys (`_dense`) and values (`_data`); `_sparse`
 maps a key to its dense index (or -1). This is the per-component store for the
 sparse-set ECS backend and the entity->record index for the archetype backend.
 
-`fixed_size` bounds the maximum key (entity id). Values must be
-`Copyable & ImplicitlyCopyable` so they can be read back by value.
+`_sparse` is a heap `List[Int]` that grows geometrically on demand, so there is
+no fixed capacity and no per-`cap` codegen blow-up — entity ids are unbounded.
+Values must be `ImplicitlyCopyable` so they can be read back by value.
 """
 
 from std.collections import List
@@ -15,14 +16,13 @@ from std.collections import List
 struct _SparseSetIter[
     mut: Bool,
     //,
-    fixed_size: Int,
-    T: Copyable & ImplicitlyCopyable & ImplicitlyDeletable,
+    T: ImplicitlyCopyable & ImplicitlyDeletable,
     origin: Origin[mut=mut],
 ](Iterator):
     comptime Element = Self.T  # Required by the Iterator trait
 
     var index: Int
-    var src: Pointer[SparseSet[Self.T, Self.fixed_size], Self.origin]
+    var src: Pointer[SparseSet[Self.T], Self.origin]
 
     def __has_next__(self) -> Bool:
         return self.index < len(self.src[])
@@ -33,10 +33,10 @@ struct _SparseSetIter[
         return val
 
 
-struct SparseSet[T: Copyable & ImplicitlyCopyable & ImplicitlyDeletable, fixed_size: Int](
+struct SparseSet[T: ImplicitlyCopyable & ImplicitlyDeletable](
     Boolable, Copyable, Movable, Defaultable, Iterable, Sized
 ):
-    var _sparse: InlineArray[Int, Self.fixed_size]
+    var _sparse: List[Int]  # key -> dense index (or -1); grows on demand
     # dense array of keys
     var _dense: List[Int]
     # dense array of values, parallel to _dense
@@ -44,23 +44,39 @@ struct SparseSet[T: Copyable & ImplicitlyCopyable & ImplicitlyDeletable, fixed_s
 
     comptime IteratorType[
         iterable_mut: Bool, //, iterable_origin: Origin[mut=iterable_mut]
-    ]: Iterator = _SparseSetIter[Self.fixed_size, Self.T, iterable_origin]
+    ]: Iterator = _SparseSetIter[Self.T, iterable_origin]
 
     def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
         return {0, Pointer(to=self)}
 
     def __init__(out self):
-        self._sparse = InlineArray[Int, Self.fixed_size](fill=-1)
+        self._sparse = List[Int]()
         self._dense = List[Int]()
         self._data = List[Self.T]()
 
+    def _ensure(mut self, key: Int):
+        """Grow `_sparse` (geometrically) so `key` is a valid index, -1-filled."""
+        if key < len(self._sparse):
+            return
+        var new_cap = len(self._sparse)
+        if new_cap < 8:
+            new_cap = 8
+        while new_cap <= key:
+            new_cap += new_cap
+        while len(self._sparse) < new_cap:
+            self._sparse.append(-1)
+
+    @always_inline
     def __len__(self) -> Int:
         return len(self._dense)
 
     def __bool__(self) -> Bool:
         return len(self) > 0
 
+    @always_inline
     def contains(read self, key: Int) -> Bool:
+        if key < 0 or key >= len(self._sparse):
+            return False
         var index = self._sparse[key]
         return (
             index >= 0
@@ -72,6 +88,7 @@ struct SparseSet[T: Copyable & ImplicitlyCopyable & ImplicitlyDeletable, fixed_s
         """Insert a key/value; no-op if the key is already present (use `set` to overwrite)."""
         if self.contains(key):
             return
+        self._ensure(key)
         self._sparse[key] = len(self._dense)
         self._dense.append(key)
         self._data.append(value)
@@ -83,6 +100,7 @@ struct SparseSet[T: Copyable & ImplicitlyCopyable & ImplicitlyDeletable, fixed_s
         else:
             self.add(key, value)
 
+    @always_inline
     def get(self, key: Int) -> Self.T:
         """Value for `key`; caller must ensure `contains(key)`."""
         return self._data[self._sparse[key]]
@@ -102,11 +120,14 @@ struct SparseSet[T: Copyable & ImplicitlyCopyable & ImplicitlyDeletable, fixed_s
         _ = self._data.pop()
 
     # --- dense iteration helpers (used by ECS queries) ---
+    @always_inline
     def dense_len(self) -> Int:
         return len(self._dense)
 
+    @always_inline
     def key_at(self, i: Int) -> Int:
         return self._dense[i]
 
+    @always_inline
     def value_at(self, i: Int) -> Self.T:
         return self._data[i]

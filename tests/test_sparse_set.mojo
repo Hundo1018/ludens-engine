@@ -5,7 +5,7 @@ from ecs.sparse_set import SparseSet
 def main() raises:
     var s = Suite("sparse_set")
 
-    var set = SparseSet[Int, 32]()
+    var set = SparseSet[Int]()
     set.add(5, 50)
     set.add(31, 310)
     set.add(4, 40)

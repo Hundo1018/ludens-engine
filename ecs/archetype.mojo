@@ -39,7 +39,6 @@ from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend, Record
 
-comptime DEFAULT_CAP = 4096  # default maximum live entity id
 comptime MAX_ARCH = 256  # supports up to 8 component types (2^8 signatures)
 comptime Slot = type_of(alloc[NoneType](1))
 
@@ -78,25 +77,35 @@ struct ArchView2[A: ComponentType, B: ComponentType](Copyable, ImplicitlyCopyabl
         self._col_a = col_a
         self._col_b = col_b
 
+    @always_inline
     def len(self) -> Int:
         return self._count
 
+    # get/set index the raw column buffer directly (no per-element bounds check):
+    # the view contract is "iterate range(len())", so `i` is always valid. This
+    # lets the hot loop inline + vectorize (no panic scaffolding). See WS2.
+    @always_inline
     def get_a(self, i: Int) -> Self.A:
-        return self._col_a.bitcast[List[Self.A]]()[][i]
+        return self._col_a.bitcast[List[Self.A]]()[].unsafe_ptr()[i]
 
+    @always_inline
     def get_b(self, i: Int) -> Self.B:
-        return self._col_b.bitcast[List[Self.B]]()[][i]
+        return self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()[i]
 
+    @always_inline
     def set_a(self, i: Int, value: Self.A):
-        self._col_a.bitcast[List[Self.A]]()[][i] = value
+        self._col_a.bitcast[List[Self.A]]()[].unsafe_ptr()[i] = value
 
+    @always_inline
     def set_b(self, i: Int, value: Self.B):
-        self._col_b.bitcast[List[Self.B]]()[][i] = value
+        self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()[i] = value
 
+    @always_inline
     def unsafe_col_a(self) -> type_of(alloc[Self.A](1)):
         """Raw pointer to A's contiguous column buffer (for SIMD / bulk ops)."""
         return self._col_a.bitcast[List[Self.A]]()[].unsafe_ptr()
 
+    @always_inline
     def unsafe_col_b(self) -> type_of(alloc[Self.B](1)):
         """Raw pointer to B's contiguous column buffer (for SIMD / bulk ops)."""
         return self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()
@@ -130,30 +139,29 @@ struct Archetype[*CTs: ComponentType](Movable, ImplicitlyDeletable):
             p.free()
 
 
-struct ArchetypeBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
-    StorageBackend
-):
+struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
     comptime N: Int = len(Self.CTs)
     var archetypes: List[Archetype[*Self.CTs]]
     var arch_mask_index: List[Int]  # parallel: mask of archetypes[k]
-    var entity_index: SparseSet[Record, Self.cap]  # entity id -> {archetype, row}
-    var alive: SparseSet[Int, Self.cap]  # entity id -> generation
+    var entity_index: SparseSet[Record]  # entity id -> {archetype, row}
+    var alive: SparseSet[Int]  # entity id -> generation
     var counter: Int
     var free_ids: List[Int]          # recycled entity IDs waiting for reuse
-    var _gen: InlineArray[Int, Self.cap]  # per-id generation; bumped on despawn
+    var _gen: List[Int]  # per-id generation; bumped on despawn (grows on demand)
 
     def __init__(out self):
         self.archetypes = List[Archetype[*Self.CTs]](capacity=MAX_ARCH)
         self.arch_mask_index = List[Int](capacity=MAX_ARCH)
-        self.entity_index = SparseSet[Record, Self.cap]()
-        self.alive = SparseSet[Int, Self.cap]()
+        self.entity_index = SparseSet[Record]()
+        self.alive = SparseSet[Int]()
         self.counter = 0
         self.free_ids = List[Int]()
-        self._gen = InlineArray[Int, Self.cap](fill=0)
+        self._gen = List[Int]()
         # archetype 0 is always the empty signature (newly spawned entities)
         self.archetypes.append(Archetype[*Self.CTs](0))
         self.arch_mask_index.append(0)
 
+    @always_inline
     @staticmethod
     def _slot_of[C: ComponentType]() -> Int:
         comptime for i in range(Self.N):
@@ -193,6 +201,7 @@ struct ArchetypeBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
         self.archetypes[target].add_edges[slot] = arch
         return target
 
+    @always_inline
     def _col[C: ComponentType](self, arch: Int) -> type_of(alloc[List[C]](1)):
         return self.archetypes[arch].cols[Self._slot_of[C]()].bitcast[List[C]]()
 
@@ -212,6 +221,10 @@ struct ArchetypeBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
         if row != last:
             self.entity_index.set(moved_id, Record(arch, row))
 
+    def _ensure_gen(mut self, id: Int):
+        while len(self._gen) <= id:
+            self._gen.append(0)
+
     # --- lifecycle ---
     def spawn(mut self) -> Entity:
         var id: Int
@@ -220,6 +233,7 @@ struct ArchetypeBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
         else:
             id = self.counter
             self.counter += 1
+        self._ensure_gen(id)
         var gen = self._gen[id]
         self.alive.set(id, gen)
         var row = len(self.archetypes[0].entities)
@@ -267,10 +281,12 @@ struct ArchetypeBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
         self._swap_remove(old_arch, old_row)
         self.entity_index.set(e.id, Record(target, new_row))
 
+    @always_inline
     def has[C: ComponentType](self, e: Entity) -> Bool:
         var rec = self.entity_index.get(e.id)
         return (self.archetypes[rec.archetype].mask & (1 << Self._slot_of[C]())) != 0
 
+    @always_inline
     def get[C: ComponentType](self, e: Entity) -> C:
         var rec = self.entity_index.get(e.id)
         return self._col[C](rec.archetype)[][rec.row]
@@ -322,6 +338,22 @@ struct ArchetypeBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
         )
         self._collect(bits, out)
         return out^
+
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        func: def (mut A, B) capturing [_] -> None,
+    ](mut self):
+        # Column-direct: one contiguous pass per matching archetype, refs straight
+        # into the A/B buffers. No List allocation, no entity-index lookup.
+        var bits = (1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]())
+        for k in range(len(self.archetypes)):
+            if (self.archetypes[k].mask & bits) == bits:
+                var n = len(self.archetypes[k].entities)
+                var pa = self._col[A](k)[].unsafe_ptr()
+                var pb = self._col[B](k)[].unsafe_ptr()
+                for i in range(n):
+                    func(pa[i], pb[i])
 
     def query2_views[A: ComponentType, B: ComponentType](mut self) -> List[ArchView2[A, B]]:
         """Return zero-copy column views for all archetypes matching A+B.

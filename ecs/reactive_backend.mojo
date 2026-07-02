@@ -20,46 +20,43 @@ from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend
 
-comptime DEFAULT_CAP = 4096  # default maximum live entity id
 comptime Slot = type_of(alloc[NoneType](1))
 
 
-struct _Group[cap: Int](Movable, ImplicitlyDeletable):
+struct _Group(Movable, ImplicitlyDeletable):
     """A cached query result: the entity ids matching `mask`."""
 
     var mask: Int  # OR of (1 << slot) for each required component
-    var members: SparseSet[Int, Self.cap]  # member id -> 0 (dense keys = members)
+    var members: SparseSet[Int]  # member id -> 0 (dense keys = members)
 
     def __init__(out self, mask: Int):
         self.mask = mask
-        self.members = SparseSet[Int, Self.cap]()
+        self.members = SparseSet[Int]()
 
 
-struct ReactiveBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
-    StorageBackend
-):
+struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     comptime N: Int = len(Self.CTs)
     var slots: List[Slot]  # slot i -> heap SparseSet[CTs[i], cap]
-    var alive: SparseSet[Int, Self.cap]  # entity id -> generation
+    var alive: SparseSet[Int]  # entity id -> generation
     var counter: Int
-    var groups: type_of(alloc[List[_Group[Self.cap]]](1))  # registry (heap)
+    var groups: type_of(alloc[List[_Group]](1))  # registry (heap)
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[SparseSet[T, Self.cap]](1)
-            p.init_pointee_move(SparseSet[T, Self.cap]())
+            var p = alloc[SparseSet[T]](1)
+            p.init_pointee_move(SparseSet[T]())
             self.slots.append(p.bitcast[NoneType]())
-        self.alive = SparseSet[Int, Self.cap]()
+        self.alive = SparseSet[Int]()
         self.counter = 0
-        self.groups = alloc[List[_Group[Self.cap]]](1)
-        self.groups.init_pointee_move(List[_Group[Self.cap]]())
+        self.groups = alloc[List[_Group]](1)
+        self.groups.init_pointee_move(List[_Group]())
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[SparseSet[T, Self.cap]]()
+            var p = self.slots[i].bitcast[SparseSet[T]]()
             p.destroy_pointee()
             p.free()
         self.groups.destroy_pointee()
@@ -72,8 +69,8 @@ struct ReactiveBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
                 return i
         return -1
 
-    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C, Self.cap]](1)):
-        return self.slots[Self._slot_of[C]()].bitcast[SparseSet[C, Self.cap]]()
+    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](1)):
+        return self.slots[Self._slot_of[C]()].bitcast[SparseSet[C]]()
 
     # --- reactive group maintenance ---
     def _entity_mask(self, id: Int) -> Int:
@@ -103,7 +100,7 @@ struct ReactiveBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
             if gs[][gi].mask == mask:
                 return gi
         # First query for this signature: register and populate from live entities.
-        var g = _Group[Self.cap](mask)
+        var g = _Group(mask)
         for i in range(self.alive.dense_len()):
             var id = self.alive.key_at(i)
             if (self._entity_mask(id) & mask) == mask:
@@ -174,3 +171,27 @@ struct ReactiveBackend[*CTs: ComponentType, cap: Int = DEFAULT_CAP](
             | (1 << Self._slot_of[C]())
         )
         return self._collect(self._group_for(mask))
+
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        func: def (mut A, B) capturing [_] -> None,
+    ](mut self):
+        # Components live in per-type SparseSets (as in the sparse backend); iterate
+        # the smaller, probe the larger. No List[Entity] allocation.
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        if sa[].dense_len() <= sb[].dense_len():
+            for i in range(sa[].dense_len()):
+                var id = sa[].key_at(i)
+                if sb[].contains(id):
+                    var a = sa[].value_at(i)
+                    func(a, sb[].get(id))
+                    sa[].set(id, a)
+        else:
+            for i in range(sb[].dense_len()):
+                var id = sb[].key_at(i)
+                if sa[].contains(id):
+                    var a = sa[].get(id)
+                    func(a, sb[].value_at(i))
+                    sa[].set(id, a)

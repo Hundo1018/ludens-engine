@@ -72,3 +72,14 @@ struct World[B: StorageBackend](Movable, ImplicitlyDeletable):
         A: ComponentType, B2: ComponentType, C: ComponentType
     ](self) -> List[Entity]:
         return self.backend.matching3[A, B2, C]()
+
+    # --- zero-allocation iteration ---
+    def for_each2[
+        A: ComponentType,
+        B2: ComponentType,
+        func: def (mut A, B2) capturing [_] -> None,
+    ](mut self):
+        """Run `func(mut a, b)` over every entity with both A and B — no per-frame
+        `List[Entity]`, no per-access lookup. The fast replacement for the
+        `query2` + `get`/`set` handle loop; works on every backend."""
+        self.backend.for_each2[A, B2, func]()

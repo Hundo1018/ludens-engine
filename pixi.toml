@@ -19,3 +19,4 @@ benchmark = { cmd = "bash scripts/run_benchmarks.sh", depends-on = ["build"] }
 [dependencies]
 modular = ">=26.4.0.dev2026051806,<27"
 mojo = ">=1.0.0b2.dev2026051806,<2"
+valgrind = ">=3.27.1,<4"
