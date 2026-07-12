@@ -20,3 +20,5 @@ benchmark = { cmd = "bash scripts/run_benchmarks.sh", depends-on = ["build"] }
 modular = ">=26.4.0.dev2026051806,<27"
 mojo = ">=1.0.0b2.dev2026051806,<2"
 valgrind = ">=3.27.1,<4"
+wgpu-mojo = { git = "https://github.com/Hundo1018/wgpu-mojo" }
+glfw = ">=3.4,<4"

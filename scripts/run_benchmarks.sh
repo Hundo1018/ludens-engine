@@ -6,6 +6,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=BENCHMARK_REPORT.md
 
+# Some bench programs hit a nondeterministic runtime-teardown crash on this
+# nightly (tracked: bench_ga, libAsyncRT stack; output is buffered so a crashed
+# run prints nothing). Retry a few times — one clean run yields one table.
+run_bench() {
+    # stdout goes to a temp FILE, not the report pipe: the crash likelihood is
+    # much lower without a pipe on stdout, and a crashed attempt leaves no
+    # partial output in the report either way.
+    local tmp
+    tmp=$(mktemp)
+    for _ in 1 2 3 4 5 6 7 8; do
+        if mojo run -I build "$1" > "$tmp" 2>/dev/null; then
+            cat "$tmp"
+            rm -f "$tmp"
+            return 0
+        fi
+        echo "(retrying $1 after teardown crash)" >&2
+    done
+    rm -f "$tmp"
+    echo "ERROR: $1 kept crashing" >&2
+    return 1
+}
+
 {
     echo "# LudensEngine Benchmark Report"
     echo
@@ -25,16 +47,16 @@ OUT=BENCHMARK_REPORT.md
     echo "row is ~10x faster than the handle row — the handle path, not ECS storage, is"
     echo "what made the first version of this benchmark look slow."
     echo
-    mojo run -I build benchmarks/bench_ecs.mojo
+    run_bench benchmarks/bench_ecs.mojo
     echo "## ECS vs OOP — crossover study"
     echo
     echo "Each paradigm wins where its data layout fits the access pattern. ECS is run"
     echo "through its fast SoA column path here, not the handle path."
     echo
-    mojo run -I build benchmarks/bench_locality.mojo
+    run_bench benchmarks/bench_locality.mojo
     echo "## Collision algorithms"
     echo
-    mojo run -I build benchmarks/bench_collision.mojo
+    run_bench benchmarks/bench_collision.mojo
     echo "## Scheduler strategies — sequential vs actor model, serial vs parallel"
     echo
     echo "The same integrate + damage-event workload driven through the swappable"
@@ -43,10 +65,16 @@ OUT=BENCHMARK_REPORT.md
     echo "seam, every scheduler produces identical results (see \`test_scheduler_parity\`);"
     echo "the table shows what each strategy *costs*."
     echo
-    mojo run -I build benchmarks/bench_scheduler.mojo
+    run_bench benchmarks/bench_scheduler.mojo
     echo "## Foundation — linear algebra (scalar vs SIMD)"
     echo
-    mojo run -I build benchmarks/bench_linalg.mojo
+    run_bench benchmarks/bench_linalg.mojo
+    echo "## Foundation — rigid-transform representations (PGA motor vs dual quat vs mat4)"
+    echo
+    echo "The same random rigid transforms applied and composed through each"
+    echo "representation (see \`test_motor_parity\` for the equivalence proof)."
+    echo
+    run_bench benchmarks/bench_ga.mojo
     echo "## Foundation — transform propagation (full vs dirty)"
     echo
     echo "The transform hierarchy driven through the swappable propagation seam:"
@@ -54,13 +82,13 @@ OUT=BENCHMARK_REPORT.md
     echo "(see \`test_transform\`); the crossover is the point — full stays competitive"
     echo "when everything moves, dirty pulls ahead when only leaves move."
     echo
-    mojo run -I build benchmarks/bench_transform.mojo
+    run_bench benchmarks/bench_transform.mojo
     echo "## Foundation — PRNG throughput (xorshift vs pcg vs splitmix)"
     echo
     echo "The determinism kit's seeded generators behind the \`Rng\` seam (see"
     echo "\`test_rng\` for the reproducibility/uniformity contract they all satisfy)."
     echo
-    mojo run -I build benchmarks/bench_rng.mojo
+    run_bench benchmarks/bench_rng.mojo
     echo "## Physics — contact solvers (SequentialImpulse vs PBD vs XPBD)"
     echo
     echo "The same dropped-box-grid workload driven through the swappable \`ContactSolver\`"
@@ -69,7 +97,27 @@ OUT=BENCHMARK_REPORT.md
     echo "the existing collision pipeline (brute-force broadphase + AABB narrowphase) to"
     echo "generate the manifolds the solver resolves."
     echo
-    mojo run -I build benchmarks/bench_physics.mojo
+    run_bench benchmarks/bench_physics.mojo
+    echo "## Collision — persistent (incremental) vs rebuild broadphase"
+    echo
+    echo "Frame-coherent workload (jitter inside the fat margin): the dynamic-tree"
+    echo "broadphase with a pair cache (\`bp_dbvh\`, parity in \`test_dbvh\`) vs the"
+    echo "full-rebuild BVH path."
+    echo
+    run_bench benchmarks/bench_dbvh.mojo
+    echo "## Physics — 6-DOF rigid body (quat+tensor vs motor/screw) & spin integrators"
+    echo
+    echo "The two parity representations of full angular dynamics (\`test_rigid6\`)"
+    echo "and the \`SpinIntegrator\` seam on the Dzhanibekov tumble (\`test_integrator6\`):"
+    echo "what each integrator's cost buys in energy/momentum conservation."
+    echo
+    run_bench benchmarks/bench_rigid6.mojo
+    echo "## Physics — GPU XPBD cloth (CPU vs GPU scaling)"
+    echo
+    echo "Gather-Jacobi PBD cloth, identical math on both sides (parity ~1e-6 in"
+    echo "\`test_gpu_cloth\`). GPU rows only appear on hosts with an accelerator."
+    echo
+    run_bench benchmarks/bench_gpu_cloth.mojo
     echo "## Maturity assessment"
     echo
     echo "- **Swappability holds end-to-end.** All five ECS backends (sparse, archetype,"

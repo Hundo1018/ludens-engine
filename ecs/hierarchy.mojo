@@ -12,6 +12,7 @@ The world must carry both `Transform` (slot 0) and `Parent` (slot 1).
 from .world import World
 from .storage import StorageBackend
 from .entity import Entity
+from .component import ComponentType
 from .transform import Transform, Parent
 
 
@@ -25,8 +26,15 @@ struct Hierarchy(Movable, ImplicitlyDeletable):
 
     @staticmethod
     def build[B: StorageBackend](w: World[B]) -> Hierarchy:
+        """Order the world's `Transform` nodes (the matrix path)."""
+        return Self.build_for[Transform](w)
+
+    @staticmethod
+    def build_for[T: ComponentType, B: StorageBackend](w: World[B]) -> Hierarchy:
+        """Order the world's `T` nodes parents-first — `T` is whatever component
+        marks a hierarchy node (e.g. `Transform` or `MotorTransform`)."""
         var h = Hierarchy()
-        var tes = w.query1[Transform]()
+        var tes = w.query1[T]()
         var n = len(tes)
         if n == 0:
             return h^

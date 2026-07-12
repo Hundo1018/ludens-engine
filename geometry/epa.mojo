@@ -6,10 +6,16 @@ edge closest to the origin, push a support point outward along that edge's
 normal, and insert it — until the support stops moving past the edge. The closest
 edge's distance is the penetration depth and its normal the contact normal.
 
-Only 2D is implemented (the benchmark's penetration column is 2D); `gjk_collide`
-returns a boolean hit with zero penetration in 3D. The 2D helper is only ever
-instantiated at `dim == 2` (guarded by `comptime if`), so its `List[Vec2]`
-polytope is realloc-safe. The normal is oriented from `a` toward `b`.
+2D EPA expands a polygon of edges; 3D EPA (`_epa3`) expands a polytope of
+triangle faces and additionally tracks WITNESS points: every polytope vertex
+remembers which support of A and of B produced it, so the closest face's
+barycentric coordinates recover the deepest points of both shapes
+(`Witness.point_a/point_b`, with `point_a - point_b == face_normal * depth`).
+The 3D path seeds its own tetrahedron from supports (GJK's simplex stores only
+CSO points, not the A/B pair) — GJK is still consulted first for the boolean.
+Each dim-specific helper is only ever instantiated at its own `dim` (guarded by
+`comptime if`), and SIMD points in Lists stay wrapped in structs (width-3
+realloc hazard, see gjk.mojo). Normals are oriented from `a` toward `b`.
 """
 
 from .vec import WorldType, Real, Vec2, dot, normalize, length
@@ -125,11 +131,245 @@ def _signed_area[dim: Int](poly: List[SIMD[WorldType, dim]]) -> Real:
 def gjk_collide[dim: Int](
     a: ConvexPoly[dim], b: ConvexPoly[dim]
 ) -> EpaResult[dim]:
-    """GJK overlap test; on a hit, EPA penetration in 2D (boolean-only in 3D)."""
+    """GJK overlap test; on a hit, EPA penetration (2D and 3D)."""
     var q = gjk_query[dim](a, b)
     if not q.hit:
         return EpaResult[dim].miss()
     comptime if dim == 2:
         return _epa2[dim](a, b, q.simplex)
     else:
-        return EpaResult[dim](True, SIMD[WorldType, dim](0), 0)
+        var w = _epa3[dim](a, b)
+        return EpaResult[dim](True, w.normal, w.depth)
+
+
+# --- 3D EPA with witness points ---------------------------------------------
+
+
+@fieldwise_init
+struct Witness[dim: Int](Copyable, ImplicitlyCopyable, Movable):
+    """Penetration contact with witness points: the deepest point of each
+    shape, recovered barycentrically from EPA's closest face. Up to float
+    error `point_a - point_b == normal * depth` (sign flips only when the
+    centroid a->b orientation disagrees with the face normal)."""
+
+    var hit: Bool
+    var normal: SIMD[WorldType, Self.dim]  # points from a -> b
+    var depth: Real
+    var point_a: SIMD[WorldType, Self.dim]
+    var point_b: SIMD[WorldType, Self.dim]
+
+    @staticmethod
+    def miss() -> Self:
+        var z = SIMD[WorldType, Self.dim](0)
+        return Self(False, z, 0, z, z)
+
+
+@fieldwise_init
+struct _WVert[dim: Int](Copyable, ImplicitlyCopyable, Movable):
+    var v: SIMD[WorldType, Self.dim]  # CSO point (= sa - sb)
+    var sa: SIMD[WorldType, Self.dim]  # support of A
+    var sb: SIMD[WorldType, Self.dim]  # support of B
+
+
+@fieldwise_init
+struct _Face[dim: Int](Copyable, ImplicitlyCopyable, Movable):
+    var i0: Int
+    var i1: Int
+    var i2: Int
+    var n: SIMD[WorldType, Self.dim]  # outward unit normal
+    var d: Real  # signed distance from the origin along n
+
+
+@fieldwise_init
+struct _Edge(Copyable, ImplicitlyCopyable, Movable):
+    var a: Int
+    var b: Int
+
+
+def _cross3[dim: Int](
+    a: SIMD[WorldType, dim], b: SIMD[WorldType, dim]
+) -> SIMD[WorldType, dim]:
+    var r = SIMD[WorldType, dim](0)
+    r[0] = a[1] * b[2] - a[2] * b[1]
+    r[1] = a[2] * b[0] - a[0] * b[2]
+    r[2] = a[0] * b[1] - a[1] * b[0]
+    return r
+
+
+def _wsupport[dim: Int](
+    a: ConvexPoly[dim], b: ConvexPoly[dim], dir: SIMD[WorldType, dim]
+) -> _WVert[dim]:
+    var sa = a.support(dir)
+    var sb = b.support(-dir)
+    return _WVert[dim](sa - sb, sa, sb)
+
+
+def _mk_face[dim: Int](
+    verts: List[_WVert[dim]],
+    i0: Int,
+    i1: Int,
+    i2: Int,
+    interior: SIMD[WorldType, dim],
+) -> _Face[dim]:
+    """Face oriented away from `interior`; degenerate faces get d = 1e30 so
+    they are never selected as closest."""
+    var v0 = verts[i0].v
+    var n = _cross3[dim](verts[i1].v - v0, verts[i2].v - v0)
+    var ln = length(n)
+    if ln < Real(1e-12):
+        return _Face[dim](i0, i1, i2, SIMD[WorldType, dim](0), Real(1e30))
+    n = n / ln
+    if dot(n, v0 - interior) < 0:
+        return _Face[dim](i0, i2, i1, -n, dot(-n, v0))
+    return _Face[dim](i0, i1, i2, n, dot(n, v0))
+
+
+def _add_edge(mut edges: List[_Edge], a: Int, b: Int):
+    """Accumulate horizon edges: an edge shared by two removed faces cancels,
+    edges seen once form the horizon loop."""
+    for i in range(len(edges)):
+        if (edges[i].a == b and edges[i].b == a) or (
+            edges[i].a == a and edges[i].b == b
+        ):
+            edges[i] = edges[len(edges) - 1]
+            _ = edges.pop()
+            return
+    edges.append(_Edge(a, b))
+
+
+def _touch_fallback[dim: Int](
+    a: ConvexPoly[dim], b: ConvexPoly[dim]
+) -> Witness[dim]:
+    """Flat CSO (shapes barely touching): centroid-direction contact."""
+    var n = _centroid[dim](b) - _centroid[dim](a)
+    if dot(n, n) < Real(1e-12):
+        n = SIMD[WorldType, dim](0)
+        n[0] = 1
+    n = normalize(n)
+    return Witness[dim](True, n, Real(1e-4), a.support(n), b.support(-n))
+
+
+def _seed_tetra[dim: Int](
+    a: ConvexPoly[dim], b: ConvexPoly[dim], mut verts: List[_WVert[dim]]
+) -> Bool:
+    """Build a non-degenerate seed tetrahedron on the CSO hull from supports."""
+    var d0 = SIMD[WorldType, dim](0)
+    d0[0] = 1
+    verts.append(_wsupport[dim](a, b, d0))
+    var d1 = -verts[0].v
+    if dot(d1, d1) < Real(1e-12):
+        d1 = -d0
+    verts.append(_wsupport[dim](a, b, normalize(d1)))
+    var ab = verts[1].v - verts[0].v
+    var ao = -verts[0].v
+    # Perpendicular to the segment, toward the origin.
+    var d2 = ao * dot(ab, ab) - ab * dot(ab, ao)
+    if dot(d2, d2) < Real(1e-12):
+        var ax = SIMD[WorldType, dim](0)
+        ax[0] = 1
+        d2 = _cross3[dim](ab, ax)
+        if dot(d2, d2) < Real(1e-12):
+            ax[0] = 0
+            ax[1] = 1
+            d2 = _cross3[dim](ab, ax)
+    verts.append(_wsupport[dim](a, b, normalize(d2)))
+    var n = _cross3[dim](
+        verts[1].v - verts[0].v, verts[2].v - verts[0].v
+    )
+    if dot(n, n) < Real(1e-12):
+        return False  # collinear: flat CSO
+    if dot(n, -verts[0].v) < 0:
+        n = -n
+    verts.append(_wsupport[dim](a, b, normalize(n)))
+    if abs(dot(verts[3].v - verts[0].v, n)) < Real(1e-9):
+        # Apex landed on the base plane: try the other side.
+        verts[3] = _wsupport[dim](a, b, -normalize(n))
+        if abs(dot(verts[3].v - verts[0].v, n)) < Real(1e-9):
+            return False  # planar CSO: touching contact
+    return True
+
+
+def _epa3[dim: Int](a: ConvexPoly[dim], b: ConvexPoly[dim]) -> Witness[dim]:
+    """3D EPA over a triangle-faced polytope. Only instantiated at dim == 3;
+    callers must have confirmed the GJK hit."""
+    var verts = List[_WVert[dim]]()
+    if not _seed_tetra[dim](a, b, verts):
+        return _touch_fallback[dim](a, b)
+    var interior = (
+        verts[0].v + verts[1].v + verts[2].v + verts[3].v
+    ) * Real(0.25)
+    var faces = List[_Face[dim]]()
+    faces.append(_mk_face[dim](verts, 0, 1, 2, interior))
+    faces.append(_mk_face[dim](verts, 0, 1, 3, interior))
+    faces.append(_mk_face[dim](verts, 0, 2, 3, interior))
+    faces.append(_mk_face[dim](verts, 1, 2, 3, interior))
+
+    var best = 0
+    for _ in range(64):
+        best = 0
+        var best_d = faces[0].d
+        for i in range(1, len(faces)):
+            if faces[i].d < best_d:
+                best_d = faces[i].d
+                best = i
+        if best_d >= Real(1e29):
+            return _touch_fallback[dim](a, b)  # every face degenerate
+        var w = _wsupport[dim](a, b, faces[best].n)
+        if dot(w.v, faces[best].n) - best_d < Real(1e-4):
+            break  # support no longer expands past the closest face
+        var kept = List[_Face[dim]]()
+        var edges = List[_Edge]()
+        for i in range(len(faces)):
+            if dot(faces[i].n, w.v) - faces[i].d > 0:
+                _add_edge(edges, faces[i].i0, faces[i].i1)
+                _add_edge(edges, faces[i].i1, faces[i].i2)
+                _add_edge(edges, faces[i].i2, faces[i].i0)
+            else:
+                kept.append(faces[i])
+        if len(kept) == len(faces):
+            break  # numerically stuck: accept the current closest face
+        var wi = len(verts)
+        verts.append(w)
+        for e in range(len(edges)):
+            kept.append(
+                _mk_face[dim](verts, edges[e].a, edges[e].b, wi, interior)
+            )
+        faces = kept^
+
+    # Witness points: barycentric coordinates of the origin's projection
+    # onto the closest face, applied to the tracked A/B supports.
+    var f = faces[best]
+    var v0 = verts[f.i0]
+    var v1 = verts[f.i1]
+    var v2 = verts[f.i2]
+    var p = f.n * f.d
+    var e1 = v1.v - v0.v
+    var e2 = v2.v - v0.v
+    var ep = p - v0.v
+    var d00 = dot(e1, e1)
+    var d01 = dot(e1, e2)
+    var d11 = dot(e2, e2)
+    var d20 = dot(ep, e1)
+    var d21 = dot(ep, e2)
+    var den = d00 * d11 - d01 * d01
+    var l1 = Real(0)
+    var l2 = Real(0)
+    if abs(den) > Real(1e-12):
+        l1 = (d11 * d20 - d01 * d21) / den
+        l2 = (d00 * d21 - d01 * d20) / den
+    var l0 = 1 - l1 - l2
+    var pa = v0.sa * l0 + v1.sa * l1 + v2.sa * l2
+    var pb = v0.sb * l0 + v1.sb * l1 + v2.sb * l2
+    var depth = f.d if f.d > 0 else Real(0)
+    # Orient from a -> b, matching the 2D path.
+    var n = f.n
+    if dot(_centroid[dim](b) - _centroid[dim](a), n) < 0:
+        n = -n
+    return Witness[dim](True, n, depth, pa, pb)
+
+
+def epa_witness3(a: ConvexPoly[3], b: ConvexPoly[3]) -> Witness[3]:
+    """GJK boolean + 3D EPA witness contact (miss when the shapes are apart)."""
+    if not gjk_query[3](a, b).hit:
+        return Witness[3].miss()
+    return _epa3[3](a, b)
