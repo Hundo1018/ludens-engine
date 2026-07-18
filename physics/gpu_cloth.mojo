@@ -286,13 +286,24 @@ def cpu_cloth_run[W: Int, H: Int](
 def gpu_cloth_run[W: Int, H: Int](
     steps: Int, iters: Int, dt: Float32, rest: Float32
 ) raises -> ClothState:
-    """The same cloth on the GPU (guarded: raises if no accelerator)."""
+    """The same cloth on the GPU (guarded: raises if no accelerator).
+    Owns its `DeviceContext`. NOTE: creating many contexts in one process
+    hangs on this nightly (root-caused 2026-07-13 via the cloth benchmarks) —
+    code that runs several GPU rollouts (benchmarks) must build ONE context
+    and call `gpu_cloth_run_ctx` instead of looping this."""
+    var ctx = DeviceContext()
+    return gpu_cloth_run_ctx[W, H](ctx, steps, iters, dt, rest)
+
+
+def gpu_cloth_run_ctx[W: Int, H: Int](
+    mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32
+) raises -> ClothState:
+    """Cloth on a caller-provided context (shared across GPU rollouts)."""
     comptime n = W * H
     comptime layout = row_major[n]()
     comptime BLOCK = 256
     var host = ClothState()
     _init_grid[W, H](host, rest)
-    var ctx = DeviceContext()
 
     var bufs = List[DeviceBuffer[dtype]]()
     for _ in range(13):

@@ -12,6 +12,16 @@ Groups are created lazily the first time a signature is queried. Because the
 `StorageBackend` query methods take `self` immutably, the group registry lives on
 the heap behind a pointer (interior mutability) so a query can register and
 populate a new group without a `mut self`.
+
+PUSH-BASED OBSERVERS (ROADMAP 4.4): `observe1`/`observe2` register a filter
+(event-kind mask × component set); every mutation then delivers a compact
+`ObsEvent` into each matching observer's inbox AT THE MUTATION SITE — the poll
+moves from O(world) scanning to O(inbox) draining. Semantics follow flecs:
+`EV_ADD` fires when the component was absent, `EV_SET` on every write
+(including the first), `EV_REMOVE` on remove and on despawn (despawn scrubs
+components in slot order, so the event order is deterministic). Trigger order
+is mutation order — replaying a scenario yields a bit-identical event list
+(`test_observers`).
 """
 
 from std.memory import UnsafePointer, alloc
@@ -34,12 +44,40 @@ struct _Group(Movable, ImplicitlyDeletable):
         self.members = SparseSet[Int]()
 
 
+comptime EV_ADD = 0  # component appeared on the entity
+comptime EV_SET = 1  # component written (every set, including the first)
+comptime EV_REMOVE = 2  # component removed (explicitly or by despawn)
+
+
+@fieldwise_init
+struct ObsEvent(Copyable, ImplicitlyCopyable, Movable):
+    """One delivered component event (inbox order = trigger order)."""
+
+    var kind: Int  # EV_ADD / EV_SET / EV_REMOVE
+    var slot: Int  # component slot index in the backend's CTs pack
+    var id: Int  # entity id
+
+
+struct _Observer(Movable, ImplicitlyDeletable):
+    """A push subscription: kind/component filter plus the event inbox."""
+
+    var kind_mask: Int  # OR of (1 << EV_*)
+    var comp_mask: Int  # OR of (1 << slot)
+    var inbox: List[ObsEvent]
+
+    def __init__(out self, kind_mask: Int, comp_mask: Int):
+        self.kind_mask = kind_mask
+        self.comp_mask = comp_mask
+        self.inbox = List[ObsEvent]()
+
+
 struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     comptime N: Int = len(Self.CTs)
     var slots: List[Slot]  # slot i -> heap SparseSet[CTs[i], cap]
     var alive: SparseSet[Int]  # entity id -> generation
     var counter: Int
     var groups: type_of(alloc[List[_Group]](1))  # registry (heap)
+    var observers: type_of(alloc[List[_Observer]](1))  # push subscriptions
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
@@ -52,6 +90,8 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
         self.counter = 0
         self.groups = alloc[List[_Group]](1)
         self.groups.init_pointee_move(List[_Group]())
+        self.observers = alloc[List[_Observer]](1)
+        self.observers.init_pointee_move(List[_Observer]())
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
@@ -61,6 +101,43 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
             p.free()
         self.groups.destroy_pointee()
         self.groups.free()
+        self.observers.destroy_pointee()
+        self.observers.free()
+
+    # --- push-based observers ---
+    def observe1[C: ComponentType](mut self, kind_mask: Int) -> Int:
+        """Subscribe to `kind_mask` events (OR of 1 << EV_*) on component C;
+        returns the observer handle for `drain`."""
+        self.observers[].append(
+            _Observer(kind_mask, 1 << Self._slot_of[C]())
+        )
+        return len(self.observers[]) - 1
+
+    def observe2[A: ComponentType, B: ComponentType](
+        mut self, kind_mask: Int
+    ) -> Int:
+        self.observers[].append(
+            _Observer(
+                kind_mask,
+                (1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]()),
+            )
+        )
+        return len(self.observers[]) - 1
+
+    def drain(mut self, h: Int) -> List[ObsEvent]:
+        """Take the observer's inbox (trigger order); the inbox resets."""
+        var out = self.observers[][h].inbox.copy()
+        self.observers[][h].inbox = List[ObsEvent]()
+        return out^
+
+    def _emit(self, kind: Int, slot: Int, id: Int):
+        var obs = self.observers
+        for oi in range(len(obs[])):
+            if (
+                obs[][oi].kind_mask & (1 << kind) != 0
+                and obs[][oi].comp_mask & (1 << slot) != 0
+            ):
+                obs[][oi].inbox.append(ObsEvent(kind, slot, id))
 
     @staticmethod
     def _slot_of[C: ComponentType]() -> Int:
@@ -129,6 +206,8 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
             return
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
+            if self._store[T]()[].contains(e.id):
+                self._emit(EV_REMOVE, i, e.id)  # slot order: deterministic
             self._store[T]()[].remove(e.id)
         self._update_groups(e.id)  # mask now 0 -> drops from all groups
         self.alive.remove(e.id)
@@ -141,8 +220,12 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
 
     # --- typed component access ---
     def set[C: ComponentType](mut self, e: Entity, var value: C):
+        var existed = self._store[C]()[].contains(e.id)
         self._store[C]()[].set(e.id, value)
         self._update_groups(e.id)
+        if not existed:
+            self._emit(EV_ADD, Self._slot_of[C](), e.id)
+        self._emit(EV_SET, Self._slot_of[C](), e.id)
 
     def has[C: ComponentType](self, e: Entity) -> Bool:
         return self._store[C]()[].contains(e.id)
@@ -151,8 +234,11 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
         return self._store[C]()[].get(e.id)
 
     def remove[C: ComponentType](mut self, e: Entity):
+        var existed = self._store[C]()[].contains(e.id)
         self._store[C]()[].remove(e.id)
         self._update_groups(e.id)
+        if existed:
+            self._emit(EV_REMOVE, Self._slot_of[C](), e.id)
 
     # --- queries: read cached groups ---
     def matching1[A: ComponentType](self) -> List[Entity]:

@@ -4,11 +4,21 @@
 nominal, so stdlib `SIMD` scalars cannot adopt it retroactively — `RealF` wraps
 the engine scalar for that role, and `DualReal` (promoted from
 `experiments/exp_autodiff.mojo`) is the forward-mode AD coefficient: compute in
-`GMV[..., DualReal]` and every result carries d/dθ in its ε-lane. A reverse-mode
-tape node needs exactly this same trait — that is the "foundation" part.
+`GMV[..., DualReal]` and every result carries d/dθ in its ε-lane.
+
+`RevReal` + `Tape` are the REVERSE-mode members (ROADMAP 4.2): every operation
+touching a seeded value records (operand indices, partial derivatives) on the
+tape; one backward sweep (`Tape.grad`) then yields the gradient w.r.t. ALL
+seeded inputs at once — the direction count is no longer capped by SIMD lanes
+(`DualBatch`'s 4). The Field trait's static constructors (`const`/`zero`) have
+no tape to talk to, so constants live OFF the tape (idx = -1, null pointer):
+constant⊕constant stays off-tape, and any mixed operation borrows the tape
+pointer from its taped operand. Adjoints of constants are discarded — correct,
+since nothing differentiates w.r.t. a constant.
 """
 
 from std.math import sqrt, cos, sin
+from std.memory import UnsafePointer, alloc
 from .vec import WorldType, Real
 
 
@@ -129,3 +139,116 @@ def dcos(x: DualReal) -> DualReal:
 
 def dsin(x: DualReal) -> DualReal:
     return DualReal(sin(x.a), cos(x.a) * x.b)
+
+
+@fieldwise_init
+struct TapeNode(Copyable, ImplicitlyCopyable, Movable):
+    """One recorded operation: operand node indices (-1 = off-tape constant)
+    and the partial derivative of this node w.r.t. each operand."""
+
+    var l: Int
+    var r: Int
+    var dl: Real
+    var dr: Real
+
+
+struct Tape(Movable, ImplicitlyDeletable):
+    """Append-only operation record for reverse-mode AD. Declare one on the
+    stack, hand `UnsafePointer(to=tape)` to `RevReal.seed`, run the
+    computation, then `grad(output.idx)` sweeps backwards once and returns
+    the adjoint of every node — read the inputs' entries for the gradient."""
+
+    var nodes: List[TapeNode]
+
+    def __init__(out self):
+        self.nodes = List[TapeNode]()
+
+    def push(mut self, l: Int, r: Int, dl: Real, dr: Real) -> Int:
+        self.nodes.append(TapeNode(l, r, dl, dr))
+        return len(self.nodes) - 1
+
+    def input(mut self) -> Int:
+        return self.push(-1, -1, 0, 0)
+
+    def grad(self, out_idx: Int) -> List[Real]:
+        """Adjoint of every node w.r.t. node `out_idx` (one backward sweep)."""
+        var adj = List[Real]()
+        for _ in range(len(self.nodes)):
+            adj.append(0)
+        if out_idx >= 0 and out_idx < len(self.nodes):
+            adj[out_idx] = 1
+        var k = len(self.nodes) - 1
+        while k >= 0:
+            var a = adj[k]
+            if a != 0:
+                var nd = self.nodes[k]
+                if nd.l >= 0:
+                    adj[nd.l] += nd.dl * a
+                if nd.r >= 0:
+                    adj[nd.r] += nd.dr * a
+            k -= 1
+        return adj^
+
+
+# UnsafePointer is non-nullable in this nightly, and a stack address carries
+# its own origin — the alloc-derived alias (the ecs backends' Slot idiom) plus
+# Optional models "constant, no tape".
+comptime TapePtr = type_of(alloc[Tape](1))
+
+
+@fieldwise_init
+struct RevReal(Field):
+    """Reverse-mode AD scalar: primal value + tape node index. See the module
+    docstring for the off-tape constant scheme."""
+
+    var v: Real
+    var idx: Int
+    var tape: Optional[TapePtr]
+
+    @staticmethod
+    def seed(t: TapePtr, v: Real) -> Self:
+        """A differentiation input: registers a tape node whose adjoint is
+        this input's gradient entry after `Tape.grad`."""
+        return Self(v, t[].input(), t)
+
+    def _t(self, o: Self) -> TapePtr:
+        return self.tape.value() if self.idx >= 0 else o.tape.value()
+
+    def __add__(self, o: Self) -> Self:
+        if self.idx < 0 and o.idx < 0:
+            return Self(self.v + o.v, -1, None)
+        var t = self._t(o)
+        return Self(self.v + o.v, t[].push(self.idx, o.idx, 1, 1), t)
+
+    def __sub__(self, o: Self) -> Self:
+        if self.idx < 0 and o.idx < 0:
+            return Self(self.v - o.v, -1, None)
+        var t = self._t(o)
+        return Self(self.v - o.v, t[].push(self.idx, o.idx, 1, -1), t)
+
+    def __mul__(self, o: Self) -> Self:
+        if self.idx < 0 and o.idx < 0:
+            return Self(self.v * o.v, -1, None)
+        var t = self._t(o)
+        return Self(
+            self.v * o.v, t[].push(self.idx, o.idx, o.v, self.v), t
+        )
+
+    @staticmethod
+    def zero() -> Self:
+        return Self(0, -1, None)
+
+    @staticmethod
+    def const(v: Real) -> Self:
+        return Self(v, -1, None)
+
+    def value(self) -> Real:
+        return self.v
+
+
+def rev_seed(mut t: Tape, v: Real) -> RevReal:
+    """Seed a differentiation input on a stack-declared tape (wraps the
+    address-roundtrip conversion to the alloc-typed pointer)."""
+    return RevReal.seed(
+        TapePtr(unsafe_from_address=Int(UnsafePointer(to=t))), v
+    )

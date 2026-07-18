@@ -7,16 +7,20 @@ Two comparisons on randomly-generated box scenes:
     rebuild + candidate-pair generation. Run in 2D and 3D.
   * Narrowphase — take one scene's broadphase candidate pairs and run each exact
     test (AABB / circle / SAT / OBB / GJK+EPA / SDF) over them, timing per pair.
+  * CGA rows — 3D sphere-sphere through the conformal-algebra narrowphase
+    (`CgaSphereNarrowPhase`, parity in `test_cga_narrowphase`) vs the analytic
+    euclidean test, pricing the GA-abstraction margin.
 
 Each box becomes the equivalent shape per narrowphase (circle = bounding circle,
 etc.), so hit counts vary slightly; the metric of interest is per-pair cost.
 Run with: `mojo run -I build benchmarks/bench_collision.mojo`.
 """
 
+from std.math import sqrt
 from std.benchmark import keep
-from geometry.vec import Vec2, Vec3, Real
+from geometry.vec import Vec2, Vec3, Real, distance_sq, length, normalize
 from geometry.aabb import AABB, AABB2, AABB3
-from geometry.shape import Circle, Polygon
+from geometry.shape import Circle, Polygon, Sphere
 from geometry.gjk import ConvexPoly
 from geometry.obb import OBB
 from geometry.sdf import SdfShape
@@ -26,12 +30,14 @@ from collision.bp_hashgrid import SpatialHashBroadPhase
 from collision.bp_bvh import BVHBroadPhase
 from collision.narrowphase import (
     NarrowPhase,
+    Contact,
     AABBNarrowPhase,
     CircleNarrowPhase,
     SATNarrowPhase,
     OBBNarrowPhase,
     GJKNarrowPhase,
     SDFNarrowPhase,
+    CgaSphereNarrowPhase,
 )
 from harness.bench import BenchTable, now
 
@@ -187,6 +193,55 @@ def bench_narrowphase(mut table: BenchTable, n: Int) raises:
     run_np(table, "sdf", npd, pairs, n)
 
 
+struct SphereNarrowPhase(NarrowPhase):
+    """Analytic euclidean sphere-sphere — bench-local baseline for the CGA rows
+    (the two paths' parity is asserted in `test_cga_narrowphase`)."""
+
+    comptime dim: Int = 3
+    var spheres: List[Sphere]
+
+    def __init__(out self):
+        self.spheres = List[Sphere]()
+
+    def add(mut self, s: Sphere) -> Int:
+        self.spheres.append(s)
+        return len(self.spheres) - 1
+
+    def test(self, a: Int, b: Int) -> Contact[3]:
+        var sa = self.spheres[a]
+        var sb = self.spheres[b]
+        var rsum = sa.radius + sb.radius
+        var d_sq = distance_sq(sa.center, sb.center)
+        if d_sq > rsum * rsum:
+            return Contact[3].miss()
+        var dist = sqrt(d_sq) if d_sq > 0 else Real(0)
+        var delta = sb.center - sa.center
+        var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0)
+        return Contact[3](True, n, rsum - dist)
+
+
+def bench_narrowphase_sphere(mut table: BenchTable, n: Int) raises:
+    """Sphere-sphere: analytic euclidean vs conformal GA (same spheres, same
+    candidate pairs)."""
+    var extent = Real(Float64(n) ** (1.0 / 3.0)) * 3.0
+    var items = scene3(n, extent, 1.0)
+    var bf = BruteForce[3]()
+    bf.rebuild(items)
+    var pairs = List[Pair]()
+    bf.pairs(pairs)
+
+    var npe = SphereNarrowPhase()
+    var npcga = CgaSphereNarrowPhase()
+    for i in range(n):
+        var b = items[i].box
+        var s = Sphere(b.center(), b.half_extents()[0])
+        _ = npe.add(s)
+        _ = npcga.add(s)
+
+    run_np(table, "3d sphere analytic", npe, pairs, n)
+    run_np(table, "3d sphere cga", npcga, pairs, n)
+
+
 def main() raises:
     var bp_table = BenchTable("Broadphase x scene (rebuild + candidate pairs)")
     bench_broadphase_2d(bp_table, 1_000)
@@ -199,4 +254,6 @@ def main() raises:
     var np_table = BenchTable("Narrowphase x scene (per-pair exact test)")
     bench_narrowphase(np_table, 500)
     bench_narrowphase(np_table, 2_000)
+    bench_narrowphase_sphere(np_table, 500)
+    bench_narrowphase_sphere(np_table, 2_000)
     np_table.print_report()

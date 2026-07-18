@@ -20,7 +20,7 @@ from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from geometry.mat import Mat4
 from geometry.motor import Motor3
-from geometry.skinning import skin_motor, skin_lbs
+from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
 from wgpu import (
     Instance,
@@ -66,22 +66,22 @@ def _len3(v: Vec3) -> Real:
 def main() raises:
     # --- rest pose: vertex pairs straddling the chain axis ------------------
     comptime R: Real = 0.15
-    var rest = List[Vec3](capacity=NV)
+    var rest = List[SkinVert]()
     var ia = List[Int]()
     var ib = List[Int]()
     var wa = List[Real]()
-    var out_dlb = List[Vec3](capacity=NV)
-    var out_lbs = List[Vec3](capacity=NV)
+    var out_dlb = List[SkinVert]()
+    var out_lbs = List[SkinVert]()
     for s in range(NS):
         var x = Real(s) / Real(NS - 1) * 2
-        rest.append(Vec3(x, R, 0))
-        rest.append(Vec3(x, -R, 0))
+        rest.append(SkinVert(Vec3(x, R, 0)))
+        rest.append(SkinVert(Vec3(x, -R, 0)))
         for _ in range(2):
             ia.append(0)
             ib.append(1)
             wa.append(clamp(Real(1.5) - x, 0, 1))  # bone0 -> bone1 ramp
-            out_dlb.append(Vec3(0, 0, 0))
-            out_lbs.append(Vec3(0, 0, 0))
+            out_dlb.append(SkinVert(Vec3(0, 0, 0)))
+            out_lbs.append(SkinVert(Vec3(0, 0, 0)))
 
     # --- GPU + window (skip cleanly when headless) ---------------------------
     try:
@@ -151,10 +151,12 @@ def main() raises:
             var u = List[Float32](capacity=128 * 4)
             for m in range(2):
                 for s in range(NS):
-                    var top = out_dlb[s * 2] if m == 0 else out_lbs[s * 2]
-                    var bot = out_dlb[s * 2 + 1] if m == 0 else out_lbs[s * 2 + 1]
+                    var top = out_dlb[s * 2].v if m == 0 else out_lbs[s * 2].v
+                    var bot = out_dlb[s * 2 + 1].v if m == 0 else out_lbs[
+                        s * 2 + 1
+                    ].v
                     var width = _len3(top - bot)
-                    var cx = Float32(rest[s * 2][0] - 1.0) * 0.8
+                    var cx = Float32(rest[s * 2].v[0] - 1.0) * 0.8
                     var cy = Float32(0.45) if m == 0 else Float32(-0.45)
                     var h = Float32(width) * 1.2
                     u.append(cx)
@@ -168,8 +170,8 @@ def main() raises:
             device.queue_write_data(uniforms, UInt64(0), u)
 
             if frame_idx % 60 == 30:
-                var wd = _len3(out_dlb[NS] - out_dlb[NS + 1])
-                var wl = _len3(out_lbs[NS] - out_lbs[NS + 1])
+                var wd = _len3(out_dlb[NS].v - out_dlb[NS + 1].v)
+                var wl = _len3(out_lbs[NS].v - out_lbs[NS + 1].v)
                 print(
                     "  theta=", theta, " mid width: DLB=", wd, " LBS=", wl
                 )

@@ -33,18 +33,42 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 `test_backend_parity` 逐值斷言的內容** —— 5 個 backend 對同一場景產生相同的查
 詢計數與聚合值。同理:
 
-| Seam(trait) | 檔案 | 範疇論解讀 | 定律測試 |
-|---|---|---|---|
-| `StorageBackend` | ecs/storage.mojo | 實作函子間的自然同構 | `test_backend_parity` |
-| 傳播策略 full/dirty/**motor** | ecs/transform_systems.mojo、ecs/motor_transform.mojo | 同一態射的三個實作;dirty 是 full 的等價優化 | `test_transform`、`test_motor_transform` |
-| `Scheduler` ×(serial/parallel) | scheduler/scheduler.mojo | 態射合成的不同求值策略,結果不變 | `test_scheduler_parity` |
-| `ContactSolver` | physics/solver.mojo | 同一物理不動點的不同迭代子 | `test_physics_dynamics` |
-| `BroadPhase`/`NarrowPhase`/`SceneQuery` | collision/ | 同一謂詞的加速結構;結果集相等 | pipeline/queries 測試 |
-| `Rng` | scheduler/rng.mojo | 種子單子(state monad)的可交換實作 | `test_rng` |
-| `for_each2` vs `query2+get/set` | ecs/storage.mojo | 同一態射的無配置實作 | `test_iter_parity` |
+| Seam(trait) | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `StorageBackend` | ecs/storage.mojo | 實作函子間的自然同構 | `test_backend_parity` | `bench_ecs`、`bench_locality` |
+| 傳播策略 full/dirty/**motor** | ecs/transform_systems.mojo、ecs/motor_transform.mojo | 同一態射的三個實作;dirty 是 full 的等價優化 | `test_transform`、`test_motor_transform` | `bench_transform` |
+| `Scheduler` ×(serial/parallel) | scheduler/scheduler.mojo | 態射合成的不同求值策略,結果不變 | `test_scheduler_parity` | `bench_scheduler` |
+| `ContactSolver` | physics/solver.mojo | 同一物理不動點的不同迭代子 | `test_physics_dynamics` | `bench_physics` |
+| `BroadPhase`(rebuild 5 種 + DBVH 持久化) | collision/broadphase.mojo、bp_dbvh.mojo | 同一謂詞的加速結構;結果集相等 | `test_broadphase`、`test_bvh`、`test_dbvh` | `bench_collision`、`bench_dbvh` |
+| `NarrowPhase`(boolean,含 CGA 代數路徑) | collision/narrowphase.mojo | 同一謂詞的解析 vs 代數實作 | `test_narrowphase` 系列、`test_cga_narrowphase`、`test_cga_plane` | `bench_collision` |
+| `ManifoldNarrowPhase`(AABB/SAT/OBB/GJK) | collision/manifold.mojo | 接觸謂詞的富化(點集+深度),normal/depth 與 boolean 路徑一致 | `test_manifold` | `bench_manifold` |
+| `SceneQuery`(brute/bvh/grid/tree) | collision/queries.mojo | 同一查詢謂詞的加速結構 | `test_queries` | `bench_queries` |
+| `Rng` | scheduler/rng.mojo | 種子單子(state monad)的可交換實作 | `test_rng` | `bench_rng` |
+| `for_each2` vs `query2+get/set` | ecs/storage.mojo | 同一態射的無配置實作 | `test_iter_parity` | `bench_ecs`(存取路徑 rows) |
+| `Body6`(quat+tensor vs motor/screw) | physics/rigid6.mojo | SE(3) 動力學的兩個表示函子,比 action 不比係數 | `test_rigid6`、`test_solver6` | `bench_rigid6` |
+| `SpinIntegrator`(Euler/RK2/Midpoint/**Lgvci** 變分) | physics/integrator6.mojo | 同一連續流的離散化家族(含 Moser–Veselov 變分積分子) | `test_integrator6` | `bench_rigid6` |
+| 布料 CPU vs GPU | physics/gpu_cloth.mojo | 同一態射的裝置實作(host/device) | `test_gpu_cloth` | `bench_gpu_cloth` |
+| 布料 solver XPBD vs VBD | physics/gpu_cloth.mojo、vbd_cloth.mojo | 同一變分能量的不同下降子(Jacobi 投影 vs 著色 Newton 塊下降) | `test_vbd_cloth`(物性 + CPU/GPU parity) | `bench_vbd_cloth`(同品質水準比成本) |
+| 剛體變換表示 motor/DQ/mat4/quat | geometry/motor.mojo、dualquat.mojo、mat.mojo、quat.mojo | SE(3) 表示函子(§3) | `test_motor_parity` | `bench_ga` |
+| 蒙皮 DLB vs LBS | geometry/skinning.mojo | 表示函子在蒙皮插值上的作用 | `test_skinning` | `bench_ga`(skin rows) |
+| `Field`(RealF/DualReal/DualBatch/RevReal tape)+ `GMV` vs 特化 | geometry/field.mojo、gmv.mojo | 對偶數函子(切叢提升)+ 伴隨函子(反向掃);係數環參數化 | `test_diffsim`、`test_gmv_ad`、`test_laws` | `bench_diffsim` |
+| CCD 階段 speculative vs swept/TOI | physics/solver6.mojo、collision/toi.mojo | 同一「不穿隧」謂詞的一階(裕度)與二階(掃掠)保證;慢速路徑逐位一致 | `test_ccd6` | `bench_ccd` |
+| 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
+| 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
+| 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |
 
 **架構定律**:任何新 seam 實作必須附上它的自然性方格(parity 測試)。這是引擎
 「swappability holds end-to-end」的形式化理由。
+**架構定律 v2(2026-07-13)**:每個 seam 的**所有**變體必須同時出現在上表的
+「定律測試」與「Benchmark」兩欄 —— parity 測試 + `BENCHMARK_REPORT.md` 對應
+row,缺一不收(相對方法時刻有對應 benchmark)。新增 seam 或變體時,本表為
+覆蓋矩陣,benchmark 欄不得留空。
+
+**Phase 4 新增(2026-07-13,皆遵定律 v2)**:上表最後五列 —— CCD 兩階段
+(speculative/swept)、變更偵測(push/poll)、組件寫入(直接/延遲)、布料 solver
+(XPBD/VBD)—— 加上 `SpinIntegrator` 的 `LgvciSpin`(變分,入 `bench_rigid6`)與
+`Field` 的 `RevReal` tape(入 `bench_diffsim`)。六個新變體各附 parity test +
+report row。
 
 ## 3. SE(3) 的三個表示函子(GA 層)
 

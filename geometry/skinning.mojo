@@ -21,6 +21,18 @@ from .mat import Mat4, transform_point4
 from .motor import Motor3
 
 
+@fieldwise_init
+struct SkinVert(Copyable, ImplicitlyCopyable, Movable):
+    """Struct-wrapped vertex position. Bare `List[SIMD[_, 3]]` is hazardous in
+    this nightly: beyond the documented realloc corruption (gjk.mojo), several
+    width-3 lists captured by separate closures in one program crash the
+    runtime at teardown (libAsyncRT; root-caused via bench_ga bisection
+    2026-07-13 — the apply+skin combination reproduced 12/12, wrapping 0/15).
+    The batch skinning APIs therefore take wrapped verts."""
+
+    var v: Vec3
+
+
 def blend2(a: Motor3, b: Motor3, wa: Real, wb: Real) -> Motor3:
     """DLB of two bones: hemisphere-align `b` to `a`, weighted-sum, normalize."""
     # rotor-part dot decides the hemisphere (double cover)
@@ -41,25 +53,25 @@ def blend2(a: Motor3, b: Motor3, wa: Real, wb: Real) -> Motor3:
 
 def skin_motor(
     bones: List[Motor3],
-    rest: List[Vec3],
+    rest: List[SkinVert],
     idx_a: List[Int],
     idx_b: List[Int],
     w_a: List[Real],
-    mut out: List[Vec3],
+    mut out: List[SkinVert],
 ):
     """Per-vertex DLB + one sandwich (w_b = 1 − w_a)."""
     for i in range(len(rest)):
         var m = blend2(bones[idx_a[i]], bones[idx_b[i]], w_a[i], 1 - w_a[i])
-        out[i] = m.apply_point(rest[i])
+        out[i] = SkinVert(m.apply_point(rest[i].v))
 
 
 def skin_lbs(
     mats: List[Mat4],
-    rest: List[Vec3],
+    rest: List[SkinVert],
     idx_a: List[Int],
     idx_b: List[Int],
     w_a: List[Real],
-    mut out: List[Vec3],
+    mut out: List[SkinVert],
 ):
     """Classic linear blend skinning: per-vertex weighted matrix, then transform
     (the baseline the motor path is compared against)."""
@@ -71,4 +83,4 @@ def skin_lbs(
         var m = Mat4.identity()
         comptime for k in range(16):
             m.m[k] = wa * ma.m[k] + wb * mb.m[k]
-        out[i] = transform_point4(m, rest[i])
+        out[i] = SkinVert(transform_point4(m, rest[i].v))

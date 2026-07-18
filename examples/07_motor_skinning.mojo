@@ -14,15 +14,15 @@ from std.math import sqrt, cos, sin
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from geometry.motor import Motor3
-from geometry.skinning import skin_motor, skin_lbs
+from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
 
-def ring_radius(pts: List[Vec3]) -> Tuple[Real, Real]:
+def ring_radius(pts: List[SkinVert]) -> Tuple[Real, Real]:
     """(min, max) distance of the ring from the twist (x) axis."""
     var lo = Real(1e9)
     var hi = Real(0)
     for i in range(len(pts)):
-        var r = sqrt(pts[i][1] * pts[i][1] + pts[i][2] * pts[i][2])
+        var r = sqrt(pts[i].v[1] * pts[i].v[1] + pts[i].v[2] * pts[i].v[2])
         if r < lo:
             lo = r
         if r > hi:
@@ -32,18 +32,18 @@ def ring_radius(pts: List[Vec3]) -> Tuple[Real, Real]:
 
 def main():
     # 8 vertices on a unit ring at x = 0.5, weighted half/half between bones
-    var rest = List[Vec3]()
+    var rest = List[SkinVert]()
     var ia = List[Int]()
     var ib = List[Int]()
     var wa = List[Real]()
-    var out = List[Vec3]()
+    var out = List[SkinVert]()
     for k in range(8):
         var t = Real(k) * 0.785398
-        rest.append(Vec3(0.5, cos(t), sin(t)))
+        rest.append(SkinVert(Vec3(0.5, cos(t), sin(t))))
         ia.append(0)
         ib.append(1)
         wa.append(0.5)
-        out.append(Vec3(0))
+        out.append(SkinVert(Vec3(0)))
 
     print("twist°   LBS ring r (min..max)   motor ring r (min..max)")
     for step in range(5):

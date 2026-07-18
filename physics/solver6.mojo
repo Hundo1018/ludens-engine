@@ -29,6 +29,7 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from collision.manifold import ContactManifold, Axes3, box_box_manifold
+from collision.toi import swept_box_toi
 from .rigid6 import Body6
 
 comptime _BETA: Real = 0.2  # Baumgarte position-correction gain
@@ -670,6 +671,62 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                 self.bodies[pr.b].apply_impulse(jt, pwb)
                 pairs[c] = pr
 
+    def _ccd_advance(mut self, h: Real):
+        """Swept/TOI pose advance (second-stage CCD, Jolt LinearCast
+        direction): a body whose relative travel this substep could jump the
+        thinnest feature of a pair linear-casts its box along the substep
+        displacement (`swept_box_toi`) and advances only to the time of
+        impact, minus a hair of back-off — the speculative solver then removes
+        the approach velocity with the pair already AT the surface, so the
+        midplane can never be crossed. Slow bodies take the plain pose step,
+        bit-identical to the non-CCD path (zero-regression guarantee). Clamp
+        fractions are decided against the substep-start snapshot before any
+        pose moves, so mutually-approaching fast pairs resolve symmetrically
+        (the relative displacement already contains both velocities)."""
+        var n = len(self.bodies)
+        var frac = List[Real]()
+        for _ in range(n):
+            frac.append(1)
+        for i in range(n):
+            if self._inactive(i):
+                continue
+            var vi = self.bodies[i].linear_velocity()
+            if dot(vi, vi) * h * h < 1e-12:
+                continue
+            for j in range(n):
+                if j == i:
+                    continue
+                var vj = Vec3(0, 0, 0)
+                if not self._inactive(j):
+                    vj = self.bodies[j].linear_velocity()
+                var rel = (vi - vj) * h
+                var ha = self.half[i].v
+                var hb = self.half[j].v
+                var thin = min(
+                    min(ha[0], min(ha[1], ha[2])),
+                    min(hb[0], min(hb[1], hb[2])),
+                )
+                if dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
+                    continue  # cannot jump the pair's thinnest feature
+                var r = swept_box_toi(
+                    self.bodies[j].position(),
+                    self._axes(j),
+                    hb,
+                    self.bodies[i].position(),
+                    self._axes(i),
+                    ha,
+                    rel,
+                )
+                if r.hit and r.t < frac[i]:
+                    frac[i] = r.t
+        for i in range(n):
+            if self._inactive(i):
+                continue
+            var f = frac[i]
+            if f < 1:
+                f = max(f - Real(0.01), 0)
+            self.bodies[i].integrate_pose(h * f)
+
     def step_soft(
         mut self,
         dt: Real,
@@ -679,6 +736,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         hertz: Real = 30,
         zeta: Real = 10,
         mu: Real = 0.5,
+        ccd: Bool = False,
     ):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme):
         collide once, then per substep integrate velocities, solve with soft
@@ -707,9 +765,12 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             self._soft_sweep(
                 pairs, h, bias_rate, mass_scale, impulse_scale, True, iters, mu
             )
-            for i in range(len(self.bodies)):
-                if not self._inactive(i):
-                    self.bodies[i].integrate_pose(h)
+            if ccd:
+                self._ccd_advance(h)
+            else:
+                for i in range(len(self.bodies)):
+                    if not self._inactive(i):
+                        self.bodies[i].integrate_pose(h)
             # relax: remove the bias energy (velocity-only, no bias)
             self._joint_sweep(h, bias_rate, 1, 0, False, 2)
             self._soft_sweep(pairs, h, bias_rate, 1, 0, False, 2, mu)

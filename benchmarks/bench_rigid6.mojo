@@ -18,6 +18,7 @@ from physics.integrator6 import (
     EulerSpin,
     Rk2Spin,
     MidpointSpin,
+    LgvciSpin,
     run_spin,
     spin_energy,
     spin_momentum_world,
@@ -77,9 +78,16 @@ def main() raises:
         var r = run_spin[MidpointSpin](Motor3.identity(), w, ibox, DT, STEPS)
         keep(r[1][0])
 
+    @parameter
+    def bench_lgvci():
+        var w = w0
+        var r = run_spin[LgvciSpin](Motor3.identity(), w, ibox, DT, STEPS)
+        keep(r[1][0])
+
     t.add("EulerSpin", 1, "spin step", measure[bench_euler](), STEPS)
     t.add("Rk2Spin", 1, "spin step", measure[bench_rk2](), STEPS)
     t.add("MidpointSpin (implicit)", 1, "spin step", measure[bench_mid](), STEPS)
+    t.add("LgvciSpin (variational)", 1, "spin step", measure[bench_lgvci](), STEPS)
     t.print_report()
 
     # Conservation quality: Dzhanibekov tumble drift after 1e5 steps.
@@ -94,9 +102,15 @@ def main() raises:
     var rese = run_spin[EulerSpin](Motor3.identity(), w0, ibox, DT, STEPS)
     var resr = run_spin[Rk2Spin](Motor3.identity(), w0, ibox, DT, STEPS)
     var resm = run_spin[MidpointSpin](Motor3.identity(), w0, ibox, DT, STEPS)
+    var resv = run_spin[LgvciSpin](Motor3.identity(), w0, ibox, DT, STEPS)
 
-    var names = ["EulerSpin", "Rk2Spin", "MidpointSpin (implicit)"]
-    for i in range(3):
+    var names = [
+        "EulerSpin",
+        "Rk2Spin",
+        "MidpointSpin (implicit)",
+        "LgvciSpin (variational)",
+    ]
+    for i in range(4):
         var pose = rese[0]
         var w = rese[1]
         if i == 1:
@@ -105,6 +119,9 @@ def main() raises:
         elif i == 2:
             pose = resm[0]
             w = resm[1]
+        elif i == 3:
+            pose = resv[0]
+            w = resv[1]
         var lv = spin_momentum_world(pose, w, ibox)
         var l = Float64(sqrt(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]))
         print(

@@ -6,22 +6,26 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=BENCHMARK_REPORT.md
 
-# Some bench programs hit a nondeterministic runtime-teardown crash on this
-# nightly (tracked: bench_ga, libAsyncRT stack; output is buffered so a crashed
-# run prints nothing). Retry a few times — one clean run yields one table.
+# The bench_ga teardown crash was ROOT-CAUSED on 2026-07-13: bare width-3 SIMD
+# lists (List[Vec3]) captured across separate closures in one program crashed
+# the runtime at teardown (libAsyncRT). Wrapping the verts in a struct
+# (geometry.skinning.SkinVert) fixed it — bench_ga now runs 100/100 clean
+# (before: ~10/15 crashed). The separate GPU hang (multiple DeviceContexts per
+# process) was fixed the same day via shared-context drivers (*_run_ctx).
+# This wrapper is now just a thin SAFETY NET (single retry) against any
+# residual nightly teardown flakiness, not a workaround for a known bug.
 run_bench() {
-    # stdout goes to a temp FILE, not the report pipe: the crash likelihood is
-    # much lower without a pipe on stdout, and a crashed attempt leaves no
-    # partial output in the report either way.
+    # stdout goes to a temp FILE, not the report pipe, so a crashed attempt
+    # never leaves partial output in the report.
     local tmp
     tmp=$(mktemp)
-    for _ in 1 2 3 4 5 6 7 8; do
+    for _ in 1 2; do
         if mojo run -I build "$1" > "$tmp" 2>/dev/null; then
             cat "$tmp"
             rm -f "$tmp"
             return 0
         fi
-        echo "(retrying $1 after teardown crash)" >&2
+        echo "(retrying $1 after a teardown crash)" >&2
     done
     rm -f "$tmp"
     echo "ERROR: $1 kept crashing" >&2
@@ -56,7 +60,33 @@ run_bench() {
     run_bench benchmarks/bench_locality.mojo
     echo "## Collision algorithms"
     echo
+    echo "The narrowphase table includes the CGA rows: sphere-sphere answered by"
+    echo "conformal-algebra inner products vs the analytic euclidean test (parity in"
+    echo "\`test_cga_narrowphase\`) — the price of the GA abstraction, measured."
+    echo
     run_bench benchmarks/bench_collision.mojo
+    echo "## Collision — manifold narrowphase (contact patch vs boolean test)"
+    echo
+    echo "What the solver actually pays: \`test_manifold\` produces clipped contact"
+    echo "points with per-point depths (parity vs the boolean paths in \`test_manifold\`),"
+    echo "next to its boolean twin on the same pairs."
+    echo
+    run_bench benchmarks/bench_manifold.mojo
+    echo "## Collision — scene queries (raycast + overlap)"
+    echo
+    echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"
+    echo "overlap queries (result parity in \`test_queries\`)."
+    echo
+    run_bench benchmarks/bench_queries.mojo
+    echo "## ECS — push observers vs polling; deferred set buffer vs direct writes"
+    echo
+    echo "Push-based observers (\`reactive_backend\`, semantics parity + determinism in"
+    echo "\`test_observers\`): events delivered at the mutation site vs an O(world)"
+    echo "snapshot-diff poll, priced per detected event. The deferred \`SetBuffer\`"
+    echo "(\`ecs/commands.mojo\`, order/parity gates in \`test_deferred_set\`) prices the"
+    echo "iteration-safety of a command buffer against writing components directly."
+    echo
+    run_bench benchmarks/bench_ecs_events.mojo
     echo "## Scheduler strategies — sequential vs actor model, serial vs parallel"
     echo
     echo "The same integrate + damage-event workload driven through the swappable"
@@ -75,12 +105,13 @@ run_bench() {
     echo "representation (see \`test_motor_parity\` for the equivalence proof)."
     echo
     run_bench benchmarks/bench_ga.mojo
-    echo "## Foundation — transform propagation (full vs dirty)"
+    echo "## Foundation — transform propagation (full vs dirty vs motor)"
     echo
     echo "The transform hierarchy driven through the swappable propagation seam:"
-    echo "full recompute vs dirty-incremental. Both produce identical world matrices"
-    echo "(see \`test_transform\`); the crossover is the point — full stays competitive"
-    echo "when everything moves, dirty pulls ahead when only leaves move."
+    echo "full recompute vs dirty-incremental (identical world matrices, see"
+    echo "\`test_transform\`) plus the motor strategy — \`MotorTransform\` (8 floats)"
+    echo "propagated by pure motor composition (\`test_motor_transform\` parity);"
+    echo "\`bench_ga\` prices one apply/compose, these rows price propagation at scale."
     echo
     run_bench benchmarks/bench_transform.mojo
     echo "## Foundation — PRNG throughput (xorshift vs pcg vs splitmix)"
@@ -105,6 +136,14 @@ run_bench() {
     echo "full-rebuild BVH path."
     echo
     run_bench benchmarks/bench_dbvh.mojo
+    echo "## Physics — CCD stages (speculative manifold vs swept/TOI cast)"
+    echo
+    echo "The two tunnelling defenses (zero-overshoot bullet gate in \`test_ccd6\`): the"
+    echo "speculative first stage pays an inflated \`box_box_manifold\` per nearby pair;"
+    echo "the swept second stage (\`collision/toi.mojo\`, exact 15-axis interval cast, no"
+    echo "clipping) prices the TOI clamp that guarantees the surface is never crossed."
+    echo
+    run_bench benchmarks/bench_ccd.mojo
     echo "## Physics — 6-DOF rigid body (quat+tensor vs motor/screw) & spin integrators"
     echo
     echo "The two parity representations of full angular dynamics (\`test_rigid6\`)"
@@ -116,10 +155,40 @@ run_bench() {
     echo
     echo "Gather-Jacobi PBD cloth, identical math on both sides (parity ~1e-6 in"
     echo "\`test_gpu_cloth\`). GPU rows only appear on hosts with an accelerator."
+    echo "(All GPU rollouts share ONE \`DeviceContext\`: creating several per process"
+    echo "hangs on this nightly — the per-call driver is why this section was empty"
+    echo "in earlier reports.)"
     echo
     run_bench benchmarks/bench_gpu_cloth.mojo
+    echo "## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)"
+    echo
+    echo "Vertex block descent (\`physics/vbd_cloth.mojo\`, arXiv:2403.06321): per-vertex"
+    echo "3x3 Newton steps swept over a checkerboard 2-coloring (edges are bichromatic,"
+    echo "so a color updates in parallel with no atomics — same determinism scheme as the"
+    echo "XPBD gather-Jacobi). Every row carries the worst edge-stretch error it bought,"
+    echo "so cost is read AT a quality level (physical gates + CPU/GPU parity in"
+    echo "\`test_vbd_cloth\`)."
+    echo
+    run_bench benchmarks/bench_vbd_cloth.mojo
+    echo "## Differentiable simulation — gradient cost & Field abstraction"
+    echo
+    echo "The \`Field\` seam (\`RealF\`/\`DualReal\`/\`DualBatch\`/\`RevReal\` tape, gradient"
+    echo "correctness in \`test_diffsim\`/\`test_gmv_ad\`): what a gradient costs via finite"
+    echo "differences vs forward-mode AD vs the reverse-mode tape, and what the"
+    echo "coefficient-generic \`GMV\` multivector costs vs the specialized \`Motor3\`"
+    echo "sandwich. Read the two rollout tables together: on this few-flops-per-step toy"
+    echo "the tape's recording overhead dominates (~19x a plain step), but its cost is"
+    echo "FLAT in the parameter count — going 2 -> 8 params the reverse row holds while"
+    echo "DualBatch pays another chunked rollout (x2.9) and differences grow linearly;"
+    echo "the crossover lands near ~76 params at this workload, and moves earlier the"
+    echo "heavier the per-step primal math."
+    echo
+    run_bench benchmarks/bench_diffsim.mojo
     echo "## Maturity assessment"
     echo
+    echo "- **Every comparable-method seam has a benchmark row.** The seam / parity-test /"
+    echo "  benchmark coverage matrix lives in \`docs/CATEGORY.md\` §2 (architecture law v2,"
+    echo "  2026-07-13): a seam variant ships with its parity test AND its report row."
     echo "- **Swappability holds end-to-end.** All five ECS backends (sparse, archetype,"
     echo "  bitset, reactive, naive) plus the OOP engine produce identical results on the"
     echo "  shared scenarios (\`test_backend_parity\`, \`test_oop_engine\`, \`test_system_soa\`),"

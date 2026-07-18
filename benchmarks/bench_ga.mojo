@@ -16,7 +16,7 @@ from geometry.quat import Quat, compose_trs4
 from geometry.mat import Mat4, transform_point4
 from geometry.motor import Motor3
 from geometry.dualquat import DualQuat
-from geometry.skinning import skin_motor, skin_lbs
+from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
 
 def main() raises:
@@ -26,9 +26,10 @@ def main() raises:
 
     # --- build N random rigid transforms in every representation ---
     var quats = List[Quat]()
-    # Pre-sized: a bare List[SIMD[_,3]] corrupts on REALLOC (see gjk.mojo), so
-    # width-3 lists here reserve full capacity up front and never regrow.
-    var trans = List[Vec3](capacity=N)
+    # Struct-wrapped: bare width-3 lists crashed the runtime at teardown when
+    # several were captured by closures in one program (see SkinVert's note;
+    # capacity pre-sizing alone did NOT fix it).
+    var trans = List[SkinVert]()
     var motors = List[Motor3]()
     var dqs = List[DualQuat]()
     var mats = List[Mat4]()
@@ -47,7 +48,7 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
         )
         quats.append(q)
-        trans.append(t)
+        trans.append(SkinVert(t))
         motors.append(Motor3.from_quat_translation(q, t))
         dqs.append(DualQuat.from_quat_translation(q, t))
         mats.append(compose_trs4(t, q, Vec3(1, 1, 1)))
@@ -80,7 +81,7 @@ def main() raises:
     def apply_quat():
         var acc = Vec3(0)
         for i in range(N):
-            acc = acc + quats[i].rotate(p) + trans[i]
+            acc = acc + quats[i].rotate(p) + trans[i].v
         keep(acc[0])
 
     table.add("motor (PGA, 8f)", N, "apply", measure[apply_motor](3, 20), N)
@@ -115,23 +116,23 @@ def main() raises:
     table.add("mat4 (16f)", N, "compose", measure[compose_mat](3, 20), N)
 
     # --- skinning: per-vertex 2-bone blend + transform (DLB vs LBS) ---
-    var rest = List[Vec3](capacity=N)
+    var rest = List[SkinVert]()
     var ia = List[Int]()
     var ib = List[Int]()
     var wa = List[Real]()
-    var out = List[Vec3](capacity=N)
+    var out = List[SkinVert]()
     for i in range(N):
         rest.append(
-            Vec3(
+            SkinVert(Vec3(
                 Real(rng.next_f32()) * 2 - 1,
                 Real(rng.next_f32()) * 2 - 1,
                 Real(rng.next_f32()) * 2 - 1,
-            )
+            ))
         )
         ia.append(i % len(motors))
         ib.append((i * 7 + 3) % len(motors))
         wa.append(Real(rng.next_f32()))
-        out.append(Vec3(0))
+        out.append(SkinVert(Vec3(0)))
 
     @parameter
     def skin_m():

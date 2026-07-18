@@ -33,6 +33,18 @@ struct DiffState2[F: Field](Copyable, ImplicitlyCopyable, Movable):
     var vy: Self.F
 
 
+def _step2[F: Field](
+    mut s: DiffState2[F], gdt: F, drag: F, kdt: F, cdt: F, dtf: F
+):
+    s.vy = s.vy - gdt - drag * s.vy
+    s.vx = s.vx - drag * s.vx
+    if s.y.value() < 0:
+        # spring-damper penalty: fy = k·(−y) − c·vy
+        s.vy = s.vy + kdt * (F.zero() - s.y) - cdt * s.vy
+    s.x = s.x + s.vx * dtf
+    s.y = s.y + s.vy * dtf
+
+
 def rollout2[F: Field](
     vx0: F, vy0: F, y0: Real, steps: Int, dt: Real
 ) -> DiffState2[F]:
@@ -45,11 +57,26 @@ def rollout2[F: Field](
     var cdt = F.const(_C * dt)
     var dtf = F.const(dt)
     for _ in range(steps):
-        s.vy = s.vy - gdt - drag * s.vy
-        s.vx = s.vx - drag * s.vx
-        if s.y.value() < 0:
-            # spring-damper penalty: fy = k·(−y) − c·vy
-            s.vy = s.vy + kdt * (F.zero() - s.y) - cdt * s.vy
-        s.x = s.x + s.vx * dtf
-        s.y = s.y + s.vy * dtf
+        _step2(s, gdt, drag, kdt, cdt, dtf)
+    return s
+
+
+def rollout_ctrl[F: Field](
+    u: List[F], burst: Int, dt: Real
+) -> DiffState2[F]:
+    """N-parameter control rollout: len(u) horizontal thrust impulses, one at
+    the start of each `burst`-step window (same dynamics as `rollout2`).
+    This is the workload where the gradient-method costs separate: forward
+    differences pay N+1 rollouts, `DualBatch` ⌈N/4⌉ (lane cap), the reverse
+    tape ONE rollout regardless of N (ROADMAP 4.2)."""
+    var s = DiffState2[F](F.zero(), F.const(1.0), F.zero(), F.const(2))
+    var gdt = F.const(_G * dt)
+    var drag = F.const(_DRAG * dt)
+    var kdt = F.const(_K * dt)
+    var cdt = F.const(_C * dt)
+    var dtf = F.const(dt)
+    for k in range(len(u)):
+        s.vx = s.vx + u[k]
+        for _ in range(burst):
+            _step2(s, gdt, drag, kdt, cdt, dtf)
     return s
