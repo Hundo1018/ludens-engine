@@ -56,14 +56,14 @@ struct Backend[*CTs: ComponentType](Movable):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[ComponentStore[T]](1)
-            p.init_pointee_move(ComponentStore[T]())
+            p.unsafe_write(ComponentStore[T]())
             self.slots.append(p.bitcast[NoneType]())
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[ComponentStore[T]]()
-            p.destroy_pointee()
+            p.unsafe_deinit_pointee()
             p.free()
 
     @staticmethod

@@ -88,7 +88,7 @@ struct SetBuffer[*CTs: ComponentType](Movable, ImplicitlyDeletable):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[List[_SetRec[T]]](1)
-            p.init_pointee_move(List[_SetRec[T]]())
+            p.unsafe_write(List[_SetRec[T]]())
             self.slots.append(p.bitcast[NoneType]())
         self.order = List[Int]()
 
@@ -96,7 +96,7 @@ struct SetBuffer[*CTs: ComponentType](Movable, ImplicitlyDeletable):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[List[_SetRec[T]]]()
-            p.destroy_pointee()
+            p.unsafe_deinit_pointee()
             p.free()
 
     @staticmethod

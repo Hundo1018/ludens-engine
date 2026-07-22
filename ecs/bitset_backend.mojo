@@ -42,7 +42,7 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[List[Optional[T]]](1)
-            p.init_pointee_move(List[Optional[T]]())
+            p.unsafe_write(List[Optional[T]]())
             self.slots.append(p.bitcast[NoneType]())
         self.masks = List[List[UInt64]]()
         comptime for i in range(Self.N):
@@ -55,7 +55,7 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[List[Optional[T]]]()
-            p.destroy_pointee()
+            p.unsafe_deinit_pointee()
             p.free()
 
     @staticmethod

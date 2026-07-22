@@ -31,7 +31,7 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[SparseSet[T]](1)
-            p.init_pointee_move(SparseSet[T]())
+            p.unsafe_write(SparseSet[T]())
             self.slots.append(p.bitcast[NoneType]())
         self.alive = SparseSet[Int]()
         self.counter = 0
@@ -40,7 +40,7 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[SparseSet[T]]()
-            p.destroy_pointee()
+            p.unsafe_deinit_pointee()
             p.free()
 
     @staticmethod

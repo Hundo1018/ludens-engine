@@ -84,24 +84,24 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[SparseSet[T]](1)
-            p.init_pointee_move(SparseSet[T]())
+            p.unsafe_write(SparseSet[T]())
             self.slots.append(p.bitcast[NoneType]())
         self.alive = SparseSet[Int]()
         self.counter = 0
         self.groups = alloc[List[_Group]](1)
-        self.groups.init_pointee_move(List[_Group]())
+        self.groups.unsafe_write(List[_Group]())
         self.observers = alloc[List[_Observer]](1)
-        self.observers.init_pointee_move(List[_Observer]())
+        self.observers.unsafe_write(List[_Observer]())
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[SparseSet[T]]()
-            p.destroy_pointee()
+            p.unsafe_deinit_pointee()
             p.free()
-        self.groups.destroy_pointee()
+        self.groups.unsafe_deinit_pointee()
         self.groups.free()
-        self.observers.destroy_pointee()
+        self.observers.unsafe_deinit_pointee()
         self.observers.free()
 
     # --- push-based observers ---

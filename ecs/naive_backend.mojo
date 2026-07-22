@@ -31,7 +31,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[List[Optional[T]]](1)
-            p.init_pointee_move(List[Optional[T]]())
+            p.unsafe_write(List[Optional[T]]())
             self.slots.append(p.bitcast[NoneType]())
         self.live = List[Bool]()
         self.n_live = 0
@@ -40,7 +40,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[List[Optional[T]]]()
-            p.destroy_pointee()
+            p.unsafe_deinit_pointee()
             p.free()
 
     @staticmethod

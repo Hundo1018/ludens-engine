@@ -10,7 +10,7 @@ struct Foo(Copyable, Movable):
 
 def main() raises:
     var p = alloc[Foo](1)
-    p.init_pointee_move(Foo(7, 8))
+    p.unsafe_write(Foo(7, 8))
     print("foo =", p[].a, p[].b)
 
     # Erase to an untracked-origin opaque pointer (suitable as a struct field).
@@ -18,6 +18,6 @@ def main() raises:
     var q = op.bitcast[Foo]()
     print("via opaque =", q[].a, q[].b)
 
-    p.destroy_pointee()
+    p.unsafe_deinit_pointee()
     p.free()
     print("ptr probe PASS")
