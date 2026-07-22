@@ -443,7 +443,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 | Phase | 主題 | 項目 | 優先 | 狀態 |
 |---|---|---|:--:|:--:|
-| **7** | 可擴展性:接線既有寬相 | 7.1 SAH-BVH · **7.2 solver6 接寬相 ✅** | ★★★ | 🔨 7.2✅ |
+| **7** | 可擴展性:接線既有寬相 | **7.1 SAH-BVH ✅** · **7.2 solver6 接寬相 ✅** | ★★★ | ✅ |
 | **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 📋 |
 | **9** | 物理完整度 | 9.1 關節庫(limits/motor/spring/prismatic/weld) · 9.2 浮動基座 · 9.3 過濾層+sensor · 9.4 接觸事件 | ★★ | 📋 |
 | **10** | 穩健與排程 | 10.1 exact predicates/interval · 10.2 自動依賴 job graph · 10.3 Actor Model 硬化 | ★★ | 📋(10.3 有雛形) |
@@ -461,7 +461,23 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 ## Phase 7 — 可擴展性:接線既有寬相(2026-07-22)
 
-### 7.1 SAH-BVH(建樹啟發式:median vs SAH seam)— 📋 規劃中
+### 7.1 SAH-BVH(建樹啟發式:median vs SAH seam)— ✅ 2026-07-22
+> **進度**:✅ `geometry.bvh.BVH.build(sah=True)` — binned SAH(每軸 12 桶,前綴/後綴
+> area×count 掃最小 `SA(L)·|L|+SA(R)·|R|`,就地分割;退化 → median 回退)。median 為預設,
+> 遍歷碼(raycast/query_region)一行不動。新增 `cost()`(Σ 節點面積)與 `avg_leaf_depth()`。
+> `tests/test_sah.mojo` **5/5**:200 體群聚場景,SAH vs median **region-query 結果集相等**
+> (300 隨機盒)、**raycast 最近命中 proxy+t 相等**(300 隨機射線)、兩樹皆覆蓋全 200 proxy;
+> **SAH 樹緊 43%**(Σ 面積比 0.572)。
+> `bench_sah`:群聚 raycast **1.62×**(354 vs 573 ns/ray,緊樹多剪枝)、均勻 raycast **打平**
+> (615 vs 635 = **誠實行**:無空隙可利用,SAH 品質優勢消失)。
+> **意外發現(推翻計畫假設)**:SAH 建樹**反而更快**(群聚 2.13 vs 3.33ms、均勻 1.86 vs 3.64ms)——
+> 現有 median build 用**插入排序**(每節點 O(n²)),binned SAH 是 O(n) 分箱+分割 → SAH 在此
+> codebase 既更緊又更快建。計畫原寫「SAH 建樹較貴、有交叉點」不成立(median 的排序才是瓶頸;
+> 若 median 改 quickselect 會更快,但 SAH 的群聚查詢優勢不受影響)。
+> **誠實細節**:SAH 平均葉深略高(8.90 vs 7.72)—— median 完美平衡給最小深度,SAH 犧牲平衡
+> 換更緊包圍盒(沿空隙切),這正是遍歷成本的正確取捨,Σ 面積(非深度)才是真指標。
+> **後續**:solver6 broadphase(7.2)的每幀重建可改 `sah=True`(候選集相等 + solver 依 (i,j) 排序
+> → 仍逐位一致,且更快更緊);此處保守留 median,標為一行後續。
 > **動機/現況盤點**:靜態 BVH(`geometry/bvh.mojo`)目前以 **median-split along widest
 > centroid axis** 建樹(`_widest_axis`+`_sort_range`+取中位),**未用 SAH**。持久化
 > DBVH(`collision/bp_dbvh.mojo:37`)的**增量插入**已用 surface-area best-sibling 成本

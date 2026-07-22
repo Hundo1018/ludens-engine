@@ -199,6 +199,7 @@ run_bench() {
     run_bench benchmarks/bench_islands.mojo
     run_bench benchmarks/bench_colored.mojo
     run_bench benchmarks/bench_solver_scale.mojo
+    run_bench benchmarks/bench_sah.mojo
     echo "## Maturity assessment"
     echo
     echo "- **Every comparable-method seam has a benchmark row.** The seam / parity-test /"
