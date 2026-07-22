@@ -447,7 +447,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 | **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 📋 |
 | **9** | 物理完整度 | 9.1 關節庫(limits/motor/spring/prismatic/weld) · 9.2 浮動基座 · 9.3 過濾層+sensor · 9.4 接觸事件 | ★★ | 📋 |
 | **10** | 穩健與排程 | 10.1 exact predicates/interval · 10.2 自動依賴 job graph · 10.3 Actor Model 硬化 | ★★ | 📋(10.3 有雛形) |
-| **11** | 程序化與 gameplay | **11.1 Noise 家族 ✅** · 11.2 狀態機(FSM/HSM) · 11.3 動畫 runtime | ★★ | 🔨 11.1✅ |
+| **11** | 程序化與 gameplay | **11.1 Noise ✅** · **11.2 狀態機 ✅** · 11.3 動畫 runtime | ★★ | 🔨 11.1,11.2✅ |
 | **12** | 腳本層(架構分離,獨立) | 12.1 core embedding 邊界 · 12.2 Mojo/Python 雙腳本 | ★(gated) | ⏸ 等核心 API 穩定 |
 
 **相依骨牌**:7 是地基(SAH 品質在 solver 用寬相後才計入幀時);8.2 trimesh 依 8.1 的
@@ -631,11 +631,17 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **用途**:地形/heightfield(接 8.2)、程序紋理、動畫擾動。SIMD 批次採樣留後續優化。
 > **相依**:無。**註**:noise 非 seam 變體(無 parity 方格),故不入 CATEGORY §2,功能測試即交付。
 
-### 11.2 狀態機(FSM / HSM)— 📋 規劃中
-> **現況**:無。
-> **設計**:泛型有限狀態機 + 階層式(HSM,巢狀狀態 + 歷史);轉移條件、進入/離開/更新
-> 回呼、事件驅動;**決定性**。用於 AI、gameplay 邏輯、動畫狀態(接 11.3)。
-> **交付物**:`test_fsm`(轉移正確、HSM 巢狀進出序、事件觸發、雙次執行一致)。
+### 11.2 狀態機(FSM / HSM)— ✅ 2026-07-22
+> **進度**:✅ `scheduler/fsm.mojo` — 資料驅動階層狀態機(UML statechart 風味)。狀態成樹
+> (leaf/composite),轉移為 (from, event, to) 三元組;`fire(event)` 從當前 leaf **向上冒泡**
+> 找匹配轉移,再做 **LCA exit/enter**(退到最近共同祖先、進到目標、descend 進 initial/歷史子態)。
+> `is_in(s)` 對當前 leaf 及其所有祖先為真(`is_in(grounded)` 在 idle/walk/run 皆成立)。
+> **免 callback**:每次 `fire`/`start` 把退出/進入的狀態記入 `exited`/`entered`(caller 讀取)——
+> 觀察 enter/exit 動作而不需函式指標(Mojo 友善)。淺歷史(composite 記住 last-active 子態)。
+> `tests/test_fsm.mojo` **17/17**:平坦 FSM 轉移 + 未知事件 no-op、HSM 進 composite→initial 子態、
+> **JUMP 從 leaf 冒泡到 parent 轉移**、exit/enter 記錄序正確、**淺歷史恢復 last child**(非 initial)、
+> **同事件序列雙機同路徑**(決定性)。
+> **用途**:AI、gameplay 邏輯、動畫狀態(驅動 11.3)。**相依**:無。非 seam,功能測試即交付。
 
 ### 11.3 動畫 runtime(clip / blend / 狀態機驅動)— 📋 規劃中
 > **現況**:skinning 數學已有(motor DLB / LBS,修過 candy-wrapper),**缺 runtime**。
