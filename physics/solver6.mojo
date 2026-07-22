@@ -511,7 +511,10 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             for i in range(n):
                 boxes.append(self._fat_aabb(i, spec_dt))
                 proxies.append(i)
-            bvh.build_boxes(boxes, proxies)
+            # SAH build: the solver sorts candidates by (i,j) before use, so
+            # the heuristic can't change the pair order — still bit-identical
+            # to brute (test_solver_broadphase), and SAH is tighter + faster.
+            bvh.build_boxes(boxes, proxies, sah=True)
             for i in range(n):
                 var cand = List[Int]()
                 bvh.query_region(boxes[i], cand)
