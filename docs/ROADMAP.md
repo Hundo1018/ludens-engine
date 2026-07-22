@@ -447,7 +447,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 | **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 📋 |
 | **9** | 物理完整度 | 9.1 關節庫(limits/motor/spring/prismatic/weld) · 9.2 浮動基座 · 9.3 過濾層+sensor · 9.4 接觸事件 | ★★ | 📋 |
 | **10** | 穩健與排程 | 10.1 exact predicates/interval · 10.2 自動依賴 job graph · 10.3 Actor Model 硬化 | ★★ | 📋(10.3 有雛形) |
-| **11** | 程序化與 gameplay | 11.1 Noise 家族 · 11.2 狀態機(FSM/HSM) · 11.3 動畫 runtime | ★★ | 📋 |
+| **11** | 程序化與 gameplay | **11.1 Noise 家族 ✅** · 11.2 狀態機(FSM/HSM) · 11.3 動畫 runtime | ★★ | 🔨 11.1✅ |
 | **12** | 腳本層(架構分離,獨立) | 12.1 core embedding 邊界 · 12.2 Mojo/Python 雙腳本 | ★(gated) | ⏸ 等核心 API 穩定 |
 
 **相依骨牌**:7 是地基(SAH 品質在 solver 用寬相後才計入幀時);8.2 trimesh 依 8.1 的
@@ -616,14 +616,20 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 ## Phase 11 — 程序化與 gameplay 基礎建設(2026-07-22)
 
-### 11.1 Noise 家族 — 📋 規劃中
-> **現況**:無。
-> **設計**:`procedural/noise.mojo`(新套件)—— Perlin(gradient)、Simplex(用 OpenSimplex2
-> 避專利)、Value、Worley/cellular;fBm / turbulence / ridged 疊加;**seedable**(接
-> `scheduler/rng.mojo`,決定性)、1D/2D/3D、SIMD 批次採樣。
-> **交付物**:`test_noise`(範圍 [-1,1]、**seed 決定性**、平移連續性/無縫、梯度解析對照)
-> + `bench_noise`(每採樣 ns、SIMD vs scalar)。**用途**:地形/heightfield(接 8.2)、
-> 程序紋理、動畫擾動、粒子。**相依**:無(純程序,可先行)。
+### 11.1 Noise 家族 — ✅ 2026-07-22
+> **進度**:✅ 新 `procedural/` 套件 + `procedural/noise.mojo` —— `value3`、`perlin3`/`perlin2`
+> (gradient,Ken Perlin improved-noise 選擇子 + quintic fade)、`worley3`(cellular F1)、
+> `fbm3`/`fbm2`(分形疊加)。**純函式**:整數格點雜湊(xxhash 風味,無置換表/無 RNG 狀態)→
+> 跨執行/跨機器決定性。Simplex 跳過(專利+複雜,OpenSimplex2 留後續)。
+> `tests/test_noise.mojo` **11/11**:seed 決定性(同 seed 逐位相同、異 seed 去相關)、
+> 值域(perlin3 ∈[−0.78,0.75]、value3/fbm3 皆 ⊂[−1,1]、worley≥0)、**連續性**(跨格界最大
+> 一階差 0.012)、**梯度連續**(二階差 0.0006,quintic fade 給 C¹)、2D 路徑。
+> `bench_noise`:perlin2 11.3 / perlin3 26.7 / value3 12.6 / worley3 94.4(27 格搜尋)/
+> fbm 5-octave 68/134 ns/sample(scalar,~37M perlin3/s)。
+> **踩雷**:純函式 benchmark 被 DCE 消成 0 ns → 用 `std.benchmark.keep(acc)` 擋(bench_queries
+> 慣例);此 nightly `fn` 已移除,一律 `def`。
+> **用途**:地形/heightfield(接 8.2)、程序紋理、動畫擾動。SIMD 批次採樣留後續優化。
+> **相依**:無。**註**:noise 非 seam 變體(無 parity 方格),故不入 CATEGORY §2,功能測試即交付。
 
 ### 11.2 狀態機(FSM / HSM)— 📋 規劃中
 > **現況**:無。
