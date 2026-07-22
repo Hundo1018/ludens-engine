@@ -43,6 +43,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | `NarrowPhase`(boolean,含 CGA 代數路徑) | collision/narrowphase.mojo | 同一謂詞的解析 vs 代數實作 | `test_narrowphase` 系列、`test_cga_narrowphase`、`test_cga_plane` | `bench_collision` |
 | `ManifoldNarrowPhase`(AABB/SAT/OBB/GJK) | collision/manifold.mojo | 接觸謂詞的富化(點集+深度),normal/depth 與 boolean 路徑一致 | `test_manifold` | `bench_manifold` |
 | `SceneQuery`(brute/bvh/grid/tree) | collision/queries.mojo | 同一查詢謂詞的加速結構 | `test_queries` | `bench_queries` |
+| solver6 pair 收集 brute O(n²) vs BVH | physics/solver6.mojo(`_collect_pairs`) | 同一接觸對集合的加速枚舉;fat-AABB 保守超集 → 命中集相等、同序 → 逐位一致 | `test_solver_broadphase` | `bench_solver_scale` |
 | `Rng` | scheduler/rng.mojo | 種子單子(state monad)的可交換實作 | `test_rng` | `bench_rng` |
 | `for_each2` vs `query2+get/set` | ecs/storage.mojo | 同一態射的無配置實作 | `test_iter_parity` | `bench_ecs`(存取路徑 rows) |
 | `Body6`(quat+tensor vs motor/screw) | physics/rigid6.mojo | SE(3) 動力學的兩個表示函子,比 action 不比係數 | `test_rigid6`、`test_solver6` | `bench_rigid6` |

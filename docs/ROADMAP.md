@@ -11,6 +11,15 @@
 > observers + 延遲 set、4.5 bench_ga flake 根因)各節進度註見下;新增 6 個 seam
 > 變體皆附 parity test + benchmark row(CATEGORY.md §2 覆蓋矩陣)。stretch 項
 > (learned physics、GPU rigid)明確留待後續。
+>
+> **狀態(2026-07-19):Phase 6(soft body,6.1–6.12)全部完成** —— restitution、
+> 球/膠囊形狀、Featherstone 縮座標鏈、islands 平行、軟-剛 CCD、軟接觸摩擦、O(n) ABA、
+> 場景序列化、島內著色平行、樹狀關節,皆附自驗 gate + 誠實行。wgpu-mojo 依賴解除、
+> `pixi run` 復活。
+>
+> **重整(2026-07-22):物理演算法核心已達競爭級 —— 焦點轉向「接線 + 表現力 +
+> gameplay/程序化基礎 + 分離的外殼」。** 前瞻路線見下方 [前瞻路線總覽](#前瞻路線總覽2026-07-22-重整)
+> (Phase 7–12)。
 
 ---
 
@@ -234,3 +243,393 @@ Phase 4(4.0 先行、其餘可並行):
 3.3 relations/commands ──► 4.4 observers + 延遲 set          4.5 flake 根因(背景)
 ```
 
+
+---
+
+## Phase 6 — Soft body(2026-07-13 使用者定向:技術續推)
+
+### 6.1 CPU XPBD 體積軟體 + 剛體雙向耦合
+> 進度:✅ 2026-07-13 `physics/softbody.mojo` — `SoftBody.box_lattice`(n³ 粒子、13 方向鄰接
+> 距離約束 = 結構+面對角+體對角提供剪切剛度)、真 XPBD(每子步 λ 累積、compliance α 時步無關、
+> `damp` 為材質屬性);`ContactScene6._softbody_pass` 接進 soft-step 子步(剛體 pose 積分後):
+> predict → Gauss-Seidel 邊約束 → 粒子對每個 box 的當前姿態局部座標推出(最小穿透軸)→
+> **雙向耦合**(推出量 × m_p/h 等效衝量回饋動態剛體 + 喚醒睡眠體)→ 位置導速度。
+> `tests/test_softbody.mojo` **11/11**:落地靜置(粒子不穿地、settles)、雙次執行 bit-identical、
+> 剛度排序(α 1e-6 高 0.599 vs 3e-2 高 0.576)、**零重力動量守恆 0.03%**(damp=1 隔離耦合本身:
+> 4.0 → 0.471+3.530)、剛體騎乘軟墊(縫隙=粒子半徑、載重路徑下沉 4.1mm、未壓扁)。
+> 校準記錄:XPBD 尺度 α̃=α/h² 需與 Σw⁻¹≈64 同階才進「軟」區(α≥1e-2 = 果凍;1e-3 = 承重海綿);
+> `top_y()` 量的是未受載角柱,壓縮 gate 須量載重路徑(rider 下沉)。
+> 已知限制(誠實):軟-剛無 CCD(rider 每幀位移 > 粒子半徑會鑽晶格);單一實作無 seam 變體
+> (benchmark 法則不適用,成本 row 留待有第二實作時);無 GPU 版(gpu_cloth 機制可移植)。
+> ⚠ 環境懸案:`pixi run` 目前因 wgpu-mojo git 依賴的 build backend 解析失敗
+> (pixi-build-api-version 無候選)而不可用;workaround = 直接 activate env
+> (`PATH=.pixi/envs/default/bin` + source `activate.d/10-activate-max.sh`),引擎建置測試不受影響。
+
+### 6.2 Restitution(彈性碰撞 — README「Honest status」第一洞)
+> 進度:✅ 2026-07-19 Box2D v3 式:`_collect_pairs` 於 prep 擷取逐點逼近速度 vn0(不隨 warm-start
+> 繼承,每幀新鮮);子步迴圈後專屬 `_restitution_pass`(門檻 1 m/s、目標 vn=−e·vn0、獨立
+> clamp≥0 累積器);`set_restitution(i,e)` 逐體設定、pair 取 max。`tests/test_restitution.mojo`
+> **7/7**:e=0.8 首彈頂點 0.582(解析 e²=0.64,離散衝擊損耗 9%)、e=0.4 → 0.144/0.16、
+> e=0 死落(回歸守衛)、連續頂點衰減比 0.599、bit-identical。全套無回歸(預設 e=0 行為不變)。
+
+### 6.3 Sphere / Capsule 形狀入 solver(脫離 box-only)
+> 進度:✅ 2026-07-19 `collision/manifold.mojo` 增形狀對 manifold:sphere-sphere/sphere-box
+> (中心在內時最小軸推出)/capsule-box(段-OBB 最近點 = 凸距離**三分搜尋** 40 迭代,決定性;
+> 端點探針最多 2 接觸點)/capsule-capsule(段-段最近點閉式)/capsule-sphere;
+> `ContactScene6` 增 `shape` kind 清單 + `add_sphere`/`add_capsule` + `_pair_manifold` 派發
+> (kind 正規化 + normal 翻轉);`Inertia3.capsule`(圓柱+半球標準公式)。錨點/warm-start/
+> 摩擦/restitution/睡眠機制全形狀通用、零改動。`tests/test_shapes6.mojo` **10/10**:
+> 球靜置 y=0.2997(r=0.3)且入睡、球彈跳 apex 0.582(與 box restitution 同值)、
+> **球-球對撞動量均分 1.49999/1.50001**、capsule 翻倒躺平 y=0.1996 軸水平 6e-6、
+> 球站 box 頂不滑(x=1.3e-5)、bit-identical。全套無回歸。
+> 限制:soft-vs-sphere/capsule 耦合未做(softbody pass 跳過非 box);swept TOI 仍 box-only
+> (ccd=True 場景勿混形狀)。
+
+### 6.4 縮座標關節鏈(Featherstone 方向,CRBA+RNEA 切片)
+> 進度:✅ 2026-07-19 `physics/chain.mojo` — 串聯 revolute 鏈的縮座標動力學:CRBA 質量矩陣 +
+> RNEA 偏置力,全程用**緊湊空間慣性 {m, h, I₀}**(串鏈的剛體與複合慣性都封閉於此形式,
+> 全程免 6×6);FK 走純 motor 合成(GA 命題「Featherstone 空間向量即 motor」字面兌現);
+> 部分主元高斯求解。`tests/test_chain.mojo` **8/8**:單擺週期 1.6400 vs 解析 1.6392(0.05%)、
+> 大擺幅能量漂移 0.26%、**混沌雙擺 5 秒能量漂移 1.4e-4**、bob 擺 2.0383 vs 解析 2.0367 vs
+> maximal-coordinate 實測 2.050(**兩形式經共享解析互驗**)、bit-identical。
+> `benchmarks/bench_chain.mojo`(法則 row):**reduced n=8 3.1µs vs maximal 140µs/step(45×)**、
+> n=16 34×。
+> 除錯記錄(三個解析檢查點的教科書式定位):H 精確、重力偏置精確、Coriolis 錯 → 鎖定
+> `_rot_rows` **轉置反了**(basis 影像即 R 的行 = Rᵀ 的列,毋須再轉置;單擺 z 旋轉下 w 不變
+> 故隱形,先前的「重力符號修正」實為遮掩)— 修正後雙擺漂移 159% → 1.4e-4。
+> 另:`dynamics()` 內六個裸 `List[Vec3]` 觸發 teardown 當機(已知陷阱再現)→ `_LV` 包裝,
+> bench 3/3 乾淨。O(n) ABA 與樹狀拓撲留後續。
+
+### 6.5 Islands 平行化(多執行緒 solver)
+> 進度:✅ 2026-07-19 `step_soft(parallel=True)` — pairs 依島重排為連續區段、joints 依島過濾、
+> `_solve_island` 把整個子步迴圈限定在單島(重力/warm start/joint/soft/pose/relax/restitution),
+> `parallelize` fan-out(自由函式包裝 + `@parameter` 隱式捕獲 — 顯式 `{}` 捕獲清單此 nightly
+> 不可解析,記入陷阱)。島互不共享 → **平行 vs 串行 bit-identical**(`test_islands_par` 5/5:
+> 位置/旋轉/睡眠逐位相同、6 島場景、四塔全穩)。
+> `benchmarks/bench_islands.mojo`(法則 row):16 島 **1.52×**(177 vs 270µs/step);
+> 誠實行:單大島平行反慢 1.37×(執行緒開銷,無可攤提 — 與 scheduler bench 既有結論一致)。
+> 限制:soft bodies 或 ccd=True 時退回串行;島內仍為順序 Gauss-Seidel(單島平行需著色,留後續)。
+
+### 6.6 軟-剛 CCD(粒子掃掠 vs 盒)
+> 進度:✅ 2026-07-19 `_softbody_pass(ccd=True)` — 粒子 prev→x 線段在盒**當前**局部座標系做
+> slab 掃掠;相對運動 = 粒子起點先平移盒自身子步位移 **+v·h**(對 integrate_pose 精確;
+> 旋轉忽略,一階掃掠)。兩個非顯然的坑:(1) 兩端都用當前姿態變換會**抵消盒自身位移**
+> (快盒撞慢粒子完全掃不到 — 主案例!);(2) 單子步穿越中平面的粒子會被離散 min-pen 從
+> **遠面**彈出 → 掃掠必須**優先於**離散分支且入口側符號取自 **lp0**(穿越後 lp 已在出口側)。
+> 閘門 `|dv| > r` 保慢速路徑逐位不變;t_in≥0(非 >0)允許貼面粒子重入。
+> `tests/test_softccd.mojo` **6/6**:子彈方塊 120 m/s vs 薄牆(每子步 0.5m > 充氣厚 0.12m,
+> 對照組 64 粒全穿 x=9.2;ccd 全數擋下 x=−0.86)、**40 m/s 薄板**(4cm 厚,每子步行程 16.7cm
+> > 充氣厚 14cm:對照組無感切穿到地板 min_bot=−0.094,ccd 被方塊接住 0.308 且方塊存活)、
+> 慢場景 ccd on/off **bit-identical**(零回歸)。
+> 發現:厚盒(40cm)在 ≤60 m/s 相對速度下掃掠與離散**可證明同值**(同面同符號同夾值)——
+> slam 實測逐位相同;軟-剛 ccd 的判別域是薄特徵與極端速度。
+> 限制:sphere/capsule 剛體不掃(同耦合缺口);盒旋轉忽略(一階)。
+
+### 工具鏈 2026-07-19:Mojo nightly 升級 + pixi 修復
+> ✅ Mojo **1.0.0b3.dev2026071006 → 1.0.0b3.dev2026071805**、wgpu-mojo 推至最新 rev、全依賴
+> 更新;69 測試檔全綠。使用者政策:**專案不鎖版本,每次都升級**。
+> API 更名批次處理:`destroy_pointee`→`unsafe_deinit_pointee`、`init_pointee_move`→`unsafe_write`;
+> 未處理 deprecation:參數慣例 `read`→`imm`(仍為警告)。
+> 新編譯器行為:precompile 會**先建立輸出檔再解析 import** → 套件內絕對自我匯入經 -I 撞到
+> 半寫/過期 .mojoc(magic bytes 錯)→ `build_engine.sh` 改 staging 目錄 + 完成後搬移。
+> pixi run 壞因根治:isolated backend solve 對 `pixi-build-mojo 0.1.*` 的 `pixi-build-api-version`
+> 無候選(0.1.x 舊建置的依賴鏈斷);**上游一行修復已實證**(wgpu-mojo pixi.toml:backend
+> version `"0.1.*"` → `"0.2.*"`,path-dep 實驗免 override 全綠)。上游修復前的過渡:
+> `pixi global install pixi-build-mojo -c https://repo.prefix.dev/pixi-build-backends -c conda-forge`
+> 後以 `PIXI_BUILD_BACKEND_OVERRIDE="pixi-build-mojo=$HOME/.pixi/bin/pixi-build-mojo"` 前綴
+> pixi 指令。
+
+### 6.7 Soft-vs-sphere/capsule 耦合(補 softbody pass 的形狀缺口)
+> 進度:✅ 2026-07-19 `_softbody_pass` 不再跳過 shape≠0:球=最近內點徑向推出、膠囊=世界軸段
+> 最近點作球處理,衝量回饋與 box 路徑同式。ccd 掃掠=線段 vs 充氣球二次式(最早根 ∈[0,1]、
+> 起點須在外),**掃掠優先於徑向推出**(單子步穿中平面會被徑向彈出遠側 — box 的中平面陷阱
+> 在球形狀的鏡像,實測 200 m/s 下先離散後掃掠會漏);膠囊 ccd 用當前位置最近點球一階近似。
+> `tests/test_softcouple.mojo` **13/13**:球/膠囊圓丘 drape 逐幀 min gap −3e-8(全程零穿透)、
+> 零重力動量守恆 **1.9996/2.0(0.02%)**、相位精算 200 m/s 彈丸(子步行程 0.83m > 充氣弦 0.7m,
+> 起點調至離散取樣全跳)— 對照組穿越 x=14.5,ccd 兩形狀皆擋(−0.17/−0.66)。全套無回歸。
+> 誠實記錄:粒子-形狀接觸**無摩擦**(純法向推出)→ 圓丘為不穩定平衡,方塊滑至丘緣停住
+> (兩場景決定性同軌跡)— 對目前模型是正確物理;軟接觸摩擦留後續。
+
+### 6.8 O(n) ABA(關節化剛體演算法)
+> 進度:✅ 2026-07-19 `Chain.dynamics_aba`/`step_aba` — Featherstone RBDA 7.3 三趟掃描:
+> 外掃(速度+關節偏置 c+速度積偏置力 p)、內掃(關節化慣量 + U Uᵀ/d 投影 + 偏置力回推)、
+> 外掃(加速度+qdd)。U Uᵀ/d 破壞緊湊 {m,h,I₀} 形式 → 新 `_ABI`(對稱 6×6 分塊 [[A,B],[Bᵀ,D]]),
+> 平移共軛 shift 手推:A′=A₁−B₁P+PB₁ᵀ−PD₁P、B′=B₁+PD₁、D′=D₁(P=[pivot]×,先旋後移,
+> 與 dynamics() 力回推同構)。
+> `tests/test_aba.mojo` **3/3**:vs dense CRBA+RNEA 逐點 parity(混軸混質量鏈 n=1–6,
+> 最壞相對誤差 **4.3e-6**,f32 舍入級;軌跡逐步比對 200 步同階)、垂懸靜止鏈 qdd **精確 0**、
+> test_chain 同款雙擺 step_aba 能量漂移 0.29%(同 2e-2 gate,且用更粗步長)。
+> `bench_chain` 法則 rows:n=4 dense 贏(1.66 vs 1.80µs)、n=8 dense 贏(2.98 vs 3.82µs,
+> 誠實行:ABA 常數大)、n≈16 交叉(7.61 vs 7.90µs)、**n=64 ABA 3.5×**(103.5 vs 29.8µs/step,
+> 三次方 vs 線性肉眼可見)。
+> 測試校準教訓:能量 gate 場景必須與 test_chain 同構 —— q0=2.0 過頂甩鞭(qd±17 rad/s)在
+> dt=1/240 下 dense 與 ABA **同樣**漂移 113%(積分器解析度問題,非演算法錯;兩者末能量
+> −10.186 vs −10.192 幾乎同軌跡)。樹狀拓撲與浮動基座留後續。
+
+### 6.9 軟接觸摩擦(位置級 Coulomb 錐)
+> 進度:✅ 2026-07-19 `SoftBody.mu`(預設 0.5)+ `_soft_fric` — 切向滑移(粒子子步位移 −
+> 接觸點體速×h)夾制於 μ×法向修正:錐內全抓(靜摩擦)、錐上滑動;修正折入目標點,
+> 耦合衝量自動帶切向反作用(等大反向 → 動量守恆由構造保證)。三個接觸尾端全接:box
+> (面法向 = 單位局部偏移的 act 差分)、球/膠囊(徑向)。位置級錐比例與力級同縮放(皆 h²)
+> → 解析斜坡 gate 成立。
+> `tests/test_softfriction.mojo` **6/6**:15° 坡(tan=0.27<μ)drift **6.6e-7**(對照 μ=0:88.98,
+> 滑落墜出)、35° 坡(tan=0.70>μ)超錐滑動 103.8、6.7 的圓丘蠕滑 0.397 → **0.050**(釘住)、
+> 斜掠零重力撞自由球動量 px 2.0003 / py −9e-5。
+> 回歸調整:softcouple 彈丸 gate 由「停在接近側」改為「停在形狀近域 + 不穿入表面」——
+> 摩擦讓 200 m/s 彈丸抓面後**繞球擺到遠側表面**(x=0.339≈rr,min dist 0.330>0.315,合法
+> 物理,非穿隧;對照組仍 14.46)。全套綠。
+
+### 6.10 場景序列化(精確存檔/載入)
+> 進度:✅ 2026-07-19 `physics/serialize.mojo` — `scene_to_string`/`scene_from_string`
+> (ContactScene6[QuatBody6]):版本標記 + 純整數 token 流,**浮點以 f32 位元模式存**
+> (`to_bits`/指標 bitcast 還原,無十進位往返損失)。逐位續跑的必要條件是把**所有動力學
+> 狀態**入格式:跨幀 warm-start cache(_CPair 衝量累積器 + manifold + body-frame anchors +
+> vn0/racc)、joint 累積器、sleep timer、軟體粒子/邊/材質;islands 每步重算免存。
+> `tests/test_serialize.mojo` **5/5**(混合場景:塔+球關節擺+彈球+靜態膠囊+軟方塊,300 幀後
+> 存檔):save→load→save **byte-identical**(blob 20KB)、載入後續跑 100 幀剛體 pos/q/vel/omega
+> **bit-identical**、睡眠狀態相同、軟粒子相同、塔穿越存讀仍站立。全套綠。
+> nightly 陷阱補記:`len(String)` 被禁(UTF-8 歧義)→ `byte_length()`;`bitcast` 無頂層函式 →
+> `f.to_bits()` + `UnsafePointer(to=u).bitcast[Float32]()[]`;`atol` 是 builtin(std.strings 不存在)。
+> 限制:綁定 QuatBody6(ScrewBody6 場景需對應變體);格式 v1 無向後相容承諾。
+
+### 6.11 島內著色平行(單大島的約束圖著色)
+> 進度:✅ 2026-07-19 `step_soft(colored=True[, parallel=True])` — 貪婪最小空色著色
+> (位遮罩;**靜態體不入鄰接** — 否則一塊地板把全場串成一色鏈),pairs 重排為連續色段;
+> `_soft_sweep` 的 pair 本體抽出為 `_solve_pair`(平凡路徑逐位不變),`_sweep_colored` 色內
+> `parallelize`、色間順序。同色 pair 不共享動態體 → 寫入不相交 → **排程決定性**:兩次執行
+> 逐位相同、colored 串行==平行逐位相同(`test_colored` 6/6);地面-only 場景單色且與平凡 GS
+> 逐位相同(解析 gate)。金字塔(單島)colored vs 平凡 GS 位置差 1.4mm、塔頂沉降高度精確。
+> **關鍵發現(除錯記錄)**:colored 排程打斷平凡序的「波前」傳播(由下而上逐排),iters=4 時
+> 殘餘抖動 ~1cm/s 騎在睡眠門檻上 → **島永不入睡**(bench 首輪 3× 假性劣化全是睡眠差);
+> iters=8 品質恢復(比平凡更早入睡,f=60 vs f=120)。relax 排程無關(實測)。
+> `bench_colored`(法則 rows,STEPS=60 活躍沉降段):120 盒單島 — 排程本身 0 成本
+> (4.65 vs 4.63ms)、同工作量平行 **1.66×**(2.79ms)、品質對齊行 it8 **1.21×** 淨賺(3.83ms,
+> 可入睡);誠實行:21 盒 fan-out 反慢 1.78×。
+> 使用指引:colored 適用「大且持續活躍」的單島(destruction 堆、料堆);會靜置的場景用
+> 平凡 GS(睡眠紅利 ≫ 平行紅利)或 colored+iters≥8。
+
+### 6.12 樹狀拓撲(分支關節樹/森林)
+> 進度:✅ 2026-07-19 `Chain.parent`(-1=根;append 序保證父先於子)+ `add_link_to(p, link)` —
+> fk/dynamics(CRBA+RNEA)/dynamics_aba/energy 全面改父索引:前向掃描按父索引讀、後向
+> 掃描推入 `parent[i]`、H 矩陣沿父鏈上行;串鏈=parent i-1 特例。
+> `tests/test_tree.mojo` **5/5**:顯式父鏈 vs add_link **bit-identical**(dense 與 ABA 皆是)、
+> 森林雙根 == 兩條獨立鏈(逐位)、**Y 樹(軀幹+雙臂,混軸)ABA vs dense parity 2.1e-7**、
+> 垂懸 Y 樹 qdd 精確 0、擺動 Y 樹能量漂移 1.19%(dt 減半漂移減半 → 一階積分器歸因,
+> 非動力學誤差)。既有 chain 8/8 / aba 3/3 逐位不變(能量數字與樹化前完全相同)。
+> 限制:浮動基座(6-DOF 根關節,完整 ragdoll)留後續;僅 revolute 關節。
+
+### 工具鏈:解除 wgpu-mojo 依賴(2026-07-19,使用者指示)
+> ✅ 移除 pixi.toml git dep、刪 `examples/08_wgpu_motor_skinning.mojo`(糖果紙效應的 CPU 版
+> 演示與機器可驗證證據完整保留於 examples/07 與 ROADMAP 3.4 記錄)。lock 重解成功,
+> **`pixi run` 復活**(build/test/examples 全綠,不再需要環境 override workaround)。
+> 核心零觸點確認:physics/collision/ecs/geometry/tests/benchmarks 無任何 wgpu 引用 ——
+> 渲染屬外部分層(架構分離定律)。遺留:`systems/renders/renderer.mojo`(1 行 import stub,
+> 不在建置內)、`systems/renders/legacy_renderer.*` + `systems/input/input.py`(Python wgpu-py
+> interop 舊碼,與 wgpu-mojo 無關,不在建置內)—— 待使用者決定去留。
+
+## 前瞻路線總覽(2026-07-22 重整)
+
+物理**演算法**核心已達競爭級:角動力學、sub-stepped soft solver、CCD、islands/sleeping/
+warm-start、soft body + 雙向耦合、可微模擬(reverse tape)、GPU 布料、持久化寬相 DBVH、
+EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmark。**當下瓶頸不再是
+演算法,而是四件事**:
+
+- **(A) 接線** —— 既有寬相(DBVH/hashgrid/BVH)未接進生產 6-DOF solver(仍 O(n²))。
+- **(B) 表現力** —— 只能碰 box/sphere/capsule;無任意凸包、無三角網格/heightfield 靜態關卡。
+- **(C) gameplay/程序化基礎** —— 無狀態機、無 Noise、無動畫 runtime、Actor Model 未硬化。
+- **(D) 外殼** —— 腳本等需按架構分離另立,核心 API 穩定後才動。
+
+優先序 = **槓桿**(接線既有零件 ＞ 新能力 ＞ 外殼)。六階段:
+
+| Phase | 主題 | 項目 | 優先 | 狀態 |
+|---|---|---|:--:|:--:|
+| **7** | 可擴展性:接線既有寬相 | 7.1 SAH-BVH · **7.2 solver6 接寬相 ✅** | ★★★ | 🔨 7.2✅ |
+| **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 📋 |
+| **9** | 物理完整度 | 9.1 關節庫(limits/motor/spring/prismatic/weld) · 9.2 浮動基座 · 9.3 過濾層+sensor · 9.4 接觸事件 | ★★ | 📋 |
+| **10** | 穩健與排程 | 10.1 exact predicates/interval · 10.2 自動依賴 job graph · 10.3 Actor Model 硬化 | ★★ | 📋(10.3 有雛形) |
+| **11** | 程序化與 gameplay | 11.1 Noise 家族 · 11.2 狀態機(FSM/HSM) · 11.3 動畫 runtime | ★★ | 📋 |
+| **12** | 腳本層(架構分離,獨立) | 12.1 core embedding 邊界 · 12.2 Mojo/Python 雙腳本 | ★(gated) | ⏸ 等核心 API 穩定 |
+
+**相依骨牌**:7 是地基(SAH 品質在 solver 用寬相後才計入幀時);8.2 trimesh 依 8.1 的
+凸包/narrowphase 泛化(三角 = 退化凸包)、依 7.1(三角 BVH 用 SAH);9 各項大致獨立可並行;
+11.3 動畫依 11.2 狀態機;**12 gated on 核心 API 凍結**(架構分離定律,使用者確認後才實作)。
+
+**架構定律 v2 貫穿**:seam 變體(7.1、7.2、10.1)附 parity 方格 + benchmark;新能力
+(8.x、9.x、11.x)附功能測試 + 有效能主張處的 benchmark;每項的交付物列於各節。
+
+---
+
+## Phase 7 — 可擴展性:接線既有寬相(2026-07-22)
+
+### 7.1 SAH-BVH(建樹啟發式:median vs SAH seam)— 📋 規劃中
+> **動機/現況盤點**:靜態 BVH(`geometry/bvh.mojo`)目前以 **median-split along widest
+> centroid axis** 建樹(`_widest_axis`+`_sort_range`+取中位),**未用 SAH**。持久化
+> DBVH(`collision/bp_dbvh.mojo:37`)的**增量插入**已用 surface-area best-sibling 成本
+> (SAH 近親,Box2D dynamic-tree 式),但那是逐次插入、非整樹最佳化。`AABB.surface_area()`
+> (`geometry/aabb.mojo:51`,docstring 已標「the SAH cost metric」)成本度量現成、只用在測試。
+> 缺口 = **靜態整樹 SAH 建構**。
+>
+> **設計**:BVH 建樹加 `median`(現況)vs `sah` 變體。SAH 用 **binned SAH**(每軸 12–16 桶,
+> 累積前綴/後綴 area×count,掃最小 `SA(L)·|L| + SA(R)·|R|` 切面;免每軸全排序 → O(n) per level)。
+> 介面選項:`build(..., heuristic: BuildHeuristic = Median)` 執行期參數(對齊 backend 慣例,
+> 不新增型別)。葉節點閾值(leaf ≤ K prim)與遍歷碼(raycast/query_region/self-pairs)完全不動。
+>
+> **架構定律 v2 交付物**:
+> 1. **Parity(自然性方格)**:SAH 樹與 median 樹對同一謂詞**結果集相等** —— region query
+>    命中集合、raycast 最近命中、self-pair 集合三者逐一相等(兩者皆為同一 overlap/ray 謂詞的
+>    精確加速結構,只有樹品質/遍歷成本不同)。「先 SAH 建再查 = 先 median 建再查」。
+>    測試:擴充 `test_bvh` —— 隨機場景(均勻/群聚/尺寸混合)下 SAH vs median 結果集斷言相等 +
+>    SAH 樹的葉節點覆蓋 == 輸入 proxy 集合。
+> 2. **Benchmark**(兩軸,`bench_queries` 現有 harness):
+>    - **建樹成本**:median 插入排序 vs binned SAH,ns/build vs n。
+>    - **樹品質 + 查詢成本**:總 SAH 成本 Σarea(node)、平均葉深、實測**每查詢訪問節點數**與
+>      ns/raycast、ns/overlap;median vs SAH,**掃描場景分布** —— 均勻分布(median 有競爭力 →
+>      誠實行)vs 群聚/非均勻/尺寸差異大(SAH 應勝)。
+> 3. **CATEGORY.md §2 新列**:`BVH 建樹啟發式 median vs SAH | geometry/bvh.mojo | 同一謂詞加速
+>    結構的建構品質變體;結果集相等 | test_bvh(SAH parity) | bench_queries(建樹+查詢兩軸)`。
+>
+> **誠實準則(預先聲明)**:(a) SAH 的贏面**依場景分布與每幀查詢數**;每幀重建下建樹成本會被
+> 計入,SAH 建樹較貴 → 存在**交叉點**(每幀查詢少 → median 整體更省;查詢多 → SAH 攤提回本),
+> benchmark 必須報這條交叉曲線而非只報樹品質。(b) 公平比較 = **比 action(查詢一次的攤提總成本
+> = 建樹/查詢次數 + 每查詢成本)**,同 leaf 閾值、同場景;不在均勻分布上宣稱 SAH 勝。
+>
+> **範圍界線**:只動靜態 BVH 建樹;DBVH 增量插入既有 surface heuristic 不變(正交)。不做
+> spatial split(SBVH)、不做 GPU 建樹 —— 若 binned SAH 已足,留為後續。
+>
+> **相依**:無(純 `geometry/bvh.mojo` 內部 + test/bench)。可獨立於 Phase 6 後續(浮動基座等)推進。
+
+### 7.2 solver6 接寬相(生產 solver 脫離 O(n²))— ✅ 2026-07-22
+> **進度**:✅ `_collect_pairs(use_bp=True)` — 每幀重建 `geometry.bvh.BVH[3]` over 各體
+> **fat 世界-AABB**(`_fat_aabb`),取代 O(n²) 雙迴圈;逐對邏輯抽為 `_try_pair`,brute 與
+> broadphase **共用同一函式** → parity 白送。`step_soft(broadphase=True)` 開關(預設關 = 零回歸)。
+> **parity 論證(關鍵)**:fat 半徑 `r_i = SPEC_BASE/2 + |v_i|·spec_dt`,使 **r_i + r_j ≡ pair
+> speculative margin**(逐軸精確);AABB 重疊只看兩者膨脹量之**和** → fat-AABB 重疊 ⟺ 膨脹
+> tight-AABB 重疊 ⊇ 膨脹 OBB 重疊 → 命中集**不變**;候選以相同 (i,j) 字典序發出 → Gauss-Seidel
+> 逐位相同。
+> `tests/test_solver_broadphase.mojo` **4/4**:混合場景(5 塔 + 球關節擺 + 彈球 + 靜態膠囊,
+> 全形狀)400 幀 brute vs bvh **bit-identical**(pos/q/vel/omega/sleep 逐體零差)、接觸對數相同、
+> 塔站立、**30 m/s 快落體(speculative margin)亦逐位相同**(fat 半徑隨 |v| 放大有捕捉)。全套零回歸。
+> `bench_solver_scale`(分離小塔格,多數對為非鄰居):N=8 打平(**誠實行**:BVH 建樹開銷在小
+> 場景可忽略)→ N=128 **1.27×**(1.16 vs 1.47ms/step)→ N=288 **1.47×** → N=512 **1.76×**
+> (6.25 vs 10.96ms);gap 隨 N 單調擴大 = O(n²)→O(n log n) 漸近。
+> **誠實記錄**:幅度溫和因 pair 收集每幀一次、而 solve 是 16 sweeps/幀 —— broadphase 消掉
+> O(n²) **項**,常數因子的 solve 在 N 大前仍主導,故小 N 打平、大 N 才顯著。
+> **限制/後續**:每幀**重建** BVH(非增量);持久化 DBVH(`bp_dbvh`,增量 refit)接入是下一步
+> 優化;warm-start 的 by-(a,b) 匹配仍 O(pairs×cache),大 N 需改雜湊查找。7.1 SAH 建樹品質
+> 現在才真正計入幀時(協同成立)。broadphase 與 parallel/colored 正交(收集在前、分島在後)。
+
+## Phase 8 — 幾何表現力:跳出盒子(2026-07-22)
+
+### 8.1 凸包碰撞入 narrowphase(quickhull → manifold)— 📋 規劃中
+> **現況**:`geometry/quickhull.mojo` 存在但未接 collision;GJK/EPA(含 3D witness points)
+> 已備。narrowphase 僅 box/sphere/capsule。
+> **設計**:凸包形狀入 `shape` 派送 + manifold:GJK 布林 → EPA 深度/法向 → 接觸點(EPA
+> witness 或增量 clip)。`ContactScene6` 加 `add_hull`。
+> **交付物**:
+> - **Test**:`test_hull_manifold` — 凸包 vs 凸包/box 的深度/法向 vs 解析(對稱構型)、
+>   退化(面-面、邊-邊)接觸點數;**盒子特例下與既有 box-box SAT manifold 一致(parity)**。
+> - **Benchmark**:`bench_manifold` 加 hull rows(GJK+EPA vs SAT box-box 同 pair 對照;
+>   誠實:hull 較貴,只在需要任意凸體時用)。
+> **相依**:8.2 的三角形即退化凸包,復用此路徑。
+
+### 8.2 三角網格 / heightfield 靜態關卡幾何 — 📋 規劃中
+> **現況**:全庫無 trimesh/heightfield —— **無法表示任意靜態關卡(table-stakes)**。
+> **設計**:靜態三角網格(BVH over triangles,復用 `geometry/bvh` + 7.1 SAH)+ heightfield
+> (規則網格取樣、隱式三角化);動態凸體 vs 三角形接觸(復用 8.1 GJK/EPA);**中相(midphase)**
+> 以 BVH 只取重疊三角,避免逐三角暴力。
+> **交付物**:
+> - **Test**:`test_trimesh` — 盒/球落斜三角面、階梯、heightfield 谷,靜置深度/法向正確、
+>   不穿透、決定性;**凸體 vs 單三角 == 8.1 退化凸包路徑(parity)**。
+> - **Benchmark**:`bench_trimesh` — N 動態體對 M 三角網格,midphase BVH 命中三角數 vs brute。
+> **相依**:8.1(三角=退化凸包)、7.1(三角 BVH 用 SAH)。
+
+## Phase 9 — 物理完整度(2026-07-22)
+
+### 9.1 關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)— 📋 規劃中
+> **現況**:`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接。
+> **設計**:hinge/prismatic 加下上限(單邊不等式,錐外投影)、馬達(目標速度 + 力矩上限)、
+> 軟約束彈簧(復用 soft coefficient)、weld(6-DOF 剛接)、cone-twist(ragdoll 肩髖);
+> 全走既有 soft substep sweep,warm-start 累積器擴充。
+> **交付物**:`test_joints_ext`(限制擋停解析角、馬達達速、彈簧頻率、weld 剛度、**能量不注入**)
+> + bench row(關節種類 × 迭代)。**相依**:9.2 浮動基座 ragdoll 需 cone-twist。
+
+### 9.2 浮動基座關節(完整 ragdoll)— 📋 規劃中
+> **現況**:`chain.mojo` 固定基座;完整 ragdoll 需 6-DOF 自由根(已於 6.8/6.12 記為後續)。
+> **設計**:根連桿 6-DOF(3 平移 + 3 旋轉廣義座標,或 motor 根);CRBA/RNEA/ABA 三路徑的
+> 根項推廣(Featherstone floating-base,H 左上 6×6 塊、根空間慣量)。
+> **交付物**:`test_floatingbase`(自由落體質心拋物線 = 解析、無外力**角動量守恆**、鎖根時
+> 與固定基座 parity)+ 與 solver6 maximal-coord ragdoll 交叉驗證。**相依**:9.1(關節)。
+
+### 9.3 碰撞過濾(layers / groups / masks)+ sensors / triggers — 📋 規劃中
+> **現況**:無 —— 無法表達「玩家不撞玩家」「觸發區」。
+> **設計**:per-body category bits + mask(Box2D 式 `(catA&maskB)&&(catB&maskA)`),**寬相
+> 候選即過濾**(零額外解算);sensor 旗標(產接觸事件但不解衝量)。
+> **交付物**:`test_filter`(層矩陣命中/略過、sensor 不施力但報重疊)+ 寬相過濾零額外配置。
+> **相依**:9.4(sensor 產事件)、7.2(過濾掛在 DBVH 候選出口最省)。
+
+### 9.4 接觸事件(began / stay / ended)— 📋 規劃中
+> **現況**:無接觸回呼;gameplay 無法知「誰碰到誰」。
+> **設計**:跨幀 pair cache 差分(warm-start cache 已有 pair 集)→ began(本幀新)/ stay /
+> ended(上幀有本幀無);事件佇列復用 ECS observer inbox 慣例,**決定性順序**。
+> **交付物**:`test_contact_events`(逐事件流比對、sensor 觸發、雙次執行一致)。**相依**:9.3。
+
+## Phase 10 — 穩健與排程(2026-07-22)
+
+### 10.1 Exact predicates / interval 穩健層(SOTA_GAP M3)— 📋 規劃中
+> **現況**:無;退化構型(共面/共線/近平行)下健全性未保證。
+> **設計**:Shewchuk 式自適應精度 orient2d/3d + incircle/insphere(浮點快篩 → 必要時展開);
+> GJK/EPA/clip/quickhull 的關鍵符號判斷改用之。
+> **交付物**:`test_predicates`(共線/共面退化 vs 任意精度參考、符號正確)+ bench(快篩路徑
+> 額外成本 ~0)。**seam 變體**:naive float vs exact,幾何謂詞結果集相等。
+
+### 10.2 自動依賴 job graph(DOTS 式讀寫衝突)— 📋 規劃中
+> **現況**:排程器 serial/parallel/actor 但**手動**;無讀寫衝突自動偵測。
+> **設計**:系統宣告 component 讀寫集 → 建 DAG(寫寫/讀寫衝突加邊)→ 拓撲分層平行;
+> **結果與 serial 逐位一致(決定性)**。
+> **交付物**:`test_jobgraph`(自動排程 == serial 結果 parity、衝突正確串行化、無衝突真並行)
+> + bench(vs 手動 serial/parallel scheduler)。**相依**:與 Phase 4.4 observers / commands 協同。
+
+### 10.3 Actor Model 硬化(既有雛形 → 生產)— 📋 規劃中(有雛形)
+> **現況**:`scheduler/{entity_actor,system_actor,message}.mojo`(336 行,EntityActor /
+> SystemActor 兩排程器 + envelope/inbox)**已存在但零測試、未整合、未證明**。
+> **設計**:補決定性投遞語意(inbox 排序、同 tick 訊息可見性規則)、與 `gameloop` 整合、
+> 背壓/mailbox 溢位策略。
+> **交付物**:`test_actor`(訊息投遞順序、**雙次執行逐位一致 = rollback 地基**、entity vs
+> system actor 同場景 parity)+ bench(actor 排程 vs 直接系統)。
+> **註**:網路 rollback 的地基(決定性 RNG + actor + 序列化)在此收口;網路本體仍為外殼、不做。
+
+## Phase 11 — 程序化與 gameplay 基礎建設(2026-07-22)
+
+### 11.1 Noise 家族 — 📋 規劃中
+> **現況**:無。
+> **設計**:`procedural/noise.mojo`(新套件)—— Perlin(gradient)、Simplex(用 OpenSimplex2
+> 避專利)、Value、Worley/cellular;fBm / turbulence / ridged 疊加;**seedable**(接
+> `scheduler/rng.mojo`,決定性)、1D/2D/3D、SIMD 批次採樣。
+> **交付物**:`test_noise`(範圍 [-1,1]、**seed 決定性**、平移連續性/無縫、梯度解析對照)
+> + `bench_noise`(每採樣 ns、SIMD vs scalar)。**用途**:地形/heightfield(接 8.2)、
+> 程序紋理、動畫擾動、粒子。**相依**:無(純程序,可先行)。
+
+### 11.2 狀態機(FSM / HSM)— 📋 規劃中
+> **現況**:無。
+> **設計**:泛型有限狀態機 + 階層式(HSM,巢狀狀態 + 歷史);轉移條件、進入/離開/更新
+> 回呼、事件驅動;**決定性**。用於 AI、gameplay 邏輯、動畫狀態(接 11.3)。
+> **交付物**:`test_fsm`(轉移正確、HSM 巢狀進出序、事件觸發、雙次執行一致)。
+
+### 11.3 動畫 runtime(clip / blend / 狀態機驅動)— 📋 規劃中
+> **現況**:skinning 數學已有(motor DLB / LBS,修過 candy-wrapper),**缺 runtime**。
+> **設計**:動畫 clip(關鍵幀取樣)、blend tree(線性 / **motor 測地混合**,復用 GA)、
+> 由 11.2 狀態機驅動狀態轉移。
+> **交付物**:`test_anim`(clip 取樣、blend 端點 == 純 clip、**motor blend 無 candy-wrapper**)
+> + bench(每骨每幀 ns)。**相依**:11.2(狀態機驅動)。
+
+## Phase 12 — 腳本層(架構分離,獨立層)⏸ gated
+
+> **架構分離定律(使用者明令)**:核心 API 仍在演進 → 腳本層**不入核心 repo**,以獨立
+> 層/repo 綁定;本階段**先定邊界**,實作 gated on **核心 API 凍結 + 使用者確認**。
+> - **12.1 Core embedding 邊界**:定義穩定介面(世界建構、系統註冊、查詢、事件訂閱)的
+>   C-ABI / 值語意契約,核心零腳本依賴。
+> - **12.2 Mojo / Python 雙腳本**:Python(PythonModuleBuilder 擴充模組,快速迭代)+
+>   Mojo(原生系統,零開銷);使用者可選其一或混用。
+> **交付物(實作時)**:腳本層 vs 原生系統同場景 **parity**(腳本不改變模擬結果)。
+> **註**:此為 2026-07 撤銷的「引擎-UI / 腳本」方向的**正確重生形態** —— 分離、可選、
+> 核心先穩;與當時「混入核心」的做法本質不同。

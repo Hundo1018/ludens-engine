@@ -45,7 +45,7 @@ resolves cross-file imports only through precompiled packages).
 ```sh
 pixi run build       # precompile all engine packages
 pixi run test        # 66 self-checking test programs (stops at first failure)
-pixi run examples    # runnable demos (01 movement … 08 wgpu motor skinning)
+pixi run examples    # runnable demos (01 movement … 07 motor skinning)
 pixi run benchmark   # regenerate BENCHMARK_REPORT.md
 ```
 
@@ -56,13 +56,9 @@ pixi run mojo run -I build tests/test_softstep6.mojo
 pixi run mojo run -I build examples/06_ga_motor.mojo
 ```
 
-GPU tests and benches self-skip on hosts without an accelerator. The wgpu
-window demo (`examples/08`) additionally needs the native libraries once per
-machine:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Hundo1018/wgpu-mojo/main/scripts/setup-native.sh | pixi run bash
-```
+GPU tests and benches self-skip on hosts without an accelerator. Rendering is
+intentionally out of this repo: the core stays presentation-free, and any
+renderer binds to it as a separate layer.
 
 ## Layout
 
