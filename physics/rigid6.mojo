@@ -63,6 +63,19 @@ struct Inertia3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
         var i = 0.4 * mass * r * r
         return Self(mass, i, i, i)
 
+    @staticmethod
+    def capsule(mass: Real, r: Real, hl: Real) -> Self:
+        """Solid capsule, axis = local Y (cylinder + two hemispheres; the
+        standard engine formula, mass split by volume)."""
+        var cyl_h = 2 * hl
+        var mcyl = mass * cyl_h / (cyl_h + r * Real(4.0 / 3.0))
+        var msph = mass - mcyl
+        var iy = r * r * (0.5 * mcyl + 0.4 * msph)
+        var ixz = mcyl * (hl * hl / 3 + r * r / 4) + msph * (
+            0.4 * r * r + hl * hl + 0.75 * hl * r
+        )
+        return Self(mass, ixz, iy, ixz)
+
     def apply(self, w: Vec3) -> Vec3:
         """Body-frame angular momentum L = I ω."""
         return Vec3(w[0] * self.ix, w[1] * self.iy, w[2] * self.iz)

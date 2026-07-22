@@ -433,3 +433,190 @@ def box_box_manifold(
         var sign = Real(1) if dot(-t, best_axis) >= 0 else Real(-1)
         var n = best_axis * (-sign)  # a -> b
         return _face_manifold(cb, axb, hb, ca, axa, ha, best_j, sign, n)
+
+
+# --- sphere / capsule manifolds ----------------------------------------------
+
+
+def sphere_sphere_manifold(
+    ca: Vec3, ra: Real, cb: Vec3, rb: Real
+) -> ContactManifold[3]:
+    """One-point manifold between two spheres (normal a -> b)."""
+    var d = cb - ca
+    var d2 = dot(d, d)
+    var rsum = ra + rb
+    if d2 > rsum * rsum:
+        return ContactManifold[3].miss()
+    var dist = sqrt(max(d2, Real(1e-12)))
+    var n = d / dist if dist > 1e-6 else Vec3(0, 1, 0)
+    var m = ContactManifold[3].hit_along(n)
+    m.add(ca + n * (ra - (rsum - dist) * 0.5), rsum - dist)
+    return m
+
+
+def _box_closest_local(lp: Vec3, h: Vec3) -> Vec3:
+    return Vec3(
+        min(max(lp[0], -h[0]), h[0]),
+        min(max(lp[1], -h[1]), h[1]),
+        min(max(lp[2], -h[2]), h[2]),
+    )
+
+
+def _box_local_world(c: Vec3, ax: Axes3, lp: Vec3) -> Vec3:
+    return c + ax[0] * lp[0] + ax[1] * lp[1] + ax[2] * lp[2]
+
+
+def _box_to_local(c: Vec3, ax: Axes3, p: Vec3) -> Vec3:
+    var d = p - c
+    return Vec3(dot(d, ax[0]), dot(d, ax[1]), dot(d, ax[2]))
+
+
+def sphere_box_manifold(
+    cs: Vec3, r: Real, cb: Vec3, axb: Axes3, hb: Vec3
+) -> ContactManifold[3]:
+    """One-point manifold; normal points SPHERE -> BOX (caller flips)."""
+    var lp = _box_to_local(cb, axb, cs)
+    var q = _box_closest_local(lp, hb)
+    var dl = lp - q
+    var d2 = dot(dl, dl)
+    if d2 > r * r and d2 > 1e-12:
+        return ContactManifold[3].miss()
+    var n_world = Vec3(0, 1, 0)
+    var depth = Real(0)
+    var point = Vec3(0, 0, 0)
+    if d2 > 1e-12:
+        # centre outside the box: normal along centre -> surface point
+        var dist = sqrt(d2)
+        var nl = dl / dist
+        n_world = axb[0] * nl[0] + axb[1] * nl[1] + axb[2] * nl[2]
+        n_world = -n_world  # sphere -> box
+        depth = r - dist
+        point = _box_local_world(cb, axb, q)
+    else:
+        # centre inside: min-axis pushout
+        var pen = Real(1e30)
+        var axk = 0
+        comptime for k in range(3):
+            var pk = hb[k] - abs(lp[k])
+            if pk < pen:
+                pen = pk
+                axk = k
+        var sgn = Real(1) if lp[axk] >= 0 else Real(-1)
+        n_world = axb[axk] * (-sgn)  # sphere(inside) -> box interior dir
+        depth = pen + r
+        point = cs
+    var m = ContactManifold[3].hit_along(n_world)
+    m.add(point, depth)
+    return m
+
+
+def _seg_box_closest_t(
+    p0: Vec3, p1: Vec3, cb: Vec3, axb: Axes3, hb: Vec3
+) -> Real:
+    """Parameter t of the segment point closest to the box (ternary search on
+    the convex distance function — deterministic, ~1e-4 accuracy)."""
+    var lo = Real(0)
+    var hi = Real(1)
+    for _ in range(40):
+        var t1 = lo + (hi - lo) / 3
+        var t2 = hi - (hi - lo) / 3
+        var a1 = p0 + (p1 - p0) * t1
+        var a2 = p0 + (p1 - p0) * t2
+        var l1 = _box_to_local(cb, axb, a1)
+        var l2 = _box_to_local(cb, axb, a2)
+        var d1 = l1 - _box_closest_local(l1, hb)
+        var d2v = l2 - _box_closest_local(l2, hb)
+        if dot(d1, d1) < dot(d2v, d2v):
+            hi = t2
+        else:
+            lo = t1
+    return (lo + hi) * 0.5
+
+
+def capsule_box_manifold(
+    cc: Vec3, cax: Vec3, hl: Real, r: Real, cb: Vec3, axb: Axes3, hb: Vec3
+) -> ContactManifold[3]:
+    """Up to 2 points (deepest segment point + a penetrating endpoint);
+    normal points CAPSULE -> BOX."""
+    var p0 = cc - cax * hl
+    var p1 = cc + cax * hl
+    var m = ContactManifold[3].miss()
+    var have = False
+    var probes = InlineArray[Real, 3](fill=0)
+    probes[0] = _seg_box_closest_t(p0, p1, cb, axb, hb)
+    probes[1] = 0
+    probes[2] = 1
+    for pi in range(3):
+        var t = probes[pi]
+        var sp = p0 + (p1 - p0) * t
+        var sm = sphere_box_manifold(sp, r, cb, axb, hb)
+        if not sm.hit:
+            continue
+        if not have:
+            m = ContactManifold[3].hit_along(sm.normal)
+            m.add(sm.points[0], sm.depths[0])
+            have = True
+        else:
+            # keep distinct probe points only (avoid t*==endpoint dupes)
+            var dpt = sm.points[0] - m.points[0]
+            if dot(dpt, dpt) > r * r * 0.04:
+                m.add(sm.points[0], sm.depths[0])
+        if m.count >= 2:
+            break
+    return m
+
+
+def _seg_seg_closest(
+    a0: Vec3, a1: Vec3, b0: Vec3, b1: Vec3
+) -> Tuple[Vec3, Vec3]:
+    """Closest points between two segments (standard clamped solve)."""
+    var d1 = a1 - a0
+    var d2 = b1 - b0
+    var rr = a0 - b0
+    var la = dot(d1, d1)
+    var lb = dot(d2, d2)
+    var f = dot(d2, rr)
+    var s = Real(0)
+    var t = Real(0)
+    if la > 1e-12 and lb > 1e-12:
+        var c = dot(d1, rr)
+        var b = dot(d1, d2)
+        var den = la * lb - b * b
+        if abs(den) > 1e-12:
+            s = min(max((b * f - c * lb) / den, 0), 1)
+        t = (b * s + f) / lb
+        if t < 0:
+            t = 0
+            s = min(max(-c / la, 0), 1)
+        elif t > 1:
+            t = 1
+            s = min(max((b - c) / la, 0), 1)
+    elif la > 1e-12:
+        s = min(max(-dot(d1, rr) / la, 0), 1)
+    elif lb > 1e-12:
+        t = min(max(f / lb, 0), 1)
+    return (a0 + d1 * s, b0 + d2 * t)
+
+
+def capsule_capsule_manifold(
+    ca: Vec3, axa: Vec3, ha: Real, ra: Real,
+    cb: Vec3, axb: Vec3, hb: Real, rb: Real,
+) -> ContactManifold[3]:
+    var pts = _seg_seg_closest(
+        ca - axa * ha, ca + axa * ha, cb - axb * hb, cb + axb * hb
+    )
+    return sphere_sphere_manifold(pts[0], ra, pts[1], rb)
+
+
+def capsule_sphere_manifold(
+    cc: Vec3, cax: Vec3, hl: Real, r: Real, cs: Vec3, rs: Real
+) -> ContactManifold[3]:
+    """Normal points CAPSULE -> SPHERE."""
+    var p0 = cc - cax * hl
+    var p1 = cc + cax * hl
+    var d = p1 - p0
+    var t = Real(0)
+    var l2 = dot(d, d)
+    if l2 > 1e-12:
+        t = min(max(dot(cs - p0, d) / l2, 0), 1)
+    return sphere_sphere_manifold(p0 + d * t, r, cs, rs)

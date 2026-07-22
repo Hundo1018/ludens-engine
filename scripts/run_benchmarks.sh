@@ -184,6 +184,21 @@ run_bench() {
     echo "heavier the per-step primal math."
     echo
     run_bench benchmarks/bench_diffsim.mojo
+    echo "## Physics — articulated chain: reduced (CRBA+RNEA) vs maximal coordinates"
+    echo
+    echo "The same n-link pendulum chain in both formulations (physics parity via the"
+    echo "shared analytic period, test_chain): what exact reduced coordinates cost vs"
+    echo "soft maximal-coordinate joints as the chain grows."
+    echo
+    run_bench benchmarks/bench_chain.mojo
+    echo "## Physics — island-parallel solver (serial vs worker threads)"
+    echo
+    echo "Bit-identical by construction (islands share nothing, test_islands_par);"
+    echo "the honesty row shows the thread overhead when there is one big island."
+    echo
+    run_bench benchmarks/bench_islands.mojo
+    run_bench benchmarks/bench_colored.mojo
+    run_bench benchmarks/bench_solver_scale.mojo
     echo "## Maturity assessment"
     echo
     echo "- **Every comparable-method seam has a benchmark row.** The seam / parity-test /"

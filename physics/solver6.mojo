@@ -26,11 +26,23 @@ deferred (e = 0 scenes).
 """
 
 from std.math import sqrt
+from std.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
-from collision.manifold import ContactManifold, Axes3, box_box_manifold
+from geometry.bvh import BVH
+from collision.manifold import (
+    ContactManifold,
+    Axes3,
+    box_box_manifold,
+    sphere_sphere_manifold,
+    sphere_box_manifold,
+    capsule_box_manifold,
+    capsule_capsule_manifold,
+    capsule_sphere_manifold,
+)
 from collision.toi import swept_box_toi
 from .rigid6 import Body6
+from .softbody import SoftBody
 
 comptime _BETA: Real = 0.2  # Baumgarte position-correction gain
 comptime _SLOP: Real = 0.005  # allowed penetration
@@ -50,6 +62,11 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
     # produces a restoring torque (frozen depths cannot — towers slowly tip).
     var ra: InlineArray[Vec3, 4]
     var rb: InlineArray[Vec3, 4]
+    # Restitution (Box2D v3 scheme): the approach speed captured at prep time
+    # drives a dedicated post-substep pass toward v_target = -e·vn0. Neither
+    # field is warm-start-inherited — both are per-frame.
+    var vn0: InlineArray[Real, 4]
+    var racc: InlineArray[Real, 4]
 
 
 def _cross(a: Vec3, b: Vec3) -> Vec3:
@@ -131,6 +148,11 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
     var sleeping: List[Bool]
     var sleep_timer: List[Real]
     var island: List[Int]  # island label per body (last step; -1 = static)
+    var softs: List[SoftBody]
+    var restitution: List[Real]  # per-body coefficient (pair uses max)
+    # shape kind per body: 0 = box(half), 1 = sphere(r = half.x),
+    # 2 = capsule (r = half.x, half-length = half.y, local Y axis)
+    var shape: List[Int]
 
     def __init__(out self):
         self.bodies = List[Self.B]()
@@ -141,6 +163,13 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.sleeping = List[Bool]()
         self.sleep_timer = List[Real]()
         self.island = List[Int]()
+        self.softs = List[SoftBody]()
+        self.restitution = List[Real]()
+        self.shape = List[Int]()
+
+    def add_soft(mut self, var sb: SoftBody) -> Int:
+        self.softs.append(sb^)
+        return len(self.softs) - 1
 
     def add_joint(mut self, j: Joint6) -> Int:
         self.joints.append(j)
@@ -241,7 +270,25 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.sleeping.append(False)
         self.sleep_timer.append(0)
         self.island.append(-1)
+        self.restitution.append(0)
+        self.shape.append(0)
         return len(self.bodies) - 1
+
+    def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
+        var i = self.add(b^, Vec3(r, r, r), is_static)
+        self.shape[i] = 1
+        return i
+
+    def add_capsule(
+        mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool
+    ) -> Int:
+        # conservative box for any AABB-ish uses: r sideways, r+hl tall
+        var i = self.add(b^, Vec3(r, half_len, r), is_static)
+        self.shape[i] = 2
+        return i
+
+    def set_restitution(mut self, i: Int, e: Real):
+        self.restitution[i] = e
 
     def _inactive(self, i: Int) -> Bool:
         return self.statics[i] or self.sleeping[i]
@@ -299,77 +346,204 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         out[2] = self.bodies[i].act(Vec3(0, 0, 1)) - o
         return out
 
-    def _collect_pairs(mut self, warm: Bool, spec_dt: Real) -> List[_CPair]:
-        """Manifolds at the current poses (brute-force pairs, ROTATED box-box
-        manifold — tilted geometry produces restoring contacts). With `warm`,
-        impulses are inherited from last frame's matching pair — point
-        correspondence is by index (clipping emits points in a stable order
-        while the pair's contact configuration persists).
+    def _pair_manifold(
+        self, i: Int, j: Int, mr: Real, infl: Vec3
+    ) -> ContactManifold[3]:
+        """Shape-pair dispatch (kinds normalised so a-kind <= b-kind; the
+        manifold normal is flipped back when the pair had to be swapped)."""
+        var a = i
+        var b = j
+        var flip = False
+        if self.shape[a] > self.shape[b]:
+            a = j
+            b = i
+            flip = True
+        var ka = self.shape[a]
+        var kb = self.shape[b]
+        var m = ContactManifold[3].miss()
+        if ka == 0 and kb == 0:
+            m = box_box_manifold(
+                self.bodies[a].position(), self._axes(a), self.half[a].v + infl,
+                self.bodies[b].position(), self._axes(b), self.half[b].v + infl,
+            )
+        elif ka == 0 and kb == 1:
+            # sphere_box normal is sphere->box == b->a: flip once more
+            m = sphere_box_manifold(
+                self.bodies[b].position(), self.half[b].v[0] + mr,
+                self.bodies[a].position(), self._axes(a), self.half[a].v + infl,
+            )
+            m.normal = -m.normal
+        elif ka == 0 and kb == 2:
+            m = capsule_box_manifold(
+                self.bodies[b].position(), self._axes(b)[1],
+                self.half[b].v[1], self.half[b].v[0] + mr,
+                self.bodies[a].position(), self._axes(a), self.half[a].v + infl,
+            )
+            m.normal = -m.normal
+        elif ka == 1 and kb == 1:
+            m = sphere_sphere_manifold(
+                self.bodies[a].position(), self.half[a].v[0] + mr,
+                self.bodies[b].position(), self.half[b].v[0] + mr,
+            )
+        elif ka == 1 and kb == 2:
+            # capsule_sphere normal is capsule->sphere == b->a
+            m = capsule_sphere_manifold(
+                self.bodies[b].position(), self._axes(b)[1],
+                self.half[b].v[1], self.half[b].v[0] + mr,
+                self.bodies[a].position(), self.half[a].v[0] + mr,
+            )
+            m.normal = -m.normal
+        else:  # capsule-capsule
+            m = capsule_capsule_manifold(
+                self.bodies[a].position(), self._axes(a)[1],
+                self.half[a].v[1], self.half[a].v[0] + mr,
+                self.bodies[b].position(), self._axes(b)[1],
+                self.half[b].v[1], self.half[b].v[0] + mr,
+            )
+        if flip and m.hit:
+            m.normal = -m.normal
+        return m
 
-        With `spec_dt > 0`, detection is SPECULATIVE (first-stage CCD, the
-        Jolt/Box2D scheme): each pair's boxes are inflated by a margin scaled
-        with how far the bodies can travel in one frame, and the margin is
-        subtracted back from the depths — near-contacts enter the solver with
-        NEGATIVE depth, and the `d < 0 -> bias = -d/h` branch stops fast
-        movers AT the surface instead of letting them tunnel."""
+    def _fat_aabb(self, i: Int, spec_dt: Real) -> AABB[3]:
+        """World AABB of body `i`'s oriented box (`half`, conservative for
+        sphere/capsule too), grown by r_i = SPEC_BASE/2 + |v_i|·spec_dt.
+        Chosen so r_i + r_j == the pair speculative margin exactly, hence
+        fat-AABB overlap is a conservative superset of any inflated-OBB
+        overlap (the broadphase parity guarantee)."""
         comptime SPEC_BASE: Real = 0.02
+        var ax = self._axes(i)
+        var h = self.half[i].v
+        var wh = Vec3(0, 0, 0)
+        comptime for k in range(3):
+            wh[k] = (
+                abs(ax[0][k]) * h[0]
+                + abs(ax[1][k]) * h[1]
+                + abs(ax[2][k]) * h[2]
+            )
+        var r = Real(0)
+        if spec_dt > 0:
+            var v = self.bodies[i].linear_velocity()
+            r = SPEC_BASE * 0.5 + sqrt(dot(v, v)) * spec_dt
+        return AABB[3].from_center(
+            self.bodies[i].position(), wh + Vec3(r, r, r)
+        )
+
+    def _try_pair(
+        mut self, mut pairs: List[_CPair], i: Int, j: Int,
+        warm: Bool, spec_dt: Real,
+    ):
+        """The per-pair body of `_collect_pairs`: speculative manifold +
+        restitution prep + warm-start match. Extracted so both the brute and
+        the broadphase enumeration feed the IDENTICAL logic (parity)."""
+        comptime SPEC_BASE: Real = 0.02
+        var margin = Real(0)
+        if spec_dt > 0:
+            var va = self.bodies[i].linear_velocity()
+            var vb = self.bodies[j].linear_velocity()
+            margin = SPEC_BASE + (
+                sqrt(dot(va, va)) + sqrt(dot(vb, vb))
+            ) * spec_dt
+        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
+        var m = self._pair_manifold(i, j, margin * 0.5, infl)
+        if m.hit and margin > 0:
+            for k in range(m.count):
+                m.depths[k] -= margin
+        if m.hit:
+            var pr = _CPair(
+                i,
+                j,
+                m,
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Real, 4](fill=0),
+            )
+            for k in range(m.count):
+                pr.ra[k] = self.bodies[i].to_local(m.points[k])
+                pr.rb[k] = self.bodies[j].to_local(m.points[k])
+                # approach speed at prep: drives the restitution pass
+                var va0 = Vec3(0, 0, 0)
+                var vb0 = Vec3(0, 0, 0)
+                if not self.statics[i]:
+                    va0 = self.bodies[i].velocity_at(m.points[k])
+                if not self.statics[j]:
+                    vb0 = self.bodies[j].velocity_at(m.points[k])
+                pr.vn0[k] = dot(vb0 - va0, m.normal)
+            if warm:
+                for c in range(len(self.cache)):
+                    var old = self.cache[c]
+                    if (
+                        old.a == i
+                        and old.b == j
+                        and old.m.count == m.count
+                    ):
+                        pr.acc = old.acc
+                        pr.acc_t1 = old.acc_t1
+                        pr.acc_t2 = old.acc_t2
+                        break
+            pairs.append(pr)
+
+    def _collect_pairs(
+        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False
+    ) -> List[_CPair]:
+        """Manifolds at the current poses (ROTATED box-box manifold — tilted
+        geometry produces restoring contacts). With `warm`, impulses are
+        inherited from last frame's matching pair by (a, b) key (order-
+        independent). `spec_dt > 0` = SPECULATIVE detection (first-stage CCD,
+        Jolt/Box2D): boxes inflated by a velocity-scaled margin, subtracted
+        back from the depths so near-contacts enter with NEGATIVE depth and
+        the `d < 0 -> bias = -d/h` branch stops fast movers AT the surface.
+
+        `use_bp` swaps the O(n²) double loop for a per-frame BVH over fat
+        world-AABBs: candidates are a conservative superset of the hitting
+        pairs (see `_fat_aabb`), and are fed to `_try_pair` in the SAME
+        (i, j) lexicographic order as the brute path, so the pair set and the
+        Gauss-Seidel sweep are bit-identical (`test_solver_broadphase`)."""
         var pairs = List[_CPair]()
-        for i in range(len(self.bodies)):
-            for j in range(i + 1, len(self.bodies)):
-                if self.statics[i] and self.statics[j]:
-                    continue
-                var margin = Real(0)
-                if spec_dt > 0:
-                    var va = self.bodies[i].linear_velocity()
-                    var vb = self.bodies[j].linear_velocity()
-                    margin = SPEC_BASE + (
-                        sqrt(dot(va, va)) + sqrt(dot(vb, vb))
-                    ) * spec_dt
-                var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
-                var m = box_box_manifold(
-                    self.bodies[i].position(),
-                    self._axes(i),
-                    self.half[i].v + infl,
-                    self.bodies[j].position(),
-                    self._axes(j),
-                    self.half[j].v + infl,
-                )
-                if m.hit and margin > 0:
-                    for k in range(m.count):
-                        m.depths[k] -= margin
-                if m.hit:
-                    var pr = _CPair(
-                        i,
-                        j,
-                        m,
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
-                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
-                    )
-                    for k in range(m.count):
-                        pr.ra[k] = self.bodies[i].to_local(m.points[k])
-                        pr.rb[k] = self.bodies[j].to_local(m.points[k])
-                    if warm:
-                        for c in range(len(self.cache)):
-                            var old = self.cache[c]
-                            if (
-                                old.a == i
-                                and old.b == j
-                                and old.m.count == m.count
-                            ):
-                                pr.acc = old.acc
-                                pr.acc_t1 = old.acc_t1
-                                pr.acc_t2 = old.acc_t2
-                                break
-                    pairs.append(pr)
+        var n = len(self.bodies)
+        if use_bp:
+            var bvh = BVH[3]()
+            var boxes = List[AABB[3]]()
+            var proxies = List[Int]()
+            for i in range(n):
+                boxes.append(self._fat_aabb(i, spec_dt))
+                proxies.append(i)
+            bvh.build_boxes(boxes, proxies)
+            for i in range(n):
+                var cand = List[Int]()
+                bvh.query_region(boxes[i], cand)
+                # keep j > i, drop static-static, sort ascending -> the exact
+                # order the nested brute loop would visit them
+                var js = List[Int]()
+                for c in range(len(cand)):
+                    var j = cand[c]
+                    if j <= i or (self.statics[i] and self.statics[j]):
+                        continue
+                    js.append(j)
+                for a in range(1, len(js)):
+                    var key = js[a]
+                    var b = a - 1
+                    while b >= 0 and js[b] > key:
+                        js[b + 1] = js[b]
+                        b -= 1
+                    js[b + 1] = key
+                for a in range(len(js)):
+                    self._try_pair(pairs, i, js[a], warm, spec_dt)
+        else:
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if self.statics[i] and self.statics[j]:
+                        continue
+                    self._try_pair(pairs, i, j, warm, spec_dt)
         return pairs^
 
-    def _warm_start(mut self, pairs: List[_CPair]):
+    def _warm_start(mut self, pairs: List[_CPair], lo: Int, hi: Int):
         """Apply the accumulated impulses at each anchor (Box2D v3 scheme: the
         soft solve's `-impulseScale·acc` term is what balances this out)."""
-        for c in range(len(pairs)):
+        for c in range(lo, hi):
             var pr = pairs[c]
             if self._inactive(pr.a) and self._inactive(pr.b):
                 continue
@@ -462,6 +636,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             self.bodies[ib].apply_impulse(j, pwb)
         return dl
 
+    def _joint_island(self, jt: Joint6) -> Int:
+        return self.island[jt.a] if not self.statics[jt.a] else self.island[jt.b]
+
     def _joint_sweep(
         mut self,
         h: Real,
@@ -470,11 +647,14 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         isc: Real,
         use_bias: Bool,
         iters: Int,
+        island_filter: Int,
     ):
         for _ in range(iters):
             for c in range(len(self.joints)):
                 var jt = self.joints[c]
                 if self._inactive(jt.a) and self._inactive(jt.b):
+                    continue
+                if island_filter != -2 and self._joint_island(jt) != island_filter:
                     continue
                 var pwa = self.bodies[jt.a].act(jt.la)
                 var pwb = self.bodies[jt.b].act(jt.lb)
@@ -544,10 +724,12 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                 wb2 = self.bodies[jt.b].omega_world()
                 self.joints[c] = jt
 
-    def _warm_start_joints(mut self):
+    def _warm_start_joints(mut self, island_filter: Int):
         for c in range(len(self.joints)):
             var jt = self.joints[c]
             if self._inactive(jt.a) and self._inactive(jt.b):
+                continue
+            if island_filter != -2 and self._joint_island(jt) != island_filter:
                 continue
             var pwa = self.bodies[jt.a].act(jt.la)
             var pwb = self.bodies[jt.b].act(jt.lb)
@@ -563,6 +745,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
     def _soft_sweep(
         mut self,
         mut pairs: List[_CPair],
+        lo: Int,
+        hi: Int,
         h: Real,
         bias_rate: Real,
         mass_scale: Real,
@@ -575,101 +759,152 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         re-derived per point from the CURRENT poses via body-frame anchors, so
         rotation shows up as differential depth (restoring torque)."""
         for _ in range(iters):
-            for c in range(len(pairs)):
-                var pr = pairs[c]
-                if self._inactive(pr.a) and self._inactive(pr.b):
+            for c in range(lo, hi):
+                self._solve_pair(
+                    pairs, c, h, bias_rate, mass_scale, impulse_scale,
+                    use_bias, mu,
+                )
+
+    def _sweep_colored(
+        mut self,
+        mut pairs: List[_CPair],
+        clo: List[Int],
+        chi: List[Int],
+        h: Real,
+        bias_rate: Real,
+        mass_scale: Real,
+        impulse_scale: Real,
+        use_bias: Bool,
+        iters: Int,
+        mu: Real,
+        par: Bool,
+    ):
+        """Graph-colored sweeps: pairs in one color share no DYNAMIC body
+        (statics are excluded from adjacency and never written), so a color
+        solves in parallel — Jacobi within the color, Gauss-Seidel across
+        colors. The schedule is fixed and same-color writes are disjoint, so
+        par=True is bit-identical to par=False."""
+        for _ in range(iters):
+            for col in range(len(clo)):
+                if par and chi[col] - clo[col] >= 8:
+                    _solve_color_parallel(
+                        self, pairs, clo[col], chi[col], h, bias_rate,
+                        mass_scale, impulse_scale, use_bias, mu,
+                    )
+                else:
+                    for c in range(clo[col], chi[col]):
+                        self._solve_pair(
+                            pairs, c, h, bias_rate, mass_scale,
+                            impulse_scale, use_bias, mu,
+                        )
+
+    def _solve_pair(
+        mut self,
+        mut pairs: List[_CPair],
+        c: Int,
+        h: Real,
+        bias_rate: Real,
+        mass_scale: Real,
+        impulse_scale: Real,
+        use_bias: Bool,
+        mu: Real,
+    ):
+        """One pair's normal + friction solve (the body of `_soft_sweep`,
+        extracted so the colored sweep can schedule it per pair)."""
+        var pr = pairs[c]
+        if self._inactive(pr.a) and self._inactive(pr.b):
+            return
+        var n = pr.m.normal
+        for k in range(pr.m.count):
+            var pwa = self.bodies[pr.a].act(pr.ra[k])
+            var pwb = self.bodies[pr.b].act(pr.rb[k])
+            # anchors coincided at prep with depth d0; separation since
+            # then is the anchor drift along the normal
+            var d = pr.m.depths[k] - dot(pwb - pwa, n)
+            var va = Vec3(0, 0, 0)
+            var ka = Real(0)
+            if not self.statics[pr.a]:
+                va = self.bodies[pr.a].velocity_at(pwa)
+                ka = self.bodies[pr.a].inv_mass() + self.bodies[
+                    pr.a
+                ].angular_factor(pwa - self.bodies[pr.a].position(), n)
+            var vb = Vec3(0, 0, 0)
+            var kb = Real(0)
+            if not self.statics[pr.b]:
+                vb = self.bodies[pr.b].velocity_at(pwb)
+                kb = self.bodies[pr.b].inv_mass() + self.bodies[
+                    pr.b
+                ].angular_factor(pwb - self.bodies[pr.b].position(), n)
+            var denom = ka + kb
+            if denom <= 0:
+                continue
+            var vn = dot(vb - va, n)
+            # Box2D sign convention: separation s = -d (negative when
+            # penetrating), bias <= 0 pulls vn upward past zero.
+            var bias = Real(0)
+            var ms = Real(1)
+            var isc = Real(0)
+            if d < 0:
+                bias = -d / h  # speculative: match approach speed
+            elif use_bias:
+                bias = max(-bias_rate * d, Real(-4))
+                ms = mass_scale
+                isc = impulse_scale
+            var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
+            var new_acc = max(pr.acc[k] + raw, 0)
+            var dl = new_acc - pr.acc[k]
+            pr.acc[k] = new_acc
+            if dl != 0:
+                var j = n * dl
+                if not self.statics[pr.a]:
+                    self.bodies[pr.a].apply_impulse(-j, pwa)
+                if not self.statics[pr.b]:
+                    self.bodies[pr.b].apply_impulse(j, pwb)
+            # Coulomb friction: tangent impulses clamped to mu * lambda_n.
+            var tb = _tangent_basis(n)
+            var cap = mu * pr.acc[k]
+            for ti in range(2):
+                var t = tb[0] if ti == 0 else tb[1]
+                var vat = Vec3(0, 0, 0)
+                var kat = Real(0)
+                if not self.statics[pr.a]:
+                    vat = self.bodies[pr.a].velocity_at(pwa)
+                    kat = self.bodies[pr.a].inv_mass() + self.bodies[
+                        pr.a
+                    ].angular_factor(
+                        pwa - self.bodies[pr.a].position(), t
+                    )
+                var vbt = Vec3(0, 0, 0)
+                var kbt = Real(0)
+                if not self.statics[pr.b]:
+                    vbt = self.bodies[pr.b].velocity_at(pwb)
+                    kbt = self.bodies[pr.b].inv_mass() + self.bodies[
+                        pr.b
+                    ].angular_factor(
+                        pwb - self.bodies[pr.b].position(), t
+                    )
+                var dent = kat + kbt
+                if dent <= 0:
                     continue
-                var n = pr.m.normal
-                for k in range(pr.m.count):
-                    var pwa = self.bodies[pr.a].act(pr.ra[k])
-                    var pwb = self.bodies[pr.b].act(pr.rb[k])
-                    # anchors coincided at prep with depth d0; separation since
-                    # then is the anchor drift along the normal
-                    var d = pr.m.depths[k] - dot(pwb - pwa, n)
-                    var va = Vec3(0, 0, 0)
-                    var ka = Real(0)
+                var vt = dot(vbt - vat, t)
+                var acc_t = pr.acc_t1[k] if ti == 0 else pr.acc_t2[k]
+                var new_t = acc_t - vt / dent
+                if new_t > cap:
+                    new_t = cap
+                elif new_t < -cap:
+                    new_t = -cap
+                var dtl = new_t - acc_t
+                if ti == 0:
+                    pr.acc_t1[k] = new_t
+                else:
+                    pr.acc_t2[k] = new_t
+                if dtl != 0:
+                    var jt = t * dtl
                     if not self.statics[pr.a]:
-                        va = self.bodies[pr.a].velocity_at(pwa)
-                        ka = self.bodies[pr.a].inv_mass() + self.bodies[
-                            pr.a
-                        ].angular_factor(pwa - self.bodies[pr.a].position(), n)
-                    var vb = Vec3(0, 0, 0)
-                    var kb = Real(0)
+                        self.bodies[pr.a].apply_impulse(-jt, pwa)
                     if not self.statics[pr.b]:
-                        vb = self.bodies[pr.b].velocity_at(pwb)
-                        kb = self.bodies[pr.b].inv_mass() + self.bodies[
-                            pr.b
-                        ].angular_factor(pwb - self.bodies[pr.b].position(), n)
-                    var denom = ka + kb
-                    if denom <= 0:
-                        continue
-                    var vn = dot(vb - va, n)
-                    # Box2D sign convention: separation s = -d (negative when
-                    # penetrating), bias <= 0 pulls vn upward past zero.
-                    var bias = Real(0)
-                    var ms = Real(1)
-                    var isc = Real(0)
-                    if d < 0:
-                        bias = -d / h  # speculative: match approach speed
-                    elif use_bias:
-                        bias = max(-bias_rate * d, Real(-4))
-                        ms = mass_scale
-                        isc = impulse_scale
-                    var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
-                    var new_acc = max(pr.acc[k] + raw, 0)
-                    var dl = new_acc - pr.acc[k]
-                    pr.acc[k] = new_acc
-                    if dl != 0:
-                        var j = n * dl
-                        if not self.statics[pr.a]:
-                            self.bodies[pr.a].apply_impulse(-j, pwa)
-                        if not self.statics[pr.b]:
-                            self.bodies[pr.b].apply_impulse(j, pwb)
-                    # Coulomb friction: tangent impulses clamped to mu * lambda_n.
-                    var tb = _tangent_basis(n)
-                    var cap = mu * pr.acc[k]
-                    for ti in range(2):
-                        var t = tb[0] if ti == 0 else tb[1]
-                        var vat = Vec3(0, 0, 0)
-                        var kat = Real(0)
-                        if not self.statics[pr.a]:
-                            vat = self.bodies[pr.a].velocity_at(pwa)
-                            kat = self.bodies[pr.a].inv_mass() + self.bodies[
-                                pr.a
-                            ].angular_factor(
-                                pwa - self.bodies[pr.a].position(), t
-                            )
-                        var vbt = Vec3(0, 0, 0)
-                        var kbt = Real(0)
-                        if not self.statics[pr.b]:
-                            vbt = self.bodies[pr.b].velocity_at(pwb)
-                            kbt = self.bodies[pr.b].inv_mass() + self.bodies[
-                                pr.b
-                            ].angular_factor(
-                                pwb - self.bodies[pr.b].position(), t
-                            )
-                        var dent = kat + kbt
-                        if dent <= 0:
-                            continue
-                        var vt = dot(vbt - vat, t)
-                        var acc_t = pr.acc_t1[k] if ti == 0 else pr.acc_t2[k]
-                        var new_t = acc_t - vt / dent
-                        if new_t > cap:
-                            new_t = cap
-                        elif new_t < -cap:
-                            new_t = -cap
-                        var dtl = new_t - acc_t
-                        if ti == 0:
-                            pr.acc_t1[k] = new_t
-                        else:
-                            pr.acc_t2[k] = new_t
-                        if dtl != 0:
-                            var jt = t * dtl
-                            if not self.statics[pr.a]:
-                                self.bodies[pr.a].apply_impulse(-jt, pwa)
-                            if not self.statics[pr.b]:
-                                self.bodies[pr.b].apply_impulse(jt, pwb)
-                pairs[c] = pr
+                        self.bodies[pr.b].apply_impulse(jt, pwb)
+        pairs[c] = pr
 
     def _ccd_advance(mut self, h: Real):
         """Swept/TOI pose advance (second-stage CCD, Jolt LinearCast
@@ -727,6 +962,373 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 f = max(f - Real(0.01), 0)
             self.bodies[i].integrate_pose(h * f)
 
+    def _restitution_pass(
+        mut self, mut pairs: List[_CPair], lo: Int, hi: Int, iters: Int
+    ):
+        """Box2D v3 restitution: after the substeps have resolved penetration,
+        push each point that arrived faster than the threshold back toward
+        `vn = -e·vn0` (its own clamped accumulator, so sweeps can correct)."""
+        comptime REST_THRESH: Real = 1.0  # m/s approach speed to trigger
+        for _ in range(iters):
+            for c in range(lo, hi):
+                var pr = pairs[c]
+                var e = max(
+                    self.restitution[pr.a], self.restitution[pr.b]
+                )
+                if e <= 0:
+                    continue
+                var n = pr.m.normal
+                for k in range(pr.m.count):
+                    if pr.vn0[k] >= -REST_THRESH:
+                        continue
+                    var pwa = self.bodies[pr.a].act(pr.ra[k])
+                    var pwb = self.bodies[pr.b].act(pr.rb[k])
+                    var va = Vec3(0, 0, 0)
+                    var ka = Real(0)
+                    if not self.statics[pr.a]:
+                        va = self.bodies[pr.a].velocity_at(pwa)
+                        ka = self.bodies[pr.a].inv_mass() + self.bodies[
+                            pr.a
+                        ].angular_factor(pwa - self.bodies[pr.a].position(), n)
+                    var vb = Vec3(0, 0, 0)
+                    var kb = Real(0)
+                    if not self.statics[pr.b]:
+                        vb = self.bodies[pr.b].velocity_at(pwb)
+                        kb = self.bodies[pr.b].inv_mass() + self.bodies[
+                            pr.b
+                        ].angular_factor(pwb - self.bodies[pr.b].position(), n)
+                    var denom = ka + kb
+                    if denom <= 0:
+                        continue
+                    var vn = dot(vb - va, n)
+                    var target = -e * pr.vn0[k]
+                    var new_acc = max(pr.racc[k] + (target - vn) / denom, 0)
+                    var dl = new_acc - pr.racc[k]
+                    pr.racc[k] = new_acc
+                    if dl != 0:
+                        var j = n * dl
+                        if not self.statics[pr.a]:
+                            self.bodies[pr.a].apply_impulse(-j, pwa)
+                        if not self.statics[pr.b]:
+                            self.bodies[pr.b].apply_impulse(j, pwb)
+                pairs[c] = pr
+
+    def _soft_fric(
+        self, b: Int, x0: Vec3, pv: Vec3, nw: Vec3, nrm: Vec3,
+        h: Real, mu: Real,
+    ) -> Vec3:
+        """Position-level Coulomb friction for a particle contact: clamp the
+        tangential slide (relative to the body's contact-point motion) to
+        mu times the normal correction — static grip inside the cone,
+        sliding on it. Folded into the target point so the coupling impulse
+        carries the tangential reaction automatically."""
+        var nl = sqrt(max(dot(nrm, nrm), Real(1e-18)))
+        var n = nrm * (1 / nl)
+        var dn = abs(dot(nw - x0, n))
+        var vb = self.bodies[b].velocity_at(nw)
+        var slide = (x0 - pv) - vb * h
+        var st = slide - n * dot(slide, n)
+        var stl = sqrt(max(dot(st, st), Real(1e-18)))
+        if stl <= Real(1e-9):
+            return nw
+        var corr = stl
+        if mu * dn < corr:
+            corr = mu * dn
+        return nw - st * (corr / stl)
+
+    def _softbody_pass(mut self, h: Real, gravity: Vec3, iters: Int, ccd: Bool):
+        """One XPBD substep for every soft body: predict, solve the lattice
+        distance constraints, collide particles against every box (pushing
+        the equivalent impulse back into dynamic bodies), derive velocities.
+
+        With `ccd` a particle that ends the substep OUTSIDE a box is also
+        swept: its pre-substep-to-current segment (in the box's current local
+        frame — first-order relative motion) is slab-tested against the
+        inflated box, and a crossing snaps it back to the entry face. Slow
+        paths never trigger the sweep, so ccd=False results are unchanged."""
+        for s in range(len(self.softs)):
+            var np = len(self.softs[s].pts)
+            var alpha_h = self.softs[s].alpha / (h * h)
+            var r = self.softs[s].radius
+            var damp = self.softs[s].damp
+            var smu = self.softs[s].mu
+            # predict (store the pre-step position in v temporarily? no —
+            # keep explicit: prev list rebuilt per substep)
+            var prev = List[Real](capacity=np * 3)
+            for i in range(np):
+                var p = self.softs[s].pts[i]
+                prev.append(p.x[0])
+                prev.append(p.x[1])
+                prev.append(p.x[2])
+                p.v = p.v + gravity * h
+                p.x = p.x + p.v * h
+                self.softs[s].pts[i] = p
+            for e in range(len(self.softs[s].edges)):
+                var ed = self.softs[s].edges[e]
+                ed.lam = 0
+                self.softs[s].edges[e] = ed
+            # XPBD Gauss-Seidel over the lattice edges
+            for _ in range(iters):
+                for e in range(len(self.softs[s].edges)):
+                    var ed = self.softs[s].edges[e]
+                    var pa = self.softs[s].pts[ed.a]
+                    var pb = self.softs[s].pts[ed.b]
+                    var d = pa.x - pb.x
+                    var l = sqrt(max(dot(d, d), Real(1e-12)))
+                    var cc = l - ed.rest
+                    var wsum = pa.w + pb.w
+                    if wsum <= 0:
+                        continue
+                    var dl = (-cc - alpha_h * ed.lam) / (wsum + alpha_h)
+                    ed.lam += dl
+                    var corr = d * (dl / l)
+                    pa.x = pa.x + corr * pa.w
+                    pb.x = pb.x - corr * pb.w
+                    self.softs[s].pts[ed.a] = pa
+                    self.softs[s].pts[ed.b] = pb
+                    self.softs[s].edges[e] = ed
+            # particle vs every box (bodies are boxes in this scene)
+            for i in range(np):
+                var p = self.softs[s].pts[i]
+                for b in range(len(self.bodies)):
+                    if self.shape[b] != 0:
+                        # sphere / capsule: radial pushout from the closest
+                        # interior point (capsule = sphere at the closest
+                        # point of its world axis segment); same impulse
+                        # coupling as the box path below
+                        var hh2 = self.half[b].v
+                        var rad = hh2[0]
+                        var cen = self.bodies[b].position()
+                        if self.shape[b] == 2:
+                            var axw = self.bodies[b].act(
+                                Vec3(0, hh2[1], 0)
+                            ) - cen
+                            var tt = dot(p.x - cen, axw) / max(
+                                dot(axw, axw), Real(1e-12)
+                            )
+                            if tt > 1:
+                                tt = 1
+                            if tt < -1:
+                                tt = -1
+                            cen = cen + axw * tt
+                        var rr = rad + r
+                        var dvec = p.x - cen
+                        var d2 = dot(dvec, dvec)
+                        var nw2 = p.x
+                        var hit = False
+                        if ccd:
+                            # swept segment vs the inflated sphere
+                            # (quadratic, earliest root in [0,1]) — and it
+                            # OUTRANKS the radial pushout, which would eject
+                            # a particle that crossed the midplane within
+                            # one substep out the FAR side (same trap as the
+                            # box path). Capsule: the sphere sits at the
+                            # closest axis point of the CURRENT position —
+                            # first-order, same spirit as the box sweep.
+                            var pv2 = Vec3(
+                                prev[i * 3],
+                                prev[i * 3 + 1],
+                                prev[i * 3 + 2],
+                            )
+                            var s0 = pv2 + self.bodies[
+                                b
+                            ].linear_velocity() * h
+                            var seg = p.x - s0
+                            var oc = s0 - cen
+                            var cc2 = dot(oc, oc) - rr * rr
+                            if dot(seg, seg) > r * r and cc2 > 0:
+                                var aa = dot(seg, seg)
+                                var bb2 = 2 * dot(oc, seg)
+                                var disc = bb2 * bb2 - 4 * aa * cc2
+                                if disc >= 0:
+                                    var tq = (-bb2 - sqrt(disc)) / (2 * aa)
+                                    if tq >= 0 and tq <= 1:
+                                        var entry = s0 + seg * tq
+                                        var ed = entry - cen
+                                        var el = sqrt(
+                                            max(dot(ed, ed), Real(1e-12))
+                                        )
+                                        nw2 = cen + ed * (rr / el)
+                                        hit = True
+                        if not hit and d2 < rr * rr:
+                            var dist = sqrt(max(d2, Real(1e-12)))
+                            nw2 = cen + dvec * (rr / dist)
+                            hit = True
+                        if hit and smu > 0:
+                            nw2 = self._soft_fric(
+                                b,
+                                p.x,
+                                Vec3(
+                                    prev[i * 3],
+                                    prev[i * 3 + 1],
+                                    prev[i * 3 + 2],
+                                ),
+                                nw2,
+                                (nw2 - cen) * (1 / rr),
+                                h,
+                                smu,
+                            )
+                        if hit:
+                            var dx2 = nw2 - p.x
+                            p.x = nw2
+                            if not self.statics[b]:
+                                var j2 = dx2 * (-(1 / p.w) / h)
+                                self.bodies[b].apply_impulse(j2, nw2)
+                                if self.sleeping[b]:
+                                    self.sleeping[b] = False
+                                    self.sleep_timer[b] = 0
+                        continue
+                    var lp = self.bodies[b].to_local(p.x)
+                    var hh = self.half[b].v
+                    var pen = Real(1e30)
+                    var ax = -1
+                    var inside = True
+                    comptime for k in range(3):
+                        var pk = (hh[k] + r) - abs(lp[k])
+                        if pk <= 0:
+                            inside = False
+                        elif pk < pen:
+                            pen = pk
+                            ax = k
+                    var sgn = Real(0)
+                    var swept = False
+                    if ccd:
+                        # Swept clamp, and it OUTRANKS the discrete pushout:
+                        # a fast particle that crossed the box's midplane
+                        # within one substep would be ejected out the FAR
+                        # face by min-penetration — the entry face from the
+                        # sweep is the truth. RELATIVE motion: shifting the
+                        # particle's start by the box's own substep
+                        # displacement (+v·h, exact for integrate_pose) lets
+                        # one segment in the box's current frame carry both
+                        # motions; the box's rotation change is ignored
+                        # (first-order sweep). Gated on |dv| > r so slow
+                        # scenes keep the discrete path bit-identically.
+                        var pv = Vec3(
+                            prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
+                        )
+                        var lp0 = self.bodies[b].to_local(
+                            pv + self.bodies[b].linear_velocity() * h
+                        )
+                        var dv = lp - lp0
+                        if dot(dv, dv) > r * r:
+                            # t_in >= 0 (not > 0): a particle clamped ONTO
+                            # the face last substep re-enters with t_in == 0
+                            var t_in = Real(-1e30)
+                            var t_out = Real(1)
+                            var ax_in = -1
+                            var miss = False
+                            for k in range(3):
+                                var he = hh[k] + r
+                                if abs(dv[k]) < Real(1e-12):
+                                    if abs(lp0[k]) > he:
+                                        miss = True
+                                else:
+                                    var t1 = (-he - lp0[k]) / dv[k]
+                                    var t2 = (he - lp0[k]) / dv[k]
+                                    if t1 > t2:
+                                        var tmp = t1
+                                        t1 = t2
+                                        t2 = tmp
+                                    if t1 > t_in:
+                                        t_in = t1
+                                        ax_in = k
+                                    if t2 < t_out:
+                                        t_out = t2
+                            if (
+                                not miss
+                                and ax_in >= 0
+                                and t_in >= 0
+                                and t_in <= t_out
+                                and t_in <= 1
+                            ):
+                                ax = ax_in
+                                # entry side comes from the START point:
+                                # after crossing the midplane lp[ax] is
+                                # already on the far side
+                                sgn = Real(1) if lp0[ax] >= 0 else Real(-1)
+                                swept = True
+                    if not swept:
+                        if inside and ax >= 0:
+                            sgn = Real(1) if lp[ax] >= 0 else Real(-1)
+                        else:
+                            continue
+                    lp[ax] = sgn * (hh[ax] + r)
+                    var nw = self.bodies[b].act(lp)
+                    if smu > 0:
+                        # world face normal from a unit local offset
+                        var lpo = lp
+                        lpo[ax] = sgn * (hh[ax] + r + 1)
+                        nw = self._soft_fric(
+                            b,
+                            p.x,
+                            Vec3(
+                                prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
+                            ),
+                            nw,
+                            self.bodies[b].act(lpo) - nw,
+                            h,
+                            smu,
+                        )
+                    var dx = nw - p.x
+                    p.x = nw
+                    if not self.statics[b]:
+                        # equal-and-opposite impulse into the dynamic body
+                        var j = dx * (-(1 / p.w) / h)
+                        self.bodies[b].apply_impulse(j, nw)
+                        if self.sleeping[b]:
+                            self.sleeping[b] = False
+                            self.sleep_timer[b] = 0
+                self.softs[s].pts[i] = p
+            # velocities from positions
+            for i in range(np):
+                var p = self.softs[s].pts[i]
+                var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2])
+                p.v = (p.x - pv) * (damp / h)
+                self.softs[s].pts[i] = p
+
+    def _pair_island(self, pr: _CPair) -> Int:
+        return self.island[pr.a] if not self.statics[pr.a] else self.island[pr.b]
+
+    def _solve_island(
+        mut self,
+        mut pairs: List[_CPair],
+        plo: Int,
+        phi: Int,
+        label: Int,
+        gravity: Vec3,
+        h: Real,
+        substeps: Int,
+        iters: Int,
+        bias_rate: Real,
+        mass_scale: Real,
+        impulse_scale: Real,
+        mu: Real,
+    ):
+        """The full substep loop restricted to one island: its bodies, its
+        contiguous pair range, its joints. Islands share nothing, so running
+        these in parallel is bit-identical to running them in sequence."""
+        for _ in range(substeps):
+            for i in range(len(self.bodies)):
+                if self.island[i] == label and not self._inactive(i):
+                    var f = gravity / self.bodies[i].inv_mass()
+                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0))
+            self._warm_start(pairs, plo, phi)
+            self._warm_start_joints(label)
+            self._joint_sweep(
+                h, bias_rate, mass_scale, impulse_scale, True, iters, label
+            )
+            self._soft_sweep(
+                pairs, plo, phi, h, bias_rate, mass_scale,
+                impulse_scale, True, iters, mu,
+            )
+            for i in range(len(self.bodies)):
+                if self.island[i] == label and not self._inactive(i):
+                    self.bodies[i].integrate_pose(h)
+            self._joint_sweep(h, bias_rate, 1, 0, False, 2, label)
+            self._soft_sweep(pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
+        self._restitution_pass(pairs, plo, phi, 4)
+
     def step_soft(
         mut self,
         dt: Real,
@@ -737,19 +1339,92 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         zeta: Real = 10,
         mu: Real = 0.5,
         ccd: Bool = False,
+        parallel: Bool = False,
+        colored: Bool = False,
+        broadphase: Bool = False,
     ):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme):
         collide once, then per substep integrate velocities, solve with soft
         bias, integrate poses, and RELAX (bias-free sweep) so the bias energy
-        never becomes bounce."""
+        never becomes bounce.
+
+        `parallel=True` solves ISLANDS on worker threads (scenes without soft
+        bodies and without ccd): islands are disjoint by construction, so the
+        result is bit-identical to the serial path (`test_islands_par`)."""
         var h = dt / Real(substeps)
         var omega = Real(6.283185307179586) * hertz
         var c = h * omega * (2 * zeta + h * omega)
         var bias_rate = omega / (2 * zeta + h * omega)
         var mass_scale = c / (1 + c)
         var impulse_scale = 1 / (1 + c)
-        var pairs = self._collect_pairs(True, dt)
+        var pairs = self._collect_pairs(True, dt, broadphase)
         self._refresh_islands(pairs)
+        # graph coloring (colored=True): greedy smallest-free-color over the
+        # DYNAMIC-body adjacency (a shared static must not chain colors, or
+        # one ground plane serialises the whole scene); pairs reordered into
+        # contiguous per-color ranges. <= 64 colors (bit masks).
+        var n_colors = 0
+        var clo = List[Int]()
+        var chi = List[Int]()
+        if colored:
+            var mask = List[Int]()
+            for _ in range(len(self.bodies)):
+                mask.append(0)
+            var pcol = List[Int]()
+            for pc in range(len(pairs)):
+                var used = 0
+                if not self.statics[pairs[pc].a]:
+                    used |= mask[pairs[pc].a]
+                if not self.statics[pairs[pc].b]:
+                    used |= mask[pairs[pc].b]
+                var col = 0
+                while (used >> col) & 1 == 1:
+                    col += 1
+                pcol.append(col)
+                if col + 1 > n_colors:
+                    n_colors = col + 1
+                if not self.statics[pairs[pc].a]:
+                    mask[pairs[pc].a] |= 1 << col
+                if not self.statics[pairs[pc].b]:
+                    mask[pairs[pc].b] |= 1 << col
+            var pairs3 = List[_CPair]()
+            for col in range(n_colors):
+                clo.append(len(pairs3))
+                for pc in range(len(pairs)):
+                    if pcol[pc] == col:
+                        pairs3.append(pairs[pc])
+                chi.append(len(pairs3))
+            pairs = pairs3^
+        if parallel and not colored and len(self.softs) == 0 and not ccd:
+            # partition: pairs reordered so each island is a contiguous range
+            var labels = List[Int]()
+            for i in range(len(self.bodies)):
+                if self.island[i] < 0:
+                    continue
+                var known = False
+                for k in range(len(labels)):
+                    if labels[k] == self.island[i]:
+                        known = True
+                        break
+                if not known:
+                    labels.append(self.island[i])
+            var pairs2 = List[_CPair]()
+            var plo = List[Int]()
+            var phi = List[Int]()
+            for k in range(len(labels)):
+                plo.append(len(pairs2))
+                for pc in range(len(pairs)):
+                    if self._pair_island(pairs[pc]) == labels[k]:
+                        pairs2.append(pairs[pc])
+                phi.append(len(pairs2))
+
+            _solve_islands_parallel(
+                self, pairs2, plo, phi, labels, gravity, h,
+                substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
+            )
+            self._update_sleep(dt)
+            self.cache = pairs2^
+            return
         for _ in range(substeps):
             for i in range(len(self.bodies)):
                 if not self._inactive(i):
@@ -757,22 +1432,99 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                     self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.
-            self._warm_start(pairs)
-            self._warm_start_joints()
+            self._warm_start(pairs, 0, len(pairs))
+            self._warm_start_joints(-2)
             self._joint_sweep(
-                h, bias_rate, mass_scale, impulse_scale, True, iters
+                h, bias_rate, mass_scale, impulse_scale, True, iters, -2
             )
-            self._soft_sweep(
-                pairs, h, bias_rate, mass_scale, impulse_scale, True, iters, mu
-            )
+            if colored:
+                self._sweep_colored(
+                    pairs, clo, chi, h, bias_rate, mass_scale,
+                    impulse_scale, True, iters, mu, parallel,
+                )
+            else:
+                self._soft_sweep(
+                    pairs, 0, len(pairs), h, bias_rate, mass_scale,
+                    impulse_scale, True, iters, mu,
+                )
             if ccd:
                 self._ccd_advance(h)
             else:
                 for i in range(len(self.bodies)):
                     if not self._inactive(i):
                         self.bodies[i].integrate_pose(h)
+            # soft bodies: XPBD lattice + particle-vs-body coupling, at the
+            # substep's POST-integration poses (rigid impulses land next substep)
+            self._softbody_pass(h, gravity, iters, ccd)
             # relax: remove the bias energy (velocity-only, no bias)
-            self._joint_sweep(h, bias_rate, 1, 0, False, 2)
-            self._soft_sweep(pairs, h, bias_rate, 1, 0, False, 2, mu)
+            self._joint_sweep(h, bias_rate, 1, 0, False, 2, -2)
+            if colored:
+                self._sweep_colored(
+                    pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
+                    parallel,
+                )
+            else:
+                self._soft_sweep(
+                    pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
+                )
+        self._restitution_pass(pairs, 0, len(pairs), 4)
         self._update_sleep(dt)
         self.cache = pairs^  # impulses persist to the next frame
+
+
+def _solve_islands_parallel[BB: Body6](
+    mut scene: ContactScene6[BB],
+    mut pairs2: List[_CPair],
+    plo: List[Int],
+    phi: List[Int],
+    labels: List[Int],
+    gravity: Vec3,
+    h: Real,
+    substeps: Int,
+    iters: Int,
+    bias_rate: Real,
+    mass_scale: Real,
+    impulse_scale: Real,
+    mu: Real,
+):
+    """Worker fan-out for `step_soft(parallel=True)`. A free function so the
+    closure captures `scene` as an ordinary argument (the scheduler's
+    entity-actor precedent) — islands write disjoint bodies/pairs, so the
+    parallel dispatch is race-free and bit-identical to serial."""
+
+    @parameter
+    def island_work(k: Int):
+        scene._solve_island(
+            pairs2, plo[k], phi[k], labels[k], gravity, h,
+            substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
+        )
+
+    parallelize[island_work](len(labels))
+
+
+def _solve_color_parallel[BB: Body6](
+    mut scene: ContactScene6[BB],
+    mut pairs2: List[_CPair],
+    lo: Int,
+    hi: Int,
+    h: Real,
+    bias_rate: Real,
+    mass_scale: Real,
+    impulse_scale: Real,
+    use_bias: Bool,
+    mu: Real,
+):
+    """Solve one color's pairs on worker threads (same free-function +
+    @parameter implicit-capture pattern as `_solve_islands_parallel`; an
+    explicit capture list does not parse on this nightly). Same-color pairs
+    share no dynamic body, so the writes are disjoint and the result is
+    bit-identical to solving the color serially."""
+
+    @parameter
+    def pair_work(k: Int):
+        scene._solve_pair(
+            pairs2, lo + k, h, bias_rate, mass_scale, impulse_scale,
+            use_bias, mu,
+        )
+
+    parallelize[pair_work](hi - lo)
