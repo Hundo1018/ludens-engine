@@ -1,0 +1,41 @@
+// ===========================================================================
+// Strategic cross-language contract (WebAssembly Component Model / WIT).
+//
+// This is LAYER B: the typed interface every language talks through. The engine
+// core (Mojo -> wasm) EXPORTS `engine`; the host (browser JS with WebGPU today,
+// wasmtime tomorrow, a Python driver via componentize-py later) IMPLEMENTS
+// `host`. Once a canonical-ABI component is produced (see scripts/componentize.sh),
+// `jco transpile` turns this into typed JS bindings and `wasm-tools compose`
+// links it with components written in Rust/C/Python.
+//
+// The runnable demo in bindings/js today drives the SAME import/export shape
+// over the plain core-wasm ABI (host.* imports, engine.* exports); the WIT here
+// is what that shape becomes once the component tooling is in the pipeline.
+// ===========================================================================
+package ludens:engine@0.1.0;
+
+/// Platform services the HOST provides. Rendering / input / time / audio live
+/// here, in JS+WebGPU -- the wasm core stays pure compute and WASI-clean.
+interface host {
+  /// structured log line from the engine
+  log: func(msg: string);
+  /// monotonic milliseconds since start
+  now-ms: func() -> f64;
+  /// submit one draw command to the host renderer (WebGPU / canvas)
+  draw-rect: func(x: f32, y: f32, w: f32, h: f32, rgba: u32);
+}
+
+/// The engine simulation core the wasm module EXPORTS.
+interface engine {
+  /// create a world holding up to `capacity` entities
+  init: func(capacity: u32);
+  /// advance the simulation `dt` seconds; emits draw commands through host
+  update: func(dt: f32);
+  /// live entity count (introspection / tests)
+  entity-count: func() -> u32;
+}
+
+world ludens {
+  import host;
+  export engine;
+}

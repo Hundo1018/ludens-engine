@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LudensEngine · Mojo→wasm browser host</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; color: #222; }
+      canvas { border: 1px solid #ccc; display: block; background: #fafafa; }
+      #log { color: #555; margin-top: .5rem; font-family: ui-monospace, monospace; }
+      p { max-width: 60ch; color: #444; }
+    </style>
+  </head>
+  <body>
+    <h1>LudensEngine — engine core in wasm, renderer in JS</h1>
+    <p>
+      The moving boxes are driven by the wasm <strong>engine core</strong>
+      (the SparseSet-backed mini-ECS, reached through the retarget pipeline).
+      The core only emits draw commands via the <code>host.draw-rect</code>
+      import; this page — the <strong>host</strong> — owns the renderer. Swap the
+      2D canvas for WebGPU and the core does not change.
+    </p>
+    <canvas id="view" width="640" height="200"></canvas>
+    <div id="log">initializing…</div>
+    <p>
+      Serve from the repo root so the relative wasm path resolves, e.g.
+      <code>python3 -m http.server</code> then open
+      <code>/bindings/js/index.html</code>.
+    </p>
+    <script type="module" src="./web.mjs"></script>
+  </body>
+</html>

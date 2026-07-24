@@ -1,15 +1,29 @@
 [project]
-channels = ["conda-forge", "https://conda.modular.com/max"]
-description = "Add a short description here"
+authors = ["ludens-engine"]
+channels = ["conda-forge", "https://conda.modular.com/max-nightly"]
+description = "An ECS game engine in Mojo, retargeted to WebAssembly (browser-first)."
 name = "ludens-engine"
 platforms = ["linux-64"]
 version = "0.1.0"
 
+# Tasks are the codified build/test entry points (were empty before).
+# The wasm + host tasks run TODAY (LLVM 18 + Node). The `run`/`test-native`
+# tasks need the Mojo toolchain -- see STATUS.md for why it is gated here.
 [tasks]
+run          = "mojo run main.mojo"
+test-native  = "mojo test"
+build-wasm   = "bash scripts/build-all.sh"
+test         = "bash scripts/test-all.sh"
+ir-golden    = "bash scripts/ir-snapshot.sh"
+component    = "bash scripts/componentize.sh"
+serve-web    = "python3 -m http.server 8080"
 
 [dependencies]
-max = ">=24.6.0,<25"
-pygfx = ">=0.6.0,<0.7"
+# Nightly Mojo toolchain (versioning moved from 24.x to the 1.0.x nightly line).
+max = "*"
 
-[pypi-dependencies]
-glfw = ">=2.8.0, <3"
+# NOTE: the desktop renderer (legacy/renderer.mojo, pygfx/wgpu/glfw) was moved
+# out of the default build. It is a native-desktop path that does not cross to
+# wasm and pins to an older MAX; keep it in a separate env if you still want it:
+#   [feature.desktop.dependencies]  pygfx = ">=0.6,<0.7"
+#   [feature.desktop.pypi-dependencies]  glfw = ">=2.8,<3"

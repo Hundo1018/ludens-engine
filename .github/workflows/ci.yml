@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  wasm-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install LLVM 18 (clang, llc, wasm-ld)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18 clang-18 lld-18
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain versions
+        run: |
+          clang --version | head -1
+          llc --version | sed -n '2p'
+          wasm-ld --version
+          node --version
+
+      # Retarget back-half + layer A + layer B host inversion + differential
+      # methodology. No Mojo toolchain needed (front-end step is gated, see
+      # STATUS.md); the C stand-in exercises the exact same pipeline.
+      - name: Build + test
+        run: bash scripts/test-all.sh
+
+      # Layer B: WIT -> WebAssembly Component -> typed JS bindings (jco).
+      - name: Componentize (WIT -> component -> JS bindings)
+        run: bash scripts/componentize.sh
+
+      # Native Mojo build/test — will run only where the Modular channel is
+      # reachable and `mojo` is installed. Never fails CI while gated.
+      - name: Native Mojo (best-effort; gated)
+        continue-on-error: true
+        run: |
+          if command -v mojo >/dev/null 2>&1; then
+            mojo run main.mojo && mojo run src/core/sparse_set.mojo
+          else
+            echo "mojo not installed on this runner — skipping (see STATUS.md)"
+          fi
