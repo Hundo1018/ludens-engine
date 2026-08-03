@@ -76,6 +76,11 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     var slots: List[Slot]  # slot i -> heap SparseSet[CTs[i], cap]
     var alive: SparseSet[Int]  # entity id -> generation
     var counter: Int
+    # Generational recycling (see ArchetypeBackend): `gens[id]` outlives
+    # `alive`, so a reused id returns with a higher generation and stale
+    # handles stay dead. Gated per backend in `test_backend_parity`.
+    var free_ids: List[Int]
+    var gens: List[Int]
     var groups: type_of(alloc[List[_Group]](1))  # registry (heap)
     var observers: type_of(alloc[List[_Observer]](1))  # push subscriptions
 
@@ -88,6 +93,8 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
             self.slots.append(p.bitcast[NoneType]())
         self.alive = SparseSet[Int]()
         self.counter = 0
+        self.free_ids = List[Int]()
+        self.gens = List[Int]()
         self.groups = alloc[List[_Group]](1)
         self.groups.unsafe_write(List[_Group]())
         self.observers = alloc[List[_Observer]](1)
@@ -195,11 +202,21 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
         return out^
 
     # --- lifecycle ---
+    def _ensure_gen(mut self, id: Int):
+        while len(self.gens) <= id:
+            self.gens.append(0)
+
     def spawn(mut self) -> Entity:
-        var id = self.counter
-        self.counter += 1
-        self.alive.set(id, 0)
-        return Entity(id, 0)  # no components yet -> matches no (nonzero) group
+        var id: Int
+        if len(self.free_ids) > 0:
+            id = self.free_ids.pop()
+        else:
+            id = self.counter
+            self.counter += 1
+        self._ensure_gen(id)
+        var gen = self.gens[id]
+        self.alive.set(id, gen)
+        return Entity(id, gen)  # no components yet -> matches no (nonzero) group
 
     def despawn(mut self, e: Entity):
         if not self.is_alive(e):
@@ -211,6 +228,9 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
             self._store[T]()[].remove(e.id)
         self._update_groups(e.id)  # mask now 0 -> drops from all groups
         self.alive.remove(e.id)
+        self._ensure_gen(e.id)
+        self.gens[e.id] = e.gen + 1
+        self.free_ids.append(e.id)
 
     def is_alive(self, e: Entity) -> Bool:
         return self.alive.contains(e.id) and self.alive.get(e.id) == e.gen

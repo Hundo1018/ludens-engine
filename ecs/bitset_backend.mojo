@@ -35,6 +35,11 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
     var masks: List[List[UInt64]]  # masks[slot][word] -> component presence bits
     var live_mask: List[UInt64]  # liveness bits
     var counter: Int
+    # Generational recycling (see ArchetypeBackend): `gens[id]` outlives the
+    # liveness bit, so a reused id returns with a higher generation and stale
+    # handles stay dead. Gated per backend in `test_backend_parity`.
+    var free_ids: List[Int]
+    var gens: List[Int]
     var n_live: Int
 
     def __init__(out self):
@@ -49,6 +54,8 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
             self.masks.append(List[UInt64]())
         self.live_mask = List[UInt64]()
         self.counter = 0
+        self.free_ids = List[Int]()
+        self.gens = List[Int]()
         self.n_live = 0
 
     def __del__(deinit self):
@@ -84,17 +91,29 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
                 self.masks[i].append(0)
 
     # --- lifecycle ---
+    def _ensure_gen(mut self, id: Int):
+        while len(self.gens) <= id:
+            self.gens.append(0)
+
     def spawn(mut self) -> Entity:
-        var id = self.counter
-        self.counter += 1
+        var id: Int
+        var fresh = True
+        if len(self.free_ids) > 0:
+            id = self.free_ids.pop()
+            fresh = False  # its column cells already exist (cleared on despawn)
+        else:
+            id = self.counter
+            self.counter += 1
         var w = _word(id)
         self._ensure_word(w)
         self.live_mask[w] = self.live_mask[w] | _bit(id)
         self.n_live += 1
-        comptime for i in range(Self.N):
-            comptime T = Self.CTs[i]
-            self._store[T]()[].append(Optional[T]())
-        return Entity(id, 0)
+        if fresh:
+            comptime for i in range(Self.N):
+                comptime T = Self.CTs[i]
+                self._store[T]()[].append(Optional[T]())
+        self._ensure_gen(id)
+        return Entity(id, self.gens[id])
 
     def despawn(mut self, e: Entity):
         if not self.is_alive(e):
@@ -106,11 +125,16 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
             comptime T = Self.CTs[i]
             self._store[T]()[][e.id] = Optional[T]()
             self._clear_mask(i, e.id)
+        self._ensure_gen(e.id)
+        self.gens[e.id] = e.gen + 1
+        self.free_ids.append(e.id)
 
     def is_alive(self, e: Entity) -> Bool:
         if e.id < 0 or e.id >= self.counter:
             return False
-        return (self.live_mask[_word(e.id)] & _bit(e.id)) != 0
+        if (self.live_mask[_word(e.id)] & _bit(e.id)) == 0:
+            return False
+        return e.id < len(self.gens) and self.gens[e.id] == e.gen
 
     def entity_count(self) -> Int:
         return self.n_live
@@ -135,7 +159,8 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
     def _emit(self, bits: UInt64, base: Int, mut out: List[Entity]):
         var b = bits
         while b != 0:
-            out.append(Entity(base + Int(count_trailing_zeros(b)), 0))
+            var _id = base + Int(count_trailing_zeros(b))
+            out.append(Entity(_id, self.gens[_id] if _id < len(self.gens) else 0))
             b &= b - 1
 
     def matching1[A: ComponentType](self) -> List[Entity]:

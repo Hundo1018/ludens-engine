@@ -25,6 +25,13 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
     var slots: List[Slot]  # slot i -> heap SparseSet[CTs[i], cap]
     var alive: SparseSet[Int]  # entity id -> generation
     var counter: Int
+    # Generational recycling, matching `ArchetypeBackend`: `gens[id]` survives
+    # despawn (unlike `alive`, which drops the id), so a recycled id comes back
+    # with a higher generation and every handle to the previous occupant stays
+    # dead. Without this a reused id would silently resurrect stale handles —
+    # the case `test_backend_parity` now checks on every backend.
+    var free_ids: List[Int]
+    var gens: List[Int]
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
@@ -35,6 +42,8 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
             self.slots.append(p.bitcast[NoneType]())
         self.alive = SparseSet[Int]()
         self.counter = 0
+        self.free_ids = List[Int]()
+        self.gens = List[Int]()
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
@@ -54,11 +63,21 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
         return self.slots[Self._slot_of[C]()].bitcast[SparseSet[C]]()
 
     # --- lifecycle ---
+    def _ensure_gen(mut self, id: Int):
+        while len(self.gens) <= id:
+            self.gens.append(0)
+
     def spawn(mut self) -> Entity:
-        var id = self.counter
-        self.counter += 1
-        self.alive.set(id, 0)
-        return Entity(id, 0)
+        var id: Int
+        if len(self.free_ids) > 0:
+            id = self.free_ids.pop()
+        else:
+            id = self.counter
+            self.counter += 1
+        self._ensure_gen(id)
+        var gen = self.gens[id]
+        self.alive.set(id, gen)
+        return Entity(id, gen)
 
     def despawn(mut self, e: Entity):
         if not self.is_alive(e):
@@ -67,6 +86,9 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
             comptime T = Self.CTs[i]
             self._store[T]()[].remove(e.id)
         self.alive.remove(e.id)
+        self._ensure_gen(e.id)
+        self.gens[e.id] = e.gen + 1
+        self.free_ids.append(e.id)
 
     def is_alive(self, e: Entity) -> Bool:
         return self.alive.contains(e.id) and self.alive.get(e.id) == e.gen

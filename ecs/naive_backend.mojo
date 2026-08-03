@@ -25,6 +25,11 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
     var slots: List[Slot]  # slot i -> heap List[Optional[CTs[i]]], indexed by id
     var live: List[Bool]  # live[id] -> is entity id alive
     var n_live: Int
+    # Generational recycling (see ArchetypeBackend): `gens[id]` outlives the
+    # live flag, so a reused id returns with a higher generation and stale
+    # handles stay dead. Gated per backend in `test_backend_parity`.
+    var free_ids: List[Int]
+    var gens: List[Int]
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
@@ -35,6 +40,8 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
             self.slots.append(p.bitcast[NoneType]())
         self.live = List[Bool]()
         self.n_live = 0
+        self.free_ids = List[Int]()
+        self.gens = List[Int]()
 
     def __del__(deinit self):
         comptime for i in range(Self.N):
@@ -54,15 +61,25 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         return self.slots[Self._slot_of[C]()].bitcast[List[Optional[C]]]()
 
     # --- lifecycle ---
+    def _ensure_gen(mut self, id: Int):
+        while len(self.gens) <= id:
+            self.gens.append(0)
+
     def spawn(mut self) -> Entity:
-        var id = len(self.live)
-        self.live.append(True)
+        var id: Int
+        if len(self.free_ids) > 0:
+            id = self.free_ids.pop()
+            self.live[id] = True  # columns already have a cell for this id
+        else:
+            id = len(self.live)
+            self.live.append(True)
+            # Grow every component column with an empty cell for the new id.
+            comptime for i in range(Self.N):
+                comptime T = Self.CTs[i]
+                self._store[T]()[].append(Optional[T]())
         self.n_live += 1
-        # Grow every component column with an empty (None) cell for the new id.
-        comptime for i in range(Self.N):
-            comptime T = Self.CTs[i]
-            self._store[T]()[].append(Optional[T]())
-        return Entity(id, 0)
+        self._ensure_gen(id)
+        return Entity(id, self.gens[id])
 
     def despawn(mut self, e: Entity):
         if not self.is_alive(e):
@@ -72,9 +89,14 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             self._store[T]()[][e.id] = Optional[T]()
+        self._ensure_gen(e.id)
+        self.gens[e.id] = e.gen + 1
+        self.free_ids.append(e.id)
 
     def is_alive(self, e: Entity) -> Bool:
-        return e.id >= 0 and e.id < len(self.live) and self.live[e.id]
+        if e.id < 0 or e.id >= len(self.live) or not self.live[e.id]:
+            return False
+        return e.id < len(self.gens) and self.gens[e.id] == e.gen
 
     def entity_count(self) -> Int:
         return self.n_live
@@ -98,7 +120,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         var sa = self._store[A]()
         for id in range(len(self.live)):
             if self.live[id] and sa[][id]:
-                out.append(Entity(id, 0))
+                out.append(Entity(id, self.gens[id] if id < len(self.gens) else 0))
         return out^
 
     def matching2[A: ComponentType, B: ComponentType](self) -> List[Entity]:
@@ -107,7 +129,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         var sb = self._store[B]()
         for id in range(len(self.live)):
             if self.live[id] and sa[][id] and sb[][id]:
-                out.append(Entity(id, 0))
+                out.append(Entity(id, self.gens[id] if id < len(self.gens) else 0))
         return out^
 
     def matching3[
@@ -119,7 +141,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         var sc = self._store[C]()
         for id in range(len(self.live)):
             if self.live[id] and sa[][id] and sb[][id] and sc[][id]:
-                out.append(Entity(id, 0))
+                out.append(Entity(id, self.gens[id] if id < len(self.gens) else 0))
         return out^
 
     def for_each2[

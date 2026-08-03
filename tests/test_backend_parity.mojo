@@ -90,6 +90,55 @@ def _compare(
         s.eqi(other[i], sparse[i], name + " parity: " + labels[i])
 
 
+def recycle_scenario[B: StorageBackend]() -> List[Int]:
+    """Entity-handle lifecycle: despawn, respawn into the recycled id, and
+    check that the OLD handle is dead while the new one is alive.
+
+    This is the semantics an ECS handle exists to provide — an id alone cannot
+    distinguish "the entity I stored" from "whatever now occupies that slot",
+    which is why `Entity` carries a generation. Every backend must agree, and
+    for a long time only the archetype one actually recycled: the others
+    always stamped generation 0, so a reused id silently resurrected stale
+    handles. Summary is order-independent so it can be compared across
+    backends."""
+    var w = World[B]()
+    var a = w.spawn2(Position(1, 1), Velocity(0, 0))
+    var b = w.spawn2(Position(2, 2), Velocity(0, 0))
+    _ = b
+    w.despawn(a)
+
+    var old_dead = 0 if w.is_alive(a) else 1
+    # respawn: a recycling backend hands the same id back with a bumped gen
+    var c = w.spawn2(Position(3, 3), Velocity(0, 0))
+    var reused_id = 1 if c.id == a.id else 0
+    var new_alive = 1 if w.is_alive(c) else 0
+    # the crucial one: the stale handle must NOT be revived by the respawn
+    var stale_still_dead = 0 if w.is_alive(a) else 1
+    var gen_advanced = 1 if (c.id != a.id or c.gen > a.gen) else 0
+
+    var out = List[Int]()
+    out.append(old_dead)
+    out.append(reused_id)
+    out.append(new_alive)
+    out.append(stale_still_dead)
+    out.append(gen_advanced)
+    out.append(w.entity_count())
+    return out^
+
+
+def _recycle_check(
+    mut su: Suite,
+    name: String,
+    got: List[Int],
+    want: List[Int],
+    labels: List[String],
+) raises:
+    # module level: a nested def cannot infer the capture convention of an
+    # outer `var` on this nightly
+    for i in range(len(want)):
+        su.eqi(got[i], want[i], name + " recycle: " + labels[i])
+
+
 def main() raises:
     var s = Suite("backend_parity")
 
@@ -108,5 +157,34 @@ def main() raises:
 
     # sanity: the scenario isn't trivially empty
     s.eqi(sparse[0], 9, "9 entities remain (10 - 1 despawned)")
+
+    # --- generational-handle parity across every backend ---
+    var r_sparse = recycle_scenario[SparseSetBackend[Position, Velocity, Frozen]]()
+    var r_arch = recycle_scenario[ArchetypeBackend[Position, Velocity, Frozen]]()
+    var r_bitset = recycle_scenario[BitsetBackend[Position, Velocity, Frozen]]()
+    var r_react = recycle_scenario[ReactiveBackend[Position, Velocity, Frozen]]()
+    var r_naive = recycle_scenario[NaiveBackend[Position, Velocity, Frozen]]()
+
+    var rlabels = List[String]()
+    rlabels.append("despawned handle is dead")
+    rlabels.append("respawn reuses the freed id")
+    rlabels.append("new handle is alive")
+    rlabels.append("stale handle stays dead after reuse")
+    rlabels.append("generation advanced on reuse")
+    rlabels.append("entity count")
+
+    var want = List[Int]()
+    want.append(1)
+    want.append(1)
+    want.append(1)
+    want.append(1)
+    want.append(1)
+    want.append(2)
+
+    _recycle_check(s, "sparse", r_sparse, want, rlabels)
+    _recycle_check(s, "archetype", r_arch, want, rlabels)
+    _recycle_check(s, "bitset", r_bitset, want, rlabels)
+    _recycle_check(s, "reactive", r_react, want, rlabels)
+    _recycle_check(s, "naive", r_naive, want, rlabels)
 
     s.finish()
