@@ -204,6 +204,32 @@ run_bench() {
     echo "full-rebuild BVH path."
     echo
     run_bench benchmarks/bench_dbvh.mojo
+    echo "## Collision — LBVH build: CPU radix sort vs GPU bitonic sort"
+    echo
+    echo "Only the SORT moves to the device — it is the one expensive parallel step in"
+    echo "an LBVH build — and the hierarchy emit stays on the host in both rows, so this"
+    echo "is sort-vs-sort with the same tail plus the GPU's transfer."
+    echo
+    echo "The device LOSES at every N tested (2.4x at 1024, 1.4x at 4096, 1.27x at"
+    echo "16384), and the reason is worth naming precisely because it points at exactly"
+    echo "what is missing rather than at \"GPUs are not worth it here\":"
+    echo
+    echo "- An LSD radix sort must be STABLE — each pass depends on the previous pass'\''s"
+    echo "  relative order surviving. The natural GPU scatter claims output slots with"
+    echo "  an atomic per bin, which hands them out in warp-arrival order and is NOT"
+    echo "  stable, so a radix sort built that way is silently wrong rather than slow."
+    echo "- Making it stable needs per-block histograms plus a global scan. That is real"
+    echo "  infrastructure this engine does not have, so the device row uses a BITONIC"
+    echo "  sort instead: deterministic by construction, no atomics, but O(n log²n)"
+    echo "  against the CPU'\''s O(n), and ~78 kernel launches at N=16384."
+    echo
+    echo "So the device is doing asymptotically more work and paying launch overhead to"
+    echo "do it. The gap nevertheless closes monotonically with N, which says the width"
+    echo "is real and the algorithm is the problem. A stable GPU radix sort is the"
+    echo "single piece that would change this row, and it is now precisely identified"
+    echo "rather than assumed."
+    echo
+    run_bench benchmarks/bench_gpu_lbvh.mojo
     echo "## Collision — batched GPU raycast vs the CPU BVH"
     echo
     echo "The query-side counterpart to the GPU broadphase, and the one place in this"
