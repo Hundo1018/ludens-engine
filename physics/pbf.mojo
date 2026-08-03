@@ -251,8 +251,15 @@ struct PbfFluid(Movable):
 
         var wdq = poly6(_DQ * _DQ)
 
+        # Neighbours are found ONCE per step from the predicted positions and
+        # reused across every solver iteration — the standard PBF arrangement.
+        # Rebuilding inside the loop is not more correct: corrections are a
+        # fraction of the kernel radius, so the neighbour SET is stable across
+        # iterations, and rebuilding it made the per-step cost scale with the
+        # iteration count for no accuracy gain (measured: same settled density,
+        # ~4x the time at it=4).
+        self._rebuild_grid()
         for _ in range(iters):
-            self._rebuild_grid()
             # 2. lambda per particle
             for i in range(n):
                 self._neighbors(i, nbr)

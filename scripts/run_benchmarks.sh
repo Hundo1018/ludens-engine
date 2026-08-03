@@ -363,6 +363,40 @@ run_bench() {
     echo "readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k)."
     echo
     run_bench benchmarks/bench_gpu_cloth.mojo
+    echo "## Physics — SPH vs PBF: explicit pressure against density projection"
+    echo
+    echo "Both solvers run on the SAME particle state, grid and kernels, so this"
+    echo "isolates the one thing that differs: SPH turns density error into a pressure"
+    echo "FORCE and integrates it explicitly; PBF treats density error as a CONSTRAINT"
+    echo "and projects positions. The metric is cost per SECOND OF SIMULATED TIME, not"
+    echo "per step — per-step cost flatters whichever solver takes smaller steps, and"
+    echo "how large a step each survives is the entire practical question. Each row"
+    echo "carries the settled density and peak speed it reached, so a row that is cheap"
+    echo "because it diverged is marked as such rather than looking like a win."
+    echo
+    echo "The timestep story comes out as expected: **SPH is CFL-limited and PBF is"
+    echo "not**. SPH is stable to dt=1/120 and fails at 1/60 (density 1.76x rest, peak"
+    echo "speed 21 vs 0.12); PBF runs stably at 1/30, a 4x larger step."
+    echo
+    echo "The COST story does not. Despite needing a 4x smaller timestep, **SPH is"
+    echo "cheaper per simulated second** — ~22 ms against PBF'\''s ~26 ms at its largest"
+    echo "stable step, and ~1.9x cheaper than PBF at matched density accuracy (~22 ms vs"
+    echo "~43 ms). The reason is per-step cost: an SPH step makes two neighbour passes"
+    echo "(density, then forces) while a PBF step makes two PER ITERATION, so four"
+    echo "iterations cost about four times as much and exactly cancel the four-times"
+    echo "larger step."
+    echo
+    echo "So the usual framing — PBF is faster because it takes big steps — is not what"
+    echo "this measures. Two honest caveats on how far to carry that. The scene is a"
+    echo "gentle settling column at 216 particles on CPU, and SPH'\''s stable step shrinks"
+    echo "with fluid stiffness and with the velocity field, so a violent or stiffer"
+    echo "scene pushes SPH down while PBF holds — the crossover is a property of how"
+    echo "hard the CFL limit bites, not a constant. And PBF'\''s neighbour lists are built"
+    echo "once per step and reused across iterations here (the standard arrangement);"
+    echo "rebuilding them per iteration, which an earlier revision did, cost ~7% more"
+    echo "for identical settled density."
+    echo
+    run_bench benchmarks/bench_sph.mojo
     echo "## Physics — Position-Based Fluids"
     echo
     echo "The engine'\''s first fluid, and it is deliberately the SAME solver shape as the"
