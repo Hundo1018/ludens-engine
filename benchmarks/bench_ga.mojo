@@ -20,6 +20,7 @@ from geometry.galie import Screw3, exp_screw3, log_motor3, geodesic3
 from geometry.cga import (
     invert_point, dilate_point, invert_point_with, dilate_point_with,
     dilator, dilator_reverse, sphere_dual,
+    Circle3, point_circle_dist, point_circle_dist_cga,
 )
 from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
@@ -299,6 +300,27 @@ def main() raises:
             acc += (pts[i].v * SCALE)[0]
         keep(acc)
 
+    # point-to-circle (point-to-arc): a circle is a first-class CGA round, so
+    # both scalars the distance needs come back as inner products — but the
+    # split-and-recombine algorithm is the same either way.
+    var circ = Circle3.make(Vec3(0.5, -0.25, 1.0), normalize(Vec3(0.3, 1.0, -0.2)), 2.0)
+
+    @parameter
+    def arc_cga():
+        var acc = Real(0)
+        for i in range(N):
+            acc += point_circle_dist_cga(circ, pts[i].v)
+        keep(acc)
+
+    @parameter
+    def arc_closed():
+        var acc = Real(0)
+        for i in range(N):
+            acc += point_circle_dist(circ, pts[i].v)
+        keep(acc)
+
+    cf.add("point-arc cga carriers", N, "point", measure[arc_cga](3, 20), N)
+    cf.add("point-arc closed form", N, "point", measure[arc_closed](3, 20), N)
     cf.add("inversion cga versor", N, "point", measure[inv_cga](3, 20), N)
     cf.add("inversion closed form", N, "point", measure[inv_analytic](3, 20), N)
     cf.add("dilation cga versor", N, "point", measure[dil_cga](3, 20), N)

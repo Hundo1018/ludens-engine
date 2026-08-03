@@ -14,7 +14,8 @@ both fall out of scalar products. `sphere_dist_sq` inverts
 S₁·S₂ = ½(r₁² + r₂² − d²).
 """
 
-from .vec import Real, Vec3
+from std.math import sqrt
+from .vec import Real, Vec3, dot, length
 from .multivector import CGA3
 
 # basis: e1,e2,e3 euclidean (+1); e4 (+1), e5 (-1) — the conformal pair
@@ -162,3 +163,52 @@ def dilate_point(scale: Real, p: Vec3) -> Vec3:
     the conformal group is closed under it. `bench_ga` prices that uniformity
     against the matrix path, which wins on raw scaling."""
     return dilate_point_with(dilator(scale), dilator_reverse(scale), p)
+
+
+@fieldwise_init
+struct Circle3(Copyable, ImplicitlyCopyable, Movable):
+    """A circle in 3D: centre, unit normal, radius — carried alongside its two
+    CGA carriers so the algebraic path does not rebuild them per query."""
+
+    var center: Vec3
+    var normal: Vec3
+    var radius: Real
+    var plane: CGA3  # dual plane of the circle's carrier plane
+    var sphere: CGA3  # dual sphere centred on the circle, radius = r
+
+    @staticmethod
+    def make(center: Vec3, normal: Vec3, radius: Real) -> Self:
+        var pl = Plane3(normal, dot(center, normal))
+        return Self(center, normal, radius, plane_dual(pl), sphere_dual(center, radius))
+
+
+def point_circle_dist(c: Circle3, p: Vec3) -> Real:
+    """Euclidean closed form: split the offset into the component along the
+    circle's normal and the in-plane radial excess, then combine."""
+    var h = dot(p - c.center, c.normal)
+    var inplane = (p - c.center) - c.normal * h
+    var radial = length(inplane) - c.radius
+    return sqrt(h * h + radial * radial)
+
+
+def point_circle_dist_cga(c: Circle3, p: Vec3) -> Real:
+    """The same distance with the two scalar quantities taken from the algebra:
+    the signed plane distance is `up(p)·π` and the in-plane radial excess comes
+    from the carrier sphere's inner product (`up(p)·S = ½(r² − |p−centre|²)`).
+
+    Worth being precise about what this does and does NOT show. CGA gives a
+    circle a first-class representation (a grade-2 round, here carried as its
+    sphere/plane pair) and hands back both scalars as inner products with no
+    coordinate case analysis. What it does not give is a CLOSED FORM for the
+    distance itself: the split into normal and radial components, and their
+    recombination, is the same Pythagorean step the euclidean routine does. So
+    the algebra replaces two dot products, not the algorithm — which is why
+    `bench_ga` shows it costing more rather than less."""
+    var h = inner(up(p), c.plane)  # signed distance to the carrier plane
+    # up(p)·S = ½(r² − |p−centre|²)  ->  |p−centre|² = r² − 2(up(p)·S)
+    var d_sq = c.radius * c.radius - 2 * inner(up(p), c.sphere)
+    var inplane_sq = d_sq - h * h
+    if inplane_sq < 0:
+        inplane_sq = 0
+    var radial = sqrt(inplane_sq) - c.radius
+    return sqrt(h * h + radial * radial)

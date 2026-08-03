@@ -152,6 +152,17 @@ run_bench() {
     echo "form and against the structural properties (involution, the sphere fixed"
     echo "pointwise, inside/outside exchanged) to ~1e-6."
     echo
+    echo "The same table answers the point-to-arc question. A circle IS a first-class"
+    echo "object in this algebra (a grade-2 round, carried here as its sphere/plane"
+    echo "pair), and both scalars the distance needs come back as inner products with no"
+    echo "coordinate case analysis: the signed plane distance is up(p)·π and the radial"
+    echo "term falls out of up(p)·S. But the SPLIT into normal and radial components and"
+    echo "their Pythagorean recombination is the same step the euclidean routine takes —"
+    echo "the algebra replaces two dot products, not the algorithm. Measured at ~6x the"
+    echo "closed form (\`test_cga_circle\` gates parity to ~5e-6, including a point on the"
+    echo "axis where the closest point is not unique, and a point exactly on the circle"
+    echo "where the subtraction under the root can go negative)."
+    echo
     echo "The cost is the story: with versors hoisted out of the loop, the conformal"
     echo "sandwich runs **~200x** the hand-written closed form for both operations."
     echo "So \"matrices cannot express inversion\" must not be read as \"you need CGA for"
