@@ -80,3 +80,88 @@ def rollout_ctrl[F: Field](
         for _ in range(burst):
             _step2(s, gdt, drag, kdt, cdt, dtf)
     return s
+
+
+# ---------------------------------------------------------------------------
+# Source-to-source style adjoint: the code a Taichi/Dr.Jit-class tool EMITS.
+#
+# The reverse-mode tape in `geometry/field.mojo` discovers the computation at
+# runtime and records one node per operation, then walks that list backwards.
+# A source-to-source tool instead differentiates the step function at COMPILE
+# time and emits an explicit backward routine — no node list, no indirection,
+# no allocation. What follows is that emitted routine, written out by hand for
+# `_step2`, so the engine can price the approach without a transformer.
+#
+# One thing the emitted code still needs, and it is the interesting part: the
+# ground penalty is a BRANCH on the primal state, so the backward pass must
+# know which side each step took. That is a checkpoint — but it is ONE BIT per
+# step, not a node per operation, which is the whole structural difference
+# between "source-to-source needs no tape" (false) and "source-to-source needs
+# O(steps) bits instead of O(operations) nodes" (true, and ~100x smaller here).
+
+
+def rollout_ctrl_adjoint(
+    u: List[Real], burst: Int, dt: Real, mut grad: List[Real]
+) -> Real:
+    """Primal + gradient of the landing x w.r.t. every control in `u`.
+
+    Forward pass records only the contact bit per step; the backward pass
+    applies the transposed Jacobian of `_step2` in reverse. `grad` is filled
+    with d(x_final)/d(u[k]); the return value is x_final, so callers get both
+    from one call the way a real adjoint routine provides them."""
+    var n = len(u)
+    var steps = n * burst
+    var gdt = _G * dt
+    var drag = _DRAG * dt
+    var kdt = _K * dt
+    var cdt = _C * dt
+
+    # ---- forward: integrate, checkpointing only the branch decision ----
+    var contact = List[Bool](capacity=steps)
+    var x = Real(0)
+    var y = Real(1.0)
+    var vx = Real(0)
+    var vy = Real(2.0)
+    for k in range(n):
+        vx = vx + u[k]
+        for _ in range(burst):
+            vy = vy - gdt - drag * vy
+            vx = vx - drag * vx
+            var hit = y < 0
+            contact.append(hit)
+            if hit:
+                vy = vy + kdt * (0 - y) - cdt * vy
+            x = x + vx * dt
+            y = y + vy * dt
+    var x_final = x
+
+    # ---- backward: seed d(x_final)/d(x_final) = 1, sweep in reverse ----
+    var gx = Real(1)
+    var gy = Real(0)
+    var gvx = Real(0)
+    var gvy = Real(0)
+    grad.clear()
+    for _ in range(n):
+        grad.append(Real(0))
+
+    var t = steps - 1
+    for kk in range(n):
+        var k = n - 1 - kk
+        for _ in range(burst):
+            # x1 = x + vx1*dt ; y1 = y + vy2*dt
+            var g_vx1 = gvx + gx * dt
+            var g_vy2 = gvy + gy * dt
+            # gx, gy pass straight through to the previous x, y
+            if contact[t]:
+                # vy2 = vy1*(1-cdt) - kdt*y_old
+                gy = gy - kdt * g_vy2
+                gvy = g_vy2 * (1 - cdt)
+            else:
+                gvy = g_vy2
+            # vy1 = vy_old*(1-drag) - gdt ; vx1 = vx_old*(1-drag)
+            gvy = gvy * (1 - drag)
+            gvx = g_vx1 * (1 - drag)
+            t -= 1
+        # vx += u[k] at the start of this burst
+        grad[k] = gvx
+    return x_final

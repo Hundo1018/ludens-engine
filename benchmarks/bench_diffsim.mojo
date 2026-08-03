@@ -27,7 +27,7 @@ from geometry.quat import Quat
 from geometry.motor import Motor3
 from geometry.field import Field, RealF, DualReal, DualBatch, Tape, RevReal, rev_seed
 from geometry.gmv import GMV
-from physics.diffsim import rollout2, rollout_ctrl
+from physics.diffsim import rollout2, rollout_ctrl, rollout_ctrl_adjoint
 
 # PGA3 point-trivector blade masks (same convention as geometry/motor.mojo)
 comptime _E123 = 0b0111
@@ -144,6 +144,18 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
         keep(acc)
 
     @parameter
+    def adjoint_s2s():
+        # the routine a source-to-source tool emits: explicit backward pass,
+        # no node list, one checkpoint BIT per step instead of a node per op
+        var g = List[Real]()
+        var xf = rollout_ctrl_adjoint(base, BURST, DT, g)
+        keep(xf)
+        var acc = Real(0)
+        for j in range(NP):
+            acc += g[j]
+        keep(acc)
+
+    @parameter
     def reverse_tape():
         # ONE rollout + one backward sweep, N-independent
         var tape = Tape()
@@ -170,6 +182,9 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
     )
     table.add(
         "reverse tape (1 rollout)", TOTAL, G, measure[reverse_tape](3, 20), TOTAL
+    )
+    table.add(
+        "adjoint s2s (emitted)", TOTAL, G, measure[adjoint_s2s](3, 20), TOTAL
     )
 
 
