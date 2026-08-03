@@ -363,6 +363,41 @@ run_bench() {
     echo "readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k)."
     echo
     run_bench benchmarks/bench_gpu_cloth.mojo
+    echo "## Physics — Position-Based Fluids"
+    echo
+    echo "The engine'\''s first fluid, and it is deliberately the SAME solver shape as the"
+    echo "XPBD cloth already here: predict positions, project a constraint, derive"
+    echo "velocity from the position change. Cloth projects a distance constraint, PBF"
+    echo "projects a DENSITY one (C_i = rho_i/rho_0 - 1), so the machinery is shared and"
+    echo "only the constraint changes — which is what made this the cheapest entry into"
+    echo "fluids rather than a parallel body of code."
+    echo
+    echo "Rows are read like the cloth ones: cost next to the error it bought, here mean"
+    echo "density relative to rest (1.00 = incompressible). Every iteration count lands"
+    echo "within ~2% of rest and cost is linear in iterations; per-particle cost is"
+    echo "roughly flat as N grows, which is the uniform grid keeping neighbour search"
+    echo "near-linear."
+    echo
+    echo "Three things had to be right, and each was caught by a physical gate rather"
+    echo "than by inspection — worth recording because each produced a plausible-looking"
+    echo "fluid that was wrong:"
+    echo
+    echo "- **Rest density must be CALIBRATED to the particle spacing, not chosen.** With"
+    echo "  rho_0 above what the sampling can reach, every particle reads as under-dense,"
+    echo "  the correction pushes outward everywhere, and the fluid explodes against the"
+    echo "  container. It is now computed from a lattice sum at the seeding spacing."
+    echo "- **XSPH viscosity must be normalised by density.** The poly6 kernel here is"
+    echo "  unnormalised and of order 1e3, so summing it raw over ~30 neighbours injected"
+    echo "  velocity thousands of times larger than the field it smooths, and the solver"
+    echo "  GAINED energy every step. The dam-break energy gate is what caught it."
+    echo "- **The per-iteration displacement needs a cap.** Without one the projection"
+    echo "  overshoots far enough to push particles past each other, and behaviour was"
+    echo "  erratic in the ITERATION COUNT — 2 and 4 converged, 3 and 6 collapsed to ~16x"
+    echo "  rest density. Erratic in the iteration count is the signature of divergence,"
+    echo "  not of under-resolution, and \`test_pbf\` now asserts convergence at every"
+    echo "  count rather than at one."
+    echo
+    run_bench benchmarks/bench_pbf.mojo
     echo "## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)"
     echo
     echo "Vertex block descent (\`physics/vbd_cloth.mojo\`, arXiv:2403.06321): per-vertex"
