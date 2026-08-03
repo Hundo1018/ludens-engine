@@ -363,6 +363,40 @@ run_bench() {
     echo "readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k)."
     echo
     run_bench benchmarks/bench_gpu_cloth.mojo
+    echo "## Geometry — DCGA spike: quartic surfaces as a linear incidence test"
+    echo
+    echo "The torus was raised as a gap in the CGA coverage. It is not one: a torus is"
+    echo "a QUARTIC, \`Cl(4,1)\` represents only quadrics and lower, so \"torus"
+    echo "intersection via CGA\" is a category error rather than a missing feature."
+    echo "Double CGA (\`Cl(8,2)\`) is the algebra that does cover it, by tensoring two"
+    echo "conformal copies so products of the two points supply degree-4 monomials."
+    echo
+    echo "**The dense algebra is out of reach on this toolchain, and measurably so.**"
+    echo "\`Multivector[p,q,r]\` unrolls the geometric product fully at compile time, so"
+    echo "cost grows with the SQUARE of the blade count. Measured for one product:"
+    echo "32 blades 4 s, 64 2 s, 128 8 s, 256 30 s, 512 exceeds a 6 GB address-space"
+    echo "cap, and \`Cl(8,2)\`'\''s 1024 blades — about a million term products — was killed"
+    echo "by the OOM killer outright. That is a structural wall, not a tuning problem,"
+    echo "and it is the reason the spike is written as the T-space subalgebra instead."
+    echo
+    echo "What that subalgebra is: the tensor product of two conformal points spans 15"
+    echo "distinct monomials (s², s·x, s·y, s·z, x², y², z², xy, yz, zx, s, x, y, z, 1"
+    echo "with s = x²+y²+z²), and every Darboux cyclide — planes, spheres, cyclides and"
+    echo "the torus — is a fixed coefficient vector over that basis. So incidence"
+    echo "collapses to a 15-term dot product, and \`test_dcga\` shows one call answering"
+    echo "all three surface types with nothing changed but the coefficients."
+    echo
+    echo "The cost is the notable part. DCGA runs a **flat ~3.87 ns regardless of"
+    echo "surface** — that flatness IS the uniformity — against 2.05-2.36 ns for the"
+    echo "hand-written tests, so **1.6x-1.9x**. Set that against the other GA rows in"
+    echo "this report: CGA sphere narrowphase costs 3.7x its analytic twin, and the"
+    echo "conformal VERSOR paths cost ~200x. The difference is not the algebra, it is"
+    echo "where the algebra is spent — used to DERIVE a representation it is nearly"
+    echo "free, carried as a runtime multivector it is not. The torus row is the"
+    echo "narrowest gap (1.64x) precisely because the hand-written torus needs a square"
+    echo "root and the DCGA form does not."
+    echo
+    run_bench benchmarks/bench_dcga.mojo
     echo "## Physics — MLS-MPM (material point method)"
     echo
     echo "MPM sits between the engine'\''s other deformables. FEM keeps a fixed mesh and"
