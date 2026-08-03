@@ -53,6 +53,10 @@ def _run(
 
 
 def main() raises:
+    # Burn worker-pool creation before any timing (see bench_islands).
+    var warm = _pyramid(8)
+    _ = _run(warm, True, True, 4, 4)
+
     var t = BenchTable("single big island: plain GS vs colored (threads)")
     var rows = 15
     var n = rows * (rows + 1) // 2

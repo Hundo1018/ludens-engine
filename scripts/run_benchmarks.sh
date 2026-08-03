@@ -312,6 +312,38 @@ run_bench() {
     echo "close the build gap and restore the classical trade-off."
     echo
     run_bench benchmarks/bench_sah.mojo
+    echo "## Concurrency — work stealing vs static fan-out"
+    echo
+    echo "\`parallelize\` fixes the split before any task runs, so a round costs as much"
+    echo "as the unluckiest block. \`scheduler/workstealing.mojo\` starts from the same"
+    echo "split and lets idle workers drain other ranges; a claim is one atomic"
+    echo "\`fetch_add\`, so every index is still issued exactly once no matter how the"
+    echo "steals interleave (\`test_workstealing\` gates that, including workers > tasks)."
+    echo "Its cursors are spaced one per cache line — packing them would give back more"
+    echo "than the stealing wins, as the false-sharing table below shows."
+    echo
+    echo "The result only means something against a cost distribution, so three are run:"
+    echo
+    echo "- **uniform** — static partitioning is already optimal, so this prices what"
+    echo "  stealing's atomics COST when there is nothing to rebalance. At 2-4 workers"
+    echo "  it is a dead heat, which is the answer: the mechanism is close to free."
+    echo "- **skewed** (cost rises with index) — stealing wins **~1.5-2x**, the margin"
+    echo "  growing with worker count because a wider static split gives the unlucky"
+    echo "  worker a proportionally larger share of the tail."
+    echo "- **spiky** (a few very expensive tasks) — mostly a wash. With 512 tasks and"
+    echo "  16 spikes, static blocks each catch roughly the same number of spikes by"
+    echo "  luck, so there is little imbalance left to fix. Stealing pays off when the"
+    echo "  cost gradient is systematic, not merely when some tasks are expensive."
+    echo
+    echo "One result worth separating out: on the UNIFORM workload stealing pulls ahead"
+    echo "again at 8-12 workers. Nothing about the tasks is uneven there — the CORES"
+    echo "are. This is a 6 P-core / 8 E-core part, so once the width forces work onto"
+    echo "E-cores an equal split of tasks is no longer an equal split of wall time, and"
+    echo "the dynamic pool absorbs that while a static one cannot. That is the same"
+    echo "topology effect the scaling curves show as a dip at 8 workers, seen from the"
+    echo "other side."
+    echo
+    run_bench benchmarks/bench_workstealing.mojo
     echo "## Concurrency — false sharing (cache-line contention)"
     echo
     echo "The core-scaling curves showed the solver saturating near 1.5-1.6x and Amdahl"

@@ -58,6 +58,13 @@ def _run(
 
 
 def main() raises:
+    # The FIRST parallelize in a process pays worker-pool creation. That cost
+    # lands entirely on whichever row is timed first and survives min-of-reps,
+    # which silently inflated the workers=1 point in an earlier revision. Burn
+    # it before any timing so every row starts from a live pool.
+    var warm = _towers(16, 4)
+    _ = _run(warm, True, 4)
+
     var t = BenchTable("island-parallel solver: serial vs threads")
     # many small islands: the parallel win case
     var s16 = _towers(16, 4)
