@@ -204,6 +204,39 @@ run_bench() {
     echo "full-rebuild BVH path."
     echo
     run_bench benchmarks/bench_dbvh.mojo
+    echo "## Collision — GPU all-pairs broadphase vs the CPU structures"
+    echo
+    echo "Every CPU broadphase here wins by doing FEWER tests. This one keeps the O(n²)"
+    echo "enumeration and throws lanes at it instead (\`collision/bp_gpu.mojo\`: one"
+    echo "thread per box walking j > i, hits appended through an atomic cursor). Pair"
+    echo "sets are identical to brute force — \`test_gpu_broadphase\` gates that on a"
+    echo "sparse and a dense scene, plus an undersized output buffer that must REPORT"
+    echo "overflow rather than truncate silently."
+    echo
+    echo "The shape is the result: GPU cost is **nearly flat in N** (~3.4 -> ~5.7 ms"
+    echo "from 512 to 8192 boxes, absorbing 256x the pair tests for 1.7x the time)"
+    echo "while CPU brute force grows quadratically (0.16 -> 43.8 ms). So the device"
+    echo "overtakes every O(n²) CPU path somewhere between 512 and 2048 boxes, and by"
+    echo "8192 it is ~7.6x faster than CPU brute and ~5.7x faster than SAP."
+    echo
+    echo "It does NOT beat the spatial hash, which is still the fastest option at every"
+    echo "N tested — but only by 1.27x at 8192, and the trends point opposite ways: the"
+    echo "grid grows with N while the device barely does. Two caveats before reading"
+    echo "that as a prediction. The grid emits a larger, conservative candidate set"
+    echo "(9476 vs 1235 pairs at N=8192), so its row is not equal work — the same"
+    echo "not-apples-to-apples caveat the main broadphase table carries. And the GPU"
+    echo "row is END-TO-END: it includes uploading boxes and reading pairs back, which"
+    echo "is ~3.4 ms of fixed cost that dominates entirely below ~2k boxes. A pipeline"
+    echo "keeping boxes device-resident would pay much less of it."
+    echo
+    echo "One structural limitation, stated because it decides where this can be used:"
+    echo "the atomic cursor makes the output ORDER nondeterministic. \`solver6\` depends"
+    echo "on a deterministic pair order for bit-identical results, so this cannot go"
+    echo "behind that seam without sorting first. It also does not implement the"
+    echo "\`BroadPhase\` trait at all — the trait has nowhere to carry a device context,"
+    echo "and one context per instance is the pattern that hangs on this nightly."
+    echo
+    run_bench benchmarks/bench_gpu_broadphase.mojo
     echo "## Collision — sweep-and-prune vs the other broadphases, by motion speed"
     echo
     echo "SAP (\`collision/bp_sap.mojo\`) keeps last frame's sorted endpoint order and"
