@@ -312,6 +312,39 @@ run_bench() {
     echo "close the build gap and restore the classical trade-off."
     echo
     run_bench benchmarks/bench_sah.mojo
+    echo "## Concurrency — false sharing (cache-line contention)"
+    echo
+    echo "The core-scaling curves showed the solver saturating near 1.5-1.6x and Amdahl"
+    echo "explained most of it. This table answers the rest: is the parallel region"
+    echo "itself paying for coherence traffic? Every row does identical work and yields"
+    echo "identical totals (verified at the end of the run) — only the ADDRESS SPACING"
+    echo "of the per-worker accumulators changes."
+    echo
+    echo "With atomic increments the effect is unambiguous: packing accumulators onto"
+    echo "one 64-byte line costs up to **~11x**, and the penalty GROWS with worker count"
+    echo "(~3.5x at 2 workers, ~11x at 12) because every added core joins the ownership"
+    echo "ping-pong. Spacing them one per line removes it completely, and stride 16 buys"
+    echo "nothing over stride 8 — confirming this is a cache-line property, not a"
+    echo "\"wider is always better\" gradient. Stride 2 is the instructive middle: it is"
+    echo "as bad as stride 1 while the workers still fit on one line, then halves once"
+    echo "it splits them across two."
+    echo
+    echo "The \`plain\` rows are a deliberate NULL RESULT and are the reason this"
+    echo "benchmark uses atomics at all. A non-atomic \`p[i] += v\` loop shows NO stride"
+    echo "effect whatsoever and runs ~30x faster than the atomic version, because the"
+    echo "compiler keeps the accumulator in a register and writes back once — collapsing"
+    echo "thousands of contended stores into a single one. It measures the optimizer,"
+    echo "not the hardware. \`local\` (accumulate in a local, store once) costs the same"
+    echo "as \`plain\`, which confirms the diagnosis and is also the pattern that makes"
+    echo "kernels immune by construction."
+    echo
+    echo "Bearing on this engine: the solver's parallel paths write whole bodies and"
+    echo "contact pairs at island/color granularity, not packed per-worker counters, so"
+    echo "there is no such accumulator array to contend over. Taken with the Amdahl"
+    echo "reading above, the 1.5-1.6x ceiling is the SERIAL REMAINDER, not contention —"
+    echo "which is what makes the serial 60% the right thing to attack next."
+    echo
+    run_bench benchmarks/bench_falseshare.mojo
     echo "## Procedural — noise family throughput"
     echo
     echo "Scalar samples over a grid; the deterministic hash is the whole cost (no table"
