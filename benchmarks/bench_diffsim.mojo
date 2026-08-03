@@ -94,12 +94,15 @@ def bench_gradient(mut table: BenchTable):
     table.add("reverse tape (1 rollout+sweep)", STEPS, "grad(2)", measure[reverse](3, 20), STEPS)
 
 
-def bench_gradient_n(mut table: BenchTable):
-    """N = 8 control parameters (`rollout_ctrl`, parity in `test_diffsim` #8):
+def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
+    """`NP` control parameters (`rollout_ctrl`, parity in `test_diffsim` #8):
     the rollout-count scaling the 2-param table cannot show — differences pay
-    N+1 rollouts, DualBatch ⌈N/4⌉ (lane cap), the reverse tape one."""
-    comptime NP = 8
-    comptime BURST = 250  # 8 x 250 = 2000 sim steps, same as table 1
+    N+1 rollouts, DualBatch ⌈N/4⌉ (lane cap), the reverse tape one.
+
+    Callers sweep NP with `NP * BURST` held at 2000, so the PRIMAL work is
+    identical in every row and the only thing varying is how each method's
+    overhead scales with the parameter count — which is what locates the
+    forward/reverse crossover empirically instead of by extrapolation."""
     comptime DT: Real = 0.001
 
     var base = List[Real]()
@@ -125,9 +128,10 @@ def bench_gradient_n(mut table: BenchTable):
 
     @parameter
     def batch_chunks():
-        # ceil(8/4) = 2 rollouts, four seeded lanes each
+        # ceil(NP/4) rollouts, four seeded lanes each
+        comptime CHUNKS = (NP + 3) // 4
         var acc = Real(0)
-        for chunk in range(2):
+        for chunk in range(CHUNKS):
             var ub = List[DualBatch]()
             for j in range(NP):
                 if j // 4 == chunk:
@@ -154,9 +158,19 @@ def bench_gradient_n(mut table: BenchTable):
         keep(acc)
 
     comptime TOTAL = NP * BURST
-    table.add("fd forward (9 rollouts)", TOTAL, "grad(8)", measure[fd_forward](3, 20), TOTAL)
-    table.add("dualbatch (2 rollouts)", TOTAL, "grad(8)", measure[batch_chunks](3, 20), TOTAL)
-    table.add("reverse tape (1 rollout)", TOTAL, "grad(8)", measure[reverse_tape](3, 20), TOTAL)
+    comptime CHUNKS = (NP + 3) // 4
+    comptime G = "grad(" + String(NP) + ")"
+    table.add(
+        "fd forward (" + String(NP + 1) + " rollouts)",
+        TOTAL, G, measure[fd_forward](3, 20), TOTAL,
+    )
+    table.add(
+        "dualbatch (" + String(CHUNKS) + " rollouts)",
+        TOTAL, G, measure[batch_chunks](3, 20), TOTAL,
+    )
+    table.add(
+        "reverse tape (1 rollout)", TOTAL, G, measure[reverse_tape](3, 20), TOTAL
+    )
 
 
 def to_gmv[F: Field](m: Motor3) -> GMV[3, 0, 1, F]:
@@ -248,8 +262,16 @@ def main() raises:
     bench_gradient(t1)
     t1.print_report()
 
-    var tn = BenchTable("Differentiable rollout — 8-param gradient (rollout-count scaling)")
-    bench_gradient_n(tn)
+    # Parameter-count sweep at CONSTANT primal work (NP x BURST = 2000 steps
+    # in every row): the forward/reverse crossover measured, not extrapolated.
+    var tn = BenchTable(
+        "Differentiable rollout — parameter-count sweep (NP x BURST = 2000 steps, constant primal work)"
+    )
+    bench_gradient_n[8, 250](tn)
+    bench_gradient_n[20, 100](tn)
+    bench_gradient_n[40, 50](tn)
+    bench_gradient_n[100, 20](tn)
+    bench_gradient_n[200, 10](tn)
     tn.print_report()
 
     var t2 = BenchTable("GA motor sandwich — specialized vs Field-generic vs AD carriers")
