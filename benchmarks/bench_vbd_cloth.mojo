@@ -97,3 +97,48 @@ def main() raises:
         print("(no GPU: only CPU rows)")
 
     t.print_report()
+
+    t.print_report()
+
+    # ------------------------------------------------------------------
+    # VBD's actual claim: an IMPLICIT solver stays stable as the timestep
+    # grows, where an explicit-predict + projection scheme degrades. Stiffness
+    # is not the axis to sweep here — XPBD's distance projection is already
+    # maximally stiff by construction (it snaps edges to rest length), so
+    # there is no stiffness knob to turn on that side. The timestep is the
+    # honest axis, and it is where "unconditionally stable" has to pay off.
+    #
+    # Iterations are held FIXED so the comparison is stability-at-cost, not
+    # stability-bought-with-more-work, and the error column is the same worst
+    # edge-stretch metric as above.
+    var st = BenchTable(
+        "Cloth solver stability vs timestep (it=5 fixed, err = worst edge stretch)"
+    )
+    comptime for dt_idx in range(5):
+        comptime DT: Float32 = Float32(
+            1.0 / 120.0 if dt_idx == 0
+            else (1.0 / 60.0 if dt_idx == 1
+            else (1.0 / 30.0 if dt_idx == 2
+            else (1.0 / 15.0 if dt_idx == 3 else 1.0 / 8.0)))
+        )
+        comptime DTNAME = (
+            "1/120" if dt_idx == 0
+            else ("1/60" if dt_idx == 1
+            else ("1/30" if dt_idx == 2
+            else ("1/15" if dt_idx == 3 else "1/8")))
+        )
+        var s0 = Int(perf_counter_ns())
+        var sx = cpu_cloth_run[32, 32](STEPS, 5, DT, REST)
+        var s1 = Int(perf_counter_ns())
+        st.add(
+            "xpbd dt=" + DTNAME + " err=" + _err_str[32, 32](sx),
+            1024, "step", s1 - s0, STEPS,
+        )
+        var s2 = Int(perf_counter_ns())
+        var sv = cpu_vbd_run[32, 32](STEPS, 5, DT, REST)
+        var s3 = Int(perf_counter_ns())
+        st.add(
+            "vbd  dt=" + DTNAME + " err=" + _err_str[32, 32](sv),
+            1024, "step", s3 - s2, STEPS,
+        )
+    st.print_report()

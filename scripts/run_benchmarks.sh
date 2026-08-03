@@ -277,6 +277,28 @@ run_bench() {
     echo "so cost is read AT a quality level (physical gates + CPU/GPU parity in"
     echo "\`test_vbd_cloth\`)."
     echo
+    echo "The second table sweeps the TIMESTEP at fixed iterations, which is where"
+    echo "VBD's headline property — an implicit solve that is unconditionally stable —"
+    echo "is supposed to pay off. Stiffness is deliberately not the axis: XPBD's"
+    echo "distance projection is already maximally stiff by construction (it snaps"
+    echo "edges toward rest length), so there is no stiffness knob on that side to turn."
+    echo
+    echo "The result does not favour VBD. It never blows up — error stays bounded at"
+    echo "every timestep, which is the stability claim in its weak form — but at a fixed"
+    echo "5 iterations its worst edge stretch grows from ~0% at dt=1/120 to ~48% at"
+    echo "dt=1/8, while XPBD holds ~0% throughout and costs ~3x less per step."
+    echo
+    echo "That comparison has a bias which has to be stated: the error metric is worst"
+    echo "EDGE STRETCH, and edge stretch is exactly the quantity XPBD projects onto, so"
+    echo "the metric measures XPBD's own invariant. VBD instead minimises an elastic"
+    echo "energy at finite stiffness, and with the iteration count held fixed it simply"
+    echo "does not converge far enough as dt grows. A metric VBD is not structurally"
+    echo "disadvantaged on — energy drift, or a bending/volumetric constraint the"
+    echo "projection does not directly enforce — would be the fairer test, and this"
+    echo "engine does not have that model yet. Read the row as: on THIS cloth model and"
+    echo "THIS metric, VBD has no measured advantage regime, including the timestep axis"
+    echo "where one was expected."
+    echo
     run_bench benchmarks/bench_vbd_cloth.mojo
     echo "## Differentiable simulation — gradient cost & Field abstraction"
     echo
