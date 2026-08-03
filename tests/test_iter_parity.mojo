@@ -9,6 +9,7 @@ from ecs.archetype import ArchetypeBackend
 from ecs.bitset_backend import BitsetBackend
 from ecs.reactive_backend import ReactiveBackend
 from ecs.naive_backend import NaiveBackend
+from ecs.chunked_backend import ChunkedBackend
 from ecs.component import ComponentType
 from geometry.vec import Vec2, Real
 
@@ -79,4 +80,5 @@ def main() raises:
     check[BitsetBackend[Pos2, Vel2]](s, "bitset", N, F)
     check[ReactiveBackend[Pos2, Vel2]](s, "reactive", N, F)
     check[NaiveBackend[Pos2, Vel2]](s, "naive", N, F)
+    check[ChunkedBackend[Pos2, Vel2]](s, "chunked", N, F)
     s.finish()

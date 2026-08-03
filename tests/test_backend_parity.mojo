@@ -9,6 +9,7 @@ from ecs.archetype import ArchetypeBackend
 from ecs.bitset_backend import BitsetBackend
 from ecs.reactive_backend import ReactiveBackend
 from ecs.naive_backend import NaiveBackend
+from ecs.chunked_backend import ChunkedBackend
 from ecs.component import ComponentType
 from ecs.entity import Entity
 
@@ -149,11 +150,13 @@ def main() raises:
     var bitset = run_scenario[BitsetBackend[Position, Velocity, Frozen]]()
     var reactive = run_scenario[ReactiveBackend[Position, Velocity, Frozen]]()
     var naive = run_scenario[NaiveBackend[Position, Velocity, Frozen]]()
+    var chunked = run_scenario[ChunkedBackend[Position, Velocity, Frozen]]()
 
     _compare(s, "archetype", sparse, arch)
     _compare(s, "bitset", sparse, bitset)
     _compare(s, "reactive", sparse, reactive)
     _compare(s, "naive", sparse, naive)
+    _compare(s, "chunked", sparse, chunked)
 
     # sanity: the scenario isn't trivially empty
     s.eqi(sparse[0], 9, "9 entities remain (10 - 1 despawned)")
@@ -164,6 +167,7 @@ def main() raises:
     var r_bitset = recycle_scenario[BitsetBackend[Position, Velocity, Frozen]]()
     var r_react = recycle_scenario[ReactiveBackend[Position, Velocity, Frozen]]()
     var r_naive = recycle_scenario[NaiveBackend[Position, Velocity, Frozen]]()
+    var r_chunk = recycle_scenario[ChunkedBackend[Position, Velocity, Frozen]]()
 
     var rlabels = List[String]()
     rlabels.append("despawned handle is dead")
@@ -186,5 +190,6 @@ def main() raises:
     _recycle_check(s, "bitset", r_bitset, want, rlabels)
     _recycle_check(s, "reactive", r_react, want, rlabels)
     _recycle_check(s, "naive", r_naive, want, rlabels)
+    _recycle_check(s, "chunked", r_chunk, want, rlabels)
 
     s.finish()

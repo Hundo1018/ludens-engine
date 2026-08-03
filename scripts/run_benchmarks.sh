@@ -436,6 +436,38 @@ run_bench() {
     echo "close the build gap and restore the classical trade-off."
     echo
     run_bench benchmarks/bench_sah.mojo
+    echo "## ECS — chunked (paged) columns vs one growable column"
+    echo
+    echo "\`ChunkedBackend\` is \`NaiveBackend\` with exactly one thing changed: a column"
+    echo "is a list of fixed 1024-row pages instead of a single growable \`List\`."
+    echo "Dense id indexing, the Optional cell, the generational lifecycle and the query"
+    echo "shape are all identical, so the naive-vs-chunked pair isolates the storage"
+    echo "layout and nothing else. Both run the full parity suite"
+    echo "(\`test_backend_parity\`, \`test_iter_parity\`)."
+    echo
+    echo "The result is negative for chunking on every axis measured: ~2x slower to"
+    echo "grow, ~1.8x slower to iterate, ~2.5x slower under churn. The structural claim"
+    echo "does hold — page count is bounded by N/1024 by construction (118 pages for"
+    echo "60k entities across two columns) and no existing row is ever copied — but it"
+    echo "does not convert into time here, for two reasons worth separating:"
+    echo
+    echo "- The baseline it is supposed to beat is already good. A growable \`List\` grows"
+    echo "  amortised O(1) and its realloc is a \`memcpy\`, which is fast enough that"
+    echo "  avoiding the copy saves less than the page indirection costs."
+    echo "- Every access pays \`pages[id/rows][id%rows]\`, and unlike the copy, that cost"
+    echo "  is paid on the hot path rather than amortised over growth."
+    echo
+    echo "The honest scope of this negative result: the commercial chunk stores this"
+    echo "mirrors (Unity DOTS, Unreal MassEntity) do not use chunks primarily to avoid"
+    echo "reallocation. They use them because a chunk is an ARCHETYPE-HOMOGENEOUS block,"
+    echo "which makes it a natural unit for SIMD iteration and for handing one chunk per"
+    echo "worker to a job scheduler. This variant reproduces the allocation property but"
+    echo "not the layout property — it pages a dense id-indexed column, not an archetype"
+    echo "block — so it measures the weaker half of the idea. A chunked ARCHETYPE"
+    echo "backend, where a page is a homogeneous component block, remains the version"
+    echo "that could plausibly win, and is not what these rows rule out."
+    echo
+    run_bench benchmarks/bench_chunked.mojo
     echo "## Concurrency — work stealing vs static fan-out"
     echo
     echo "\`parallelize\` fixes the split before any task runs, so a round costs as much"
