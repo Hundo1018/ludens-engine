@@ -90,4 +90,31 @@ def main() raises:
                 ok = False
     s.check(ok, "all four towers stand under the parallel solver")
 
+    # 4. WORKER-COUNT INVARIANCE. `workers` pins the fan-out width so the
+    #    core-scaling curve can be swept; because the island partition is what
+    #    makes the writes disjoint, the count changes only the schedule. Every
+    #    width must reproduce the serial state bit-for-bit — otherwise a
+    #    scaling curve would be comparing different computations per point.
+    var widths = List[Int]()
+    widths.append(1)
+    widths.append(2)
+    widths.append(3)
+    widths.append(5)
+    widths.append(8)
+    widths.append(16)
+    var all_same = True
+    for wi in range(len(widths)):
+        var w = widths[wi]
+        var sc = _scene()
+        for _ in range(400):
+            sc.step_soft(DT, G, parallel=True, workers=w)
+        for i in range(len(ser.bodies)):
+            var d = ser.bodies[i].pos - sc.bodies[i].pos
+            if d[0] != 0 or d[1] != 0 or d[2] != 0:
+                all_same = False
+                print("  workers=", w, " pos mismatch body", i)
+            if ser.bodies[i].q.w != sc.bodies[i].q.w:
+                all_same = False
+    s.check(all_same, "every worker count is bit-identical to serial")
+
     s.finish()

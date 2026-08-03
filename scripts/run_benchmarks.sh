@@ -238,6 +238,35 @@ run_bench() {
     echo "Bit-identical by construction (islands share nothing, test_islands_par);"
     echo "the honesty row shows the thread overhead when there is one big island."
     echo
+    echo "The second table is the **core-scaling (Amdahl) curve**: the same scene with"
+    echo "the fan-out width pinned to 1..20 workers, min-of-3 per point. Worker count"
+    echo "changes only the schedule — \`test_islands_par\` gates that every width is"
+    echo "bit-identical to serial — so the curve compares one computation at different"
+    echo "widths, not different computations."
+    echo
+    echo "It does NOT scale linearly, and that is the useful result: throughput"
+    echo "saturates near **1.6x** and stops improving past ~4 workers on a 20-thread"
+    echo "host. Inverting Amdahl at that plateau puts the parallel fraction of"
+    echo "\`step_soft\` at only **~40%** — the other ~60% (broadphase, island labelling,"
+    echo "pose integration, sleep update, contact-cache management) is still serial, and"
+    echo "that serial remainder, not the thread pool, is what caps the solver. It is"
+    echo "also the concrete reason the scheduler seam only repays its threads at larger"
+    echo "N: there is simply not much parallel region to amortize them over."
+    echo
+    echo "Two further readings. \`workers=1\` is a few percent SLOWER than the serial"
+    echo "path here — the pure fan-out tax with no parallelism to win (on the finer"
+    echo "grained colored curve below the same tax falls inside run-to-run noise)."
+    echo "Note also that above ~4 workers the curve is FLAT, so which exact width comes"
+    echo "out best moves between runs (typically 6-12); read the plateau, not the"
+    echo "argmax. And the dip at \`workers=8\`"
+    echo "reproduces under min-of-3 in BOTH this curve and the colored one below, two"
+    echo "workloads with completely different task granularity, which makes it a"
+    echo "property of the host rather than of either workload. The likely mechanism"
+    echo "(untested here) is topology: this is a 6 P-core / 8 E-core part, so a width"
+    echo "of 8 has to place workers on E-cores or across hyperthread siblings while a"
+    echo "barrier waits on the slowest of them, whereas 12 maps onto the P-cores'"
+    echo "hyperthread set."
+    echo
     run_bench benchmarks/bench_islands.mojo
     echo "## Physics — within-island parallelism (graph coloring vs plain Gauss-Seidel)"
     echo
@@ -245,6 +274,15 @@ run_bench() {
     echo "coloring parallelises *inside* it. \`test_colored\` proves the colored schedule"
     echo "is deterministic and thread-count-invariant; the small-island row is the"
     echo "honesty row showing what the schedule + fan-out overhead costs."
+    echo
+    echo "Its core-scaling curve is the FINE-GRAINED counterpart to the island one"
+    echo "above: there a task is a whole island, here it is a single contact pair"
+    echo "inside a color, and the fan-out is re-entered once per color per iteration."
+    echo "Despite that structural difference the two curves land on the same ceiling"
+    echo "(~1.5-1.6x) and share the same dip at 8 — which is what makes"
+    echo "the ceiling look like a property of the host and the serial remainder rather"
+    echo "than of task granularity. Finer tasks do cost something visible though: the"
+    echo "colored path needs more workers before it beats its own serial baseline."
     echo
     run_bench benchmarks/bench_colored.mojo
     echo "## Physics — solver pair collection (brute O(n²) vs per-frame BVH broadphase)"

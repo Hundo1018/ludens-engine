@@ -781,18 +781,19 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         iters: Int,
         mu: Real,
         par: Bool,
+        workers: Int = 0,
     ):
         """Graph-colored sweeps: pairs in one color share no DYNAMIC body
         (statics are excluded from adjacency and never written), so a color
         solves in parallel — Jacobi within the color, Gauss-Seidel across
         colors. The schedule is fixed and same-color writes are disjoint, so
-        par=True is bit-identical to par=False."""
+        par=True is bit-identical to par=False (and to any `workers` count)."""
         for _ in range(iters):
             for col in range(len(clo)):
                 if par and chi[col] - clo[col] >= 8:
                     _solve_color_parallel(
                         self, pairs, clo[col], chi[col], h, bias_rate,
-                        mass_scale, impulse_scale, use_bias, mu,
+                        mass_scale, impulse_scale, use_bias, mu, workers,
                     )
                 else:
                     for c in range(clo[col], chi[col]):
@@ -1345,6 +1346,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         parallel: Bool = False,
         colored: Bool = False,
         broadphase: Bool = False,
+        workers: Int = 0,
     ):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme):
         collide once, then per substep integrate velocities, solve with soft
@@ -1353,7 +1355,14 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
 
         `parallel=True` solves ISLANDS on worker threads (scenes without soft
         bodies and without ccd): islands are disjoint by construction, so the
-        result is bit-identical to the serial path (`test_islands_par`)."""
+        result is bit-identical to the serial path (`test_islands_par`).
+
+        `workers` pins the fan-out width (0 = let the runtime use every core).
+        Because the partition — islands, or a color's pairs — is what makes the
+        writes disjoint, the worker count changes only the SCHEDULE, never the
+        result: any `workers` is bit-identical to serial. That invariance is
+        what makes a core-scaling sweep (`bench_islands`, `bench_colored`) a
+        fair measurement rather than a different computation per point."""
         var h = dt / Real(substeps)
         var omega = Real(6.283185307179586) * hertz
         var c = h * omega * (2 * zeta + h * omega)
@@ -1424,6 +1433,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
+                workers,
             )
             self._update_sleep(dt)
             self.cache = pairs2^
@@ -1443,7 +1453,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             if colored:
                 self._sweep_colored(
                     pairs, clo, chi, h, bias_rate, mass_scale,
-                    impulse_scale, True, iters, mu, parallel,
+                    impulse_scale, True, iters, mu, parallel, workers,
                 )
             else:
                 self._soft_sweep(
@@ -1464,7 +1474,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             if colored:
                 self._sweep_colored(
                     pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
-                    parallel,
+                    parallel, workers,
                 )
             else:
                 self._soft_sweep(
@@ -1489,6 +1499,7 @@ def _solve_islands_parallel[BB: Body6](
     mass_scale: Real,
     impulse_scale: Real,
     mu: Real,
+    workers: Int = 0,
 ):
     """Worker fan-out for `step_soft(parallel=True)`. A free function so the
     closure captures `scene` as an ordinary argument (the scheduler's
@@ -1502,7 +1513,14 @@ def _solve_islands_parallel[BB: Body6](
             substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
         )
 
-    parallelize[island_work](len(labels))
+    # `workers <= 0` means "let the runtime pick" (all cores); a positive
+    # value pins the fan-out width so the core-scaling curve can be measured.
+    # Islands are disjoint, so the RESULT is worker-count-invariant either way
+    # (`test_islands_par` gates this).
+    if workers > 0:
+        parallelize[island_work](len(labels), workers)
+    else:
+        parallelize[island_work](len(labels))
 
 
 def _solve_color_parallel[BB: Body6](
@@ -1516,6 +1534,7 @@ def _solve_color_parallel[BB: Body6](
     impulse_scale: Real,
     use_bias: Bool,
     mu: Real,
+    workers: Int = 0,
 ):
     """Solve one color's pairs on worker threads (same free-function +
     @parameter implicit-capture pattern as `_solve_islands_parallel`; an
@@ -1530,4 +1549,7 @@ def _solve_color_parallel[BB: Body6](
             use_bias, mu,
         )
 
-    parallelize[pair_work](hi - lo)
+    if workers > 0:
+        parallelize[pair_work](hi - lo, workers)
+    else:
+        parallelize[pair_work](hi - lo)

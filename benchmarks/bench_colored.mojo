@@ -38,11 +38,17 @@ def _pyramid(rows: Int) raises -> ContactScene6[QuatBody6]:
 
 
 def _run(
-    mut sc: ContactScene6[QuatBody6], par: Bool, col: Bool, its: Int
+    mut sc: ContactScene6[QuatBody6],
+    par: Bool,
+    col: Bool,
+    its: Int,
+    workers: Int = 0,
 ) raises -> Int:
     var t0 = Int(perf_counter_ns())
     for _ in range(STEPS):
-        sc.step_soft(DT, G, iters=its, parallel=par, colored=col)
+        sc.step_soft(
+            DT, G, iters=its, parallel=par, colored=col, workers=workers
+        )
     return Int(perf_counter_ns()) - t0
 
 
@@ -67,3 +73,39 @@ def main() raises:
     var p1 = _pyramid(6)
     t.add("colored par it4 21", 21, "step", _run(p1, True, True, 4), STEPS)
     t.print_report()
+
+    # ---- core-scaling curve on the colored (within-island) axis ------------
+    # Different parallel structure from bench_islands: there the unit of work
+    # is a whole island, here it is one pair inside a color, so the fan-out is
+    # finer-grained and re-entered once per color per iteration. Comparing the
+    # two curves shows what task granularity costs.
+    comptime REPS = 3
+    var cs = BenchTable(
+        "colored solver core scaling: one big island at pinned worker counts"
+    )
+    var widths = List[Int]()
+    widths.append(1)
+    widths.append(2)
+    widths.append(4)
+    widths.append(6)
+    widths.append(8)
+    widths.append(12)
+    widths.append(16)
+    widths.append(20)
+
+    # `rows` is passed in rather than captured: a nested def cannot infer the
+    # capture convention of an outer `var` on this nightly.
+    def _best(par: Bool, workers: Int, r: Int) raises -> Int:
+        var best = Int.MAX
+        for _ in range(REPS):
+            var sc = _pyramid(r)
+            var ns = _run(sc, par, True, 4, workers)
+            if ns < best:
+                best = ns
+        return best
+
+    cs.add("colored serial (no fan-out)", n, "step", _best(False, 0, rows), STEPS)
+    for wi in range(len(widths)):
+        var w = widths[wi]
+        cs.add("workers=" + String(w), n, "step", _best(True, w, rows), STEPS)
+    cs.print_report()
