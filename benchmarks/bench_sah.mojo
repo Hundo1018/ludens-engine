@@ -1,11 +1,16 @@
 """BVH build heuristic: median-split vs binned SAH.
 
 `test_sah` proves the two builds answer every query identically; this table
-shows the trade: SAH pays more at BUILD time to cut a TIGHTER tree (lower
-Σ node area), which is repaid in cheaper queries — but only when the scene
-has empty space to exploit. Clustered scene = SAH wins queries; uniform
-scene = trees are near-identical, so SAH's pricier build is not repaid
-(honesty rows). Amortisation depends on queries-per-build.
+shows what the heuristic buys: SAH cuts a TIGHTER tree (lower Σ node area),
+which is repaid in cheaper queries — most on a clustered scene with empty
+space to exploit, least on a uniform one where the two trees end up nearly
+identical (honesty rows).
+
+NOTE the textbook trade ("SAH costs more to build") does NOT hold here: SAH
+also builds faster, because the median path sorts centroids with an insertion
+sort (O(n²)) while binned SAH histograms into 12 bins per axis (O(n)). That is
+a property of this median baseline, not of the heuristic — see the report
+section for the full reading.
 """
 
 from std.math import sqrt

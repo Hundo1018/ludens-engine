@@ -104,6 +104,17 @@ run_bench() {
     echo "The same random rigid transforms applied and composed through each"
     echo "representation (see \`test_motor_parity\` for the equivalence proof)."
     echo
+    echo "The second table prices the **Lie layer** (\`geometry/galie.mojo\`: exp / log /"
+    echo "geodesic on PGA motors) against the classical interpolation routes on the same"
+    echo "transforms. Read it with the semantic caveat: \`geodesic3\` produces a true SCREW"
+    echo "motion — rotation and translation share an axis and interpolate as one uniform"
+    echo "rigid motion — whereas \`slerp + lerp\` decouples them and traces a DIFFERENT"
+    echo "path, and a matrix cannot be interpolated at all without decomposing first"
+    echo "(a blend of two rigid matrices leaves SE(3)). So this table prices the"
+    echo "abstraction; it does not claim the routes are interchangeable. The dual-quat"
+    echo "row goes through the motor bridge because \`DualQuat\` has no native ScLERP —"
+    echo "it prices what the current API makes you pay, not the algorithm's floor."
+    echo
     run_bench benchmarks/bench_ga.mojo
     echo "## Foundation — transform propagation (full vs dirty vs motor)"
     echo
@@ -159,6 +170,25 @@ run_bench() {
     echo "hangs on this nightly — the per-call driver is why this section was empty"
     echo "in earlier reports.)"
     echo
+    echo "The second table splits that end-to-end number into host->device upload,"
+    echo "device compute and device->host readback, and adds the shape a real game loop"
+    echo "has: draining positions back to the CPU EVERY frame. Rows are normalized per"
+    echo "simulation step, so the phases are additive. Read it as the answer to \"is the"
+    echo "bus or the kernel the bottleneck?\" — and note the answer is workload-dependent,"
+    echo "not a constant. With a single drain, transfers are ~10% of a 65k-particle"
+    echo "rollout: essentially free. Switch to per-frame readback and the bus becomes the"
+    echo "DOMINANT cost — at 65k the readback column alone runs ~2.5x the compute column,"
+    echo "and the rollout total grows ~3x. Against the CPU rows that is the difference"
+    echo "between a ~29x and a ~11x GPU win at 16k particles: **most of the GPU's"
+    echo "advantage on this workload is spent on getting the answer back**, which the"
+    echo "end-to-end rows alone cannot show."
+    echo
+    echo "Two second-order effects only the split makes visible: per-frame syncing costs"
+    echo "the compute column itself ~3-6% (it drains the launch pipeline, so kernel"
+    echo "dispatch stops overlapping), and readback cost grows SUBLINEARLY in particle"
+    echo "count while compute amortizes better — so the larger the cloth, the worse"
+    echo "readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k)."
+    echo
     run_bench benchmarks/bench_gpu_cloth.mojo
     echo "## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)"
     echo
@@ -178,10 +208,22 @@ run_bench() {
     echo "coefficient-generic \`GMV\` multivector costs vs the specialized \`Motor3\`"
     echo "sandwich. Read the two rollout tables together: on this few-flops-per-step toy"
     echo "the tape's recording overhead dominates (~19x a plain step), but its cost is"
-    echo "FLAT in the parameter count — going 2 -> 8 params the reverse row holds while"
-    echo "DualBatch pays another chunked rollout (x2.9) and differences grow linearly;"
-    echo "the crossover lands near ~76 params at this workload, and moves earlier the"
-    echo "heavier the per-step primal math."
+    echo "FLAT in the parameter count."
+    echo
+    echo "The sweep table MEASURES that claim instead of extrapolating it. Primal work is"
+    echo "held constant (NP x BURST = 2000 steps in every row), so the only variable is"
+    echo "how each method's overhead scales with the parameter count:"
+    echo
+    echo "- **Reverse tape is flat, confirmed**: NP 8 -> 200 (a 25x range) moves it only"
+    echo "  35.9 -> 39.7 ns/op (+10.6%)."
+    echo "- **Forward differences and DualBatch are linear**, as their rollout counts"
+    echo "  imply (N+1 and ceil(N/4) rollouts); DualBatch holds a constant ~2.86 ns per"
+    echo "  4-lane chunk across the whole sweep."
+    echo "- **Measured crossovers**: the tape overtakes finite differences at **NP ~ 12-15**"
+    echo "  and overtakes DualBatch at **NP ~ 45-50**. An earlier revision of this report"
+    echo "  extrapolated the DualBatch crossover from two points and put it near ~76; the"
+    echo "  measured value is ~1.5x lower, so that estimate is superseded by these rows."
+    echo "  Both crossovers move earlier the heavier the per-step primal math."
     echo
     run_bench benchmarks/bench_diffsim.mojo
     echo "## Physics — articulated chain: reduced (CRBA+RNEA) vs maximal coordinates"
@@ -197,9 +239,47 @@ run_bench() {
     echo "the honesty row shows the thread overhead when there is one big island."
     echo
     run_bench benchmarks/bench_islands.mojo
+    echo "## Physics — within-island parallelism (graph coloring vs plain Gauss-Seidel)"
+    echo
+    echo "One box pyramid is ONE island, so island-parallelism buys nothing there;"
+    echo "coloring parallelises *inside* it. \`test_colored\` proves the colored schedule"
+    echo "is deterministic and thread-count-invariant; the small-island row is the"
+    echo "honesty row showing what the schedule + fan-out overhead costs."
+    echo
     run_bench benchmarks/bench_colored.mojo
+    echo "## Physics — solver pair collection (brute O(n²) vs per-frame BVH broadphase)"
+    echo
+    echo "\`_collect_pairs\` double-looped every body pair; \`broadphase=True\` swaps that"
+    echo "for a BVH over fat world-AABBs (bit-identical by construction — the fat radius"
+    echo "is symmetric and the (i,j) order is preserved, proven in"
+    echo "\`test_solver_broadphase\`). Brute wins at small N; the BVH wins as the O(n²)"
+    echo "enumeration dominates."
+    echo
     run_bench benchmarks/bench_solver_scale.mojo
+    echo "## Collision — BVH build heuristic (median-split vs binned SAH)"
+    echo
+    echo "\`test_sah\` proves the two builds answer every query identically. Binned SAH"
+    echo "cuts a TIGHTER tree (lower Σ node area: 0.67x of median on the clustered"
+    echo "scene, 0.89x on the uniform one) and that shows up in cheaper raycasts —"
+    echo "1.35x on clustered, 1.14x on uniform, the smaller gain being the honest"
+    echo "result when a uniform scene leaves the two trees near-identical."
+    echo
+    echo "The textbook framing of this trade is \"SAH buys query speed with a slower"
+    echo "build\", and that is NOT what these rows say: SAH also **builds ~1.7x faster**"
+    echo "than median-split here. That is a property of this implementation, not of the"
+    echo "heuristic — the median path sorts centroids with an insertion sort (O(n²)),"
+    echo "while binned SAH only histograms into 12 bins per axis (O(n)). So the honest"
+    echo "reading is that SAH dominates on both axes *because the median baseline's"
+    echo "build is the weak one*; a median split over a proper O(n log n) sort would"
+    echo "close the build gap and restore the classical trade-off."
+    echo
     run_bench benchmarks/bench_sah.mojo
+    echo "## Procedural — noise family throughput"
+    echo
+    echo "Scalar samples over a grid; the deterministic hash is the whole cost (no table"
+    echo "lookups). fBm is ~octaves× its base, Worley pays the 27-cell search."
+    echo "Contract (seeding, range, determinism) in \`test_noise\`."
+    echo
     run_bench benchmarks/bench_noise.mojo
     echo "## Maturity assessment"
     echo
@@ -236,11 +316,34 @@ run_bench() {
     echo "  brute force as N grows (its total time grows quadratically), and narrowphase"
     echo "  cost ranks cheap→expensive (AABB ≈ circle < SDF < OBB < SAT < GJK+EPA);"
     echo "  AABB/SAT/OBB/GJK agree on hit counts, confirming they detect the same overlaps."
-    echo "- **Ceiling caveat (not pursued).** N is held to a few thousand because the"
-    echo "  sparse index is an \`InlineArray[Int, cap]\` by value (large \`cap\` explodes"
-    echo "  codegen). At that size a fat-entity footprint only reaches L3, so the W2"
-    echo "  locality win is ~2x; it widens at larger N where AoS spills to RAM. A SIMD/"
-    echo "  heap-backed column store would lift the ceiling — left as future work."
+    echo "- **The N ceiling is gone (was: \`InlineArray[Int, cap]\` by value).** The sparse"
+    echo "  index no longer has a fixed cap — \`test_sparse_large\` spawns **1,000,000**"
+    echo "  entities and checks counts and high-id component reads. The remaining"
+    echo "  \`InlineArray\` in \`ecs/archetype.mojo\` indexes archetype-graph edges by"
+    echo "  *component slot*, not by entity, so it does not bound N."
+    echo "  What the tables above still under-show is the RAM-spill REGIME: the movement"
+    echo "  rows stop at N=65536, where a fat entity still reaches L3, so the W2 locality"
+    echo "  win reads as ~2x-4x. The memory-mountain probe in"
+    echo "  \`ECS_VS_OOP_INVESTIGATION.md\` §3 carries the workload past L3 (up to 4,194,304"
+    echo "  elements / 64 MB) and the gap widens as predicted — fat selective read goes"
+    echo "  SoA 0.44 vs AoS 1.82 ns/op (**4.1x**, still widening with N)."
+    echo "- **Hardware profiling backs the locality claim (four-way cross-validation).**"
+    echo "  The layout argument is not left as theory — \`ECS_VS_OOP_INVESTIGATION.md\` §5"
+    echo "  pins it with four independent instruments that agree:"
+    echo "    - \`llvm-mca\` (static): the AoS and SoA fat loops are IDENTICAL"
+    echo "      (4009 cycles / 1000 iter, IPC 1.00) — so arithmetic is not the difference."
+    echo "    - \`cachegrind\` (deterministic, no prefetcher model): AoS fat read misses L1"
+    echo "      **100%** and last-level **83.8%**; SoA misses 12.5% / 0.5%. This is the"
+    echo "      no-prefetch upper bound."
+    echo "    - \`perf stat\` (real PMCs, \`paranoid=-1\`, pinned to a P-core, N=65536x400):"
+    echo "      AoS sequential IPC 0.94 / L1-dcache miss 17.4% (**5.6x** slower than SoA);"
+    echo "      AoS SCATTERED — which defeats the stride prefetcher — falls to IPC 0.64 /"
+    echo "      30.9% miss (**8.3x**). SoA is nearly immune to scatter (0.026 -> 0.0275 s,"
+    echo "      +6%) because the 512 KB position column stays L2-resident."
+    echo "    - the timing memory-mountain above."
+    echo "  Alder Lake's stride prefetcher is what reconciles cachegrind's 84% predicted"
+    echo "  RAM misses with the measured 5.6x: it hides most of them while the access"
+    echo "  pattern stays linear, and stops helping the moment it does not."
     echo
     echo "_Conclusion: LudensEngine's seams are proven correct, and once ECS is measured"
     echo "through its intended SoA/SIMD path it lands where its data-locality profile"
