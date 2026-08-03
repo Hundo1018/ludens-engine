@@ -93,3 +93,72 @@ def reflect_point(pl: Plane3, p: Vec3) -> Vec3:
     project-then-double case analysis)."""
     var pi = plane_dual(pl)
     return down(pi * up(p) * pi)
+
+
+def invert_point(center: Vec3, radius: Real, p: Vec3) -> Vec3:
+    """Spherical inversion `p ↦ c + r²(p−c)/|p−c|²`, as the versor sandwich
+    `S P S` with S the DUAL SPHERE.
+
+    This is the same expression as `reflect_point` with a different grade-1
+    object substituted: reflecting in a plane and inverting in a sphere are one
+    operation in this algebra, distinguished only by which dual vector you hand
+    it. `down`'s normalisation by `P·n∞` is what makes it work — the sandwich
+    does not return a unit-weight null point, and dividing by the weight IS the
+    `1/|p−c|²` of the classical formula.
+
+    This is also the one transform in the engine with no 4x4-matrix
+    counterpart: inversion is conformal but not affine, so it cannot be
+    expressed as a linear map on homogeneous coordinates at all. Parity against
+    the closed form is in `test_cga_inversion`.
+    """
+    return invert_point_with(sphere_dual(center, radius), p)
+
+
+def invert_point_with(s: CGA3, p: Vec3) -> Vec3:
+    """`invert_point` with the dual sphere already built — the versor is fixed
+    for a given inverting sphere, so a loop over many points should hoist its
+    construction out. Benchmarks must use this form or they measure setup."""
+    return down(s * up(p) * s)
+
+
+def dilator(scale: Real) -> CGA3:
+    """Uniform-scaling versor about the origin: `D = exp(½λ·n₀∧n∞)` with
+    λ = ln(scale), expanded in closed form because `(n₀∧n∞)² = +1`, so the
+    exponential is hyperbolic rather than trigonometric:
+    `D = cosh(λ/2) + sinh(λ/2)·(n₀∧n∞)`."""
+    from std.math import log, cosh, sinh
+
+    var lam = Real(log(Float64(scale)))
+    var e = n_o().wedge(n_inf())
+    return CGA3.scalar(Real(cosh(Float64(lam) * 0.5))) + e.scaled(
+        Real(sinh(Float64(lam) * 0.5))
+    )
+
+
+def dilator_reverse(scale: Real) -> CGA3:
+    """Reverse of `dilator(scale)`: reversing flips a bivector's sign."""
+    from std.math import log, cosh, sinh
+
+    var lam = Real(log(Float64(scale)))
+    var e = n_o().wedge(n_inf())
+    return CGA3.scalar(Real(cosh(Float64(lam) * 0.5))) - e.scaled(
+        Real(sinh(Float64(lam) * 0.5))
+    )
+
+
+def dilate_point_with(d: CGA3, drev: CGA3, p: Vec3) -> Vec3:
+    """Dilator sandwich `D P D̃` with the versor pair already built. As with
+    `invert_point_with`, the versor is fixed for a given scale, so loops hoist
+    it; building it per point would price `log`/`cosh`/`sinh`, not the
+    transform."""
+    return down(d * up(p) * drev)
+
+
+def dilate_point(scale: Real, p: Vec3) -> Vec3:
+    """Uniform scale about the origin via the dilator sandwich `D P D̃`.
+
+    The point of carrying scale as a VERSOR rather than a matrix factor is that
+    it composes with rotations, translations and inversions in one product —
+    the conformal group is closed under it. `bench_ga` prices that uniformity
+    against the matrix path, which wins on raw scaling."""
+    return dilate_point_with(dilator(scale), dilator_reverse(scale), p)

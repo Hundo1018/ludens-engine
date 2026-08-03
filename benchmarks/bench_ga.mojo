@@ -17,6 +17,10 @@ from geometry.mat import Mat4, Mat3, transform_point4
 from geometry.motor import Motor3
 from geometry.dualquat import DualQuat
 from geometry.galie import Screw3, exp_screw3, log_motor3, geodesic3
+from geometry.cga import (
+    invert_point, dilate_point, invert_point_with, dilate_point_with,
+    dilator, dilator_reverse, sphere_dual,
+)
 from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
 
@@ -237,3 +241,66 @@ def main() raises:
     lie.add("mat4 decompose+slerp+recompose", N, "interp", measure[interp_mat](3, 20), N)
 
     lie.print_report()
+
+    # ------------------------------------------------- conformal versors
+    # What the CONFORMAL algebra adds over the rigid (PGA) one: uniform scale
+    # as a versor, and spherical inversion — which has no 4x4-matrix row here
+    # because it cannot have one. Inversion is conformal but not affine, so it
+    # is not a linear map on homogeneous coordinates at all; the only
+    # comparison available is the hand-written closed form.
+    var cf = BenchTable("Conformal versors: CGA inversion / dilation vs closed form")
+
+    var pts = List[SkinVert]()
+    for _ in range(N):
+        pts.append(
+            SkinVert(Vec3(
+                Real(rng.next_f32()) * 6 - 3,
+                Real(rng.next_f32()) * 6 - 3,
+                Real(rng.next_f32()) * 6 - 3,
+            ))
+        )
+    var ic = Vec3(0.3, -0.2, 0.1)
+    comptime IR: Real = 2.0
+    comptime SCALE: Real = 1.7
+
+    # versors are fixed for a given sphere/scale: build once, like real code
+    var inv_versor = sphere_dual(ic, IR)
+    var dil_d = dilator(SCALE)
+    var dil_dr = dilator_reverse(SCALE)
+
+    @parameter
+    def inv_cga():
+        var acc = Real(0)
+        for i in range(N):
+            acc += invert_point_with(inv_versor, pts[i].v)[0]
+        keep(acc)
+
+    @parameter
+    def inv_analytic():
+        var acc = Real(0)
+        for i in range(N):
+            var d = pts[i].v - ic
+            var d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+            if d2 > 1e-9:
+                acc += (ic + d * (IR * IR / d2))[0]
+        keep(acc)
+
+    @parameter
+    def dil_cga():
+        var acc = Real(0)
+        for i in range(N):
+            acc += dilate_point_with(dil_d, dil_dr, pts[i].v)[0]
+        keep(acc)
+
+    @parameter
+    def dil_scalar():
+        var acc = Real(0)
+        for i in range(N):
+            acc += (pts[i].v * SCALE)[0]
+        keep(acc)
+
+    cf.add("inversion cga versor", N, "point", measure[inv_cga](3, 20), N)
+    cf.add("inversion closed form", N, "point", measure[inv_analytic](3, 20), N)
+    cf.add("dilation cga versor", N, "point", measure[dil_cga](3, 20), N)
+    cf.add("dilation scalar multiply", N, "point", measure[dil_scalar](3, 20), N)
+    cf.print_report()

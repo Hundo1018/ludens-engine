@@ -143,6 +143,24 @@ run_bench() {
     echo "row goes through the motor bridge because \`DualQuat\` has no native ScLERP —"
     echo "it prices what the current API makes you pay, not the algorithm's floor."
     echo
+    echo "The third table covers what the CONFORMAL algebra adds over the rigid one:"
+    echo "uniform scale as a versor, and spherical INVERSION. Inversion is the only"
+    echo "transform in the engine with no 4x4-matrix counterpart — it is conformal but"
+    echo "not affine, so it is not a linear map on homogeneous coordinates at all — and"
+    echo "it falls out of the SAME sandwich as plane reflection with a dual sphere"
+    echo "substituted for a dual plane. \`test_cga_inversion\` gates it against the closed"
+    echo "form and against the structural properties (involution, the sphere fixed"
+    echo "pointwise, inside/outside exchanged) to ~1e-6."
+    echo
+    echo "The cost is the story: with versors hoisted out of the loop, the conformal"
+    echo "sandwich runs **~200x** the hand-written closed form for both operations."
+    echo "So \"matrices cannot express inversion\" must not be read as \"you need CGA for"
+    echo "inversion\" — the closed form is three lines and 1.5 ns. What the versor buys"
+    echo "is COMPOSABILITY: scale, rotation, translation and inversion multiply into one"
+    echo "operator that the conformal group is closed under, and \`D(a)·D(b) = D(ab)\` is"
+    echo "checked as part of the parity suite. That is an expressiveness argument, and"
+    echo "on this evidence it is not a performance one."
+    echo
     run_bench benchmarks/bench_ga.mojo
     echo "## Foundation — transform propagation (full vs dirty vs motor)"
     echo
