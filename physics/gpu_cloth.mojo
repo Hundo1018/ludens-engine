@@ -17,6 +17,8 @@ still compiles and the test passes vacuously.
 
 from std.math import sqrt, ceildiv
 from std.sys import has_accelerator
+from std.time import perf_counter_ns
+from std.benchmark import keep
 from std.gpu import global_idx
 from std.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
@@ -295,10 +297,53 @@ def gpu_cloth_run[W: Int, H: Int](
     return gpu_cloth_run_ctx[W, H](ctx, steps, iters, dt, rest)
 
 
+@fieldwise_init
+struct GpuClothTiming(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+    """Wall-clock split of one GPU rollout: what is transfer and what is compute.
+
+    The end-to-end GPU rows fold host<->device traffic into the total; these
+    fields separate it. `download_ns` accumulates EVERY readback, so a
+    per-frame-readback rollout (`readback_every=1`) shows the cost a real game
+    pays when it pulls physics results back to the CPU each frame."""
+
+    var upload_ns: Int
+    var compute_ns: Int
+    var download_ns: Int
+    var total_ns: Int
+
+    @staticmethod
+    def zero() -> Self:
+        return Self(0, 0, 0, 0)
+
+
 def gpu_cloth_run_ctx[W: Int, H: Int](
     mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32
 ) raises -> ClothState:
     """Cloth on a caller-provided context (shared across GPU rollouts)."""
+    var timing = GpuClothTiming.zero()
+    return gpu_cloth_run_ctx_timed[W, H](ctx, steps, iters, dt, rest, 0, timing)
+
+
+def gpu_cloth_run_ctx_timed[W: Int, H: Int](
+    mut ctx: DeviceContext,
+    steps: Int,
+    iters: Int,
+    dt: Float32,
+    rest: Float32,
+    readback_every: Int,
+    mut timing: GpuClothTiming,
+) raises -> ClothState:
+    """The single GPU rollout body, instrumented.
+
+    `readback_every == 0` downloads the final state once (what
+    `gpu_cloth_run_ctx` does, and what the end-to-end rows measure).
+    `readback_every == k > 0` also drains x/y/z back to the host every `k`
+    steps — the per-frame-readback shape of a real game loop, which forces a
+    device sync per frame and cannot hide latency behind the enqueue pipeline.
+    Phase timings land in `timing`; the returned state is identical either way
+    (the readback is a copy, not a mutation), so `test_gpu_cloth` parity holds
+    for both settings."""
+    var fn_t0 = Int(perf_counter_ns())
     comptime n = W * H
     comptime layout = row_major[n]()
     comptime BLOCK = 256
@@ -323,7 +368,8 @@ def gpu_cloth_run_ctx[W: Int, H: Int](
     var bdy = bufs[10]
     var bdz = bufs[11]
     var bw = bufs[12]
-    # upload initial state
+    # upload initial state (host -> device)
+    var up_t0 = Int(perf_counter_ns())
     with bx.map_to_host() as m:
         var t = TileTensor(m, layout)
         for i in range(n):
@@ -340,6 +386,7 @@ def gpu_cloth_run_ctx[W: Int, H: Int](
         var t = TileTensor(m, layout)
         for i in range(n):
             t[i] = 0 if i < W else 1
+    timing.upload_ns = Int(perf_counter_ns()) - up_t0
 
     var x = TileTensor(bx, layout)
     var y = TileTensor(by, layout)
@@ -360,7 +407,14 @@ def gpu_cloth_run_ctx[W: Int, H: Int](
     comptime ka = apply_kernel[type_of(layout)]
     comptime kf = finalize_kernel[type_of(layout)]
     comptime GRID = ceildiv(n, BLOCK)
-    for _ in range(steps):
+    # Compute is enqueued asynchronously, so the timed compute region must
+    # include the `synchronize()` that actually waits for the device — timing
+    # the enqueue loop alone would only price the launch calls.
+    var compute_ns = 0
+    var download_ns = 0
+    var rb_sink = Float32(0)
+    var phase_t0 = Int(perf_counter_ns())
+    for stp in range(steps):
         ctx.enqueue_function[kp](
             x, y, z, vy, px, py, pz, vx, vz, w, n, dt,
             grid_dim=GRID, block_dim=BLOCK,
@@ -377,7 +431,32 @@ def gpu_cloth_run_ctx[W: Int, H: Int](
             x, y, z, px, py, pz, vx, vy, vz, n, 1.0 / dt,
             grid_dim=GRID, block_dim=BLOCK,
         )
+        if readback_every > 0 and (stp + 1) % readback_every == 0:
+            # A game reading positions back each frame: the sync drains the
+            # pipeline (no launch overlap left to hide), then three columns
+            # cross the bus. Summed into a sink so the copy cannot be elided.
+            ctx.synchronize()
+            compute_ns += Int(perf_counter_ns()) - phase_t0
+            var rb_t0 = Int(perf_counter_ns())
+            with bx.map_to_host() as m:
+                var t = TileTensor(m, layout)
+                for i in range(n):
+                    rb_sink += rebind[Scalar[dtype]](t[i])
+            with by.map_to_host() as m:
+                var t = TileTensor(m, layout)
+                for i in range(n):
+                    rb_sink += rebind[Scalar[dtype]](t[i])
+            with bz.map_to_host() as m:
+                var t = TileTensor(m, layout)
+                for i in range(n):
+                    rb_sink += rebind[Scalar[dtype]](t[i])
+            download_ns += Int(perf_counter_ns()) - rb_t0
+            phase_t0 = Int(perf_counter_ns())
     ctx.synchronize()
+    compute_ns += Int(perf_counter_ns()) - phase_t0
+    timing.compute_ns = compute_ns
+    keep(rb_sink)
+    var dl_t0 = Int(perf_counter_ns())
     var out = ClothState()
     with bx.map_to_host() as m:
         var t = TileTensor(m, layout)
@@ -391,4 +470,6 @@ def gpu_cloth_run_ctx[W: Int, H: Int](
         var t = TileTensor(m, layout)
         for i in range(n):
             out.z.append(rebind[Scalar[dtype]](t[i]))
+    timing.download_ns = download_ns + (Int(perf_counter_ns()) - dl_t0)
+    timing.total_ns = Int(perf_counter_ns()) - fn_t0
     return out^
