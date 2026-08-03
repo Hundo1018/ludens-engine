@@ -363,6 +363,29 @@ run_bench() {
     echo "readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k)."
     echo
     run_bench benchmarks/bench_gpu_cloth.mojo
+    echo "## Physics — MLS-MPM (material point method)"
+    echo
+    echo "MPM sits between the engine'\''s other deformables. FEM keeps a fixed mesh and"
+    echo "therefore a fixed topology; PBF and SPH keep no rest shape at all. MPM carries"
+    echo "elastic state on PARTICLES and uses a background grid, thrown away each step,"
+    echo "only to resolve the coupling — so the material can flow, pile up and merge"
+    echo "while still remembering strain. That is the combination snow, mud and plastic"
+    echo "flow need, and it is the one class of material the other two solvers here"
+    echo "structurally cannot represent."
+    echo
+    echo "Plasticity is a determinant clamp on the deformation gradient: strain past a"
+    echo "yield range is FORGOTTEN rather than stored, which is precisely what turns an"
+    echo "elastic solid into a material that keeps a new shape. The benchmark shows it"
+    echo "costs **~0.5%** — it is a clamp and a rescale — and \`test_mpm\` shows what that"
+    echo "0.5% buys by running the identical dropped column both ways: the elastic body"
+    echo "springs back to height 0.64 after impact, the plastic one stays at 0.28."
+    echo
+    echo "Per-particle cost FALLS as the particle count grows (2693 -> 1300 ns) because"
+    echo "the grid is cleared every step regardless of how many particles occupy it, so"
+    echo "a 32³ grid'\''s fixed cost dominates at small counts and amortises away at"
+    echo "larger ones. Read the small-N rows as grid overhead, not as scaling."
+    echo
+    run_bench benchmarks/bench_mpm.mojo
     echo "## Physics — co-rotational tetrahedral FEM"
     echo
     echo "A continuum next to the engine'\''s mass-spring lattice. \`softbody.mojo\` joins"
