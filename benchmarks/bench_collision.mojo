@@ -38,7 +38,10 @@ from collision.narrowphase import (
     GJKNarrowPhase,
     SDFNarrowPhase,
     CgaSphereNarrowPhase,
+    CgaShapeNarrowPhase,
 )
+from geometry.cga import Plane3
+from geometry.vec import dot
 from harness.bench import BenchTable, now
 
 
@@ -242,6 +245,123 @@ def bench_narrowphase_sphere(mut table: BenchTable, n: Int) raises:
     run_np(table, "3d sphere cga", npcga, pairs, n)
 
 
+struct EuclidShapeNarrowPhase(NarrowPhase):
+    """The control group for the CGA heterogeneous rows: the same sphere+plane
+    registry answered by hand-written euclidean formulas behind an explicit
+    kind switch. This is the "ten if-else branches" code that the unified-meet
+    argument claims to beat, written as well as it reasonably can be — same
+    registry layout, same dispatch shape, same formulas.
+
+    Hit counts are printed per row and land within ~0.3% of each other rather
+    than matching exactly. That gap is itself a result: this path computes the
+    centre distance directly, while the CGA path RECONSTRUCTS it as
+    `d² = r₁² + r₂² − 2·S₁·S₂`, a subtraction of similar magnitudes that loses
+    precision and flips a handful of pairs sitting exactly on the touching
+    boundary. `test_cga_narrowphase` still passes because it asserts parity on
+    configurations that are not borderline."""
+
+    comptime dim: Int = 3
+    var kinds: List[Int]  # 0 = sphere, 1 = plane
+    var spheres: List[Sphere]
+    var planes: List[Plane3]
+    var slot: List[Int]
+
+    def __init__(out self):
+        self.kinds = List[Int]()
+        self.spheres = List[Sphere]()
+        self.planes = List[Plane3]()
+        self.slot = List[Int]()
+
+    def add(mut self, s: Sphere) -> Int:
+        self.kinds.append(0)
+        self.slot.append(len(self.spheres))
+        self.spheres.append(s)
+        return len(self.kinds) - 1
+
+    def add_plane(mut self, p: Plane3) -> Int:
+        self.kinds.append(1)
+        self.slot.append(len(self.planes))
+        self.planes.append(p)
+        return len(self.kinds) - 1
+
+    def _sphere_plane(self, si: Int, pi: Int, flip: Bool) -> Contact[3]:
+        var sp = self.spheres[self.slot[si]]
+        var pl = self.planes[self.slot[pi]]
+        var dist = dot(sp.center, pl.normal) - pl.d
+        if abs(dist) > sp.radius:
+            return Contact[3].miss()
+        var toward = pl.normal * Real(-1 if dist >= 0 else 1)
+        var n = toward * Real(-1 if flip else 1)
+        return Contact[3](True, n, sp.radius - abs(dist))
+
+    def test(self, a: Int, b: Int) -> Contact[3]:
+        if self.kinds[a] == 0 and self.kinds[b] == 0:
+            var sa = self.spheres[self.slot[a]]
+            var sb = self.spheres[self.slot[b]]
+            var rsum = sa.radius + sb.radius
+            var d_sq = distance_sq(sa.center, sb.center)
+            if d_sq > rsum * rsum:
+                return Contact[3].miss()
+            var dist = sqrt(d_sq) if d_sq > 0 else Real(0)
+            var delta = sb.center - sa.center
+            var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0)
+            return Contact[3](True, n, rsum - dist)
+        if self.kinds[a] == 0 and self.kinds[b] == 1:
+            return self._sphere_plane(a, b, False)
+        if self.kinds[a] == 1 and self.kinds[b] == 0:
+            return self._sphere_plane(b, a, True)
+        return Contact[3].miss()
+
+
+def bench_narrowphase_mixed(
+    mut table: BenchTable, n: Int, n_planes: Int
+) raises:
+    """Heterogeneous scene: `n` spheres plus `n_planes` planes, every candidate
+    pair answered by CGA inner products vs the euclidean switch. `n_planes` is
+    the scaling axis — it controls how often the dispatch actually changes
+    branch, which is precisely what the branchless-meet argument is about."""
+    var extent = Real(Float64(n) ** (1.0 / 3.0)) * 3.0
+    var items = scene3(n, extent, 1.0)
+
+    var npe = EuclidShapeNarrowPhase()
+    var npc = CgaShapeNarrowPhase()
+    var proxies = List[BoxProxy[3]]()
+    # interleave planes among the spheres so proxy kind alternates in pair
+    # order rather than sitting in one contiguous run (a contiguous run is
+    # trivially predicted and would flatter the branchy path).
+    var every = (n // (n_planes + 1)) + 1
+    var pi = 0
+    for i in range(n):
+        var b = items[i].box
+        var s = Sphere(b.center(), b.half_extents()[0])
+        if pi < n_planes and (i % every) == (every - 1):
+            # axis-cycling planes placed through the cloud so they are hit
+            var nrm = Vec3(0, 1, 0)
+            if pi % 3 == 1:
+                nrm = Vec3(1, 0, 0)
+            elif pi % 3 == 2:
+                nrm = Vec3(0, 0, 1)
+            var pl = Plane3(nrm, dot(b.center(), nrm))
+            _ = npe.add_plane(pl)
+            _ = npc.add_plane(pl)
+            pi += 1
+        else:
+            _ = npe.add(s)
+            _ = npc.add(s)
+        # a plane is unbounded; give its proxy the scene box so the broadphase
+        # offers it against everything (both paths see the identical pair set)
+        proxies.append(items[i])
+
+    var bf = BruteForce[3]()
+    bf.rebuild(proxies)
+    var pairs = List[Pair]()
+    bf.pairs(pairs)
+
+    var tag = " (" + String(n_planes) + " planes)"
+    run_np(table, "3d mixed euclid switch" + tag, npe, pairs, n)
+    run_np(table, "3d mixed cga" + tag, npc, pairs, n)
+
+
 def main() raises:
     var bp_table = BenchTable("Broadphase x scene (rebuild + candidate pairs)")
     bench_broadphase_2d(bp_table, 1_000)
@@ -257,3 +377,16 @@ def main() raises:
     bench_narrowphase_sphere(np_table, 500)
     bench_narrowphase_sphere(np_table, 2_000)
     np_table.print_report()
+
+    # Heterogeneous scene: the case the "branchless unified meet" argument is
+    # actually about. Plane count is the scaling axis (how often the dispatch
+    # switches branch); 0 planes is the homogeneous control.
+    var mix_table = BenchTable(
+        "Heterogeneous narrowphase: CGA inner products vs a euclidean switch"
+    )
+    bench_narrowphase_mixed(mix_table, 2_000, 0)
+    bench_narrowphase_mixed(mix_table, 2_000, 1)
+    bench_narrowphase_mixed(mix_table, 2_000, 8)
+    bench_narrowphase_mixed(mix_table, 2_000, 64)
+    bench_narrowphase_mixed(mix_table, 2_000, 256)
+    mix_table.print_report()

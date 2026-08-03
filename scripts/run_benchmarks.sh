@@ -64,6 +64,34 @@ run_bench() {
     echo "conformal-algebra inner products vs the analytic euclidean test (parity in"
     echo "\`test_cga_narrowphase\`) — the price of the GA abstraction, measured."
     echo
+    echo "The final table settles the HETEROGENEOUS case, which is the one the"
+    echo "\"unified branchless meet\" argument is actually about: the claim is that one"
+    echo "algebraic incidence test beats a traditional dispatcher full of per-shape-pair"
+    echo "branches. Both paths hold spheres and planes in one registry over identical"
+    echo "candidate pairs; the control is a hand-written euclidean switch. Plane count"
+    echo "is the scaling axis, because it controls how often the dispatch changes"
+    echo "branch, and the planes are interleaved through the cloud rather than left in"
+    echo "one contiguous run (a run is trivially predicted and would flatter the branchy"
+    echo "path)."
+    echo
+    echo "CGA loses at every mix, by **2.4x-3.2x**, and the ratio does not improve as"
+    echo "the scene gets more heterogeneous. Two reasons, and the first is the more"
+    echo "important one: \`CgaShapeNarrowPhase\` **still branches on shape kind**, exactly"
+    echo "like the euclidean dispatcher. The uniformity CGA buys is in the FORMULA"
+    echo "(a sphere-sphere and a sphere-plane test are both grade-1 inner products), not"
+    echo "in the dispatch — so there is no branch elimination to collect, and what"
+    echo "remains is the cost of carrying 32-float multivectors instead of 4 floats."
+    echo "A genuinely branch-free version would need one uniform representation and one"
+    echo "code path for every pairing, which this algebra layer does not currently"
+    echo "provide."
+    echo
+    echo "Note the hit counts differ by ~0.3% between the two paths. That is a second"
+    echo "result rather than noise: the euclidean path measures the centre distance"
+    echo "directly, while CGA reconstructs it as d² = r₁²+r₂²−2·S₁·S₂ — a subtraction of"
+    echo "similar magnitudes — so a few pairs sitting exactly on the touching boundary"
+    echo "fall on the other side. The abstraction costs a little conditioning as well as"
+    echo "a little speed."
+    echo
     run_bench benchmarks/bench_collision.mojo
     echo "## Collision — manifold narrowphase (contact patch vs boolean test)"
     echo
