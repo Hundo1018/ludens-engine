@@ -42,17 +42,36 @@ struct BVH[dim: Int](Copyable, Movable):
         self.nodes.clear()
         self.root = -1
 
-    def build(mut self, var leaves: List[_Leaf[Self.dim]], sah: Bool = False):
-        """Median-split along the widest centroid axis (default), or `sah` =
-        binned Surface-Area-Heuristic (choose the axis + split plane of least
-        SA(L)·|L| + SA(R)·|R| over SAH_BINS candidates). Both produce the same
-        set of leaves and identical query answers (`test_bvh` parity); SAH
-        yields a tighter tree, cheaper to traverse at the cost of a pricier
-        build."""
+    def build(
+        mut self,
+        var leaves: List[_Leaf[Self.dim]],
+        sah: Bool = False,
+        lbvh: Bool = False,
+    ):
+        """Three build heuristics over the same leaves, all answering queries
+        identically (`test_bvh` / `test_sah` / `test_lbvh` parity):
+
+        - default: median-split along the widest centroid axis.
+        - `sah`: binned Surface-Area-Heuristic — least SA(L)·|L| + SA(R)·|R|
+          over SAH_BINS candidates. Tighter tree, cheaper traversal.
+        - `lbvh`: LINEAR BVH — sort leaves by Morton code, then split at the
+          highest differing bit. The split decisions are then implied by the
+          sort rather than searched for, which is what makes this the standard
+          construction to run in parallel (and on a GPU): the only global step
+          is a radix sort. Tree quality is the worst of the three, because a
+          Z-order curve is a proxy for spatial proximity, not a measurement of
+          it.
+
+        `lbvh` wins over `sah` when a tree is thrown away every frame; `sah`
+        wins when it is queried many times per build. `bench_lbvh` sweeps
+        exactly that queries-per-build ratio."""
         self.clear()
         if len(leaves) == 0:
             return
-        self.root = self._build(leaves, 0, len(leaves), sah)
+        if lbvh:
+            self.root = self._build_lbvh(leaves)
+        else:
+            self.root = self._build(leaves, 0, len(leaves), sah)
 
     def _bounds(self, leaves: List[_Leaf[Self.dim]], lo: Int, hi: Int) -> AABB[Self.dim]:
         var b = leaves[lo].box
@@ -197,15 +216,123 @@ struct BVH[dim: Int](Copyable, Movable):
         self.nodes.append(_Node[Self.dim](box, left, right, -1))
         return len(self.nodes) - 1
 
+    # ------------------------------------------------------------ LBVH
+    @staticmethod
+    def _spread(v: UInt32, bits: Int) -> UInt32:
+        """Insert `dim-1` zero bits after each of the low `bits` bits, so that
+        OR-ing the per-axis results interleaves them into a Morton code."""
+        var out = UInt32(0)
+        for i in range(bits):
+            out |= ((v >> UInt32(i)) & UInt32(1)) << UInt32(i * Self.dim)
+        return out
+
+    def _morton(self, leaf: _Leaf[Self.dim], cmin: SIMD[WorldType, Self.dim],
+                inv: SIMD[WorldType, Self.dim]) -> UInt32:
+        """Quantise the centroid to a uniform grid and interleave the axes.
+        30 bits total, so 10 bits per axis in 3D and 15 in 2D."""
+        comptime BITS = 30 // Self.dim
+        comptime SCALE = Real((1 << BITS) - 1)
+        var c = (leaf.box.min + leaf.box.max) * 0.5
+        var code = UInt32(0)
+        for a in range(Self.dim):
+            var t = (c[a] - cmin[a]) * inv[a]
+            if t < 0:
+                t = 0
+            if t > 1:
+                t = 1
+            var q = UInt32(Int(t * SCALE))
+            code |= Self._spread(q, BITS) << UInt32(a)
+        return code
+
+    def _build_lbvh(mut self, mut leaves: List[_Leaf[Self.dim]]) -> Int:
+        var n = len(leaves)
+        # scene centroid bounds -> quantisation grid
+        var cmin = (leaves[0].box.min + leaves[0].box.max) * 0.5
+        var cmax = cmin
+        for i in range(1, n):
+            var c = (leaves[i].box.min + leaves[i].box.max) * 0.5
+            cmin = lane_min(cmin, c)
+            cmax = lane_max(cmax, c)
+        var inv = SIMD[WorldType, Self.dim](0)
+        for a in range(Self.dim):
+            var e = cmax[a] - cmin[a]
+            inv[a] = (1.0 / e) if e > 1e-20 else Real(0)
+
+        var codes = List[UInt32]()
+        for i in range(n):
+            codes.append(self._morton(leaves[i], cmin, inv))
+
+        # LSD radix sort, 8 bits per pass: the one global step of an LBVH
+        # build, and the step that parallelises.
+        var tmp_leaves = leaves.copy()
+        var tmp_codes = codes.copy()
+        for shift in range(0, 32, 8):
+            var count = InlineArray[Int, 257](fill=0)
+            for i in range(n):
+                count[Int((codes[i] >> UInt32(shift)) & UInt32(255)) + 1] += 1
+            for b in range(1, 257):
+                count[b] += count[b - 1]
+            for i in range(n):
+                var b = Int((codes[i] >> UInt32(shift)) & UInt32(255))
+                var d = count[b]
+                count[b] = d + 1
+                tmp_codes[d] = codes[i]
+                tmp_leaves[d] = leaves[i]
+            for i in range(n):
+                codes[i] = tmp_codes[i]
+                leaves[i] = tmp_leaves[i]
+
+        return self._radix_node(leaves, codes, 0, n, 29)
+
+    def _radix_node(
+        mut self, mut leaves: List[_Leaf[Self.dim]], codes: List[UInt32],
+        lo: Int, hi: Int, bit: Int,
+    ) -> Int:
+        var box = self._bounds(leaves, lo, hi)
+        if hi - lo == 1:
+            self.nodes.append(_Node[Self.dim](box, -1, -1, leaves[lo].proxy))
+            return len(self.nodes) - 1
+        # Descend to the highest bit that actually differs across the range;
+        # equal codes (duplicate cells) fall through to a median split so the
+        # recursion always makes progress.
+        var b = bit
+        while b >= 0:
+            var m = UInt32(1) << UInt32(b)
+            if (codes[lo] & m) != (codes[hi - 1] & m):
+                break
+            b -= 1
+        var mid: Int
+        if b < 0:
+            mid = (lo + hi) // 2
+        else:
+            # codes are sorted, so the 0->1 transition is a binary search
+            var m = UInt32(1) << UInt32(b)
+            var l = lo
+            var r = hi - 1
+            while l < r:
+                var c = (l + r) // 2
+                if (codes[c] & m) == 0:
+                    l = c + 1
+                else:
+                    r = c
+            mid = l
+            if mid <= lo or mid >= hi:
+                mid = (lo + hi) // 2
+        var left = self._radix_node(leaves, codes, lo, mid, b - 1 if b > 0 else 0)
+        var right = self._radix_node(leaves, codes, mid, hi, b - 1 if b > 0 else 0)
+        self.nodes.append(_Node[Self.dim](box, left, right, -1))
+        return len(self.nodes) - 1
+
     def build_boxes(
         mut self, boxes: List[AABB[Self.dim]], proxies: List[Int],
         sah: Bool = False,
+        lbvh: Bool = False,
     ):
         """Build from parallel (box, proxy) lists — keeps `_Leaf` private to this module."""
         var leaves = List[_Leaf[Self.dim]]()
         for i in range(len(boxes)):
             leaves.append(_Leaf[Self.dim](boxes[i], proxies[i]))
-        self.build(leaves^, sah)
+        self.build(leaves^, sah, lbvh)
 
     def raycast(self, ray: Ray[Self.dim]) -> RayHit[Self.dim]:
         """Nearest proxy the ray hits, found by descending only nodes the ray enters."""

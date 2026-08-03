@@ -65,7 +65,7 @@ def _rays(mut rng: XorShift64) -> List[Ray[3]]:
     return rays^
 
 
-def _build_ns(leaves: List[_Leaf[3]], sah: Bool) raises -> Int:
+def _build_ns(leaves: List[_Leaf[3]], sah: Bool, lbvh: Bool = False) raises -> Int:
     # rebuild several times so the timing is above the clock's noise floor
     var t0 = Int(perf_counter_ns())
     for _ in range(20):
@@ -73,17 +73,50 @@ def _build_ns(leaves: List[_Leaf[3]], sah: Bool) raises -> Int:
         var copy = List[_Leaf[3]]()
         for i in range(len(leaves)):
             copy.append(leaves[i])
-        b.build(copy^, sah)
+        b.build(copy^, sah, lbvh)
     return (Int(perf_counter_ns()) - t0) // 20
 
 
 def _query_ns(bvh: BVH[3], rays: List[Ray[3]]) raises -> Int:
-    var t0 = Int(perf_counter_ns())
-    var acc = 0
-    for i in range(len(rays)):
-        acc += bvh.raycast(rays[i]).proxy
-    _ = acc
-    return Int(perf_counter_ns()) - t0
+    """Min-of-reps: the three builds' query costs sit within ~15% of each
+    other, so a single timed pass lets scheduler noise decide which one 'wins'
+    and flips the amortisation verdict between runs."""
+    var best = Int.MAX
+    for _ in range(5):
+        var t0 = Int(perf_counter_ns())
+        var acc = 0
+        for i in range(len(rays)):
+            acc += bvh.raycast(rays[i]).proxy
+        var dt = Int(perf_counter_ns()) - t0
+        _ = acc
+        if dt < best:
+            best = dt
+    return best
+
+
+def _amortise(
+    label: String, cheap: String, rich: String,
+    b_cheap: Int, q_cheap: Int, b_rich: Int, q_rich: Int,
+):
+    """Where does the pricier build repay itself? Solving
+    b_rich + k*q_rich = b_cheap + k*q_cheap for k gives the queries-per-build
+    ratio above which `rich` wins. A crossover only exists when `rich` really
+    is pricier to build and really is faster to query — otherwise one side
+    dominates outright and reporting a number would be misleading."""
+    var db = Float64(b_rich - b_cheap)
+    var dq = Float64(q_cheap - q_rich) / Float64(M)
+    if db <= 0 and dq >= 0:
+        print("  [" + label + "] " + rich + " DOMINATES " + cheap
+              + " (cheaper build and faster queries)")
+    elif db > 0 and dq > 0:
+        print("  [" + label + "] " + rich + " repays its build vs " + cheap
+              + " after ~", Int(db / dq), "rays")
+    elif db > 0 and dq <= 0:
+        print("  [" + label + "] " + cheap + " DOMINATES " + rich
+              + " (cheaper build and no slower)")
+    else:
+        print("  [" + label + "] " + cheap + " trades cheaper queries for a"
+              + " pricier build vs " + rich)
 
 
 def _row(mut t: BenchTable, label: String, clustered: Bool) raises:
@@ -91,28 +124,49 @@ def _row(mut t: BenchTable, label: String, clustered: Bool) raises:
     var leaves = _scene(sr, clustered)
     var med = BVH[3]()
     var sah = BVH[3]()
+    var lin = BVH[3]()
     var lm = List[_Leaf[3]]()
     var ls = List[_Leaf[3]]()
+    var ll = List[_Leaf[3]]()
     for i in range(len(leaves)):
         lm.append(leaves[i])
         ls.append(leaves[i])
+        ll.append(leaves[i])
     med.build(lm^, sah=False)
     sah.build(ls^, sah=True)
+    lin.build(ll^, sah=False, lbvh=True)
     var qr = XorShift64(0xBEEF)
     var rays = _rays(qr)
     print(
         "  [" + label + "] Σarea median", Float64(med.cost()),
         " SAH", Float64(sah.cost()),
-        " ratio", Float64(sah.cost()) / Float64(med.cost()),
+        " LBVH", Float64(lin.cost()),
+        " (SAH/median", Float64(sah.cost()) / Float64(med.cost()),
+        ", LBVH/median", Float64(lin.cost()) / Float64(med.cost()), ")",
     )
-    t.add(label + " build median", N, "build", _build_ns(leaves, False), 1)
-    t.add(label + " build SAH", N, "build", _build_ns(leaves, True), 1)
-    t.add(label + " raycast median", M, "ray", _query_ns(med, rays), M)
-    t.add(label + " raycast SAH", M, "ray", _query_ns(sah, rays), M)
+    var bm = _build_ns(leaves, False)
+    var bs = _build_ns(leaves, True)
+    var bl = _build_ns(leaves, False, True)
+    var qm = _query_ns(med, rays)
+    var qs = _query_ns(sah, rays)
+    var ql = _query_ns(lin, rays)
+    t.add(label + " build median", N, "build", bm, 1)
+    t.add(label + " build SAH", N, "build", bs, 1)
+    t.add(label + " build LBVH (morton+radix)", N, "build", bl, 1)
+    t.add(label + " raycast median", M, "ray", qm, M)
+    t.add(label + " raycast SAH", M, "ray", qs, M)
+    t.add(label + " raycast LBVH", M, "ray", ql, M)
+    # Amortisation: the ray count at which a pricier build repays itself.
+    # build_x + k*query_x = build_y + k*query_y  ->  k = (bx-by)/(qy-qx)
+    # Amortisation only has a crossover when one build is pricier AND its
+    # queries are faster; otherwise one option simply dominates.
+    _amortise(label, "median", "SAH", bm, qm, bs, qs)
+    _amortise(label, "LBVH", "SAH", bl, ql, bs, qs)
+    _amortise(label, "LBVH", "median", bl, ql, bm, qm)
 
 
 def main() raises:
-    var t = BenchTable("BVH build heuristic: median vs binned SAH")
+    var t = BenchTable("BVH build heuristic: median vs binned SAH vs LBVH")
     _row(t, "clustered", True)
     _row(t, "uniform", False)
     t.print_report()
