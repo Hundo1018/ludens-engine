@@ -363,6 +363,32 @@ run_bench() {
     echo "readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k)."
     echo
     run_bench benchmarks/bench_gpu_cloth.mojo
+    echo "## Physics — co-rotational tetrahedral FEM"
+    echo
+    echo "A continuum next to the engine'\''s mass-spring lattice. \`softbody.mojo\` joins"
+    echo "particles with distance constraints, so its stiffness and volume response are"
+    echo "properties of how the lattice happens to be wired. FEM discretises the"
+    echo "material instead: each tetrahedron carries a deformation gradient and stress"
+    echo "comes from a constitutive law with real Lame parameters, so those become"
+    echo "material properties. \`test_fem\` measures the consequence — a pinned"
+    echo "cantilever under gravity holds volume to **0.04%** of rest."
+    echo
+    echo "The table prices the CO-ROTATIONAL part specifically, because that is the"
+    echo "trade that decides whether the method is usable. Linear elasticity measures"
+    echo "strain from displacement and is therefore only valid for small DISPLACEMENTS:"
+    echo "rotate an undeformed body and it reports enormous spurious strain. The"
+    echo "\`linear (R=I)\` rows are that control, run on the same meshes."
+    echo
+    echo "Extracting the rotation by polar decomposition costs **~5.6x** (roughly 710 vs"
+    echo "127 ns per tet, flat in mesh size for both since tets are independent). What"
+    echo "it buys is in the error column: after a 63-degree rigid rotation of an"
+    echo "UNDEFORMED body, the linear variant reports a peak spurious force of **83.6**"
+    echo "— which would tear the body apart — while the co-rotational one reports"
+    echo "**0.00**. That is not an accuracy improvement, it is the difference between a"
+    echo "method that works under motion and one that does not, and 5.6x is what it"
+    echo "costs."
+    echo
+    run_bench benchmarks/bench_fem.mojo
     echo "## Physics — SPH vs PBF: explicit pressure against density projection"
     echo
     echo "Both solvers run on the SAME particle state, grid and kernels, so this"
