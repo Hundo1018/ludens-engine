@@ -175,6 +175,38 @@ run_bench() {
     echo "full-rebuild BVH path."
     echo
     run_bench benchmarks/bench_dbvh.mojo
+    echo "## Collision — sweep-and-prune vs the other broadphases, by motion speed"
+    echo
+    echo "SAP (\`collision/bp_sap.mojo\`) keeps last frame's sorted endpoint order and"
+    echo "repairs it with an insertion sort, so its cost depends on TEMPORAL COHERENCE"
+    echo "rather than on N alone. The sweep axis is therefore how far bodies move per"
+    echo "frame, not how many there are. Pair sets match brute force exactly"
+    echo "(\`test_sap\`, including across moving frames, a teleport and a population"
+    echo "change), so this table is cost-only."
+    echo
+    echo "The scene oscillates with FIXED amplitude, so the overlap count stays ~90-110"
+    echo "pairs at every speed and the rows compare equal work — a sweep that let boxes"
+    echo "drift apart at high speed would be changing density, not coherence."
+    echo
+    echo "Three readings, one of them uncomfortable:"
+    echo
+    echo "- **SAP delivers on its premise**: ~3x cheaper under jitter than under real"
+    echo "  motion, which is the insertion sort finding the order nearly correct."
+    echo "- **SAP beats the DBVH here at every speed**, by 3-4x. That is not a"
+    echo "  contradiction of the persistent-vs-rebuild table above: the DBVH's advantage"
+    echo "  is bounded by its FAT MARGIN, and that table jitters inside it. Here motion"
+    echo "  is sustained, so leaves escape their fat boxes continuously and the tree"
+    echo "  pays reinsertion every frame. The lesson is that \"temporal coherence\" is not"
+    echo "  one property: a margin-based structure needs motion below a THRESHOLD, while"
+    echo "  a sort-based one only needs few INVERSIONS, and sustained slow drift"
+    echo "  satisfies the second while violating the first."
+    echo "- **The spatial hash still wins outright, at every speed**, and is completely"
+    echo "  flat across the coherence axis because it rebuilds from scratch in O(n) and"
+    echo "  has no state to invalidate. So SAP closes a comparison gap — the engine can"
+    echo "  now say what the Box2D/Bullet-lineage broadphase costs on its own"
+    echo "  workloads — without displacing the grid as the default."
+    echo
+    run_bench benchmarks/bench_sap.mojo
     echo "## Physics — CCD stages (speculative manifold vs swept/TOI cast)"
     echo
     echo "The two tunnelling defenses (zero-overshoot bullet gate in \`test_ccd6\`): the"
