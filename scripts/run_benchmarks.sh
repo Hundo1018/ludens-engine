@@ -204,6 +204,31 @@ run_bench() {
     echo "full-rebuild BVH path."
     echo
     run_bench benchmarks/bench_dbvh.mojo
+    echo "## Collision — batched GPU raycast vs the CPU BVH"
+    echo
+    echo "The query-side counterpart to the GPU broadphase, and the one place in this"
+    echo "report where the device wins outright. The BVH answers a ray in O(log n) by"
+    echo "descending only the nodes it enters; the kernel answers it in O(n) by testing"
+    echo "every box, but with one ray per lane. Ray count is the axis, since both sides"
+    echo "amortise a fixed cost over it — a tree build on one side, host<->device"
+    echo "transfer on the other."
+    echo
+    echo "**The GPU is 7.5x-9.2x faster at every ray count tested**, including 256 rays."
+    echo "Parity is exact rather than statistical: same proxy per ray and bit-identical"
+    echo "distances (\`test_gpu_raycast\` compares proxy ids, because two boxes at nearly"
+    echo "the same distance are exactly where a differing tie-break would hide behind a"
+    echo "distance-only check). Unlike the broadphase kernel this one is fully"
+    echo "deterministic — each thread keeps its nearest hit in registers and writes"
+    echo "once, so there is no atomic and no ordering question."
+    echo
+    echo "One caveat that decides how to read the low-ray rows: the CPU row INCLUDES the"
+    echo "BVH build, which is right for a scene rebuilt each frame but wrong for a"
+    echo "static level whose tree is built once and reused. Strip the build and the CPU"
+    echo "cost at 65536 rays falls to roughly 770 ns/ray — still ~6x the GPU, so the win"
+    echo "survives the correction at high ray counts, but the 8x at 256 rays is mostly"
+    echo "the build and would largely disappear against a persistent tree."
+    echo
+    run_bench benchmarks/bench_gpu_raycast.mojo
     echo "## Collision — GPU all-pairs broadphase vs the CPU structures"
     echo
     echo "Every CPU broadphase here wins by doing FEWER tests. This one keeps the O(n²)"
