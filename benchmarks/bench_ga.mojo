@@ -12,10 +12,11 @@ from std.benchmark import keep
 from harness.bench import BenchTable, measure
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3, normalize
-from geometry.quat import Quat, compose_trs4
-from geometry.mat import Mat4, transform_point4
+from geometry.quat import Quat, compose_trs4, slerp, quat_from_mat3
+from geometry.mat import Mat4, Mat3, transform_point4
 from geometry.motor import Motor3
 from geometry.dualquat import DualQuat
+from geometry.galie import Screw3, exp_screw3, log_motor3, geodesic3
 from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
 
@@ -148,3 +149,91 @@ def main() raises:
     table.add("mat4 LBS (16f)", N, "skin", measure[skin_l](3, 20), N)
 
     table.print_report()
+
+    # ---------------------------------------------------------------- SE(3)
+    # The Lie layer priced against the classical routes. `geodesic3` is
+    # a·exp(t·log(~a·b)) — ONE screw motion (rotation and translation share an
+    # axis and interpolate together); `slerp + lerp` is the decoupled classical
+    # route (rotation slerped, translation lerped independently), which is
+    # cheaper but traces a different path. Parity/round-trip: test_motor_parity.
+    var lie = BenchTable("SE(3) interpolation & Lie ops: PGA screw vs quat slerp+lerp vs mat4")
+
+    var screws = List[Screw3]()
+    for i in range(N):
+        screws.append(log_motor3(motors[i]))
+
+    comptime T: Real = 0.375
+
+    @parameter
+    def lie_exp():
+        var acc = Real(0)
+        for i in range(N):
+            acc += exp_screw3(screws[i]).s
+        keep(acc)
+
+    @parameter
+    def lie_log():
+        var acc = Real(0)
+        for i in range(N):
+            acc += log_motor3(motors[i]).b12
+        keep(acc)
+
+    @parameter
+    def interp_motor():
+        var acc = Real(0)
+        for i in range(N - 1):
+            acc += geodesic3(motors[i], motors[i + 1], T).s
+        keep(acc)
+
+    @parameter
+    def interp_quat():
+        # classical decoupled: slerp the rotation, lerp the translation
+        var acc = Real(0)
+        for i in range(N - 1):
+            var q = slerp(quats[i], quats[i + 1], T)
+            var t = trans[i].v * (1 - T) + trans[i + 1].v * T
+            acc += q.w + t[0]
+        keep(acc)
+
+    @parameter
+    def interp_dq():
+        # via the motor bridge (DualQuat has no native ScLERP): prices what the
+        # engine's API actually makes you pay to screw-interpolate a dual quat.
+        var acc = Real(0)
+        for i in range(N - 1):
+            var g = geodesic3(dqs[i].to_motor(), dqs[i + 1].to_motor(), T)
+            acc += DualQuat.from_motor(g).real.w
+        keep(acc)
+
+    @parameter
+    def interp_mat():
+        # matrices cannot be interpolated directly (the blend leaves SE(3)):
+        # decompose -> slerp/lerp -> recompose is the honest matrix route.
+        var acc = Real(0)
+        for i in range(N - 1):
+            var ra = Mat3()
+            var rb = Mat3()
+            comptime for r in range(3):
+                comptime for c in range(3):
+                    ra.set(r, c, mats[i].get(r, c))
+                    rb.set(r, c, mats[i + 1].get(r, c))
+            var qa = quat_from_mat3(ra)
+            var qb = quat_from_mat3(rb)
+            var ta = Vec3(mats[i].get(0, 3), mats[i].get(1, 3), mats[i].get(2, 3))
+            var tb = Vec3(
+                mats[i + 1].get(0, 3), mats[i + 1].get(1, 3), mats[i + 1].get(2, 3)
+            )
+            var m = compose_trs4(
+                ta * (1 - T) + tb * T, slerp(qa, qb, T), Vec3(1, 1, 1)
+            )
+            acc += m.m[0]
+        keep(acc)
+
+    lie.add("motor exp (screw->motor)", N, "exp", measure[lie_exp](3, 20), N)
+    lie.add("motor log (motor->screw)", N, "log", measure[lie_log](3, 20), N)
+    lie.add("motor geodesic (PGA screw)", N, "interp", measure[interp_motor](3, 20), N)
+    lie.add("quat slerp + lerp (decoupled)", N, "interp", measure[interp_quat](3, 20), N)
+    lie.add("dual quat (via motor bridge)", N, "interp", measure[interp_dq](3, 20), N)
+    lie.add("mat4 decompose+slerp+recompose", N, "interp", measure[interp_mat](3, 20), N)
+
+    lie.print_report()
