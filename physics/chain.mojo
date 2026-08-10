@@ -158,14 +158,21 @@ struct Chain(Movable, ImplicitlyDeletable):
     def _joint_rot(self, i: Int) -> Quat:
         return Quat.from_axis_angle(self.links[i].axis, self.q[i])
 
-    def dynamics(self, tau: List[Real], gravity: Vec3) raises -> List[Real]:
-        """qdd = H⁻¹ (tau − C): CRBA mass matrix + RNEA bias, dense solve."""
+    def _rnea(self, qdd: List[Real], gravity: Vec3) raises -> List[Real]:
+        """Recursive Newton-Euler: the joint torques that produce `qdd`.
+
+        With `qdd = 0` this is the bias term C(q, q̇) that `dynamics` subtracts;
+        with a real `qdd` it IS exact inverse dynamics, because the only
+        difference is the joint-acceleration term `S·q̈` entering the forward
+        sweep. Sharing one routine is what makes `inverse_dynamics` free rather
+        than a second implementation to keep in sync — and what lets the
+        round-trip test (τ → q̈ → τ) actually mean something."""
         var n = len(self.links)
-        # --- forward pass: link-frame velocities and bias accelerations ----
+        # --- forward pass: link-frame velocities and accelerations ---------
         var ws = List[_LV]()  # angular velocity, link frame
         var vs = List[_LV]()  # linear velocity of frame origin, link frame
-        var wa = List[_LV]()  # bias angular acceleration (qdd = 0)
-        var va = List[_LV]()  # bias linear acceleration (incl. -gravity)
+        var wa = List[_LV]()  # angular acceleration
+        var va = List[_LV]()  # linear acceleration (incl. -gravity)
         # gravity trick: the base "accelerates" at −g so every link feels
         # weight (standard Featherstone convention; the analytic pendulum and
         # the large-swing energy gates guard the sign chain end-to-end)
@@ -180,9 +187,12 @@ struct Chain(Movable, ImplicitlyDeletable):
             var w_here = _matvec(rt, w_p) + l.axis * self.qd[i]
             var v_here = _matvec(rt, v_p + _cross(w_p, l.pivot))
             # SPATIAL accelerations: same transform as velocities, plus the
-            # velocity-product joint term  v_i ×ₘ (S q̇) with S = (axis, 0).
-            var wa_here = _matvec(rt, wa_p) + _cross(
-                w_here, l.axis * self.qd[i]
+            # velocity-product joint term  v_i ×ₘ (S q̇) with S = (axis, 0),
+            # plus the joint acceleration S·q̈ (zero in the bias case).
+            var wa_here = (
+                _matvec(rt, wa_p)
+                + _cross(w_here, l.axis * self.qd[i])
+                + l.axis * qdd[i]
             )
             var va_here = _matvec(rt, va_p + _cross(wa_p, l.pivot)) + _cross(
                 v_here, l.axis * self.qd[i]
@@ -191,7 +201,7 @@ struct Chain(Movable, ImplicitlyDeletable):
             vs.append(_LV(v_here))
             wa.append(_LV(wa_here))
             va.append(_LV(va_here))
-        # --- RNEA backward: bias forces with qdd = 0 -----------------------
+        # --- backward: link forces -> joint torques ------------------------
         var fw = List[_LV]()  # angular (torque) part, link frame
         var fv = List[_LV]()  # linear part
         for i in range(n):
@@ -204,12 +214,12 @@ struct Chain(Movable, ImplicitlyDeletable):
                 _LV(acc[0] + _cross(ws[i].v, mom[0]) + _cross(vs[i].v, mom[1]))
             )
             fv.append(_LV(acc[1] + _cross(ws[i].v, mom[1])))
-        var c_bias = List[Real]()
+        var out = List[Real]()
         for _ in range(n):
-            c_bias.append(0)
+            out.append(0)
         var i2 = n - 1
         while i2 >= 0:
-            c_bias[i2] = dot(self.links[i2].axis, fw[i2].v)
+            out[i2] = dot(self.links[i2].axis, fw[i2].v)
             var par = self.parent[i2]
             if par >= 0:
                 # push into the parent frame (rotate by R, shift by pivot)
@@ -221,6 +231,27 @@ struct Chain(Movable, ImplicitlyDeletable):
                 )
                 fv[par] = _LV(fv[par].v + fv_p)
             i2 -= 1
+        return out^
+
+    def inverse_dynamics(
+        self, qdd: List[Real], gravity: Vec3
+    ) raises -> List[Real]:
+        """τ = ID(q, q̇, q̈) — exact, O(n), no mass matrix formed.
+
+        The control-side counterpart of `dynamics`: feed-forward torques,
+        contact-force estimation and system identification all start here.
+        Note it costs O(n) where inverting the mass matrix costs O(n³), which
+        is the whole reason a controller uses ID rather than solving FD
+        backwards."""
+        return self._rnea(qdd, gravity)
+
+    def dynamics(self, tau: List[Real], gravity: Vec3) raises -> List[Real]:
+        """qdd = H⁻¹ (tau − C): CRBA mass matrix + RNEA bias, dense solve."""
+        var n = len(self.links)
+        var zero_qdd = List[Real]()
+        for _ in range(n):
+            zero_qdd.append(0)
+        var c_bias = self._rnea(zero_qdd, gravity)
         # --- CRBA: composite inertias + mass matrix ------------------------
         var comp = List[SpInertia]()
         for i in range(n):

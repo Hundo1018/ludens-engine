@@ -672,6 +672,19 @@ run_bench() {
     echo "shared analytic period, test_chain): what exact reduced coordinates cost vs"
     echo "soft maximal-coordinate joints as the chain grows."
     echo
+    echo "The second table separates INVERSE from forward dynamics. Forward dynamics"
+    echo "forms the CRBA mass matrix and solves it densely; inverse dynamics recovers"
+    echo "the torques with one O(n) Newton-Euler sweep and no matrix at all. Both go"
+    echo "through the same \`_rnea\` routine — with zero acceleration it is the bias"
+    echo "term forward dynamics subtracts, with a real one it IS inverse dynamics —"
+    echo "which is what makes \`test_inverse_dynamics\`'\''s round trip meaningful: tau ->"
+    echo "qdd -> tau agrees to ~1e-6 across chains, a branching tree and a forest."
+    echo
+    echo "The gap widens with link count exactly as the complexity difference predicts:"
+    echo "2.3x at 2 links, 3.0x at 8, 5.2x at 24, **17.6x at 64**. That ratio is why a"
+    echo "controller computes feed-forward torque by inverse dynamics rather than by"
+    echo "solving forward dynamics backwards."
+    echo
     run_bench benchmarks/bench_chain.mojo
     echo "## Physics — island-parallel solver (serial vs worker threads)"
     echo

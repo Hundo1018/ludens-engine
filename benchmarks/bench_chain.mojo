@@ -8,6 +8,7 @@ this table shows what each formulation costs as the chain grows.
 """
 
 from std.time import perf_counter_ns
+from std.benchmark import keep
 from harness.bench import BenchTable
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
@@ -86,6 +87,34 @@ def bench_maximal(n: Int) raises -> Int:
     return Int(perf_counter_ns()) - t0
 
 
+def bench_id(n: Int) raises -> Int:
+    """Inverse dynamics alone: one O(n) Newton-Euler sweep, no mass matrix."""
+    var c = Chain()
+    for _ in range(n):
+        c.add_link(
+            ChainLink(
+                Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+            )
+        )
+    for i in range(n):
+        c.q[i] = Real(i) * 0.1
+        c.qd[i] = Real(i) * 0.05
+    var qdd = List[Real]()
+    for i in range(n):
+        qdd.append(Real(i) * 0.02)
+    var best = Int.MAX
+    for _ in range(3):
+        var t0 = Int(perf_counter_ns())
+        for _ in range(STEPS):
+            var tau = c.inverse_dynamics(qdd, G)
+            keep(tau[0])
+        var dt = Int(perf_counter_ns()) - t0
+        if dt < best:
+            best = dt
+    return best
+
+
 def main() raises:
     var t = BenchTable("articulated chain: reduced (CRBA+RNEA) vs maximal (soft joints)")
     for size in range(4):
@@ -98,4 +127,16 @@ def main() raises:
             t.add(
                 "maximal n=" + String(n), n, "step", bench_maximal(n), STEPS
             )
+    # --- inverse vs forward dynamics -----------------------------------
+    # ID is one O(n) sweep; FD forms the CRBA mass matrix and solves it
+    # densely, which is O(n^3). Controllers use ID for feed-forward precisely
+    # because of this gap, so the axis is n and the point is the SHAPE of the
+    # two curves rather than either absolute number.
+    var idt = BenchTable("Inverse vs forward dynamics (O(n) sweep vs dense O(n^3) solve)")
+    comptime for ni in range(4):
+        comptime NL = 2 if ni == 0 else (8 if ni == 1 else (24 if ni == 2 else 64))
+        idt.add("inverse dynamics (RNEA)", NL, "step", bench_id(NL), STEPS)
+        idt.add("forward dynamics (CRBA+solve)", NL, "step", bench_reduced(NL), STEPS)
+    idt.print_report()
+
     t.print_report()
