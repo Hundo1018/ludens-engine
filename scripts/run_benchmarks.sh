@@ -694,6 +694,37 @@ run_bench() {
     echo "  Both crossovers move earlier the heavier the per-step primal math."
     echo
     run_bench benchmarks/bench_diffsim.mojo
+    echo "## Physics — actuators (transmission, force generation, internal dynamics)"
+    echo
+    echo "\`Chain.step\` took a torque vector, so every control loop lived outside the"
+    echo "engine and the engine knew nothing about what drove it. An actuator splits"
+    echo "that three ways — where the force lands, how much of it, and what lag sits"
+    echo "between command and force — because each varies independently."
+    echo
+    echo "The force law is AFFINE, which is why a motor, a position servo and a"
+    echo "velocity servo are one struct rather than three code paths: they differ only"
+    echo "in which coefficient is non-zero. \`test_actuator\` checks the position servo"
+    echo "against a hand-written PD loop step for step and finds 6e-8 divergence — the"
+    echo "abstraction is meant to be a repackaging, and a check that it merely"
+    echo "\"converges to the target\" would pass for any controller at all."
+    echo
+    echo "Cost is the first table and it is essentially zero: a bank of position"
+    echo "actuators tracks a bare torque vector within noise at every chain length,"
+    echo "which is the precondition for the abstraction being worth having."
+    echo
+    echo "The second table is the regime that justifies internal dynamics. A direct PD"
+    echo "servo must be stable at the caller'\''s timestep, and its stability limit falls"
+    echo "as gain rises. At dt = 1/240 the direct servo holds to kp = 500 and"
+    echo "**DIVERGES at kp = 2000**, while the same law driven through a first-order"
+    echo "actuator stays on target at kp = 8000. That is the trade in one line: the lag"
+    echo "costs response time and buys a usable gain range four times wider."
+    echo
+    echo "The filter is also exact in dt — 1 - exp(-t/tau) rather than the naive"
+    echo "\`state += (u - state) * dt/tau\` — so halving the timestep reproduces the same"
+    echo "trajectory instead of a different one. That error is invisible at any single"
+    echo "dt, which is why the test compares two."
+    echo
+    run_bench benchmarks/bench_actuator.mojo
     echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
     echo
     echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
