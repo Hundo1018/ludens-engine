@@ -207,15 +207,16 @@ struct Chain(Movable, ImplicitlyDeletable):
             return l.pivot + l.axis * self.q[i]
         return l.pivot
 
-    def _rnea(self, qdd: List[Real], gravity: Vec3) raises -> List[Real]:
-        """Recursive Newton-Euler: the joint torques that produce `qdd`.
+    def link_motion(
+        self, qdd: List[Real], gravity: Vec3
+    ) raises -> Tuple[List[_LV], List[_LV], List[_LV], List[_LV]]:
+        """Per-link (w, v, wa, va) in the LINK frame — the RNEA forward sweep.
 
-        With `qdd = 0` this is the bias term C(q, q̇) that `dynamics` subtracts;
-        with a real `qdd` it IS exact inverse dynamics, because the only
-        difference is the joint-acceleration term `S·q̈` entering the forward
-        sweep. Sharing one routine is what makes `inverse_dynamics` free rather
-        than a second implementation to keep in sync — and what lets the
-        round-trip test (τ → q̈ → τ) actually mean something."""
+        Exposed because sensors read exactly this. Note the gravity trick means
+        `va` is already the PROPER acceleration: the base is given -g, so every
+        link's linear acceleration carries the weight term an accelerometer
+        actually measures. In free fall it is zero, which is the physical fact
+        that makes it the right quantity rather than a convenient one."""
         var n = len(self.links)
         # --- forward pass: link-frame velocities and accelerations ---------
         var ws = List[_LV]()  # angular velocity, link frame
@@ -258,6 +259,25 @@ struct Chain(Movable, ImplicitlyDeletable):
             vs.append(_LV(v_here))
             wa.append(_LV(wa_here))
             va.append(_LV(va_here))
+        return (ws^, vs^, wa^, va^)
+
+    def _rnea(self, qdd: List[Real], gravity: Vec3) raises -> List[Real]:
+        """Recursive Newton-Euler: the joint torques that produce `qdd`.
+
+        With `qdd = 0` this is the bias term C(q, q̇) that `dynamics` subtracts;
+        with a real `qdd` it IS exact inverse dynamics, because the only
+        difference is the joint-acceleration term `S·q̈` entering the forward
+        sweep. Sharing one routine is what makes `inverse_dynamics` free rather
+        than a second implementation to keep in sync — and what lets the
+        round-trip test (τ → q̈ → τ) actually mean something."""
+        var n = len(self.links)
+        var m = self.link_motion(qdd, gravity)
+        # tuple elements are moved out one at a time: List[_LV] is not
+        # implicitly copyable, so binding them by value needs the transfer
+        var ws = m[0].copy()
+        var vs = m[1].copy()
+        var wa = m[2].copy()
+        var va = m[3].copy()
         # --- backward: link forces -> joint torques ------------------------
         var fw = List[_LV]()  # angular (torque) part, link frame
         var fv = List[_LV]()  # linear part

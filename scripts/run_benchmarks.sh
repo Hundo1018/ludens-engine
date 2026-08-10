@@ -725,6 +725,41 @@ run_bench() {
     echo "dt, which is why the test compares two."
     echo
     run_bench benchmarks/bench_actuator.mojo
+    echo "## Physics — robot sensors (what the controller is allowed to see)"
+    echo
+    echo "A sensor here is DERIVED from the state the solver already produced rather"
+    echo "than integrated alongside it, so a reading cannot drift away from the physics"
+    echo "that caused it. Two are not simple state lookups and are worth naming: joint"
+    echo "torque is exact inverse dynamics rather than a stored command, and the"
+    echo "accelerometer reads PROPER acceleration."
+    echo
+    echo "Proper acceleration is the one with a falsifiable gate. A real accelerometer"
+    echo "reads zero in free fall and +g at rest on a table — not the other way round,"
+    echo "and not -g. The RNEA forward sweep already produces exactly that quantity,"
+    echo "because its gravity trick gives the base -g. \`test_sensors\` releases a"
+    echo "vertical prismatic joint, which free-falls analytically, and the reading is"
+    echo "**0.0** — a sign error would put 2|g| there, so the test has no tolerance to"
+    echo "hide behind. A second check finite-differences world velocity on a swinging"
+    echo "two-link chain and agrees to **3.6e-4 relative**; that path shares no code"
+    echo "with the sweep, which is what catches the \`w x v\` term being dropped — a"
+    echo "mistake invisible on a single rotating link."
+    echo
+    echo "The seam is how many sweeps a rig costs. Reading each IMU separately is"
+    echo "O(sensors x links) because every call re-runs the forward sweep; sharing one"
+    echo "sweep is O(links + sensors). The first table sweeps both axes. The **N = 1**"
+    echo "rows are the control and they matter: with nothing to amortise the batched"
+    echo "form is slightly SLOWER at every chain length, which is what makes the wide"
+    echo "rows credible. At 24 links with 96 sensors it is **~64x** faster."
+    echo
+    echo "The last block is the alternative anyone reaches for first — step the state,"
+    echo "difference the velocity, subtract gravity. It loses on cost (a second state"
+    echo "evaluation) and, more interestingly, it has a FLOOR: the error falls with h"
+    echo "as first-order theory says, bottoms out near **3.4e-4 relative at h ~ 2.5e-4**,"
+    echo "and then climbs again as f32 cancellation overtakes truncation. No step size"
+    echo "reaches past that floor. The sweep is exact at every step size because it"
+    echo "differences nothing."
+    echo
+    run_bench benchmarks/bench_sensors.mojo
     echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
     echo
     echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
