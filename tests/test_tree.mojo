@@ -7,7 +7,7 @@ comptime DT: Real = 1.0 / 240.0
 
 
 def _link(ax: Vec3, pivot: Vec3) -> ChainLink:
-    return ChainLink(ax, pivot, Vec3(0, -0.25, 0), 1.0, Vec3(0.02, 0.015, 0.025))
+    return ChainLink.revolute(ax, pivot, Vec3(0, -0.25, 0), 1.0, Vec3(0.02, 0.015, 0.025))
 
 
 def _ytree() raises -> Chain:

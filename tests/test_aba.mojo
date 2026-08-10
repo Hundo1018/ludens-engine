@@ -18,7 +18,7 @@ def _make_chain(n: Int) raises -> Chain:
         if i % 3 == 2:
             ax = Vec3(0, 1, 0)
         ch.add_link(
-            ChainLink(
+            ChainLink.revolute(
                 ax,
                 Vec3(0.1 * Real(i % 2), -0.5, 0.05 * Real(i % 3)),
                 Vec3(0.02, -0.25, 0.01),
@@ -62,7 +62,7 @@ def main() raises:
     var hang = Chain()
     for _ in range(4):
         hang.add_link(
-            ChainLink(
+            ChainLink.revolute(
                 Vec3(0, 0, 1),
                 Vec3(0, -0.5, 0),
                 Vec3(0, -0.25, 0),
@@ -87,7 +87,7 @@ def main() raises:
     var dp = Chain()
     for _ in range(2):
         dp.add_link(
-            ChainLink(
+            ChainLink.revolute(
                 Vec3(0, 0, 1),
                 Vec3(0, -1, 0),
                 Vec3(0, -0.5, 0),

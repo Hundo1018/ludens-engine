@@ -743,6 +743,21 @@ run_bench() {
     echo "controller computes feed-forward torque by inverse dynamics rather than by"
     echo "solving forward dynamics backwards."
     echo
+    echo "The joint-kind table exists to show a design claim holds: a prismatic joint"
+    echo "differs from a revolute one ONLY in its motion subspace — S is (axis, 0) for"
+    echo "one and (0, axis) for the other — so every sweep picks a half and nothing"
+    echo "else changes. A mixed chain therefore tracks a revolute one, which it does"
+    echo "(slightly faster, since a prismatic joint has no rotation to compose)."
+    echo
+    echo "The limit rows price the one-sided constraint pass at ~1-3% while nothing is"
+    echo "against a stop, because the pass counts violations first and returns"
+    echo "immediately when there are none. Limits are solved as impulses rather than by"
+    echo "clamping q: clamping leaves the velocity pointing into the stop, so the joint"
+    echo "re-violates every step and jitters, and it moves the joint without a"
+    echo "corresponding impulse, which injects energy. \`test_joints_lib\` gates the"
+    echo "difference by requiring the joint to STAY on the stop under a driving torque"
+    echo "for 960 steps, not merely to be inside range once."
+    echo
     run_bench benchmarks/bench_chain.mojo
     echo "## Physics — island-parallel solver (serial vs worker threads)"
     echo

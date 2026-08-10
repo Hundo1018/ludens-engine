@@ -98,13 +98,50 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
         )
 
 
+comptime JOINT_REVOLUTE = 0
+comptime JOINT_PRISMATIC = 1
+
+
 @fieldwise_init
 struct ChainLink(Copyable, ImplicitlyCopyable, Movable):
-    var axis: Vec3  # revolute axis, unit, link frame
+    var axis: Vec3  # joint axis, unit, link frame
     var pivot: Vec3  # this joint's position in the PARENT link frame
     var com: Vec3  # centre of mass, link frame
     var mass: Real
     var i_diag: Vec3  # principal inertia about the COM
+    var kind: Int  # JOINT_REVOLUTE | JOINT_PRISMATIC
+    var lo: Real  # joint limit, low (lo >= hi disables limits)
+    var hi: Real
+
+    @staticmethod
+    def revolute(
+        axis: Vec3, pivot: Vec3, com: Vec3, mass: Real, i_diag: Vec3
+    ) -> Self:
+        return Self(axis, pivot, com, mass, i_diag, JOINT_REVOLUTE, 1, -1)
+
+    @staticmethod
+    def prismatic(
+        axis: Vec3, pivot: Vec3, com: Vec3, mass: Real, i_diag: Vec3
+    ) -> Self:
+        """A sliding joint: `q` translates along `axis` instead of rotating.
+
+        The whole difference in the dynamics is the MOTION SUBSPACE — S is
+        (axis, 0) for a revolute joint and (0, axis) for a prismatic one — so
+        every sweep that projects onto S needs the same two-way branch, and
+        nothing else changes. That is why the joint kind lives on the link
+        rather than in a separate solver path."""
+        return Self(axis, pivot, com, mass, i_diag, JOINT_PRISMATIC, 1, -1)
+
+    def limited(self, lo: Real, hi: Real) -> Self:
+        """Copy with a joint range. `lo >= hi` means unlimited, which is the
+        default, so an unconstrained joint costs no branch in the limit pass."""
+        return Self(
+            self.axis, self.pivot, self.com, self.mass, self.i_diag,
+            self.kind, lo, hi,
+        )
+
+    def has_limits(self) -> Bool:
+        return self.hi > self.lo
 
 
 struct Chain(Movable, ImplicitlyDeletable):
@@ -149,14 +186,26 @@ struct Chain(Movable, ImplicitlyDeletable):
                 base = out[self.parent[i]]
             var pose = (
                 base
-                * Motor3.from_translation(l.pivot)
-                * Motor3.from_quat(Quat.from_axis_angle(l.axis, self.q[i]))
+                * Motor3.from_translation(self._joint_offset(i))
+                * Motor3.from_quat(self._joint_rot(i))
             )
             out.append(pose)
         return out^
 
     def _joint_rot(self, i: Int) -> Quat:
+        """Parent -> link rotation. A prismatic joint does not rotate."""
+        if self.links[i].kind == JOINT_PRISMATIC:
+            return Quat.identity()
         return Quat.from_axis_angle(self.links[i].axis, self.q[i])
+
+    def _joint_offset(self, i: Int) -> Vec3:
+        """This joint's origin in the PARENT frame. A prismatic joint slides
+        its own origin along the axis, so `q` enters here instead of in the
+        rotation."""
+        var l = self.links[i]
+        if l.kind == JOINT_PRISMATIC:
+            return l.pivot + l.axis * self.q[i]
+        return l.pivot
 
     def _rnea(self, qdd: List[Real], gravity: Vec3) raises -> List[Real]:
         """Recursive Newton-Euler: the joint torques that produce `qdd`.
@@ -184,18 +233,26 @@ struct Chain(Movable, ImplicitlyDeletable):
             var wa_p = wa[pi].v if pi >= 0 else Vec3(0, 0, 0)
             var va_p = va[pi].v if pi >= 0 else -gravity
             var rt = _rot_rows(self._joint_rot(i))  # parent -> link (Rᵀ)
-            var w_here = _matvec(rt, w_p) + l.axis * self.qd[i]
-            var v_here = _matvec(rt, v_p + _cross(w_p, l.pivot))
+            var off = self._joint_offset(i)
+            # motion subspace: S = (axis, 0) revolute, (0, axis) prismatic
+            var rev = l.kind == JOINT_REVOLUTE
+            var s_w = l.axis if rev else Vec3(0, 0, 0)
+            var s_v = Vec3(0, 0, 0) if rev else l.axis
+            var w_here = _matvec(rt, w_p) + s_w * self.qd[i]
+            var v_here = _matvec(rt, v_p + _cross(w_p, off)) + s_v * self.qd[i]
             # SPATIAL accelerations: same transform as velocities, plus the
             # velocity-product joint term  v_i ×ₘ (S q̇) with S = (axis, 0),
             # plus the joint acceleration S·q̈ (zero in the bias case).
             var wa_here = (
                 _matvec(rt, wa_p)
-                + _cross(w_here, l.axis * self.qd[i])
-                + l.axis * qdd[i]
+                + _cross(w_here, s_w * self.qd[i])
+                + s_w * qdd[i]
             )
-            var va_here = _matvec(rt, va_p + _cross(wa_p, l.pivot)) + _cross(
-                v_here, l.axis * self.qd[i]
+            var va_here = (
+                _matvec(rt, va_p + _cross(wa_p, off))
+                + _cross(v_here, s_w * self.qd[i])
+                + _cross(w_here, s_v * self.qd[i]) * 2
+                + s_v * qdd[i]
             )
             ws.append(_LV(w_here))
             vs.append(_LV(v_here))
@@ -219,16 +276,22 @@ struct Chain(Movable, ImplicitlyDeletable):
             out.append(0)
         var i2 = n - 1
         while i2 >= 0:
-            out[i2] = dot(self.links[i2].axis, fw[i2].v)
+            var li2 = self.links[i2]
+            # tau = Sᵀ f: the angular half for a revolute joint, the linear
+            # half for a prismatic one
+            if li2.kind == JOINT_REVOLUTE:
+                out[i2] = dot(li2.axis, fw[i2].v)
+            else:
+                out[i2] = dot(li2.axis, fv[i2].v)
             var par = self.parent[i2]
             if par >= 0:
-                # push into the parent frame (rotate by R, shift by pivot)
+                # push into the parent frame (rotate by R, shift by the joint
+                # offset — which slides for a prismatic joint)
                 var q = self._joint_rot(i2)
+                var off2 = self._joint_offset(i2)
                 var fw_p = q.rotate(fw[i2].v)
                 var fv_p = q.rotate(fv[i2].v)
-                fw[par] = _LV(
-                    fw[par].v + fw_p + _cross(self.links[i2].pivot, fv_p)
-                )
+                fw[par] = _LV(fw[par].v + fw_p + _cross(off2, fv_p))
                 fv[par] = _LV(fv[par].v + fv_p)
             i2 -= 1
         return out^
@@ -265,7 +328,7 @@ struct Chain(Movable, ImplicitlyDeletable):
                 continue
             # fold child composite into the parent frame
             var q = self._joint_rot(i3)
-            var p = self.links[i3].pivot
+            var p = self._joint_offset(i3)
             var ci = comp[i3]
             var h_p = q.rotate(ci.h) + p * ci.m
             # R I Rᵀ (columns = R·I·Rᵀ·e_a), assembled into rows explicitly
@@ -297,20 +360,29 @@ struct Chain(Movable, ImplicitlyDeletable):
         for _ in range(n * n):
             hmat.append(0)
         for i in range(n):
-            var f = comp[i].apply(self.links[i].axis, Vec3(0, 0, 0))
+            var li = self.links[i]
+            var rev_i = li.kind == JOINT_REVOLUTE
+            var f = (
+                comp[i].apply(li.axis, Vec3(0, 0, 0)) if rev_i
+                else comp[i].apply(Vec3(0, 0, 0), li.axis)
+            )
             var fwc = f[0]
             var fvc = f[1]
-            hmat[i * n + i] = dot(self.links[i].axis, fwc)
+            hmat[i * n + i] = dot(li.axis, fwc) if rev_i else dot(li.axis, fvc)
             var j = i
             while self.parent[j] >= 0:
                 var q = self._joint_rot(j)
-                var p = self.links[j].pivot
+                var p = self._joint_offset(j)
                 var fw_pp = q.rotate(fwc)
                 var fv_pp = q.rotate(fvc)
                 fwc = fw_pp + _cross(p, fv_pp)
                 fvc = fv_pp
                 j = self.parent[j]
-                hmat[i * n + j] = dot(self.links[j].axis, fwc)
+                var lj = self.links[j]
+                hmat[i * n + j] = (
+                    dot(lj.axis, fwc) if lj.kind == JOINT_REVOLUTE
+                    else dot(lj.axis, fvc)
+                )
                 hmat[j * n + i] = hmat[i * n + j]
         return hmat^
 
@@ -403,8 +475,13 @@ struct Chain(Movable, ImplicitlyDeletable):
             var qt = poses[k].to_quat_translation()
             var axis_w = qt[0].rotate(self.links[k].axis)
             var origin_w = qt[1]
-            # a revolute joint moves the point at omega x r
-            j[k] = dot(_cross(axis_w, pw - origin_w), dir)
+            if self.links[k].kind == JOINT_REVOLUTE:
+                # revolute: the point moves at omega x r
+                j[k] = dot(_cross(axis_w, pw - origin_w), dir)
+            else:
+                # prismatic: the point translates with the axis, independent
+                # of where it sits relative to the joint
+                j[k] = dot(axis_w, dir)
             k = self.parent[k]
         return j^
 
@@ -533,6 +610,89 @@ struct Chain(Movable, ImplicitlyDeletable):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
         return initial_active
+
+    def resolve_limits(mut self, dt: Real, iters: Int = 8) raises -> Int:
+        """Stop joints at their range, by impulse rather than by clamping.
+
+        Clamping `q` directly is the tempting one-liner and it is wrong twice
+        over: it leaves `q̇` pointing into the wall, so the joint re-violates
+        every step and jitters, and it injects position without a corresponding
+        impulse, so a limited joint silently gains energy. Solving it as a
+        one-sided constraint uses the same machinery as contact — a joint's
+        "Jacobian" is just the unit vector eₖ, so the effective mass is
+        (H⁻¹)ₖₖ — and gets the same velocity/position split for free.
+
+        Returns how many limits were violated on entry."""
+        var n = len(self.links)
+        var initial = 0
+        for k in range(n):
+            var l = self.links[k]
+            if not l.has_limits():
+                continue
+            if self.q[k] < l.lo or self.q[k] > l.hi:
+                initial += 1
+        if initial == 0:
+            return 0
+
+        var h1 = self.mass_matrix()
+        # --- velocity pass: kill motion INTO the stop ----------------------
+        for _ in range(iters):
+            for k in range(n):
+                var l = self.links[k]
+                if not l.has_limits():
+                    continue
+                var low = self.q[k] < l.lo
+                var high = self.q[k] > l.hi
+                if not (low or high):
+                    continue
+                # moving away from the stop already? leave it alone — a limit
+                # is one-sided, and pushing back would glue the joint to it
+                if low and self.qd[k] >= 0:
+                    continue
+                if high and self.qd[k] <= 0:
+                    continue
+                _ = self._joint_impulse(h1, k, -self.qd[k])
+
+        # --- position pass on a pseudo-velocity, as in resolve_ground ------
+        var saved = self.qd.copy()
+        var h2 = self.mass_matrix()
+        for k in range(n):
+            self.qd[k] = 0
+        for _ in range(iters):
+            for k in range(n):
+                var l = self.links[k]
+                if not l.has_limits():
+                    continue
+                var err = Real(0)
+                if self.q[k] < l.lo:
+                    err = l.lo - self.q[k]
+                elif self.q[k] > l.hi:
+                    err = l.hi - self.q[k]
+                else:
+                    continue
+                _ = self._joint_impulse(h2, k, err / dt - self.qd[k])
+        for k in range(n):
+            self.q[k] += self.qd[k] * dt
+            self.qd[k] = saved[k]
+        return initial
+
+    def _joint_impulse(
+        mut self, h: List[Real], k: Int, target_dv: Real
+    ) raises -> Real:
+        """Impulse along joint coordinate `k` alone: the contact machinery with
+        `J = eₖ`, so the effective mass is the k-th diagonal of `H⁻¹`."""
+        var n = len(self.links)
+        var e = List[Real]()
+        for i in range(n):
+            e.append(Real(1) if i == k else Real(0))
+        var hinv_e = Self.solve_h(h.copy(), e^, n)
+        var w = hinv_e[k]
+        if w < 1e-12:
+            return 0
+        var lam = target_dv / w
+        for i in range(n):
+            self.qd[i] += hinv_e[i] * lam
+        return lam
 
     def step(mut self, dt: Real, tau: List[Real], gravity: Vec3) raises:
         """Semi-implicit Euler in joint space."""

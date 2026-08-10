@@ -29,7 +29,7 @@ def _link(axis: Vec3, pivot: Vec3) -> ChainLink:
     third argument silently makes it the centre of mass and leaves every pivot
     at zero, which collapses the whole chain onto one frame. That produced a
     degenerate single pendulum that still satisfied self-consistent checks."""
-    return ChainLink(
+    return ChainLink.revolute(
         axis, pivot, Vec3(0, -0.5, 0), 1.0, Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
     )
 

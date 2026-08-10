@@ -10,7 +10,7 @@ def _pendulum_1() -> Chain:
     """Slim rod, length 1, pivot at the end: I_pivot = 1/12 + 1/4 = 1/3."""
     var c = Chain()
     c.add_link(
-        ChainLink(
+        ChainLink.revolute(
             Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
             Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
         )
@@ -56,13 +56,13 @@ def main() raises:
     # 3. Double pendulum (chaotic): energy still conserved.
     var d = Chain()
     d.add_link(
-        ChainLink(
+        ChainLink.revolute(
             Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
             Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
         )
     )
     d.add_link(
-        ChainLink(
+        ChainLink.revolute(
             Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
             Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
         )
@@ -85,7 +85,7 @@ def main() raises:
     #    the maximal-coordinate run measured 123 frames (2.050 s).
     var b = Chain()
     b.add_link(
-        ChainLink(
+        ChainLink.revolute(
             Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -1, 0), 1.0,
             Vec3(0.03, 0.03, 0.03),  # Inertia3.box(1, .15,.15,.15) half-cube
         )

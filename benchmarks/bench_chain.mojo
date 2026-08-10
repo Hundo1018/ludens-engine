@@ -24,7 +24,7 @@ def bench_reduced(n: Int) raises -> Int:
     var c = Chain()
     for i in range(n):
         c.add_link(
-            ChainLink(
+            ChainLink.revolute(
                 Vec3(0, 0, 1),
                 Vec3(0, 0, 0) if i == 0 else Vec3(0, -1, 0),
                 Vec3(0, -0.5, 0), 1.0,
@@ -45,7 +45,7 @@ def bench_aba(n: Int) raises -> Int:
     var c = Chain()
     for i in range(n):
         c.add_link(
-            ChainLink(
+            ChainLink.revolute(
                 Vec3(0, 0, 1),
                 Vec3(0, 0, 0) if i == 0 else Vec3(0, -1, 0),
                 Vec3(0, -0.5, 0), 1.0,
@@ -92,7 +92,7 @@ def bench_id(n: Int) raises -> Int:
     var c = Chain()
     for _ in range(n):
         c.add_link(
-            ChainLink(
+            ChainLink.revolute(
                 Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
                 Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
             )
@@ -110,6 +110,39 @@ def bench_id(n: Int) raises -> Int:
             var tau = c.inverse_dynamics(qdd, G)
             keep(tau[0])
         var dt = Int(perf_counter_ns()) - t0
+        if dt < best:
+            best = dt
+    return best
+
+
+def bench_kind(n: Int, prismatic: Bool, limits: Bool) raises -> Int:
+    """Step cost by joint kind, and what a limit pass adds."""
+    var c = Chain()
+    for i in range(n):
+        var l = (
+            ChainLink.prismatic(
+                Vec3(0, -1, 0), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+            )
+            if (prismatic and i % 2 == 1)
+            else ChainLink.revolute(
+                Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+            )
+        )
+        c.add_link(l.limited(-0.8, 0.8) if limits else l)
+    var zero = List[Real]()
+    for _ in range(n):
+        zero.append(0)
+    var best = Int.MAX
+    for _ in range(3):
+        var t0 = Int(perf_counter_ns())
+        for _ in range(STEPS):
+            c.step(DT, zero, G)
+            if limits:
+                _ = c.resolve_limits(DT)
+        var dt = Int(perf_counter_ns()) - t0
+        keep(c.q[0])
         if dt < best:
             best = dt
     return best
@@ -138,5 +171,19 @@ def main() raises:
         idt.add("inverse dynamics (RNEA)", NL, "step", bench_id(NL), STEPS)
         idt.add("forward dynamics (CRBA+solve)", NL, "step", bench_reduced(NL), STEPS)
     idt.print_report()
+
+    # --- joint kind and limits -----------------------------------------
+    # The prismatic rows exist to show the motion-subspace branch costs
+    # nothing measurable: S is (axis,0) or (0,axis) and every sweep picks one,
+    # so a mixed chain should track a revolute one. The limit rows price the
+    # one-sided constraint pass, which is only paid while a joint is actually
+    # against its stop.
+    var jt = BenchTable("Joint kinds and limits: step cost")
+    comptime for ki in range(3):
+        comptime NL = 4 if ki == 0 else (8 if ki == 1 else 16)
+        jt.add("revolute only", NL, "step", bench_kind(NL, False, False), STEPS)
+        jt.add("mixed revolute+prismatic", NL, "step", bench_kind(NL, True, False), STEPS)
+        jt.add("revolute + limit pass", NL, "step", bench_kind(NL, False, True), STEPS)
+    jt.print_report()
 
     t.print_report()
