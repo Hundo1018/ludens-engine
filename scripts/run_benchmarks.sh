@@ -887,6 +887,42 @@ run_bench() {
     echo "root and a scale on two rows that the solver was already touching."
     echo
     run_bench benchmarks/bench_constraints.mojo
+    echo "## Physics — differentiating through RIGID contact"
+    echo
+    echo "\`diffsim\` differentiates a soft ground: a spring-damper penalty, smooth"
+    echo "everywhere, where the gradient matches finite differences and everyone goes"
+    echo "home. Real rigid solvers detect a contact and apply an impulse, and that is a"
+    echo "SWITCH. The trajectory is smooth in the initial state only while the sequence"
+    echo "of contacts holds fixed."
+    echo
+    echo "The sharp finding is what "fixed" has to mean. It is not the same NUMBER of"
+    echo "bounces — it is the same STEPS at which they fire. \`test_diffrigid\` shrinks"
+    echo "a probe around a well-posed point and finds that at eps = 2e-3 and 5e-4 the"
+    echo "bounce counts match on both sides while the schedules do not; only at"
+    echo "**1.25e-4** do both match, and there the difference is -0.99993 against a"
+    echo "dual of -1.0. The naive probe — which passes a bounce-count check — returns"
+    echo "**0.328**, a number that is not the derivative of anything. An earlier"
+    echo "revision of this test checked bounce counts and reported that disagreement as"
+    echo "a solver bug."
+    echo
+    echo "The boundaries are dense, not pathological: sweeping the drop height over"
+    echo "[0.5, 1.0] changes the contact schedule in **366 of 499** samples."
+    echo
+    echo "The probe window narrows as the timestep does — measured **2.5e-3 at"
+    echo "dt = 1/120 down to 1.6e-4** — because the boundaries are spaced by how far"
+    echo "the body travels in one step. Integrating more finely makes the gradient more"
+    echo "accurate and finite differences less able to see it. Forward-mode AD has no"
+    echo "probe and no window."
+    echo
+    echo "Substituting the soft model does not rescue this. A critically damped spring"
+    echo "is restitution ZERO, so its gradient decays to 3e-45 while the rigid one is"
+    echo "-1.0 — an O(1) difference that stiffness does not close, because stiffness"
+    echo "was never the parameter that controlled it. That decay also costs: at the"
+    echo "longest rollout the differentiated soft model runs **13x** slower than its"
+    echo "own value-only version against ~1.1x everywhere else, consistent with f32"
+    echo "denormals. A vanishing gradient is expensive as well as uninformative."
+    echo
+    run_bench benchmarks/bench_diffrigid.mojo
     echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
     echo
     echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
