@@ -212,3 +212,59 @@ def point_circle_dist_cga(c: Circle3, p: Vec3) -> Real:
         inplane_sq = 0
     var radial = sqrt(inplane_sq) - c.radius
     return sqrt(h * h + radial * radial)
+
+
+# ---------------------------------------------------------------- versors
+# Rotation and translation as CGA versors, so a mixed transform chain can be
+# folded into ONE operator alongside `dilator` and the dual-sphere inversion.
+# That folding is the capability a 4x4 matrix cannot match: an inversion is
+# conformal but not affine, so a matrix chain has to BREAK at every inversion
+# and make another pass over the points. `bench_ga` measures exactly that.
+
+# Euclidean basis masks. `up()` writes x/y/z into masks 1/2/4, so e3 is bit 2 —
+# bits 3 and 4 are the conformal pair e4/e5 and must not be touched here.
+comptime _E1 = 1 << 0
+comptime _E2 = 1 << 1
+comptime _E3 = 1 << 2
+
+
+def rotor(axis: Vec3, angle: Real) -> CGA3:
+    """Rotation about an axis THROUGH THE ORIGIN: `R = cos(θ/2) - sin(θ/2)·B`
+    with B the unit bivector dual to the axis. Identical to the euclidean
+    rotor — the conformal basis vectors do not participate."""
+    from std.math import cos, sin
+
+    var l = length(axis)
+    var n = axis / l if l > 1e-12 else Vec3(0, 0, 1)
+    var h = Real(0.5) * angle
+    var c = Real(cos(Float64(h)))
+    var sn = Real(sin(Float64(h)))
+    # I·n = n_x e2e3 + n_y e3e1 + n_z e1e2, but `basis(mask)` yields the blade
+    # in CANONICAL bit order, so mask 4|1 is e1e3 = -e3e1 and the y term needs
+    # the sign flipped. Only a rotation with a non-zero y axis component shows
+    # this — and only against an independent implementation, since a GA-vs-GA
+    # check carries the same convention on both sides.
+    var b = (
+        CGA3.basis(_E2 | _E3, n[0])
+        - CGA3.basis(_E3 | _E1, n[1])
+        + CGA3.basis(_E1 | _E2, n[2])
+    )
+    return CGA3.scalar(c) - b.scaled(sn)
+
+
+def translator(t: Vec3) -> CGA3:
+    """Translation versor `T = 1 - ½ t n∞`. Translation is a ROTATION in the
+    conformal model, which is the structural reason it composes with rotors and
+    dilators in one product instead of needing a separate additive term."""
+    var tv = CGA3.basis(_E1, t[0]) + CGA3.basis(_E2, t[1]) + CGA3.basis(_E3, t[2])
+    return CGA3.scalar(1) - (tv * n_inf()).scaled(0.5)
+
+
+def apply_versor(v: CGA3, p: Vec3) -> Vec3:
+    """`down(V up(p) Ṽ)`.
+
+    Works for versors of EITHER parity. An odd versor (an odd number of
+    inversions or reflections) strictly needs the grade involution of the
+    point, which for a grade-1 point is a global sign flip — and `down`
+    divides by the weight, so that sign cancels. One expression covers both."""
+    return down(v * up(p) * v.reverse())

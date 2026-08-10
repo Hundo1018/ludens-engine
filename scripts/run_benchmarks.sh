@@ -178,6 +178,32 @@ run_bench() {
     echo "axis where the closest point is not unique, and a point exactly on the circle"
     echo "where the subtraction under the root can go negative)."
     echo
+    echo "The last table turns the CAPABILITY claim into a measurement instead of an"
+    echo "assertion. A 4x4 matrix cannot absorb an inversion at all, so a matrix"
+    echo "pipeline has to BREAK a mixed chain at every inversion: fold the affine run"
+    echo "into a matrix, transform, apply a closed-form inversion, start a new matrix."
+    echo "A versor absorbs all of it, so inversion COUNT is the scaling axis."
+    echo
+    echo "The shape is exactly what the claim predicts: **the versor is flat in the"
+    echo "inversion count** (~280-290 ns whether the chain holds 0 inversions or 8 —"
+    echo "one folded operator, one pass per point), while the matrix path grows"
+    echo "linearly at ~7.3 ns per inversion (0.97 -> 4.70 -> 23.5 -> 59.6 ns)."
+    echo
+    echo "It still does not pay. Extrapolating the two lines puts the crossover near"
+    echo "**39 inversions in a single chain**, which no realistic pipeline has. So the"
+    echo "honest summary is that the capability is real and now measured — the versor"
+    echo "genuinely does what the matrix cannot, at a cost that is independent of how"
+    echo "much of it you use — but the 32-component generic multivector makes the"
+    echo "constant so large that the structural advantage never becomes a time"
+    echo "advantage. A specialised conformal versor, in the way \`Motor3\` specialises"
+    echo "the PGA even subalgebra, is what would move that constant."
+    echo
+    echo "One implementation note that the parity suite earned: the rotor'\''s bivector"
+    echo "had a sign error in its y term (mask 4|1 yields the CANONICAL blade e1e3,"
+    echo "which is -e3e1). Every GA-only check passed anyway, because both sides of a"
+    echo "GA-vs-GA comparison carried the same convention. Only the cross-check against"
+    echo "an independent matrix implementation exposed it."
+    echo
     echo "The cost is the story: with versors hoisted out of the loop, the conformal"
     echo "sandwich runs **~200x** the hand-written closed form for both operations."
     echo "So \"matrices cannot express inversion\" must not be read as \"you need CGA for"

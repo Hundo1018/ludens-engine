@@ -21,6 +21,7 @@ from geometry.cga import (
     invert_point, dilate_point, invert_point_with, dilate_point_with,
     dilator, dilator_reverse, sphere_dual,
     Circle3, point_circle_dist, point_circle_dist_cga,
+    rotor, translator, apply_versor,
 )
 from geometry.skinning import SkinVert, skin_motor, skin_lbs
 
@@ -373,3 +374,75 @@ def main() raises:
         ch.add("dualquat(8f) K=" + String(K), N, "compose", measure[chain_dq](3, 20), N)
         ch.add("mat4 (16f)  K=" + String(K), N, "compose", measure[chain_mat](3, 20), N)
     ch.print_report()
+
+    # --------------------------------------- CAPABILITY regime: mixed chains
+    # The conformal versor's argument is not speed, it is that ONE operator can
+    # hold rotation, translation, scale AND spherical inversion. A 4x4 matrix
+    # cannot absorb an inversion at all, so a matrix pipeline has to BREAK the
+    # chain at every inversion: fold the affine run into a matrix, transform,
+    # apply a closed-form inversion, start a new matrix.
+    #
+    # That makes inversion count the scaling axis. The versor path folds the
+    # whole chain once and touches each point once no matter how many
+    # inversions there are; the matrix path pays an extra transform plus an
+    # inversion per point per break. `test_cga_inversion` gates that the fold
+    # reproduces the sequential result, so both paths compute the same thing.
+    var cap = BenchTable(
+        "Mixed transform chains with INVERSIONS (the versor's capability regime)"
+    )
+    comptime CN = 1024
+    var cpts = List[SkinVert]()
+    for _ in range(CN):
+        cpts.append(
+            SkinVert(Vec3(
+                Real(rng.next_f32()) * 4 - 2,
+                Real(rng.next_f32()) * 4 - 2,
+                Real(rng.next_f32()) * 4 - 2,
+            ))
+        )
+    var ax = normalize(Vec3(0.2, 1.0, -0.4))
+    var inv_c = Vec3(0.1, 0.2, -0.1)
+    comptime INV_R: Real = 1.3
+
+    comptime for ii in range(5):
+        comptime NINV = 0 if ii == 0 else (1 if ii == 1 else (2 if ii == 2 else (4 if ii == 3 else 8)))
+
+        # fold the whole chain into one versor (done once, outside the point loop)
+        var V = rotor(ax, 0.7) * translator(Vec3(0.5, -0.8, 0.3))
+        comptime for k in range(NINV):
+            V = sphere_dual(inv_c, INV_R) * rotor(ax, 0.3) * V
+
+        @parameter
+        def chain_versor():
+            var acc = Real(0)
+            for i in range(CN):
+                acc += apply_versor(V, cpts[i].v)[0]
+            keep(acc)
+
+        # matrix path: one Mat4 per affine run, closed-form inversion between
+        var m0 = compose_trs4(Vec3(0.5, -0.8, 0.3), Quat.from_axis_angle(ax, 0.7), Vec3(1, 1, 1))
+        var mk = compose_trs4(Vec3(0, 0, 0), Quat.from_axis_angle(ax, 0.3), Vec3(1, 1, 1))
+
+        @parameter
+        def chain_matrix():
+            var acc = Real(0)
+            for i in range(CN):
+                var q = transform_point4(m0, cpts[i].v)
+                comptime for k in range(NINV):
+                    q = transform_point4(mk, q)
+                    var d = q - inv_c
+                    var d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+                    if d2 > 1e-9:
+                        q = inv_c + d * (INV_R * INV_R / d2)
+                acc += q[0]
+            keep(acc)
+
+        cap.add(
+            "versor (folded) inversions=" + String(NINV),
+            CN, "point", measure[chain_versor](3, 20), CN,
+        )
+        cap.add(
+            "mat4 + closed-form inversions=" + String(NINV),
+            CN, "point", measure[chain_matrix](3, 20), CN,
+        )
+    cap.print_report()
