@@ -851,6 +851,42 @@ run_bench() {
     echo "angle that has no inverse."
     echo
     run_bench benchmarks/bench_floating.mojo
+    echo "## Physics — unified constraint solver (equality, limits, dry friction, contact)"
+    echo
+    echo "Joint limits were resolved in one pass and contacts in another. Every"
+    echo "constraint now goes into one system, solved by projected Gauss-Seidel where"
+    echo "the rows differ only in how their impulse is projected: unbounded for"
+    echo "equality, non-negative for a limit or a contact normal, a box for dry"
+    echo "friction, and a cone for contact friction."
+    echo
+    echo "**The convergence argument for doing this did not survive measurement.**"
+    echo "Driven to equal work, alternating passes match one system at every useful"
+    echo "sweep count, and then keep going to machine zero while the unified solver"
+    echo "stalls near 3e-8 — it warm-starts its impulses and recomputes residuals from"
+    echo "a velocity that has had order-1 impulses added and removed, and that"
+    echo "cancellation is the floor. The disjoint control agrees to 5 digits, which is"
+    echo "what says the comparison was measuring coupling and not an artefact."
+    echo
+    echo "The real case is that friction COUPLES rows. \`|f_t| <= mu f_n\` cannot be"
+    echo "evaluated by a pass that does not know \`f_n\`, so separate passes do not"
+    echo "converge slower to the right answer — they cannot state it."
+    echo
+    echo "Which makes the cone the seam worth exposing. A PYRAMIDAL cone bounds each"
+    echo "tangent component separately; its admissible set is a square, and the"
+    echo "consequences are geometry, not tolerance. On the diagonal it permits"
+    echo "**sqrt(2) times** the Coulomb limit — measured at 0.70710677 against an exact"
+    echo "0.70710678 — so sliding friction varies by **41.4%** with the direction of"
+    echo "travel relative to a basis the physics never chose. And once both components"
+    echo "saturate the force points at 45 degrees regardless of where the body is"
+    echo "going: predicted worst misalignment 45 - asin(mu f_n / v) = **35.4 deg**,"
+    echo "measured 35.0 on a 5-degree sweep. An ELLIPTIC cone projects the tangent"
+    echo "pair radially and measures **3.6e-7** spread with **0.0 deg** misalignment."
+    echo
+    echo "That correctness costs **2-26%**, most of it at small problems and falling to"
+    echo "2% by 48 coordinates with 16 contacts — the radial projection is a square"
+    echo "root and a scale on two rows that the solver was already touching."
+    echo
+    run_bench benchmarks/bench_constraints.mojo
     echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
     echo
     echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
