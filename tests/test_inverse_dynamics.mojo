@@ -23,34 +23,40 @@ comptime G = Vec3(0, -9.8, 0)
 
 
 def _link(axis: Vec3, pivot: Vec3) -> ChainLink:
+    """A unit-length rod: joint at its top, COM half a length below.
+
+    `ChainLink` takes (axis, PIVOT, COM, ...) — passing the rod offset as the
+    third argument silently makes it the centre of mass and leaves every pivot
+    at zero, which collapses the whole chain onto one frame. That produced a
+    degenerate single pendulum that still satisfied self-consistent checks."""
     return ChainLink(
-        axis, Vec3(0, 0, 0), pivot, 1.0, Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
+        axis, pivot, Vec3(0, -0.5, 0), 1.0, Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
     )
 
 
 def _serial(n: Int) -> Chain:
     var c = Chain()
     for _ in range(n):
-        c.add_link(_link(Vec3(0, 0, 1), Vec3(0, -0.5, 0)))
+        c.add_link(_link(Vec3(0, 0, 1), Vec3(0, -1, 0)))
     return c^
 
 
 def _tree() raises -> Chain:
     """Y shape: two children under one parent — exercises the fold."""
     var c = Chain()
-    var root = c.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, -0.5, 0)))
-    _ = c.add_link_to(root, _link(Vec3(1, 0, 0), Vec3(0, -0.5, 0)))
-    _ = c.add_link_to(root, _link(Vec3(0, 1, 0), Vec3(0, -0.5, 0)))
+    var root = c.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, -1, 0)))
+    _ = c.add_link_to(root, _link(Vec3(1, 0, 0), Vec3(0, -1, 0)))
+    _ = c.add_link_to(root, _link(Vec3(0, 1, 0), Vec3(0, -1, 0)))
     return c^
 
 
 def _forest() raises -> Chain:
     """Two independent roots in one Chain."""
     var c = Chain()
-    var a = c.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, -0.5, 0)))
-    _ = c.add_link_to(a, _link(Vec3(1, 0, 0), Vec3(0, -0.5, 0)))
-    var b = c.add_link_to(-1, _link(Vec3(0, 1, 0), Vec3(0, -0.5, 0)))
-    _ = c.add_link_to(b, _link(Vec3(0, 0, 1), Vec3(0, -0.5, 0)))
+    var a = c.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, -1, 0)))
+    _ = c.add_link_to(a, _link(Vec3(1, 0, 0), Vec3(0, -1, 0)))
+    var b = c.add_link_to(-1, _link(Vec3(0, 1, 0), Vec3(0, -1, 0)))
+    _ = c.add_link_to(b, _link(Vec3(0, 0, 1), Vec3(0, -1, 0)))
     return c^
 
 

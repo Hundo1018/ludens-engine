@@ -694,6 +694,36 @@ run_bench() {
     echo "  Both crossovers move earlier the heavier the per-step primal math."
     echo
     run_bench benchmarks/bench_diffsim.mojo
+    echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
+    echo
+    echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
+    echo "integrates in joint space, \`ContactScene6\` resolves contacts in maximal"
+    echo "coordinates, and nothing connected them — an articulated body could not touch"
+    echo "anything. The bridge is the point Jacobian, which maps joint velocities to one"
+    echo "material point'\''s velocity and whose transpose maps an impulse there back to"
+    echo "joint torques, so a contact is solved without leaving generalised coordinates."
+    echo
+    echo "Cost scales with the ARTICULATED SYSTEM, not with the contact pair: every"
+    echo "impulse needs \`J H⁻¹ Jᵀ\`, so a Jacobian, the CRBA mass matrix and a dense"
+    echo "solve. That is the axis these rows sweep. The contact pass runs ~1.7-14x the"
+    echo "bare dynamics step depending on link count, most expensive at SHORT chains"
+    echo "where the step itself is nearly free and the fixed per-contact work dominates."
+    echo
+    echo "Two implementation notes the measurement forced. H depends only on q, which"
+    echo "does not change during a velocity iteration, so hoisting it out of the"
+    echo "contact loop cut the 2-link case by 1.7x — it had been recomputing an O(n³)"
+    echo "solve per contact per iteration. What remains is one dense solve per impulse;"
+    echo "factorising H once and reusing the factorisation is the next step and is not"
+    echo "done here."
+    echo
+    echo "And the contact is SPLIT into a velocity pass and a positional one. Folding"
+    echo "the penetration correction into the velocity target as a Baumgarte bias is"
+    echo "the obvious formulation and it pumps energy — the positional term is not a"
+    echo "physical impulse, so what it adds to the velocity stays there and returns as"
+    echo "speed on the next bounce. Measured at nearly 3x the free-swinging peak before"
+    echo "the split, and below it after (\`test_chain_contact\` gates exactly that)."
+    echo
+    run_bench benchmarks/bench_chain_contact.mojo
     echo "## Physics — articulated chain: reduced (CRBA+RNEA) vs maximal coordinates"
     echo
     echo "The same n-link pendulum chain in both formulations (physics parity via the"

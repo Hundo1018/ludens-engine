@@ -245,13 +245,14 @@ struct Chain(Movable, ImplicitlyDeletable):
         backwards."""
         return self._rnea(qdd, gravity)
 
-    def dynamics(self, tau: List[Real], gravity: Vec3) raises -> List[Real]:
-        """qdd = H⁻¹ (tau − C): CRBA mass matrix + RNEA bias, dense solve."""
+    def mass_matrix(self) raises -> List[Real]:
+        """The CRBA joint-space inertia H, row-major n x n.
+
+        Exposed because contact resolution needs it: an impulse applied at a
+        point costs `J H⁻¹ Jᵀ` in effective mass, so the contact solver cannot
+        work from forward dynamics alone. `dynamics` calls this rather than
+        keeping its own copy."""
         var n = len(self.links)
-        var zero_qdd = List[Real]()
-        for _ in range(n):
-            zero_qdd.append(0)
-        var c_bias = self._rnea(zero_qdd, gravity)
         # --- CRBA: composite inertias + mass matrix ------------------------
         var comp = List[SpInertia]()
         for i in range(n):
@@ -311,10 +312,14 @@ struct Chain(Movable, ImplicitlyDeletable):
                 j = self.parent[j]
                 hmat[i * n + j] = dot(self.links[j].axis, fwc)
                 hmat[j * n + i] = hmat[i * n + j]
-        # --- solve H qdd = tau - C (Gaussian elimination, partial pivot) ---
-        var rhs = List[Real]()
-        for i in range(n):
-            rhs.append(tau[i] - c_bias[i])
+        return hmat^
+
+    @staticmethod
+    def solve_h(var hmat: List[Real], var rhs: List[Real], n: Int) -> List[Real]:
+        """Dense solve of `H x = rhs` (Gaussian elimination, partial pivot).
+
+        Static and taking its operands by value so the contact solver can reuse
+        it for `H⁻¹ Jᵀ` without re-deriving H per contact."""
         for col in range(n):
             var piv = col
             var best = abs(hmat[col * n + col])
@@ -347,6 +352,187 @@ struct Chain(Movable, ImplicitlyDeletable):
             qdd[rr2] = acc / hmat[rr2 * n + rr2]
             rr2 -= 1
         return qdd^
+
+    def dynamics(self, tau: List[Real], gravity: Vec3) raises -> List[Real]:
+        """qdd = H⁻¹ (tau − C): CRBA mass matrix + RNEA bias, dense solve."""
+        var n = len(self.links)
+        var zero_qdd = List[Real]()
+        for _ in range(n):
+            zero_qdd.append(0)
+        var c_bias = self._rnea(zero_qdd, gravity)
+        var hmat = self.mass_matrix()
+        var rhs = List[Real]()
+        for i in range(n):
+            rhs.append(tau[i] - c_bias[i])
+        return Self.solve_h(hmat^, rhs^, n)
+
+
+    # ------------------------------------------------ contact coupling
+    # A reduced-coordinate body has no world-space impulse to push on: every
+    # force must arrive through the joints. The bridge is the point Jacobian —
+    # the row mapping joint velocities to the velocity of one material point
+    # along one direction — and its transpose, which maps an impulse at that
+    # point back to joint torques. `J H⁻¹ Jᵀ` is then the effective mass the
+    # contact sees, which is what makes the impulse solvable in joint space.
+
+    def point_world(self, i: Int, local: Vec3) raises -> Vec3:
+        """World position of a point given in link `i`'s frame."""
+        var poses = self.fk()
+        return poses[i].apply_point(local)
+
+    def point_jacobian(
+        self, i: Int, local: Vec3, dir: Vec3
+    ) raises -> List[Real]:
+        """Row `J` with `J q̇ = (velocity of the point) · dir`.
+
+        Only ancestors of link `i` contribute: a joint that is not on the path
+        to the root cannot move the point at all, and its column is exactly
+        zero. Walking the ancestor chain rather than all joints is what keeps
+        this O(depth) instead of O(n)."""
+        var n = len(self.links)
+        var poses = self.fk()
+        var pw = poses[i].apply_point(local)
+        var j = List[Real]()
+        for _ in range(n):
+            j.append(0)
+        var k = i
+        while k >= 0:
+            # joint k's axis and origin in world (one decomposition serves
+            # both: the quaternion rotates the axis, the translation IS the
+            # joint origin)
+            var qt = poses[k].to_quat_translation()
+            var axis_w = qt[0].rotate(self.links[k].axis)
+            var origin_w = qt[1]
+            # a revolute joint moves the point at omega x r
+            j[k] = dot(_cross(axis_w, pw - origin_w), dir)
+            k = self.parent[k]
+        return j^
+
+    def point_velocity(self, i: Int, local: Vec3, dir: Vec3) raises -> Real:
+        var j = self.point_jacobian(i, local, dir)
+        var v = Real(0)
+        for k in range(len(j)):
+            v += j[k] * self.qd[k]
+        return v
+
+    def apply_impulse_with(
+        mut self, h: List[Real], i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    ) raises -> Real:
+        """`apply_impulse` with the mass matrix supplied.
+
+        H depends only on `q`, which does NOT change during a velocity
+        iteration, so recomputing it per contact per iteration is pure waste —
+        it made the contact pass cost an O(n³) solve times contacts times
+        iterations, and dominated the step by ~29x at 2 links."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, dir)
+        var hinv_jt = Self.solve_h(h.copy(), j.copy(), n)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+        if w < 1e-12:
+            return 0
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * lam
+        return lam
+
+    def apply_impulse(
+        mut self, i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    ) raises -> Real:
+        """Apply the impulse at (link `i`, `local`) along `dir` that changes the
+        point's velocity along `dir` by `target_dv`. Returns the impulse.
+
+        Effective mass is `1 / (J H⁻¹ Jᵀ)`; the velocity update is
+        `Δq̇ = H⁻¹ Jᵀ λ`. Both need the same `H⁻¹ Jᵀ`, so it is solved once."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, dir)
+        var h = self.mass_matrix()
+        var hinv_jt = Self.solve_h(h^, j.copy(), n)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+        if w < 1e-12:
+            return 0  # the point cannot be moved along `dir` by any joint
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * lam
+        return lam
+
+    def resolve_ground(
+        mut self,
+        floor_y: Real,
+        restitution: Real,
+        contacts: List[Int],
+        locals: List[Vec3],
+        dt: Real,
+        iters: Int = 8,
+    ) raises -> Int:
+        """Sequential-impulse ground contact, SPLIT into velocity and position.
+
+        The velocity pass applies only impulses that make the normal velocity
+        non-negative, which by construction removes kinetic energy or leaves it
+        alone. The penetration is then repaired in a SECOND pass that runs on a
+        pseudo-velocity: it moves `q` and is discarded rather than accumulated
+        into `q̇`.
+
+        Doing both in one pass — a Baumgarte bias folded into the velocity
+        target — is the obvious formulation and it PUMPS ENERGY: the positional
+        term is not a physical impulse, so whatever it adds to the velocity
+        stays there and comes back as speed on the next bounce. Measured here
+        at nearly 3x the free-swinging peak before the split.
+
+        Returns how many contacts were active on entry, not on exit: after a
+        successful resolve none are active, so the exit count is always zero
+        and would report "nothing touched" for every working contact."""
+        var n = len(self.links)
+        var initial_active = 0
+        for c in range(len(contacts)):
+            var pw = self.point_world(contacts[c], locals[c])
+            if pw[1] <= floor_y:
+                initial_active += 1
+        if initial_active == 0:
+            return 0
+
+        var up = Vec3(0, 1, 0)
+        # H is a function of q alone, so it is computed ONCE per pass rather
+        # than per contact per iteration
+        var h1 = self.mass_matrix()
+        # --- pass 1: velocity only (physical impulses) ---------------------
+        for _ in range(iters):
+            for c in range(len(contacts)):
+                var i = contacts[c]
+                var pw = self.point_world(i, locals[c])
+                if pw[1] > floor_y:
+                    continue
+                var vn = self.point_velocity(i, locals[c], up)
+                if vn >= 0:
+                    continue  # already separating
+                _ = self.apply_impulse_with(
+                    h1, i, locals[c], up, -(1 + restitution) * vn
+                )
+
+        # --- pass 2: positional repair on a pseudo-velocity ----------------
+        var saved = self.qd.copy()
+        var h2 = self.mass_matrix()
+        for k in range(n):
+            self.qd[k] = 0
+        for _ in range(iters):
+            for c in range(len(contacts)):
+                var i = contacts[c]
+                var pw = self.point_world(i, locals[c])
+                var pen = floor_y - pw[1]
+                if pen <= 0:
+                    continue
+                var vn = self.point_velocity(i, locals[c], up)
+                var want = pen / dt - vn
+                if want <= 0:
+                    continue
+                _ = self.apply_impulse_with(h2, i, locals[c], up, want)
+        for k in range(n):
+            self.q[k] += self.qd[k] * dt
+            self.qd[k] = saved[k]
+        return initial_active
 
     def step(mut self, dt: Real, tau: List[Real], gravity: Vec3) raises:
         """Semi-implicit Euler in joint space."""
