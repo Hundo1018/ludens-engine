@@ -89,11 +89,13 @@ def _gpu_row[N: Int](mut t: BenchTable, mut ctx: DeviceContext, items: List[BoxP
 def main() raises:
     var t = BenchTable("Broadphase: GPU all-pairs vs CPU structures")
 
-    comptime for si in range(3):
-        comptime N = 512 if si == 0 else (2048 if si == 1 else 8192)
+    comptime for si in range(4):
+        comptime N = 512 if si == 0 else (2048 if si == 1 else (8192 if si == 2 else 32768))
         # extents chosen so density (and therefore the pair count per box)
         # stays roughly constant as N grows: extent ~ N^(1/3)
-        comptime EXT: Real = Real(24.0 if si == 0 else (38.0 if si == 1 else 60.0))
+        comptime EXT: Real = Real(
+            24.0 if si == 0 else (38.0 if si == 1 else (60.0 if si == 2 else 95.0))
+        )
         var items = _scene(N, EXT)
         _cpu_row(t, "cpu brute", items, N, 0)
         _cpu_row(t, "cpu hashgrid", items, N, 1)
@@ -113,6 +115,10 @@ def main() raises:
         _gpu_row[2048](t, ctx, i2048)
         var i8192 = _scene(8192, 60.0)
         _gpu_row[8192](t, ctx, i8192)
+        # ADVANTAGE REGIME: the GPU curve is nearly flat while every CPU
+        # structure grows, so the interesting question is where they cross.
+        var i32k = _scene(32768, 95.0)
+        _gpu_row[32768](t, ctx, i32k)
     else:
         print("(no accelerator: CPU rows only)")
 

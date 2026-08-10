@@ -148,6 +148,99 @@ def _run_bvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
     table.add("bvh rebuild" + tag, N, "frame", measure[run](2, 6), FRAMES)
 
 
+def _mixed_items(
+    cx: List[Real], cy: List[Real], cz: List[Real], f: Int, speed: Real,
+    ratio: Real,
+) -> List[BoxProxy[3]]:
+    """Same oscillation, but box half-extents span `ratio`:1 instead of being
+    uniform. This is the spatial hash's known weak point: a hash needs its cell
+    size to match the object size, and with a wide size spread no single choice
+    works — big boxes span many cells (duplicated into each) while small ones
+    leave most cells nearly empty. A sorted-endpoint sweep has no cell size to
+    get wrong, so if SAP has an advantage regime at all, it is this one."""
+    var items = List[BoxProxy[3]]()
+    comptime AMP: Real = 3.0
+    var step = Real(f) * speed
+    for i in range(N):
+        var ph = Real(i) * 0.618
+        var c = Vec3(
+            cx[i] + AMP * _tri(ph + step),
+            cy[i] + AMP * _tri(ph * 1.7 + step),
+            cz[i] + AMP * _tri(ph * 2.3 + step),
+        )
+        # deterministic size ladder from 0.5 up to 0.5*ratio
+        var t = Real((i * 37) % 100) / 99.0
+        var h = 0.5 * (1.0 + t * (ratio - 1.0))
+        items.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(h, h, h))))
+    return items^
+
+
+def _run_sap_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
+                   cz: List[Real], speed: Real, ratio: Real, tag: String) raises:
+    var bp = SapBroadPhase[3]()
+    bp.rebuild(_mixed_items(cx, cy, cz, 0, speed, ratio))
+
+    @parameter
+    def run():
+        try:
+            for f in range(FRAMES):
+                bp.rebuild(_mixed_items(cx, cy, cz, f, speed, ratio))
+                var out = List[Pair]()
+                bp.pairs(out)
+                keep(len(out))
+        except:
+            pass
+
+    var probe = SapBroadPhase[3]()
+    probe.rebuild(_mixed_items(cx, cy, cz, 7, speed, ratio))
+    var pp = List[Pair]()
+    probe.pairs(pp)
+    table.add("sap" + tag + " p=" + String(len(pp)), N, "frame", measure[run](2, 6), FRAMES)
+
+
+def _run_grid_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
+                    cz: List[Real], speed: Real, ratio: Real, cell: Real,
+                    tag: String) raises:
+    var bp = SpatialHashBroadPhase[3](cell)
+    bp.rebuild(_mixed_items(cx, cy, cz, 0, speed, ratio))
+
+    @parameter
+    def run():
+        try:
+            for f in range(FRAMES):
+                bp.rebuild(_mixed_items(cx, cy, cz, f, speed, ratio))
+                var out = List[Pair]()
+                bp.pairs(out)
+                keep(len(out))
+        except:
+            pass
+
+    var probe = SpatialHashBroadPhase[3](cell)
+    probe.rebuild(_mixed_items(cx, cy, cz, 7, speed, ratio))
+    var pp = List[Pair]()
+    probe.pairs(pp)
+    table.add("hashgrid" + tag + " p=" + String(len(pp)), N, "frame", measure[run](2, 6), FRAMES)
+
+
+def _run_dbvh_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
+                    cz: List[Real], speed: Real, ratio: Real, tag: String) raises:
+    var bp = DbvhBroadPhase[3]()
+    bp.rebuild(_mixed_items(cx, cy, cz, 0, speed, ratio))
+
+    @parameter
+    def run():
+        try:
+            for f in range(FRAMES):
+                bp.rebuild(_mixed_items(cx, cy, cz, f, speed, ratio))
+                var out = List[Pair]()
+                bp.pairs(out)
+                keep(len(out))
+        except:
+            pass
+
+    table.add("dbvh" + tag, N, "frame", measure[run](2, 6), FRAMES)
+
+
 def main() raises:
     var rng = Pcg32.seeded(11)
     var cx = List[Real]()
@@ -190,3 +283,29 @@ def main() raises:
         _run_grid(t, cx, cy, cz, sp, tag)
         _run_bvh(t, cx, cy, cz, sp, tag)
     t.print_report()
+
+    # ---- ADVANTAGE REGIME: wide object-size spread ----
+    # The uniform-size sweep above is the grid's best case. This one is its
+    # documented worst: a hash has ONE cell size, and no single choice suits a
+    # 20:1 size spread. Two grid rows are run per mix -- a cell sized for the
+    # small boxes and one sized for the large -- so the comparison cannot be
+    # dismissed as a badly tuned grid.
+    var mt = BenchTable(
+        "broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime)"
+    )
+    var ratios = List[Real]()
+    ratios.append(1.0)
+    ratios.append(5.0)
+    ratios.append(20.0)
+    var rnames = List[String]()
+    rnames.append(" 1:1 (uniform)")
+    rnames.append(" 5:1")
+    rnames.append(" 20:1")
+    for ri in range(len(ratios)):
+        var r = ratios[ri]
+        var tag = rnames[ri]
+        _run_sap_mixed(mt, cx, cy, cz, 0.05, r, tag)
+        _run_grid_mixed(mt, cx, cy, cz, 0.05, r, 2.0, tag + " cell=2 (small-tuned)")
+        _run_grid_mixed(mt, cx, cy, cz, 0.05, r, 0.5 * r * 2.0, tag + " cell=2*max")
+        _run_dbvh_mixed(mt, cx, cy, cz, 0.05, r, tag)
+    mt.print_report()

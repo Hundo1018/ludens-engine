@@ -21,7 +21,7 @@ from harness.bench import BenchTable
 from scheduler.rng import Pcg32, Rng
 from geometry.vec import Real, Vec3
 from geometry.aabb import AABB
-from geometry.bvh import BVH
+from geometry.bvh import BVH, morton_order
 from geometry.gpu_lbvh import gpu_morton_order_ctx
 from collision.broadphase import BoxProxy
 
@@ -74,7 +74,9 @@ def _gpu_row[N: Int, NPAD: Int](
             boxes.append(items[order[i]].box)
             prox.append(items[order[i]].proxy)
         var b = BVH[3]()
-        b.build_boxes(boxes, prox, False, True)
+        # presorted emit: the device already produced the Z-order, so
+        # re-running the host sort would charge this path twice
+        b.build_lbvh_presorted(boxes, prox)
         keep(len(b.nodes))
         var dt = Int(perf_counter_ns()) - t0
         if dt < best:
@@ -82,12 +84,46 @@ def _gpu_row[N: Int, NPAD: Int](
     t.add("gpu morton+bitonic (+host emit)", N, "build", best, 1)
 
 
+def _cpu_sort_ns(items: List[BoxProxy[3]], n: Int) raises -> Int:
+    """CPU Morton + radix sort ALONE — the step the device version replaces."""
+    var boxes = List[AABB[3]]()
+    for i in range(n):
+        boxes.append(items[i].box)
+    var best = Int.MAX
+    for _ in range(REPS):
+        var t0 = Int(perf_counter_ns())
+        var o = morton_order[3](boxes)
+        keep(len(o))
+        var dt = Int(perf_counter_ns()) - t0
+        if dt < best:
+            best = dt
+    return best
+
+
+def _gpu_sort_ns[N: Int, NPAD: Int](
+    mut ctx: DeviceContext, items: List[BoxProxy[3]]
+) raises -> Int:
+    """GPU Morton + bitonic sort ALONE, including transfer."""
+    var best = Int.MAX
+    for _ in range(REPS):
+        var t0 = Int(perf_counter_ns())
+        var order = List[Int]()
+        gpu_morton_order_ctx[N, NPAD](ctx, items, order)
+        keep(len(order))
+        var dt = Int(perf_counter_ns()) - t0
+        if dt < best:
+            best = dt
+    return best
+
+
 def main() raises:
     var t = BenchTable("LBVH build: CPU radix sort vs GPU bitonic sort")
 
-    comptime for si in range(3):
-        comptime N = 1024 if si == 0 else (4096 if si == 1 else 16384)
-        comptime EXT: Real = Real(30.0 if si == 0 else (48.0 if si == 1 else 76.0))
+    comptime for si in range(4):
+        comptime N = 1024 if si == 0 else (4096 if si == 1 else (16384 if si == 2 else 65536))
+        comptime EXT: Real = Real(
+            30.0 if si == 0 else (48.0 if si == 1 else (76.0 if si == 2 else 120.0))
+        )
         var items = _scene(N, EXT)
         _cpu_row(t, items, N)
 
@@ -103,7 +139,29 @@ def main() raises:
         _gpu_row[4096, 4096](t, ctx, i2)
         var i3 = _scene(16384, 76.0)
         _gpu_row[16384, 16384](t, ctx, i3)
+        # ADVANTAGE REGIME: the CPU/GPU gap closed monotonically (2.4x -> 1.4x
+        # -> 1.27x), so this is where the trend is followed to its conclusion.
+        var i4 = _scene(65536, 120.0)
+        _gpu_row[65536, 65536](t, ctx, i4)
     else:
         print("(no accelerator: CPU rows only)")
 
+    # SORT ALONE on both sides — the step that actually differs. The full-build
+    # rows above share a hierarchy emit that dominates them, so they cannot
+    # answer whether the device sort is faster; these rows can.
+    t.add("cpu sort only (morton+radix)", 16384, "sort", _cpu_sort_ns(_scene(16384, 76.0), 16384), 1)
+    t.add("cpu sort only (morton+radix)", 65536, "sort", _cpu_sort_ns(_scene(65536, 120.0), 65536), 1)
+    comptime if has_accelerator():
+        var ctx2 = DeviceContext()
+        var w = _scene(1024, 30.0)
+        var wo = List[Int]()
+        gpu_morton_order_ctx[1024, 1024](ctx2, w, wo)
+        t.add(
+            "gpu sort only (morton+bitonic)", 16384, "sort",
+            _gpu_sort_ns[16384, 16384](ctx2, _scene(16384, 76.0)), 1,
+        )
+        t.add(
+            "gpu sort only (morton+bitonic)", 65536, "sort",
+            _gpu_sort_ns[65536, 65536](ctx2, _scene(65536, 120.0)), 1,
+        )
     t.print_report()

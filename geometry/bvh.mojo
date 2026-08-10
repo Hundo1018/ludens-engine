@@ -199,9 +199,12 @@ struct BVH[dim: Int](Copyable, Movable):
     def _build(
         mut self, mut leaves: List[_Leaf[Self.dim]], lo: Int, hi: Int, sah: Bool
     ) -> Int:
-        var box = self._bounds(leaves, lo, hi)
+        # bottom-up bounds, as in `_radix_node`: rescanning the range at every
+        # node costs O(n log n) merges for a value the children already have
         if hi - lo == 1:
-            self.nodes.append(_Node[Self.dim](box, -1, -1, leaves[lo].proxy))
+            self.nodes.append(
+                _Node[Self.dim](leaves[lo].box, -1, -1, leaves[lo].proxy)
+            )
             return len(self.nodes) - 1
 
         var mid = -1
@@ -213,6 +216,7 @@ struct BVH[dim: Int](Copyable, Movable):
             mid = (lo + hi) // 2
         var left = self._build(leaves, lo, mid, sah)
         var right = self._build(leaves, mid, hi, sah)
+        var box = self.nodes[left].box.merge(self.nodes[right].box)
         self.nodes.append(_Node[Self.dim](box, left, right, -1))
         return len(self.nodes) - 1
 
@@ -288,8 +292,13 @@ struct BVH[dim: Int](Copyable, Movable):
         mut self, mut leaves: List[_Leaf[Self.dim]], codes: List[UInt32],
         lo: Int, hi: Int, bit: Int,
     ) -> Int:
-        var box = self._bounds(leaves, lo, hi)
+        # A node's box is the union of its children's, so it is computed AFTER
+        # the recursion rather than by rescanning [lo, hi) here. Rescanning made
+        # the emit O(n log n) AABB merges and — measured — the emit was ~100% of
+        # the whole LBVH build, with the Morton sort effectively free. Bottom-up
+        # bounds make it O(n).
         if hi - lo == 1:
+            var box = leaves[lo].box
             self.nodes.append(_Node[Self.dim](box, -1, -1, leaves[lo].proxy))
             return len(self.nodes) - 1
         # Descend to the highest bit that actually differs across the range;
@@ -320,8 +329,44 @@ struct BVH[dim: Int](Copyable, Movable):
                 mid = (lo + hi) // 2
         var left = self._radix_node(leaves, codes, lo, mid, b - 1 if b > 0 else 0)
         var right = self._radix_node(leaves, codes, mid, hi, b - 1 if b > 0 else 0)
+        var box = self.nodes[left].box.merge(self.nodes[right].box)
         self.nodes.append(_Node[Self.dim](box, left, right, -1))
         return len(self.nodes) - 1
+
+    def build_lbvh_presorted(
+        mut self, boxes: List[AABB[Self.dim]], proxies: List[Int]
+    ):
+        """Emit the hierarchy from leaves that are ALREADY in Z-order.
+
+        Exists so a device-side sort is not thrown away: passing its output to
+        `build(lbvh=True)` would re-run the whole Morton+radix sort on the host,
+        which is idempotent (same order out) and therefore silently correct but
+        doubles the work — a benchmark written that way charges the GPU path for
+        a CPU sort it never needed."""
+        self.clear()
+        var n = len(boxes)
+        if n == 0:
+            return
+        var leaves = List[_Leaf[Self.dim]]()
+        for i in range(n):
+            leaves.append(_Leaf[Self.dim](boxes[i], proxies[i]))
+        # codes are still needed for the split decisions, but not the sort
+        comptime BITS = 30 // Self.dim
+        comptime SCALE = Real((1 << BITS) - 1)
+        var cmin = (leaves[0].box.min + leaves[0].box.max) * 0.5
+        var cmax = cmin
+        for i in range(1, n):
+            var c = (leaves[i].box.min + leaves[i].box.max) * 0.5
+            cmin = lane_min(cmin, c)
+            cmax = lane_max(cmax, c)
+        var inv = SIMD[WorldType, Self.dim](0)
+        for a in range(Self.dim):
+            var e = cmax[a] - cmin[a]
+            inv[a] = (1.0 / e) if e > 1e-20 else Real(0)
+        var codes = List[UInt32]()
+        for i in range(n):
+            codes.append(self._morton(leaves[i], cmin, inv))
+        self.root = self._radix_node(leaves, codes, 0, n, 29)
 
     def build_boxes(
         mut self, boxes: List[AABB[Self.dim]], proxies: List[Int],
@@ -402,3 +447,68 @@ struct BVH[dim: Int](Copyable, Movable):
         if nleaf == 0:
             return 0
         return Real(self._depth_sum(self.root, 0)) / Real(nleaf)
+
+
+def morton_order[D: Int](boxes: List[AABB[D]]) -> List[Int]:
+    """CPU Morton code + LSD radix sort, returning the Z-order permutation.
+
+    The same computation `BVH.build(lbvh=True)` does internally, exposed so the
+    SORT can be compared against a device implementation directly. Without
+    this the only available comparison is GPU-sort against CPU-FULL-BUILD,
+    which conflates the sort with the hierarchy emit that both share — and the
+    emit turns out to dominate, so that conflation hides the answer rather than
+    approximating it."""
+    var n = len(boxes)
+    var order = List[Int]()
+    if n == 0:
+        return order^
+    comptime BITS = 30 // D
+    comptime SCALE = Real((1 << BITS) - 1)
+
+    var cmin = (boxes[0].min + boxes[0].max) * 0.5
+    var cmax = cmin
+    for i in range(1, n):
+        var c = (boxes[i].min + boxes[i].max) * 0.5
+        cmin = lane_min(cmin, c)
+        cmax = lane_max(cmax, c)
+    var inv = SIMD[WorldType, D](0)
+    for a in range(D):
+        var e = cmax[a] - cmin[a]
+        inv[a] = (1.0 / e) if e > 1e-20 else Real(0)
+
+    var codes = List[UInt32]()
+    for i in range(n):
+        var c = (boxes[i].min + boxes[i].max) * 0.5
+        var code = UInt32(0)
+        for a in range(D):
+            var t = (c[a] - cmin[a]) * inv[a]
+            if t < 0:
+                t = 0
+            if t > 1:
+                t = 1
+            var q = UInt32(Int(t * SCALE))
+            var spread = UInt32(0)
+            for b in range(BITS):
+                spread |= ((q >> UInt32(b)) & UInt32(1)) << UInt32(b * D)
+            code |= spread << UInt32(a)
+        codes.append(code)
+        order.append(i)
+
+    var tmp_codes = codes.copy()
+    var tmp_order = order.copy()
+    for shift in range(0, 32, 8):
+        var count = InlineArray[Int, 257](fill=0)
+        for i in range(n):
+            count[Int((codes[i] >> UInt32(shift)) & UInt32(255)) + 1] += 1
+        for b in range(1, 257):
+            count[b] += count[b - 1]
+        for i in range(n):
+            var b = Int((codes[i] >> UInt32(shift)) & UInt32(255))
+            var d = count[b]
+            count[b] = d + 1
+            tmp_codes[d] = codes[i]
+            tmp_order[d] = order[i]
+        for i in range(n):
+            codes[i] = tmp_codes[i]
+            order[i] = tmp_order[i]
+    return order^
