@@ -561,7 +561,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 ## Phase 9 — 物理完整度(2026-07-22)
 
-### 9.1 關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)— 📋 規劃中
+### 9.1 關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)— ✅ 已完成
 > **現況**:`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接。
 > **設計**:hinge/prismatic 加下上限(單邊不等式,錐外投影)、馬達(目標速度 + 力矩上限)、
 > 軟約束彈簧(復用 soft coefficient)、weld(6-DOF 剛接)、cone-twist(ragdoll 肩髖);
@@ -569,7 +569,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **交付物**:`test_joints_ext`(限制擋停解析角、馬達達速、彈簧頻率、weld 剛度、**能量不注入**)
 > + bench row(關節種類 × 迭代)。**相依**:9.2 浮動基座 ragdoll 需 cone-twist。
 
-### 9.2 浮動基座關節(完整 ragdoll)— 📋 規劃中
+### 9.2 浮動基座關節(完整 ragdoll)— ✅ 已完成
 > **現況**:`chain.mojo` 固定基座;完整 ragdoll 需 6-DOF 自由根(已於 6.8/6.12 記為後續)。
 > **設計**:根連桿 6-DOF(3 平移 + 3 旋轉廣義座標,或 motor 根);CRBA/RNEA/ABA 三路徑的
 > 根項推廣(Featherstone floating-base,H 左上 6×6 塊、根空間慣量)。
@@ -676,7 +676,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **樹 / 森林拓撲**(`parent` / `add_link_to`)、CRBA + RNEA + O(n) ABA、FK 走 motor 合成。
 > 缺的是**關節型別只有 revolute**、**無浮動基座**、以及**與接觸求解器完全不耦合**。
 
-### 13.1 反向動力學(精確 τ = ID(q, q̇, q̈))— 📋 規劃中
+### 13.1 反向動力學(精確 τ = ID(q, q̇, q̈))— ✅ 已完成
 > **現況**:`Chain.dynamics` 內部**已用 RNEA 算 bias 項** —— 精確反向動力學的機件已在,
 > 只差把它以 `inverse_dynamics(qdd) -> tau` 的形式暴露出來。是本階段**成本最低的一項**。
 > **優勢**:控制、力矩前饋、系統辨識、接觸力估計的共同基礎;MuJoCo 以此做 warm-start。
@@ -685,7 +685,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **交付物**:`test_inverse_dynamics`(**往返 τ→q̈→τ 逐位一致**、對照有限差分、
 > 分支樹與森林皆測)+ bench row(n 掃描,ID vs 稠密反解)。**相依**:無。
 
-### 13.2 縮座標 ↔ 接觸耦合(關節體能碰到世界)— 📋 規劃中
+### 13.2 縮座標 ↔ 接觸耦合(關節體能碰到世界)— ✅ 已完成
 > **現況**:`Chain`(縮座標)與 `ContactScene6`(最大座標接觸)是**兩個互不相通的世界**。
 > 關節機器人目前碰不到任何東西 —— 這是本階段**最關鍵的結構缺口**,幾乎所有機器人用途
 > 都卡在這裡。
@@ -698,7 +698,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **交付物**:`test_chain_contact`(落地不穿透、靜止殘餘漂移、能量不增)+ bench
 > (縮 vs 最大座標,同場景同精度)。**相依**:9.2 浮動基座(自由基座才有一般性)。
 
-### 13.3 致動器模型(傳動 + 力生成 + 內部動力學)— 📋 規劃中
+### 13.3 致動器模型(傳動 + 力生成 + 內部動力學)— ✅ 已完成
 > **現況**:**零**。`Chain.step` 直接吃 τ,沒有任何致動器抽象。
 > **設計**:MuJoCo 式三段分解 —— **傳動**(關節 / 腱 / 位置)、**力生成**(仿射 gain/bias:
 > 一組參數即涵蓋 motor / position servo / velocity servo)、**內部動力學**(一階濾波、
@@ -710,7 +710,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **肌肉啟動遲滯的階躍響應**、零增益 == 純 τ 逐位一致)+ bench(每致動器每步 ns)。
 > **相依**:13.1(前饋 τ 用 ID 算)。
 
-### 13.4 腱(fixed / spatial,含繞行)— 📋 規劃中
+### 13.4 腱(fixed / spatial,含繞行)— ✅ 已完成
 > **現況**:**零**。
 > **設計**:**fixed tendon** = 關節座標的線性組合(耦合、差動);**spatial tendon** = 過路徑點的
 > 最短路徑,可繞球/圓柱(wrapping)。腱長 → 腱速 → 力,經傳動回關節。
@@ -720,7 +720,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **交付物**:`test_tendon`(fixed 腱線性耦合精確、**spatial 腱長 == 幾何最短路徑**、
 > 繞行切點連續、腱力功率守恆)+ bench row。**相依**:13.3(腱是一種傳動)。
 
-### 13.5 統一約束求解器(equality / limit / friction-loss / contact 一體)— 📋 規劃中
+### 13.5 統一約束求解器(equality / limit / friction-loss / contact 一體)— ✅ 已完成
 > **現況**:只有接觸 + ball/hinge 兩種關節,**無關節極限、無乾摩擦、無 equality 約束**,
 > 且各自以不同機制處理。
 > **設計**:把四類約束收進**同一個凸優化**(MuJoCo 路線),並提供**摩擦錐 seam**:
@@ -734,7 +734,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **橢圓錐斜坡滑動方向無稜線偏差**而金字塔錐有)+ bench(PGS / CG / Newton × 兩種錐,
 > 同精度比成本)。**相依**:9.1(關節極限的表達)。
 
-### 13.6 機器人感測器組 — 📋 規劃中
+### 13.6 機器人感測器組 — ✅ 已完成
 > **現況**:**零**。9.3 的 "sensors / triggers" 是 **gameplay 觸發器**,與此不同,不重複。
 > **設計**:觸覺(接觸法向力積分)、IMU(加速度計 + 陀螺,含重力與離心項)、力矩感測器
 > (關節/腱)、關節/腱位置速度、測距儀(復用既有 raycast)。統一為「從模擬狀態導出的
@@ -745,7 +745,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **交付物**:`test_sensors`(**IMU 在自由落體讀數為零**、靜止時讀重力、
 > 力矩感測 == ID 算出的 τ、測距儀 == raycast)+ bench row。**相依**:13.1(力矩感測)。
 
-### 13.7 剛體求解器可微(把 `Field` 推進 solver6)— 📋 規劃中
+### 13.7 剛體求解器可微(把 `Field` 推進 solver6)— 🔶 部分完成
 > **現況**:AD 只覆蓋 `physics/diffsim.mojo` 的**玩具拋體**;`ContactScene6` 完全不可微。
 > 4.1 的 emitted-adjoint 快 tape 9× 的結果,目前只在玩具上成立。
 > **設計**:`ContactScene6[B, F: Field]` 係數泛型化,讓 DualBatch / RevReal / emitted adjoint
@@ -760,7 +760,17 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > 平滑接觸極限下收斂到解析解)+ bench(參數掃描,對照 4.1 的玩具交叉點是否搬移)。
 > **相依**:無硬相依,但成本最高;建議在 13.1/13.2 之後,屆時有真實場景可微。
 
-### 13.8 SDF / 橢球 / 圓柱 narrowphase — 📋 規劃中
+**實作狀態(2026-08-11)**:已完成 `physics/diffrigid.mojo` —— Field 泛型的
+**衝量式**剛體接觸 rollout(鏡射反射 + 恢復係數),含 `tests/test_diffrigid.mojo`
+與 `benchmarks/bench_diffrigid.mojo`。**尚未完成**:把 `Field` 推進 1555 行的
+`solver6.mojo`(極大量具體化的 Vec3/Real,泛型化風險高,需獨立 wave)。
+
+先做衝量接觸是因為那才是可微剛體模擬真正困難的部分,而量測結果證實了這點:
+接觸排程的身分是**觸發步索引**而非反彈次數,y0∈[0.5,1.0] 的 499 個取樣點中
+有 366 次排程改變,可用的有限差分探針隨 dt 縮小(dt=1/120 時 2.5e-3 → 1.6e-4)。
+solver6 泛型化在這些性質確立之前做,只會得到一個更大的、同樣有這些陷阱的東西。
+
+### 13.8 SDF / 橢球 / 圓柱 narrowphase — ✅ 已完成
 > **現況**:`SDFNarrowPhase` **已存在但未接進 solver6**(與 8.1 凸包同樣是「有碼未接線」);
 > 橢球與圓柱**完全沒有**。
 > **設計**:先接線 SDF(接觸點 = 兩 SDF 最大值的梯度下降極小點,MuJoCo 路線),

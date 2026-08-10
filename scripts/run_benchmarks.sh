@@ -749,7 +749,7 @@ run_bench() {
     echo "sweep is O(links + sensors). The first table sweeps both axes. The **N = 1**"
     echo "rows are the control and they matter: with nothing to amortise the batched"
     echo "form is slightly SLOWER at every chain length, which is what makes the wide"
-    echo "rows credible. At 24 links with 96 sensors it is **~64x** faster."
+    echo "rows credible. At 24 links with 96 sensors it is **over 60x** faster."
     echo
     echo "The last block is the alternative anyone reaches for first — step the state,"
     echo "difference the velocity, subtract gravity. It loses on cost (a second state"
@@ -790,8 +790,8 @@ run_bench() {
     echo "The benchmark's control group is finite-difference moment arms, the thing a"
     echo "first implementation writes. It is given its best case and it WINS there:"
     echo "at 1 DOF two length evaluations beat three Jacobian columns per site"
-    echo "(**~2.1x** faster), and it is still ahead at 2 DOF. The crossover falls"
-    echo "between 2 and 8 DOF; by 24 DOF the analytic arms are **~9.6x** faster,"
+    echo "(**~2x** faster), and it is still ahead at 2 DOF. The crossover falls"
+    echo "between 2 and 8 DOF; by 24 DOF the analytic arms are **~10x** faster,"
     echo "because differencing costs an extra path evaluation for every joint."
     echo
     echo "The accuracy floor is the part that does not move with problem size. The"
@@ -833,8 +833,8 @@ run_bench() {
     echo "says why that was worth chasing: assembly was **88-94%** of the solve and the"
     echo "dense elimination only 5-6%, so the deficit was one routine, not the design."
     echo "Extending the composite-inertia recursion to the base made assembly"
-    echo "**7.4-9.1x** faster and reversed the verdict — the quaternion root now wins"
-    echo "at every size, by 1.84x at 2 links narrowing to 1.17x at 16."
+    echo "**7.5-9.8x** faster and reversed the verdict — the quaternion root now wins"
+    echo "at every size, by roughly 1.8x at 2 links narrowing to ~1.2x at 16."
     echo
     echo "Both assemblies are kept. The unit-acceleration form derives the coupling"
     echo "block from nothing the recursion shares, so the test demanding the two agree"
@@ -882,8 +882,8 @@ run_bench() {
     echo "measured 35.0 on a 5-degree sweep. An ELLIPTIC cone projects the tangent"
     echo "pair radially and measures **3.6e-7** spread with **0.0 deg** misalignment."
     echo
-    echo "That correctness costs **2-26%**, most of it at small problems and falling to"
-    echo "2% by 48 coordinates with 16 contacts — the radial projection is a square"
+    echo "That correctness costs **under 16%**, most of it at small problems, falling to"
+    echo "3% by 48 coordinates with 16 contacts — the radial projection is a square"
     echo "root and a scale on two rows that the solver was already touching."
     echo
     run_bench benchmarks/bench_constraints.mojo
