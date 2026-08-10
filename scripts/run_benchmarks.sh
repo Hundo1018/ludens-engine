@@ -93,6 +93,34 @@ run_bench() {
     echo "a little speed."
     echo
     run_bench benchmarks/bench_collision.mojo
+    echo "## Collision — 3D signed distance fields"
+    echo
+    echo "The engine'\''s existing SDF layer is 2D, so this is a 3D layer rather than a"
+    echo "port of a working one — worth stating because the roadmap assumed otherwise."
+    echo "Contact is found by driving the two fields to a common value, and the"
+    echo "quantity that IS the penetration is the SUM of the fields where they agree,"
+    echo "not the minimum of their maximum: for two spheres that minimum is half the"
+    echo "overlap, because the balance point splits the gap. \`test_sdf3\` pins the"
+    echo "converged answer against the analytic sphere pair — 115/115 on hit"
+    echo "classification and ~1e-7 on depth."
+    echo
+    echo "Against a closed form the SDF is **~20x slower**, which is the price of"
+    echo "finding a contact rather than deriving it. Note the iteration cap barely"
+    echo "matters (8, 16 and 32 all land at ~94 ns): for unit-gradient primitive fields"
+    echo "the descent closes the gap in one step and exits early, so the cap only binds"
+    echo "on CSG fields, which are a bound on distance rather than the distance."
+    echo
+    echo "The CSG row has no analytic row beside it, and that absence is the result. A"
+    echo "box with a sphere bitten out of it is answered by the same code path at ~4x"
+    echo "the primitive cost, where the analytic narrowphase cannot express the shape"
+    echo "at all. Contact cost also stops depending on tessellation, since there is no"
+    echo "mesh in between."
+    echo
+    echo "Still to do: this lives at narrowphase level and is NOT yet wired into"
+    echo "\`solver6\`, which dispatches on a box/sphere/capsule kind tag and needs a"
+    echo "multi-point manifold rather than a single deepest contact."
+    echo
+    run_bench benchmarks/bench_sdf3.mojo
     echo "## Collision — manifold narrowphase (contact patch vs boolean test)"
     echo
     echo "What the solver actually pays: \`test_manifold\` produces clipped contact"
