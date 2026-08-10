@@ -760,6 +760,52 @@ run_bench() {
     echo "differences nothing."
     echo
     run_bench benchmarks/bench_sensors.mojo
+    echo "## Physics — tendons (one tension, many joints)"
+    echo
+    echo "A tendon is a length function \`L(q)\` plus the rule \`tau = -F dL/dq\`."
+    echo "Everything else follows from that line, which is also the argument for making"
+    echo "it a primitive: the coupling is stated once in the geometry and the torques"
+    echo "come out consistent, instead of being open-coded per joint by the caller."
+    echo
+    echo "Fixed tendons (\`L = sum(c_i q_i)\`) have the coefficients AS their moment arms,"
+    echo "so they are exact and essentially free — **197-1090x** cheaper than a spatial"
+    echo "tendon over the same joints, which is the reason to keep both kinds rather"
+    echo "than expressing gearing as a degenerate path."
+    echo
+    echo "Spatial tendons route through attachment sites and around obstacles. The"
+    echo "wrap is where the interesting claim sits. A tendon over a sphere touches at"
+    echo "tangent points that move with \`q\`, so \`dL/dq\` looks like it should pick up"
+    echo "terms through them. It does not: the path is the shortest one on the surface,"
+    echo "so the length is STATIONARY under sliding a tangent point, and those terms"
+    echo "vanish. \`test_tendon\` checks that against a central difference of the full"
+    echo "length — arc included — with the wrap engaged (path 1.097 vs chord 0.917) and"
+    echo "finds **2.3e-4** agreement. The finite difference knows nothing about the"
+    echo "stationarity argument, so it is a test of the claim and not a restatement."
+    echo
+    echo "A second, whole-trajectory gate: the work a constant tension does over 400"
+    echo "simulated steps matches \`-F * (L_end - L_start)\` to **0.27%**. Path"
+    echo "independence is a property of the whole run, so arms that are right on"
+    echo "average and wrong instant-to-instant do not survive it."
+    echo
+    echo "The benchmark's control group is finite-difference moment arms, the thing a"
+    echo "first implementation writes. It is given its best case and it WINS there:"
+    echo "at 1 DOF two length evaluations beat three Jacobian columns per site"
+    echo "(**~2.1x** faster), and it is still ahead at 2 DOF. The crossover falls"
+    echo "between 2 and 8 DOF; by 24 DOF the analytic arms are **~9.6x** faster,"
+    echo "because differencing costs an extra path evaluation for every joint."
+    echo
+    echo "The accuracy floor is the part that does not move with problem size. The"
+    echo "difference is central, so truncation falls as h² — the sweep shows a clean 4x"
+    echo "per halving — but f32 cancellation takes over below **h ~ 1.6e-2 rad**, where"
+    echo "the best error is **1.1e-5**. The optimal step is nearly a degree of joint"
+    echo "travel and every finer step is worse, which inverts the usual intuition. No"
+    echo "step size reaches the analytic value."
+    echo
+    echo "Wrap routing costs an acos-and-rotate per segment whether or not the obstacle"
+    echo "engages; a disengaged obstacle adds **0.2-16%**, most of it at short chains"
+    echo "where the Jacobian work is small enough for the test to show."
+    echo
+    run_bench benchmarks/bench_tendon.mojo
     echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
     echo
     echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
