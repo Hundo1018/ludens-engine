@@ -108,6 +108,69 @@ def bench_churn[B: StorageBackend](mut t: BenchTable, name: String, n: Int, fram
     t.add(name + " churn", n, "op", best, frames * (n // 10) * 2)
 
 
+def bench_shrink_regrow(
+    mut t: BenchTable, n: Int, contiguous: Bool, label: String
+) raises:
+    """Grow large, kill 90%, regrow — under two DEATH PATTERNS.
+
+    The pattern is the whole result. A page can only be handed back when its
+    entire id range is dead, so:
+
+      spread     every tenth id survives. 90% of entities are gone and NOT ONE
+                 page can be released, because every page still holds a live
+                 entity. Chunking returns nothing here.
+      contiguous the low 90% of the id range dies together — a level unloaded,
+                 a wave of enemies cleared, anything that allocated its ids in
+                 one run. Now whole pages empty and come back.
+
+    So the advantage regime is not "many entities died", it is "a REGION of the
+    id space died", and the two rows exist to keep those from being confused."""
+    var cw = World[ChunkedBackend[Pos, Vel]]()
+    var ce = List[Entity]()
+    for i in range(n):
+        ce.append(cw.spawn2(Pos(i, i), Vel(1, 1)))
+    var c_peak = cw.backend.cells_held()
+    var t0 = Int(perf_counter_ns())
+    for i in range(n):
+        var kill = (i < (n * 9) // 10) if contiguous else (i % 10 != 0)
+        if kill:
+            cw.despawn(ce[i])
+    cw.backend.compact()
+    var c_shrink_ns = Int(perf_counter_ns()) - t0
+    var c_held = cw.backend.cells_held()
+    var t1 = Int(perf_counter_ns())
+    for _ in range(n // 2):
+        _ = cw.spawn2(Pos(1, 1), Vel(1, 1))
+    var c_regrow_ns = Int(perf_counter_ns()) - t1
+
+    var nw = World[NaiveBackend[Pos, Vel]]()
+    var ne = List[Entity]()
+    for i in range(n):
+        ne.append(nw.spawn2(Pos(i, i), Vel(1, 1)))
+    var t2 = Int(perf_counter_ns())
+    for i in range(n):
+        var kill = (i < (n * 9) // 10) if contiguous else (i % 10 != 0)
+        if kill:
+            nw.despawn(ne[i])
+    var n_shrink_ns = Int(perf_counter_ns()) - t2
+    var t3 = Int(perf_counter_ns())
+    for _ in range(n // 2):
+        _ = nw.spawn2(Pos(1, 1), Vel(1, 1))
+    var n_regrow_ns = Int(perf_counter_ns()) - t3
+
+    # a growable column keeps every cell it ever allocated: 2 columns x n ids
+    var n_held = 2 * n
+    var pct = Int(100.0 * Float64(c_held) / Float64(n_held) + 0.5)
+    print(
+        "  [" + label + " N=" + String(n) + "] cells held after 90% die: chunked",
+        c_held, "of naive's", n_held, "=", pct, "%  (peak", c_peak, ")",
+    )
+    t.add(label + " chunked shrink+compact", n, "op", c_shrink_ns, n)
+    t.add(label + " naive   shrink", n, "op", n_shrink_ns, n)
+    t.add(label + " chunked regrow 50%", n, "op", c_regrow_ns, n // 2)
+    t.add(label + " naive   regrow 50%", n, "op", n_regrow_ns, n // 2)
+
+
 def main() raises:
     var t = BenchTable("Chunked (paged) columns vs one growable column")
     comptime N = 60000
@@ -127,6 +190,14 @@ def main() raises:
     bench_churn[ArchetypeBackend[Pos, Vel]](t, "archetype", N, FRAMES)
 
     t.print_report()
+
+    # --- ADVANTAGE REGIME: grow, mostly die, regrow ---
+    var st = BenchTable(
+        "Chunked columns' advantage regime: shrink and regrow (memory returned)"
+    )
+    bench_shrink_regrow(st, 240000, False, "spread-death")
+    bench_shrink_regrow(st, 240000, True, "region-death")
+    st.print_report()
 
     # Page accounting: bounded by N/CHUNK_ROWS per column, by construction.
     var cw = ChunkedBackend[Pos, Vel]()

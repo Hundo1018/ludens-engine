@@ -12,6 +12,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.gpu.host import DeviceContext
 from harness.bench import BenchTable
+from geometry.vec import Real
 from physics.gpu_cloth import ClothState, cpu_cloth_run, gpu_cloth_run_ctx
 from physics.vbd_cloth import cpu_vbd_run, gpu_vbd_run_ctx
 
@@ -38,6 +39,16 @@ def _err_str[W: Int, H: Int](s: ClothState) -> String:
     if frac < 10:
         fs = "0" + fs
     return String(pc100 // 100) + "." + fs + "%"
+
+
+def _lowest[W: Int, H: Int](s: ClothState) -> Real:
+    """Lowest point of the sheet — a shape observable neither solver is built to
+    optimise, unlike edge stretch."""
+    var m = Real(1e30)
+    for i in range(W * H):
+        if s.y[i] < m:
+            m = s.y[i]
+    return m
 
 
 def main() raises:
@@ -142,3 +153,46 @@ def main() raises:
             1024, "step", s3 - s2, STEPS,
         )
     st.print_report()
+
+    # ------------------------------------------------------------------
+    # VBD'S ADVANTAGE REGIME: convergence rate at LOW iteration counts.
+    #
+    # The tables above measure worst edge stretch, which is the quantity XPBD's
+    # distance projection is built to drive to zero — so they measure XPBD's own
+    # invariant and VBD loses by construction. The observable that is not rigged
+    # either way is the cloth's SHAPE: how far the sheet has sagged. XPBD's
+    # effective stiffness depends on how many projection sweeps it got, so at low
+    # iteration counts its cloth is far too soft; VBD solves the implicit system
+    # and approaches its converged shape much sooner.
+    #
+    # Each solver is compared against ITS OWN high-iteration answer, so this is a
+    # convergence-rate measurement rather than a claim about which material is
+    # correct — they discretise different ones.
+    var ct = BenchTable(
+        "Cloth solver convergence rate (shape vs iterations, VBD's predicted regime)"
+    )
+    var xref = cpu_cloth_run[32, 32](STEPS, 200, 1.0 / 60.0, REST)
+    var vref = cpu_vbd_run[32, 32](STEPS, 200, 1.0 / 60.0, REST)
+    var xlo = _lowest[32, 32](xref)
+    var vlo = _lowest[32, 32](vref)
+    print("  converged sag (200 iters):  xpbd", xlo, " vbd", vlo)
+
+    comptime for ci in range(5):
+        comptime IT = 2 if ci == 0 else (5 if ci == 1 else (10 if ci == 2 else (20 if ci == 3 else 40)))
+        var a0 = Int(perf_counter_ns())
+        var xs = cpu_cloth_run[32, 32](STEPS, IT, 1.0 / 60.0, REST)
+        var a1 = Int(perf_counter_ns())
+        var xf = Int(100.0 * Float64(_lowest[32, 32](xs)) / Float64(xlo) + 0.5)
+        ct.add(
+            "xpbd it=" + String(IT) + " shape=" + String(xf) + "% of converged",
+            1024, "step", a1 - a0, STEPS,
+        )
+        var b0 = Int(perf_counter_ns())
+        var vs = cpu_vbd_run[32, 32](STEPS, IT, 1.0 / 60.0, REST)
+        var b1 = Int(perf_counter_ns())
+        var vf = Int(100.0 * Float64(_lowest[32, 32](vs)) / Float64(vlo) + 0.5)
+        ct.add(
+            "vbd  it=" + String(IT) + " shape=" + String(vf) + "% of converged",
+            1024, "step", b1 - b0, STEPS,
+        )
+    ct.print_report()

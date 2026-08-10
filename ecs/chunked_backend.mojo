@@ -76,11 +76,41 @@ struct _Column[C: ComponentType](Movable, ImplicitlyDeletable):
         var pi = id // self.rows
         if pi >= len(self.pages):
             return Optional[Self.C]()
+        # a released page is an empty List, and every id in it reads as absent
+        if len(self.pages[pi]) == 0:
+            return Optional[Self.C]()
         return self.pages[pi][id % self.rows]
 
     def put(mut self, id: Int, var v: Optional[Self.C]):
         self.ensure(id)
-        self.pages[id // self.rows][id % self.rows] = v^
+        var pi = id // self.rows
+        if len(self.pages[pi]) == 0:
+            self._materialise(pi)
+        self.pages[pi][id % self.rows] = v^
+
+    def _materialise(mut self, pi: Int):
+        """Re-create a page that was released. Splitting allocation from the
+        `ensure` growth path is what lets a page be handed back and taken again
+        without disturbing its neighbours."""
+        var p = List[Optional[Self.C]](capacity=self.rows)
+        for _ in range(self.rows):
+            p.append(Optional[Self.C]())
+        self.pages[pi] = p^
+        self.allocs += 1
+
+    def release(mut self, pi: Int):
+        """Hand a page back. THIS is the property a growable column cannot
+        offer: a `List` that has ever been large keeps its whole allocation,
+        while a paged column returns memory in page units when a region of the
+        id space empties out."""
+        if pi < len(self.pages) and len(self.pages[pi]) > 0:
+            self.pages[pi] = List[Optional[Self.C]]()
+
+    def cells_held(self) -> Int:
+        var n = 0
+        for ref p in self.pages:
+            n += len(p)
+        return n
 
 
 struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
@@ -119,6 +149,39 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
 
     def _col[C: ComponentType](self) -> type_of(alloc[_Column[C]](1)):
         return self.slots[Self._slot_of[C]()].bitcast[_Column[C]]()
+
+    def compact(mut self):
+        """Release every page whose whole id range is dead.
+
+        Called explicitly rather than on every despawn: a page is only worth
+        handing back once a REGION of the id space has emptied, and checking
+        that on each despawn would make despawn O(page) instead of O(1)."""
+        var npages = (len(self.live) + CHUNK_ROWS - 1) // CHUNK_ROWS
+        for pi in range(npages):
+            var lo = pi * CHUNK_ROWS
+            var hi = lo + CHUNK_ROWS
+            if hi > len(self.live):
+                hi = len(self.live)
+            var any_live = False
+            for id in range(lo, hi):
+                if self.live[id]:
+                    any_live = True
+                    break
+            if any_live:
+                continue
+            comptime for i in range(Self.N):
+                comptime T = Self.CTs[i]
+                self._col[T]()[].release(pi)
+
+    def cells_held(self) -> Int:
+        """Component cells currently backed by memory, summed over columns —
+        the quantity the chunking argument is about, and the one a growable
+        column cannot reduce."""
+        var total = 0
+        comptime for i in range(Self.N):
+            comptime T = Self.CTs[i]
+            total += self._col[T]()[].cells_held()
+        return total
 
     def page_allocs(self) -> Int:
         """Total pages ever allocated across all columns — the quantity the

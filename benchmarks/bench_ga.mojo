@@ -326,3 +326,50 @@ def main() raises:
     cf.add("dilation cga versor", N, "point", measure[dil_cga](3, 20), N)
     cf.add("dilation scalar multiply", N, "point", measure[dil_scalar](3, 20), N)
     cf.print_report()
+
+    # ------------------------------------------------- transform CHAIN regime
+    # Where a compact rigid representation is supposed to pay: composing long
+    # chains, as a deep transform hierarchy does. A motor is 8 floats against a
+    # matrix's 16, so the chain streams half the memory and composes with fewer
+    # flops; the per-point APPLY rows above are the opposite regime, where the
+    # matrix's single dot-product-per-row wins outright. Sweeping chain length
+    # separates the two instead of letting one stand for both.
+    var ch = BenchTable("Transform CHAIN: composing K transforms (compact rep's regime)")
+
+    comptime for ki in range(4):
+        comptime K = 4 if ki == 0 else (16 if ki == 1 else (64 if ki == 2 else 256))
+
+        @parameter
+        def chain_motor():
+            var acc = Real(0)
+            for base in range(0, N - K, K):
+                var m = motors[base]
+                for j in range(1, K):
+                    m = m * motors[base + j]
+                acc += m.s
+            keep(acc)
+
+        @parameter
+        def chain_dq():
+            var acc = Real(0)
+            for base in range(0, N - K, K):
+                var d = dqs[base]
+                for j in range(1, K):
+                    d = d * dqs[base + j]
+                acc += d.real.w
+            keep(acc)
+
+        @parameter
+        def chain_mat():
+            var acc = Real(0)
+            for base in range(0, N - K, K):
+                var m = mats[base]
+                for j in range(1, K):
+                    m = m * mats[base + j]
+                acc += m.m[0]
+            keep(acc)
+
+        ch.add("motor (8f)  K=" + String(K), N, "compose", measure[chain_motor](3, 20), N)
+        ch.add("dualquat(8f) K=" + String(K), N, "compose", measure[chain_dq](3, 20), N)
+        ch.add("mat4 (16f)  K=" + String(K), N, "compose", measure[chain_mat](3, 20), N)
+    ch.print_report()

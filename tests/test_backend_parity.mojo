@@ -127,6 +127,47 @@ def recycle_scenario[B: StorageBackend]() -> List[Int]:
     return out^
 
 
+def _chunk_release_scenario() -> List[Int]:
+    """Page release: the property a growable column cannot have.
+
+    Fills a wide id range, kills everything in the LOW half, compacts, and
+    checks that (a) memory actually came back, (b) the surviving half is
+    completely unaffected, and (c) a released page can be taken again. (b) is
+    the one that matters — handing back a page whose neighbours are still in
+    use is exactly how this goes wrong, and a leak-free-but-corrupting release
+    would still look like a win on the memory number alone."""
+    var w = World[ChunkedBackend[Position, Velocity, Frozen]]()
+    var ents = List[Entity]()
+    for i in range(4096):
+        ents.append(w.spawn2(Position(i, i), Velocity(1, 1)))
+
+    var held_full = w.backend.cells_held()
+    # kill the low half only
+    for i in range(2048):
+        w.despawn(ents[i])
+    w.backend.compact()
+    var held_after = w.backend.cells_held()
+
+    # survivors must be intact
+    var survivors_ok = 1
+    for i in range(2048, 4096):
+        if not w.is_alive(ents[i]):
+            survivors_ok = 0
+        elif w.get[Position](ents[i]).x != i:
+            survivors_ok = 0
+
+    # a released page must be usable again
+    var e2 = w.spawn2(Position(77, 77), Velocity(2, 2))
+    var reuse_ok = 1 if (w.is_alive(e2) and w.get[Position](e2).x == 77) else 0
+
+    var out = List[Int]()
+    out.append(1 if held_after < held_full else 0)
+    out.append(survivors_ok)
+    out.append(reuse_ok)
+    out.append(w.entity_count())
+    return out^
+
+
 def _recycle_check(
     mut su: Suite,
     name: String,
@@ -191,5 +232,12 @@ def main() raises:
     _recycle_check(s, "reactive", r_react, want, rlabels)
     _recycle_check(s, "naive", r_naive, want, rlabels)
     _recycle_check(s, "chunked", r_chunk, want, rlabels)
+
+    # --- chunked page release ---
+    var cr = _chunk_release_scenario()
+    s.eqi(cr[0], 1, "compact() actually returns memory")
+    s.eqi(cr[1], 1, "surviving entities in other pages are untouched")
+    s.eqi(cr[2], 1, "a released page can be reused")
+    s.eqi(cr[3], 2049, "entity count after killing half and respawning one")
 
     s.finish()
