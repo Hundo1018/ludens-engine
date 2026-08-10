@@ -144,6 +144,38 @@ struct ChainLink(Copyable, ImplicitlyCopyable, Movable):
         return self.hi > self.lo
 
 
+def _shift_inertia(ci: SpInertia, q: Quat, p: Vec3) -> SpInertia:
+    """Re-express a spatial inertia in the parent frame: rotate by `q`, then
+    move the reference point by `p`.
+
+    Split out of the CRBA loop because the floating-base variant needs the
+    SAME transform to carry the root composite into the base frame. Two copies
+    of a parallel-axis identity is exactly the kind of duplication that stays
+    correct until one of them is edited."""
+    var h_p = q.rotate(ci.h) + p * ci.m
+    # R I Rᵀ (columns = R·I·Rᵀ·e_a), assembled into rows explicitly
+    var rt = _rot_rows(q)  # Rᵀ rows
+    var c0 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(1, 0, 0))))
+    var c1 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 1, 0))))
+    var c2 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 0, 1))))
+    var rrows = _Rows3(fill=Vec3(0, 0, 0))
+    rrows[0] = Vec3(c0[0], c1[0], c2[0])
+    rrows[1] = Vec3(c0[1], c1[1], c2[1])
+    rrows[2] = Vec3(c0[2], c1[2], c2[2])
+    var hr = q.rotate(ci.h)
+    # exact identity for the point shift: I' = RIRᵀ − p×[hr]× − [p]×[hr+mp]×
+    var px_hr = _cross_mat_mul(p, hr)
+    var px_hmp = _cross_mat_mul(p, hr + p * ci.m)
+    for r in range(3):
+        rrows[r] = rrows[r] - px_hr[r] - _transpose_row(px_hmp, r)
+    return SpInertia(ci.m, h_p, rrows)
+
+
+def _merge_inertia(a: SpInertia, b: SpInertia) -> SpInertia:
+    """Add two spatial inertias already expressed about the same point."""
+    return SpInertia(a.m + b.m, a.h + b.h, _sym_add(a.io, b.io))
+
+
 struct Chain(Movable, ImplicitlyDeletable):
     var links: List[ChainLink]
     var q: List[Real]
@@ -153,12 +185,24 @@ struct Chain(Movable, ImplicitlyDeletable):
     # Parents always precede children (append order), so every forward
     # sweep can read parent state by index.
     var parent: List[Int]
+    # Root motion, base frame. Zero for a fixed base, which is what every
+    # existing caller gets: the sweeps read these where they previously read
+    # literal zeros, so a bolted-down chain is the special case rather than a
+    # separate code path. `FloatingChain` drives them.
+    var base_w: Vec3  # angular velocity of the root frame
+    var base_v: Vec3  # linear velocity of the root frame origin
+    var base_wa: Vec3  # angular acceleration
+    var base_va: Vec3  # linear acceleration, BEFORE the gravity shift
 
     def __init__(out self):
         self.links = List[ChainLink]()
         self.q = List[Real]()
         self.qd = List[Real]()
         self.parent = List[Int]()
+        self.base_w = Vec3(0, 0, 0)
+        self.base_v = Vec3(0, 0, 0)
+        self.base_wa = Vec3(0, 0, 0)
+        self.base_va = Vec3(0, 0, 0)
 
     def add_link(mut self, link: ChainLink):
         self.links.append(link)
@@ -229,10 +273,10 @@ struct Chain(Movable, ImplicitlyDeletable):
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws[pi].v if pi >= 0 else Vec3(0, 0, 0)
-            var v_p = vs[pi].v if pi >= 0 else Vec3(0, 0, 0)
-            var wa_p = wa[pi].v if pi >= 0 else Vec3(0, 0, 0)
-            var va_p = va[pi].v if pi >= 0 else -gravity
+            var w_p = ws[pi].v if pi >= 0 else self.base_w
+            var v_p = vs[pi].v if pi >= 0 else self.base_v
+            var wa_p = wa[pi].v if pi >= 0 else self.base_wa
+            var va_p = va[pi].v if pi >= 0 else self.base_va - gravity
             var rt = _rot_rows(self._joint_rot(i))  # parent -> link (Rᵀ)
             var off = self._joint_offset(i)
             # motion subspace: S = (axis, 0) revolute, (0, axis) prismatic
@@ -261,6 +305,18 @@ struct Chain(Movable, ImplicitlyDeletable):
             va.append(_LV(va_here))
         return (ws^, vs^, wa^, va^)
 
+    def rnea_root(
+        self, qdd: List[Real], gravity: Vec3
+    ) raises -> Tuple[List[Real], Vec3, Vec3]:
+        """Joint torques AND the wrench the root must supply, base frame.
+
+        A fixed base absorbs that wrench through its mount and nobody looks at
+        it; a floating base cannot, so the six numbers become equations. The
+        backward sweep already accumulated them — links with no parent had
+        their force dropped on the floor — so exposing them costs nothing and
+        guarantees the two agree by construction."""
+        return self._rnea_impl(qdd, gravity)
+
     def _rnea(self, qdd: List[Real], gravity: Vec3) raises -> List[Real]:
         """Recursive Newton-Euler: the joint torques that produce `qdd`.
 
@@ -270,6 +326,12 @@ struct Chain(Movable, ImplicitlyDeletable):
         sweep. Sharing one routine is what makes `inverse_dynamics` free rather
         than a second implementation to keep in sync — and what lets the
         round-trip test (τ → q̈ → τ) actually mean something."""
+        var r = self._rnea_impl(qdd, gravity)
+        return r[0].copy()
+
+    def _rnea_impl(
+        self, qdd: List[Real], gravity: Vec3
+    ) raises -> Tuple[List[Real], Vec3, Vec3]:
         var n = len(self.links)
         var m = self.link_motion(qdd, gravity)
         # tuple elements are moved out one at a time: List[_LV] is not
@@ -294,6 +356,8 @@ struct Chain(Movable, ImplicitlyDeletable):
         var out = List[Real]()
         for _ in range(n):
             out.append(0)
+        var root_w = Vec3(0, 0, 0)
+        var root_v = Vec3(0, 0, 0)
         var i2 = n - 1
         while i2 >= 0:
             var li2 = self.links[i2]
@@ -313,8 +377,16 @@ struct Chain(Movable, ImplicitlyDeletable):
                 var fv_p = q.rotate(fv[i2].v)
                 fw[par] = _LV(fw[par].v + fw_p + _cross(off2, fv_p))
                 fv[par] = _LV(fv[par].v + fv_p)
+            else:
+                # no parent: this force lands on the root
+                var q0 = self._joint_rot(i2)
+                var o0 = self._joint_offset(i2)
+                var fw0 = q0.rotate(fw[i2].v)
+                var fv0 = q0.rotate(fv[i2].v)
+                root_w = root_w + fw0 + _cross(o0, fv0)
+                root_v = root_v + fv0
             i2 -= 1
-        return out^
+        return (out^, root_w, root_v)
 
     def inverse_dynamics(
         self, qdd: List[Real], gravity: Vec3
@@ -347,32 +419,12 @@ struct Chain(Movable, ImplicitlyDeletable):
                 i3 -= 1
                 continue
             # fold child composite into the parent frame
-            var q = self._joint_rot(i3)
-            var p = self._joint_offset(i3)
-            var ci = comp[i3]
-            var h_p = q.rotate(ci.h) + p * ci.m
-            # R I Rᵀ (columns = R·I·Rᵀ·e_a), assembled into rows explicitly
-            var rt = _rot_rows(q)  # Rᵀ rows
-            var c0 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(1, 0, 0))))
-            var c1 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 1, 0))))
-            var c2 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 0, 1))))
-            var rrows = _Rows3(fill=Vec3(0, 0, 0))
-            rrows[0] = Vec3(c0[0], c1[0], c2[0])
-            rrows[1] = Vec3(c0[1], c1[1], c2[1])
-            rrows[2] = Vec3(c0[2], c1[2], c2[2])
-            var hr = q.rotate(ci.h)
-            # parallel-axis for the shift p with total mass m and moment hr:
-            # I_o' = RIRᵀ + m(pᵀp 1 − ppᵀ) + (p hrᵀ + hr pᵀ) − 2(p·hr)... use
-            # the exact identity: I' = RIRᵀ − p×[hr]× − [p]×[hr+mp]×
-            var px_hr = _cross_mat_mul(p, hr)
-            var px_hmp = _cross_mat_mul(p, hr + p * ci.m)
-            for r in range(3):
-                rrows[r] = rrows[r] - px_hr[r] - _transpose_row(px_hmp, r)
             var par3 = self.parent[i3]
-            comp[par3] = SpInertia(
-                comp[par3].m + ci.m,
-                comp[par3].h + h_p,
-                _sym_add(comp[par3].io, rrows),
+            comp[par3] = _merge_inertia(
+                comp[par3],
+                _shift_inertia(
+                    comp[i3], self._joint_rot(i3), self._joint_offset(i3)
+                ),
             )
             i3 -= 1
         # H[i][j]: propagate F = I^C_i S_i toward the base
@@ -404,6 +456,113 @@ struct Chain(Movable, ImplicitlyDeletable):
                     else dot(lj.axis, fvc)
                 )
                 hmat[j * n + i] = hmat[i * n + j]
+        return hmat^
+
+    def mass_matrix_floating(self, base: SpInertia) raises -> List[Real]:
+        """The (6+n)x(6+n) inertia by CRBA, row-major [angular, linear, q].
+
+        The same composite-inertia recursion as `mass_matrix`, carried one
+        step further. The joint block is identical; what is new is that the
+        force `F_i = Ic_i S_i`, which the fixed-base version stops propagating
+        when it runs out of parents, is pushed ONE more transform into the
+        base frame — those six numbers are the coupling column `H_bj`, the
+        thing that says how swinging joint `i` shoves the body it is bolted
+        to. `H_bb` is the whole system's composite inertia gathered at the
+        base, obtained by applying it to the six unit motions.
+
+        This shares the recursion with the fixed-base path, so it cannot
+        disagree with it about the joint block. It CAN disagree about the new
+        blocks, which is why `FloatingChain` keeps the unit-acceleration
+        assembly as an independent second derivation and the test demands the
+        two agree."""
+        var n = len(self.links)
+        var d = 6 + n
+        var comp = List[SpInertia]()
+        for i in range(n):
+            var li = self.links[i]
+            comp.append(SpInertia.of_link(li.mass, li.com, li.i_diag))
+        var i3 = n - 1
+        while i3 > 0:
+            if self.parent[i3] >= 0:
+                var par3 = self.parent[i3]
+                comp[par3] = _merge_inertia(
+                    comp[par3],
+                    _shift_inertia(
+                        comp[i3], self._joint_rot(i3), self._joint_offset(i3)
+                    ),
+                )
+            i3 -= 1
+
+        var hmat = List[Real]()
+        for _ in range(d * d):
+            hmat.append(0)
+
+        # --- H_bb: every root composite carried into the base frame --------
+        var total = base
+        for i in range(n):
+            if self.parent[i] < 0:
+                total = _merge_inertia(
+                    total,
+                    _shift_inertia(
+                        comp[i], self._joint_rot(i), self._joint_offset(i)
+                    ),
+                )
+        for k in range(6):
+            var aw = Vec3(
+                Real(1) if k == 0 else Real(0),
+                Real(1) if k == 1 else Real(0),
+                Real(1) if k == 2 else Real(0),
+            )
+            var av = Vec3(
+                Real(1) if k == 3 else Real(0),
+                Real(1) if k == 4 else Real(0),
+                Real(1) if k == 5 else Real(0),
+            )
+            var f = total.apply(aw, av)
+            for r in range(3):
+                hmat[r * d + k] = f[0][r]
+                hmat[(3 + r) * d + k] = f[1][r]
+
+        # --- H_jj and H_bj: propagate F = Ic_i S_i up, then into the base --
+        for i in range(n):
+            var li = self.links[i]
+            var rev_i = li.kind == JOINT_REVOLUTE
+            var f = (
+                comp[i].apply(li.axis, Vec3(0, 0, 0)) if rev_i
+                else comp[i].apply(Vec3(0, 0, 0), li.axis)
+            )
+            var fwc = f[0]
+            var fvc = f[1]
+            hmat[(6 + i) * d + 6 + i] = (
+                dot(li.axis, fwc) if rev_i else dot(li.axis, fvc)
+            )
+            var j = i
+            while self.parent[j] >= 0:
+                var q = self._joint_rot(j)
+                var p = self._joint_offset(j)
+                var fw_pp = q.rotate(fwc)
+                var fv_pp = q.rotate(fvc)
+                fwc = fw_pp + _cross(p, fv_pp)
+                fvc = fv_pp
+                j = self.parent[j]
+                var lj = self.links[j]
+                var e = (
+                    dot(lj.axis, fwc) if lj.kind == JOINT_REVOLUTE
+                    else dot(lj.axis, fvc)
+                )
+                hmat[(6 + i) * d + 6 + j] = e
+                hmat[(6 + j) * d + 6 + i] = e
+            # one transform past the root: now in the base frame
+            var qr = self._joint_rot(j)
+            var pr = self._joint_offset(j)
+            var fw_b = qr.rotate(fwc)
+            var fv_b = qr.rotate(fvc)
+            fw_b = fw_b + _cross(pr, fv_b)
+            for r in range(3):
+                hmat[r * d + 6 + i] = fw_b[r]
+                hmat[(3 + r) * d + 6 + i] = fv_b[r]
+                hmat[(6 + i) * d + r] = fw_b[r]
+                hmat[(6 + i) * d + 3 + r] = fv_b[r]
         return hmat^
 
     @staticmethod

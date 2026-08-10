@@ -806,6 +806,51 @@ run_bench() {
     echo "where the Jacobian work is small enough for the test to show."
     echo
     run_bench benchmarks/bench_tendon.mojo
+    echo "## Physics — floating base (six unconstrained degrees of freedom at the root)"
+    echo
+    echo "\`Chain\` assumes the root is bolted down, so a reaction wrench of any size is"
+    echo "free and nobody accounts for it. That covers a fixed machine's arm and covers"
+    echo "nothing that moves — no quadruped, no free-flying body, no thrown ragdoll."
+    echo "Lifting the assumption turns the six root equations into part of the solve."
+    echo
+    echo "Three gates carry it. A body with no joints must accelerate at **exactly g**,"
+    echo "which is where applying gravity twice, or in the world frame instead of the"
+    echo "body frame, would show. Pinning the base must reproduce \`Chain\` EXACTLY —"
+    echo "the pin replaces the six base rows with the identity rather than using a"
+    echo "large-inertia limit, so the comparison can demand machine precision, and it"
+    echo "measures **7.6e-6**. And joint torques, being internal, cannot change total"
+    echo "linear or angular momentum: the falling-cat statement, and the only gate that"
+    echo "exercises the whole (6+n) coupling at once, since a wrong \`H_bj\` lets a robot"
+    echo "push against itself and drift. Momentum is assembled from per-link world"
+    echo "velocities, sharing no arithmetic with the solve it audits, and the drift is"
+    echo "checked for CONVERGENCE under halving dt so that small means integration"
+    echo "error rather than a tolerance picked to pass."
+    echo
+    echo "The first table's control group is the standard workaround: six pseudo-joints"
+    echo "— three prismatic, three revolute — carrying the same base body. **This table"
+    echo "read the other way at first.** With the mass matrix assembled by unit"
+    echo "accelerations the pseudo-joint version won by 2-4.3x. The breakdown table"
+    echo "says why that was worth chasing: assembly was **88-94%** of the solve and the"
+    echo "dense elimination only 5-6%, so the deficit was one routine, not the design."
+    echo "Extending the composite-inertia recursion to the base made assembly"
+    echo "**7.4-9.1x** faster and reversed the verdict — the quaternion root now wins"
+    echo "at every size, by 1.84x at 2 links narrowing to 1.17x at 16."
+    echo
+    echo "Both assemblies are kept. The unit-acceleration form derives the coupling"
+    echo "block from nothing the recursion shares, so the test demanding the two agree"
+    echo "(**4.8e-7**, coupling block 2.4e-7) is a cross-check rather than a"
+    echo "restatement. That is what a slow second implementation is for."
+    echo
+    echo "The last sweep is not a performance result wearing a table. Three revolute"
+    echo "joints are an EULER ANGLE parameterisation and Euler angles are singular: at"
+    echo "90 degrees of pitch the outer and inner axes align and no joint acceleration"
+    echo "produces a rotation about the lost direction. Walking pitch toward it, the"
+    echo "accelerations the pseudo-joint solver must produce to represent one bounded"
+    echo "physical motion run **5.45 -> 2745** while the quaternion base holds 5.45"
+    echo "throughout. Those rows are not slower, they are wrong, and no tuning fixes an"
+    echo "angle that has no inverse."
+    echo
+    run_bench benchmarks/bench_floating.mojo
     echo "## Physics — reduced-coordinate contact (articulated bodies that can touch)"
     echo
     echo "Until this landed the two halves of the engine could not meet: \`Chain\`"
