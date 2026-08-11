@@ -25,6 +25,8 @@ Nodal forces:                   H = -W * P * Dm^-T,  columns give f0..f2, f3 = -
 from std.math import sqrt
 from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
+from numerics.sparse import LinearOperator
+from numerics.cg import cg, CgResult
 
 
 def _det3(m: Mat3) -> Real:
@@ -208,6 +210,87 @@ struct FemBody(Movable):
             fy[t.d] += f3[1]
             fz[t.d] += f3[2]
 
+    def step_implicit(
+        mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30,
+        tol: Real = 1e-4, max_iters: Int = 64,
+    ) -> CgResult:
+        """Backward Euler on the linearised system (Baraff-Witkin):
+
+            (M - dt^2 df/dx) dv = dt (f0 + dt (df/dx) v0)
+
+        solved matrix-free by conjugate gradients. No global stiffness matrix is
+        ever assembled — the operator loops over elements, which is the whole
+        reason `LinearOperator` asks for `apply` rather than for a matrix.
+
+        The point is the step size. The explicit integrator's stable dt is set
+        by the stiffest element, so a stiff material forces small steps no
+        matter how coarse the mesh is; the implicit one is unconditionally
+        stable and its cost per step is the CG solve. `test_linalg` runs both at
+        a dt the explicit path cannot survive.
+
+        Returns the solver's own report, so a caller can tell a converged step
+        from one that ran out of iterations."""
+        var n = self.node_count()
+        var dof = 3 * n
+        var fx = List[Real]()
+        var fy = List[Real]()
+        var fz = List[Real]()
+        for _ in range(n):
+            fx.append(0)
+            fy.append(0)
+            fz.append(0)
+        self.elastic_forces(fx, fy, fz)
+
+        var v0 = List[Real](capacity=dof)
+        for i in range(n):
+            v0.append(self.vx[i])
+            v0.append(self.vy[i])
+            v0.append(self.vz[i])
+        var op = FemImplicitOp(self, dt)
+        var kv = List[Real](capacity=dof)
+        for _ in range(dof):
+            kv.append(0)
+        op.stiffness_apply(v0, kv)
+
+        var b = List[Real](capacity=dof)
+        for i in range(n):
+            if self.inv_m[i] == 0:
+                # pinned: the row is the identity and the right-hand side is
+                # zero, so dv is exactly zero and the constraint is exact
+                # rather than enforced afterwards
+                b.append(0)
+                b.append(0)
+                b.append(0)
+                continue
+            var m = Real(1) / self.inv_m[i]
+            b.append(dt * (fx[i] + m * gravity[0] + dt * kv[3 * i]))
+            b.append(dt * (fy[i] + m * gravity[1] + dt * kv[3 * i + 1]))
+            b.append(dt * (fz[i] + m * gravity[2] + dt * kv[3 * i + 2]))
+
+        var dv = List[Real](capacity=dof)
+        for _ in range(dof):
+            dv.append(0)
+        var res = cg(op, b, dv, tol, max_iters)
+
+        var damp = Real(1.0) / (1.0 + self.damping * dt)
+        for i in range(n):
+            if self.inv_m[i] == 0:
+                self.vx[i] = 0
+                self.vy[i] = 0
+                self.vz[i] = 0
+                continue
+            self.vx[i] = (self.vx[i] + dv[3 * i]) * damp
+            self.vy[i] = (self.vy[i] + dv[3 * i + 1]) * damp
+            self.vz[i] = (self.vz[i] + dv[3 * i + 2]) * damp
+            self.x[i] += self.vx[i] * dt
+            self.y[i] += self.vy[i] * dt
+            self.z[i] += self.vz[i] * dt
+            if self.y[i] < floor_y:
+                self.y[i] = floor_y
+                if self.vy[i] < 0:
+                    self.vy[i] = 0
+        return res
+
     def step(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
         var n = self.node_count()
         var fx = List[Real]()
@@ -240,6 +323,136 @@ struct FemBody(Movable):
                 self.y[i] = floor_y
                 if self.vy[i] < 0:
                     self.vy[i] = 0
+
+
+struct FemImplicitOp(LinearOperator, Movable, ImplicitlyDeletable):
+    """`A = M - dt^2 df/dx`, applied without ever forming it.
+
+    The per-element rotations are SNAPSHOT at construction rather than
+    recomputed inside `apply`. That is not a cache — it is the warped-stiffness
+    assumption written into the data layout. Holding R fixed for the duration of
+    the solve is what makes the operator symmetric, and recomputing it per CG
+    iteration would silently change the operator between iterations, which is
+    the one thing a Krylov method cannot tolerate. It is also cheaper: the polar
+    decomposition runs once per step instead of once per iteration."""
+
+    var n: Int
+    var dt: Real
+    var mu: Real
+    var lam: Real
+    var tet_idx: List[Int]  # 4 per element
+    var rot: List[Real]  # 9 per element, row-major
+    var dm_inv: List[Real]  # 9 per element, row-major
+    var vol: List[Real]
+    var mass: List[Real]  # per node; 0 marks a pinned node
+
+    def __init__(out self, body: FemBody, dt: Real):
+        self.n = body.node_count()
+        self.dt = dt
+        self.mu = body.mu
+        self.lam = body.lam
+        var nt = len(body.tets)
+        self.tet_idx = List[Int](capacity=4 * nt)
+        self.rot = List[Real](capacity=9 * nt)
+        self.dm_inv = List[Real](capacity=9 * nt)
+        self.vol = List[Real](capacity=nt)
+        for ref t in body.tets:
+            self.tet_idx.append(t.a)
+            self.tet_idx.append(t.b)
+            self.tet_idx.append(t.c)
+            self.tet_idx.append(t.d)
+            var pa = body.pos(t.a)
+            var e1 = body.pos(t.b) - pa
+            var e2 = body.pos(t.c) - pa
+            var e3 = body.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var f = ds * t.dm_inv
+            var r = polar_rotation(f) if body.corotational else Mat3.identity()
+            for i in range(3):
+                for j in range(3):
+                    self.rot.append(r.get(i, j))
+                    self.dm_inv.append(t.dm_inv.get(i, j))
+            self.vol.append(t.vol)
+        self.mass = List[Real](capacity=self.n)
+        for i in range(self.n):
+            self.mass.append(
+                Real(0) if body.inv_m[i] == 0 else Real(1) / body.inv_m[i]
+            )
+
+    def _mat(self, src: List[Real], e: Int) -> Mat3:
+        var m = Mat3()
+        for i in range(3):
+            for j in range(3):
+                m.set(i, j, src[9 * e + 3 * i + j])
+        return m
+
+    def size(self) -> Int:
+        return 3 * self.n
+
+    def stiffness_apply(self, du: List[Real], mut out: List[Real]):
+        """`out = (df/dx) du` — the differential of the co-rotational elastic
+        force at the snapshot rotations. Mirrors `FemBody.elastic_forces` term
+        for term with F replaced by its differential and the constant terms
+        dropped."""
+        for i in range(len(out)):
+            out[i] = 0
+        for e in range(len(self.vol)):
+            var a = self.tet_idx[4 * e]
+            var b = self.tet_idx[4 * e + 1]
+            var c = self.tet_idx[4 * e + 2]
+            var d = self.tet_idx[4 * e + 3]
+            var r = self._mat(self.rot, e)
+            var dmi = self._mat(self.dm_inv, e)
+            var dds = Mat3()
+            for k in range(3):
+                dds.set(k, 0, du[3 * b + k] - du[3 * a + k])
+                dds.set(k, 1, du[3 * c + k] - du[3 * a + k])
+                dds.set(k, 2, du[3 * d + k] - du[3 * a + k])
+            var dfm = r.transpose() * (dds * dmi)
+            var tr = dfm.get(0, 0) + dfm.get(1, 1) + dfm.get(2, 2)
+            var dp = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    var lamterm = self.lam * tr if i == j else Real(0)
+                    dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
+            var h = (r * dp) * dmi.transpose()
+            var w = self.vol[e]
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0))
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1))
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2))
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            comptime for k in range(3):
+                out[3 * a + k] += f0[k]
+                out[3 * b + k] += f1[k]
+                out[3 * c + k] += f2[k]
+                out[3 * d + k] += f3[k]
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        self.stiffness_apply(x, out)
+        var dt2 = self.dt * self.dt
+        for i in range(self.n):
+            if self.mass[i] == 0:
+                # A pinned node's row is the identity, so its dv comes out
+                # exactly zero. Leaving mass * dv there would let the solver
+                # push a node that is supposed to be nailed down.
+                comptime for k in range(3):
+                    out[3 * i + k] = x[3 * i + k]
+                continue
+            comptime for k in range(3):
+                out[3 * i + k] = self.mass[i] * x[3 * i + k] - dt2 * out[3 * i + k]
+
+    def diagonal(self, mut out: List[Real]):
+        """Mass only. The stiffness diagonal would need a per-element pass of
+        its own; mass alone already captures the part that varies most — a
+        pinned node against a free one, which is the ratio Jacobi exists for."""
+        for i in range(self.n):
+            var d = Real(1) if self.mass[i] == 0 else self.mass[i]
+            comptime for k in range(3):
+                out[3 * i + k] = d
 
 
 def _lat_idx(i: Int, j: Int, k: Int, ny: Int, nz: Int) -> Int:

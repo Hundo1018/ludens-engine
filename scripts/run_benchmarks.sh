@@ -269,6 +269,36 @@ run_bench() {
     echo "produces a wrong schedule — the same trade every DOTS-style scheduler makes."
     echo
     run_bench benchmarks/bench_jobgraph.mojo
+    echo "## Numerics — global solve vs local iteration"
+    echo
+    echo "Every other solver in this engine iterates LOCALLY — PBD projection, PGS,"
+    echo "Jacobi, per-vertex Newton — and every one is stiffness bound: information"
+    echo "travels one neighbour per sweep, so the step size is capped by the stiffest"
+    echo "element. \`numerics/\` is the global-solve half: CSR matrices, a matrix-free"
+    echo "operator interface, and conjugate gradients."
+    echo
+    echo "The first table gives CG and a Jacobi sweep the SAME iteration budget on the"
+    echo "same 1D Poisson system, so the comparison is per unit of work. Jacobi is about"
+    echo "1.5x cheaper per iteration and that is the least interesting number in the"
+    echo "table: read the \`res=\` column instead. CG reaches 5e-17; Jacobi is still at"
+    echo "0.90 at n=64 and 0.98 at n=1024, which is to say it has not converged at all."
+    echo
+    echo "The second table is CG's REAL scale axis, which is the condition number rather"
+    echo "than the size. Two systems of identical size: one with a constant diagonal,"
+    echo "one whose diagonal spans 1e6. Jacobi preconditioning is a scalar multiple of"
+    echo "the identity on the first and does exactly nothing — same iteration count,"
+    echo "same time. On the second it goes from 195 iterations to 84. Reporting only the"
+    echo "second would make the preconditioner look universally worthwhile, and it is"
+    echo "not; a preconditioner that helped everywhere would be a measurement error."
+    echo
+    echo "The third table is what the whole package is for. \`FemBody.step_implicit\`"
+    echo "solves backward Euler matrix-free through CG (no global stiffness matrix is"
+    echo "ever assembled). On a soft beam it costs ~3.7x the explicit step and both are"
+    echo "stable, so the explicit path wins. On a stiff one at the same dt the explicit"
+    echo "row is marked DIVERGED — it is a cost with no result attached, and that is the"
+    echo "comparison: not a faster step, an available one."
+    echo
+    run_bench benchmarks/bench_numerics.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"
