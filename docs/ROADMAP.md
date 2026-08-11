@@ -649,12 +649,35 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 ## Phase 10 — 穩健與排程(2026-07-22)
 
-### 10.1 Exact predicates / interval 穩健層(SOTA_GAP M3)— 📋 規劃中
-> **現況**:無;退化構型(共面/共線/近平行)下健全性未保證。
-> **設計**:Shewchuk 式自適應精度 orient2d/3d + incircle/insphere(浮點快篩 → 必要時展開);
-> GJK/EPA/clip/quickhull 的關鍵符號判斷改用之。
-> **交付物**:`test_predicates`(共線/共面退化 vs 任意精度參考、符號正確)+ bench(快篩路徑
-> 額外成本 ~0)。**seam 變體**:naive float vs exact,幾何謂詞結果集相等。
+### 10.1 Exact predicates / interval 穩健層(SOTA_GAP M3)— ✅ 完成(2026-08-11)
+> **成果**:`geometry/predicates.mojo` —— `orient2d` / `orient3d` / `incircle` /
+> `insphere`,三階段自適應:float32 + 誤差界 → float64 + 誤差界 → **精確展開**
+> (Dekker/Knuth two-product、two-sum,非重疊展開的首個非零分量即符號)。
+> **「精確」是字面意思**:輸入是 float32,加寬到 float64 無損,所以回傳的符號
+> 就是實數行列式的符號 —— 不是「更準」,是「對」。
+> **接線**:`convex_hull_2d` 的側判斷改走此層(`exact=False` 保留舊路徑當 seam 變體)。
+> **量測(`bench_predicates`)**:一般輸入下濾波階段即決定,orient2d 6.76→7.07 ns
+> (+4.6%)、orient3d 24.9→32.1 ns(+29%)。刻意構造的退化輸入下 fallback 每次都跑:
+> orient2d 164 ns(naive 的 12×)、orient3d 7386 ns(**370×**)—— 後者用的是教科書
+> Leibniz 全排列展開,選它是為了能對著定義讀,因為它只在極小比例的呼叫上跑。
+> incircle 11.6 µs / insphere 124 µs(這兩列只在精確路徑上計時,沒有便宜的情況可平均)。
+> **抓到的真 bug(靠恆等式,不是靠讀碼)**:濾波階段寫成 `Float64(a[0] - c[0])` ——
+> **差值在 float32 裡先捨入了**,而 Shewchuk 的 double 誤差界假設沒有。
+> 症狀是 `orient2d(a,b,c)` 與 `orient2d(b,c,a)` 給出相反符號。
+> 改成 `Float64(a[0]) - Float64(c[0])` 後恆等式成立。
+> **誠實邊界**:naive 路徑對**反對稱**是免費正確的(同樣兩個乘積,順序無關),
+> 真正會壞的是**循環不變性** —— 換順序會減不同的座標對。實測 naive 在近退化三元組上
+> 違反 558/2000(~28%),精確路徑 0。benchmark 那份 cloud 上 naive 的凸包**也是凸的**,
+> 這點照實報,沒有挑一個對自己有利的輸入。
+> **定律 v3 三類**(`tests/test_predicates.mojo` 31 checks):
+> - **普通** = 四個謂詞對可手算的構型正確;與 naive 在**良好分離**的隨機輸入上
+>   6000 次零分歧(若有分歧,錯的會是精確那個)。
+> - **整合** = quickhull 接上此層;良好分離輸入下 exact 與 naive 的凸包逐點相同;
+>   凸包仍能餵進消費它的窄相。
+> - **極端** = 恰好共線/共面/共圓/共球(**構造出來的,不是湊出來的**)、差一個 ulp、
+>   座標橫跨 1e8、全部點相同、以及任何正確定向謂詞都必須滿足的反對稱與循環不變性。
+> **註**:incircle/insphere 依行列式對「提升列」的線性拆成 2/3 個單項式行列式,
+> 所以不需要比檔案其餘部分更寬的算術。
 
 ### 10.2 自動依賴 job graph(DOTS 式讀寫衝突)— 📋 規劃中
 > **現況**:排程器 serial/parallel/actor 但**手動**;無讀寫衝突自動偵測。

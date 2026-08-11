@@ -206,6 +206,40 @@ run_bench() {
     echo "nothing for a feature a scene may never read."
     echo
     run_bench benchmarks/bench_filter.mojo
+    echo "## Geometry — exact predicates (robustness layer)"
+    echo
+    echo "Every hull, clip and simplex routine ends in a SIGN question, and when the true"
+    echo "determinant is near zero the rounding error can exceed it — so the answer is not"
+    echo "imprecise, it is wrong, and it can be wrong INCONSISTENTLY: the same three points"
+    echo "reported as a left turn and a right turn depending on the order they arrive in."
+    echo "A hull builder given contradictory answers does not produce a slightly wrong"
+    echo "hull, it produces one that is not convex."
+    echo
+    echo "\`geometry/predicates.mojo\` answers in stages: float32 with an error bound,"
+    echo "float64 with an error bound, then exact evaluation in error-free expansions"
+    echo "(Dekker/Knuth two-product and two-sum). Exact means exact — for float32 inputs"
+    echo "the returned sign is the sign of the real determinant, because widening a"
+    echo "float32 to a float64 is lossless."
+    echo
+    echo "The two regimes are reported separately because they are different numbers."
+    echo "On generic input the filter decides and robustness costs a few percent over the"
+    echo "naive sign test. On input constructed to be exactly degenerate the fallback runs"
+    echo "every time, and orient2d is ~12x the naive test while orient3d is ~370x — the"
+    echo "expansion sum there is written as the textbook Leibniz formula over all 24"
+    echo "permutations, chosen for being readable against the definition, since it runs on"
+    echo "a vanishing fraction of calls. incircle and insphere are only ever timed on the"
+    echo "exact path, which is why their rows look expensive: there is no cheap case in"
+    echo "them to average against."
+    echo
+    echo "\`convex_hull_2d\` routes its side test through the layer (\`exact=False\` keeps"
+    echo "the old one as a seam variant). Both hull rows report their own convexity, and"
+    echo "on this cloud BOTH come out convex — the naive test survives it. What the exact"
+    echo "path buys is not a better answer on one input but the absence of an input where"
+    echo "the answer contradicts itself: \`test_predicates\` measures the naive test"
+    echo "violating cyclic invariance on about 28% of near-degenerate triples, and the"
+    echo "exact one on none."
+    echo
+    run_bench benchmarks/bench_predicates.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"
