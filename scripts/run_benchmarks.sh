@@ -346,9 +346,9 @@ run_bench() {
     echo "scene of cloth that rarely folds actually pays."
     echo
     echo "Topological neighbours are excluded, and that exclusion is what keeps the"
-    echo "feature from being harmful: a particle'"'"'s springs already hold it at rest length"
+    echo "feature from being harmful: a particle's springs already hold it at rest length"
     echo "from its grid neighbours, and repelling those too would fight the springs and"
-    echo "inflate the sheet. \`test_self_collide\` gates the sheet'"'"'s height span against"
+    echo "inflate the sheet. \`test_self_collide\` gates the sheet's height span against"
     echo "exactly that."
     echo
     run_bench benchmarks/bench_self_collide.mojo
@@ -935,7 +935,7 @@ run_bench() {
     echo "The sub-language is restricted on purpose: every operation is linear in the"
     echo "register file, so the transpose of the step does not depend on where it was"
     echo "evaluated and the backward sweep needs NO intermediate values — one bit per"
-    echo "step against the tape'"'"'s one node per operation. \`program_is_linear\` decides that"
+    echo "step against the tape's one node per operation. \`program_is_linear\` decides that"
     echo "at compile time, so a program containing a variable-times-variable product is"
     echo "reported as non-linear instead of being silently differentiated wrongly."
     echo
