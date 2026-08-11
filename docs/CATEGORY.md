@@ -66,6 +66,23 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 row,缺一不收(相對方法時刻有對應 benchmark)。新增 seam 或變體時,本表為
 覆蓋矩陣,benchmark 欄不得留空。
 
+**架構定律 v3(2026-08-11,使用者明令)**:v2 管「有沒有對應的量測」,v3 管
+「實作本身是否完整」。每項交付另須滿足:
+
+1. **接上專案** —— 新能力必須接進**真正會跑到的路徑**,不得留為孤島。
+   反例:`geometry/quickhull.mojo` 寫好卻從未接進 narrowphase(grep 在
+   `collision/` 與 `physics/` 零命中),能力等於不存在。若刻意不接(如
+   `collision/bp_gpu.mojo` 不實作 `BroadPhase` trait —— trait 無處放 device
+   context),**理由必須寫在檔頭**。
+2. **普通案例** —— 名目輸入下行為正確。
+3. **整合案例** —— 與其他子系統一起跑仍成立:換 backend 逐位相同、接進 solver
+   後既有測試不變、CPU/GPU parity、序列化後續跑逐位相同。
+4. **極端案例** —— 退化與邊界:零/單一元素、全部重合、共面共線、零長度法向、
+   除零、超出容量、極大/極小步長、族群變動、瞬移(打破時間連續性假設)。
+   **本專案至今最多真 bug 由這一類抓到** —— MPM 的 P2G stencil 偏移(自由落體
+   動量暴衝 366000×)、PBF 的三個 bug、LBVH 的重複 Morton 碼、SAP 的瞬移、
+   chunked backend 的鄰頁釋放、CGA rotor 的雙向量符號(只有跨實作比對才抓得到)。
+
 **Phase 4 新增(2026-07-13,皆遵定律 v2)**:上表最後五列 —— CCD 兩階段
 (speculative/swept)、變更偵測(push/poll)、組件寫入(直接/延遲)、布料 solver
 (XPBD/VBD)—— 加上 `SpinIntegrator` 的 `LgvciSpin`(變分,入 `bench_rigid6`)與
