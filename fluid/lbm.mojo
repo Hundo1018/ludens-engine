@@ -67,6 +67,9 @@ struct Lbm(Movable, ImplicitlyDeletable):
     var opp: InlineArray[Int, Q]
     var inlet_u: Real  # x velocity imposed at the inlet
     var force_x: Real  # uniform body force, the pressure gradient of a channel
+    # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
+    # bit. 0.1-0.2 is the usual range; 0.17 is the classic value.
+    var smagorinsky: Real
     # Force on the solid, accumulated over the last `stream()` by momentum
     # exchange. This is the step that turns the simulation into a MEASUREMENT:
     # without it a wind tunnel is a nice animation.
@@ -96,6 +99,7 @@ struct Lbm(Movable, ImplicitlyDeletable):
             self.opp[i] = opposite(i)
         self.inlet_u = 0
         self.force_x = 0
+        self.smagorinsky = 0
         self.fx = 0
         self.fy = 0
         self.fz = 0
@@ -231,9 +235,58 @@ struct Lbm(Movable, ImplicitlyDeletable):
             # needs -- a spatially varying force would want the full scheme.
             if self.force_x != 0:
                 ux += self.tau * self.force_x / rho
+            if self.smagorinsky <= 0:
+                for i in range(Q):
+                    var fe = self._feq(i, rho, ux, uy, uz)
+                    self.f[i * n + c] += (fe - self.f[i * n + c]) * inv_tau
+                continue
+
+            # Smagorinsky LES. The strain rate does not have to be
+            # reconstructed by finite differences: in LBM the non-equilibrium
+            # part of the distribution IS proportional to it, so the whole
+            # model is local to the cell and costs one extra pass over the 19
+            # directions. That locality is the reason LES sits so naturally
+            # here and so awkwardly in a projection-method solver.
+            var qxx = Real(0)
+            var qyy = Real(0)
+            var qzz = Real(0)
+            var qxy = Real(0)
+            var qxz = Real(0)
+            var qyz = Real(0)
+            for i in range(Q):
+                var neq = self.f[i * n + c] - self._feq(i, rho, ux, uy, uz)
+                var ax = Real(self.ex[i])
+                var ay = Real(self.ey[i])
+                var az = Real(self.ez[i])
+                qxx += ax * ax * neq
+                qyy += ay * ay * neq
+                qzz += az * az * neq
+                qxy += ax * ay * neq
+                qxz += ax * az * neq
+                qyz += ay * az * neq
+            var qmag = sqrt(
+                2
+                * (
+                    qxx * qxx + qyy * qyy + qzz * qzz
+                    + 2 * (qxy * qxy + qxz * qxz + qyz * qyz)
+                )
+            )
+            # tau_eff solves the quadratic that adds the eddy viscosity to the
+            # molecular one. It is >= tau always, so the model can only DAMP --
+            # a turbulence model that could reduce the effective viscosity
+            # would be a stability hazard rather than a stabiliser.
+            var cd = self.smagorinsky * self.smagorinsky
+            var tau_eff = 0.5 * (
+                self.tau
+                + sqrt(
+                    self.tau * self.tau
+                    + 18 * Real(1.4142135) * cd * qmag / rho
+                )
+            )
+            var inv_eff = Real(1) / tau_eff
             for i in range(Q):
                 var fe = self._feq(i, rho, ux, uy, uz)
-                self.f[i * n + c] += (fe - self.f[i * n + c]) * inv_tau
+                self.f[i * n + c] += (fe - self.f[i * n + c]) * inv_eff
 
     def stream(mut self):
         """Pull streaming with half-way bounce-back at solids.
@@ -325,6 +378,48 @@ struct Lbm(Movable, ImplicitlyDeletable):
                 if self.flag[co] != CELL_SOLID:
                     for i in range(Q):
                         self.f[i * n + co] = self.f[i * n + cu]
+
+    def eddy_viscosity(self, c: Int) -> Real:
+        """The extra viscosity the model adds at cell `c`, for inspection.
+        Zero everywhere the flow is locally uniform, which is the property that
+        makes it a SUBGRID model rather than a blanket damping."""
+        if self.smagorinsky <= 0:
+            return 0
+        var n = self.cells()
+        var rho = self.density(c)
+        if rho <= 0:
+            return 0
+        var u = self.velocity(c)
+        var qxx = Real(0)
+        var qyy = Real(0)
+        var qzz = Real(0)
+        var qxy = Real(0)
+        var qxz = Real(0)
+        var qyz = Real(0)
+        for i in range(Q):
+            var neq = self.f[i * n + c] - self._feq(i, rho, u[0], u[1], u[2])
+            var ax = Real(self.ex[i])
+            var ay = Real(self.ey[i])
+            var az = Real(self.ez[i])
+            qxx += ax * ax * neq
+            qyy += ay * ay * neq
+            qzz += az * az * neq
+            qxy += ax * ay * neq
+            qxz += ax * az * neq
+            qyz += ay * az * neq
+        var qmag = sqrt(
+            2
+            * (
+                qxx * qxx + qyy * qyy + qzz * qzz
+                + 2 * (qxy * qxy + qxz * qxz + qyz * qyz)
+            )
+        )
+        var cd = self.smagorinsky * self.smagorinsky
+        var tau_eff = 0.5 * (
+            self.tau
+            + sqrt(self.tau * self.tau + 18 * Real(1.4142135) * cd * qmag / rho)
+        )
+        return (tau_eff - self.tau) / 3
 
     def drag_coefficient(self, u_inf: Real, area: Real) -> Real:
         """Cd = Fx / (0.5 * rho * u^2 * A), with rho = 1 in lattice units.
