@@ -30,6 +30,7 @@ from collision.manifold import (
     OBBManifoldNarrowPhase,
     GjkManifoldNarrowPhase,
 )
+from collision.hull import HullShape, hull_manifold
 from harness.bench import BenchTable, now
 
 
@@ -153,6 +154,59 @@ def box_poly3(c: Vec3, h: Vec3) -> ConvexPoly[3]:
     return cp^
 
 
+def box_flat(c: Vec3, h: Vec3) -> List[Real]:
+    var v = List[Real](capacity=24)
+    for sx in range(2):
+        for sy in range(2):
+            for sz in range(2):
+                v.append(c[0] + h[0] * (Real(1) if sx == 1 else Real(-1)))
+                v.append(c[1] + h[1] * (Real(1) if sy == 1 else Real(-1)))
+                v.append(c[2] + h[2] * (Real(1) if sz == 1 else Real(-1)))
+    return v^
+
+
+def bench_hull(mut table: BenchTable, items: List[BoxProxy[3]], pairs: List[Pair], n: Int):
+    """The convex-hull path, priced against the GJK+EPA rows above on the same
+    pairs. Two distinct costs, kept in separate rows because they amortize
+    differently: enumerating a hull's face normals is O(V^3) and happens once
+    per SHAPE at construction; generating the patch happens once per PAIR every
+    step. Reporting only their sum would hide that the expensive half is paid
+    at load time."""
+    var ex = Vec3(1, 0, 0)
+    var ey = Vec3(0, 1, 0)
+    var ez = Vec3(0, 0, 1)
+
+    var t0 = now()
+    var hulls = List[HullShape](capacity=n)
+    for i in range(n):
+        var b = items[i].box
+        hulls.append(HullShape(box_flat(b.center(), b.half_extents())))
+    var t1 = now()
+    table.add("3d hull face enumeration", n, "build", t1 - t0, n)
+
+    # World-space inputs are hoisted: the solver rotates them per pair, but
+    # timing that here would price the transform, not the manifold.
+    var polys = List[ConvexPoly[3]](capacity=n)
+    var norms = List[List[Real]](capacity=n)
+    for i in range(n):
+        var b = items[i].box
+        polys.append(box_poly3(b.center(), b.half_extents()))
+        norms.append(hulls[i].world_normals(ex, ey, ez))
+
+    var pts = 0
+    var t2 = now()
+    for k in range(len(pairs)):
+        var m = hull_manifold(
+            polys[pairs[k].a], polys[pairs[k].b],
+            norms[pairs[k].a], norms[pairs[k].b],
+        )
+        if m.hit:
+            pts += m.count
+    keep(pts)
+    var t3 = now()
+    table.add("3d hull manifold pts=" + String(pts), n, "manifold", t3 - t2, len(pairs))
+
+
 def bench_3d(mut table: BenchTable, n: Int) raises:
     var extent = Real(Float64(n) ** (1.0 / 3.0)) * 3.0
     var items = scene3(n, extent, 1.0)
@@ -177,6 +231,7 @@ def bench_3d(mut table: BenchTable, n: Int) raises:
     run_mnp(table, "3d aabb manifold", ma, pairs, n)
     run_np(table, "3d gjk+epa bool", bg, pairs, n)
     run_mnp(table, "3d gjk+epa manifold", mg, pairs, n)
+    bench_hull(table, items, pairs, n)
 
 
 def main() raises:

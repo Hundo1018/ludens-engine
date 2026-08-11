@@ -23,6 +23,15 @@ from geometry.vec import Real, Vec3
 from geometry.aabb import AABB
 from geometry.bvh import BVH, morton_order
 from geometry.gpu_lbvh import gpu_morton_order_ctx
+
+
+def _boxes_of(items: List[BoxProxy[3]]) -> List[AABB[3]]:
+    """`gpu_morton_order_ctx` takes bare AABBs so that `geometry` does not
+    depend on `collision` (the two would form a package cycle)."""
+    var out = List[AABB[3]]()
+    for ref it in items:
+        out.append(it.box)
+    return out^
 from collision.broadphase import BoxProxy
 
 comptime REPS = 3
@@ -66,7 +75,7 @@ def _gpu_row[N: Int, NPAD: Int](
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         var order = List[Int]()
-        gpu_morton_order_ctx[N, NPAD](ctx, items, order)
+        gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(items), order)
         # host emit from the device order, same tail as the CPU row
         var boxes = List[AABB[3]]()
         var prox = List[Int]()
@@ -108,7 +117,7 @@ def _gpu_sort_ns[N: Int, NPAD: Int](
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         var order = List[Int]()
-        gpu_morton_order_ctx[N, NPAD](ctx, items, order)
+        gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(items), order)
         keep(len(order))
         var dt = Int(perf_counter_ns()) - t0
         if dt < best:
@@ -131,7 +140,7 @@ def main() raises:
         var ctx = DeviceContext()
         var warm = _scene(1024, 30.0)
         var wo = List[Int]()
-        gpu_morton_order_ctx[1024, 1024](ctx, warm, wo)  # JIT warm-up
+        gpu_morton_order_ctx[1024, 1024](ctx, _boxes_of(warm), wo)  # JIT warm-up
 
         var i1 = _scene(1024, 30.0)
         _gpu_row[1024, 1024](t, ctx, i1)
@@ -155,7 +164,7 @@ def main() raises:
         var ctx2 = DeviceContext()
         var w = _scene(1024, 30.0)
         var wo = List[Int]()
-        gpu_morton_order_ctx[1024, 1024](ctx2, w, wo)
+        gpu_morton_order_ctx[1024, 1024](ctx2, _boxes_of(w), wo)
         t.add(
             "gpu sort only (morton+bitonic)", 16384, "sort",
             _gpu_sort_ns[16384, 16384](ctx2, _scene(16384, 76.0)), 1,

@@ -18,6 +18,15 @@ from geometry.vec import Real, Vec3
 from geometry.aabb import AABB
 from geometry.bvh import BVH
 from geometry.gpu_lbvh import gpu_morton_order_ctx
+
+
+def _boxes_of(items: List[BoxProxy[3]]) -> List[AABB[3]]:
+    """`gpu_morton_order_ctx` takes bare AABBs so that `geometry` does not
+    depend on `collision` (the two would form a package cycle)."""
+    var out = List[AABB[3]]()
+    for ref it in items:
+        out.append(it.box)
+    return out^
 from collision.broadphase import BoxProxy
 
 comptime N = 1000
@@ -88,7 +97,7 @@ def main() raises:
     # --- ordinary cloud ---
     var items = _scene(rng, N, 50.0)
     var order = List[Int]()
-    gpu_morton_order_ctx[N, NPAD](ctx, items, order)
+    gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(items), order)
     s.check(_sorted_set(order), "device order is a permutation of all N leaves")
 
     # codes must be non-decreasing along the device order
@@ -149,7 +158,7 @@ def main() raises:
                                     Vec3(1, 1, 1) + Vec3(0.4, 0.4, 0.4)))
         )
     var dorder = List[Int]()
-    gpu_morton_order_ctx[N, NPAD](ctx, dup, dorder)
+    gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(dup), dorder)
     s.check(_sorted_set(dorder), "all-identical codes: still a full permutation")
 
     s.finish()

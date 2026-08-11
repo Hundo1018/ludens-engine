@@ -32,6 +32,7 @@ from std.math import sqrt
 from geometry.vec import WorldType, Real, Vec2, Vec3, dot
 from geometry.aabb import AABB
 from geometry.shape import Polygon
+from geometry.quickhull import convex_hull_2d
 from geometry.sat import SATResult, sat_collide
 from geometry.obb import OBB, obb_collide
 from geometry.clip import best_edge, clip_manifold
@@ -166,6 +167,12 @@ struct SATManifoldNarrowPhase(ManifoldNarrowPhase):
     def add(mut self, var p: Polygon) -> Int:
         self.polys.append(p^)
         return len(self.polys) - 1
+
+    def add_cloud(mut self, points: List[Vec2]) raises -> Int:
+        """A shape given as an unordered 2D point cloud; see the same method on
+        `SATNarrowPhase`. Face clipping needs the CCW winding that
+        `convex_hull_2d` establishes even more than the boolean test does."""
+        return self.add(convex_hull_2d(points))
 
     def test_manifold(self, a: Int, b: Int) -> ContactManifold[2]:
         return _clipped_manifold(

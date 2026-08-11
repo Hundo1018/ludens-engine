@@ -444,7 +444,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 | Phase | 主題 | 項目 | 優先 | 狀態 |
 |---|---|---|:--:|:--:|
 | **7** | 可擴展性:接線既有寬相 | **7.1 SAH-BVH ✅** · **7.2 solver6 接寬相 ✅** | ★★★ | ✅ |
-| **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 📋 |
+| **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase ✅ · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 🔄 |
 | **9** | 物理完整度 | 9.1 關節庫(limits/motor/spring/prismatic/weld) · 9.2 浮動基座 · 9.3 過濾層+sensor · 9.4 接觸事件 | ★★ | 📋 |
 | **10** | 穩健與排程 | 10.1 exact predicates/interval · 10.2 自動依賴 job graph · 10.3 Actor Model 硬化 | ★★ | 📋(10.3 有雛形) |
 | **11** | 程序化與 gameplay | **11.1 Noise ✅** · **11.2 狀態機 ✅** · 11.3 動畫 runtime | ★★ | 🔨 11.1,11.2✅ |
@@ -536,23 +536,33 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 ## Phase 8 — 幾何表現力:跳出盒子(2026-07-22)
 
-### 8.1 凸包碰撞入 narrowphase(quickhull → manifold)— 📋 規劃中 ⬆ **優先序提升(2026-08-11)**
-> **為何提升**:差距分析判定這是**成本最低的能力躍升** —— `geometry/quickhull.mojo`
-> 碼已在,只差接線。而且它正是**架構定律 v3 點名的孤島反例**(grep `quickhull`
-> 在 `collision/` 與 `physics/` 零命中,能力等於不存在)。補掉它同時示範新標準。
-> **交付物須遵定律 v3**:**普通** = 凸包對凸包的接觸點/法向/深度對上 GJK+EPA;
-> **整合** = 接進 `ContactScene6` 生產路徑、既有 box/球/膠囊測試逐位不變、
-> 與寬相 seam 的所有變體都能跑;**極端** = 退化包(共面、共線、單點、重複頂點)、
-> 兩包完全重合、僅頂點接觸、極扁包(近乎二維)。
-> **現況**:`geometry/quickhull.mojo` 存在但未接 collision;GJK/EPA(含 3D witness points)
-> 已備。narrowphase 僅 box/sphere/capsule。
-> **設計**:凸包形狀入 `shape` 派送 + manifold:GJK 布林 → EPA 深度/法向 → 接觸點(EPA
-> witness 或增量 clip)。`ContactScene6` 加 `add_hull`。
-> **交付物**:
-> - **Test**:`test_hull_manifold` — 凸包 vs 凸包/box 的深度/法向 vs 解析(對稱構型)、
->   退化(面-面、邊-邊)接觸點數;**盒子特例下與既有 box-box SAT manifold 一致(parity)**。
-> - **Benchmark**:`bench_manifold` 加 hull rows(GJK+EPA vs SAT box-box 同 pair 對照;
->   誠實:hull 較貴,只在需要任意凸體時用)。
+### 8.1 凸包碰撞入 narrowphase — ✅ 完成(2026-08-11)
+> **成果**:`collision/hull.mojo` + `ContactScene6.add_hull`(shape kind 3)。任意凸體
+> 進得了生產解算器,接觸是**多點 patch** 而非單點。
+> **關鍵設計決定(與原計畫不同)**:法向/深度**不用 EPA**,改用**兩包面法向上的 SAT**。
+> 原因是量到的:EPA 的法向只有其多胞形的解析度,靜置(淺穿透)時最差 —— 實測歪 1.4°,
+> 在 60 單位地板上把最遠頂點推離極值 0.74,支撐面塌成 1 點,盒子就沉下去並翻倒。
+> 兩包都帶精確面法向時,面接觸的最小穿透軸**就是答案**,沒有容差要調。
+> 邊-邊接觸的軸不在任一面集合中,EPA 因此保留為 fallback。
+> **量測**:hull 靜置高度 0.24971156 vs 同尺寸原生 box 0.24971099(差 5.7e-7);
+> 4 點接觸;靜止速度 0.0;寬相開/關逐位相同。
+> **定律 v3 三類**(`tests/test_hull.mojo` 24 checks、`tests/test_quickhull.mojo` 17 checks):
+> - **普通** = 盒子表示為凸包後,法向/深度/點數對上專用 box-box SAT manifold(兩條路徑零共用碼)。
+> - **整合** = 凸包/盒/球同場靜置正確、與真盒同高、寬相 seam 逐位相同、既有 8 組剛體測試不變;
+>   點雲經 `SATNarrowPhase.add_cloud` 註冊與直接給 `Polygon` 的接觸逐點相同。
+> - **極端** = 單點、共線、共面近扁(1e-4 厚)、頂點全重複、兩包完全重合、遠距退化點雲。
+> **順帶接掉的孤島**:`geometry/quickhull.mojo`(2D)先前只有自己的測試在呼叫。
+> 現有生產入口 `SATNarrowPhase.add_cloud` / `SATManifoldNarrowPhase.add_cloud`;
+> 3D 側對應能力是 `HullShape._prune_interior`(35 點雲 → 8 頂點)。
+> **Benchmark**:`bench_manifold` 新增兩列。GJK+EPA `pts=2201`(每次命中 1 點)
+> vs hull `pts=8804`(4 點/命中,與專用 AABB 裁剪器相同點數,但適用任意凸體),
+> 代價 ~2.5×。面枚舉 O(V³) 單獨列(V=8 約 3.1 µs/shape),因為它**每形狀建構一次**、
+> 而 manifold **每對每步一次**,合併會掩蓋昂貴的那半是載入期付的。
+> **踩到的 nightly 地雷(已寫進檔頭探針)**:`List[Vec3]` **跨函式邊界即損毀**
+> —— 回傳後傳進另一個函式再讀出,末兩個元素會變成前面元素的複本;`for ref` 與
+> 索引皆然、borrow 與 owned 皆然、預留 capacity 也沒用;只有在建構它的同一函式內讀、
+> 或以未綁定 rvalue 傳遞才正確。症狀是盒子回報 5 個面法向而非 6。
+> 因此此路徑**不傳、不回、不存任何 `List[Vec3]`**,一律扁平 `List[Real]`(stride 3)。
 > **相依**:8.2 的三角形即退化凸包,復用此路徑。
 
 ### 8.2 三角網格 / heightfield 靜態關卡幾何 — 📋 規劃中

@@ -16,6 +16,7 @@ from std.math import sqrt
 from geometry.vec import WorldType, Real, Vec2, Vec3, distance_sq, length, normalize
 from geometry.aabb import AABB
 from geometry.shape import Circle, Polygon, Sphere
+from geometry.quickhull import convex_hull_2d
 from geometry.multivector import CGA3
 from geometry.cga import sphere_dual, sphere_dist_sq, plane_dual, inner, Plane3
 from geometry.sat import sat_collide
@@ -105,6 +106,16 @@ struct SATNarrowPhase(NarrowPhase):
     def add(mut self, var p: Polygon) -> Int:
         self.polys.append(p^)
         return len(self.polys) - 1
+
+    def add_cloud(mut self, points: List[Vec2]) raises -> Int:
+        """Register a shape given as an unordered 2D point cloud.
+
+        SAT needs a convex polygon in CCW order; a cloud is neither. This is
+        the production entry point for `geometry/quickhull.mojo`, which
+        discards interior and collinear points and returns exactly that. Without
+        it a caller holding sampled or scanned points has no supported way in,
+        and the hull code is unreachable — the case architecture law v3 names."""
+        return self.add(convex_hull_2d(points))
 
     def test(self, a: Int, b: Int) -> Contact[2]:
         var r = sat_collide(self.polys[a], self.polys[b])

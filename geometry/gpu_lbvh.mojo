@@ -19,6 +19,10 @@ The hierarchy emit stays on the host. It is O(n) pointer work over an array
 that is already in the right order, so moving it would trade a cheap serial
 pass for another round trip.
 
+Takes bare `AABB`s rather than `collision.BoxProxy`: `geometry` must not depend
+on `collision`, or the two packages form a cycle the moment anything in
+`collision` needs geometry (which `collision/hull.mojo` does).
+
 `test_gpu_lbvh` asserts the device-sorted order matches the CPU sort exactly,
 and that a tree built from it answers queries identically to the CPU LBVH.
 """
@@ -29,7 +33,6 @@ from std.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from geometry.vec import Real, Vec3, lane_min, lane_max
 from geometry.aabb import AABB
-from collision.broadphase import BoxProxy
 
 comptime fdt = DType.float32
 comptime udt = DType.uint32
@@ -116,20 +119,20 @@ def bitonic_kernel[LT: TensorLayout](
 
 def gpu_morton_order_ctx[N: Int, NPAD: Int](
     mut ctx: DeviceContext,
-    items: List[BoxProxy[3]],
+    boxes: List[AABB[3]],
     mut out_order: List[Int],
 ) raises:
     """Morton codes + bitonic sort on the device; returns the permutation of
-    `items` in Z-order. `NPAD` must be a power of two >= `N`."""
+    the input boxes in Z-order. `NPAD` must be a power of two >= `N`."""
     comptime n = N
     comptime npad = NPAD
     comptime lay = row_major[npad]()
 
     # scene centroid bounds (host: O(n) and needed as kernel scalars anyway)
-    var cmin = (items[0].box.min + items[0].box.max) * 0.5
+    var cmin = (boxes[0].min + boxes[0].max) * 0.5
     var cmax = cmin
     for i in range(1, n):
-        var c = (items[i].box.min + items[i].box.max) * 0.5
+        var c = (boxes[i].min + boxes[i].max) * 0.5
         cmin = lane_min(cmin, c)
         cmax = lane_max(cmax, c)
     var ex = cmax[0] - cmin[0]
@@ -151,15 +154,15 @@ def gpu_morton_order_ctx[N: Int, NPAD: Int](
     with bcx.map_to_host() as m:
         var t = TileTensor(m, lay)
         for i in range(n):
-            t[i] = (items[i].box.min[0] + items[i].box.max[0]) * 0.5
+            t[i] = (boxes[i].min[0] + boxes[i].max[0]) * 0.5
     with bcy.map_to_host() as m:
         var t = TileTensor(m, lay)
         for i in range(n):
-            t[i] = (items[i].box.min[1] + items[i].box.max[1]) * 0.5
+            t[i] = (boxes[i].min[1] + boxes[i].max[1]) * 0.5
     with bcz.map_to_host() as m:
         var t = TileTensor(m, lay)
         for i in range(n):
-            t[i] = (items[i].box.min[2] + items[i].box.max[2]) * 0.5
+            t[i] = (boxes[i].min[2] + boxes[i].max[2]) * 0.5
 
     comptime BLOCK = 256
     var grid = (npad + BLOCK - 1) // BLOCK

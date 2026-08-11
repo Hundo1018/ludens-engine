@@ -30,6 +30,8 @@ from std.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from geometry.bvh import BVH
+from geometry.gjk import ConvexPoly
+from collision.hull import HullShape, hull_manifold
 from collision.manifold import (
     ContactManifold,
     Axes3,
@@ -153,9 +155,16 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
     # shape kind per body: 0 = box(half), 1 = sphere(r = half.x),
     # 2 = capsule (r = half.x, half-length = half.y, local Y axis)
     var shape: List[Int]
+    # Convex hulls, indexed by `hull_id[i]` (-1 when body i is not a hull).
+    # A side table rather than a field on every body: hulls are rare and carry
+    # a vertex list, so paying for one on every sphere would be wasteful.
+    var hulls: List[HullShape]
+    var hull_id: List[Int]
 
     def __init__(out self):
         self.bodies = List[Self.B]()
+        self.hulls = List[HullShape]()
+        self.hull_id = List[Int]()
         self.half = List[_Half]()
         self.statics = List[Bool]()
         self.cache = List[_CPair]()
@@ -272,6 +281,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.island.append(-1)
         self.restitution.append(0)
         self.shape.append(0)
+        self.hull_id.append(-1)
         return len(self.bodies) - 1
 
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
@@ -286,6 +296,93 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         var i = self.add(b^, Vec3(r, half_len, r), is_static)
         self.shape[i] = 2
         return i
+
+    def add_hull(
+        mut self, var b: Self.B, var verts: List[Real], is_static: Bool
+    ) -> Int:
+        """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
+        vertex). Flat rather than `List[Vec3]` because a width-3 list is
+        miscompiled when passed between functions on this nightly — the reason
+        is measured out in `collision/hull.mojo`.
+
+        The `half` extent recorded is the vertex cloud's bounding half-size, so
+        every AABB-based path (broadphase fattening, sleeping, islands) keeps
+        working unchanged and conservatively — a hull is never smaller than the
+        box the rest of the engine already reasons about."""
+        var h = Vec3(0, 0, 0)
+        for vi in range(len(verts) // 3):
+            comptime for k in range(3):
+                if abs(verts[3 * vi + k]) > h[k]:
+                    h[k] = abs(verts[3 * vi + k])
+        var i = self.add(b^, h, is_static)
+        self.shape[i] = 3
+        self.hull_id[i] = len(self.hulls)
+        self.hulls.append(HullShape(verts^))
+        return i
+
+    def _hull_world(self, i: Int) -> ConvexPoly[3]:
+        var ax = self._axes(i)
+        return self.hulls[self.hull_id[i]].world(
+            self.bodies[i].position(), ax[0], ax[1], ax[2]
+        )
+
+    def _hull_faces(self, i: Int, infl: Vec3, mr: Real) -> List[Real]:
+        """World-frame face normals for body `i` under the same shape
+        substitution `_as_hull` makes. Needed because EPA's normal is only as
+        good as its polytope, and the contact patch depends on snapping it to a
+        real face (see `collision/hull.mojo`)."""
+        var ax = self._axes(i)
+        var k = self.shape[i]
+        if k == 3:
+            return self.hulls[self.hull_id[i]].world_normals(ax[0], ax[1], ax[2])
+        var hs = self.half[i].v + infl
+        if k == 1:
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+        elif k == 2:
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+        return HullShape.box(hs).world_normals(ax[0], ax[1], ax[2])
+
+    def _as_hull(self, i: Int, infl: Vec3, mr: Real) -> ConvexPoly[3]:
+        """Any supported shape as a convex point cloud, so the hull path can
+        meet box/sphere/capsule without a separate routine per pairing.
+
+        Spheres and capsules are only APPROXIMATED here (a sphere has no
+        vertices), so they keep their own exact routines in `_pair_manifold`
+        and this is used solely for hull-vs-* pairs, where an approximation of
+        the round side is still better than no contact at all. The limitation
+        is stated rather than hidden: `test_hull` asserts hull-vs-box exactly
+        and hull-vs-sphere only within the polygonal tolerance."""
+        var ax = self._axes(i)
+        var k = self.shape[i]
+        if k == 3:
+            # Inflate the hull the same way the box path inflates its boxes,
+            # by pushing each vertex out along its own octant. For a box hull
+            # this reproduces `half + infl` exactly; for a general hull it is
+            # the same conservative widening. Without it a hull rests measurably
+            # deeper than an identical box, because the box pair reports an
+            # inflated penetration on BOTH sides and settles shallower.
+            var p = ConvexPoly[3]()
+            for vi in range(self.hulls[self.hull_id[i]].nv()):
+                var v = self.hulls[self.hull_id[i]].vert(vi)
+                var o = Vec3(
+                    infl[0] if v[0] >= 0 else -infl[0],
+                    infl[1] if v[1] >= 0 else -infl[1],
+                    infl[2] if v[2] >= 0 else -infl[2],
+                )
+                var w = v + o
+                p.add(
+                    self.bodies[i].position()
+                    + ax[0] * w[0] + ax[1] * w[1] + ax[2] * w[2]
+                )
+            return p^
+        var hs = self.half[i].v + infl
+        if k == 1:
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+        elif k == 2:
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+        return HullShape.box(hs).world(
+            self.bodies[i].position(), ax[0], ax[1], ax[2]
+        )
 
     def set_restitution(mut self, i: Int, e: Real):
         self.restitution[i] = e
@@ -393,6 +490,15 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 self.bodies[a].position(), self.half[a].v[0] + mr,
             )
             m.normal = -m.normal
+        elif kb == 3:
+            # any-vs-hull: both sides go through the convex point-cloud path.
+            # Placed before capsule-capsule because the kinds are normalised
+            # (ka <= kb) and hull is the highest kind, so kb == 3 catches
+            # hull-box, hull-sphere, hull-capsule and hull-hull alike.
+            m = hull_manifold(
+                self._as_hull(a, infl, mr), self._as_hull(b, infl, mr),
+                self._hull_faces(a, infl, mr), self._hull_faces(b, infl, mr),
+            )
         else:  # capsule-capsule
             m = capsule_capsule_manifold(
                 self.bodies[a].position(), self._axes(a)[1],

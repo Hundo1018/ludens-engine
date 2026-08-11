@@ -117,8 +117,11 @@ run_bench() {
     echo "mesh in between."
     echo
     echo "Still to do: this lives at narrowphase level and is NOT yet wired into"
-    echo "\`solver6\`, which dispatches on a box/sphere/capsule kind tag and needs a"
-    echo "multi-point manifold rather than a single deepest contact."
+    echo "\`solver6\`, which dispatches on a shape-kind tag and needs a multi-point"
+    echo "manifold rather than a single deepest contact. Convex hulls took exactly that"
+    echo "route and are now wired (kind 3, see the manifold table); an SDF shape kind"
+    echo "would follow the same pattern, with the clipping step replaced by sampling the"
+    echo "field around the deepest point."
     echo
     run_bench benchmarks/bench_sdf3.mojo
     echo "## Collision — manifold narrowphase (contact patch vs boolean test)"
@@ -126,6 +129,22 @@ run_bench() {
     echo "What the solver actually pays: \`test_manifold\` produces clipped contact"
     echo "points with per-point depths (parity vs the boolean paths in \`test_manifold\`),"
     echo "next to its boolean twin on the same pairs."
+    echo
+    echo "The last two rows are the convex-hull path (\`collision/hull.mojo\`, wired into"
+    echo "\`ContactScene6\` as shape kind 3), and the \`pts=\` totals are the point of the"
+    echo "table. GJK+EPA reports one point per hit; the hull path reports four — the same"
+    echo "patch the specialised AABB clipper produces, on shapes the AABB clipper cannot"
+    echo "express. That is what the ~2.5x costs buy, and it is not a micro-optimisation:"
+    echo "a single-point manifold applies no torque about the contact, so a box resting"
+    echo "on it rocks and eventually topples. The patch is why a hull box now settles"
+    echo "within 1e-6 of the height an identical native box settles at (\`test_hull\`)."
+    echo
+    echo "Face enumeration is reported separately because it amortizes differently: it is"
+    echo "O(V^3) over the vertex cloud and runs ONCE per shape at construction, while the"
+    echo "manifold runs once per pair per step. Summing them would hide that the"
+    echo "expensive half is paid at load time. At V=8 it is ~3.1 us per shape; the cubic"
+    echo "term means a 64-vertex hull costs roughly 500x that, so hulls are meant to be"
+    echo "built once and instanced, not authored per frame."
     echo
     run_bench benchmarks/bench_manifold.mojo
     echo "## Collision — scene queries (raycast + overlap)"
