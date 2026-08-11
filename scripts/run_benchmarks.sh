@@ -240,6 +240,35 @@ run_bench() {
     echo "exact one on none."
     echo
     run_bench benchmarks/bench_predicates.mojo
+    echo "## Scheduler — automatic dependency job graph"
+    echo
+    echo "\`SequentialScheduler\` runs systems in registration order and puts the burden of"
+    echo "correctness on whoever wrote the list. \`JobGraphScheduler\` derives the order"
+    echo "instead: each system declares its component read and write sets as bitmasks, two"
+    echo "systems conflict when one writes what the other reads or writes, and everything"
+    echo "that does not conflict shares a level."
+    echo
+    echo "Within a level no two systems write the same component, so the outcome cannot"
+    echo "depend on the order they run in — which is why the result is BIT-IDENTICAL to"
+    echo "the sequential scheduler rather than merely equivalent. \`test_jobgraph\` gates"
+    echo "that on two storage backends, serial and fanned out."
+    echo
+    echo "Deriving the schedule is timed on its own because it happens once at"
+    echo "construction, not per tick; quoting it per tick would flatter it by however many"
+    echo "ticks the game runs. Running the derived schedule serially costs about 1% over"
+    echo "registration order, which is the price of deciding the order at run time."
+    echo
+    echo "The speedup is capped by the workload's shape, not by the core count: four of"
+    echo "the six systems can overlap, so Amdahl allows at most 2x, and the measured"
+    echo "figure is below that because fanning out four short systems does not reach four"
+    echo "times the throughput. That is the real ceiling on SYSTEM-level parallelism and"
+    echo "the reason the solver also parallelises within a system."
+    echo
+    echo "The honest weak point is stated in the module: nothing verifies that a system's"
+    echo "declaration matches what its \`apply\` actually touches. A wrong declaration"
+    echo "produces a wrong schedule — the same trade every DOTS-style scheduler makes."
+    echo
+    run_bench benchmarks/bench_jobgraph.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"

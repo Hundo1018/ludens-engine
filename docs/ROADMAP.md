@@ -679,12 +679,28 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **註**:incircle/insphere 依行列式對「提升列」的線性拆成 2/3 個單項式行列式,
 > 所以不需要比檔案其餘部分更寬的算術。
 
-### 10.2 自動依賴 job graph(DOTS 式讀寫衝突)— 📋 規劃中
-> **現況**:排程器 serial/parallel/actor 但**手動**;無讀寫衝突自動偵測。
-> **設計**:系統宣告 component 讀寫集 → 建 DAG(寫寫/讀寫衝突加邊)→ 拓撲分層平行;
-> **結果與 serial 逐位一致(決定性)**。
-> **交付物**:`test_jobgraph`(自動排程 == serial 結果 parity、衝突正確串行化、無衝突真並行)
-> + bench(vs 手動 serial/parallel scheduler)。**相依**:與 Phase 4.4 observers / commands 協同。
+### 10.2 自動依賴 job graph(DOTS 式讀寫衝突)— ✅ 完成(2026-08-11)
+> **成果**:`scheduler/jobgraph.mojo` —— `DeclaredSystem` trait 讓系統宣告
+> component 讀/寫位元遮罩(`1 << ComponentType.ID`),`JobGraphScheduler` 由此推導層級。
+> 衝突律:`W_i & (R_j | W_j)`(RAW/WAW)或 `W_j & R_i`(WAR);**讀-讀不是衝突**。
+> 最長路徑分層,同層系統彼此不衝突 → **同層順序不影響結果**,
+> 所以與 `SequentialScheduler` 是**逐位相同**而不只是等價。
+> **量測(`bench_jobgraph`)**:推導 228 ns(**建構一次,不是每 tick**,分開計時,
+> 否則會被 tick 數美化)。串列執行推導出的排程 1.169 vs 註冊順序 1.155 ms/tick(+1.2%,
+> 這是把順序決定推遲到執行期的代價)。同層並行 0.826 ms/tick(1.40×)。
+> **加速上限由工作形狀決定,不是核心數**:6 個系統只有 4 個能重疊,Amdahl 上限 2×,
+> 實測低於它是因為 fan-out 四個短系統拿不到四倍吞吐。
+> 這就是**系統級平行的真實天花板**,也是為什麼還要在系統**內部**平行(solver 那邊)。
+> **誠實弱點(寫在檔頭)**:沒有任何機制驗證宣告與 `apply` 實際碰的東西一致;
+> 宣告錯就排程錯。這是所有 DOTS 式排程器共同的取捨,買到的是「相依關係寫在系統旁邊一次」
+> 而不是「隱含在別處的清單順序裡」。
+> **定律 v3 三類**(`tests/test_jobgraph.mojo` 30 checks):
+> - **普通** = 衝突律四種組合(RAW/WAW/WAR 要排序、讀-讀不用);推導出的層級與人工畫的一致。
+> - **整合** = 與 `SequentialScheduler` 的世界摘要逐位相同 —— 在 **sparse 與 archetype
+>   兩個 backend 上**、串列與 fan-out(1 與 4 workers)都成立;兩 backend 彼此也一致。
+> - **極端** = 零系統(tick 是 no-op)、單系統、全部互相衝突(完全串列化)、
+>   全部互不衝突(單一寬層)、宣告空集合的系統、宣告全集的系統,
+>   以及「空集合系統註冊在全集系統之後也不該繼承相依」。
 
 ### 10.3 Actor Model 硬化(既有雛形 → 生產)— 📋 規劃中(有雛形)
 > **現況**:`scheduler/{entity_actor,system_actor,message}.mojo`(336 行,EntityActor /
