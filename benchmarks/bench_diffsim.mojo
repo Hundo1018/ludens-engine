@@ -28,6 +28,7 @@ from geometry.motor import Motor3
 from geometry.field import Field, RealF, DualReal, DualBatch, Tape, RevReal, rev_seed
 from geometry.gmv import GMV
 from physics.diffsim import rollout2, rollout_ctrl, rollout_ctrl_adjoint
+from physics.adjoint import rollout_generated, STEP_IS_LINEAR, STEP_BITS
 
 # PGA3 point-trivector blade masks (same convention as geometry/motor.mojo)
 comptime _E123 = 0b0111
@@ -156,6 +157,21 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
         keep(acc)
 
     @parameter
+    def adjoint_generated():
+        # the same backward pass, GENERATED: `physics/adjoint.mojo` describes
+        # the step once and derives its transpose by a comptime walk. Warp and
+        # Taichi do this at JIT time; here it happens at compile time, so the
+        # row next to `adjoint s2s` is measuring whether the generated code
+        # costs anything against the hand-derived code it replaces.
+        var g = List[Real]()
+        var rr = rollout_generated(base, BURST, DT, g)
+        keep(rr[0])
+        var acc = Real(0)
+        for j in range(NP):
+            acc += g[j]
+        keep(acc)
+
+    @parameter
     def reverse_tape():
         # ONE rollout + one backward sweep, N-independent
         var tape = Tape()
@@ -184,7 +200,11 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
         "reverse tape (1 rollout)", TOTAL, G, measure[reverse_tape](3, 20), TOTAL
     )
     table.add(
-        "adjoint s2s (emitted)", TOTAL, G, measure[adjoint_s2s](3, 20), TOTAL
+        "adjoint s2s (hand-emitted)", TOTAL, G, measure[adjoint_s2s](3, 20), TOTAL
+    )
+    table.add(
+        "adjoint generated (comptime)", TOTAL, G,
+        measure[adjoint_generated](3, 20), TOTAL,
     )
 
 

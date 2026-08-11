@@ -889,6 +889,28 @@ run_bench() {
     echo "  measured value is ~1.5x lower, so that estimate is superseded by these rows."
     echo "  Both crossovers move earlier the heavier the per-step primal math."
     echo
+    echo "The last row is the same backward pass GENERATED rather than written out."
+    echo "\`physics/adjoint.mojo\` describes one integration step as a small program and"
+    echo "derives its transpose with a \`comptime\` walk — the transformation Warp and"
+    echo "Taichi perform at JIT time, done at compile time instead, so there is no runtime"
+    echo "generation step and the adjoint is optimised together with the primal."
+    echo
+    echo "It lands at 8.5ns against the tape's 50ns and the hand-derived routine's 5.3ns:"
+    echo "5.9x faster than the tape it replaces, and still 1.6x slower than the code a"
+    echo "person wrote. That remaining gap is reported rather than rounded away. Two"
+    echo "things closed most of it and are worth recording: the register file and the"
+    echo "constants moved from heap \`List\` to stack \`InlineArray\`, and the opcode"
+    echo "dispatch became \`comptime if\` so each instruction expands to its own rule"
+    echo "alone. Before both, the generated version ran at 19.7ns — the structure was"
+    echo "already right and the indirection was the whole difference."
+    echo
+    echo "The sub-language is restricted on purpose: every operation is linear in the"
+    echo "register file, so the transpose of the step does not depend on where it was"
+    echo "evaluated and the backward sweep needs NO intermediate values — one bit per"
+    echo "step against the tape'"'"'s one node per operation. \`program_is_linear\` decides that"
+    echo "at compile time, so a program containing a variable-times-variable product is"
+    echo "reported as non-linear instead of being silently differentiated wrongly."
+    echo
     run_bench benchmarks/bench_diffsim.mojo
     echo "## Physics — actuators (transmission, force generation, internal dynamics)"
     echo
