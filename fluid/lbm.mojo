@@ -67,6 +67,12 @@ struct Lbm(Movable, ImplicitlyDeletable):
     var opp: InlineArray[Int, Q]
     var inlet_u: Real  # x velocity imposed at the inlet
     var force_x: Real  # uniform body force, the pressure gradient of a channel
+    # Force on the solid, accumulated over the last `stream()` by momentum
+    # exchange. This is the step that turns the simulation into a MEASUREMENT:
+    # without it a wind tunnel is a nice animation.
+    var fx: Real
+    var fy: Real
+    var fz: Real
     var mode: Int
 
     def __init__(
@@ -90,6 +96,9 @@ struct Lbm(Movable, ImplicitlyDeletable):
             self.opp[i] = opposite(i)
         self.inlet_u = 0
         self.force_x = 0
+        self.fx = 0
+        self.fy = 0
+        self.fz = 0
         var n = nx * ny * nz
         self.f = List[Real](capacity=Q * n)
         self.g = List[Real](capacity=Q * n)
@@ -236,6 +245,9 @@ struct Lbm(Movable, ImplicitlyDeletable):
         That single substitution is the whole of half-way bounce-back, and it
         is why a solid needs no special data at all beyond its flag."""
         var n = self.cells()
+        self.fx = 0
+        self.fy = 0
+        self.fz = 0
         for z in range(self.nz):
             for y in range(self.ny):
                 for x in range(self.nx):
@@ -264,7 +276,19 @@ struct Lbm(Movable, ImplicitlyDeletable):
                         var wz = self._wrap(sz, self.nz)
                         var src = self.idx(wx, wy, wz)
                         if self.flag[src] == CELL_SOLID:
-                            self.g[i * n + c] = self.f[self.opp[i] * n + c]
+                            var back = self.f[self.opp[i] * n + c]
+                            self.g[i * n + c] = back
+                            # Momentum exchange across this link. The fluid
+                            # sends `back` away along -c_i and gets it returned
+                            # along +c_i, so its momentum changes by 2*back*c_i
+                            # and the solid takes the opposite. Summed over
+                            # every boundary link this is the total force,
+                            # exact to the same order as the bounce-back
+                            # itself and needing no surface normal, no area
+                            # element, and no reconstruction of the pressure.
+                            self.fx -= 2 * Real(self.ex[i]) * back
+                            self.fy -= 2 * Real(self.ey[i]) * back
+                            self.fz -= 2 * Real(self.ez[i]) * back
                         else:
                             self.g[i * n + c] = self.f[i * n + src]
         # Swap, not copy: streaming already wrote every value into `g`, so
@@ -301,6 +325,17 @@ struct Lbm(Movable, ImplicitlyDeletable):
                 if self.flag[co] != CELL_SOLID:
                     for i in range(Q):
                         self.f[i * n + co] = self.f[i * n + cu]
+
+    def drag_coefficient(self, u_inf: Real, area: Real) -> Real:
+        """Cd = Fx / (0.5 * rho * u^2 * A), with rho = 1 in lattice units.
+
+        `area` is the projected frontal area in lattice cells. Reporting a
+        coefficient rather than a force is what makes the number comparable to
+        a wind tunnel and to the literature — and what makes it a statement
+        about the SHAPE rather than about this particular grid."""
+        if u_inf == 0 or area == 0:
+            return 0
+        return self.fx / (0.5 * u_inf * u_inf * area)
 
     def step(mut self):
         self.collide()

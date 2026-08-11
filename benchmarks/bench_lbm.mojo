@@ -63,6 +63,45 @@ def run(
     )
 
 
+def cd_row(
+    mut table: BenchTable, nx: Int, ny: Int, r: Real, u: Real, nu: Real,
+    steps: Int, avg: Int,
+):
+    """Drag coefficient against resolution, with the cost of getting it.
+
+    The number to watch is the deviation from Schiller-Naumann, which is an
+    empirical fit to EXPERIMENT rather than to another simulation. A single
+    resolution agreeing would prove nothing; the claim is that the deviation
+    shrinks as the sphere is resolved, and that it costs what the ns/op column
+    says to shrink it."""
+    from std.math import pi
+    var t = Lbm(nx, ny, ny, nu, BC_TUNNEL)
+    t.init_uniform(1.0, u, 0, 0)
+    t.inlet_u = u
+    t.set_solid_sphere(Real(nx) * 0.3, Real(ny - 1) * 0.5, Real(ny - 1) * 0.5, r)
+    var t0 = now()
+    var acc = Real(0)
+    var m = 0
+    for k in range(steps):
+        t.step()
+        if k >= steps - avg:
+            acc += t.fx
+            m += 1
+    var t1 = now()
+    var area = Real(pi) * r * r
+    var cd = (acc / Real(m)) / (Real(0.5) * u * u * area)
+    var re = u * 2 * r / nu
+    var sn = (24.0 / re) * (1.0 + 0.15 * (Real(re) ** Real(0.687)))
+    var err = abs(cd - sn) / sn
+    keep(cd)
+    table.add(
+        "sphere r=" + String(Int(r)) + " Re=" + String(Int(re))
+        + " Cd=" + String(cd) + " vs " + String(sn)
+        + " err=" + String(err),
+        nx * ny * ny, "cell-step", t1 - t0, steps * t.cells(),
+    )
+
+
 def main() raises:
     var table = BenchTable("Lattice Boltzmann D3Q19 (one op = one cell update)")
     run(table, "periodic 16^3", 16, 200, BC_PERIODIC, False)
@@ -72,3 +111,9 @@ def main() raises:
     run(table, "tunnel 32^3", 32, 60, BC_TUNNEL, False)
     run(table, "tunnel 32^3 + sphere", 32, 60, BC_TUNNEL, True)
     table.print_report()
+
+    var cdt = BenchTable("Sphere drag: resolution vs deviation from experiment")
+    cd_row(cdt, 48, 24, Real(3.0), Real(0.05), Real(0.02), 1200, 300)
+    cd_row(cdt, 64, 32, Real(4.0), Real(0.05), Real(0.02), 1200, 300)
+    cd_row(cdt, 80, 40, Real(5.0), Real(0.05), Real(0.02), 1200, 300)
+    cdt.print_report()
