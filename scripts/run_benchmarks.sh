@@ -324,6 +324,34 @@ run_bench() {
     echo "fading player samples two clips and blends them instead of sampling one."
     echo
     run_bench benchmarks/bench_anim.mojo
+    echo "## Physics — cloth self-collision"
+    echo
+    echo "Cloth that does not collide with itself can be a flag and cannot be a garment."
+    echo "\`physics/self_collide.mojo\` adds vertex-vertex repulsion under a thickness,"
+    echo "hooked into BOTH cloth solvers — XPBD and VBD are two variants of one seam, and"
+    echo "a capability present in only one stops them being comparable."
+    echo
+    echo "Read the \`gap=\` column first: it is the distance between the closest pair of"
+    echo "particles that are NOT spring-connected. On a sheet piling on the floor it is"
+    echo "0.0003 without the feature — the sheet is passing through itself — and 0.060"
+    echo "with it, against a thickness of 0.06. VBD reaches 0.050 rather than the full"
+    echo "thickness, because its repulsion runs after the colour sweeps rather than inside"
+    echo "the per-vertex Newton step and the next sweep pulls some of it back. That is"
+    echo "reported rather than tuned away."
+    echo
+    echo "The cost is 12.6x for XPBD and 7.0x for VBD on a piled sheet. The last pair of"
+    echo "rows is a larger sheet run for fewer steps, so it has not piled and the gap is"
+    echo "IDENTICAL either way — that row isolates the cost of looking (a hash rebuild and"
+    echo "27-cell queries finding nothing) from the cost of resolving, which is what a"
+    echo "scene of cloth that rarely folds actually pays."
+    echo
+    echo "Topological neighbours are excluded, and that exclusion is what keeps the"
+    echo "feature from being harmful: a particle'"'"'s springs already hold it at rest length"
+    echo "from its grid neighbours, and repelling those too would fight the springs and"
+    echo "inflate the sheet. \`test_self_collide\` gates the sheet'"'"'s height span against"
+    echo "exactly that."
+    echo
+    run_bench benchmarks/bench_self_collide.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"

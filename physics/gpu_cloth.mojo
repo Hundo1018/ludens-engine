@@ -16,6 +16,8 @@ still compiles and the test passes vacuously.
 """
 
 from std.math import sqrt, ceildiv
+from geometry.vec import Real
+from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.benchmark import keep
@@ -192,12 +194,24 @@ def _init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32):
 
 
 def cpu_cloth_run[W: Int, H: Int](
-    steps: Int, iters: Int, dt: Float32, rest: Float32
+    steps: Int, iters: Int, dt: Float32, rest: Float32,
+    self_thickness: Real = 0,
 ) -> ClothState:
-    """Sequential reference: same gather-Jacobi arithmetic as the kernels."""
+    """Sequential reference: same gather-Jacobi arithmetic as the kernels.
+
+    `self_thickness > 0` turns on cloth self-collision
+    (`physics/self_collide.mojo`), applied once per constraint iteration so it
+    is solved together with the distance constraints rather than layered on
+    afterwards. Zero keeps the previous behaviour bit for bit, which is what
+    lets the existing tests stay untouched."""
     comptime n = W * H
     var s = ClothState()
     _init_grid[W, H](s, rest)
+    # cell size = thickness: one hash cell per interaction radius, so the 27
+    # neighbouring cells are exactly the candidates within range
+    var sc = SelfCollider(
+        self_thickness if self_thickness > 0 else Real(1)
+    )
     var vx = List[Float32]()
     var vy = List[Float32]()
     var vz = List[Float32]()
@@ -274,6 +288,10 @@ def cpu_cloth_run[W: Int, H: Int](
                 if py[i] < 0:
                     py[i] = 0
                 pz[i] += dz[i] * _OMEGA
+            if self_thickness > 0:
+                _ = resolve_self_collisions(
+                    px, py, pz, w, W, self_thickness, sc
+                )
         for i in range(n):
             vx[i] = (px[i] - s.x[i]) / dt * _DAMP
             vy[i] = (py[i] - s.y[i]) / dt * _DAMP

@@ -20,6 +20,8 @@ scenes. Implicit Euler target y = x + h·v + h²·g.
 """
 
 from std.math import sqrt, ceildiv
+from geometry.vec import Real
+from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from std.gpu import global_idx
 from std.gpu.host import DeviceContext, DeviceBuffer
@@ -236,12 +238,21 @@ def vbd_finalize_kernel[LT: TensorLayout](
 
 # ---------------------------------------------------------------- CPU reference
 def cpu_vbd_run[W: Int, H: Int](
-    steps: Int, iters: Int, dt: Float32, rest: Float32
+    steps: Int, iters: Int, dt: Float32, rest: Float32,
+    self_thickness: Real = 0,
 ) -> ClothState:
     """Sequential reference: the same per-vertex Newton arithmetic, swept in
     the same two color passes (within a color the update is order-free, so
-    index order here ≡ parallel on the GPU)."""
+    index order here ≡ parallel on the GPU).
+
+    `self_thickness > 0` adds cloth self-collision, the same call the PBD
+    solver makes. Hooking it into only one of the two would break the seam:
+    XPBD and VBD are variants of the same interface, and a capability present
+    in one and absent in the other stops them being comparable."""
     comptime n = W * H
+    var sc = SelfCollider(
+        self_thickness if self_thickness > 0 else Real(1)
+    )
     var mh2 = 1.0 / (dt * dt)  # unit mass
     var s = ClothState()
     _init_grid[W, H](s, rest)
@@ -321,6 +332,10 @@ def cpu_vbd_run[W: Int, H: Int](
                     s.x[i] = res[0]
                     s.y[i] = res[1]
                     s.z[i] = res[2]
+            if self_thickness > 0:
+                _ = resolve_self_collisions(
+                    s.x, s.y, s.z, w, W, self_thickness, sc
+                )
         for i in range(n):
             vx[i] = (s.x[i] - ox[i]) / dt * _DAMP
             vy[i] = (s.y[i] - oy[i]) / dt * _DAMP
