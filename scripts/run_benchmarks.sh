@@ -147,6 +147,36 @@ run_bench() {
     echo "built once and instanced, not authored per frame."
     echo
     run_bench benchmarks/bench_manifold.mojo
+    echo "## Collision — static level geometry (midphase)"
+    echo
+    echo "A level is not a convex body, so until \`collision/trimesh.mojo\` it could not"
+    echo "be expressed at all. The contact is not new — a triangle IS a convex hull with"
+    echo "three vertices and one face, so the hull narrowphase above handles it — but a"
+    echo "level has thousands of triangles and a crate touches three, and the step that"
+    echo "turns the first number into the second is the midphase."
+    echo
+    echo "Three ways to do it, on identical terrain: brute over every triangle, a SAH BVH"
+    echo "over triangle boxes (\`TriMesh\`), and cell arithmetic on a regular grid"
+    echo "(\`HeightField\`). Read the \`cand=\` totals alongside the times: a midphase that"
+    echo "is fast because it hands MORE triangles to the narrowphase has moved the cost"
+    echo "rather than removed it. All three return the same count here, and"
+    echo "\`test_trimesh\` gates the heightfield and the explicit soup to the same"
+    echo "resting height on the same surface."
+    echo
+    echo "The sweep is what the table is for. Across a 16.8x growth in triangle count the"
+    echo "brute path grows 16.6x — linear, as it must. The BVH grows 2.3x, which is the"
+    echo "tree getting deeper. The heightfield does not grow: its query is clamped"
+    echo "arithmetic on cell indices, so the size of the terrain never enters it. That is"
+    echo "the trade it is FOR, and it is paid for in expressiveness — a heightfield cannot"
+    echo "describe an overhang, a wall, or a cave, and a level that needs one has no"
+    echo "choice but the tree."
+    echo
+    echo "The second table is the honest end of it: at 7,938 triangles and 64 crates the"
+    echo "midphase is a small enough share of a full solver step that the two are"
+    echo "indistinguishable. The midphase choice starts to matter at terrain sizes where"
+    echo "the brute column has already become unusable."
+    echo
+    run_bench benchmarks/bench_trimesh.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"

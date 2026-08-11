@@ -12,6 +12,8 @@ from std.memory import UnsafePointer
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from collision.manifold import ContactManifold
+from collision.hull import HullShape
+from collision.trimesh import TriMesh, HeightField
 from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6, Joint6, _CPair, _Half
 from physics.softbody import SoftBody, _SP, _SEdge
@@ -87,6 +89,34 @@ def scene_to_string(sc: ContactScene6[QuatBody6]) raises -> String:
         _wf(s, sc.restitution[i])
         _wi(s, 1 if sc.sleeping[i] else 0)
         _wf(s, sc.sleep_timer[i])
+        # Shape payload for the kinds that keep their geometry in a side table.
+        # A snapshot that restored a hull body without its vertices would load
+        # cleanly and then index an empty table on the next contact, so the
+        # geometry travels with the body even though a level mesh can be large:
+        # this format is a full state snapshot, not an asset reference.
+        if sc.shape[i] == 3:
+            ref hl = sc.hulls[sc.hull_id[i]]
+            _wi(s, len(hl.v))
+            for k in range(len(hl.v)):
+                _wf(s, hl.v[k])
+        elif sc.shape[i] == 4:
+            ref ms = sc.meshes[sc.mesh_id[i]]
+            _wi(s, len(ms.v))
+            for k in range(len(ms.v)):
+                _wf(s, ms.v[k])
+            _wi(s, len(ms.idx))
+            for k in range(len(ms.idx)):
+                _wi(s, ms.idx[k])
+        elif sc.shape[i] == 5:
+            ref hf = sc.fields[sc.mesh_id[i]]
+            _wi(s, hf.nx)
+            _wi(s, hf.nz)
+            _wf(s, hf.cell)
+            _wf(s, hf.ox)
+            _wf(s, hf.oz)
+            _wi(s, len(hf.h))
+            for k in range(len(hf.h)):
+                _wf(s, hf.h[k])
     _wi(s, len(sc.joints))
     for j in range(len(sc.joints)):
         var jt = sc.joints[j]
@@ -124,6 +154,7 @@ def scene_to_string(sc: ContactScene6[QuatBody6]) raises -> String:
         var pr = sc.cache[c]
         _wi(s, pr.a)
         _wi(s, pr.b)
+        _wi(s, pr.feat)  # triangle index for mesh contacts, 0 otherwise
         _wi(s, 1 if pr.m.hit else 0)
         _wv(s, pr.m.normal)
         _wi(s, pr.m.count)
@@ -164,11 +195,45 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
         )
         sc.half.append(_Half(r.v3()))
         sc.statics.append(r.i() == 1)
-        sc.shape.append(r.i())
+        var kind = r.i()
+        sc.shape.append(kind)
         sc.restitution.append(r.f())
         sc.sleeping.append(r.i() == 1)
         sc.sleep_timer.append(r.f())
         sc.island.append(-1)
+        sc.hull_id.append(-1)
+        sc.mesh_id.append(-1)
+        var bi = len(sc.bodies) - 1
+        if kind == 3:
+            var nv = r.i()
+            var hv = List[Real](capacity=nv)
+            for _ in range(nv):
+                hv.append(r.f())
+            sc.hull_id[bi] = len(sc.hulls)
+            sc.hulls.append(HullShape(hv))
+        elif kind == 4:
+            var nv = r.i()
+            var mv = List[Real](capacity=nv)
+            for _ in range(nv):
+                mv.append(r.f())
+            var ni = r.i()
+            var mi = List[Int](capacity=ni)
+            for _ in range(ni):
+                mi.append(r.i())
+            sc.mesh_id[bi] = len(sc.meshes)
+            sc.meshes.append(TriMesh(mv, mi))
+        elif kind == 5:
+            var nx = r.i()
+            var nz = r.i()
+            var cell = r.f()
+            var ox = r.f()
+            var oz = r.f()
+            var nh = r.i()
+            var hh = List[Real](capacity=nh)
+            for _ in range(nh):
+                hh.append(r.f())
+            sc.mesh_id[bi] = len(sc.fields)
+            sc.fields.append(HeightField(hh, nx, nz, cell, ox, oz))
     var nj = r.i()
     for _ in range(nj):
         var kind = r.i()
@@ -209,12 +274,13 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
     for _ in range(nc):
         var a = r.i()
         var b = r.i()
+        var feat = r.i()
         var m = ContactManifold[3]()
         m.hit = r.i() == 1
         m.normal = r.v3()
         m.count = r.i()
         var pr = _CPair(
-            a, b, m,
+            a, b, feat, m,
             InlineArray[Real, 4](fill=0), InlineArray[Real, 4](fill=0),
             InlineArray[Real, 4](fill=0),
             InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),

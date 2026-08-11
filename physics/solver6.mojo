@@ -32,6 +32,7 @@ from geometry.aabb import AABB
 from geometry.bvh import BVH
 from geometry.gjk import ConvexPoly
 from collision.hull import HullShape, hull_manifold
+from collision.trimesh import TriMesh, HeightField
 from collision.manifold import (
     ContactManifold,
     Axes3,
@@ -54,6 +55,12 @@ comptime _SLOP: Real = 0.005  # allowed penetration
 struct _CPair(Copyable, ImplicitlyCopyable, Movable):
     var a: Int
     var b: Int
+    # Sub-key within the pair. Zero for shape-vs-shape, which produces one
+    # manifold; for static mesh contact it is the triangle index, because one
+    # crate resting on a level touches several triangles at once and each is a
+    # separate manifold. Without it every one of them would inherit the first
+    # cached entry's impulses and warm-starting would fight itself.
+    var feat: Int
     var m: ContactManifold[3]
     var acc: InlineArray[Real, 4]  # per-point accumulated normal impulse
     var acc_t1: InlineArray[Real, 4]  # accumulated friction impulses
@@ -153,18 +160,30 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
     var softs: List[SoftBody]
     var restitution: List[Real]  # per-body coefficient (pair uses max)
     # shape kind per body: 0 = box(half), 1 = sphere(r = half.x),
-    # 2 = capsule (r = half.x, half-length = half.y, local Y axis)
+    # 2 = capsule (r = half.x, half-length = half.y, local Y axis),
+    # 3 = convex hull (`hull_id`), 4 = triangle mesh, 5 = heightfield
+    # (both `mesh_id`, both static-only)
     var shape: List[Int]
     # Convex hulls, indexed by `hull_id[i]` (-1 when body i is not a hull).
     # A side table rather than a field on every body: hulls are rare and carry
     # a vertex list, so paying for one on every sphere would be wasteful.
     var hulls: List[HullShape]
     var hull_id: List[Int]
+    # Static level geometry (kinds 4 and 5), same side-table scheme. Their
+    # vertices are WORLD space and their body pose is ignored: a level does not
+    # move, and keeping the triangles pre-transformed is the whole reason the
+    # midphase query can be a plain AABB test.
+    var meshes: List[TriMesh]
+    var fields: List[HeightField]
+    var mesh_id: List[Int]
 
     def __init__(out self):
         self.bodies = List[Self.B]()
         self.hulls = List[HullShape]()
         self.hull_id = List[Int]()
+        self.meshes = List[TriMesh]()
+        self.fields = List[HeightField]()
+        self.mesh_id = List[Int]()
         self.half = List[_Half]()
         self.statics = List[Bool]()
         self.cache = List[_CPair]()
@@ -282,6 +301,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.restitution.append(0)
         self.shape.append(0)
         self.hull_id.append(-1)
+        self.mesh_id.append(-1)
         return len(self.bodies) - 1
 
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
@@ -319,6 +339,59 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.hull_id[i] = len(self.hulls)
         self.hulls.append(HullShape(verts^))
         return i
+
+    def add_trimesh(
+        mut self, var b: Self.B, verts: List[Real], indices: List[Int]
+    ) -> Int:
+        """Static triangle soup. `verts` is flat (x, y, z per vertex) in WORLD
+        space, `indices` three per triangle.
+
+        Always static. A mesh has no useful inertia tensor and no closed
+        volume, so a dynamic one would be resolved against by contacts that
+        cannot conserve anything; refusing it here is cheaper than discovering
+        it as drift. The recorded `half` is the mesh's bounding half-size, so
+        broadphase, sleeping and islands keep working unchanged."""
+        var m = TriMesh(verts, indices)
+        var bb = m.bounds()
+        var i = self.add(b^, bb.half_extents(), True)
+        self.shape[i] = 4
+        self.mesh_id[i] = len(self.meshes)
+        self.meshes.append(m^)
+        return i
+
+    def add_heightfield(
+        mut self, var b: Self.B, heights: List[Real], nx: Int, nz: Int,
+        cell: Real, ox: Real = 0, oz: Real = 0,
+    ) -> Int:
+        """Static heightfield: the same surface as a mesh, with the triangles
+        left implicit and the midphase reduced to arithmetic. Static for the
+        same reason as `add_trimesh`."""
+        var f = HeightField(heights, nx, nz, cell, ox, oz)
+        var bb = f.bounds()
+        var i = self.add(b^, bb.half_extents(), True)
+        self.shape[i] = 5
+        self.mesh_id[i] = len(self.fields)
+        self.fields.append(f^)
+        return i
+
+    def _mesh_candidates(self, i: Int, box: AABB[3], mut out: List[Int]):
+        """Triangles of static body `i` that could touch `box`. The two static
+        kinds answer this differently — BVH descent vs cell arithmetic — and
+        that is the only place they differ; everything downstream is shared."""
+        if self.shape[i] == 4:
+            self.meshes[self.mesh_id[i]].candidates(box, out)
+        else:
+            self.fields[self.mesh_id[i]].candidates(box, out)
+
+    def _mesh_tri(self, i: Int, t: Int) -> ConvexPoly[3]:
+        if self.shape[i] == 4:
+            return self.meshes[self.mesh_id[i]].tri(t)
+        return self.fields[self.mesh_id[i]].tri(t)
+
+    def _mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
+        if self.shape[i] == 4:
+            return self.meshes[self.mesh_id[i]].tri_faces(t)
+        return self.fields[self.mesh_id[i]].tri_faces(t)
 
     def _hull_world(self, i: Int) -> ConvexPoly[3]:
         var ax = self._axes(i)
@@ -534,6 +607,93 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             self.bodies[i].position(), wh + Vec3(r, r, r)
         )
 
+    def _try_mesh_pair(
+        mut self, mut pairs: List[_CPair], i: Int, j: Int,
+        warm: Bool, margin: Real,
+    ):
+        """Contact against static level geometry.
+
+        Unlike every other pair, this emits MORE THAN ONE manifold: a crate
+        landing in a valley rests on several triangles, and collapsing them
+        into one contact would pick a single normal for a surface that has
+        two. Each triangle therefore becomes its own `_CPair`, keyed by
+        triangle index so warm-starting stays per-triangle across frames.
+
+        A triangle is handed to the ordinary convex-hull narrowphase with its
+        winding normal as its one face. That single normal is what makes a
+        ramp behave like a ramp: the separating axis is chosen by minimum
+        penetration over both shapes' face normals, and without the triangle's
+        own the crate would be resolved along one of ITS axes instead."""
+        var a = i  # the dynamic body
+        var b = j  # the static mesh
+        if self.shape[i] >= 4:
+            a = j
+            b = i
+        if self.shape[a] >= 4:
+            return  # mesh vs mesh: two static bodies, nothing to resolve
+
+        # The speculative margin is split half-and-half between the two shapes
+        # everywhere else, and the full margin is subtracted from the depth
+        # afterwards. A triangle has no thickness to inflate, so the dynamic
+        # body carries the WHOLE margin here. Inflating it by half instead
+        # leaves the body resting margin/2 too deep -- 0.0102 on a 0.02 margin,
+        # measured against the same crate on a solid box floor.
+        var mr = margin
+        var wide = Vec3(margin, margin, margin)
+
+        var box = self._fat_aabb(a, 0)
+        var lo = box.min - wide
+        var hi = box.max + wide
+        var tris = List[Int]()
+        self._mesh_candidates(b, AABB[3](lo, hi), tris)
+        if len(tris) == 0:
+            return
+
+        var poly_a = self._as_hull(a, wide, mr)
+        var faces_a = self._hull_faces(a, wide, mr)
+        for c in range(len(tris)):
+            var t = tris[c]
+            var tf = self._mesh_tri_faces(b, t)
+            if len(tf) < 3:
+                continue  # degenerate triangle: no normal, no contact
+            var m = hull_manifold(poly_a, self._mesh_tri(b, t), faces_a, tf)
+            if not m.hit:
+                continue
+            if margin > 0:
+                for k in range(m.count):
+                    m.depths[k] -= margin
+            var pr = _CPair(
+                a, b, t, m,
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                InlineArray[Real, 4](fill=0),
+                InlineArray[Real, 4](fill=0),
+            )
+            for k in range(m.count):
+                pr.ra[k] = self.bodies[a].to_local(m.points[k])
+                pr.rb[k] = self.bodies[b].to_local(m.points[k])
+                var va0 = Vec3(0, 0, 0)
+                if not self.statics[a]:
+                    va0 = self.bodies[a].velocity_at(m.points[k])
+                pr.vn0[k] = dot(-va0, m.normal)
+            if warm:
+                for q in range(len(self.cache)):
+                    var old = self.cache[q]
+                    if (
+                        old.a == a
+                        and old.b == b
+                        and old.feat == t
+                        and old.m.count == m.count
+                    ):
+                        pr.acc = old.acc
+                        pr.acc_t1 = old.acc_t1
+                        pr.acc_t2 = old.acc_t2
+                        break
+            pairs.append(pr)
+
     def _try_pair(
         mut self, mut pairs: List[_CPair], i: Int, j: Int,
         warm: Bool, spec_dt: Real,
@@ -550,6 +710,11 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 sqrt(dot(va, va)) + sqrt(dot(vb, vb))
             ) * spec_dt
         var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
+
+        if self.shape[i] >= 4 or self.shape[j] >= 4:
+            self._try_mesh_pair(pairs, i, j, warm, margin)
+            return
+
         var m = self._pair_manifold(i, j, margin * 0.5, infl)
         if m.hit and margin > 0:
             for k in range(m.count):
@@ -558,6 +723,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             var pr = _CPair(
                 i,
                 j,
+                0,
                 m,
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
@@ -584,6 +750,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                     if (
                         old.a == i
                         and old.b == j
+                        and old.feat == 0
                         and old.m.count == m.count
                     ):
                         pr.acc = old.acc

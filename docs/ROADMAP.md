@@ -444,7 +444,7 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 | Phase | 主題 | 項目 | 優先 | 狀態 |
 |---|---|---|:--:|:--:|
 | **7** | 可擴展性:接線既有寬相 | **7.1 SAH-BVH ✅** · **7.2 solver6 接寬相 ✅** | ★★★ | ✅ |
-| **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase ✅ · 8.2 trimesh/heightfield 靜態關卡 | ★★★ | 🔄 |
+| **8** | 幾何表現力:跳出盒子 | 8.1 凸包入 narrowphase ✅ · 8.2 trimesh/heightfield 靜態關卡 ✅ | ★★★ | ✅ |
 | **9** | 物理完整度 | 9.1 關節庫(limits/motor/spring/prismatic/weld) · 9.2 浮動基座 · 9.3 過濾層+sensor · 9.4 接觸事件 | ★★ | 📋 |
 | **10** | 穩健與排程 | 10.1 exact predicates/interval · 10.2 自動依賴 job graph · 10.3 Actor Model 硬化 | ★★ | 📋(10.3 有雛形) |
 | **11** | 程序化與 gameplay | **11.1 Noise ✅** · **11.2 狀態機 ✅** · 11.3 動畫 runtime | ★★ | 🔨 11.1,11.2✅ |
@@ -565,15 +565,35 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > 因此此路徑**不傳、不回、不存任何 `List[Vec3]`**,一律扁平 `List[Real]`(stride 3)。
 > **相依**:8.2 的三角形即退化凸包,復用此路徑。
 
-### 8.2 三角網格 / heightfield 靜態關卡幾何 — 📋 規劃中
-> **現況**:全庫無 trimesh/heightfield —— **無法表示任意靜態關卡(table-stakes)**。
-> **設計**:靜態三角網格(BVH over triangles,復用 `geometry/bvh` + 7.1 SAH)+ heightfield
-> (規則網格取樣、隱式三角化);動態凸體 vs 三角形接觸(復用 8.1 GJK/EPA);**中相(midphase)**
-> 以 BVH 只取重疊三角,避免逐三角暴力。
-> **交付物**:
-> - **Test**:`test_trimesh` — 盒/球落斜三角面、階梯、heightfield 谷,靜置深度/法向正確、
->   不穿透、決定性;**凸體 vs 單三角 == 8.1 退化凸包路徑(parity)**。
-> - **Benchmark**:`bench_trimesh` — N 動態體對 M 三角網格,midphase BVH 命中三角數 vs brute。
+### 8.2 三角網格 / heightfield 靜態關卡幾何 — ✅ 完成(2026-08-11)
+> **成果**:`collision/trimesh.mojo` 的 `TriMesh`(BVH midphase)與 `HeightField`
+> (格點算術 midphase),各接進 `ContactScene6` 為 shape kind 4 / 5(`add_trimesh` /
+> `add_heightfield`,恆為靜態)。**任意靜態關卡現在表示得出來**。
+> **窄相沒有新東西**:三角形就是三頂點單面的凸包,直接走 8.1 的 `hull_manifold`。
+> 新的是 **midphase**,以及**一對多接觸**:一個木箱靠在山谷裡同時壓到數個三角形,
+> `_CPair` 因此新增 `feat`(三角形索引)當子鍵,否則每個接觸都會繼承同一筆 warm-start
+> 而互相打架。
+> **量測(`bench_trimesh`)**:三角形數 1922→32258(16.8×)時,brute 162.8→2709.6 µs
+> (**16.6× ,線性**)、BVH 379→886 ns(**2.3×,對數**)、heightfield 109→113 ns
+> (**完全不成長**)。三者**候選數相同**(3278 vs 3278),所以沒有人是靠多丟工作給窄相
+> 才變快的。代價寫明:heightfield 表達不了懸空、牆、洞穴。
+> 全步整合:7938 三角形 + 64 木箱時 midphase 佔比小到兩者無法區分(400 vs 408 µs)。
+> **定律 v3 三類**(`tests/test_trimesh.mojo` 18 checks):
+> - **普通** = 平面網格靜置高度 0.2498787 對上實心盒地板 0.24971099;20° 斜坡上
+>   木箱維持 0.266 離面高度 —— **這條就是在測三角形的法向有沒有進到 SAT**,
+>   盒子自己的面法向全是軸對齊的,少了三角形的法向木箱會被沿 +y 推而陷進斜面。
+> - **整合** = heightfield 與其 `to_trimesh()` 明列版對同一曲面靜置差 5e-6;
+>   盒/球/凸包同場靜置於網格;寬相開關逐位相同;**序列化來回後逐位相同**。
+> - **極端** = 空網格、零面積三角形、遠離網格的查詢、完全在格外的 heightfield 查詢、
+>   V 型谷多三角形接觸。
+> **抓到的真 bug**:
+> 1. 投機邊距只膨脹動態體一半卻扣掉整個 margin → 靜置低了 **0.0102**(= margin/2)。
+>    三角形沒有厚度可膨脹,動態體必須吃下整個 margin。
+> 2. 零面積三角形仍是**合法凸物**(退化成線段),GJK 照樣回報命中,木箱會停在一條
+>    數學線上。改由 `tri_faces` 對退化三角形回傳空清單來表達「沒有面就沒有接觸」。
+> 3. **8.1 留下的序列化洞被這個測試抓到**:`scene_from_string` 沒有還原 `hull_id`,
+>    凸包場景來回後會索引空側表。已補齊 —— hull / trimesh / heightfield 的幾何
+>    現在隨 body 一起序列化(此格式是完整狀態快照,不是資產參照)。
 > **相依**:8.1(三角=退化凸包)、7.1(三角 BVH 用 SAH)。
 
 ## Phase 9 — 物理完整度(2026-07-22)
