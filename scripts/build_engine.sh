@@ -20,6 +20,7 @@ pc() {
 pc harness
 pc geometry
 pc numerics
+pc fluid
 pc procedural
 pc spatial
 pc ecs

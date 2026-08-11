@@ -352,6 +352,37 @@ run_bench() {
     echo "exactly that."
     echo
     run_bench benchmarks/bench_self_collide.mojo
+    echo "## Fluid — lattice Boltzmann (D3Q19)"
+    echo
+    echo "LBM is the odd one out among this engine'\''s fluid solvers. SPH and PBF carry"
+    echo "particles and spend much of every step deciding which ones interact; LBM carries"
+    echo "a fixed grid and every cell talks to the same 19 neighbours forever. No neighbour"
+    echo "search, no sorting, no pressure Poisson — pressure comes from density by an"
+    echo "equation of state. What it pays instead is memory: 19 floats per cell whether"
+    echo "that cell is doing anything or not, plus a second buffer for streaming."
+    echo
+    echo "MLUPS (million lattice updates per second) is the standard figure, so one op"
+    echo "here is one cell advanced one step and ns/op reads as 1000/MLUPS. The scan holds"
+    echo "roughly flat from 16^3 to 64^3, declining slightly as the working set outgrows"
+    echo "cache — which is what a method with no arithmetic intensity to hide behind looks"
+    echo "like when it becomes bandwidth bound."
+    echo
+    echo "3.7 MLUPS is defensible for a straightforward scalar implementation and is NOT"
+    echo "close to the best published CPU numbers, which reach tens of MLUPS with SIMD"
+    echo "across cells, a fused collide-stream, and an in-place pattern that drops the"
+    echo "second buffer. None of those are done here. Two things that were done are worth"
+    echo "recording because they were worth 20x between them: the velocity set is"
+    echo "materialised once into the solver rather than rebuilt by a function call 19 times"
+    echo "per cell per step — the first run of this benchmark read 0.18 MLUPS and all of"
+    echo "the difference was allocation — and streaming swaps its buffers instead of"
+    echo "copying one into the other."
+    echo
+    echo "Correctness is gated on physics rather than on regression: \`test_lbm\` checks the"
+    echo "velocity set'\''s moment conditions, reproduces the analytic Poiseuille parabola to"
+    echo "0.28%, and holds a symmetric obstacle in a symmetric tunnel to a y-asymmetry of"
+    echo "6e-8."
+    echo
+    run_bench benchmarks/bench_lbm.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"
