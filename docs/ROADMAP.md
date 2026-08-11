@@ -702,13 +702,27 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 >   全部互不衝突(單一寬層)、宣告空集合的系統、宣告全集的系統,
 >   以及「空集合系統註冊在全集系統之後也不該繼承相依」。
 
-### 10.3 Actor Model 硬化(既有雛形 → 生產)— 📋 規劃中(有雛形)
-> **現況**:`scheduler/{entity_actor,system_actor,message}.mojo`(336 行,EntityActor /
-> SystemActor 兩排程器 + envelope/inbox)**已存在但零測試、未整合、未證明**。
-> **設計**:補決定性投遞語意(inbox 排序、同 tick 訊息可見性規則)、與 `gameloop` 整合、
-> 背壓/mailbox 溢位策略。
-> **交付物**:`test_actor`(訊息投遞順序、**雙次執行逐位一致 = rollback 地基**、entity vs
-> system actor 同場景 parity)+ bench(actor 排程 vs 直接系統)。
+### 10.3 Actor Model 硬化(既有雛形 → 生產)— ✅ 完成(2026-08-11)
+> **修正舊敘述**:原文寫「零測試」已不成立 —— `test_scheduler_parity` 與
+> `bench_scheduler` 早已涵蓋 actor 排程器與 sequential 的世界狀態 parity。
+> 真正缺的是**投遞語意**:訊息順序、同 tick 可見性、信箱滿了會怎樣、以及兩次執行是否真的一致。
+> **成果**:`EntityActorScheduler` 加上**可觀測的背壓**——
+> `max_rounds`(每 tick 級聯深度上限)、`mailbox_cap`(單一信箱上限)、
+> 以及回報用的 `rounds_used` / `truncated` / `dropped` / `delivered`。
+> **設計決定**:溢位丟**最新**的而不是最舊的。因為送信端是按 id 遞增走訪的,
+> 「按 sender id 排序的前 cap 則」是訊息集合本身的性質,而「最後 cap 則」會取決於
+> 信箱滿之前哪些送達 —— 一個在高負載下悄悄重排的上限比沒有上限更糟,那會毀掉 replay。
+> **一個會靜默截斷的訊息系統,是那種只會以「模擬在某台機器上發散了」現形的 bug**,
+> 所以每個上限都回報,不只是執行。
+> **定律 v3 三類**(`tests/test_actor.mojo` 24 checks):
+> - **普通** = wake 階段送出的訊息在**同一個 tick** 內就被收到並處理(16/16);
+>   payload 一則不漏;收件匣第一則來自最小的 sender id。
+> - **整合** = serial 與 parallel dispatch 的世界摘要、**投遞則數、級聯輪數**三者都相同;
+>   獨立重跑一次結果完全一致(replay/rollback 的地基)。
+> - **極端** = 空 actor 族群、單一 actor 對自己送信(4 段級聯一個 tick 收斂)、
+>   級聯深過上限(**回報 `truncated=True`,不是靜默截斷**)、
+>   信箱溢位(cap=4 時保留 sender id 最小的四則、`dropped=12`,且 parallel 下逐位相同)、
+>   送給不存在的 entity(丟棄、不計入背壓、也不會讓 drain 迴圈空轉)。
 > **註**:網路 rollback 的地基(決定性 RNG + actor + 序列化)在此收口;網路本體仍為外殼、不做。
 
 ## Phase 11 — 程序化與 gameplay 基礎建設(2026-07-22)
