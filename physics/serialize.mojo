@@ -89,6 +89,9 @@ def scene_to_string(sc: ContactScene6[QuatBody6]) raises -> String:
         _wf(s, sc.restitution[i])
         _wi(s, 1 if sc.sleeping[i] else 0)
         _wf(s, sc.sleep_timer[i])
+        _wi(s, Int(sc.category[i]))
+        _wi(s, Int(sc.mask[i]))
+        _wi(s, 1 if sc.sensor[i] else 0)
         # Shape payload for the kinds that keep their geometry in a side table.
         # A snapshot that restored a hull body without its vertices would load
         # cleanly and then index an empty table on the next contact, so the
@@ -200,6 +203,9 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
         sc.restitution.append(r.f())
         sc.sleeping.append(r.i() == 1)
         sc.sleep_timer.append(r.f())
+        sc.category.append(UInt32(r.i()))
+        sc.mask.append(UInt32(r.i()))
+        sc.sensor.append(r.i() == 1)
         sc.island.append(-1)
         sc.hull_id.append(-1)
         sc.mesh_id.append(-1)

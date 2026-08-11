@@ -613,18 +613,39 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **交付物**:`test_floatingbase`(自由落體質心拋物線 = 解析、無外力**角動量守恆**、鎖根時
 > 與固定基座 parity)+ 與 solver6 maximal-coord ragdoll 交叉驗證。**相依**:9.1(關節)。
 
-### 9.3 碰撞過濾(layers / groups / masks)+ sensors / triggers — 📋 規劃中
-> **現況**:無 —— 無法表達「玩家不撞玩家」「觸發區」。
-> **設計**:per-body category bits + mask(Box2D 式 `(catA&maskB)&&(catB&maskA)`),**寬相
-> 候選即過濾**(零額外解算);sensor 旗標(產接觸事件但不解衝量)。
-> **交付物**:`test_filter`(層矩陣命中/略過、sensor 不施力但報重疊)+ 寬相過濾零額外配置。
-> **相依**:9.4(sensor 產事件)、7.2(過濾掛在 DBVH 候選出口最省)。
+### 9.3 碰撞過濾(layers / groups / masks)+ sensors / triggers — ✅ 完成(2026-08-11)
+> **成果**:`ContactScene6.set_filter(i, category, mask)` / `set_sensor(i, on)`。
+> Box2D 式對稱測試 `(catA&maskB) && (catB&maskA)`,擺在 `_try_pair` 開頭 ——
+> **brute 與寬相兩條列舉路徑唯一的匯流點**,所以兩者不可能對「濾掉了什麼」有分歧。
+> sensor 的接觸對收在獨立的 `sensor_pairs`,而不是在 `pairs` 裡加旗標,
+> 這樣 solve / warm-start / islands / restitution **沒有任何一個迴圈需要認識 sensor**。
+> **量測(`bench_filter`)**:兩個佔據同一空間的族群(這才是過濾的優勢區)。
+> 過濾後 4.30 ms/step → 0.575 ms/step。**但驅動因素不是接觸數**(254 vs 192 只差 32%):
+> `asleep=` 欄顯示過濾場景 192 個全部入睡,未過濾場景只有 88 個 ——
+> 生成時互相穿透的箱子被推開、飄回、再被推開,永遠靜不下來。
+> 誠實結論:**過濾不是讓接觸解算變快,而是決定場景會不會收斂到靜止**。
+> **量測缺陷(自己踩到並修正)**:第一版拿同一堆箱子加/不加分層對比,得出「過濾慢 45%」——
+> 那是在比**兩個不同場景**(被過濾的箱子互相穿透,堆疊塌成別的形狀)。
+> **定律 v3 三類**(`tests/test_filter_events.mojo` 21 checks,與 9.4 合測)。
 
-### 9.4 接觸事件(began / stay / ended)— 📋 規劃中
-> **現況**:無接觸回呼;gameplay 無法知「誰碰到誰」。
-> **設計**:跨幀 pair cache 差分(warm-start cache 已有 pair 集)→ began(本幀新)/ stay /
-> ended(上幀有本幀無);事件佇列復用 ECS observer inbox 慣例,**決定性順序**。
-> **交付物**:`test_contact_events`(逐事件流比對、sensor 觸發、雙次執行一致)。**相依**:9.3。
+### 9.4 接觸事件(began / stay / ended)— ✅ 完成(2026-08-11)
+> **成果**:`events_on` 開啟後,每步以 `_emit_events` 對「本步接觸集」與「上步接觸集」
+> 做排序合併差分。接觸集是**推導出來的,不是維護出來的**:solver 剛建好本步的接觸,
+> warm-start cache 就是上步的同一份答案,所以不需要增量維護、也沒有「刪 body 要失效什麼」。
+> 鍵是 `(a, b, feat)` 打包成一個 Int,`feat` 即三角形索引 —— 木箱沿地板滑過時
+> **確實是逐三角形地開始與結束接觸**,只用 body pair 當鍵會報成一次不中斷的接觸。
+> 事件順序經排序正規化,所以**同一場景在不同碰撞 seam 上事件流逐位相同**(已測)。
+> sensor 重疊也進事件流 —— 觸發區不施力,事件是觀察到它的唯一管道。
+> **量測**:預設關閉;開啟成本在測試場景 <3%(0.575→0.583 ms、4.30→4.41 ms)。
+> **定律 v3 三類**(`tests/test_filter_events.mojo` 21 checks):
+> - **普通** = 層矩陣三種組合(全通/同層互斥/單邊拒絕即足夠);
+>   sensor 不施力(**穿過它的木箱位置與完全沒有 sensor 的自由落體逐位相同**);
+>   首次接觸步 began=1 且 stay=0,下一步 began=0 且 stay=1,瞬移後 ended。
+> - **整合** = 過濾/sensor/事件在 brute 與寬相兩 seam 上逐位相同(含事件總數);
+>   過濾與 sensor 旗標經序列化來回後行為不變;**靜態網格接觸的事件**
+>   (一對 body 攜帶多個以三角形索引區分的獨立接觸)。
+> - **極端** = 全零 mask(連地板都穿過)、同層自我排除、兩個 sensor 互相重疊、
+>   瞬移使接觸集整批換掉、完全沒有 body 的空場景。
 
 ## Phase 10 — 穩健與排程(2026-07-22)
 

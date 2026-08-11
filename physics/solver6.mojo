@@ -78,6 +78,74 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
     var racc: InlineArray[Real, 4]
 
 
+@fieldwise_init
+struct ContactEvent(Copyable, ImplicitlyCopyable, Movable):
+    """One transition in the contact set. `kind` is 0 began / 1 stay / 2 ended.
+
+    `feat` is the triangle index for mesh contacts and 0 otherwise, the same
+    sub-key the warm-start cache uses: a crate sliding along a floor genuinely
+    begins and ends contact with each triangle in turn, and collapsing that to
+    one event per body pair would report a single unbroken touch."""
+
+    var a: Int
+    var b: Int
+    var feat: Int
+    var kind: Int
+
+
+comptime _EV_BEGAN = 0
+comptime _EV_STAY = 1
+comptime _EV_ENDED = 2
+
+
+def _ckey(a: Int, b: Int, feat: Int) -> Int:
+    """(body, body, feature) packed into one Int so the frame-to-frame diff is
+    a sorted-list merge. 21 bits each: 2M bodies, 2M triangles per mesh."""
+    return (a << 42) | (b << 21) | feat
+
+
+def _sort_keys(mut k: List[Int]):
+    """Bottom-up merge sort. The event stream has to be in a canonical order,
+    not in whatever order the broadphase happened to enumerate pairs, or the
+    same scene would report the same events differently depending on which
+    collision seam it ran through."""
+    var n = len(k)
+    if n < 2:
+        return
+    var buf = List[Int](capacity=n)
+    for i in range(n):
+        buf.append(k[i])
+    var width = 1
+    while width < n:
+        var i = 0
+        while i < n:
+            var mid = min(i + width, n)
+            var hi = min(i + 2 * width, n)
+            var l = i
+            var r = mid
+            var o = i
+            while l < mid and r < hi:
+                if k[l] <= k[r]:
+                    buf[o] = k[l]
+                    l += 1
+                else:
+                    buf[o] = k[r]
+                    r += 1
+                o += 1
+            while l < mid:
+                buf[o] = k[l]
+                l += 1
+                o += 1
+            while r < hi:
+                buf[o] = k[r]
+                r += 1
+                o += 1
+            i += 2 * width
+        for j in range(n):
+            k[j] = buf[j]
+        width *= 2
+
+
 def _cross(a: Vec3, b: Vec3) -> Vec3:
     return Vec3(
         a[1] * b[2] - a[2] * b[1],
@@ -176,6 +244,25 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
     var meshes: List[TriMesh]
     var fields: List[HeightField]
     var mesh_id: List[Int]
+    # Collision filtering, Box2D's scheme: two bodies collide when each one's
+    # category is in the other's mask. Applied at the top of `_try_pair`, which
+    # is the single point both the brute and the broadphase enumeration funnel
+    # through — so a filtered pair costs one AND on either seam, and the two
+    # cannot disagree about what was filtered.
+    var category: List[UInt32]
+    var mask: List[UInt32]
+    # A sensor reports overlap and never receives an impulse. Its pairs are
+    # collected separately rather than flagged in `pairs`, so that not one of
+    # the solve, warm-start, island or restitution loops needs to learn about
+    # them.
+    var sensor: List[Bool]
+    var sensor_pairs: List[_CPair]
+    # Contact events, rebuilt every step when `events` is on. Off by default:
+    # the diff sorts the contact set, which is real work for a scene that never
+    # reads the result.
+    var events_on: Bool
+    var events: List[ContactEvent]
+    var _prev_keys: List[Int]
 
     def __init__(out self):
         self.bodies = List[Self.B]()
@@ -184,6 +271,13 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.meshes = List[TriMesh]()
         self.fields = List[HeightField]()
         self.mesh_id = List[Int]()
+        self.category = List[UInt32]()
+        self.mask = List[UInt32]()
+        self.sensor = List[Bool]()
+        self.sensor_pairs = List[_CPair]()
+        self.events_on = False
+        self.events = List[ContactEvent]()
+        self._prev_keys = List[Int]()
         self.half = List[_Half]()
         self.statics = List[Bool]()
         self.cache = List[_CPair]()
@@ -302,6 +396,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.shape.append(0)
         self.hull_id.append(-1)
         self.mesh_id.append(-1)
+        self.category.append(1)
+        self.mask.append(0xFFFFFFFF)
+        self.sensor.append(False)
         return len(self.bodies) - 1
 
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
@@ -373,6 +470,25 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         self.mesh_id[i] = len(self.fields)
         self.fields.append(f^)
         return i
+
+    def set_filter(mut self, i: Int, category: UInt32, mask: UInt32):
+        """Which layer body `i` is on, and which layers it collides with.
+
+        Symmetric by construction: both directions must agree, so "players do
+        not hit players" is one bit cleared, not a rule that has to be repeated
+        on every other body."""
+        self.category[i] = category
+        self.mask[i] = mask
+
+    def set_sensor(mut self, i: Int, on: Bool):
+        """A sensor overlaps but never pushes: it reports contact events and is
+        skipped by every solve pass. Trigger volumes are the point."""
+        self.sensor[i] = on
+
+    def _should_collide(self, i: Int, j: Int) -> Bool:
+        return (self.category[i] & self.mask[j]) != 0 and (
+            self.category[j] & self.mask[i]
+        ) != 0
 
     def _mesh_candidates(self, i: Int, box: AABB[3], mut out: List[Int]):
         """Triangles of static body `i` that could touch `box`. The two static
@@ -701,6 +817,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         """The per-pair body of `_collect_pairs`: speculative manifold +
         restitution prep + warm-start match. Extracted so both the brute and
         the broadphase enumeration feed the IDENTICAL logic (parity)."""
+        if not self._should_collide(i, j):
+            return
         comptime SPEC_BASE: Real = 0.02
         var margin = Real(0)
         if spec_dt > 0:
@@ -710,6 +828,26 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 sqrt(dot(va, va)) + sqrt(dot(vb, vb))
             ) * spec_dt
         var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
+
+        if self.sensor[i] or self.sensor[j]:
+            # No speculative margin: a trigger should fire when the shapes
+            # actually overlap, not a margin early, and there is no impulse for
+            # the margin to smooth out anyway.
+            var sm = self._pair_manifold(i, j, 0, Vec3(0, 0, 0))
+            if sm.hit:
+                self.sensor_pairs.append(
+                    _CPair(
+                        i, j, 0, sm,
+                        InlineArray[Real, 4](fill=0),
+                        InlineArray[Real, 4](fill=0),
+                        InlineArray[Real, 4](fill=0),
+                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                        InlineArray[Real, 4](fill=0),
+                        InlineArray[Real, 4](fill=0),
+                    )
+                )
+            return
 
         if self.shape[i] >= 4 or self.shape[j] >= 4:
             self._try_mesh_pair(pairs, i, j, warm, margin)
@@ -759,6 +897,55 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         break
             pairs.append(pr)
 
+    def _emit_events(mut self, pairs: List[_CPair]):
+        """Diff this step's contact set against last step's: began / stay /
+        ended.
+
+        The set is derived, not tracked. The solver already knows exactly which
+        contacts exist this step — it just built them — and the warm-start
+        cache is last step's answer to the same question, so the events are a
+        sorted merge of two key lists and nothing has to be maintained
+        incrementally or invalidated when a body is removed.
+
+        Sensor overlaps are included: a trigger volume that never receives an
+        impulse still has to say when something entered it, and that is the
+        whole reason sensors exist."""
+        self.events = List[ContactEvent]()
+        var cur = List[Int](capacity=len(pairs) + len(self.sensor_pairs))
+        for c in range(len(pairs)):
+            cur.append(_ckey(pairs[c].a, pairs[c].b, pairs[c].feat))
+        for c in range(len(self.sensor_pairs)):
+            ref sp = self.sensor_pairs[c]
+            cur.append(_ckey(sp.a, sp.b, sp.feat))
+        _sort_keys(cur)
+
+        var i = 0
+        var j = 0
+        while i < len(cur) or j < len(self._prev_keys):
+            if j >= len(self._prev_keys) or (
+                i < len(cur) and cur[i] < self._prev_keys[j]
+            ):
+                self._push_event(cur[i], _EV_BEGAN)
+                i += 1
+            elif i >= len(cur) or cur[i] > self._prev_keys[j]:
+                self._push_event(self._prev_keys[j], _EV_ENDED)
+                j += 1
+            else:
+                self._push_event(cur[i], _EV_STAY)
+                i += 1
+                j += 1
+        self._prev_keys = cur^
+
+    def _push_event(mut self, key: Int, kind: Int):
+        self.events.append(
+            ContactEvent(
+                key >> 42,
+                (key >> 21) & 0x1FFFFF,
+                key & 0x1FFFFF,
+                kind,
+            )
+        )
+
     def _collect_pairs(
         mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False
     ) -> List[_CPair]:
@@ -776,6 +963,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         (i, j) lexicographic order as the brute path, so the pair set and the
         Gauss-Seidel sweep are bit-identical (`test_solver_broadphase`)."""
         var pairs = List[_CPair]()
+        self.sensor_pairs = List[_CPair]()  # rebuilt with the solved pairs
         var n = len(self.bodies)
         if use_bp:
             var bvh = BVH[3]()
@@ -1709,6 +1897,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 workers,
             )
             self._update_sleep(dt)
+            if self.events_on:
+                self._emit_events(pairs2)
             self.cache = pairs2^
             return
         for _ in range(substeps):
@@ -1755,6 +1945,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 )
         self._restitution_pass(pairs, 0, len(pairs), 4)
         self._update_sleep(dt)
+        if self.events_on:
+            self._emit_events(pairs)
         self.cache = pairs^  # impulses persist to the next frame
 
 

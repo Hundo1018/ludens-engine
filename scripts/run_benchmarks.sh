@@ -177,6 +177,35 @@ run_bench() {
     echo "the brute column has already become unusable."
     echo
     run_bench benchmarks/bench_trimesh.mojo
+    echo "## Collision — filtering and contact events"
+    echo
+    echo "Layers, masks, sensors (\`set_filter\` / \`set_sensor\`) and the began/stay/ended"
+    echo "event stream, all in \`ContactScene6\`. The filter test is two ANDs at the top of"
+    echo "\`_try_pair\`, the one point both the brute and the broadphase enumeration funnel"
+    echo "through, so the two seams cannot disagree about what was filtered —"
+    echo "\`test_filter_events\` gates them to bit-identical results AND to an identical"
+    echo "event stream."
+    echo
+    echo "A first version of this table compared one crate pile against the same pile with"
+    echo "layers assigned and made filtering look like a 45% slowdown. That was two"
+    echo "different SCENES: filtered crates interpenetrate, so the pile settles somewhere"
+    echo "else. The rows below instead start from the case filtering is FOR — two"
+    echo "populations sharing one volume, which is what a player layer and an enemy layer"
+    echo "standing in the same room actually is."
+    echo
+    echo "Read the \`asleep=\` column before drawing a conclusion from the times. The gap"
+    echo "is not contact count (254 against 192 is nowhere near the measured factor): the"
+    echo "filtered scene settles and all 192 crates sleep, while the unfiltered one has"
+    echo "crates spawned inside each other that are pushed apart, drift back, and are"
+    echo "pushed again, so 104 are still awake and being solved. Filtering does not make"
+    echo "contact resolution faster. It is the difference between a scene that comes to"
+    echo "rest and one that never does."
+    echo
+    echo "Events are off by default and the last two rows are why: the diff sorts the"
+    echo "contact set every step. On these scenes that is under 3%, which is small but not"
+    echo "nothing for a feature a scene may never read."
+    echo
+    run_bench benchmarks/bench_filter.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"
