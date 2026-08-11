@@ -299,6 +299,31 @@ run_bench() {
     echo "comparison: not a faster step, an available one."
     echo
     run_bench benchmarks/bench_numerics.mojo
+    echo "## Animation — clips, blending and cross-fade"
+    echo
+    echo "The skinning maths existed; the runtime around it did not. \`procedural/anim.mojo\`"
+    echo "adds uniformly-sampled clips, three blend modes, and a player that cross-fades"
+    echo "between clips under whatever drives it — \`test_anim\` drives it from"
+    echo "\`scheduler/fsm.mojo\`."
+    echo
+    echo "Costs are per BONE per FRAME and are flat in the bone count, which is what they"
+    echo "should be: the work is per bone and nothing here is quadratic. The three blend"
+    echo "modes are ordered by what they guarantee and come out in the same order by"
+    echo "cost. Linear is cheapest and is NOT constant angular speed — measured at 0.283"
+    echo "where constant speed puts 0.319, an 11% lag a quarter of the way through a"
+    echo "150-degree blend. The geodesic mode (exp/log on the motor manifold) is the only"
+    echo "constant-speed one, at about 3.7x linear."
+    echo
+    echo "One detail worth recording because it made an earlier version of the test"
+    echo "vacuous: at exactly halfway, normalised-lerp and slerp are IDENTICAL, since the"
+    echo "normalised midpoint of a chord lies on the great-circle midpoint. A comparison"
+    echo "taken at w = 0.5 shows the two blend modes agreeing to seven digits and proves"
+    echo "nothing about either."
+    echo
+    echo "The player rows show what a cross-fade costs: 3.4x a single clip, because a"
+    echo "fading player samples two clips and blends them instead of sampling one."
+    echo
+    run_bench benchmarks/bench_anim.mojo
     echo "## Collision — scene queries (raycast + overlap)"
     echo
     echo "The \`SceneQuery\` seam: brute / bvh / grid / tree answering identical ray and"

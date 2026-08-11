@@ -754,12 +754,31 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 > **同事件序列雙機同路徑**(決定性)。
 > **用途**:AI、gameplay 邏輯、動畫狀態(驅動 11.3)。**相依**:無。非 seam,功能測試即交付。
 
-### 11.3 動畫 runtime(clip / blend / 狀態機驅動)— 📋 規劃中
-> **現況**:skinning 數學已有(motor DLB / LBS,修過 candy-wrapper),**缺 runtime**。
-> **設計**:動畫 clip(關鍵幀取樣)、blend tree(線性 / **motor 測地混合**,復用 GA)、
-> 由 11.2 狀態機驅動狀態轉移。
-> **交付物**:`test_anim`(clip 取樣、blend 端點 == 純 clip、**motor blend 無 candy-wrapper**)
-> + bench(每骨每幀 ns)。**相依**:11.2(狀態機驅動)。
+### 11.3 動畫 runtime(clip / blend / 狀態機驅動)— ✅ 完成(2026-08-11)
+> **成果**:`procedural/anim.mojo` —— `AnimClip`(等間隔取樣關鍵幀)、
+> `blend_poses`(三種混合模式)、`AnimPlayer`(cross-fade 狀態)、`pose_to_motors`
+> (接上既有 `geometry/skinning.mojo`)。狀態機驅動由 `scheduler/fsm.mojo` 提供,
+> 已在測試中實際接起來(`fire` → `is_in` → `play`)。
+> **三種混合都保留並比較**(不是挑一個):linear(正規化 lerp)、
+> dlb(`skinning.blend2` 的對偶四元數線性混合)、geodesic(`galie.geodesic3` 的 exp/log 測地)。
+> **量測(`bench_anim`)**:每骨每幀 —— 取樣 53 ns、linear 43 ns、dlb 61 ns、
+> geodesic 157 ns(linear 的 3.7×)、pose→motors 11 ns。
+> 骨數 32 與 256 的每骨成本**持平**(該如此:工作量本來就是每骨線性)。
+> player 單一 clip 51–60 ns,cross-fade 中 170 ns(3.4×,因為要取樣兩個 clip 再混)。
+> **一個讓測試差點變空洞的細節**:**w = 0.5 時正規化 lerp 與 slerp 完全相同**
+> (弦的正規化中點就落在大圓中點),所以在中點做比較會看到兩種模式一致到 7 位數、
+> 什麼也證明不了。第一版測試正是如此。改在 w = 0.25 量:linear 0.28285、
+> geodesic 0.31931(= 等速的精確值),linear **落後 11%**。
+> 中點的巧合本身也寫成一條斷言留著。
+> **定律 v3 三類**(`tests/test_anim.mojo` 34 checks):
+> - **普通** = 恰好在關鍵幀取樣即得該幀、中點內插正確、循環 clip 一個週期後重現;
+>   **三種混合在 w=0 與 w=1 都精確退回輸入**(端點會 pop 的混合是不能用的)。
+> - **整合** = 混合後的姿態餵進 `skin_motor` 產生有限結果;`StateMachine` 轉移驅動
+>   `AnimPlayer.play`;linear 與 geodesic 在能區分的地方確實不同。
+> - **極端** = 單幀 clip、零幀 clip、負時間與一千個循環之外的時間、
+>   非循環 clip 兩端夾住、零長度 cross-fade(立即切換)、
+>   重播正在播的 clip(不倒帶)、以及 **q 與 −q 混合**(同一個旋轉,
+>   天真做法會轉一整圈;三種模式的偏差都是 0.0)。
 
 ## Phase 12 — 腳本層(架構分離,獨立層)⏸ gated
 
