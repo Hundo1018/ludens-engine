@@ -58,6 +58,15 @@ struct ContactManifold[dim: Int](Copyable, ImplicitlyCopyable, Movable):
         )
         self.depths = InlineArray[Real, Self.MAX](fill=0)
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one no longer gets a synthesised one."""
+        self.hit = copy.hit
+        self.normal = copy.normal
+        self.count = copy.count
+        self.points = copy.points.copy()
+        self.depths = copy.depths.copy()
+
     @staticmethod
     def miss() -> Self:
         return Self()
@@ -255,7 +264,7 @@ def _face_verts(c: Vec3, ax: Axes3, h: Vec3, j: Int, sign: Real) -> InlineArray[
     out[1] = fc - eu + ev
     out[2] = fc - eu - ev
     out[3] = fc + eu - ev
-    return out
+    return out^
 
 
 def _clip_poly_plane(
@@ -281,7 +290,7 @@ def _clip_poly_plane(
             if n_out < 8:
                 out[n_out] = p0 + (p1 - p0) * t
                 n_out += 1
-    return (out, n_out)
+    return (out^, n_out)
 
 
 def _face_manifold(
@@ -321,16 +330,16 @@ def _face_manifold(
     var u = (j + 1) % 3
     var v = (j + 2) % 3
     var r = _clip_poly_plane(pts, count, rax[u], dot(rax[u], rc) + rh[u])
-    pts = r[0]
+    pts = r[0].copy()
     count = r[1]
     r = _clip_poly_plane(pts, count, -rax[u], -(dot(rax[u], rc) - rh[u]))
-    pts = r[0]
+    pts = r[0].copy()
     count = r[1]
     r = _clip_poly_plane(pts, count, rax[v], dot(rax[v], rc) + rh[v])
-    pts = r[0]
+    pts = r[0].copy()
     count = r[1]
     r = _clip_poly_plane(pts, count, -rax[v], -(dot(rax[v], rc) - rh[v]))
-    pts = r[0]
+    pts = r[0].copy()
     count = r[1]
     if count == 0:
         return ContactManifold[3].miss()

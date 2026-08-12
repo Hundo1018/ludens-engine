@@ -48,7 +48,7 @@ def _sym_add(a: _Rows3, b: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = a[i] + b[i]
-    return r
+    return r^
 
 
 def _matvec(m: _Rows3, v: Vec3) -> Vec3:
@@ -62,7 +62,7 @@ def _rot_rows(q: Quat) -> _Rows3:
     r[0] = q.rotate(Vec3(1, 0, 0))
     r[1] = q.rotate(Vec3(0, 1, 0))
     r[2] = q.rotate(Vec3(0, 0, 1))
-    return r
+    return r^
 
 
 @fieldwise_init
@@ -72,6 +72,13 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
     var m: Real
     var h: Vec3
     var io: _Rows3
+
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one gets no synthesised copy."""
+        self.m = copy.m
+        self.h = copy.h
+        self.io = copy.io.copy()
 
     @staticmethod
     def of_link(mass: Real, com: Vec3, i_diag: Vec3) -> Self:
@@ -88,7 +95,7 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
                     v += mass * c2 + i_diag[i]
                 row[j] = v
             io[i] = row
-        return Self(mass, c * mass, io)
+        return Self(mass, c * mass, io^)
 
     def apply(self, w: Vec3, v: Vec3) -> Tuple[Vec3, Vec3]:
         """Spatial momentum/force map: (Iw + h×v, m·v − h×w)."""
@@ -168,7 +175,7 @@ def _shift_inertia(ci: SpInertia, q: Quat, p: Vec3) -> SpInertia:
     var px_hmp = _cross_mat_mul(p, hr + p * ci.m)
     for r in range(3):
         rrows[r] = rrows[r] - px_hr[r] - _transpose_row(px_hmp, r)
-    return SpInertia(ci.m, h_p, rrows)
+    return SpInertia(ci.m, h_p, rrows^)
 
 
 def _merge_inertia(a: SpInertia, b: SpInertia) -> SpInertia:
@@ -945,7 +952,7 @@ struct Chain(Movable, ImplicitlyDeletable):
                 var b2 = _msub(ia[i2].b, _outer_scaled(u_[0], u_[1], inv_d))
                 var d2 = _msub(ia[i2].d, _outer_scaled(u_[1], u_[1], inv_d))
                 # pa = p^A + Ia c + U u/d
-                var iac = _ABI(a2, b2, d2).apply(cw[i2].v, cv[i2].v)
+                var iac = _ABI(a2.copy(), b2.copy(), d2.copy()).apply(cw[i2].v, cv[i2].v)
                 var paw = pw[i2].v + iac[0] + u_[0] * (uu[i2] * inv_d)
                 var pav = pv[i2].v + iac[1] + u_[1] * (uu[i2] * inv_d)
                 # into the parent frame: rotate blocks, then shift by pivot
@@ -1041,7 +1048,7 @@ def _cross_mat_mul(a: Vec3, b: Vec3) -> _Rows3:
                 v -= ab
             row[j] = v
         r[i] = row
-    return r
+    return r^
 
 
 def _transpose_row(m: _Rows3, r: Int) -> Vec3:
@@ -1054,7 +1061,7 @@ def _skew(p: Vec3) -> _Rows3:
     r[0] = Vec3(0, -p[2], p[1])
     r[1] = Vec3(p[2], 0, -p[0])
     r[2] = Vec3(-p[1], p[0], 0)
-    return r
+    return r^
 
 
 def _outer_scaled(u: Vec3, v: Vec3, s: Real) -> _Rows3:
@@ -1062,7 +1069,7 @@ def _outer_scaled(u: Vec3, v: Vec3, s: Real) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = v * (u[i] * s)
-    return r
+    return r^
 
 
 def _matmul(x: _Rows3, y: _Rows3) -> _Rows3:
@@ -1070,28 +1077,28 @@ def _matmul(x: _Rows3, y: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = y[0] * x[i][0] + y[1] * x[i][1] + y[2] * x[i][2]
-    return r
+    return r^
 
 
 def _madd(a: _Rows3, b: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = a[i] + b[i]
-    return r
+    return r^
 
 
 def _msub(a: _Rows3, b: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = a[i] - b[i]
-    return r
+    return r^
 
 
 def _transpose(m: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = Vec3(m[0][i], m[1][i], m[2][i])
-    return r
+    return r^
 
 
 def _tmatvec(m: _Rows3, v: Vec3) -> Vec3:
@@ -1108,7 +1115,7 @@ def _rot_mat(q: Quat, m: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0))
     for i in range(3):
         r[i] = Vec3(c0[i], c1[i], c2[i])
-    return r
+    return r^
 
 
 @fieldwise_init
@@ -1121,6 +1128,13 @@ struct _ABI(Copyable, ImplicitlyCopyable, Movable):
     var b: _Rows3
     var d: _Rows3
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one gets no synthesised copy."""
+        self.a = copy.a.copy()
+        self.b = copy.b.copy()
+        self.d = copy.d.copy()
+
     @staticmethod
     def of(ii: SpInertia) -> Self:
         var b = _skew(ii.h)
@@ -1128,7 +1142,7 @@ struct _ABI(Copyable, ImplicitlyCopyable, Movable):
         d[0] = Vec3(ii.m, 0, 0)
         d[1] = Vec3(0, ii.m, 0)
         d[2] = Vec3(0, 0, ii.m)
-        return Self(ii.io, b, d)
+        return Self(ii.io.copy(), b^, d^)
 
     def apply(self, w: Vec3, v: Vec3) -> Tuple[Vec3, Vec3]:
         """Force = [[A, B], [Bᵀ, D]] · (w, v)."""

@@ -26,7 +26,7 @@ deferred (e = 0 scenes).
 """
 
 from std.math import sqrt
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from geometry.bvh import BVH
@@ -76,6 +76,21 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
     # field is warm-start-inherited — both are per-frame.
     var vn0: InlineArray[Real, 4]
     var racc: InlineArray[Real, 4]
+
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one gets no synthesised copy."""
+        self.a = copy.a
+        self.b = copy.b
+        self.feat = copy.feat
+        self.m = copy.m.copy()
+        self.acc = copy.acc.copy()
+        self.acc_t1 = copy.acc_t1.copy()
+        self.acc_t2 = copy.acc_t2.copy()
+        self.ra = copy.ra.copy()
+        self.rb = copy.rb.copy()
+        self.vn0 = copy.vn0.copy()
+        self.racc = copy.racc.copy()
 
 
 @fieldwise_init
@@ -630,7 +645,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         out[0] = self.bodies[i].act(Vec3(1, 0, 0)) - o
         out[1] = self.bodies[i].act(Vec3(0, 1, 0)) - o
         out[2] = self.bodies[i].act(Vec3(0, 0, 1)) - o
-        return out
+        return out^
 
     def _pair_manifold(
         self, i: Int, j: Int, mr: Real, infl: Vec3
@@ -804,9 +819,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         and old.feat == t
                         and old.m.count == m.count
                     ):
-                        pr.acc = old.acc
-                        pr.acc_t1 = old.acc_t1
-                        pr.acc_t2 = old.acc_t2
+                        pr.acc = old.acc.copy()
+                        pr.acc_t1 = old.acc_t1.copy()
+                        pr.acc_t2 = old.acc_t2.copy()
                         break
             pairs.append(pr)
 
@@ -891,9 +906,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         and old.feat == 0
                         and old.m.count == m.count
                     ):
-                        pr.acc = old.acc
-                        pr.acc_t1 = old.acc_t1
-                        pr.acc_t2 = old.acc_t2
+                        pr.acc = old.acc.copy()
+                        pr.acc_t1 = old.acc_t1.copy()
+                        pr.acc_t2 = old.acc_t2.copy()
                         break
             pairs.append(pr)
 

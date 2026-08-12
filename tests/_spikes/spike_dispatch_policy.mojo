@@ -5,7 +5,7 @@
 # The closure writes only its own disjoint arena slot `arena[i]` (no shared
 # mutation), so a following serial reduce is identical for both policies.
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.memory import alloc
 
 

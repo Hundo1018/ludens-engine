@@ -23,6 +23,12 @@ struct GMV[p: Int, q: Int, r: Int, F: Field](
     def __init__(out self):
         self.c = InlineArray[Self.F, Self.BLADES](fill=Self.F.zero())
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one can no longer have its copy
+        constructor synthesised."""
+        self.c = copy.c.copy()
+
     @staticmethod
     def basis(mask: Int, w: Self.F) -> Self:
         var out = Self()

@@ -1170,3 +1170,54 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 布料可用性)→ **15.3 自動伴隨式**(最高天花板,但最貴)。
 > **與 Phase 14 的關係**:14 的 LBM 刻意**不需要** 15.1(格子波茲曼沒有壓力泊松),
 > 所以兩階段可並行;但若日後要做投影法 Navier-Stokes 或隱式 FEM,15.1 是前提。
+
+## Phase 16 — 切換到正式版 Mojo(2026-08-12,使用者指示)
+
+> **指示**:讓專案跟隨正式版 Mojo 而非 nightly。
+> 正式版是 **Mojo 1.0.0 / modular 26.5.0**(2026-08-05),其實**比**專案原本跑的
+> nightly beta `1.0.0b3.dev2026071805` **還新**。
+
+### 16.1 API 搬遷 — ✅ 完成(分支 `mojo-stable`)
+> - `std.gpu.host` → **`max.gpu.host`**(`DeviceContext`、`DeviceBuffer`)
+> - `std.algorithm.parallelize` → **`max.algorithm.parallelize`**
+> - `std.gpu` 仍有 `global_idx` 等 device 端 intrinsics;`barrier` 移到 `max.gpu.sync`
+> **一個我下錯的結論**:先前只探了 `std.*` 與 `_hal` 就判定「正式版缺 GPU host API
+> 與 parallelize」。**兩者都在 `max` 底下**,是使用者指出來的。教訓:Modular 的
+> Mojo 標準庫(`std`)與 MAX 提供的套件(`max`、`layout`、`algorithm`)是**兩個
+> import root**,缺一個符號要兩邊都探完才能下結論。
+
+### 16.2 `InlineArray` 不再 `ImplicitlyCopyable` — ✅ 完成
+> Mojo 1.0 起 `InlineArray`(型別顯示為 `Array`)不再隱式可複製。
+> - 8 個持有它的結構補**顯式複製建構子** `__init__(out self, *, copy: Self)`,
+>   內容是 `self.f = copy.f.copy()`:`Mat`、`GMV`、`Multivector`、`DcgaEntity`、
+>   `ContactManifold`、`SpInertia`、`_ABI`、`_CPair`、`FatObject`。
+> - 26 處回傳/傳參補 `^` 所有權轉移。
+> **兩處我補過頭**(已修正,值得記):不能從**不可變參考**的欄位轉移
+> (`Self(ii.io^, ...)` → `.copy()`);轉移後仍要再用的區域變數也不能轉移
+> (`_ABI(a2^, b2^, d2^)` 之後還讀 a2/b2/d2)。
+> 這兩種都是編譯器擋下來的,不是靜默錯誤。
+
+### 16.3 Vec3 重構(width-3 SIMD 被禁)— 🔄 進行中,**這是切換的真正阻礙**
+> **問題**:正式版**拒絕非 2 冪的 SIMD 寬度**——
+> `SIMD[DType.float32, 3]` 連 3 行的最小程式都編不過
+> (`SIMD vector length must be a power of two`;width 2 與 4 皆正常)。
+> 而 `comptime Vec3 = SIMD[WorldType, 3]` 是整個引擎的基礎型別。
+> **現況**:整個引擎在正式版上**建置成功**(型別層面成立),
+> 但**任何程式一執行就在 LLVM lowering 掛掉**,所以 116 個測試一個都跑不了。
+> **規模**:153 個檔案用 `Vec3`;**84 個泛型 `SIMD[WorldType, dim]` 站點**
+> (`dim=3` 時就是 width-3,繞過了 alias,這些才是難的);104 個 `AABB3`/`dim=3` 實例化。
+> **做法**:`Vec3` 改成包 `SIMD[WorldType, 4]` 的 struct,lane 3 恆為 0
+> (保留 3 引數建構子、`v[i]`、全套運算子);泛型維度站點改用 `VecN[dim]` 包裝,
+> 其寬度由 comptime 函式把 3 映射到 4。
+> lane 3 恆 0 這個不變量讓 `dot`/`length` 的手寫歸約**不必改**——
+> 多加的那一項恆為 0。風險在於任何**未初始化 lane 3** 的建構路徑。
+> **副作用**:width 4 的對齊與記憶體流量不同於 width 3,
+> **`BENCHMARK_REPORT.md` 每一個數字都要重測**。
+> **順帶消滅的東西**:專案長期對抗的整類 width-3 危害
+> (`List[Vec3]` 跨函式邊界損毀、teardown crash,見 [[mojo-nightly-runtime-hazards]])
+> **根因就是 nightly 容忍了一個支援不完整的寬度**。正式版直接禁止它,
+> 重構完成後那類 bug 從此不存在。
+> **執行順序(重要)**:**先在 nightly 上完成重構並讓現有 116 個測試全綠**,
+> 用它們當 parity 閘門;**最後一步才翻 channel**。
+> 反過來做會讓整個重構期間沒有任何測試可以跑,等於盲改 153 個檔案。
+

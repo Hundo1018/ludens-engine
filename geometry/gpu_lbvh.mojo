@@ -29,7 +29,7 @@ and that a tree built from it answers queries identically to the CPU LBVH.
 
 from std.sys import has_accelerator
 from std.gpu import global_idx
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from geometry.vec import Real, Vec3, lane_min, lane_max
 from geometry.aabb import AABB

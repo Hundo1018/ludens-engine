@@ -14,7 +14,7 @@ produce identical results — the parallel run is reproducible, so it can be par
 -checked against the serial run and against the sequential scheduler.
 """
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 
 
 trait DispatchPolicy:

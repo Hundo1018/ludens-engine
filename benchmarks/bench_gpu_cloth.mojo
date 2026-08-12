@@ -15,7 +15,7 @@ the bus on every step.
 
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from harness.bench import BenchTable
 from physics.gpu_cloth import (
     cpu_cloth_run,

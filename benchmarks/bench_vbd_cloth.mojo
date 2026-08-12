@@ -10,7 +10,7 @@ Run with: `mojo run -I build benchmarks/bench_vbd_cloth.mojo`.
 
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from harness.bench import BenchTable
 from geometry.vec import Real
 from physics.gpu_cloth import ClothState, cpu_cloth_run, gpu_cloth_run_ctx

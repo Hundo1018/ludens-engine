@@ -32,7 +32,7 @@ contention is even observable:
             fan-out code is usually immune to this whole class of problem.
 """
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.atomic import Atomic
 from std.benchmark import keep
 from std.time import perf_counter_ns

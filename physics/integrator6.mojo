@@ -120,7 +120,7 @@ def _rodrigues(f: Vec3) -> _Rows3:
         a * f[0] + b * f[1] * f[2],
         1 + b * (-f[0] * f[0] - f[1] * f[1]),
     )
-    return r
+    return r^
 
 
 def _ax_fjd(r: _Rows3, jd: Vec3) -> Vec3:

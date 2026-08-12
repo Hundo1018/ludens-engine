@@ -24,7 +24,7 @@ from geometry.vec import Real
 from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from std.gpu import global_idx
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from .gpu_cloth import ClothState, _init_grid
 

@@ -11,7 +11,7 @@ is asserted directly rather than assumed.
 """
 
 from std.sys import has_accelerator
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from harness.runner import Suite
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3

@@ -22,7 +22,7 @@ from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.benchmark import keep
 from std.gpu import global_idx
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 
 comptime dtype = DType.float32

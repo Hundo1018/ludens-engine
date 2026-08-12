@@ -105,6 +105,15 @@ struct FatObject(Copyable, ImplicitlyCopyable, Movable):
     var payload: InlineArray[Int, PAYLOAD_WORDS]  # cold data, never read in the loop
     var alive: Bool
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in Mojo 1.0,
+        so a struct holding one gets no synthesised copy. Copying the whole
+        528-byte payload here is the point of the benchmark, not an oversight."""
+        self.pos = copy.pos
+        self.vel = copy.vel
+        self.payload = copy.payload.copy()
+        self.alive = copy.alive
+
     def update(mut self, dt: Real):
         self.pos = self.pos + self.vel * dt
 

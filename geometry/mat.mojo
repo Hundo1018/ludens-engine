@@ -28,6 +28,12 @@ struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
     def __init__(out self):
         self.m = InlineArray[Real, Self.SIZE](fill=Real(0))
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one can no longer have its copy
+        constructor synthesised."""
+        self.m = copy.m.copy()
+
     @staticmethod
     def zero() -> Self:
         return Self()
