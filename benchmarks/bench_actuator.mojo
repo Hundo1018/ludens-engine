@@ -20,8 +20,8 @@ from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 from physics.actuator import Actuator, ActuatorBank
 
-comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
-comptime NOG = Vec3(0, 0, 0)
+comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0)
+comptime NOG = Vec3(0, 0, 0, 0)
 comptime STEPS = 400
 comptime REPS = 3
 
@@ -31,7 +31,7 @@ def _chain(n: Int) -> Chain:
     for _ in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0, INER
+                Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER
             )
         )
     return c^

@@ -21,11 +21,11 @@ def _near3(mut s: Suite, a: Vec3, b: Vec3, label: String, tol: Float64 = 1e-3):
 def main() raises:
     var s = Suite("skinning")
 
-    var qa = Quat.from_axis_angle(Vec3(0, 0, 1), 0.4)
-    var qb = Quat.from_axis_angle(normalize(Vec3(1, 1, 0)), -0.3)
-    var ma = Motor3.from_quat_translation(qa, Vec3(0.2, 0, 0))
-    var mb = Motor3.from_quat_translation(qb, Vec3(0, 0.3, -0.1))
-    var p = Vec3(0.5, 1, 0.2)
+    var qa = Quat.from_axis_angle(Vec3(0, 0, 1, 0), 0.4)
+    var qb = Quat.from_axis_angle(normalize(Vec3(1, 1, 0, 0)), -0.3)
+    var ma = Motor3.from_quat_translation(qa, Vec3(0.2, 0, 0, 0))
+    var mb = Motor3.from_quat_translation(qb, Vec3(0, 0.3, -0.1, 0))
+    var p = Vec3(0.5, 1, 0.2, 0)
 
     # --- weight endpoints reproduce the bones ---
     _near3(s, blend2(ma, mb, 1, 0).apply_point(p), ma.apply_point(p), "w=(1,0)")
@@ -51,8 +51,8 @@ def main() raises:
 
     # --- candy-wrapper: 180° twist about x, vertex off-axis at radius 1 ---
     var bone0 = Motor3.identity()
-    var bone1 = Motor3.from_quat(Quat.from_axis_angle(Vec3(1, 0, 0), 3.14159265))
-    var vert = Vec3(0.5, 1, 0)  # radius 1 from the twist axis
+    var bone1 = Motor3.from_quat(Quat.from_axis_angle(Vec3(1, 0, 0, 0), 3.14159265))
+    var vert = Vec3(0.5, 1, 0, 0)  # radius 1 from the twist axis
 
     var bones = [bone0, bone1]
     var mats = [bone0.to_mat4(), bone1.to_mat4()]

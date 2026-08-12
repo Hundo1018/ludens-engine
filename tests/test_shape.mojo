@@ -13,9 +13,9 @@ def main() raises:
     s.check(not c0.isintersect(c2), "circles disjoint")
     s.check(c0.isintersect(c0), "circle self overlap")
 
-    var sp0 = Sphere(Vec3(0, 0, 0), 1)
-    var sp1 = Sphere(Vec3(0, 0, 1.5), 1)
-    var sp2 = Sphere(Vec3(0, 0, 5), 1)
+    var sp0 = Sphere(Vec3(0, 0, 0, 0), 1)
+    var sp1 = Sphere(Vec3(0, 0, 1.5, 0), 1)
+    var sp2 = Sphere(Vec3(0, 0, 5, 0), 1)
     s.check(sp0.isintersect(sp1), "spheres overlap")
     s.check(not sp0.isintersect(sp2), "spheres disjoint")
 

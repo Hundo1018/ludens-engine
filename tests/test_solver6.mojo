@@ -12,16 +12,16 @@ def _len(v: Vec3) -> Float64:
 
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _run_quat_stack(steps: Int) -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     var ground_i = Inertia3.box(1, 10, 1, 10)
-    _ = sc.add(QuatBody6.at_rest(Vec3(0, -1, 0), ground_i), Vec3(10, 1, 10), True)
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, -1, 0, 0), ground_i), Vec3(10, 1, 10, 0), True)
     var bi = Inertia3.box(2, 0.25, 0.25, 0.25)
-    _ = sc.add(QuatBody6.at_rest(Vec3(0, 0.35, 0), bi), Vec3(0.25, 0.25, 0.25), False)
-    _ = sc.add(QuatBody6.at_rest(Vec3(0, 0.95, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, 0.35, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, 0.95, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(steps):
         sc.step(DT, G)
     return sc^
@@ -30,10 +30,10 @@ def _run_quat_stack(steps: Int) -> ContactScene6[QuatBody6]:
 def _run_screw_stack(steps: Int) -> ContactScene6[ScrewBody6]:
     var sc = ContactScene6[ScrewBody6]()
     var ground_i = Inertia3.box(1, 10, 1, 10)
-    _ = sc.add(ScrewBody6.at_rest(Vec3(0, -1, 0), ground_i), Vec3(10, 1, 10), True)
+    _ = sc.add(ScrewBody6.at_rest(Vec3(0, -1, 0, 0), ground_i), Vec3(10, 1, 10, 0), True)
     var bi = Inertia3.box(2, 0.25, 0.25, 0.25)
-    _ = sc.add(ScrewBody6.at_rest(Vec3(0, 0.35, 0), bi), Vec3(0.25, 0.25, 0.25), False)
-    _ = sc.add(ScrewBody6.at_rest(Vec3(0, 0.95, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = sc.add(ScrewBody6.at_rest(Vec3(0, 0.35, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc.add(ScrewBody6.at_rest(Vec3(0, 0.95, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(steps):
         sc.step(DT, G)
     return sc^
@@ -43,16 +43,16 @@ def main() raises:
     var s = Suite("solver6")
 
     # Representation parity of the effective-mass term (frame conversion).
-    var q = Quat.from_axis_angle(Vec3(0, 1, 0), 0.7)
+    var q = Quat.from_axis_angle(Vec3(0, 1, 0, 0), 0.7)
     var ib = Inertia3.box(2, 0.2, 0.3, 0.5)
-    var qb = QuatBody6(Vec3(1, 2, 3), q, Vec3(0, 0, 0), Vec3(0, 0, 0), ib)
+    var qb = QuatBody6(Vec3(1, 2, 3, 0), q, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), ib)
     var sb = ScrewBody6(
-        Motor3.from_quat_translation(q, Vec3(1, 2, 3)),
-        ScrewBody6.at_rest(Vec3(0, 0, 0), ib).vel,
+        Motor3.from_quat_translation(q, Vec3(1, 2, 3, 0)),
+        ScrewBody6.at_rest(Vec3(0, 0, 0, 0), ib).vel,
         ib,
     )
-    var r = Vec3(0.3, 0.1, -0.2)
-    var n = Vec3(0.6, 0.8, 0)
+    var r = Vec3(0.3, 0.1, -0.2, 0)
+    var n = Vec3(0.6, 0.8, 0, 0)
     s.almost(
         Float64(qb.angular_factor(r, n)),
         Float64(sb.angular_factor(r, n)),
@@ -90,7 +90,7 @@ def main() raises:
     # omega at impact that rest contacts cannot remove (a solver null mode;
     # fixed by block solve / warm starting / sleeping — ROADMAP Phase 2).
     # Gate: the residual is BOUNDED (no growth) and the tilt stays tiny.
-    var probe = Vec3(0.25, 0.25, 0.25)
+    var probe = Vec3(0.25, 0.25, 0.25, 0)
     var tilt_q = sq300.bodies[1].q.rotate(probe) - probe
     s.check(_len(tilt_q) < 0.02, "quat: bounded resting tilt")
     # (step_soft supersedes this path; see test_softstep6 for the tight

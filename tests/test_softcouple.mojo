@@ -6,7 +6,7 @@ from physics.solver6 import ContactScene6
 from physics.softbody import SoftBody
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _d(v: Vec3) -> Float64:
@@ -37,7 +37,7 @@ def _min_gap_capsule(
             ty = Float64(hl)
         if ty < -Float64(hl):
             ty = -Float64(hl)
-        var cp = cen + Vec3(0, Real(ty), 0)
+        var cp = cen + Vec3(0, Real(ty), 0, 0)
         var g = _d(p - cp) - Float64(rad + r)
         if g < mn:
             mn = g
@@ -58,23 +58,23 @@ def _bullet(
     var sc = ContactScene6[QuatBody6]()
     if kind == 1:
         _ = sc.add_sphere(
-            QuatBody6.at_rest(Vec3(0, 0, 0), Inertia3.sphere(1, 0.3)),
+            QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.sphere(1, 0.3)),
             0.3,
             True,
         )
     else:
         _ = sc.add_capsule(
-            QuatBody6.at_rest(Vec3(0, -0.3, 0), Inertia3.capsule(1, 0.3, 0.5)),
+            QuatBody6.at_rest(Vec3(0, -0.3, 0, 0), Inertia3.capsule(1, 0.3, 0.5)),
             0.3,
             0.5,
             True,
         )
     var sb = SoftBody.box_lattice(
-        Vec3(-2.1, 0.2, 0), Vec3(0.05, 0.05, 0.05), 2, 0.5, 1e-5
+        Vec3(-2.1, 0.2, 0, 0), Vec3(0.05, 0.05, 0.05, 0), 2, 0.5, 1e-5
     )
     for i in range(len(sb.pts)):
         var p = sb.pts[i]
-        p.v = Vec3(200, 0, 0)
+        p.v = Vec3(200, 0, 0, 0)
         sb.pts[i] = p
     _ = sc.add_soft(sb^)
     for _ in range(5):
@@ -96,10 +96,10 @@ def _bullet(
                 ty = -0.8
         else:
             ty = 0
-        var d = _d(p - Vec3(0, Real(ty), 0))
+        var d = _d(p - Vec3(0, Real(ty), 0, 0))
         if d < mind:
             mind = d
-    return Vec3(Real(mx), Real(mind), 0)
+    return Vec3(Real(mx), Real(mind), 0, 0)
 
 
 def main() raises:
@@ -110,22 +110,22 @@ def main() raises:
     #    penetrates it, and the dent proves the coupling engaged.
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     _ = sc.add_sphere(
-        QuatBody6.at_rest(Vec3(0, -0.22, 0), Inertia3.sphere(1, 0.3)), 0.3, True
+        QuatBody6.at_rest(Vec3(0, -0.22, 0, 0), Inertia3.sphere(1, 0.3)), 0.3, True
     )
     var sb = SoftBody.box_lattice(
-        Vec3(0, 0.35, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4
+        Vec3(0, 0.35, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
     _ = sc.add_soft(sb^)
     var r = sc.softs[0].radius
     var gap = Float64(1e30)
     for _ in range(400):
         sc.step_soft(DT, G)
-        var g = _min_gap_sphere(sc, Vec3(0, -0.22, 0), 0.3, r)
+        var g = _min_gap_sphere(sc, Vec3(0, -0.22, 0, 0), 0.3, r)
         if g < gap:
             gap = g
     var top = Float64(sc.softs[0].top_y())
@@ -146,24 +146,24 @@ def main() raises:
     #    0.08 above the floor).
     var cc = ContactScene6[QuatBody6]()
     _ = cc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     _ = cc.add_capsule(
-        QuatBody6.at_rest(Vec3(0, -0.62, 0), Inertia3.capsule(1, 0.3, 0.4)),
+        QuatBody6.at_rest(Vec3(0, -0.62, 0, 0), Inertia3.capsule(1, 0.3, 0.4)),
         0.3,
         0.4,
         True,
     )
     var cb = SoftBody.box_lattice(
-        Vec3(0, 0.35, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4
+        Vec3(0, 0.35, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
     _ = cc.add_soft(cb^)
     var cgap = Float64(1e30)
     for _ in range(400):
         cc.step_soft(DT, G)
-        var g2 = _min_gap_capsule(cc, Vec3(0, -0.62, 0), 0.4, 0.3, r)
+        var g2 = _min_gap_capsule(cc, Vec3(0, -0.62, 0, 0), 0.4, 0.3, r)
         if g2 < cgap:
             cgap = g2
     var cmx = Float64(0)
@@ -179,19 +179,19 @@ def main() raises:
     #    impulses must conserve linear momentum.
     var mz = ContactScene6[QuatBody6]()
     var ball = mz.add_sphere(
-        QuatBody6.at_rest(Vec3(0.15, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(0.15, 0, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     var mb = SoftBody.box_lattice(
-        Vec3(-0.85, 0, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4
+        Vec3(-0.85, 0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
     mb.damp = 1.0
     for i in range(len(mb.pts)):
         var p = mb.pts[i]
-        p.v = Vec3(1, 0, 0)
+        p.v = Vec3(1, 0, 0, 0)
         mb.pts[i] = p
     _ = mz.add_soft(mb^)
     for _ in range(300):
-        mz.step_soft(DT, Vec3(0, 0, 0))
+        mz.step_soft(DT, Vec3(0, 0, 0, 0))
     var px = Float64(mz.bodies[ball].vel[0]) * 2.0
     for i in range(len(mz.softs[0].pts)):
         var p = mz.softs[0].pts[i]

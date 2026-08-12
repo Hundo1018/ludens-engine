@@ -35,8 +35,8 @@ def arm_chain(n: Int) -> Chain:
     for _ in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0.6, 0, 0), Vec3(0.3, 0, 0), 1.0,
-                Vec3(0.02, 0.02, 0.02),
+                Vec3(0, 0, 1, 0), Vec3(0.6, 0, 0, 0), Vec3(0.3, 0, 0, 0), 1.0,
+                Vec3(0.02, 0.02, 0.02, 0),
             )
         )
     return c^
@@ -44,7 +44,7 @@ def arm_chain(n: Int) -> Chain:
 
 def main() raises:
     var s = Suite("tendon")
-    var g = Vec3(0, -9.81, 0)
+    var g = Vec3(0, -9.81, 0, 0)
 
     # ---- 1. fixed tendon: the arms ARE the coefficients ------------------
     var ft = FixedTendon()
@@ -72,9 +72,9 @@ def main() raises:
     c3.q[1] = -0.6
     c3.q[2] = 0.35
     var st = SpatialTendon()
-    st.add_site(0, Vec3(0.1, 0.12, 0))
-    st.add_site(1, Vec3(0.3, -0.09, 0))
-    st.add_site(2, Vec3(0.5, 0.07, 0))
+    st.add_site(0, Vec3(0.1, 0.12, 0, 0))
+    st.add_site(1, Vec3(0.3, -0.09, 0, 0))
+    st.add_site(2, Vec3(0.5, 0.07, 0, 0))
 
     var worst = Real(0)
     var ma = st.moment_arms(c3)
@@ -99,13 +99,13 @@ def main() raises:
     #      impulsive force at the instant a tendon meets an obstacle
     var c1 = arm_chain(1)
     var sw = SpatialTendon()
-    sw.add_site(0, Vec3(0.0, 0.35, 0))
-    sw.add_site(0, Vec3(0.6, 0.35, 0))
+    sw.add_site(0, Vec3(0.0, 0.35, 0, 0))
+    sw.add_site(0, Vec3(0.6, 0.35, 0, 0))
     # the link pivot offsets both sites, so the obstacle is placed relative to
     # the chord's ACTUAL world midpoint rather than to the local coordinates
-    var ca = c1.point_world(0, Vec3(0.0, 0.35, 0))
-    var cb = c1.point_world(0, Vec3(0.6, 0.35, 0))
-    var cmid = (ca + cb) * 0.5 - Vec3(0, 0.2, 0)  # 0.2 below the chord
+    var ca = c1.point_world(0, Vec3(0.0, 0.35, 0, 0))
+    var cb = c1.point_world(0, Vec3(0.6, 0.35, 0, 0))
+    var cmid = (ca + cb) * 0.5 - Vec3(0, 0.2, 0, 0)  # 0.2 below the chord
     var prev = Real(-1)
     var max_jump = Real(0)
     var straight = Real(0)
@@ -145,14 +145,14 @@ def main() raises:
     c2.q[0] = 0.3
     c2.q[1] = 0.5
     var sw2 = SpatialTendon()
-    sw2.add_site(0, Vec3(0.05, 0.30, 0))
-    sw2.add_site(1, Vec3(0.55, 0.30, 0))
+    sw2.add_site(0, Vec3(0.05, 0.30, 0, 0))
+    sw2.add_site(1, Vec3(0.55, 0.30, 0, 0))
     # centre the obstacle on the chord and nudge it off, so the wrap plane is
     # well defined -- exactly on the chord the geodesic family is degenerate
-    var wa = c2.point_world(0, Vec3(0.05, 0.30, 0))
-    var wb = c2.point_world(1, Vec3(0.55, 0.30, 0))
+    var wa = c2.point_world(0, Vec3(0.05, 0.30, 0, 0))
+    var wb = c2.point_world(1, Vec3(0.55, 0.30, 0, 0))
     var half = length(wb - wa) * 0.5
-    sw2.wrap_last((wa + wb) * 0.5 + Vec3(0, 0.05, 0), half * 0.7)
+    sw2.wrap_last((wa + wb) * 0.5 + Vec3(0, 0.05, 0, 0), half * 0.7)
 
     var ma2 = sw2.moment_arms(c2)
     var worst2 = Real(0)

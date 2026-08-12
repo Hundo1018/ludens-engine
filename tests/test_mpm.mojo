@@ -17,7 +17,7 @@ from physics.mpm import MpmSolver
 
 comptime DX: Real = 0.05
 comptime N = 32
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _column(mut m: MpmSolver, ox: Real, oy: Real, oz: Real, nx: Int, ny: Int, nz: Int, sp: Real):
@@ -26,7 +26,7 @@ def _column(mut m: MpmSolver, ox: Real, oy: Real, oz: Real, nx: Int, ny: Int, nz
         for j in range(ny):
             for k in range(nz):
                 m.add(
-                    Vec3(ox + Real(i) * sp, oy + Real(j) * sp, oz + Real(k) * sp),
+                    Vec3(ox + Real(i) * sp, oy + Real(j) * sp, oz + Real(k) * sp, 0),
                     vol * 1000.0,
                     vol,
                 )
@@ -52,7 +52,7 @@ def _spread(m: MpmSolver) -> Real:
 
 
 def _inside(m: MpmSolver) -> Bool:
-    var hi = m.lo + Vec3(Real(N) * DX, Real(N) * DX, Real(N) * DX)
+    var hi = m.lo + Vec3(Real(N) * DX, Real(N) * DX, Real(N) * DX, 0)
     for ref q in m.p:
         for a in range(3):
             if q.x[a] < m.lo[a] - 1e-3 or q.x[a] > hi[a] + 1e-3:
@@ -74,7 +74,7 @@ def main() raises:
     # ---- elastic: stiff, no yield. Dropped from a height so it IMPACTS:
     #      a column that merely stands still never deforms enough for a yield
     #      criterion to fire, and elastic and plastic would be indistinguishable.
-    var e = MpmSolver(Vec3(0, 0, 0), DX, N, 100000.0, 0.2)
+    var e = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 100000.0, 0.2)
     _column(e, 0.55, 0.95, 0.70, 6, 10, 4, 0.04)
     var n0 = e.count()
     var m0 = e.total_mass()
@@ -93,7 +93,7 @@ def main() raises:
     var w_elastic = _spread(e)
 
     # ---- plastic: identical scene, tight yield range ----
-    var p = MpmSolver(Vec3(0, 0, 0), DX, N, 100000.0, 0.2)
+    var p = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 100000.0, 0.2)
     _column(p, 0.55, 0.95, 0.70, 6, 10, 4, 0.04)
     p.set_plastic(0.94, 1.02)
     var okp = True
@@ -122,7 +122,7 @@ def main() raises:
     )
 
     # ---- free fall: momentum tracks gravity before anything is touched ----
-    var f = MpmSolver(Vec3(0, 0, 0), DX, N, 4000.0, 0.2)
+    var f = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 4000.0, 0.2)
     _column(f, 0.60, 1.00, 0.70, 4, 4, 4, 0.04)
     var mass = f.total_mass()
     var dt = Real(1.0 / 2000.0)

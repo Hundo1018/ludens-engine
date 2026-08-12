@@ -58,9 +58,9 @@ def main() raises:
         trans.append(SkinVert(t))
         motors.append(Motor3.from_quat_translation(q, t))
         dqs.append(DualQuat.from_quat_translation(q, t))
-        mats.append(compose_trs4(t, q, Vec3(1, 1, 1)))
+        mats.append(compose_trs4(t, q, Vec3(1, 1, 1, 0)))
 
-    var p = Vec3(0.7, -0.3, 1.1)
+    var p = Vec3(0.7, -0.3, 1.1, 0)
 
     # --- apply: transform a point through all N ---
     @parameter
@@ -225,12 +225,12 @@ def main() raises:
                     rb.set(r, c, mats[i + 1].get(r, c))
             var qa = quat_from_mat3(ra)
             var qb = quat_from_mat3(rb)
-            var ta = Vec3(mats[i].get(0, 3), mats[i].get(1, 3), mats[i].get(2, 3))
+            var ta = Vec3(mats[i].get(0, 3), mats[i].get(1, 3), mats[i].get(2, 3), 0)
             var tb = Vec3(
                 mats[i + 1].get(0, 3), mats[i + 1].get(1, 3), mats[i + 1].get(2, 3)
-            )
+            , 0)
             var m = compose_trs4(
-                ta * (1 - T) + tb * T, slerp(qa, qb, T), Vec3(1, 1, 1)
+                ta * (1 - T) + tb * T, slerp(qa, qb, T), Vec3(1, 1, 1, 0)
             )
             acc += m.m[0]
         keep(acc)
@@ -261,7 +261,7 @@ def main() raises:
                 Real(rng.next_f32()) * 6 - 3,
             ))
         )
-    var ic = Vec3(0.3, -0.2, 0.1)
+    var ic = Vec3(0.3, -0.2, 0.1, 0)
     comptime IR: Real = 2.0
     comptime SCALE: Real = 1.7
 
@@ -304,7 +304,7 @@ def main() raises:
     # point-to-circle (point-to-arc): a circle is a first-class CGA round, so
     # both scalars the distance needs come back as inner products — but the
     # split-and-recombine algorithm is the same either way.
-    var circ = Circle3.make(Vec3(0.5, -0.25, 1.0), normalize(Vec3(0.3, 1.0, -0.2)), 2.0)
+    var circ = Circle3.make(Vec3(0.5, -0.25, 1.0, 0), normalize(Vec3(0.3, 1.0, -0.2, 0)), 2.0)
 
     @parameter
     def arc_cga():
@@ -400,15 +400,15 @@ def main() raises:
                 Real(rng.next_f32()) * 4 - 2,
             ))
         )
-    var ax = normalize(Vec3(0.2, 1.0, -0.4))
-    var inv_c = Vec3(0.1, 0.2, -0.1)
+    var ax = normalize(Vec3(0.2, 1.0, -0.4, 0))
+    var inv_c = Vec3(0.1, 0.2, -0.1, 0)
     comptime INV_R: Real = 1.3
 
     comptime for ii in range(5):
         comptime NINV = 0 if ii == 0 else (1 if ii == 1 else (2 if ii == 2 else (4 if ii == 3 else 8)))
 
         # fold the whole chain into one versor (done once, outside the point loop)
-        var V = rotor(ax, 0.7) * translator(Vec3(0.5, -0.8, 0.3))
+        var V = rotor(ax, 0.7) * translator(Vec3(0.5, -0.8, 0.3, 0))
         comptime for k in range(NINV):
             V = sphere_dual(inv_c, INV_R) * rotor(ax, 0.3) * V
 
@@ -420,8 +420,8 @@ def main() raises:
             keep(acc)
 
         # matrix path: one Mat4 per affine run, closed-form inversion between
-        var m0 = compose_trs4(Vec3(0.5, -0.8, 0.3), Quat.from_axis_angle(ax, 0.7), Vec3(1, 1, 1))
-        var mk = compose_trs4(Vec3(0, 0, 0), Quat.from_axis_angle(ax, 0.3), Vec3(1, 1, 1))
+        var m0 = compose_trs4(Vec3(0.5, -0.8, 0.3, 0), Quat.from_axis_angle(ax, 0.7), Vec3(1, 1, 1, 0))
+        var mk = compose_trs4(Vec3(0, 0, 0, 0), Quat.from_axis_angle(ax, 0.3), Vec3(1, 1, 1, 0))
 
         @parameter
         def chain_matrix():

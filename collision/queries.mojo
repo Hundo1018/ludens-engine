@@ -16,7 +16,7 @@ benchmark shows what each *costs*. Proxy ids are expected dense (0..n-1), as the
 collision/physics layers produce them.
 """
 
-from geometry.vec import WorldType, Real, lane_min, lane_max
+from geometry.vec import WorldType, Real, lane_min, lane_max, PadW
 from geometry.aabb import AABB
 from geometry.ray import Ray, RayHit, ray_aabb
 from geometry.bvh import BVH
@@ -41,7 +41,7 @@ def _index_boxes[D: Int](items: List[BoxProxy[D]]) -> List[AABB[D]]:
         if items[i].proxy > maxp:
             maxp = items[i].proxy
     var boxes = List[AABB[D]]()
-    var zero = AABB[D](SIMD[WorldType, D](0), SIMD[WorldType, D](0))
+    var zero = AABB[D](SIMD[WorldType, PadW[D]](0), SIMD[WorldType, PadW[D]](0))
     for _ in range(maxp + 1):
         boxes.append(zero)
     for i in range(len(items)):
@@ -80,7 +80,7 @@ def _overlap_filter[D: Int](
 
 def _bounds_of[D: Int](items: List[BoxProxy[D]]) -> AABB[D]:
     if len(items) == 0:
-        return AABB[D](SIMD[WorldType, D](-1), SIMD[WorldType, D](1))
+        return AABB[D](SIMD[WorldType, PadW[D]](-1), SIMD[WorldType, PadW[D]](1))
     var b = items[0].box
     for i in range(1, len(items)):
         b = b.merge(items[i].box)
@@ -178,7 +178,7 @@ struct TreeQuery[D: Int](SceneQuery):
 
     def __init__(out self):
         self.tree = LooseTree[Self.D](
-            AABB[Self.D](SIMD[WorldType, Self.D](-1), SIMD[WorldType, Self.D](1))
+            AABB[Self.D](SIMD[WorldType, PadW[Self.D]](-1), SIMD[WorldType, PadW[Self.D]](1))
         )
         self.boxes = List[AABB[Self.D]]()
 

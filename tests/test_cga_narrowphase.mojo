@@ -54,16 +54,16 @@ def main() raises:
 
     # --- containment: one sphere inside another still reports a hit ---
     var np2 = CgaSphereNarrowPhase()
-    _ = np2.add(Sphere(Vec3(0, 0, 0), 3.0))
-    _ = np2.add(Sphere(Vec3(0.5, 0, 0), 0.5))
+    _ = np2.add(Sphere(Vec3(0, 0, 0, 0), 3.0))
+    _ = np2.add(Sphere(Vec3(0.5, 0, 0, 0), 0.5))
     var cc = np2.test(0, 1)
     s.check(cc.hit, "containment counts as overlap")
     s.almost(Float64(cc.depth), 3.0, "containment depth = rsum - d", 1e-3)
 
     # --- concentric spheres: degenerate normal falls back cleanly ---
     var np3 = CgaSphereNarrowPhase()
-    _ = np3.add(Sphere(Vec3(0, 0, 0), 1.0))
-    _ = np3.add(Sphere(Vec3(0, 0, 0), 0.5))
+    _ = np3.add(Sphere(Vec3(0, 0, 0, 0), 1.0))
+    _ = np3.add(Sphere(Vec3(0, 0, 0, 0), 0.5))
     var c0 = np3.test(0, 1)
     s.check(c0.hit, "concentric hit")
     s.almost(Float64(length(c0.normal)), 1.0, "unit fallback normal")
@@ -72,14 +72,14 @@ def main() raises:
     var npp = CgaSphereNarrowPhase()
     var items = List[BoxProxy[3]]()
     var setup = [
-        (Vec3(0, 0, 0), Real(1.0)),
-        (Vec3(1.5, 0, 0), Real(1.0)),  # overlaps 0
-        (Vec3(9, 9, 9), Real(1.0)),    # far away
+        (Vec3(0, 0, 0, 0), Real(1.0)),
+        (Vec3(1.5, 0, 0, 0), Real(1.0)),  # overlaps 0
+        (Vec3(9, 9, 9, 0), Real(1.0)),    # far away
     ]
     for k in range(len(setup)):
         var sp = Sphere(setup[k][0], setup[k][1])
         var id = npp.add(sp)
-        var r = Vec3(sp.radius, sp.radius, sp.radius)
+        var r = Vec3(sp.radius, sp.radius, sp.radius, 0)
         items.append(BoxProxy[3](id, AABB[3](sp.center - r, sp.center + r)))
     var pipe = CollisionPipeline(BruteForce[3](), npp^)
     var manifolds = pipe.step(items)

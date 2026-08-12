@@ -161,8 +161,8 @@ struct Lbm(Movable, ImplicitlyDeletable):
             uy += v * Real(self.ey[i])
             uz += v * Real(self.ez[i])
         if r <= 0:
-            return Vec3(0, 0, 0)
-        return Vec3(ux / r, uy / r, uz / r)
+            return Vec3(0, 0, 0, 0)
+        return Vec3(ux / r, uy / r, uz / r, 0)
 
     def total_mass(self) -> Real:
         """Summed over FLUID cells only. Solid cells hold reflected

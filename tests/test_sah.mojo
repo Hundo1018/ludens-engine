@@ -28,7 +28,7 @@ def _clustered(mut rng: XorShift64, n: Int) -> List[_Leaf[3]]:
             cz = bx + range_f(rng, -1.5, 1.5)
         var half = SIMD[WorldType, 3](range_f(rng, 0.2, 0.8))
         leaves.append(
-            _Leaf[3](AABB[3].from_center(Vec3(cx, cy, cz), half), i)
+            _Leaf[3](AABB[3].from_center(Vec3(cx, cy, cz, 0), half), i)
         )
     return leaves^
 

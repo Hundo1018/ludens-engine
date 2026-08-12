@@ -131,4 +131,4 @@ def unit_vec2[R: Rng](mut r: R) -> Vec2:
 
 
 def unit_vec3[R: Rng](mut r: R) -> Vec3:
-    return normalize(Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1)))
+    return normalize(Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1), 0))

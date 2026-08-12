@@ -13,7 +13,7 @@ answers `test(a, b) -> Contact`. Swap implementations by instantiating
 """
 
 from std.math import sqrt
-from geometry.vec import WorldType, Real, Vec2, Vec3, distance_sq, length, normalize
+from geometry.vec import WorldType, Real, Vec2, Vec3, distance_sq, length, normalize, PadW
 from geometry.aabb import AABB
 from geometry.shape import Circle, Polygon, Sphere
 from geometry.quickhull import convex_hull_2d
@@ -29,12 +29,12 @@ from geometry.sdf import SdfShape, sdf_collide
 @fieldwise_init
 struct Contact[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var hit: Bool
-    var normal: SIMD[WorldType, Self.dim]  # points from a -> b
+    var normal: SIMD[WorldType, PadW[Self.dim]]  # points from a -> b
     var depth: Real
 
     @staticmethod
     def miss() -> Self:
-        return Self(False, SIMD[WorldType, Self.dim](0), 0)
+        return Self(False, SIMD[WorldType, PadW[Self.dim]](0), 0)
 
 
 trait NarrowPhase(Movable, ImplicitlyDeletable):
@@ -67,7 +67,7 @@ struct AABBNarrowPhase[D: Int](NarrowPhase):
             if overlap < best_depth:
                 best_depth = overlap
                 best_axis = k
-        var n = SIMD[WorldType, Self.D](0)
+        var n = SIMD[WorldType, PadW[Self.D]](0)
         var dir = bb.center()[best_axis] - ba.center()[best_axis]
         n[best_axis] = 1 if dir >= 0 else -1
         return Contact[Self.D](True, n, best_depth)
@@ -210,7 +210,7 @@ struct CgaSphereNarrowPhase(NarrowPhase):
             return Contact[3].miss()
         var dist = sqrt(d_sq) if d_sq > 0 else Real(0)
         var delta = sb.center - sa.center
-        var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0)
+        var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0, 0)
         return Contact[3](True, n, rsum - dist)
 
 
@@ -273,7 +273,7 @@ struct CgaShapeNarrowPhase(NarrowPhase):
                 return Contact[3].miss()
             var dist = sqrt(d_sq) if d_sq > 0 else Real(0)
             var delta = sb.center - sa.center
-            var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0)
+            var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0, 0)
             return Contact[3](True, n, rsum - dist)
         if self.kinds[a] == 0 and self.kinds[b] == 1:
             return self._sphere_plane(a, b, False)

@@ -86,7 +86,7 @@ def down(P: CGA3) -> Vec3:
     """Invert `up`: normalize the conformal point (P·n∞ = −1) and read e1..e3."""
     var w = -inner(P, n_inf())
     var inv = 1.0 / w if abs(w) > 1e-12 else Real(0)
-    return Vec3(P.c[1] * inv, P.c[2] * inv, P.c[4] * inv)
+    return Vec3(P.c[1] * inv, P.c[2] * inv, P.c[4] * inv, 0)
 
 
 def reflect_point(pl: Plane3, p: Vec3) -> Vec3:
@@ -235,7 +235,7 @@ def rotor(axis: Vec3, angle: Real) -> CGA3:
     from std.math import cos, sin
 
     var l = length(axis)
-    var n = axis / l if l > 1e-12 else Vec3(0, 0, 1)
+    var n = axis / l if l > 1e-12 else Vec3(0, 0, 1, 0)
     var h = Real(0.5) * angle
     var c = Real(cos(Float64(h)))
     var sn = Real(sin(Float64(h)))

@@ -34,7 +34,7 @@ struct Transform(ComponentType):
     @staticmethod
     def at(t: Vec3) -> Self:
         """Translation-only transform: identity rotation, unit scale, dirty."""
-        return Self(t, Quat.identity(), Vec3(1, 1, 1), True, Mat4.identity(), True)
+        return Self(t, Quat.identity(), Vec3(1, 1, 1, 0), True, Mat4.identity(), True)
 
     def local_matrix(self) -> Mat4:
         return compose_trs4(self.translation, self.rotation, self.scale)

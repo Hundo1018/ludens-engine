@@ -54,12 +54,12 @@ def main() raises:
     s.eqi(orient2d(Vec2(0, 0), Vec2(0, 1), Vec2(1, 0)), -1, "orient2d cw")
     s.eqi(orient2d(Vec2(0, 0), Vec2(1, 1), Vec2(2, 2)), 0, "orient2d collinear")
 
-    var a3 = Vec3(0, 0, 0)
-    var b3 = Vec3(1, 0, 0)
-    var c3 = Vec3(0, 1, 0)
-    s.eqi(orient3d(a3, b3, c3, Vec3(0, 0, -1)), 1, "orient3d below")
-    s.eqi(orient3d(a3, b3, c3, Vec3(0, 0, 1)), -1, "orient3d above")
-    s.eqi(orient3d(a3, b3, c3, Vec3(3, 4, 0)), 0, "orient3d coplanar")
+    var a3 = Vec3(0, 0, 0, 0)
+    var b3 = Vec3(1, 0, 0, 0)
+    var c3 = Vec3(0, 1, 0, 0)
+    s.eqi(orient3d(a3, b3, c3, Vec3(0, 0, -1, 0)), 1, "orient3d below")
+    s.eqi(orient3d(a3, b3, c3, Vec3(0, 0, 1, 0)), -1, "orient3d above")
+    s.eqi(orient3d(a3, b3, c3, Vec3(3, 4, 0, 0)), 0, "orient3d coplanar")
 
     # unit circle through three CCW points
     var q1 = Vec2(1, 0)
@@ -70,14 +70,14 @@ def main() raises:
     s.eqi(incircle(q1, q2, q3, Vec2(0, -1)), 0, "incircle exactly on")
 
     # the tetrahedron below is NEGATIVELY oriented, so the sign flips with it
-    var t1 = Vec3(1, 0, 0)
-    var t2 = Vec3(0, 1, 0)
-    var t3 = Vec3(-1, 0, 0)
-    var t4 = Vec3(0, 0, 1)
+    var t1 = Vec3(1, 0, 0, 0)
+    var t2 = Vec3(0, 1, 0, 0)
+    var t3 = Vec3(-1, 0, 0, 0)
+    var t4 = Vec3(0, 0, 1, 0)
     s.eqi(orient3d(t1, t2, t3, t4), -1, "the test tetrahedron is negative")
-    s.eqi(insphere(t1, t2, t3, t4, Vec3(0, 0, 0)), -1, "insphere inside")
-    s.eqi(insphere(t1, t2, t3, t4, Vec3(9, 9, 9)), 1, "insphere outside")
-    s.eqi(insphere(t1, t2, t3, t4, Vec3(0, -1, 0)), 0, "insphere exactly on")
+    s.eqi(insphere(t1, t2, t3, t4, Vec3(0, 0, 0, 0)), -1, "insphere inside")
+    s.eqi(insphere(t1, t2, t3, t4, Vec3(9, 9, 9, 0)), 1, "insphere outside")
+    s.eqi(insphere(t1, t2, t3, t4, Vec3(0, -1, 0, 0)), 0, "insphere exactly on")
 
     # Away from degeneracy the naive path is reliable, and the exact one must
     # not disagree with it — if it did, the exact one would be the broken one.
@@ -93,13 +93,13 @@ def main() raises:
     var mismatch3 = 0
     for _ in range(2000):
         var p = Vec3(Real(rng.next_f32()) * 20 - 10, Real(rng.next_f32()) * 20 - 10,
-                     Real(rng.next_f32()) * 20 - 10)
+                     Real(rng.next_f32()) * 20 - 10, 0)
         var q = Vec3(Real(rng.next_f32()) * 20 - 10, Real(rng.next_f32()) * 20 - 10,
-                     Real(rng.next_f32()) * 20 - 10)
+                     Real(rng.next_f32()) * 20 - 10, 0)
         var r = Vec3(Real(rng.next_f32()) * 20 - 10, Real(rng.next_f32()) * 20 - 10,
-                     Real(rng.next_f32()) * 20 - 10)
+                     Real(rng.next_f32()) * 20 - 10, 0)
         var u = Vec3(Real(rng.next_f32()) * 20 - 10, Real(rng.next_f32()) * 20 - 10,
-                     Real(rng.next_f32()) * 20 - 10)
+                     Real(rng.next_f32()) * 20 - 10, 0)
         if orient3d(p, q, r, u) != orient3d_naive(p, q, r, u):
             mismatch3 += 1
     s.eqi(mismatch3, 0, "exact == naive on well-separated random input (3d)")
@@ -162,16 +162,16 @@ def main() raises:
     # All-identical input: every determinant is exactly zero.
     var same = Vec2(3, 3)
     s.eqi(orient2d(same, same, same), 0, "three identical points are collinear")
-    var same3 = Vec3(2, 2, 2)
+    var same3 = Vec3(2, 2, 2, 0)
     s.eqi(orient3d(same3, same3, same3, same3), 0, "four identical points are coplanar")
 
     # Exactly coplanar in 3D, at scale, and one ulp off it.
-    var pa = Vec3(0, 0, 4)
-    var pb = Vec3(1000, 0, 4)
-    var pc = Vec3(0, 1000, 4)
-    s.eqi(orient3d(pa, pb, pc, Vec3(500, 500, 4)), 0, "exactly coplanar at scale")
+    var pa = Vec3(0, 0, 4, 0)
+    var pb = Vec3(1000, 0, 4, 0)
+    var pc = Vec3(0, 1000, 4, 0)
+    s.eqi(orient3d(pa, pb, pc, Vec3(500, 500, 4, 0)), 0, "exactly coplanar at scale")
     s.eqi(
-        orient3d(pa, pb, pc, Vec3(500, 500, _next_up(Real(4)))), -1,
+        orient3d(pa, pb, pc, Vec3(500, 500, _next_up(Real(4)), 0)), -1,
         "one ulp above the plane is decided",
     )
 

@@ -22,12 +22,12 @@ from geometry.mat import transform_point4
 def build_scene[B: StorageBackend](mut w: World[B]) -> List[Entity]:
     # root at (10,0,0); child local (1,0,0) under root; grandchild local (0,2,0) under child
     var root = w.spawn()
-    w.set(root, Transform.at(Vec3(10, 0, 0)))
+    w.set(root, Transform.at(Vec3(10, 0, 0, 0)))
     var child = w.spawn()
-    w.set(child, Transform.at(Vec3(1, 0, 0)))
+    w.set(child, Transform.at(Vec3(1, 0, 0, 0)))
     w.set(child, Parent(root.id))
     var gc = w.spawn()
-    w.set(gc, Transform.at(Vec3(0, 2, 0)))
+    w.set(gc, Transform.at(Vec3(0, 2, 0, 0)))
     w.set(gc, Parent(child.id))
     var es = List[Entity]()
     es.append(root)
@@ -37,7 +37,7 @@ def build_scene[B: StorageBackend](mut w: World[B]) -> List[Entity]:
 
 
 def world_origin[B: StorageBackend](w: World[B], e: Entity) -> Vec3:
-    return transform_point4(w.get[Transform](e).world, Vec3(0, 0, 0))
+    return transform_point4(w.get[Transform](e).world, Vec3(0, 0, 0, 0))
 
 
 def check_hierarchy[B: StorageBackend](mut s: Suite, tag: String):
@@ -91,9 +91,9 @@ def check_parity[B: StorageBackend](mut s: Suite, tag: String):
 
     # move the root in both worlds; dirty path must rebuild only the subtree
     var rf = wf.get[Transform](ef[0])
-    wf.set(ef[0], rf.with_translation(Vec3(5, 7, -1)))
+    wf.set(ef[0], rf.with_translation(Vec3(5, 7, -1, 0)))
     var rd = wd.get[Transform](ed[0])
-    wd.set(ed[0], rd.with_translation(Vec3(5, 7, -1)))
+    wd.set(ed[0], rd.with_translation(Vec3(5, 7, -1, 0)))
 
     var hf2 = Hierarchy.build(wf)
     propagate_full(wf, hf2)

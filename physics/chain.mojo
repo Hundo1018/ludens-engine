@@ -45,23 +45,23 @@ struct _LV(Copyable, ImplicitlyCopyable, Movable):
 
 
 def _sym_add(a: _Rows3, b: _Rows3) -> _Rows3:
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
         r[i] = a[i] + b[i]
     return r^
 
 
 def _matvec(m: _Rows3, v: Vec3) -> Vec3:
-    return Vec3(dot(m[0], v), dot(m[1], v), dot(m[2], v))
+    return Vec3(dot(m[0], v), dot(m[1], v), dot(m[2], v), 0)
 
 
 def _rot_rows(q: Quat) -> _Rows3:
     """Rows of Rᵀ (so `_matvec(rt, v)` = Rᵀ·v, world/parent -> local).
     Row i of Rᵀ is column i of R — exactly the image of basis vector i."""
-    var r = _Rows3(fill=Vec3(0, 0, 0))
-    r[0] = q.rotate(Vec3(1, 0, 0))
-    r[1] = q.rotate(Vec3(0, 1, 0))
-    r[2] = q.rotate(Vec3(0, 0, 1))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
+    r[0] = q.rotate(Vec3(1, 0, 0, 0))
+    r[1] = q.rotate(Vec3(0, 1, 0, 0))
+    r[2] = q.rotate(Vec3(0, 0, 1, 0))
     return r^
 
 
@@ -86,9 +86,9 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
         (parallel axis: I_o = I_c + m(|c|² 1 − c cᵀ))."""
         var c = com
         var c2 = dot(c, c)
-        var io = _Rows3(fill=Vec3(0, 0, 0))
+        var io = _Rows3(fill=Vec3(0, 0, 0, 0))
         for i in range(3):
-            var row = Vec3(0, 0, 0)
+            var row = Vec3(0, 0, 0, 0)
             for j in range(3):
                 var v = -mass * c[i] * c[j]
                 if i == j:
@@ -162,13 +162,13 @@ def _shift_inertia(ci: SpInertia, q: Quat, p: Vec3) -> SpInertia:
     var h_p = q.rotate(ci.h) + p * ci.m
     # R I Rᵀ (columns = R·I·Rᵀ·e_a), assembled into rows explicitly
     var rt = _rot_rows(q)  # Rᵀ rows
-    var c0 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(1, 0, 0))))
-    var c1 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 1, 0))))
-    var c2 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 0, 1))))
-    var rrows = _Rows3(fill=Vec3(0, 0, 0))
-    rrows[0] = Vec3(c0[0], c1[0], c2[0])
-    rrows[1] = Vec3(c0[1], c1[1], c2[1])
-    rrows[2] = Vec3(c0[2], c1[2], c2[2])
+    var c0 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(1, 0, 0, 0))))
+    var c1 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 1, 0, 0))))
+    var c2 = q.rotate(_matvec(ci.io, _matvec(rt, Vec3(0, 0, 1, 0))))
+    var rrows = _Rows3(fill=Vec3(0, 0, 0, 0))
+    rrows[0] = Vec3(c0[0], c1[0], c2[0], 0)
+    rrows[1] = Vec3(c0[1], c1[1], c2[1], 0)
+    rrows[2] = Vec3(c0[2], c1[2], c2[2], 0)
     var hr = q.rotate(ci.h)
     # exact identity for the point shift: I' = RIRᵀ − p×[hr]× − [p]×[hr+mp]×
     var px_hr = _cross_mat_mul(p, hr)
@@ -206,10 +206,10 @@ struct Chain(Movable, ImplicitlyDeletable):
         self.q = List[Real]()
         self.qd = List[Real]()
         self.parent = List[Int]()
-        self.base_w = Vec3(0, 0, 0)
-        self.base_v = Vec3(0, 0, 0)
-        self.base_wa = Vec3(0, 0, 0)
-        self.base_va = Vec3(0, 0, 0)
+        self.base_w = Vec3(0, 0, 0, 0)
+        self.base_v = Vec3(0, 0, 0, 0)
+        self.base_wa = Vec3(0, 0, 0, 0)
+        self.base_va = Vec3(0, 0, 0, 0)
 
     def add_link(mut self, link: ChainLink):
         self.links.append(link)
@@ -288,8 +288,8 @@ struct Chain(Movable, ImplicitlyDeletable):
             var off = self._joint_offset(i)
             # motion subspace: S = (axis, 0) revolute, (0, axis) prismatic
             var rev = l.kind == JOINT_REVOLUTE
-            var s_w = l.axis if rev else Vec3(0, 0, 0)
-            var s_v = Vec3(0, 0, 0) if rev else l.axis
+            var s_w = l.axis if rev else Vec3(0, 0, 0, 0)
+            var s_v = Vec3(0, 0, 0, 0) if rev else l.axis
             var w_here = _matvec(rt, w_p) + s_w * self.qd[i]
             var v_here = _matvec(rt, v_p + _cross(w_p, off)) + s_v * self.qd[i]
             # SPATIAL accelerations: same transform as velocities, plus the
@@ -363,8 +363,8 @@ struct Chain(Movable, ImplicitlyDeletable):
         var out = List[Real]()
         for _ in range(n):
             out.append(0)
-        var root_w = Vec3(0, 0, 0)
-        var root_v = Vec3(0, 0, 0)
+        var root_w = Vec3(0, 0, 0, 0)
+        var root_v = Vec3(0, 0, 0, 0)
         var i2 = n - 1
         while i2 >= 0:
             var li2 = self.links[i2]
@@ -442,8 +442,8 @@ struct Chain(Movable, ImplicitlyDeletable):
             var li = self.links[i]
             var rev_i = li.kind == JOINT_REVOLUTE
             var f = (
-                comp[i].apply(li.axis, Vec3(0, 0, 0)) if rev_i
-                else comp[i].apply(Vec3(0, 0, 0), li.axis)
+                comp[i].apply(li.axis, Vec3(0, 0, 0, 0)) if rev_i
+                else comp[i].apply(Vec3(0, 0, 0, 0), li.axis)
             )
             var fwc = f[0]
             var fvc = f[1]
@@ -535,8 +535,8 @@ struct Chain(Movable, ImplicitlyDeletable):
             var li = self.links[i]
             var rev_i = li.kind == JOINT_REVOLUTE
             var f = (
-                comp[i].apply(li.axis, Vec3(0, 0, 0)) if rev_i
-                else comp[i].apply(Vec3(0, 0, 0), li.axis)
+                comp[i].apply(li.axis, Vec3(0, 0, 0, 0)) if rev_i
+                else comp[i].apply(Vec3(0, 0, 0, 0), li.axis)
             )
             var fwc = f[0]
             var fvc = f[1]
@@ -757,7 +757,7 @@ struct Chain(Movable, ImplicitlyDeletable):
         if initial_active == 0:
             return 0
 
-        var up = Vec3(0, 1, 0)
+        var up = Vec3(0, 1, 0, 0)
         # H is a function of q alone, so it is computed ONCE per pass rather
         # than per contact per iteration
         var h1 = self.mass_matrix()
@@ -906,8 +906,8 @@ struct Chain(Movable, ImplicitlyDeletable):
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws[pi].v if pi >= 0 else Vec3(0, 0, 0)
-            var v_p = vs[pi].v if pi >= 0 else Vec3(0, 0, 0)
+            var w_p = ws[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
+            var v_p = vs[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
             var rt = _rot_rows(self._joint_rot(i))
             var w_here = _matvec(rt, w_p) + l.axis * self.qd[i]
             var v_here = _matvec(rt, v_p + _cross(w_p, l.pivot))
@@ -932,14 +932,14 @@ struct Chain(Movable, ImplicitlyDeletable):
         var dd = List[Real]()
         var uu = List[Real]()
         for _ in range(n):
-            uw.append(_LV(Vec3(0, 0, 0)))
-            uv.append(_LV(Vec3(0, 0, 0)))
+            uw.append(_LV(Vec3(0, 0, 0, 0)))
+            uv.append(_LV(Vec3(0, 0, 0, 0)))
             dd.append(0)
             uu.append(0)
         var i2 = n - 1
         while i2 >= 0:
             var l = self.links[i2]
-            var u_ = ia[i2].apply(l.axis, Vec3(0, 0, 0))
+            var u_ = ia[i2].apply(l.axis, Vec3(0, 0, 0, 0))
             uw[i2] = _LV(u_[0])
             uv[i2] = _LV(u_[1])
             dd[i2] = dot(l.axis, u_[0])
@@ -992,7 +992,7 @@ struct Chain(Movable, ImplicitlyDeletable):
             var l = self.links[i]
             var pi = self.parent[i]
             # same base-acceleration gravity trick at every root
-            var wa_p = aw[pi].v if pi >= 0 else Vec3(0, 0, 0)
+            var wa_p = aw[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
             var va_p = av[pi].v if pi >= 0 else -gravity
             var rt = _rot_rows(self._joint_rot(i))
             var w_a = _matvec(rt, wa_p) + cw[i].v
@@ -1021,8 +1021,8 @@ struct Chain(Movable, ImplicitlyDeletable):
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws2[pi].v if pi >= 0 else Vec3(0, 0, 0)
-            var v_p = vs2[pi].v if pi >= 0 else Vec3(0, 0, 0)
+            var w_p = ws2[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
+            var v_p = vs2[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
             var rt = _rot_rows(self._joint_rot(i))
             var w = _matvec(rt, w_p) + l.axis * self.qd[i]
             var v = _matvec(rt, v_p + _cross(w_p, l.pivot))
@@ -1038,10 +1038,10 @@ struct Chain(Movable, ImplicitlyDeletable):
 
 def _cross_mat_mul(a: Vec3, b: Vec3) -> _Rows3:
     """Rows of [a]× [b]× (product of two cross matrices)."""
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     var ab = dot(a, b)
     for i in range(3):
-        var row = Vec3(0, 0, 0)
+        var row = Vec3(0, 0, 0, 0)
         for j in range(3):
             var v = b[i] * a[j]
             if i == j:
@@ -1052,21 +1052,21 @@ def _cross_mat_mul(a: Vec3, b: Vec3) -> _Rows3:
 
 
 def _transpose_row(m: _Rows3, r: Int) -> Vec3:
-    return Vec3(m[0][r], m[1][r], m[2][r])
+    return Vec3(m[0][r], m[1][r], m[2][r], 0)
 
 
 def _skew(p: Vec3) -> _Rows3:
     """Rows of [p]×."""
-    var r = _Rows3(fill=Vec3(0, 0, 0))
-    r[0] = Vec3(0, -p[2], p[1])
-    r[1] = Vec3(p[2], 0, -p[0])
-    r[2] = Vec3(-p[1], p[0], 0)
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
+    r[0] = Vec3(0, -p[2], p[1], 0)
+    r[1] = Vec3(p[2], 0, -p[0], 0)
+    r[2] = Vec3(-p[1], p[0], 0, 0)
     return r^
 
 
 def _outer_scaled(u: Vec3, v: Vec3, s: Real) -> _Rows3:
     """Rows of s·(u vᵀ)."""
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
         r[i] = v * (u[i] * s)
     return r^
@@ -1074,30 +1074,30 @@ def _outer_scaled(u: Vec3, v: Vec3, s: Real) -> _Rows3:
 
 def _matmul(x: _Rows3, y: _Rows3) -> _Rows3:
     """Rows of X·Y (both given as rows)."""
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
         r[i] = y[0] * x[i][0] + y[1] * x[i][1] + y[2] * x[i][2]
     return r^
 
 
 def _madd(a: _Rows3, b: _Rows3) -> _Rows3:
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
         r[i] = a[i] + b[i]
     return r^
 
 
 def _msub(a: _Rows3, b: _Rows3) -> _Rows3:
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
         r[i] = a[i] - b[i]
     return r^
 
 
 def _transpose(m: _Rows3) -> _Rows3:
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
-        r[i] = Vec3(m[0][i], m[1][i], m[2][i])
+        r[i] = Vec3(m[0][i], m[1][i], m[2][i], 0)
     return r^
 
 
@@ -1109,12 +1109,12 @@ def _tmatvec(m: _Rows3, v: Vec3) -> Vec3:
 def _rot_mat(q: Quat, m: _Rows3) -> _Rows3:
     """Rows of R·M·Rᵀ for a general 3x3 M (column-wise, like dynamics())."""
     var rt = _rot_rows(q)
-    var c0 = q.rotate(_matvec(m, _matvec(rt, Vec3(1, 0, 0))))
-    var c1 = q.rotate(_matvec(m, _matvec(rt, Vec3(0, 1, 0))))
-    var c2 = q.rotate(_matvec(m, _matvec(rt, Vec3(0, 0, 1))))
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var c0 = q.rotate(_matvec(m, _matvec(rt, Vec3(1, 0, 0, 0))))
+    var c1 = q.rotate(_matvec(m, _matvec(rt, Vec3(0, 1, 0, 0))))
+    var c2 = q.rotate(_matvec(m, _matvec(rt, Vec3(0, 0, 1, 0))))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
-        r[i] = Vec3(c0[i], c1[i], c2[i])
+        r[i] = Vec3(c0[i], c1[i], c2[i], 0)
     return r^
 
 
@@ -1138,10 +1138,10 @@ struct _ABI(Copyable, ImplicitlyCopyable, Movable):
     @staticmethod
     def of(ii: SpInertia) -> Self:
         var b = _skew(ii.h)
-        var d = _Rows3(fill=Vec3(0, 0, 0))
-        d[0] = Vec3(ii.m, 0, 0)
-        d[1] = Vec3(0, ii.m, 0)
-        d[2] = Vec3(0, 0, ii.m)
+        var d = _Rows3(fill=Vec3(0, 0, 0, 0))
+        d[0] = Vec3(ii.m, 0, 0, 0)
+        d[1] = Vec3(0, ii.m, 0, 0)
+        d[2] = Vec3(0, 0, ii.m, 0)
         return Self(ii.io.copy(), b^, d^)
 
     def apply(self, w: Vec3, v: Vec3) -> Tuple[Vec3, Vec3]:

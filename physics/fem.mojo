@@ -129,7 +129,7 @@ struct FemBody(Movable):
         self.inv_m.append(1.0 / mass if mass > 0 else Real(0))
 
     def pos(self, i: Int) -> Vec3:
-        return Vec3(self.x[i], self.y[i], self.z[i])
+        return Vec3(self.x[i], self.y[i], self.z[i], 0)
 
     def pin(mut self, i: Int):
         self.inv_m[i] = 0
@@ -193,9 +193,9 @@ struct FemBody(Movable):
             # H = -W P Dm^-T ; its columns are the forces on nodes b, c, d
             var h = p * t.dm_inv.transpose()
             var w = t.vol
-            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0))
-            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1))
-            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2))
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
             var f0 = (f1 + f2 + f3) * Real(-1)
             fx[t.a] += f0[0]
             fy[t.a] += f0[1]
@@ -421,9 +421,9 @@ struct FemImplicitOp(LinearOperator, Movable, ImplicitlyDeletable):
                     dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
             var h = (r * dp) * dmi.transpose()
             var w = self.vol[e]
-            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0))
-            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1))
-            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2))
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
             var f0 = (f1 + f2 + f3) * Real(-1)
             comptime for k in range(3):
                 out[3 * a + k] += f0[k]
@@ -470,7 +470,7 @@ def make_beam(
         for j in range(ny + 1):
             for k in range(nz + 1):
                 b.add_node(
-                    Vec3(Real(i) * h, Real(j) * h, Real(k) * h), mass_per_node
+                    Vec3(Real(i) * h, Real(j) * h, Real(k) * h, 0), mass_per_node
                 )
     for i in range(nx):
         for j in range(ny):

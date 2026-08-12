@@ -5,7 +5,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _len(v: Vec3) -> Float64:
@@ -14,8 +14,8 @@ def _len(v: Vec3) -> Float64:
 
 def _ground(mut sc: ContactScene6[QuatBody6]):
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 20, 1, 20)),
-        Vec3(20, 1, 20),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 20, 1, 20)),
+        Vec3(20, 1, 20, 0),
         True,
     )
 
@@ -27,10 +27,10 @@ def main() raises:
     # 1. Islands: two separated 2-box stacks -> exactly 2 dynamic islands.
     var sc = ContactScene6[QuatBody6]()
     _ground(sc)
-    _ = sc.add(QuatBody6.at_rest(Vec3(-3, 0.3, 0), bi), Vec3(0.25, 0.25, 0.25), False)
-    _ = sc.add(QuatBody6.at_rest(Vec3(-3, 0.85, 0), bi), Vec3(0.25, 0.25, 0.25), False)
-    _ = sc.add(QuatBody6.at_rest(Vec3(3, 0.3, 0), bi), Vec3(0.25, 0.25, 0.25), False)
-    _ = sc.add(QuatBody6.at_rest(Vec3(3, 0.85, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = sc.add(QuatBody6.at_rest(Vec3(-3, 0.3, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc.add(QuatBody6.at_rest(Vec3(-3, 0.85, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc.add(QuatBody6.at_rest(Vec3(3, 0.3, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc.add(QuatBody6.at_rest(Vec3(3, 0.85, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(30):
         sc.step_soft(DT, G)
     s.check(sc.island_count() == 2, "two separated stacks -> 2 islands")
@@ -41,7 +41,7 @@ def main() raises:
     # 2. Sleeping: a settled box falls asleep and freezes bit-exact.
     var one = ContactScene6[QuatBody6]()
     _ground(one)
-    _ = one.add(QuatBody6.at_rest(Vec3(0, 0.3, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = one.add(QuatBody6.at_rest(Vec3(0, 0.3, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     var asleep_at = -1
     for t in range(180):
         one.step_soft(DT, G)
@@ -60,8 +60,8 @@ def main() raises:
     s.check(one.sleeping[1], "still asleep with no disturbance")
 
     # 3. Wake on impact: drop a box onto the sleeper; both settle and sleep.
-    var b2 = QuatBody6.at_rest(Vec3(0, 1.4, 0), bi)
-    _ = one.add(b2, Vec3(0.25, 0.25, 0.25), False)
+    var b2 = QuatBody6.at_rest(Vec3(0, 1.4, 0, 0), bi)
+    _ = one.add(b2, Vec3(0.25, 0.25, 0.25, 0), False)
     var woke = False
     var both_asleep = False
     for _ in range(300):
@@ -80,10 +80,10 @@ def main() raises:
     # 4. Determinism: two identical runs end bit-identical.
     var ra = ContactScene6[QuatBody6]()
     _ground(ra)
-    _ = ra.add(QuatBody6.at_rest(Vec3(0, 0.5, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = ra.add(QuatBody6.at_rest(Vec3(0, 0.5, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     var rb = ContactScene6[QuatBody6]()
     _ground(rb)
-    _ = rb.add(QuatBody6.at_rest(Vec3(0, 0.5, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = rb.add(QuatBody6.at_rest(Vec3(0, 0.5, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(200):
         ra.step_soft(DT, G)
         rb.step_soft(DT, G)

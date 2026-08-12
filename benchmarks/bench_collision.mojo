@@ -80,8 +80,8 @@ def scene3(n: Int, extent: Real, half: Real) -> List[BoxProxy[3]]:
         var cx = rng.next_f() * extent
         var cy = rng.next_f() * extent
         var cz = rng.next_f() * extent
-        var lo = Vec3(cx - half, cy - half, cz - half)
-        var hi = Vec3(cx + half, cy + half, cz + half)
+        var lo = Vec3(cx - half, cy - half, cz - half, 0)
+        var hi = Vec3(cx + half, cy + half, cz + half, 0)
         items.append(BoxProxy[3](i, AABB3(lo, hi)))
     return items^
 
@@ -128,7 +128,7 @@ def bench_broadphase_3d(mut table: BenchTable, n: Int) raises:
     var bf = BruteForce[3]()
     run_bp(table, "3d brute", bf, items, n)
     var oc = OctreeBroadPhase(
-        AABB3(Vec3(-1, -1, -1), Vec3(extent + 1, extent + 1, extent + 1)),
+        AABB3(Vec3(-1, -1, -1, 0), Vec3(extent + 1, extent + 1, extent + 1, 0)),
         capacity=8,
         max_depth=8,
     )
@@ -219,7 +219,7 @@ struct SphereNarrowPhase(NarrowPhase):
             return Contact[3].miss()
         var dist = sqrt(d_sq) if d_sq > 0 else Real(0)
         var delta = sb.center - sa.center
-        var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0)
+        var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0, 0)
         return Contact[3](True, n, rsum - dist)
 
 
@@ -304,7 +304,7 @@ struct EuclidShapeNarrowPhase(NarrowPhase):
                 return Contact[3].miss()
             var dist = sqrt(d_sq) if d_sq > 0 else Real(0)
             var delta = sb.center - sa.center
-            var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0)
+            var n = normalize(delta) if dist > 0 else Vec3(1, 0, 0, 0)
             return Contact[3](True, n, rsum - dist)
         if self.kinds[a] == 0 and self.kinds[b] == 1:
             return self._sphere_plane(a, b, False)
@@ -336,11 +336,11 @@ def bench_narrowphase_mixed(
         var s = Sphere(b.center(), b.half_extents()[0])
         if pi < n_planes and (i % every) == (every - 1):
             # axis-cycling planes placed through the cloud so they are hit
-            var nrm = Vec3(0, 1, 0)
+            var nrm = Vec3(0, 1, 0, 0)
             if pi % 3 == 1:
-                nrm = Vec3(1, 0, 0)
+                nrm = Vec3(1, 0, 0, 0)
             elif pi % 3 == 2:
-                nrm = Vec3(0, 0, 1)
+                nrm = Vec3(0, 0, 1, 0)
             var pl = Plane3(nrm, dot(b.center(), nrm))
             _ = npe.add_plane(pl)
             _ = npc.add_plane(pl)

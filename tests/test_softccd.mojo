@@ -6,7 +6,7 @@ from physics.solver6 import ContactScene6
 from physics.softbody import SoftBody
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _len(v: Vec3) -> Float64:
@@ -20,16 +20,16 @@ def _wall_scene() -> ContactScene6[QuatBody6]:
     a hit: without CCD all 64 particles fly straight through."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, 1, 0), Inertia3.box(1, 0.01, 2, 2)),
-        Vec3(0.01, 2, 2),
+        QuatBody6.at_rest(Vec3(0, 1, 0, 0), Inertia3.box(1, 0.01, 2, 2)),
+        Vec3(0.01, 2, 2, 0),
         True,
     )
     var sb = SoftBody.box_lattice(
-        Vec3(-1, 1, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4
+        Vec3(-1, 1, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
     for i in range(len(sb.pts)):
         var p = sb.pts[i]
-        p.v = Vec3(120, 0, 0)
+        p.v = Vec3(120, 0, 0, 0)
         sb.pts[i] = p
     _ = sc.add_soft(sb^)
     return sc^
@@ -47,12 +47,12 @@ def _max_x(sc: ContactScene6[QuatBody6]) -> Float64:
 def _jelly(alpha: Real, damp: Real) -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var sb = SoftBody.box_lattice(
-        Vec3(0, 1.0, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, alpha
+        Vec3(0, 1.0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, alpha
     )
     sb.damp = damp
     _ = sc.add_soft(sb^)
@@ -72,19 +72,19 @@ def _plate_slam(ccd: Bool) raises -> Vec3:
     var top = Float64(sc.softs[0].top_y())
     var plate = sc.add(
         QuatBody6.at_rest(
-            Vec3(0, Real(top) + 0.5, 0), Inertia3.box(0.3, 0.25, 0.02, 0.25)
+            Vec3(0, Real(top) + 0.5, 0, 0), Inertia3.box(0.3, 0.25, 0.02, 0.25)
         ),
-        Vec3(0.25, 0.02, 0.25),
+        Vec3(0.25, 0.02, 0.25, 0),
         False,
     )
-    sc.bodies[plate].vel = Vec3(0, -40, 0)
+    sc.bodies[plate].vel = Vec3(0, -40, 0, 0)
     var min_bot = Float64(1e30)
     for _ in range(240):
         sc.step_soft(DT, G, ccd=ccd)
         var bb = Float64(sc.bodies[plate].pos[1]) - 0.02
         if bb < min_bot:
             min_bot = bb
-    return Vec3(Real(min_bot), sc.softs[0].top_y(), 0)
+    return Vec3(Real(min_bot), sc.softs[0].top_y(), 0, 0)
 
 
 def main() raises:
@@ -127,13 +127,13 @@ def main() raises:
         ga.step_soft(DT, G)
         gb.step_soft(DT, G, ccd=True)
     var ra = ga.add(
-        QuatBody6.at_rest(Vec3(0, 0.85, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)),
-        Vec3(0.2, 0.2, 0.2),
+        QuatBody6.at_rest(Vec3(0, 0.85, 0, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)),
+        Vec3(0.2, 0.2, 0.2, 0),
         False,
     )
     var rb = gb.add(
-        QuatBody6.at_rest(Vec3(0, 0.85, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)),
-        Vec3(0.2, 0.2, 0.2),
+        QuatBody6.at_rest(Vec3(0, 0.85, 0, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)),
+        Vec3(0.2, 0.2, 0.2, 0),
         False,
     )
     for _ in range(300):

@@ -125,7 +125,7 @@ def main() raises:
     )
 
     # ---- INTEGRATION: the step size this buys ----
-    var G = Vec3(0, -9.8, 0)
+    var G = Vec3(0, -9.8, 0, 0)
     var dt = Real(1.0) / 60.0
 
     var be = _beam(2.0e5)

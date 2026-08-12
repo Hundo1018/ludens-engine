@@ -42,21 +42,21 @@ def zeros(n: Int) -> List[Real]:
 
 def main() raises:
     var s = Suite("sensors")
-    var g = Vec3(0, -9.81, 0)
+    var g = Vec3(0, -9.81, 0, 0)
 
     # ---- 1. FREE FALL READS ZERO ----------------------------------------
     # a vertical prismatic joint, no actuation: the link free-falls
     var fall = Chain()
     fall.add_link(
         ChainLink.prismatic(
-            Vec3(0, 1, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 2.0, Vec3(0.1, 0.1, 0.1)
+            Vec3(0, 1, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 2.0, Vec3(0.1, 0.1, 0.1, 0)
         )
     )
     var qdd_f = fall.dynamics(zeros(1), g)
     print("  free-fall qdd:", qdd_f[0], " (expect", g[1], ")")
     s.check(abs(Float64(qdd_f[0] - g[1])) < 1e-4, "vertical prismatic free-falls at g")
 
-    var imu_f = read_imu(fall, 0, Vec3(0, 0, 0), qdd_f, g)
+    var imu_f = read_imu(fall, 0, Vec3(0, 0, 0, 0), qdd_f, g)
     print("  free-fall accel magnitude:", length(imu_f.accel))
     s.check(length(imu_f.accel) < 1e-4, "accelerometer reads ZERO in free fall")
 
@@ -65,7 +65,7 @@ def main() raises:
     var support = zeros(1)
     support[0] = 2.0 * 9.81  # exactly cancels the weight
     var held = fall.dynamics(support, g)
-    var imu_h = read_imu(fall, 0, Vec3(0, 0, 0), held, g)
+    var imu_h = read_imu(fall, 0, Vec3(0, 0, 0, 0), held, g)
     print("  held accel:", imu_h.accel[1], " |g| =", -g[1])
     s.check(
         abs(Float64(imu_h.accel[1] + g[1])) < 1e-3 and abs(Float64(imu_h.accel[0])) < 1e-6,
@@ -76,12 +76,12 @@ def main() raises:
     var pend = Chain()
     pend.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0.5, 0, 0), 1.0,
-            Vec3(0.02, 0.02, 0.02)
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0.5, 0, 0, 0), 1.0,
+            Vec3(0.02, 0.02, 0.02, 0)
         )
     )
     pend.qd[0] = 1.7
-    var imu_g = read_imu(pend, 0, Vec3(0, 0, 0), zeros(1), g)
+    var imu_g = read_imu(pend, 0, Vec3(0, 0, 0, 0), zeros(1), g)
     print("  gyro z:", imu_g.gyro[2], " qd:", pend.qd[0])
     s.check(
         abs(Float64(imu_g.gyro[2] - 1.7)) < 1e-5
@@ -94,22 +94,22 @@ def main() raises:
     var c = Chain()
     c.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0.4, 0, 0), 1.5,
-            Vec3(0.05, 0.05, 0.05)
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0.4, 0, 0, 0), 1.5,
+            Vec3(0.05, 0.05, 0.05, 0)
         )
     )
     _ = c.add_link_to(
         0,
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0.8, 0, 0), Vec3(0.3, 0, 0), 0.9,
-            Vec3(0.02, 0.02, 0.02)
+            Vec3(0, 0, 1, 0), Vec3(0.8, 0, 0, 0), Vec3(0.3, 0, 0, 0), 0.9,
+            Vec3(0.02, 0.02, 0.02, 0)
         ),
     )
     c.q[0] = 0.6
     c.q[1] = -0.9
     c.qd[0] = 1.1
     c.qd[1] = -0.7
-    var mount = Vec3(0.25, 0.05, 0)
+    var mount = Vec3(0.25, 0.05, 0, 0)
 
     var h = Real(1e-4)
     var qdd_c = c.dynamics(zeros(2), g)
@@ -139,8 +139,8 @@ def main() raises:
     var st = Chain()
     st.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0.7, 0, 0), 3.0,
-            Vec3(0.01, 0.01, 0.01)
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0.7, 0, 0, 0), 3.0,
+            Vec3(0.01, 0.01, 0.01, 0)
         )
     )
     var tau_s = read_joint_torque(st, zeros(1), g)
@@ -160,29 +160,29 @@ def main() raises:
     var rf = Chain()
     rf.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 2.0, 0), Vec3(0, 0, 0), 1.0,
-            Vec3(0.01, 0.01, 0.01)
+            Vec3(0, 0, 1, 0), Vec3(0, 2.0, 0, 0), Vec3(0, 0, 0, 0), 1.0,
+            Vec3(0.01, 0.01, 0.01, 0)
         )
     )
-    var d_down = read_rangefinder(rf, 0, Vec3(0, 0, 0), Vec3(0, -1, 0), Real(0.0))
+    var d_down = read_rangefinder(rf, 0, Vec3(0, 0, 0, 0), Vec3(0, -1, 0, 0), Real(0.0))
     print("  rangefinder down from y=2:", d_down)
     s.check(abs(Float64(d_down - 2.0)) < 1e-5, "rangefinder measures height above the plane")
-    var d_up = read_rangefinder(rf, 0, Vec3(0, 0, 0), Vec3(0, 1, 0), Real(0.0))
+    var d_up = read_rangefinder(rf, 0, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0), Real(0.0))
     s.check(d_up < 0, "pointing away returns no-return")
-    var d_side = read_rangefinder(rf, 0, Vec3(0, 0, 0), Vec3(1, 0, 0), Real(0.0))
+    var d_side = read_rangefinder(rf, 0, Vec3(0, 0, 0, 0), Vec3(1, 0, 0, 0), Real(0.0))
     s.check(d_side < 0, "parallel to the plane returns no-return")
     # rotating the mount by 90 deg makes local -y point along world +x -> no return
     rf.q[0] = Real(1.5707963)
-    var d_rot = read_rangefinder(rf, 0, Vec3(0, 0, 0), Vec3(0, -1, 0), Real(0.0))
+    var d_rot = read_rangefinder(rf, 0, Vec3(0, 0, 0, 0), Vec3(0, -1, 0, 0), Real(0.0))
     print("  rangefinder after a 90-deg turn:", d_rot)
     s.check(d_rot < 0, "the ray follows the link's orientation")
     # a near-parallel ray meets the plane 6e7 m away: right, and out of range
     var d_short = read_rangefinder(
-        rf, 0, Vec3(0, 0, 0), Vec3(0, -1, 0), Real(0.0), Real(1.0)
+        rf, 0, Vec3(0, 0, 0, 0), Vec3(0, -1, 0, 0), Real(0.0), Real(1.0)
     )
     rf.q[0] = 0
     var d_inrange = read_rangefinder(
-        rf, 0, Vec3(0, 0, 0), Vec3(0, -1, 0), Real(0.0), Real(1.0)
+        rf, 0, Vec3(0, 0, 0, 0), Vec3(0, -1, 0, 0), Real(0.0), Real(1.0)
     )
     s.check(
         d_short < 0 and d_inrange < 0,
@@ -193,12 +193,12 @@ def main() raises:
     var tc = Chain()
     tc.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0.3, 0), Vec3(0, 0, 0), 1.0,
-            Vec3(0.01, 0.01, 0.01)
+            Vec3(0, 0, 1, 0), Vec3(0, 0.3, 0, 0), Vec3(0, 0, 0, 0), 1.0,
+            Vec3(0.01, 0.01, 0.01, 0)
         )
     )
-    var t_free = read_touch(tc, 0, Vec3(0, 0, 0), Real(0.0))
-    var t_hit = read_touch(tc, 0, Vec3(0, -0.5, 0), Real(0.0))
+    var t_free = read_touch(tc, 0, Vec3(0, 0, 0, 0), Real(0.0))
+    var t_hit = read_touch(tc, 0, Vec3(0, -0.5, 0, 0), Real(0.0))
     print("  touch free:", t_free, " touch pressed:", t_hit)
     s.check(t_free == 0, "no reading when clear of the floor")
     s.check(abs(Float64(t_hit - 0.2)) < 1e-5, "touch reports penetration depth")
@@ -208,9 +208,9 @@ def main() raises:
     #      cheap path would be computing something else
     var ls = List[Int]()
     var ms = List[Vec3]()
-    ls.append(0); ms.append(Vec3(0.1, 0.2, -0.1))
+    ls.append(0); ms.append(Vec3(0.1, 0.2, -0.1, 0))
     ls.append(1); ms.append(mount)
-    ls.append(1); ms.append(Vec3(0, 0, 0))
+    ls.append(1); ms.append(Vec3(0, 0, 0, 0))
     var batch = read_imu_batch(c, ls, ms, qdd_c, g)
     var exact = True
     for k in range(len(ls)):

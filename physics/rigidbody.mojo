@@ -9,23 +9,23 @@ not yet produce). Linear-only keeps the body, the solvers and friction (a single
 tangent along the sliding velocity) genuinely dimension-generic for 2D and 3D.
 """
 
-from geometry.vec import WorldType, Real
+from geometry.vec import WorldType, Real, PadW
 from geometry.aabb import AABB
 
 
 @fieldwise_init
 struct RigidBody[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
-    var pos: SIMD[WorldType, Self.dim]
-    var vel: SIMD[WorldType, Self.dim]
+    var pos: SIMD[WorldType, PadW[Self.dim]]
+    var vel: SIMD[WorldType, PadW[Self.dim]]
     var inv_mass: Real  # 0 => static (infinite mass)
     var restitution: Real
     var friction: Real
-    var half: SIMD[WorldType, Self.dim]  # box half-extents
+    var half: SIMD[WorldType, PadW[Self.dim]]  # box half-extents
 
     @staticmethod
     def dynamic(
-        pos: SIMD[WorldType, Self.dim],
-        half: SIMD[WorldType, Self.dim],
+        pos: SIMD[WorldType, PadW[Self.dim]],
+        half: SIMD[WorldType, PadW[Self.dim]],
         mass: Real,
         restitution: Real = 0,
         friction: Real = 0,
@@ -34,21 +34,21 @@ struct RigidBody[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDele
         if mass > 0:
             im = Real(1) / mass
         return Self(
-            pos, SIMD[WorldType, Self.dim](0), im, restitution, friction, half
+            pos, SIMD[WorldType, PadW[Self.dim]](0), im, restitution, friction, half
         )
 
     @staticmethod
     def static_box(
-        pos: SIMD[WorldType, Self.dim],
-        half: SIMD[WorldType, Self.dim],
+        pos: SIMD[WorldType, PadW[Self.dim]],
+        half: SIMD[WorldType, PadW[Self.dim]],
         restitution: Real = 0,
         friction: Real = 0,
     ) -> Self:
         return Self(
-            pos, SIMD[WorldType, Self.dim](0), 0, restitution, friction, half
+            pos, SIMD[WorldType, PadW[Self.dim]](0), 0, restitution, friction, half
         )
 
-    def with_velocity(self, v: SIMD[WorldType, Self.dim]) -> Self:
+    def with_velocity(self, v: SIMD[WorldType, PadW[Self.dim]]) -> Self:
         var r = self
         r.vel = v
         return r

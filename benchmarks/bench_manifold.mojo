@@ -70,8 +70,8 @@ def scene3(n: Int, extent: Real, half: Real) -> List[BoxProxy[3]]:
             BoxProxy[3](
                 i,
                 AABB3(
-                    Vec3(cx - half, cy - half, cz - half),
-                    Vec3(cx + half, cy + half, cz + half),
+                    Vec3(cx - half, cy - half, cz - half, 0),
+                    Vec3(cx + half, cy + half, cz + half, 0),
                 ),
             )
         )
@@ -172,9 +172,9 @@ def bench_hull(mut table: BenchTable, items: List[BoxProxy[3]], pairs: List[Pair
     per SHAPE at construction; generating the patch happens once per PAIR every
     step. Reporting only their sum would hide that the expensive half is paid
     at load time."""
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
 
     var t0 = now()
     var hulls = List[HullShape](capacity=n)

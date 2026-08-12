@@ -21,15 +21,15 @@ from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 from physics.actuator import Actuator, ActuatorBank
 
-comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
+comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0)
 comptime DT: Real = 1.0 / 480.0
-comptime NOG = Vec3(0, 0, 0)
+comptime NOG = Vec3(0, 0, 0, 0)
 
 
 def _arm() -> Chain:
     var c = Chain()
     c.add_link(
-        ChainLink.revolute(Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0, INER)
+        ChainLink.revolute(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER)
     )
     return c^
 

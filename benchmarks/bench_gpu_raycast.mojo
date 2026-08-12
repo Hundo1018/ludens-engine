@@ -40,7 +40,7 @@ def _scene() -> List[BoxProxy[3]]:
             Real(rng.next_f32()) * 80 - 40,
             Real(rng.next_f32()) * 80 - 40,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.7, 0.7, 0.7), c + Vec3(0.7, 0.7, 0.7))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.7, 0.7, 0.7, 0), c + Vec3(0.7, 0.7, 0.7, 0))))
     return out^
 
 
@@ -59,7 +59,7 @@ def _rays(n: Int) -> List[Ray[3]]:
             Real(rng.next_f32()) * 2 - 1,
         )
         if abs(Float64(d[0])) + abs(Float64(d[1])) + abs(Float64(d[2])) < 1e-3:
-            d = Vec3(1, 0, 0)
+            d = Vec3(1, 0, 0, 0)
         out.append(Ray[3](o, normalize(d), MAXT))
     return out^
 

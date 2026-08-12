@@ -26,9 +26,9 @@ def _frame_items(
     for i in range(N):
         # deterministic small jitter, no rng state shared with timing
         var ph = Real((i * 7 + f * 13) % 97) * 0.001
-        var c = Vec3(cx[i] + ph, cy[i] - ph, cz[i] + ph * 0.5)
+        var c = Vec3(cx[i] + ph, cy[i] - ph, cz[i] + ph * 0.5, 0)
         items.append(
-            BoxProxy[3](i, AABB[3].from_center(c, Vec3(0.5, 0.5, 0.5)))
+            BoxProxy[3](i, AABB[3].from_center(c, Vec3(0.5, 0.5, 0.5, 0)))
         )
     return items^
 

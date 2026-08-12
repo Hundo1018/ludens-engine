@@ -21,14 +21,14 @@ from collision.manifold import (
 
 def _cube(cx: Float32, cy: Float32, cz: Float32, h: Float32) -> ConvexPoly[3]:
     var p = ConvexPoly[3]()
-    p.add(Vec3(cx - h, cy - h, cz - h))
-    p.add(Vec3(cx + h, cy - h, cz - h))
-    p.add(Vec3(cx + h, cy + h, cz - h))
-    p.add(Vec3(cx - h, cy + h, cz - h))
-    p.add(Vec3(cx - h, cy - h, cz + h))
-    p.add(Vec3(cx + h, cy - h, cz + h))
-    p.add(Vec3(cx + h, cy + h, cz + h))
-    p.add(Vec3(cx - h, cy + h, cz + h))
+    p.add(Vec3(cx - h, cy - h, cz - h, 0))
+    p.add(Vec3(cx + h, cy - h, cz - h, 0))
+    p.add(Vec3(cx + h, cy + h, cz - h, 0))
+    p.add(Vec3(cx - h, cy + h, cz - h, 0))
+    p.add(Vec3(cx - h, cy - h, cz + h, 0))
+    p.add(Vec3(cx + h, cy - h, cz + h, 0))
+    p.add(Vec3(cx + h, cy + h, cz + h, 0))
+    p.add(Vec3(cx - h, cy + h, cz + h, 0))
     return p^
 
 
@@ -69,11 +69,11 @@ def main() raises:
 
     # 3D — box resting on a ground box: contact axis y, 4 corner points.
     var mn3 = AABBManifoldNarrowPhase[3]()
-    _ = mn3.add(AABB3(Vec3(0, 0, 0), Vec3(2, 2, 2)))  # 0 ground
-    _ = mn3.add(AABB3(Vec3(0.25, 1.9, 0.25), Vec3(1.75, 3.9, 1.75)))  # 1 on top
+    _ = mn3.add(AABB3(Vec3(0, 0, 0, 0), Vec3(2, 2, 2, 0)))  # 0 ground
+    _ = mn3.add(AABB3(Vec3(0.25, 1.9, 0.25, 0), Vec3(1.75, 3.9, 1.75, 0)))  # 1 on top
     var an3 = AABBNarrowPhase[3]()
-    _ = an3.add(AABB3(Vec3(0, 0, 0), Vec3(2, 2, 2)))
-    _ = an3.add(AABB3(Vec3(0.25, 1.9, 0.25), Vec3(1.75, 3.9, 1.75)))
+    _ = an3.add(AABB3(Vec3(0, 0, 0, 0), Vec3(2, 2, 2, 0)))
+    _ = an3.add(AABB3(Vec3(0.25, 1.9, 0.25, 0), Vec3(1.75, 3.9, 1.75, 0)))
 
     var m3 = mn3.test_manifold(0, 1)
     var c3 = an3.test(0, 1)
@@ -186,13 +186,13 @@ def main() raises:
     s.check(not gm.test_manifold(0, 2).hit, "gjk manifold far miss")
 
     # Rotated box-box manifold: axis-aligned parity with the AABB path.
-    var idax = Axes3(fill=Vec3(0, 0, 0))
-    idax[0] = Vec3(1, 0, 0)
-    idax[1] = Vec3(0, 1, 0)
-    idax[2] = Vec3(0, 0, 1)
+    var idax = Axes3(fill=Vec3(0, 0, 0, 0))
+    idax[0] = Vec3(1, 0, 0, 0)
+    idax[1] = Vec3(0, 1, 0, 0)
+    idax[2] = Vec3(0, 0, 1, 0)
     var bb = box_box_manifold(
-        Vec3(1, 1, 1), idax, Vec3(1, 1, 1),
-        Vec3(1, 2.9, 1), idax, Vec3(0.75, 1, 0.75),
+        Vec3(1, 1, 1, 0), idax, Vec3(1, 1, 1, 0),
+        Vec3(1, 2.9, 1, 0), idax, Vec3(0.75, 1, 0.75, 0),
     )
     s.check(bb.hit, "bb hit")
     s.check(bb.count == 4, "bb axis-aligned -> 4 points")
@@ -205,20 +205,20 @@ def main() raises:
             "bb point in overlap x",
         )
     s.check(not box_box_manifold(
-        Vec3(0, 0, 0), idax, Vec3(1, 1, 1),
-        Vec3(5, 0, 0), idax, Vec3(1, 1, 1),
+        Vec3(0, 0, 0, 0), idax, Vec3(1, 1, 1, 0),
+        Vec3(5, 0, 0, 0), idax, Vec3(1, 1, 1, 0),
     ).hit, "bb far miss")
 
     # Tilted box on the ground: the manifold must be depth-ASYMMETRIC — the
     # dipped edge is deeper, which is what gives the solver a restoring torque.
     var th = Float32(0.05)
-    var tax = Axes3(fill=Vec3(0, 0, 0))
-    tax[0] = Vec3(cos(th), sin(th), 0)
-    tax[1] = Vec3(-sin(th), cos(th), 0)
-    tax[2] = Vec3(0, 0, 1)
+    var tax = Axes3(fill=Vec3(0, 0, 0, 0))
+    tax[0] = Vec3(cos(th), sin(th), 0, 0)
+    tax[1] = Vec3(-sin(th), cos(th), 0, 0)
+    tax[2] = Vec3(0, 0, 1, 0)
     var tb = box_box_manifold(
-        Vec3(0, -1, 0), idax, Vec3(10, 1, 10),
-        Vec3(0, 0.245, 0), tax, Vec3(0.25, 0.25, 0.25),
+        Vec3(0, -1, 0, 0), idax, Vec3(10, 1, 10, 0),
+        Vec3(0, 0.245, 0, 0), tax, Vec3(0.25, 0.25, 0.25, 0),
     )
     s.check(tb.hit, "tilted bb hit")
     s.check(tb.count >= 2, "tilted bb has a patch")

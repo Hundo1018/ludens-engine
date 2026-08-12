@@ -12,18 +12,18 @@ def main() raises:
     s.almost(Float64(dot(Vec2(2, 3), Vec2(4, 5))), 23.0, "dot 2x3 . 4x5")
 
     # width-3: manual reduction must NOT drop the 3rd lane (1+4+4 = 9 -> 3)
-    var b = Vec3(1, 2, 2)
+    var b = Vec3(1, 2, 2, 0)
     s.almost(Float64(length(b)), 3.0, "vec3 length width-3")
-    s.almost(Float64(length_sq(Vec3(2, 3, 6))), 49.0, "vec3 len_sq")
+    s.almost(Float64(length_sq(Vec3(2, 3, 6, 0))), 49.0, "vec3 len_sq")
 
     var n = normalize(Vec2(0, 8))
     s.almost(Float64(n[1]), 1.0, "normalize y")
     s.almost(Float64(length(n)), 1.0, "normalized length")
 
-    var mn = lane_min(Vec3(1, 5, 3), Vec3(4, 2, 9))
+    var mn = lane_min(Vec3(1, 5, 3, 0), Vec3(4, 2, 9, 0))
     s.almost(Float64(mn[0]), 1.0, "lane_min x")
     s.almost(Float64(mn[1]), 2.0, "lane_min y")
-    var mx = lane_max(Vec3(1, 5, 3), Vec3(4, 2, 9))
+    var mx = lane_max(Vec3(1, 5, 3, 0), Vec3(4, 2, 9, 0))
     s.almost(Float64(mx[2]), 9.0, "lane_max z")
 
     s.finish()

@@ -3,7 +3,7 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
 
 
@@ -12,18 +12,18 @@ def _make_chain(n: Int) raises -> Chain:
     masses — no symmetry for parity to hide behind."""
     var ch = Chain()
     for i in range(n):
-        var ax = Vec3(0, 0, 1)
+        var ax = Vec3(0, 0, 1, 0)
         if i % 3 == 1:
-            ax = Vec3(1, 0, 0)
+            ax = Vec3(1, 0, 0, 0)
         if i % 3 == 2:
-            ax = Vec3(0, 1, 0)
+            ax = Vec3(0, 1, 0, 0)
         ch.add_link(
             ChainLink.revolute(
                 ax,
-                Vec3(0.1 * Real(i % 2), -0.5, 0.05 * Real(i % 3)),
-                Vec3(0.02, -0.25, 0.01),
+                Vec3(0.1 * Real(i % 2), -0.5, 0.05 * Real(i % 3), 0),
+                Vec3(0.02, -0.25, 0.01, 0),
                 1.0 + 0.2 * Real(i),
-                Vec3(0.02 + 0.01 * Real(i), 0.015, 0.025),
+                Vec3(0.02 + 0.01 * Real(i), 0.015, 0.025, 0),
             )
         )
     for i in range(n):
@@ -63,11 +63,11 @@ def main() raises:
     for _ in range(4):
         hang.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1),
-                Vec3(0, -0.5, 0),
-                Vec3(0, -0.25, 0),
+                Vec3(0, 0, 1, 0),
+                Vec3(0, -0.5, 0, 0),
+                Vec3(0, -0.25, 0, 0),
                 1.0,
-                Vec3(0.02, 0.015, 0.025),
+                Vec3(0.02, 0.015, 0.025, 0),
             )
         )
     var zt = List[Real]()
@@ -88,16 +88,16 @@ def main() raises:
     for _ in range(2):
         dp.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1),
-                Vec3(0, -1, 0),
-                Vec3(0, -0.5, 0),
+                Vec3(0, 0, 1, 0),
+                Vec3(0, -1, 0, 0),
+                Vec3(0, -0.5, 0, 0),
                 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
         )
     # first pivot at the origin, like test_chain
     var l0 = dp.links[0]
-    l0.pivot = Vec3(0, 0, 0)
+    l0.pivot = Vec3(0, 0, 0, 0)
     dp.links[0] = l0
     dp.q[0] = 0.5
     dp.q[1] = 0.3

@@ -47,7 +47,7 @@ def _torque_free(wb: Vec3, inertia: Inertia3) -> Vec3:
 def _advance(pose: Motor3, wb: Vec3, dt: Real) -> Motor3:
     """Rotate the pose by the body rate ω over dt (closed-form motor exp)."""
     return (
-        pose * exp_screw3(screw_velocity(wb, Vec3(0, 0, 0)).scaled(dt))
+        pose * exp_screw3(screw_velocity(wb, Vec3(0, 0, 0, 0)).scaled(dt))
     ).normalized()
 
 
@@ -104,7 +104,7 @@ def _rodrigues(f: Vec3) -> _Rows3:
         var t = sqrt(t2)
         a = sin(t) / t
         b = (1 - cos(t)) / t2
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     r[0] = Vec3(
         1 + b * (-f[1] * f[1] - f[2] * f[2]),
         -a * f[2] + b * f[0] * f[1],
@@ -162,7 +162,7 @@ struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
         )
         var w2 = inertia.apply_inv(pi2)
         var pose2 = (
-            pose * exp_screw3(screw_velocity(f, Vec3(0, 0, 0)).scaled(1))
+            pose * exp_screw3(screw_velocity(f, Vec3(0, 0, 0, 0)).scaled(1))
         ).normalized()
         return (pose2, w2)
 

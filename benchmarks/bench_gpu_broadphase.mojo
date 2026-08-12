@@ -38,7 +38,7 @@ def _scene(n: Int, extent: Real) -> List[BoxProxy[3]]:
             Real(rng.next_f32()) * extent,
             Real(rng.next_f32()) * extent,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.5, 0.5, 0.5), c + Vec3(0.5, 0.5, 0.5))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.5, 0.5, 0.5, 0), c + Vec3(0.5, 0.5, 0.5, 0))))
     return out^
 
 

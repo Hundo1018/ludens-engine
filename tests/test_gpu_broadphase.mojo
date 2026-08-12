@@ -57,7 +57,7 @@ def _scene(mut rng: SplitMix64, n: Int, extent: Real, h: Real) -> List[BoxProxy[
             Real(rng.next_f32()) * extent,
             Real(rng.next_f32()) * extent,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(h, h, h), c + Vec3(h, h, h))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(h, h, h, 0), c + Vec3(h, h, h, 0))))
     return out^
 
 

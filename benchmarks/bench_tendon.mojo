@@ -39,8 +39,8 @@ def _chain(n: Int) -> Chain:
     for _ in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0.6, 0, 0), Vec3(0.3, 0, 0), 1.0,
-                Vec3(0.02, 0.02, 0.02),
+                Vec3(0, 0, 1, 0), Vec3(0.6, 0, 0, 0), Vec3(0.3, 0, 0, 0), 1.0,
+                Vec3(0.02, 0.02, 0.02, 0),
             )
         )
     for i in range(n):
@@ -51,10 +51,10 @@ def _chain(n: Int) -> Chain:
 def _tendon(n: Int, sites: Int, wrap: Bool) raises -> SpatialTendon:
     var t = SpatialTendon()
     for k in range(sites):
-        t.add_site(k % n, Vec3(0.1 + Real(k) * 0.02, 0.25, 0))
+        t.add_site(k % n, Vec3(0.1 + Real(k) * 0.02, 0.25, 0, 0))
     if wrap and len(t.wraps) > 0:
         for k in range(len(t.wraps)):
-            t.wraps[k] = WrapSphere(Vec3(0.7, 0.9, 0), 0.05)
+            t.wraps[k] = WrapSphere(Vec3(0.7, 0.9, 0, 0), 0.05)
     return t^
 
 

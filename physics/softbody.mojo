@@ -77,7 +77,7 @@ struct SoftBody(Movable, ImplicitlyDeletable):
                         Real(k) / Real(n - 1) * 2 - 1,
                     )
                     sb.pts.append(
-                        _SP(center + f * half, Vec3(0, 0, 0), 1 / per)
+                        _SP(center + f * half, Vec3(0, 0, 0, 0), 1 / per)
                     )
         sb.radius = (half[0] / Real(n - 1)) * 0.5
 
@@ -125,7 +125,7 @@ struct SoftBody(Movable, ImplicitlyDeletable):
         return sqrt(m)
 
     def momentum(self) -> Vec3:
-        var p = Vec3(0, 0, 0)
+        var p = Vec3(0, 0, 0, 0)
         for i in range(len(self.pts)):
             p = p + self.pts[i].v / self.pts[i].w
         return p

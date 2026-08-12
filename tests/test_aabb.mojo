@@ -35,12 +35,12 @@ def main() raises:
     s.almost(Float64(fc.min[0]), 4.0, "from_center min")
 
     # 3D
-    var box3 = AABB3(Vec3(0, 0, 0), Vec3(2, 2, 2))
-    var box3b = AABB3(Vec3(1, 1, 1), Vec3(3, 3, 3))
-    var box3c = AABB3(Vec3(5, 5, 5), Vec3(6, 6, 6))
+    var box3 = AABB3(Vec3(0, 0, 0, 0), Vec3(2, 2, 2, 0))
+    var box3b = AABB3(Vec3(1, 1, 1, 0), Vec3(3, 3, 3, 0))
+    var box3c = AABB3(Vec3(5, 5, 5, 0), Vec3(6, 6, 6, 0))
     s.check(box3.overlaps(box3b), "3d overlap")
     s.check(not box3.overlaps(box3c), "3d disjoint")
-    s.check(box3.contains_point(Vec3(1, 1, 1)), "3d contains point")
+    s.check(box3.contains_point(Vec3(1, 1, 1, 0)), "3d contains point")
     s.almost(Float64(box3.surface_area()), 24.0, "3d surface area 2*(4+4+4)")
 
     s.finish()

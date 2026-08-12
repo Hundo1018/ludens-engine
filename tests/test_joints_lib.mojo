@@ -23,9 +23,9 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 480.0
-comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
+comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0)
 
 
 def main() raises:
@@ -34,7 +34,7 @@ def main() raises:
     # ---- 1. a prismatic joint along gravity is free fall ----
     var slide = Chain()
     slide.add_link(
-        ChainLink.prismatic(Vec3(0, 1, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 2.0, INER)
+        ChainLink.prismatic(Vec3(0, 1, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 2.0, INER)
     )
     var zero1 = List[Real]()
     zero1.append(0)
@@ -47,7 +47,7 @@ def main() raises:
     # ---- 2. a prismatic joint ACROSS gravity feels nothing ----
     var across = Chain()
     across.add_link(
-        ChainLink.prismatic(Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 2.0, INER)
+        ChainLink.prismatic(Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 2.0, INER)
     )
     for _ in range(480):
         across.step(DT, zero1, G)
@@ -57,24 +57,24 @@ def main() raises:
     # ---- 3. a unit force on a free slider gives a = F/m ----
     var push = Chain()
     push.add_link(
-        ChainLink.prismatic(Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 4.0, INER)
+        ChainLink.prismatic(Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 4.0, INER)
     )
     var f1 = List[Real]()
     f1.append(8.0)
-    var acc = push.dynamics(f1, Vec3(0, 0, 0))
+    var acc = push.dynamics(f1, Vec3(0, 0, 0, 0))
     print("  a = F/m:", acc[0], " (want 2.0)")
     s.check(abs(acc[0] - 2.0) < 1e-4, "prismatic obeys a = F/m")
 
     # ---- 4. MIXED chain: both subspaces in one system, round trip ----
     var mix = Chain()
     var b = mix.add_link_to(
-        -1, ChainLink.revolute(Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0, INER)
+        -1, ChainLink.revolute(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER)
     )
     var sl = mix.add_link_to(
-        b, ChainLink.prismatic(Vec3(0, -1, 0), Vec3(0, -1, 0), Vec3(0, -0.3, 0), 1.0, INER)
+        b, ChainLink.prismatic(Vec3(0, -1, 0, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.3, 0, 0), 1.0, INER)
     )
     _ = mix.add_link_to(
-        sl, ChainLink.revolute(Vec3(1, 0, 0), Vec3(0, -0.6, 0), Vec3(0, -0.5, 0), 1.0, INER)
+        sl, ChainLink.revolute(Vec3(1, 0, 0, 0), Vec3(0, -0.6, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER)
     )
     mix.q[0] = 0.4
     mix.q[1] = 0.25
@@ -100,7 +100,7 @@ def main() raises:
     var lim = Chain()
     lim.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0, INER
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER
         ).limited(-0.5, 0.5)
     )
     lim.q[0] = 0.3
@@ -108,7 +108,7 @@ def main() raises:
     drive.append(6.0)  # torque pushing hard past the upper stop
     var worst_over = Real(0)
     for _ in range(960):
-        lim.step(DT, drive, Vec3(0, 0, 0))
+        lim.step(DT, drive, Vec3(0, 0, 0, 0))
         _ = lim.resolve_limits(DT)
         var over = lim.q[0] - 0.5
         if over > worst_over:
@@ -121,7 +121,7 @@ def main() raises:
     var back = Chain()
     back.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0, INER
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER
         ).limited(-0.5, 0.5)
     )
     back.q[0] = 0.5

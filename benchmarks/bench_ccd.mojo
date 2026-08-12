@@ -37,10 +37,10 @@ def _axes(theta: Real, phi: Real) -> Axes3:
     var st = sin(theta)
     var cp = cos(phi)
     var sp = sin(phi)
-    var a = Axes3(fill=Vec3(0, 0, 0))
-    a[0] = Vec3(ct, st, 0)
-    a[1] = Vec3(-st * cp, ct * cp, sp)
-    a[2] = Vec3(st * sp, -ct * sp, cp)
+    var a = Axes3(fill=Vec3(0, 0, 0, 0))
+    a[0] = Vec3(ct, st, 0, 0)
+    a[1] = Vec3(-st * cp, ct * cp, sp, 0)
+    a[2] = Vec3(st * sp, -ct * sp, cp, 0)
     return a
 
 
@@ -63,7 +63,7 @@ def _scene(n: Int) -> List[_Cast]:
     for _ in range(n):
         var axa = _axes(rng.next_f() * 6.28, rng.next_f() * 3.14)
         var axb = _axes(rng.next_f() * 6.28, rng.next_f() * 3.14)
-        var ca = Vec3(rng.next_f(), rng.next_f(), rng.next_f())
+        var ca = Vec3(rng.next_f(), rng.next_f(), rng.next_f(), 0)
         # target sits 1-3 units up-range along x, slight lateral scatter
         var cb = ca + Vec3(
             1.0 + 2.0 * rng.next_f(),
@@ -77,7 +77,7 @@ def _scene(n: Int) -> List[_Cast]:
             (rng.next_f() - 0.5) * 0.4,
         )
         casts.append(_Cast(
-            ca, axa, Vec3(0.3, 0.3, 0.3), cb, axb, Vec3(0.1, 0.1, 0.1), disp
+            ca, axa, Vec3(0.3, 0.3, 0.3, 0), cb, axb, Vec3(0.1, 0.1, 0.1, 0), disp
         ))
     return casts^
 
@@ -96,7 +96,7 @@ def main() raises:
     for k in range(len(casts)):
         var c = casts[k]
         var margin = SPEC_BASE + sqrt(dot(c.disp, c.disp))
-        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
+        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
         var m = box_box_manifold(
             c.ca, c.axa, c.ha + infl, c.cb, c.axb, c.hb + infl
         )

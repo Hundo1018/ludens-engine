@@ -21,7 +21,7 @@ from geometry.vec import Real, Vec3
 from physics.pbf import PbfFluid
 
 comptime DT: Real = 1.0 / 120.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime STEPS = 120  # long enough for the column to actually settle;
 # at 40 the density column is still mid-fall and reads non-monotonically in
 # the iteration count, which measures the transient rather than convergence
@@ -29,13 +29,13 @@ comptime SP: Real = 0.06
 
 
 def _make(side: Int) -> PbfFluid:
-    var f = PbfFluid(Vec3(0, 0, 0), Vec3(1.2, 1.6, 1.2))
+    var f = PbfFluid(Vec3(0, 0, 0, 0), Vec3(1.2, 1.6, 1.2, 0))
     f.calibrate(SP)
     for i in range(side):
         for j in range(side):
             for k in range(side):
                 f.add(
-                    Vec3(0.2 + Real(i) * SP, 0.5 + Real(j) * SP, 0.2 + Real(k) * SP)
+                    Vec3(0.2 + Real(i) * SP, 0.5 + Real(j) * SP, 0.2 + Real(k) * SP, 0)
                 )
     return f^
 

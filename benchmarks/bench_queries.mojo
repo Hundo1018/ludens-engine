@@ -11,7 +11,7 @@ Run: `mojo run -I build benchmarks/bench_queries.mojo`.
 
 from std.benchmark import keep
 from harness.bench import BenchTable, now
-from geometry.vec import WorldType, Real, normalize
+from geometry.vec import WorldType, Real, normalize, PadW
 from geometry.aabb import AABB
 from geometry.ray import Ray
 from collision.broadphase import BoxProxy
@@ -31,18 +31,18 @@ comptime MAXT = Real(60)
 def scatter[D: Int](mut rng: XorShift64, n: Int) -> List[BoxProxy[D]]:
     var items = List[BoxProxy[D]]()
     for i in range(n):
-        var c = SIMD[WorldType, D](0)
+        var c = SIMD[WorldType, PadW[D]](0)
         comptime for k in range(D):
             c[k] = range_f(rng, 0, AREA)
-        items.append(BoxProxy[D](i, AABB[D].from_center(c, SIMD[WorldType, D](0.5))))
+        items.append(BoxProxy[D](i, AABB[D].from_center(c, SIMD[WorldType, PadW[D]](0.5))))
     return items^
 
 
 def make_rays[D: Int](mut rng: XorShift64, m: Int) -> List[Ray[D]]:
     var rays = List[Ray[D]]()
     for i in range(m):
-        var o = SIMD[WorldType, D](0)
-        var d = SIMD[WorldType, D](0)
+        var o = SIMD[WorldType, PadW[D]](0)
+        var d = SIMD[WorldType, PadW[D]](0)
         comptime for k in range(D):
             o[k] = range_f(rng, 0, AREA)
             d[k] = range_f(rng, -1, 1)
@@ -53,10 +53,10 @@ def make_rays[D: Int](mut rng: XorShift64, m: Int) -> List[Ray[D]]:
 def make_boxes[D: Int](mut rng: XorShift64, m: Int) -> List[AABB[D]]:
     var boxes = List[AABB[D]]()
     for i in range(m):
-        var c = SIMD[WorldType, D](0)
+        var c = SIMD[WorldType, PadW[D]](0)
         comptime for k in range(D):
             c[k] = range_f(rng, 0, AREA)
-        boxes.append(AABB[D].from_center(c, SIMD[WorldType, D](2)))
+        boxes.append(AABB[D].from_center(c, SIMD[WorldType, PadW[D]](2)))
     return boxes^
 
 

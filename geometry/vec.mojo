@@ -14,7 +14,40 @@ from std.math import sqrt
 comptime WorldType = DType.float32
 comptime Real = Scalar[WorldType]
 comptime Vec2 = SIMD[WorldType, 2]
-comptime Vec3 = SIMD[WorldType, 3]
+# FOUR lanes, not three. Mojo requires SIMD widths to be powers of two, so a
+# 3-vector is stored padded and LANE 3 IS ALWAYS ZERO.
+#
+# That invariant is load-bearing, not decorative: `dot` reduces over every lane
+# of whatever width it is given, so a non-zero pad lane would silently corrupt
+# every dot product, length and normalisation in the engine. It is maintained by
+# construction -- `Vec3(x, y, z, 0)` at every call site, and splats are only
+# ever `Vec3(0)` -- and `test_vec` asserts it survives the arithmetic that
+# matters. Addition, subtraction and scalar multiply preserve zero; the one
+# operation that would not is dividing two vectors element-wise, which this
+# engine never does (division is always by a scalar length).
+#
+# Padding is also why the old `List[Vec3]` corruption class is gone: it was
+# caused by a width the toolchain never fully supported.
+comptime Vec3 = SIMD[WorldType, 4]
+
+
+comptime PadW[d: Int] = 4 if d == 3 else d
+"""Lane count used to store a `d`-dimensional vector.
+
+SIMD widths must be powers of two, so a 3-vector occupies 4 lanes. Every
+dimension-generic container sizes its storage with `PadW[dim]` rather than with
+`dim` directly; loops still run over `dim`, so the pad lane is never addressed.
+
+It has to be a CONDITIONAL alias, not arithmetic and not a function. A `def`
+called in type position is never folded, and an arithmetic expression stays
+symbolic -- `SIMDLength(((Int(4) // Int(2)) * Int(2)))` will not unify with
+`SIMDLength(4)`, so a padded container could not be passed to anything typed
+with a literal width. The conditional form folds to a literal and unifies."""
+
+
+def vlanes(d: Int) -> Int:
+    """Runtime form of `PadW`, for code that needs the count as a value."""
+    return 4 if d == 3 else d
 
 
 def dot[w: SIMDSize, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
@@ -65,9 +98,9 @@ def lane_max[w: SIMDSize, //](
     return r
 
 
-def splat[d: Int](v: Real) -> SIMD[WorldType, d]:
+def splat[d: Int](v: Real) -> SIMD[WorldType, PadW[d]]:
     """A vector with every lane set to `v` (width passed explicitly)."""
-    var r = SIMD[WorldType, d](0)
+    var r = SIMD[WorldType, PadW[d]](0)
     comptime for i in range(d):
         r[i] = v
     return r

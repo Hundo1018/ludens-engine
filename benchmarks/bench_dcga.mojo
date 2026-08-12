@@ -36,8 +36,8 @@ def main() raises:
     comptime R: Real = 2.0
     comptime r: Real = 0.6
     var tor = dcga_torus(R, r)
-    var sph = dcga_sphere(Vec3(0.4, -0.3, 0.9), 1.7)
-    var nrm = normalize(Vec3(0.3, 0.8, -0.5))
+    var sph = dcga_sphere(Vec3(0.4, -0.3, 0.9, 0), 1.7)
+    var nrm = normalize(Vec3(0.3, 0.8, -0.5, 0))
     var pl = dcga_plane(nrm, 1.25)
 
     var t = BenchTable("DCGA: one uniform incidence test vs hand-written surfaces")
@@ -47,7 +47,7 @@ def main() raises:
         var acc = Real(0)
         for i in range(N):
             acc += dcga_incidence(
-                dcga_point(Vec3(px[i], py[i], pz[i])), tor
+                dcga_point(Vec3(px[i], py[i], pz[i], 0)), tor
             )
         keep(acc)
 
@@ -55,7 +55,7 @@ def main() raises:
     def torus_hand():
         var acc = Real(0)
         for i in range(N):
-            acc += torus_analytic(R, r, Vec3(px[i], py[i], pz[i]))
+            acc += torus_analytic(R, r, Vec3(px[i], py[i], pz[i], 0))
         keep(acc)
 
     @parameter
@@ -63,16 +63,16 @@ def main() raises:
         var acc = Real(0)
         for i in range(N):
             acc += dcga_incidence(
-                dcga_point(Vec3(px[i], py[i], pz[i])), sph
+                dcga_point(Vec3(px[i], py[i], pz[i], 0)), sph
             )
         keep(acc)
 
     @parameter
     def sphere_hand():
         var acc = Real(0)
-        var c = Vec3(0.4, -0.3, 0.9)
+        var c = Vec3(0.4, -0.3, 0.9, 0)
         for i in range(N):
-            var d = Vec3(px[i], py[i], pz[i]) - c
+            var d = Vec3(px[i], py[i], pz[i], 0) - c
             acc += dot(d, d) - 1.7 * 1.7
         keep(acc)
 
@@ -80,14 +80,14 @@ def main() raises:
     def plane_dcga():
         var acc = Real(0)
         for i in range(N):
-            acc += dcga_incidence(dcga_point(Vec3(px[i], py[i], pz[i])), pl)
+            acc += dcga_incidence(dcga_point(Vec3(px[i], py[i], pz[i], 0)), pl)
         keep(acc)
 
     @parameter
     def plane_hand():
         var acc = Real(0)
         for i in range(N):
-            acc += dot(Vec3(px[i], py[i], pz[i]), nrm) - 1.25
+            acc += dot(Vec3(px[i], py[i], pz[i], 0), nrm) - 1.25
         keep(acc)
 
     t.add("torus  dcga (uniform)", N, "test", measure[torus_dcga](3, 20), N)

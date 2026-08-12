@@ -92,7 +92,7 @@ struct AnimClip(Movable, ImplicitlyDeletable):
 
     def key_pos(self, frame: Int, bone: Int) -> Vec3:
         var i = frame * self.bones + bone
-        return Vec3(self.pos[3 * i], self.pos[3 * i + 1], self.pos[3 * i + 2])
+        return Vec3(self.pos[3 * i], self.pos[3 * i + 1], self.pos[3 * i + 2], 0)
 
     def key_rot(self, frame: Int, bone: Int) -> Quat:
         var i = frame * self.bones + bone
@@ -166,7 +166,7 @@ def pose_to_motors(
     for b in range(bones):
         out[b] = Motor3.from_quat_translation(
             Quat(r[4 * b], r[4 * b + 1], r[4 * b + 2], r[4 * b + 3]),
-            Vec3(p[3 * b], p[3 * b + 1], p[3 * b + 2]),
+            Vec3(p[3 * b], p[3 * b + 1], p[3 * b + 2], 0),
         )
 
 
@@ -182,8 +182,8 @@ def blend_poses(
     `test_anim`, because a blend that did not would make every transition pop
     at both ends."""
     for b in range(bones):
-        var p0 = Vec3(pa[3 * b], pa[3 * b + 1], pa[3 * b + 2])
-        var p1 = Vec3(pb[3 * b], pb[3 * b + 1], pb[3 * b + 2])
+        var p0 = Vec3(pa[3 * b], pa[3 * b + 1], pa[3 * b + 2], 0)
+        var p1 = Vec3(pb[3 * b], pb[3 * b + 1], pb[3 * b + 2], 0)
         var q0 = Quat(ra[4 * b], ra[4 * b + 1], ra[4 * b + 2], ra[4 * b + 3])
         var q1 = Quat(rb[4 * b], rb[4 * b + 1], rb[4 * b + 2], rb[4 * b + 3])
 

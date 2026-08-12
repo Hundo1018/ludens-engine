@@ -5,7 +5,7 @@ from physics.rigid6 import Inertia3, QuatBody6, ScrewBody6
 from physics.solver6 import ContactScene6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _len(v: Vec3) -> Float64:
@@ -23,15 +23,15 @@ def main() raises:
     #     manifold, ROADMAP 2.1 follow-up.)
     var fr = ContactScene6[QuatBody6]()
     _ = fr.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var bfrozen = Inertia3(2, 1e12, 1e12, 1e12)
     for i in range(6):
         _ = fr.add(
-            QuatBody6.at_rest(Vec3(0, 0.3 + 0.52 * Real(i), 0), bfrozen),
-            Vec3(0.25, 0.25, 0.25),
+            QuatBody6.at_rest(Vec3(0, 0.3 + 0.52 * Real(i), 0, 0), bfrozen),
+            Vec3(0.25, 0.25, 0.25, 0),
             False,
         )
     for _ in range(1000):
@@ -50,15 +50,15 @@ def main() raises:
     #     restoring contact patch instead of an axis-aligned fiction).
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var bi = Inertia3.box(2, 0.25, 0.25, 0.25)
     for i in range(6):
         _ = sc.add(
-            QuatBody6.at_rest(Vec3(0, 0.3 + 0.52 * Real(i), 0), bi),
-            Vec3(0.25, 0.25, 0.25),
+            QuatBody6.at_rest(Vec3(0, 0.3 + 0.52 * Real(i), 0, 0), bi),
+            Vec3(0.25, 0.25, 0.25, 0),
             False,
         )
     for _ in range(1000):
@@ -80,11 +80,11 @@ def main() raises:
     # 1c. Single box: soft-step rest quality is orders beyond the plain step.
     var one = ContactScene6[QuatBody6]()
     _ = one.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
-    _ = one.add(QuatBody6.at_rest(Vec3(0, 0.3, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = one.add(QuatBody6.at_rest(Vec3(0, 0.3, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(300):
         one.step_soft(DT, G)
     s.check(
@@ -97,20 +97,20 @@ def main() raises:
     # 2. Mass ratio 100:1 — heavy box resting on a light box does not explode.
     var mr = ContactScene6[QuatBody6]()
     _ = mr.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     _ = mr.add(
-        QuatBody6.at_rest(Vec3(0, 0.3, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25),
+        QuatBody6.at_rest(Vec3(0, 0.3, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
     _ = mr.add(
         QuatBody6.at_rest(
-            Vec3(0, 0.85, 0), Inertia3.box(100, 0.25, 0.25, 0.25)
+            Vec3(0, 0.85, 0, 0), Inertia3.box(100, 0.25, 0.25, 0.25)
         ),
-        Vec3(0.25, 0.25, 0.25),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
     # Full-horizon ROADMAP gate: 600 steps, the heavy box stays put on top.
@@ -129,18 +129,18 @@ def main() raises:
     # 3. Cross-representation parity on the soft path (single resting box).
     var sq = ContactScene6[QuatBody6]()
     _ = sq.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
-    _ = sq.add(QuatBody6.at_rest(Vec3(0, 0.35, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = sq.add(QuatBody6.at_rest(Vec3(0, 0.35, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     var ss = ContactScene6[ScrewBody6]()
     _ = ss.add(
-        ScrewBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        ScrewBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
-    _ = ss.add(ScrewBody6.at_rest(Vec3(0, 0.35, 0), bi), Vec3(0.25, 0.25, 0.25), False)
+    _ = ss.add(ScrewBody6.at_rest(Vec3(0, 0.35, 0, 0), bi), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(300):
         sq.step_soft(DT, G)
         ss.step_soft(DT, G)

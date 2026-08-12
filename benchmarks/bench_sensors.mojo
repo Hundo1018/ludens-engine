@@ -29,8 +29,8 @@ from physics.sensors import (
     read_imu, read_imu_batch, read_joint_torque, read_touch, read_rangefinder
 )
 
-comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
-comptime G = Vec3(0, -9.81, 0)
+comptime INER = Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0)
+comptime G = Vec3(0, -9.81, 0, 0)
 comptime REPS = 3
 
 
@@ -39,7 +39,7 @@ def _chain(n: Int) -> Chain:
     for i in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0, INER
+                Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER
             )
         )
     for i in range(n):
@@ -60,7 +60,7 @@ def _rig(n_links: Int, n_sensors: Int) -> Tuple[List[Int], List[Vec3]]:
     var ms = List[Vec3]()
     for k in range(n_sensors):
         ls.append(k % n_links)
-        ms.append(Vec3(0.1, Real(k) * 0.01 - 0.3, 0.05))
+        ms.append(Vec3(0.1, Real(k) * 0.01 - 0.3, 0.05, 0))
     return (ls^, ms^)
 
 
@@ -134,7 +134,7 @@ def _cost_rows(mut t: BenchTable, n_links: Int) raises:
             var tq = read_joint_torque(c, qdd, G)
             for k in range(n_links):
                 keep(read_touch(c, k, ms[k], Real(-2.0)))
-            keep(read_rangefinder(c, 0, ms[0], Vec3(0, -1, 0), Real(-2.0)))
+            keep(read_rangefinder(c, 0, ms[0], Vec3(0, -1, 0, 0), Real(-2.0)))
             keep(imus[0].gyro[2])
             keep(tq[0])
         var dt = Int(perf_counter_ns()) - t0
@@ -152,7 +152,7 @@ def _accuracy() raises:
     number."""
     var c = _chain(3)
     var qdd = c.dynamics(_zeros(3), G)
-    var mount = Vec3(0.1, -0.4, 0.05)
+    var mount = Vec3(0.1, -0.4, 0.05, 0)
     var exact = read_imu(c, 2, mount, qdd, G)
 
     print("  exact |a| =", length(exact.accel))

@@ -16,7 +16,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6, Joint6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime STEPS = 600
 
 
@@ -25,10 +25,10 @@ def bench_reduced(n: Int) raises -> Int:
     for i in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1),
-                Vec3(0, 0, 0) if i == 0 else Vec3(0, -1, 0),
-                Vec3(0, -0.5, 0), 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(0, 0, 1, 0),
+                Vec3(0, 0, 0, 0) if i == 0 else Vec3(0, -1, 0, 0),
+                Vec3(0, -0.5, 0, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
         )
     c.q[0] = 0.3
@@ -46,10 +46,10 @@ def bench_aba(n: Int) raises -> Int:
     for i in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1),
-                Vec3(0, 0, 0) if i == 0 else Vec3(0, -1, 0),
-                Vec3(0, -0.5, 0), 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(0, 0, 1, 0),
+                Vec3(0, 0, 0, 0) if i == 0 else Vec3(0, -1, 0, 0),
+                Vec3(0, -0.5, 0, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
         )
     c.q[0] = 0.3
@@ -65,22 +65,22 @@ def bench_aba(n: Int) raises -> Int:
 def bench_maximal(n: Int) raises -> Int:
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
-        Vec3(0.05, 0.05, 0.05),
+        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
+        Vec3(0.05, 0.05, 0.05, 0),
         True,
     )
     var ib = Inertia3.box(1, 0.05, 0.5, 0.05)
     for i in range(n):
         var idx = sc.add(
-            QuatBody6.at_rest(Vec3(0, -0.5 - Real(i), 0), ib),
-            Vec3(0.05, 0.5, 0.05),
+            QuatBody6.at_rest(Vec3(0, -0.5 - Real(i), 0, 0), ib),
+            Vec3(0.05, 0.5, 0.05, 0),
             False,
         )
         _ = sc.add_joint(
-            Joint6.hinge(idx - 1, idx, Vec3(0, 0, 0) if i == 0 else Vec3(0, -0.5, 0),
-                         Vec3(0, 0.5, 0), Vec3(0, 0, 1))
+            Joint6.hinge(idx - 1, idx, Vec3(0, 0, 0, 0) if i == 0 else Vec3(0, -0.5, 0, 0),
+                         Vec3(0, 0.5, 0, 0), Vec3(0, 0, 1, 0))
         )
-    sc.bodies[1].vel = Vec3(0.3, 0, 0)
+    sc.bodies[1].vel = Vec3(0.3, 0, 0, 0)
     var t0 = Int(perf_counter_ns())
     for _ in range(STEPS):
         sc.step_soft(DT, G)
@@ -93,8 +93,8 @@ def bench_id(n: Int) raises -> Int:
     for _ in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
         )
     for i in range(n):
@@ -121,13 +121,13 @@ def bench_kind(n: Int, prismatic: Bool, limits: Bool) raises -> Int:
     for i in range(n):
         var l = (
             ChainLink.prismatic(
-                Vec3(0, -1, 0), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(0, -1, 0, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
             if (prismatic and i % 2 == 1)
             else ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
         )
         c.add_link(l.limited(-0.8, 0.8) if limits else l)

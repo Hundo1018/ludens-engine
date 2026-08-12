@@ -64,7 +64,7 @@ def _items(
             cy[i] + AMP * _tri(ph * 1.7 + step),
             cz[i] + AMP * _tri(ph * 2.3 + step),
         )
-        items.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(0.5, 0.5, 0.5))))
+        items.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(0.5, 0.5, 0.5, 0))))
     return items^
 
 
@@ -171,7 +171,7 @@ def _mixed_items(
         # deterministic size ladder from 0.5 up to 0.5*ratio
         var t = Real((i * 37) % 100) / 99.0
         var h = 0.5 * (1.0 + t * (ratio - 1.0))
-        items.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(h, h, h))))
+        items.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(h, h, h, 0))))
     return items^
 
 

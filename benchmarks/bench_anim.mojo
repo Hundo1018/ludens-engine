@@ -62,7 +62,7 @@ def clip_of(bones: Int, frames: Int) -> AnimClip:
         for b in range(bones):
             var a = Real(pi) * t * Real((b % 5) + 1) / 5.0
             c.set_key(
-                f, b, Vec3(t * Real(b), 0, 0),
+                f, b, Vec3(t * Real(b), 0, 0, 0),
                 Quat(0, sin(a * 0.5), 0, cos(a * 0.5)),
             )
     return c^

@@ -17,14 +17,14 @@ def main() raises:
     comptime HALF_PI = 1.5707963
 
     # identity rotates nothing
-    var rv = Quat.identity().rotate(Vec3(1, 2, 3))
+    var rv = Quat.identity().rotate(Vec3(1, 2, 3, 0))
     s.almost(Float64(rv[0]), 1.0, "id rotate x")
     s.almost(Float64(rv[1]), 2.0, "id rotate y")
     s.almost(Float64(rv[2]), 3.0, "id rotate z")
 
     # rotate (1,0,0) by +90deg about Z -> (0,1,0)
-    var qz = Quat.from_axis_angle(Vec3(0, 0, 1), HALF_PI)
-    var r = qz.rotate(Vec3(1, 0, 0))
+    var qz = Quat.from_axis_angle(Vec3(0, 0, 1, 0), HALF_PI)
+    var r = qz.rotate(Vec3(1, 0, 0, 0))
     s.almost(Float64(r[0]), 0.0, "rotZ x", 1e-4)
     s.almost(Float64(r[1]), 1.0, "rotZ y", 1e-4)
     s.almost(Float64(r[2]), 0.0, "rotZ z", 1e-4)
@@ -37,9 +37,9 @@ def main() raises:
     s.almost(Float64(qc.w), 1.0, "q*conj w")
 
     # to_mat3 rotation matches rotate()
-    var q = Quat.from_axis_angle(Vec3(1, 1, 0), 0.9)
+    var q = Quat.from_axis_angle(Vec3(1, 1, 0, 0), 0.9)
     var mm = q.to_mat3()
-    var vv = Vec3(0.3, -0.7, 1.2)
+    var vv = Vec3(0.3, -0.7, 1.2, 0)
     var via_m = apply3(mm, vv)
     var via_q = q.rotate(vv)
     s.almost(Float64(via_m[0]), Float64(via_q[0]), "mat==rotate x", 1e-4)
@@ -54,8 +54,8 @@ def main() raises:
     s.almost(Float64(via_q2[2]), Float64(via_q[2]), "recovered rotate z", 1e-4)
 
     # slerp endpoints + unit norm + degenerate
-    var qa = Quat.from_axis_angle(Vec3(0, 0, 1), 0.0)
-    var qb = Quat.from_axis_angle(Vec3(0, 0, 1), HALF_PI)
+    var qa = Quat.from_axis_angle(Vec3(0, 0, 1, 0), 0.0)
+    var qb = Quat.from_axis_angle(Vec3(0, 0, 1, 0), HALF_PI)
     var e0 = slerp(qa, qb, 0.0)
     var e1 = slerp(qa, qb, 1.0)
     s.almost(Float64(e0.w), Float64(qa.w), "slerp t0 w")

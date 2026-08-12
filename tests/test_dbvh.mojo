@@ -52,11 +52,11 @@ def main() raises:
             cx[i] += _rf(rng, -0.05, 0.05)
             cy[i] += _rf(rng, -0.05, 0.05)
             cz[i] += _rf(rng, -0.05, 0.05)
-            var half = Vec3(0.6, 0.6, 0.6)
+            var half = Vec3(0.6, 0.6, 0.6, 0)
             items.append(
                 BoxProxy[3](
                     i,
-                    AABB[3].from_center(Vec3(cx[i], cy[i], cz[i]), half),
+                    AABB[3].from_center(Vec3(cx[i], cy[i], cz[i], 0), half),
                 )
             )
         dbvh.rebuild(items)
@@ -68,7 +68,7 @@ def main() raises:
         if not _same_pairs(pd, pb):
             all_match = False
             print("  pair mismatch: dbvh", len(pd), "brute", len(pb))
-        var probe = AABB3(Vec3(-2, -2, -2), Vec3(2, 2, 2))
+        var probe = AABB3(Vec3(-2, -2, -2, 0), Vec3(2, 2, 2, 0))
         var qd = List[Int]()
         var qb = List[Int]()
         dbvh.query_region(probe, qd)
@@ -81,10 +81,10 @@ def main() raises:
     # teleport a box far away and back: pairs stay exact through big moves
     var items2 = List[BoxProxy[3]]()
     for i in range(N):
-        var c = Vec3(cx[i], cy[i], cz[i])
+        var c = Vec3(cx[i], cy[i], cz[i], 0)
         if i == 0:
-            c = Vec3(100, 100, 100)
-        items2.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(0.6, 0.6, 0.6))))
+            c = Vec3(100, 100, 100, 0)
+        items2.append(BoxProxy[3](i, AABB[3].from_center(c, Vec3(0.6, 0.6, 0.6, 0))))
     dbvh.rebuild(items2)
     brute.rebuild(items2)
     var pd2 = List[Pair]()

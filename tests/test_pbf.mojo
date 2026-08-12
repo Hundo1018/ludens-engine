@@ -25,14 +25,14 @@ from geometry.vec import Real, Vec3
 from physics.pbf import PbfFluid, poly6
 
 comptime DT: Real = 1.0 / 120.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _block(mut f: PbfFluid, ox: Real, oy: Real, oz: Real, nx: Int, ny: Int, nz: Int, sp: Real):
     for i in range(nx):
         for j in range(ny):
             for k in range(nz):
-                f.add(Vec3(ox + Real(i) * sp, oy + Real(j) * sp, oz + Real(k) * sp))
+                f.add(Vec3(ox + Real(i) * sp, oy + Real(j) * sp, oz + Real(k) * sp, 0))
 
 
 def _ke(f: PbfFluid) -> Real:
@@ -67,7 +67,7 @@ def main() raises:
     var s = Suite("pbf")
 
     # ---- settling column ----
-    var f = PbfFluid(Vec3(0, 0, 0), Vec3(0.6, 1.0, 0.6))
+    var f = PbfFluid(Vec3(0, 0, 0, 0), Vec3(0.6, 1.0, 0.6, 0))
     f.calibrate(0.06)
     _block(f, 0.12, 0.30, 0.12, 6, 6, 6, 0.06)
     s.eqi(f.count(), 216, "216 particles seeded")
@@ -105,7 +105,7 @@ def main() raises:
     counts.append(6)
     counts.append(10)
     for ci in range(len(counts)):
-        var fi = PbfFluid(Vec3(0, 0, 0), Vec3(0.6, 1.0, 0.6))
+        var fi = PbfFluid(Vec3(0, 0, 0, 0), Vec3(0.6, 1.0, 0.6, 0))
         fi.calibrate(0.06)
         _block(fi, 0.12, 0.30, 0.12, 6, 6, 6, 0.06)
         for _ in range(120):
@@ -117,7 +117,7 @@ def main() raises:
     s.check(stable, "every iteration count converges (no divergence cliff)")
 
     # ---- dam break: must dissipate, not gain, energy ----
-    var d = PbfFluid(Vec3(0, 0, 0), Vec3(1.0, 0.8, 0.4))
+    var d = PbfFluid(Vec3(0, 0, 0, 0), Vec3(1.0, 0.8, 0.4, 0))
     d.calibrate(0.06)
     _block(d, 0.05, 0.05, 0.08, 5, 10, 4, 0.06)
     var n0 = d.count()

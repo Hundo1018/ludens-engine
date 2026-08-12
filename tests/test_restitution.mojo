@@ -5,7 +5,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _bounce_apex(e: Real) -> Float64:
@@ -13,13 +13,13 @@ def _bounce_apex(e: Real) -> Float64:
     height of the bottom face at the FIRST bounce apex."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var b = sc.add(
-        QuatBody6.at_rest(Vec3(0, 1.25, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25),
+        QuatBody6.at_rest(Vec3(0, 1.25, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
     sc.set_restitution(b, e)
@@ -61,13 +61,13 @@ def main() raises:
     # 4. Successive apexes decay by ~e^2 (energy bookkeeping sane).
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var b = sc.add(
-        QuatBody6.at_rest(Vec3(0, 1.25, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25),
+        QuatBody6.at_rest(Vec3(0, 1.25, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
     sc.set_restitution(b, 0.8)

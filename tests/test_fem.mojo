@@ -119,7 +119,7 @@ def main() raises:
             c.pin(i)
     var v0 = c.total_volume()
     for _ in range(600):
-        c.step(1.0 / 600.0, Vec3(0, -9.8, 0))
+        c.step(1.0 / 600.0, Vec3(0, -9.8, 0, 0))
     var tip_y = Real(1e30)
     for i in range(c.node_count()):
         if c.x[i] > 0.55 and c.y[i] < tip_y:

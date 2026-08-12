@@ -9,8 +9,8 @@ def assert_true(cond: Bool, msg: String) raises:
 
 @fieldwise_init
 struct AABB[dim: Int](Copyable, Movable):
-    var min: SIMD[WorldType, Self.dim]
-    var max: SIMD[WorldType, Self.dim]
+    var min: SIMD[WorldType, PadW[Self.dim]]
+    var max: SIMD[WorldType, PadW[Self.dim]]
 
     def overlaps(self, o: Self) -> Bool:
         comptime for i in range(Self.dim):

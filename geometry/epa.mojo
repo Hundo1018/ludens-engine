@@ -18,23 +18,23 @@ Each dim-specific helper is only ever instantiated at its own `dim` (guarded by
 realloc hazard, see gjk.mojo). Normals are oriented from `a` toward `b`.
 """
 
-from .vec import WorldType, Real, Vec2, dot, normalize, length
+from .vec import WorldType, Real, Vec2, dot, normalize, length, PadW
 from .gjk import ConvexPoly, Simplex, gjk_query
 
 
 @fieldwise_init
 struct EpaResult[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var hit: Bool
-    var normal: SIMD[WorldType, Self.dim]  # points from a -> b
+    var normal: SIMD[WorldType, PadW[Self.dim]]  # points from a -> b
     var depth: Real
 
     @staticmethod
     def miss() -> Self:
-        return Self(False, SIMD[WorldType, Self.dim](0), 0)
+        return Self(False, SIMD[WorldType, PadW[Self.dim]](0), 0)
 
 
-def _centroid[dim: Int](p: ConvexPoly[dim]) -> SIMD[WorldType, dim]:
-    var c = SIMD[WorldType, dim](0)
+def _centroid[dim: Int](p: ConvexPoly[dim]) -> SIMD[WorldType, PadW[dim]]:
+    var c = SIMD[WorldType, PadW[dim]](0)
     for i in range(len(p.points)):
         c += p.points[i].v
     return c / Real(len(p.points))
@@ -44,7 +44,7 @@ def _epa2[dim: Int](
     a: ConvexPoly[dim], b: ConvexPoly[dim], simplex: Simplex[dim]
 ) -> EpaResult[dim]:
     """2D EPA. Only instantiated at dim == 2, so Vec lists are realloc-safe."""
-    var poly = List[SIMD[WorldType, dim]]()
+    var poly = List[SIMD[WorldType, PadW[dim]]]()
     # Seed from the simplex's (up to 3) distinct points.
     poly.append(simplex.pa)
     if not _same(simplex.pb, simplex.pa):
@@ -62,18 +62,18 @@ def _epa2[dim: Int](
 
     # Ensure CCW winding so edge right-normals point outward.
     if _signed_area[dim](poly) < 0:
-        var rev = List[SIMD[WorldType, dim]]()
+        var rev = List[SIMD[WorldType, PadW[dim]]]()
         for i in range(len(poly)):
             rev.append(poly[len(poly) - 1 - i])
         poly = rev^
 
-    var result_n = SIMD[WorldType, dim](0)
+    var result_n = SIMD[WorldType, PadW[dim]](0)
     var result_d = Real(0)
     for _ in range(64):
         # Closest edge of the polytope to the origin.
         var min_dist = Real(1.0e30)
         var min_idx = 0
-        var min_normal = SIMD[WorldType, dim](0)
+        var min_normal = SIMD[WorldType, PadW[dim]](0)
         var m = len(poly)
         for i in range(m):
             var p0 = poly[i]
@@ -93,7 +93,7 @@ def _epa2[dim: Int](
         if d - min_dist < Real(1e-4):
             break
         # Insert the support point after min_idx and continue expanding.
-        var newpoly = List[SIMD[WorldType, dim]]()
+        var newpoly = List[SIMD[WorldType, PadW[dim]]]()
         for i in range(m):
             newpoly.append(poly[i])
             if i == min_idx:
@@ -106,19 +106,19 @@ def _epa2[dim: Int](
     return EpaResult[dim](True, result_n, result_d)
 
 
-def _same[dim: Int](a: SIMD[WorldType, dim], b: SIMD[WorldType, dim]) -> Bool:
+def _same[dim: Int](a: SIMD[WorldType, PadW[dim]], b: SIMD[WorldType, PadW[dim]]) -> Bool:
     return length(a - b) < Real(1e-9)
 
 
-def _perp_out[dim: Int](e: SIMD[WorldType, dim]) -> SIMD[WorldType, dim]:
+def _perp_out[dim: Int](e: SIMD[WorldType, PadW[dim]]) -> SIMD[WorldType, PadW[dim]]:
     """Right-hand normal of edge `e` (outward for a CCW polygon)."""
-    var r = SIMD[WorldType, dim](0)
+    var r = SIMD[WorldType, PadW[dim]](0)
     r[0] = e[1]
     r[1] = -e[0]
     return r
 
 
-def _signed_area[dim: Int](poly: List[SIMD[WorldType, dim]]) -> Real:
+def _signed_area[dim: Int](poly: List[SIMD[WorldType, PadW[dim]]]) -> Real:
     var area = Real(0)
     var n = len(poly)
     for i in range(n):
@@ -153,22 +153,22 @@ struct Witness[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     centroid a->b orientation disagrees with the face normal)."""
 
     var hit: Bool
-    var normal: SIMD[WorldType, Self.dim]  # points from a -> b
+    var normal: SIMD[WorldType, PadW[Self.dim]]  # points from a -> b
     var depth: Real
-    var point_a: SIMD[WorldType, Self.dim]
-    var point_b: SIMD[WorldType, Self.dim]
+    var point_a: SIMD[WorldType, PadW[Self.dim]]
+    var point_b: SIMD[WorldType, PadW[Self.dim]]
 
     @staticmethod
     def miss() -> Self:
-        var z = SIMD[WorldType, Self.dim](0)
+        var z = SIMD[WorldType, PadW[Self.dim]](0)
         return Self(False, z, 0, z, z)
 
 
 @fieldwise_init
 struct _WVert[dim: Int](Copyable, ImplicitlyCopyable, Movable):
-    var v: SIMD[WorldType, Self.dim]  # CSO point (= sa - sb)
-    var sa: SIMD[WorldType, Self.dim]  # support of A
-    var sb: SIMD[WorldType, Self.dim]  # support of B
+    var v: SIMD[WorldType, PadW[Self.dim]]  # CSO point (= sa - sb)
+    var sa: SIMD[WorldType, PadW[Self.dim]]  # support of A
+    var sb: SIMD[WorldType, PadW[Self.dim]]  # support of B
 
 
 @fieldwise_init
@@ -176,7 +176,7 @@ struct _Face[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var i0: Int
     var i1: Int
     var i2: Int
-    var n: SIMD[WorldType, Self.dim]  # outward unit normal
+    var n: SIMD[WorldType, PadW[Self.dim]]  # outward unit normal
     var d: Real  # signed distance from the origin along n
 
 
@@ -187,9 +187,9 @@ struct _Edge(Copyable, ImplicitlyCopyable, Movable):
 
 
 def _cross3[dim: Int](
-    a: SIMD[WorldType, dim], b: SIMD[WorldType, dim]
-) -> SIMD[WorldType, dim]:
-    var r = SIMD[WorldType, dim](0)
+    a: SIMD[WorldType, PadW[dim]], b: SIMD[WorldType, PadW[dim]]
+) -> SIMD[WorldType, PadW[dim]]:
+    var r = SIMD[WorldType, PadW[dim]](0)
     r[0] = a[1] * b[2] - a[2] * b[1]
     r[1] = a[2] * b[0] - a[0] * b[2]
     r[2] = a[0] * b[1] - a[1] * b[0]
@@ -197,7 +197,7 @@ def _cross3[dim: Int](
 
 
 def _wsupport[dim: Int](
-    a: ConvexPoly[dim], b: ConvexPoly[dim], dir: SIMD[WorldType, dim]
+    a: ConvexPoly[dim], b: ConvexPoly[dim], dir: SIMD[WorldType, PadW[dim]]
 ) -> _WVert[dim]:
     var sa = a.support(dir)
     var sb = b.support(-dir)
@@ -209,7 +209,7 @@ def _mk_face[dim: Int](
     i0: Int,
     i1: Int,
     i2: Int,
-    interior: SIMD[WorldType, dim],
+    interior: SIMD[WorldType, PadW[dim]],
 ) -> _Face[dim]:
     """Face oriented away from `interior`; degenerate faces get d = 1e30 so
     they are never selected as closest."""
@@ -217,7 +217,7 @@ def _mk_face[dim: Int](
     var n = _cross3[dim](verts[i1].v - v0, verts[i2].v - v0)
     var ln = length(n)
     if ln < Real(1e-12):
-        return _Face[dim](i0, i1, i2, SIMD[WorldType, dim](0), Real(1e30))
+        return _Face[dim](i0, i1, i2, SIMD[WorldType, PadW[dim]](0), Real(1e30))
     n = n / ln
     if dot(n, v0 - interior) < 0:
         return _Face[dim](i0, i2, i1, -n, dot(-n, v0))
@@ -243,7 +243,7 @@ def _touch_fallback[dim: Int](
     """Flat CSO (shapes barely touching): centroid-direction contact."""
     var n = _centroid[dim](b) - _centroid[dim](a)
     if dot(n, n) < Real(1e-12):
-        n = SIMD[WorldType, dim](0)
+        n = SIMD[WorldType, PadW[dim]](0)
         n[0] = 1
     n = normalize(n)
     return Witness[dim](True, n, Real(1e-4), a.support(n), b.support(-n))
@@ -253,7 +253,7 @@ def _seed_tetra[dim: Int](
     a: ConvexPoly[dim], b: ConvexPoly[dim], mut verts: List[_WVert[dim]]
 ) -> Bool:
     """Build a non-degenerate seed tetrahedron on the CSO hull from supports."""
-    var d0 = SIMD[WorldType, dim](0)
+    var d0 = SIMD[WorldType, PadW[dim]](0)
     d0[0] = 1
     verts.append(_wsupport[dim](a, b, d0))
     var d1 = -verts[0].v
@@ -265,7 +265,7 @@ def _seed_tetra[dim: Int](
     # Perpendicular to the segment, toward the origin.
     var d2 = ao * dot(ab, ab) - ab * dot(ab, ao)
     if dot(d2, d2) < Real(1e-12):
-        var ax = SIMD[WorldType, dim](0)
+        var ax = SIMD[WorldType, PadW[dim]](0)
         ax[0] = 1
         d2 = _cross3[dim](ab, ax)
         if dot(d2, d2) < Real(1e-12):

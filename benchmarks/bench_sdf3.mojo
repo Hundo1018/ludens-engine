@@ -43,8 +43,8 @@ def main() raises:
         def sdf_pair():
             var acc = Real(0)
             for i in range(N):
-                var pa = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2])
-                var pb = Vec3(cb[i * 3], cb[i * 3 + 1], cb[i * 3 + 2]) + Vec3(1.2, 0, 0)
+                var pa = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2], 0)
+                var pb = Vec3(cb[i * 3], cb[i * 3 + 1], cb[i * 3 + 2], 0) + Vec3(1.2, 0, 0, 0)
                 var c = sdf_contact(
                     Sdf3.sphere(pa, 0.8), Sdf3.sphere(pb, 0.7),
                     (pa + pb) * 0.5, IT,
@@ -61,8 +61,8 @@ def main() raises:
     def analytic_pair():
         var acc = Real(0)
         for i in range(N):
-            var pa = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2])
-            var pb = Vec3(cb[i * 3], cb[i * 3 + 1], cb[i * 3 + 2]) + Vec3(1.2, 0, 0)
+            var pa = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2], 0)
+            var pb = Vec3(cb[i * 3], cb[i * 3 + 1], cb[i * 3 + 2], 0) + Vec3(1.2, 0, 0, 0)
             var d = length(pb - pa)
             var pen = 1.5 - d
             acc += pen if pen > 0 else Real(0)
@@ -72,15 +72,15 @@ def main() raises:
 
     # CSG: a box with a sphere bitten out, against a probe sphere. There is no
     # analytic row to put beside this one — that absence is the capability.
-    var bitten = Sdf3.box(Vec3(0, 0, 0), Vec3(1, 1, 1)).combined(
-        OP_SUBTRACT, Sdf3.sphere(Vec3(1, 0, 0), 0.7)
+    var bitten = Sdf3.box(Vec3(0, 0, 0, 0), Vec3(1, 1, 1, 0)).combined(
+        OP_SUBTRACT, Sdf3.sphere(Vec3(1, 0, 0, 0), 0.7)
     )
 
     @parameter
     def csg_pair():
         var acc = Real(0)
         for i in range(N):
-            var pb = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2])
+            var pb = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2], 0)
             var c = sdf_contact(bitten, Sdf3.sphere(pb, 0.3), pb, 32)
             acc += c.depth
         keep(acc)

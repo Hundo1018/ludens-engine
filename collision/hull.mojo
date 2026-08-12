@@ -91,19 +91,19 @@ struct HullShape(Movable, ImplicitlyDeletable):
         return len(self.v) // 3
 
     def vert(self, i: Int) -> Vec3:
-        return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2])
+        return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2], 0)
 
     def nf(self) -> Int:
         return len(self.f) // 3
 
     def face(self, i: Int) -> Vec3:
-        return Vec3(self.f[3 * i], self.f[3 * i + 1], self.f[3 * i + 2])
+        return Vec3(self.f[3 * i], self.f[3 * i + 1], self.f[3 * i + 2], 0)
 
     def _build_faces(mut self):
         var n = self.nv()
         if n < 4:
             return  # degenerate hull: no faces, the cloud path handles it
-        var cen = Vec3(0, 0, 0)
+        var cen = Vec3(0, 0, 0, 0)
         for i in range(n):
             cen = cen + self.vert(i)
         cen = cen / Real(n)
@@ -206,7 +206,7 @@ struct HullShape(Movable, ImplicitlyDeletable):
 
 
 def _at(v: List[Real], i: Int) -> Vec3:
-    return Vec3(v[3 * i], v[3 * i + 1], v[3 * i + 2])
+    return Vec3(v[3 * i], v[3 * i + 1], v[3 * i + 2], 0)
 
 
 def _push(mut v: List[Real], p: Vec3):
@@ -217,9 +217,9 @@ def _push(mut v: List[Real], p: Vec3):
 
 def _basis(n: Vec3) -> Tuple[Vec3, Vec3]:
     """Any orthonormal pair spanning the plane perpendicular to `n`."""
-    var a = Vec3(1, 0, 0)
+    var a = Vec3(1, 0, 0, 0)
     if abs(n[0]) > 0.7:
-        a = Vec3(0, 1, 0)
+        a = Vec3(0, 1, 0, 0)
     var t1 = normalize(
         Vec3(
             n[1] * a[2] - n[2] * a[1],
@@ -408,7 +408,7 @@ def hull_manifold(
     var na = len(faces_a) // 3
     var nb = len(faces_b) // 3
     var best_d = Real(1e30)
-    var n = Vec3(0, 1, 0)
+    var n = Vec3(0, 1, 0, 0)
     var found = False
     for fi in range(na + nb):
         var ax = _at(faces_a, fi) if fi < na else -_at(faces_b, fi - na)

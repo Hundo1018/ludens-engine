@@ -29,10 +29,10 @@ def main() raises:
     var rng = SplitMix64.seeded(131)
 
     # ---- 1. the field is a true distance ----
-    var sph = Sdf3.sphere(Vec3(0.3, -0.2, 0.5), 1.4)
-    var bx = Sdf3.box(Vec3(-0.5, 0.1, 0.2), Vec3(0.8, 1.1, 0.6))
-    var cap = Sdf3.capsule(Vec3(0.0, 0.0, 0.0), 0.5, 0.9)
-    var pl = Sdf3.plane(Vec3(0.2, 1.0, -0.1), 0.4)
+    var sph = Sdf3.sphere(Vec3(0.3, -0.2, 0.5, 0), 1.4)
+    var bx = Sdf3.box(Vec3(-0.5, 0.1, 0.2, 0), Vec3(0.8, 1.1, 0.6, 0))
+    var cap = Sdf3.capsule(Vec3(0.0, 0.0, 0.0, 0), 0.5, 0.9)
+    var pl = Sdf3.plane(Vec3(0.2, 1.0, -0.1, 0), 0.4)
 
     var worst_sph = Real(0)
     for _ in range(300):
@@ -41,7 +41,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
         )
-        var want = length(p - Vec3(0.3, -0.2, 0.5)) - 1.4
+        var want = length(p - Vec3(0.3, -0.2, 0.5, 0)) - 1.4
         var e = abs(sph.distance(p) - want)
         if e > worst_sph:
             worst_sph = e
@@ -72,9 +72,9 @@ def main() raises:
     s.check(worst_grad < 1e-2, "every primitive has a unit gradient")
 
     # a box's outside distance is exact; inside it is the (negative) max face
-    var bpt = Vec3(-0.5, 0.1, 0.2) + Vec3(2.8, 0, 0)  # 2.0 outside the +x face
+    var bpt = Vec3(-0.5, 0.1, 0.2, 0) + Vec3(2.8, 0, 0, 0)  # 2.0 outside the +x face
     s.check(abs(bx.distance(bpt) - 2.0) < 1e-4, "box exterior distance exact")
-    s.check(bx.distance(Vec3(-0.5, 0.1, 0.2)) < 0, "box centre is inside")
+    s.check(bx.distance(Vec3(-0.5, 0.1, 0.2, 0)) < 0, "box centre is inside")
 
     # ---- 2. contact calibrated against the analytic sphere pair ----
     var worst_depth = Real(0)
@@ -116,25 +116,25 @@ def main() raises:
     # ---- 3. CSG: a box with a sphere bitten out ----
     #      The bite is real geometry, so a probe inside it must NOT be inside
     #      the shape — the property that separates a CSG field from its base.
-    var bitten = Sdf3.box(Vec3(0, 0, 0), Vec3(1, 1, 1)).combined(
-        OP_SUBTRACT, Sdf3.sphere(Vec3(1, 0, 0), 0.7)
+    var bitten = Sdf3.box(Vec3(0, 0, 0, 0), Vec3(1, 1, 1, 0)).combined(
+        OP_SUBTRACT, Sdf3.sphere(Vec3(1, 0, 0, 0), 0.7)
     )
-    s.check(bitten.distance(Vec3(0, 0, 0)) < 0, "the box body is still solid")
+    s.check(bitten.distance(Vec3(0, 0, 0, 0)) < 0, "the box body is still solid")
     s.check(
-        bitten.distance(Vec3(0.95, 0, 0)) > 0,
+        bitten.distance(Vec3(0.95, 0, 0, 0)) > 0,
         "a point inside the bite is OUTSIDE the shape",
     )
     s.check(
-        bitten.distance(Vec3(-0.9, 0, 0)) < 0,
+        bitten.distance(Vec3(-0.9, 0, 0, 0)) < 0,
         "the far side of the box is unaffected by the bite",
     )
 
     # a probe sphere sitting in the bite must not report contact
-    var probe = Sdf3.sphere(Vec3(1.05, 0, 0), 0.15)
-    var cb2 = sdf_contact(bitten, probe, Vec3(1.0, 0, 0))
+    var probe = Sdf3.sphere(Vec3(1.05, 0, 0, 0), 0.15)
+    var cb2 = sdf_contact(bitten, probe, Vec3(1.0, 0, 0, 0))
     s.check(not cb2.hit, "a sphere resting in the bite does not collide")
-    var probe2 = Sdf3.sphere(Vec3(-0.9, 0, 0), 0.3)
-    var cb3 = sdf_contact(bitten, probe2, Vec3(-0.9, 0, 0))
+    var probe2 = Sdf3.sphere(Vec3(-0.9, 0, 0, 0), 0.3)
+    var cb3 = sdf_contact(bitten, probe2, Vec3(-0.9, 0, 0, 0))
     s.check(cb3.hit, "a sphere buried in the solid side does collide")
 
     s.finish()

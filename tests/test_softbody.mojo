@@ -6,7 +6,7 @@ from physics.solver6 import ContactScene6
 from physics.softbody import SoftBody
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _len(v: Vec3) -> Float64:
@@ -16,12 +16,12 @@ def _len(v: Vec3) -> Float64:
 def _drop_scene(alpha: Real) -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     _ = sc.add_soft(
-        SoftBody.box_lattice(Vec3(0, 1.0, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, alpha)
+        SoftBody.box_lattice(Vec3(0, 1.0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, alpha)
     )
     return sc^
 
@@ -67,18 +67,18 @@ def main() raises:
     #    solver's damping).
     var zg = ContactScene6[QuatBody6]()
     var box = zg.add(
-        QuatBody6.at_rest(Vec3(1.0, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25),
+        QuatBody6.at_rest(Vec3(1.0, 0, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
-    var cube = SoftBody.box_lattice(Vec3(-0.6, 0, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-6)
+    var cube = SoftBody.box_lattice(Vec3(-0.6, 0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-6)
     cube.damp = 1.0  # lossless material: isolates the coupling's conservation
     for i in range(len(cube.pts)):
-        cube.pts[i].v = Vec3(2, 0, 0)
+        cube.pts[i].v = Vec3(2, 0, 0, 0)
     _ = zg.add_soft(cube^)
     var p_before = Float64(zg.softs[0].momentum()[0])  # box at rest
     for _ in range(120):
-        zg.step_soft(DT, Vec3(0, 0, 0))
+        zg.step_soft(DT, Vec3(0, 0, 0, 0))
     var box_p = Float64(zg.bodies[box].vel[0]) * 2.0
     var soft_p = Float64(zg.softs[0].momentum()[0])
     print("  coupling: before", p_before, "after soft", soft_p, "+ box", box_p)
@@ -98,9 +98,9 @@ def main() raises:
     var top_before = Float64(rs.softs[0].top_y())
     var rider = rs.add(
         QuatBody6.at_rest(
-            Vec3(0, Real(top_before) + 0.25, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)
+            Vec3(0, Real(top_before) + 0.25, 0, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)
         ),
-        Vec3(0.2, 0.2, 0.2),
+        Vec3(0.2, 0.2, 0.2, 0),
         False,
     )
     for _ in range(360):

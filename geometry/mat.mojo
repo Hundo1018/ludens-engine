@@ -16,7 +16,7 @@ keep this module quaternion-free and break the dependency cycle.
 """
 
 from std.math import sin, cos
-from .vec import WorldType, Real, Vec2, Vec3
+from .vec import WorldType, Real, Vec2, Vec3, PadW
 
 
 struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
@@ -68,8 +68,8 @@ struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
                 r.m[j * Self.n + i] = self.m[i * Self.n + j]
         return r^
 
-    def row(self, i: Int) -> SIMD[WorldType, Self.n]:
-        var v = SIMD[WorldType, Self.n](0)
+    def row(self, i: Int) -> SIMD[WorldType, PadW[Self.n]]:
+        var v = SIMD[WorldType, PadW[Self.n]](0)
         comptime for k in range(Self.n):
             v[k] = self.m[i * Self.n + k]
         return v

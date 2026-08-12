@@ -9,7 +9,7 @@ zero change to the scene code. A fresh pipeline is built each step so moving
 bodies' geometry is always current.
 """
 
-from geometry.vec import WorldType, Real
+from geometry.vec import WorldType, Real, PadW
 from collision.broadphase import BoxProxy, BruteForce
 from collision.narrowphase import AABBNarrowPhase
 from collision.pipeline import CollisionPipeline, Manifold
@@ -32,11 +32,11 @@ def collide_boxes[dim: Int](
 
 struct PhysicsWorld[dim: Int, S: ContactSolver](Movable, ImplicitlyDeletable):
     var bodies: List[RigidBody[Self.dim]]
-    var gravity: SIMD[WorldType, Self.dim]
+    var gravity: SIMD[WorldType, PadW[Self.dim]]
     var iterations: Int
 
     def __init__(
-        out self, gravity: SIMD[WorldType, Self.dim], iterations: Int = 8
+        out self, gravity: SIMD[WorldType, PadW[Self.dim]], iterations: Int = 8
     ):
         self.bodies = List[RigidBody[Self.dim]]()
         self.gravity = gravity

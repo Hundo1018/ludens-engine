@@ -29,7 +29,7 @@ registry, `test_manifold(a, b)`). First implementation:
 """
 
 from std.math import sqrt
-from geometry.vec import WorldType, Real, Vec2, Vec3, dot
+from geometry.vec import WorldType, Real, Vec2, Vec3, dot, PadW
 from geometry.aabb import AABB
 from geometry.shape import Polygon
 from geometry.quickhull import convex_hull_2d
@@ -44,17 +44,17 @@ from .narrowphase import Contact
 struct ContactManifold[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     comptime MAX: Int = 4
     var hit: Bool
-    var normal: SIMD[WorldType, Self.dim]  # points from a -> b
+    var normal: SIMD[WorldType, PadW[Self.dim]]  # points from a -> b
     var count: Int
-    var points: InlineArray[SIMD[WorldType, Self.dim], Self.MAX]
+    var points: InlineArray[SIMD[WorldType, PadW[Self.dim]], Self.MAX]
     var depths: InlineArray[Real, Self.MAX]
 
     def __init__(out self):
         self.hit = False
-        self.normal = SIMD[WorldType, Self.dim](0)
+        self.normal = SIMD[WorldType, PadW[Self.dim]](0)
         self.count = 0
-        self.points = InlineArray[SIMD[WorldType, Self.dim], Self.MAX](
-            fill=SIMD[WorldType, Self.dim](0)
+        self.points = InlineArray[SIMD[WorldType, PadW[Self.dim]], Self.MAX](
+            fill=SIMD[WorldType, PadW[Self.dim]](0)
         )
         self.depths = InlineArray[Real, Self.MAX](fill=0)
 
@@ -72,13 +72,13 @@ struct ContactManifold[dim: Int](Copyable, ImplicitlyCopyable, Movable):
         return Self()
 
     @staticmethod
-    def hit_along(normal: SIMD[WorldType, Self.dim]) -> Self:
+    def hit_along(normal: SIMD[WorldType, PadW[Self.dim]]) -> Self:
         var m = Self()
         m.hit = True
         m.normal = normal
         return m
 
-    def add(mut self, p: SIMD[WorldType, Self.dim], depth: Real):
+    def add(mut self, p: SIMD[WorldType, PadW[Self.dim]], depth: Real):
         if self.count < Self.MAX:
             self.points[self.count] = p
             self.depths[self.count] = depth
@@ -116,8 +116,8 @@ struct AABBManifoldNarrowPhase[D: Int](ManifoldNarrowPhase):
         var ba = self.boxes[a]
         var bb = self.boxes[b]
         # Min-penetration axis, same rule as AABBNarrowPhase.test.
-        var lo = SIMD[WorldType, Self.D](0)
-        var hi = SIMD[WorldType, Self.D](0)
+        var lo = SIMD[WorldType, PadW[Self.D]](0)
+        var hi = SIMD[WorldType, PadW[Self.D]](0)
         var best_depth = Real(1.0e30)
         var best_axis = 0
         comptime for k in range(Self.D):
@@ -130,7 +130,7 @@ struct AABBManifoldNarrowPhase[D: Int](ManifoldNarrowPhase):
             if h - l < best_depth:
                 best_depth = h - l
                 best_axis = k
-        var n = SIMD[WorldType, Self.D](0)
+        var n = SIMD[WorldType, PadW[Self.D]](0)
         var dir = bb.center()[best_axis] - ba.center()[best_axis]
         n[best_axis] = 1 if dir >= 0 else -1
         var m = ContactManifold[Self.D].hit_along(n)
@@ -138,7 +138,7 @@ struct AABBManifoldNarrowPhase[D: Int](ManifoldNarrowPhase):
         # at the slab centre on the contact axis (2 points in 2D, 4 in 3D).
         var mid = (lo[best_axis] + hi[best_axis]) * Real(0.5)
         for mask in range(1 << (Self.D - 1)):
-            var p = SIMD[WorldType, Self.D](0)
+            var p = SIMD[WorldType, PadW[Self.D]](0)
             var bit = 0
             comptime for k in range(Self.D):
                 if k == best_axis:
@@ -274,7 +274,7 @@ def _clip_poly_plane(
     offset: Real,
 ) -> Tuple[InlineArray[Vec3, 8], Int]:
     """Keep the part of the polygon with dot(axis, p) <= offset."""
-    var out = InlineArray[Vec3, 8](fill=Vec3(0, 0, 0))
+    var out = InlineArray[Vec3, 8](fill=Vec3(0, 0, 0, 0))
     var n_out = 0
     for i in range(n_in):
         var p0 = pts[i]
@@ -322,7 +322,7 @@ def _face_manifold(
             best_k = k
             best_sign = -1
     var quad4 = _face_verts(ic, iax, ih, best_k, best_sign)
-    var pts = InlineArray[Vec3, 8](fill=Vec3(0, 0, 0))
+    var pts = InlineArray[Vec3, 8](fill=Vec3(0, 0, 0, 0))
     for i in range(4):
         pts[i] = quad4[i]
     var count = 4
@@ -377,7 +377,7 @@ def box_box_manifold(
     """Contact manifold between two ORIENTED 3D boxes (world-frame axes)."""
     var t = cb - ca
     var best_overlap = Real(1e30)
-    var best_axis = Vec3(0, 0, 0)
+    var best_axis = Vec3(0, 0, 0, 0)
     var best_is_a = True
     var best_j = 0
     # 6 face axes (preferred), then 9 edge-cross axes with a 5% penalty.
@@ -405,7 +405,7 @@ def box_box_manifold(
             best_axis = l
             best_is_a = False
             best_j = j
-    var best_edge_axis = Vec3(0, 0, 0)
+    var best_edge_axis = Vec3(0, 0, 0, 0)
     var best_edge_overlap = Real(1e30)
     for ja in range(3):
         for jb in range(3):
@@ -464,7 +464,7 @@ def sphere_sphere_manifold(
     if d2 > rsum * rsum:
         return ContactManifold[3].miss()
     var dist = sqrt(max(d2, Real(1e-12)))
-    var n = d / dist if dist > 1e-6 else Vec3(0, 1, 0)
+    var n = d / dist if dist > 1e-6 else Vec3(0, 1, 0, 0)
     var m = ContactManifold[3].hit_along(n)
     m.add(ca + n * (ra - (rsum - dist) * 0.5), rsum - dist)
     return m
@@ -484,7 +484,7 @@ def _box_local_world(c: Vec3, ax: Axes3, lp: Vec3) -> Vec3:
 
 def _box_to_local(c: Vec3, ax: Axes3, p: Vec3) -> Vec3:
     var d = p - c
-    return Vec3(dot(d, ax[0]), dot(d, ax[1]), dot(d, ax[2]))
+    return Vec3(dot(d, ax[0]), dot(d, ax[1]), dot(d, ax[2]), 0)
 
 
 def sphere_box_manifold(
@@ -497,9 +497,9 @@ def sphere_box_manifold(
     var d2 = dot(dl, dl)
     if d2 > r * r and d2 > 1e-12:
         return ContactManifold[3].miss()
-    var n_world = Vec3(0, 1, 0)
+    var n_world = Vec3(0, 1, 0, 0)
     var depth = Real(0)
-    var point = Vec3(0, 0, 0)
+    var point = Vec3(0, 0, 0, 0)
     if d2 > 1e-12:
         # centre outside the box: normal along centre -> surface point
         var dist = sqrt(d2)

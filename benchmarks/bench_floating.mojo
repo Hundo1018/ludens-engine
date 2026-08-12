@@ -41,21 +41,21 @@ from physics.floating import FloatingChain
 comptime REPS = 3
 comptime ITERS = 200
 comptime BASE_M = Real(4.0)
-comptime BASE_I = Vec3(0.3, 0.4, 0.35)
+comptime BASE_I = Vec3(0.3, 0.4, 0.35, 0)
 
 
 def _arm(i: Int) -> ChainLink:
     return ChainLink.revolute(
-        Vec3(0, 0, 1) if i % 2 == 0 else Vec3(0, 1, 0),
-        Vec3(0.5, 0.1, 0),
-        Vec3(0.25, 0, 0),
+        Vec3(0, 0, 1, 0) if i % 2 == 0 else Vec3(0, 1, 0, 0),
+        Vec3(0.5, 0.1, 0, 0),
+        Vec3(0.25, 0, 0, 0),
         0.8 + Real(i) * 0.1,
-        Vec3(0.02, 0.03, 0.025),
+        Vec3(0.02, 0.03, 0.025, 0),
     )
 
 
 def _floating(n: Int) -> FloatingChain:
-    var f = FloatingChain(BASE_M, Vec3(0, 0, 0), BASE_I)
+    var f = FloatingChain(BASE_M, Vec3(0, 0, 0, 0), BASE_I)
     for i in range(n):
         f.add_link(_arm(i))
     return f^
@@ -69,13 +69,13 @@ def _emulated(n: Int) raises -> Chain:
     describing the same physical system rather than merely the same DOF
     count."""
     var c = Chain()
-    var tiny = Vec3(1e-9, 1e-9, 1e-9)
-    c.add_link(ChainLink.prismatic(Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 1e-9, tiny))
-    _ = c.add_link_to(0, ChainLink.prismatic(Vec3(0, 1, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 1e-9, tiny))
-    _ = c.add_link_to(1, ChainLink.prismatic(Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, 0, 0), 1e-9, tiny))
-    _ = c.add_link_to(2, ChainLink.revolute(Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, 0, 0), 1e-9, tiny))
-    _ = c.add_link_to(3, ChainLink.revolute(Vec3(0, 1, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), 1e-9, tiny))
-    _ = c.add_link_to(4, ChainLink.revolute(Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 0, 0), BASE_M, BASE_I))
+    var tiny = Vec3(1e-9, 1e-9, 1e-9, 0)
+    c.add_link(ChainLink.prismatic(Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1e-9, tiny))
+    _ = c.add_link_to(0, ChainLink.prismatic(Vec3(0, 1, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1e-9, tiny))
+    _ = c.add_link_to(1, ChainLink.prismatic(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1e-9, tiny))
+    _ = c.add_link_to(2, ChainLink.revolute(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1e-9, tiny))
+    _ = c.add_link_to(3, ChainLink.revolute(Vec3(0, 1, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1e-9, tiny))
+    _ = c.add_link_to(4, ChainLink.revolute(Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), BASE_M, BASE_I))
     var prev = 5
     for i in range(n):
         prev = c.add_link_to(prev, _arm(i))
@@ -94,7 +94,7 @@ def _cost(mut t: BenchTable, n: Int) raises:
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         for _ in range(ITERS):
-            var a = f.dynamics(tau, Vec3(0, -9.81, 0))
+            var a = f.dynamics(tau, Vec3(0, -9.81, 0, 0))
             keep(a[0])
         var dt = Int(perf_counter_ns()) - t0
         if dt < best:
@@ -114,7 +114,7 @@ def _cost(mut t: BenchTable, n: Int) raises:
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         for _ in range(ITERS):
-            var a = c.dynamics(tau2, Vec3(0, -9.81, 0))
+            var a = c.dynamics(tau2, Vec3(0, -9.81, 0, 0))
             keep(a[0])
         var dt = Int(perf_counter_ns()) - t0
         if dt < best2:
@@ -165,7 +165,7 @@ def _breakdown(mut t: BenchTable, n: Int) raises:
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         for _ in range(ITERS):
-            var bb = f.bias(Vec3(0, -9.81, 0))
+            var bb = f.bias(Vec3(0, -9.81, 0, 0))
             keep(bb[0])
         var dt = Int(perf_counter_ns()) - t0
         if dt < b2:
@@ -203,7 +203,7 @@ def _gimbal() raises:
         for _ in range(7):
             t2.append(0)
         t2[3] = 1.0  # unit torque about the outer axis
-        var a2 = c.dynamics(t2, Vec3(0, 0, 0))
+        var a2 = c.dynamics(t2, Vec3(0, 0, 0, 0))
         var worst = Real(0)
         for i in range(7):
             var v = Real(abs(Float64(a2[i])))
@@ -211,12 +211,12 @@ def _gimbal() raises:
                 worst = v
 
         var f = _floating(1)
-        f.base_rot = Quat.from_axis_angle(Vec3(0, 1, 0), rad)
+        f.base_rot = Quat.from_axis_angle(Vec3(0, 1, 0, 0), rad)
         f.chain.q[0] = 0.3
         f.chain.qd[0] = 0.2
         var tf = List[Real]()
         tf.append(0)
-        var af = f.dynamics(tf, Vec3(0, 0, 0))
+        var af = f.dynamics(tf, Vec3(0, 0, 0, 0))
         # same unit torque, applied about the world outer axis
         var bw = Real(0)
         var h = f.mass_matrix()

@@ -40,9 +40,9 @@ struct Quat(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
 
     @staticmethod
     def from_euler(rx: Real, ry: Real, rz: Real) -> Self:
-        var qx = Self.from_axis_angle(Vec3(1, 0, 0), rx)
-        var qy = Self.from_axis_angle(Vec3(0, 1, 0), ry)
-        var qz = Self.from_axis_angle(Vec3(0, 0, 1), rz)
+        var qx = Self.from_axis_angle(Vec3(1, 0, 0, 0), rx)
+        var qy = Self.from_axis_angle(Vec3(0, 1, 0, 0), ry)
+        var qz = Self.from_axis_angle(Vec3(0, 0, 1, 0), rz)
         return qz * (qy * qx)
 
     def __mul__(self, o: Self) -> Self:
@@ -68,7 +68,7 @@ struct Quat(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
         return Self(self.x * inv, self.y * inv, self.z * inv, self.w * inv)
 
     def rotate(self, v: Vec3) -> Vec3:
-        var qv = Vec3(self.x, self.y, self.z)
+        var qv = Vec3(self.x, self.y, self.z, 0)
         var t = _cross3(qv, v) * Real(2)
         return v + t * self.w + _cross3(qv, t)
 

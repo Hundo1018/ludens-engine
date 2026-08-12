@@ -82,7 +82,7 @@ struct MpmSolver(Movable):
 
     def add(mut self, pos: Vec3, mass: Real, vol: Real):
         self.p.append(
-            MpmParticle(pos, Vec3(0, 0, 0), Mat3.identity(), Mat3(), vol, mass)
+            MpmParticle(pos, Vec3(0, 0, 0, 0), Mat3.identity(), Mat3(), vol, mass)
         )
 
     def set_plastic(mut self, j_min: Real, j_max: Real):
@@ -99,7 +99,7 @@ struct MpmSolver(Movable):
         return m
 
     def total_momentum(self) -> Vec3:
-        var s = Vec3(0, 0, 0)
+        var s = Vec3(0, 0, 0, 0)
         for ref q in self.p:
             s = s + q.v * q.mass
         return s
@@ -261,7 +261,7 @@ struct MpmSolver(Movable):
             wz[1] = 0.75 - (fz - 1.0) * (fz - 1.0)
             wz[2] = 0.5 * (fz - 0.5) * (fz - 0.5)
 
-            var nv = Vec3(0, 0, 0)
+            var nv = Vec3(0, 0, 0, 0)
             var nc = Mat3()
             for i in range(3):
                 for j in range(3):
@@ -270,7 +270,7 @@ struct MpmSolver(Movable):
                         var idx = self._gi(bx + i, by + j, bz + k)
                         var gvel = Vec3(
                             self.gvx[idx], self.gvy[idx], self.gvz[idx]
-                        )
+                        , 0)
                         # offset from the particle to grid node (b+i):
                         # (i - fx) * dx, with fx in [0.5, 1.5] from the
                         # base = int(g - 0.5) convention. An extra +1 here

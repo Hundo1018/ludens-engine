@@ -6,7 +6,7 @@ from physics.softbody import SoftBody
 from physics.serialize import scene_to_string, scene_from_string
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _rich() -> ContactScene6[QuatBody6]:
@@ -16,41 +16,41 @@ def _rich() -> ContactScene6[QuatBody6]:
     edges, material)."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 30, 1, 30)),
-        Vec3(30, 1, 30),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
+        Vec3(30, 1, 30, 0),
         True,
     )
     var bi = Inertia3.box(2, 0.25, 0.25, 0.25)
     for i in range(3):
         _ = sc.add(
-            QuatBody6.at_rest(Vec3(-3, 0.3 + 0.52 * Real(i), 0), bi),
-            Vec3(0.25, 0.25, 0.25),
+            QuatBody6.at_rest(Vec3(-3, 0.3 + 0.52 * Real(i), 0, 0), bi),
+            Vec3(0.25, 0.25, 0.25, 0),
             False,
         )
     var anchor = sc.add(
-        QuatBody6.at_rest(Vec3(3, 2, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
-        Vec3(0.05, 0.05, 0.05),
+        QuatBody6.at_rest(Vec3(3, 2, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
+        Vec3(0.05, 0.05, 0.05, 0),
         True,
     )
     var bob = sc.add(
-        QuatBody6.at_rest(Vec3(3, 1, 0), Inertia3.box(1, 0.15, 0.15, 0.15)),
-        Vec3(0.15, 0.15, 0.15),
+        QuatBody6.at_rest(Vec3(3, 1, 0, 0), Inertia3.box(1, 0.15, 0.15, 0.15)),
+        Vec3(0.15, 0.15, 0.15, 0),
         False,
     )
-    _ = sc.add_joint(Joint6.ball(anchor, bob, Vec3(0, 0, 0), Vec3(0, 1, 0)))
-    sc.bodies[bob].vel = Vec3(0.3, 0, 0)
+    _ = sc.add_joint(Joint6.ball(anchor, bob, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0)))
+    sc.bodies[bob].vel = Vec3(0.3, 0, 0, 0)
     var ball = sc.add_sphere(
-        QuatBody6.at_rest(Vec3(6, 1.3, 0), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(6, 1.3, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     sc.set_restitution(ball, 0.7)
     _ = sc.add_capsule(
-        QuatBody6.at_rest(Vec3(-6, -0.45, 0), Inertia3.capsule(1, 0.3, 0.4)),
+        QuatBody6.at_rest(Vec3(-6, -0.45, 0, 0), Inertia3.capsule(1, 0.3, 0.4)),
         0.3,
         0.4,
         True,
     )
     _ = sc.add_soft(
-        SoftBody.box_lattice(Vec3(0, 0.35, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4)
+        SoftBody.box_lattice(Vec3(0, 0.35, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4)
     )
     return sc^
 

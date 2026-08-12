@@ -20,12 +20,12 @@ def _len(v: Vec3) -> Float64:
 
 def main() raises:
     var s = Suite("integrator6")
-    var probe = Vec3(0.4, -0.3, 0.2)
+    var probe = Vec3(0.4, -0.3, 0.2, 0)
 
     # 1. Spherical inertia: the gyroscopic term vanishes, all three
     #    integrators must agree exactly (same exp advance, same omega).
     var isph = Inertia3.sphere(2, 0.5)
-    var w0 = Vec3(1, 2, 3)
+    var w0 = Vec3(1, 2, 3, 0)
     var re = run_spin[EulerSpin](Motor3.identity(), w0, isph, 0.001, 200)
     var rr = run_spin[Rk2Spin](Motor3.identity(), w0, isph, 0.001, 200)
     var rm = run_spin[MidpointSpin](Motor3.identity(), w0, isph, 0.001, 200)
@@ -42,7 +42,7 @@ def main() raises:
     # 2. Asymmetric box, short horizon, small dt: all three converge to the
     #    same trajectory (cross parity of the seam).
     var ibox = Inertia3.box(1, 0.1, 0.3, 0.6)  # ix > iy > iz
-    var wt = Vec3(0.3, 2, 0.4)
+    var wt = Vec3(0.3, 2, 0.4, 0)
     var be = run_spin[EulerSpin](Motor3.identity(), wt, ibox, 0.0001, 200)
     var br = run_spin[Rk2Spin](Motor3.identity(), wt, ibox, 0.0001, 200)
     var bm = run_spin[MidpointSpin](Motor3.identity(), wt, ibox, 0.0001, 200)
@@ -57,7 +57,7 @@ def main() raises:
 
     # 3. Dzhanibekov tumble (intermediate-axis spin), 20k steps: the implicit
     #    midpoint must beat Euler on both energy and momentum drift, hard.
-    var wd = Vec3(0.001, 3, 0.001)  # y = intermediate axis of ibox
+    var wd = Vec3(0.001, 3, 0.001, 0)  # y = intermediate axis of ibox
     var e0 = Float64(spin_energy(wd, ibox))
     var l0 = _len(spin_momentum_world(Motor3.identity(), wd, ibox))
     var de = run_spin[EulerSpin](Motor3.identity(), wd, ibox, 0.001, 20000)

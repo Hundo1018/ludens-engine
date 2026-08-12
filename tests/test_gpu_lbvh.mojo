@@ -41,7 +41,7 @@ def _scene(mut rng: SplitMix64, n: Int, spread: Real) -> List[BoxProxy[3]]:
             Real(rng.next_f32()) * spread,
             Real(rng.next_f32()) * spread,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.4, 0.4, 0.4), c + Vec3(0.4, 0.4, 0.4))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.4, 0.4, 0.4, 0), c + Vec3(0.4, 0.4, 0.4, 0))))
     return out^
 
 
@@ -141,7 +141,7 @@ def main() raises:
             Real(rng.next_f32()) * 50,
             Real(rng.next_f32()) * 50,
         )
-        var q = AABB[3](c - Vec3(4, 4, 4), c + Vec3(4, 4, 4))
+        var q = AABB[3](c - Vec3(4, 4, 4, 0), c + Vec3(4, 4, 4, 0))
         var ga = List[Int]()
         var ca = List[Int]()
         gtree.query_region(q, ga)
@@ -154,8 +154,8 @@ def main() raises:
     var dup = List[BoxProxy[3]]()
     for i in range(N):
         dup.append(
-            BoxProxy[3](i, AABB[3](Vec3(1, 1, 1) - Vec3(0.4, 0.4, 0.4),
-                                    Vec3(1, 1, 1) + Vec3(0.4, 0.4, 0.4)))
+            BoxProxy[3](i, AABB[3](Vec3(1, 1, 1, 0) - Vec3(0.4, 0.4, 0.4, 0),
+                                    Vec3(1, 1, 1, 0) + Vec3(0.4, 0.4, 0.4, 0)))
         )
     var dorder = List[Int]()
     gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(dup), dorder)

@@ -43,7 +43,7 @@ struct DualQuat(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
     def translation(self) -> Vec3:
         """Recover t = 2 · dual · real*."""
         var t = self.dual * self.real.conjugate()
-        return Vec3(t.x * 2, t.y * 2, t.z * 2)
+        return Vec3(t.x * 2, t.y * 2, t.z * 2, 0)
 
     def transform_point(self, p: Vec3) -> Vec3:
         return self.real.rotate(p) + self.translation()
@@ -59,5 +59,5 @@ struct DualQuat(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
         var rot = Motor3.from_quat(q)
         var t = m * rot.reverse()
         return Self.from_quat_translation(
-            q, Vec3(t.b10 * 2, t.b20 * 2, t.b30 * 2)
+            q, Vec3(t.b10 * 2, t.b20 * 2, t.b30 * 2, 0)
         )

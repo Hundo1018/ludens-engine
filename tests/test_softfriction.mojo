@@ -7,11 +7,11 @@ from physics.solver6 import ContactScene6
 from physics.softbody import SoftBody
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _mean(sc: ContactScene6[QuatBody6]) -> Vec3:
-    var m = Vec3(0, 0, 0)
+    var m = Vec3(0, 0, 0, 0)
     for i in range(len(sc.softs[0].pts)):
         m = m + sc.softs[0].pts[i].x
     return m * (1 / Real(len(sc.softs[0].pts)))
@@ -27,13 +27,13 @@ def _ramp_drift(angle: Real, mu: Real) raises -> Float64:
     (tan(angle) < mu) should pin it; past the cone it slides."""
     var sc = ContactScene6[QuatBody6]()
     var ramp = sc.add(
-        QuatBody6.at_rest(Vec3(0, 0, 0), Inertia3.box(1, 4, 0.3, 2)),
-        Vec3(4, 0.3, 2),
+        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 4, 0.3, 2)),
+        Vec3(4, 0.3, 2, 0),
         True,
     )
-    sc.bodies[ramp].q = Quat.from_axis_angle(Vec3(0, 0, 1), angle)
+    sc.bodies[ramp].q = Quat.from_axis_angle(Vec3(0, 0, 1, 0), angle)
     var sb = SoftBody.box_lattice(
-        Vec3(0, 0.75, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4
+        Vec3(0, 0.75, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
     sb.mu = mu
     _ = sc.add_soft(sb^)
@@ -66,15 +66,15 @@ def main() raises:
     #    centred instead of creeping to the rim.
     var bc = ContactScene6[QuatBody6]()
     _ = bc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     _ = bc.add_sphere(
-        QuatBody6.at_rest(Vec3(0, -0.22, 0), Inertia3.sphere(1, 0.3)), 0.3, True
+        QuatBody6.at_rest(Vec3(0, -0.22, 0, 0), Inertia3.sphere(1, 0.3)), 0.3, True
     )
     _ = bc.add_soft(
-        SoftBody.box_lattice(Vec3(0, 0.35, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4)
+        SoftBody.box_lattice(Vec3(0, 0.35, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4)
     )
     for _ in range(400):
         bc.step_soft(DT, G)
@@ -86,21 +86,21 @@ def main() raises:
     #    impulses are equal-and-opposite, so momentum stays conserved.
     var mz = ContactScene6[QuatBody6]()
     var ball = mz.add_sphere(
-        QuatBody6.at_rest(Vec3(0.15, 0.25, 0), Inertia3.sphere(2, 0.3)),
+        QuatBody6.at_rest(Vec3(0.15, 0.25, 0, 0), Inertia3.sphere(2, 0.3)),
         0.3,
         False,
     )
     var mb = SoftBody.box_lattice(
-        Vec3(-0.85, 0, 0), Vec3(0.3, 0.3, 0.3), 4, 2.0, 1e-4
+        Vec3(-0.85, 0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
     mb.damp = 1.0
     for i in range(len(mb.pts)):
         var p = mb.pts[i]
-        p.v = Vec3(1, 0, 0)
+        p.v = Vec3(1, 0, 0, 0)
         mb.pts[i] = p
     _ = mz.add_soft(mb^)
     for _ in range(300):
-        mz.step_soft(DT, Vec3(0, 0, 0))
+        mz.step_soft(DT, Vec3(0, 0, 0, 0))
     var px = Float64(mz.bodies[ball].vel[0]) * 2.0
     var py = Float64(mz.bodies[ball].vel[1]) * 2.0
     for i in range(len(mz.softs[0].pts)):

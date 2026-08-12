@@ -53,23 +53,23 @@ def main():
     print("== CGA Cl(4,1): one algebra, many incidence tests ==")
 
     # --- null cone: every lifted point squares to zero ---
-    var P = up(Vec3(1.2, -0.7, 2.0))
+    var P = up(Vec3(1.2, -0.7, 2.0, 0))
     print("P² (null cone, expect 0):", inner(P, P))
 
     # --- point-on-sphere: P·S = 0 iff |p-c| = r ---
-    var S = sphere(Vec3(0, 0, 0), 2.0)
-    print("on-sphere P·S (expect 0):", inner(up(Vec3(2, 0, 0)), S))
-    print("inside    P·S (expect >0):", inner(up(Vec3(1, 0, 0)), S))
-    print("outside   P·S (expect <0):", inner(up(Vec3(3, 0, 0)), S))
+    var S = sphere(Vec3(0, 0, 0, 0), 2.0)
+    print("on-sphere P·S (expect 0):", inner(up(Vec3(2, 0, 0, 0)), S))
+    print("inside    P·S (expect >0):", inner(up(Vec3(1, 0, 0, 0)), S))
+    print("outside   P·S (expect <0):", inner(up(Vec3(3, 0, 0, 0)), S))
 
     # --- two spheres: the wedge C = S1 ∧ S2 carries the intersection circle;
     #     its square's sign decides real / tangent / imaginary intersection ---
     print("== sphere-sphere meet vs euclidean check ==")
     var cases = [
-        (Vec3(0, 0, 0), Real(1.5), Vec3(2, 0, 0), Real(1.0)),  # overlap
-        (Vec3(0, 0, 0), Real(1.0), Vec3(3, 0, 0), Real(1.0)),  # separate
-        (Vec3(0, 0, 0), Real(1.0), Vec3(2, 0, 0), Real(1.0)),  # tangent
-        (Vec3(0.3, 1, -1), Real(2.0), Vec3(1, 1, 0), Real(1.2)),  # overlap 3D
+        (Vec3(0, 0, 0, 0), Real(1.5), Vec3(2, 0, 0, 0), Real(1.0)),  # overlap
+        (Vec3(0, 0, 0, 0), Real(1.0), Vec3(3, 0, 0, 0), Real(1.0)),  # separate
+        (Vec3(0, 0, 0, 0), Real(1.0), Vec3(2, 0, 0, 0), Real(1.0)),  # tangent
+        (Vec3(0.3, 1, -1, 0), Real(2.0), Vec3(1, 1, 0, 0), Real(1.2)),  # overlap 3D
     ]
     for k in range(len(cases)):
         var c1 = cases[k][0]

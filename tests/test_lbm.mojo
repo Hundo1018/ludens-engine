@@ -169,7 +169,7 @@ def main() raises:
     # mass with an obstacle present: bounce-back must not leak
     var box = Lbm(16, 16, 16, Real(0.05), BC_PERIODIC)
     box.init_uniform(1.0, 0.03, 0.01, 0)
-    box.set_solid_box(Vec3(6, 6, 6), Vec3(9, 9, 9))
+    box.set_solid_box(Vec3(6, 6, 6, 0), Vec3(9, 9, 9, 0))
     var bm0 = box.total_mass()
     for _ in range(200):
         box.step()
@@ -227,7 +227,7 @@ def main() raises:
 
     var full = Lbm(6, 6, 6, Real(0.05), BC_PERIODIC)
     full.init_uniform(1.0, 0.05, 0, 0)
-    full.set_solid_box(Vec3(0, 0, 0), Vec3(5, 5, 5))
+    full.set_solid_box(Vec3(0, 0, 0, 0), Vec3(5, 5, 5, 0))
     s.eqi(full.solid_count(), 216, "an obstacle can fill the whole domain")
     for _ in range(10):
         full.step()
@@ -239,7 +239,7 @@ def main() raises:
     var plate = Lbm(16, 12, 6, Real(0.03), BC_TUNNEL)
     plate.init_uniform(1.0, 0.04, 0, 0)
     plate.inlet_u = 0.04
-    plate.set_solid_box(Vec3(8, 3, 0), Vec3(8, 8, 5))  # one cell thick
+    plate.set_solid_box(Vec3(8, 3, 0, 0), Vec3(8, 8, 5, 0))  # one cell thick
     for _ in range(150):
         plate.step()
     var behind = plate.velocity(plate.idx(10, 5, 3))[0]
@@ -253,7 +253,7 @@ def main() raises:
     var flush = Lbm(16, 8, 8, Real(0.03), BC_TUNNEL)
     flush.init_uniform(1.0, 0.04, 0, 0)
     flush.inlet_u = 0.04
-    flush.set_solid_box(Vec3(0, 2, 2), Vec3(1, 5, 5))  # touching the inlet
+    flush.set_solid_box(Vec3(0, 2, 2, 0), Vec3(1, 5, 5, 0))  # touching the inlet
     var fm0 = flush.total_mass()
     for _ in range(100):
         flush.step()

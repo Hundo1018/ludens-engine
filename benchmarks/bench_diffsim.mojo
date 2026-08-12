@@ -256,7 +256,7 @@ def bench_sandwich(mut table: BenchTable):
         gd.append(to_gmv[DualReal](m))
         gb.append(to_gmv[DualBatch](m))
 
-    var p = Vec3(0.7, -0.3, 1.1)
+    var p = Vec3(0.7, -0.3, 1.1, 0)
 
     @parameter
     def s_motor():

@@ -10,7 +10,7 @@ constant, like the scheduler-parity driver uses `S.B`.
 """
 
 from harness.runner import Suite
-from geometry.vec import WorldType, Real
+from geometry.vec import WorldType, Real, PadW
 from geometry.aabb import AABB
 from geometry.ray import Ray
 from collision.broadphase import BoxProxy
@@ -26,9 +26,9 @@ from collision.queries import (
 def make_scene[D: Int]() -> List[BoxProxy[D]]:
     var items = List[BoxProxy[D]]()
     for i in range(4):
-        var c = SIMD[WorldType, D](0)
+        var c = SIMD[WorldType, PadW[D]](0)
         c[0] = Real(2 * i + 1)  # axis-0 coord = 1, 3, 5, 7
-        var half = SIMD[WorldType, D](0.5)
+        var half = SIMD[WorldType, PadW[D]](0.5)
         items.append(BoxProxy[D](i, AABB[D].from_center(c, half)))
     return items^
 
@@ -46,9 +46,9 @@ def run_backend[Q: SceneQuery](mut s: Suite, tag: String) raises:
     q.rebuild(items)
 
     # ray along +axis0 from coord -5 -> hits box 0 at t = (1-0.5) - (-5) = 5.5
-    var o = SIMD[WorldType, Q.dim](0)
+    var o = SIMD[WorldType, PadW[Q.dim]](0)
     o[0] = -5
-    var d = SIMD[WorldType, Q.dim](0)
+    var d = SIMD[WorldType, PadW[Q.dim]](0)
     d[0] = 1
     var hit = q.raycast(Ray[Q.dim](o, d, 100.0))
     s.check(hit.hit, tag + " ray hits")
@@ -57,16 +57,16 @@ def run_backend[Q: SceneQuery](mut s: Suite, tag: String) raises:
     s.almost(Float64(hit.normal[0]), -1.0, tag + " normal -axis0", 1e-3)
 
     # same ray offset off the line on axis 1 -> misses everything
-    var o2 = SIMD[WorldType, Q.dim](0)
+    var o2 = SIMD[WorldType, PadW[Q.dim]](0)
     o2[0] = -5
     o2[1] = 10
     var miss = q.raycast(Ray[Q.dim](o2, d, 100.0))
     s.check(not miss.hit, tag + " ray miss off the line")
 
     # overlap box centered at axis0=4, half 1.5 -> axis0 in [2.5,5.5] -> boxes 1,2
-    var center = SIMD[WorldType, Q.dim](0)
+    var center = SIMD[WorldType, PadW[Q.dim]](0)
     center[0] = 4
-    var half = SIMD[WorldType, Q.dim](1.5)
+    var half = SIMD[WorldType, PadW[Q.dim]](1.5)
     var out = List[Int]()
     q.overlap(AABB[Q.dim].from_center(center, half), out)
     s.eqi(len(out), 2, tag + " overlap count")

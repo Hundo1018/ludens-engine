@@ -42,7 +42,7 @@ def main() raises:
     var rng = SplitMix64.seeded(7)
 
     for _ in range(6):
-        var axis = normalize(_v3(rng) + Vec3(0.1, 0.2, 0.3))  # avoid zero
+        var axis = normalize(_v3(rng) + Vec3(0.1, 0.2, 0.3, 0))  # avoid zero
         var angle = Real(rng.next_f32()) * 3.0 - 1.5
         var q = Quat.from_axis_angle(axis, angle)
         var t = _v3(rng)
@@ -60,12 +60,12 @@ def main() raises:
         var m = Motor3.from_quat_translation(q, t)
         var want = q.rotate(p) + t
         _near3(s, m.apply_point(p), want, "motor == quat+t")
-        var mat = compose_trs4(t, q, Vec3(1, 1, 1))
+        var mat = compose_trs4(t, q, Vec3(1, 1, 1, 0))
         _near3(s, m.apply_point(p), transform_point4(mat, p), "motor == mat4")
 
         # --- composition is a homomorphism onto point action ---
         var q2 = Quat.from_axis_angle(
-            normalize(_v3(rng) + Vec3(0.3, 0.1, 0.2)), Real(rng.next_f32())
+            normalize(_v3(rng) + Vec3(0.3, 0.1, 0.2, 0)), Real(rng.next_f32())
         )
         var m2 = Motor3.from_quat_translation(q2, _v3(rng))
         _near3(
@@ -94,7 +94,7 @@ def main() raises:
         _near3(s, dq.to_motor().apply_point(p), want, "dq.to_motor == motor")
         var rt = DualQuat.from_motor(m)
         _near3(s, rt.transform_point(p), want, "from_motor(M) acts like M")
-        var dq2 = DualQuat.from_quat_translation(q2, Vec3(0.3, -0.2, 0.5))
+        var dq2 = DualQuat.from_quat_translation(q2, Vec3(0.3, -0.2, 0.5, 0))
         _near3(
             s, (dq * dq2).transform_point(p),
             (dq.to_motor() * dq2.to_motor()).apply_point(p),
@@ -103,9 +103,9 @@ def main() raises:
 
     # --- screw sanity: geodesic of a pure translation is linear in t ---
     var half = geodesic3(
-        Motor3.identity(), Motor3.from_translation(Vec3(2, 0, 0)), 0.5
+        Motor3.identity(), Motor3.from_translation(Vec3(2, 0, 0, 0)), 0.5
     )
-    _near3(s, half.apply_point(Vec3(0, 0, 0)), Vec3(1, 0, 0), "half translation")
+    _near3(s, half.apply_point(Vec3(0, 0, 0, 0)), Vec3(1, 0, 0, 0), "half translation")
 
     # ---------------- 2D ----------------
     for _ in range(6):

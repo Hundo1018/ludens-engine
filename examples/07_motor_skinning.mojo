@@ -39,7 +39,7 @@ def main():
     var out = List[SkinVert]()
     for k in range(8):
         var t = Real(k) * 0.785398
-        rest.append(SkinVert(Vec3(0.5, cos(t), sin(t))))
+        rest.append(SkinVert(Vec3(0.5, cos(t), sin(t), 0)))
         ia.append(0)
         ib.append(1)
         wa.append(0.5)
@@ -49,7 +49,7 @@ def main():
     for step in range(5):
         var angle = Real(step) * 0.785398  # 0..180° in 45° steps
         var bone0 = Motor3.identity()
-        var bone1 = Motor3.from_quat(Quat.from_axis_angle(Vec3(1, 0, 0), angle))
+        var bone1 = Motor3.from_quat(Quat.from_axis_angle(Vec3(1, 0, 0, 0), angle))
 
         var mats = [bone0.to_mat4(), bone1.to_mat4()]
         skin_lbs(mats, rest, ia, ib, wa, out)

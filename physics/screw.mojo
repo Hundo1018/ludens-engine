@@ -54,7 +54,7 @@ struct ScrewBody(ComponentType):
         return Self(Motor3.from_translation(pos), Screw3.zero())
 
     def position(self) -> Vec3:
-        return self.pose.apply_point(Vec3(0, 0, 0))
+        return self.pose.apply_point(Vec3(0, 0, 0, 0))
 
 
 def integrate_screw[B: StorageBackend](mut w: World[B], dt: Real):
