@@ -30,7 +30,7 @@ def collide_boxes[dim: Int](
     return pipe.step(items)
 
 
-struct PhysicsWorld[dim: Int, S: ContactSolver](Movable, ImplicitlyDeletable):
+struct PhysicsWorld[dim: Int, S: ContactSolver](Movable, Deinitable):
     var bodies: List[RigidBody[Self.dim]]
     var gravity: SIMD[WorldType, PadW[Self.dim]]
     var iterations: Int

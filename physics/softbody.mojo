@@ -39,7 +39,7 @@ struct _SEdge(Copyable, ImplicitlyCopyable, Movable):
     var lam: Real  # XPBD multiplier (reset each substep)
 
 
-struct SoftBody(Movable, ImplicitlyDeletable):
+struct SoftBody(Movable, Deinitable):
     var pts: List[_SP]
     var edges: List[_SEdge]
     var alpha: Real  # XPBD compliance (m/N); 0 = hard distance

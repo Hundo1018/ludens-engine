@@ -43,12 +43,12 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         self.free_ids = List[Int]()
         self.gens = List[Int]()
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[List[Optional[T]]]()
             p.unsafe_deinit_pointee()
-            p.free()
+            p.unsafe_free()
 
     @staticmethod
     def _slot_of[C: ComponentType]() -> Int:

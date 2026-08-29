@@ -40,7 +40,7 @@ comptime BLEND_DLB = 1
 comptime BLEND_GEODESIC = 2
 
 
-struct AnimClip(Movable, ImplicitlyDeletable):
+struct AnimClip(Movable, Deinitable):
     """Uniformly-sampled keyframes for a fixed set of bones.
 
     Uniform sampling rather than arbitrary key times: it makes lookup a
@@ -232,7 +232,7 @@ def _motor_out(
     _write(out_pos, out_rot, b, qt[1], qt[0])
 
 
-struct AnimPlayer(Movable, ImplicitlyDeletable):
+struct AnimPlayer(Movable, Deinitable):
     """One clip fading into another, driven by whatever changes `target`.
 
     Cross-fading is the whole reason this is stateful. Snapping between clips

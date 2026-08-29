@@ -56,7 +56,7 @@ struct ConRow(Copyable, ImplicitlyCopyable, Movable):
     var partner: Int  # for CON_TANGENT: the other tangent of the same contact
 
 
-struct ConstraintSet(Movable, ImplicitlyDeletable):
+struct ConstraintSet(Movable, Deinitable):
     """Rows over a system described only by its mass matrix and velocity.
 
     Deliberately not tied to `Chain`. A constraint solver that knows what a

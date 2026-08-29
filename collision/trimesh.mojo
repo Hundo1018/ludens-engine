@@ -57,7 +57,7 @@ def _tri_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3:
     return n / l
 
 
-struct TriMesh(Movable, ImplicitlyDeletable):
+struct TriMesh(Movable, Deinitable):
     """A static triangle soup with a BVH midphase.
 
     Normals are stored per triangle rather than recomputed per query. They are
@@ -154,7 +154,7 @@ struct TriMesh(Movable, ImplicitlyDeletable):
         return AABB[3](lo, hi)
 
 
-struct HeightField(Movable, ImplicitlyDeletable):
+struct HeightField(Movable, Deinitable):
     """A regular grid of heights, triangulated implicitly.
 
     `h[iz * nx + ix]` is the height at grid corner (ix, iz); the cell between

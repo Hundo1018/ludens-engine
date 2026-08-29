@@ -35,7 +35,7 @@ from geometry.vec import Real
 comptime SKIP = 2  # grid-distance below which a pair is spring-connected
 
 
-struct SelfCollider(Movable, ImplicitlyDeletable):
+struct SelfCollider(Movable, Deinitable):
     """A uniform hash over cloth particles, rebuilt each step.
 
     Rebuilt rather than refitted: cloth moves far per step relative to its

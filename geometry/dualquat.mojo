@@ -15,7 +15,7 @@ from .motor import Motor3
 
 
 @fieldwise_init
-struct DualQuat(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct DualQuat(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     var real: Quat  # rotation
     var dual: Quat  # ε-part: encodes translation (0.5 * t * real)
 

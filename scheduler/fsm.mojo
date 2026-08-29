@@ -15,7 +15,7 @@ reads or drains. Same events from the same start -> same state path
 """
 
 
-struct StateMachine(Movable, ImplicitlyDeletable):
+struct StateMachine(Movable, Deinitable):
     var parent: List[Int]  # parent state id, -1 = top level
     var initial: List[Int]  # composite: child entered by default (-1 = leaf)
     var history: List[Bool]  # composite: resume last-active child on entry

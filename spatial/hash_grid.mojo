@@ -17,7 +17,7 @@ comptime _MASK = (1 << _BITS) - 1
 comptime _OFFSET = 1 << 20  # shift cell coords to be non-negative before packing
 
 
-struct SpatialHashGrid[dim: Int](Movable, ImplicitlyDeletable):
+struct SpatialHashGrid[dim: Int](Movable, Deinitable):
     var cell_size: Real
     var buckets: Dict[Int, List[Int]]
 

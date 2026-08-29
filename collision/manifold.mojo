@@ -96,7 +96,7 @@ struct ContactManifold[dim: Int](Copyable, ImplicitlyCopyable, Movable):
         return Contact[Self.dim](self.hit, self.normal, self.max_depth())
 
 
-trait ManifoldNarrowPhase(Movable, ImplicitlyDeletable):
+trait ManifoldNarrowPhase(Movable, Deinitable):
     comptime dim: Int
     def test_manifold(self, a: Int, b: Int) -> ContactManifold[Self.dim]: ...
 

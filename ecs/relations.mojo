@@ -52,7 +52,7 @@ def _drop_touch(mut touch: Dict[Int, List[Int]], ent_id: Int, packed: Int) raise
     touch[ent_id] = kept^
 
 
-struct RelationStore(Movable, ImplicitlyDeletable):
+struct RelationStore(Movable, Deinitable):
     var fwd: Dict[Int, List[Entity]]  # pack(rel, src.id) -> targets
     var rev: Dict[Int, List[Entity]]  # pack(rel, dst.id) -> sources
     var touch: Dict[Int, List[Int]]  # entity id -> pack(rel, other.id)*2+dir

@@ -38,7 +38,7 @@ struct GameObject(Copyable, ImplicitlyCopyable, Movable):
         return True
 
 
-struct Scene(Movable, ImplicitlyDeletable):
+struct Scene(Movable, Deinitable):
     """Owns the game objects and drives the per-frame update loop."""
 
     var objects: List[GameObject]
@@ -118,7 +118,7 @@ struct FatObject(Copyable, ImplicitlyCopyable, Movable):
         self.pos = self.pos + self.vel * dt
 
 
-struct FatScene(Movable, ImplicitlyDeletable):
+struct FatScene(Movable, Deinitable):
     """Array-of-structs scene of fat objects (the cache-unfriendly baseline)."""
 
     var objects: List[FatObject]

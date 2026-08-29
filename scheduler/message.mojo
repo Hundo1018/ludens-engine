@@ -13,7 +13,7 @@ shared; only the routing interpretation differs per topology.
 from ecs.entity import Entity
 
 
-trait MessageType(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+trait MessageType(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """A message payload. `KIND` is an optional discriminator for protocols that
     fold several logical messages into one struct."""
 
@@ -22,7 +22,7 @@ trait MessageType(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
 
 @fieldwise_init
 struct Envelope[M: MessageType](
-    Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
+    Copyable, ImplicitlyCopyable, Movable, Deinitable
 ):
     """A message addressed to a recipient. `target` is an entity id (entity
     actors) or a system index (system actors)."""

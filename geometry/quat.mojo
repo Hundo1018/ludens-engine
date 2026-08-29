@@ -21,7 +21,7 @@ def _cross3(a: Vec3, b: Vec3) -> Vec3:
 
 
 @fieldwise_init
-struct Quat(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Quat(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     var x: Real
     var y: Real
     var z: Real

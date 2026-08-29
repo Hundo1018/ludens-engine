@@ -22,7 +22,7 @@ from std.memory import UnsafePointer, alloc
 from .vec import WorldType, Real
 
 
-trait Field(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+trait Field(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     def __add__(self, o: Self) -> Self: ...
     def __sub__(self, o: Self) -> Self: ...
     def __mul__(self, o: Self) -> Self: ...
@@ -152,7 +152,7 @@ struct TapeNode(Copyable, ImplicitlyCopyable, Movable):
     var dr: Real
 
 
-struct Tape(Movable, ImplicitlyDeletable):
+struct Tape(Movable, Deinitable):
     """Append-only operation record for reverse-mode AD. Declare one on the
     stack, hand `UnsafePointer(to=tape)` to `RevReal.seed`, run the
     computation, then `grad(output.idx)` sweeps backwards once and returns

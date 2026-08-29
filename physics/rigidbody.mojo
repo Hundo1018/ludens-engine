@@ -14,7 +14,7 @@ from geometry.aabb import AABB
 
 
 @fieldwise_init
-struct RigidBody[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct RigidBody[dim: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
     var pos: SIMD[WorldType, PadW[Self.dim]]
     var vel: SIMD[WorldType, PadW[Self.dim]]
     var inv_mass: Real  # 0 => static (infinite mass)

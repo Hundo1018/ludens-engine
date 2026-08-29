@@ -45,7 +45,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
     )
 
 
-struct FloatingChain(Movable, ImplicitlyDeletable):
+struct FloatingChain(Movable, Deinitable):
     """A `Chain` carried by a free rigid body.
 
     The base state is held in BODY coordinates, which is what makes the

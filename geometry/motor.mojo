@@ -39,7 +39,7 @@ comptime _T120 = 0b1011  # e1e2e0
 
 
 @fieldwise_init
-struct Motor3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Motor3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """3D rigid motion (rotation + translation) — 8 floats, ≅ dual quaternion."""
 
     var s: Real  # scalar
@@ -161,7 +161,7 @@ comptime _E12 = 0b011
 
 
 @fieldwise_init
-struct Motor2(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Motor2(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """2D rigid motion — 4 floats (rotation angle + translation)."""
 
     var s: Real  # scalar

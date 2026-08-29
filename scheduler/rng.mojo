@@ -13,7 +13,7 @@ user seed through it so even a `0` seed yields a well-distributed initial state.
 from geometry.vec import Vec2, Vec3, normalize
 
 
-trait Rng(Defaultable, Movable, ImplicitlyDeletable):
+trait Rng(Defaultable, Movable, Deinitable):
     @staticmethod
     def seeded(seed: UInt64) -> Self: ...
     def next_u64(mut self) -> UInt64: ...

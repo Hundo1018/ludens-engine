@@ -33,7 +33,7 @@ from .storage import StorageBackend
 comptime Slot = type_of(alloc[NoneType](1))
 
 
-struct _Group(Movable, ImplicitlyDeletable):
+struct _Group(Movable, Deinitable):
     """A cached query result: the entity ids matching `mask`."""
 
     var mask: Int  # OR of (1 << slot) for each required component
@@ -58,7 +58,7 @@ struct ObsEvent(Copyable, ImplicitlyCopyable, Movable):
     var id: Int  # entity id
 
 
-struct _Observer(Movable, ImplicitlyDeletable):
+struct _Observer(Movable, Deinitable):
     """A push subscription: kind/component filter plus the event inbox."""
 
     var kind_mask: Int  # OR of (1 << EV_*)
@@ -100,16 +100,16 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
         self.observers = alloc[List[_Observer]](1)
         self.observers.unsafe_write(List[_Observer]())
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[SparseSet[T]]()
             p.unsafe_deinit_pointee()
-            p.free()
+            p.unsafe_free()
         self.groups.unsafe_deinit_pointee()
-        self.groups.free()
+        self.groups.unsafe_free()
         self.observers.unsafe_deinit_pointee()
-        self.observers.free()
+        self.observers.unsafe_free()
 
     # --- push-based observers ---
     def observe1[C: ComponentType](mut self, kind_mask: Int) -> Int:

@@ -39,7 +39,7 @@ def _wv(mut s: String, v: Vec3):
     _wf(s, v[2])
 
 
-struct _Reader(Movable, ImplicitlyDeletable):
+struct _Reader(Movable, Deinitable):
     var toks: List[String]
     var at: Int
 

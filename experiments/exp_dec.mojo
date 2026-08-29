@@ -21,7 +21,7 @@ from geometry.vec import Real
 comptime NV = 5  # vertices per side -> (NV-1)^2 * 2 triangles
 
 
-struct Mesh(Movable, ImplicitlyDeletable):
+struct Mesh(Movable, Deinitable):
     """Triangulated NV×NV grid: vertices, oriented edges, oriented faces."""
 
     var edges: List[Tuple[Int, Int]]  # (a, b) oriented a -> b

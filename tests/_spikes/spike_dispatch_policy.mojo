@@ -46,7 +46,7 @@ def square_sum[D: DispatchPolicy](n: Int) -> Int:
     var s = 0
     for i in range(n):
         s += arena[i]
-    arena.free()
+    arena.unsafe_free()
     return s
 
 

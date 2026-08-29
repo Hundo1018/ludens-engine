@@ -184,7 +184,7 @@ def _merge_inertia(a: SpInertia, b: SpInertia) -> SpInertia:
     return SpInertia(a.m + b.m, a.h + b.h, _sym_add(a.io, b.io))
 
 
-struct Chain(Movable, ImplicitlyDeletable):
+struct Chain(Movable, Deinitable):
     var links: List[ChainLink]
     var q: List[Real]
     var qd: List[Real]

@@ -51,7 +51,7 @@ trait LinearOperator:
     def diagonal(self, mut out: List[Real]): ...
 
 
-struct CsrMatrix(LinearOperator, Movable, ImplicitlyDeletable):
+struct CsrMatrix(LinearOperator, Movable, Deinitable):
     """Square sparse matrix in compressed sparse row form."""
 
     var n: Int

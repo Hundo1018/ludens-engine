@@ -37,7 +37,7 @@ struct Contact[dim: Int](Copyable, ImplicitlyCopyable, Movable):
         return Self(False, SIMD[WorldType, PadW[Self.dim]](0), 0)
 
 
-trait NarrowPhase(Movable, ImplicitlyDeletable):
+trait NarrowPhase(Movable, Deinitable):
     comptime dim: Int
     def test(self, a: Int, b: Int) -> Contact[Self.dim]: ...
 

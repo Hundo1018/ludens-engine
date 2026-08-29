@@ -14,7 +14,7 @@ from ecs.world import World
 
 
 @fieldwise_init
-struct FixedLoop(Movable, ImplicitlyDeletable):
+struct FixedLoop(Movable, Deinitable):
     var dt: Float64  # fixed simulation step (seconds)
     var accumulator: Float64
     var max_steps: Int  # cap on ticks per advance() — spiral-of-death guard

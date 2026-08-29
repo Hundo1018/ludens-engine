@@ -52,14 +52,14 @@ def _advance(pose: Motor3, wb: Vec3, dt: Real) -> Motor3:
     ).normalized()
 
 
-trait SpinIntegrator(Movable, ImplicitlyDeletable):
+trait SpinIntegrator(Movable, Deinitable):
     @staticmethod
     def step(
         pose: Motor3, wb: Vec3, inertia: Inertia3, dt: Real
     ) -> Tuple[Motor3, Vec3]: ...
 
 
-struct EulerSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct EulerSpin(SpinIntegrator, Movable, Deinitable):
     @staticmethod
     def step(
         pose: Motor3, wb: Vec3, inertia: Inertia3, dt: Real
@@ -68,7 +68,7 @@ struct EulerSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
         return (_advance(pose, w2, dt), w2)
 
 
-struct Rk2Spin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct Rk2Spin(SpinIntegrator, Movable, Deinitable):
     @staticmethod
     def step(
         pose: Motor3, wb: Vec3, inertia: Inertia3, dt: Real
@@ -78,7 +78,7 @@ struct Rk2Spin(SpinIntegrator, Movable, ImplicitlyDeletable):
         return (_advance(pose, wm, dt), w2)
 
 
-struct MidpointSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct MidpointSpin(SpinIntegrator, Movable, Deinitable):
     """Implicit midpoint `ω½ = ω + f(ω½)·dt/2` by fixed-point iteration
     (converges fast for dt·|ω| ≪ 1), then `ω' = 2ω½ − ω`."""
 
@@ -137,7 +137,7 @@ def _ax_fjd(r: _Rows3, jd: Vec3) -> Vec3:
     )
 
 
-struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct LgvciSpin(SpinIntegrator, Movable, Deinitable):
     """Moser–Veselov DMV step. The implicit equation is solved by fixed point
     on the rotation vector: `ax(F(f)·J_d − J_d·F(f)ᵀ) = I·f + O(|f|²)`, so
     `f ← f + I⁻¹(h·Π − ax(...))` contracts at rate O(h|ω|) from the explicit

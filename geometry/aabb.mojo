@@ -10,7 +10,7 @@ from .vec import WorldType, Real, lane_min, lane_max, PadW
 
 
 @fieldwise_init
-struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
     var min: SIMD[WorldType, PadW[Self.dim]]
     var max: SIMD[WorldType, PadW[Self.dim]]
 

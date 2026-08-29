@@ -230,7 +230,7 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
         )
 
 
-struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
+struct ContactScene6[B: Body6](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
     var bodies: List[Self.B]

@@ -325,7 +325,7 @@ struct FemBody(Movable):
                     self.vy[i] = 0
 
 
-struct FemImplicitOp(LinearOperator, Movable, ImplicitlyDeletable):
+struct FemImplicitOp(LinearOperator, Movable, Deinitable):
     """`A = M - dt^2 df/dx`, applied without ever forming it.
 
     The per-element rotations are SNAPSHOT at construction rather than

@@ -77,7 +77,7 @@ def _involute_sign(a: Int) -> Int:
 
 
 struct Multivector[p: Int, q: Int, r: Int](
-    Copyable, ImplicitlyCopyable, Movable, Defaultable, ImplicitlyDeletable
+    Copyable, ImplicitlyCopyable, Movable, Defaultable, Deinitable
 ):
     comptime DIM: Int = Self.p + Self.q + Self.r
     comptime BLADES: Int = 1 << Self.DIM

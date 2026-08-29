@@ -41,7 +41,7 @@ comptime _FACE_EPS: Real = 1e-3  # support-face membership tolerance
 comptime _MAX_FACE = 16  # vertices kept per support face
 
 
-struct HullShape(Movable, ImplicitlyDeletable):
+struct HullShape(Movable, Deinitable):
     """Convex hull: LOCAL-frame vertices plus its face normals, stored FLAT.
 
     Both lists are `List[Real]` with stride 3, and so is the CONSTRUCTOR

@@ -189,7 +189,7 @@ def finalize_kernel[LT: TensorLayout](
 
 
 # ---------------------------------------------------------------- CPU reference
-struct ClothState(Movable, ImplicitlyDeletable):
+struct ClothState(Movable, Deinitable):
     """Final particle positions (component lists — no bare List[SIMD3])."""
 
     var x: List[Float32]
@@ -333,7 +333,7 @@ def gpu_cloth_run[W: Int, H: Int](
 
 
 @fieldwise_init
-struct GpuClothTiming(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct GpuClothTiming(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Wall-clock split of one GPU rollout: what is transfer and what is compute.
 
     The end-to-end GPU rows fold host<->device traffic into the total; these

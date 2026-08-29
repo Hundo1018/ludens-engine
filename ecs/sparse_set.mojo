@@ -16,7 +16,7 @@ from std.collections import List
 struct _SparseSetIter[
     mut: Bool,
     //,
-    T: ImplicitlyCopyable & ImplicitlyDeletable,
+    T: ImplicitlyCopyable & Deinitable,
     origin: Origin[mut=mut],
 ](Iterator):
     comptime Element = Self.T  # Required by the Iterator trait
@@ -33,7 +33,7 @@ struct _SparseSetIter[
         return val
 
 
-struct SparseSet[T: ImplicitlyCopyable & ImplicitlyDeletable](
+struct SparseSet[T: ImplicitlyCopyable & Deinitable](
     Boolable, Copyable, Movable, Defaultable, Iterable, Sized
 ):
     var _sparse: List[Int]  # key -> dense index (or -1); grows on demand

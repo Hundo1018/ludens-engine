@@ -19,7 +19,7 @@ from std.math import sin, cos
 from .vec import WorldType, Real, Vec2, Vec3, PadW
 
 
-struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Square `n×n` matrix, row-major. Aliased as `Mat2`/`Mat3`/`Mat4`."""
 
     comptime SIZE = Self.n * Self.n

@@ -19,5 +19,5 @@ def main() raises:
     print("via opaque =", q[].a, q[].b)
 
     p.unsafe_deinit_pointee()
-    p.free()
+    p.unsafe_free()
     print("ptr probe PASS")

@@ -13,7 +13,7 @@ from .multivector import _gp_sign, _swap_sign, _reverse_sign
 
 
 struct GMV[p: Int, q: Int, r: Int, F: Field](
-    Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
+    Copyable, ImplicitlyCopyable, Movable, Deinitable
 ):
     comptime DIM: Int = Self.p + Self.q + Self.r
     comptime BLADES: Int = 1 << Self.DIM

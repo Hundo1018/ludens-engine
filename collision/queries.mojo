@@ -25,7 +25,7 @@ from spatial.tree_core import LooseTree
 from .broadphase import BoxProxy
 
 
-trait SceneQuery(Defaultable, Movable, ImplicitlyDeletable):
+trait SceneQuery(Defaultable, Movable, Deinitable):
     comptime dim: Int
     def rebuild(mut self, items: List[BoxProxy[Self.dim]]) raises: ...
     def raycast(self, ray: Ray[Self.dim]) raises -> RayHit[Self.dim]: ...

@@ -40,7 +40,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
 
 
 @fieldwise_init
-struct Inertia3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Inertia3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Mass plus principal (body-frame diagonal) rotational inertia."""
 
     var mass: Real
@@ -85,7 +85,7 @@ struct Inertia3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
         return Vec3(l[0] / self.ix, l[1] / self.iy, l[2] / self.iz, 0)
 
 
-trait Body6(Copyable, Movable, ImplicitlyDeletable):
+trait Body6(Copyable, Movable, Deinitable):
     """What a 6-DOF contact solver needs from a body, representation-agnostic:
     world-point velocities, impulse response, and the normal-direction
     effective-mass term `n·((I⁻¹(r×n))×r)`. Both representations conform, so
@@ -109,7 +109,7 @@ trait Body6(Copyable, Movable, ImplicitlyDeletable):
 
 @fieldwise_init
 struct QuatBody6(
-    Body6, Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
+    Body6, Copyable, ImplicitlyCopyable, Movable, Deinitable
 ):
     """Classical 6-DOF body: world-frame linear + angular velocity."""
 
@@ -208,7 +208,7 @@ struct QuatBody6(
 
 @fieldwise_init
 struct ScrewBody6(
-    Body6, Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
+    Body6, Copyable, ImplicitlyCopyable, Movable, Deinitable
 ):
     """GA 6-DOF body: `Motor3` pose + body-frame twist bivector velocity."""
 

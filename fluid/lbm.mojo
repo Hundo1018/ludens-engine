@@ -45,7 +45,7 @@ comptime BC_PERIODIC = 0
 comptime BC_TUNNEL = 1  # inlet at x=0, outlet at x=nx-1, periodic elsewhere
 
 
-struct Lbm(Movable, ImplicitlyDeletable):
+struct Lbm(Movable, Deinitable):
     """A D3Q19 lattice. All fields flat, SoA by direction."""
 
     var nx: Int

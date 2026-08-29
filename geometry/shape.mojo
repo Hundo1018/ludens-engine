@@ -9,7 +9,7 @@ polygon used by the SAT and GJK narrowphase tests. `AABB[dim]` lives in
 from .vec import WorldType, Real, Vec2, Vec3, distance_sq
 
 
-trait Intersectable(Copyable, Movable, ImplicitlyDeletable):
+trait Intersectable(Copyable, Movable, Deinitable):
     """Same-shape overlap test, e.g. `Circle` vs `Circle`."""
 
     def isintersect(self, other: Self) -> Bool:

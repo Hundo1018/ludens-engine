@@ -32,7 +32,7 @@ struct _RelCmd(Copyable, ImplicitlyCopyable, Movable):
     var dst: Entity
 
 
-struct CommandBuffer(Movable, ImplicitlyDeletable):
+struct CommandBuffer(Movable, Deinitable):
     var despawns: List[Entity]
     var rel_cmds: List[_RelCmd]
 
@@ -73,7 +73,7 @@ struct _SetRec[C: ComponentType](Copyable, ImplicitlyCopyable, Movable):
     var v: Self.C
 
 
-struct SetBuffer[*CTs: ComponentType](Movable, ImplicitlyDeletable):
+struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
     """Deferred component writes for a world with component pack `CTs`.
     Values are held in per-type queues (type-erased heap slots); `order`
     remembers which queue each recorded write went to, so `apply` replays the
@@ -92,12 +92,12 @@ struct SetBuffer[*CTs: ComponentType](Movable, ImplicitlyDeletable):
             self.slots.append(p.bitcast[NoneType]())
         self.order = List[Int]()
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[List[_SetRec[T]]]()
             p.unsafe_deinit_pointee()
-            p.free()
+            p.unsafe_free()
 
     @staticmethod
     def _slot_of[C: ComponentType]() -> Int:

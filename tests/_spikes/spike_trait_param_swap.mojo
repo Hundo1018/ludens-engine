@@ -8,7 +8,7 @@ def assert_true(cond: Bool, msg: String) raises:
         raise Error("ASSERT FAILED: " + msg)
 
 
-trait Counter(Defaultable, Copyable, Movable, ImplicitlyDeletable):
+trait Counter(Defaultable, Copyable, Movable, Deinitable):
     def bump(mut self, n: Int): ...
     def total(self) -> Int: ...
 

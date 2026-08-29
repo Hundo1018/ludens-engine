@@ -17,7 +17,7 @@ from .entity import Entity
 from .component import ComponentType
 
 
-struct World[B: StorageBackend](Movable, ImplicitlyDeletable):
+struct World[B: StorageBackend](Movable, Deinitable):
     var backend: Self.B
 
     def __init__(out self):

@@ -20,7 +20,7 @@ struct _Item[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var box: AABB[Self.dim]
 
 
-struct _Node[dim: Int](Movable, ImplicitlyDeletable):
+struct _Node[dim: Int](Movable, Deinitable):
     var bounds: AABB[Self.dim]
     var items: List[_Item[Self.dim]]
     var children: List[Int]  # empty => leaf; else 2**dim child node indices
@@ -34,7 +34,7 @@ struct _Node[dim: Int](Movable, ImplicitlyDeletable):
         return len(self.children) == 0
 
 
-struct LooseTree[dim: Int](Movable, ImplicitlyDeletable):
+struct LooseTree[dim: Int](Movable, Deinitable):
     comptime CHILDREN: Int = 1 << Self.dim
     var nodes: List[_Node[Self.dim]]
     var capacity: Int

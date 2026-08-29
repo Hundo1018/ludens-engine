@@ -8,7 +8,7 @@ from std.memory import UnsafePointer, alloc
 comptime Slot = type_of(alloc[NoneType](1))
 
 
-trait ComponentType(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+trait ComponentType(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     comptime ID: Int
 
 
@@ -59,12 +59,12 @@ struct Backend[*CTs: ComponentType](Movable):
             p.unsafe_write(ComponentStore[T]())
             self.slots.append(p.bitcast[NoneType]())
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[ComponentStore[T]]()
             p.unsafe_deinit_pointee()
-            p.free()
+            p.unsafe_free()
 
     @staticmethod
     def slot_of[C: ComponentType]() -> Int:
