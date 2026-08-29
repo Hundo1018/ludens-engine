@@ -50,6 +50,12 @@ struct Payload(ComponentType):
     comptime ID: Int = 2
     var data: InlineArray[Int, 256]  # ~2 KB cold component (matches FatObject)
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in Mojo 1.0.
+        Copying the whole 2 KB payload is what this benchmark is measuring, so
+        the cost here is the point rather than an oversight."""
+        self.data = copy.data.copy()
+
 
 @fieldwise_init
 struct Tag(ComponentType):

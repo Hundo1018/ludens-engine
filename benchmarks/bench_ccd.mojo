@@ -41,7 +41,7 @@ def _axes(theta: Real, phi: Real) -> Axes3:
     a[0] = Vec3(ct, st, 0, 0)
     a[1] = Vec3(-st * cp, ct * cp, sp, 0)
     a[2] = Vec3(st * sp, -ct * sp, cp, 0)
-    return a
+    return a^
 
 
 @fieldwise_init
@@ -55,6 +55,17 @@ struct _Cast(Copyable, ImplicitlyCopyable, Movable):
     var axb: Axes3
     var hb: Vec3
     var disp: Vec3  # per-step displacement of b relative to a
+
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `Axes3` is an `InlineArray`, which is not
+        `ImplicitlyCopyable` in Mojo 1.0."""
+        self.ca = copy.ca
+        self.axa = copy.axa.copy()
+        self.ha = copy.ha
+        self.cb = copy.cb
+        self.axb = copy.axb.copy()
+        self.hb = copy.hb
+        self.disp = copy.disp
 
 
 def _scene(n: Int) -> List[_Cast]:
@@ -79,7 +90,7 @@ def _scene(n: Int) -> List[_Cast]:
             0,
         )
         casts.append(_Cast(
-            ca, axa, Vec3(0.3, 0.3, 0.3, 0), cb, axb, Vec3(0.1, 0.1, 0.1, 0), disp
+            ca, axa.copy(), Vec3(0.3, 0.3, 0.3, 0), cb, axb.copy(), Vec3(0.1, 0.1, 0.1, 0), disp
         ))
     return casts^
 

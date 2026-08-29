@@ -1197,68 +1197,46 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > (`_ABI(a2^, b2^, d2^)` 之後還讀 a2/b2/d2)。
 > 這兩種都是編譯器擋下來的,不是靜默錯誤。
 
-### 16.3 Vec3 重構(width-3 SIMD 被禁)— 🔄 進行中(分支 `mojo-stable`)
+### 16.3 Vec3 重構(width-3 SIMD 被禁)— ✅ 完成(2026-08-12)
 
-> **這是路線圖唯一剩餘的項目。** 其餘 32 個編號項目全部 ✅。
+> **路線圖全數完成。** 引擎在**正式版 Mojo 1.0.0 / modular 26.5.0** 上建置、
+> **116 個測試檔全綠**(含 5 組 GPU)、benchmark 報告已用正式版重測。
 
-> **問題**:正式版 Mojo 1.0.0 **拒絕非 2 冪的 SIMD 寬度**,
-> `SIMD[DType.float32, 3]` 連 3 行的最小程式都編不過;而 `Vec3` 是引擎基礎型別。
-> 目前的 nightly(1.1.0.dev2026081105)**也一樣禁止** —— 這不是 stable 獨有,
-> 是 Mojo 本身的改動,專案原本釘的舊 nightly 只是改動之前的版本。
-> 所以沒有「留在 nightly 就能避開」這個選項。
+> **問題**:正式版拒絕非 2 冪 SIMD 寬度,而 `Vec3` 是引擎基礎型別。
+> 目前的 nightly(1.1.0.dev2026081105)**也一樣禁止** —— 不是 stable 獨有,
+> 沒有「留在 nightly 就能避開」這個選項。
 
-#### 已完成
-> - `Vec3` 改為 `SIMD[WorldType, 4]`,**lane 3 恆 0**;1509 處三引數建構補 `, 0`。
-> - 維度泛型容器改用 `comptime PadW[d: Int] = 4 if d == 3 else d`。
->   **必須是條件式**:型別位置呼叫 `def` 不會摺疊,算術式會保持符號式
+#### 做法
+> - `Vec3` = `SIMD[WorldType, 4]`,**lane 3 恆 0**;1617 處三引數建構補 `, 0`。
+> - 維度泛型容器用 `comptime PadW[d: Int] = 4 if d == 3 else d`。
+>   **必須是條件式**:型別位置呼叫 `def` 不摺疊,算術式保持符號式
 >   (`SIMDLength(((Int(4) // Int(2)) * Int(2)))` 無法與 `SIMDLength(4)` 統一)。
-> - `dot` / `lane_min` / `lane_max` 從手寫 `comptime for i in range(Int(w))`
->   改為 `reduce_add()` / `min()` / `max()`。原本的理由(width-3 的 `reduce_add` 壞掉)
->   已失效,而手寫形式在維度泛型中會拿到未摺疊的 `PadW[D]` 當迴圈上界。
-> - 整個引擎**在正式版上建置乾淨**。
+> - `dot` / `lane_min` / `lane_max` 改用 `reduce_add()` / `min()` / `max()`。
+> - `spatial/hash_grid.mojo` 的整數 cell 向量同樣補位。
+> - **GPU ABI**:Mojo 1.0 把 `Int`/`UInt` 移出 `DevicePassable`(大小由主機定義,
+>   kernel 卻是為裝置編譯的)。5 檔 10 個 kernel 改吃 `Int32`、在函式開頭加寬。
+> - `InlineArray` 不再隱式可複製:11 個結構補顯式 `__init__(out self, *, copy: Self)`,
+>   28 處補 `^`。
+> - 棄用清理:`ImplicitlyDeletable`→`Deinitable`、`.free()`→`.unsafe_free()`、
+>   `__del__`→`__deinit__`。**`bitcast` 刻意不改** —— 編譯器建議的 `unsafe_bitcast`
+>   在 `std.memory` / `std.builtin` / `std.sys` / prelude 都不存在,改了會壞掉。
 
-#### 進度(2026-08-12 更新):90 / 116 測試檔通過
-> **三個失敗族群其實是同一個根因,而且是我自己造成的。** 補位改寫器以「頂層逗號切分後
-> 計數」判斷是不是 3 引數呼叫,但**多行呼叫的尾隨逗號**會留下一個只有空白的末元素,
-> 於是那些呼叫被算成 4 引數而跳過 —— 共 94 處,每一處都用 3 個值初始化 4 lane 向量,
-> **lane 3 未初始化**。症狀之所以看起來毫不相干,正是因為污染的是歸約:
-> `test_gjk` 無限迴圈(垃圾 lane 讓支撐點錯誤、GJK 永不收斂)、
-> `test_solver6` / `test_actuator` 經 manifold 崩潰、`test_aba` 撐爆 comptime 堆積。
-> 補完後四個全過。
-> **原本的假設(`dot` 的 comptime 迴圈拿到未摺疊的 `PadW[D]`)是錯的** ——
-> 改成 `reduce_add` 後症狀不變;不過那個改動本身仍然正確,已保留。
-> **新增守門**:`test_vec` 直接測不變量 —— 每個 Vec3 運算後 lane 3 必須為 0。
-> 這條抓到 SAH 測試裡兩處 `Vec3(h)` splat(非零純量會進補位 lane)。
-> **其他已修**:`spatial/hash_grid.mojo` 的 `SIMD[DType.int32, dim]`(純 float 的
-> 那一輪沒掃到的整數向量);**GPU ABI** —— Mojo 1.0 把 `Int`/`UInt` 移出
-> `DevicePassable`(大小由主機定義,而 kernel 是為裝置編譯的),5 個檔 10 個 kernel
-> 改吃 `Int32` 並在函式開頭加寬,GPU 5 個測試全過。
+#### 真正花掉時間的東西:補位改寫器的三個漏洞,全是我自己的
+> 每一個都讓 lane 3 未初始化,而且症狀都偽裝成別的問題:
+> 1. **尾隨逗號** —— 多行呼叫的尾隨逗號留下空白末元素,被算成 4 引數而跳過(94 處)。
+> 2. **巢狀呼叫** —— 處理完外層就跳過整段,`Vec3(Vec3(1,0,0), ...)` 的內層從未走訪(14 處)。
+> 3. **非零 splat** —— `Vec3(h)` 會把 h 放進補位 lane(2 處)。
+>
+> 症狀:`test_gjk` **無限迴圈**(垃圾 lane → 支撐點錯誤 → GJK 永不收斂)、
+> `test_solver6` / `test_actuator` 崩潰、`test_aba` **撐爆 comptime 堆積**、
+> `test_sensors` 丟出**誤報的** `parent must exist`(損毀狀態下的假訊息)。
+> **一度以為是四個獨立問題,其實是同一個。**
+>
+> **守門**:`test_vec` 現在直接測不變量 —— 每個 Vec3 運算後 lane 3 必須為 0。
+> 這條當場抓到第 3 類。**這類 bug 不能再靠人眼守。**
 
-#### 剩餘:`test_sensors`
-> 症狀:`Chain` 建構時丟出 `parent must exist before the child`,
-> 發生在第 86 行與第 133 行的 print 之間(即 §4 的兩連桿有限差分段)。
-> **已排除**:同樣的呼叫序列單獨重現**會過**(`add_link` → `add_link_to(0, ...)`、
-> 以及 `cp.add_link(c.links[0])` 的鏈複製都正常)。
-> 所以是**狀態相依**的,懷疑與我為 `SpInertia` / `_ABI` / `ChainLink` 新增的
-> 顯式複製建構子有關(同一測試裡有三個 `Chain` 同時存活)。
-> 輸出末尾那個孤立的 `P` 是被截斷的寫入,暗示是中止而不是乾淨的 raise ——
-> 也就是說 `parent must exist` 可能是**損毀狀態下的誤報**,而不是真正的成因。
-> **下一步查法**:在 §4 每個 `Chain` 操作前後印 `len(links)`,找出第一個不一致的點;
-> 若確認是複製建構子,對 `_Rows3` 的複製加不變量斷言。
-
-#### 執行順序
-> 1. **修 (a)**,以「lane 3 恆 0」斷言為工具而非猜測;修完重跑 (b)。
-> 2. **修 (c)**,獨立處理。
-> 3. **全套 116 測試綠燈** —— 這是唯一的完成判準。
-> 4. `ImplicitlyDeletable` → `Deinitable`(79 處棄用警告,機械性)。
-> 5. **重新產生 `BENCHMARK_REPORT.md`**。width 4 的對齊與記憶體流量與 width 3 不同,
->    **每一個數字都會變**;報告散文裡引用具體數字的段落要逐條重新核對
->    (`scripts/run_benchmarks.sh` 才是散文的來源)。
-> 6. 合併 `mojo-stable` → `dev`。
-
-#### 完成後順帶得到的東西
+#### 順帶消滅的東西
 > 專案長期對抗的整類 width-3 危害(`List[Vec3]` 跨函式邊界損毀、teardown crash,
-> 見 [[mojo-nightly-runtime-hazards]])**根因就是 nightly 容忍了一個支援不完整的寬度**。
-> 重構完成後那類 bug 從此不存在,`SkinVert` / `HullVert` 之類的 struct 包裝繞道
-> 也可以逐步拆掉(**但要有測試證明才拆,不要順手**)。
-
+> 見 [[mojo-nightly-runtime-hazards]])**根因就是舊 nightly 容忍了一個支援不完整的寬度**。
+> 現在那類 bug 不存在了。`SkinVert` / `HullVert` 之類的 struct 包裝繞道可以逐步拆,
+> **但要有測試證明才拆**。
