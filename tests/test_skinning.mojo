@@ -8,6 +8,7 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3, length, normalize
 from geometry.quat import Quat
 from geometry.motor import Motor3
+from geometry.mat import Mat4
 from geometry.galie import geodesic3
 from geometry.skinning import SkinVert, blend2, skin_motor, skin_lbs
 
@@ -54,14 +55,24 @@ def main() raises:
     var bone1 = Motor3.from_quat(Quat.from_axis_angle(Vec3(1, 0, 0, 0), 3.14159265))
     var vert = Vec3(0.5, 1, 0, 0)  # radius 1 from the twist axis
 
-    var bones = [bone0, bone1]
-    var mats = [bone0.to_mat4(), bone1.to_mat4()]
-    var rest = [SkinVert(vert)]
-    var ia = [0]
-    var ib = [1]
-    var wa = [Real(0.5)]
-    var out_m = [SkinVert(Vec3(0))]
-    var out_l = [SkinVert(Vec3(0))]
+    var bones = List[Motor3](capacity=2)
+    bones.append(bone0)
+    bones.append(bone1)
+    var mats = List[Mat4](capacity=2)
+    mats.append(bone0.to_mat4())
+    mats.append(bone1.to_mat4())
+    var rest = List[SkinVert](capacity=1)
+    rest.append(SkinVert(vert))
+    var ia = List[Int](capacity=1)
+    ia.append(0)
+    var ib = List[Int](capacity=1)
+    ib.append(1)
+    var wa = List[Real](capacity=1)
+    wa.append(0.5)
+    var out_m = List[SkinVert](capacity=1)
+    out_m.append(SkinVert(Vec3(0)))
+    var out_l = List[SkinVert](capacity=1)
+    out_l.append(SkinVert(Vec3(0)))
     skin_motor(bones, rest, ia, ib, wa, out_m)
     skin_lbs(mats, rest, ia, ib, wa, out_l)
 
@@ -75,8 +86,14 @@ def main() raises:
     s.check(Float64(r_lbs) < 0.05, "LBS collapses (the artifact, by design)")
 
     # --- rigid parity: identical bones -> both paths agree ---
-    var bones2 = [ma, ma]
-    var mats2 = [ma.to_mat4(), ma.to_mat4()]
+    # Explicit Lists: a bracket literal infers InlineArray here, and Mojo 1.0
+    # no longer converts one to the List the skinning entry points take.
+    var bones2 = List[Motor3](capacity=2)
+    bones2.append(ma)
+    bones2.append(ma)
+    var mats2 = List[Mat4](capacity=2)
+    mats2.append(ma.to_mat4())
+    mats2.append(ma.to_mat4())
     skin_motor(bones2, rest, ia, ib, wa, out_m)
     skin_lbs(mats2, rest, ia, ib, wa, out_l)
     _near3(s, out_m[0].v, out_l[0].v, "rigid case: DQS == LBS")

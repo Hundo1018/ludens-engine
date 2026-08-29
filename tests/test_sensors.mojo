@@ -27,9 +27,9 @@ from physics.sensors import (
 def world_vel(cc: Chain, mount: Vec3) raises -> Vec3:
     """World-frame velocity of a mount point, assembled one axis at a time."""
     return Vec3(
-        cc.point_velocity(1, mount, Vec3(1, 0, 0)),
-        cc.point_velocity(1, mount, Vec3(0, 1, 0)),
-        cc.point_velocity(1, mount, Vec3(0, 0, 1)),
+        cc.point_velocity(1, mount, Vec3(1, 0, 0, 0)),
+        cc.point_velocity(1, mount, Vec3(0, 1, 0, 0)),
+        cc.point_velocity(1, mount, Vec3(0, 0, 1, 0)),
         0,
     )
 

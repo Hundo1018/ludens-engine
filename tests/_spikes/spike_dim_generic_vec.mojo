@@ -27,7 +27,7 @@ def main() raises:
 
     # width-3 (non-power-of-two): reduce_add() is BROKEN (drops 3rd lane).
     # Workaround: manual elementwise reduction over lanes.
-    var v3 = Vec3(1.0, 2.0, 2.0)
+    var v3 = Vec3(1.0, 2.0, 2.0, 0)
     var sq = v3 * v3
     var d3 = Scalar[WorldType](0)
     comptime for i in range(3):
@@ -41,8 +41,8 @@ def main() raises:
     assert_true(box2a.overlaps(box2b), "2d overlap")
     assert_true(not box2a.overlaps(box2c), "2d disjoint")
 
-    var box3a = AABB[3](Vec3(0, 0, 0), Vec3(2, 2, 2))
-    var box3b = AABB[3](Vec3(1, 1, 1), Vec3(3, 3, 3))
+    var box3a = AABB[3](Vec3(0, 0, 0, 0), Vec3(2, 2, 2, 0))
+    var box3b = AABB[3](Vec3(1, 1, 1, 0), Vec3(3, 3, 3, 0))
     assert_true(box3a.overlaps(box3b), "3d overlap")
 
     print("spike_dim_generic_vec: PASS")

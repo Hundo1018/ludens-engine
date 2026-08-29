@@ -165,18 +165,18 @@ def _accuracy() raises:
             cp.q[k] = c.q[k]
             cp.qd[k] = c.qd[k]
         var v0 = Vec3(
-            c.point_velocity(2, mount, Vec3(1, 0, 0)),
-            c.point_velocity(2, mount, Vec3(0, 1, 0)),
-            c.point_velocity(2, mount, Vec3(0, 0, 1)),
+            c.point_velocity(2, mount, Vec3(1, 0, 0, 0)),
+            c.point_velocity(2, mount, Vec3(0, 1, 0, 0)),
+            c.point_velocity(2, mount, Vec3(0, 0, 1, 0)),
             0,
         )
         for k in range(3):
             cp.q[k] = c.q[k] + c.qd[k] * h
             cp.qd[k] = c.qd[k] + qdd[k] * h
         var v1 = Vec3(
-            cp.point_velocity(2, mount, Vec3(1, 0, 0)),
-            cp.point_velocity(2, mount, Vec3(0, 1, 0)),
-            cp.point_velocity(2, mount, Vec3(0, 0, 1)),
+            cp.point_velocity(2, mount, Vec3(1, 0, 0, 0)),
+            cp.point_velocity(2, mount, Vec3(0, 1, 0, 0)),
+            cp.point_velocity(2, mount, Vec3(0, 0, 1, 0)),
             0,
         )
         # the link frame the exact reading lives in
