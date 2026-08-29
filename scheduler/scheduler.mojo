@@ -34,7 +34,7 @@ trait System:
     def apply[B: StorageBackend](mut world: World[B]): ...
 
 
-trait Scheduler(Defaultable, Movable, ImplicitlyDeletable):
+trait Scheduler(Defaultable, Movable, Deinitable):
     """Runs a fixed set of registered systems against `World[Self.B]` per `tick`.
 
     `B` is an associated type so callers (and the parity driver) can recover the

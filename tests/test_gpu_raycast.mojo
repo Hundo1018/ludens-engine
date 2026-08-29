@@ -13,7 +13,7 @@ rather than as some arbitrary proxy with a large t.
 """
 
 from std.sys import has_accelerator
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from harness.runner import Suite
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3, normalize
@@ -46,8 +46,9 @@ def main() raises:
             Real(rng.next_f32()) * 60 - 30,
             Real(rng.next_f32()) * 60 - 30,
             Real(rng.next_f32()) * 60 - 30,
+            0,
         )
-        var b = AABB[3](c - Vec3(0.7, 0.7, 0.7), c + Vec3(0.7, 0.7, 0.7))
+        var b = AABB[3](c - Vec3(0.7, 0.7, 0.7, 0), c + Vec3(0.7, 0.7, 0.7, 0))
         items.append(BoxProxy[3](i, b))
         boxes.append(b)
         proxies.append(i)
@@ -61,14 +62,16 @@ def main() raises:
             Real(rng.next_f32()) * 80 - 40,
             Real(rng.next_f32()) * 80 - 40,
             Real(rng.next_f32()) * 80 - 40,
+            0,
         )
         var d = Vec3(
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         if abs(Float64(d[0])) + abs(Float64(d[1])) + abs(Float64(d[2])) < 1e-3:
-            d = Vec3(1, 0, 0)
+            d = Vec3(1, 0, 0, 0)
         rays.append(Ray[3](o, normalize(d), MAXT))
 
     var ctx = DeviceContext()

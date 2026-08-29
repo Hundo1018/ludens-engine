@@ -26,7 +26,7 @@ deferred (e = 0 scenes).
 """
 
 from std.math import sqrt
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from geometry.bvh import BVH
@@ -76,6 +76,21 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
     # field is warm-start-inherited — both are per-frame.
     var vn0: InlineArray[Real, 4]
     var racc: InlineArray[Real, 4]
+
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one gets no synthesised copy."""
+        self.a = copy.a
+        self.b = copy.b
+        self.feat = copy.feat
+        self.m = copy.m.copy()
+        self.acc = copy.acc.copy()
+        self.acc_t1 = copy.acc_t1.copy()
+        self.acc_t2 = copy.acc_t2.copy()
+        self.ra = copy.ra.copy()
+        self.rb = copy.rb.copy()
+        self.vn0 = copy.vn0.copy()
+        self.racc = copy.racc.copy()
 
 
 @fieldwise_init
@@ -151,12 +166,13 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
 def _tangent_basis(n: Vec3) -> Tuple[Vec3, Vec3]:
     """Two unit tangents perpendicular to `n` (and each other)."""
-    var seed = Vec3(0, 1, 0) if abs(n[0]) > 0.9 else Vec3(1, 0, 0)
+    var seed = Vec3(0, 1, 0, 0) if abs(n[0]) > 0.9 else Vec3(1, 0, 0, 0)
     var t1 = _cross(seed, n)
     t1 = t1 / sqrt(max(dot(t1, t1), Real(1e-12)))
     return (t1, _cross(n, t1))
@@ -196,25 +212,25 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
     def ball(a: Int, b: Int, la: Vec3, lb: Vec3) -> Self:
         return Self(
             JOINT_BALL, a, b, la, lb, 0,
-            Vec3(0, 0, 1), Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, 0, 0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
         )
 
     @staticmethod
     def distance(a: Int, b: Int, la: Vec3, lb: Vec3, rest: Real) -> Self:
         return Self(
             JOINT_DISTANCE, a, b, la, lb, rest,
-            Vec3(0, 0, 1), Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, 0, 0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
         )
 
     @staticmethod
     def hinge(a: Int, b: Int, la: Vec3, lb: Vec3, axis: Vec3) -> Self:
         return Self(
             JOINT_HINGE, a, b, la, lb, 0,
-            axis, axis, Vec3(0, 0, 0), Vec3(0, 0, 0),
+            axis, axis, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
         )
 
 
-struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
+struct ContactScene6[B: Body6](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
     var bodies: List[Self.B]
@@ -402,7 +418,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         return len(self.bodies) - 1
 
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
-        var i = self.add(b^, Vec3(r, r, r), is_static)
+        var i = self.add(b^, Vec3(r, r, r, 0), is_static)
         self.shape[i] = 1
         return i
 
@@ -410,7 +426,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool
     ) -> Int:
         # conservative box for any AABB-ish uses: r sideways, r+hl tall
-        var i = self.add(b^, Vec3(r, half_len, r), is_static)
+        var i = self.add(b^, Vec3(r, half_len, r, 0), is_static)
         self.shape[i] = 2
         return i
 
@@ -426,7 +442,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         every AABB-based path (broadphase fattening, sleeping, islands) keeps
         working unchanged and conservatively — a hull is never smaller than the
         box the rest of the engine already reasons about."""
-        var h = Vec3(0, 0, 0)
+        var h = Vec3(0, 0, 0, 0)
         for vi in range(len(verts) // 3):
             comptime for k in range(3):
                 if abs(verts[3 * vi + k]) > h[k]:
@@ -526,9 +542,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             return self.hulls[self.hull_id[i]].world_normals(ax[0], ax[1], ax[2])
         var hs = self.half[i].v + infl
         if k == 1:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
         elif k == 2:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
         return HullShape.box(hs).world_normals(ax[0], ax[1], ax[2])
 
     def _as_hull(self, i: Int, infl: Vec3, mr: Real) -> ConvexPoly[3]:
@@ -557,6 +573,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                     infl[0] if v[0] >= 0 else -infl[0],
                     infl[1] if v[1] >= 0 else -infl[1],
                     infl[2] if v[2] >= 0 else -infl[2],
+                    0,
                 )
                 var w = v + o
                 p.add(
@@ -566,9 +583,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             return p^
         var hs = self.half[i].v + infl
         if k == 1:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
         elif k == 2:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr)
+            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
         return HullShape.box(hs).world(
             self.bodies[i].position(), ax[0], ax[1], ax[2]
         )
@@ -593,14 +610,14 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         accumulated normal impulse (clamped >= 0, so later sweeps can remove
         an earlier over-push — without this the solve order injects a net
         torque and resting boxes slowly rotate)."""
-        var va = Vec3(0, 0, 0)
+        var va = Vec3(0, 0, 0, 0)
         var ka = Real(0)
         if not self.statics[ia]:
             va = self.bodies[ia].velocity_at(p)
             ka = self.bodies[ia].inv_mass() + self.bodies[ia].angular_factor(
                 p - self.bodies[ia].position(), n
             )
-        var vb = Vec3(0, 0, 0)
+        var vb = Vec3(0, 0, 0, 0)
         var kb = Real(0)
         if not self.statics[ib]:
             vb = self.bodies[ib].velocity_at(p)
@@ -625,12 +642,12 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
 
     def _axes(self, i: Int) -> Axes3:
         """World-frame box axes of body `i` (via `act`, representation-free)."""
-        var o = self.bodies[i].act(Vec3(0, 0, 0))
-        var out = InlineArray[Vec3, 3](fill=Vec3(0, 0, 0))
-        out[0] = self.bodies[i].act(Vec3(1, 0, 0)) - o
-        out[1] = self.bodies[i].act(Vec3(0, 1, 0)) - o
-        out[2] = self.bodies[i].act(Vec3(0, 0, 1)) - o
-        return out
+        var o = self.bodies[i].act(Vec3(0, 0, 0, 0))
+        var out = InlineArray[Vec3, 3](fill=Vec3(0, 0, 0, 0))
+        out[0] = self.bodies[i].act(Vec3(1, 0, 0, 0)) - o
+        out[1] = self.bodies[i].act(Vec3(0, 1, 0, 0)) - o
+        out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
+        return out^
 
     def _pair_manifold(
         self, i: Int, j: Int, mr: Real, infl: Vec3
@@ -708,7 +725,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         comptime SPEC_BASE: Real = 0.02
         var ax = self._axes(i)
         var h = self.half[i].v
-        var wh = Vec3(0, 0, 0)
+        var wh = Vec3(0, 0, 0, 0)
         comptime for k in range(3):
             wh[k] = (
                 abs(ax[0][k]) * h[0]
@@ -720,7 +737,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             var v = self.bodies[i].linear_velocity()
             r = SPEC_BASE * 0.5 + sqrt(dot(v, v)) * spec_dt
         return AABB[3].from_center(
-            self.bodies[i].position(), wh + Vec3(r, r, r)
+            self.bodies[i].position(), wh + Vec3(r, r, r, 0)
         )
 
     def _try_mesh_pair(
@@ -755,7 +772,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         # leaves the body resting margin/2 too deep -- 0.0102 on a 0.02 margin,
         # measured against the same crate on a solid box floor.
         var mr = margin
-        var wide = Vec3(margin, margin, margin)
+        var wide = Vec3(margin, margin, margin, 0)
 
         var box = self._fat_aabb(a, 0)
         var lo = box.min - wide
@@ -783,15 +800,15 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
             )
             for k in range(m.count):
                 pr.ra[k] = self.bodies[a].to_local(m.points[k])
                 pr.rb[k] = self.bodies[b].to_local(m.points[k])
-                var va0 = Vec3(0, 0, 0)
+                var va0 = Vec3(0, 0, 0, 0)
                 if not self.statics[a]:
                     va0 = self.bodies[a].velocity_at(m.points[k])
                 pr.vn0[k] = dot(-va0, m.normal)
@@ -804,9 +821,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         and old.feat == t
                         and old.m.count == m.count
                     ):
-                        pr.acc = old.acc
-                        pr.acc_t1 = old.acc_t1
-                        pr.acc_t2 = old.acc_t2
+                        pr.acc = old.acc.copy()
+                        pr.acc_t1 = old.acc_t1.copy()
+                        pr.acc_t2 = old.acc_t2.copy()
                         break
             pairs.append(pr)
 
@@ -827,13 +844,13 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             margin = SPEC_BASE + (
                 sqrt(dot(va, va)) + sqrt(dot(vb, vb))
             ) * spec_dt
-        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
+        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
 
         if self.sensor[i] or self.sensor[j]:
             # No speculative margin: a trigger should fire when the shapes
             # actually overlap, not a margin early, and there is no impulse for
             # the margin to smooth out anyway.
-            var sm = self._pair_manifold(i, j, 0, Vec3(0, 0, 0))
+            var sm = self._pair_manifold(i, j, 0, Vec3(0, 0, 0, 0))
             if sm.hit:
                 self.sensor_pairs.append(
                     _CPair(
@@ -841,8 +858,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         InlineArray[Real, 4](fill=0),
                         InlineArray[Real, 4](fill=0),
                         InlineArray[Real, 4](fill=0),
-                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
-                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
                         InlineArray[Real, 4](fill=0),
                         InlineArray[Real, 4](fill=0),
                     )
@@ -866,8 +883,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
                 InlineArray[Real, 4](fill=0),
                 InlineArray[Real, 4](fill=0),
             )
@@ -875,8 +892,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 pr.ra[k] = self.bodies[i].to_local(m.points[k])
                 pr.rb[k] = self.bodies[j].to_local(m.points[k])
                 # approach speed at prep: drives the restitution pass
-                var va0 = Vec3(0, 0, 0)
-                var vb0 = Vec3(0, 0, 0)
+                var va0 = Vec3(0, 0, 0, 0)
+                var vb0 = Vec3(0, 0, 0, 0)
                 if not self.statics[i]:
                     va0 = self.bodies[i].velocity_at(m.points[k])
                 if not self.statics[j]:
@@ -891,9 +908,9 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         and old.feat == 0
                         and old.m.count == m.count
                     ):
-                        pr.acc = old.acc
-                        pr.acc_t1 = old.acc_t1
-                        pr.acc_t2 = old.acc_t2
+                        pr.acc = old.acc.copy()
+                        pr.acc_t1 = old.acc_t1.copy()
+                        pr.acc_t2 = old.acc_t2.copy()
                         break
             pairs.append(pr)
 
@@ -1033,7 +1050,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
         for i in range(len(self.bodies)):
             if not self.statics[i]:
                 var f = gravity / self.bodies[i].inv_mass()  # force = m·g
-                self.bodies[i].integrate_force(dt, f, Vec3(0, 0, 0))
+                self.bodies[i].integrate_force(dt, f, Vec3(0, 0, 0, 0))
         # 2. Contact manifolds at the pre-solve poses.
         var pairs = self._collect_pairs(False, 0)
         # 3. Gauss-Seidel sweeps of accumulated per-point normal impulses.
@@ -1073,14 +1090,14 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
     ) -> Real:
         """One scalar equality-constraint solve along unit axis `e` with
         position error `c`; returns the accumulated-impulse delta."""
-        var va = Vec3(0, 0, 0)
+        var va = Vec3(0, 0, 0, 0)
         var ka = Real(0)
         if not self.statics[ia]:
             va = self.bodies[ia].velocity_at(pwa)
             ka = self.bodies[ia].inv_mass() + self.bodies[ia].angular_factor(
                 pwa - self.bodies[ia].position(), e
             )
-        var vb = Vec3(0, 0, 0)
+        var vb = Vec3(0, 0, 0, 0)
         var kb = Real(0)
         if not self.statics[ib]:
             vb = self.bodies[ib].velocity_at(pwb)
@@ -1135,7 +1152,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                 else:
                     # ball part (shared by hinge): drive the anchor gap to 0.
                     for ax in range(3):
-                        var e = Vec3(0, 0, 0)
+                        var e = Vec3(0, 0, 0, 0)
                         e[ax] = 1
                         var dl = self._joint_axis(
                             jt.a, jt.b, pwa, pwb, e, gap[ax],
@@ -1145,13 +1162,13 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                     if jt.kind == JOINT_HINGE:
                         var oa = self.bodies[jt.a].act(jt.axis_a) - self.bodies[
                             jt.a
-                        ].act(Vec3(0, 0, 0))
+                        ].act(Vec3(0, 0, 0, 0))
                         var ob = self.bodies[jt.b].act(jt.axis_b) - self.bodies[
                             jt.b
-                        ].act(Vec3(0, 0, 0))
+                        ].act(Vec3(0, 0, 0, 0))
                         var er = _cross(oa, ob)  # small-angle axis error
-                        var wa = Vec3(0, 0, 0)
-                        var wb2 = Vec3(0, 0, 0)
+                        var wa = Vec3(0, 0, 0, 0)
+                        var wb2 = Vec3(0, 0, 0, 0)
                         if not self.statics[jt.a]:
                             wa = self.bodies[jt.a].omega_world()
                         if not self.statics[jt.b]:
@@ -1180,8 +1197,8 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                 self.bodies[jt.a].apply_angular_impulse(-limp)
                             if not self.statics[jt.b]:
                                 self.bodies[jt.b].apply_angular_impulse(limp)
-                            wa = Vec3(0, 0, 0)
-                            wb2 = Vec3(0, 0, 0)
+                            wa = Vec3(0, 0, 0, 0)
+                            wb2 = Vec3(0, 0, 0, 0)
                             if not self.statics[jt.a]:
                                 wa = self.bodies[jt.a].omega_world()
                             if not self.statics[jt.b]:
@@ -1286,14 +1303,14 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             # anchors coincided at prep with depth d0; separation since
             # then is the anchor drift along the normal
             var d = pr.m.depths[k] - dot(pwb - pwa, n)
-            var va = Vec3(0, 0, 0)
+            var va = Vec3(0, 0, 0, 0)
             var ka = Real(0)
             if not self.statics[pr.a]:
                 va = self.bodies[pr.a].velocity_at(pwa)
                 ka = self.bodies[pr.a].inv_mass() + self.bodies[
                     pr.a
                 ].angular_factor(pwa - self.bodies[pr.a].position(), n)
-            var vb = Vec3(0, 0, 0)
+            var vb = Vec3(0, 0, 0, 0)
             var kb = Real(0)
             if not self.statics[pr.b]:
                 vb = self.bodies[pr.b].velocity_at(pwb)
@@ -1330,7 +1347,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             var cap = mu * pr.acc[k]
             for ti in range(2):
                 var t = tb[0] if ti == 0 else tb[1]
-                var vat = Vec3(0, 0, 0)
+                var vat = Vec3(0, 0, 0, 0)
                 var kat = Real(0)
                 if not self.statics[pr.a]:
                     vat = self.bodies[pr.a].velocity_at(pwa)
@@ -1339,7 +1356,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                     ].angular_factor(
                         pwa - self.bodies[pr.a].position(), t
                     )
-                var vbt = Vec3(0, 0, 0)
+                var vbt = Vec3(0, 0, 0, 0)
                 var kbt = Real(0)
                 if not self.statics[pr.b]:
                     vbt = self.bodies[pr.b].velocity_at(pwb)
@@ -1396,7 +1413,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             for j in range(n):
                 if j == i:
                     continue
-                var vj = Vec3(0, 0, 0)
+                var vj = Vec3(0, 0, 0, 0)
                 if not self._inactive(j):
                     vj = self.bodies[j].linear_velocity()
                 var rel = (vi - vj) * h
@@ -1448,14 +1465,14 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         continue
                     var pwa = self.bodies[pr.a].act(pr.ra[k])
                     var pwb = self.bodies[pr.b].act(pr.rb[k])
-                    var va = Vec3(0, 0, 0)
+                    var va = Vec3(0, 0, 0, 0)
                     var ka = Real(0)
                     if not self.statics[pr.a]:
                         va = self.bodies[pr.a].velocity_at(pwa)
                         ka = self.bodies[pr.a].inv_mass() + self.bodies[
                             pr.a
                         ].angular_factor(pwa - self.bodies[pr.a].position(), n)
-                    var vb = Vec3(0, 0, 0)
+                    var vb = Vec3(0, 0, 0, 0)
                     var kb = Real(0)
                     if not self.statics[pr.b]:
                         vb = self.bodies[pr.b].velocity_at(pwb)
@@ -1566,7 +1583,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         var cen = self.bodies[b].position()
                         if self.shape[b] == 2:
                             var axw = self.bodies[b].act(
-                                Vec3(0, hh2[1], 0)
+                                Vec3(0, hh2[1], 0, 0)
                             ) - cen
                             var tt = dot(p.x - cen, axw) / max(
                                 dot(axw, axw), Real(1e-12)
@@ -1594,6 +1611,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                 prev[i * 3],
                                 prev[i * 3 + 1],
                                 prev[i * 3 + 2],
+                                0,
                             )
                             var s0 = pv2 + self.bodies[
                                 b
@@ -1627,6 +1645,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                     prev[i * 3],
                                     prev[i * 3 + 1],
                                     prev[i * 3 + 2],
+                                    0,
                                 ),
                                 nw2,
                                 (nw2 - cen) * (1 / rr),
@@ -1671,7 +1690,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                         # scenes keep the discrete path bit-identically.
                         var pv = Vec3(
                             prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
-                        )
+                        , 0)
                         var lp0 = self.bodies[b].to_local(
                             pv + self.bodies[b].linear_velocity() * h
                         )
@@ -1729,7 +1748,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                             p.x,
                             Vec3(
                                 prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
-                            ),
+                            , 0),
                             nw,
                             self.bodies[b].act(lpo) - nw,
                             h,
@@ -1748,7 +1767,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             # velocities from positions
             for i in range(np):
                 var p = self.softs[s].pts[i]
-                var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2])
+                var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2], 0)
                 p.v = (p.x - pv) * (damp / h)
                 self.softs[s].pts[i] = p
 
@@ -1777,7 +1796,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             for i in range(len(self.bodies)):
                 if self.island[i] == label and not self._inactive(i):
                     var f = gravity / self.bodies[i].inv_mass()
-                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0))
+                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             self._warm_start(pairs, plo, phi)
             self._warm_start_joints(label)
             self._joint_sweep(
@@ -1905,7 +1924,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
             for i in range(len(self.bodies)):
                 if not self._inactive(i):
                     var f = gravity / self.bodies[i].inv_mass()
-                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0))
+                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.
             self._warm_start(pairs, 0, len(pairs))

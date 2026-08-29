@@ -36,7 +36,7 @@ from physics.solver6 import ContactScene6
 from harness.bench import BenchTable, now
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 comptime _WORLD: UInt32 = 1
 comptime _RED: UInt32 = 2
@@ -51,8 +51,8 @@ def build(n: Int, filtered: Bool, events: Bool) -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = events
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 30, 1, 30)),
-        Vec3(30, 1, 30), True,
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
+        Vec3(30, 1, 30, 0), True,
     )
     var per_row = 8
     for pop in range(2):
@@ -67,10 +67,11 @@ def build(n: Int, filtered: Bool, events: Bool) -> ContactScene6[QuatBody6]:
                         Real(ix) * 0.48 - 2.0 + off,
                         0.3 + Real(iy) * 0.52,
                         Real(iz) * 0.48 - 2.0 + off,
+                        0,
                     ),
                     Inertia3.box(2, 0.25, 0.25, 0.25),
                 ),
-                Vec3(0.25, 0.25, 0.25), False,
+                Vec3(0.25, 0.25, 0.25, 0), False,
             )
             if filtered:
                 var cat = _RED if pop == 0 else _BLUE

@@ -56,9 +56,9 @@ def _axis_clip(frames: Int, fps: Real, total_angle: Real, loop: Bool) -> AnimCli
     for f in range(frames):
         var t = Real(f) / Real(frames - 1) if frames > 1 else Real(0)
         var a = total_angle * t
-        c.set_key(f, 0, Vec3(0, 0, 0), Quat(0, 0, sin(a * 0.5), cos(a * 0.5)))
-        c.set_key(f, 1, Vec3(t * 2, 0, 0), Quat(0, 0, 0, 1))
-        c.set_key(f, 2, Vec3(0, 1, 0), Quat(0, 0, 0, 1))
+        c.set_key(f, 0, Vec3(0, 0, 0, 0), Quat(0, 0, sin(a * 0.5), cos(a * 0.5)))
+        c.set_key(f, 1, Vec3(t * 2, 0, 0, 0), Quat(0, 0, 0, 1))
+        c.set_key(f, 2, Vec3(0, 1, 0, 0), Quat(0, 0, 0, 1))
     return c^
 
 
@@ -133,10 +133,10 @@ def main() raises:
 
     # ---- INTEGRATION: the blended pose drives skinning ----
     var rest = List[SkinVert](capacity=4)
-    rest.append(SkinVert(Vec3(0, 0, 0)))
-    rest.append(SkinVert(Vec3(1, 0, 0)))
-    rest.append(SkinVert(Vec3(2, 0, 0)))
-    rest.append(SkinVert(Vec3(3, 0, 0)))
+    rest.append(SkinVert(Vec3(0, 0, 0, 0)))
+    rest.append(SkinVert(Vec3(1, 0, 0, 0)))
+    rest.append(SkinVert(Vec3(2, 0, 0, 0)))
+    rest.append(SkinVert(Vec3(3, 0, 0, 0)))
     var ia = List[Int](capacity=4)
     var ib = List[Int](capacity=4)
     var wa = List[Real](capacity=4)
@@ -146,7 +146,7 @@ def main() raises:
         wa.append(1.0 - Real(k) / 3.0)
     var out = List[SkinVert](capacity=4)
     for _ in range(4):
-        out.append(SkinVert(Vec3(0, 0, 0)))
+        out.append(SkinVert(Vec3(0, 0, 0, 0)))
 
     var mp = _pose()
     var mr = _rots()
@@ -244,7 +244,7 @@ def main() raises:
 
     # ---- EXTREME ----
     var one = AnimClip(BONES, 1, 10.0, True)
-    one.set_key(0, 0, Vec3(5, 6, 7), Quat(0, 0, 0, 1))
+    one.set_key(0, 0, Vec3(5, 6, 7, 0), Quat(0, 0, 0, 1))
     var op1 = _pose()
     var or1 = _rots()
     one.sample(99.0, op1, or1)

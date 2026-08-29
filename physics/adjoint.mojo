@@ -290,7 +290,7 @@ def step_consts(dt: Real) -> InlineArray[Real, 6]:
     c[C_CDT1] = 1 - C * dt
     c[C_DT] = dt
     c[C_NEGKDT] = -K * dt
-    return c
+    return c^
 
 
 def rollout_generated(

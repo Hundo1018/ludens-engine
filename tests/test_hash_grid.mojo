@@ -40,10 +40,10 @@ def main() raises:
 
     # 3D grid works too
     var g3 = SpatialHashGrid[3](10.0)
-    g3.insert(0, AABB3(Vec3(1, 1, 1), Vec3(2, 2, 2)))
-    g3.insert(1, AABB3(Vec3(55, 55, 55), Vec3(56, 56, 56)))
+    g3.insert(0, AABB3(Vec3(1, 1, 1, 0), Vec3(2, 2, 2, 0)))
+    g3.insert(1, AABB3(Vec3(55, 55, 55, 0), Vec3(56, 56, 56, 0)))
     var n3 = List[Int]()
-    g3.query_region(AABB3(Vec3(0, 0, 0), Vec3(5, 5, 5)), n3)
+    g3.query_region(AABB3(Vec3(0, 0, 0, 0), Vec3(5, 5, 5, 0)), n3)
     s.check(_has(n3, 0) and not _has(n3, 1), "3d grid query")
 
     s.finish()

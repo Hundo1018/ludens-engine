@@ -21,7 +21,7 @@ from harness.bench import BenchTable
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
 comptime STEPS = 200
 comptime REPS = 3
@@ -32,8 +32,8 @@ def _chain(n: Int) -> Chain:
     for _ in range(n):
         c.add_link(
             ChainLink.revolute(
-                Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
-                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+                Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+                Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
             )
         )
     return c^
@@ -44,7 +44,7 @@ def _row(mut t: BenchTable, n: Int, with_contact: Bool) raises:
     var locs = List[Vec3]()
     for i in range(n):
         pts.append(i)
-        locs.append(Vec3(0, -1, 0))
+        locs.append(Vec3(0, -1, 0, 0))
     var zero = List[Real]()
     for _ in range(n):
         zero.append(0)

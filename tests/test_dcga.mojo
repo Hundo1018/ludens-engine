@@ -41,7 +41,7 @@ def main() raises:
             var su = Real(sin(Float64(u)))
             var cv = Real(cos(Float64(v)))
             var sv = Real(sin(Float64(v)))
-            var p = Vec3((R + r * cv) * cu, (R + r * cv) * su, r * sv)
+            var p = Vec3((R + r * cv) * cu, (R + r * cv) * su, r * sv, 0)
             var e = abs(dcga_incidence(dcga_point(p), tor))
             if e > worst:
                 worst = e
@@ -55,6 +55,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var d = torus_analytic(R, r, p)  # <0 inside the tube, >0 outside
         var g = dcga_incidence(dcga_point(p), tor)
@@ -65,7 +66,7 @@ def main() raises:
     s.check(sign_ok, "DCGA and the analytic torus agree on inside/outside")
 
     # ---- 3. THE SAME call answers a sphere ----
-    var c = Vec3(0.4, -0.3, 0.9)
+    var c = Vec3(0.4, -0.3, 0.9, 0)
     var rad = Real(1.7)
     var sph = dcga_sphere(c, rad)
     var sph_ok = True
@@ -75,6 +76,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         var want = dot(p - c, p - c) - rad * rad
         var got = dcga_incidence(dcga_point(p), sph)
@@ -87,7 +89,7 @@ def main() raises:
     s.check(sph_ok, "the same inner product reproduces the sphere test")
 
     # ---- 4. ... and a plane ----
-    var n = normalize(Vec3(0.3, 0.8, -0.5))
+    var n = normalize(Vec3(0.3, 0.8, -0.5, 0))
     var dd = Real(1.25)
     var pl = dcga_plane(n, dd)
     var pl_ok = True
@@ -96,6 +98,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         if abs(dot(p, n) - dd - dcga_incidence(dcga_point(p), pl)) > 1e-3:
             pl_ok = False
@@ -103,8 +106,8 @@ def main() raises:
 
     # ---- 5. a degenerate torus (minor -> 0) collapses onto its core circle ----
     var thin = dcga_torus(R, 0.02)
-    var on_core = Vec3(R, 0, 0)
-    var far = Vec3(0, 0, 0)
+    var on_core = Vec3(R, 0, 0, 0)
+    var far = Vec3(0, 0, 0, 0)
     s.check(
         abs(dcga_incidence(dcga_point(on_core), thin)) < 1e-2,
         "a thin torus still contains its core circle",

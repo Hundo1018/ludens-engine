@@ -15,7 +15,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime STEPS = 80
 
 
@@ -26,8 +26,8 @@ def _grid(side: Int) raises -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     var g = Real(side) * 3
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, g, 1, g)),
-        Vec3(g, 1, g),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, g, 1, g)),
+        Vec3(g, 1, g, 0),
         True,
     )
     var bi = Inertia3.box(2, 0.25, 0.25, 0.25)
@@ -38,9 +38,9 @@ def _grid(side: Int) raises -> ContactScene6[QuatBody6]:
             for i in range(2):
                 _ = sc.add(
                     QuatBody6.at_rest(
-                        Vec3(x, 0.3 + 0.52 * Real(i), z), bi
+                        Vec3(x, 0.3 + 0.52 * Real(i), z, 0), bi
                     ),
-                    Vec3(0.25, 0.25, 0.25),
+                    Vec3(0.25, 0.25, 0.25, 0),
                     False,
                 )
     return sc^

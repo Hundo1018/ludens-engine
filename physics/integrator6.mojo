@@ -36,6 +36,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
@@ -47,18 +48,18 @@ def _torque_free(wb: Vec3, inertia: Inertia3) -> Vec3:
 def _advance(pose: Motor3, wb: Vec3, dt: Real) -> Motor3:
     """Rotate the pose by the body rate ω over dt (closed-form motor exp)."""
     return (
-        pose * exp_screw3(screw_velocity(wb, Vec3(0, 0, 0)).scaled(dt))
+        pose * exp_screw3(screw_velocity(wb, Vec3(0, 0, 0, 0)).scaled(dt))
     ).normalized()
 
 
-trait SpinIntegrator(Movable, ImplicitlyDeletable):
+trait SpinIntegrator(Movable, Deinitable):
     @staticmethod
     def step(
         pose: Motor3, wb: Vec3, inertia: Inertia3, dt: Real
     ) -> Tuple[Motor3, Vec3]: ...
 
 
-struct EulerSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct EulerSpin(SpinIntegrator, Movable, Deinitable):
     @staticmethod
     def step(
         pose: Motor3, wb: Vec3, inertia: Inertia3, dt: Real
@@ -67,7 +68,7 @@ struct EulerSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
         return (_advance(pose, w2, dt), w2)
 
 
-struct Rk2Spin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct Rk2Spin(SpinIntegrator, Movable, Deinitable):
     @staticmethod
     def step(
         pose: Motor3, wb: Vec3, inertia: Inertia3, dt: Real
@@ -77,7 +78,7 @@ struct Rk2Spin(SpinIntegrator, Movable, ImplicitlyDeletable):
         return (_advance(pose, wm, dt), w2)
 
 
-struct MidpointSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct MidpointSpin(SpinIntegrator, Movable, Deinitable):
     """Implicit midpoint `ω½ = ω + f(ω½)·dt/2` by fixed-point iteration
     (converges fast for dt·|ω| ≪ 1), then `ω' = 2ω½ − ω`."""
 
@@ -104,23 +105,26 @@ def _rodrigues(f: Vec3) -> _Rows3:
         var t = sqrt(t2)
         a = sin(t) / t
         b = (1 - cos(t)) / t2
-    var r = _Rows3(fill=Vec3(0, 0, 0))
+    var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     r[0] = Vec3(
         1 + b * (-f[1] * f[1] - f[2] * f[2]),
         -a * f[2] + b * f[0] * f[1],
         a * f[1] + b * f[0] * f[2],
+        0,
     )
     r[1] = Vec3(
         a * f[2] + b * f[0] * f[1],
         1 + b * (-f[0] * f[0] - f[2] * f[2]),
         -a * f[0] + b * f[1] * f[2],
+        0,
     )
     r[2] = Vec3(
         -a * f[1] + b * f[0] * f[2],
         a * f[0] + b * f[1] * f[2],
         1 + b * (-f[0] * f[0] - f[1] * f[1]),
+        0,
     )
-    return r
+    return r^
 
 
 def _ax_fjd(r: _Rows3, jd: Vec3) -> Vec3:
@@ -129,10 +133,11 @@ def _ax_fjd(r: _Rows3, jd: Vec3) -> Vec3:
         r[2][1] * jd[1] - r[1][2] * jd[2],
         r[0][2] * jd[2] - r[2][0] * jd[0],
         r[1][0] * jd[0] - r[0][1] * jd[1],
+        0,
     )
 
 
-struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
+struct LgvciSpin(SpinIntegrator, Movable, Deinitable):
     """Moser–Veselov DMV step. The implicit equation is solved by fixed point
     on the rotation vector: `ax(F(f)·J_d − J_d·F(f)ᵀ) = I·f + O(|f|²)`, so
     `f ← f + I⁻¹(h·Π − ax(...))` contracts at rate O(h|ω|) from the explicit
@@ -147,6 +152,7 @@ struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
             (-inertia.ix + inertia.iy + inertia.iz) * 0.5,
             (inertia.ix - inertia.iy + inertia.iz) * 0.5,
             (inertia.ix + inertia.iy - inertia.iz) * 0.5,
+            0,
         )
         var pi = inertia.apply(wb)
         var g = pi * dt  # h·Π
@@ -159,10 +165,11 @@ struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
             r[0][0] * pi[0] + r[1][0] * pi[1] + r[2][0] * pi[2],
             r[0][1] * pi[0] + r[1][1] * pi[1] + r[2][1] * pi[2],
             r[0][2] * pi[0] + r[1][2] * pi[1] + r[2][2] * pi[2],
+            0,
         )
         var w2 = inertia.apply_inv(pi2)
         var pose2 = (
-            pose * exp_screw3(screw_velocity(f, Vec3(0, 0, 0)).scaled(1))
+            pose * exp_screw3(screw_velocity(f, Vec3(0, 0, 0, 0)).scaled(1))
         ).normalized()
         return (pose2, w2)
 

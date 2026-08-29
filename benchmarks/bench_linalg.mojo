@@ -18,9 +18,9 @@ def main() raises:
     var table = BenchTable("Linear algebra — scalar vs SIMD transform")
     var N = 400000
 
-    var q = Quat.from_axis_angle(Vec3(0, 0, 1), 0.7)
-    var m = compose_trs4(Vec3(1, 2, 3), q, Vec3(2, 1, 0.5))
-    var p = Vec3(1, 1, 1)
+    var q = Quat.from_axis_angle(Vec3(0, 0, 1, 0), 0.7)
+    var m = compose_trs4(Vec3(1, 2, 3, 0), q, Vec3(2, 1, 0.5, 0))
+    var p = Vec3(1, 1, 1, 0)
 
     var acc = Vec3(0)
     var t0 = now()

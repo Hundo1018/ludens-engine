@@ -26,7 +26,7 @@ struct BoxProxy[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var box: AABB[Self.dim]
 
 
-trait BroadPhase(Movable, ImplicitlyDeletable):
+trait BroadPhase(Movable, Deinitable):
     comptime dim: Int
     def rebuild(mut self, items: List[BoxProxy[Self.dim]]) raises: ...
     def pairs(self, mut out: List[Pair]) raises: ...

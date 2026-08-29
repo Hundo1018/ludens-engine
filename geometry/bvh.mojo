@@ -6,7 +6,7 @@ self-pair queries (all overlapping proxy pairs) — the basis of the BVH
 broadphase. Nodes live in a flat `List`; children are referenced by index.
 """
 
-from .vec import WorldType, Real, lane_min, lane_max
+from .vec import WorldType, Real, lane_min, lane_max, PadW
 from .aabb import AABB
 from .ray import Ray, RayHit, ray_aabb
 
@@ -126,15 +126,15 @@ struct BVH[dim: Int](Copyable, Movable):
         var best_cost = Real(1e30)
         var best_axis = -1
         var best_split = Real(0)
-        comptime BIG = SIMD[WorldType, Self.dim](1e30)
-        comptime SMALL = SIMD[WorldType, Self.dim](-1e30)
+        comptime BIG = SIMD[WorldType, PadW[Self.dim]](1e30)
+        comptime SMALL = SIMD[WorldType, PadW[Self.dim]](-1e30)
         for a in range(Self.dim):
             var extent = cmax[a] - cmin[a]
             if extent <= 0:
                 continue
             var bcount = InlineArray[Int, SAH_BINS](fill=0)
-            var bmin = InlineArray[SIMD[WorldType, Self.dim], SAH_BINS](fill=BIG)
-            var bmax = InlineArray[SIMD[WorldType, Self.dim], SAH_BINS](
+            var bmin = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](fill=BIG)
+            var bmax = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](
                 fill=SMALL
             )
             for i in range(lo, hi):
@@ -149,8 +149,8 @@ struct BVH[dim: Int](Copyable, Movable):
                 bmax[k] = lane_max(bmax[k], leaves[i].box.max)
             # left prefix (bins [0..k])
             var lcount = InlineArray[Int, SAH_BINS](fill=0)
-            var lmin = InlineArray[SIMD[WorldType, Self.dim], SAH_BINS](fill=BIG)
-            var lmax = InlineArray[SIMD[WorldType, Self.dim], SAH_BINS](
+            var lmin = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](fill=BIG)
+            var lmax = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](
                 fill=SMALL
             )
             var acc_c = 0
@@ -230,8 +230,8 @@ struct BVH[dim: Int](Copyable, Movable):
             out |= ((v >> UInt32(i)) & UInt32(1)) << UInt32(i * Self.dim)
         return out
 
-    def _morton(self, leaf: _Leaf[Self.dim], cmin: SIMD[WorldType, Self.dim],
-                inv: SIMD[WorldType, Self.dim]) -> UInt32:
+    def _morton(self, leaf: _Leaf[Self.dim], cmin: SIMD[WorldType, PadW[Self.dim]],
+                inv: SIMD[WorldType, PadW[Self.dim]]) -> UInt32:
         """Quantise the centroid to a uniform grid and interleave the axes.
         30 bits total, so 10 bits per axis in 3D and 15 in 2D."""
         comptime BITS = 30 // Self.dim
@@ -257,7 +257,7 @@ struct BVH[dim: Int](Copyable, Movable):
             var c = (leaves[i].box.min + leaves[i].box.max) * 0.5
             cmin = lane_min(cmin, c)
             cmax = lane_max(cmax, c)
-        var inv = SIMD[WorldType, Self.dim](0)
+        var inv = SIMD[WorldType, PadW[Self.dim]](0)
         for a in range(Self.dim):
             var e = cmax[a] - cmin[a]
             inv[a] = (1.0 / e) if e > 1e-20 else Real(0)
@@ -359,7 +359,7 @@ struct BVH[dim: Int](Copyable, Movable):
             var c = (leaves[i].box.min + leaves[i].box.max) * 0.5
             cmin = lane_min(cmin, c)
             cmax = lane_max(cmax, c)
-        var inv = SIMD[WorldType, Self.dim](0)
+        var inv = SIMD[WorldType, PadW[Self.dim]](0)
         for a in range(Self.dim):
             var e = cmax[a] - cmin[a]
             inv[a] = (1.0 / e) if e > 1e-20 else Real(0)
@@ -471,7 +471,7 @@ def morton_order[D: Int](boxes: List[AABB[D]]) -> List[Int]:
         var c = (boxes[i].min + boxes[i].max) * 0.5
         cmin = lane_min(cmin, c)
         cmax = lane_max(cmax, c)
-    var inv = SIMD[WorldType, D](0)
+    var inv = SIMD[WorldType, PadW[D]](0)
     for a in range(D):
         var e = cmax[a] - cmin[a]
         inv[a] = (1.0 / e) if e > 1e-20 else Real(0)

@@ -146,7 +146,7 @@ def main() raises:
     var buried = Lbm(24, 16, 16, Real(0.03), BC_TUNNEL)
     buried.init_uniform(1.0, 0.04, 0, 0)
     buried.inlet_u = 0.04
-    buried.set_solid_box(Vec3(0, 0, 0), Vec3(23, 15, 15))
+    buried.set_solid_box(Vec3(0, 0, 0, 0), Vec3(23, 15, 15, 0))
     for _ in range(30):
         buried.step()
     s.check(

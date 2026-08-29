@@ -167,9 +167,10 @@ def main() raises:
             Real(rng.next_f32()) * 12,
             Real(rng.next_f32()) * 12,
             Real(rng.next_f32()) * 12,
+            0,
         )
         items3.append(
-            BoxProxy[3](i, AABB[3](c - Vec3(1, 1, 1), c + Vec3(1, 1, 1)))
+            BoxProxy[3](i, AABB[3](c - Vec3(1, 1, 1, 0), c + Vec3(1, 1, 1, 0)))
         )
     var bf3 = BruteForce[3]()
     var sap3 = SapBroadPhase[3]()

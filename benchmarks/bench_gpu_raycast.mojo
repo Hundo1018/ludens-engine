@@ -14,7 +14,7 @@ per ray, bit-identical distances (`test_gpu_raycast`) — so this is cost-only.
 
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.benchmark import keep
 from harness.bench import BenchTable
 from scheduler.rng import Pcg32, Rng
@@ -39,8 +39,9 @@ def _scene() -> List[BoxProxy[3]]:
             Real(rng.next_f32()) * 80 - 40,
             Real(rng.next_f32()) * 80 - 40,
             Real(rng.next_f32()) * 80 - 40,
+            0,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.7, 0.7, 0.7), c + Vec3(0.7, 0.7, 0.7))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.7, 0.7, 0.7, 0), c + Vec3(0.7, 0.7, 0.7, 0))))
     return out^
 
 
@@ -52,14 +53,16 @@ def _rays(n: Int) -> List[Ray[3]]:
             Real(rng.next_f32()) * 100 - 50,
             Real(rng.next_f32()) * 100 - 50,
             Real(rng.next_f32()) * 100 - 50,
+            0,
         )
         var d = Vec3(
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         if abs(Float64(d[0])) + abs(Float64(d[1])) + abs(Float64(d[2])) < 1e-3:
-            d = Vec3(1, 0, 0)
+            d = Vec3(1, 0, 0, 0)
         out.append(Ray[3](o, normalize(d), MAXT))
     return out^
 

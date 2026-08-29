@@ -32,7 +32,7 @@ comptime _PSS3 = 0b1111
 
 
 @fieldwise_init
-struct Screw3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Screw3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """A PGA3 bivector — the Lie algebra of Motor3 (instantaneous screw)."""
 
     var b12: Real
@@ -120,7 +120,7 @@ def geodesic3(a: Motor3, b: Motor3, t: Real) -> Motor3:
 
 # ---------------------------------------------------------------- 2D
 @fieldwise_init
-struct Screw2(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Screw2(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """A PGA2 bivector — the Lie algebra of Motor2."""
 
     var b12: Real

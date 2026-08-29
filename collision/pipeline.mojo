@@ -20,7 +20,7 @@ struct Manifold[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var contact: Contact[Self.dim]
 
 
-struct CollisionPipeline[BP: BroadPhase, NP: NarrowPhase](Movable, ImplicitlyDeletable):
+struct CollisionPipeline[BP: BroadPhase, NP: NarrowPhase](Movable, Deinitable):
     var broad: Self.BP
     var narrow: Self.NP
 

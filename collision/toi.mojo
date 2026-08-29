@@ -35,6 +35,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
@@ -58,7 +59,7 @@ def swept_box_toi(
 ) -> ToiResult:
     """Earliest touching time of box `b` displaced by `rel_disp` relative to a
     stationary box `a`, as a fraction of `rel_disp` in [0, 1]."""
-    var axes = InlineArray[Vec3, 15](fill=Vec3(0, 0, 0))
+    var axes = InlineArray[Vec3, 15](fill=Vec3(0, 0, 0, 0))
     var count = 0
     comptime for i in range(3):
         axes[count] = axa[i]

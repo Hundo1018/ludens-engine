@@ -63,8 +63,9 @@ def main() raises:
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
+            0,
         )
-        var h = Vec3(0.5, 0.5, 0.5)
+        var h = Vec3(0.5, 0.5, 0.5, 0)
         boxes.append(AABB[3](c - h, c + h))
         proxies.append(i)
 
@@ -81,8 +82,9 @@ def main() raises:
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
+            0,
         )
-        var q = AABB[3](c - Vec3(4, 4, 4), c + Vec3(4, 4, 4))
+        var q = AABB[3](c - Vec3(4, 4, 4, 0), c + Vec3(4, 4, 4, 0))
         var rm = List[Int]()
         var rs = List[Int]()
         var rl = List[Int]()
@@ -100,11 +102,13 @@ def main() raises:
             Real(rng.next_f32()) * 60 - 30,
             Real(rng.next_f32()) * 60 - 30,
             Real(rng.next_f32()) * 60 - 30,
+            0,
         )
         var d = Vec3(
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         if abs(Float64(d[0])) + abs(Float64(d[1])) + abs(Float64(d[2])) < 1e-3:
             continue
@@ -123,15 +127,15 @@ def main() raises:
     var dup_boxes = List[AABB[3]]()
     var dup_prox = List[Int]()
     for i in range(64):
-        var c = Vec3(1.0, 1.0, 1.0)  # identical centroids
-        dup_boxes.append(AABB[3](c - Vec3(0.5, 0.5, 0.5), c + Vec3(0.5, 0.5, 0.5)))
+        var c = Vec3(1.0, 1.0, 1.0, 0)  # identical centroids
+        dup_boxes.append(AABB[3](c - Vec3(0.5, 0.5, 0.5, 0), c + Vec3(0.5, 0.5, 0.5, 0)))
         dup_prox.append(i)
     var dup = _build3(dup_boxes, dup_prox, False, True)
     var dup_ref = _build3(dup_boxes, dup_prox, False, False)
     var rq = List[Int]()
     var rq2 = List[Int]()
-    dup.query_region(AABB[3](Vec3(0, 0, 0), Vec3(2, 2, 2)), rq)
-    dup_ref.query_region(AABB[3](Vec3(0, 0, 0), Vec3(2, 2, 2)), rq2)
+    dup.query_region(AABB[3](Vec3(0, 0, 0, 0), Vec3(2, 2, 2, 0)), rq)
+    dup_ref.query_region(AABB[3](Vec3(0, 0, 0, 0), Vec3(2, 2, 2, 0)), rq2)
     s.eqi(len(rq), 64, "coincident leaves: all 64 still reachable")
     s.check(_same(rq, rq2), "coincident leaves: same set as median build")
 
@@ -141,16 +145,16 @@ def main() raises:
     for i in range(200):
         var c = Vec3(
             Real(rng.next_f32()) * 20 - 10, 0.0, Real(rng.next_f32()) * 20 - 10
-        )
+        , 0)
         flat_boxes.append(
-            AABB[3](c - Vec3(0.3, 0.3, 0.3), c + Vec3(0.3, 0.3, 0.3))
+            AABB[3](c - Vec3(0.3, 0.3, 0.3, 0), c + Vec3(0.3, 0.3, 0.3, 0))
         )
         flat_prox.append(i)
     var flat = _build3(flat_boxes, flat_prox, False, True)
     var flat_ref = _build3(flat_boxes, flat_prox, False, False)
     var fq = List[Int]()
     var fq2 = List[Int]()
-    var fbox = AABB[3](Vec3(-5, -1, -5), Vec3(5, 1, 5))
+    var fbox = AABB[3](Vec3(-5, -1, -5, 0), Vec3(5, 1, 5, 0))
     flat.query_region(fbox, fq)
     flat_ref.query_region(fbox, fq2)
     s.check(_same(fq, fq2), "flat sheet (zero extent on one axis): same set")

@@ -35,11 +35,12 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
 @fieldwise_init
-struct Inertia3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Inertia3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Mass plus principal (body-frame diagonal) rotational inertia."""
 
     var mass: Real
@@ -78,13 +79,13 @@ struct Inertia3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
 
     def apply(self, w: Vec3) -> Vec3:
         """Body-frame angular momentum L = I ω."""
-        return Vec3(w[0] * self.ix, w[1] * self.iy, w[2] * self.iz)
+        return Vec3(w[0] * self.ix, w[1] * self.iy, w[2] * self.iz, 0)
 
     def apply_inv(self, l: Vec3) -> Vec3:
-        return Vec3(l[0] / self.ix, l[1] / self.iy, l[2] / self.iz)
+        return Vec3(l[0] / self.ix, l[1] / self.iy, l[2] / self.iz, 0)
 
 
-trait Body6(Copyable, Movable, ImplicitlyDeletable):
+trait Body6(Copyable, Movable, Deinitable):
     """What a 6-DOF contact solver needs from a body, representation-agnostic:
     world-point velocities, impulse response, and the normal-direction
     effective-mass term `n·((I⁻¹(r×n))×r)`. Both representations conform, so
@@ -108,7 +109,7 @@ trait Body6(Copyable, Movable, ImplicitlyDeletable):
 
 @fieldwise_init
 struct QuatBody6(
-    Body6, Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
+    Body6, Copyable, ImplicitlyCopyable, Movable, Deinitable
 ):
     """Classical 6-DOF body: world-frame linear + angular velocity."""
 
@@ -120,7 +121,7 @@ struct QuatBody6(
 
     @staticmethod
     def at_rest(pos: Vec3, inertia: Inertia3) -> Self:
-        return Self(pos, Quat.identity(), Vec3(0, 0, 0), Vec3(0, 0, 0), inertia)
+        return Self(pos, Quat.identity(), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), inertia)
 
     def angular_momentum(self) -> Vec3:
         """World-frame L = R I_b Rᵀ ω (conserved when torque-free)."""
@@ -201,13 +202,13 @@ struct QuatBody6(
         return self.vel
 
     def halt(mut self):
-        self.vel = Vec3(0, 0, 0)
-        self.omega = Vec3(0, 0, 0)
+        self.vel = Vec3(0, 0, 0, 0)
+        self.omega = Vec3(0, 0, 0, 0)
 
 
 @fieldwise_init
 struct ScrewBody6(
-    Body6, Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
+    Body6, Copyable, ImplicitlyCopyable, Movable, Deinitable
 ):
     """GA 6-DOF body: `Motor3` pose + body-frame twist bivector velocity."""
 
@@ -221,16 +222,16 @@ struct ScrewBody6(
 
     def omega_body(self) -> Vec3:
         """Unpack ω from the twist (inverse of `screw_velocity`)."""
-        return Vec3(-2 * self.vel.b23, 2 * self.vel.b13, -2 * self.vel.b12)
+        return Vec3(-2 * self.vel.b23, 2 * self.vel.b13, -2 * self.vel.b12, 0)
 
     def vel_body(self) -> Vec3:
-        return Vec3(2 * self.vel.b10, 2 * self.vel.b20, 2 * self.vel.b30)
+        return Vec3(2 * self.vel.b10, 2 * self.vel.b20, 2 * self.vel.b30, 0)
 
     def _rotation(self) -> Quat:
         return self.pose.to_quat_translation()[0]
 
     def position(self) -> Vec3:
-        return self.pose.apply_point(Vec3(0, 0, 0))
+        return self.pose.apply_point(Vec3(0, 0, 0, 0))
 
     def angular_momentum(self) -> Vec3:
         """World-frame L (conserved when torque-free) — for gates only."""

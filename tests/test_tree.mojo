@@ -2,23 +2,23 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
 
 
 def _link(ax: Vec3, pivot: Vec3) -> ChainLink:
-    return ChainLink.revolute(ax, pivot, Vec3(0, -0.25, 0), 1.0, Vec3(0.02, 0.015, 0.025))
+    return ChainLink.revolute(ax, pivot, Vec3(0, -0.25, 0, 0), 1.0, Vec3(0.02, 0.015, 0.025, 0))
 
 
 def _ytree() raises -> Chain:
     """Torso root with two 2-link arms — the smallest honest ragdoll shape.
     Mixed axes so nothing decouples by accident."""
     var ch = Chain()
-    var torso = ch.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, 0, 0)))
-    var l1 = ch.add_link_to(torso, _link(Vec3(1, 0, 0), Vec3(-0.3, -0.2, 0)))
-    _ = ch.add_link_to(l1, _link(Vec3(0, 0, 1), Vec3(0, -0.5, 0)))
-    var r1 = ch.add_link_to(torso, _link(Vec3(0, 0, 1), Vec3(0.3, -0.2, 0)))
-    _ = ch.add_link_to(r1, _link(Vec3(1, 0, 0), Vec3(0, -0.5, 0)))
+    var torso = ch.add_link_to(-1, _link(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0)))
+    var l1 = ch.add_link_to(torso, _link(Vec3(1, 0, 0, 0), Vec3(-0.3, -0.2, 0, 0)))
+    _ = ch.add_link_to(l1, _link(Vec3(0, 0, 1, 0), Vec3(0, -0.5, 0, 0)))
+    var r1 = ch.add_link_to(torso, _link(Vec3(0, 0, 1, 0), Vec3(0.3, -0.2, 0, 0)))
+    _ = ch.add_link_to(r1, _link(Vec3(1, 0, 0, 0), Vec3(0, -0.5, 0, 0)))
     return ch^
 
 
@@ -38,8 +38,8 @@ def main() raises:
     var b = Chain()
     for i in range(4):
         var lk = _link(
-            Vec3(0, 0, 1) if i % 2 == 0 else Vec3(1, 0, 0),
-            Vec3(0, -0.5, 0.1),
+            Vec3(0, 0, 1, 0) if i % 2 == 0 else Vec3(1, 0, 0, 0),
+            Vec3(0, -0.5, 0.1, 0),
         )
         a.add_link(lk)
         _ = b.add_link_to(i - 1, lk)
@@ -61,10 +61,10 @@ def main() raises:
     # 2. Forest decoupling: two chains in one Chain (two roots) behave
     #    exactly like two separate Chains.
     var f = Chain()
-    var r0 = f.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, 0, 0)))
-    _ = f.add_link_to(r0, _link(Vec3(1, 0, 0), Vec3(0, -0.5, 0)))
-    var r1 = f.add_link_to(-1, _link(Vec3(1, 0, 0), Vec3(2, 0, 0)))
-    _ = f.add_link_to(r1, _link(Vec3(0, 0, 1), Vec3(0, -0.5, 0)))
+    var r0 = f.add_link_to(-1, _link(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0)))
+    _ = f.add_link_to(r0, _link(Vec3(1, 0, 0, 0), Vec3(0, -0.5, 0, 0)))
+    var r1 = f.add_link_to(-1, _link(Vec3(1, 0, 0, 0), Vec3(2, 0, 0, 0)))
+    _ = f.add_link_to(r1, _link(Vec3(0, 0, 1, 0), Vec3(0, -0.5, 0, 0)))
     f.q[0] = 0.4
     f.q[1] = -0.2
     f.q[2] = 0.7
@@ -73,8 +73,8 @@ def main() raises:
     f.qd[2] = -0.5
     var qf = f.dynamics_aba(_tau(4), G)
     var c1 = Chain()
-    c1.add_link(_link(Vec3(0, 0, 1), Vec3(0, 0, 0)))
-    c1.add_link(_link(Vec3(1, 0, 0), Vec3(0, -0.5, 0)))
+    c1.add_link(_link(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0)))
+    c1.add_link(_link(Vec3(1, 0, 0, 0), Vec3(0, -0.5, 0, 0)))
     c1.q[0] = 0.4
     c1.q[1] = -0.2
     c1.qd[0] = 1.0
@@ -111,9 +111,9 @@ def main() raises:
 
     # 4. Hanging Y-tree at rest: qdd = 0 (both arms straight down).
     var h = Chain()
-    var ht = h.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, 0, 0)))
-    _ = h.add_link_to(ht, _link(Vec3(0, 0, 1), Vec3(-0.3, -0.5, 0)))
-    _ = h.add_link_to(ht, _link(Vec3(0, 0, 1), Vec3(0.3, -0.5, 0)))
+    var ht = h.add_link_to(-1, _link(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0)))
+    _ = h.add_link_to(ht, _link(Vec3(0, 0, 1, 0), Vec3(-0.3, -0.5, 0, 0)))
+    _ = h.add_link_to(ht, _link(Vec3(0, 0, 1, 0), Vec3(0.3, -0.5, 0, 0)))
     var zt = List[Real]()
     for _ in range(3):
         zt.append(0)

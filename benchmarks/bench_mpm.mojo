@@ -20,7 +20,7 @@ from physics.mpm import MpmSolver
 
 comptime DX: Real = 0.05
 comptime N = 32
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime STEPS = 200
 
 
@@ -30,14 +30,14 @@ def _column(mut m: MpmSolver, nx: Int, ny: Int, nz: Int, sp: Real):
         for j in range(ny):
             for k in range(nz):
                 m.add(
-                    Vec3(0.35 + Real(i) * sp, 0.60 + Real(j) * sp, 0.35 + Real(k) * sp),
+                    Vec3(0.35 + Real(i) * sp, 0.60 + Real(j) * sp, 0.35 + Real(k) * sp, 0),
                     vol * 1000.0,
                     vol,
                 )
 
 
 def _row(mut t: BenchTable, nx: Int, ny: Int, nz: Int, plastic: Bool) raises:
-    var m = MpmSolver(Vec3(0, 0, 0), DX, N, 100000.0, 0.2)
+    var m = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 100000.0, 0.2)
     _column(m, nx, ny, nz, 0.04)
     if plastic:
         m.set_plastic(0.94, 1.02)

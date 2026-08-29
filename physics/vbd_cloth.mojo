@@ -24,7 +24,7 @@ from geometry.vec import Real
 from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from std.gpu import global_idx
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from .gpu_cloth import ClothState, _init_grid
 
@@ -125,12 +125,16 @@ def vbd_predict_kernel[LT: TensorLayout](
     oy: TileTensor[dtype, LT, MutAnyOrigin],
     oz: TileTensor[dtype, LT, MutAnyOrigin],
     w: TileTensor[dtype, LT, MutAnyOrigin],
-    n: Int,
+    n: Int32,
     dt: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var n_ = Int(n)
     comptime assert x.flat_rank == 1
     var i = global_idx.x
-    if i >= n:
+    if i >= n_:
         return
     ox[i] = x[i]
     oy[i] = y[i]
@@ -161,20 +165,26 @@ def vbd_solve_kernel[LT: TensorLayout](
     ty: TileTensor[dtype, LT, MutAnyOrigin],
     tz: TileTensor[dtype, LT, MutAnyOrigin],
     w: TileTensor[dtype, LT, MutAnyOrigin],
-    grid_w: Int,
-    grid_h: Int,
+    grid_w: Int32,
+    grid_h: Int32,
     rest: Float32,
     mh2: Float32,
-    color: Int,
+    color: Int32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var grid_w_ = Int(grid_w)
+    var grid_h_ = Int(grid_h)
+    var color_ = Int(color)
     comptime assert x.flat_rank == 1
     var i = global_idx.x
-    var n = grid_w * grid_h
+    var n = grid_w_ * grid_h_
     if i >= n:
         return
-    var r = i // grid_w
-    var c = i % grid_w
-    if (r + c) % 2 != color:
+    var r = i // grid_w_
+    var c = i % grid_w_
+    if (r + c) % 2 != color_:
         return
     if rebind[Scalar[dtype]](w[i]) <= 0:
         return
@@ -193,9 +203,9 @@ def vbd_solve_kernel[LT: TensorLayout](
             rr = r - 1
         else:
             rr = r + 1
-        if rr < 0 or rr >= grid_h or cc < 0 or cc >= grid_w:
+        if rr < 0 or rr >= grid_h_ or cc < 0 or cc >= grid_w_:
             continue
-        var j = rr * grid_w + cc
+        var j = rr * grid_w_ + cc
         nok[k] = True
         nx[k] = rebind[Scalar[dtype]](x[j])
         ny[k] = rebind[Scalar[dtype]](y[j])
@@ -225,12 +235,16 @@ def vbd_finalize_kernel[LT: TensorLayout](
     vx: TileTensor[dtype, LT, MutAnyOrigin],
     vy: TileTensor[dtype, LT, MutAnyOrigin],
     vz: TileTensor[dtype, LT, MutAnyOrigin],
-    n: Int,
+    n: Int32,
     inv_dt: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var n_ = Int(n)
     comptime assert x.flat_rank == 1
     var i = global_idx.x
-    if i < n:
+    if i < n_:
         vx[i] = (x[i] - ox[i]) * inv_dt * _DAMP
         vy[i] = (y[i] - oy[i]) * inv_dt * _DAMP
         vz[i] = (z[i] - oz[i]) * inv_dt * _DAMP
@@ -420,17 +434,17 @@ def gpu_vbd_run_ctx[W: Int, H: Int](
     comptime GRID = ceildiv(n, BLOCK)
     for _ in range(steps):
         ctx.enqueue_function[kp](
-            x, y, z, vx, vy, vz, tx, ty, tz, ox, oy, oz, w, n, dt,
+            x, y, z, vx, vy, vz, tx, ty, tz, ox, oy, oz, w, Int32(n), dt,
             grid_dim=GRID, block_dim=BLOCK,
         )
         for _ in range(iters):
             for color in range(2):
                 ctx.enqueue_function[ks](
-                    x, y, z, tx, ty, tz, w, W, H, rest, mh2, color,
+                    x, y, z, tx, ty, tz, w, Int32(W), Int32(H), rest, mh2, Int32(color),
                     grid_dim=GRID, block_dim=BLOCK,
                 )
         ctx.enqueue_function[kf](
-            x, y, z, ox, oy, oz, vx, vy, vz, n, 1.0 / dt,
+            x, y, z, ox, oy, oz, vx, vy, vz, Int32(n), 1.0 / dt,
             grid_dim=GRID, block_dim=BLOCK,
         )
     ctx.synchronize()

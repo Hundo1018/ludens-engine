@@ -43,18 +43,18 @@ def _links(n: Int) -> List[ChainLink]:
     for i in range(n):
         out.append(
             ChainLink.revolute(
-                Vec3(0, 0, 1) if i % 2 == 0 else Vec3(0, 1, 0),
-                Vec3(0.5, 0.1, 0),
-                Vec3(0.25, 0, 0),
+                Vec3(0, 0, 1, 0) if i % 2 == 0 else Vec3(0, 1, 0, 0),
+                Vec3(0.5, 0.1, 0, 0),
+                Vec3(0.25, 0, 0, 0),
                 0.8 + Real(i) * 0.1,
-                Vec3(0.02, 0.03, 0.025),
+                Vec3(0.02, 0.03, 0.025, 0),
             )
         )
     return out^
 
 
 def _build(n: Int) -> FloatingChain:
-    var f = FloatingChain(4.0, Vec3(0.05, -0.02, 0.01), Vec3(0.3, 0.4, 0.35))
+    var f = FloatingChain(4.0, Vec3(0.05, -0.02, 0.01, 0), Vec3(0.3, 0.4, 0.35, 0))
     var ls = _links(n)
     for i in range(n):
         f.add_link(ls[i])
@@ -64,20 +64,20 @@ def _build(n: Int) -> FloatingChain:
 def _drift(n: Int, dt: Real, steps: Int) raises -> Tuple[Real, Real]:
     """Relative momentum drift over a run driven by joint torques alone."""
     var f = _build(n)
-    f.base_w = Vec3(0.3, -0.2, 0.45)
-    f.base_v = Vec3(0.1, 0.25, -0.15)
+    f.base_w = Vec3(0.3, -0.2, 0.45, 0)
+    f.base_v = Vec3(0.1, 0.25, -0.15, 0)
     for i in range(n):
         f.chain.q[i] = 0.2 + Real(i) * 0.1
         f.chain.qd[i] = 0.4 - Real(i) * 0.15
-    var m0 = f.momentum(Vec3(0, 0, 0))
+    var m0 = f.momentum(Vec3(0, 0, 0, 0))
     var p0 = m0[0]
     var l0 = m0[1]
     for k in range(steps):
         var tau = zeros(n)
         for i in range(n):
             tau[i] = 0.6 * Real(sin(Float64(k) * 0.05 + Float64(i)))
-        f.step(dt, tau, Vec3(0, 0, 0))
-    var m1 = f.momentum(Vec3(0, 0, 0))
+        f.step(dt, tau, Vec3(0, 0, 0, 0))
+    var m1 = f.momentum(Vec3(0, 0, 0, 0))
     var dp = length(m1[0] - p0) / (length(p0) + 1e-12)
     var dl = length(m1[1] - l0) / (length(l0) + 1e-12)
     return (dp, dl)
@@ -85,10 +85,10 @@ def _drift(n: Int, dt: Real, steps: Int) raises -> Tuple[Real, Real]:
 
 def main() raises:
     var s = Suite("floating")
-    var g = Vec3(0, -9.81, 0)
+    var g = Vec3(0, -9.81, 0, 0)
 
     # ---- 1. free fall is exactly g --------------------------------------
-    var free = FloatingChain(2.5, Vec3(0.1, 0.2, -0.05), Vec3(0.2, 0.3, 0.25))
+    var free = FloatingChain(2.5, Vec3(0.1, 0.2, -0.05, 0), Vec3(0.2, 0.3, 0.25, 0))
     var a = free.dynamics(zeros(0), g)
     print("  free-body accel:", a[3], a[4], a[5])
     s.check(
@@ -122,7 +122,7 @@ def main() raises:
     fm.chain.q[0] = 0.4
     fm.chain.q[1] = -0.7
     fm.chain.q[2] = 0.25
-    fm.base_rot = Quat.from_axis_angle(Vec3(0.267, 0.535, 0.802), 0.6)
+    fm.base_rot = Quat.from_axis_angle(Vec3(0.267, 0.535, 0.802, 0), 0.6)
     var h = fm.mass_matrix()
     var d = fm.dof()
     var asym = Real(0)
@@ -226,7 +226,7 @@ def main() raises:
     #      under gravity alone, total angular momentum about the COM is
     #      unchanged in the first instant: g exerts no torque there
     var fg = _build(3)
-    fg.base_w = Vec3(0.2, 0.1, -0.3)
+    fg.base_w = Vec3(0.2, 0.1, -0.3, 0)
     for i in range(3):
         fg.chain.q[i] = 0.3 * Real(i + 1)
         fg.chain.qd[i] = 0.2 - Real(i) * 0.1

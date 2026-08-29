@@ -111,7 +111,7 @@ struct ArchView2[A: ComponentType, B: ComponentType](Copyable, ImplicitlyCopyabl
         return self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()
 
 
-struct Archetype[*CTs: ComponentType](Movable, ImplicitlyDeletable):
+struct Archetype[*CTs: ComponentType](Movable, Deinitable):
     comptime N: Int = len(Self.CTs)
     var mask: Int  # bit i set => component slot i present
     var entities: List[Int]  # row -> entity id
@@ -131,12 +131,12 @@ struct Archetype[*CTs: ComponentType](Movable, ImplicitlyDeletable):
             p.unsafe_write(List[T]())
             self.cols.append(p.bitcast[NoneType]())
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.cols[i].bitcast[List[T]]()
             p.unsafe_deinit_pointee()
-            p.free()
+            p.unsafe_free()
 
 
 struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):

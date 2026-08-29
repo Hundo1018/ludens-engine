@@ -49,14 +49,15 @@ def _tri_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3:
         e1[1] * e2[2] - e1[2] * e2[1],
         e1[2] * e2[0] - e1[0] * e2[2],
         e1[0] * e2[1] - e1[1] * e2[0],
+        0,
     )
     var l = length(n)
     if l < 1e-12:
-        return Vec3(0, 0, 0)
+        return Vec3(0, 0, 0, 0)
     return n / l
 
 
-struct TriMesh(Movable, ImplicitlyDeletable):
+struct TriMesh(Movable, Deinitable):
     """A static triangle soup with a BVH midphase.
 
     Normals are stored per triangle rather than recomputed per query. They are
@@ -95,8 +96,8 @@ struct TriMesh(Movable, ImplicitlyDeletable):
             self.nrm.append(n[0])
             self.nrm.append(n[1])
             self.nrm.append(n[2])
-            var lo = Vec3(0, 0, 0)
-            var hi = Vec3(0, 0, 0)
+            var lo = Vec3(0, 0, 0, 0)
+            var hi = Vec3(0, 0, 0, 0)
             comptime for k in range(3):
                 lo[k] = min(a[k], min(b[k], c[k]))
                 hi[k] = max(a[k], max(b[k], c[k]))
@@ -108,7 +109,7 @@ struct TriMesh(Movable, ImplicitlyDeletable):
             self.bvh.build_boxes(boxes, proxies, sah=True)
 
     def _vert(self, i: Int) -> Vec3:
-        return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2])
+        return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2], 0)
 
     def ntri(self) -> Int:
         return len(self.idx) // 3
@@ -128,7 +129,7 @@ struct TriMesh(Movable, ImplicitlyDeletable):
         against it and a crate will come to rest balanced on a mathematical
         line. Having no surface, it must contribute no contact."""
         var f = List[Real](capacity=3)
-        var n = Vec3(self.nrm[3 * t], self.nrm[3 * t + 1], self.nrm[3 * t + 2])
+        var n = Vec3(self.nrm[3 * t], self.nrm[3 * t + 1], self.nrm[3 * t + 2], 0)
         if length(n) < 0.5:  # stored normals are unit or exactly zero
             return f^
         f.append(n[0])
@@ -142,7 +143,7 @@ struct TriMesh(Movable, ImplicitlyDeletable):
     def bounds(self) -> AABB[3]:
         var n = len(self.v) // 3
         if n == 0:
-            return AABB[3](Vec3(0, 0, 0), Vec3(0, 0, 0))
+            return AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
         var lo = self._vert(0)
         var hi = self._vert(0)
         for i in range(1, n):
@@ -153,7 +154,7 @@ struct TriMesh(Movable, ImplicitlyDeletable):
         return AABB[3](lo, hi)
 
 
-struct HeightField(Movable, ImplicitlyDeletable):
+struct HeightField(Movable, Deinitable):
     """A regular grid of heights, triangulated implicitly.
 
     `h[iz * nx + ix]` is the height at grid corner (ix, iz); the cell between
@@ -200,6 +201,7 @@ struct HeightField(Movable, ImplicitlyDeletable):
             self.ox + Real(cx) * self.cell,
             self.h[cz * self.nx + cx],
             self.oz + Real(cz) * self.cell,
+            0,
         )
 
     def tri(self, t: Int) -> ConvexPoly[3]:
@@ -290,18 +292,19 @@ struct HeightField(Movable, ImplicitlyDeletable):
 
     def bounds(self) -> AABB[3]:
         if len(self.h) == 0:
-            return AABB[3](Vec3(0, 0, 0), Vec3(0, 0, 0))
+            return AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
         var lo = self.h[0]
         var hi = self.h[0]
         for i in range(1, len(self.h)):
             lo = min(lo, self.h[i])
             hi = max(hi, self.h[i])
         return AABB[3](
-            Vec3(self.ox, lo, self.oz),
+            Vec3(self.ox, lo, self.oz, 0),
             Vec3(
                 self.ox + Real(self.nx - 1) * self.cell,
                 hi,
                 self.oz + Real(self.nz - 1) * self.cell,
+                0,
             ),
         )
 

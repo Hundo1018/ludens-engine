@@ -5,7 +5,7 @@
 # If this holds, the entity-actor scheduler needs no command buffer for the
 # common "actor mutates only itself" case.
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from ecs.world import World
 from ecs.sparse_backend import SparseSetBackend
 from ecs.component import ComponentType

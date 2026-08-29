@@ -26,7 +26,7 @@ to every implementation; until then it is a context-taking free function, and
 
 from std.sys import has_accelerator
 from std.gpu import global_idx
-from std.gpu.host import DeviceContext, DeviceBuffer
+from max.gpu.host import DeviceContext, DeviceBuffer
 from std.atomic import Atomic
 from layout import TileTensor, TensorLayout, row_major
 from geometry.aabb import AABB
@@ -46,13 +46,18 @@ def pair_kernel[LT: TensorLayout, ILT: TensorLayout, CLT: TensorLayout](
     out_a: TileTensor[idt, ILT, MutAnyOrigin],
     out_b: TileTensor[idt, ILT, MutAnyOrigin],
     cursor: TileTensor[idt, CLT, MutAnyOrigin],
-    n: Int,
-    cap: Int,
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel is
+    # compiled for the device. Widened back at first use.
+    n: Int32,
+    cap: Int32,
 ):
     comptime assert lox.flat_rank == 1
     comptime assert out_a.flat_rank == 1
+    var nn = Int(n)
+    var ncap = Int(cap)
     var i = global_idx.x
-    if i >= n:
+    if i >= nn:
         return
     var ax0 = rebind[Scalar[fdt]](lox[i])
     var ay0 = rebind[Scalar[fdt]](loy[i])
@@ -60,7 +65,7 @@ def pair_kernel[LT: TensorLayout, ILT: TensorLayout, CLT: TensorLayout](
     var ax1 = rebind[Scalar[fdt]](hix[i])
     var ay1 = rebind[Scalar[fdt]](hiy[i])
     var az1 = rebind[Scalar[fdt]](hiz[i])
-    for j in range(Int(i) + 1, n):
+    for j in range(Int(i) + 1, nn):
         if ax1 < rebind[Scalar[fdt]](lox[j]) or rebind[Scalar[fdt]](hix[j]) < ax0:
             continue
         if ay1 < rebind[Scalar[fdt]](loy[j]) or rebind[Scalar[fdt]](hiy[j]) < ay0:
@@ -70,7 +75,7 @@ def pair_kernel[LT: TensorLayout, ILT: TensorLayout, CLT: TensorLayout](
         # one atomic claim per hit; overflow is detected on the host by
         # comparing the cursor against the capacity
         var slot = Int(Atomic.fetch_add(cursor.ptr, Int32(1)))
-        if slot < cap:
+        if slot < ncap:
             out_a[slot] = rebind[out_a.ElementType](Int32(Int(i)))
             out_b[slot] = rebind[out_b.ElementType](Int32(j))
 
@@ -139,7 +144,7 @@ def gpu_pairs_ctx[N: Int, CAP: Int](
     comptime k = pair_kernel[type_of(layout), type_of(ilay), type_of(clay)]
     var grid = (n + BLOCK - 1) // BLOCK
     ctx.enqueue_function[k](
-        tlox, tloy, tloz, thix, thiy, thiz, toa, tob, tcur, n, cap,
+        tlox, tloy, tloz, thix, thiy, thiz, toa, tob, tcur, Int32(n), Int32(cap),
         grid_dim=grid, block_dim=BLOCK,
     )
     ctx.synchronize()

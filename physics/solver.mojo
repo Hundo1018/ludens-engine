@@ -17,7 +17,7 @@ checked per solver where it differs.
 """
 
 from std.math import sqrt
-from geometry.vec import WorldType, Real, dot, length
+from geometry.vec import WorldType, Real, dot, length, PadW
 from collision.pipeline import Manifold
 from .rigidbody import RigidBody
 from .forces import apply_gravity, integrate_positions
@@ -28,14 +28,14 @@ trait ContactSolver:
     def substep[dim: Int](
         mut bodies: List[RigidBody[dim]],
         manifolds: List[Manifold[dim]],
-        gravity: SIMD[WorldType, dim],
+        gravity: SIMD[WorldType, PadW[dim]],
         dt: Real,
         iterations: Int,
     ): ...
 
 
 def _support[dim: Int](
-    half: SIMD[WorldType, dim], n: SIMD[WorldType, dim]
+    half: SIMD[WorldType, PadW[dim]], n: SIMD[WorldType, PadW[dim]]
 ) -> Real:
     """Box support width along `n`: sum_k |n[k]| * half[k]."""
     var s = Real(0)
@@ -48,7 +48,7 @@ def _support[dim: Int](
 
 
 def _penetration[dim: Int](
-    a: RigidBody[dim], b: RigidBody[dim], n: SIMD[WorldType, dim]
+    a: RigidBody[dim], b: RigidBody[dim], n: SIMD[WorldType, PadW[dim]]
 ) -> Real:
     """Current penetration of two boxes along contact normal `n` (a -> b)."""
     var sep = dot(b.pos - a.pos, n)
@@ -60,7 +60,7 @@ struct SequentialImpulse(ContactSolver):
     def substep[dim: Int](
         mut bodies: List[RigidBody[dim]],
         manifolds: List[Manifold[dim]],
-        gravity: SIMD[WorldType, dim],
+        gravity: SIMD[WorldType, PadW[dim]],
         dt: Real,
         iterations: Int,
     ):
@@ -118,12 +118,12 @@ struct Pbd(ContactSolver):
     def substep[dim: Int](
         mut bodies: List[RigidBody[dim]],
         manifolds: List[Manifold[dim]],
-        gravity: SIMD[WorldType, dim],
+        gravity: SIMD[WorldType, PadW[dim]],
         dt: Real,
         iterations: Int,
     ):
         apply_gravity(bodies, dt, gravity)
-        var prev = List[SIMD[WorldType, dim]]()
+        var prev = List[SIMD[WorldType, PadW[dim]]]()
         for i in range(len(bodies)):
             prev.append(bodies[i].pos)
         for ref b in bodies:
@@ -163,12 +163,12 @@ struct Xpbd(ContactSolver):
     def substep[dim: Int](
         mut bodies: List[RigidBody[dim]],
         manifolds: List[Manifold[dim]],
-        gravity: SIMD[WorldType, dim],
+        gravity: SIMD[WorldType, PadW[dim]],
         dt: Real,
         iterations: Int,
     ):
         apply_gravity(bodies, dt, gravity)
-        var prev = List[SIMD[WorldType, dim]]()
+        var prev = List[SIMD[WorldType, PadW[dim]]]()
         for i in range(len(bodies)):
             prev.append(bodies[i].pos)
         for ref b in bodies:

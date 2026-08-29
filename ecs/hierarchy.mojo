@@ -16,7 +16,7 @@ from .component import ComponentType
 from .transform import Transform, Parent
 
 
-struct Hierarchy(Movable, ImplicitlyDeletable):
+struct Hierarchy(Movable, Deinitable):
     var order: List[Entity]  # entities, every parent before its children
     var parent_of: List[Int]  # id -> parent id (-1 = root); sized max_id + 1
 

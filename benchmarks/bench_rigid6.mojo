@@ -31,34 +31,34 @@ comptime DT: Real = 0.001
 def main() raises:
     var t = BenchTable("6-DOF rigid body: representation & integrator cost")
     var ibox = Inertia3.box(1, 0.1, 0.3, 0.6)
-    var grav = Vec3(0, -9.8, 0)
+    var grav = Vec3(0, -9.8, 0, 0)
 
     var qb = QuatBody6(
-        Vec3(0, 0, 0), Quat.identity(), Vec3(1, 0, 0), Vec3(0.3, 2, 0.4), ibox
+        Vec3(0, 0, 0, 0), Quat.identity(), Vec3(1, 0, 0, 0), Vec3(0.3, 2, 0.4, 0), ibox
     )
 
     @parameter
     def bench_quat():
         for _ in range(STEPS):
-            qb.step(DT, grav, Vec3(0, 0, 0))
+            qb.step(DT, grav, Vec3(0, 0, 0, 0))
         keep(qb.pos[0])
 
     var ns_q = measure[bench_quat]()
     t.add("QuatBody6 (world Newton-Euler)", 1, "step", ns_q, STEPS)
 
     var sb = ScrewBody6(Motor3.identity(), Screw3.zero(), ibox)
-    sb.apply_impulse(Vec3(1, 0, 0), Vec3(0, 0.5, 0))
+    sb.apply_impulse(Vec3(1, 0, 0, 0), Vec3(0, 0.5, 0, 0))
 
     @parameter
     def bench_screw():
         for _ in range(STEPS):
-            sb.step(DT, grav, Vec3(0, 0, 0))
+            sb.step(DT, grav, Vec3(0, 0, 0, 0))
         keep(sb.vel.b12)
 
     var ns_s = measure[bench_screw]()
     t.add("ScrewBody6 (motor Lie-Poisson)", 1, "step", ns_s, STEPS)
 
-    var w0 = Vec3(0.001, 3, 0.001)
+    var w0 = Vec3(0.001, 3, 0.001, 0)
 
     @parameter
     def bench_euler():

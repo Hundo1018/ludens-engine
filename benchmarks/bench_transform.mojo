@@ -33,7 +33,7 @@ def build_forest[B: StorageBackend](mut w: World[B], n: Int) -> List[Entity]:
     var es = List[Entity]()
     for i in range(n):
         var e = w.spawn()
-        w.set(e, Transform.at(Vec3(Real(i % 10), 0, 0)))
+        w.set(e, Transform.at(Vec3(Real(i % 10), 0, 0, 0)))
         if i > 0:
             w.set(e, Parent(es[(i - 1) // 2].id))
         es.append(e)
@@ -47,7 +47,7 @@ def bench_one[B: StorageBackend, use_dirty: Bool](
     for _f in range(frames):
         for i in range(dirty_first, len(es)):
             var t = w.get[Transform](es[i])
-            w.set(es[i], t.with_translation(Vec3(Real(i), Real(_f), 0)))
+            w.set(es[i], t.with_translation(Vec3(Real(i), Real(_f), 0, 0)))
         var h = Hierarchy.build(w)
         var t0 = now()
         comptime if use_dirty:
@@ -65,7 +65,7 @@ def build_forest_motor[B: StorageBackend](mut w: World[B], n: Int) -> List[Entit
     for i in range(n):
         var e = w.spawn()
         var mt = MotorTransform.identity().with_local(
-            Motor3.from_translation(Vec3(Real(i % 10), 0, 0))
+            Motor3.from_translation(Vec3(Real(i % 10), 0, 0, 0))
         )
         w.set(e, mt)
         if i > 0:
@@ -83,7 +83,7 @@ def bench_one_motor[B: StorageBackend](
             var t = w.get[MotorTransform](es[i])
             w.set(
                 es[i],
-                t.with_local(Motor3.from_translation(Vec3(Real(i), Real(_f), 0))),
+                t.with_local(Motor3.from_translation(Vec3(Real(i), Real(_f), 0, 0))),
             )
         var h = Hierarchy.build_for[MotorTransform](w)
         var t0 = now()

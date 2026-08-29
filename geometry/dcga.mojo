@@ -62,6 +62,12 @@ struct DcgaEntity(Copyable, ImplicitlyCopyable, Movable):
 
     var c: InlineArray[Real, DCGA_DIM]
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one can no longer have its copy
+        constructor synthesised."""
+        self.c = copy.c.copy()
+
     @staticmethod
     def zero() -> Self:
         return Self(InlineArray[Real, DCGA_DIM](fill=0))
@@ -90,7 +96,7 @@ def dcga_point(p: Vec3) -> InlineArray[Real, DCGA_DIM]:
     v[_Y] = y
     v[_Z] = z
     v[_ONE] = 1
-    return v
+    return v^
 
 
 def dcga_incidence(pt: InlineArray[Real, DCGA_DIM], e: DcgaEntity) -> Real:

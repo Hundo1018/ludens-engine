@@ -41,20 +41,20 @@ def main() raises:
     s.almost(Float64(rp[1]), 1.0, "rot2 y", 1e-4)
 
     # 3D affine: translate (1,2,3), identity rot/scale
-    var m4 = compose_trs4(Vec3(1, 2, 3), Quat.identity(), Vec3(1, 1, 1))
-    var p4 = transform_point4(m4, Vec3(1, 1, 1))
+    var m4 = compose_trs4(Vec3(1, 2, 3, 0), Quat.identity(), Vec3(1, 1, 1, 0))
+    var p4 = transform_point4(m4, Vec3(1, 1, 1, 0))
     s.almost(Float64(p4[0]), 2.0, "trs4 point x")
     s.almost(Float64(p4[1]), 3.0, "trs4 point y")
     s.almost(Float64(p4[2]), 4.0, "trs4 point z")
-    var d4 = transform_dir4(m4, Vec3(1, 1, 1))
+    var d4 = transform_dir4(m4, Vec3(1, 1, 1, 0))
     s.almost(Float64(d4[0]), 1.0, "trs4 dir x")
 
     # scalar vs SIMD transform parity
     var mq = compose_trs4(
-        Vec3(5, -2, 1), Quat.from_axis_angle(Vec3(0, 0, 1), 0.7), Vec3(2, 1, 0.5)
+        Vec3(5, -2, 1, 0), Quat.from_axis_angle(Vec3(0, 0, 1, 0), 0.7), Vec3(2, 1, 0.5, 0)
     )
-    var ps = transform_point4(mq, Vec3(3, 4, 5))
-    var pv = transform_point4_simd(mq, Vec3(3, 4, 5))
+    var ps = transform_point4(mq, Vec3(3, 4, 5, 0))
+    var pv = transform_point4_simd(mq, Vec3(3, 4, 5, 0))
     s.almost(Float64(ps[0]), Float64(pv[0]), "scalar==simd x", 1e-4)
     s.almost(Float64(ps[1]), Float64(pv[1]), "scalar==simd y", 1e-4)
     s.almost(Float64(ps[2]), Float64(pv[2]), "scalar==simd z", 1e-4)

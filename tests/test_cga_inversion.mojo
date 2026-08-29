@@ -38,7 +38,7 @@ def main() raises:
     var s = Suite("cga_inversion")
     var rng = SplitMix64.seeded(23)
 
-    var c = Vec3(1.0, 0.5, -0.5)
+    var c = Vec3(1.0, 0.5, -0.5, 0)
     var r = Real(2.0)
 
     # 1. parity vs the closed form over random points
@@ -48,6 +48,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         if length(p - c) < 0.15:  # skip near the pole, where the map blows up
             continue
@@ -64,6 +65,7 @@ def main() raises:
             Real(rng.next_f32()) * 6 - 3,
             Real(rng.next_f32()) * 6 - 3,
             Real(rng.next_f32()) * 6 - 3,
+            0,
         )
         if length(p - c) < 0.3:
             continue
@@ -81,6 +83,7 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         var n = length(d)
         if n < 1e-3:
@@ -95,7 +98,7 @@ def main() raises:
     # 4. inside <-> outside exchange
     var swapped = True
     for k in range(20):
-        var d = Vec3(Real(k + 1) * 0.13, Real(k) * 0.07 - 0.5, 0.2)
+        var d = Vec3(Real(k + 1) * 0.13, Real(k) * 0.07 - 0.5, 0.2, 0)
         var n = length(d)
         if n < 1e-3:
             continue
@@ -112,6 +115,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var k = Real(rng.next_f32()) * 3 + 0.25
         var e = length(dilate_point(k, p) - p * k)
@@ -128,6 +132,7 @@ def main() raises:
             Real(rng.next_f32()) * 3 - 1.5,
             Real(rng.next_f32()) * 3 - 1.5,
             Real(rng.next_f32()) * 3 - 1.5,
+            0,
         )
         var a = Real(rng.next_f32()) * 2 + 0.3
         var b = Real(rng.next_f32()) * 2 + 0.3
@@ -141,8 +146,8 @@ def main() raises:
 
     # 7. the same sandwich, a different grade-1 object: reflection still works
     #    (guards against a change to `down`/`up` breaking the shared path)
-    var pl = Plane3(Vec3(0, 1, 0), 1.0)
-    var refl = reflect_point(pl, Vec3(2, 3, -1))
+    var pl = Plane3(Vec3(0, 1, 0, 0), 1.0)
+    var refl = reflect_point(pl, Vec3(2, 3, -1, 0))
     s.check(
         abs(Float64(refl[0] - 2)) < 1e-4
         and abs(Float64(refl[1] + 1)) < 1e-4
@@ -155,12 +160,12 @@ def main() raises:
     #      must equal applying them one at a time. This is the property the
     #      capability benchmark rests on: if the fold were wrong, the benchmark
     #      would be timing a cheaper computation than the reference.
-    var R1 = rotor(normalize(Vec3(0.2, 1.0, -0.4)), Real(0.7))
-    var T1 = translator(Vec3(0.5, -0.8, 0.3))
+    var R1 = rotor(normalize(Vec3(0.2, 1.0, -0.4, 0)), Real(0.7))
+    var T1 = translator(Vec3(0.5, -0.8, 0.3, 0))
     var D1 = dilator(1.4)
-    var S1 = sphere_dual(Vec3(0.1, 0.2, -0.1), 1.3)
-    var R2 = rotor(normalize(Vec3(1.0, -0.3, 0.6)), Real(-1.1))
-    var T2 = translator(Vec3(-0.2, 0.4, 0.9))
+    var S1 = sphere_dual(Vec3(0.1, 0.2, -0.1, 0), 1.3)
+    var R2 = rotor(normalize(Vec3(1.0, -0.3, 0.6, 0)), Real(-1.1))
+    var T2 = translator(Vec3(-0.2, 0.4, 0.9, 0))
     # applied in order R1, T1, D1, S1, R2, T2 -> versor product is reversed
     var V = T2 * R2 * S1 * D1 * T1 * R1
 
@@ -170,6 +175,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var seq = apply_versor(R1, p)
         seq = apply_versor(T1, seq)
@@ -191,13 +197,13 @@ def main() raises:
     #      which sidesteps any question about composition order or TRS
     #      convention and isolates the claim being made.
     var Vaff = T2 * R2 * D1 * T1 * R1
-    var q1 = Quat.from_axis_angle(normalize(Vec3(0.2, 1.0, -0.4)), Real(0.7))
-    var q2 = Quat.from_axis_angle(normalize(Vec3(1.0, -0.3, 0.6)), Real(-1.1))
-    var m_r1 = compose_trs4(Vec3(0, 0, 0), q1, Vec3(1, 1, 1))
-    var m_t1 = compose_trs4(Vec3(0.5, -0.8, 0.3), Quat.identity(), Vec3(1, 1, 1))
-    var m_d1 = compose_trs4(Vec3(0, 0, 0), Quat.identity(), Vec3(1.4, 1.4, 1.4))
-    var m_r2 = compose_trs4(Vec3(0, 0, 0), q2, Vec3(1, 1, 1))
-    var m_t2 = compose_trs4(Vec3(-0.2, 0.4, 0.9), Quat.identity(), Vec3(1, 1, 1))
+    var q1 = Quat.from_axis_angle(normalize(Vec3(0.2, 1.0, -0.4, 0)), Real(0.7))
+    var q2 = Quat.from_axis_angle(normalize(Vec3(1.0, -0.3, 0.6, 0)), Real(-1.1))
+    var m_r1 = compose_trs4(Vec3(0, 0, 0, 0), q1, Vec3(1, 1, 1, 0))
+    var m_t1 = compose_trs4(Vec3(0.5, -0.8, 0.3, 0), Quat.identity(), Vec3(1, 1, 1, 0))
+    var m_d1 = compose_trs4(Vec3(0, 0, 0, 0), Quat.identity(), Vec3(1.4, 1.4, 1.4, 0))
+    var m_r2 = compose_trs4(Vec3(0, 0, 0, 0), q2, Vec3(1, 1, 1, 0))
+    var m_t2 = compose_trs4(Vec3(-0.2, 0.4, 0.9, 0), Quat.identity(), Vec3(1, 1, 1, 0))
 
     var worst_aff = Real(0)
     for _ in range(200):
@@ -205,6 +211,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var mp = transform_point4(m_r1, p)
         mp = transform_point4(m_t1, mp)

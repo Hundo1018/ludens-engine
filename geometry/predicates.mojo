@@ -74,7 +74,7 @@ def _two_product(a: Float64, b: Float64) -> Tuple[Float64, Float64]:
     return (x, (sa[1] * sb[1]) - err)
 
 
-struct Expansion(Movable, ImplicitlyDeletable):
+struct Expansion(Movable, Deinitable):
     """A non-overlapping, increasing-magnitude sequence of doubles whose exact
     sum is the value represented. Shewchuk's representation: every arithmetic
     step below is error free, so the sum never loses a bit."""

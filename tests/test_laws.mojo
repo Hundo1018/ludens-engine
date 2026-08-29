@@ -30,6 +30,7 @@ def _rand_motor(mut rng: SplitMix64) -> Motor3:
             Real(rng.next_f32()) + 0.1,
             Real(rng.next_f32()) + 0.2,
             Real(rng.next_f32()) + 0.3,
+            0,
         )
     )
     var q = Quat.from_axis_angle(axis, Real(rng.next_f32()) * 3 - 1.5)
@@ -37,6 +38,7 @@ def _rand_motor(mut rng: SplitMix64) -> Motor3:
         Real(rng.next_f32()) * 2 - 1,
         Real(rng.next_f32()) * 2 - 1,
         Real(rng.next_f32()) * 2 - 1,
+        0,
     )
     return Motor3.from_quat_translation(q, t)
 
@@ -50,7 +52,7 @@ def _near3(mut s: Suite, a: Vec3, b: Vec3, label: String, tol: Float64 = 1e-3):
 def main() raises:
     var s = Suite("laws")
     var rng = SplitMix64.seeded(23)
-    var p = Vec3(0.4, -0.8, 0.6)
+    var p = Vec3(0.4, -0.8, 0.6, 0)
 
     for _ in range(5):
         var m1 = _rand_motor(rng)

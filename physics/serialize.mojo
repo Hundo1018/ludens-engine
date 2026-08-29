@@ -39,7 +39,7 @@ def _wv(mut s: String, v: Vec3):
     _wf(s, v[2])
 
 
-struct _Reader(Movable, ImplicitlyDeletable):
+struct _Reader(Movable, Deinitable):
     var toks: List[String]
     var at: Int
 
@@ -63,7 +63,7 @@ struct _Reader(Movable, ImplicitlyDeletable):
         var x = self.f()
         var y = self.f()
         var z = self.f()
-        return Vec3(x, y, z)
+        return Vec3(x, y, z, 0)
 
 
 def scene_to_string(sc: ContactScene6[QuatBody6]) raises -> String:
@@ -289,8 +289,8 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             a, b, feat, m,
             InlineArray[Real, 4](fill=0), InlineArray[Real, 4](fill=0),
             InlineArray[Real, 4](fill=0),
-            InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
-            InlineArray[Vec3, 4](fill=Vec3(0, 0, 0)),
+            InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             InlineArray[Real, 4](fill=0), InlineArray[Real, 4](fill=0),
         )
         for p in range(4):

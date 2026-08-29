@@ -3,7 +3,7 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _pendulum_1() -> Chain:
@@ -11,8 +11,8 @@ def _pendulum_1() -> Chain:
     var c = Chain()
     c.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
-            Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+            Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
         )
     )
     return c^
@@ -57,14 +57,14 @@ def main() raises:
     var d = Chain()
     d.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -0.5, 0), 1.0,
-            Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+            Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
         )
     )
     d.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, -1, 0), Vec3(0, -0.5, 0), 1.0,
-            Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0),
+            Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0,
+            Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0),
         )
     )
     d.q[0] = 0.5
@@ -86,8 +86,8 @@ def main() raises:
     var b = Chain()
     b.add_link(
         ChainLink.revolute(
-            Vec3(0, 0, 1), Vec3(0, 0, 0), Vec3(0, -1, 0), 1.0,
-            Vec3(0.03, 0.03, 0.03),  # Inertia3.box(1, .15,.15,.15) half-cube
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, -1, 0, 0), 1.0,
+            Vec3(0.03, 0.03, 0.03, 0),  # Inertia3.box(1, .15,.15,.15) half-cube
         )
     )
     b.q[0] = 0.1

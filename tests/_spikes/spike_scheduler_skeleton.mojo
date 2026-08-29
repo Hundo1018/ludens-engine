@@ -8,7 +8,7 @@
 
 
 # --- toy storage backend + world ---
-trait Backend(Defaultable, Movable, ImplicitlyDeletable):
+trait Backend(Defaultable, Movable, Deinitable):
     def add(mut self, x: Int): ...
     def total(self) -> Int: ...
 
@@ -29,7 +29,7 @@ struct ListBackend(Backend):
         return s
 
 
-struct World[B: Backend](Movable, ImplicitlyDeletable):
+struct World[B: Backend](Movable, Deinitable):
     var backend: Self.B
 
     def __init__(out self):
@@ -61,7 +61,7 @@ struct AddTwo(System):
 
 
 # --- the swap seam ---
-trait Scheduler(Defaultable, Movable, ImplicitlyDeletable):
+trait Scheduler(Defaultable, Movable, Deinitable):
     comptime B: Backend
     def tick(mut self, mut w: World[Self.B]): ...
 

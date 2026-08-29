@@ -139,7 +139,7 @@ def beam(young: Real) -> FemBody:
 
 
 def bench_fem(mut table: BenchTable, young: Real, dt: Real, label: String, steps: Int):
-    var G = Vec3(0, -9.8, 0)
+    var G = Vec3(0, -9.8, 0, 0)
     var be = beam(young)
     var t0 = now()
     for _ in range(steps):

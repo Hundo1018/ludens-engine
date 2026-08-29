@@ -5,7 +5,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6, Joint6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _mixed() -> ContactScene6[QuatBody6]:
@@ -15,8 +15,8 @@ def _mixed() -> ContactScene6[QuatBody6]:
     BVH actually prunes non-neighbours."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 40, 1, 40)),
-        Vec3(40, 1, 40),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 40, 1, 40)),
+        Vec3(40, 1, 40, 0),
         True,
     )
     var bi = Inertia3.box(2, 0.25, 0.25, 0.25)
@@ -24,28 +24,28 @@ def _mixed() -> ContactScene6[QuatBody6]:
         var x = Real(t) * 5 - 10
         for i in range(3):
             _ = sc.add(
-                QuatBody6.at_rest(Vec3(x, 0.3 + 0.52 * Real(i), 0), bi),
-                Vec3(0.25, 0.25, 0.25),
+                QuatBody6.at_rest(Vec3(x, 0.3 + 0.52 * Real(i), 0, 0), bi),
+                Vec3(0.25, 0.25, 0.25, 0),
                 False,
             )
     var anchor = sc.add(
-        QuatBody6.at_rest(Vec3(14, 2, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
-        Vec3(0.05, 0.05, 0.05),
+        QuatBody6.at_rest(Vec3(14, 2, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
+        Vec3(0.05, 0.05, 0.05, 0),
         True,
     )
     var bob = sc.add(
-        QuatBody6.at_rest(Vec3(14, 1, 0), Inertia3.box(1, 0.15, 0.15, 0.15)),
-        Vec3(0.15, 0.15, 0.15),
+        QuatBody6.at_rest(Vec3(14, 1, 0, 0), Inertia3.box(1, 0.15, 0.15, 0.15)),
+        Vec3(0.15, 0.15, 0.15, 0),
         False,
     )
-    _ = sc.add_joint(Joint6.ball(anchor, bob, Vec3(0, 0, 0), Vec3(0, 1, 0)))
-    sc.bodies[bob].vel = Vec3(0.3, 0, 0)
+    _ = sc.add_joint(Joint6.ball(anchor, bob, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0)))
+    sc.bodies[bob].vel = Vec3(0.3, 0, 0, 0)
     var ball = sc.add_sphere(
-        QuatBody6.at_rest(Vec3(-14, 1.3, 0), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(-14, 1.3, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     sc.set_restitution(ball, 0.7)
     _ = sc.add_capsule(
-        QuatBody6.at_rest(Vec3(-16, -0.45, 0), Inertia3.capsule(1, 0.3, 0.4)),
+        QuatBody6.at_rest(Vec3(-16, -0.45, 0, 0), Inertia3.capsule(1, 0.3, 0.4)),
         0.3,
         0.4,
         True,
@@ -108,28 +108,28 @@ def main() raises:
     #    fat AABB (r_i scales with |v|). Drop a fast box onto the ground.
     var fb = ContactScene6[QuatBody6]()
     _ = fb.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var faller = fb.add(
-        QuatBody6.at_rest(Vec3(0, 3, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25),
+        QuatBody6.at_rest(Vec3(0, 3, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
-    fb.bodies[faller].vel = Vec3(0, -30, 0)
+    fb.bodies[faller].vel = Vec3(0, -30, 0, 0)
     var fb2 = ContactScene6[QuatBody6]()
     _ = fb2.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
     var faller2 = fb2.add(
-        QuatBody6.at_rest(Vec3(0, 3, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25),
+        QuatBody6.at_rest(Vec3(0, 3, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0),
         False,
     )
-    fb2.bodies[faller2].vel = Vec3(0, -30, 0)
+    fb2.bodies[faller2].vel = Vec3(0, -30, 0, 0)
     var fok = True
     for _ in range(120):
         fb.step_soft(DT, G, ccd=True)

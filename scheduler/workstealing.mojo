@@ -31,7 +31,7 @@ order-independent must not use this pool. The solver's parallel regions
 construction, which is what makes them eligible.
 """
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.atomic import Atomic
 
 comptime _PAD = 8  # Int64s per 64-byte cache line (see bench_falseshare)

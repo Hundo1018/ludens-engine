@@ -1,6 +1,6 @@
 [workspace]
 authors = ["Tien Chueh Wang <f74169@gmail.com>"]
-channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
+channels = ["https://conda.modular.com/max", "conda-forge"]
 name = "ludens-engine"
 platforms = ["linux-64"]
 version = "0.1.0"
@@ -17,7 +17,7 @@ examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 benchmark = { cmd = "bash scripts/run_benchmarks.sh", depends-on = ["build"] }
 
 [dependencies]
-modular = ">=26.4.0.dev2026051806,<27"
-mojo = ">=1.0.0b2.dev2026051806,<2"
+modular = ">=26.5.0,<27"
+mojo = ">=1.0.0,<2"
 valgrind = ">=3.27.1,<4"
 glfw = ">=3.4,<4"

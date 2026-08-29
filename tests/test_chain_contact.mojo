@@ -24,7 +24,7 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3, length
 from physics.chain import Chain, ChainLink
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
 
 
@@ -36,14 +36,14 @@ def _link(axis: Vec3, pivot: Vec3) -> ChainLink:
     at zero, which collapses the whole chain onto one frame. That produced a
     degenerate single pendulum that still satisfied self-consistent checks."""
     return ChainLink.revolute(
-        axis, pivot, Vec3(0, -0.5, 0), 1.0, Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0)
+        axis, pivot, Vec3(0, -0.5, 0, 0), 1.0, Vec3(1.0 / 12.0, 1e-6, 1.0 / 12.0, 0)
     )
 
 
 def _chain(n: Int) -> Chain:
     var c = Chain()
     for _ in range(n):
-        c.add_link(_link(Vec3(0, 0, 1), Vec3(0, -1, 0)))
+        c.add_link(_link(Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0)))
     return c^
 
 
@@ -55,8 +55,8 @@ def main() raises:
     c.q[0] = 0.3
     c.q[1] = -0.5
     c.q[2] = 0.8
-    var tip = Vec3(0, -1, 0)  # far end of the last link (rods are unit length)
-    var dir = Vec3(0, 1, 0)
+    var tip = Vec3(0, -1, 0, 0)  # far end of the last link (rods are unit length)
+    var dir = Vec3(0, 1, 0, 0)
     var j = c.point_jacobian(2, tip, dir)
     comptime H: Real = 1e-3
     var worst = Real(0)
@@ -80,9 +80,9 @@ def main() raises:
 
     # ---- 2. non-ancestor joints have EXACTLY zero influence ----
     var t = Chain()
-    var root = t.add_link_to(-1, _link(Vec3(0, 0, 1), Vec3(0, -1, 0)))
-    var armA = t.add_link_to(root, _link(Vec3(1, 0, 0), Vec3(0, -1, 0)))
-    var armB = t.add_link_to(root, _link(Vec3(0, 1, 0), Vec3(0, -1, 0)))
+    var root = t.add_link_to(-1, _link(Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0)))
+    var armA = t.add_link_to(root, _link(Vec3(1, 0, 0, 0), Vec3(0, -1, 0, 0)))
+    var armB = t.add_link_to(root, _link(Vec3(0, 1, 0, 0), Vec3(0, -1, 0, 0)))
     t.q[0] = 0.2
     t.q[1] = 0.4
     t.q[2] = -0.3
@@ -114,9 +114,9 @@ def main() raises:
     var pts = List[Int]()
     var locs = List[Vec3]()
     pts.append(0)
-    locs.append(Vec3(0, -1, 0))
+    locs.append(Vec3(0, -1, 0, 0))
     pts.append(1)
-    locs.append(Vec3(0, -1, 0))
+    locs.append(Vec3(0, -1, 0, 0))
     # two unit rods hanging straight down put the tip at y = -2, so a floor
     # at -1.6 is struck partway through the swing
     comptime FLOOR: Real = -1.6

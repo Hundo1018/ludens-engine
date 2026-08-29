@@ -13,7 +13,7 @@ silently return a truncated answer.
 """
 
 from std.sys import has_accelerator
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from harness.runner import Suite
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3
@@ -56,8 +56,9 @@ def _scene(mut rng: SplitMix64, n: Int, extent: Real, h: Real) -> List[BoxProxy[
             Real(rng.next_f32()) * extent,
             Real(rng.next_f32()) * extent,
             Real(rng.next_f32()) * extent,
+            0,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(h, h, h), c + Vec3(h, h, h))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(h, h, h, 0), c + Vec3(h, h, h, 0))))
     return out^
 
 

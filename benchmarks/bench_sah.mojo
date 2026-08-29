@@ -42,8 +42,9 @@ def _scene(mut rng: XorShift64, clustered: Bool) -> List[_Leaf[3]]:
             cx = range_f(rng, -40, 40)
             cy = range_f(rng, -40, 40)
             cz = range_f(rng, -40, 40)
-        var half = SIMD[WorldType, 3](range_f(rng, 0.2, 0.8))
-        leaves.append(_Leaf[3](AABB[3].from_center(Vec3(cx, cy, cz), half), i))
+        var _h = range_f(rng, 0.2, 0.8)
+        var half = Vec3(_h, _h, _h, 0)  # explicit: a splat would put _h in the pad lane
+        leaves.append(_Leaf[3](AABB[3].from_center(Vec3(cx, cy, cz, 0), half), i))
     return leaves^
 
 
@@ -52,10 +53,10 @@ def _rays(mut rng: XorShift64) -> List[Ray[3]]:
     for _ in range(M):
         var o = Vec3(
             range_f(rng, -50, 50), range_f(rng, -50, 50), range_f(rng, -50, 50)
-        )
+        , 0)
         var d = Vec3(
             range_f(rng, -1, 1), range_f(rng, -1, 1), range_f(rng, -1, 1)
-        )
+        , 0)
         var dl = sqrt(
             Float64(d[0]) ** 2 + Float64(d[1]) ** 2 + Float64(d[2]) ** 2
         )

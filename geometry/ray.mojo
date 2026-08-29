@@ -7,14 +7,14 @@ the surface normal). Dimension-generic via a scalar `comptime for` over the axes
 hit; `ray_aabb` leaves it -1 for the caller to fill.
 """
 
-from .vec import WorldType, Real
+from .vec import WorldType, Real, PadW
 from .aabb import AABB
 
 
 @fieldwise_init
 struct Ray[dim: Int](Copyable, ImplicitlyCopyable, Movable):
-    var origin: SIMD[WorldType, Self.dim]
-    var dir: SIMD[WorldType, Self.dim]
+    var origin: SIMD[WorldType, PadW[Self.dim]]
+    var dir: SIMD[WorldType, PadW[Self.dim]]
     var max_t: Real
 
 
@@ -23,11 +23,11 @@ struct RayHit[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var hit: Bool
     var t: Real
     var proxy: Int
-    var normal: SIMD[WorldType, Self.dim]
+    var normal: SIMD[WorldType, PadW[Self.dim]]
 
     @staticmethod
     def miss() -> Self:
-        return Self(False, 0, -1, SIMD[WorldType, Self.dim](0))
+        return Self(False, 0, -1, SIMD[WorldType, PadW[Self.dim]](0))
 
 
 def ray_aabb[dim: Int](ray: Ray[dim], box: AABB[dim]) -> RayHit[dim]:
@@ -63,6 +63,6 @@ def ray_aabb[dim: Int](ray: Ray[dim], box: AABB[dim]) -> RayHit[dim]:
                 tmax = t2
             if tmin > tmax:
                 return RayHit[dim].miss()
-    var normal = SIMD[WorldType, dim](0)
+    var normal = SIMD[WorldType, PadW[dim]](0)
     normal[axis] = nsign
     return RayHit[dim](True, tmin, -1, normal)

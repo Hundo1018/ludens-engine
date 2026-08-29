@@ -47,6 +47,7 @@ def main() raises:
                 Real(rng.next_f32()) + 0.1,
                 Real(rng.next_f32()) + 0.2,
                 Real(rng.next_f32()) + 0.3,
+                0,
             )
         )
         var angle = Real(rng.next_f32()) * 2.0 - 1.0
@@ -55,6 +56,7 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
 
         var em = wm.spawn()
@@ -71,7 +73,7 @@ def main() raises:
     propagate_full(wm, hm)
     propagate_motor(wg, hg)
 
-    var probe = Vec3(0.7, -0.3, 1.1)
+    var probe = Vec3(0.7, -0.3, 1.1, 0)
     for k in range(len(hm.order)):
         var e = hm.order[k]
         var tm = wm.get[Transform](e)
@@ -85,45 +87,45 @@ def main() raises:
 
     # ---------- screw dynamics vs closed forms ----------
     # pure translation: v = (2,0,0) for dt=0.5 moves +1 in x
-    var b0 = ScrewBody.at_rest(Vec3(0, 0, 0))
-    b0.vel = screw_velocity(Vec3(0, 0, 0), Vec3(2, 0, 0))
-    var p1 = step_screw(b0.pose, b0.vel, 0.5).apply_point(Vec3(0, 0, 0))
-    _near3(s, p1, Vec3(1, 0, 0), "screw: pure translation")
+    var b0 = ScrewBody.at_rest(Vec3(0, 0, 0, 0))
+    b0.vel = screw_velocity(Vec3(0, 0, 0, 0), Vec3(2, 0, 0, 0))
+    var p1 = step_screw(b0.pose, b0.vel, 0.5).apply_point(Vec3(0, 0, 0, 0))
+    _near3(s, p1, Vec3(1, 0, 0, 0), "screw: pure translation")
 
     # pure rotation: ω = π about z for dt=0.5 → rotate π/2, matches Quat
-    var wz = screw_velocity(Vec3(0, 0, 3.14159265), Vec3(0, 0, 0))
+    var wz = screw_velocity(Vec3(0, 0, 3.14159265, 0), Vec3(0, 0, 0, 0))
     var rot = step_screw(Motor3.identity(), wz, 0.5)
-    var qz = Quat.from_axis_angle(Vec3(0, 0, 1), 3.14159265 * 0.5)
+    var qz = Quat.from_axis_angle(Vec3(0, 0, 1, 0), 3.14159265 * 0.5)
     _near3(
         s,
-        rot.apply_point(Vec3(1, 0, 0)),
-        qz.rotate(Vec3(1, 0, 0)),
+        rot.apply_point(Vec3(1, 0, 0, 0)),
+        qz.rotate(Vec3(1, 0, 0, 0)),
         "screw: pure rotation == quat",
     )
 
     # helix: constant screw — one big step equals ten small steps (exact flow)
-    var vel = screw_velocity(Vec3(0, 0, 2.0), Vec3(0, 0, 1.0))
+    var vel = screw_velocity(Vec3(0, 0, 2.0, 0), Vec3(0, 0, 1.0, 0))
     var big = step_screw(Motor3.identity(), vel, 1.0)
     var small = Motor3.identity()
     for _ in range(10):
         small = step_screw(small, vel, 0.1)
     _near3(
         s,
-        big.apply_point(Vec3(1, 0, 0)),
-        small.apply_point(Vec3(1, 0, 0)),
+        big.apply_point(Vec3(1, 0, 0, 0)),
+        small.apply_point(Vec3(1, 0, 0, 0)),
         "screw: 1 big step == 10 small (exact helix)",
     )
 
     # ---------- ECS system: integrate_screw over a world ----------
     var ws = World[SparseSetBackend[ScrewBody]]()
     var e1 = ws.spawn()
-    var sb = ScrewBody.at_rest(Vec3(0, 1, 0))
-    sb.vel = screw_velocity(Vec3(0, 0, 0), Vec3(1, 0, 0))
+    var sb = ScrewBody.at_rest(Vec3(0, 1, 0, 0))
+    sb.vel = screw_velocity(Vec3(0, 0, 0, 0), Vec3(1, 0, 0, 0))
     ws.set(e1, sb)
     for _ in range(4):
         integrate_screw(ws, 0.25)
     _near3(
-        s, ws.get[ScrewBody](e1).position(), Vec3(1, 1, 0),
+        s, ws.get[ScrewBody](e1).position(), Vec3(1, 1, 0, 0),
         "integrate_screw: linear parity (v·t)",
     )
 

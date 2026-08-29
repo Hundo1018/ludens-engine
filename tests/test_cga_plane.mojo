@@ -33,6 +33,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         _near3(s, down(up(p)), p, "down(up(p)) == p")
 
@@ -43,6 +44,7 @@ def main() raises:
                 Real(rng.next_f32()) + 0.1,
                 Real(rng.next_f32()) + 0.2,
                 Real(rng.next_f32()) + 0.3,
+                0,
             )
         )
         var pl = Plane3(n, Real(rng.next_f32()) * 2 - 1)
@@ -50,6 +52,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var alg = inner(up(p), plane_dual(pl))
         var ana = dot(p, n) - pl.d
@@ -68,11 +71,11 @@ def main() raises:
 
     # --- heterogeneous narrowphase: ground plane + balls ---
     var np = CgaShapeNarrowPhase()
-    var ground = Plane3(Vec3(0, 1, 0), 0)  # y = 0
+    var ground = Plane3(Vec3(0, 1, 0, 0), 0)  # y = 0
     var ip = np.add_plane(ground)
-    var touching = np.add(Sphere(Vec3(0, 0.5, 0), 1.0))    # penetrates 0.5
-    var floating = np.add(Sphere(Vec3(5, 3.0, 0), 1.0))    # clear
-    var s2 = np.add(Sphere(Vec3(0.2, 1.4, 0), 1.0))        # overlaps `touching`
+    var touching = np.add(Sphere(Vec3(0, 0.5, 0, 0), 1.0))    # penetrates 0.5
+    var floating = np.add(Sphere(Vec3(5, 3.0, 0, 0), 1.0))    # clear
+    var s2 = np.add(Sphere(Vec3(0.2, 1.4, 0, 0), 1.0))        # overlaps `touching`
 
     var c_tp = np.test(touching, ip)  # sphere vs plane
     s.check(c_tp.hit, "ball touches ground")
@@ -90,13 +93,13 @@ def main() raises:
     # --- the same scene through the pipeline seam ---
     var np2 = CgaShapeNarrowPhase()
     _ = np2.add_plane(ground)
-    _ = np2.add(Sphere(Vec3(0, 0.5, 0), 1.0))
-    _ = np2.add(Sphere(Vec3(5, 3.0, 0), 1.0))
+    _ = np2.add(Sphere(Vec3(0, 0.5, 0, 0), 1.0))
+    _ = np2.add(Sphere(Vec3(5, 3.0, 0, 0), 1.0))
     var items = List[BoxProxy[3]]()
     var big = Real(100)
-    items.append(BoxProxy[3](0, AABB[3](Vec3(-big, -1, -big), Vec3(big, 0, big))))
-    items.append(BoxProxy[3](1, AABB[3](Vec3(-1, -0.5, -1), Vec3(1, 1.5, 1))))
-    items.append(BoxProxy[3](2, AABB[3](Vec3(4, 2, -1), Vec3(6, 4, 1))))
+    items.append(BoxProxy[3](0, AABB[3](Vec3(-big, -1, -big, 0), Vec3(big, 0, big, 0))))
+    items.append(BoxProxy[3](1, AABB[3](Vec3(-1, -0.5, -1, 0), Vec3(1, 1.5, 1, 0))))
+    items.append(BoxProxy[3](2, AABB[3](Vec3(4, 2, -1, 0), Vec3(6, 4, 1, 0))))
     var pipe = CollisionPipeline(BruteForce[3](), np2^)
     var manifolds = pipe.step(items)
     s.eqi(len(manifolds), 1, "pipeline: only the grounded ball")

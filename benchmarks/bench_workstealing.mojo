@@ -21,7 +21,7 @@ Read `static` against `stealing` within a row; `serial` is the reference for
 whether threading paid for itself at all.
 """
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.benchmark import keep
 from std.time import perf_counter_ns
 from harness.bench import BenchTable

@@ -41,10 +41,11 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
-struct FloatingChain(Movable, ImplicitlyDeletable):
+struct FloatingChain(Movable, Deinitable):
     """A `Chain` carried by a free rigid body.
 
     The base state is held in BODY coordinates, which is what makes the
@@ -67,10 +68,10 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
 
     def __init__(out self, mass: Real, com: Vec3, i_diag: Vec3):
         self.chain = Chain()
-        self.base_pos = Vec3(0, 0, 0)
+        self.base_pos = Vec3(0, 0, 0, 0)
         self.base_rot = Quat.identity()
-        self.base_w = Vec3(0, 0, 0)
-        self.base_v = Vec3(0, 0, 0)
+        self.base_w = Vec3(0, 0, 0, 0)
+        self.base_v = Vec3(0, 0, 0, 0)
         self.base_mass = mass
         self.base_com = com
         self.base_idiag = i_diag
@@ -124,16 +125,16 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
         var save_w = self.base_w
         var save_v = self.base_v
         var save_qd = self.chain.qd.copy()
-        self.base_w = Vec3(0, 0, 0)
-        self.base_v = Vec3(0, 0, 0)
+        self.base_w = Vec3(0, 0, 0, 0)
+        self.base_v = Vec3(0, 0, 0, 0)
         for i in range(nn):
             self.chain.qd[i] = 0
         self._sync()
 
         var ib = self._base_inertia()
         for k in range(d):
-            var aw = Vec3(0, 0, 0)
-            var av = Vec3(0, 0, 0)
+            var aw = Vec3(0, 0, 0, 0)
+            var av = Vec3(0, 0, 0, 0)
             var qdd = List[Real]()
             for _ in range(nn):
                 qdd.append(0)
@@ -142,18 +143,20 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
                     Real(1) if k == 0 else Real(0),
                     Real(1) if k == 1 else Real(0),
                     Real(1) if k == 2 else Real(0),
+                    0,
                 )
             elif k < 6:
                 av = Vec3(
                     Real(1) if k == 3 else Real(0),
                     Real(1) if k == 4 else Real(0),
                     Real(1) if k == 5 else Real(0),
+                    0,
                 )
             else:
                 qdd[k - 6] = 1
             self.chain.base_wa = aw
             self.chain.base_va = av
-            var r = self.chain.rnea_root(qdd, Vec3(0, 0, 0))
+            var r = self.chain.rnea_root(qdd, Vec3(0, 0, 0, 0))
             var tau = r[0].copy()
             var fw = r[1]
             var fv = r[2]
@@ -167,8 +170,8 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
             for j in range(nn):
                 h[(6 + j) * d + k] = tau[j]
 
-        self.chain.base_wa = Vec3(0, 0, 0)
-        self.chain.base_va = Vec3(0, 0, 0)
+        self.chain.base_wa = Vec3(0, 0, 0, 0)
+        self.chain.base_va = Vec3(0, 0, 0, 0)
         self.base_w = save_w
         self.base_v = save_v
         self.chain.qd = save_qd^
@@ -187,9 +190,9 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
         var qdd = List[Real]()
         for _ in range(nn):
             qdd.append(0)
-        self.chain.base_wa = Vec3(0, 0, 0)
-        self.chain.base_va = Vec3(0, 0, 0)
-        var r = self.chain.rnea_root(qdd, Vec3(0, 0, 0))
+        self.chain.base_wa = Vec3(0, 0, 0, 0)
+        self.chain.base_va = Vec3(0, 0, 0, 0)
+        var r = self.chain.rnea_root(qdd, Vec3(0, 0, 0, 0))
         var tau = r[0].copy()
         var fw = r[1]
         var fv = r[2]
@@ -251,8 +254,8 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
         var a = self.dynamics(tau, gravity)
         var nn = self.n()
         if not self.pinned:
-            self.base_w = self.base_w + Vec3(a[0], a[1], a[2]) * dt
-            self.base_v = self.base_v + Vec3(a[3], a[4], a[5]) * dt
+            self.base_w = self.base_w + Vec3(a[0], a[1], a[2], 0) * dt
+            self.base_v = self.base_v + Vec3(a[3], a[4], a[5], 0) * dt
         for i in range(nn):
             self.chain.qd[i] = self.chain.qd[i] + a[6 + i] * dt
         for i in range(nn):
@@ -293,12 +296,12 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
         var qdd = List[Real]()
         for _ in range(nn):
             qdd.append(0)
-        var m = self.chain.link_motion(qdd, Vec3(0, 0, 0))
+        var m = self.chain.link_motion(qdd, Vec3(0, 0, 0, 0))
         var local = self.chain.fk()
         var bm = self.base_motor()
 
-        var p_lin = Vec3(0, 0, 0)
-        var l_ang = Vec3(0, 0, 0)
+        var p_lin = Vec3(0, 0, 0, 0)
+        var l_ang = Vec3(0, 0, 0, 0)
 
         # base body
         var bq = self.base_rot
@@ -328,12 +331,12 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
 
 def _rotate_inertia(q: Quat, d: Vec3) -> List[Vec3]:
     """`R diag(d) R'` as three column vectors."""
-    var c0 = q.rotate(Vec3(d[0], 0, 0))
-    var c1 = q.rotate(Vec3(0, d[1], 0))
-    var c2 = q.rotate(Vec3(0, 0, d[2]))
-    var e0 = q.rotate(Vec3(1, 0, 0))
-    var e1 = q.rotate(Vec3(0, 1, 0))
-    var e2 = q.rotate(Vec3(0, 0, 1))
+    var c0 = q.rotate(Vec3(d[0], 0, 0, 0))
+    var c1 = q.rotate(Vec3(0, d[1], 0, 0))
+    var c2 = q.rotate(Vec3(0, 0, d[2], 0))
+    var e0 = q.rotate(Vec3(1, 0, 0, 0))
+    var e1 = q.rotate(Vec3(0, 1, 0, 0))
+    var e2 = q.rotate(Vec3(0, 0, 1, 0))
     var out = List[Vec3]()
     out.append(e0 * c0[0] + e1 * c1[0] + e2 * c2[0])
     out.append(e0 * c0[1] + e1 * c1[1] + e2 * c2[1])

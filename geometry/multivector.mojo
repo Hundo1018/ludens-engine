@@ -77,7 +77,7 @@ def _involute_sign(a: Int) -> Int:
 
 
 struct Multivector[p: Int, q: Int, r: Int](
-    Copyable, ImplicitlyCopyable, Movable, Defaultable, ImplicitlyDeletable
+    Copyable, ImplicitlyCopyable, Movable, Defaultable, Deinitable
 ):
     comptime DIM: Int = Self.p + Self.q + Self.r
     comptime BLADES: Int = 1 << Self.DIM
@@ -87,6 +87,12 @@ struct Multivector[p: Int, q: Int, r: Int](
 
     def __init__(out self):
         self.c = InlineArray[Real, Self.BLADES](fill=0)
+
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one can no longer have its copy
+        constructor synthesised."""
+        self.c = copy.c.copy()
 
     @staticmethod
     def scalar(w: Real) -> Self:

@@ -7,12 +7,12 @@ operator, so we compare IDs: `Self.CTs[i].ID == C.ID`). Keep IDs unique and
 densely packed from 0 within a given world.
 
 A component must be `Copyable & ImplicitlyCopyable` (stores copy values in and
-out), `Movable`, and `ImplicitlyDeletable` (so it can live behind generic
+out), `Movable`, and `Deinitable` (so it can live behind generic
 storage). Components are plain data — no methods required.
 """
 
 
-trait ComponentType(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+trait ComponentType(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     comptime ID: Int
 
 

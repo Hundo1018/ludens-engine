@@ -55,7 +55,7 @@ struct WrapSphere(Copyable, ImplicitlyCopyable, Movable):
 
     @staticmethod
     def none() -> Self:
-        return Self(Vec3(0, 0, 0), -1)
+        return Self(Vec3(0, 0, 0, 0), -1)
 
     def active(self) -> Bool:
         return self.radius > 0
@@ -148,14 +148,16 @@ def _plane_normal(u: Vec3, v: Vec3) -> Vec3:
         u[1] * v[2] - u[2] * v[1],
         u[2] * v[0] - u[0] * v[2],
         u[0] * v[1] - u[1] * v[0],
+        0,
     )
     var ln = length(n)
     if ln < 1e-9:  # collinear: any perpendicular will do
-        var t = Vec3(1, 0, 0) if abs(u[0]) < 0.9 else Vec3(0, 1, 0)
+        var t = Vec3(1, 0, 0, 0) if abs(u[0]) < 0.9 else Vec3(0, 1, 0, 0)
         n = Vec3(
             u[1] * t[2] - u[2] * t[1],
             u[2] * t[0] - u[0] * t[2],
             u[0] * t[1] - u[1] * t[0],
+            0,
         )
         ln = length(n)
     return n * (1.0 / ln)
@@ -171,6 +173,7 @@ def _rotate_about(v: Vec3, axis: Vec3, ang: Real) -> Vec3:
         axis[1] * v[2] - axis[2] * v[1],
         axis[2] * v[0] - axis[0] * v[2],
         axis[0] * v[1] - axis[1] * v[0],
+        0,
     )
     return v * c + cr * s + axis * (dot(axis, v) * (1 - c))
 
@@ -233,8 +236,8 @@ struct SpatialTendon(Copyable, Movable):
         var pts = self._points(c)
         var m = len(pts)
         for k in range(m):
-            var u_out = Vec3(0, 0, 0)
-            var u_in = Vec3(0, 0, 0)
+            var u_out = Vec3(0, 0, 0, 0)
+            var u_in = Vec3(0, 0, 0, 0)
             if k + 1 < m:
                 var r = _seg_path(pts[k], pts[k + 1], self.wraps[k])
                 u_out = r[1]
@@ -244,9 +247,9 @@ struct SpatialTendon(Copyable, Movable):
             var w = u_in - u_out
             if length(w) < 1e-12:
                 continue
-            var jx = c.point_jacobian(self.sites[k].link, self.sites[k].local, Vec3(1, 0, 0))
-            var jy = c.point_jacobian(self.sites[k].link, self.sites[k].local, Vec3(0, 1, 0))
-            var jz = c.point_jacobian(self.sites[k].link, self.sites[k].local, Vec3(0, 0, 1))
+            var jx = c.point_jacobian(self.sites[k].link, self.sites[k].local, Vec3(1, 0, 0, 0))
+            var jy = c.point_jacobian(self.sites[k].link, self.sites[k].local, Vec3(0, 1, 0, 0))
+            var jz = c.point_jacobian(self.sites[k].link, self.sites[k].local, Vec3(0, 0, 1, 0))
             for i in range(n):
                 out[i] += w[0] * jx[i] + w[1] * jy[i] + w[2] * jz[i]
         return out^

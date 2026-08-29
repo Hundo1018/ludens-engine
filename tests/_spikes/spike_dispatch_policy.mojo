@@ -5,7 +5,7 @@
 # The closure writes only its own disjoint arena slot `arena[i]` (no shared
 # mutation), so a following serial reduce is identical for both policies.
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from std.memory import alloc
 
 
@@ -46,7 +46,7 @@ def square_sum[D: DispatchPolicy](n: Int) -> Int:
     var s = 0
     for i in range(n):
         s += arena[i]
-    arena.free()
+    arena.unsafe_free()
     return s
 
 

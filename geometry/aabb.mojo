@@ -6,17 +6,17 @@ elementwise `comptime for` loops over `dim` lanes (SIMD `<=` collapses to a
 scalar `Bool` in this nightly, so it can't be used as a lane mask).
 """
 
-from .vec import WorldType, Real, lane_min, lane_max
+from .vec import WorldType, Real, lane_min, lane_max, PadW
 
 
 @fieldwise_init
-struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
-    var min: SIMD[WorldType, Self.dim]
-    var max: SIMD[WorldType, Self.dim]
+struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
+    var min: SIMD[WorldType, PadW[Self.dim]]
+    var max: SIMD[WorldType, PadW[Self.dim]]
 
     @staticmethod
     def from_center(
-        center: SIMD[WorldType, Self.dim], half: SIMD[WorldType, Self.dim]
+        center: SIMD[WorldType, PadW[Self.dim]], half: SIMD[WorldType, PadW[Self.dim]]
     ) -> Self:
         return Self(center - half, center + half)
 
@@ -26,7 +26,7 @@ struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
                 return False
         return True
 
-    def contains_point(self, p: SIMD[WorldType, Self.dim]) -> Bool:
+    def contains_point(self, p: SIMD[WorldType, PadW[Self.dim]]) -> Bool:
         comptime for i in range(Self.dim):
             if p[i] < self.min[i] or p[i] > self.max[i]:
                 return False
@@ -42,10 +42,10 @@ struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable
     def merge(self, o: Self) -> Self:
         return Self(lane_min(self.min, o.min), lane_max(self.max, o.max))
 
-    def center(self) -> SIMD[WorldType, Self.dim]:
+    def center(self) -> SIMD[WorldType, PadW[Self.dim]]:
         return (self.min + self.max) / 2
 
-    def half_extents(self) -> SIMD[WorldType, Self.dim]:
+    def half_extents(self) -> SIMD[WorldType, PadW[Self.dim]]:
         return (self.max - self.min) / 2
 
     def surface_area(self) -> Real:

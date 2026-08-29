@@ -58,12 +58,12 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
         self.gens = List[Int]()
         self.n_live = 0
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = self.slots[i].bitcast[List[Optional[T]]]()
             p.unsafe_deinit_pointee()
-            p.free()
+            p.unsafe_free()
 
     @staticmethod
     def _slot_of[C: ComponentType]() -> Int:

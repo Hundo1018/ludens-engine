@@ -16,7 +16,7 @@ from .component import ComponentType
 
 
 @fieldwise_init
-struct Record(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Record(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Where an entity lives. The archetype backend uses both fields; the
     sparse-set backend only needs liveness so it stores the generation in `row`."""
 
@@ -24,7 +24,7 @@ struct Record(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
     var row: Int
 
 
-trait StorageBackend(Defaultable, Movable, ImplicitlyDeletable):
+trait StorageBackend(Defaultable, Movable, Deinitable):
     # lifecycle
     def spawn(mut self) -> Entity: ...
     def despawn(mut self, e: Entity): ...

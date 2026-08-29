@@ -16,10 +16,10 @@ keep this module quaternion-free and break the dependency cycle.
 """
 
 from std.math import sin, cos
-from .vec import WorldType, Real, Vec2, Vec3
+from .vec import WorldType, Real, Vec2, Vec3, PadW
 
 
-struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Square `n×n` matrix, row-major. Aliased as `Mat2`/`Mat3`/`Mat4`."""
 
     comptime SIZE = Self.n * Self.n
@@ -27,6 +27,12 @@ struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
 
     def __init__(out self):
         self.m = InlineArray[Real, Self.SIZE](fill=Real(0))
+
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        Mojo 1.0, so a struct holding one can no longer have its copy
+        constructor synthesised."""
+        self.m = copy.m.copy()
 
     @staticmethod
     def zero() -> Self:
@@ -62,8 +68,8 @@ struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
                 r.m[j * Self.n + i] = self.m[i * Self.n + j]
         return r^
 
-    def row(self, i: Int) -> SIMD[WorldType, Self.n]:
-        var v = SIMD[WorldType, Self.n](0)
+    def row(self, i: Int) -> SIMD[WorldType, PadW[Self.n]]:
+        var v = SIMD[WorldType, PadW[Self.n]](0)
         comptime for k in range(Self.n):
             v[k] = self.m[i * Self.n + k]
         return v

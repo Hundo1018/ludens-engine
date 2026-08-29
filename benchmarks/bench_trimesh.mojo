@@ -32,7 +32,7 @@ from physics.solver6 import ContactScene6
 from harness.bench import BenchTable, now
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def heights(n: Int) -> List[Real]:
@@ -66,13 +66,13 @@ def bench_size(mut table: BenchTable, grid: Int, nq: Int):
     var mesh = f.to_trimesh()
     var tri_count = mesh.ntri()
     var q = query_boxes(nq, extent)
-    var half = Vec3(0.4, 0.4, 0.4)
+    var half = Vec3(0.4, 0.4, 0.4, 0)
 
     # --- brute: every triangle is a candidate ---
     var t0 = now()
     var cb = 0
     for i in range(nq):
-        var c = Vec3(q[3 * i], q[3 * i + 1], q[3 * i + 2])
+        var c = Vec3(q[3 * i], q[3 * i + 1], q[3 * i + 2], 0)
         var box = AABB[3](c - half, c + half)
         for t in range(tri_count):
             var p = mesh.tri(t)
@@ -92,7 +92,7 @@ def bench_size(mut table: BenchTable, grid: Int, nq: Int):
     var t2 = now()
     var cv = 0
     for i in range(nq):
-        var c = Vec3(q[3 * i], q[3 * i + 1], q[3 * i + 2])
+        var c = Vec3(q[3 * i], q[3 * i + 1], q[3 * i + 2], 0)
         var out = List[Int]()
         mesh.candidates(AABB[3](c - half, c + half), out)
         cv += len(out)
@@ -104,7 +104,7 @@ def bench_size(mut table: BenchTable, grid: Int, nq: Int):
     var t4 = now()
     var cf = 0
     for i in range(nq):
-        var c = Vec3(q[3 * i], q[3 * i + 1], q[3 * i + 2])
+        var c = Vec3(q[3 * i], q[3 * i + 1], q[3 * i + 2], 0)
         var out = List[Int]()
         f.candidates(AABB[3](c - half, c + half), out)
         cf += len(out)
@@ -123,7 +123,7 @@ def bench_step(mut table: BenchTable, grid: Int, nb: Int, steps: Int, as_field: 
     var extent = Real(grid - 1) * cell
     var f = HeightField(heights(grid), grid, grid, cell, 0, 0)
     var sc = ContactScene6[QuatBody6]()
-    var floor_body = QuatBody6.at_rest(Vec3(0, 0, 0), Inertia3.box(1, 30, 1, 30))
+    var floor_body = QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30))
     var label: String
     if as_field:
         _ = sc.add_heightfield(floor_body, heights(grid), grid, grid, cell, 0, 0)
@@ -143,10 +143,10 @@ def bench_step(mut table: BenchTable, grid: Int, nb: Int, steps: Int, as_field: 
         var v = Real((i * 6271) % 1000) / 1000.0
         _ = sc.add(
             QuatBody6.at_rest(
-                Vec3(u * extent, 4.0, v * extent),
+                Vec3(u * extent, 4.0, v * extent, 0),
                 Inertia3.box(2, 0.25, 0.25, 0.25),
             ),
-            Vec3(0.25, 0.25, 0.25), False,
+            Vec3(0.25, 0.25, 0.25, 0), False,
         )
     var t0 = now()
     for _ in range(steps):

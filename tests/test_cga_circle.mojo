@@ -21,7 +21,7 @@ def main() raises:
     var rng = SplitMix64.seeded(41)
 
     var c = Circle3.make(
-        Vec3(0.5, -0.25, 1.0), normalize(Vec3(0.3, 1.0, -0.2)), 2.0
+        Vec3(0.5, -0.25, 1.0, 0), normalize(Vec3(0.3, 1.0, -0.2, 0)), 2.0
     )
 
     # 1. random points
@@ -31,6 +31,7 @@ def main() raises:
             Real(rng.next_f32()) * 12 - 6,
             Real(rng.next_f32()) * 12 - 6,
             Real(rng.next_f32()) * 12 - 6,
+            0,
         )
         var e = abs(point_circle_dist_cga(c, p) - point_circle_dist(c, p))
         if e > worst:
@@ -53,12 +54,13 @@ def main() raises:
     for k in range(12):
         var ang = Real(k) * 0.5236
         var u = normalize(
-            (Vec3(1.0, 0.0, 0.0) - c.normal * (c.normal[0]))
+            (Vec3(1.0, 0.0, 0.0, 0) - c.normal * (c.normal[0]))
         )
         var v = Vec3(
             c.normal[1] * u[2] - c.normal[2] * u[1],
             c.normal[2] * u[0] - c.normal[0] * u[2],
             c.normal[0] * u[1] - c.normal[1] * u[0],
+            0,
         )
         var p = c.center + (u * Real(cos(Float64(ang))) + v * Real(sin(Float64(ang)))) * c.radius
         var d = point_circle_dist_cga(c, p)

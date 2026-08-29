@@ -12,10 +12,10 @@ Two nightly hazards shape the data structures here:
 Perpendicular search directions use the triple product tprod(a,b,c)=b*(a.c)-c*(a.b).
 """
 
-from .vec import WorldType, Real, dot
+from .vec import WorldType, Real, dot, PadW
 
 
-comptime _Vec[dim: Int] = SIMD[WorldType, dim]
+comptime _Vec[dim: Int] = SIMD[WorldType, PadW[dim]]
 
 
 @fieldwise_init

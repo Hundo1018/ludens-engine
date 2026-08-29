@@ -5,12 +5,12 @@ positions by the current velocity (semi-implicit Euler when called after the
 velocity solve). Static bodies (`inv_mass == 0`) are never moved.
 """
 
-from geometry.vec import WorldType, Real
+from geometry.vec import WorldType, Real, PadW
 from .rigidbody import RigidBody
 
 
 def apply_gravity[dim: Int](
-    mut bodies: List[RigidBody[dim]], dt: Real, gravity: SIMD[WorldType, dim]
+    mut bodies: List[RigidBody[dim]], dt: Real, gravity: SIMD[WorldType, PadW[dim]]
 ):
     for ref b in bodies:
         if not b.is_static():

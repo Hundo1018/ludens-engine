@@ -15,7 +15,7 @@ question this table answers.
 
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.benchmark import keep
 from harness.bench import BenchTable
 from scheduler.rng import Pcg32, Rng
@@ -45,8 +45,9 @@ def _scene(n: Int, extent: Real) -> List[BoxProxy[3]]:
             Real(rng.next_f32()) * extent,
             Real(rng.next_f32()) * extent,
             Real(rng.next_f32()) * extent,
+            0,
         )
-        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.4, 0.4, 0.4), c + Vec3(0.4, 0.4, 0.4))))
+        out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.4, 0.4, 0.4, 0), c + Vec3(0.4, 0.4, 0.4, 0))))
     return out^
 
 

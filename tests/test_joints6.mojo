@@ -5,7 +5,7 @@ from physics.rigid6 import Inertia3, QuatBody6, ScrewBody6, Body6
 from physics.solver6 import ContactScene6, Joint6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _len(v: Vec3) -> Float64:
@@ -28,7 +28,7 @@ def _pendulum_period_frames[B: Body6](
     if len(flips) >= 3:
         period = Float64(flips[2] - flips[0])
     var gap = _len(
-        sc.bodies[1].act(Vec3(0, 1, 0)) - sc.bodies[0].position()
+        sc.bodies[1].act(Vec3(0, 1, 0, 0)) - sc.bodies[0].position()
     )
     return (period, gap)
 
@@ -46,11 +46,11 @@ def main() raises:
     var sc = ContactScene6[QuatBody6]()
     var anchor_i = Inertia3.box(1, 0.05, 0.05, 0.05)
     var bob_i = Inertia3.box(1, 0.15, 0.15, 0.15)
-    _ = sc.add(QuatBody6.at_rest(Vec3(0, 2, 0), anchor_i), Vec3(0.05, 0.05, 0.05), True)
-    var bob = QuatBody6.at_rest(Vec3(0, 1, 0), bob_i)
-    bob.vel = Vec3(0.313, 0, 0)  # theta0 ~ 0.1 rad amplitude
-    _ = sc.add(bob, Vec3(0.15, 0.15, 0.15), False)
-    _ = sc.add_joint(Joint6.ball(0, 1, Vec3(0, 0, 0), Vec3(0, 1, 0)))
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, 2, 0, 0), anchor_i), Vec3(0.05, 0.05, 0.05, 0), True)
+    var bob = QuatBody6.at_rest(Vec3(0, 1, 0, 0), bob_i)
+    bob.vel = Vec3(0.313, 0, 0, 0)  # theta0 ~ 0.1 rad amplitude
+    _ = sc.add(bob, Vec3(0.15, 0.15, 0.15, 0), False)
+    _ = sc.add_joint(Joint6.ball(0, 1, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0)))
     var r1 = _pendulum_period_frames(sc^, 400)
     print("  ball pendulum: period frames =", r1[0], "gap =", r1[1])
     s.check(r1[0] > 0, "ball pendulum oscillates")
@@ -62,22 +62,22 @@ def main() raises:
 
     # 2. Same pendulum on the screw/GA representation: period parity.
     var ss = ContactScene6[ScrewBody6]()
-    _ = ss.add(ScrewBody6.at_rest(Vec3(0, 2, 0), anchor_i), Vec3(0.05, 0.05, 0.05), True)
-    var sbob = ScrewBody6.at_rest(Vec3(0, 1, 0), bob_i)
-    sbob.apply_impulse(Vec3(0.313, 0, 0), Vec3(0, 1, 0))  # m=1 -> v=0.313
-    _ = ss.add(sbob, Vec3(0.15, 0.15, 0.15), False)
-    _ = ss.add_joint(Joint6.ball(0, 1, Vec3(0, 0, 0), Vec3(0, 1, 0)))
+    _ = ss.add(ScrewBody6.at_rest(Vec3(0, 2, 0, 0), anchor_i), Vec3(0.05, 0.05, 0.05, 0), True)
+    var sbob = ScrewBody6.at_rest(Vec3(0, 1, 0, 0), bob_i)
+    sbob.apply_impulse(Vec3(0.313, 0, 0, 0), Vec3(0, 1, 0, 0))  # m=1 -> v=0.313
+    _ = ss.add(sbob, Vec3(0.15, 0.15, 0.15, 0), False)
+    _ = ss.add_joint(Joint6.ball(0, 1, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0)))
     var r2 = _pendulum_period_frames(ss^, 400)
     print("  screw pendulum: period frames =", r2[0])
     s.check(abs(r2[0] - r1[0]) <= 2, "pendulum period parity quat vs screw")
 
     # 3. Distance-joint pendulum: same analytic period.
     var sd = ContactScene6[QuatBody6]()
-    _ = sd.add(QuatBody6.at_rest(Vec3(0, 2, 0), anchor_i), Vec3(0.05, 0.05, 0.05), True)
-    var dbob = QuatBody6.at_rest(Vec3(0, 1, 0), Inertia3.box(1, 0.05, 0.05, 0.05))
-    dbob.vel = Vec3(0.313, 0, 0)
-    _ = sd.add(dbob, Vec3(0.05, 0.05, 0.05), False)
-    _ = sd.add_joint(Joint6.distance(0, 1, Vec3(0, 0, 0), Vec3(0, 0, 0), 1))
+    _ = sd.add(QuatBody6.at_rest(Vec3(0, 2, 0, 0), anchor_i), Vec3(0.05, 0.05, 0.05, 0), True)
+    var dbob = QuatBody6.at_rest(Vec3(0, 1, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05))
+    dbob.vel = Vec3(0.313, 0, 0, 0)
+    _ = sd.add(dbob, Vec3(0.05, 0.05, 0.05, 0), False)
+    _ = sd.add_joint(Joint6.distance(0, 1, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1))
     var r3 = _pendulum_period_frames(sd^, 400)
     print("  distance pendulum: period frames =", r3[0])
     s.check(
@@ -88,11 +88,11 @@ def main() raises:
     # 4. Hinge (axis z): an out-of-plane kick must be suppressed while the
     #    in-plane swing continues.
     var sh = ContactScene6[QuatBody6]()
-    _ = sh.add(QuatBody6.at_rest(Vec3(0, 2, 0), anchor_i), Vec3(0.05, 0.05, 0.05), True)
-    var hbob = QuatBody6.at_rest(Vec3(0, 1, 0), bob_i)
-    hbob.vel = Vec3(0.313, 0, 0.3)  # in-plane swing + out-of-plane kick
-    _ = sh.add(hbob, Vec3(0.15, 0.15, 0.15), False)
-    _ = sh.add_joint(Joint6.hinge(0, 1, Vec3(0, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1)))
+    _ = sh.add(QuatBody6.at_rest(Vec3(0, 2, 0, 0), anchor_i), Vec3(0.05, 0.05, 0.05, 0), True)
+    var hbob = QuatBody6.at_rest(Vec3(0, 1, 0, 0), bob_i)
+    hbob.vel = Vec3(0.313, 0, 0.3, 0)  # in-plane swing + out-of-plane kick
+    _ = sh.add(hbob, Vec3(0.15, 0.15, 0.15, 0), False)
+    _ = sh.add_joint(Joint6.hinge(0, 1, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0), Vec3(0, 0, 1, 0)))
     var max_z_transient = Float64(0)
     var max_z_settled = Float64(0)
     var max_x = Float64(0)

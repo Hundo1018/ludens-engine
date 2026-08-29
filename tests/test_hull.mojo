@@ -32,7 +32,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 # Vertex lists are FLAT (x, y, z per vertex). A `List[Vec3]` loses its tail
@@ -61,12 +61,12 @@ def case_face_face() -> List[Real]:
     """Two unit boxes overlapping 0.2 along y, as hulls. Returns
     [hit, count, |n.y|, depth]."""
     var ha = HullShape(_box_verts(0.5))
-    var hb = HullShape(_shifted(_box_verts(0.5), Vec3(0, 0.8, 0)))
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
-    var pa = ha.world(Vec3(0, 0, 0), ex, ey, ez)
-    var pb = hb.world(Vec3(0, 0, 0), ex, ey, ez)
+    var hb = HullShape(_shifted(_box_verts(0.5), Vec3(0, 0.8, 0, 0)))
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
+    var pa = ha.world(Vec3(0, 0, 0, 0), ex, ey, ez)
+    var pb = hb.world(Vec3(0, 0, 0, 0), ex, ey, ez)
     var na = ha.world_normals(ex, ey, ez)
     var nb = hb.world_normals(ex, ey, ez)
     var m = hull_manifold(pa, pb, na, nb)
@@ -80,13 +80,13 @@ def case_face_face() -> List[Real]:
 
 def case_box_parity() -> List[Real]:
     """The same configuration through the dedicated box-box manifold."""
-    var ax = InlineArray[Vec3, 3](fill=Vec3(0, 0, 0))
-    ax[0] = Vec3(1, 0, 0)
-    ax[1] = Vec3(0, 1, 0)
-    ax[2] = Vec3(0, 0, 1)
+    var ax = InlineArray[Vec3, 3](fill=Vec3(0, 0, 0, 0))
+    ax[0] = Vec3(1, 0, 0, 0)
+    ax[1] = Vec3(0, 1, 0, 0)
+    ax[2] = Vec3(0, 0, 1, 0)
     var m = box_box_manifold(
-        Vec3(0, 0, 0), ax, Vec3(0.5, 0.5, 0.5),
-        Vec3(0, 0.8, 0), ax, Vec3(0.5, 0.5, 0.5),
+        Vec3(0, 0, 0, 0), ax, Vec3(0.5, 0.5, 0.5, 0),
+        Vec3(0, 0.8, 0, 0), ax, Vec3(0.5, 0.5, 0.5, 0),
     )
     var out = List[Real](capacity=3)
     out.append(Real(1) if m.hit else Real(0))
@@ -97,15 +97,15 @@ def case_box_parity() -> List[Real]:
 
 def case_separated() -> Real:
     var ha = HullShape(_box_verts(0.5))
-    var hb = HullShape(_shifted(_box_verts(0.5), Vec3(0, 3.0, 0)))
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var hb = HullShape(_shifted(_box_verts(0.5), Vec3(0, 3.0, 0, 0)))
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
     var na = ha.world_normals(ex, ey, ez)
     var nb = hb.world_normals(ex, ey, ez)
     var m = hull_manifold(
-        ha.world(Vec3(0, 0, 0), ex, ey, ez),
-        hb.world(Vec3(0, 0, 0), ex, ey, ez),
+        ha.world(Vec3(0, 0, 0, 0), ex, ey, ez),
+        hb.world(Vec3(0, 0, 0, 0), ex, ey, ez),
         na, nb,
     )
     return Real(1) if m.hit else Real(0)
@@ -117,19 +117,19 @@ def case_rest(use_hull: Bool, use_bp: Bool) -> List[Real]:
     Returns [rest y, speed, bit pattern of y]."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 30, 1, 30)),
-        Vec3(30, 1, 30), True,
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
+        Vec3(30, 1, 30, 0), True,
     )
     var b: Int
     if use_hull:
         b = sc.add_hull(
-            QuatBody6.at_rest(Vec3(0, 0.6, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+            QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
             _box_verts(0.25), False,
         )
     else:
         b = sc.add(
-            QuatBody6.at_rest(Vec3(0, 0.6, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
-            Vec3(0.25, 0.25, 0.25), False,
+            QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+            Vec3(0.25, 0.25, 0.25, 0), False,
         )
     for _ in range(240):
         sc.step_soft(DT, G, broadphase=use_bp)
@@ -143,19 +143,19 @@ def case_mixed() -> List[Real]:
     """Hull, box and sphere resting in one scene."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 30, 1, 30)),
-        Vec3(30, 1, 30), True,
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
+        Vec3(30, 1, 30, 0), True,
     )
     var h = sc.add_hull(
-        QuatBody6.at_rest(Vec3(-1, 0.6, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+        QuatBody6.at_rest(Vec3(-1, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         _box_verts(0.25), False,
     )
     var bx = sc.add(
-        QuatBody6.at_rest(Vec3(0, 0.6, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
-        Vec3(0.25, 0.25, 0.25), False,
+        QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
+        Vec3(0.25, 0.25, 0.25, 0), False,
     )
     var sp = sc.add_sphere(
-        QuatBody6.at_rest(Vec3(1, 0.6, 0), Inertia3.sphere(2, 0.25)), 0.25, False
+        QuatBody6.at_rest(Vec3(1, 0.6, 0, 0), Inertia3.sphere(2, 0.25)), 0.25, False
     )
     for _ in range(240):
         sc.step_soft(DT, G)
@@ -177,11 +177,11 @@ def case_tetra_rest() -> Real:
     v.append(0.0); v.append(0.35); v.append(0.0)
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 30, 1, 30)),
-        Vec3(30, 1, 30), True,
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
+        Vec3(30, 1, 30, 0), True,
     )
     var t = sc.add_hull(
-        QuatBody6.at_rest(Vec3(0, 0.6, 0), Inertia3.box(2, 0.3, 0.3, 0.3)),
+        QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.3, 0.3, 0.3)),
         v^, False,
     )
     for _ in range(300):
@@ -192,9 +192,9 @@ def case_tetra_rest() -> Real:
 # ---------------------------------------------------------------- EXTREME
 def case_point_point() -> Real:
     var a = ConvexPoly[3]()
-    a.add(Vec3(0, 0, 0))
+    a.add(Vec3(0, 0, 0, 0))
     var b = ConvexPoly[3]()
-    b.add(Vec3(0, 0, 0))
+    b.add(Vec3(0, 0, 0, 0))
     var none = List[Real](capacity=1)
     return Real(hull_manifold(a, b, none, none).count)
 
@@ -202,36 +202,36 @@ def case_point_point() -> Real:
 def case_collinear() -> Real:
     """A segment hull against a box: no face on the segment side."""
     var ha = HullShape(_box_verts(0.5))
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
     var seg = ConvexPoly[3]()
-    seg.add(Vec3(-0.4, 0.45, 0))
-    seg.add(Vec3(0.4, 0.45, 0))
+    seg.add(Vec3(-0.4, 0.45, 0, 0))
+    seg.add(Vec3(0.4, 0.45, 0, 0))
     var na = ha.world_normals(ex, ey, ez)
     var none = List[Real](capacity=1)
-    var m = hull_manifold(ha.world(Vec3(0, 0, 0), ex, ey, ez), seg, na, none)
+    var m = hull_manifold(ha.world(Vec3(0, 0, 0, 0), ex, ey, ez), seg, na, none)
     return Real(m.count)
 
 
 def case_duplicates() -> Real:
     """Every vertex listed twice must not change the normal."""
     var ha = HullShape(_box_verts(0.5))
-    var raw = _shifted(_box_verts(0.5), Vec3(0, 0.8, 0))
+    var raw = _shifted(_box_verts(0.5), Vec3(0, 0.8, 0, 0))
     var dbl = List[Real](capacity=48)
     for i in range(len(raw)):
         dbl.append(raw[i])
     for i in range(len(raw)):
         dbl.append(raw[i])
     var hb = HullShape(dbl^)
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
     var na = ha.world_normals(ex, ey, ez)
     var nb = hb.world_normals(ex, ey, ez)
     var m = hull_manifold(
-        ha.world(Vec3(0, 0, 0), ex, ey, ez),
-        hb.world(Vec3(0, 0, 0), ex, ey, ez),
+        ha.world(Vec3(0, 0, 0, 0), ex, ey, ez),
+        hb.world(Vec3(0, 0, 0, 0), ex, ey, ez),
         na, nb,
     )
     return abs(m.normal[1]) if m.hit else Real(0)
@@ -242,14 +242,14 @@ def case_coincident() -> Real:
     only requirement is termination with a finite depth."""
     var ha = HullShape(_box_verts(0.5))
     var hb = HullShape(_box_verts(0.5))
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
     var na = ha.world_normals(ex, ey, ez)
     var nb = hb.world_normals(ex, ey, ez)
     var m = hull_manifold(
-        ha.world(Vec3(0, 0, 0), ex, ey, ez),
-        hb.world(Vec3(0, 0, 0), ex, ey, ez),
+        ha.world(Vec3(0, 0, 0, 0), ex, ey, ez),
+        hb.world(Vec3(0, 0, 0, 0), ex, ey, ez),
         na, nb,
     )
     var worst = Real(0)
@@ -275,13 +275,13 @@ def case_cloud() -> List[Real]:
                 cloud.append(Real(gy - 1) * 0.3)
                 cloud.append(Real(gz - 1) * 0.3)
     var ha = HullShape(cloud^)
-    var hb = HullShape(_shifted(_box_verts(0.5), Vec3(0, 0.8, 0)))
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var hb = HullShape(_shifted(_box_verts(0.5), Vec3(0, 0.8, 0, 0)))
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
     var m = hull_manifold(
-        ha.world(Vec3(0, 0, 0), ex, ey, ez),
-        hb.world(Vec3(0, 0, 0), ex, ey, ez),
+        ha.world(Vec3(0, 0, 0, 0), ex, ey, ez),
+        hb.world(Vec3(0, 0, 0, 0), ex, ey, ez),
         ha.world_normals(ex, ey, ez),
         hb.world_normals(ex, ey, ez),
     )
@@ -304,14 +304,14 @@ def case_flat() -> List[Real]:
                 thin.append(0.5 + 0.00005 * (Real(1) if sy == 1 else Real(-1)))
                 thin.append(0.5 * (Real(1) if sz == 1 else Real(-1)))
     var hb = HullShape(thin^)
-    var ex = Vec3(1, 0, 0)
-    var ey = Vec3(0, 1, 0)
-    var ez = Vec3(0, 0, 1)
+    var ex = Vec3(1, 0, 0, 0)
+    var ey = Vec3(0, 1, 0, 0)
+    var ez = Vec3(0, 0, 1, 0)
     var na = ha.world_normals(ex, ey, ez)
     var nb = hb.world_normals(ex, ey, ez)
     var m = hull_manifold(
-        ha.world(Vec3(0, 0, 0), ex, ey, ez),
-        hb.world(Vec3(0, 0, 0), ex, ey, ez),
+        ha.world(Vec3(0, 0, 0, 0), ex, ey, ez),
+        hb.world(Vec3(0, 0, 0, 0), ex, ey, ez),
         na, nb,
     )
     var worst = Real(0)

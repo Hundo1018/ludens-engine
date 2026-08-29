@@ -26,9 +26,10 @@ def _clustered(mut rng: XorShift64, n: Int) -> List[_Leaf[3]]:
             cx = bx + range_f(rng, -1.5, 1.5)
             cy = range_f(rng, -1.5, 1.5)
             cz = bx + range_f(rng, -1.5, 1.5)
-        var half = SIMD[WorldType, 3](range_f(rng, 0.2, 0.8))
+        var _h = range_f(rng, 0.2, 0.8)
+        var half = Vec3(_h, _h, _h, 0)  # explicit: a splat would put _h in the pad lane
         leaves.append(
-            _Leaf[3](AABB[3].from_center(Vec3(cx, cy, cz), half), i)
+            _Leaf[3](AABB[3].from_center(Vec3(cx, cy, cz, 0), half), i)
         )
     return leaves^
 
@@ -85,8 +86,10 @@ def main() raises:
             range_f(qrng, -35, 35),
             range_f(qrng, -35, 35),
             range_f(qrng, -35, 35),
+            0,
         )
-        var half = SIMD[WorldType, 3](range_f(qrng, 1, 8))
+        var _h = range_f(qrng, 1, 8)
+        var half = Vec3(_h, _h, _h, 0)  # explicit: a splat would put _h in the pad lane
         var box = AABB[3].from_center(c, half)
         var hm = List[Int]()
         var hs = List[Int]()
@@ -105,11 +108,13 @@ def main() raises:
             range_f(rrng, -40, 40),
             range_f(rrng, -40, 40),
             range_f(rrng, -40, 40),
+            0,
         )
         var d = Vec3(
             range_f(rrng, -1, 1),
             range_f(rrng, -1, 1),
             range_f(rrng, -1, 1),
+            0,
         )
         var dl = sqrt(Float64(d[0]) ** 2 + Float64(d[1]) ** 2 + Float64(d[2]) ** 2)
         if dl < 1e-6:

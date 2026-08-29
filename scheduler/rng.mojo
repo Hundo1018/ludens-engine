@@ -13,7 +13,7 @@ user seed through it so even a `0` seed yields a well-distributed initial state.
 from geometry.vec import Vec2, Vec3, normalize
 
 
-trait Rng(Defaultable, Movable, ImplicitlyDeletable):
+trait Rng(Defaultable, Movable, Deinitable):
     @staticmethod
     def seeded(seed: UInt64) -> Self: ...
     def next_u64(mut self) -> UInt64: ...
@@ -131,4 +131,4 @@ def unit_vec2[R: Rng](mut r: R) -> Vec2:
 
 
 def unit_vec3[R: Rng](mut r: R) -> Vec3:
-    return normalize(Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1)))
+    return normalize(Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1), 0))

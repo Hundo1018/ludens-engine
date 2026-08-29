@@ -56,29 +56,29 @@ struct Sdf3(Copyable, ImplicitlyCopyable, Movable):
     @staticmethod
     def sphere(c: Vec3, r: Real) -> Self:
         return Self(
-            KIND_SPHERE, c, Vec3(r, 0, 0), 0,
-            OP_NONE, 0, Vec3(0, 0, 0), Vec3(0, 0, 0), 0,
+            KIND_SPHERE, c, Vec3(r, 0, 0, 0), 0,
+            OP_NONE, 0, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 0,
         )
 
     @staticmethod
     def box(c: Vec3, half: Vec3) -> Self:
         return Self(
             KIND_BOX, c, half, 0,
-            OP_NONE, 0, Vec3(0, 0, 0), Vec3(0, 0, 0), 0,
+            OP_NONE, 0, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 0,
         )
 
     @staticmethod
     def plane(n: Vec3, d: Real) -> Self:
         return Self(
-            KIND_PLANE, Vec3(0, 0, 0), normalize(n), d,
-            OP_NONE, 0, Vec3(0, 0, 0), Vec3(0, 0, 0), 0,
+            KIND_PLANE, Vec3(0, 0, 0, 0), normalize(n), d,
+            OP_NONE, 0, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 0,
         )
 
     @staticmethod
     def capsule(c: Vec3, r: Real, half_y: Real) -> Self:
         return Self(
-            KIND_CAPSULE, c, Vec3(r, half_y, 0), 0,
-            OP_NONE, 0, Vec3(0, 0, 0), Vec3(0, 0, 0), 0,
+            KIND_CAPSULE, c, Vec3(r, half_y, 0, 0), 0,
+            OP_NONE, 0, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 0,
         )
 
     def combined(self, op: Int, o: Self) -> Self:
@@ -102,7 +102,7 @@ struct Sdf3(Copyable, ImplicitlyCopyable, Movable):
                 ty = e[1]
             if ty < -e[1]:
                 ty = -e[1]
-            return length(q - Vec3(0, ty, 0)) - e[0]
+            return length(q - Vec3(0, ty, 0, 0)) - e[0]
         # box
         var q = p - c
         var dx = abs(q[0]) - e[0]
@@ -137,12 +137,12 @@ struct Sdf3(Copyable, ImplicitlyCopyable, Movable):
         gradient is both simpler and better behaved there than stitching
         analytic pieces together."""
         comptime H: Real = 1e-3
-        var gx = self.distance(p + Vec3(H, 0, 0)) - self.distance(p - Vec3(H, 0, 0))
-        var gy = self.distance(p + Vec3(0, H, 0)) - self.distance(p - Vec3(0, H, 0))
-        var gz = self.distance(p + Vec3(0, 0, H)) - self.distance(p - Vec3(0, 0, H))
-        var g = Vec3(gx, gy, gz) * (1.0 / (2 * H))
+        var gx = self.distance(p + Vec3(H, 0, 0, 0)) - self.distance(p - Vec3(H, 0, 0, 0))
+        var gy = self.distance(p + Vec3(0, H, 0, 0)) - self.distance(p - Vec3(0, H, 0, 0))
+        var gz = self.distance(p + Vec3(0, 0, H, 0)) - self.distance(p - Vec3(0, 0, H, 0))
+        var g = Vec3(gx, gy, gz, 0) * (1.0 / (2 * H))
         var l = length(g)
-        return g / l if l > 1e-9 else Vec3(0, 1, 0)
+        return g / l if l > 1e-9 else Vec3(0, 1, 0, 0)
 
 
 @fieldwise_init

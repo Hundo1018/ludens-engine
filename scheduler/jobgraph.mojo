@@ -29,7 +29,7 @@ once, next to the system, instead of being implied by a list order somewhere
 else.
 """
 
-from std.algorithm import parallelize
+from max.algorithm import parallelize
 from ecs.world import World
 from ecs.storage import StorageBackend
 from .scheduler import Scheduler, System

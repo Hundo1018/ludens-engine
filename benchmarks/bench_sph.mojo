@@ -22,18 +22,18 @@ from geometry.vec import Real, Vec3
 from physics.pbf import PbfFluid
 from physics.sph import sph_step
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 comptime SP: Real = 0.06
 comptime SIM_TIME: Real = 1.0
 
 
 def _scene() -> PbfFluid:
-    var f = PbfFluid(Vec3(0, 0, 0), Vec3(0.6, 1.0, 0.6))
+    var f = PbfFluid(Vec3(0, 0, 0, 0), Vec3(0.6, 1.0, 0.6, 0))
     f.calibrate(SP)
     for i in range(6):
         for j in range(6):
             for k in range(6):
-                f.add(Vec3(0.12 + Real(i) * SP, 0.30 + Real(j) * SP, 0.12 + Real(k) * SP))
+                f.add(Vec3(0.12 + Real(i) * SP, 0.30 + Real(j) * SP, 0.12 + Real(k) * SP, 0))
     return f^
 
 

@@ -1170,3 +1170,73 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 布料可用性)→ **15.3 自動伴隨式**(最高天花板,但最貴)。
 > **與 Phase 14 的關係**:14 的 LBM 刻意**不需要** 15.1(格子波茲曼沒有壓力泊松),
 > 所以兩階段可並行;但若日後要做投影法 Navier-Stokes 或隱式 FEM,15.1 是前提。
+
+## Phase 16 — 切換到正式版 Mojo(2026-08-12,使用者指示)
+
+> **指示**:讓專案跟隨正式版 Mojo 而非 nightly。
+> 正式版是 **Mojo 1.0.0 / modular 26.5.0**(2026-08-05),其實**比**專案原本跑的
+> nightly beta `1.0.0b3.dev2026071805` **還新**。
+
+### 16.1 API 搬遷 — ✅ 完成(分支 `mojo-stable`)
+> - `std.gpu.host` → **`max.gpu.host`**(`DeviceContext`、`DeviceBuffer`)
+> - `std.algorithm.parallelize` → **`max.algorithm.parallelize`**
+> - `std.gpu` 仍有 `global_idx` 等 device 端 intrinsics;`barrier` 移到 `max.gpu.sync`
+> **一個我下錯的結論**:先前只探了 `std.*` 與 `_hal` 就判定「正式版缺 GPU host API
+> 與 parallelize」。**兩者都在 `max` 底下**,是使用者指出來的。教訓:Modular 的
+> Mojo 標準庫(`std`)與 MAX 提供的套件(`max`、`layout`、`algorithm`)是**兩個
+> import root**,缺一個符號要兩邊都探完才能下結論。
+
+### 16.2 `InlineArray` 不再 `ImplicitlyCopyable` — ✅ 完成
+> Mojo 1.0 起 `InlineArray`(型別顯示為 `Array`)不再隱式可複製。
+> - 8 個持有它的結構補**顯式複製建構子** `__init__(out self, *, copy: Self)`,
+>   內容是 `self.f = copy.f.copy()`:`Mat`、`GMV`、`Multivector`、`DcgaEntity`、
+>   `ContactManifold`、`SpInertia`、`_ABI`、`_CPair`、`FatObject`。
+> - 26 處回傳/傳參補 `^` 所有權轉移。
+> **兩處我補過頭**(已修正,值得記):不能從**不可變參考**的欄位轉移
+> (`Self(ii.io^, ...)` → `.copy()`);轉移後仍要再用的區域變數也不能轉移
+> (`_ABI(a2^, b2^, d2^)` 之後還讀 a2/b2/d2)。
+> 這兩種都是編譯器擋下來的,不是靜默錯誤。
+
+### 16.3 Vec3 重構(width-3 SIMD 被禁)— ✅ 完成(2026-08-12)
+
+> **路線圖全數完成。** 引擎在**正式版 Mojo 1.0.0 / modular 26.5.0** 上建置、
+> **116 個測試檔全綠**(含 5 組 GPU)、benchmark 報告已用正式版重測。
+
+> **問題**:正式版拒絕非 2 冪 SIMD 寬度,而 `Vec3` 是引擎基礎型別。
+> 目前的 nightly(1.1.0.dev2026081105)**也一樣禁止** —— 不是 stable 獨有,
+> 沒有「留在 nightly 就能避開」這個選項。
+
+#### 做法
+> - `Vec3` = `SIMD[WorldType, 4]`,**lane 3 恆 0**;1617 處三引數建構補 `, 0`。
+> - 維度泛型容器用 `comptime PadW[d: Int] = 4 if d == 3 else d`。
+>   **必須是條件式**:型別位置呼叫 `def` 不摺疊,算術式保持符號式
+>   (`SIMDLength(((Int(4) // Int(2)) * Int(2)))` 無法與 `SIMDLength(4)` 統一)。
+> - `dot` / `lane_min` / `lane_max` 改用 `reduce_add()` / `min()` / `max()`。
+> - `spatial/hash_grid.mojo` 的整數 cell 向量同樣補位。
+> - **GPU ABI**:Mojo 1.0 把 `Int`/`UInt` 移出 `DevicePassable`(大小由主機定義,
+>   kernel 卻是為裝置編譯的)。5 檔 10 個 kernel 改吃 `Int32`、在函式開頭加寬。
+> - `InlineArray` 不再隱式可複製:11 個結構補顯式 `__init__(out self, *, copy: Self)`,
+>   28 處補 `^`。
+> - 棄用清理:`ImplicitlyDeletable`→`Deinitable`、`.free()`→`.unsafe_free()`、
+>   `__del__`→`__deinit__`。**`bitcast` 刻意不改** —— 編譯器建議的 `unsafe_bitcast`
+>   在 `std.memory` / `std.builtin` / `std.sys` / prelude 都不存在,改了會壞掉。
+
+#### 真正花掉時間的東西:補位改寫器的三個漏洞,全是我自己的
+> 每一個都讓 lane 3 未初始化,而且症狀都偽裝成別的問題:
+> 1. **尾隨逗號** —— 多行呼叫的尾隨逗號留下空白末元素,被算成 4 引數而跳過(94 處)。
+> 2. **巢狀呼叫** —— 處理完外層就跳過整段,`Vec3(Vec3(1,0,0), ...)` 的內層從未走訪(14 處)。
+> 3. **非零 splat** —— `Vec3(h)` 會把 h 放進補位 lane(2 處)。
+>
+> 症狀:`test_gjk` **無限迴圈**(垃圾 lane → 支撐點錯誤 → GJK 永不收斂)、
+> `test_solver6` / `test_actuator` 崩潰、`test_aba` **撐爆 comptime 堆積**、
+> `test_sensors` 丟出**誤報的** `parent must exist`(損毀狀態下的假訊息)。
+> **一度以為是四個獨立問題,其實是同一個。**
+>
+> **守門**:`test_vec` 現在直接測不變量 —— 每個 Vec3 運算後 lane 3 必須為 0。
+> 這條當場抓到第 3 類。**這類 bug 不能再靠人眼守。**
+
+#### 順帶消滅的東西
+> 專案長期對抗的整類 width-3 危害(`List[Vec3]` 跨函式邊界損毀、teardown crash,
+> 見 [[mojo-nightly-runtime-hazards]])**根因就是舊 nightly 容忍了一個支援不完整的寬度**。
+> 現在那類 bug 不存在了。`SkinVert` / `HullVert` 之類的 struct 包裝繞道可以逐步拆,
+> **但要有測試證明才拆**。

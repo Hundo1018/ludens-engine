@@ -19,18 +19,18 @@ from geometry.vec import Real, Vec3
 from physics.pbf import PbfFluid
 from physics.sph import sph_step
 
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _block(mut f: PbfFluid, ox: Real, oy: Real, oz: Real, s: Int, sp: Real):
     for i in range(s):
         for j in range(s):
             for k in range(s):
-                f.add(Vec3(ox + Real(i) * sp, oy + Real(j) * sp, oz + Real(k) * sp))
+                f.add(Vec3(ox + Real(i) * sp, oy + Real(j) * sp, oz + Real(k) * sp, 0))
 
 
 def _scene(sp: Real) -> PbfFluid:
-    var f = PbfFluid(Vec3(0, 0, 0), Vec3(0.6, 1.0, 0.6))
+    var f = PbfFluid(Vec3(0, 0, 0, 0), Vec3(0.6, 1.0, 0.6, 0))
     f.calibrate(sp)
     _block(f, 0.12, 0.30, 0.12, 6, sp)
     return f^

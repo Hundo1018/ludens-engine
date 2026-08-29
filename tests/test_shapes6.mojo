@@ -5,7 +5,7 @@ from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
 
 
 def _len(v: Vec3) -> Float64:
@@ -14,8 +14,8 @@ def _len(v: Vec3) -> Float64:
 
 def _ground(mut sc: ContactScene6[QuatBody6]):
     _ = sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 10, 1, 10)),
-        Vec3(10, 1, 10),
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
+        Vec3(10, 1, 10, 0),
         True,
     )
 
@@ -27,7 +27,7 @@ def main() raises:
     var sd = ContactScene6[QuatBody6]()
     _ground(sd)
     var ball = sd.add_sphere(
-        QuatBody6.at_rest(Vec3(0, 1, 0), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(0, 1, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     for _ in range(240):
         sd.step_soft(DT, G)
@@ -40,7 +40,7 @@ def main() raises:
     var sb = ContactScene6[QuatBody6]()
     _ground(sb)
     var b2 = sb.add_sphere(
-        QuatBody6.at_rest(Vec3(0, 1.3, 0), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(0, 1.3, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     sb.set_restitution(b2, 0.8)
     var falling = True
@@ -61,14 +61,14 @@ def main() raises:
 
     # 3. Sphere-sphere head-on, zero G: momentum transfers to the resting one.
     var zz = ContactScene6[QuatBody6]()
-    var m1 = QuatBody6.at_rest(Vec3(-1, 0, 0), Inertia3.sphere(2, 0.25))
-    m1.vel = Vec3(3, 0, 0)
+    var m1 = QuatBody6.at_rest(Vec3(-1, 0, 0, 0), Inertia3.sphere(2, 0.25))
+    m1.vel = Vec3(3, 0, 0, 0)
     var s1 = zz.add_sphere(m1, 0.25, False)
     var s2i = zz.add_sphere(
-        QuatBody6.at_rest(Vec3(1, 0, 0), Inertia3.sphere(2, 0.25)), 0.25, False
+        QuatBody6.at_rest(Vec3(1, 0, 0, 0), Inertia3.sphere(2, 0.25)), 0.25, False
     )
     for _ in range(120):
-        zz.step_soft(DT, Vec3(0, 0, 0))
+        zz.step_soft(DT, Vec3(0, 0, 0, 0))
     var v1 = Float64(zz.bodies[s1].vel[0])
     var v2 = Float64(zz.bodies[s2i].vel[0])
     print("  sphere-sphere: v1", v1, "v2", v2, "sum", v1 + v2)
@@ -78,13 +78,13 @@ def main() raises:
     # 4. Tilted capsule falls over and rests LYING: centre at its radius.
     var cd = ContactScene6[QuatBody6]()
     _ground(cd)
-    var tilted = QuatBody6.at_rest(Vec3(0, 0.9, 0), Inertia3.capsule(2, 0.2, 0.4))
-    tilted.omega = Vec3(0, 0, 1.2)  # knock it over
+    var tilted = QuatBody6.at_rest(Vec3(0, 0.9, 0, 0), Inertia3.capsule(2, 0.2, 0.4))
+    tilted.omega = Vec3(0, 0, 1.2, 0)  # knock it over
     var cap = cd.add_capsule(tilted, 0.2, 0.4, False)
     for _ in range(600):
         cd.step_soft(DT, G)
     var cy = Float64(cd.bodies[cap].position()[1])
-    var up = cd.bodies[cap].q.rotate(Vec3(0, 1, 0))
+    var up = cd.bodies[cap].q.rotate(Vec3(0, 1, 0, 0))
     print("  capsule rest y:", cy, "axis up-component:", up[1])
     s.check(abs(cy - 0.2) < 0.03, "capsule rests lying at its radius")
     s.check(abs(Float64(up[1])) < 0.25, "capsule axis ended horizontal")
@@ -93,12 +93,12 @@ def main() raises:
     var st = ContactScene6[QuatBody6]()
     _ground(st)
     _ = st.add(
-        QuatBody6.at_rest(Vec3(0, 0.3, 0), Inertia3.box(4, 0.3, 0.3, 0.3)),
-        Vec3(0.3, 0.3, 0.3),
+        QuatBody6.at_rest(Vec3(0, 0.3, 0, 0), Inertia3.box(4, 0.3, 0.3, 0.3)),
+        Vec3(0.3, 0.3, 0.3, 0),
         False,
     )
     var topball = st.add_sphere(
-        QuatBody6.at_rest(Vec3(0, 0.95, 0), Inertia3.sphere(1, 0.2)), 0.2, False
+        QuatBody6.at_rest(Vec3(0, 0.95, 0, 0), Inertia3.sphere(1, 0.2)), 0.2, False
     )
     for _ in range(300):
         st.step_soft(DT, G)
@@ -112,12 +112,12 @@ def main() raises:
     var r1 = ContactScene6[QuatBody6]()
     _ground(r1)
     _ = r1.add_sphere(
-        QuatBody6.at_rest(Vec3(0.1, 1, 0.05), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(0.1, 1, 0.05, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     var r2 = ContactScene6[QuatBody6]()
     _ground(r2)
     _ = r2.add_sphere(
-        QuatBody6.at_rest(Vec3(0.1, 1, 0.05), Inertia3.sphere(2, 0.3)), 0.3, False
+        QuatBody6.at_rest(Vec3(0.1, 1, 0.05, 0), Inertia3.sphere(2, 0.3)), 0.3, False
     )
     for _ in range(200):
         r1.step_soft(DT, G)

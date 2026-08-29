@@ -26,19 +26,19 @@ from physics.solver6 import ContactScene6, ContactEvent
 from physics.serialize import scene_to_string, scene_from_string
 
 comptime DT: Real = 1.0 / 60.0
-comptime G = Vec3(0, -9.8, 0)
-comptime NO_G = Vec3(0, 0, 0)
+comptime G = Vec3(0, -9.8, 0, 0)
+comptime NO_G = Vec3(0, 0, 0, 0)
 
 
 def _floor(mut sc: ContactScene6[QuatBody6]) -> Int:
     return sc.add(
-        QuatBody6.at_rest(Vec3(0, -1, 0), Inertia3.box(1, 30, 1, 30)),
-        Vec3(30, 1, 30), True,
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
+        Vec3(30, 1, 30, 0), True,
     )
 
 
 def _crate(x: Real, y: Real) -> QuatBody6:
-    return QuatBody6.at_rest(Vec3(x, y, 0), Inertia3.box(2, 0.25, 0.25, 0.25))
+    return QuatBody6.at_rest(Vec3(x, y, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25))
 
 
 def _count(sc: ContactScene6[QuatBody6], kind: Int) -> Int:
@@ -54,8 +54,8 @@ def case_layers(cat_a: UInt32, mask_a: UInt32, cat_b: UInt32, mask_b: UInt32) ->
     """Two crates side by side, overlapping. Returns their final separation:
     if they collide they push apart, if they are filtered they do not move."""
     var sc = ContactScene6[QuatBody6]()
-    var a = sc.add(_crate(-0.2, 0), Vec3(0.25, 0.25, 0.25), False)
-    var b = sc.add(_crate(0.2, 0), Vec3(0.25, 0.25, 0.25), False)
+    var a = sc.add(_crate(-0.2, 0), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.2, 0), Vec3(0.25, 0.25, 0.25, 0), False)
     sc.set_filter(a, cat_a, mask_a)
     sc.set_filter(b, cat_b, mask_b)
     for _ in range(60):
@@ -70,9 +70,9 @@ def case_sensor() -> List[Real]:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
     _ = _floor(sc)
-    var trig = sc.add(_crate(0, 1.0), Vec3(0.5, 0.5, 0.5), True)
+    var trig = sc.add(_crate(0, 1.0), Vec3(0.5, 0.5, 0.5, 0), True)
     sc.set_sensor(trig, True)
-    var b = sc.add(_crate(0, 3.0), Vec3(0.25, 0.25, 0.25), False)
+    var b = sc.add(_crate(0, 3.0), Vec3(0.25, 0.25, 0.25, 0), False)
 
     var began = 0
     var ended = 0
@@ -96,7 +96,7 @@ def case_free_fall(steps: Int) -> Real:
     match, which is what proves the sensor applied no force."""
     var sc = ContactScene6[QuatBody6]()
     _ = _floor(sc)
-    var b = sc.add(_crate(0, 3.0), Vec3(0.25, 0.25, 0.25), False)
+    var b = sc.add(_crate(0, 3.0), Vec3(0.25, 0.25, 0.25, 0), False)
     for _ in range(steps):
         sc.step_soft(DT, G)
     return sc.bodies[b].position()[1]
@@ -109,7 +109,7 @@ def case_event_order() -> List[Real]:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
     _ = _floor(sc)
-    var b = sc.add(_crate(0, 0.3), Vec3(0.25, 0.25, 0.25), False)
+    var b = sc.add(_crate(0, 0.3), Vec3(0.25, 0.25, 0.25, 0), False)
     var b1 = 0
     var s1 = 0
     var b2 = 0
@@ -125,7 +125,7 @@ def case_event_order() -> List[Real]:
             b2 = _count(sc, 0)
             s2 = _count(sc, 1)
     # teleport the crate far away: the contact must END
-    sc.bodies[b].pos = Vec3(0, 40, 0)
+    sc.bodies[b].pos = Vec3(0, 40, 0, 0)
     sc.sleeping[b] = False
     sc.step_soft(DT, G)
     var ended = _count(sc, 2)
@@ -145,11 +145,11 @@ def case_seam(use_bp: Bool) -> List[Real]:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
     _ = _floor(sc)
-    var t = sc.add(_crate(0.6, 0.8), Vec3(0.4, 0.4, 0.4), True)
+    var t = sc.add(_crate(0.6, 0.8), Vec3(0.4, 0.4, 0.4, 0), True)
     sc.set_sensor(t, True)
-    var p1 = sc.add(_crate(-0.6, 0.6), Vec3(0.25, 0.25, 0.25), False)
-    var p2 = sc.add(_crate(-0.2, 0.6), Vec3(0.25, 0.25, 0.25), False)
-    var q = sc.add(_crate(0.6, 2.0), Vec3(0.25, 0.25, 0.25), False)
+    var p1 = sc.add(_crate(-0.6, 0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var p2 = sc.add(_crate(-0.2, 0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var q = sc.add(_crate(0.6, 2.0), Vec3(0.25, 0.25, 0.25, 0), False)
     # players (bit 1) ignore each other but hit the world (bit 0)
     sc.set_filter(p1, 2, 0xFFFFFFFD)
     sc.set_filter(p2, 2, 0xFFFFFFFD)
@@ -170,9 +170,9 @@ def case_roundtrip() raises -> List[Real]:
     them would reload into a scene that collides differently. Returns
     [original x gap, reloaded x gap, reloaded sensor flag]."""
     var sc = ContactScene6[QuatBody6]()
-    var a = sc.add(_crate(-0.2, 0), Vec3(0.25, 0.25, 0.25), False)
-    var b = sc.add(_crate(0.2, 0), Vec3(0.25, 0.25, 0.25), False)
-    var t = sc.add(_crate(5, 0), Vec3(0.25, 0.25, 0.25), True)
+    var a = sc.add(_crate(-0.2, 0), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.2, 0), Vec3(0.25, 0.25, 0.25, 0), False)
+    var t = sc.add(_crate(5, 0), Vec3(0.25, 0.25, 0.25, 0), True)
     sc.set_filter(a, 2, 0xFFFFFFFD)  # same layer, mutually excluded
     sc.set_filter(b, 2, 0xFFFFFFFD)
     sc.set_sensor(t, True)
@@ -202,10 +202,10 @@ def case_mesh_events() -> List[Real]:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
     _ = sc.add_trimesh(
-        QuatBody6.at_rest(Vec3(0, 0, 0), Inertia3.box(1, 30, 1, 30)), v^, idx^
+        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)), v^, idx^
     )
     # straddling the diagonal seam, so it touches both triangles
-    _ = sc.add(_crate(0.0, 0.6), Vec3(0.25, 0.25, 0.25), False)
+    _ = sc.add(_crate(0.0, 0.6), Vec3(0.25, 0.25, 0.25, 0), False)
     var began = 0
     for _ in range(180):
         sc.step_soft(DT, G)
@@ -221,7 +221,7 @@ def case_zero_mask() -> Real:
     """A mask of zero collides with nothing at all — including the floor."""
     var sc = ContactScene6[QuatBody6]()
     _ = _floor(sc)
-    var b = sc.add(_crate(0, 0.6), Vec3(0.25, 0.25, 0.25), False)
+    var b = sc.add(_crate(0, 0.6), Vec3(0.25, 0.25, 0.25, 0), False)
     sc.set_filter(b, 1, 0)
     for _ in range(120):
         sc.step_soft(DT, G)
@@ -233,8 +233,8 @@ def case_two_sensors() -> Real:
     dynamic, so nothing at all should move. Returns their separation."""
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
-    var a = sc.add(_crate(-0.1, 0), Vec3(0.25, 0.25, 0.25), False)
-    var b = sc.add(_crate(0.1, 0), Vec3(0.25, 0.25, 0.25), False)
+    var a = sc.add(_crate(-0.1, 0), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.1, 0), Vec3(0.25, 0.25, 0.25, 0), False)
     sc.set_sensor(a, True)
     sc.set_sensor(b, True)
     for _ in range(60):

@@ -37,11 +37,11 @@ def _axes(theta: Real, phi: Real) -> Axes3:
     var st = sin(theta)
     var cp = cos(phi)
     var sp = sin(phi)
-    var a = Axes3(fill=Vec3(0, 0, 0))
-    a[0] = Vec3(ct, st, 0)
-    a[1] = Vec3(-st * cp, ct * cp, sp)
-    a[2] = Vec3(st * sp, -ct * sp, cp)
-    return a
+    var a = Axes3(fill=Vec3(0, 0, 0, 0))
+    a[0] = Vec3(ct, st, 0, 0)
+    a[1] = Vec3(-st * cp, ct * cp, sp, 0)
+    a[2] = Vec3(st * sp, -ct * sp, cp, 0)
+    return a^
 
 
 @fieldwise_init
@@ -56,6 +56,17 @@ struct _Cast(Copyable, ImplicitlyCopyable, Movable):
     var hb: Vec3
     var disp: Vec3  # per-step displacement of b relative to a
 
+    def __init__(out self, *, copy: Self):
+        """Explicit copy: `Axes3` is an `InlineArray`, which is not
+        `ImplicitlyCopyable` in Mojo 1.0."""
+        self.ca = copy.ca
+        self.axa = copy.axa.copy()
+        self.ha = copy.ha
+        self.cb = copy.cb
+        self.axb = copy.axb.copy()
+        self.hb = copy.hb
+        self.disp = copy.disp
+
 
 def _scene(n: Int) -> List[_Cast]:
     var rng = Rng(0xCCD)
@@ -63,21 +74,23 @@ def _scene(n: Int) -> List[_Cast]:
     for _ in range(n):
         var axa = _axes(rng.next_f() * 6.28, rng.next_f() * 3.14)
         var axb = _axes(rng.next_f() * 6.28, rng.next_f() * 3.14)
-        var ca = Vec3(rng.next_f(), rng.next_f(), rng.next_f())
+        var ca = Vec3(rng.next_f(), rng.next_f(), rng.next_f(), 0)
         # target sits 1-3 units up-range along x, slight lateral scatter
         var cb = ca + Vec3(
             1.0 + 2.0 * rng.next_f(),
             (rng.next_f() - 0.5) * 0.8,
             (rng.next_f() - 0.5) * 0.8,
+            0,
         )
         # bullet-grade approach: 2-4 units per step back toward a
         var disp = Vec3(
             -(2.0 + 2.0 * rng.next_f()),
             (rng.next_f() - 0.5) * 0.4,
             (rng.next_f() - 0.5) * 0.4,
+            0,
         )
         casts.append(_Cast(
-            ca, axa, Vec3(0.3, 0.3, 0.3), cb, axb, Vec3(0.1, 0.1, 0.1), disp
+            ca, axa.copy(), Vec3(0.3, 0.3, 0.3, 0), cb, axb.copy(), Vec3(0.1, 0.1, 0.1, 0), disp
         ))
     return casts^
 
@@ -96,7 +109,7 @@ def main() raises:
     for k in range(len(casts)):
         var c = casts[k]
         var margin = SPEC_BASE + sqrt(dot(c.disp, c.disp))
-        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5)
+        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
         var m = box_box_manifold(
             c.ca, c.axa, c.ha + infl, c.cb, c.axb, c.hb + infl
         )

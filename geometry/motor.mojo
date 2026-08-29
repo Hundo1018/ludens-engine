@@ -39,7 +39,7 @@ comptime _T120 = 0b1011  # e1e2e0
 
 
 @fieldwise_init
-struct Motor3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Motor3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """3D rigid motion (rotation + translation) — 8 floats, ≅ dual quaternion."""
 
     var s: Real  # scalar
@@ -129,14 +129,14 @@ struct Motor3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
         """Split M = T·R into (rotation quat, translation)."""
         var q = Quat(-self.b23, self.b13, -self.b12, self.s)
         var t = self * Self.from_quat(q).reverse()
-        return (q, Vec3(t.b10 * 2, t.b20 * 2, t.b30 * 2))
+        return (q, Vec3(t.b10 * 2, t.b20 * 2, t.b30 * 2, 0))
 
     def to_mat4(self) -> Mat4:
         """Convert once, then batch-transform points by matrix — the sandwich
         (`apply_point`) is exact but costs two full geometric products, so bulk
         point work should go through the matrix (or a SIMD column)."""
         var qt = self.to_quat_translation()
-        return compose_trs4(qt[1], qt[0], Vec3(1, 1, 1))
+        return compose_trs4(qt[1], qt[0], Vec3(1, 1, 1, 0))
 
     # --- action ---
     @always_inline
@@ -149,7 +149,7 @@ struct Motor3(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
         P.c[_T120] = -pt[2]
         var R = self.to_mv() * P * self.to_mv().reverse()
         var w = R.c[_E123]
-        return Vec3(-R.c[_T230] / w, R.c[_T130] / w, -R.c[_T120] / w)
+        return Vec3(-R.c[_T230] / w, R.c[_T130] / w, -R.c[_T120] / w, 0)
 
 
 # ---------------------------------------------------------------- Motor2
@@ -161,7 +161,7 @@ comptime _E12 = 0b011
 
 
 @fieldwise_init
-struct Motor2(Copyable, ImplicitlyCopyable, Movable, ImplicitlyDeletable):
+struct Motor2(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """2D rigid motion — 4 floats (rotation angle + translation)."""
 
     var s: Real  # scalar
