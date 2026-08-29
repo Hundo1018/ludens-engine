@@ -1217,25 +1217,34 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 >   已失效,而手寫形式在維度泛型中會拿到未摺疊的 `PadW[D]` 當迴圈上界。
 > - 整個引擎**在正式版上建置乾淨**。
 
-#### 未完成:三個失敗族群(這才是剩下的工作)
-> 抽樣 10 個測試 8 過。已知失敗與**實測到的**症狀:
->
-> **(a) `test_gjk` —— 無限迴圈,不是崩潰。**
-> 用 `-debug-level=line-tables` 建置編譯乾淨、執行後掛住直到 timeout。
-> **最可能的根因**:某條建構路徑沒有把補位 lane 歸零,`dot` 把垃圾算進去,
-> 於是 GJK 的支撐點錯誤、收斂條件永遠不成立。
-> `geometry/gjk.mojo` 的 `_Pt[dim]` / `ConvexPoly` 用 `PadW`,是第一個要查的地方。
-> **查法**:在 `ConvexPoly.add` 與 `_Pt` 建構處斷言 `v[3] == 0`,跑到第一個違反者。
->
-> **(b) `test_solver6`、`test_actuator` —— 執行期崩潰。**
-> 兩者都經由 `collision/manifold.mojo`(有用 `PadW`),與 (a) 很可能同源。
-> **先修 (a) 再重測**,不要並行猜兩個。
->
-> **(c) `test_aba` —— `HEAP_BUFFER_BYTES exceeded`,且調大上限無效。**
-> **已排除**:不是 `dot` 的 comptime 迴圈(改成 `reduce_add` 後症狀不變)。
-> `physics/chain.mojo` **完全沒有用到 `PadW`**,所以也不是維度泛型未摺疊。
-> 剩下的嫌疑是 `_Rows3 = InlineArray[Vec3, 3]` 在 comptime 求值路徑上的某處。
-> **查法**:二分 `test_aba` 的呼叫,找出觸發的最小表達式。
+#### 進度(2026-08-12 更新):90 / 116 測試檔通過
+> **三個失敗族群其實是同一個根因,而且是我自己造成的。** 補位改寫器以「頂層逗號切分後
+> 計數」判斷是不是 3 引數呼叫,但**多行呼叫的尾隨逗號**會留下一個只有空白的末元素,
+> 於是那些呼叫被算成 4 引數而跳過 —— 共 94 處,每一處都用 3 個值初始化 4 lane 向量,
+> **lane 3 未初始化**。症狀之所以看起來毫不相干,正是因為污染的是歸約:
+> `test_gjk` 無限迴圈(垃圾 lane 讓支撐點錯誤、GJK 永不收斂)、
+> `test_solver6` / `test_actuator` 經 manifold 崩潰、`test_aba` 撐爆 comptime 堆積。
+> 補完後四個全過。
+> **原本的假設(`dot` 的 comptime 迴圈拿到未摺疊的 `PadW[D]`)是錯的** ——
+> 改成 `reduce_add` 後症狀不變;不過那個改動本身仍然正確,已保留。
+> **新增守門**:`test_vec` 直接測不變量 —— 每個 Vec3 運算後 lane 3 必須為 0。
+> 這條抓到 SAH 測試裡兩處 `Vec3(h)` splat(非零純量會進補位 lane)。
+> **其他已修**:`spatial/hash_grid.mojo` 的 `SIMD[DType.int32, dim]`(純 float 的
+> 那一輪沒掃到的整數向量);**GPU ABI** —— Mojo 1.0 把 `Int`/`UInt` 移出
+> `DevicePassable`(大小由主機定義,而 kernel 是為裝置編譯的),5 個檔 10 個 kernel
+> 改吃 `Int32` 並在函式開頭加寬,GPU 5 個測試全過。
+
+#### 剩餘:`test_sensors`
+> 症狀:`Chain` 建構時丟出 `parent must exist before the child`,
+> 發生在第 86 行與第 133 行的 print 之間(即 §4 的兩連桿有限差分段)。
+> **已排除**:同樣的呼叫序列單獨重現**會過**(`add_link` → `add_link_to(0, ...)`、
+> 以及 `cp.add_link(c.links[0])` 的鏈複製都正常)。
+> 所以是**狀態相依**的,懷疑與我為 `SpInertia` / `_ABI` / `ChainLink` 新增的
+> 顯式複製建構子有關(同一測試裡有三個 `Chain` 同時存活)。
+> 輸出末尾那個孤立的 `P` 是被截斷的寫入,暗示是中止而不是乾淨的 raise ——
+> 也就是說 `parent must exist` 可能是**損毀狀態下的誤報**,而不是真正的成因。
+> **下一步查法**:在 §4 每個 `Chain` 操作前後印 `len(links)`,找出第一個不一致的點;
+> 若確認是複製建構子,對 `_Rows3` 的複製加不變量斷言。
 
 #### 執行順序
 > 1. **修 (a)**,以「lane 3 恆 0」斷言為工具而非猜測;修完重跑 (b)。
