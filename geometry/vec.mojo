@@ -51,12 +51,20 @@ def vlanes(d: Int) -> Int:
 
 
 def dot[w: SIMDSize, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
-    """Lane-wise multiply then sum. Manual reduction (width-3 `reduce_add` is broken)."""
-    var prod = a * b
-    var s = Real(0)
-    comptime for i in range(Int(w)):
-        s += prod[i]
-    return s
+    """Lane-wise multiply then horizontal sum.
+
+    This was a hand-written `comptime for` reduction because `reduce_add` was
+    broken at width 3. Every vector width is a power of two now, so the
+    hardware reduction is both correct and cheaper -- and the hand-written form
+    had become actively harmful: `w` is INFERRED, so in dimension-generic code
+    it arrives as the unfolded `PadW[D]`, and `comptime for i in range(Int(w))`
+    over a symbolic bound exhausts the comptime interpreter's heap instead of
+    unrolling. That is what `HEAP_BUFFER_BYTES exceeded` was, and why raising
+    the limit did not help.
+
+    Summing every lane is correct for a padded 3-vector because lane 3 is
+    always zero -- see the `Vec3` alias for why that invariant holds."""
+    return (a * b).reduce_add()
 
 
 def length_sq[w: SIMDSize, //](a: SIMD[WorldType, w]) -> Real:
@@ -81,21 +89,14 @@ def normalize[w: SIMDSize, //](a: SIMD[WorldType, w]) -> SIMD[WorldType, w]:
 def lane_min[w: SIMDSize, //](
     a: SIMD[WorldType, w], b: SIMD[WorldType, w]
 ) -> SIMD[WorldType, w]:
-    var r = a
-    comptime for i in range(Int(w)):
-        if b[i] < r[i]:
-            r[i] = b[i]
-    return r
+    # Element-wise, for the same reason `dot` no longer hand-rolls its loop.
+    return min(a, b)
 
 
 def lane_max[w: SIMDSize, //](
     a: SIMD[WorldType, w], b: SIMD[WorldType, w]
 ) -> SIMD[WorldType, w]:
-    var r = a
-    comptime for i in range(Int(w)):
-        if b[i] > r[i]:
-            r[i] = b[i]
-    return r
+    return max(a, b)
 
 
 def splat[d: Int](v: Real) -> SIMD[WorldType, PadW[d]]:

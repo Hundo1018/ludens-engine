@@ -1197,27 +1197,59 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > (`_ABI(a2^, b2^, d2^)` 之後還讀 a2/b2/d2)。
 > 這兩種都是編譯器擋下來的,不是靜默錯誤。
 
-### 16.3 Vec3 重構(width-3 SIMD 被禁)— 🔄 進行中,**這是切換的真正阻礙**
-> **問題**:正式版**拒絕非 2 冪的 SIMD 寬度**——
-> `SIMD[DType.float32, 3]` 連 3 行的最小程式都編不過
-> (`SIMD vector length must be a power of two`;width 2 與 4 皆正常)。
-> 而 `comptime Vec3 = SIMD[WorldType, 3]` 是整個引擎的基礎型別。
-> **現況**:整個引擎在正式版上**建置成功**(型別層面成立),
-> 但**任何程式一執行就在 LLVM lowering 掛掉**,所以 116 個測試一個都跑不了。
-> **規模**:153 個檔案用 `Vec3`;**84 個泛型 `SIMD[WorldType, dim]` 站點**
-> (`dim=3` 時就是 width-3,繞過了 alias,這些才是難的);104 個 `AABB3`/`dim=3` 實例化。
-> **做法**:`Vec3` 改成包 `SIMD[WorldType, 4]` 的 struct,lane 3 恆為 0
-> (保留 3 引數建構子、`v[i]`、全套運算子);泛型維度站點改用 `VecN[dim]` 包裝,
-> 其寬度由 comptime 函式把 3 映射到 4。
-> lane 3 恆 0 這個不變量讓 `dot`/`length` 的手寫歸約**不必改**——
-> 多加的那一項恆為 0。風險在於任何**未初始化 lane 3** 的建構路徑。
-> **副作用**:width 4 的對齊與記憶體流量不同於 width 3,
-> **`BENCHMARK_REPORT.md` 每一個數字都要重測**。
-> **順帶消滅的東西**:專案長期對抗的整類 width-3 危害
-> (`List[Vec3]` 跨函式邊界損毀、teardown crash,見 [[mojo-nightly-runtime-hazards]])
-> **根因就是 nightly 容忍了一個支援不完整的寬度**。正式版直接禁止它,
-> 重構完成後那類 bug 從此不存在。
-> **執行順序(重要)**:**先在 nightly 上完成重構並讓現有 116 個測試全綠**,
-> 用它們當 parity 閘門;**最後一步才翻 channel**。
-> 反過來做會讓整個重構期間沒有任何測試可以跑,等於盲改 153 個檔案。
+### 16.3 Vec3 重構(width-3 SIMD 被禁)— 🔄 進行中(分支 `mojo-stable`)
+
+> **這是路線圖唯一剩餘的項目。** 其餘 32 個編號項目全部 ✅。
+
+> **問題**:正式版 Mojo 1.0.0 **拒絕非 2 冪的 SIMD 寬度**,
+> `SIMD[DType.float32, 3]` 連 3 行的最小程式都編不過;而 `Vec3` 是引擎基礎型別。
+> 目前的 nightly(1.1.0.dev2026081105)**也一樣禁止** —— 這不是 stable 獨有,
+> 是 Mojo 本身的改動,專案原本釘的舊 nightly 只是改動之前的版本。
+> 所以沒有「留在 nightly 就能避開」這個選項。
+
+#### 已完成
+> - `Vec3` 改為 `SIMD[WorldType, 4]`,**lane 3 恆 0**;1509 處三引數建構補 `, 0`。
+> - 維度泛型容器改用 `comptime PadW[d: Int] = 4 if d == 3 else d`。
+>   **必須是條件式**:型別位置呼叫 `def` 不會摺疊,算術式會保持符號式
+>   (`SIMDLength(((Int(4) // Int(2)) * Int(2)))` 無法與 `SIMDLength(4)` 統一)。
+> - `dot` / `lane_min` / `lane_max` 從手寫 `comptime for i in range(Int(w))`
+>   改為 `reduce_add()` / `min()` / `max()`。原本的理由(width-3 的 `reduce_add` 壞掉)
+>   已失效,而手寫形式在維度泛型中會拿到未摺疊的 `PadW[D]` 當迴圈上界。
+> - 整個引擎**在正式版上建置乾淨**。
+
+#### 未完成:三個失敗族群(這才是剩下的工作)
+> 抽樣 10 個測試 8 過。已知失敗與**實測到的**症狀:
+>
+> **(a) `test_gjk` —— 無限迴圈,不是崩潰。**
+> 用 `-debug-level=line-tables` 建置編譯乾淨、執行後掛住直到 timeout。
+> **最可能的根因**:某條建構路徑沒有把補位 lane 歸零,`dot` 把垃圾算進去,
+> 於是 GJK 的支撐點錯誤、收斂條件永遠不成立。
+> `geometry/gjk.mojo` 的 `_Pt[dim]` / `ConvexPoly` 用 `PadW`,是第一個要查的地方。
+> **查法**:在 `ConvexPoly.add` 與 `_Pt` 建構處斷言 `v[3] == 0`,跑到第一個違反者。
+>
+> **(b) `test_solver6`、`test_actuator` —— 執行期崩潰。**
+> 兩者都經由 `collision/manifold.mojo`(有用 `PadW`),與 (a) 很可能同源。
+> **先修 (a) 再重測**,不要並行猜兩個。
+>
+> **(c) `test_aba` —— `HEAP_BUFFER_BYTES exceeded`,且調大上限無效。**
+> **已排除**:不是 `dot` 的 comptime 迴圈(改成 `reduce_add` 後症狀不變)。
+> `physics/chain.mojo` **完全沒有用到 `PadW`**,所以也不是維度泛型未摺疊。
+> 剩下的嫌疑是 `_Rows3 = InlineArray[Vec3, 3]` 在 comptime 求值路徑上的某處。
+> **查法**:二分 `test_aba` 的呼叫,找出觸發的最小表達式。
+
+#### 執行順序
+> 1. **修 (a)**,以「lane 3 恆 0」斷言為工具而非猜測;修完重跑 (b)。
+> 2. **修 (c)**,獨立處理。
+> 3. **全套 116 測試綠燈** —— 這是唯一的完成判準。
+> 4. `ImplicitlyDeletable` → `Deinitable`(79 處棄用警告,機械性)。
+> 5. **重新產生 `BENCHMARK_REPORT.md`**。width 4 的對齊與記憶體流量與 width 3 不同,
+>    **每一個數字都會變**;報告散文裡引用具體數字的段落要逐條重新核對
+>    (`scripts/run_benchmarks.sh` 才是散文的來源)。
+> 6. 合併 `mojo-stable` → `dev`。
+
+#### 完成後順帶得到的東西
+> 專案長期對抗的整類 width-3 危害(`List[Vec3]` 跨函式邊界損毀、teardown crash,
+> 見 [[mojo-nightly-runtime-hazards]])**根因就是 nightly 容忍了一個支援不完整的寬度**。
+> 重構完成後那類 bug 從此不存在,`SkinVert` / `HullVert` 之類的 struct 包裝繞道
+> 也可以逐步拆掉(**但要有測試證明才拆,不要順手**)。
 
