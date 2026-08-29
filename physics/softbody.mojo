@@ -75,6 +75,7 @@ struct SoftBody(Movable, ImplicitlyDeletable):
                         Real(i) / Real(n - 1) * 2 - 1,
                         Real(j) / Real(n - 1) * 2 - 1,
                         Real(k) / Real(n - 1) * 2 - 1,
+                        0,
                     )
                     sb.pts.append(
                         _SP(center + f * half, Vec3(0, 0, 0, 0), 1 / per)

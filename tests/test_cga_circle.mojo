@@ -31,6 +31,7 @@ def main() raises:
             Real(rng.next_f32()) * 12 - 6,
             Real(rng.next_f32()) * 12 - 6,
             Real(rng.next_f32()) * 12 - 6,
+            0,
         )
         var e = abs(point_circle_dist_cga(c, p) - point_circle_dist(c, p))
         if e > worst:
@@ -59,6 +60,7 @@ def main() raises:
             c.normal[1] * u[2] - c.normal[2] * u[1],
             c.normal[2] * u[0] - c.normal[0] * u[2],
             c.normal[0] * u[1] - c.normal[1] * u[0],
+            0,
         )
         var p = c.center + (u * Real(cos(Float64(ang))) + v * Real(sin(Float64(ang)))) * c.radius
         var d = point_circle_dist_cga(c, p)

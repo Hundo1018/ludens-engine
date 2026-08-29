@@ -44,17 +44,22 @@ def morton_kernel[LT: TensorLayout](
     cz: TileTensor[fdt, LT, MutAnyOrigin],
     codes: TileTensor[udt, LT, MutAnyOrigin],
     idx: TileTensor[udt, LT, MutAnyOrigin],
-    n: Int,
-    npad: Int,
+    n: Int32,
+    npad: Int32,
     minx: Float32, miny: Float32, minz: Float32,
     invx: Float32, invy: Float32, invz: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var n_ = Int(n)
+    var npad_ = Int(npad)
     comptime assert cx.flat_rank == 1
     var g = global_idx.x
-    if g >= npad:
+    if g >= npad_:
         return
     var i = Int(g)
-    if i >= n:
+    if i >= n_:
         # padding lanes sort to the end and are dropped on the host
         codes[i] = rebind[codes.ElementType](UInt32(0xFFFFFFFF))
         idx[i] = rebind[idx.ElementType](UInt32(i))
@@ -89,22 +94,28 @@ def morton_kernel[LT: TensorLayout](
 def bitonic_kernel[LT: TensorLayout](
     codes: TileTensor[udt, LT, MutAnyOrigin],
     idx: TileTensor[udt, LT, MutAnyOrigin],
-    npad: Int,
-    k: Int,
-    j: Int,
+    npad: Int32,
+    k: Int32,
+    j: Int32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var npad_ = Int(npad)
+    var k_ = Int(k)
+    var j_ = Int(j)
     """One compare-exchange stage of a bitonic sort. Fixed schedule, no atomics,
     every lane touches a disjoint pair — so the result does not depend on warp
     arrival order."""
     comptime assert codes.flat_rank == 1
     var g = global_idx.x
-    if g >= npad:
+    if g >= npad_:
         return
     var i = Int(g)
-    var l = i ^ j
+    var l = i ^ j_
     if l <= i:
         return
-    var ascending = (i & k) == 0
+    var ascending = (i & k_) == 0
     var ci = rebind[Scalar[udt]](codes[i])
     var cl = rebind[Scalar[udt]](codes[l])
     var swap = (ci > cl) if ascending else (ci < cl)
@@ -170,7 +181,7 @@ def gpu_morton_order_ctx[N: Int, NPAD: Int](
     ctx.enqueue_function[mk](
         TileTensor(bcx, lay), TileTensor(bcy, lay), TileTensor(bcz, lay),
         TileTensor(bcode, lay), TileTensor(bidx, lay),
-        n, npad, cmin[0], cmin[1], cmin[2], ivx, ivy, ivz,
+        Int32(n), Int32(npad), cmin[0], cmin[1], cmin[2], ivx, ivy, ivz,
         grid_dim=grid, block_dim=BLOCK,
     )
 
@@ -180,7 +191,7 @@ def gpu_morton_order_ctx[N: Int, NPAD: Int](
         var j = k // 2
         while j > 0:
             ctx.enqueue_function[bk](
-                TileTensor(bcode, lay), TileTensor(bidx, lay), npad, k, j,
+                TileTensor(bcode, lay), TileTensor(bidx, lay), Int32(npad), Int32(k), Int32(j),
                 grid_dim=grid, block_dim=BLOCK,
             )
             j //= 2

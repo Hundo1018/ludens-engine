@@ -116,6 +116,7 @@ struct HullShape(Movable, ImplicitlyDeletable):
                         e1[1] * e2[2] - e1[2] * e2[1],
                         e1[2] * e2[0] - e1[0] * e2[2],
                         e1[0] * e2[1] - e1[1] * e2[0],
+                        0,
                     )
                     var cl = length(c)
                     if cl < 1e-9:
@@ -225,12 +226,14 @@ def _basis(n: Vec3) -> Tuple[Vec3, Vec3]:
             n[1] * a[2] - n[2] * a[1],
             n[2] * a[0] - n[0] * a[2],
             n[0] * a[1] - n[1] * a[0],
+            0,
         )
     )
     var t2 = Vec3(
         n[1] * t1[2] - n[2] * t1[1],
         n[2] * t1[0] - n[0] * t1[2],
         n[0] * t1[1] - n[1] * t1[0],
+        0,
     )
     return (t1, t2)
 

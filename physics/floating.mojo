@@ -41,6 +41,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
@@ -142,12 +143,14 @@ struct FloatingChain(Movable, ImplicitlyDeletable):
                     Real(1) if k == 0 else Real(0),
                     Real(1) if k == 1 else Real(0),
                     Real(1) if k == 2 else Real(0),
+                    0,
                 )
             elif k < 6:
                 av = Vec3(
                     Real(1) if k == 3 else Real(0),
                     Real(1) if k == 4 else Real(0),
                     Real(1) if k == 5 else Real(0),
+                    0,
                 )
             else:
                 qdd[k - 6] = 1

@@ -43,12 +43,16 @@ def predict_kernel[LT: TensorLayout](
     vx: TileTensor[dtype, LT, MutAnyOrigin],
     vz: TileTensor[dtype, LT, MutAnyOrigin],
     w: TileTensor[dtype, LT, MutAnyOrigin],
-    n: Int,
+    n: Int32,
     dt: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var n_ = Int(n)
     comptime assert x.flat_rank == 1
     var i = global_idx.x
-    if i < n:
+    if i < n_:
         var wi = rebind[Scalar[dtype]](w[i])
         if wi > 0:
             var nvy = rebind[Scalar[dtype]](vy[i]) + _G * dt
@@ -76,17 +80,22 @@ def jacobi_kernel[LT: TensorLayout](
     dx: TileTensor[dtype, LT, MutAnyOrigin],
     dy: TileTensor[dtype, LT, MutAnyOrigin],
     dz: TileTensor[dtype, LT, MutAnyOrigin],
-    grid_w: Int,
-    grid_h: Int,
+    grid_w: Int32,
+    grid_h: Int32,
     rest: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var grid_w_ = Int(grid_w)
+    var grid_h_ = Int(grid_h)
     comptime assert px.flat_rank == 1
     var i = global_idx.x
-    var n = grid_w * grid_h
+    var n = grid_w_ * grid_h_
     if i >= n:
         return
-    var r = i // grid_w
-    var c = i % grid_w
+    var r = i // grid_w_
+    var c = i % grid_w_
     var ax = rebind[Scalar[dtype]](px[i])
     var ay = rebind[Scalar[dtype]](py[i])
     var az = rebind[Scalar[dtype]](pz[i])
@@ -105,9 +114,9 @@ def jacobi_kernel[LT: TensorLayout](
             rr = r - 1
         else:
             rr = r + 1
-        if rr < 0 or rr >= grid_h or cc < 0 or cc >= grid_w:
+        if rr < 0 or rr >= grid_h_ or cc < 0 or cc >= grid_w_:
             continue
-        var j = rr * grid_w + cc
+        var j = rr * grid_w_ + cc
         var ddx = ax - rebind[Scalar[dtype]](px[j])
         var ddy = ay - rebind[Scalar[dtype]](py[j])
         var ddz = az - rebind[Scalar[dtype]](pz[j])
@@ -134,11 +143,15 @@ def apply_kernel[LT: TensorLayout](
     dx: TileTensor[dtype, LT, MutAnyOrigin],
     dy: TileTensor[dtype, LT, MutAnyOrigin],
     dz: TileTensor[dtype, LT, MutAnyOrigin],
-    n: Int,
+    n: Int32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var n_ = Int(n)
     comptime assert px.flat_rank == 1
     var i = global_idx.x
-    if i < n:
+    if i < n_:
         px[i] = px[i] + dx[i] * _OMEGA
         var yy = rebind[Scalar[dtype]](py[i]) + rebind[Scalar[dtype]](dy[i]) * _OMEGA
         if yy < 0:
@@ -157,12 +170,16 @@ def finalize_kernel[LT: TensorLayout](
     vx: TileTensor[dtype, LT, MutAnyOrigin],
     vy: TileTensor[dtype, LT, MutAnyOrigin],
     vz: TileTensor[dtype, LT, MutAnyOrigin],
-    n: Int,
+    n: Int32,
     inv_dt: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var n_ = Int(n)
     comptime assert x.flat_rank == 1
     var i = global_idx.x
-    if i < n:
+    if i < n_:
         vx[i] = (px[i] - x[i]) * inv_dt * _DAMP
         vy[i] = (py[i] - y[i]) * inv_dt * _DAMP
         vz[i] = (pz[i] - z[i]) * inv_dt * _DAMP
@@ -434,19 +451,19 @@ def gpu_cloth_run_ctx_timed[W: Int, H: Int](
     var phase_t0 = Int(perf_counter_ns())
     for stp in range(steps):
         ctx.enqueue_function[kp](
-            x, y, z, vy, px, py, pz, vx, vz, w, n, dt,
+            x, y, z, vy, px, py, pz, vx, vz, w, Int32(n), dt,
             grid_dim=GRID, block_dim=BLOCK,
         )
         for _ in range(iters):
             ctx.enqueue_function[kj](
-                px, py, pz, w, dx, dy, dz, W, H, rest,
+                px, py, pz, w, dx, dy, dz, Int32(W), Int32(H), rest,
                 grid_dim=GRID, block_dim=BLOCK,
             )
             ctx.enqueue_function[ka](
-                px, py, pz, dx, dy, dz, n, grid_dim=GRID, block_dim=BLOCK
+                px, py, pz, dx, dy, dz, Int32(n), grid_dim=GRID, block_dim=BLOCK
             )
         ctx.enqueue_function[kf](
-            x, y, z, px, py, pz, vx, vy, vz, n, 1.0 / dt,
+            x, y, z, px, py, pz, vx, vy, vz, Int32(n), 1.0 / dt,
             grid_dim=GRID, block_dim=BLOCK,
         )
         if readback_every > 0 and (stp + 1) % readback_every == 0:

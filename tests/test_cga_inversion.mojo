@@ -48,6 +48,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         if length(p - c) < 0.15:  # skip near the pole, where the map blows up
             continue
@@ -64,6 +65,7 @@ def main() raises:
             Real(rng.next_f32()) * 6 - 3,
             Real(rng.next_f32()) * 6 - 3,
             Real(rng.next_f32()) * 6 - 3,
+            0,
         )
         if length(p - c) < 0.3:
             continue
@@ -81,6 +83,7 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         var n = length(d)
         if n < 1e-3:
@@ -112,6 +115,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var k = Real(rng.next_f32()) * 3 + 0.25
         var e = length(dilate_point(k, p) - p * k)
@@ -128,6 +132,7 @@ def main() raises:
             Real(rng.next_f32()) * 3 - 1.5,
             Real(rng.next_f32()) * 3 - 1.5,
             Real(rng.next_f32()) * 3 - 1.5,
+            0,
         )
         var a = Real(rng.next_f32()) * 2 + 0.3
         var b = Real(rng.next_f32()) * 2 + 0.3
@@ -170,6 +175,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var seq = apply_versor(R1, p)
         seq = apply_versor(T1, seq)
@@ -205,6 +211,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var mp = transform_point4(m_r1, p)
         mp = transform_point4(m_t1, mp)

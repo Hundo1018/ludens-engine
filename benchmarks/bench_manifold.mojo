@@ -149,6 +149,7 @@ def box_poly3(c: Vec3, h: Vec3) -> ConvexPoly[3]:
                         c[0] + h[0] * (Real(1) if sx == 1 else Real(-1)),
                         c[1] + h[1] * (Real(1) if sy == 1 else Real(-1)),
                         c[2] + h[2] * (Real(1) if sz == 1 else Real(-1)),
+                        0,
                     )
                 )
     return cp^

@@ -36,6 +36,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
@@ -109,16 +110,19 @@ def _rodrigues(f: Vec3) -> _Rows3:
         1 + b * (-f[1] * f[1] - f[2] * f[2]),
         -a * f[2] + b * f[0] * f[1],
         a * f[1] + b * f[0] * f[2],
+        0,
     )
     r[1] = Vec3(
         a * f[2] + b * f[0] * f[1],
         1 + b * (-f[0] * f[0] - f[2] * f[2]),
         -a * f[0] + b * f[1] * f[2],
+        0,
     )
     r[2] = Vec3(
         -a * f[1] + b * f[0] * f[2],
         a * f[0] + b * f[1] * f[2],
         1 + b * (-f[0] * f[0] - f[1] * f[1]),
+        0,
     )
     return r^
 
@@ -129,6 +133,7 @@ def _ax_fjd(r: _Rows3, jd: Vec3) -> Vec3:
         r[2][1] * jd[1] - r[1][2] * jd[2],
         r[0][2] * jd[2] - r[2][0] * jd[0],
         r[1][0] * jd[0] - r[0][1] * jd[1],
+        0,
     )
 
 
@@ -147,6 +152,7 @@ struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
             (-inertia.ix + inertia.iy + inertia.iz) * 0.5,
             (inertia.ix - inertia.iy + inertia.iz) * 0.5,
             (inertia.ix + inertia.iy - inertia.iz) * 0.5,
+            0,
         )
         var pi = inertia.apply(wb)
         var g = pi * dt  # h·Π
@@ -159,6 +165,7 @@ struct LgvciSpin(SpinIntegrator, Movable, ImplicitlyDeletable):
             r[0][0] * pi[0] + r[1][0] * pi[1] + r[2][0] * pi[2],
             r[0][1] * pi[0] + r[1][1] * pi[1] + r[2][1] * pi[2],
             r[0][2] * pi[0] + r[1][2] * pi[1] + r[2][2] * pi[2],
+            0,
         )
         var w2 = inertia.apply_inv(pi2)
         var pose2 = (

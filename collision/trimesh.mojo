@@ -49,6 +49,7 @@ def _tri_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3:
         e1[1] * e2[2] - e1[2] * e2[1],
         e1[2] * e2[0] - e1[0] * e2[2],
         e1[0] * e2[1] - e1[1] * e2[0],
+        0,
     )
     var l = length(n)
     if l < 1e-12:
@@ -200,6 +201,7 @@ struct HeightField(Movable, ImplicitlyDeletable):
             self.ox + Real(cx) * self.cell,
             self.h[cz * self.nx + cx],
             self.oz + Real(cz) * self.cell,
+            0,
         )
 
     def tri(self, t: Int) -> ConvexPoly[3]:
@@ -302,6 +304,7 @@ struct HeightField(Movable, ImplicitlyDeletable):
                 self.ox + Real(self.nx - 1) * self.cell,
                 hi,
                 self.oz + Real(self.nz - 1) * self.cell,
+                0,
             ),
         )
 

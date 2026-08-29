@@ -33,6 +33,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         _near3(s, down(up(p)), p, "down(up(p)) == p")
 
@@ -43,6 +44,7 @@ def main() raises:
                 Real(rng.next_f32()) + 0.1,
                 Real(rng.next_f32()) + 0.2,
                 Real(rng.next_f32()) + 0.3,
+                0,
             )
         )
         var pl = Plane3(n, Real(rng.next_f32()) * 2 - 1)
@@ -50,6 +52,7 @@ def main() raises:
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var alg = inner(up(p), plane_dual(pl))
         var ana = dot(p, n) - pl.d

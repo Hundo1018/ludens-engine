@@ -46,6 +46,7 @@ def main() raises:
                 Real(rng.next_f32()) + 0.1,
                 Real(rng.next_f32()) + 0.2,
                 Real(rng.next_f32()) + 0.3,
+                0,
             )
         )
         var q = Quat.from_axis_angle(axis, Real(rng.next_f32()) * 3 - 1.5)
@@ -53,6 +54,7 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         quats.append(q)
         trans.append(SkinVert(t))
@@ -134,6 +136,7 @@ def main() raises:
                 Real(rng.next_f32()) * 2 - 1,
                 Real(rng.next_f32()) * 2 - 1,
                 Real(rng.next_f32()) * 2 - 1,
+                0,
             ))
         )
         ia.append(i % len(motors))
@@ -259,6 +262,7 @@ def main() raises:
                 Real(rng.next_f32()) * 6 - 3,
                 Real(rng.next_f32()) * 6 - 3,
                 Real(rng.next_f32()) * 6 - 3,
+                0,
             ))
         )
     var ic = Vec3(0.3, -0.2, 0.1, 0)
@@ -398,6 +402,7 @@ def main() raises:
                 Real(rng.next_f32()) * 4 - 2,
                 Real(rng.next_f32()) * 4 - 2,
                 Real(rng.next_f32()) * 4 - 2,
+                0,
             ))
         )
     var ax = normalize(Vec3(0.2, 1.0, -0.4, 0))

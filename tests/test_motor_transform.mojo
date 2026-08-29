@@ -47,6 +47,7 @@ def main() raises:
                 Real(rng.next_f32()) + 0.1,
                 Real(rng.next_f32()) + 0.2,
                 Real(rng.next_f32()) + 0.3,
+                0,
             )
         )
         var angle = Real(rng.next_f32()) * 2.0 - 1.0
@@ -55,6 +56,7 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
 
         var em = wm.spawn()

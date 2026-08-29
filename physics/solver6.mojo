@@ -166,6 +166,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
@@ -572,6 +573,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                     infl[0] if v[0] >= 0 else -infl[0],
                     infl[1] if v[1] >= 0 else -infl[1],
                     infl[2] if v[2] >= 0 else -infl[2],
+                    0,
                 )
                 var w = v + o
                 p.add(
@@ -1609,6 +1611,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                 prev[i * 3],
                                 prev[i * 3 + 1],
                                 prev[i * 3 + 2],
+                                0,
                             )
                             var s0 = pv2 + self.bodies[
                                 b
@@ -1642,6 +1645,7 @@ struct ContactScene6[B: Body6](Movable, ImplicitlyDeletable):
                                     prev[i * 3],
                                     prev[i * 3 + 1],
                                     prev[i * 3 + 2],
+                                    0,
                                 ),
                                 nw2,
                                 (nw2 - cen) * (1 / rr),

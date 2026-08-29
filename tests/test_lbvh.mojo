@@ -63,6 +63,7 @@ def main() raises:
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
+            0,
         )
         var h = Vec3(0.5, 0.5, 0.5, 0)
         boxes.append(AABB[3](c - h, c + h))
@@ -81,6 +82,7 @@ def main() raises:
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
             Real(rng.next_f32()) * 40 - 20,
+            0,
         )
         var q = AABB[3](c - Vec3(4, 4, 4, 0), c + Vec3(4, 4, 4, 0))
         var rm = List[Int]()
@@ -100,11 +102,13 @@ def main() raises:
             Real(rng.next_f32()) * 60 - 30,
             Real(rng.next_f32()) * 60 - 30,
             Real(rng.next_f32()) * 60 - 30,
+            0,
         )
         var d = Vec3(
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         if abs(Float64(d[0])) + abs(Float64(d[1])) + abs(Float64(d[2])) < 1e-3:
             continue

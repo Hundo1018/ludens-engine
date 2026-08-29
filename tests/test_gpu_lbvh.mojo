@@ -40,6 +40,7 @@ def _scene(mut rng: SplitMix64, n: Int, spread: Real) -> List[BoxProxy[3]]:
             Real(rng.next_f32()) * spread,
             Real(rng.next_f32()) * spread,
             Real(rng.next_f32()) * spread,
+            0,
         )
         out.append(BoxProxy[3](i, AABB[3](c - Vec3(0.4, 0.4, 0.4, 0), c + Vec3(0.4, 0.4, 0.4, 0))))
     return out^
@@ -140,6 +141,7 @@ def main() raises:
             Real(rng.next_f32()) * 50,
             Real(rng.next_f32()) * 50,
             Real(rng.next_f32()) * 50,
+            0,
         )
         var q = AABB[3](c - Vec3(4, 4, 4, 0), c + Vec3(4, 4, 4, 0))
         var ga = List[Int]()

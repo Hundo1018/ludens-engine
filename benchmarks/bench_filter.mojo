@@ -67,6 +67,7 @@ def build(n: Int, filtered: Bool, events: Bool) -> ContactScene6[QuatBody6]:
                         Real(ix) * 0.48 - 2.0 + off,
                         0.3 + Real(iy) * 0.52,
                         Real(iz) * 0.48 - 2.0 + off,
+                        0,
                     ),
                     Inertia3.box(2, 0.25, 0.25, 0.25),
                 ),

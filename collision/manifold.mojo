@@ -237,6 +237,7 @@ def _cross3v(a: Vec3, b: Vec3) -> Vec3:
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
+        0,
     )
 
 
@@ -475,6 +476,7 @@ def _box_closest_local(lp: Vec3, h: Vec3) -> Vec3:
         min(max(lp[0], -h[0]), h[0]),
         min(max(lp[1], -h[1]), h[1]),
         min(max(lp[2], -h[2]), h[2]),
+        0,
     )
 
 

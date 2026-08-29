@@ -168,6 +168,7 @@ def _accuracy() raises:
             c.point_velocity(2, mount, Vec3(1, 0, 0)),
             c.point_velocity(2, mount, Vec3(0, 1, 0)),
             c.point_velocity(2, mount, Vec3(0, 0, 1)),
+            0,
         )
         for k in range(3):
             cp.q[k] = c.q[k] + c.qd[k] * h
@@ -176,6 +177,7 @@ def _accuracy() raises:
             cp.point_velocity(2, mount, Vec3(1, 0, 0)),
             cp.point_velocity(2, mount, Vec3(0, 1, 0)),
             cp.point_velocity(2, mount, Vec3(0, 0, 1)),
+            0,
         )
         # the link frame the exact reading lives in
         var poses = c.fk()

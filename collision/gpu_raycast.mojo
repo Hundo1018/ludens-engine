@@ -47,14 +47,19 @@ def raycast_kernel[BLT: TensorLayout, RLT: TensorLayout](
     rdz: TileTensor[fdt, RLT, MutAnyOrigin],
     out_p: TileTensor[idt, RLT, MutAnyOrigin],
     out_t: TileTensor[fdt, RLT, MutAnyOrigin],
-    nb: Int,
-    nr: Int,
+    nb: Int32,
+    nr: Int32,
     max_t: Float32,
 ):
+    # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
+    # from DevicePassable because their size is host-defined while a kernel
+    # is compiled for the device. Widened back here so the body is unchanged.
+    var nb_ = Int(nb)
+    var nr_ = Int(nr)
     comptime assert blox.flat_rank == 1
     comptime assert out_p.flat_rank == 1
     var r = global_idx.x
-    if r >= nr:
+    if r >= nr_:
         return
     var ri = Int(r)
     var ox = rebind[Scalar[fdt]](rox[r])
@@ -70,7 +75,7 @@ def raycast_kernel[BLT: TensorLayout, RLT: TensorLayout](
     var iz = Float32(1.0) / dz
     var best_t = max_t
     var best_p = Int32(-1)
-    for b in range(nb):
+    for b in range(nb_):
         var t1 = (rebind[Scalar[fdt]](blox[b]) - ox) * ix
         var t2 = (rebind[Scalar[fdt]](bhix[b]) - ox) * ix
         var tmin = t1 if t1 < t2 else t2
@@ -190,7 +195,7 @@ def gpu_raycast_ctx[NB: Int, NR: Int](
         TileTensor(ox, rlay), TileTensor(oy, rlay), TileTensor(oz, rlay),
         TileTensor(dx, rlay), TileTensor(dy, rlay), TileTensor(dz, rlay),
         TileTensor(op, rlay), TileTensor(ot, rlay),
-        nb, nr, Float32(max_t),
+        Int32(nb), Int32(nr), Float32(max_t),
         grid_dim=grid, block_dim=BLOCK,
     )
     ctx.synchronize()

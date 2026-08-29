@@ -167,6 +167,7 @@ def main() raises:
             Real(rng.next_f32()) * 12,
             Real(rng.next_f32()) * 12,
             Real(rng.next_f32()) * 12,
+            0,
         )
         items3.append(
             BoxProxy[3](i, AABB[3](c - Vec3(1, 1, 1, 0), c + Vec3(1, 1, 1, 0)))

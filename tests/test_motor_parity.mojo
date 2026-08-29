@@ -23,6 +23,7 @@ def _v3(mut rng: SplitMix64, lo: Real = -2, hi: Real = 2) -> Vec3:
         lo + d * Real(rng.next_f32()),
         lo + d * Real(rng.next_f32()),
         lo + d * Real(rng.next_f32()),
+        0,
     )
 
 

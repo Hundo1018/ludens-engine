@@ -10,7 +10,7 @@ roughly uniform in size and evenly spread.
 from std.collections import Dict
 from std.math import floor
 from geometry.aabb import AABB
-from geometry.vec import WorldType, Real
+from geometry.vec import WorldType, Real, PadW
 
 comptime _BITS = 21
 comptime _MASK = (1 << _BITS) - 1
@@ -31,35 +31,35 @@ struct SpatialHashGrid[dim: Int](Movable, ImplicitlyDeletable):
     def _coord(self, v: Real) -> Int:
         return Int(floor(v / self.cell_size))
 
-    def _key(self, cells: SIMD[DType.int32, Self.dim]) -> Int:
+    def _key(self, cells: SIMD[DType.int32, PadW[Self.dim]]) -> Int:
         var key = 0
         comptime for a in range(Self.dim):
             key |= ((Int(cells[a]) + _OFFSET) & _MASK) << (a * _BITS)
         return key
 
-    def _lo(self, box: AABB[Self.dim]) -> SIMD[DType.int32, Self.dim]:
-        var c = SIMD[DType.int32, Self.dim](0)
+    def _lo(self, box: AABB[Self.dim]) -> SIMD[DType.int32, PadW[Self.dim]]:
+        var c = SIMD[DType.int32, PadW[Self.dim]](0)
         comptime for a in range(Self.dim):
             c[a] = Int32(self._coord(box.min[a]))
         return c
 
-    def _hi(self, box: AABB[Self.dim]) -> SIMD[DType.int32, Self.dim]:
-        var c = SIMD[DType.int32, Self.dim](0)
+    def _hi(self, box: AABB[Self.dim]) -> SIMD[DType.int32, PadW[Self.dim]]:
+        var c = SIMD[DType.int32, PadW[Self.dim]](0)
         comptime for a in range(Self.dim):
             c[a] = Int32(self._coord(box.max[a]))
         return c
 
-    def _span(self, lo: SIMD[DType.int32, Self.dim], hi: SIMD[DType.int32, Self.dim]) -> Int:
+    def _span(self, lo: SIMD[DType.int32, PadW[Self.dim]], hi: SIMD[DType.int32, PadW[Self.dim]]) -> Int:
         var total = 1
         comptime for a in range(Self.dim):
             total *= Int(hi[a] - lo[a]) + 1
         return total
 
     def _decode(
-        self, t: Int, lo: SIMD[DType.int32, Self.dim], hi: SIMD[DType.int32, Self.dim]
-    ) -> SIMD[DType.int32, Self.dim]:
+        self, t: Int, lo: SIMD[DType.int32, PadW[Self.dim]], hi: SIMD[DType.int32, PadW[Self.dim]]
+    ) -> SIMD[DType.int32, PadW[Self.dim]]:
         """Decode the t-th cell of the [lo, hi] cartesian product (odometer)."""
-        var cells = SIMD[DType.int32, Self.dim](0)
+        var cells = SIMD[DType.int32, PadW[Self.dim]](0)
         var rem = t
         comptime for a in range(Self.dim):
             var width = Int(hi[a] - lo[a]) + 1

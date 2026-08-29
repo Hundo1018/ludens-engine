@@ -55,6 +55,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 4 - 2,
+            0,
         )
         var d = torus_analytic(R, r, p)  # <0 inside the tube, >0 outside
         var g = dcga_incidence(dcga_point(p), tor)
@@ -75,6 +76,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         var want = dot(p - c, p - c) - rad * rad
         var got = dcga_incidence(dcga_point(p), sph)
@@ -96,6 +98,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         if abs(dot(p, n) - dd - dcga_incidence(dcga_point(p), pl)) > 1e-3:
             pl_ok = False

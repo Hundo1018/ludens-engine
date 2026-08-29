@@ -29,6 +29,7 @@ def main() raises:
                 Real(rng.next_f32()) * 4 - 2,
                 Real(rng.next_f32()) * 4 - 2,
                 Real(rng.next_f32()) * 4 - 2,
+                0,
             ),
             Real(rng.next_f32()) * 1.2 + 0.3,
         )

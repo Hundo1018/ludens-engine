@@ -22,6 +22,7 @@ def _cube(cx: Float32, cy: Float32, cz: Float32) -> ConvexPoly[3]:
                         cx + (Float32(sx) * 2 - 1),
                         cy + (Float32(sy) * 2 - 1),
                         cz + (Float32(sz) * 2 - 1),
+                        0,
                     )
                 )
     return p^

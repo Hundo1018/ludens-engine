@@ -40,6 +40,7 @@ def main() raises:
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
             Real(rng.next_f32()) * 8 - 4,
+            0,
         )
         var want = length(p - Vec3(0.3, -0.2, 0.5, 0)) - 1.4
         var e = abs(sph.distance(p) - want)
@@ -54,6 +55,7 @@ def main() raises:
             Real(rng.next_f32()) * 6 - 3,
             Real(rng.next_f32()) * 6 - 3,
             Real(rng.next_f32()) * 6 - 3,
+            0,
         )
         for k in range(4):
             var f = sph
@@ -85,11 +87,13 @@ def main() raises:
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         var cb = ca + Vec3(
             Real(rng.next_f32()) * 3 - 1.5,
             Real(rng.next_f32()) * 3 - 1.5,
             Real(rng.next_f32()) * 3 - 1.5,
+            0,
         )
         var ra = Real(rng.next_f32()) * 0.6 + 0.4
         var rb = Real(rng.next_f32()) * 0.6 + 0.4

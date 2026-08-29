@@ -69,12 +69,14 @@ def _scene(n: Int) -> List[_Cast]:
             1.0 + 2.0 * rng.next_f(),
             (rng.next_f() - 0.5) * 0.8,
             (rng.next_f() - 0.5) * 0.8,
+            0,
         )
         # bullet-grade approach: 2-4 units per step back toward a
         var disp = Vec3(
             -(2.0 + 2.0 * rng.next_f()),
             (rng.next_f() - 0.5) * 0.4,
             (rng.next_f() - 0.5) * 0.4,
+            0,
         )
         casts.append(_Cast(
             ca, axa, Vec3(0.3, 0.3, 0.3, 0), cb, axb, Vec3(0.1, 0.1, 0.1, 0), disp

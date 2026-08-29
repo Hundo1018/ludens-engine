@@ -148,6 +148,7 @@ def _plane_normal(u: Vec3, v: Vec3) -> Vec3:
         u[1] * v[2] - u[2] * v[1],
         u[2] * v[0] - u[0] * v[2],
         u[0] * v[1] - u[1] * v[0],
+        0,
     )
     var ln = length(n)
     if ln < 1e-9:  # collinear: any perpendicular will do
@@ -156,6 +157,7 @@ def _plane_normal(u: Vec3, v: Vec3) -> Vec3:
             u[1] * t[2] - u[2] * t[1],
             u[2] * t[0] - u[0] * t[2],
             u[0] * t[1] - u[1] * t[0],
+            0,
         )
         ln = length(n)
     return n * (1.0 / ln)
@@ -171,6 +173,7 @@ def _rotate_about(v: Vec3, axis: Vec3, ang: Real) -> Vec3:
         axis[1] * v[2] - axis[2] * v[1],
         axis[2] * v[0] - axis[0] * v[2],
         axis[0] * v[1] - axis[1] * v[0],
+        0,
     )
     return v * c + cr * s + axis * (dot(axis, v) * (1 - c))
 

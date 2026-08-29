@@ -242,6 +242,7 @@ def bench_sandwich(mut table: BenchTable):
                 Real(rng.next_f32()) + 0.1,
                 Real(rng.next_f32()) + 0.2,
                 Real(rng.next_f32()) + 0.3,
+                0,
             )
         )
         var q = Quat.from_axis_angle(axis, Real(rng.next_f32()) * 3 - 1.5)
@@ -249,6 +250,7 @@ def bench_sandwich(mut table: BenchTable):
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
             Real(rng.next_f32()) * 2 - 1,
+            0,
         )
         var m = Motor3.from_quat_translation(q, t)
         motors.append(m)
