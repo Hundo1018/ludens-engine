@@ -14,15 +14,16 @@ from std.math import sqrt, cos, sin
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from geometry.motor import Motor3
-from geometry.skinning import SkinVert, skin_motor, skin_lbs
+from geometry.mat import Mat4
+from geometry.skinning import skin_motor, skin_lbs
 
 
-def ring_radius(pts: List[SkinVert]) -> Tuple[Real, Real]:
+def ring_radius(pts: List[Vec3]) -> Tuple[Real, Real]:
     """(min, max) distance of the ring from the twist (x) axis."""
     var lo = Real(1e9)
     var hi = Real(0)
     for i in range(len(pts)):
-        var r = sqrt(pts[i].v[1] * pts[i].v[1] + pts[i].v[2] * pts[i].v[2])
+        var r = sqrt(pts[i][1] * pts[i][1] + pts[i][2] * pts[i][2])
         if r < lo:
             lo = r
         if r > hi:
@@ -32,18 +33,18 @@ def ring_radius(pts: List[SkinVert]) -> Tuple[Real, Real]:
 
 def main():
     # 8 vertices on a unit ring at x = 0.5, weighted half/half between bones
-    var rest = List[SkinVert]()
+    var rest = List[Vec3]()
     var ia = List[Int]()
     var ib = List[Int]()
     var wa = List[Real]()
-    var out = List[SkinVert]()
+    var out = List[Vec3]()
     for k in range(8):
         var t = Real(k) * 0.785398
-        rest.append(SkinVert(Vec3(0.5, cos(t), sin(t), 0)))
+        rest.append(Vec3(0.5, cos(t), sin(t), 0))
         ia.append(0)
         ib.append(1)
         wa.append(0.5)
-        out.append(SkinVert(Vec3(0)))
+        out.append(Vec3(0))
 
     print("twist°   LBS ring r (min..max)   motor ring r (min..max)")
     for step in range(5):
@@ -51,11 +52,17 @@ def main():
         var bone0 = Motor3.identity()
         var bone1 = Motor3.from_quat(Quat.from_axis_angle(Vec3(1, 0, 0, 0), angle))
 
-        var mats = [bone0.to_mat4(), bone1.to_mat4()]
+        # bracket literals build an `Array`, which no longer converts to a
+        # `List` -- the skinning API takes a List
+        var mats = List[Mat4]()
+        mats.append(bone0.to_mat4())
+        mats.append(bone1.to_mat4())
         skin_lbs(mats, rest, ia, ib, wa, out)
         var rl = ring_radius(out)
 
-        var bones = [bone0, bone1]
+        var bones = List[Motor3]()
+        bones.append(bone0)
+        bones.append(bone1)
         skin_motor(bones, rest, ia, ib, wa, out)
         var rm = ring_radius(out)
 

@@ -21,16 +21,19 @@ from .mat import Mat4, transform_point4
 from .motor import Motor3
 
 
-@fieldwise_init
-struct SkinVert(Copyable, ImplicitlyCopyable, Movable):
-    """Struct-wrapped vertex position. Bare `List[SIMD[_, 3]]` is hazardous in
-    this nightly: beyond the documented realloc corruption (gjk.mojo), several
-    width-3 lists captured by separate closures in one program crash the
-    runtime at teardown (libAsyncRT; root-caused via bench_ga bisection
-    2026-07-13 — the apply+skin combination reproduced 12/12, wrapping 0/15).
-    The batch skinning APIs therefore take wrapped verts."""
-
-    var v: Vec3
+# `SkinVert` used to live here: a struct wrapping one `Vec3`, because a bare
+# `List[SIMD[_, 3]]` corrupted on realloc AND several such lists captured by
+# separate closures in one program crashed the runtime at teardown (libAsyncRT;
+# root-caused by bisecting bench_ga on 2026-07-13 — the apply+skin combination
+# reproduced 12/12, wrapping 0/15).
+#
+# Both symptoms had ONE cause: width 3 is not a power of two, and the toolchain
+# never fully supported it. `Vec3` is four lanes now, so the wrapper is dead
+# weight and the batch APIs take vertices directly. The removal is gated on the
+# two things the wrapper was introduced for, not on the reasoning above: a bare
+# non-pre-sized `List[Vec3]` round-trips across function boundaries with zero
+# wrong elements, and `bench_ga` -- the exact program the original bisection
+# used -- runs clean.
 
 
 def blend2(a: Motor3, b: Motor3, wa: Real, wb: Real) -> Motor3:
@@ -53,25 +56,25 @@ def blend2(a: Motor3, b: Motor3, wa: Real, wb: Real) -> Motor3:
 
 def skin_motor(
     bones: List[Motor3],
-    rest: List[SkinVert],
+    rest: List[Vec3],
     idx_a: List[Int],
     idx_b: List[Int],
     w_a: List[Real],
-    mut out: List[SkinVert],
+    mut out: List[Vec3],
 ):
     """Per-vertex DLB + one sandwich (w_b = 1 − w_a)."""
     for i in range(len(rest)):
         var m = blend2(bones[idx_a[i]], bones[idx_b[i]], w_a[i], 1 - w_a[i])
-        out[i] = SkinVert(m.apply_point(rest[i].v))
+        out[i] = m.apply_point(rest[i])
 
 
 def skin_lbs(
     mats: List[Mat4],
-    rest: List[SkinVert],
+    rest: List[Vec3],
     idx_a: List[Int],
     idx_b: List[Int],
     w_a: List[Real],
-    mut out: List[SkinVert],
+    mut out: List[Vec3],
 ):
     """Classic linear blend skinning: per-vertex weighted matrix, then transform
     (the baseline the motor path is compared against)."""
@@ -83,4 +86,4 @@ def skin_lbs(
         var m = Mat4.identity()
         comptime for k in range(16):
             m.m[k] = wa * ma.m[k] + wb * mb.m[k]
-        out[i] = SkinVert(transform_point4(m, rest[i].v))
+        out[i] = transform_point4(m, rest[i])

@@ -10,7 +10,7 @@ from geometry.quat import Quat
 from geometry.motor import Motor3
 from geometry.mat import Mat4
 from geometry.galie import geodesic3
-from geometry.skinning import SkinVert, blend2, skin_motor, skin_lbs
+from geometry.skinning import blend2, skin_motor, skin_lbs
 
 
 def _near3(mut s: Suite, a: Vec3, b: Vec3, label: String, tol: Float64 = 1e-3):
@@ -61,26 +61,26 @@ def main() raises:
     var mats = List[Mat4](capacity=2)
     mats.append(bone0.to_mat4())
     mats.append(bone1.to_mat4())
-    var rest = List[SkinVert](capacity=1)
-    rest.append(SkinVert(vert))
+    var rest = List[Vec3](capacity=1)
+    rest.append(vert)
     var ia = List[Int](capacity=1)
     ia.append(0)
     var ib = List[Int](capacity=1)
     ib.append(1)
     var wa = List[Real](capacity=1)
     wa.append(0.5)
-    var out_m = List[SkinVert](capacity=1)
-    out_m.append(SkinVert(Vec3(0)))
-    var out_l = List[SkinVert](capacity=1)
-    out_l.append(SkinVert(Vec3(0)))
+    var out_m = List[Vec3](capacity=1)
+    out_m.append(Vec3(0))
+    var out_l = List[Vec3](capacity=1)
+    out_l.append(Vec3(0))
     skin_motor(bones, rest, ia, ib, wa, out_m)
     skin_lbs(mats, rest, ia, ib, wa, out_l)
 
     var r_motor = sqrt(
-        out_m[0].v[1] * out_m[0].v[1] + out_m[0].v[2] * out_m[0].v[2]
+        out_m[0][1] * out_m[0][1] + out_m[0][2] * out_m[0][2]
     )
     var r_lbs = sqrt(
-        out_l[0].v[1] * out_l[0].v[1] + out_l[0].v[2] * out_l[0].v[2]
+        out_l[0][1] * out_l[0][1] + out_l[0][2] * out_l[0][2]
     )
     s.almost(Float64(r_motor), 1.0, "motor skinning keeps the radius", 1e-2)
     s.check(Float64(r_lbs) < 0.05, "LBS collapses (the artifact, by design)")
@@ -96,6 +96,6 @@ def main() raises:
     mats2.append(ma.to_mat4())
     skin_motor(bones2, rest, ia, ib, wa, out_m)
     skin_lbs(mats2, rest, ia, ib, wa, out_l)
-    _near3(s, out_m[0].v, out_l[0].v, "rigid case: DQS == LBS")
+    _near3(s, out_m[0], out_l[0], "rigid case: DQS == LBS")
 
     s.finish()

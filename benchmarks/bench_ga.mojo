@@ -23,7 +23,7 @@ from geometry.cga import (
     Circle3, point_circle_dist, point_circle_dist_cga,
     rotor, translator, apply_versor,
 )
-from geometry.skinning import SkinVert, skin_motor, skin_lbs
+from geometry.skinning import skin_motor, skin_lbs
 
 
 def main() raises:
@@ -34,9 +34,9 @@ def main() raises:
     # --- build N random rigid transforms in every representation ---
     var quats = List[Quat]()
     # Struct-wrapped: bare width-3 lists crashed the runtime at teardown when
-    # several were captured by closures in one program (see SkinVert's note;
+    # several were captured by closures in one program (the wrapper is gone;
     # capacity pre-sizing alone did NOT fix it).
-    var trans = List[SkinVert]()
+    var trans = List[Vec3]()
     var motors = List[Motor3]()
     var dqs = List[DualQuat]()
     var mats = List[Mat4]()
@@ -57,7 +57,7 @@ def main() raises:
             0,
         )
         quats.append(q)
-        trans.append(SkinVert(t))
+        trans.append(t)
         motors.append(Motor3.from_quat_translation(q, t))
         dqs.append(DualQuat.from_quat_translation(q, t))
         mats.append(compose_trs4(t, q, Vec3(1, 1, 1, 0)))
@@ -90,7 +90,7 @@ def main() raises:
     def apply_quat():
         var acc = Vec3(0)
         for i in range(N):
-            acc = acc + quats[i].rotate(p) + trans[i].v
+            acc = acc + quats[i].rotate(p) + trans[i]
         keep(acc[0])
 
     table.add("motor (PGA, 8f)", N, "apply", measure[apply_motor](3, 20), N)
@@ -125,24 +125,24 @@ def main() raises:
     table.add("mat4 (16f)", N, "compose", measure[compose_mat](3, 20), N)
 
     # --- skinning: per-vertex 2-bone blend + transform (DLB vs LBS) ---
-    var rest = List[SkinVert]()
+    var rest = List[Vec3]()
     var ia = List[Int]()
     var ib = List[Int]()
     var wa = List[Real]()
-    var out = List[SkinVert]()
+    var out = List[Vec3]()
     for i in range(N):
         rest.append(
-            SkinVert(Vec3(
+            Vec3(
                 Real(rng.next_f32()) * 2 - 1,
                 Real(rng.next_f32()) * 2 - 1,
                 Real(rng.next_f32()) * 2 - 1,
                 0,
-            ))
+            )
         )
         ia.append(i % len(motors))
         ib.append((i * 7 + 3) % len(motors))
         wa.append(Real(rng.next_f32()))
-        out.append(SkinVert(Vec3(0)))
+        out.append(Vec3(0))
 
     @parameter
     def skin_m():
@@ -200,7 +200,7 @@ def main() raises:
         var acc = Real(0)
         for i in range(N - 1):
             var q = slerp(quats[i], quats[i + 1], T)
-            var t = trans[i].v * (1 - T) + trans[i + 1].v * T
+            var t = trans[i] * (1 - T) + trans[i + 1] * T
             acc += q.w + t[0]
         keep(acc)
 
@@ -255,15 +255,15 @@ def main() raises:
     # comparison available is the hand-written closed form.
     var cf = BenchTable("Conformal versors: CGA inversion / dilation vs closed form")
 
-    var pts = List[SkinVert]()
+    var pts = List[Vec3]()
     for _ in range(N):
         pts.append(
-            SkinVert(Vec3(
+            Vec3(
                 Real(rng.next_f32()) * 6 - 3,
                 Real(rng.next_f32()) * 6 - 3,
                 Real(rng.next_f32()) * 6 - 3,
                 0,
-            ))
+            )
         )
     var ic = Vec3(0.3, -0.2, 0.1, 0)
     comptime IR: Real = 2.0
@@ -278,14 +278,14 @@ def main() raises:
     def inv_cga():
         var acc = Real(0)
         for i in range(N):
-            acc += invert_point_with(inv_versor, pts[i].v)[0]
+            acc += invert_point_with(inv_versor, pts[i])[0]
         keep(acc)
 
     @parameter
     def inv_analytic():
         var acc = Real(0)
         for i in range(N):
-            var d = pts[i].v - ic
+            var d = pts[i] - ic
             var d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
             if d2 > 1e-9:
                 acc += (ic + d * (IR * IR / d2))[0]
@@ -295,14 +295,14 @@ def main() raises:
     def dil_cga():
         var acc = Real(0)
         for i in range(N):
-            acc += dilate_point_with(dil_d, dil_dr, pts[i].v)[0]
+            acc += dilate_point_with(dil_d, dil_dr, pts[i])[0]
         keep(acc)
 
     @parameter
     def dil_scalar():
         var acc = Real(0)
         for i in range(N):
-            acc += (pts[i].v * SCALE)[0]
+            acc += (pts[i] * SCALE)[0]
         keep(acc)
 
     # point-to-circle (point-to-arc): a circle is a first-class CGA round, so
@@ -314,14 +314,14 @@ def main() raises:
     def arc_cga():
         var acc = Real(0)
         for i in range(N):
-            acc += point_circle_dist_cga(circ, pts[i].v)
+            acc += point_circle_dist_cga(circ, pts[i])
         keep(acc)
 
     @parameter
     def arc_closed():
         var acc = Real(0)
         for i in range(N):
-            acc += point_circle_dist(circ, pts[i].v)
+            acc += point_circle_dist(circ, pts[i])
         keep(acc)
 
     cf.add("point-arc cga carriers", N, "point", measure[arc_cga](3, 20), N)
@@ -395,15 +395,15 @@ def main() raises:
         "Mixed transform chains with INVERSIONS (the versor's capability regime)"
     )
     comptime CN = 1024
-    var cpts = List[SkinVert]()
+    var cpts = List[Vec3]()
     for _ in range(CN):
         cpts.append(
-            SkinVert(Vec3(
+            Vec3(
                 Real(rng.next_f32()) * 4 - 2,
                 Real(rng.next_f32()) * 4 - 2,
                 Real(rng.next_f32()) * 4 - 2,
                 0,
-            ))
+            )
         )
     var ax = normalize(Vec3(0.2, 1.0, -0.4, 0))
     var inv_c = Vec3(0.1, 0.2, -0.1, 0)
@@ -421,7 +421,7 @@ def main() raises:
         def chain_versor():
             var acc = Real(0)
             for i in range(CN):
-                acc += apply_versor(V, cpts[i].v)[0]
+                acc += apply_versor(V, cpts[i])[0]
             keep(acc)
 
         # matrix path: one Mat4 per affine run, closed-form inversion between
@@ -432,7 +432,7 @@ def main() raises:
         def chain_matrix():
             var acc = Real(0)
             for i in range(CN):
-                var q = transform_point4(m0, cpts[i].v)
+                var q = transform_point4(m0, cpts[i])
                 comptime for k in range(NINV):
                     q = transform_point4(mk, q)
                     var d = q - inv_c

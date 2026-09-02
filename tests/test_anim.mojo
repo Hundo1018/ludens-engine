@@ -22,7 +22,7 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3, length
 from geometry.quat import Quat
 from geometry.motor import Motor3
-from geometry.skinning import SkinVert, skin_motor
+from geometry.skinning import skin_motor
 from procedural.anim import (
     AnimClip, AnimPlayer, blend_poses, pose_to_motors,
     BLEND_LINEAR, BLEND_DLB, BLEND_GEODESIC,
@@ -132,11 +132,11 @@ def main() raises:
         s.check(Float64(worst1) < 1e-4, "blend at w=1 reduces to the second pose")
 
     # ---- INTEGRATION: the blended pose drives skinning ----
-    var rest = List[SkinVert](capacity=4)
-    rest.append(SkinVert(Vec3(0, 0, 0, 0)))
-    rest.append(SkinVert(Vec3(1, 0, 0, 0)))
-    rest.append(SkinVert(Vec3(2, 0, 0, 0)))
-    rest.append(SkinVert(Vec3(3, 0, 0, 0)))
+    var rest = List[Vec3](capacity=4)
+    rest.append(Vec3(0, 0, 0, 0))
+    rest.append(Vec3(1, 0, 0, 0))
+    rest.append(Vec3(2, 0, 0, 0))
+    rest.append(Vec3(3, 0, 0, 0))
     var ia = List[Int](capacity=4)
     var ib = List[Int](capacity=4)
     var wa = List[Real](capacity=4)
@@ -144,9 +144,9 @@ def main() raises:
         ia.append(0)
         ib.append(1)
         wa.append(1.0 - Real(k) / 3.0)
-    var out = List[SkinVert](capacity=4)
+    var out = List[Vec3](capacity=4)
     for _ in range(4):
-        out.append(SkinVert(Vec3(0, 0, 0, 0)))
+        out.append(Vec3(0, 0, 0, 0))
 
     var mp = _pose()
     var mr = _rots()
