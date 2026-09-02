@@ -20,7 +20,6 @@ EXTREME     exactly collinear and exactly coplanar input, points differing by
             orientation predicate must satisfy for EVERY input.
 """
 
-from std.memory import bitcast
 from harness.runner import Suite
 from geometry.vec import Real, Vec2, Vec3
 from geometry.quickhull import convex_hull_2d
@@ -34,7 +33,11 @@ def _next_up(x: Real) -> Real:
     """The next float32 after `x` toward +inf, by bit pattern. The smallest
     perturbation the input type can express, which is the sharpest possible
     test of a sign predicate."""
-    return bitcast[DType.float32, 1](bitcast[DType.uint32, 1](x) + 1)
+    # Reinterpret through a pointer: the free-function `bitcast` is deprecated
+    # and its replacement `unsafe_bitcast` is a POINTER METHOD, not a free
+    # function, so this is the supported spelling (same as physics/serialize).
+    var bits = UnsafePointer(to=x).unsafe_bitcast[UInt32]()[] + 1
+    return UnsafePointer(to=bits).unsafe_bitcast[Real]()[]
 
 
 def _is_convex_ccw(verts: List[Vec2]) -> Bool:

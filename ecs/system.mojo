@@ -45,8 +45,8 @@ def integrate_simd[
     for k in range(len(backend.archetypes)):
         if (backend.archetypes[k].mask & bits) == bits:
             var n = len(backend.archetypes[k].entities)
-            var fa = backend._col[A](k)[].unsafe_ptr().bitcast[Scalar[dt_t]]()
-            var fb = backend._col[B](k)[].unsafe_ptr().bitcast[Scalar[dt_t]]()
+            var fa = backend._col[A](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
+            var fb = backend._col[B](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
             var m = LANES_PER * n
             var i = 0
             while i + W <= m:

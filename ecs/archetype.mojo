@@ -86,29 +86,29 @@ struct ArchView2[A: ComponentType, B: ComponentType](Copyable, ImplicitlyCopyabl
     # lets the hot loop inline + vectorize (no panic scaffolding). See WS2.
     @always_inline
     def get_a(self, i: Int) -> Self.A:
-        return self._col_a.bitcast[List[Self.A]]()[].unsafe_ptr()[i]
+        return self._col_a.unsafe_bitcast[List[Self.A]]()[].unsafe_ptr()[unsafe_offset=i]
 
     @always_inline
     def get_b(self, i: Int) -> Self.B:
-        return self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()[i]
+        return self._col_b.unsafe_bitcast[List[Self.B]]()[].unsafe_ptr()[unsafe_offset=i]
 
     @always_inline
     def set_a(self, i: Int, value: Self.A):
-        self._col_a.bitcast[List[Self.A]]()[].unsafe_ptr()[i] = value
+        self._col_a.unsafe_bitcast[List[Self.A]]()[].unsafe_ptr()[unsafe_offset=i] = value
 
     @always_inline
     def set_b(self, i: Int, value: Self.B):
-        self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()[i] = value
+        self._col_b.unsafe_bitcast[List[Self.B]]()[].unsafe_ptr()[unsafe_offset=i] = value
 
     @always_inline
     def unsafe_col_a(self) -> type_of(alloc[Self.A](1)):
         """Raw pointer to A's contiguous column buffer (for SIMD / bulk ops)."""
-        return self._col_a.bitcast[List[Self.A]]()[].unsafe_ptr()
+        return self._col_a.unsafe_bitcast[List[Self.A]]()[].unsafe_ptr()
 
     @always_inline
     def unsafe_col_b(self) -> type_of(alloc[Self.B](1)):
         """Raw pointer to B's contiguous column buffer (for SIMD / bulk ops)."""
-        return self._col_b.bitcast[List[Self.B]]()[].unsafe_ptr()
+        return self._col_b.unsafe_bitcast[List[Self.B]]()[].unsafe_ptr()
 
 
 struct Archetype[*CTs: ComponentType](Movable, Deinitable):
@@ -129,12 +129,12 @@ struct Archetype[*CTs: ComponentType](Movable, Deinitable):
             comptime T = Self.CTs[i]
             var p = alloc[List[T]](1)
             p.unsafe_write(List[T]())
-            self.cols.append(p.bitcast[NoneType]())
+            self.cols.append(p.unsafe_bitcast[NoneType]())
 
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.cols[i].bitcast[List[T]]()
+            var p = self.cols[i].unsafe_bitcast[List[T]]()
             p.unsafe_deinit_pointee()
             p.unsafe_free()
 
@@ -203,7 +203,7 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
 
     @always_inline
     def _col[C: ComponentType](self, arch: Int) -> type_of(alloc[List[C]](1)):
-        return self.archetypes[arch].cols[Self._slot_of[C]()].bitcast[List[C]]()
+        return self.archetypes[arch].cols[Self._slot_of[C]()].unsafe_bitcast[List[C]]()
 
     def _swap_remove(mut self, arch: Int, row: Int):
         """Remove `row` from `arch`, moving the last row into the hole."""
@@ -212,7 +212,7 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             if (mask & (1 << i)) != 0:
                 comptime T = Self.CTs[i]
-                var col = self.archetypes[arch].cols[i].bitcast[List[T]]()
+                var col = self.archetypes[arch].cols[i].unsafe_bitcast[List[T]]()
                 col[][row] = col[][last]
                 _ = col[].pop()
         var moved_id = self.archetypes[arch].entities[last]
@@ -273,8 +273,8 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             if (old_mask & (1 << i)) != 0:
                 comptime T = Self.CTs[i]
-                var ov = self.archetypes[old_arch].cols[i].bitcast[List[T]]()[][old_row]
-                self.archetypes[target].cols[i].bitcast[List[T]]()[].append(ov)
+                var ov = self.archetypes[old_arch].cols[i].unsafe_bitcast[List[T]]()[][old_row]
+                self.archetypes[target].cols[i].unsafe_bitcast[List[T]]()[].append(ov)
         var new_row = len(self.archetypes[target].entities)
         self.archetypes[target].entities.append(e.id)
         self._col[C](target)[].append(value)
@@ -304,8 +304,8 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         comptime for i in range(Self.N):
             if (new_mask & (1 << i)) != 0:
                 comptime T = Self.CTs[i]
-                var ov = self.archetypes[old_arch].cols[i].bitcast[List[T]]()[][old_row]
-                self.archetypes[target].cols[i].bitcast[List[T]]()[].append(ov)
+                var ov = self.archetypes[old_arch].cols[i].unsafe_bitcast[List[T]]()[][old_row]
+                self.archetypes[target].cols[i].unsafe_bitcast[List[T]]()[].append(ov)
         var new_row = len(self.archetypes[target].entities)
         self.archetypes[target].entities.append(e.id)
         self._swap_remove(old_arch, old_row)
@@ -353,7 +353,7 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
                 var pa = self._col[A](k)[].unsafe_ptr()
                 var pb = self._col[B](k)[].unsafe_ptr()
                 for i in range(n):
-                    func(pa[i], pb[i])
+                    func(pa[unsafe_offset=i], pb[unsafe_offset=i])
 
     def query2_views[A: ComponentType, B: ComponentType](mut self) -> List[ArchView2[A, B]]:
         """Return zero-copy column views for all archetypes matching A+B.
@@ -368,7 +368,7 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
             if (self.archetypes[k].mask & bits) == bits and len(self.archetypes[k].entities) > 0:
                 out.append(ArchView2[A, B](
                     len(self.archetypes[k].entities),
-                    self._col[A](k).bitcast[NoneType](),
-                    self._col[B](k).bitcast[NoneType](),
+                    self._col[A](k).unsafe_bitcast[NoneType](),
+                    self._col[B](k).unsafe_bitcast[NoneType](),
                 ))
         return out^

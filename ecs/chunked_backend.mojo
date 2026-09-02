@@ -127,7 +127,7 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
             comptime T = Self.CTs[i]
             var p = alloc[_Column[T]](1)
             p.unsafe_write(_Column[T]())
-            self.slots.append(p.bitcast[NoneType]())
+            self.slots.append(p.unsafe_bitcast[NoneType]())
         self.live = List[Bool]()
         self.n_live = 0
         self.free_ids = List[Int]()
@@ -136,7 +136,7 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[_Column[T]]()
+            var p = self.slots[i].unsafe_bitcast[_Column[T]]()
             p.unsafe_deinit_pointee()
             p.unsafe_free()
 
@@ -148,7 +148,7 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
         return -1
 
     def _col[C: ComponentType](self) -> type_of(alloc[_Column[C]](1)):
-        return self.slots[Self._slot_of[C]()].bitcast[_Column[C]]()
+        return self.slots[Self._slot_of[C]()].unsafe_bitcast[_Column[C]]()
 
     def compact(mut self):
         """Release every page whose whole id range is dead.

@@ -90,7 +90,7 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
             comptime T = Self.CTs[i]
             var p = alloc[SparseSet[T]](1)
             p.unsafe_write(SparseSet[T]())
-            self.slots.append(p.bitcast[NoneType]())
+            self.slots.append(p.unsafe_bitcast[NoneType]())
         self.alive = SparseSet[Int]()
         self.counter = 0
         self.free_ids = List[Int]()
@@ -103,7 +103,7 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[SparseSet[T]]()
+            var p = self.slots[i].unsafe_bitcast[SparseSet[T]]()
             p.unsafe_deinit_pointee()
             p.unsafe_free()
         self.groups.unsafe_deinit_pointee()
@@ -154,7 +154,7 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
         return -1
 
     def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](1)):
-        return self.slots[Self._slot_of[C]()].bitcast[SparseSet[C]]()
+        return self.slots[Self._slot_of[C]()].unsafe_bitcast[SparseSet[C]]()
 
     # --- reactive group maintenance ---
     def _entity_mask(self, id: Int) -> Int:

@@ -14,8 +14,8 @@ def main() raises:
     print("foo =", p[].a, p[].b)
 
     # Erase to an untracked-origin opaque pointer (suitable as a struct field).
-    var op = p.bitcast[NoneType]()
-    var q = op.bitcast[Foo]()
+    var op = p.unsafe_bitcast[NoneType]()
+    var q = op.unsafe_bitcast[Foo]()
     print("via opaque =", q[].a, q[].b)
 
     p.unsafe_deinit_pointee()

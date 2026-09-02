@@ -57,12 +57,12 @@ struct Backend[*CTs: ComponentType](Movable):
             comptime T = Self.CTs[i]
             var p = alloc[ComponentStore[T]](1)
             p.unsafe_write(ComponentStore[T]())
-            self.slots.append(p.bitcast[NoneType]())
+            self.slots.append(p.unsafe_bitcast[NoneType]())
 
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[ComponentStore[T]]()
+            var p = self.slots[i].unsafe_bitcast[ComponentStore[T]]()
             p.unsafe_deinit_pointee()
             p.unsafe_free()
 
@@ -75,7 +75,7 @@ struct Backend[*CTs: ComponentType](Movable):
         return idx
 
     def store[C: ComponentType](self) -> type_of(alloc[ComponentStore[C]](1)):
-        return self.slots[Self.slot_of[C]()].bitcast[ComponentStore[C]]()
+        return self.slots[Self.slot_of[C]()].unsafe_bitcast[ComponentStore[C]]()
 
     def push[C: ComponentType](mut self, var v: C):
         self.store[C]()[].push(v^)

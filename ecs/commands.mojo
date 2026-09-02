@@ -89,13 +89,13 @@ struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
             comptime T = Self.CTs[i]
             var p = alloc[List[_SetRec[T]]](1)
             p.unsafe_write(List[_SetRec[T]]())
-            self.slots.append(p.bitcast[NoneType]())
+            self.slots.append(p.unsafe_bitcast[NoneType]())
         self.order = List[Int]()
 
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[List[_SetRec[T]]]()
+            var p = self.slots[i].unsafe_bitcast[List[_SetRec[T]]]()
             p.unsafe_deinit_pointee()
             p.unsafe_free()
 
@@ -108,7 +108,7 @@ struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
 
     def set[C: ComponentType](mut self, e: Entity, var v: C):
         var si = Self._slot_of[C]()
-        var q = self.slots[si].bitcast[List[_SetRec[C]]]()
+        var q = self.slots[si].unsafe_bitcast[List[_SetRec[C]]]()
         q[].append(_SetRec[C](e, v^))
         self.order.append(si)
 
@@ -127,13 +127,13 @@ struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
             comptime for i in range(Self.N):
                 if i == s:
                     comptime T = Self.CTs[i]
-                    var q = self.slots[i].bitcast[List[_SetRec[T]]]()
+                    var q = self.slots[i].unsafe_bitcast[List[_SetRec[T]]]()
                     var rec = q[][cursors[i]]
                     cursors[i] += 1
                     if w.is_alive(rec.e):
                         w.set(rec.e, rec.v)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var q = self.slots[i].bitcast[List[_SetRec[T]]]()
+            var q = self.slots[i].unsafe_bitcast[List[_SetRec[T]]]()
             q[] = List[_SetRec[T]]()
         self.order = List[Int]()

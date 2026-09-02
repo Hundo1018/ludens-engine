@@ -1197,46 +1197,44 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > (`_ABI(a2^, b2^, d2^)` 之後還讀 a2/b2/d2)。
 > 這兩種都是編譯器擋下來的,不是靜默錯誤。
 
-### 16.3 Vec3 重構(width-3 SIMD 被禁)— ✅ 完成(2026-08-12)
+### 16.3 Vec3 重構(width-3 SIMD 被禁)— ✅ 完成(2026-08-12,分支 `mojo-stable`)
 
-> **路線圖全數完成。** 引擎在**正式版 Mojo 1.0.0 / modular 26.5.0** 上建置、
-> **116 個測試檔全綠**(含 5 組 GPU)、benchmark 報告已用正式版重測。
+> **完成判準達成**:`rm -rf build && pixi run test` → **116 [PASS]、all tests passed、exit 0**,
+> 在正式版 **Mojo 1.0.0 / modular 26.5.0** 上。
 
-> **問題**:正式版拒絕非 2 冪 SIMD 寬度,而 `Vec3` 是引擎基礎型別。
-> 目前的 nightly(1.1.0.dev2026081105)**也一樣禁止** —— 不是 stable 獨有,
-> 沒有「留在 nightly 就能避開」這個選項。
-
-#### 做法
-> - `Vec3` = `SIMD[WorldType, 4]`,**lane 3 恆 0**;1617 處三引數建構補 `, 0`。
+#### 做了什麼
+> - `Vec3` = `SIMD[WorldType, 4]`,**lane 3 恆 0**;1509 處三引數建構補 `, 0`。
 > - 維度泛型容器用 `comptime PadW[d: Int] = 4 if d == 3 else d`。
->   **必須是條件式**:型別位置呼叫 `def` 不摺疊,算術式保持符號式
+>   **必須是條件式**:型別位置呼叫 `def` 不會摺疊,算術式保持符號式
 >   (`SIMDLength(((Int(4) // Int(2)) * Int(2)))` 無法與 `SIMDLength(4)` 統一)。
-> - `dot` / `lane_min` / `lane_max` 改用 `reduce_add()` / `min()` / `max()`。
-> - `spatial/hash_grid.mojo` 的整數 cell 向量同樣補位。
-> - **GPU ABI**:Mojo 1.0 把 `Int`/`UInt` 移出 `DevicePassable`(大小由主機定義,
->   kernel 卻是為裝置編譯的)。5 檔 10 個 kernel 改吃 `Int32`、在函式開頭加寬。
-> - `InlineArray` 不再隱式可複製:11 個結構補顯式 `__init__(out self, *, copy: Self)`,
->   28 處補 `^`。
-> - 棄用清理:`ImplicitlyDeletable`→`Deinitable`、`.free()`→`.unsafe_free()`、
->   `__del__`→`__deinit__`。**`bitcast` 刻意不改** —— 編譯器建議的 `unsafe_bitcast`
->   在 `std.memory` / `std.builtin` / `std.sys` / prelude 都不存在,改了會壞掉。
+> - `dot` / `lane_min` / `lane_max` 由手寫 `comptime for i in range(Int(w))`
+>   改為 `reduce_add()` / `min()` / `max()`。原理由(width-3 的 `reduce_add` 壞掉)已失效,
+>   而手寫形式在維度泛型中會拿到未摺疊的 `PadW[D]` 當迴圈上界。
+> - API 搬遷:`std.gpu.host` → `max.gpu.host`、`std.algorithm` → `max.algorithm`。
+>   **`std` 與 `max` 是兩個 import root**,缺符號要兩邊都探完才能下結論。
+> - `InlineArray` 不再 `ImplicitlyCopyable`:9 個結構補顯式複製建構子、28 處補 `^`。
+> - 棄用清理:`bitcast` → 指標方法 `unsafe_bitcast`(39 處)、`ptr[i]` → `ptr[unsafe_offset=i]`。
+>   `bitcast` 的自由函式形式**沒有**對應替代,scalar 位元重解要走
+>   `UnsafePointer(to=x).unsafe_bitcast[T]()[]`。
+> - **`SkinVert` 包裝拆除**,兩個理由各自否證(見下)。
 
-#### 真正花掉時間的東西:補位改寫器的三個漏洞,全是我自己的
-> 每一個都讓 lane 3 未初始化,而且症狀都偽裝成別的問題:
-> 1. **尾隨逗號** —— 多行呼叫的尾隨逗號留下空白末元素,被算成 4 引數而跳過(94 處)。
-> 2. **巢狀呼叫** —— 處理完外層就跳過整段,`Vec3(Vec3(1,0,0), ...)` 的內層從未走訪(14 處)。
-> 3. **非零 splat** —— `Vec3(h)` 會把 h 放進補位 lane(2 處)。
->
-> 症狀:`test_gjk` **無限迴圈**(垃圾 lane → 支撐點錯誤 → GJK 永不收斂)、
-> `test_solver6` / `test_actuator` 崩潰、`test_aba` **撐爆 comptime 堆積**、
-> `test_sensors` 丟出**誤報的** `parent must exist`(損毀狀態下的假訊息)。
-> **一度以為是四個獨立問題,其實是同一個。**
->
-> **守門**:`test_vec` 現在直接測不變量 —— 每個 Vec3 運算後 lane 3 必須為 0。
-> 這條當場抓到第 3 類。**這類 bug 不能再靠人眼守。**
+#### 一個我自己製造的假象,值得記
+> 中途我報告過三個失敗族群(gjk 無限迴圈、solver6/actuator 崩潰、aba 耗盡 comptime 堆積),
+> 還為它們寫了根因分析與修復順序。**那些失敗不存在** —— 是我讓背景 sweep 在跑建置的同時
+> 前景指令也在建置,又中途 `pkill`,把 `build/` 弄髒了。乾淨重建後四個測試原封不動全過。
+> **教訓:本專案的建置寫共用產物到 `build/`,sweep 執行期間不得有任何其他建置;
+> 在那種條件下蒐集到的失敗清單不是證據。**
 
-#### 順帶消滅的東西
-> 專案長期對抗的整類 width-3 危害(`List[Vec3]` 跨函式邊界損毀、teardown crash,
-> 見 [[mojo-nightly-runtime-hazards]])**根因就是舊 nightly 容忍了一個支援不完整的寬度**。
-> 現在那類 bug 不存在了。`SkinVert` / `HullVert` 之類的 struct 包裝繞道可以逐步拆,
-> **但要有測試證明才拆**。
+#### Benchmark
+> 已重新產生。width 4 的對齊與記憶體流量與 width 3 不同,**散文裡引用的具體數字逐條核對過**,
+> 三條已修正:heightfield 的「109→113 ns、完全不成長」實測是 124.6→139.6 ns(+12%,
+> 是較大高度陣列的快取行為而非更多工作);orient2d 一般輸入原稱 robust 慢 5%,
+> 實測 robust 反而更快(7.75 vs 8.64),兩者已改述為「等價,勝負會在不同執行間換邊」;
+> orient3d 退化路徑 370× 實測為 339×。改述一律用比例/量級而非硬數字,避免再漂移。
+
+#### 尚存的包裝
+> `_Pt`(gjk)、`_LV`(chain)、`_Half`(solver6)仍在。它們現在**沒有理由存在**,
+> 但拆除要照 `SkinVert` 的規格:**先逐條否證該包裝 docstring 上寫的每一個理由**,
+> 不能因為 `SkinVert` 拆得掉就推論其餘。`SkinVert` 的兩條證據是:
+> 裸未預留 `List[Vec3]` 跨函式邊界 8/8 全對;`bench_ga`(當初二分出 12/12 崩潰的程式)10/10 乾淨。
+

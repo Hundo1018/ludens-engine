@@ -37,7 +37,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
             comptime T = Self.CTs[i]
             var p = alloc[List[Optional[T]]](1)
             p.unsafe_write(List[Optional[T]]())
-            self.slots.append(p.bitcast[NoneType]())
+            self.slots.append(p.unsafe_bitcast[NoneType]())
         self.live = List[Bool]()
         self.n_live = 0
         self.free_ids = List[Int]()
@@ -46,7 +46,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = self.slots[i].bitcast[List[Optional[T]]]()
+            var p = self.slots[i].unsafe_bitcast[List[Optional[T]]]()
             p.unsafe_deinit_pointee()
             p.unsafe_free()
 
@@ -58,7 +58,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         return -1
 
     def _store[C: ComponentType](self) -> type_of(alloc[List[Optional[C]]](1)):
-        return self.slots[Self._slot_of[C]()].bitcast[List[Optional[C]]]()
+        return self.slots[Self._slot_of[C]()].unsafe_bitcast[List[Optional[C]]]()
 
     # --- lifecycle ---
     def _ensure_gen(mut self, id: Int):
