@@ -36,7 +36,7 @@ struct EpaResult[dim: Int](Copyable, ImplicitlyCopyable, Movable):
 def _centroid[dim: Int](p: ConvexPoly[dim]) -> SIMD[WorldType, PadW[dim]]:
     var c = SIMD[WorldType, PadW[dim]](0)
     for i in range(len(p.points)):
-        c += p.points[i].v
+        c += p.points[i]
     return c / Real(len(p.points))
 
 

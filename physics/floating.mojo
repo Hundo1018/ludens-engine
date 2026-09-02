@@ -318,8 +318,8 @@ struct FloatingChain(Movable, Deinitable):
             var qt = pose.to_quat_translation()
             var rq = qt[0]
             var org = qt[1]
-            var wl = m[0][i].v
-            var vl = m[1][i].v
+            var wl = m[0][i]
+            var vl = m[1][i]
             var ww = rq.rotate(wl)
             var cw = org + rq.rotate(li.com)
             var vc = rq.rotate(vl + _cross(wl, li.com))

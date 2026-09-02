@@ -80,7 +80,7 @@ def _overlap_filter[D: Int](
 
 def _bounds_of[D: Int](items: List[BoxProxy[D]]) -> AABB[D]:
     if len(items) == 0:
-        return AABB[D](SIMD[WorldType, PadW[D]](-1), SIMD[WorldType, PadW[D]](1))
+        return AABB[D].symmetric(1)
     var b = items[0].box
     for i in range(1, len(items)):
         b = b.merge(items[i].box)
@@ -178,7 +178,7 @@ struct TreeQuery[D: Int](SceneQuery):
 
     def __init__(out self):
         self.tree = LooseTree[Self.D](
-            AABB[Self.D](SIMD[WorldType, PadW[Self.D]](-1), SIMD[WorldType, PadW[Self.D]](1))
+            AABB[Self.D].symmetric(1)
         )
         self.boxes = List[AABB[Self.D]]()
 

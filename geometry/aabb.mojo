@@ -48,6 +48,25 @@ struct AABB[dim: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
     def half_extents(self) -> SIMD[WorldType, PadW[Self.dim]]:
         return (self.max - self.min) / 2
 
+    @staticmethod
+    def symmetric(extent: Real) -> Self:
+        """The box [-extent, +extent] over the REAL dimensions, with the pad
+        lane left at exactly zero.
+
+        Splatting a scalar into a `PadW`-sized vector fills the pad lane too,
+        which breaks the lane-3-is-zero invariant. Today that is inert -- every
+        such box happens to straddle zero in the pad lane, so the lane-wise
+        overlap test always succeeds there, and `surface_area` indexes 0..dim-1
+        explicitly. It is a trap rather than a bug: an AABB whose pad range
+        excluded zero would silently fail to overlap anything, culling real
+        pairs in the broadphase with nothing to show for it."""
+        var lo = SIMD[WorldType, PadW[Self.dim]](0)
+        var hi = SIMD[WorldType, PadW[Self.dim]](0)
+        comptime for k in range(Self.dim):
+            lo[k] = -extent
+            hi[k] = extent
+        return Self(lo, hi)
+
     def surface_area(self) -> Real:
         """Perimeter in 2D, surface area in 3D — the SAH cost metric for BVH."""
         var d = self.max - self.min

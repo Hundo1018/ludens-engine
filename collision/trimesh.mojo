@@ -245,7 +245,7 @@ struct HeightField(Movable, Deinitable):
         var f = List[Real](capacity=3)
         if len(p.points) < 3:
             return f^
-        var n = _tri_normal(p.points[0].v, p.points[1].v, p.points[2].v)
+        var n = _tri_normal(p.points[0], p.points[1], p.points[2])
         if length(n) < 0.5:
             return f^  # degenerate cell: no surface, no contact
         if n[1] < 0:
@@ -326,7 +326,7 @@ struct HeightField(Movable, Deinitable):
             for k in range(3):
                 # Recover the corner index from the position: the grid is
                 # regular, so this is exact arithmetic, not a search.
-                var q = p.points[k].v
+                var q = p.points[k]
                 var ix = Int(
                     floor(Float64((q[0] - self.ox) / self.cell + 0.5))
                 )

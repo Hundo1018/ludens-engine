@@ -43,4 +43,25 @@ def main() raises:
     s.check(box3.contains_point(Vec3(1, 1, 1, 0)), "3d contains point")
     s.almost(Float64(box3.surface_area()), 24.0, "3d surface area 2*(4+4+4)")
 
+    # ---- the pad lane must stay at zero ----
+    # A 3D AABB is stored in four lanes. Splatting a scalar fills the pad lane
+    # too, and a box whose pad range excluded zero would silently fail the
+    # lane-wise overlap test against every real box -- culling true pairs in the
+    # broadphase with no symptom to trace. `symmetric` exists to prevent that,
+    # so it is gated here rather than trusted.
+    var root = AABB3.symmetric(1)
+    s.check(
+        root.min[3] == 0 and root.max[3] == 0,
+        "AABB3.symmetric leaves the pad lane at exactly zero",
+    )
+    s.check(
+        root.overlaps(AABB3(Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))),
+        "and still overlaps a degenerate box at the origin",
+    )
+    var merged = root.merge(AABB3(Vec3(-5, -5, -5, 0), Vec3(5, 5, 5, 0)))
+    s.check(
+        merged.min[3] == 0 and merged.max[3] == 0,
+        "merging two pad-clean boxes keeps the pad lane clean",
+    )
+
     s.finish()

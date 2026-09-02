@@ -4,9 +4,7 @@ A convex shape is a cloud of points; its `support(dir)` is the farthest point
 along `dir`. GJK walks a simplex over the Minkowski difference A-B, steering it
 toward the origin; if the simplex can enclose the origin the shapes intersect.
 
-Two nightly hazards shape the data structures here:
-  * A bare `List[SIMD[_,3]]` corrupts on realloc, so points are wrapped in `_Pt`
-    (a struct List reallocs cleanly) and the simplex uses explicit fields, no List.
+One toolchain quirk shapes the data structures here:
   * `comptime if dim` does not refine `dim` to a literal in types, so every helper
     is `[dim]`-generic and dim-specific ops (cross/perp) sit behind `comptime if`.
 Perpendicular search directions use the triple product tprod(a,b,c)=b*(a.c)-c*(a.b).
@@ -18,36 +16,31 @@ from .vec import WorldType, Real, dot, PadW
 comptime _Vec[dim: Int] = SIMD[WorldType, PadW[dim]]
 
 
-@fieldwise_init
-struct _Pt[dim: Int](Copyable, ImplicitlyCopyable, Movable):
-    var v: _Vec[Self.dim]
-
-
 struct ConvexPoly[dim: Int](Copyable, Movable):
     """Convex shape as a point cloud (its convex hull is what matters).
 
-    Build with `add()` — never hand it a bare `List[Vec3]` (width-3 realloc bug).
+    Build with `add()`.
     """
 
-    var points: List[_Pt[Self.dim]]
+    var points: List[_Vec[Self.dim]]
 
     def __init__(out self):
-        self.points = List[_Pt[Self.dim]]()
+        self.points = List[_Vec[Self.dim]]()
 
     def add(mut self, p: _Vec[Self.dim]):
-        self.points.append(_Pt[Self.dim](p))
+        self.points.append(p)
 
     def __len__(self) -> Int:
         return len(self.points)
 
     def support(self, dir: _Vec[Self.dim]) -> _Vec[Self.dim]:
-        var best = self.points[0].v
+        var best = self.points[0]
         var best_d = dot(best, dir)
         for i in range(1, len(self.points)):
-            var d = dot(self.points[i].v, dir)
+            var d = dot(self.points[i], dir)
             if d > best_d:
                 best_d = d
-                best = self.points[i].v
+                best = self.points[i]
         return best
 
 

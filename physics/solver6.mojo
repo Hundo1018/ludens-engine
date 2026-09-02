@@ -178,12 +178,11 @@ def _tangent_basis(n: Vec3) -> Tuple[Vec3, Vec3]:
     return (t1, _cross(n, t1))
 
 
-@fieldwise_init
-struct _Half(Copyable, ImplicitlyCopyable, Movable):
-    """Struct-wrapped Vec3: a bare `List[SIMD[_, 3]]` corrupts on realloc
-    (documented nightly hazard, see geometry/gjk.mojo)."""
-
-    var v: Vec3
+# The `_Pt` / `_LV` / `_Half` wrappers that used to sit here existed for one
+# stated reason: a bare `List[SIMD[_, 3]]` corrupted on realloc. Width 3 was
+# never a supported SIMD width; `Vec3` is four lanes now and the claim was
+# retested before removal -- a list grown from capacity 0 to 10,000 elements
+# reads back with zero wrong entries.
 
 
 comptime JOINT_BALL = 0
@@ -234,7 +233,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
     var bodies: List[Self.B]
-    var half: List[_Half]  # box half-extents, parallel to `bodies`
+    var half: List[Vec3]  # box half-extents, parallel to `bodies`
     var statics: List[Bool]
     var cache: List[_CPair]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
@@ -294,7 +293,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         self.events_on = False
         self.events = List[ContactEvent]()
         self._prev_keys = List[Int]()
-        self.half = List[_Half]()
+        self.half = List[Vec3]()
         self.statics = List[Bool]()
         self.cache = List[_CPair]()
         self.joints = List[Joint6]()
@@ -403,7 +402,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
 
     def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> Int:
         self.bodies.append(b^)
-        self.half.append(_Half(half))
+        self.half.append(half)
         self.statics.append(is_static)
         self.sleeping.append(False)
         self.sleep_timer.append(0)
@@ -540,11 +539,11 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         var k = self.shape[i]
         if k == 3:
             return self.hulls[self.hull_id[i]].world_normals(ax[0], ax[1], ax[2])
-        var hs = self.half[i].v + infl
+        var hs = self.half[i] + infl
         if k == 1:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
+            hs = Vec3(self.half[i][0] + mr, self.half[i][0] + mr, self.half[i][0] + mr, 0)
         elif k == 2:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
+            hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
         return HullShape.box(hs).world_normals(ax[0], ax[1], ax[2])
 
     def _as_hull(self, i: Int, infl: Vec3, mr: Real) -> ConvexPoly[3]:
@@ -581,11 +580,11 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                     + ax[0] * w[0] + ax[1] * w[1] + ax[2] * w[2]
                 )
             return p^
-        var hs = self.half[i].v + infl
+        var hs = self.half[i] + infl
         if k == 1:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
+            hs = Vec3(self.half[i][0] + mr, self.half[i][0] + mr, self.half[i][0] + mr, 0)
         elif k == 2:
-            hs = Vec3(self.half[i].v[0] + mr, self.half[i].v[1] + self.half[i].v[0] + mr, self.half[i].v[0] + mr, 0)
+            hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
         return HullShape.box(hs).world(
             self.bodies[i].position(), ax[0], ax[1], ax[2]
         )
@@ -666,34 +665,34 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         var m = ContactManifold[3].miss()
         if ka == 0 and kb == 0:
             m = box_box_manifold(
-                self.bodies[a].position(), self._axes(a), self.half[a].v + infl,
-                self.bodies[b].position(), self._axes(b), self.half[b].v + infl,
+                self.bodies[a].position(), self._axes(a), self.half[a] + infl,
+                self.bodies[b].position(), self._axes(b), self.half[b] + infl,
             )
         elif ka == 0 and kb == 1:
             # sphere_box normal is sphere->box == b->a: flip once more
             m = sphere_box_manifold(
-                self.bodies[b].position(), self.half[b].v[0] + mr,
-                self.bodies[a].position(), self._axes(a), self.half[a].v + infl,
+                self.bodies[b].position(), self.half[b][0] + mr,
+                self.bodies[a].position(), self._axes(a), self.half[a] + infl,
             )
             m.normal = -m.normal
         elif ka == 0 and kb == 2:
             m = capsule_box_manifold(
                 self.bodies[b].position(), self._axes(b)[1],
-                self.half[b].v[1], self.half[b].v[0] + mr,
-                self.bodies[a].position(), self._axes(a), self.half[a].v + infl,
+                self.half[b][1], self.half[b][0] + mr,
+                self.bodies[a].position(), self._axes(a), self.half[a] + infl,
             )
             m.normal = -m.normal
         elif ka == 1 and kb == 1:
             m = sphere_sphere_manifold(
-                self.bodies[a].position(), self.half[a].v[0] + mr,
-                self.bodies[b].position(), self.half[b].v[0] + mr,
+                self.bodies[a].position(), self.half[a][0] + mr,
+                self.bodies[b].position(), self.half[b][0] + mr,
             )
         elif ka == 1 and kb == 2:
             # capsule_sphere normal is capsule->sphere == b->a
             m = capsule_sphere_manifold(
                 self.bodies[b].position(), self._axes(b)[1],
-                self.half[b].v[1], self.half[b].v[0] + mr,
-                self.bodies[a].position(), self.half[a].v[0] + mr,
+                self.half[b][1], self.half[b][0] + mr,
+                self.bodies[a].position(), self.half[a][0] + mr,
             )
             m.normal = -m.normal
         elif kb == 3:
@@ -708,9 +707,9 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         else:  # capsule-capsule
             m = capsule_capsule_manifold(
                 self.bodies[a].position(), self._axes(a)[1],
-                self.half[a].v[1], self.half[a].v[0] + mr,
+                self.half[a][1], self.half[a][0] + mr,
                 self.bodies[b].position(), self._axes(b)[1],
-                self.half[b].v[1], self.half[b].v[0] + mr,
+                self.half[b][1], self.half[b][0] + mr,
             )
         if flip and m.hit:
             m.normal = -m.normal
@@ -724,7 +723,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         overlap (the broadphase parity guarantee)."""
         comptime SPEC_BASE: Real = 0.02
         var ax = self._axes(i)
-        var h = self.half[i].v
+        var h = self.half[i]
         var wh = Vec3(0, 0, 0, 0)
         comptime for k in range(3):
             wh[k] = (
@@ -1417,8 +1416,8 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                 if not self._inactive(j):
                     vj = self.bodies[j].linear_velocity()
                 var rel = (vi - vj) * h
-                var ha = self.half[i].v
-                var hb = self.half[j].v
+                var ha = self.half[i]
+                var hb = self.half[j]
                 var thin = min(
                     min(ha[0], min(ha[1], ha[2])),
                     min(hb[0], min(hb[1], hb[2])),
@@ -1578,7 +1577,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                         # interior point (capsule = sphere at the closest
                         # point of its world axis segment); same impulse
                         # coupling as the box path below
-                        var hh2 = self.half[b].v
+                        var hh2 = self.half[b]
                         var rad = hh2[0]
                         var cen = self.bodies[b].position()
                         if self.shape[b] == 2:
@@ -1663,7 +1662,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                                     self.sleep_timer[b] = 0
                         continue
                     var lp = self.bodies[b].to_local(p.x)
-                    var hh = self.half[b].v
+                    var hh = self.half[b]
                     var pen = Real(1e30)
                     var ax = -1
                     var inside = True

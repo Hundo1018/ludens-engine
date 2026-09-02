@@ -265,14 +265,14 @@ def _face_by_normal(p: ConvexPoly[3], faces: List[Real], n: Vec3) -> List[Real]:
     if fl < 1e-9:
         return out^
     f = f / fl
-    var hi = dot(p.points[0].v, f)
+    var hi = dot(p.points[0], f)
     for i in range(1, np):
-        var d = dot(p.points[i].v, f)
+        var d = dot(p.points[i], f)
         if d > hi:
             hi = d
     for i in range(np):
-        if dot(p.points[i].v, f) >= hi - _FACE_EPS and len(out) < 3 * _MAX_FACE:
-            _push(out, p.points[i].v)
+        if dot(p.points[i], f) >= hi - _FACE_EPS and len(out) < 3 * _MAX_FACE:
+            _push(out, p.points[i])
     return out^
 
 
@@ -373,10 +373,10 @@ def _dedup(p: ConvexPoly[3]) -> ConvexPoly[3]:
     twice."""
     var out = ConvexPoly[3]()
     for i in range(len(p.points)):
-        var v = p.points[i].v
+        var v = p.points[i]
         var dup = False
         for j in range(len(out.points)):
-            if length(v - out.points[j].v) < 1e-6:
+            if length(v - out.points[j]) < 1e-6:
                 dup = True
                 break
         if not dup:
@@ -419,14 +419,14 @@ def hull_manifold(
         if la < 1e-9:
             continue
         ax = ax / la
-        var amax = dot(a.points[0].v, ax)
+        var amax = dot(a.points[0], ax)
         for i in range(1, len(a.points)):
-            var d = dot(a.points[i].v, ax)
+            var d = dot(a.points[i], ax)
             if d > amax:
                 amax = d
-        var bmin = dot(b.points[0].v, ax)
+        var bmin = dot(b.points[0], ax)
         for i in range(1, len(b.points)):
-            var d = dot(b.points[i].v, ax)
+            var d = dot(b.points[i], ax)
             if d < bmin:
                 bmin = d
         var overlap = amax - bmin

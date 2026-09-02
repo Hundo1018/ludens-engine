@@ -15,7 +15,7 @@ from collision.manifold import ContactManifold
 from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
 from physics.rigid6 import Inertia3, QuatBody6
-from physics.solver6 import ContactScene6, Joint6, _CPair, _Half
+from physics.solver6 import ContactScene6, Joint6, _CPair
 from physics.softbody import SoftBody, _SP, _SEdge
 
 comptime _VERSION = 1
@@ -83,7 +83,7 @@ def scene_to_string(sc: ContactScene6[QuatBody6]) raises -> String:
         _wf(s, b.inertia.ix)
         _wf(s, b.inertia.iy)
         _wf(s, b.inertia.iz)
-        _wv(s, sc.half[i].v)
+        _wv(s, sc.half[i])
         _wi(s, 1 if sc.statics[i] else 0)
         _wi(s, sc.shape[i])
         _wf(s, sc.restitution[i])
@@ -196,7 +196,7 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             QuatBody6(pos, Quat(qx, qy, qz, qw), vel, omega,
                       Inertia3(im, ix, iy, iz))
         )
-        sc.half.append(_Half(r.v3()))
+        sc.half.append(r.v3())
         sc.statics.append(r.i() == 1)
         var kind = r.i()
         sc.shape.append(kind)

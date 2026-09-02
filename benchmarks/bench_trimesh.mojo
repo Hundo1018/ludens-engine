@@ -76,12 +76,12 @@ def bench_size(mut table: BenchTable, grid: Int, nq: Int):
         var box = AABB[3](c - half, c + half)
         for t in range(tri_count):
             var p = mesh.tri(t)
-            var lo = p.points[0].v
-            var hi = p.points[0].v
+            var lo = p.points[0]
+            var hi = p.points[0]
             for k in range(1, 3):
                 comptime for d in range(3):
-                    lo[d] = min(lo[d], p.points[k].v[d])
-                    hi[d] = max(hi[d], p.points[k].v[d])
+                    lo[d] = min(lo[d], p.points[k][d])
+                    hi[d] = max(hi[d], p.points[k][d])
             if AABB[3](lo, hi).overlaps(box):
                 cb += 1
     keep(cb)

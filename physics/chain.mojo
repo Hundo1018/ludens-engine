@@ -38,13 +38,6 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
 comptime _Rows3 = InlineArray[Vec3, 3]
 
 
-@fieldwise_init
-struct _LV(Copyable, ImplicitlyCopyable, Movable):
-    """Struct-wrapped Vec3 (bare List[SIMD3] corrupts on this nightly)."""
-
-    var v: Vec3
-
-
 def _sym_add(a: _Rows3, b: _Rows3) -> _Rows3:
     var r = _Rows3(fill=Vec3(0, 0, 0, 0))
     for i in range(3):
@@ -261,7 +254,7 @@ struct Chain(Movable, Deinitable):
 
     def link_motion(
         self, qdd: List[Real], gravity: Vec3
-    ) raises -> Tuple[List[_LV], List[_LV], List[_LV], List[_LV]]:
+    ) raises -> Tuple[List[Vec3], List[Vec3], List[Vec3], List[Vec3]]:
         """Per-link (w, v, wa, va) in the LINK frame — the RNEA forward sweep.
 
         Exposed because sensors read exactly this. Note the gravity trick means
@@ -271,20 +264,20 @@ struct Chain(Movable, Deinitable):
         that makes it the right quantity rather than a convenient one."""
         var n = len(self.links)
         # --- forward pass: link-frame velocities and accelerations ---------
-        var ws = List[_LV]()  # angular velocity, link frame
-        var vs = List[_LV]()  # linear velocity of frame origin, link frame
-        var wa = List[_LV]()  # angular acceleration
-        var va = List[_LV]()  # linear acceleration (incl. -gravity)
+        var ws = List[Vec3]()  # angular velocity, link frame
+        var vs = List[Vec3]()  # linear velocity of frame origin, link frame
+        var wa = List[Vec3]()  # angular acceleration
+        var va = List[Vec3]()  # linear acceleration (incl. -gravity)
         # gravity trick: the base "accelerates" at −g so every link feels
         # weight (standard Featherstone convention; the analytic pendulum and
         # the large-swing energy gates guard the sign chain end-to-end)
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws[pi].v if pi >= 0 else self.base_w
-            var v_p = vs[pi].v if pi >= 0 else self.base_v
-            var wa_p = wa[pi].v if pi >= 0 else self.base_wa
-            var va_p = va[pi].v if pi >= 0 else self.base_va - gravity
+            var w_p = ws[pi] if pi >= 0 else self.base_w
+            var v_p = vs[pi] if pi >= 0 else self.base_v
+            var wa_p = wa[pi] if pi >= 0 else self.base_wa
+            var va_p = va[pi] if pi >= 0 else self.base_va - gravity
             var rt = _rot_rows(self._joint_rot(i))  # parent -> link (Rᵀ)
             var off = self._joint_offset(i)
             # motion subspace: S = (axis, 0) revolute, (0, axis) prismatic
@@ -307,10 +300,10 @@ struct Chain(Movable, Deinitable):
                 + _cross(w_here, s_v * self.qd[i]) * 2
                 + s_v * qdd[i]
             )
-            ws.append(_LV(w_here))
-            vs.append(_LV(v_here))
-            wa.append(_LV(wa_here))
-            va.append(_LV(va_here))
+            ws.append((w_here))
+            vs.append((v_here))
+            wa.append((wa_here))
+            va.append((va_here))
         return (ws^, vs^, wa^, va^)
 
     def rnea_root(
@@ -342,25 +335,25 @@ struct Chain(Movable, Deinitable):
     ) raises -> Tuple[List[Real], Vec3, Vec3]:
         var n = len(self.links)
         var m = self.link_motion(qdd, gravity)
-        # tuple elements are moved out one at a time: List[_LV] is not
+        # tuple elements are moved out one at a time: List[Vec3] is not
         # implicitly copyable, so binding them by value needs the transfer
         var ws = m[0].copy()
         var vs = m[1].copy()
         var wa = m[2].copy()
         var va = m[3].copy()
         # --- backward: link forces -> joint torques ------------------------
-        var fw = List[_LV]()  # angular (torque) part, link frame
-        var fv = List[_LV]()  # linear part
+        var fw = List[Vec3]()  # angular (torque) part, link frame
+        var fv = List[Vec3]()  # linear part
         for i in range(n):
             var li = self.links[i]
             var ii = SpInertia.of_link(li.mass, li.com, li.i_diag)
-            var mom = ii.apply(ws[i].v, vs[i].v)
-            var acc = ii.apply(wa[i].v, va[i].v)
+            var mom = ii.apply(ws[i], vs[i])
+            var acc = ii.apply(wa[i], va[i])
             # f = I a + v ×* (I v)
             fw.append(
-                _LV(acc[0] + _cross(ws[i].v, mom[0]) + _cross(vs[i].v, mom[1]))
+                (acc[0] + _cross(ws[i], mom[0]) + _cross(vs[i], mom[1]))
             )
-            fv.append(_LV(acc[1] + _cross(ws[i].v, mom[1])))
+            fv.append((acc[1] + _cross(ws[i], mom[1])))
         var out = List[Real]()
         for _ in range(n):
             out.append(0)
@@ -372,25 +365,25 @@ struct Chain(Movable, Deinitable):
             # tau = Sᵀ f: the angular half for a revolute joint, the linear
             # half for a prismatic one
             if li2.kind == JOINT_REVOLUTE:
-                out[i2] = dot(li2.axis, fw[i2].v)
+                out[i2] = dot(li2.axis, fw[i2])
             else:
-                out[i2] = dot(li2.axis, fv[i2].v)
+                out[i2] = dot(li2.axis, fv[i2])
             var par = self.parent[i2]
             if par >= 0:
                 # push into the parent frame (rotate by R, shift by the joint
                 # offset — which slides for a prismatic joint)
                 var q = self._joint_rot(i2)
                 var off2 = self._joint_offset(i2)
-                var fw_p = q.rotate(fw[i2].v)
-                var fv_p = q.rotate(fv[i2].v)
-                fw[par] = _LV(fw[par].v + fw_p + _cross(off2, fv_p))
-                fv[par] = _LV(fv[par].v + fv_p)
+                var fw_p = q.rotate(fw[i2])
+                var fv_p = q.rotate(fv[i2])
+                fw[par] = (fw[par] + fw_p + _cross(off2, fv_p))
+                fv[par] = (fv[par] + fv_p)
             else:
                 # no parent: this force lands on the root
                 var q0 = self._joint_rot(i2)
                 var o0 = self._joint_offset(i2)
-                var fw0 = q0.rotate(fw[i2].v)
-                var fv0 = q0.rotate(fv[i2].v)
+                var fw0 = q0.rotate(fw[i2])
+                var fv0 = q0.rotate(fv[i2])
                 root_w = root_w + fw0 + _cross(o0, fv0)
                 root_v = root_v + fv0
             i2 -= 1
@@ -900,53 +893,53 @@ struct Chain(Movable, Deinitable):
         carry full symmetric 6x6 blocks (`_ABI`)."""
         var n = len(self.links)
         # --- pass 1 (outward): velocities, joint bias c, bias force p ------
-        var ws = List[_LV]()
-        var vs = List[_LV]()
-        var cw = List[_LV]()
-        var cv = List[_LV]()
-        var pw = List[_LV]()
-        var pv = List[_LV]()
+        var ws = List[Vec3]()
+        var vs = List[Vec3]()
+        var cw = List[Vec3]()
+        var cv = List[Vec3]()
+        var pw = List[Vec3]()
+        var pv = List[Vec3]()
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
-            var v_p = vs[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
+            var w_p = ws[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
+            var v_p = vs[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
             var rt = _rot_rows(self._joint_rot(i))
             var w_here = _matvec(rt, w_p) + l.axis * self.qd[i]
             var v_here = _matvec(rt, v_p + _cross(w_p, l.pivot))
             var sqd = l.axis * self.qd[i]
-            cw.append(_LV(_cross(w_here, sqd)))
-            cv.append(_LV(_cross(v_here, sqd)))
+            cw.append((_cross(w_here, sqd)))
+            cv.append((_cross(v_here, sqd)))
             var ii = SpInertia.of_link(l.mass, l.com, l.i_diag)
             var mom = ii.apply(w_here, v_here)
             pw.append(
-                _LV(_cross(w_here, mom[0]) + _cross(v_here, mom[1]))
+                (_cross(w_here, mom[0]) + _cross(v_here, mom[1]))
             )
-            pv.append(_LV(_cross(w_here, mom[1])))
-            ws.append(_LV(w_here))
-            vs.append(_LV(v_here))
+            pv.append((_cross(w_here, mom[1])))
+            ws.append((w_here))
+            vs.append((v_here))
         # --- pass 2 (inward): articulated inertias ------------------------
         var ia = List[_ABI]()
         for i in range(n):
             var l = self.links[i]
             ia.append(_ABI.of(SpInertia.of_link(l.mass, l.com, l.i_diag)))
-        var uw = List[_LV]()
-        var uv = List[_LV]()
+        var uw = List[Vec3]()
+        var uv = List[Vec3]()
         var dd = List[Real]()
         var uu = List[Real]()
         for _ in range(n):
-            uw.append(_LV(Vec3(0, 0, 0, 0)))
-            uv.append(_LV(Vec3(0, 0, 0, 0)))
+            uw.append((Vec3(0, 0, 0, 0)))
+            uv.append((Vec3(0, 0, 0, 0)))
             dd.append(0)
             uu.append(0)
         var i2 = n - 1
         while i2 >= 0:
             var l = self.links[i2]
             var u_ = ia[i2].apply(l.axis, Vec3(0, 0, 0, 0))
-            uw[i2] = _LV(u_[0])
-            uv[i2] = _LV(u_[1])
+            uw[i2] = (u_[0])
+            uv[i2] = (u_[1])
             dd[i2] = dot(l.axis, u_[0])
-            uu[i2] = tau[i2] - dot(l.axis, pw[i2].v)
+            uu[i2] = tau[i2] - dot(l.axis, pw[i2])
             var par = self.parent[i2]
             if par >= 0:
                 var inv_d = 1 / dd[i2]
@@ -955,9 +948,9 @@ struct Chain(Movable, Deinitable):
                 var b2 = _msub(ia[i2].b, _outer_scaled(u_[0], u_[1], inv_d))
                 var d2 = _msub(ia[i2].d, _outer_scaled(u_[1], u_[1], inv_d))
                 # pa = p^A + Ia c + U u/d
-                var iac = _ABI(a2.copy(), b2.copy(), d2.copy()).apply(cw[i2].v, cv[i2].v)
-                var paw = pw[i2].v + iac[0] + u_[0] * (uu[i2] * inv_d)
-                var pav = pv[i2].v + iac[1] + u_[1] * (uu[i2] * inv_d)
+                var iac = _ABI(a2.copy(), b2.copy(), d2.copy()).apply(cw[i2], cv[i2])
+                var paw = pw[i2] + iac[0] + u_[0] * (uu[i2] * inv_d)
+                var pav = pv[i2] + iac[1] + u_[1] * (uu[i2] * inv_d)
                 # into the parent frame: rotate blocks, then shift by pivot
                 # (same composition as the force push in dynamics()):
                 # A' = A₁ − B₁P + PB₁ᵀ − PD₁P ; B' = B₁ + PD₁ ; D' = D₁
@@ -982,29 +975,29 @@ struct Chain(Movable, Deinitable):
                 )
                 var fw_p = q.rotate(paw)
                 var fv_p = q.rotate(pav)
-                pw[par] = _LV(pw[par].v + fw_p + _cross(p, fv_p))
-                pv[par] = _LV(pv[par].v + fv_p)
+                pw[par] = (pw[par] + fw_p + _cross(p, fv_p))
+                pv[par] = (pv[par] + fv_p)
             i2 -= 1
         # --- pass 3 (outward): accelerations ------------------------------
         var qdd = List[Real]()
         for _ in range(n):
             qdd.append(0)
-        var aw = List[_LV]()
-        var av = List[_LV]()
+        var aw = List[Vec3]()
+        var av = List[Vec3]()
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
             # same base-acceleration gravity trick at every root
-            var wa_p = aw[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
-            var va_p = av[pi].v if pi >= 0 else -gravity
+            var wa_p = aw[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
+            var va_p = av[pi] if pi >= 0 else -gravity
             var rt = _rot_rows(self._joint_rot(i))
-            var w_a = _matvec(rt, wa_p) + cw[i].v
-            var v_a = _matvec(rt, va_p + _cross(wa_p, l.pivot)) + cv[i].v
+            var w_a = _matvec(rt, wa_p) + cw[i]
+            var v_a = _matvec(rt, va_p + _cross(wa_p, l.pivot)) + cv[i]
             qdd[i] = (
-                uu[i] - dot(uw[i].v, w_a) - dot(uv[i].v, v_a)
+                uu[i] - dot(uw[i], w_a) - dot(uv[i], v_a)
             ) / dd[i]
-            aw.append(_LV(w_a + l.axis * qdd[i]))
-            av.append(_LV(v_a))
+            aw.append((w_a + l.axis * qdd[i]))
+            av.append((v_a))
         return qdd^
 
     def step_aba(mut self, dt: Real, tau: List[Real], gravity: Vec3) raises:
@@ -1019,13 +1012,13 @@ struct Chain(Movable, Deinitable):
         var n = len(self.links)
         var e = Real(0)
         var poses = self.fk()
-        var ws2 = List[_LV]()
-        var vs2 = List[_LV]()
+        var ws2 = List[Vec3]()
+        var vs2 = List[Vec3]()
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws2[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
-            var v_p = vs2[pi].v if pi >= 0 else Vec3(0, 0, 0, 0)
+            var w_p = ws2[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
+            var v_p = vs2[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
             var rt = _rot_rows(self._joint_rot(i))
             var w = _matvec(rt, w_p) + l.axis * self.qd[i]
             var v = _matvec(rt, v_p + _cross(w_p, l.pivot))
@@ -1034,8 +1027,8 @@ struct Chain(Movable, Deinitable):
             e += (dot(w, mom[0]) + dot(v, mom[1])) * 0.5
             var com_w = poses[i].apply_point(l.com)
             e -= l.mass * dot(gravity, com_w)
-            ws2.append(_LV(w))
-            vs2.append(_LV(v))
+            ws2.append((w))
+            vs2.append((v))
         return e
 
 

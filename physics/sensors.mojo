@@ -45,10 +45,10 @@ def read_imu(
     purely rotating link reads correctly either way, which is why the test
     puts the IMU on the second link of a swinging chain."""
     var m = c.link_motion(qdd, gravity)
-    var w = m[0][link].v
-    var v = m[1][link].v
-    var wa = m[2][link].v
-    var va = m[3][link].v
+    var w = m[0][link]
+    var v = m[1][link]
+    var wa = m[2][link]
+    var va = m[3][link]
     var a = va + _cross3(w, v)
     if length(local) > 1e-12:
         a = a + _cross3(wa, local) + _cross3(w, _cross3(w, local))
@@ -72,11 +72,11 @@ def read_imu_batch(
     for k in range(len(links)):
         var i = links[k]
         var r = locals[k]
-        var w = m[0][i].v
-        var v = m[1][i].v
-        var a = m[3][i].v + _cross3(w, v)
+        var w = m[0][i]
+        var v = m[1][i]
+        var a = m[3][i] + _cross3(w, v)
         if length(r) > 1e-12:
-            a = a + _cross3(m[2][i].v, r) + _cross3(w, _cross3(w, r))
+            a = a + _cross3(m[2][i], r) + _cross3(w, _cross3(w, r))
         out.append(ImuReading(a, w))
     return out^
 
