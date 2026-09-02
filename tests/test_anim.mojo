@@ -158,7 +158,7 @@ def main() raises:
     skin_motor(motors, rest, ia, ib, wa, out)
     var finite = True
     for k in range(4):
-        var v = out[k].v
+        var v = out[k]
         for d in range(3):
             if not (Float64(v[d]) > -1e6 and Float64(v[d]) < 1e6):
                 finite = False
