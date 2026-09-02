@@ -5,8 +5,8 @@ the *actual* SIMD width equal to the dimension (2 or 3) and NEVER use SIMD
 `reduce_*` for reductions — on width-3 it silently drops the third lane in this
 nightly. Reductions are done with an explicit `comptime for` over the lanes.
 
-Width-generic helpers infer the width with `[w: SIMDSize, //]` (SIMD's width
-parameter is `SIMDSize`, not `Int`, so plain `Int` would not infer from a value).
+Width-generic helpers infer the width with `[w: SIMDLength, //]` (SIMD's width
+parameter is `SIMDLength`, not `Int`, so plain `Int` would not infer from a value).
 """
 
 from std.math import sqrt
@@ -50,7 +50,7 @@ def vlanes(d: Int) -> Int:
     return 4 if d == 3 else d
 
 
-def dot[w: SIMDSize, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
+def dot[w: SIMDLength, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
     """Lane-wise multiply then horizontal sum.
 
     This was a hand-written `comptime for` reduction because `reduce_add` was
@@ -67,33 +67,33 @@ def dot[w: SIMDSize, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
     return (a * b).reduce_add()
 
 
-def length_sq[w: SIMDSize, //](a: SIMD[WorldType, w]) -> Real:
+def length_sq[w: SIMDLength, //](a: SIMD[WorldType, w]) -> Real:
     return dot(a, a)
 
 
-def length[w: SIMDSize, //](a: SIMD[WorldType, w]) -> Real:
+def length[w: SIMDLength, //](a: SIMD[WorldType, w]) -> Real:
     return sqrt(length_sq(a))
 
 
-def distance_sq[w: SIMDSize, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
+def distance_sq[w: SIMDLength, //](a: SIMD[WorldType, w], b: SIMD[WorldType, w]) -> Real:
     return length_sq(a - b)
 
 
-def normalize[w: SIMDSize, //](a: SIMD[WorldType, w]) -> SIMD[WorldType, w]:
+def normalize[w: SIMDLength, //](a: SIMD[WorldType, w]) -> SIMD[WorldType, w]:
     var n = length(a)
     if n == 0:
         return a
     return a / n
 
 
-def lane_min[w: SIMDSize, //](
+def lane_min[w: SIMDLength, //](
     a: SIMD[WorldType, w], b: SIMD[WorldType, w]
 ) -> SIMD[WorldType, w]:
     # Element-wise, for the same reason `dot` no longer hand-rolls its loop.
     return min(a, b)
 
 
-def lane_max[w: SIMDSize, //](
+def lane_max[w: SIMDLength, //](
     a: SIMD[WorldType, w], b: SIMD[WorldType, w]
 ) -> SIMD[WorldType, w]:
     return max(a, b)

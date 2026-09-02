@@ -1,5 +1,16 @@
-# Spike B: width-3 SIMD, AABB[dim], elementwise overlap, raise-based assert.
+# Spike B: dimension-generic AABB, elementwise overlap, raise-based assert.
+#
+# Written when Vec3 was width-3 SIMD. That width is no longer legal -- Mojo
+# requires powers of two -- so the spike now pads to four lanes like the engine
+# does. Its printed aside "reduce_add gives wrong" is stale: it prints 9.0 for
+# both paths now, because the reason it was wrong was the unsupported width.
 comptime WorldType = DType.float32
+# Local, so the spike stays self-contained: importing the engine's alias would
+# change what is being spiked. Same definition -- SIMD widths must be powers of
+# two, so a 3-vector occupies 4 lanes with the top one left at zero.
+comptime PadW[d: Int] = 4 if d == 3 else d
+comptime Vec2 = SIMD[WorldType, PadW[2]]
+comptime Vec3 = SIMD[WorldType, PadW[3]]
 
 
 def assert_true(cond: Bool, msg: String) raises:
