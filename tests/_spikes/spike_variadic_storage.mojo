@@ -3,9 +3,9 @@
 # through a type-erased pointer slot indexed by the component's pack position.
 # Only the POINTER is erased — store internals stay fully typed and safe.
 
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 trait ComponentType(Copyable, ImplicitlyCopyable, Movable, Deinitable):
@@ -55,7 +55,7 @@ struct Backend[*CTs: ComponentType](Movable):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[ComponentStore[T]](1)
+            var p = alloc[ComponentStore[T]](Layout[ComponentStore[T]](count=1)).unsafe_leak()
             p.unsafe_write(ComponentStore[T]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
 
@@ -74,7 +74,7 @@ struct Backend[*CTs: ComponentType](Movable):
                 idx = i
         return idx
 
-    def store[C: ComponentType](self) -> type_of(alloc[ComponentStore[C]](1)):
+    def store[C: ComponentType](self) -> type_of(alloc[ComponentStore[C]](Layout[ComponentStore[C]](count=1)).unsafe_leak()):
         return self.slots[Self.slot_of[C]()].unsafe_bitcast[ComponentStore[C]]()
 
     def push[C: ComponentType](mut self, var v: C):

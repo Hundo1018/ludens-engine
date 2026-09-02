@@ -71,7 +71,7 @@ def ws_parallel_for[
     def worker(me: Int):
         # 1. drain own range
         while True:
-            var i = Int(Atomic.fetch_add(cp + me * _PAD, Int64(1)))
+            var i = Int(Atomic.fetch_add(cp.unsafe_offset(me * _PAD), Int64(1)))
             if i >= limits[me]:
                 break
             body(i)
@@ -83,7 +83,7 @@ def ws_parallel_for[
             for off in range(1, w):
                 var v = (me + off) % w
                 while True:
-                    var i = Int(Atomic.fetch_add(cp + v * _PAD, Int64(1)))
+                    var i = Int(Atomic.fetch_add(cp.unsafe_offset(v * _PAD), Int64(1)))
                     if i >= limits[v]:
                         break
                     body(i)

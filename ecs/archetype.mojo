@@ -33,14 +33,21 @@ the heap-allocated column `List` pointers directly, enabling contiguous SoA
 iteration without per-entity `get()` overhead.
 """
 
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend, Record
 
 comptime MAX_ARCH = 256  # supports up to 8 component types (2^8 signatures)
-comptime Slot = type_of(alloc[NoneType](1))
+# The count-taking `alloc` overload is deprecated in favour of a Layout-based
+# one that returns a LINEAR `Allocation[T]` -- it must be consumed with
+# `dealloc(a^)` or leaked deliberately, so a forgotten free becomes a compile
+# error. This file manages its column storage by hand and stores raw pointers
+# in a list, which a linear type cannot express, so it takes the pointer out
+# with `unsafe_leak()`. Same type as the old overload returned; the ownership
+# model here is unchanged, just no longer riding a deprecated path.
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 struct ArchView2[A: ComponentType, B: ComponentType](Copyable, ImplicitlyCopyable, Movable):
@@ -101,12 +108,12 @@ struct ArchView2[A: ComponentType, B: ComponentType](Copyable, ImplicitlyCopyabl
         self._col_b.unsafe_bitcast[List[Self.B]]()[].unsafe_ptr()[unsafe_offset=i] = value
 
     @always_inline
-    def unsafe_col_a(self) -> type_of(alloc[Self.A](1)):
+    def unsafe_col_a(self) -> type_of(alloc[Self.A](Layout[Self.A](count=1)).unsafe_leak()):
         """Raw pointer to A's contiguous column buffer (for SIMD / bulk ops)."""
         return self._col_a.unsafe_bitcast[List[Self.A]]()[].unsafe_ptr()
 
     @always_inline
-    def unsafe_col_b(self) -> type_of(alloc[Self.B](1)):
+    def unsafe_col_b(self) -> type_of(alloc[Self.B](Layout[Self.B](count=1)).unsafe_leak()):
         """Raw pointer to B's contiguous column buffer (for SIMD / bulk ops)."""
         return self._col_b.unsafe_bitcast[List[Self.B]]()[].unsafe_ptr()
 
@@ -127,7 +134,7 @@ struct Archetype[*CTs: ComponentType](Movable, Deinitable):
         self.remove_edges = InlineArray[Int, Self.N](fill=-1)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[List[T]](1)
+            var p = alloc[List[T]](Layout[List[T]](count=1)).unsafe_leak()
             p.unsafe_write(List[T]())
             self.cols.append(p.unsafe_bitcast[NoneType]())
 
@@ -202,7 +209,7 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         return target
 
     @always_inline
-    def _col[C: ComponentType](self, arch: Int) -> type_of(alloc[List[C]](1)):
+    def _col[C: ComponentType](self, arch: Int) -> type_of(alloc[List[C]](Layout[List[C]](count=1)).unsafe_leak()):
         return self.archetypes[arch].cols[Self._slot_of[C]()].unsafe_bitcast[List[C]]()
 
     def _swap_remove(mut self, arch: Int, row: Int):

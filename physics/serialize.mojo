@@ -57,7 +57,7 @@ struct _Reader(Movable, Deinitable):
 
     def f(mut self) raises -> Real:
         var u = UInt32(self.i())
-        return Real(UnsafePointer(to=u).unsafe_bitcast[Float32]()[])
+        return Real(Pointer(to=u).unsafe_bitcast[Float32]()[])
 
     def v3(mut self) raises -> Vec3:
         var x = self.f()

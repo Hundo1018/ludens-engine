@@ -13,12 +13,12 @@ in the other backends; the bitsets are homogeneous `UInt64` and need no erasure.
 """
 
 from std.bit import count_trailing_zeros
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 def _word(i: Int) -> Int:
@@ -46,7 +46,7 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[List[Optional[T]]](1)
+            var p = alloc[List[Optional[T]]](Layout[List[Optional[T]]](count=1)).unsafe_leak()
             p.unsafe_write(List[Optional[T]]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.masks = List[List[UInt64]]()
@@ -72,7 +72,7 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
                 return i
         return -1
 
-    def _store[C: ComponentType](self) -> type_of(alloc[List[Optional[C]]](1)):
+    def _store[C: ComponentType](self) -> type_of(alloc[List[Optional[C]]](Layout[List[Optional[C]]](count=1)).unsafe_leak()):
         return self.slots[Self._slot_of[C]()].unsafe_bitcast[List[Optional[C]]]()
 
     def _set_mask(mut self, slot: Int, id: Int):

@@ -74,7 +74,7 @@ struct SparseSet[T: ImplicitlyCopyable & Deinitable](
         return len(self) > 0
 
     @always_inline
-    def contains(read self, key: Int) -> Bool:
+    def contains(self, key: Int) -> Bool:
         if key < 0 or key >= len(self._sparse):
             return False
         var index = self._sparse[key]

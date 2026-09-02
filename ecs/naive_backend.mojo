@@ -12,12 +12,12 @@ typed `List[Optional[C]]`). `Optional` lets us pad new ids without requiring
 components to be `Defaultable`.
 """
 
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 struct NaiveBackend[*CTs: ComponentType](StorageBackend):
@@ -35,7 +35,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[List[Optional[T]]](1)
+            var p = alloc[List[Optional[T]]](Layout[List[Optional[T]]](count=1)).unsafe_leak()
             p.unsafe_write(List[Optional[T]]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.live = List[Bool]()
@@ -57,7 +57,7 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
                 return i
         return -1
 
-    def _store[C: ComponentType](self) -> type_of(alloc[List[Optional[C]]](1)):
+    def _store[C: ComponentType](self) -> type_of(alloc[List[Optional[C]]](Layout[List[Optional[C]]](count=1)).unsafe_leak()):
         return self.slots[Self._slot_of[C]()].unsafe_bitcast[List[Optional[C]]]()
 
     # --- lifecycle ---

@@ -1,5 +1,5 @@
 # Probe: alloc free function + MutableAnyOrigin erased pointer slots.
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 
 
 @fieldwise_init
@@ -9,7 +9,7 @@ struct Foo(Copyable, Movable):
 
 
 def main() raises:
-    var p = alloc[Foo](1)
+    var p = alloc[Foo](Layout[Foo](count=1)).unsafe_leak()
     p.unsafe_write(Foo(7, 8))
     print("foo =", p[].a, p[].b)
 

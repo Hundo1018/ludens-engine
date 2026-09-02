@@ -14,14 +14,14 @@ replays writes in EXACT recording order across types. Writes to entities that
 died before the sync point are dropped (Bevy semantics), not resurrected.
 """
 
-from std.memory import alloc
+from std.memory import alloc, Layout
 from .entity import Entity
 from .component import ComponentType
 from .world import World
 from .storage import StorageBackend
 from .relations import RelationStore
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 @fieldwise_init
@@ -87,7 +87,7 @@ struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[List[_SetRec[T]]](1)
+            var p = alloc[List[_SetRec[T]]](Layout[List[_SetRec[T]]](count=1)).unsafe_leak()
             p.unsafe_write(List[_SetRec[T]]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.order = List[Int]()

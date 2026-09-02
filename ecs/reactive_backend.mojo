@@ -24,13 +24,13 @@ is mutation order — replaying a scenario yields a bit-identical event list
 (`test_observers`).
 """
 
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 struct _Group(Movable, Deinitable):
@@ -81,23 +81,23 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     # handles stay dead. Gated per backend in `test_backend_parity`.
     var free_ids: List[Int]
     var gens: List[Int]
-    var groups: type_of(alloc[List[_Group]](1))  # registry (heap)
-    var observers: type_of(alloc[List[_Observer]](1))  # push subscriptions
+    var groups: type_of(alloc[List[_Group]](Layout[List[_Group]](count=1)).unsafe_leak())  # registry (heap)
+    var observers: type_of(alloc[List[_Observer]](Layout[List[_Observer]](count=1)).unsafe_leak())  # push subscriptions
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[SparseSet[T]](1)
+            var p = alloc[SparseSet[T]](Layout[SparseSet[T]](count=1)).unsafe_leak()
             p.unsafe_write(SparseSet[T]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.alive = SparseSet[Int]()
         self.counter = 0
         self.free_ids = List[Int]()
         self.gens = List[Int]()
-        self.groups = alloc[List[_Group]](1)
+        self.groups = alloc[List[_Group]](Layout[List[_Group]](count=1)).unsafe_leak()
         self.groups.unsafe_write(List[_Group]())
-        self.observers = alloc[List[_Observer]](1)
+        self.observers = alloc[List[_Observer]](Layout[List[_Observer]](count=1)).unsafe_leak()
         self.observers.unsafe_write(List[_Observer]())
 
     def __deinit__(deinit self):
@@ -153,7 +153,7 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
                 return i
         return -1
 
-    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](1)):
+    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](Layout[SparseSet[C]](count=1)).unsafe_leak()):
         return self.slots[Self._slot_of[C]()].unsafe_bitcast[SparseSet[C]]()
 
     # --- reactive group maintenance ---

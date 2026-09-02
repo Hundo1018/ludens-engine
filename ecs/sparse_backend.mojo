@@ -11,13 +11,13 @@ The slot list is preallocated to exactly N (a realloc would corrupt erased
 pointers) and all access goes through value-returning methods.
 """
 
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 
 struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
@@ -37,7 +37,7 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[SparseSet[T]](1)
+            var p = alloc[SparseSet[T]](Layout[SparseSet[T]](count=1)).unsafe_leak()
             p.unsafe_write(SparseSet[T]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.alive = SparseSet[Int]()
@@ -59,7 +59,7 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
                 return i
         return -1
 
-    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](1)):
+    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](Layout[SparseSet[C]](count=1)).unsafe_leak()):
         return self.slots[Self._slot_of[C]()].unsafe_bitcast[SparseSet[C]]()
 
     # --- lifecycle ---

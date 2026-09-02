@@ -50,10 +50,10 @@ def integrate_simd[
             var m = LANES_PER * n
             var i = 0
             while i + W <= m:
-                fa.store(i, fa.load[width=W](i) + fb.load[width=W](i) * dt)
+                fa.unsafe_store(i, fa.unsafe_load[width=W](i) + fb.unsafe_load[width=W](i) * dt)
                 i += W
             while i < m:
-                fa.store(i, fa.load(i) + fb.load(i) * dt)
+                fa.unsafe_store(i, fa.unsafe_load(i) + fb.unsafe_load(i) * dt)
                 i += 1
 
 

@@ -18,7 +18,7 @@ since nothing differentiates w.r.t. a constant.
 """
 
 from std.math import sqrt, cos, sin
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .vec import WorldType, Real
 
 
@@ -154,7 +154,7 @@ struct TapeNode(Copyable, ImplicitlyCopyable, Movable):
 
 struct Tape(Movable, Deinitable):
     """Append-only operation record for reverse-mode AD. Declare one on the
-    stack, hand `UnsafePointer(to=tape)` to `RevReal.seed`, run the
+    stack, hand `Pointer(to=tape)` to `RevReal.seed`, run the
     computation, then `grad(output.idx)` sweeps backwards once and returns
     the adjoint of every node — read the inputs' entries for the gradient."""
 
@@ -193,7 +193,7 @@ struct Tape(Movable, Deinitable):
 # UnsafePointer is non-nullable in this nightly, and a stack address carries
 # its own origin — the alloc-derived alias (the ecs backends' Slot idiom) plus
 # Optional models "constant, no tape".
-comptime TapePtr = type_of(alloc[Tape](1))
+comptime TapePtr = type_of(alloc[Tape](Layout[Tape](count=1)).unsafe_leak())
 
 
 @fieldwise_init
@@ -250,5 +250,5 @@ def rev_seed(mut t: Tape, v: Real) -> RevReal:
     """Seed a differentiation input on a stack-declared tape (wraps the
     address-roundtrip conversion to the alloc-typed pointer)."""
     return RevReal.seed(
-        TapePtr(unsafe_from_address=Int(UnsafePointer(to=t))), v
+        TapePtr(unsafe_from_address=Int(Pointer(to=t))), v
     )

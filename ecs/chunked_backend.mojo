@@ -30,12 +30,12 @@ commercial implementations this mirrors, with a floor so tiny components do not
 produce absurdly long pages.
 """
 
-from std.memory import UnsafePointer, alloc
+from std.memory import UnsafePointer, alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
 
-comptime Slot = type_of(alloc[NoneType](1))
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
 # 16 KB target page, matching Unity DOTS' chunk size.
 comptime CHUNK_BYTES = 16384
@@ -125,7 +125,7 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
-            var p = alloc[_Column[T]](1)
+            var p = alloc[_Column[T]](Layout[_Column[T]](count=1)).unsafe_leak()
             p.unsafe_write(_Column[T]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.live = List[Bool]()
@@ -147,7 +147,7 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
                 return i
         return -1
 
-    def _col[C: ComponentType](self) -> type_of(alloc[_Column[C]](1)):
+    def _col[C: ComponentType](self) -> type_of(alloc[_Column[C]](Layout[_Column[C]](count=1)).unsafe_leak()):
         return self.slots[Self._slot_of[C]()].unsafe_bitcast[_Column[C]]()
 
     def compact(mut self):
