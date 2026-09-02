@@ -6,7 +6,7 @@
 # mutation), so a following serial reduce is identical for both policies.
 
 from max.algorithm import parallelize
-from std.memory import alloc
+from std.memory import alloc, Layout
 
 
 trait DispatchPolicy:
@@ -35,17 +35,17 @@ struct Parallel(DispatchPolicy):
 
 
 def square_sum[D: DispatchPolicy](n: Int) -> Int:
-    var arena = alloc[Int](n)
+    var arena = alloc[Int](Layout[Int](count=n)).unsafe_leak()
 
     @parameter
     def worker(i: Int):
-        arena[i] = i * i  # disjoint slot: worker i touches only arena[i]
+        arena[unsafe_offset=i] = i * i  # disjoint slot: worker i touches only arena[i]
 
     D.run[worker](n)
 
     var s = 0
     for i in range(n):
-        s += arena[i]
+        s += arena[unsafe_offset=i]
     arena.unsafe_free()
     return s
 

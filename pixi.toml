@@ -15,6 +15,10 @@ test = { cmd = "bash scripts/run_tests.sh", depends-on = ["build"] }
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.
 benchmark = { cmd = "bash scripts/run_benchmarks.sh", depends-on = ["build"] }
+# Build, then run every research experiment (GA feasibility probes).
+experiments = { cmd = "bash scripts/run_experiments.sh", depends-on = ["build"] }
+# Build, then run every language spike, so toolchain moves cannot rot them unseen.
+spikes = { cmd = "bash scripts/run_spikes.sh", depends-on = ["build"] }
 
 [dependencies]
 modular = ">=26.5.0,<27"

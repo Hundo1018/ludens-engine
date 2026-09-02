@@ -22,7 +22,7 @@ def main() raises:
     comptime N = 200
     var w = World[SparseSetBackend[Health]]()
     var ents = List[Entity]()
-    for i in range(N):
+    for _ in range(N):
         var e = w.spawn()
         w.set(e, Health(0))  # component pre-exists -> later set() is in-place
         ents.append(e)
