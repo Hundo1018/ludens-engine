@@ -1,6 +1,6 @@
 """A work-stealing task pool, as an alternative to static fan-out.
 
-`std.algorithm.parallelize` partitions `[0, n)` into contiguous blocks, one per
+`max.algorithm.parallelize` partitions `[0, n)` into contiguous blocks, one per
 worker, decided before any task runs. That is optimal when every task costs the
 same and pathological when they do not: a worker that draws the expensive tasks
 keeps running while the others sit at the barrier, and the round takes as long

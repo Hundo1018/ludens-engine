@@ -5,7 +5,7 @@ instantiated — only its `comptime PARALLEL` marker and static `run` are used).
 `run[body](n)` calls `body(i)` for every `i` in `[0, n)`:
 
   - `Serial`   — a plain in-order loop. Deterministic by construction.
-  - `Parallel` — `std.algorithm.parallelize` across worker threads.
+  - `Parallel` — `max.algorithm.parallelize` across worker threads.
 
 The actor schedulers structure each round so that `body(i)` touches only
 actor `i`'s own world data (an in-place component overwrite on a disjoint dense

@@ -1,6 +1,6 @@
 """Work stealing vs static fan-out: what dynamic load balancing is worth.
 
-`std.algorithm.parallelize` decides the split before any task runs, so a round
+`max.algorithm.parallelize` decides the split before any task runs, so a round
 costs as much as the unluckiest block. `ws_parallel_for` starts from the same
 split but lets idle workers drain other ranges (`test_workstealing` proves
 every index still runs exactly once).

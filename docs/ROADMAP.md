@@ -1232,9 +1232,14 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 實測 robust 反而更快(7.75 vs 8.64),兩者已改述為「等價,勝負會在不同執行間換邊」;
 > orient3d 退化路徑 370× 實測為 339×。改述一律用比例/量級而非硬數字,避免再漂移。
 
-#### 尚存的包裝
-> `_Pt`(gjk)、`_LV`(chain)、`_Half`(solver6)仍在。它們現在**沒有理由存在**,
-> 但拆除要照 `SkinVert` 的規格:**先逐條否證該包裝 docstring 上寫的每一個理由**,
-> 不能因為 `SkinVert` 拆得掉就推論其餘。`SkinVert` 的兩條證據是:
-> 裸未預留 `List[Vec3]` 跨函式邊界 8/8 全對;`bench_ga`(當初二分出 12/12 崩潰的程式)10/10 乾淨。
+#### 包裝已全數退場(2026-09-03,commit f3aff20)
+> `_Pt`(gjk)、`_LV`(chain)、`_Half`(solver6)**已拆除**。照 `SkinVert` 的規格逐條否證:
+> 三者的唯一理由都是「裸 `List[SIMD[_, 3]]` 在 realloc 時損毀」,重測(capacity 0 → 100 /
+> 1,000 / 10,000)讀回**零筆錯誤** —— width 3 本來就不是受支援的 SIMD 寬度,改四 lane 已移除病因。
+>
+> 同一輪順帶關掉一個**陷阱**(非 bug):`collision/queries.mojo` 用 splat 建 root/empty AABB,
+> 連 pad lane 一起填 ±1。目前**惰性無害**(`surface_area` 只索引 0..dim-1,且現存每個 box 的
+> pad 區間都跨過 0,lane-wise overlap 恆真);但 pad 區間不含 0 的 AABB 會與所有真實 box 判為
+> 不重疊,在 broadphase 靜默剔除真對且無跡可循。`AABB.symmetric()` 改為把 pad lane 設為 0,
+> `test_aabb` 立閘,陷阱不會再悄悄打開。
 
