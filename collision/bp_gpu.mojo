@@ -149,7 +149,7 @@ def gpu_pairs_ctx[N: Int, CAP: Int](
     )
     ctx.synchronize()
 
-    var found = 0
+    var found: Int
     with cur.map_to_host() as m:
         var t = TileTensor(m, clay)
         found = Int(rebind[Scalar[idt]](t[0]))

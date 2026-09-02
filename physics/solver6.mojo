@@ -662,7 +662,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
             flip = True
         var ka = self.shape[a]
         var kb = self.shape[b]
-        var m = ContactManifold[3].miss()
+        var m: ContactManifold[3]
         if ka == 0 and kb == 0:
             m = box_box_manifold(
                 self.bodies[a].position(), self._axes(a), self.half[a] + infl,

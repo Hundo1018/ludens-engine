@@ -225,7 +225,6 @@ struct Chain(Movable, Deinitable):
         """World pose of every link frame — pure motor composition (GA)."""
         var out = List[Motor3]()
         for i in range(len(self.links)):
-            var l = self.links[i]
             var base = Motor3.identity()
             if self.parent[i] >= 0:
                 base = out[self.parent[i]]
@@ -608,7 +607,7 @@ struct Chain(Movable, Deinitable):
         return qdd^
 
     def dynamics(self, tau: List[Real], gravity: Vec3) raises -> List[Real]:
-        """qdd = H⁻¹ (tau − C): CRBA mass matrix + RNEA bias, dense solve."""
+        """`qdd = H⁻¹ (tau − C)` — CRBA mass matrix + RNEA bias, dense solve."""
         var n = len(self.links)
         var zero_qdd = List[Real]()
         for _ in range(n):
@@ -845,7 +844,7 @@ struct Chain(Movable, Deinitable):
                 var l = self.links[k]
                 if not l.has_limits():
                     continue
-                var err = Real(0)
+                var err: Real
                 if self.q[k] < l.lo:
                     err = l.lo - self.q[k]
                 elif self.q[k] > l.hi:
@@ -886,7 +885,7 @@ struct Chain(Movable, Deinitable):
     def dynamics_aba(
         self, tau: List[Real], gravity: Vec3
     ) raises -> List[Real]:
-        """qdd via the articulated-body algorithm (Featherstone RBDA 7.3):
+        """`qdd` via the articulated-body algorithm (Featherstone RBDA 7.3):
         three O(n) sweeps instead of CRBA's O(n²) matrix + O(n³) solve.
         Same answer as `dynamics()` (parity-gated in test_aba); the U Uᵀ/d
         update breaks the compact {m,h,I_o} form, so articulated inertias

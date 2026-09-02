@@ -98,15 +98,15 @@ def bitonic_kernel[LT: TensorLayout](
     k: Int32,
     j: Int32,
 ):
+    """One compare-exchange stage of a bitonic sort. Fixed schedule, no atomics,
+    every lane touches a disjoint pair — so the result does not depend on warp
+    arrival order."""
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
     # is compiled for the device. Widened back here so the body is unchanged.
     var npad_ = Int(npad)
     var k_ = Int(k)
     var j_ = Int(j)
-    """One compare-exchange stage of a bitonic sort. Fixed schedule, no atomics,
-    every lane touches a disjoint pair — so the result does not depend on warp
-    arrival order."""
     comptime assert codes.flat_rank == 1
     var g = global_idx.x
     if g >= npad_:

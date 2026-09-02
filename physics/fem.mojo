@@ -214,7 +214,7 @@ struct FemBody(Movable):
         mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30,
         tol: Real = 1e-4, max_iters: Int = 64,
     ) -> CgResult:
-        """Backward Euler on the linearised system (Baraff-Witkin):
+        """Backward Euler on the linearised system (Baraff-Witkin).
 
             (M - dt^2 df/dx) dv = dt (f0 + dt (df/dx) v0)
 

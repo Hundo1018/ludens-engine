@@ -29,7 +29,7 @@ def _run_counts(n: Int, workers: Int, skew: Bool) raises -> List[Int]:
         for k in range(spin):
             acc += (i + k) & 3
         # each index is claimed exactly once, so a plain increment is safe
-        hp[i] += 1 if acc >= 0 else 1
+        hp[unsafe_offset=i] += 1 if acc >= 0 else 1
 
     ws_parallel_for[body](n, workers)
     return hits^

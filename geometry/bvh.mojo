@@ -49,7 +49,7 @@ struct BVH[dim: Int](Copyable, Movable):
         lbvh: Bool = False,
     ):
         """Three build heuristics over the same leaves, all answering queries
-        identically (`test_bvh` / `test_sah` / `test_lbvh` parity):
+        identically (`test_bvh` / `test_sah` / `test_lbvh` parity).
 
         - default: median-split along the widest centroid axis.
         - `sah`: binned Surface-Area-Heuristic — least SA(L)·|L| + SA(R)·|R|

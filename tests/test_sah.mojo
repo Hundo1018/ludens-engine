@@ -13,9 +13,9 @@ def _clustered(mut rng: XorShift64, n: Int) -> List[_Leaf[3]]:
     between clusters; SAH cuts along it — the regime where SAH wins."""
     var leaves = List[_Leaf[3]]()
     for i in range(n):
-        var cx = Real(0)
-        var cy = Real(0)
-        var cz = Real(0)
+        var cx: Real
+        var cy: Real
+        var cz: Real
         if i % 5 == 0:  # 20% scattered wide
             cx = range_f(rng, -30, 30)
             cy = range_f(rng, -30, 30)

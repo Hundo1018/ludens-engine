@@ -68,7 +68,7 @@ struct Score(ComponentType):
 
 
 struct Integrate(DeclaredSystem):
-    """pos += vel. Writes Position, reads Velocity."""
+    """`pos += vel`. Writes Position, reads Velocity."""
 
     @staticmethod
     def reads() -> UInt64:
@@ -88,7 +88,7 @@ struct Integrate(DeclaredSystem):
 
 
 struct Drag(DeclaredSystem):
-    """vel -= 1 while positive. Writes Velocity — so it MUST NOT share a level
+    """`vel -= 1` while positive. Writes Velocity — so it MUST NOT share a level
     with Integrate, which reads it."""
 
     @staticmethod
@@ -108,7 +108,7 @@ struct Drag(DeclaredSystem):
 
 
 struct Decay(DeclaredSystem):
-    """hp -= 1. Touches nothing else, so it may run beside anything."""
+    """`hp -= 1`. Touches nothing else, so it may run beside anything."""
 
     @staticmethod
     def reads() -> UInt64:
@@ -126,7 +126,7 @@ struct Decay(DeclaredSystem):
 
 
 struct Award(DeclaredSystem):
-    """score += hp, reading Health. Read-read with Decay would be fine; this is
+    """`score += hp`, reading Health. Read-read with Decay would be fine; this is
     read-after-WRITE, so it is ordered behind Decay."""
 
     @staticmethod

@@ -143,7 +143,7 @@ def main() raises:
 
     # 5. query_region agrees with brute force (its early exit relies on order)
     var region_ok = True
-    for q in range(8):
+    for _ in range(8):
         var c = Vec2(Real(rng.next_f32()) * 25.0, Real(rng.next_f32()) * 25.0)
         var box = AABB[2](c - Vec2(3, 3), c + Vec2(3, 3))
         var ra = List[Int]()

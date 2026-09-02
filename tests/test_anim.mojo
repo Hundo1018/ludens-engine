@@ -41,7 +41,7 @@ def _pose() -> List[Real]:
 
 def _rots() -> List[Real]:
     var v = List[Real](capacity=4 * BONES)
-    for b in range(BONES):
+    for _ in range(BONES):
         v.append(0)
         v.append(0)
         v.append(0)

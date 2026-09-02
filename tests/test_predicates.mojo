@@ -33,11 +33,11 @@ def _next_up(x: Real) -> Real:
     """The next float32 after `x` toward +inf, by bit pattern. The smallest
     perturbation the input type can express, which is the sharpest possible
     test of a sign predicate."""
-    # Reinterpret through a pointer: the free-function `bitcast` is deprecated
-    # and its replacement `unsafe_bitcast` is a POINTER METHOD, not a free
+    # Reinterpret through a pointer: the free-function `bitcast` is gone and
+    # its replacement `unsafe_bitcast` is a POINTER METHOD, not a free
     # function, so this is the supported spelling (same as physics/serialize).
-    var bits = UnsafePointer(to=x).unsafe_bitcast[UInt32]()[] + 1
-    return UnsafePointer(to=bits).unsafe_bitcast[Real]()[]
+    var bits = Pointer(to=x).unsafe_bitcast[UInt32]()[] + 1
+    return Pointer(to=bits).unsafe_bitcast[Real]()[]
 
 
 def _is_convex_ccw(verts: List[Vec2]) -> Bool:
@@ -194,7 +194,7 @@ def main() raises:
 
     # On well-separated input the two spellings must agree exactly.
     var plain = List[Vec2]()
-    for i in range(40):
+    for _ in range(40):
         plain.append(
             Vec2(Real(rng.next_f32()) * 10 - 5, Real(rng.next_f32()) * 10 - 5)
         )

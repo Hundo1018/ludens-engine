@@ -45,7 +45,7 @@ def main() raises:
     var g_walk = h.add_state(grounded)
     var airborne = h.add_state()
     var a_jump = h.add_state(airborne)
-    var a_fall = h.add_state(airborne)
+    _ = h.add_state(airborne)
     h.set_initial(grounded, g_idle)
     h.set_initial(airborne, a_jump)
     # a JUMP from anywhere grounded goes airborne (transition on the parent)

@@ -33,7 +33,7 @@ comptime INV_2CS4: Real = 4.5  # 1 / (2 * cs^4)
 
 
 def cx(i: Int) -> Int:
-    """x component of velocity `i`. Direction 0 is rest; 1..6 are the axes;
+    """`x` component of velocity `i`. Direction 0 is rest; 1..6 are the axes;
     7..18 are the face diagonals."""
     var t = List[Int](capacity=Q)
     t.append(0)

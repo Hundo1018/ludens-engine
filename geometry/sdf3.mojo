@@ -93,7 +93,7 @@ struct Sdf3(Copyable, ImplicitlyCopyable, Movable):
         if kind == KIND_SPHERE:
             return length(p - c) - e[0]
         if kind == KIND_PLANE:
-            return dot(p, c if False else e) - d  # e holds the unit normal
+            return dot(p, e) - d  # e holds the unit normal
         if kind == KIND_CAPSULE:
             # segment along local Y through `c`, half-length e[1], radius e[0]
             var q = p - c

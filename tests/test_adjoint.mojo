@@ -125,7 +125,7 @@ def main() raises:
     # mistaken for a check on gravity or the spring, which no gradient with
     # respect to these controls can reach. The primal y above is what does that.
     var gy = List[Real]()
-    var ry = rollout_generated(u, burst, dt, gy, R_Y)
+    _ = rollout_generated(u, burst, dt, gy, R_Y)
     var worst_y = Real(0)
     var worst_fd = Real(0)
     for k in range(len(u)):
@@ -191,7 +191,7 @@ def main() raises:
     var gl = List[Real]()
     var ghl = List[Real]()
     var rl = rollout_generated(ulong, 40, dt, gl)
-    var xhl = rollout_ctrl_adjoint(ulong, 40, dt, ghl)
+    _ = rollout_ctrl_adjoint(ulong, 40, dt, ghl)
     var l_exact = True
     for k in range(len(ulong)):
         if gl[k] != ghl[k]:
@@ -209,7 +209,7 @@ def main() raises:
     var gz = List[Real]()
     var ghz = List[Real]()
     var rz = rollout_generated(uz, burst, dt, gz)
-    var xhz = rollout_ctrl_adjoint(uz, burst, dt, ghz)
+    _ = rollout_ctrl_adjoint(uz, burst, dt, ghz)
     s.check(
         Float64(rz[0]) == 0.0, "zero controls leave the ball on the y axis"
     )

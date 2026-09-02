@@ -499,9 +499,9 @@ def sphere_box_manifold(
     var d2 = dot(dl, dl)
     if d2 > r * r and d2 > 1e-12:
         return ContactManifold[3].miss()
-    var n_world = Vec3(0, 1, 0, 0)
-    var depth = Real(0)
-    var point = Vec3(0, 0, 0, 0)
+    var n_world: Vec3
+    var depth: Real
+    var point: Vec3
     if d2 > 1e-12:
         # centre outside the box: normal along centre -> surface point
         var dist = sqrt(d2)
