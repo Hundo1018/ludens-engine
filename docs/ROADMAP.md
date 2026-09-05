@@ -227,6 +227,12 @@
 - GPU-driven rendering、資產管線、音訊、網路、導航、編輯器 —— 成本最高、差異化最低。
 - CGA 作為效能主線(自家數據 ~4× 已否定;保留為 curved-primitive 查詢與交叉驗證)。
 
+> ⚠️ **本清單的排除邏輯已於 2026-08-02 被 [[no-tech-exclusion-principle]] 推翻**:
+> 有優勢區 / 有對照組 / 可規模化比較者一律該做,成本高只排後面 wave,不設「不做」欄。
+> 網路、導航、GPU-driven 以外的 GPU 剛體、載具、破壞等已於 **Phase 17** 以
+> 【優勢區 / 對照組 / 規模軸】重新列入。多媒體(渲染主體 / 音訊 / 輸入)仍走架構分離
+> 的獨立層,不是「不做」而是「不在核心 repo」。
+
 ## 依賴圖(骨牌序)
 
 ```
@@ -456,6 +462,11 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 **架構定律 v2 貫穿**:seam 變體(7.1、7.2、10.1)附 parity 方格 + benchmark;新能力
 (8.x、9.x、11.x)附功能測試 + 有效能主張處的 benchmark;每項的交付物列於各節。
+
+> **2026-07-22 之後追加(不在上表)**:**Phase 13** 機器人 / 控制(對照 MuJoCo)· **14** LBM
+> 風洞 · **15** 數值與可微基礎 · **16** 切換到正式版 Mojo · **[17](#phase-17--遊戲執行期外殼與前沿引擎的能力差距2026-09-03使用者指示盤點)**
+> 遊戲執行期外殼(2026-09-03 盤點 + 2026-09-04 覆核;22 條 × Wave A/B/C,涵蓋角色 / 動畫 /
+> 查詢 / 工具化 / 導航 / AI / 網路 / GPU 規模 —— 目前所有未完成工項的落點)。
 
 ---
 
@@ -1242,4 +1253,389 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > pad 區間都跨過 0,lane-wise overlap 恆真);但 pad 區間不含 0 的 AABB 會與所有真實 box 判為
 > 不重疊,在 broadphase 靜默剔除真對且無跡可循。`AABB.symmetric()` 改為把 pad lane 設為 0,
 > `test_aabb` 立閘,陷阱不會再悄悄打開。
+
+---
+
+## Phase 17 — 遊戲執行期外殼:與前沿引擎的能力差距(2026-09-03,使用者指示盤點)
+
+> **緣起**:使用者問「撇開多媒體,與前沿遊戲引擎相比 ludens-engine 還缺什麼」,並要求
+> 把答案全數寫進路線圖。**定調**:純模擬 / 數值這一軸(可微物理、PGA 螺旋剛體與關節
+> 動力學、LGVCI 變分積分子、MuJoCo 級 reduced-coord + 致動器 / 腱 / 肌肉、FEM / MPM /
+> SPH / PBF / cloth 全家桶、LBM 風洞)已達或超過前沿「遊戲」引擎。差距集中在**把這套
+> 模擬接上角色、關卡、工具、網路的那一層**,外加物理本身少數幾個工程洞。
+>
+> **本 Phase 的三條法則(承 [[no-tech-exclusion-principle]] / [[advantage-regime-rule]] /
+> [[testing-standard]])**:
+> 1. **不設「不做」欄** —— 每項標【現況 / 缺口 / 對照組 / 優勢區 / 規模軸 / seam?】,
+>    成本高只排後面 wave。
+> 2. **負面結論前先測優勢區** —— 任何「不值得做」的判定,先跑該法在其理論優勢區的量測。
+> 3. **定律 v2 + v3** —— 引入 swap 變體者附 parity 方格 + benchmark row(CATEGORY.md §2);
+>    每項交付**接上真正會跑到的路徑** + 普通 / 整合 / 極端案例。
+>
+> 多媒體(渲染主體 / 音訊 / 輸入)不在此列 —— 走架構分離的獨立層(同 Phase 12)。
+
+### 來源盤點對照(使用者 A–H 清單 → 本 Phase 條目)
+
+> 使用者 2026-09-04 再次交付的缺口清單(A 角色 / gameplay 物理層、B 動畫系統組裝、
+> C 執行期架構 / 工具化、D 世界查詢完整度、E AI 與導航、F 網路、G GPU 與規模、
+> H 半成品 / gated)**逐項落在下表**;任何一格空白即代表漏收。
+
+| 來源分類 | 缺口條目 | 本 Phase |
+|---|---|:--:|
+| **A** 角色 / gameplay 物理 | 膠囊 kinematic 角色控制器(斜坡 / 台階 / 天花板 / 移動平台 / 蹲伏;SOTA_GAP §4 表第 8 列 ❌) | 17.1 |
+| | 主動布娃娃 / 物理動畫(動畫姿勢當 drive target、部分布娃娃、倒地→爬起過渡) | 17.2 |
+| | gameplay IK(two-bone / FABRIK / full-body / look-at / foot planting) | 17.3 |
+| | 載具動力學(raycast 懸吊 / 輪胎摩擦 / 傳動變速;同為表第 8 列) | 17.4 |
+| | 破壞 / 破碎(凸分解 V-HACD、Voronoi、執行期切網格、碎片預算) | 17.5 |
+| **B** 動畫系統組裝 | blend tree(1D / 2D)、動畫層 + 遮罩、加法動畫、root motion、retarget、motion matching | 17.6 |
+| **C** 執行期架構 / 工具化 | 固定步 ↔ 繪製率解耦的狀態插值(prev↔curr 雙緩衝) | 17.7 |
+| | 大世界座標(64-bit / origin rebasing / world partition) | 17.8 |
+| | debug-draw 指令佇列(線 / 球 / 文字 / 接觸點,帶生命期) | 17.9 |
+| | profiling / tracing hooks(scoped timer、trace event、每系統 frame 預算) | 17.10 |
+| | 反射 / 型別註冊表(runtime metadata → 序列化 / 工具 / replication / 腳本綁定) | 17.11 |
+| | 可編輯場景 / prefab / 實例化(schema 化、版本化、可 diff) | 17.12 |
+| **D** 世界查詢完整度 | shapecast / sweep、closest-point / distance、penetration / depenetration、batched;打真實幾何而非 `BoxProxy` | 17.13 |
+| **E** AI 與導航 | navmesh bake、A* / funnel、動態障礙挖洞、crowd 避讓(RVO / ORCA)、off-mesh link | 17.14 |
+| | behavior tree、utility AI、blackboard、perception、EQS 式空間查詢 | 17.15 |
+| **F** 網路 | snapshot ring buffer、input prediction / reconciliation、delta replication、authority、lockstep 傳輸;**跨平台決定論** | 17.16 |
+| **G** GPU 與規模 | GPU 剛體 / articulation solver(領域已 GPU-first) | 17.17 |
+| | 13.9 批次多世界步進落地(對標 Brax / Newton 的 RL 吞吐) | 17.18 |
+| | 大 island / 高質量比 / 接觸密集堆疊壓力測試(現僅驗到 6 箱塔) | 17.19 |
+| **H** 半成品 / gated | 13.7 剛體 solver 可微化收尾(`solver6.mojo` 未穿 `Field`) | 17.20 |
+| | Phase 12 腳本層(gated on 核心 API 凍結) | 17.21 |
+
+### 現況校正(避免重複高估 / 低估)
+
+> - **已有、不要重列**:9.1 關節庫含 cone-twist / limits / motor / spring / prismatic /
+>   weld;9.2 浮動基座 = ragdoll 本體;9.3 layers/masks + sensors/triggers;9.4 接觸事件
+>   (began/stay/ended);11.3 動畫 runtime(clip / blend linear·DLB·geodesic / crossfade);
+>   11.2 FSM/HSM;`scheduler/gameloop.mojo` 的 `FixedLoop.advance` **已回傳 leftover 分數**
+>   (插值用,但無雙緩衝);6.10 全狀態決定論序列化;10.2 讀寫集 job graph;10.3 actor model。
+> - **半成品**:13.7 剛體 solver 可微化 🔶(見 17.20);13.9 批次多世界 ⏸(見 17.18);
+>   Phase 12 腳本層 ⏸(見 17.21)。
+> - **已接掉、不要重列**:`geometry/quickhull.mojo` 曾是定律 v3 的孤島反例,已於
+>   2026-08-11(`947a37f`)接上 `SATNarrowPhase.add_cloud`(見 10.1「順帶接掉的孤島」),
+>   3D 側對應能力為 `collision/hull.mojo`;17.5 只剩破壞 / 破碎本體。
+
+### Wave 分組與相依
+
+| Wave | 主題 | 項目 |
+|---|---|---|
+| **A** — 接線 + 工程 table stakes(低風險、槓桿高) | 讓引擎「能被當遊戲引擎用」 | 17.1 角色控制器 · 17.7 狀態插值 · 17.9 debug-draw · 17.10 profiling hooks · 17.13 查詢完整度 · 17.22 範例覆蓋 |
+| **B** — 差異化 / 解鎖多項(中風險) | 用 GA / 可微 / 決定論 spine 做別家沒有的 | 17.2 主動布娃娃 · 17.3 角色 IK · 17.6 動畫圖 · 17.11 反射 · 17.17 GPU 剛體 solver · 17.18 批次多世界 · 17.19 solver 硬化 · 17.20 13.7 收尾 |
+| **C** — 大工程 / 綁平台決策(排後) | 成本高或先於技術的架構決策 | 17.4 載具 · 17.5 破壞 · 17.8 大世界座標 · 17.12 場景格式(gated) · 17.14 導航 · 17.15 AI · 17.16 網路(部分 gated) · 17.21 腳本(gated) |
+
+> **相依骨牌**:17.13 查詢 → 17.1 / 17.4 / 17.15(EQS)的前提;17.11 反射 → 17.12 場景
+> 格式 / 17.16 replication 的前提;17.6 動畫圖 → 17.3 IK 的接點;17.18 批次 + 17.20 可微
+> 收尾 → 合流為「可微批次模擬」主打(都接 4.2 reverse tape);17.17 GPU 剛體的 parity
+> 基準用 6.11 colored CPU 版;17.8 f64 會重觸 16.3 的 Vec3 重構 → 排 Wave C 末;
+> **17.12 / 17.16 的傳輸層與檔案格式 gated on 平台整合方向**(同 13.9、同 Phase 13 排除
+> MJCF/URDF 之因:格式綁定先於技術)。
+
+---
+
+### 17.1 Kinematic 角色控制器 — Wave A
+> **現況**:無 —— SOTA_GAP §4「10 能力」表第 8 列(character controller / vehicle)❌,
+> 自 2026-07-10 盤點後從未排程,本節是它第一次進路線圖。`physics/solver6.mojo` 只有動態剛體;`SceneQuery`(`collision/queries.mojo:28`)
+> 只有 raycast + overlap(且打在 broadphase 的 `BoxProxy` 上,非真實幾何 → 見 17.13)。
+> **缺口**:膠囊 kinematic controller、地面偵測 / 斜坡上限 / 台階上下、天花板、移動平台
+> 速度繼承、擠出解算(depenetration)、蹲伏 / 尺寸切換、與動態剛體的雙向推擠。
+> **對照組**:UE `CharacterMovementComponent`、Unity `CharacterController`、Godot
+> `CharacterBody3D`、Jolt `CharacterVirtual`。
+> **優勢區**:低 —— 純工程 table stakes。邊際差異化:controller pose 用 motor 表示,與
+> GA 變換層一致(免 quat↔mat 來回)。
+> **規模軸**:N 個 controller × M 次 move-and-slide 迭代 / 幀;與靜態關卡三角數。
+> **seam?**:是 —— 掃掠底層(raycast 近似 vs 真 shape-sweep)→ parity(同場景落點一致)+ bench。
+> **交付**:接 trimesh/heightfield 關卡;普通(平地行走)/ 整合(移動平台 + 動態剛體雙向)/
+> 極端(卡縫、零長度法向、瞬移、極陡坡、天花板夾擠)。
+
+### 17.2 主動布娃娃 / 物理動畫 — Wave B
+> **現況**:9.2 浮動基座 + 9.1 關節庫給了 ragdoll 本體;`procedural/anim.mojo` 給姿勢。**兩者未接**。
+> **缺口**:以動畫姿勢為 drive target 的關節馬達(PD / articulation drive,前饋可用 13.1 RNEA)、
+> 部分布娃娃(骨骼遮罩混合 physics vs animation)、受擊反應脈衝、倒地→起身過渡、blend in/out 權重。
+> **對照組**:UE `PhysicalAnimationComponent` / Physics Control、PhysX articulation drives、Unity active ragdoll。
+> **優勢區**:中 —— screw/motor 關節動力學天生可微 → drive gain 與 blend 權重可用梯度調
+> (對照組多為手調);變分積分子(4.1b)使長時間 ragdoll 更穩。
+> **規模軸**:骨骼數 × 子步數;blend 權重掃描下的姿勢追蹤誤差 vs 成本。
+> **seam?**:是 —— 「動畫姿勢→關節目標」實作:純 PD vs 逆動力學前饋 → parity(同軌跡追蹤)+ bench。
+> **交付**:接 `chain`/`floating` + `anim`;普通(全 ragdoll 自由落)/ 整合(上半身 ragdoll +
+> 下半身動畫驅動同一骨架)/ 極端(gain→∞、目標跳變、零質量 link、單影格切換)。
+
+### 17.3 角色 IK — Wave B
+> **現況**:`experiments/exp_autodiff.mojo` 的 AD-IK probe(未接線);`physics/chain.mojo`
+> 的 `point_jacobian`(robotics 用,非 gameplay)。
+> **缺口**:two-bone IK(閉式)、FABRIK、full-body IK、look-at、foot planting / foot-lock、
+> hand IK,接進 `anim` 的 pose pipeline。
+> **對照組**:UE Control Rig / IK Rig、Unity Animation Rigging、FinalIK。
+> **優勢區**:中高 —— motor/bivector 表述 + 既有前向 / 反向 AD → **可微 IK**(梯度對骨長 /
+> 目標 / pole);閉式 two-bone 與 AD-IK 互為交叉驗證。
+> **規模軸**:鏈長(DOF)× 迭代數;閉式 vs 迭代 vs AD 的交叉點。
+> **seam?**:是 —— IK solver 家族(analytic two-bone / FABRIK / Jacobian-AD)對同一目標的
+> 末端誤差 parity + 各自成本 row。
+> **交付**:接 `anim` + skinning;普通(伸手碰點)/ 整合(移動中 foot-lock 不滑步)/
+> 極端(不可達目標、奇異姿態、目標落在關節上、pole flip)。
+
+### 17.4 載具動力學 — Wave C
+> **現況**:無(與 17.1 同屬 SOTA_GAP §4 表第 8 列 ❌)。
+> **缺口**:raycast 懸吊車體(彈簧-阻尼 + 輪胎 slip / friction 曲線 + 引擎扭矩 / 變速 / 差速)
+> 或約束式車輪;空氣阻力可接 14.4 的動量交換 Cd。
+> **對照組**:PhysX Vehicle SDK、Jolt `VehicleConstraint`、UE Chaos Vehicles、Rapier。
+> **優勢區**:低-中 —— 車輛動力學本身是 table stakes;差異化在「用 LBM 風洞(14.4)的 Cd
+> 餵回車體阻力」形成 LBM↔剛體耦合示範,別家沒有。
+> **規模軸**:車輛數 × 子步;輪胎模型保真 vs 成本。
+> **seam?**:是 —— 車輪接觸:raycast 近似 vs 真 shape-cast → parity(同路面同落點)+ bench。
+> **交付**:接 solver6 + queries;普通(平地加速煞車)/ 整合(斜坡、跳台落地、多車)/
+> 極端(翻車、車輪懸空、極低 / 極高摩擦、瞬移)。
+
+### 17.5 破壞 / 破碎 — Wave C
+> **現況**:無破壞 / 破碎能力。凸包這一塊的前置已備妥:2D `geometry/quickhull.mojo`
+> 與 3D `collision/hull.mojo`(`HullShape` + `_prune_interior`)都已接進 narrowphase
+> 與 solver6(2026-08-11 `947a37f`),破碎產生的新凸包有現成入口。
+> **缺口**:凸分解(V-HACD 類)、預切(Voronoi / 圖樣)破碎、執行期網格切割 + 新凸包生成、
+> 碎片島管理 + 預算 / 睡眠、接縫鍵結斷裂(9.1 有 weld,缺斷裂閾值 + 事件)。
+> **對照組**:UE Chaos Destruction、Havok Destruction、NVIDIA Blast。
+> **優勢區**:低 —— 純工程。小加值:exact predicates(10.1)使切割 watertight;破碎後
+> island 平行(6.11)現成。
+> **規模軸**:碎片數 × 接觸密度;切割前處理成本 vs 執行期。
+> **seam?**:是 —— 凸分解演算法變體對同一網格的體積覆蓋率 + narrowphase 結果一致。
+> **交付**:凸分解 → 預切破碎 → 執行期切割;
+> 普通(牆被打穿)/ 整合(碎片與既有剛體 / 軟體碰撞、落進 island sleep)/
+> 極端(退化三角、共面、單一碎片、一次切上千片)。
+
+### 17.6 動畫圖深度 — Wave B
+> **現況**:`procedural/anim.mojo` = clip / blend(linear·DLB·geodesic)/ crossfade +
+> `scheduler/fsm.mojo` 驅動。
+> **缺口**:blend tree(1D / 2D 方向性)、動畫層 + 骨骼遮罩、加法動畫、root motion 擷取與
+> 套用、骨架間 retarget、(選)motion matching。
+> **對照組**:UE AnimGraph / Motion Matching、Unity Mecanim / Playables、Godot AnimationTree。
+> **優勢區**:中 —— blend 已走 motor geodesic(candy-wrapper-free,範例 07 已示);retarget
+> 在 motor 空間做可免 gimbal;加法動畫 = motor 除法,GA 自然。
+> **規模軸**:骨骼數 × 混合節點數;方向混合取樣密度 vs 品質。
+> **seam?**:是 —— blend node 家族已是 CATEGORY §2 既有 row;新節點型別附 parity(邊界權重
+> 退化為單一 clip)+ bench。
+> **交付**:接 skinning + fsm;普通(idle↔walk↔run 1D)/ 整合(上半身瞄準層疊加、root
+> motion 位移與碰撞一致)/ 極端(權重全 0、NaN clip、單影格 clip、retarget 到骨長差 10×)。
+
+### 17.7 固定步 ↔ 繪製率解耦的狀態插值 — Wave A
+> **現況**:`scheduler/gameloop.mojo` `FixedLoop.advance` 已回傳 leftover 分數;但**無 prev↔curr
+> 變換雙緩衝與插值輸出**。
+> **缺口**:每個可視 transform 的上一 / 當前快照環、alpha 插值(motor geodesic / DQ nlerp)、
+> 外推選項、teleport 時抑制插值的旗標。
+> **對照組**:所有引擎(Unity fixed timestep、Godot `_physics_process` vs `_process`、UE)。
+> **優勢區**:低-中 —— 插值走 motor geodesic 與變換層一致(對照組多用 pos-lerp + quat-nlerp,
+> 螺旋運動下略差)。
+> **規模軸**:可視實體數 × 每幀插值成本;插值 vs 外推的視覺誤差。
+> **seam?**:是 —— 插值子(pos+quat lerp / DQ nlerp / motor geodesic)→ parity(alpha=0,1
+> 端點完全一致)+ bench。
+> **交付**:接 gameloop + ECS transform;普通(sim 60 / render 144 平滑)/ 整合(父子階層
+> 插值不脫節、與 CCD 命中影格一致)/ 極端(alpha 超界、teleport、族群變動當幀、dt 抖動)。
+
+### 17.8 大世界座標 — Wave C(架構)
+> **現況**:全 `f32`(`WorldType`),為 bit-identical 決定論。世界尺度上限 ~單一關卡。
+> **缺口**:64-bit 世界座標 **或** origin rebasing(世界原點位移)、world partition /
+> cell streaming、與決定論相容的方案(rebasing 事件也要進序列化)。
+> **對照組**:UE5 Large World Coordinates + World Partition、Unity origin shifting、
+> 64-bit 位置的自研引擎。
+> **優勢區**:低 —— 純架構。**f64 化會使 16.3 的 Vec3 / SIMD 寬度重構重來一遍** → 排 Wave C 末。
+> **規模軸**:世界跨度(m)vs 位置誤差;streaming cell 進出的幀成本。
+> **seam?**:是 —— 座標策略(f32 / f32+rebasing / f64)→ parity(小世界下三者 ε 一致)+
+> bench(遠離原點的精度退化曲線 = 優勢區量測)。
+> **交付**:普通(遠原點物件不抖)/ 整合(rebasing 後 warm-start cache、序列化續跑一致)/
+> 極端(1e7 m 外、cell 邊界瞬移、rebasing 當幀有 CCD)。
+
+### 17.9 Debug-draw 指令佇列 — Wave A(工具)
+> **現況**:無。SOTA_GAP 標「編輯器 / debug-draw ❌」。
+> **缺口**:引擎側 immediate-mode 佇列(line / sphere / box / arrow / text / contact-point,
+> 帶顏色與生命期),host 端消費;可被測試斷言(畫了幾條、座標)。
+> **對照組**:UE `DrawDebug*` / Chaos Visual Debugger、Unity `Debug.DrawLine` / Gizmos、Godot。
+> **優勢區**:不適用 —— 基礎設施(但這個 API 本身是核心觀測設施,不算多媒體)。
+> **規模軸**:每幀指令數的緩衝 / 清空成本。
+> **seam?**:否(單一設施);但**須符合定律 v3「接上專案」** —— solver6 接觸點、broadphase
+> pair、island 顏色、CCD 命中都要發指令。
+> **交付**:普通(畫 100 條線一幀清掉)/ 整合(solver 每個 contact 一點、可視 island)/
+> 極端(0 指令、溢位上限、生命期跨多幀、多執行緒 island 併發寫)。
+
+### 17.10 Profiling / tracing hooks — Wave A(工具)
+> **現況**:僅離線 `benchmarks/` + `harness/bench.mojo`;無 in-loop instrumentation。
+> **缺口**:scoped timer、trace event 輸出(Chrome trace / Perfetto / Tracy 相容)、每系統 /
+> 每 phase frame 預算與統計、計數器(contacts / pairs / island / iters)。
+> **對照組**:UE Insights / `stat` 指令、Unity Profiler、Tracy。
+> **優勢區**:不適用。小加值:10.2 job graph 已有讀寫集 → 可自動標註 span 邊界。
+> **規模軸**:instrumentation 開 vs 關的 overhead(須 < few %)。
+> **seam?**:否;但 on/off 兩路徑須 parity(結果不受量測影響)+ overhead bench。
+> **交付**:普通(單幀 trace dump)/ 整合(標註 job graph、GPU 段)/ 極端(百萬 span、
+> 遞迴 span、執行緒池)。
+
+### 17.11 反射 / 型別註冊表 — Wave B(架構,解鎖多項)
+> **現況**:`ComponentType` 只有 `comptime ID: Int`;無 runtime metadata。
+> **缺口**:欄位名 / 型別 / offset 的 runtime 表(comptime 生成)、版本標記、(de)serialize
+> 由 schema 驅動、供工具 / 網路 replication codegen / 腳本綁定查詢。
+> **對照組**:UE `UPROPERTY` reflection、Unity serialization、Bevy Reflect、flecs meta。
+> **優勢區**:中 —— Mojo comptime 可近零成本生成反射表(對照組多靠 codegen 前處理或執行期
+> 字典);與 17.12 / 17.16 共用。
+> **規模軸**:型別數 × 生成成本(comptime)/ 查詢成本(runtime);對編譯期的影響。
+> **seam?**:是 —— 反射驅動序列化 vs 手寫序列化(6.10)→ parity(round-trip 逐位相同)+ bench。
+> **交付**:普通(一個 component round-trip)/ 整合(接 6.10、換 backend 後仍一致)/
+> 極端(空型別、巢狀、遞迴參照、版本不符)。
+
+### 17.12 可編輯場景 / prefab / 實例化 — Wave C(gated)
+> **現況**:`physics/serialize.mojo` = 全狀態 f32 bit-pattern 決定論快照(自註「非 asset reference」)。
+> **缺口**:schema 化、可 diff、版本化的場景格式、prefab / blueprint、nested scene 組合、
+> 實例覆寫(override)、entity template。
+> **對照組**:UE `.umap` + Blueprint、Unity prefab + YAML scene、Godot `.tscn` + PackedScene、
+> glTF / USD 匯入。
+> **優勢區**:低 —— 工程;差異化在依賴 17.11 反射 → 格式免手寫。
+> **⚠️ gated**:檔案格式綁定是「先於技術的架構決策」(同 Phase 13 排除 MJCF/URDF、同 13.9),
+> 待平台整合方向確定。
+> **規模軸**:場景實體數的載入時間;prefab 覆寫深度。
+> **seam?**:是 —— 場景格式讀寫 vs 決定論快照 → parity(同場景兩路徑載入後逐位相同)。
+> **交付**:普通(存讀一個場景)/ 整合(prefab 實例 + 覆寫、warm-start cache 保留)/
+> 極端(空場景、循環 prefab 參照、缺資源、格式版本升級)。
+
+### 17.13 世界查詢完整度 — Wave A
+> **現況**:`SceneQuery` trait 僅 `raycast` + `overlap(AABB)`,打在 broadphase `BoxProxy` 上、
+> 非真實碰撞幾何(`collision/queries.mojo:28`)。
+> **缺口**:任意 convex 的 shapecast / sweep、closest-point / distance、penetration(MTV)/
+> depenetration 查詢、對真實 shape(hull / trimesh / capsule)而非 AABB proxy、batched query、
+> 查詢過濾(接 9.3)。
+> **對照組**:UE Chaos scene queries、PhysX `sweep`/`overlap`/`raycast`、Jolt `NarrowPhaseQuery`、
+> Rapier `QueryPipeline`。
+> **優勢區**:中 —— shape-sweep 可重用既有 15 軸 SAT / GJK-EPA / TOI(4.1)機件;CGA 對曲面
+> 基元的 meet 給閉式最近點(對照組要迭代)。
+> **規模軸**:查詢數 × 場景大小;shape-sweep vs raycast 近似的準確度 / 成本。
+> **seam?**:是 —— 既有 `SceneQuery` seam 的擴充:每個新查詢對 brute / bvh / grid / tree
+> 四索引結果集相等 + 各自 bench row(CATEGORY §2 既有列擴充)。
+> **交付**:普通(對 hull 掃一個 capsule)/ 整合(接 17.1 控制器、17.4 載具)/
+> 極端(零長度掃、起點已穿透、相切、退化 shape、命中 static trimesh 接縫)。
+
+### 17.14 導航 — Wave C
+> **現況**:無(舊「明確不做」,已被 [[no-tech-exclusion-principle]] 推翻)。
+> **缺口**:navmesh bake(voxel → region → contour → 三角化)、A* / funnel(string-pulling)、
+> 動態障礙挖洞、crowd + 區域避讓(RVO / ORCA)、off-mesh link、tile 重烘。
+> **對照組**:Recast / Detour、DotRecast、UE Navigation System、Unity NavMesh;避讓:ORCA(van den Berg)。
+> **優勢區**:中 ——(a)navmesh bake 是體素 / 幾何運算,可用既有 SDF3(13.8)/ predicates
+> (10.1)/ BVH;(b)ORCA 的線性規劃可微 → 學習式避讓權重(對照 hand-tuned);(c)island
+> 平行(6.11)可平行 agent 更新。
+> **規模軸**:agent 數(crowd 鄰居前的規模軸)、navmesh 多邊形數、動態重烘的 tile 成本。
+> **seam?**:是 —— 避讓演算法(RVO / ORCA / 力場)對同場景的無碰撞率 + 到達時間 parity;
+> pathfinder(A* / JPS / funnel)路徑等價類。
+> **交付**:普通(單 agent 繞牆)/ 整合(crowd 對衝不卡死、動態障礙即時挖洞、與物理地面一致)/
+> 極端(無路徑、瓶頸門、agent 重疊出生、navmesh 破洞)。
+
+### 17.15 AI 框架 — Wave C
+> **現況**:僅 `scheduler/fsm.mojo`(FSM / HSM)。
+> **缺口**:behavior tree(decorator / service / 平行節點)、utility AI、blackboard、
+> perception(視錐 / 聽覺 / 記憶)、EQS 式空間查詢(接 17.13)。
+> **對照組**:UE Behavior Trees + EQS、Unity Behavior、通用 BT 函式庫。
+> **優勢區**:低 —— 純 gameplay。小加值:BT tick 可入 10.2 job graph 依讀寫集自動平行;
+> EQS 打分可微。
+> **規模軸**:agent 數 × 樹節點數 × tick 率;EQS 查詢取樣密度。
+> **seam?**:是 —— BT vs FSM vs utility 對同一決策問題的行為等價(可定義的情境集)+ tick 成本 row。
+> **交付**:普通(巡邏→追擊→搜索)/ 整合(perception 接 17.13、多 agent 共享 blackboard)/
+> 極端(空樹、深遞迴、每 tick 目標消失、1e4 agent)。
+
+### 17.16 網路 / rollback — Wave C(部分 gated)
+> **現況**:刻意未做。**地基已在**:決定論 RNG(`scheduler/rng.mojo`)、actor model(10.3)、
+> 全狀態快照(6.10)。
+> **缺口**:snapshot ring buffer + 重模擬(rollback)、input prediction / server reconciliation、
+> delta 壓縮 state replication、authority / ownership、interest management、lockstep 傳輸層;
+> **跨平台決定論**(不同編譯器 / 架構 —— 目前只保證同工具鏈,16 章鎖版本是半個答案)。
+> **對照組**:GGPO / rollback netcode、UE Iris / Replication Graph、Unity Netcode for Entities、
+> Photon Quantum(決定論 lockstep)。
+> **優勢區**:中高 —— **差異化方向**:(a)既有 bit-identical 決定論 + 快照 → rollback 最難
+> 前提已滿足;(b)actor model 訊息重放天生對 lockstep 友善;(c)可微 + 決定論 → 學習式預測補償。
+> **⚠️ gated**:傳輸層 / 線路格式綁定平台整合(同 13.9 / 17.12)。
+> **規模軸**:rollback 幀深 × 每幀重模擬成本、封包大小 vs 實體數、玩家數。
+> **seam?**:是 —— 預測策略(pure lockstep / predict-rollback / snapshot-interp)對同輸入
+> 序列的最終世界 parity;各自頻寬 / CPU row。
+> **交付**:普通(2 端同輸入 → 逐位相同世界)/ 整合(丟包重排下重模擬收斂、與 CCD / island
+> sleep 相容)/ 極端(rollback 深度上限、當幀族群變動、時鐘漂移、跨平台 f32)。
+
+### 17.17 GPU 剛體 / articulation solver — Wave B
+> **現況**:GPU 僅覆蓋布料(4.3 / 6)、broadphase(3.2)、LBVH、raycast。剛體 solver 全 CPU
+> (islands 多執行緒 6.11)。
+> **缺口**:GPU 端 contact solver(著色 / Jacobi PGS)、GPU narrowphase / manifold、GPU
+> articulation(Featherstone on device),CPU↔GPU parity。
+> **對照組**:PhysX 5 GPU rigid bodies、Newton(Warp)、Genesis、AVBD(SIGGRAPH 2025 擴到剛體)。
+> SOTA_GAP 自述「領域已決定性轉向 GPU-first」。
+> **優勢區**:中 ——(a)Mojo GPU kernels 在 memory-bound 負載與 CUDA 相當(ORNL);
+> (b)著色平行(6.11)的 CPU 版可作 parity 基準;(c)motor / screw 狀態緊湊(8 float)利於頻寬。
+> **規模軸**:剛體數 / 接觸數的 GPU vs CPU 交叉點;每幀 readback 隔離(Wave 1 教訓:傳輸成本情境相依)。
+> **seam?**:是 —— contact solver 裝置實作(CPU islands / GPU colored)→ parity(同場景 rest
+> 態 by action,對齊睡眠)+ bench(N 掃描 + 傳輸隔離列)。
+> **交付**:普通(箱堆 GPU / CPU 同 rest)/ 整合(GPU 剛體 + CPU 軟體同幀、island 邊界)/
+> 極端(單體、百萬接觸、高質量比、accelerator 缺席自跳過)。
+
+### 17.18 批次多世界步進(13.9 落地) — Wave B
+> **現況**:13.9 標 ⏸ 決策點(綁平台整合)。
+> **缺口**:同構世界的 SoA 批次步進(env 維在最內 / 最外)、批次 GPU、與 diffsim(3.1 / 4.2)
+> 串接成 batched gradient。
+> **對照組**:Brax、MJX、Newton(humanoid ~70×)、Genesis(宣稱 43M FPS)、Isaac Gym。
+> **優勢區**:**高** —— [[roadmap-2026-07]] D 縱深已標:MJWarp 目前不可微、可微只在 MJX-JAX;
+> **批次 × 可微 × Mojo 原生是本專案唯一可能領先的方向**。
+> **規模軸**:env 數的吞吐(steps/s)、批次梯度 vs 逐一的加速比。
+> **seam?**:是 —— 世界佈局(逐世界迴圈 / 批次 SoA)→ parity(單 env 下逐位相同)+ bench
+> (env 掃描吞吐曲線)。
+> **交付**:普通(1024 env 自由落同步)/ 整合(接 4.2 reverse tape 出批次梯度、與 13.7 串)/
+> 極端(env=1 控制組須略慢、族群不齊、NaN env 隔離)。
+
+### 17.19 生產級 solver 硬化 — Wave B(持續)
+> **現況**:穩定堆疊只驗到 6 箱塔(`tests/test_softstep6.mojo`);大 island / 高質量比 /
+> 接觸密集堆疊未系統測。
+> **缺口**:高質量比(1:1000)、長鏈受載、單 island 數千體、接觸密集堆(碎石 / 骨牌)、
+> warm-start 接觸點 feature-ID 穩定性、contact reduction。
+> **對照組**:Jolt(Horizon FW 實戰)、Box2D v3 Soft Step、TGS Soft、AVBD 堆疊 demo。
+> **優勢區**:中 —— sub-stepped soft(2.1)+ 著色平行(6.11)+ 變分積分子(4.1b)已是對的
+> 地基;缺的是壓力測試 + 調參。
+> **規模軸**:body / contact 數 vs 穿透 / 發散;iters vs 殘差(已有量測設計:對齊睡眠)。
+> **seam?**:否新 seam —— 既有 solver6 的極端案例覆蓋(定律 v3 §4)+ `bench_solver_scale` /
+> `bench_islands` 擴大規模軸。
+> **交付**:普通(現有)/ 整合(高質量比 + island sleep + CCD 同場景)/ 極端(1:1e4 質量比、
+> 1e4 體單 island、瞬移入堆、零質量、退化接觸)。
+
+### 17.20 剛體 solver 可微化收尾(13.7) — Wave B
+> **現況**:13.7 🔶 —— `Field` 泛型在 `physics/diffrigid.mojo` 完成,但未推進 1555 行的
+> `physics/solver6.mojo`。
+> **缺口**:把 `Field` 係數環穿過 solver6 的接觸 / 摩擦 / warm-start / island 路徑;或明確
+> 定義「可微子集」邊界並記在檔頭(定律 v3 §1)。
+> **對照組**:DiffXPBD、Warp、Brax、Nimble(LCP 可微)。
+> **優勢區**:高 —— 與 17.18 合為主打;screw 動力學可微天生免 gimbal / renorm。
+> **規模軸**:參數數(NP)平坦性(4.2 已測 tape 平坦)、可微 solver vs 有限差分交叉點。
+> **seam?**:是 —— solver6 係數環(RealF / DualReal / RevReal)→ parity(RealF 路徑與現況
+> 逐位相同)+ bench(NP 掃描,接 `bench_diffsim` / `bench_diffrigid`)。
+> **交付**:普通(穿一參數梯度 vs FD)/ 整合(與 island / CCD / warm-start 相容、換環後既有
+> 測試不變)/ 極端(接觸開關不連續點、NP 大、零梯度路徑)。
+
+### 17.21 腳本層(Phase 12 落地) — Wave C(gated)
+> **現況**:Phase 12 ⏸ gated on 核心 API 凍結。
+> **保持 gated**,但列出前提:core embedding 邊界定義、Mojo / Python 雙腳本(技術偵察已在
+> [[roadmap-2026-07]]:`PythonModuleBuilder` 擴充模組驗證過 rest y=0.2497、跨語言 bit-identical)、
+> hot-reload、CVar / 設定系統、live 參數調校。
+> **對照組**:UE Blueprint + Verse、Unity C# domain reload、Godot GDScript hot-reload。
+> **優勢區**:不適用(架構分離決策)。
+> **交付**:gated —— 使用者確認架構後才動。
+
+### 17.22 範例覆蓋補完 — Wave A(文件)
+> **現況**:`examples/` 有 01–14(2026-09-04 補齊 08 solver6 / 09 軟體耦合 / 10 關節鏈 /
+> 11 排程 swap / 12 可微 / 13 LBM / 14 可變形體),`pixi run examples` 全綠。
+> **缺口**:README 有列、CATEGORY §2 有 seam 列、但無可跑範例的四個 swap:
+> ① rigid6 quat/screw + `SpinIntegrator` 四種積分子;② GPU cloth XPBD vs VBD;
+> ③ reactive backend + observers + command buffers;④ 2D `ContactSolver`
+> (SequentialImpulse / PBD / XPBD)。四者的 parity 測試與 benchmark 都已存在,
+> 缺的只是「讀者能自己跑一次看到 swap」的那一份。
+> **對照組**:既有 01–14 的房規 —— 模組 docstring 以 `Run:` 收尾、`def main()` 自足、
+> 印出結果並與另一條路徑互相對照。
+> **優勢區**:不適用(文件)。**規模軸**:不適用。**seam?**:否 —— 展示既有 seam,不新增。
+> **交付**:15–18 四支;驗收即 `pixi run examples` 全綠且每支印出兩條路徑的對照數字。
+
+### Phase 17 建議順序
+> **Wave A 先**(17.13 查詢 → 17.1 控制器 → 17.7 插值 → 17.9 debug-draw → 17.10 profiling):
+> 全是接線 / table stakes,做完引擎「可被當遊戲引擎用」,且 17.13 解鎖 17.1 / 17.4 / 17.15。
+> **Wave B 主攻差異化**:先 17.20 + 17.18(可微批次模擬 —— 本專案唯一可能領先處,兩者互為
+> 前提),並行 17.11 反射(解鎖 C 的多項)、17.17 GPU 剛體、17.6→17.3→17.2(動畫→IK→
+> 主動布娃娃,依序相接);17.19 solver 硬化貫穿整個 Wave 當持續工項。
+> **Wave C 排後**:17.5 破壞、17.4 載具、17.14 導航、17.15 AI 為
+> 純工程可隨時插入;17.8 大世界座標排最末(重觸 Vec3 重構);**17.12 場景格式 / 17.16 網路
+> 傳輸 / 17.21 腳本 gated on 平台整合方向** —— 與 [[roadmap-2026-07]] Phase 13 排除 MJCF/URDF
+> 同因,需先與使用者定架構。
 
