@@ -47,7 +47,7 @@ through precompiled packages.
 ```sh
 pixi run build       # precompile all engine packages
 pixi run test        # 116 self-checking test programs (stops at first failure)
-pixi run examples    # runnable demos (01 movement … 07 motor skinning)
+pixi run examples    # runnable demos (01 movement … 14 deformables)
 pixi run benchmark   # regenerate BENCHMARK_REPORT.md
 ```
 
