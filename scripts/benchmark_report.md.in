@@ -60,7 +60,7 @@ a little speed.
 @bench benchmarks/bench_collision.mojo
 ## Collision — 3D signed distance fields
 
-The engine'\''s existing SDF layer is 2D, so this is a 3D layer rather than a
+The engine's existing SDF layer is 2D, so this is a 3D layer rather than a
 port of a working one — worth stating because the roadmap assumed otherwise.
 Contact is found by driving the two fields to a common value, and the
 quantity that IS the penetration is the SUM of the fields where they agree,
@@ -324,7 +324,7 @@ exactly that.
 @bench benchmarks/bench_self_collide.mojo
 ## Fluid — lattice Boltzmann (D3Q19)
 
-LBM is the odd one out among this engine'\''s fluid solvers. SPH and PBF carry
+LBM is the odd one out among this engine's fluid solvers. SPH and PBF carry
 particles and spend much of every step deciding which ones interact; LBM carries
 a fixed grid and every cell talks to the same 19 neighbours forever. No neighbour
 search, no sorting, no pressure Poisson — pressure comes from density by an
@@ -348,7 +348,7 @@ the difference was allocation — and streaming swaps its buffers instead of
 copying one into the other.
 
 Correctness is gated on physics rather than on regression: `test_lbm` checks the
-velocity set'\''s moment conditions, reproduces the analytic Poiseuille parabola to
+velocity set's moment conditions, reproduces the analytic Poiseuille parabola to
 0.28%, and holds a symmetric obstacle in a symmetric tunnel to a y-asymmetry of
 6e-8.
 
@@ -368,6 +368,25 @@ fluid, zero lift on a symmetric body (7e-8 against a drag of 0.17), force growin
 between linearly and quadratically with speed as Cd itself falls, and a blockage
 of 55% inflating Cd by ten times -- exactly the correction a real wind tunnel
 has to apply.
+
+The third table prices the Smagorinsky LES seam (`fluid/lbm.mojo`,
+`eddy_viscosity`). It is a seam and not a feature because the constant switches
+it off exactly: at `smagorinsky = 0` the collision operator is bit-identical to
+plain BGK, which is what `test_lbm_les` gates.
+
+The two cost rows run the same sheared channel for the same number of steps and
+change nothing but that constant, so the gap between them IS the per-cell price
+of the model — about 29% on the rows below, charged on every cell whether the
+flow needs a subgrid closure or not.
+
+The two regime rows are why one would pay it, and they report an OUTCOME rather
+than a ratio: a speed ratio between a run that finishes and a run that does not
+measures nothing. Past a sphere at nu=8e-4 and u=0.16 — Re~1600 on a 48x24x24
+grid, far too coarse to resolve the wake — the unmodelled run leaves the
+velocity bounds at step 169, and the same grid at `smagorinsky = 0.17` reaches
+step 600. That is the advantage regime stated as a measurement: the model costs
+29% everywhere it is not needed, and is the difference between a number and a
+divergence where it is.
 
 @bench benchmarks/bench_lbm.mojo
 ## Collision — scene queries (raycast + overlap)
@@ -413,10 +432,10 @@ abstraction; it does not claim the routes are interchangeable. The dual-quat
 row goes through the motor bridge because `DualQuat` has no native ScLERP —
 it prices what the current API makes you pay, not the algorithm's floor.
 
-The chain table is the compact representations'\'' predicted advantage regime.
-The per-point APPLY rows above are the matrix'\''s: one dot product per row,
+The chain table is the compact representations' predicted advantage regime.
+The per-point APPLY rows above are the matrix's: one dot product per row,
 nothing to beat. Composition is the other side — a motor and a dual quat are
-8 floats against a matrix'\''s 16, so a long chain streams half the memory.
+8 floats against a matrix's 16, so a long chain streams half the memory.
 Sweeping chain length K separates the two regimes instead of letting the
 apply rows stand for both.
 
@@ -468,7 +487,7 @@ constant so large that the structural advantage never becomes a time
 advantage. A specialised conformal versor, in the way `Motor3` specialises
 the PGA even subalgebra, is what would move that constant.
 
-One implementation note that the parity suite earned: the rotor'\''s bivector
+One implementation note that the parity suite earned: the rotor's bivector
 had a sign error in its y term (mask 4|1 yields the CANONICAL blade e1e3,
 which is -e3e1). Every GA-only check passed anyway, because both sides of a
 GA-vs-GA comparison carried the same convention. Only the cross-check against
@@ -518,7 +537,7 @@ full-rebuild BVH path.
 ## Collision — LBVH build: CPU radix sort vs GPU bitonic sort
 
 An earlier revision of this section reported the device losing at every N and
-blamed the bitonic sort'\''s worse complexity. **That conclusion was wrong**, and
+blamed the bitonic sort's worse complexity. **That conclusion was wrong**, and
 the way it was wrong is worth recording: it came from comparing FULL BUILDS,
 where both sides share a hierarchy emit that dominates the total, and from two
 measurement defects that the shared tail hid.
@@ -527,14 +546,14 @@ measurement defects that the shared tail hid.
   re-runs the whole host Morton+radix sort. That is idempotent, so the result
   was correct and the row silently charged the GPU path for a CPU sort it
   never needed. `build_lbvh_presorted` now emits from a given order.
-- The emit itself recomputed each node'\''s box by rescanning its whole leaf
+- The emit itself recomputed each node's box by rescanning its whole leaf
   range, making it O(n log n) AABB merges for a value the two children
   already hold. Bottom-up bounds made **every** BVH build ~1.7x faster.
 
 With both fixed, and with the sort measured on its own rather than inferred
 from totals, the answer reverses: **the device sort wins from ~16k leaves and
 by roughly 3x at 65k**, and the full build crosses over too — CPU ahead below
-~16k, GPU ahead at 65k. Bitonic'\''s O(n log²n) and its
+~16k, GPU ahead at 65k. Bitonic's O(n log²n) and its
 ~136 kernel launches at that size are simply not enough to give the advantage
 back.
 
@@ -588,7 +607,7 @@ overtakes every O(n²) CPU path somewhere between 512 and 2048 boxes, and by
 
 The trend lines cross. The grid is ahead at 8192 (by 1.27x), and by **32768
 the device wins ~1.7x** (14.1 ms vs 24.1 ms) — while also emitting 4,892 exact
-pairs against the grid'\''s 38,845, an **8x superset**. So above roughly 16k
+pairs against the grid's 38,845, an **8x superset**. So above roughly 16k
 boxes the GPU is both faster and tighter. One caveat still applies to the
 smaller rows: the grid emits a larger, conservative candidate set
 (9476 vs 1235 pairs at N=8192), so its row is not equal work — the same
@@ -635,8 +654,8 @@ Three readings, one of them uncomfortable:
   has no state to invalidate.
 
 That last row held only because every box in that scene is the same size,
-which is the grid'\''s best case. The second table sweeps OBJECT-SIZE SPREAD,
-the hash'\''s documented weak point: a hash has one cell size and no single
+which is the grid's best case. The second table sweeps OBJECT-SIZE SPREAD,
+the hash's documented weak point: a hash has one cell size and no single
 choice suits a wide spread — big boxes are duplicated into many cells while
 small ones leave most cells nearly empty. Two grid rows are run per mix, one
 cell sized for the small boxes and one for the large, so the result cannot be
@@ -707,7 +726,7 @@ conformal copies so products of the two points supply degree-4 monomials.
 `Multivector[p,q,r]` unrolls the geometric product fully at compile time, so
 cost grows with the SQUARE of the blade count. Measured for one product:
 32 blades 4 s, 64 2 s, 128 8 s, 256 30 s, 512 exceeds a 6 GB address-space
-cap, and `Cl(8,2)`'\''s 1024 blades — about a million term products — was killed
+cap, and `Cl(8,2)`'s 1024 blades — about a million term products — was killed
 by the OOM killer outright. That is a structural wall, not a tuning problem,
 and it is the reason the spike is written as the T-space subalgebra instead.
 
@@ -731,7 +750,7 @@ root and the DCGA form does not.
 @bench benchmarks/bench_dcga.mojo
 ## Physics — MLS-MPM (material point method)
 
-MPM sits between the engine'\''s other deformables. FEM keeps a fixed mesh and
+MPM sits between the engine's other deformables. FEM keeps a fixed mesh and
 therefore a fixed topology; PBF and SPH keep no rest shape at all. MPM carries
 elastic state on PARTICLES and uses a background grid, thrown away each step,
 only to resolve the coupling — so the material can flow, pile up and merge
@@ -748,13 +767,13 @@ springs back to height 0.64 after impact, the plastic one stays at 0.28.
 
 Per-particle cost FALLS as the particle count grows (2693 -> 1300 ns) because
 the grid is cleared every step regardless of how many particles occupy it, so
-a 32³ grid'\''s fixed cost dominates at small counts and amortises away at
+a 32³ grid's fixed cost dominates at small counts and amortises away at
 larger ones. Read the small-N rows as grid overhead, not as scaling.
 
 @bench benchmarks/bench_mpm.mojo
 ## Physics — co-rotational tetrahedral FEM
 
-A continuum next to the engine'\''s mass-spring lattice. `softbody.mojo` joins
+A continuum next to the engine's mass-spring lattice. `softbody.mojo` joins
 particles with distance constraints, so its stiffness and volume response are
 properties of how the lattice happens to be wired. FEM discretises the
 material instead: each tetrahedron carries a deformation gradient and stress
@@ -794,7 +813,7 @@ not**. SPH is stable to dt=1/120 and fails at 1/60 (density 1.76x rest, peak
 speed 21 vs 0.12); PBF runs stably at 1/30, a 4x larger step.
 
 The COST story does not. Despite needing a 4x smaller timestep, **SPH is
-cheaper per simulated second** — ~22 ms against PBF'\''s ~26 ms at its largest
+cheaper per simulated second** — ~22 ms against PBF's ~26 ms at its largest
 stable step, and ~1.9x cheaper than PBF at matched density accuracy (~22 ms vs
 ~43 ms). The reason is per-step cost: an SPH step makes two neighbour passes
 (density, then forces) while a PBF step makes two PER ITERATION, so four
@@ -803,10 +822,10 @@ larger step.
 
 So the usual framing — PBF is faster because it takes big steps — is not what
 this measures. Two honest caveats on how far to carry that. The scene is a
-gentle settling column at 216 particles on CPU, and SPH'\''s stable step shrinks
+gentle settling column at 216 particles on CPU, and SPH's stable step shrinks
 with fluid stiffness and with the velocity field, so a violent or stiffer
 scene pushes SPH down while PBF holds — the crossover is a property of how
-hard the CFL limit bites, not a constant. And PBF'\''s neighbour lists are built
+hard the CFL limit bites, not a constant. And PBF's neighbour lists are built
 once per step and reused across iterations here (the standard arrangement);
 rebuilding them per iteration, which an earlier revision did, cost ~7% more
 for identical settled density.
@@ -814,7 +833,7 @@ for identical settled density.
 @bench benchmarks/bench_sph.mojo
 ## Physics — Position-Based Fluids
 
-The engine'\''s first fluid, and it is deliberately the SAME solver shape as the
+The engine's first fluid, and it is deliberately the SAME solver shape as the
 XPBD cloth already here: predict positions, project a constraint, derive
 velocity from the position change. Cloth projects a distance constraint, PBF
 projects a DENSITY one (C_i = rho_i/rho_0 - 1), so the machinery is shared and
@@ -873,18 +892,18 @@ the metric measures XPBD's own invariant. VBD instead minimises an elastic
 energy at finite stiffness, and with the iteration count held fixed it simply
 does not converge far enough as dt grows.
 
-The third table removes that bias by measuring the cloth'\''s SHAPE — how far
+The third table removes that bias by measuring the cloth's SHAPE — how far
 the sheet has sagged — which neither solver is built to optimise, against
-each solver'\''s own 200-iteration answer. It changes the picture. XPBD'\''s
+each solver's own 200-iteration answer. It changes the picture. XPBD's
 effective stiffness depends on how many projection sweeps it got, so at low
 iteration counts its cloth is far too soft: at 10 iterations it has reached
 **0%** of its converged shape while VBD is at **34%**, and at 20 it is 30%
-against VBD'\''s 61%. **VBD converges 2-3x faster per iteration**, which the
+against VBD's 61%. **VBD converges 2-3x faster per iteration**, which the
 edge-stretch metric could not show at all.
 
 Priced, though, that advantage does not survive: a VBD iteration costs ~3x an
 XPBD one, so at matched shape fidelity XPBD is still ~1.7x cheaper (65% of
-converged for 694 us against VBD'\''s 61% for 1,169 us). The precise statement
+converged for 694 us against VBD's 61% for 1,169 us). The precise statement
 is therefore that **VBD wins the iteration count and loses the iteration
 price** — which is a different and more useful claim than having no advantage
 regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
@@ -977,7 +996,7 @@ actuators tracks a bare torque vector within noise at every chain length,
 which is the precondition for the abstraction being worth having.
 
 The second table is the regime that justifies internal dynamics. A direct PD
-servo must be stable at the caller'\''s timestep, and its stability limit falls
+servo must be stable at the caller's timestep, and its stability limit falls
 as gain rises. At dt = 1/240 the direct servo holds to kp = 500 and
 **DIVERGES at kp = 2000**, while the same law driven through a first-order
 actuator stays on target at kp = 8000. That is the trade in one line: the lag
@@ -1193,7 +1212,7 @@ Until this landed the two halves of the engine could not meet: `Chain`
 integrates in joint space, `ContactScene6` resolves contacts in maximal
 coordinates, and nothing connected them — an articulated body could not touch
 anything. The bridge is the point Jacobian, which maps joint velocities to one
-material point'\''s velocity and whose transpose maps an impulse there back to
+material point's velocity and whose transpose maps an impulse there back to
 joint torques, so a contact is solved without leaving generalised coordinates.
 
 Cost scales with the ARTICULATED SYSTEM, not with the contact pair: every
@@ -1228,7 +1247,7 @@ forms the CRBA mass matrix and solves it densely; inverse dynamics recovers
 the torques with one O(n) Newton-Euler sweep and no matrix at all. Both go
 through the same `_rnea` routine — with zero acceleration it is the bias
 term forward dynamics subtracts, with a real one it IS inverse dynamics —
-which is what makes `test_inverse_dynamics`'\''s round trip meaningful: tau ->
+which is what makes `test_inverse_dynamics`'s round trip meaningful: tau ->
 qdd -> tau agrees to ~1e-6 across chains, a branching tree and a forest.
 
 The gap widens with link count exactly as the complexity difference predicts:
@@ -1375,12 +1394,12 @@ whole id range is dead, so the shape of the deaths decides everything:
 - **region death** (the low 90% of the id range dies together — a level
   unloaded, a wave cleared, anything that allocated its ids in one run):
   **89% of the footprint comes back** (51,200 cells held against a growable
-  column'\''s 480,000, which never shrinks at all).
+  column's 480,000, which never shrinks at all).
 
 So the regime is not "many entities died" but "a REGION of the id space
 died", and the price is ~1.6-1.9x on the shrink and regrow operations
 themselves. `test_backend_parity` gates the release against the failure that
-would make the memory number meaningless: neighbouring pages'\'' entities must
+would make the memory number meaningless: neighbouring pages' entities must
 be untouched, and a released page must be reusable.
 
 The honest scope of the TIME result: the commercial chunk stores this

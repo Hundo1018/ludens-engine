@@ -102,6 +102,64 @@ def cd_row(
     )
 
 
+def les_cost_row(mut table: BenchTable, label: String, n: Int, steps: Int, cs: Real):
+    """Sheared channel, walls counter-driven by a body force -- the strain field
+    a subgrid model is built to react to. Same grid and same step count for both
+    rows; the only change is the Smagorinsky constant, so the ns/op gap between
+    the rows IS the per-cell cost of computing the eddy viscosity."""
+    var l = Lbm(n, n, 4, Real(0.02), BC_PERIODIC)
+    l.smagorinsky = cs
+    l.init_uniform(1.0, 0, 0, 0)
+    for z in range(4):
+        for x in range(n):
+            l.flag[l.idx(x, 0, z)] = CELL_SOLID
+            l.flag[l.idx(x, n - 1, z)] = CELL_SOLID
+    l.force_x = Real(2e-5)
+    var t0 = now()
+    for _ in range(steps):
+        l.step()
+    var t1 = now()
+    keep(l.velocity(l.idx(n // 2, n // 2, 2))[0])
+    table.add(label, l.cells(), "cell-step", t1 - t0, steps * l.cells())
+
+
+def les_regime_row(mut table: BenchTable, label: String, cs: Real):
+    """The advantage regime, lifted from test_lbm_les.blows_up: nu=8e-4, u=0.16,
+    Re~1600 past a sphere on a 48x24x24 grid -- a flow plain BGK cannot hold.
+    Run up to 600 steps; if the monitored velocity leaves [-10, 10] report the
+    step it diverged, otherwise report that it ran to completion (its Mops/s
+    column then reads as MLUPS). A speed ratio is meaningless when one side
+    diverges, so this reports the OUTCOME, not a ratio."""
+    comptime STEPS = 600
+    var t = Lbm(48, 24, 24, Real(0.0008), BC_TUNNEL)
+    t.smagorinsky = cs
+    t.init_uniform(1.0, 0.16, 0, 0)
+    t.inlet_u = 0.16
+    t.set_solid_sphere(14, 11.5, 11.5, 4.0)
+    var t0 = now()
+    var diverged_at = -1
+    var done = 0
+    for k in range(STEPS):
+        t.step()
+        done += 1
+        var v = Float64(t.velocity(t.idx(30, 11, 11))[0])
+        if not (v > -10.0 and v < 10.0):
+            diverged_at = k
+            break
+    var t1 = now()
+    keep(t.velocity(t.idx(30, 11, 11))[0])
+    if diverged_at >= 0:
+        table.add(
+            label + ": DIVERGED @ step " + String(diverged_at),
+            t.cells(), "cell-step", t1 - t0, done * t.cells(),
+        )
+    else:
+        table.add(
+            label + ": ran " + String(done) + " steps to completion",
+            t.cells(), "cell-step", t1 - t0, done * t.cells(),
+        )
+
+
 def main() raises:
     var table = BenchTable("Lattice Boltzmann D3Q19 (one op = one cell update)")
     run(table, "periodic 16^3", 16, 200, BC_PERIODIC, False)
@@ -117,3 +175,16 @@ def main() raises:
     cd_row(cdt, 64, 32, Real(4.0), Real(0.05), Real(0.02), 1200, 300)
     cd_row(cdt, 80, 40, Real(5.0), Real(0.05), Real(0.02), 1200, 300)
     cdt.print_report()
+
+    # Smagorinsky LES (fluid/lbm.mojo:382 `eddy_viscosity`) is a seam:
+    # `smagorinsky = 0` is bit-identical to plain BGK, `> 0` adds a strain-rate
+    # eddy viscosity. test_lbm_les proves the parity and the advantage regime;
+    # this table prices both. Cost rows: the per-cell overhead of the model on a
+    # grid where it changes nothing. Regime rows: the low-viscosity tunnel that
+    # plain BGK diverges on and LES carries to completion -- outcome, not ratio.
+    var les = BenchTable("Smagorinsky LES: cost, and the regime that needs it")
+    les_cost_row(les, "sheared 32^2x4, smagorinsky=0 (== plain BGK)", 32, 200, Real(0))
+    les_cost_row(les, "sheared 32^2x4, smagorinsky=0.17", 32, 200, Real(0.17))
+    les_regime_row(les, "Re~1600 tunnel, smagorinsky=0", Real(0))
+    les_regime_row(les, "Re~1600 tunnel, smagorinsky=0.17", Real(0.17))
+    les.print_report()

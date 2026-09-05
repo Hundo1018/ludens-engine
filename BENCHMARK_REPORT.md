@@ -20,75 +20,75 @@ what made the first version of this benchmark look slow.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sparse | 500 | spawn | 240.70 | 4.15 | 0.12 |
-| sparse | 500 | update | 22.87 | 43.72 | 0.23 |
-| sparse | 500 | query | 3280.00 | 0.30 | 0.07 |
-| sparse (for_each2) | 500 | update(for_each2) | 16.65 | 60.07 | 0.01 |
-| archetype (handle) | 500 | spawn | 245.48 | 4.07 | 0.12 |
-| archetype (handle) | 500 | update | 51.38 | 19.46 | 0.51 |
-| archetype (handle) | 500 | query | 2228.50 | 0.45 | 0.04 |
-| archetype (soa) | 500 | spawn | 191.28 | 5.23 | 0.10 |
-| archetype (soa) | 500 | update | 0.56 | 1781.26 | 0.01 |
-| archetype (soa) | 500 | query | 304.75 | 3.28 | 0.01 |
-| archetype (for_each2) | 500 | update(for_each2) | 0.31 | 3225.81 | 0.00 |
-| bitset | 500 | spawn | 52.44 | 19.07 | 0.03 |
-| bitset | 500 | update | 14.15 | 70.65 | 0.14 |
-| bitset | 500 | query | 906.80 | 1.10 | 0.02 |
-| reactive | 500 | spawn | 136.81 | 7.31 | 0.07 |
-| reactive | 500 | update | 38.50 | 25.98 | 0.38 |
-| reactive | 500 | query | 2936.35 | 0.34 | 0.06 |
-| reactive (for_each2) | 500 | update(for_each2) | 18.90 | 52.90 | 0.01 |
-| naive | 500 | spawn | 22.02 | 45.41 | 0.01 |
-| naive | 500 | update | 8.80 | 113.65 | 0.09 |
-| naive | 500 | query | 3083.45 | 0.32 | 0.06 |
-| oop | 500 | spawn | 11.63 | 86.01 | 0.01 |
-| oop | 500 | update | 0.61 | 1649.62 | 0.01 |
-| sparse | 4000 | spawn | 97.36 | 10.27 | 0.39 |
-| sparse | 4000 | update | 23.96 | 41.73 | 1.92 |
-| sparse | 4000 | query | 29488.20 | 0.03 | 0.59 |
-| sparse (for_each2) | 4000 | update(for_each2) | 17.52 | 57.08 | 0.07 |
-| archetype (handle) | 4000 | spawn | 193.47 | 5.17 | 0.77 |
-| archetype (handle) | 4000 | update | 35.55 | 28.13 | 2.84 |
-| archetype (handle) | 4000 | query | 19400.25 | 0.05 | 0.39 |
-| archetype (soa) | 4000 | spawn | 196.67 | 5.08 | 0.79 |
-| archetype (soa) | 4000 | update | 0.51 | 1967.58 | 0.04 |
-| archetype (soa) | 4000 | query | 79.30 | 12.61 | 0.00 |
-| archetype (for_each2) | 4000 | update(for_each2) | 0.34 | 2978.41 | 0.00 |
-| bitset | 4000 | spawn | 45.09 | 22.18 | 0.18 |
-| bitset | 4000 | update | 13.15 | 76.06 | 1.05 |
-| bitset | 4000 | query | 8108.25 | 0.12 | 0.16 |
-| reactive | 4000 | spawn | 132.37 | 7.55 | 0.53 |
-| reactive | 4000 | update | 39.08 | 25.59 | 3.13 |
-| reactive | 4000 | query | 27955.50 | 0.04 | 0.56 |
-| reactive (for_each2) | 4000 | update(for_each2) | 19.95 | 50.13 | 0.08 |
-| naive | 4000 | spawn | 22.17 | 45.12 | 0.09 |
-| naive | 4000 | update | 10.27 | 97.34 | 0.82 |
-| naive | 4000 | query | 28558.30 | 0.04 | 0.57 |
-| oop | 4000 | spawn | 12.12 | 82.49 | 0.05 |
-| oop | 4000 | update | 0.63 | 1597.35 | 0.05 |
-| sparse | 65536 | spawn | 97.53 | 10.25 | 6.39 |
-| sparse | 65536 | update | 25.43 | 39.32 | 33.33 |
-| sparse | 65536 | query | 532177.25 | 0.00 | 10.64 |
-| sparse (for_each2) | 65536 | update(for_each2) | 17.85 | 56.01 | 1.17 |
-| archetype (handle) | 65536 | spawn | 198.07 | 5.05 | 12.98 |
-| archetype (handle) | 65536 | update | 36.75 | 27.21 | 48.17 |
-| archetype (handle) | 65536 | query | 351558.70 | 0.00 | 7.03 |
-| archetype (soa) | 65536 | spawn | 202.47 | 4.94 | 13.27 |
-| archetype (soa) | 65536 | update | 0.55 | 1825.09 | 0.72 |
-| archetype (soa) | 65536 | query | 722.80 | 1.38 | 0.01 |
-| archetype (for_each2) | 65536 | update(for_each2) | 0.34 | 2983.11 | 0.02 |
-| bitset | 65536 | spawn | 44.12 | 22.66 | 2.89 |
-| bitset | 65536 | update | 14.18 | 70.52 | 18.59 |
-| bitset | 65536 | query | 140509.10 | 0.01 | 2.81 |
-| reactive | 65536 | spawn | 128.75 | 7.77 | 8.44 |
-| reactive | 65536 | update | 41.35 | 24.18 | 54.20 |
-| reactive | 65536 | query | 470840.85 | 0.00 | 9.42 |
-| reactive (for_each2) | 65536 | update(for_each2) | 19.59 | 51.05 | 1.28 |
-| naive | 65536 | spawn | 23.95 | 41.76 | 1.57 |
-| naive | 65536 | update | 10.98 | 91.10 | 14.39 |
-| naive | 65536 | query | 480488.35 | 0.00 | 9.61 |
-| oop | 65536 | spawn | 2.26 | 441.90 | 0.15 |
-| oop | 65536 | update | 1.12 | 893.64 | 1.47 |
+| sparse | 500 | spawn | 240.07 | 4.17 | 0.12 |
+| sparse | 500 | update | 22.40 | 44.64 | 0.22 |
+| sparse | 500 | query | 3191.10 | 0.31 | 0.06 |
+| sparse (for_each2) | 500 | update(for_each2) | 16.38 | 61.04 | 0.01 |
+| archetype (handle) | 500 | spawn | 198.49 | 5.04 | 0.10 |
+| archetype (handle) | 500 | update | 35.06 | 28.52 | 0.35 |
+| archetype (handle) | 500 | query | 10532.75 | 0.09 | 0.21 |
+| archetype (soa) | 500 | spawn | 181.10 | 5.52 | 0.09 |
+| archetype (soa) | 500 | update | 0.53 | 1904.40 | 0.01 |
+| archetype (soa) | 500 | query | 295.80 | 3.38 | 0.01 |
+| archetype (for_each2) | 500 | update(for_each2) | 0.30 | 3333.33 | 0.00 |
+| bitset | 500 | spawn | 38.62 | 25.89 | 0.02 |
+| bitset | 500 | update | 11.89 | 84.08 | 0.12 |
+| bitset | 500 | query | 920.20 | 1.09 | 0.02 |
+| reactive | 500 | spawn | 118.07 | 8.47 | 0.06 |
+| reactive | 500 | update | 36.64 | 27.29 | 0.37 |
+| reactive | 500 | query | 1932.35 | 0.52 | 0.04 |
+| reactive (for_each2) | 500 | update(for_each2) | 15.74 | 63.52 | 0.01 |
+| naive | 500 | spawn | 25.74 | 38.85 | 0.01 |
+| naive | 500 | update | 8.36 | 119.60 | 0.08 |
+| naive | 500 | query | 2027.25 | 0.49 | 0.04 |
+| oop | 500 | spawn | 10.89 | 91.81 | 0.01 |
+| oop | 500 | update | 0.57 | 1745.81 | 0.01 |
+| sparse | 4000 | spawn | 89.23 | 11.21 | 0.36 |
+| sparse | 4000 | update | 23.01 | 43.46 | 1.84 |
+| sparse | 4000 | query | 27834.10 | 0.04 | 0.56 |
+| sparse (for_each2) | 4000 | update(for_each2) | 17.02 | 58.74 | 0.07 |
+| archetype (handle) | 4000 | spawn | 178.82 | 5.59 | 0.72 |
+| archetype (handle) | 4000 | update | 36.28 | 27.56 | 2.90 |
+| archetype (handle) | 4000 | query | 17704.35 | 0.06 | 0.35 |
+| archetype (soa) | 4000 | spawn | 178.95 | 5.59 | 0.72 |
+| archetype (soa) | 4000 | update | 0.49 | 2057.61 | 0.04 |
+| archetype (soa) | 4000 | query | 58.15 | 17.20 | 0.00 |
+| archetype (for_each2) | 4000 | update(for_each2) | 0.32 | 3142.18 | 0.00 |
+| bitset | 4000 | spawn | 39.55 | 25.29 | 0.16 |
+| bitset | 4000 | update | 12.34 | 81.03 | 0.99 |
+| bitset | 4000 | query | 8322.10 | 0.12 | 0.17 |
+| reactive | 4000 | spawn | 117.68 | 8.50 | 0.47 |
+| reactive | 4000 | update | 40.47 | 24.71 | 3.24 |
+| reactive | 4000 | query | 19484.15 | 0.05 | 0.39 |
+| reactive (for_each2) | 4000 | update(for_each2) | 16.99 | 58.87 | 0.07 |
+| naive | 4000 | spawn | 21.23 | 47.11 | 0.08 |
+| naive | 4000 | update | 8.31 | 120.27 | 0.67 |
+| naive | 4000 | query | 19273.90 | 0.05 | 0.39 |
+| oop | 4000 | spawn | 10.59 | 94.45 | 0.04 |
+| oop | 4000 | update | 0.60 | 1679.54 | 0.05 |
+| sparse | 65536 | spawn | 91.19 | 10.97 | 5.98 |
+| sparse | 65536 | update | 25.03 | 39.96 | 32.80 |
+| sparse | 65536 | query | 505258.90 | 0.00 | 10.11 |
+| sparse (for_each2) | 65536 | update(for_each2) | 16.84 | 59.38 | 1.10 |
+| archetype (handle) | 65536 | spawn | 183.60 | 5.45 | 12.03 |
+| archetype (handle) | 65536 | update | 36.71 | 27.24 | 48.11 |
+| archetype (handle) | 65536 | query | 311866.35 | 0.00 | 6.24 |
+| archetype (soa) | 65536 | spawn | 181.56 | 5.51 | 11.90 |
+| archetype (soa) | 65536 | update | 0.52 | 1914.28 | 0.68 |
+| archetype (soa) | 65536 | query | 201.70 | 4.96 | 0.00 |
+| archetype (for_each2) | 65536 | update(for_each2) | 0.36 | 2804.76 | 0.02 |
+| bitset | 65536 | spawn | 39.72 | 25.18 | 2.60 |
+| bitset | 65536 | update | 14.23 | 70.29 | 18.65 |
+| bitset | 65536 | query | 163337.25 | 0.01 | 3.27 |
+| reactive | 65536 | spawn | 124.65 | 8.02 | 8.17 |
+| reactive | 65536 | update | 41.78 | 23.94 | 54.76 |
+| reactive | 65536 | query | 334039.30 | 0.00 | 6.68 |
+| reactive (for_each2) | 65536 | update(for_each2) | 16.73 | 59.79 | 1.10 |
+| naive | 65536 | spawn | 20.44 | 48.93 | 1.34 |
+| naive | 65536 | update | 9.07 | 110.24 | 11.89 |
+| naive | 65536 | query | 333171.90 | 0.00 | 6.66 |
+| oop | 65536 | spawn | 1.86 | 538.16 | 0.12 |
+| oop | 65536 | update | 1.06 | 945.76 | 1.39 |
 
 
 ## ECS vs OOP — crossover study
@@ -100,37 +100,37 @@ through its fast SoA column path here, not the handle path.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| oop | 4000 | update | 0.75 | 1325.09 | 0.09 |
-| archetype (handle) | 4000 | update | 40.73 | 24.55 | 4.89 |
-| archetype (soa) | 4000 | update | 0.53 | 1895.17 | 0.06 |
-| sparse (handle) | 4000 | update | 32.19 | 31.07 | 3.86 |
+| oop | 4000 | update | 0.80 | 1248.00 | 0.10 |
+| archetype (handle) | 4000 | update | 36.12 | 27.69 | 4.33 |
+| archetype (soa) | 4000 | update | 0.47 | 2148.88 | 0.06 |
+| sparse (handle) | 4000 | update | 28.48 | 35.11 | 3.42 |
 
 
 ### W2 — scattered selective-read (sum Position.x; ~2KB cold payload, random order)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| oop-fat | 4000 | sum-pos.x | 4.86 | 205.91 | 0.58 |
-| archetype (soa) | 4000 | sum-pos.x | 1.38 | 726.48 | 0.17 |
-| sparse | 4000 | sum-pos.x | 13.23 | 75.57 | 1.59 |
+| oop-fat | 4000 | sum-pos.x | 4.36 | 229.23 | 0.52 |
+| archetype (soa) | 4000 | sum-pos.x | 0.85 | 1180.03 | 0.10 |
+| sparse | 4000 | sum-pos.x | 13.22 | 75.66 | 1.59 |
 
 
 ### W3 — SIMD integrate (column-wise pos += vel*dt)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| oop (scalar) | 4000 | integrate | 0.54 | 1836.43 | 0.07 |
-| archetype (soa) | 4000 | integrate | 0.51 | 1970.61 | 0.06 |
-| archetype (simd) | 4000 | integrate | 0.17 | 5724.10 | 0.02 |
+| oop (scalar) | 4000 | integrate | 0.49 | 2051.14 | 0.06 |
+| archetype (soa) | 4000 | integrate | 0.44 | 2285.06 | 0.05 |
+| archetype (simd) | 4000 | integrate | 0.14 | 7165.03 | 0.02 |
 
 
 ### W4 — structural churn (add/remove a component per frame)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| archetype | 2000 | add/remove | 68.72 | 14.55 | 2.75 |
-| sparse | 2000 | add/remove | 9.53 | 104.97 | 0.38 |
-| oop (flag) | 2000 | add/remove | 2.17 | 460.94 | 0.09 |
+| archetype | 2000 | add/remove | 62.16 | 16.09 | 2.49 |
+| sparse | 2000 | add/remove | 8.35 | 119.81 | 0.33 |
+| oop (flag) | 2000 | add/remove | 2.08 | 481.54 | 0.08 |
 
 
 ## Collision algorithms
@@ -171,69 +171,69 @@ a little speed.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 2d brute P=475 | 1000 | rebuild+pairs | 1529.81 | 0.65 | 1.53 |
-| 2d quadtree P=475 | 1000 | rebuild+pairs | 635.80 | 1.57 | 0.64 |
-| 2d hashgrid P=1867 | 1000 | rebuild+pairs | 601.31 | 1.66 | 0.60 |
-| 2d bvh P=475 | 1000 | rebuild+pairs | 1009.13 | 0.99 | 1.01 |
-| 2d brute P=1995 | 4000 | rebuild+pairs | 6142.85 | 0.16 | 24.57 |
-| 2d quadtree P=1995 | 4000 | rebuild+pairs | 798.12 | 1.25 | 3.19 |
-| 2d hashgrid P=7885 | 4000 | rebuild+pairs | 549.27 | 1.82 | 2.20 |
-| 2d bvh P=1995 | 4000 | rebuild+pairs | 3136.94 | 0.32 | 12.55 |
-| 2d brute P=3965 | 8000 | rebuild+pairs | 11935.25 | 0.08 | 95.48 |
-| 2d quadtree P=3965 | 8000 | rebuild+pairs | 871.43 | 1.15 | 6.97 |
-| 2d hashgrid P=15444 | 8000 | rebuild+pairs | 556.24 | 1.80 | 4.45 |
-| 2d bvh P=3965 | 8000 | rebuild+pairs | 5967.21 | 0.17 | 47.74 |
-| 3d brute P=446 | 1000 | rebuild+pairs | 952.77 | 1.05 | 0.95 |
-| 3d octree P=446 | 1000 | rebuild+pairs | 942.80 | 1.06 | 0.94 |
-| 3d hashgrid P=3510 | 1000 | rebuild+pairs | 867.04 | 1.15 | 0.87 |
-| 3d bvh P=446 | 1000 | rebuild+pairs | 1236.99 | 0.81 | 1.24 |
-| 3d brute P=1874 | 4000 | rebuild+pairs | 3282.10 | 0.30 | 13.13 |
-| 3d octree P=1874 | 4000 | rebuild+pairs | 1470.91 | 0.68 | 5.88 |
-| 3d hashgrid P=14252 | 4000 | rebuild+pairs | 797.90 | 1.25 | 3.19 |
-| 3d bvh P=1874 | 4000 | rebuild+pairs | 3554.72 | 0.28 | 14.22 |
+| 2d brute P=475 | 1000 | rebuild+pairs | 1538.91 | 0.65 | 1.54 |
+| 2d quadtree P=475 | 1000 | rebuild+pairs | 609.33 | 1.64 | 0.61 |
+| 2d hashgrid P=1867 | 1000 | rebuild+pairs | 526.17 | 1.90 | 0.53 |
+| 2d bvh P=475 | 1000 | rebuild+pairs | 1017.75 | 0.98 | 1.02 |
+| 2d brute P=1995 | 4000 | rebuild+pairs | 6302.49 | 0.16 | 25.21 |
+| 2d quadtree P=1995 | 4000 | rebuild+pairs | 805.21 | 1.24 | 3.22 |
+| 2d hashgrid P=7885 | 4000 | rebuild+pairs | 554.05 | 1.80 | 2.22 |
+| 2d bvh P=1995 | 4000 | rebuild+pairs | 3123.86 | 0.32 | 12.50 |
+| 2d brute P=3965 | 8000 | rebuild+pairs | 12209.57 | 0.08 | 97.68 |
+| 2d quadtree P=3965 | 8000 | rebuild+pairs | 905.55 | 1.10 | 7.24 |
+| 2d hashgrid P=15444 | 8000 | rebuild+pairs | 555.48 | 1.80 | 4.44 |
+| 2d bvh P=3965 | 8000 | rebuild+pairs | 5983.53 | 0.17 | 47.87 |
+| 3d brute P=446 | 1000 | rebuild+pairs | 1054.00 | 0.95 | 1.05 |
+| 3d octree P=446 | 1000 | rebuild+pairs | 960.39 | 1.04 | 0.96 |
+| 3d hashgrid P=3510 | 1000 | rebuild+pairs | 840.53 | 1.19 | 0.84 |
+| 3d bvh P=446 | 1000 | rebuild+pairs | 1277.41 | 0.78 | 1.28 |
+| 3d brute P=1874 | 4000 | rebuild+pairs | 3533.99 | 0.28 | 14.14 |
+| 3d octree P=1874 | 4000 | rebuild+pairs | 1590.46 | 0.63 | 6.36 |
+| 3d hashgrid P=14252 | 4000 | rebuild+pairs | 842.21 | 1.19 | 3.37 |
+| 3d bvh P=1874 | 4000 | rebuild+pairs | 3670.01 | 0.27 | 14.68 |
 
 
 ### Narrowphase x scene (per-pair exact test)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| aabb hits=388 | 500 | narrow test | 3.47 | 288.48 | 0.00 |
-| circle hits=297 | 500 | narrow test | 3.37 | 297.09 | 0.00 |
-| sat hits=388 | 500 | narrow test | 164.92 | 6.06 | 0.06 |
-| obb hits=388 | 500 | narrow test | 24.74 | 40.42 | 0.01 |
-| gjk+epa hits=388 | 500 | narrow test | 325.38 | 3.07 | 0.13 |
-| sdf hits=104 | 500 | narrow test | 12.25 | 81.65 | 0.00 |
-| aabb hits=1749 | 2000 | narrow test | 3.36 | 297.45 | 0.01 |
-| circle hits=1382 | 2000 | narrow test | 3.38 | 295.79 | 0.01 |
-| sat hits=1749 | 2000 | narrow test | 168.54 | 5.93 | 0.29 |
-| obb hits=1749 | 2000 | narrow test | 13.18 | 75.85 | 0.02 |
-| gjk+epa hits=1749 | 2000 | narrow test | 311.31 | 3.21 | 0.54 |
-| sdf hits=434 | 2000 | narrow test | 13.16 | 75.99 | 0.02 |
-| 3d sphere analytic hits=276 | 500 | narrow test | 8.93 | 111.92 | 0.00 |
-| 3d sphere cga hits=276 | 500 | narrow test | 12.26 | 81.58 | 0.01 |
-| 3d sphere analytic hits=1177 | 2000 | narrow test | 3.57 | 279.92 | 0.01 |
-| 3d sphere cga hits=1176 | 2000 | narrow test | 14.39 | 69.49 | 0.03 |
+| aabb hits=388 | 500 | narrow test | 3.49 | 286.56 | 0.00 |
+| circle hits=297 | 500 | narrow test | 3.38 | 295.73 | 0.00 |
+| sat hits=388 | 500 | narrow test | 166.50 | 6.01 | 0.06 |
+| obb hits=388 | 500 | narrow test | 28.52 | 35.06 | 0.01 |
+| gjk+epa hits=388 | 500 | narrow test | 311.73 | 3.21 | 0.12 |
+| sdf hits=104 | 500 | narrow test | 11.30 | 88.50 | 0.00 |
+| aabb hits=1749 | 2000 | narrow test | 3.47 | 288.19 | 0.01 |
+| circle hits=1382 | 2000 | narrow test | 3.36 | 297.80 | 0.01 |
+| sat hits=1749 | 2000 | narrow test | 163.97 | 6.10 | 0.29 |
+| obb hits=1749 | 2000 | narrow test | 13.17 | 75.94 | 0.02 |
+| gjk+epa hits=1749 | 2000 | narrow test | 316.60 | 3.16 | 0.55 |
+| sdf hits=434 | 2000 | narrow test | 10.26 | 97.50 | 0.02 |
+| 3d sphere analytic hits=276 | 500 | narrow test | 3.46 | 289.11 | 0.00 |
+| 3d sphere cga hits=276 | 500 | narrow test | 11.77 | 84.99 | 0.01 |
+| 3d sphere analytic hits=1177 | 2000 | narrow test | 3.73 | 267.99 | 0.01 |
+| 3d sphere cga hits=1176 | 2000 | narrow test | 13.20 | 75.77 | 0.03 |
 
 
 ### Heterogeneous narrowphase: CGA inner products vs a euclidean switch
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 3d mixed euclid switch (0 planes) hits=1177 | 2000 | narrow test | 13.27 | 75.36 | 0.03 |
-| 3d mixed cga (0 planes) hits=1174 | 2000 | narrow test | 31.32 | 31.93 | 0.07 |
-| 3d mixed euclid switch (1 planes) hits=1177 | 2000 | narrow test | 13.78 | 72.55 | 0.03 |
-| 3d mixed cga (1 planes) hits=1174 | 2000 | narrow test | 31.42 | 31.83 | 0.07 |
-| 3d mixed euclid switch (8 planes) hits=1179 | 2000 | narrow test | 13.55 | 73.78 | 0.03 |
-| 3d mixed cga (8 planes) hits=1176 | 2000 | narrow test | 31.12 | 32.13 | 0.07 |
-| 3d mixed euclid switch (64 planes) hits=1182 | 2000 | narrow test | 13.00 | 76.92 | 0.03 |
-| 3d mixed cga (64 planes) hits=1180 | 2000 | narrow test | 29.82 | 33.53 | 0.07 |
-| 3d mixed euclid switch (256 planes) hits=1155 | 2000 | narrow test | 15.61 | 64.06 | 0.03 |
-| 3d mixed cga (256 planes) hits=1151 | 2000 | narrow test | 31.83 | 31.42 | 0.07 |
+| 3d mixed euclid switch (0 planes) hits=1177 | 2000 | narrow test | 13.53 | 73.91 | 0.03 |
+| 3d mixed cga (0 planes) hits=1174 | 2000 | narrow test | 32.21 | 31.05 | 0.07 |
+| 3d mixed euclid switch (1 planes) hits=1177 | 2000 | narrow test | 13.05 | 76.63 | 0.03 |
+| 3d mixed cga (1 planes) hits=1174 | 2000 | narrow test | 30.46 | 32.83 | 0.07 |
+| 3d mixed euclid switch (8 planes) hits=1179 | 2000 | narrow test | 14.74 | 67.82 | 0.03 |
+| 3d mixed cga (8 planes) hits=1176 | 2000 | narrow test | 36.12 | 27.69 | 0.08 |
+| 3d mixed euclid switch (64 planes) hits=1182 | 2000 | narrow test | 14.02 | 71.32 | 0.03 |
+| 3d mixed cga (64 planes) hits=1180 | 2000 | narrow test | 31.29 | 31.96 | 0.07 |
+| 3d mixed euclid switch (256 planes) hits=1155 | 2000 | narrow test | 16.71 | 59.84 | 0.04 |
+| 3d mixed cga (256 planes) hits=1151 | 2000 | narrow test | 35.17 | 28.43 | 0.08 |
 
 
 ## Collision — 3D signed distance fields
 
-The engine'\''s existing SDF layer is 2D, so this is a 3D layer rather than a
+The engine's existing SDF layer is 2D, so this is a 3D layer rather than a
 port of a working one — worth stating because the roadmap assumed otherwise.
 Contact is found by driving the two fields to a common value, and the
 quantity that IS the penetration is the SUM of the fields where they agree,
@@ -265,11 +265,11 @@ field around the deepest point.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sdf sphere-sphere it=8 | 512 | pair | 120.91 | 8.27 | 0.06 |
-| sdf sphere-sphere it=16 | 512 | pair | 120.55 | 8.29 | 0.06 |
-| sdf sphere-sphere it=32 | 512 | pair | 121.56 | 8.23 | 0.06 |
-| analytic sphere-sphere | 512 | pair | 7.92 | 126.26 | 0.00 |
-| sdf CSG(box minus sphere) vs sphere  [no analytic pair exists] | 512 | pair | 469.25 | 2.13 | 0.24 |
+| sdf sphere-sphere it=8 | 512 | pair | 114.44 | 8.74 | 0.06 |
+| sdf sphere-sphere it=16 | 512 | pair | 114.64 | 8.72 | 0.06 |
+| sdf sphere-sphere it=32 | 512 | pair | 114.71 | 8.72 | 0.06 |
+| analytic sphere-sphere | 512 | pair | 5.62 | 177.96 | 0.00 |
+| sdf CSG(box minus sphere) vs sphere  [no analytic pair exists] | 512 | pair | 480.85 | 2.08 | 0.25 |
 
 
 ## Collision — manifold narrowphase (contact patch vs boolean test)
@@ -298,18 +298,18 @@ built once and instanced, not authored per frame.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 2d aabb bool hits=1749 | 2000 | boolean | 3.64 | 274.44 | 0.01 |
-| 2d aabb manifold pts=3498 | 2000 | manifold | 15.32 | 65.26 | 0.03 |
-| 2d sat bool hits=1749 | 2000 | boolean | 166.60 | 6.00 | 0.29 |
-| 2d sat manifold pts=3498 | 2000 | manifold | 426.61 | 2.34 | 0.75 |
-| 2d obb bool hits=1749 | 2000 | boolean | 31.31 | 31.94 | 0.05 |
-| 2d obb manifold pts=3498 | 2000 | manifold | 487.39 | 2.05 | 0.85 |
-| 3d aabb bool hits=2201 | 2000 | boolean | 4.72 | 211.88 | 0.01 |
-| 3d aabb manifold pts=8804 | 2000 | manifold | 32.10 | 31.15 | 0.07 |
-| 3d gjk+epa bool hits=2201 | 2000 | boolean | 1053.54 | 0.95 | 2.32 |
-| 3d gjk+epa manifold pts=2201 | 2000 | manifold | 1029.97 | 0.97 | 2.27 |
-| 3d hull face enumeration | 2000 | build | 4120.83 | 0.24 | 8.24 |
-| 3d hull manifold pts=8804 | 2000 | manifold | 2756.72 | 0.36 | 6.07 |
+| 2d aabb bool hits=1749 | 2000 | boolean | 3.82 | 262.06 | 0.01 |
+| 2d aabb manifold pts=3498 | 2000 | manifold | 16.53 | 60.51 | 0.03 |
+| 2d sat bool hits=1749 | 2000 | boolean | 170.24 | 5.87 | 0.30 |
+| 2d sat manifold pts=3498 | 2000 | manifold | 432.36 | 2.31 | 0.76 |
+| 2d obb bool hits=1749 | 2000 | boolean | 28.72 | 34.82 | 0.05 |
+| 2d obb manifold pts=3498 | 2000 | manifold | 438.85 | 2.28 | 0.77 |
+| 3d aabb bool hits=2201 | 2000 | boolean | 5.04 | 198.41 | 0.01 |
+| 3d aabb manifold pts=8804 | 2000 | manifold | 33.21 | 30.11 | 0.07 |
+| 3d gjk+epa bool hits=2201 | 2000 | boolean | 1127.34 | 0.89 | 2.48 |
+| 3d gjk+epa manifold pts=2201 | 2000 | manifold | 1113.40 | 0.90 | 2.45 |
+| 3d hull face enumeration | 2000 | build | 4355.28 | 0.23 | 8.71 |
+| 3d hull manifold pts=8804 | 2000 | manifold | 2917.73 | 0.34 | 6.42 |
 
 
 ## Collision — static level geometry (midphase)
@@ -347,23 +347,23 @@ the brute column has already become unusable.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| brute cand=3200 | 1922 | midphase | 178558.70 | 0.01 | 91.42 |
-| bvh cand=3200 | 1922 | midphase | 457.31 | 2.19 | 0.23 |
-| heightfield cand=3202 | 1922 | midphase | 121.31 | 8.24 | 0.06 |
-| brute cand=3256 | 7938 | midphase | 732128.37 | 0.00 | 374.85 |
-| bvh cand=3256 | 7938 | midphase | 763.69 | 1.31 | 0.39 |
-| heightfield cand=3254 | 7938 | midphase | 113.15 | 8.84 | 0.06 |
-| brute cand=3278 | 32258 | midphase | 2990333.83 | 0.00 | 1531.05 |
-| bvh cand=3278 | 32258 | midphase | 977.52 | 1.02 | 0.50 |
-| heightfield cand=3278 | 32258 | midphase | 128.70 | 7.77 | 0.07 |
+| brute cand=3200 | 1922 | midphase | 190668.43 | 0.01 | 97.62 |
+| bvh cand=3200 | 1922 | midphase | 440.50 | 2.27 | 0.23 |
+| heightfield cand=3202 | 1922 | midphase | 122.70 | 8.15 | 0.06 |
+| brute cand=3256 | 7938 | midphase | 783387.32 | 0.00 | 401.09 |
+| bvh cand=3256 | 7938 | midphase | 660.79 | 1.51 | 0.34 |
+| heightfield cand=3254 | 7938 | midphase | 130.41 | 7.67 | 0.07 |
+| brute cand=3278 | 32258 | midphase | 3159733.19 | 0.00 | 1617.78 |
+| bvh cand=3278 | 32258 | midphase | 1192.36 | 0.84 | 0.61 |
+| heightfield cand=3278 | 32258 | midphase | 148.98 | 6.71 | 0.08 |
 
 
 ### Static level geometry: full solver step (64 crates)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| step trimesh (bvh) | 7938 | step | 444956.72 | 0.00 | 53.39 |
-| step heightfield | 7938 | step | 433268.84 | 0.00 | 51.99 |
+| step trimesh (bvh) | 7938 | step | 420025.85 | 0.00 | 50.40 |
+| step heightfield | 7938 | step | 420899.40 | 0.00 | 50.51 |
 
 
 ## Collision — filtering and contact events
@@ -398,10 +398,10 @@ nothing for a feature a scene may never read.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| unfiltered (both populations collide) contacts=254 asleep=75 | 192 | step | 3645448.83 | 0.00 | 218.73 |
-| filtered (each ignores the other) contacts=192 asleep=192 | 192 | step | 410634.13 | 0.00 | 24.64 |
-| filtered + events contacts=192 asleep=192 | 192 | step | 409836.30 | 0.00 | 24.59 |
-| unfiltered + events contacts=254 asleep=75 | 192 | step | 3670386.77 | 0.00 | 220.22 |
+| unfiltered (both populations collide) contacts=254 asleep=75 | 192 | step | 3341370.83 | 0.00 | 200.48 |
+| filtered (each ignores the other) contacts=192 asleep=192 | 192 | step | 434129.15 | 0.00 | 26.05 |
+| filtered + events contacts=192 asleep=192 | 192 | step | 443226.70 | 0.00 | 26.59 |
+| unfiltered + events contacts=254 asleep=75 | 192 | step | 3415584.05 | 0.00 | 204.94 |
 
 
 ## Geometry — exact predicates (robustness layer)
@@ -444,24 +444,24 @@ exact one on none.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| orient2d naive (generic) | 20000 | orient2d | 6.10 | 164.00 | 0.12 |
-| orient2d robust (generic, filter decides) | 20000 | orient2d | 5.80 | 172.51 | 0.12 |
-| orient2d naive (degenerate) | 20000 | orient2d | 11.48 | 87.09 | 0.23 |
-| orient2d robust (degenerate, exact runs) | 20000 | orient2d | 139.57 | 7.16 | 2.79 |
-| orient3d naive (generic) | 20000 | orient3d | 12.62 | 79.24 | 0.25 |
-| orient3d robust (generic, filter decides) | 20000 | orient3d | 15.00 | 66.67 | 0.30 |
-| orient3d naive (degenerate) | 20000 | orient3d | 11.04 | 90.57 | 0.22 |
-| orient3d robust (degenerate, exact runs) | 20000 | orient3d | 6373.57 | 0.16 | 127.47 |
-| incircle (cocircular, exact runs) | 2000 | incircle | 9695.85 | 0.10 | 19.39 |
-| insphere (cospherical, exact runs) | 200 | insphere | 103104.54 | 0.01 | 20.62 |
+| orient2d naive (generic) | 20000 | orient2d | 7.23 | 138.24 | 0.14 |
+| orient2d robust (generic, filter decides) | 20000 | orient2d | 6.32 | 158.12 | 0.13 |
+| orient2d naive (degenerate) | 20000 | orient2d | 10.70 | 93.47 | 0.21 |
+| orient2d robust (degenerate, exact runs) | 20000 | orient2d | 131.16 | 7.62 | 2.62 |
+| orient3d naive (generic) | 20000 | orient3d | 12.44 | 80.40 | 0.25 |
+| orient3d robust (generic, filter decides) | 20000 | orient3d | 15.56 | 64.25 | 0.31 |
+| orient3d naive (degenerate) | 20000 | orient3d | 12.86 | 77.75 | 0.26 |
+| orient3d robust (degenerate, exact runs) | 20000 | orient3d | 6682.54 | 0.15 | 133.65 |
+| incircle (cocircular, exact runs) | 2000 | incircle | 10324.15 | 0.10 | 20.65 |
+| insphere (cospherical, exact runs) | 200 | insphere | 110019.58 | 0.01 | 22.00 |
 
 
 ### Convex hull of a near-degenerate cloud
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| naive hull verts=4 convex | 202 | hull | 1430.52 | 0.70 | 0.29 |
-| exact hull verts=4 convex | 202 | hull | 45583.60 | 0.02 | 9.12 |
+| naive hull verts=4 convex | 202 | hull | 1528.55 | 0.65 | 0.31 |
+| exact hull verts=4 convex | 202 | hull | 48042.90 | 0.02 | 9.61 |
 
 
 ## Scheduler — automatic dependency job graph
@@ -498,10 +498,10 @@ digests equal: True
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| derive schedule (construction only) | 6 | build | 237.41 | 4.21 | 0.24 |
-| sequential | 4000 | tick | 1037254.70 | 0.00 | 207.45 |
-| job graph (serial within level) | 4000 | tick | 1090815.03 | 0.00 | 218.16 |
-| job graph (levels fanned out) | 4000 | tick | 854276.43 | 0.00 | 170.86 |
+| derive schedule (construction only) | 6 | build | 195.36 | 5.12 | 0.20 |
+| sequential | 4000 | tick | 958458.27 | 0.00 | 191.69 |
+| job graph (serial within level) | 4000 | tick | 993880.26 | 0.00 | 198.78 |
+| job graph (levels fanned out) | 4000 | tick | 772667.14 | 0.00 | 154.53 |
 
 
 ## Numerics — global solve vs local iteration
@@ -537,32 +537,32 @@ comparison: not a faster step, an available one.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| cg iters=32 res=5.1880166e-17 | 64 | solve | 82954.08 | 0.01 | 16.59 |
-| jacobi iters=32 res=0.9029835 | 64 | solve | 39076.78 | 0.03 | 7.82 |
-| cg iters=128 res=5.2146263e-17 | 256 | solve | 1304404.18 | 0.00 | 65.22 |
-| jacobi iters=128 res=0.9508278 | 256 | solve | 620085.28 | 0.00 | 31.00 |
-| cg iters=512 res=5.4970245e-17 | 1024 | solve | 21550217.80 | 0.00 | 107.75 |
-| jacobi iters=512 res=0.97524184 | 1024 | solve | 9920496.00 | 0.00 | 49.60 |
+| cg iters=32 res=5.1880166e-17 | 64 | solve | 56832.32 | 0.02 | 11.37 |
+| jacobi iters=32 res=0.9029835 | 64 | solve | 34369.19 | 0.03 | 6.87 |
+| cg iters=128 res=5.2146263e-17 | 256 | solve | 844164.10 | 0.00 | 42.21 |
+| jacobi iters=128 res=0.9508278 | 256 | solve | 524620.76 | 0.00 | 26.23 |
+| cg iters=512 res=5.4970245e-17 | 1024 | solve | 14417309.40 | 0.00 | 72.09 |
+| jacobi iters=512 res=0.97524184 | 1024 | solve | 8553746.60 | 0.00 | 42.77 |
 
 
 ### CG's real scale axis: condition number, not size
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| uniform diagonal cg iters=64 | 128 | solve | 250631.37 | 0.00 | 50.13 |
-| uniform diagonal pcg iters=64 | 128 | solve | 250154.10 | 0.00 | 50.03 |
-| diagonal spans 1e6 cg iters=195 | 128 | solve | 753390.18 | 0.00 | 150.68 |
-| diagonal spans 1e6 pcg iters=84 | 128 | solve | 327223.91 | 0.00 | 65.44 |
+| uniform diagonal cg iters=64 | 128 | solve | 294090.25 | 0.00 | 58.82 |
+| uniform diagonal pcg iters=64 | 128 | solve | 297453.49 | 0.00 | 59.49 |
+| diagonal spans 1e6 cg iters=195 | 128 | solve | 882095.85 | 0.00 | 176.42 |
+| diagonal spans 1e6 pcg iters=84 | 128 | solve | 381084.00 | 0.00 | 76.22 |
 
 
 ### Implicit FEM: the step size a global solve buys
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| soft E=2e3 dt=1/60 explicit | 63 | step | 150089.33 | 0.01 | 18.01 |
-| soft E=2e3 dt=1/60 implicit cg/step=4 | 63 | step | 579893.77 | 0.00 | 69.59 |
-| stiff E=2e5 dt=1/60 explicit DIVERGED | 63 | step | 146067.84 | 0.01 | 17.53 |
-| stiff E=2e5 dt=1/60 implicit cg/step=31 | 63 | step | 1635122.30 | 0.00 | 196.21 |
+| soft E=2e3 dt=1/60 explicit | 63 | step | 144312.68 | 0.01 | 17.32 |
+| soft E=2e3 dt=1/60 implicit cg/step=4 | 63 | step | 513163.29 | 0.00 | 61.58 |
+| stiff E=2e5 dt=1/60 explicit DIVERGED | 63 | step | 143275.44 | 0.01 | 17.19 |
+| stiff E=2e5 dt=1/60 implicit cg/step=31 | 63 | step | 1446959.58 | 0.00 | 173.64 |
 
 
 ## Animation — clips, blending and cross-fade
@@ -593,20 +593,20 @@ fading player samples two clips and blends them instead of sampling one.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sample | 32 | bone-frame | 47.12 | 21.22 | 0.36 |
-| blend linear | 32 | bone-frame | 38.52 | 25.96 | 0.30 |
-| blend dlb (motor) | 32 | bone-frame | 53.47 | 18.70 | 0.41 |
-| blend geodesic (exp/log) | 32 | bone-frame | 141.56 | 7.06 | 1.09 |
-| pose -> motors | 32 | bone-frame | 8.07 | 123.84 | 0.06 |
-| player single clip | 32 | bone-frame | 44.76 | 22.34 | 0.34 |
-| player cross-fading | 32 | bone-frame | 159.49 | 6.27 | 1.22 |
-| sample | 256 | bone-frame | 50.06 | 19.98 | 3.08 |
-| blend linear | 256 | bone-frame | 39.19 | 25.52 | 2.41 |
-| blend dlb (motor) | 256 | bone-frame | 56.41 | 17.73 | 3.47 |
-| blend geodesic (exp/log) | 256 | bone-frame | 147.35 | 6.79 | 9.05 |
-| pose -> motors | 256 | bone-frame | 8.44 | 118.51 | 0.52 |
-| player single clip | 256 | bone-frame | 44.79 | 22.33 | 2.75 |
-| player cross-fading | 256 | bone-frame | 154.53 | 6.47 | 9.49 |
+| sample | 32 | bone-frame | 45.16 | 22.14 | 0.35 |
+| blend linear | 32 | bone-frame | 36.92 | 27.08 | 0.28 |
+| blend dlb (motor) | 32 | bone-frame | 50.46 | 19.82 | 0.39 |
+| blend geodesic (exp/log) | 32 | bone-frame | 128.33 | 7.79 | 0.99 |
+| pose -> motors | 32 | bone-frame | 7.27 | 137.52 | 0.06 |
+| player single clip | 32 | bone-frame | 40.60 | 24.63 | 0.31 |
+| player cross-fading | 32 | bone-frame | 137.24 | 7.29 | 1.05 |
+| sample | 256 | bone-frame | 45.75 | 21.86 | 2.81 |
+| blend linear | 256 | bone-frame | 35.33 | 28.30 | 2.17 |
+| blend dlb (motor) | 256 | bone-frame | 49.89 | 20.05 | 3.06 |
+| blend geodesic (exp/log) | 256 | bone-frame | 133.34 | 7.50 | 8.19 |
+| pose -> motors | 256 | bone-frame | 9.22 | 108.41 | 0.57 |
+| player single clip | 256 | bone-frame | 43.61 | 22.93 | 2.68 |
+| player cross-fading | 256 | bone-frame | 149.18 | 6.70 | 9.17 |
 
 
 ## Physics — cloth self-collision
@@ -640,17 +640,17 @@ exactly that.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| xpbd none gap=0.0003376007 | 400 | step | 106299.76 | 0.01 | 42.52 |
-| xpbd self-collide gap=0.059988927 | 400 | step | 865196.93 | 0.00 | 346.08 |
-| vbd none gap=0.005994659 | 400 | step | 145664.19 | 0.01 | 58.27 |
-| vbd self-collide gap=0.049798 | 400 | step | 946527.59 | 0.00 | 378.61 |
-| xpbd none gap=0.21782388 | 1200 | step | 199365.91 | 0.01 | 39.87 |
-| xpbd self-collide gap=0.21782388 | 1200 | step | 2607712.76 | 0.00 | 521.54 |
+| xpbd none gap=0.0003376007 | 400 | step | 61761.72 | 0.02 | 24.70 |
+| xpbd self-collide gap=0.059988927 | 400 | step | 722568.79 | 0.00 | 289.03 |
+| vbd none gap=0.005994659 | 400 | step | 138865.86 | 0.01 | 55.55 |
+| vbd self-collide gap=0.049798 | 400 | step | 924736.33 | 0.00 | 369.89 |
+| xpbd none gap=0.21782388 | 1200 | step | 188253.54 | 0.01 | 37.65 |
+| xpbd self-collide gap=0.21782388 | 1200 | step | 2438821.23 | 0.00 | 487.76 |
 
 
 ## Fluid — lattice Boltzmann (D3Q19)
 
-LBM is the odd one out among this engine'\''s fluid solvers. SPH and PBF carry
+LBM is the odd one out among this engine's fluid solvers. SPH and PBF carry
 particles and spend much of every step deciding which ones interact; LBM carries
 a fixed grid and every cell talks to the same 19 neighbours forever. No neighbour
 search, no sorting, no pressure Poisson — pressure comes from density by an
@@ -674,7 +674,7 @@ the difference was allocation — and streaming swaps its buffers instead of
 copying one into the other.
 
 Correctness is gated on physics rather than on regression: `test_lbm` checks the
-velocity set'\''s moment conditions, reproduces the analytic Poiseuille parabola to
+velocity set's moment conditions, reproduces the analytic Poiseuille parabola to
 0.28%, and holds a symmetric obstacle in a symmetric tunnel to a y-asymmetry of
 6e-8.
 
@@ -695,25 +695,54 @@ between linearly and quadratically with speed as Cd itself falls, and a blockage
 of 55% inflating Cd by ten times -- exactly the correction a real wind tunnel
 has to apply.
 
+The third table prices the Smagorinsky LES seam (`fluid/lbm.mojo`,
+`eddy_viscosity`). It is a seam and not a feature because the constant switches
+it off exactly: at `smagorinsky = 0` the collision operator is bit-identical to
+plain BGK, which is what `test_lbm_les` gates.
+
+The two cost rows run the same sheared channel for the same number of steps and
+change nothing but that constant, so the gap between them IS the per-cell price
+of the model — about 29% on the rows below, charged on every cell whether the
+flow needs a subgrid closure or not.
+
+The two regime rows are why one would pay it, and they report an OUTCOME rather
+than a ratio: a speed ratio between a run that finishes and a run that does not
+measures nothing. Past a sphere at nu=8e-4 and u=0.16 — Re~1600 on a 48x24x24
+grid, far too coarse to resolve the wake — the unmodelled run leaves the
+velocity bounds at step 169, and the same grid at `smagorinsky = 0.17` reaches
+step 600. That is the advantage regime stated as a measurement: the model costs
+29% everywhere it is not needed, and is the difference between a number and a
+divergence where it is.
+
 ### Lattice Boltzmann D3Q19 (one op = one cell update)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| periodic 16^3 cells=4096 | 16 | cell-step | 263.77 | 3.79 | 216.08 |
-| periodic 32^3 cells=32768 | 32 | cell-step | 256.93 | 3.89 | 505.14 |
-| periodic 48^3 cells=110592 | 48 | cell-step | 256.30 | 3.90 | 566.89 |
-| periodic 64^3 cells=262144 | 64 | cell-step | 257.52 | 3.88 | 675.06 |
-| tunnel 32^3 cells=32768 | 32 | cell-step | 259.47 | 3.85 | 510.15 |
-| tunnel 32^3 + sphere cells=32768 solid=458 | 32 | cell-step | 257.22 | 3.89 | 505.71 |
+| periodic 16^3 cells=4096 | 16 | cell-step | 254.78 | 3.92 | 208.72 |
+| periodic 32^3 cells=32768 | 32 | cell-step | 250.13 | 4.00 | 491.78 |
+| periodic 48^3 cells=110592 | 48 | cell-step | 248.90 | 4.02 | 550.53 |
+| periodic 64^3 cells=262144 | 64 | cell-step | 251.66 | 3.97 | 659.71 |
+| tunnel 32^3 cells=32768 | 32 | cell-step | 253.62 | 3.94 | 498.64 |
+| tunnel 32^3 + sphere cells=32768 solid=458 | 32 | cell-step | 252.41 | 3.96 | 496.26 |
 
 
 ### Sphere drag: resolution vs deviation from experiment
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sphere r=3 Re=15 Cd=4.447214 vs 3.1423605 err=0.41524634 | 27648 | cell-step | 256.15 | 3.90 | 8498.36 |
-| sphere r=4 Re=20 Cd=3.46151 vs 2.6095488 err=0.32647833 | 65536 | cell-step | 255.25 | 3.92 | 20073.96 |
-| sphere r=5 Re=25 Cd=2.8826494 vs 2.2744596 err=0.2673997 | 128000 | cell-step | 266.29 | 3.76 | 40902.47 |
+| sphere r=3 Re=15 Cd=4.447214 vs 3.1423605 err=0.41524634 | 27648 | cell-step | 247.82 | 4.04 | 8221.91 |
+| sphere r=4 Re=20 Cd=3.46151 vs 2.6095488 err=0.32647833 | 65536 | cell-step | 240.30 | 4.16 | 18897.98 |
+| sphere r=5 Re=25 Cd=2.8826494 vs 2.2744596 err=0.2673997 | 128000 | cell-step | 229.27 | 4.36 | 35216.15 |
+
+
+### Smagorinsky LES: cost, and the regime that needs it
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| sheared 32^2x4, smagorinsky=0 (== plain BGK) | 4096 | cell-step | 213.38 | 4.69 | 174.80 |
+| sheared 32^2x4, smagorinsky=0.17 | 4096 | cell-step | 275.79 | 3.63 | 225.92 |
+| Re~1600 tunnel, smagorinsky=0: DIVERGED @ step 169 | 27648 | cell-step | 203.29 | 4.92 | 955.50 |
+| Re~1600 tunnel, smagorinsky=0.17: ran 600 steps to completion | 27648 | cell-step | 270.47 | 3.70 | 4486.78 |
 
 
 ## Collision — scene queries (raycast + overlap)
@@ -725,20 +754,20 @@ overlap queries (result parity in `test_queries`).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| brute | 1500 | raycast | 11856.45 | 0.08 | 17.78 |
-| bvh | 1500 | raycast | 1079.72 | 0.93 | 1.62 |
-| grid | 1500 | raycast | 54343.08 | 0.02 | 81.51 |
-| tree | 1500 | raycast | 5391.90 | 0.19 | 8.09 |
+| brute | 1500 | raycast | 11412.52 | 0.09 | 17.12 |
+| bvh | 1500 | raycast | 1012.15 | 0.99 | 1.52 |
+| grid | 1500 | raycast | 49024.41 | 0.02 | 73.54 |
+| tree | 1500 | raycast | 5075.73 | 0.20 | 7.61 |
 
 
 ### Scene overlap — brute vs BVH vs grid vs tree
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| brute | 1500 | overlap | 7851.26 | 0.13 | 11.78 |
-| bvh | 1500 | overlap | 988.42 | 1.01 | 1.48 |
-| grid | 1500 | overlap | 3340.25 | 0.30 | 5.01 |
-| tree | 1500 | overlap | 1632.24 | 0.61 | 2.45 |
+| brute | 1500 | overlap | 7556.73 | 0.13 | 11.34 |
+| bvh | 1500 | overlap | 927.66 | 1.08 | 1.39 |
+| grid | 1500 | overlap | 3195.76 | 0.31 | 4.79 |
+| tree | 1500 | overlap | 1594.21 | 0.63 | 2.39 |
 
 
 ## ECS — push observers vs polling; deferred set buffer vs direct writes
@@ -753,10 +782,10 @@ iteration-safety of a command buffer against writing components directly.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| push observers ev=20000 | 2048 | event | 78.68 | 12.71 | 1.57 |
-| manual polling ev=20000 | 2048 | event | 105.12 | 9.51 | 2.10 |
-| direct set | 65536 | write | 18.55 | 53.91 | 1.22 |
-| setbuffer record+apply | 65536 | write | 47.09 | 21.24 | 3.09 |
+| push observers ev=20000 | 2048 | event | 62.98 | 15.88 | 1.26 |
+| manual polling ev=20000 | 2048 | event | 90.83 | 11.01 | 1.82 |
+| direct set | 65536 | write | 15.44 | 64.78 | 1.01 |
+| setbuffer record+apply | 65536 | write | 43.26 | 23.11 | 2.84 |
 
 
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
@@ -771,36 +800,36 @@ the table shows what each strategy *costs*.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sequential | 500 | spawn | 331.20 | 3.02 | 0.17 |
-| sequential | 500 | tick | 71.62 | 13.96 | 0.72 |
-| entity-actor serial | 500 | spawn | 84.48 | 11.84 | 0.04 |
-| entity-actor serial | 500 | tick | 139.07 | 7.19 | 1.39 |
-| entity-actor parallel | 500 | spawn | 85.67 | 11.67 | 0.04 |
-| entity-actor parallel | 500 | tick | 261.65 | 3.82 | 2.62 |
-| system-actor serial | 500 | spawn | 89.15 | 11.22 | 0.04 |
-| system-actor serial | 500 | tick | 81.32 | 12.30 | 0.81 |
-| system-actor parallel | 500 | spawn | 79.10 | 12.64 | 0.04 |
-| system-actor parallel | 500 | tick | 127.69 | 7.83 | 1.28 |
-| sequential | 1000 | spawn | 108.71 | 9.20 | 0.11 |
-| sequential | 1000 | tick | 70.22 | 14.24 | 1.40 |
-| entity-actor serial | 1000 | spawn | 80.52 | 12.42 | 0.08 |
-| entity-actor serial | 1000 | tick | 117.17 | 8.53 | 2.34 |
-| entity-actor parallel | 1000 | spawn | 94.75 | 10.55 | 0.09 |
-| entity-actor parallel | 1000 | tick | 227.57 | 4.39 | 4.55 |
-| system-actor serial | 1000 | spawn | 88.84 | 11.26 | 0.09 |
-| system-actor serial | 1000 | tick | 82.42 | 12.13 | 1.65 |
-| system-actor parallel | 1000 | spawn | 74.22 | 13.47 | 0.07 |
-| system-actor parallel | 1000 | tick | 109.77 | 9.11 | 2.20 |
-| sequential | 4000 | spawn | 124.55 | 8.03 | 0.50 |
-| sequential | 4000 | tick | 68.36 | 14.63 | 5.47 |
-| entity-actor serial | 4000 | spawn | 72.20 | 13.85 | 0.29 |
-| entity-actor serial | 4000 | tick | 124.95 | 8.00 | 10.00 |
-| entity-actor parallel | 4000 | spawn | 87.60 | 11.42 | 0.35 |
-| entity-actor parallel | 4000 | tick | 227.92 | 4.39 | 18.23 |
-| system-actor serial | 4000 | spawn | 79.92 | 12.51 | 0.32 |
-| system-actor serial | 4000 | tick | 82.33 | 12.15 | 6.59 |
-| system-actor parallel | 4000 | spawn | 74.90 | 13.35 | 0.30 |
-| system-actor parallel | 4000 | tick | 103.92 | 9.62 | 8.31 |
+| sequential | 500 | spawn | 272.40 | 3.67 | 0.14 |
+| sequential | 500 | tick | 73.88 | 13.54 | 0.74 |
+| entity-actor serial | 500 | spawn | 90.46 | 11.05 | 0.05 |
+| entity-actor serial | 500 | tick | 113.84 | 8.78 | 1.14 |
+| entity-actor parallel | 500 | spawn | 74.92 | 13.35 | 0.04 |
+| entity-actor parallel | 500 | tick | 283.98 | 3.52 | 2.84 |
+| system-actor serial | 500 | spawn | 79.79 | 12.53 | 0.04 |
+| system-actor serial | 500 | tick | 74.43 | 13.43 | 0.74 |
+| system-actor parallel | 500 | spawn | 67.36 | 14.85 | 0.03 |
+| system-actor parallel | 500 | tick | 105.77 | 9.45 | 1.06 |
+| sequential | 1000 | spawn | 94.21 | 10.61 | 0.09 |
+| sequential | 1000 | tick | 63.38 | 15.78 | 1.27 |
+| entity-actor serial | 1000 | spawn | 64.28 | 15.56 | 0.06 |
+| entity-actor serial | 1000 | tick | 100.23 | 9.98 | 2.00 |
+| entity-actor parallel | 1000 | spawn | 63.35 | 15.78 | 0.06 |
+| entity-actor parallel | 1000 | tick | 205.24 | 4.87 | 4.10 |
+| system-actor serial | 1000 | spawn | 72.02 | 13.89 | 0.07 |
+| system-actor serial | 1000 | tick | 74.59 | 13.41 | 1.49 |
+| system-actor parallel | 1000 | spawn | 66.42 | 15.06 | 0.07 |
+| system-actor parallel | 1000 | tick | 98.64 | 10.14 | 1.97 |
+| sequential | 4000 | spawn | 111.07 | 9.00 | 0.44 |
+| sequential | 4000 | tick | 64.92 | 15.40 | 5.19 |
+| entity-actor serial | 4000 | spawn | 67.82 | 14.75 | 0.27 |
+| entity-actor serial | 4000 | tick | 104.88 | 9.53 | 8.39 |
+| entity-actor parallel | 4000 | spawn | 67.32 | 14.86 | 0.27 |
+| entity-actor parallel | 4000 | tick | 228.64 | 4.37 | 18.29 |
+| system-actor serial | 4000 | spawn | 73.66 | 13.58 | 0.29 |
+| system-actor serial | 4000 | tick | 72.80 | 13.74 | 5.82 |
+| system-actor parallel | 4000 | spawn | 56.87 | 17.58 | 0.23 |
+| system-actor parallel | 4000 | tick | 83.48 | 11.98 | 6.68 |
 
 
 ## Foundation — linear algebra (scalar vs SIMD)
@@ -809,8 +838,8 @@ the table shows what each strategy *costs*.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| scalar | 400000 | transform_point | 0.53 | 1878.20 | 0.21 |
-| simd-w4 | 400000 | transform_point | 0.53 | 1895.55 | 0.21 |
+| scalar | 400000 | transform_point | 0.50 | 1993.85 | 0.20 |
+| simd-w4 | 400000 | transform_point | 0.50 | 1995.06 | 0.20 |
 
 
 ## Foundation — rigid-transform representations (PGA motor vs dual quat vs mat4)
@@ -829,10 +858,10 @@ abstraction; it does not claim the routes are interchangeable. The dual-quat
 row goes through the motor bridge because `DualQuat` has no native ScLERP —
 it prices what the current API makes you pay, not the algorithm's floor.
 
-The chain table is the compact representations'\'' predicted advantage regime.
-The per-point APPLY rows above are the matrix'\''s: one dot product per row,
+The chain table is the compact representations' predicted advantage regime.
+The per-point APPLY rows above are the matrix's: one dot product per row,
 nothing to beat. Composition is the other side — a motor and a dual quat are
-8 floats against a matrix'\''s 16, so a long chain streams half the memory.
+8 floats against a matrix's 16, so a long chain streams half the memory.
 Sweeping chain length K separates the two regimes instead of letting the
 apply rows stand for both.
 
@@ -884,7 +913,7 @@ constant so large that the structural advantage never becomes a time
 advantage. A specialised conformal versor, in the way `Motor3` specialises
 the PGA even subalgebra, is what would move that constant.
 
-One implementation note that the parity suite earned: the rotor'\''s bivector
+One implementation note that the parity suite earned: the rotor's bivector
 had a sign error in its y term (mask 4|1 yields the CANONICAL blade e1e3,
 which is -e3e1). Every GA-only check passed anyway, because both sides of a
 GA-vs-GA comparison carried the same convention. Only the cross-check against
@@ -903,73 +932,73 @@ on this evidence it is not a performance one.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| motor (PGA, 8f) | 4096 | apply | 13.90 | 71.94 | 0.06 |
-| dual quat (8f) | 4096 | apply | 2.10 | 476.61 | 0.01 |
-| mat4 (16f) | 4096 | apply | 1.31 | 763.04 | 0.01 |
-| quat+vec (7f) | 4096 | apply | 2.43 | 411.95 | 0.01 |
-| motor (PGA, 8f) | 4096 | compose | 2.00 | 500.79 | 0.01 |
-| dual quat (8f) | 4096 | compose | 7.60 | 131.57 | 0.03 |
-| mat4 (16f) | 4096 | compose | 19.64 | 50.92 | 0.08 |
-| motor DLB (8f) | 4096 | skin | 40.00 | 25.00 | 0.16 |
-| mat4 LBS (16f) | 4096 | skin | 7.68 | 130.25 | 0.03 |
+| motor (PGA, 8f) | 4096 | apply | 11.00 | 90.91 | 0.05 |
+| dual quat (8f) | 4096 | apply | 1.64 | 610.43 | 0.01 |
+| mat4 (16f) | 4096 | apply | 1.27 | 787.84 | 0.01 |
+| quat+vec (7f) | 4096 | apply | 2.20 | 453.90 | 0.01 |
+| motor (PGA, 8f) | 4096 | compose | 2.19 | 456.53 | 0.01 |
+| dual quat (8f) | 4096 | compose | 6.01 | 166.38 | 0.02 |
+| mat4 (16f) | 4096 | compose | 14.46 | 69.17 | 0.06 |
+| motor DLB (8f) | 4096 | skin | 32.39 | 30.87 | 0.13 |
+| mat4 LBS (16f) | 4096 | skin | 7.60 | 131.50 | 0.03 |
 
 
 ### SE(3) interpolation & Lie ops: PGA screw vs quat slerp+lerp vs mat4
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| motor exp (screw->motor) | 4096 | exp | 46.51 | 21.50 | 0.19 |
-| motor log (motor->screw) | 4096 | log | 50.84 | 19.67 | 0.21 |
-| motor geodesic (PGA screw) | 4096 | interp | 141.30 | 7.08 | 0.58 |
-| quat slerp + lerp (decoupled) | 4096 | interp | 20.88 | 47.90 | 0.09 |
-| dual quat (via motor bridge) | 4096 | interp | 155.07 | 6.45 | 0.64 |
-| mat4 decompose+slerp+recompose | 4096 | interp | 35.81 | 27.93 | 0.15 |
+| motor exp (screw->motor) | 4096 | exp | 36.65 | 27.28 | 0.15 |
+| motor log (motor->screw) | 4096 | log | 40.48 | 24.70 | 0.17 |
+| motor geodesic (PGA screw) | 4096 | interp | 111.80 | 8.94 | 0.46 |
+| quat slerp + lerp (decoupled) | 4096 | interp | 17.13 | 58.38 | 0.07 |
+| dual quat (via motor bridge) | 4096 | interp | 123.28 | 8.11 | 0.50 |
+| mat4 decompose+slerp+recompose | 4096 | interp | 28.28 | 35.36 | 0.12 |
 
 
 ### Conformal versors: CGA inversion / dilation vs closed form
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| point-arc cga carriers | 4096 | point | 17.48 | 57.21 | 0.07 |
-| point-arc closed form | 4096 | point | 2.51 | 398.44 | 0.01 |
-| inversion cga versor | 4096 | point | 376.28 | 2.66 | 1.54 |
-| inversion closed form | 4096 | point | 1.57 | 637.21 | 0.01 |
-| dilation cga versor | 4096 | point | 391.54 | 2.55 | 1.60 |
-| dilation scalar multiply | 4096 | point | 1.06 | 946.40 | 0.00 |
+| point-arc cga carriers | 4096 | point | 14.13 | 70.79 | 0.06 |
+| point-arc closed form | 4096 | point | 2.03 | 493.49 | 0.01 |
+| inversion cga versor | 4096 | point | 287.48 | 3.48 | 1.18 |
+| inversion closed form | 4096 | point | 1.35 | 739.48 | 0.01 |
+| dilation cga versor | 4096 | point | 301.74 | 3.31 | 1.24 |
+| dilation scalar multiply | 4096 | point | 1.28 | 779.30 | 0.01 |
 
 
 ### Transform CHAIN: composing K transforms (compact rep's regime)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| motor (8f)  K=4 | 4096 | compose | 1.71 | 584.98 | 0.01 |
-| dualquat(8f) K=4 | 4096 | compose | 1.72 | 581.49 | 0.01 |
-| mat4 (16f)  K=4 | 4096 | compose | 1.26 | 790.58 | 0.01 |
-| motor (8f)  K=16 | 4096 | compose | 3.40 | 294.36 | 0.01 |
-| dualquat(8f) K=16 | 4096 | compose | 3.03 | 329.66 | 0.01 |
-| mat4 (16f)  K=16 | 4096 | compose | 2.26 | 442.81 | 0.01 |
-| motor (8f)  K=64 | 4096 | compose | 4.38 | 228.14 | 0.02 |
-| dualquat(8f) K=64 | 4096 | compose | 3.95 | 253.17 | 0.02 |
-| mat4 (16f)  K=64 | 4096 | compose | 3.57 | 279.78 | 0.01 |
-| motor (8f)  K=256 | 4096 | compose | 4.51 | 221.75 | 0.02 |
-| dualquat(8f) K=256 | 4096 | compose | 4.02 | 249.00 | 0.02 |
-| mat4 (16f)  K=256 | 4096 | compose | 4.01 | 249.24 | 0.02 |
+| motor (8f)  K=4 | 4096 | compose | 1.59 | 630.35 | 0.01 |
+| dualquat(8f) K=4 | 4096 | compose | 1.60 | 625.15 | 0.01 |
+| mat4 (16f)  K=4 | 4096 | compose | 1.49 | 669.39 | 0.01 |
+| motor (8f)  K=16 | 4096 | compose | 3.15 | 317.94 | 0.01 |
+| dualquat(8f) K=16 | 4096 | compose | 2.81 | 355.96 | 0.01 |
+| mat4 (16f)  K=16 | 4096 | compose | 2.10 | 477.11 | 0.01 |
+| motor (8f)  K=64 | 4096 | compose | 4.06 | 246.20 | 0.02 |
+| dualquat(8f) K=64 | 4096 | compose | 3.13 | 319.20 | 0.01 |
+| mat4 (16f)  K=64 | 4096 | compose | 2.82 | 354.02 | 0.01 |
+| motor (8f)  K=256 | 4096 | compose | 3.56 | 280.53 | 0.01 |
+| dualquat(8f) K=256 | 4096 | compose | 3.18 | 314.64 | 0.01 |
+| mat4 (16f)  K=256 | 4096 | compose | 3.18 | 314.76 | 0.01 |
 
 
 ### Mixed transform chains with INVERSIONS (the versor's capability regime)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| versor (folded) inversions=0 | 1024 | point | 331.09 | 3.02 | 0.34 |
-| mat4 + closed-form inversions=0 | 1024 | point | 0.90 | 1116.68 | 0.00 |
-| versor (folded) inversions=1 | 1024 | point | 331.08 | 3.02 | 0.34 |
-| mat4 + closed-form inversions=1 | 1024 | point | 5.44 | 183.74 | 0.01 |
-| versor (folded) inversions=2 | 1024 | point | 331.06 | 3.02 | 0.34 |
-| mat4 + closed-form inversions=2 | 1024 | point | 11.38 | 87.87 | 0.01 |
-| versor (folded) inversions=4 | 1024 | point | 331.30 | 3.02 | 0.34 |
-| mat4 + closed-form inversions=4 | 1024 | point | 27.63 | 36.19 | 0.03 |
-| versor (folded) inversions=8 | 1024 | point | 331.09 | 3.02 | 0.34 |
-| mat4 + closed-form inversions=8 | 1024 | point | 70.03 | 14.28 | 0.07 |
+| versor (folded) inversions=0 | 1024 | point | 266.89 | 3.75 | 0.27 |
+| mat4 + closed-form inversions=0 | 1024 | point | 1.23 | 815.94 | 0.00 |
+| versor (folded) inversions=1 | 1024 | point | 285.03 | 3.51 | 0.29 |
+| mat4 + closed-form inversions=1 | 1024 | point | 4.69 | 213.07 | 0.00 |
+| versor (folded) inversions=2 | 1024 | point | 285.04 | 3.51 | 0.29 |
+| mat4 + closed-form inversions=2 | 1024 | point | 9.64 | 103.70 | 0.01 |
+| versor (folded) inversions=4 | 1024 | point | 285.15 | 3.51 | 0.29 |
+| mat4 + closed-form inversions=4 | 1024 | point | 23.83 | 41.96 | 0.02 |
+| versor (folded) inversions=8 | 1024 | point | 285.08 | 3.51 | 0.29 |
+| mat4 + closed-form inversions=8 | 1024 | point | 60.47 | 16.54 | 0.06 |
 
 
 ## Foundation — transform propagation (full vs dirty vs motor)
@@ -984,12 +1013,12 @@ propagated by pure motor composition (`test_motor_transform` parity);
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| full | 4000 | move-all | 40.83 | 24.49 | 4.90 |
-| dirty | 4000 | move-all | 59.57 | 16.79 | 7.15 |
-| full | 4000 | move-leaves | 40.88 | 24.46 | 4.91 |
-| dirty | 4000 | move-leaves | 43.40 | 23.04 | 5.21 |
-| motor | 4000 | move-all | 35.87 | 27.88 | 4.30 |
-| motor | 4000 | move-leaves | 35.01 | 28.56 | 4.20 |
+| full | 4000 | move-all | 35.45 | 28.21 | 4.25 |
+| dirty | 4000 | move-all | 48.51 | 20.61 | 5.82 |
+| full | 4000 | move-leaves | 35.67 | 28.03 | 4.28 |
+| dirty | 4000 | move-leaves | 35.73 | 27.99 | 4.29 |
+| motor | 4000 | move-all | 30.80 | 32.47 | 3.70 |
+| motor | 4000 | move-leaves | 31.33 | 31.92 | 3.76 |
 
 
 ## Foundation — PRNG throughput (xorshift vs pcg vs splitmix)
@@ -1001,12 +1030,12 @@ The determinism kit's seeded generators behind the `Rng` seam (see
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| xorshift | 2000000 | next_u64 | 1.69 | 593.47 | 3.37 |
-| pcg32 | 2000000 | next_u64 | 2.27 | 440.51 | 4.54 |
-| splitmix64 | 2000000 | next_u64 | 0.81 | 1238.32 | 1.62 |
-| xorshift | 2000000 | next_f32 | 1.69 | 591.37 | 3.38 |
-| pcg32 | 2000000 | next_f32 | 1.19 | 839.26 | 2.38 |
-| splitmix64 | 2000000 | next_f32 | 1.07 | 936.18 | 2.14 |
+| xorshift | 2000000 | next_u64 | 1.70 | 588.73 | 3.40 |
+| pcg32 | 2000000 | next_u64 | 2.20 | 454.48 | 4.40 |
+| splitmix64 | 2000000 | next_u64 | 0.80 | 1251.22 | 1.60 |
+| xorshift | 2000000 | next_f32 | 1.56 | 642.92 | 3.11 |
+| pcg32 | 2000000 | next_f32 | 1.10 | 904.99 | 2.21 |
+| splitmix64 | 2000000 | next_f32 | 1.05 | 952.28 | 2.10 |
 
 
 ## Physics — contact solvers (SequentialImpulse vs PBD vs XPBD)
@@ -1021,9 +1050,9 @@ generate the manifolds the solver resolves.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| impulse | 100 | step | 120.52 | 8.30 | 0.72 |
-| pbd | 100 | step | 74.48 | 13.43 | 0.45 |
-| xpbd | 100 | step | 81.47 | 12.27 | 0.49 |
+| impulse | 100 | step | 106.63 | 9.38 | 0.64 |
+| pbd | 100 | step | 94.85 | 10.54 | 0.57 |
+| xpbd | 100 | step | 61.56 | 16.25 | 0.37 |
 
 
 ## Collision — persistent (incremental) vs rebuild broadphase
@@ -1036,14 +1065,14 @@ full-rebuild BVH path.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| DBVH (persistent + pair cache) | 4096 | frame | 60140.63 | 0.02 | 1.80 |
-| BVH (full rebuild) | 4096 | frame | 14335116.17 | 0.00 | 430.05 |
+| DBVH (persistent + pair cache) | 4096 | frame | 53399.50 | 0.02 | 1.60 |
+| BVH (full rebuild) | 4096 | frame | 16201807.57 | 0.00 | 486.05 |
 
 
 ## Collision — LBVH build: CPU radix sort vs GPU bitonic sort
 
 An earlier revision of this section reported the device losing at every N and
-blamed the bitonic sort'\''s worse complexity. **That conclusion was wrong**, and
+blamed the bitonic sort's worse complexity. **That conclusion was wrong**, and
 the way it was wrong is worth recording: it came from comparing FULL BUILDS,
 where both sides share a hierarchy emit that dominates the total, and from two
 measurement defects that the shared tail hid.
@@ -1052,14 +1081,14 @@ measurement defects that the shared tail hid.
   re-runs the whole host Morton+radix sort. That is idempotent, so the result
   was correct and the row silently charged the GPU path for a CPU sort it
   never needed. `build_lbvh_presorted` now emits from a given order.
-- The emit itself recomputed each node'\''s box by rescanning its whole leaf
+- The emit itself recomputed each node's box by rescanning its whole leaf
   range, making it O(n log n) AABB merges for a value the two children
   already hold. Bottom-up bounds made **every** BVH build ~1.7x faster.
 
 With both fixed, and with the sort measured on its own rather than inferred
 from totals, the answer reverses: **the device sort wins from ~16k leaves and
 by roughly 3x at 65k**, and the full build crosses over too — CPU ahead below
-~16k, GPU ahead at 65k. Bitonic'\''s O(n log²n) and its
+~16k, GPU ahead at 65k. Bitonic's O(n log²n) and its
 ~136 kernel launches at that size are simply not enough to give the advantage
 back.
 
@@ -1074,18 +1103,18 @@ winning and losing.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| cpu lbvh (morton+radix, full build) | 1024 | build | 135561.00 | 0.01 | 0.14 |
-| cpu lbvh (morton+radix, full build) | 4096 | build | 594687.00 | 0.00 | 0.59 |
-| cpu lbvh (morton+radix, full build) | 16384 | build | 2559212.00 | 0.00 | 2.56 |
-| cpu lbvh (morton+radix, full build) | 65536 | build | 10919503.00 | 0.00 | 10.92 |
-| gpu morton+bitonic (+host emit) | 1024 | build | 388041.00 | 0.00 | 0.39 |
-| gpu morton+bitonic (+host emit) | 4096 | build | 843149.00 | 0.00 | 0.84 |
-| gpu morton+bitonic (+host emit) | 16384 | build | 2365825.00 | 0.00 | 2.37 |
-| gpu morton+bitonic (+host emit) | 65536 | build | 8767996.00 | 0.00 | 8.77 |
-| cpu sort only (morton+radix) | 16384 | sort | 1346474.00 | 0.00 | 1.35 |
-| cpu sort only (morton+radix) | 65536 | sort | 5458217.00 | 0.00 | 5.46 |
-| gpu sort only (morton+bitonic) | 16384 | sort | 755158.00 | 0.00 | 0.76 |
-| gpu sort only (morton+bitonic) | 65536 | sort | 1897241.00 | 0.00 | 1.90 |
+| cpu lbvh (morton+radix, full build) | 1024 | build | 134085.00 | 0.01 | 0.13 |
+| cpu lbvh (morton+radix, full build) | 4096 | build | 532806.00 | 0.00 | 0.53 |
+| cpu lbvh (morton+radix, full build) | 16384 | build | 2347039.00 | 0.00 | 2.35 |
+| cpu lbvh (morton+radix, full build) | 65536 | build | 10234573.00 | 0.00 | 10.23 |
+| gpu morton+bitonic (+host emit) | 1024 | build | 391865.00 | 0.00 | 0.39 |
+| gpu morton+bitonic (+host emit) | 4096 | build | 709281.00 | 0.00 | 0.71 |
+| gpu morton+bitonic (+host emit) | 16384 | build | 1908719.00 | 0.00 | 1.91 |
+| gpu morton+bitonic (+host emit) | 65536 | build | 7803824.00 | 0.00 | 7.80 |
+| cpu sort only (morton+radix) | 16384 | sort | 1268156.00 | 0.00 | 1.27 |
+| cpu sort only (morton+radix) | 65536 | sort | 5027201.00 | 0.00 | 5.03 |
+| gpu sort only (morton+bitonic) | 16384 | sort | 725740.00 | 0.00 | 0.73 |
+| gpu sort only (morton+bitonic) | 65536 | sort | 1803886.00 | 0.00 | 1.80 |
 
 
 ## Collision — batched GPU raycast vs the CPU BVH
@@ -1116,14 +1145,14 @@ the build and would largely disappear against a persistent tree.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| cpu bvh (build+cast) | 256 | ray | 53317.97 | 0.02 | 13.65 |
-| cpu bvh (build+cast) | 2048 | ray | 7673.36 | 0.13 | 15.72 |
-| cpu bvh (build+cast) | 16384 | ray | 1735.50 | 0.58 | 28.43 |
-| cpu bvh (build+cast) | 65536 | ray | 1065.60 | 0.94 | 69.84 |
-| gpu batched (total) | 256 | ray | 5305.93 | 0.19 | 1.36 |
-| gpu batched (total) | 2048 | ray | 676.18 | 1.48 | 1.38 |
-| gpu batched (total) | 16384 | ray | 167.67 | 5.96 | 2.75 |
-| gpu batched (total) | 65536 | ray | 128.13 | 7.80 | 8.40 |
+| cpu bvh (build+cast) | 256 | ray | 50081.82 | 0.02 | 12.82 |
+| cpu bvh (build+cast) | 2048 | ray | 7029.06 | 0.14 | 14.40 |
+| cpu bvh (build+cast) | 16384 | ray | 1616.09 | 0.62 | 26.48 |
+| cpu bvh (build+cast) | 65536 | ray | 1038.94 | 0.96 | 68.09 |
+| gpu batched (total) | 256 | ray | 5313.26 | 0.19 | 1.36 |
+| gpu batched (total) | 2048 | ray | 716.77 | 1.40 | 1.47 |
+| gpu batched (total) | 16384 | ray | 174.79 | 5.72 | 2.86 |
+| gpu batched (total) | 65536 | ray | 110.33 | 9.06 | 7.23 |
 
 
 ## Collision — GPU all-pairs broadphase vs the CPU structures
@@ -1143,7 +1172,7 @@ overtakes every O(n²) CPU path somewhere between 512 and 2048 boxes, and by
 
 The trend lines cross. The grid is ahead at 8192 (by 1.27x), and by **32768
 the device wins ~1.7x** (14.1 ms vs 24.1 ms) — while also emitting 4,892 exact
-pairs against the grid'\''s 38,845, an **8x superset**. So above roughly 16k
+pairs against the grid's 38,845, an **8x superset**. So above roughly 16k
 boxes the GPU is both faster and tighter. One caveat still applies to the
 smaller rows: the grid emits a larger, conservative candidate set
 (9476 vs 1235 pairs at N=8192), so its row is not equal work — the same
@@ -1163,26 +1192,26 @@ and one context per instance is the pattern that hangs on this nightly.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| cpu brute p=72 | 512 | frame | 209650.00 | 0.00 | 0.21 |
-| cpu hashgrid p=517 | 512 | frame | 301652.00 | 0.00 | 0.30 |
-| cpu bvh p=72 | 512 | frame | 384151.00 | 0.00 | 0.38 |
-| cpu sap p=72 | 512 | frame | 195869.00 | 0.01 | 0.20 |
-| cpu brute p=275 | 2048 | frame | 3198659.00 | 0.00 | 3.20 |
-| cpu hashgrid p=2074 | 2048 | frame | 1216190.00 | 0.00 | 1.22 |
-| cpu bvh p=275 | 2048 | frame | 3954442.00 | 0.00 | 3.95 |
-| cpu sap p=275 | 2048 | frame | 2536898.00 | 0.00 | 2.54 |
-| cpu brute p=1235 | 8192 | frame | 47791018.00 | 0.00 | 47.79 |
-| cpu hashgrid p=9476 | 8192 | frame | 5151792.00 | 0.00 | 5.15 |
-| cpu bvh p=1235 | 8192 | frame | 55964977.00 | 0.00 | 55.96 |
-| cpu sap p=1235 | 8192 | frame | 37731171.00 | 0.00 | 37.73 |
-| cpu brute p=4892 | 32768 | frame | 766739308.00 | 0.00 | 766.74 |
-| cpu hashgrid p=38845 | 32768 | frame | 29532999.00 | 0.00 | 29.53 |
-| cpu bvh p=4892 | 32768 | frame | 957933769.00 | 0.00 | 957.93 |
-| cpu sap p=4892 | 32768 | frame | 602388220.00 | 0.00 | 602.39 |
-| gpu all-pairs (total) p=72 | 512 | frame | 3569427.00 | 0.00 | 3.57 |
-| gpu all-pairs (total) p=275 | 2048 | frame | 4192218.00 | 0.00 | 4.19 |
-| gpu all-pairs (total) p=1235 | 8192 | frame | 6380841.00 | 0.00 | 6.38 |
-| gpu all-pairs (total) p=4892 | 32768 | frame | 16582382.00 | 0.00 | 16.58 |
+| cpu brute p=72 | 512 | frame | 174640.00 | 0.01 | 0.17 |
+| cpu hashgrid p=517 | 512 | frame | 231151.00 | 0.00 | 0.23 |
+| cpu bvh p=72 | 512 | frame | 302713.00 | 0.00 | 0.30 |
+| cpu sap p=72 | 512 | frame | 168421.00 | 0.01 | 0.17 |
+| cpu brute p=275 | 2048 | frame | 2851672.00 | 0.00 | 2.85 |
+| cpu hashgrid p=2074 | 2048 | frame | 982145.00 | 0.00 | 0.98 |
+| cpu bvh p=275 | 2048 | frame | 3474770.00 | 0.00 | 3.47 |
+| cpu sap p=275 | 2048 | frame | 2122178.00 | 0.00 | 2.12 |
+| cpu brute p=1235 | 8192 | frame | 43669063.00 | 0.00 | 43.67 |
+| cpu hashgrid p=9476 | 8192 | frame | 4809789.00 | 0.00 | 4.81 |
+| cpu bvh p=1235 | 8192 | frame | 48412303.00 | 0.00 | 48.41 |
+| cpu sap p=1235 | 8192 | frame | 30986038.00 | 0.00 | 30.99 |
+| cpu brute p=4892 | 32768 | frame | 667641977.00 | 0.00 | 667.64 |
+| cpu hashgrid p=38845 | 32768 | frame | 21883279.00 | 0.00 | 21.88 |
+| cpu bvh p=4892 | 32768 | frame | 814799737.00 | 0.00 | 814.80 |
+| cpu sap p=4892 | 32768 | frame | 503507869.00 | 0.00 | 503.51 |
+| gpu all-pairs (total) p=72 | 512 | frame | 3383041.00 | 0.00 | 3.38 |
+| gpu all-pairs (total) p=275 | 2048 | frame | 3930632.00 | 0.00 | 3.93 |
+| gpu all-pairs (total) p=1235 | 8192 | frame | 5829358.00 | 0.00 | 5.83 |
+| gpu all-pairs (total) p=4892 | 32768 | frame | 13973770.00 | 0.00 | 13.97 |
 
 
 ## Collision — sweep-and-prune vs the other broadphases, by motion speed
@@ -1215,8 +1244,8 @@ Three readings, one of them uncomfortable:
   has no state to invalidate.
 
 That last row held only because every box in that scene is the same size,
-which is the grid'\''s best case. The second table sweeps OBJECT-SIZE SPREAD,
-the hash'\''s documented weak point: a hash has one cell size and no single
+which is the grid's best case. The second table sweeps OBJECT-SIZE SPREAD,
+the hash's documented weak point: a hash has one cell size and no single
 choice suits a wide spread — big boxes are duplicated into many cells while
 small ones leave most cells nearly empty. Two grid rows are run per mix, one
 cell sized for the small boxes and one for the large, so the result cannot be
@@ -1239,40 +1268,40 @@ statement than either structure simply being faster.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sap @ 0.03 box widths/frame (jitter) | 4096 | frame | 2575334.85 | 0.00 | 51.51 |
-| dbvh @ 0.03 box widths/frame (jitter) | 4096 | frame | 6809543.90 | 0.00 | 136.19 |
-| hashgrid @ 0.03 box widths/frame (jitter) | 4096 | frame | 2020979.40 | 0.00 | 40.42 |
-| bvh rebuild @ 0.03 box widths/frame (jitter) | 4096 | frame | 14632633.20 | 0.00 | 292.65 |
-| sap @ 0.3 box widths/frame | 4096 | frame | 7743570.60 | 0.00 | 154.87 |
-| dbvh @ 0.3 box widths/frame | 4096 | frame | 27019233.05 | 0.00 | 540.38 |
-| hashgrid @ 0.3 box widths/frame | 4096 | frame | 2030087.35 | 0.00 | 40.60 |
-| bvh rebuild @ 0.3 box widths/frame | 4096 | frame | 14523702.70 | 0.00 | 290.47 |
-| sap @ 1.5 box widths/frame | 4096 | frame | 6902240.40 | 0.00 | 138.04 |
-| dbvh @ 1.5 box widths/frame | 4096 | frame | 28616153.65 | 0.00 | 572.32 |
-| hashgrid @ 1.5 box widths/frame | 4096 | frame | 2015451.40 | 0.00 | 40.31 |
-| bvh rebuild @ 1.5 box widths/frame | 4096 | frame | 14496813.15 | 0.00 | 289.94 |
-| sap @ 5.4 box widths/frame (incoherent) | 4096 | frame | 7342599.15 | 0.00 | 146.85 |
-| dbvh @ 5.4 box widths/frame (incoherent) | 4096 | frame | 29175859.80 | 0.00 | 583.52 |
-| hashgrid @ 5.4 box widths/frame (incoherent) | 4096 | frame | 1977742.55 | 0.00 | 39.55 |
-| bvh rebuild @ 5.4 box widths/frame (incoherent) | 4096 | frame | 14478323.65 | 0.00 | 289.57 |
+| sap @ 0.03 box widths/frame (jitter) | 4096 | frame | 1910702.45 | 0.00 | 38.21 |
+| dbvh @ 0.03 box widths/frame (jitter) | 4096 | frame | 5965517.90 | 0.00 | 119.31 |
+| hashgrid @ 0.03 box widths/frame (jitter) | 4096 | frame | 1787886.50 | 0.00 | 35.76 |
+| bvh rebuild @ 0.03 box widths/frame (jitter) | 4096 | frame | 16094825.40 | 0.00 | 321.90 |
+| sap @ 0.3 box widths/frame | 4096 | frame | 5042272.00 | 0.00 | 100.85 |
+| dbvh @ 0.3 box widths/frame | 4096 | frame | 24102196.70 | 0.00 | 482.04 |
+| hashgrid @ 0.3 box widths/frame | 4096 | frame | 1933304.70 | 0.00 | 38.67 |
+| bvh rebuild @ 0.3 box widths/frame | 4096 | frame | 17317088.10 | 0.00 | 346.34 |
+| sap @ 1.5 box widths/frame | 4096 | frame | 4948337.35 | 0.00 | 98.97 |
+| dbvh @ 1.5 box widths/frame | 4096 | frame | 27835806.50 | 0.00 | 556.72 |
+| hashgrid @ 1.5 box widths/frame | 4096 | frame | 1895827.25 | 0.00 | 37.92 |
+| bvh rebuild @ 1.5 box widths/frame | 4096 | frame | 16001618.05 | 0.00 | 320.03 |
+| sap @ 5.4 box widths/frame (incoherent) | 4096 | frame | 4892629.40 | 0.00 | 97.85 |
+| dbvh @ 5.4 box widths/frame (incoherent) | 4096 | frame | 27555241.90 | 0.00 | 551.10 |
+| hashgrid @ 5.4 box widths/frame (incoherent) | 4096 | frame | 1919712.80 | 0.00 | 38.39 |
+| bvh rebuild @ 5.4 box widths/frame (incoherent) | 4096 | frame | 17330277.70 | 0.00 | 346.61 |
 
 
 ### broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sap 1:1 (uniform) p=96 | 4096 | frame | 5991048.80 | 0.00 | 119.82 |
-| hashgrid 1:1 (uniform) cell=2 (small-tuned) p=862 | 4096 | frame | 2022831.75 | 0.00 | 40.46 |
-| hashgrid 1:1 (uniform) cell=2*max p=353 | 4096 | frame | 4750306.35 | 0.00 | 95.01 |
-| dbvh 1:1 (uniform) | 4096 | frame | 26991734.35 | 0.00 | 539.83 |
-| sap 5:1 p=3334 | 4096 | frame | 9370338.20 | 0.00 | 187.41 |
-| hashgrid 5:1 cell=2 (small-tuned) p=7113 | 4096 | frame | 11524708.85 | 0.00 | 230.49 |
-| hashgrid 5:1 cell=2*max p=17510 | 4096 | frame | 4321190.65 | 0.00 | 86.42 |
-| dbvh 5:1 | 4096 | frame | 34971217.05 | 0.00 | 699.42 |
-| sap 20:1 p=147969 | 4096 | frame | 29252138.00 | 0.00 | 585.04 |
-| hashgrid 20:1 cell=2 (small-tuned) p=182282 | 4096 | frame | 510564006.25 | 0.00 | 10211.28 |
-| hashgrid 20:1 cell=2*max p=732550 | 4096 | frame | 71107027.95 | 0.00 | 1422.14 |
-| dbvh 20:1 | 4096 | frame | 73315914.50 | 0.00 | 1466.32 |
+| sap 1:1 (uniform) p=96 | 4096 | frame | 5436700.50 | 0.00 | 108.73 |
+| hashgrid 1:1 (uniform) cell=2 (small-tuned) p=862 | 4096 | frame | 1940388.70 | 0.00 | 38.81 |
+| hashgrid 1:1 (uniform) cell=2*max p=353 | 4096 | frame | 4316177.95 | 0.00 | 86.32 |
+| dbvh 1:1 (uniform) | 4096 | frame | 25808589.80 | 0.00 | 516.17 |
+| sap 5:1 p=3334 | 4096 | frame | 7927928.70 | 0.00 | 158.56 |
+| hashgrid 5:1 cell=2 (small-tuned) p=7113 | 4096 | frame | 9281445.30 | 0.00 | 185.63 |
+| hashgrid 5:1 cell=2*max p=17510 | 4096 | frame | 3698204.30 | 0.00 | 73.96 |
+| dbvh 5:1 | 4096 | frame | 29753206.40 | 0.00 | 595.06 |
+| sap 20:1 p=147969 | 4096 | frame | 24351343.40 | 0.00 | 487.03 |
+| hashgrid 20:1 cell=2 (small-tuned) p=182282 | 4096 | frame | 426605024.75 | 0.00 | 8532.10 |
+| hashgrid 20:1 cell=2*max p=732550 | 4096 | frame | 63707690.45 | 0.00 | 1274.15 |
+| dbvh 20:1 | 4096 | frame | 64959921.65 | 0.00 | 1299.20 |
 
 
 ## Physics — CCD stages (speculative manifold vs swept/TOI cast)
@@ -1286,8 +1315,8 @@ clipping) prices the TOI clamp that guarantees the surface is never crossed.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| speculative manifold hits=19982 | 20000 | pair | 473.85 | 2.11 | 9.48 |
-| swept toi cast hits=18312 | 20000 | pair | 141.54 | 7.07 | 2.83 |
+| speculative manifold hits=19982 | 20000 | pair | 375.89 | 2.66 | 7.52 |
+| swept toi cast hits=18312 | 20000 | pair | 114.02 | 8.77 | 2.28 |
 
 
 ## Physics — 6-DOF rigid body (quat+tensor vs motor/screw) & spin integrators
@@ -1300,12 +1329,12 @@ what each integrator's cost buys in energy/momentum conservation.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| QuatBody6 (world Newton-Euler) | 1 | step | 80.20 | 12.47 | 8.02 |
-| ScrewBody6 (motor Lie-Poisson) | 1 | step | 106.18 | 9.42 | 10.62 |
-| EulerSpin | 1 | spin step | 60.98 | 16.40 | 6.10 |
-| Rk2Spin | 1 | spin step | 62.36 | 16.04 | 6.24 |
-| MidpointSpin (implicit) | 1 | spin step | 87.14 | 11.48 | 8.71 |
-| LgvciSpin (variational) | 1 | spin step | 269.51 | 3.71 | 26.95 |
+| QuatBody6 (world Newton-Euler) | 1 | step | 63.75 | 15.69 | 6.37 |
+| ScrewBody6 (motor Lie-Poisson) | 1 | step | 84.27 | 11.87 | 8.43 |
+| EulerSpin | 1 | spin step | 48.70 | 20.53 | 4.87 |
+| Rk2Spin | 1 | spin step | 49.55 | 20.18 | 4.96 |
+| MidpointSpin (implicit) | 1 | spin step | 69.39 | 14.41 | 6.94 |
+| LgvciSpin (variational) | 1 | spin step | 213.85 | 4.68 | 21.39 |
 
 
 ### Dzhanibekov drift after 1e5 steps (dt=0.001)
@@ -1348,38 +1377,38 @@ readback looks *relative* to compute (~0.9x of compute at 4k, ~2.5x at 65k).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| CPU 64x64 (4k particles) | 4096 | step | 691657.42 | 0.00 | 41.50 |
-| CPU 128x128 (16k particles) | 16384 | step | 2796178.23 | 0.00 | 167.77 |
-| GPU 64x64 (4k particles) | 4096 | step | 80470.22 | 0.01 | 4.83 |
-| GPU 128x128 (16k particles) | 16384 | step | 101840.08 | 0.01 | 6.11 |
-| GPU 256x256 (65k particles) | 65536 | step | 216222.85 | 0.00 | 12.97 |
+| CPU 64x64 (4k particles) | 4096 | step | 677255.80 | 0.00 | 40.64 |
+| CPU 128x128 (16k particles) | 16384 | step | 2494000.43 | 0.00 | 149.64 |
+| GPU 64x64 (4k particles) | 4096 | step | 71135.83 | 0.01 | 4.27 |
+| GPU 128x128 (16k particles) | 16384 | step | 88294.85 | 0.01 | 5.30 |
+| GPU 256x256 (65k particles) | 65536 | step | 184884.28 | 0.01 | 11.09 |
 
 
 ### GPU host<->device transfer — upload / compute / readback (per step)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 64x64 (4k) upload (h2d, once) | 4096 | step | 5884.17 | 0.17 | 0.35 |
-| 64x64 (4k) compute (device) | 4096 | step | 68322.57 | 0.01 | 4.10 |
-| 64x64 (4k) download (d2h, once) | 4096 | step | 6576.35 | 0.15 | 0.39 |
-| 64x64 (4k) TOTAL (drain once) | 4096 | step | 84310.22 | 0.01 | 5.06 |
-| 64x64 (4k) compute (device, synced/frame) | 4096 | step | 67368.37 | 0.01 | 4.04 |
-| 64x64 (4k) download (d2h, per frame) | 4096 | step | 87518.95 | 0.01 | 5.25 |
-| 64x64 (4k) TOTAL (readback/frame) | 4096 | step | 158776.37 | 0.01 | 9.53 |
-| 128x128 (16k) upload (h2d, once) | 16384 | step | 4237.40 | 0.24 | 0.25 |
-| 128x128 (16k) compute (device) | 16384 | step | 88585.47 | 0.01 | 5.32 |
-| 128x128 (16k) download (d2h, once) | 16384 | step | 3533.42 | 0.28 | 0.21 |
-| 128x128 (16k) TOTAL (drain once) | 16384 | step | 99499.72 | 0.01 | 5.97 |
-| 128x128 (16k) compute (device, synced/frame) | 16384 | step | 115706.83 | 0.01 | 6.94 |
-| 128x128 (16k) download (d2h, per frame) | 16384 | step | 136598.30 | 0.01 | 8.20 |
-| 128x128 (16k) TOTAL (readback/frame) | 16384 | step | 258850.08 | 0.00 | 15.53 |
-| 256x256 (65k) upload (h2d, once) | 65536 | step | 12523.05 | 0.08 | 0.75 |
-| 256x256 (65k) compute (device) | 65536 | step | 176266.98 | 0.01 | 10.58 |
-| 256x256 (65k) download (d2h, once) | 65536 | step | 10659.13 | 0.09 | 0.64 |
-| 256x256 (65k) TOTAL (drain once) | 65536 | step | 205442.67 | 0.00 | 12.33 |
-| 256x256 (65k) compute (device, synced/frame) | 65536 | step | 194861.85 | 0.01 | 11.69 |
-| 256x256 (65k) download (d2h, per frame) | 65536 | step | 408466.73 | 0.00 | 24.51 |
-| 256x256 (65k) TOTAL (readback/frame) | 65536 | step | 621822.92 | 0.00 | 37.31 |
+| 64x64 (4k) upload (h2d, once) | 4096 | step | 1509.62 | 0.66 | 0.09 |
+| 64x64 (4k) compute (device) | 4096 | step | 64473.33 | 0.02 | 3.87 |
+| 64x64 (4k) download (d2h, once) | 4096 | step | 1501.67 | 0.67 | 0.09 |
+| 64x64 (4k) TOTAL (drain once) | 4096 | step | 69999.02 | 0.01 | 4.20 |
+| 64x64 (4k) compute (device, synced/frame) | 4096 | step | 68885.95 | 0.01 | 4.13 |
+| 64x64 (4k) download (d2h, per frame) | 4096 | step | 61737.52 | 0.02 | 3.70 |
+| 64x64 (4k) TOTAL (readback/frame) | 4096 | step | 134413.28 | 0.01 | 8.06 |
+| 128x128 (16k) upload (h2d, once) | 16384 | step | 3661.17 | 0.27 | 0.22 |
+| 128x128 (16k) compute (device) | 16384 | step | 78039.60 | 0.01 | 4.68 |
+| 128x128 (16k) download (d2h, once) | 16384 | step | 2885.48 | 0.35 | 0.17 |
+| 128x128 (16k) TOTAL (drain once) | 16384 | step | 87691.08 | 0.01 | 5.26 |
+| 128x128 (16k) compute (device, synced/frame) | 16384 | step | 83146.13 | 0.01 | 4.99 |
+| 128x128 (16k) download (d2h, per frame) | 16384 | step | 137009.35 | 0.01 | 8.22 |
+| 128x128 (16k) TOTAL (readback/frame) | 16384 | step | 225699.02 | 0.00 | 13.54 |
+| 256x256 (65k) upload (h2d, once) | 65536 | step | 11666.72 | 0.09 | 0.70 |
+| 256x256 (65k) compute (device) | 65536 | step | 153422.60 | 0.01 | 9.21 |
+| 256x256 (65k) download (d2h, once) | 65536 | step | 10283.37 | 0.10 | 0.62 |
+| 256x256 (65k) TOTAL (drain once) | 65536 | step | 181990.30 | 0.01 | 10.92 |
+| 256x256 (65k) compute (device, synced/frame) | 65536 | step | 158799.08 | 0.01 | 9.53 |
+| 256x256 (65k) download (d2h, per frame) | 65536 | step | 393610.23 | 0.00 | 23.62 |
+| 256x256 (65k) TOTAL (readback/frame) | 65536 | step | 569893.47 | 0.00 | 34.19 |
 
 
 ## Geometry — DCGA spike: quartic surfaces as a linear incidence test
@@ -1394,7 +1423,7 @@ conformal copies so products of the two points supply degree-4 monomials.
 `Multivector[p,q,r]` unrolls the geometric product fully at compile time, so
 cost grows with the SQUARE of the blade count. Measured for one product:
 32 blades 4 s, 64 2 s, 128 8 s, 256 30 s, 512 exceeds a 6 GB address-space
-cap, and `Cl(8,2)`'\''s 1024 blades — about a million term products — was killed
+cap, and `Cl(8,2)`'s 1024 blades — about a million term products — was killed
 by the OOM killer outright. That is a structural wall, not a tuning problem,
 and it is the reason the spike is written as the T-space subalgebra instead.
 
@@ -1419,17 +1448,17 @@ root and the DCGA form does not.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| torus  dcga (uniform) | 4096 | test | 4.81 | 208.07 | 0.02 |
-| torus  hand-written | 4096 | test | 2.98 | 335.16 | 0.01 |
-| sphere dcga (uniform) | 4096 | test | 5.08 | 196.73 | 0.02 |
-| sphere hand-written | 4096 | test | 2.81 | 356.05 | 0.01 |
-| plane  dcga (uniform) | 4096 | test | 4.94 | 202.34 | 0.02 |
-| plane  hand-written | 4096 | test | 2.73 | 366.89 | 0.01 |
+| torus  dcga (uniform) | 4096 | test | 4.04 | 247.45 | 0.02 |
+| torus  hand-written | 4096 | test | 2.46 | 406.55 | 0.01 |
+| sphere dcga (uniform) | 4096 | test | 3.98 | 251.29 | 0.02 |
+| sphere hand-written | 4096 | test | 2.21 | 451.95 | 0.01 |
+| plane  dcga (uniform) | 4096 | test | 3.89 | 257.27 | 0.02 |
+| plane  hand-written | 4096 | test | 2.15 | 464.29 | 0.01 |
 
 
 ## Physics — MLS-MPM (material point method)
 
-MPM sits between the engine'\''s other deformables. FEM keeps a fixed mesh and
+MPM sits between the engine's other deformables. FEM keeps a fixed mesh and
 therefore a fixed topology; PBF and SPH keep no rest shape at all. MPM carries
 elastic state on PARTICLES and uses a background grid, thrown away each step,
 only to resolve the coupling — so the material can flow, pile up and merge
@@ -1446,24 +1475,24 @@ springs back to height 0.64 after impact, the plastic one stays at 0.28.
 
 Per-particle cost FALLS as the particle count grows (2693 -> 1300 ns) because
 the grid is cleared every step regardless of how many particles occupy it, so
-a 32³ grid'\''s fixed cost dominates at small counts and amortises away at
+a 32³ grid's fixed cost dominates at small counts and amortises away at
 larger ones. Read the small-N rows as grid overhead, not as scaling.
 
 ### MLS-MPM: particle scaling and the cost of plasticity
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| mpm elastic | 96 | particle-step | 3547.37 | 0.28 | 68.11 |
-| mpm plastic | 96 | particle-step | 3511.96 | 0.28 | 67.43 |
-| mpm elastic | 240 | particle-step | 2181.46 | 0.46 | 104.71 |
-| mpm plastic | 240 | particle-step | 2214.84 | 0.45 | 106.31 |
-| mpm elastic | 576 | particle-step | 1692.04 | 0.59 | 194.92 |
-| mpm plastic | 576 | particle-step | 1668.20 | 0.60 | 192.18 |
+| mpm elastic | 96 | particle-step | 2784.53 | 0.36 | 53.46 |
+| mpm plastic | 96 | particle-step | 2678.25 | 0.37 | 51.42 |
+| mpm elastic | 240 | particle-step | 1612.35 | 0.62 | 77.39 |
+| mpm plastic | 240 | particle-step | 1664.16 | 0.60 | 79.88 |
+| mpm elastic | 576 | particle-step | 1237.57 | 0.81 | 142.57 |
+| mpm plastic | 576 | particle-step | 1230.62 | 0.81 | 141.77 |
 
 
 ## Physics — co-rotational tetrahedral FEM
 
-A continuum next to the engine'\''s mass-spring lattice. `softbody.mojo` joins
+A continuum next to the engine's mass-spring lattice. `softbody.mojo` joins
 particles with distance constraints, so its stiffness and volume response are
 properties of how the lattice happens to be wired. FEM discretises the
 material instead: each tetrahedron carries a deformation gradient and stress
@@ -1490,12 +1519,12 @@ costs.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| corotational 4x2x2 rot-err=0.00 | 80 | tet | 1029.03 | 0.97 | 0.08 |
-| linear (R=I) 4x2x2 rot-err=83.64 | 80 | tet | 177.46 | 5.63 | 0.01 |
-| corotational 8x4x4 rot-err=0.00 | 640 | tet | 1027.68 | 0.97 | 0.66 |
-| linear (R=I) 8x4x4 rot-err=83.64 | 640 | tet | 177.17 | 5.64 | 0.11 |
-| corotational 12x6x6 rot-err=0.00 | 2160 | tet | 1059.68 | 0.94 | 2.29 |
-| linear (R=I) 12x6x6 rot-err=83.64 | 2160 | tet | 177.14 | 5.65 | 0.38 |
+| corotational 4x2x2 rot-err=0.00 | 80 | tet | 930.24 | 1.07 | 0.07 |
+| linear (R=I) 4x2x2 rot-err=83.64 | 80 | tet | 160.23 | 6.24 | 0.01 |
+| corotational 8x4x4 rot-err=0.00 | 640 | tet | 907.91 | 1.10 | 0.58 |
+| linear (R=I) 8x4x4 rot-err=83.64 | 640 | tet | 149.50 | 6.69 | 0.10 |
+| corotational 12x6x6 rot-err=0.00 | 2160 | tet | 826.09 | 1.21 | 1.78 |
+| linear (R=I) 12x6x6 rot-err=83.64 | 2160 | tet | 140.18 | 7.13 | 0.30 |
 
 
 ## Physics — SPH vs PBF: explicit pressure against density projection
@@ -1514,7 +1543,7 @@ not**. SPH is stable to dt=1/120 and fails at 1/60 (density 1.76x rest, peak
 speed 21 vs 0.12); PBF runs stably at 1/30, a 4x larger step.
 
 The COST story does not. Despite needing a 4x smaller timestep, **SPH is
-cheaper per simulated second** — ~22 ms against PBF'\''s ~26 ms at its largest
+cheaper per simulated second** — ~22 ms against PBF's ~26 ms at its largest
 stable step, and ~1.9x cheaper than PBF at matched density accuracy (~22 ms vs
 ~43 ms). The reason is per-step cost: an SPH step makes two neighbour passes
 (density, then forces) while a PBF step makes two PER ITERATION, so four
@@ -1523,10 +1552,10 @@ larger step.
 
 So the usual framing — PBF is faster because it takes big steps — is not what
 this measures. Two honest caveats on how far to carry that. The scene is a
-gentle settling column at 216 particles on CPU, and SPH'\''s stable step shrinks
+gentle settling column at 216 particles on CPU, and SPH's stable step shrinks
 with fluid stiffness and with the velocity field, so a violent or stiffer
 scene pushes SPH down while PBF holds — the crossover is a property of how
-hard the CFL limit bites, not a constant. And PBF'\''s neighbour lists are built
+hard the CFL limit bites, not a constant. And PBF's neighbour lists are built
 once per step and reused across iterations here (the standard arrangement);
 rebuilding them per iteration, which an earlier revision did, cost ~7% more
 for identical settled density.
@@ -1535,19 +1564,19 @@ for identical settled density.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sph dt=1/2000 rho=1.02 v=0.12 | 216 | sim-second | 318083633.00 | 0.00 | 318.08 |
-| sph dt=1/500 rho=1.02 v=0.12 | 216 | sim-second | 85853810.00 | 0.00 | 85.85 |
-| sph dt=1/120 rho=1.01 v=0.12 | 216 | sim-second | 23313569.00 | 0.00 | 23.31 |
-| sph dt=1/60 rho=1.76 v=21.32  UNSTABLE | 216 | sim-second | 10265251.00 | 0.00 | 10.27 |
-| pbf dt=1/120 it=4 rho=1.00 v=1.64 | 216 | sim-second | 109858269.00 | 0.00 | 109.86 |
-| pbf dt=1/60 it=4 rho=1.02 v=0.70 | 216 | sim-second | 54394119.00 | 0.00 | 54.39 |
-| pbf dt=1/30 it=4 rho=1.06 v=0.37 | 216 | sim-second | 28343391.00 | 0.00 | 28.34 |
-| pbf dt=1/30 it=8 rho=1.04 v=0.61 | 216 | sim-second | 47876418.00 | 0.00 | 47.88 |
+| sph dt=1/2000 rho=1.02 v=0.12 | 216 | sim-second | 306505131.00 | 0.00 | 306.51 |
+| sph dt=1/500 rho=1.02 v=0.12 | 216 | sim-second | 82431063.00 | 0.00 | 82.43 |
+| sph dt=1/120 rho=1.01 v=0.12 | 216 | sim-second | 22663279.00 | 0.00 | 22.66 |
+| sph dt=1/60 rho=1.76 v=21.32  UNSTABLE | 216 | sim-second | 9955971.00 | 0.00 | 9.96 |
+| pbf dt=1/120 it=4 rho=1.00 v=1.64 | 216 | sim-second | 106221664.00 | 0.00 | 106.22 |
+| pbf dt=1/60 it=4 rho=1.02 v=0.70 | 216 | sim-second | 53212537.00 | 0.00 | 53.21 |
+| pbf dt=1/30 it=4 rho=1.06 v=0.37 | 216 | sim-second | 27727028.00 | 0.00 | 27.73 |
+| pbf dt=1/30 it=8 rho=1.04 v=0.61 | 216 | sim-second | 45920109.00 | 0.00 | 45.92 |
 
 
 ## Physics — Position-Based Fluids
 
-The engine'\''s first fluid, and it is deliberately the SAME solver shape as the
+The engine's first fluid, and it is deliberately the SAME solver shape as the
 XPBD cloth already here: predict positions, project a constraint, derive
 velocity from the position change. Cloth projects a distance constraint, PBF
 projects a DENSITY one (C_i = rho_i/rho_0 - 1), so the machinery is shared and
@@ -1583,14 +1612,14 @@ fluid that was wrong:
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| pbf it=2 rho/rest=0.99 | 216 | particle-step | 2231.60 | 0.45 | 57.84 |
-| pbf it=3 rho/rest=0.99 | 216 | particle-step | 2652.36 | 0.38 | 68.75 |
-| pbf it=4 rho/rest=0.99 | 216 | particle-step | 4016.84 | 0.25 | 104.12 |
-| pbf it=6 rho/rest=0.99 | 216 | particle-step | 5013.31 | 0.20 | 129.95 |
-| pbf it=10 rho/rest=1.00 | 216 | particle-step | 8271.68 | 0.12 | 214.40 |
-| pbf it=6 rho/rest=1.00 | 512 | particle-step | 7456.88 | 0.13 | 458.15 |
-| pbf it=6 rho/rest=1.00 | 1000 | particle-step | 9366.20 | 0.11 | 1123.94 |
-| pbf it=6 rho/rest=1.00 | 1728 | particle-step | 10644.20 | 0.09 | 2207.18 |
+| pbf it=2 rho/rest=0.99 | 216 | particle-step | 2107.41 | 0.47 | 54.62 |
+| pbf it=3 rho/rest=0.99 | 216 | particle-step | 2560.65 | 0.39 | 66.37 |
+| pbf it=4 rho/rest=0.99 | 216 | particle-step | 3811.82 | 0.26 | 98.80 |
+| pbf it=6 rho/rest=0.99 | 216 | particle-step | 4775.41 | 0.21 | 123.78 |
+| pbf it=10 rho/rest=1.00 | 216 | particle-step | 7852.29 | 0.13 | 203.53 |
+| pbf it=6 rho/rest=1.00 | 512 | particle-step | 7032.72 | 0.14 | 432.09 |
+| pbf it=6 rho/rest=1.00 | 1000 | particle-step | 8847.25 | 0.11 | 1061.67 |
+| pbf it=6 rho/rest=1.00 | 1728 | particle-step | 9908.36 | 0.10 | 2054.60 |
 
 
 ## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)
@@ -1619,18 +1648,18 @@ the metric measures XPBD's own invariant. VBD instead minimises an elastic
 energy at finite stiffness, and with the iteration count held fixed it simply
 does not converge far enough as dt grows.
 
-The third table removes that bias by measuring the cloth'\''s SHAPE — how far
+The third table removes that bias by measuring the cloth's SHAPE — how far
 the sheet has sagged — which neither solver is built to optimise, against
-each solver'\''s own 200-iteration answer. It changes the picture. XPBD'\''s
+each solver's own 200-iteration answer. It changes the picture. XPBD's
 effective stiffness depends on how many projection sweeps it got, so at low
 iteration counts its cloth is far too soft: at 10 iterations it has reached
 **0%** of its converged shape while VBD is at **34%**, and at 20 it is 30%
-against VBD'\''s 61%. **VBD converges 2-3x faster per iteration**, which the
+against VBD's 61%. **VBD converges 2-3x faster per iteration**, which the
 edge-stretch metric could not show at all.
 
 Priced, though, that advantage does not survive: a VBD iteration costs ~3x an
 XPBD one, so at matched shape fidelity XPBD is still ~1.7x cheaper (65% of
-converged for 694 us against VBD'\''s 61% for 1,169 us). The precise statement
+converged for 694 us against VBD's 61% for 1,169 us). The precise statement
 is therefore that **VBD wins the iteration count and loses the iteration
 price** — which is a different and more useful claim than having no advantage
 regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
@@ -1640,52 +1669,52 @@ regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| CPU xpbd 32x32 it=2 err=0.00% | 1024 | step | 62044.28 | 0.02 | 3.72 |
-| CPU vbd 32x32 it=2 err=10.23% | 1024 | step | 158370.50 | 0.01 | 9.50 |
-| CPU xpbd 32x32 it=5 err=0.00% | 1024 | step | 114910.68 | 0.01 | 6.89 |
-| CPU vbd 32x32 it=5 err=1.51% | 1024 | step | 348712.83 | 0.00 | 20.92 |
-| CPU xpbd 32x32 it=10 err=0.00% | 1024 | step | 200047.23 | 0.00 | 12.00 |
-| CPU vbd 32x32 it=10 err=0.03% | 1024 | step | 669192.48 | 0.00 | 40.15 |
-| GPU xpbd 128x128 it=2 err=0.00% | 16384 | step | 37119.98 | 0.03 | 2.23 |
-| GPU vbd 128x128 it=2 err=12.90% | 16384 | step | 81048.38 | 0.01 | 4.86 |
-| GPU xpbd 128x128 it=5 err=0.00% | 16384 | step | 67782.02 | 0.01 | 4.07 |
-| GPU vbd 128x128 it=5 err=4.83% | 16384 | step | 183201.63 | 0.01 | 10.99 |
-| GPU xpbd 128x128 it=10 err=0.00% | 16384 | step | 117213.47 | 0.01 | 7.03 |
-| GPU vbd 128x128 it=10 err=0.12% | 16384 | step | 341906.23 | 0.00 | 20.51 |
+| CPU xpbd 32x32 it=2 err=0.00% | 1024 | step | 54913.40 | 0.02 | 3.29 |
+| CPU vbd 32x32 it=2 err=10.23% | 1024 | step | 147469.80 | 0.01 | 8.85 |
+| CPU xpbd 32x32 it=5 err=0.00% | 1024 | step | 103709.28 | 0.01 | 6.22 |
+| CPU vbd 32x32 it=5 err=1.51% | 1024 | step | 323393.22 | 0.00 | 19.40 |
+| CPU xpbd 32x32 it=10 err=0.00% | 1024 | step | 192874.37 | 0.01 | 11.57 |
+| CPU vbd 32x32 it=10 err=0.03% | 1024 | step | 610584.67 | 0.00 | 36.64 |
+| GPU xpbd 128x128 it=2 err=0.00% | 16384 | step | 35299.37 | 0.03 | 2.12 |
+| GPU vbd 128x128 it=2 err=12.90% | 16384 | step | 73940.55 | 0.01 | 4.44 |
+| GPU xpbd 128x128 it=5 err=0.00% | 16384 | step | 61313.30 | 0.02 | 3.68 |
+| GPU vbd 128x128 it=5 err=4.83% | 16384 | step | 156825.17 | 0.01 | 9.41 |
+| GPU xpbd 128x128 it=10 err=0.00% | 16384 | step | 108657.73 | 0.01 | 6.52 |
+| GPU vbd 128x128 it=10 err=0.12% | 16384 | step | 294209.78 | 0.00 | 17.65 |
 
 
 ### Cloth solvers: XPBD vs VBD (60 steps, err = worst edge stretch)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| CPU xpbd 32x32 it=2 err=0.00% | 1024 | step | 62044.28 | 0.02 | 3.72 |
-| CPU vbd 32x32 it=2 err=10.23% | 1024 | step | 158370.50 | 0.01 | 9.50 |
-| CPU xpbd 32x32 it=5 err=0.00% | 1024 | step | 114910.68 | 0.01 | 6.89 |
-| CPU vbd 32x32 it=5 err=1.51% | 1024 | step | 348712.83 | 0.00 | 20.92 |
-| CPU xpbd 32x32 it=10 err=0.00% | 1024 | step | 200047.23 | 0.00 | 12.00 |
-| CPU vbd 32x32 it=10 err=0.03% | 1024 | step | 669192.48 | 0.00 | 40.15 |
-| GPU xpbd 128x128 it=2 err=0.00% | 16384 | step | 37119.98 | 0.03 | 2.23 |
-| GPU vbd 128x128 it=2 err=12.90% | 16384 | step | 81048.38 | 0.01 | 4.86 |
-| GPU xpbd 128x128 it=5 err=0.00% | 16384 | step | 67782.02 | 0.01 | 4.07 |
-| GPU vbd 128x128 it=5 err=4.83% | 16384 | step | 183201.63 | 0.01 | 10.99 |
-| GPU xpbd 128x128 it=10 err=0.00% | 16384 | step | 117213.47 | 0.01 | 7.03 |
-| GPU vbd 128x128 it=10 err=0.12% | 16384 | step | 341906.23 | 0.00 | 20.51 |
+| CPU xpbd 32x32 it=2 err=0.00% | 1024 | step | 54913.40 | 0.02 | 3.29 |
+| CPU vbd 32x32 it=2 err=10.23% | 1024 | step | 147469.80 | 0.01 | 8.85 |
+| CPU xpbd 32x32 it=5 err=0.00% | 1024 | step | 103709.28 | 0.01 | 6.22 |
+| CPU vbd 32x32 it=5 err=1.51% | 1024 | step | 323393.22 | 0.00 | 19.40 |
+| CPU xpbd 32x32 it=10 err=0.00% | 1024 | step | 192874.37 | 0.01 | 11.57 |
+| CPU vbd 32x32 it=10 err=0.03% | 1024 | step | 610584.67 | 0.00 | 36.64 |
+| GPU xpbd 128x128 it=2 err=0.00% | 16384 | step | 35299.37 | 0.03 | 2.12 |
+| GPU vbd 128x128 it=2 err=12.90% | 16384 | step | 73940.55 | 0.01 | 4.44 |
+| GPU xpbd 128x128 it=5 err=0.00% | 16384 | step | 61313.30 | 0.02 | 3.68 |
+| GPU vbd 128x128 it=5 err=4.83% | 16384 | step | 156825.17 | 0.01 | 9.41 |
+| GPU xpbd 128x128 it=10 err=0.00% | 16384 | step | 108657.73 | 0.01 | 6.52 |
+| GPU vbd 128x128 it=10 err=0.12% | 16384 | step | 294209.78 | 0.00 | 17.65 |
 
 
 ### Cloth solver stability vs timestep (it=5 fixed, err = worst edge stretch)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| xpbd dt=1/120 err=0.00% | 1024 | step | 112514.75 | 0.01 | 6.75 |
-| vbd  dt=1/120 err=0.00% | 1024 | step | 356794.47 | 0.00 | 21.41 |
-| xpbd dt=1/60 err=0.00% | 1024 | step | 117130.58 | 0.01 | 7.03 |
-| vbd  dt=1/60 err=1.51% | 1024 | step | 354955.32 | 0.00 | 21.30 |
-| xpbd dt=1/30 err=0.00% | 1024 | step | 115977.43 | 0.01 | 6.96 |
-| vbd  dt=1/30 err=10.27% | 1024 | step | 354895.55 | 0.00 | 21.29 |
-| xpbd dt=1/15 err=0.00% | 1024 | step | 113504.72 | 0.01 | 6.81 |
-| vbd  dt=1/15 err=21.21% | 1024 | step | 361157.12 | 0.00 | 21.67 |
-| xpbd dt=1/8 err=0.00% | 1024 | step | 117124.15 | 0.01 | 7.03 |
-| vbd  dt=1/8 err=47.81% | 1024 | step | 352838.12 | 0.00 | 21.17 |
+| xpbd dt=1/120 err=0.00% | 1024 | step | 105662.87 | 0.01 | 6.34 |
+| vbd  dt=1/120 err=0.00% | 1024 | step | 311279.88 | 0.00 | 18.68 |
+| xpbd dt=1/60 err=0.00% | 1024 | step | 103199.08 | 0.01 | 6.19 |
+| vbd  dt=1/60 err=1.51% | 1024 | step | 310598.95 | 0.00 | 18.64 |
+| xpbd dt=1/30 err=0.00% | 1024 | step | 103492.48 | 0.01 | 6.21 |
+| vbd  dt=1/30 err=10.27% | 1024 | step | 314305.87 | 0.00 | 18.86 |
+| xpbd dt=1/15 err=0.00% | 1024 | step | 111118.70 | 0.01 | 6.67 |
+| vbd  dt=1/15 err=21.21% | 1024 | step | 315687.85 | 0.00 | 18.94 |
+| xpbd dt=1/8 err=0.00% | 1024 | step | 102605.13 | 0.01 | 6.16 |
+| vbd  dt=1/8 err=47.81% | 1024 | step | 311811.78 | 0.00 | 18.71 |
 
 
   converged sag (200 iters):  xpbd 1.1362473  vbd 1.1300186
@@ -1693,16 +1722,16 @@ regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| xpbd it=2 shape=0% of converged | 1024 | step | 64553.88 | 0.02 | 3.87 |
-| vbd  it=2 shape=0% of converged | 1024 | step | 169707.27 | 0.01 | 10.18 |
-| xpbd it=5 shape=0% of converged | 1024 | step | 119967.83 | 0.01 | 7.20 |
-| vbd  it=5 shape=2% of converged | 1024 | step | 352846.53 | 0.00 | 21.17 |
-| xpbd it=10 shape=0% of converged | 1024 | step | 205679.83 | 0.00 | 12.34 |
-| vbd  it=10 shape=34% of converged | 1024 | step | 674012.60 | 0.00 | 40.44 |
-| xpbd it=20 shape=30% of converged | 1024 | step | 382268.15 | 0.00 | 22.94 |
-| vbd  it=20 shape=61% of converged | 1024 | step | 1324237.02 | 0.00 | 79.45 |
-| xpbd it=40 shape=65% of converged | 1024 | step | 768689.25 | 0.00 | 46.12 |
-| vbd  it=40 shape=77% of converged | 1024 | step | 2389860.05 | 0.00 | 143.39 |
+| xpbd it=2 shape=0% of converged | 1024 | step | 50608.97 | 0.02 | 3.04 |
+| vbd  it=2 shape=0% of converged | 1024 | step | 128851.50 | 0.01 | 7.73 |
+| xpbd it=5 shape=0% of converged | 1024 | step | 97415.67 | 0.01 | 5.84 |
+| vbd  it=5 shape=2% of converged | 1024 | step | 284112.30 | 0.00 | 17.05 |
+| xpbd it=10 shape=0% of converged | 1024 | step | 177231.92 | 0.01 | 10.63 |
+| vbd  it=10 shape=34% of converged | 1024 | step | 546474.15 | 0.00 | 32.79 |
+| xpbd it=20 shape=30% of converged | 1024 | step | 338878.40 | 0.00 | 20.33 |
+| vbd  it=20 shape=61% of converged | 1024 | step | 1076712.10 | 0.00 | 64.60 |
+| xpbd it=40 shape=65% of converged | 1024 | step | 656791.02 | 0.00 | 39.41 |
+| vbd  it=40 shape=77% of converged | 1024 | step | 2106648.30 | 0.00 | 126.40 |
 
 
 ## Differentiable simulation — gradient cost & Field abstraction
@@ -1775,52 +1804,52 @@ reported as non-linear instead of being silently differentiated wrongly.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| realf baseline (1 rollout) | 2000 | rollout | 1.15 | 870.32 | 0.00 |
-| central diff (4 rollouts) | 2000 | grad(2) | 4.39 | 228.02 | 0.01 |
-| dualreal (2 rollouts) | 2000 | grad(2) | 3.93 | 254.16 | 0.01 |
-| dualbatch (1 rollout) | 2000 | grad(2) | 1.95 | 512.69 | 0.00 |
-| reverse tape (1 rollout+sweep) | 2000 | grad(2) | 76.57 | 13.06 | 0.15 |
+| realf baseline (1 rollout) | 2000 | rollout | 0.98 | 1019.37 | 0.00 |
+| central diff (4 rollouts) | 2000 | grad(2) | 3.36 | 297.93 | 0.01 |
+| dualreal (2 rollouts) | 2000 | grad(2) | 3.18 | 314.42 | 0.01 |
+| dualbatch (1 rollout) | 2000 | grad(2) | 1.57 | 635.53 | 0.00 |
+| reverse tape (1 rollout+sweep) | 2000 | grad(2) | 59.95 | 16.68 | 0.12 |
 
 
 ### Differentiable rollout — parameter-count sweep (NP x BURST = 2000 steps, constant primal work)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| fd forward (9 rollouts) | 2000 | grad(8) | 27.05 | 36.97 | 0.05 |
-| dualbatch (2 rollouts) | 2000 | grad(8) | 7.30 | 137.05 | 0.01 |
-| reverse tape (1 rollout) | 2000 | grad(8) | 44.94 | 22.25 | 0.09 |
-| adjoint s2s (hand-emitted) | 2000 | grad(8) | 5.24 | 190.75 | 0.01 |
-| adjoint generated (comptime) | 2000 | grad(8) | 7.74 | 129.16 | 0.02 |
-| fd forward (21 rollouts) | 2000 | grad(20) | 63.78 | 15.68 | 0.13 |
-| dualbatch (5 rollouts) | 2000 | grad(20) | 18.49 | 54.08 | 0.04 |
-| reverse tape (1 rollout) | 2000 | grad(20) | 45.36 | 22.05 | 0.09 |
-| adjoint s2s (hand-emitted) | 2000 | grad(20) | 5.28 | 189.54 | 0.01 |
-| adjoint generated (comptime) | 2000 | grad(20) | 7.82 | 127.89 | 0.02 |
-| fd forward (41 rollouts) | 2000 | grad(40) | 125.25 | 7.98 | 0.25 |
-| dualbatch (10 rollouts) | 2000 | grad(40) | 37.50 | 26.67 | 0.07 |
-| reverse tape (1 rollout) | 2000 | grad(40) | 45.64 | 21.91 | 0.09 |
-| adjoint s2s (hand-emitted) | 2000 | grad(40) | 5.32 | 187.95 | 0.01 |
-| adjoint generated (comptime) | 2000 | grad(40) | 7.91 | 126.35 | 0.02 |
-| fd forward (101 rollouts) | 2000 | grad(100) | 289.43 | 3.46 | 0.58 |
-| dualbatch (25 rollouts) | 2000 | grad(100) | 88.65 | 11.28 | 0.18 |
-| reverse tape (1 rollout) | 2000 | grad(100) | 45.07 | 22.19 | 0.09 |
-| adjoint s2s (hand-emitted) | 2000 | grad(100) | 5.36 | 186.45 | 0.01 |
-| adjoint generated (comptime) | 2000 | grad(100) | 7.58 | 131.86 | 0.02 |
-| fd forward (201 rollouts) | 2000 | grad(200) | 596.37 | 1.68 | 1.19 |
-| dualbatch (50 rollouts) | 2000 | grad(200) | 182.16 | 5.49 | 0.36 |
-| reverse tape (1 rollout) | 2000 | grad(200) | 46.21 | 21.64 | 0.09 |
-| adjoint s2s (hand-emitted) | 2000 | grad(200) | 5.46 | 183.03 | 0.01 |
-| adjoint generated (comptime) | 2000 | grad(200) | 7.64 | 130.86 | 0.02 |
+| fd forward (9 rollouts) | 2000 | grad(8) | 20.14 | 49.65 | 0.04 |
+| dualbatch (2 rollouts) | 2000 | grad(8) | 6.22 | 160.80 | 0.01 |
+| reverse tape (1 rollout) | 2000 | grad(8) | 33.79 | 29.59 | 0.07 |
+| adjoint s2s (hand-emitted) | 2000 | grad(8) | 3.91 | 255.66 | 0.01 |
+| adjoint generated (comptime) | 2000 | grad(8) | 6.77 | 147.67 | 0.01 |
+| fd forward (21 rollouts) | 2000 | grad(20) | 46.88 | 21.33 | 0.09 |
+| dualbatch (5 rollouts) | 2000 | grad(20) | 13.49 | 74.11 | 0.03 |
+| reverse tape (1 rollout) | 2000 | grad(20) | 34.55 | 28.95 | 0.07 |
+| adjoint s2s (hand-emitted) | 2000 | grad(20) | 3.85 | 259.64 | 0.01 |
+| adjoint generated (comptime) | 2000 | grad(20) | 5.82 | 171.85 | 0.01 |
+| fd forward (41 rollouts) | 2000 | grad(40) | 91.26 | 10.96 | 0.18 |
+| dualbatch (10 rollouts) | 2000 | grad(40) | 27.28 | 36.65 | 0.05 |
+| reverse tape (1 rollout) | 2000 | grad(40) | 34.72 | 28.80 | 0.07 |
+| adjoint s2s (hand-emitted) | 2000 | grad(40) | 3.87 | 258.43 | 0.01 |
+| adjoint generated (comptime) | 2000 | grad(40) | 5.87 | 170.50 | 0.01 |
+| fd forward (101 rollouts) | 2000 | grad(100) | 228.88 | 4.37 | 0.46 |
+| dualbatch (25 rollouts) | 2000 | grad(100) | 70.20 | 14.25 | 0.14 |
+| reverse tape (1 rollout) | 2000 | grad(100) | 35.72 | 28.00 | 0.07 |
+| adjoint s2s (hand-emitted) | 2000 | grad(100) | 3.92 | 255.43 | 0.01 |
+| adjoint generated (comptime) | 2000 | grad(100) | 6.01 | 166.35 | 0.01 |
+| fd forward (201 rollouts) | 2000 | grad(200) | 468.56 | 2.13 | 0.94 |
+| dualbatch (50 rollouts) | 2000 | grad(200) | 144.09 | 6.94 | 0.29 |
+| reverse tape (1 rollout) | 2000 | grad(200) | 36.49 | 27.40 | 0.07 |
+| adjoint s2s (hand-emitted) | 2000 | grad(200) | 4.00 | 250.25 | 0.01 |
+| adjoint generated (comptime) | 2000 | grad(200) | 6.18 | 161.75 | 0.01 |
 
 
 ### GA motor sandwich — specialized vs Field-generic vs AD carriers
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| motor3 (specialized) | 1024 | sandwich | 13.87 | 72.10 | 0.01 |
-| gmv[realf] | 1024 | sandwich | 21.90 | 45.65 | 0.02 |
-| gmv[dualreal] (+1 dir) | 1024 | sandwich | 21.99 | 45.48 | 0.02 |
-| gmv[dualbatch] (+4 dirs) | 1024 | sandwich | 21.79 | 45.90 | 0.02 |
+| motor3 (specialized) | 1024 | sandwich | 11.00 | 90.88 | 0.01 |
+| gmv[realf] | 1024 | sandwich | 17.26 | 57.93 | 0.02 |
+| gmv[dualreal] (+1 dir) | 1024 | sandwich | 17.33 | 57.70 | 0.02 |
+| gmv[dualbatch] (+4 dirs) | 1024 | sandwich | 17.25 | 57.97 | 0.02 |
 
 
 ## Physics — actuators (transmission, force generation, internal dynamics)
@@ -1842,7 +1871,7 @@ actuators tracks a bare torque vector within noise at every chain length,
 which is the precondition for the abstraction being worth having.
 
 The second table is the regime that justifies internal dynamics. A direct PD
-servo must be stable at the caller'\''s timestep, and its stability limit falls
+servo must be stable at the caller's timestep, and its stability limit falls
 as gain rises. At dt = 1/240 the direct servo holds to kp = 500 and
 **DIVERGES at kp = 2000**, while the same law driven through a first-order
 actuator stays on target at kp = 8000. That is the trade in one line: the lag
@@ -1857,12 +1886,12 @@ dt, which is why the test compares two.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| step + bare torque vector | 2 | step | 1199.19 | 0.83 | 0.48 |
-| step + n position actuators | 2 | step | 1214.91 | 0.82 | 0.49 |
-| step + bare torque vector | 8 | step | 4011.03 | 0.25 | 1.60 |
-| step + n position actuators | 8 | step | 3995.52 | 0.25 | 1.60 |
-| step + bare torque vector | 16 | step | 8998.01 | 0.11 | 3.60 |
-| step + n position actuators | 16 | step | 9281.40 | 0.11 | 3.71 |
+| step + bare torque vector | 2 | step | 983.88 | 1.02 | 0.39 |
+| step + n position actuators | 2 | step | 1042.21 | 0.96 | 0.42 |
+| step + bare torque vector | 8 | step | 3459.36 | 0.29 | 1.38 |
+| step + n position actuators | 8 | step | 3566.51 | 0.28 | 1.43 |
+| step + bare torque vector | 16 | step | 8098.40 | 0.12 | 3.24 |
+| step + n position actuators | 16 | step | 8319.31 | 0.12 | 3.33 |
 
 
 ### High-gain stability: direct PD vs an actuator with internal dynamics
@@ -1917,36 +1946,36 @@ differences nothing.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| IMU x1, one sweep each | 2 | read | 232.97 | 4.29 | 0.05 |
-| IMU x1, shared sweep | 2 | read | 253.29 | 3.95 | 0.05 |
-| IMU x2, one sweep each | 2 | read | 236.40 | 4.23 | 0.09 |
-| IMU x2, shared sweep | 2 | read | 149.60 | 6.68 | 0.06 |
-| IMU x8, one sweep each | 2 | read | 247.43 | 4.04 | 0.40 |
-| IMU x8, shared sweep | 2 | read | 44.24 | 22.60 | 0.07 |
-| IMU x1, one sweep each | 8 | read | 725.70 | 1.38 | 0.15 |
-| IMU x1, shared sweep | 8 | read | 749.55 | 1.33 | 0.15 |
-| IMU x8, one sweep each | 8 | read | 701.55 | 1.43 | 1.12 |
-| IMU x8, shared sweep | 8 | read | 104.03 | 9.61 | 0.17 |
-| IMU x32, one sweep each | 8 | read | 704.43 | 1.42 | 4.51 |
-| IMU x32, shared sweep | 8 | read | 34.10 | 29.33 | 0.22 |
-| IMU x1, one sweep each | 24 | read | 1645.05 | 0.61 | 0.33 |
-| IMU x1, shared sweep | 24 | read | 1801.70 | 0.56 | 0.36 |
-| IMU x24, one sweep each | 24 | read | 1679.86 | 0.60 | 8.06 |
-| IMU x24, shared sweep | 24 | read | 82.41 | 12.13 | 0.40 |
-| IMU x96, one sweep each | 24 | read | 1616.57 | 0.62 | 31.04 |
-| IMU x96, shared sweep | 24 | read | 28.36 | 35.26 | 0.54 |
+| IMU x1, one sweep each | 2 | read | 206.33 | 4.85 | 0.04 |
+| IMU x1, shared sweep | 2 | read | 226.13 | 4.42 | 0.05 |
+| IMU x2, one sweep each | 2 | read | 207.58 | 4.82 | 0.08 |
+| IMU x2, shared sweep | 2 | read | 170.75 | 5.86 | 0.07 |
+| IMU x8, one sweep each | 2 | read | 226.00 | 4.42 | 0.36 |
+| IMU x8, shared sweep | 2 | read | 41.46 | 24.12 | 0.07 |
+| IMU x1, one sweep each | 8 | read | 555.77 | 1.80 | 0.11 |
+| IMU x1, shared sweep | 8 | read | 573.12 | 1.74 | 0.11 |
+| IMU x8, one sweep each | 8 | read | 628.84 | 1.59 | 1.01 |
+| IMU x8, shared sweep | 8 | read | 87.58 | 11.42 | 0.14 |
+| IMU x32, one sweep each | 8 | read | 611.19 | 1.64 | 3.91 |
+| IMU x32, shared sweep | 8 | read | 27.92 | 35.81 | 0.18 |
+| IMU x1, one sweep each | 24 | read | 1320.58 | 0.76 | 0.26 |
+| IMU x1, shared sweep | 24 | read | 1357.75 | 0.74 | 0.27 |
+| IMU x24, one sweep each | 24 | read | 1342.69 | 0.74 | 6.44 |
+| IMU x24, shared sweep | 24 | read | 69.82 | 14.32 | 0.34 |
+| IMU x96, one sweep each | 24 | read | 1365.27 | 0.73 | 26.21 |
+| IMU x96, shared sweep | 24 | read | 23.34 | 42.85 | 0.45 |
 
 
 ### Sensor rig against the dynamics step it instruments
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| dynamics step (no sensors) | 2 | step | 1140.88 | 0.88 | 0.34 |
-| full rig (IMU+torque+touch+range) | 2 | read | 1341.34 | 0.75 | 0.40 |
-| dynamics step (no sensors) | 8 | step | 3929.30 | 0.25 | 1.18 |
-| full rig (IMU+torque+touch+range) | 8 | read | 5533.30 | 0.18 | 1.66 |
-| dynamics step (no sensors) | 24 | step | 18657.58 | 0.05 | 5.60 |
-| full rig (IMU+torque+touch+range) | 24 | read | 24795.59 | 0.04 | 7.44 |
+| dynamics step (no sensors) | 2 | step | 1024.09 | 0.98 | 0.31 |
+| full rig (IMU+torque+touch+range) | 2 | read | 1178.70 | 0.85 | 0.35 |
+| dynamics step (no sensors) | 8 | step | 3437.94 | 0.29 | 1.03 |
+| full rig (IMU+torque+touch+range) | 8 | read | 4469.77 | 0.22 | 1.34 |
+| dynamics step (no sensors) | 24 | step | 14952.07 | 0.07 | 4.49 |
+| full rig (IMU+torque+touch+range) | 24 | read | 20103.35 | 0.05 | 6.03 |
 
 
 
@@ -2010,46 +2039,46 @@ where the Jacobian work is small enough for the test to show.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| analytic arms, 2 sites | 1 | eval | 1417.06 | 0.71 | 0.57 |
-| finite-difference arms, 2 sites | 1 | eval | 520.40 | 1.92 | 0.21 |
-| analytic arms, 8 sites | 1 | eval | 3517.79 | 0.28 | 1.41 |
-| finite-difference arms, 8 sites | 1 | eval | 1407.71 | 0.71 | 0.56 |
-| analytic arms, 2 sites | 2 | eval | 1500.68 | 0.67 | 0.60 |
-| finite-difference arms, 2 sites | 2 | eval | 1205.83 | 0.83 | 0.48 |
-| analytic arms, 8 sites | 2 | eval | 5444.35 | 0.18 | 2.18 |
-| finite-difference arms, 8 sites | 2 | eval | 3994.23 | 0.25 | 1.60 |
-| analytic arms, 2 sites | 8 | eval | 3280.71 | 0.30 | 1.31 |
-| finite-difference arms, 2 sites | 8 | eval | 10423.48 | 0.10 | 4.17 |
-| analytic arms, 8 sites | 8 | eval | 12923.87 | 0.08 | 5.17 |
-| finite-difference arms, 8 sites | 8 | eval | 41174.12 | 0.02 | 16.47 |
-| analytic arms, 2 sites | 24 | eval | 7729.49 | 0.13 | 3.09 |
-| finite-difference arms, 2 sites | 24 | eval | 74583.66 | 0.01 | 29.83 |
-| analytic arms, 8 sites | 24 | eval | 30125.33 | 0.03 | 12.05 |
-| finite-difference arms, 8 sites | 24 | eval | 296110.86 | 0.00 | 118.44 |
+| analytic arms, 2 sites | 1 | eval | 695.23 | 1.44 | 0.28 |
+| finite-difference arms, 2 sites | 1 | eval | 318.63 | 3.14 | 0.13 |
+| analytic arms, 8 sites | 1 | eval | 2712.53 | 0.37 | 1.09 |
+| finite-difference arms, 8 sites | 1 | eval | 1233.40 | 0.81 | 0.49 |
+| analytic arms, 2 sites | 2 | eval | 1189.20 | 0.84 | 0.48 |
+| finite-difference arms, 2 sites | 2 | eval | 976.99 | 1.02 | 0.39 |
+| analytic arms, 8 sites | 2 | eval | 4567.34 | 0.22 | 1.83 |
+| finite-difference arms, 8 sites | 2 | eval | 3494.09 | 0.29 | 1.40 |
+| analytic arms, 2 sites | 8 | eval | 2801.39 | 0.36 | 1.12 |
+| finite-difference arms, 2 sites | 8 | eval | 8800.22 | 0.11 | 3.52 |
+| analytic arms, 8 sites | 8 | eval | 11428.54 | 0.09 | 4.57 |
+| finite-difference arms, 8 sites | 8 | eval | 33639.84 | 0.03 | 13.46 |
+| analytic arms, 2 sites | 24 | eval | 6242.88 | 0.16 | 2.50 |
+| finite-difference arms, 2 sites | 24 | eval | 62788.72 | 0.02 | 25.12 |
+| analytic arms, 8 sites | 24 | eval | 24956.92 | 0.04 | 9.98 |
+| finite-difference arms, 8 sites | 24 | eval | 244889.80 | 0.00 | 97.96 |
 
 
 ### Wrap routing: what a disengaged obstacle costs
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 4 sites, no obstacle | 2 | eval | 2857.28 | 0.35 | 1.14 |
-| 4 sites, obstacle present | 2 | eval | 3036.65 | 0.33 | 1.21 |
-| 4 sites, no obstacle | 8 | eval | 6864.29 | 0.15 | 2.75 |
-| 4 sites, obstacle present | 8 | eval | 6930.61 | 0.14 | 2.77 |
-| 4 sites, no obstacle | 24 | eval | 15425.08 | 0.06 | 6.17 |
-| 4 sites, obstacle present | 24 | eval | 15533.18 | 0.06 | 6.21 |
+| 4 sites, no obstacle | 2 | eval | 2215.47 | 0.45 | 0.89 |
+| 4 sites, obstacle present | 2 | eval | 2574.63 | 0.39 | 1.03 |
+| 4 sites, no obstacle | 8 | eval | 5562.41 | 0.18 | 2.22 |
+| 4 sites, obstacle present | 8 | eval | 5695.39 | 0.18 | 2.28 |
+| 4 sites, no obstacle | 24 | eval | 12724.84 | 0.08 | 5.09 |
+| 4 sites, obstacle present | 24 | eval | 12442.92 | 0.08 | 4.98 |
 
 
 ### Fixed vs spatial tendons at the same joint count
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| fixed tendon (arms are the coefficients) | 2 | apply | 7.48 | 133.78 | 0.00 |
-| spatial tendon (path + Jacobians) | 2 | apply | 1488.59 | 0.67 | 0.60 |
-| fixed tendon (arms are the coefficients) | 8 | apply | 29.82 | 33.54 | 0.01 |
-| spatial tendon (path + Jacobians) | 8 | apply | 13838.78 | 0.07 | 5.54 |
-| fixed tendon (arms are the coefficients) | 24 | apply | 89.40 | 11.19 | 0.04 |
-| spatial tendon (path + Jacobians) | 24 | apply | 97939.05 | 0.01 | 39.18 |
+| fixed tendon (arms are the coefficients) | 2 | apply | 6.54 | 152.91 | 0.00 |
+| spatial tendon (path + Jacobians) | 2 | apply | 1307.16 | 0.77 | 0.52 |
+| fixed tendon (arms are the coefficients) | 8 | apply | 25.51 | 39.20 | 0.01 |
+| spatial tendon (path + Jacobians) | 8 | apply | 11450.62 | 0.09 | 4.58 |
+| fixed tendon (arms are the coefficients) | 24 | apply | 72.77 | 13.74 | 0.03 |
+| spatial tendon (path + Jacobians) | 24 | apply | 80536.12 | 0.01 | 32.21 |
 
 
 
@@ -2114,30 +2143,30 @@ angle that has no inverse.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| quaternion floating base | 2 | solve | 2166.94 | 0.46 | 0.43 |
-| six pseudo-joints (Euler) | 2 | solve | 3881.96 | 0.26 | 0.78 |
-| quaternion floating base | 6 | solve | 4699.95 | 0.21 | 0.94 |
-| six pseudo-joints (Euler) | 6 | solve | 6697.60 | 0.15 | 1.34 |
-| quaternion floating base | 16 | solve | 13633.16 | 0.07 | 2.73 |
-| six pseudo-joints (Euler) | 16 | solve | 15997.20 | 0.06 | 3.20 |
+| quaternion floating base | 2 | solve | 1872.03 | 0.53 | 0.37 |
+| six pseudo-joints (Euler) | 2 | solve | 3368.37 | 0.30 | 0.67 |
+| quaternion floating base | 6 | solve | 4279.77 | 0.23 | 0.86 |
+| six pseudo-joints (Euler) | 6 | solve | 6034.51 | 0.17 | 1.21 |
+| quaternion floating base | 16 | solve | 12307.62 | 0.08 | 2.46 |
+| six pseudo-joints (Euler) | 16 | solve | 14353.37 | 0.07 | 2.87 |
 
 
 ### Where the floating solve spends its time
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| assemble H by CRBA | 2 | call | 682.16 | 1.47 | 0.14 |
-| assemble H by unit accelerations | 2 | call | 6667.12 | 0.15 | 1.33 |
-| bias (one RNEA sweep) | 2 | call | 1012.22 | 0.99 | 0.20 |
-| assemble H + dense solve | 2 | call | 1432.03 | 0.70 | 0.29 |
-| assemble H by CRBA | 6 | call | 1922.11 | 0.52 | 0.38 |
-| assemble H by unit accelerations | 6 | call | 21322.19 | 0.05 | 4.26 |
-| bias (one RNEA sweep) | 6 | call | 1837.77 | 0.54 | 0.37 |
-| assemble H + dense solve | 6 | call | 3138.86 | 0.32 | 0.63 |
-| assemble H by CRBA | 16 | call | 5733.14 | 0.17 | 1.15 |
-| assemble H by unit accelerations | 16 | call | 63201.66 | 0.02 | 12.64 |
-| bias (one RNEA sweep) | 16 | call | 3058.24 | 0.33 | 0.61 |
-| assemble H + dense solve | 16 | call | 10210.98 | 0.10 | 2.04 |
+| assemble H by CRBA | 2 | call | 648.03 | 1.54 | 0.13 |
+| assemble H by unit accelerations | 2 | call | 5976.77 | 0.17 | 1.20 |
+| bias (one RNEA sweep) | 2 | call | 839.95 | 1.19 | 0.17 |
+| assemble H + dense solve | 2 | call | 1132.88 | 0.88 | 0.23 |
+| assemble H by CRBA | 6 | call | 1629.06 | 0.61 | 0.33 |
+| assemble H by unit accelerations | 6 | call | 18203.95 | 0.05 | 3.64 |
+| bias (one RNEA sweep) | 6 | call | 1664.72 | 0.60 | 0.33 |
+| assemble H + dense solve | 6 | call | 2655.45 | 0.38 | 0.53 |
+| assemble H by CRBA | 16 | call | 5072.86 | 0.20 | 1.01 |
+| assemble H by unit accelerations | 16 | call | 58524.20 | 0.02 | 11.70 |
+| bias (one RNEA sweep) | 16 | call | 2836.78 | 0.35 | 0.57 |
+| assemble H + dense solve | 16 | call | 9177.86 | 0.11 | 1.84 |
 
 
 
@@ -2206,18 +2235,18 @@ Separate passes vs one system: worst remaining violation, equal work
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 2 contacts, pyramidal | 6 | solve | 6530.08 | 0.15 | 0.39 |
-| 2 contacts, elliptic | 6 | solve | 7026.77 | 0.14 | 0.42 |
-| 2 contacts, pyramidal | 6 | solve | 6415.90 | 0.16 | 0.38 |
-| 2 contacts, elliptic | 6 | solve | 7888.62 | 0.13 | 0.47 |
-| 2 contacts, pyramidal | 18 | solve | 22217.55 | 0.05 | 1.33 |
-| 2 contacts, elliptic | 18 | solve | 24060.40 | 0.04 | 1.44 |
-| 6 contacts, pyramidal | 18 | solve | 65410.82 | 0.02 | 3.92 |
-| 6 contacts, elliptic | 18 | solve | 70293.17 | 0.01 | 4.22 |
-| 2 contacts, pyramidal | 48 | solve | 199126.98 | 0.01 | 11.95 |
-| 2 contacts, elliptic | 48 | solve | 218233.97 | 0.00 | 13.09 |
-| 16 contacts, pyramidal | 48 | solve | 1528408.08 | 0.00 | 91.70 |
-| 16 contacts, elliptic | 48 | solve | 1532196.60 | 0.00 | 91.93 |
+| 2 contacts, pyramidal | 6 | solve | 5094.12 | 0.20 | 0.31 |
+| 2 contacts, elliptic | 6 | solve | 6156.18 | 0.16 | 0.37 |
+| 2 contacts, pyramidal | 6 | solve | 5480.40 | 0.18 | 0.33 |
+| 2 contacts, elliptic | 6 | solve | 6182.38 | 0.16 | 0.37 |
+| 2 contacts, pyramidal | 18 | solve | 19709.38 | 0.05 | 1.18 |
+| 2 contacts, elliptic | 18 | solve | 21859.23 | 0.05 | 1.31 |
+| 6 contacts, pyramidal | 18 | solve | 57163.45 | 0.02 | 3.43 |
+| 6 contacts, elliptic | 18 | solve | 61197.92 | 0.02 | 3.67 |
+| 2 contacts, pyramidal | 48 | solve | 175928.90 | 0.01 | 10.56 |
+| 2 contacts, elliptic | 48 | solve | 171916.45 | 0.01 | 10.31 |
+| 16 contacts, pyramidal | 48 | solve | 1428659.38 | 0.00 | 85.72 |
+| 16 contacts, elliptic | 48 | solve | 1476680.13 | 0.00 | 88.60 |
 
 
 ## Physics — differentiating through RIGID contact
@@ -2259,18 +2288,18 @@ denormals. A vanishing gradient is expensive as well as uninformative.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| rigid rollout (value only) | 180 | rollout | 730.91 | 1.37 | 0.15 |
-| rigid rollout + forward AD | 180 | rollout | 782.95 | 1.28 | 0.16 |
-| soft rollout (value only) | 180 | rollout | 896.92 | 1.11 | 0.18 |
-| soft rollout + forward AD | 180 | rollout | 935.61 | 1.07 | 0.19 |
-| rigid rollout (value only) | 720 | rollout | 2999.40 | 0.33 | 0.60 |
-| rigid rollout + forward AD | 720 | rollout | 3261.41 | 0.31 | 0.65 |
-| soft rollout (value only) | 720 | rollout | 3746.91 | 0.27 | 0.75 |
-| soft rollout + forward AD | 720 | rollout | 4206.96 | 0.24 | 0.84 |
-| rigid rollout (value only) | 2880 | rollout | 12554.66 | 0.08 | 2.51 |
-| rigid rollout + forward AD | 2880 | rollout | 15023.45 | 0.07 | 3.00 |
-| soft rollout (value only) | 2880 | rollout | 15867.64 | 0.06 | 3.17 |
-| soft rollout + forward AD | 2880 | rollout | 199958.51 | 0.01 | 39.99 |
+| rigid rollout (value only) | 180 | rollout | 644.16 | 1.55 | 0.13 |
+| rigid rollout + forward AD | 180 | rollout | 693.66 | 1.44 | 0.14 |
+| soft rollout (value only) | 180 | rollout | 811.46 | 1.23 | 0.16 |
+| soft rollout + forward AD | 180 | rollout | 845.11 | 1.18 | 0.17 |
+| rigid rollout (value only) | 720 | rollout | 2537.82 | 0.39 | 0.51 |
+| rigid rollout + forward AD | 720 | rollout | 2686.43 | 0.37 | 0.54 |
+| soft rollout (value only) | 720 | rollout | 3096.22 | 0.32 | 0.62 |
+| soft rollout + forward AD | 720 | rollout | 3308.71 | 0.30 | 0.66 |
+| rigid rollout (value only) | 2880 | rollout | 9671.26 | 0.10 | 1.93 |
+| rigid rollout + forward AD | 2880 | rollout | 11130.39 | 0.09 | 2.23 |
+| soft rollout (value only) | 2880 | rollout | 12028.76 | 0.08 | 2.41 |
+| soft rollout + forward AD | 2880 | rollout | 171867.76 | 0.01 | 34.37 |
 
 
 
@@ -2287,7 +2316,7 @@ Until this landed the two halves of the engine could not meet: `Chain`
 integrates in joint space, `ContactScene6` resolves contacts in maximal
 coordinates, and nothing connected them — an articulated body could not touch
 anything. The bridge is the point Jacobian, which maps joint velocities to one
-material point'\''s velocity and whose transpose maps an impulse there back to
+material point's velocity and whose transpose maps an impulse there back to
 joint torques, so a contact is solved without leaving generalised coordinates.
 
 Cost scales with the ARTICULATED SYSTEM, not with the contact pair: every
@@ -2314,14 +2343,14 @@ the split, and below it after (`test_chain_contact` gates exactly that).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| step only | 2 | step | 1187.22 | 0.84 | 0.24 |
-| step + ground contact | 2 | step | 18040.01 | 0.06 | 3.61 |
-| step only | 4 | step | 1943.97 | 0.51 | 0.39 |
-| step + ground contact | 4 | step | 14378.52 | 0.07 | 2.88 |
-| step only | 8 | step | 3879.70 | 0.26 | 0.78 |
-| step + ground contact | 8 | step | 6398.09 | 0.16 | 1.28 |
-| step only | 16 | step | 9205.92 | 0.11 | 1.84 |
-| step + ground contact | 16 | step | 17706.43 | 0.06 | 3.54 |
+| step only | 2 | step | 1000.30 | 1.00 | 0.20 |
+| step + ground contact | 2 | step | 17257.27 | 0.06 | 3.45 |
+| step only | 4 | step | 1946.60 | 0.51 | 0.39 |
+| step + ground contact | 4 | step | 14448.47 | 0.07 | 2.89 |
+| step only | 8 | step | 3827.93 | 0.26 | 0.77 |
+| step + ground contact | 8 | step | 6432.06 | 0.16 | 1.29 |
+| step only | 16 | step | 8653.54 | 0.12 | 1.73 |
+| step + ground contact | 16 | step | 16314.95 | 0.06 | 3.26 |
 
 
 ## Physics — articulated chain: reduced (CRBA+RNEA) vs maximal coordinates
@@ -2335,7 +2364,7 @@ forms the CRBA mass matrix and solves it densely; inverse dynamics recovers
 the torques with one O(n) Newton-Euler sweep and no matrix at all. Both go
 through the same `_rnea` routine — with zero acceleration it is the bias
 term forward dynamics subtracts, with a real one it IS inverse dynamics —
-which is what makes `test_inverse_dynamics`'\''s round trip meaningful: tau ->
+which is what makes `test_inverse_dynamics`'s round trip meaningful: tau ->
 qdd -> tau agrees to ~1e-6 across chains, a branching tree and a forest.
 
 The gap widens with link count exactly as the complexity difference predicts:
@@ -2362,46 +2391,46 @@ for 960 steps, not merely to be inside range once.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| inverse dynamics (RNEA) | 2 | step | 652.40 | 1.53 | 0.39 |
-| forward dynamics (CRBA+solve) | 2 | step | 1218.19 | 0.82 | 0.73 |
-| inverse dynamics (RNEA) | 8 | step | 1558.32 | 0.64 | 0.93 |
-| forward dynamics (CRBA+solve) | 8 | step | 3955.84 | 0.25 | 2.37 |
-| inverse dynamics (RNEA) | 24 | step | 3387.78 | 0.30 | 2.03 |
-| forward dynamics (CRBA+solve) | 24 | step | 17120.65 | 0.06 | 10.27 |
-| inverse dynamics (RNEA) | 64 | step | 7602.77 | 0.13 | 4.56 |
-| forward dynamics (CRBA+solve) | 64 | step | 120366.61 | 0.01 | 72.22 |
+| inverse dynamics (RNEA) | 2 | step | 588.73 | 1.70 | 0.35 |
+| forward dynamics (CRBA+solve) | 2 | step | 1063.82 | 0.94 | 0.64 |
+| inverse dynamics (RNEA) | 8 | step | 1424.12 | 0.70 | 0.85 |
+| forward dynamics (CRBA+solve) | 8 | step | 3771.31 | 0.27 | 2.26 |
+| inverse dynamics (RNEA) | 24 | step | 3349.22 | 0.30 | 2.01 |
+| forward dynamics (CRBA+solve) | 24 | step | 16941.86 | 0.06 | 10.17 |
+| inverse dynamics (RNEA) | 64 | step | 7437.37 | 0.13 | 4.46 |
+| forward dynamics (CRBA+solve) | 64 | step | 118857.69 | 0.01 | 71.31 |
 
 
 ### Joint kinds and limits: step cost
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| revolute only | 4 | step | 1978.38 | 0.51 | 1.19 |
-| mixed revolute+prismatic | 4 | step | 1987.12 | 0.50 | 1.19 |
-| revolute + limit pass | 4 | step | 2026.11 | 0.49 | 1.22 |
-| revolute only | 8 | step | 3763.99 | 0.27 | 2.26 |
-| mixed revolute+prismatic | 8 | step | 3653.03 | 0.27 | 2.19 |
-| revolute + limit pass | 8 | step | 3869.40 | 0.26 | 2.32 |
-| revolute only | 16 | step | 9049.38 | 0.11 | 5.43 |
-| mixed revolute+prismatic | 16 | step | 8382.82 | 0.12 | 5.03 |
-| revolute + limit pass | 16 | step | 9013.36 | 0.11 | 5.41 |
+| revolute only | 4 | step | 2025.08 | 0.49 | 1.22 |
+| mixed revolute+prismatic | 4 | step | 1907.80 | 0.52 | 1.14 |
+| revolute + limit pass | 4 | step | 2023.67 | 0.49 | 1.21 |
+| revolute only | 8 | step | 3882.24 | 0.26 | 2.33 |
+| mixed revolute+prismatic | 8 | step | 3682.90 | 0.27 | 2.21 |
+| revolute + limit pass | 8 | step | 3902.96 | 0.26 | 2.34 |
+| revolute only | 16 | step | 8966.62 | 0.11 | 5.38 |
+| mixed revolute+prismatic | 16 | step | 8265.82 | 0.12 | 4.96 |
+| revolute + limit pass | 16 | step | 8964.49 | 0.11 | 5.38 |
 
 
 ### articulated chain: reduced (CRBA+RNEA) vs maximal (soft joints)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| reduced n=4 | 4 | step | 2355.50 | 0.42 | 1.41 |
-| aba n=4 | 4 | step | 2244.39 | 0.45 | 1.35 |
-| maximal n=4 | 4 | step | 79784.30 | 0.01 | 47.87 |
-| reduced n=8 | 8 | step | 3916.51 | 0.26 | 2.35 |
-| aba n=8 | 8 | step | 4038.50 | 0.25 | 2.42 |
-| maximal n=8 | 8 | step | 159904.57 | 0.01 | 95.94 |
-| reduced n=16 | 16 | step | 8971.83 | 0.11 | 5.38 |
-| aba n=16 | 16 | step | 7123.26 | 0.14 | 4.27 |
-| maximal n=16 | 16 | step | 321612.07 | 0.00 | 192.97 |
-| reduced n=64 | 64 | step | 123343.60 | 0.01 | 74.01 |
-| aba n=64 | 64 | step | 25110.34 | 0.04 | 15.07 |
+| reduced n=4 | 4 | step | 2150.77 | 0.46 | 1.29 |
+| aba n=4 | 4 | step | 1946.61 | 0.51 | 1.17 |
+| maximal n=4 | 4 | step | 71849.37 | 0.01 | 43.11 |
+| reduced n=8 | 8 | step | 3588.54 | 0.28 | 2.15 |
+| aba n=8 | 8 | step | 3998.23 | 0.25 | 2.40 |
+| maximal n=8 | 8 | step | 143459.63 | 0.01 | 86.08 |
+| reduced n=16 | 16 | step | 8634.95 | 0.12 | 5.18 |
+| aba n=16 | 16 | step | 7023.05 | 0.14 | 4.21 |
+| maximal n=16 | 16 | step | 286303.97 | 0.00 | 171.78 |
+| reduced n=64 | 64 | step | 118927.06 | 0.01 | 71.36 |
+| aba n=64 | 64 | step | 22766.57 | 0.04 | 13.66 |
 
 
 ## Physics — island-parallel solver (serial vs worker threads)
@@ -2442,25 +2471,25 @@ hyperthread set.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| serial 16 towers x4 | 64 | step | 393152.45 | 0.00 | 117.95 |
-| parallel 16 towers x4 | 64 | step | 287582.45 | 0.00 | 86.27 |
-| serial 1 tower x8 | 8 | step | 55285.70 | 0.02 | 16.59 |
-| parallel 1 tower x8 | 8 | step | 64509.27 | 0.02 | 19.35 |
+| serial 16 towers x4 | 64 | step | 311138.63 | 0.00 | 93.34 |
+| parallel 16 towers x4 | 64 | step | 240272.22 | 0.00 | 72.08 |
+| serial 1 tower x8 | 8 | step | 44217.29 | 0.02 | 13.27 |
+| parallel 1 tower x8 | 8 | step | 62260.46 | 0.02 | 18.68 |
 
 
 ### island-parallel core scaling: 16 islands at pinned worker counts
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| serial (no fan-out) | 64 | step | 402840.32 | 0.00 | 120.85 |
-| workers=1 | 64 | step | 435452.68 | 0.00 | 130.64 |
-| workers=2 | 64 | step | 314089.25 | 0.00 | 94.23 |
-| workers=4 | 64 | step | 258706.55 | 0.00 | 77.61 |
-| workers=6 | 64 | step | 266514.17 | 0.00 | 79.95 |
-| workers=8 | 64 | step | 265611.67 | 0.00 | 79.68 |
-| workers=12 | 64 | step | 260312.17 | 0.00 | 78.09 |
-| workers=16 | 64 | step | 257315.24 | 0.00 | 77.19 |
-| workers=20 | 64 | step | 259934.74 | 0.00 | 77.98 |
+| serial (no fan-out) | 64 | step | 310445.53 | 0.00 | 93.13 |
+| workers=1 | 64 | step | 321420.46 | 0.00 | 96.43 |
+| workers=2 | 64 | step | 246086.52 | 0.00 | 73.83 |
+| workers=4 | 64 | step | 234249.94 | 0.00 | 70.27 |
+| workers=6 | 64 | step | 231737.13 | 0.00 | 69.52 |
+| workers=8 | 64 | step | 250037.46 | 0.00 | 75.01 |
+| workers=12 | 64 | step | 235721.07 | 0.00 | 70.72 |
+| workers=16 | 64 | step | 235407.86 | 0.00 | 70.62 |
+| workers=20 | 64 | step | 236117.24 | 0.00 | 70.84 |
 
 
 ## Physics — within-island parallelism (graph coloring vs plain Gauss-Seidel)
@@ -2483,27 +2512,27 @@ colored path needs more workers before it beats its own serial baseline.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| serial GS it4 120 | 120 | step | 5023801.67 | 0.00 | 301.43 |
-| colored serial it4 120 | 120 | step | 5880460.53 | 0.00 | 352.83 |
-| colored par it4 120 | 120 | step | 4151380.87 | 0.00 | 249.08 |
-| colored par it8 120 | 120 | step | 5607238.88 | 0.00 | 336.43 |
-| serial GS it4 21 | 21 | step | 621256.58 | 0.00 | 37.28 |
-| colored par it4 21 | 21 | step | 962859.62 | 0.00 | 57.77 |
+| serial GS it4 120 | 120 | step | 3967930.38 | 0.00 | 238.08 |
+| colored serial it4 120 | 120 | step | 4781027.23 | 0.00 | 286.86 |
+| colored par it4 120 | 120 | step | 2998184.63 | 0.00 | 179.89 |
+| colored par it8 120 | 120 | step | 3921671.68 | 0.00 | 235.30 |
+| serial GS it4 21 | 21 | step | 498829.97 | 0.00 | 29.93 |
+| colored par it4 21 | 21 | step | 884566.43 | 0.00 | 53.07 |
 
 
 ### colored solver core scaling: one big island at pinned worker counts
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| colored serial (no fan-out) | 120 | step | 5913632.20 | 0.00 | 354.82 |
-| workers=1 | 120 | step | 5903007.38 | 0.00 | 354.18 |
-| workers=2 | 120 | step | 4290144.22 | 0.00 | 257.41 |
-| workers=4 | 120 | step | 3483226.33 | 0.00 | 208.99 |
-| workers=6 | 120 | step | 4015110.68 | 0.00 | 240.91 |
-| workers=8 | 120 | step | 3471918.83 | 0.00 | 208.32 |
-| workers=12 | 120 | step | 4045404.62 | 0.00 | 242.72 |
-| workers=16 | 120 | step | 4430680.62 | 0.00 | 265.84 |
-| workers=20 | 120 | step | 3775034.03 | 0.00 | 226.50 |
+| colored serial (no fan-out) | 120 | step | 4743954.23 | 0.00 | 284.64 |
+| workers=1 | 120 | step | 4728554.92 | 0.00 | 283.71 |
+| workers=2 | 120 | step | 3786802.23 | 0.00 | 227.21 |
+| workers=4 | 120 | step | 3040830.68 | 0.00 | 182.45 |
+| workers=6 | 120 | step | 3018381.25 | 0.00 | 181.10 |
+| workers=8 | 120 | step | 3196156.90 | 0.00 | 191.77 |
+| workers=12 | 120 | step | 3023348.30 | 0.00 | 181.40 |
+| workers=16 | 120 | step | 3349361.93 | 0.00 | 200.96 |
+| workers=20 | 120 | step | 3348551.92 | 0.00 | 200.91 |
 
 
 ## Physics — solver pair collection (brute O(n²) vs per-frame BVH broadphase)
@@ -2518,16 +2547,16 @@ enumeration dominates.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| brute N=8 | 8 | step | 65973.15 | 0.02 | 5.28 |
-| bvh   N=8 | 8 | step | 72216.18 | 0.01 | 5.78 |
-| brute N=32 | 32 | step | 300484.85 | 0.00 | 24.04 |
-| bvh   N=32 | 32 | step | 291802.58 | 0.00 | 23.34 |
-| brute N=128 | 128 | step | 1653380.93 | 0.00 | 132.27 |
-| bvh   N=128 | 128 | step | 1236872.85 | 0.00 | 98.95 |
-| brute N=288 | 288 | step | 5357455.90 | 0.00 | 428.60 |
-| bvh   N=288 | 288 | step | 3157015.44 | 0.00 | 252.56 |
-| brute N=512 | 512 | step | 12532814.20 | 0.00 | 1002.63 |
-| bvh   N=512 | 512 | step | 5966833.88 | 0.00 | 477.35 |
+| brute N=8 | 8 | step | 58878.11 | 0.02 | 4.71 |
+| bvh   N=8 | 8 | step | 65558.84 | 0.02 | 5.24 |
+| brute N=32 | 32 | step | 254255.80 | 0.00 | 20.34 |
+| bvh   N=32 | 32 | step | 246438.98 | 0.00 | 19.72 |
+| brute N=128 | 128 | step | 1389456.21 | 0.00 | 111.16 |
+| bvh   N=128 | 128 | step | 1099122.50 | 0.00 | 87.93 |
+| brute N=288 | 288 | step | 4438778.64 | 0.00 | 355.10 |
+| bvh   N=288 | 288 | step | 2681016.17 | 0.00 | 214.48 |
+| brute N=512 | 512 | step | 10550668.39 | 0.00 | 844.05 |
+| bvh   N=512 | 512 | step | 4966444.61 | 0.00 | 397.32 |
 
 
 ## Collision — BVH build heuristic (median-split vs binned SAH)
@@ -2562,28 +2591,28 @@ close the build gap and restore the classical trade-off.
 
   [clustered] Σarea median 977014.0  SAH 651650.1875  LBVH 701393.25  (SAH/median 0.6669814224770576 , LBVH/median 0.7178947793992717 )
   [clustered] SAH DOMINATES median (cheaper build and faster queries)
-  [clustered] SAH repays its build vs LBVH after ~ 48416 rays
+  [clustered] SAH repays its build vs LBVH after ~ 18654 rays
   [clustered] LBVH DOMINATES median (cheaper build and no slower)
   [uniform] Σarea median 1279621.0  SAH 1132919.625  LBVH 1236453.875  (SAH/median 0.8853556052925046 , LBVH/median 0.9662656950769016 )
   [uniform] SAH DOMINATES median (cheaper build and faster queries)
-  [uniform] SAH repays its build vs LBVH after ~ 39363 rays
+  [uniform] SAH repays its build vs LBVH after ~ 27737 rays
   [uniform] LBVH DOMINATES median (cheaper build and no slower)
 ### BVH build heuristic: median vs binned SAH vs LBVH
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| clustered build median | 2000 | build | 4019918.00 | 0.00 | 4.02 |
-| clustered build SAH | 2000 | build | 1508517.00 | 0.00 | 1.51 |
-| clustered build LBVH (morton+radix) | 2000 | build | 250825.00 | 0.00 | 0.25 |
-| clustered raycast median | 4000 | ray | 526.29 | 1.90 | 2.11 |
-| clustered raycast SAH | 4000 | ray | 383.43 | 2.61 | 1.53 |
-| clustered raycast LBVH | 4000 | ray | 409.41 | 2.44 | 1.64 |
-| uniform build median | 2000 | build | 4729089.00 | 0.00 | 4.73 |
-| uniform build SAH | 2000 | build | 1436346.00 | 0.00 | 1.44 |
-| uniform build LBVH (morton+radix) | 2000 | build | 236200.00 | 0.00 | 0.24 |
-| uniform raycast median | 4000 | ray | 715.10 | 1.40 | 2.86 |
-| uniform raycast SAH | 4000 | ray | 620.18 | 1.61 | 2.48 |
-| uniform raycast LBVH | 4000 | ray | 650.67 | 1.54 | 2.60 |
+| clustered build median | 2000 | build | 2814112.00 | 0.00 | 2.81 |
+| clustered build SAH | 2000 | build | 1305135.00 | 0.00 | 1.31 |
+| clustered build LBVH (morton+radix) | 2000 | build | 233620.00 | 0.00 | 0.23 |
+| clustered raycast median | 4000 | ray | 478.97 | 2.09 | 1.92 |
+| clustered raycast SAH | 4000 | ray | 327.76 | 3.05 | 1.31 |
+| clustered raycast LBVH | 4000 | ray | 385.20 | 2.60 | 1.54 |
+| uniform build median | 2000 | build | 3130328.00 | 0.00 | 3.13 |
+| uniform build SAH | 2000 | build | 1259943.00 | 0.00 | 1.26 |
+| uniform build LBVH (morton+radix) | 2000 | build | 233528.00 | 0.00 | 0.23 |
+| uniform raycast median | 4000 | ray | 640.34 | 1.56 | 2.56 |
+| uniform raycast SAH | 4000 | ray | 586.58 | 1.70 | 2.35 |
+| uniform raycast LBVH | 4000 | ray | 623.59 | 1.60 | 2.49 |
 
 
 ## ECS — chunked (paged) columns vs one growable column
@@ -2617,12 +2646,12 @@ whole id range is dead, so the shape of the deaths decides everything:
 - **region death** (the low 90% of the id range dies together — a level
   unloaded, a wave cleared, anything that allocated its ids in one run):
   **89% of the footprint comes back** (51,200 cells held against a growable
-  column'\''s 480,000, which never shrinks at all).
+  column's 480,000, which never shrinks at all).
 
 So the regime is not "many entities died" but "a REGION of the id space
 died", and the price is ~1.6-1.9x on the shrink and regrow operations
 themselves. `test_backend_parity` gates the release against the failure that
-would make the memory number meaningless: neighbouring pages'\'' entities must
+would make the memory number meaningless: neighbouring pages' entities must
 be untouched, and a released page must be reusable.
 
 The honest scope of the TIME result: the commercial chunk stores this
@@ -2639,16 +2668,16 @@ that could plausibly win, and is not what these rows rule out.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| naive (growable) growth | 60000 | spawn | 28.48 | 35.11 | 1.71 |
-| chunked (paged) growth | 60000 | spawn | 70.43 | 14.20 | 4.23 |
-| archetype growth | 60000 | spawn | 202.05 | 4.95 | 12.12 |
-| sparse growth | 60000 | spawn | 31.96 | 31.29 | 1.92 |
-| naive (growable) iterate | 60000 | entity | 3.54 | 282.50 | 2.12 |
-| chunked (paged) iterate | 60000 | entity | 6.32 | 158.20 | 3.79 |
-| archetype iterate | 60000 | entity | 0.81 | 1229.67 | 0.49 |
-| naive (growable) churn | 60000 | op | 21.16 | 47.26 | 2.54 |
-| chunked (paged) churn | 60000 | op | 43.14 | 23.18 | 5.18 |
-| archetype churn | 60000 | op | 134.07 | 7.46 | 16.09 |
+| naive (growable) growth | 60000 | spawn | 23.91 | 41.83 | 1.43 |
+| chunked (paged) growth | 60000 | spawn | 59.03 | 16.94 | 3.54 |
+| archetype growth | 60000 | spawn | 178.72 | 5.60 | 10.72 |
+| sparse growth | 60000 | spawn | 26.47 | 37.77 | 1.59 |
+| naive (growable) iterate | 60000 | entity | 3.39 | 294.61 | 2.04 |
+| chunked (paged) iterate | 60000 | entity | 5.71 | 175.06 | 3.43 |
+| archetype iterate | 60000 | entity | 0.76 | 1310.29 | 0.46 |
+| naive (growable) churn | 60000 | op | 18.30 | 54.64 | 2.20 |
+| chunked (paged) churn | 60000 | op | 34.45 | 29.03 | 4.13 |
+| archetype churn | 60000 | op | 112.32 | 8.90 | 13.48 |
 
 
   [spread-death N=240000] cells held after 90% die: chunked 481280 of naive's 480000 = 100 %  (peak 481280 )
@@ -2657,14 +2686,14 @@ that could plausibly win, and is not what these rows rule out.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| spread-death chunked shrink+compact | 240000 | op | 40.54 | 24.67 | 9.73 |
-| spread-death naive   shrink | 240000 | op | 22.48 | 44.48 | 5.40 |
-| spread-death chunked regrow 50% | 240000 | op | 54.29 | 18.42 | 6.52 |
-| spread-death naive   regrow 50% | 240000 | op | 40.25 | 24.84 | 4.83 |
-| region-death chunked shrink+compact | 240000 | op | 39.11 | 25.57 | 9.39 |
-| region-death naive   shrink | 240000 | op | 21.91 | 45.65 | 5.26 |
-| region-death chunked regrow 50% | 240000 | op | 55.34 | 18.07 | 6.64 |
-| region-death naive   regrow 50% | 240000 | op | 39.37 | 25.40 | 4.72 |
+| spread-death chunked shrink+compact | 240000 | op | 37.88 | 26.40 | 9.09 |
+| spread-death naive   shrink | 240000 | op | 18.74 | 53.37 | 4.50 |
+| spread-death chunked regrow 50% | 240000 | op | 47.19 | 21.19 | 5.66 |
+| spread-death naive   regrow 50% | 240000 | op | 36.05 | 27.74 | 4.33 |
+| region-death chunked shrink+compact | 240000 | op | 32.50 | 30.77 | 7.80 |
+| region-death naive   shrink | 240000 | op | 19.06 | 52.47 | 4.57 |
+| region-death chunked regrow 50% | 240000 | op | 46.31 | 21.59 | 5.56 |
+| region-death naive   regrow 50% | 240000 | op | 33.87 | 29.52 | 4.06 |
 
 
   chunked pages allocated for N=60000: 118
@@ -2703,33 +2732,33 @@ other side.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| uniform serial | 512 | task | 1448.59 | 0.69 | 0.74 |
-| uniform static   w=2 | 512 | task | 550.00 | 1.82 | 0.28 |
-| uniform stealing w=2 | 512 | task | 563.33 | 1.78 | 0.29 |
-| uniform static   w=4 | 512 | task | 669.76 | 1.49 | 0.34 |
-| uniform stealing w=4 | 512 | task | 427.08 | 2.34 | 0.22 |
-| uniform static   w=8 | 512 | task | 669.87 | 1.49 | 0.34 |
-| uniform stealing w=8 | 512 | task | 301.60 | 3.32 | 0.15 |
-| uniform static   w=12 | 512 | task | 453.87 | 2.20 | 0.23 |
-| uniform stealing w=12 | 512 | task | 331.31 | 3.02 | 0.17 |
-| skewed serial | 512 | task | 2242.40 | 0.45 | 1.15 |
-| skewed static   w=2 | 512 | task | 1642.28 | 0.61 | 0.84 |
-| skewed stealing w=2 | 512 | task | 1082.09 | 0.92 | 0.55 |
-| skewed static   w=4 | 512 | task | 993.40 | 1.01 | 0.51 |
-| skewed stealing w=4 | 512 | task | 646.81 | 1.55 | 0.33 |
-| skewed static   w=8 | 512 | task | 1440.87 | 0.69 | 0.74 |
-| skewed stealing w=8 | 512 | task | 528.44 | 1.89 | 0.27 |
-| skewed static   w=12 | 512 | task | 1205.06 | 0.83 | 0.62 |
-| skewed stealing w=12 | 512 | task | 562.43 | 1.78 | 0.29 |
-| spiky serial | 512 | task | 1055.11 | 0.95 | 0.54 |
-| spiky static   w=2 | 512 | task | 954.85 | 1.05 | 0.49 |
-| spiky stealing w=2 | 512 | task | 417.30 | 2.40 | 0.21 |
-| spiky static   w=4 | 512 | task | 499.13 | 2.00 | 0.26 |
-| spiky stealing w=4 | 512 | task | 287.74 | 3.48 | 0.15 |
-| spiky static   w=8 | 512 | task | 255.29 | 3.92 | 0.13 |
-| spiky stealing w=8 | 512 | task | 253.41 | 3.95 | 0.13 |
-| spiky static   w=12 | 512 | task | 441.87 | 2.26 | 0.23 |
-| spiky stealing w=12 | 512 | task | 254.86 | 3.92 | 0.13 |
+| uniform serial | 512 | task | 1181.69 | 0.85 | 0.61 |
+| uniform static   w=2 | 512 | task | 454.68 | 2.20 | 0.23 |
+| uniform stealing w=2 | 512 | task | 451.38 | 2.22 | 0.23 |
+| uniform static   w=4 | 512 | task | 540.50 | 1.85 | 0.28 |
+| uniform stealing w=4 | 512 | task | 316.89 | 3.16 | 0.16 |
+| uniform static   w=8 | 512 | task | 311.49 | 3.21 | 0.16 |
+| uniform stealing w=8 | 512 | task | 255.54 | 3.91 | 0.13 |
+| uniform static   w=12 | 512 | task | 363.00 | 2.75 | 0.19 |
+| uniform stealing w=12 | 512 | task | 267.11 | 3.74 | 0.14 |
+| skewed serial | 512 | task | 1706.80 | 0.59 | 0.87 |
+| skewed static   w=2 | 512 | task | 1292.23 | 0.77 | 0.66 |
+| skewed stealing w=2 | 512 | task | 962.30 | 1.04 | 0.49 |
+| skewed static   w=4 | 512 | task | 1433.09 | 0.70 | 0.73 |
+| skewed stealing w=4 | 512 | task | 584.84 | 1.71 | 0.30 |
+| skewed static   w=8 | 512 | task | 606.09 | 1.65 | 0.31 |
+| skewed stealing w=8 | 512 | task | 444.83 | 2.25 | 0.23 |
+| skewed static   w=12 | 512 | task | 556.69 | 1.80 | 0.29 |
+| skewed stealing w=12 | 512 | task | 407.87 | 2.45 | 0.21 |
+| spiky serial | 512 | task | 815.33 | 1.23 | 0.42 |
+| spiky static   w=2 | 512 | task | 326.71 | 3.06 | 0.17 |
+| spiky stealing w=2 | 512 | task | 366.07 | 2.73 | 0.19 |
+| spiky static   w=4 | 512 | task | 206.94 | 4.83 | 0.11 |
+| spiky stealing w=4 | 512 | task | 208.45 | 4.80 | 0.11 |
+| spiky static   w=8 | 512 | task | 224.98 | 4.44 | 0.12 |
+| spiky stealing w=8 | 512 | task | 200.89 | 4.98 | 0.10 |
+| spiky static   w=12 | 512 | task | 222.70 | 4.49 | 0.11 |
+| spiky stealing w=12 | 512 | task | 213.80 | 4.68 | 0.11 |
 
 
 ## Concurrency — false sharing (cache-line contention)
@@ -2768,34 +2797,34 @@ which is what makes the serial 60% the right thing to attack next.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| atomic  w=2 stride=1 | 2 | incr | 25.07 | 39.89 | 0.50 |
-| atomic  w=2 stride=2 | 2 | incr | 25.10 | 39.84 | 0.50 |
-| atomic  w=2 stride=8 (1/line) | 2 | incr | 6.62 | 150.95 | 0.13 |
-| atomic  w=2 stride=16 | 2 | incr | 6.61 | 151.27 | 0.13 |
-| plain   w=2 stride=1 | 2 | incr | 0.90 | 1106.07 | 0.02 |
-| plain   w=2 stride=8 (1/line) | 2 | incr | 0.94 | 1066.67 | 0.02 |
-| local   w=2 (store once) | 2 | incr | 0.88 | 1138.30 | 0.02 |
-| atomic  w=4 stride=1 | 4 | incr | 64.75 | 15.44 | 1.30 |
-| atomic  w=4 stride=2 | 4 | incr | 64.70 | 15.46 | 1.29 |
-| atomic  w=4 stride=8 (1/line) | 4 | incr | 6.86 | 145.69 | 0.14 |
-| atomic  w=4 stride=16 | 4 | incr | 6.86 | 145.85 | 0.14 |
-| plain   w=4 stride=1 | 4 | incr | 0.96 | 1045.53 | 0.02 |
-| plain   w=4 stride=8 (1/line) | 4 | incr | 0.99 | 1005.73 | 0.02 |
-| local   w=4 (store once) | 4 | incr | 0.95 | 1054.41 | 0.02 |
-| atomic  w=8 stride=1 | 8 | incr | 119.29 | 8.38 | 2.39 |
-| atomic  w=8 stride=2 | 8 | incr | 60.18 | 16.62 | 1.20 |
-| atomic  w=8 stride=8 (1/line) | 8 | incr | 10.59 | 94.39 | 0.21 |
-| atomic  w=8 stride=16 | 8 | incr | 10.57 | 94.61 | 0.21 |
-| plain   w=8 stride=1 | 8 | incr | 1.03 | 966.79 | 0.02 |
-| plain   w=8 stride=8 (1/line) | 8 | incr | 1.03 | 972.48 | 0.02 |
-| local   w=8 (store once) | 8 | incr | 1.03 | 972.67 | 0.02 |
-| atomic  w=12 stride=1 | 12 | incr | 137.26 | 7.29 | 2.75 |
-| atomic  w=12 stride=2 | 12 | incr | 82.73 | 12.09 | 1.65 |
-| atomic  w=12 stride=8 (1/line) | 12 | incr | 13.63 | 73.38 | 0.27 |
-| atomic  w=12 stride=16 | 12 | incr | 13.62 | 73.43 | 0.27 |
-| plain   w=12 stride=1 | 12 | incr | 1.64 | 608.70 | 0.03 |
-| plain   w=12 stride=8 (1/line) | 12 | incr | 1.73 | 579.47 | 0.03 |
-| local   w=12 (store once) | 12 | incr | 1.63 | 613.03 | 0.03 |
+| atomic  w=2 stride=1 | 2 | incr | 15.35 | 65.13 | 0.31 |
+| atomic  w=2 stride=2 | 2 | incr | 15.65 | 63.90 | 0.31 |
+| atomic  w=2 stride=8 (1/line) | 2 | incr | 4.00 | 250.15 | 0.08 |
+| atomic  w=2 stride=16 | 2 | incr | 3.99 | 250.67 | 0.08 |
+| plain   w=2 stride=1 | 2 | incr | 0.45 | 2245.17 | 0.01 |
+| plain   w=2 stride=8 (1/line) | 2 | incr | 0.44 | 2256.83 | 0.01 |
+| local   w=2 (store once) | 2 | incr | 0.50 | 1987.28 | 0.01 |
+| atomic  w=4 stride=1 | 4 | incr | 48.65 | 20.56 | 0.97 |
+| atomic  w=4 stride=2 | 4 | incr | 48.38 | 20.67 | 0.97 |
+| atomic  w=4 stride=8 (1/line) | 4 | incr | 5.31 | 188.30 | 0.11 |
+| atomic  w=4 stride=16 | 4 | incr | 5.31 | 188.43 | 0.11 |
+| plain   w=4 stride=1 | 4 | incr | 0.74 | 1355.29 | 0.01 |
+| plain   w=4 stride=8 (1/line) | 4 | incr | 0.77 | 1299.29 | 0.02 |
+| local   w=4 (store once) | 4 | incr | 0.72 | 1391.11 | 0.01 |
+| atomic  w=8 stride=1 | 8 | incr | 89.85 | 11.13 | 1.80 |
+| atomic  w=8 stride=2 | 8 | incr | 53.19 | 18.80 | 1.06 |
+| atomic  w=8 stride=8 (1/line) | 8 | incr | 10.58 | 94.51 | 0.21 |
+| atomic  w=8 stride=16 | 8 | incr | 10.57 | 94.65 | 0.21 |
+| plain   w=8 stride=1 | 8 | incr | 1.02 | 975.61 | 0.02 |
+| plain   w=8 stride=8 (1/line) | 8 | incr | 1.02 | 981.69 | 0.02 |
+| local   w=8 (store once) | 8 | incr | 1.01 | 987.17 | 0.02 |
+| atomic  w=12 stride=1 | 12 | incr | 119.56 | 8.36 | 2.39 |
+| atomic  w=12 stride=2 | 12 | incr | 70.36 | 14.21 | 1.41 |
+| atomic  w=12 stride=8 (1/line) | 12 | incr | 10.63 | 94.10 | 0.21 |
+| atomic  w=12 stride=16 | 12 | incr | 10.63 | 94.09 | 0.21 |
+| plain   w=12 stride=1 | 12 | incr | 1.33 | 751.46 | 0.03 |
+| plain   w=12 stride=8 (1/line) | 12 | incr | 1.38 | 723.35 | 0.03 |
+| local   w=12 (store once) | 12 | incr | 1.30 | 766.75 | 0.03 |
 
 
   every stride agrees on the total (atomic + local): True
@@ -2809,12 +2838,12 @@ Contract (seeding, range, determinism) in `test_noise`.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| perlin2 | 65536 | sample | 14.88 | 67.22 | 0.97 |
-| perlin3 | 65536 | sample | 34.01 | 29.41 | 2.23 |
-| value3 | 65536 | sample | 16.63 | 60.13 | 1.09 |
-| worley3 | 65536 | sample | 118.38 | 8.45 | 7.76 |
-| fbm2 (5 oct) | 65536 | sample | 84.70 | 11.81 | 5.55 |
-| fbm3 (5 oct) | 65536 | sample | 173.63 | 5.76 | 11.38 |
+| perlin2 | 65536 | sample | 12.28 | 81.45 | 0.80 |
+| perlin3 | 65536 | sample | 27.24 | 36.71 | 1.79 |
+| value3 | 65536 | sample | 13.43 | 74.45 | 0.88 |
+| worley3 | 65536 | sample | 99.61 | 10.04 | 6.53 |
+| fbm2 (5 oct) | 65536 | sample | 69.37 | 14.42 | 4.55 |
+| fbm3 (5 oct) | 65536 | sample | 135.50 | 7.38 | 8.88 |
 
 
 ## Maturity assessment
