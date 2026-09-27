@@ -993,7 +993,50 @@ def deps_transitive(
     return visited^
 
 
+def mod_deps_direct(
+    target: String, lt: LayerTable, dirs: Dirs, imports: List[ImportRow]
+) -> List[String]:
+    """Modules (as `pkg.mod`) that module `target` (`pkg.mod`) imports.
+    A bare package import (`import geometry`) is reported as the package."""
+    var seen = List[String]()
+    for r in imports:
+        if r.package + "." + r.module != target:
+            continue
+        var known = (r.target_pkg in lt.layers) or contains(dirs.infra, r.target_pkg)
+        if not known:
+            continue
+        var dep = r.target_pkg
+        if r.target_mod.byte_length() > 0:
+            dep = r.target_pkg + "." + r.target_mod
+        if dep != target and not contains(seen, dep):
+            seen.append(dep)
+    sort(seen)
+    return seen^
+
+
 def cmd_deps(lt: LayerTable, dirs: Dirs, imports: List[ImportRow], pkg: String, all_: Bool):
+    if "." in pkg:
+        # Module form: `deps collision.queries` -> the modules it imports.
+        var mdirect = mod_deps_direct(pkg, lt, dirs, imports)
+        print("deps(" + pkg + ") direct:")
+        for d in mdirect:
+            print("  " + d)
+        if all_:
+            var visited = List[String]()
+            var frontier = mdirect.copy()
+            while len(frontier) > 0:
+                var cur = frontier.pop()
+                if contains(visited, cur) or cur == pkg:
+                    continue
+                visited.append(cur)
+                for d in mod_deps_direct(cur, lt, dirs, imports):
+                    if not contains(visited, d):
+                        frontier.append(d)
+            sort(visited)
+            print("deps(" + pkg + ") transitive:")
+            for d in visited:
+                print("  " + d)
+        return
     var direct = deps_direct(pkg, lt, dirs, imports)
     print("deps(" + pkg + ") direct:")
     for d in direct:
