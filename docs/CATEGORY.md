@@ -58,6 +58,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |
+| 曲線表示:generalized Catmull-Rom(comptime `alpha`:uniform/centripetal/chordal)vs 分段三次 Bezier(17.36) | geometry/spline.mojo(`CatmullRom.segment_bezier`) | 同一段曲線的兩個表示函子;`alpha=0` 化簡為教科書封閉式「均勻 CR = Bezier(P1, P1+(P2-P0)/6, P2-(P3-P1)/6, P2)」,任意 `alpha` 走同一 Barry-Goldman 構造的 Hermite→Bezier 轉換,不是特例分支 | `test_spline`、`test_spline_parity`、`test_spline_frames`(RMF motor 幀 + galie 測地線內插,同層跨模組整合) | `bench_spline` |
 
 **架構定律**:任何新 seam 實作必須附上它的自然性方格(parity 測試)。這是引擎
 「swappability holds end-to-end」的形式化理由。
