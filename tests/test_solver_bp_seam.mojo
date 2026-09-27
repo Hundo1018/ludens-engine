@@ -1,6 +1,6 @@
 """Seam parity: EVERY dim-3-capable `BroadPhase` backend, plugged into
 `ContactScene6[QuatBody6, BP]`, must reproduce the brute nested-loop
-reference bit-for-bit (spec .campaign/spec_17.0e.md, audit finding F2).
+reference bit-for-bit (spec docs/design/17.0e-collider-set.md, audit finding F2).
 
 `collision.contact_gen.collect_bp_pairs` is what makes this true regardless
 of a backend's own internal order (`bp_sap.mojo`'s docstring: "order is not

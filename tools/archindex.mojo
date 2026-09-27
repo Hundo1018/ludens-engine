@@ -1,5 +1,5 @@
 """Architecture index + gate for ludens-engine (ROADMAP 17.0a; docs/ARCHITECTURE.md
-S4-S5; spec: .campaign/archindex_spec.md).
+S4-S5; spec: docs/design/archindex.md).
 
 Builds an index of every declaration (from `mojo doc`'s own JSON dump, so
 struct/trait/function/alias/raises facts have zero textual false positives)
@@ -17,7 +17,8 @@ Commands (see `pixi run arch -- <cmd>`):
   def NAME [--prefix]   every declaration named NAME (or name-prefixed)
   impl TRAIT            every struct whose parentTraits contain TRAIT
   uses TARGET           importers of a module (pkg.mod) or a symbol (Name)
-  deps MODULE [--all]   packages a package imports (direct, or --all transitive)
+  deps TARGET [--all]   what a package (`physics`) or module (`physics.solver6`)
+                        imports, direct or --all transitive
   raises PKG            functions/methods with raises=true in PKG
   summary [PKG]         per-package layer/modules/LOC/structs/traits/fan-in/out
   check                 layers + cycles + reach-through + missing-package gate

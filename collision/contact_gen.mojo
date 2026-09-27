@@ -145,7 +145,7 @@ def try_pair(
     # sensor overlapping a static mesh/heightfield reaches `pair_manifold`
     # directly instead of the triangle-aware `try_mesh_pair` path, and falls
     # into that function's capsule-capsule catch-all (F4a in
-    # .campaign/arch_audit.md). Not fixed here (behaviour-preserving step);
+    # docs/audits/2026-09-27-architecture.md). Not fixed here (behaviour-preserving step);
     # 17.0f makes both branches exhaustive together."""
     if not colliders.should_collide(i, j):
         return

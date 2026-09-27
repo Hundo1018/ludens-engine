@@ -158,6 +158,31 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | 線性解:全域 CG/PCG vs 局部 Jacobi 掃;Jacobi 前條件子 on/off | numerics/cg.mojo、sparse.mojo | 同一線性系統的迭代子家族;matrix-free 與顯式 CSR 兩路徑 | `test_numerics` | `bench_numerics` |
 | LBM Smagorinsky LES vs 純 BGK(常數為 0 ⇒ 逐位相同) | fluid/lbm.mojo(`eddy_viscosity`) | 同一碰撞算子的湍流閉合變體;優勢區是粗網格高 Re(BGK 發散、LES 收斂) | `test_lbm_les` | `bench_lbm`(LES 表) |
 
+### 2.2 `diag`(可觀測性層,Phase 17.9/17.10/17.32–17.34,2026-09-27)
+
+`diag` 是 layer 0(見 `docs/ARCHITECTURE.md` §1),零引擎依賴,錯誤處理政策
+(§2)的 detect/record/terminate 三層都落在這裡。它自己也長出兩個效能 seam:
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 每幀暫存記錄:`FrameArena` bump 配置(一次配置、`reset()` 重用)vs 每幀新建 `List` | diag/arena.mojo | 同一「每幀 N 筆暫存記錄」需求的兩個配置策略;逐值內容相等(`test_diag_arena` 的 parity 檢查),配置開銷不同 | `test_diag_arena` | `bench_diag`(arena vs list 表) |
+| 分級日誌 / 追蹤 span 的 compile-time on/off(`LUDENS_LOG_LEVEL`／`LUDENS_TRACE`) | diag/log.mojo、diag/trace.mojo | 同一呼叫點在兩個編譯期特化下的行為;停用側必須是「本來就沒呼叫」的自然態射(單位態射),而非「呼叫了但跳過」 | `test_diag_log`、`test_diag_trace` | `bench_diag`(log 表量到 disabled==no-call within noise;trace 表量到 on/off 皆為 few% of a phase-sized span) |
+
+第一列沒有共用 trait 統一 `FrameArena`/`List`(曾考慮做一個
+`FrameAllocator`-風格 trait,後放棄):兩者的呼叫形狀本質不同
+——`List` 不需要預知總數就能逐步成長,`FrameArena.alloc[T]` 需要一次要求
+`n`——沒有生產呼叫點需要在兩者間透過共用介面切換(切換只發生在 benchmark 這一
+層),強行做出的 trait 不會反映任何真實呼叫點的用法。定律 v2 要求的是「parity
+測試 + benchmark row」,不是「必須有 trait」——這裡以逐值內容相等的 parity 檢
+查(`test_diag_arena`)取代,量測仍在 `bench_diag`。
+
+第二列的「定律」跟其他 seam 不同:不是「兩個變體算出同一個答案」,而是「停用
+的那一側必須什麼都沒發生」——`log[level]`﹑`TraceBuffer.begin`/`end` 用
+`comptime if` 把停用分支消去到空函式體,`test_diag_log`/`test_diag_trace` 直接
+斷言停用時 ring/buffer 保持空;`bench_diag` 則把這個「什麼都沒發生」換算成數
+字(log 停用 vs 完全不呼叫,誤差在雜訊內;trace 停用/啟用相對一個真實 phase
+大小的 span,開銷同樣落在雜訊內)。
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

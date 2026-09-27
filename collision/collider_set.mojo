@@ -151,7 +151,7 @@ struct ColliderSet(Movable, Deinitable):
         # 17.0f: `half`/`fat_aabb` centre this on the OWNING BODY's pose
         # (`Pose3.position`), but these vertices are already world-space and
         # the body pose is meant to be ignored for kinds 4/5 (F3 in
-        # .campaign/arch_audit.md). A level added at a non-origin body pose
+        # docs/audits/2026-09-27-architecture.md). A level added at a non-origin body pose
         # is culled wrong under `broadphase=True`. Not fixed here (17.0e is
         # behaviour-preserving); fix alongside the other three shape bugs."""
         var m = TriMesh(verts, indices)
