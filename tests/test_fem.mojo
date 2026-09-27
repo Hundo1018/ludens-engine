@@ -1,3 +1,4 @@
+# tier: integration
 """Co-rotational FEM: the properties that separate a continuum from a lattice.
 
 Check 1 is the one that matters. Linear elasticity measures strain from

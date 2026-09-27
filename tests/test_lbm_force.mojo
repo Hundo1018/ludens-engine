@@ -1,3 +1,4 @@
+# tier: component
 """Surface force integration: turning the tunnel into a measurement (14.4).
 
 Momentum exchange accumulates the force on a solid across its bounce-back

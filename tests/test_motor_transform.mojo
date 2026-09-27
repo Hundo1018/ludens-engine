@@ -1,3 +1,4 @@
+# tier: integration
 """G3 parity: motor-based hierarchy propagation vs the matrix path, and screw
 dynamics vs analytic motion.
 

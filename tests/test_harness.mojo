@@ -1,3 +1,4 @@
+# tier: unit
 # Self-test for the test harness.
 # Run: pixi run mojo precompile ludens-engine/harness -o build/harness.mojopkg
 #      pixi run mojo run -I build tests/test_harness.mojo

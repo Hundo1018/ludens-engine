@@ -1,3 +1,4 @@
+# tier: component
 """The swappability contract: an identical scenario produces identical results
 on the sparse-set backend and the archetype backend."""
 

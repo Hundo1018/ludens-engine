@@ -1,3 +1,4 @@
+# tier: component
 """Lattice Boltzmann: core, bounce-back obstacles, and tunnel boundaries (v3).
 
 Covers roadmap 14.1 (D3Q19 collide/stream), 14.2 (half-way bounce-back with

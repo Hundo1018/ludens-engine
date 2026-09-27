@@ -1,3 +1,4 @@
+# tier: component
 """Push-based observer gates (ROADMAP 4.4): trigger-order determinism and
 semantic parity with manual polling on the reactive backend."""
 

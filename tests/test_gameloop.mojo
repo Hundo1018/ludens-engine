@@ -1,3 +1,4 @@
+# tier: integration
 """Fixed-timestep driver: step counting, accumulation, and the spiral-of-death cap.
 
 Drives a `SequentialScheduler` whose only system increments a counter component,

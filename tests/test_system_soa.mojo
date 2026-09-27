@@ -1,3 +1,4 @@
+# tier: component
 """The fast paths must equal the ergonomic path: running the same movement via
 the handle path (query2 + get/set), the scalar SoA path (query2_views), and the
 SIMD path (integrate2_simd) over identical initial state must agree."""

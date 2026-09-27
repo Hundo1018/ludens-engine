@@ -1,3 +1,4 @@
+# tier: component
 """Gradients through RIGID contact: where they are exact, and where the whole
 idea stops being well posed.
 

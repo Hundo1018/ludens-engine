@@ -1,3 +1,4 @@
+# tier: component
 """A floating base, gated on the things a fixed base can never test.
 
 Three gates carry this file.

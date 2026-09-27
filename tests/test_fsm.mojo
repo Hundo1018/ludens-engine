@@ -1,3 +1,4 @@
+# tier: unit
 from harness.runner import Suite
 from scheduler.fsm import StateMachine
 

@@ -1,3 +1,4 @@
+# tier: integration
 """Scene queries: known-scene raycast/overlap checked across all four backends.
 
 Four boxes on the axis-0 line at coord 1,3,5,7. A ray from the negative side hits

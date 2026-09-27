@@ -1,3 +1,4 @@
+# tier: integration
 """GPU broadphase parity: the device pair SET must equal brute force's.
 
 Only the set is compared, never the order: hits are appended through a single

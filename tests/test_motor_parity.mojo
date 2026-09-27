@@ -1,3 +1,4 @@
+# tier: component
 """Motor / Lie / DualQuat parity (G2): three representations of SE(3)/SE(2) —
 PGA motors, quaternion+translation, matrices — must move points identically,
 and the Lie layer (exp/log/geodesic) must round-trip and reduce to slerp for

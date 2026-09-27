@@ -1,3 +1,4 @@
+# tier: component
 """Smagorinsky subgrid model (roadmap 14.5).
 
 A turbulence model earns its place by letting a coarse grid run a flow it

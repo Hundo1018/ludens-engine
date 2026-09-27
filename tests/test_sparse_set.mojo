@@ -1,3 +1,4 @@
+# tier: unit
 from harness.runner import Suite
 from ecs.sparse_set import SparseSet
 

@@ -1,3 +1,4 @@
+# tier: integration
 """Broadphase swappability contract: BruteForce, QuadTree, SpatialHash and BVH
 must all report the same set of true AABB-overlap pairs for a fixed scene."""
 

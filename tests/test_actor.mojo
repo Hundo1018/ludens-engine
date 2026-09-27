@@ -1,3 +1,4 @@
+# tier: integration
 """Actor scheduling, hardened (architecture law v3).
 
 `test_scheduler_parity` already shows the actor schedulers reach the same world

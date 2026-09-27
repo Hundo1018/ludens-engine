@@ -1,3 +1,4 @@
+# tier: component
 """Reduced-coordinate contact: an articulated body that can touch the world.
 
 Until now the two halves of the engine could not meet — `Chain` integrates in

@@ -1,3 +1,4 @@
+# tier: unit
 """Work-stealing pool contract: every task runs exactly once.
 
 The pool hands out indices with atomic `fetch_add` on per-range cursors and

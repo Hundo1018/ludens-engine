@@ -1,3 +1,4 @@
+# tier: integration
 """GPU Morton sort for LBVH: the device order must equal the CPU order.
 
 The check is exact permutation equality against a host sort of the same codes,

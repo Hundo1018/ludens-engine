@@ -1,3 +1,4 @@
+# tier: component
 from std.sys import has_accelerator
 from harness.runner import Suite
 from physics.vbd_cloth import cpu_vbd_run, gpu_vbd_run

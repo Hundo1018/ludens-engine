@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from geometry.vec import Vec2
 from geometry.shape import Polygon

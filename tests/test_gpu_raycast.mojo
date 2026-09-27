@@ -1,3 +1,4 @@
+# tier: integration
 """Batched GPU raycast parity against the CPU BVH.
 
 Unlike the GPU broadphase, this result is fully deterministic — each thread

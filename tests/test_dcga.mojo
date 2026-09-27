@@ -1,3 +1,4 @@
+# tier: component
 """DCGA spike: one inner product answers plane, sphere AND torus.
 
 The torus is the point of the exercise. It is a quartic, so it is not a CGA

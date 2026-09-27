@@ -1,3 +1,4 @@
+# tier: integration
 """Animation runtime: clips, blending and state-machine-driven playback (v3).
 
 The skinning maths already existed; what this gates is the runtime around it —

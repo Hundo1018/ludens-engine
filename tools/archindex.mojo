@@ -1123,35 +1123,165 @@ def is_valid_tier(t: String) -> Bool:
     )
 
 
-def read_tier_header(path: String) raises -> String:
+@fieldwise_init
+struct TierHeader(Copyable, Movable):
+    var present: Bool
+    var tier: String
+    var is_override: Bool
+    var reason: String
+
+
+def parse_tier_header(path: String) raises -> TierHeader:
+    """The header is the file's FIRST line only -- exactly `# tier: <tier>`
+    or `# tier: <tier>  (override: <reason>)` -- not scanned anywhere else
+    in the file (docs/design/17.0b-test-tiers.md)."""
     var lines = read_lines(path)
     comptime TAG = "# tier:"
-    for line in lines:
-        var s = String(line.strip())
-        if s.startswith(TAG):
-            var val = String(s[byte = TAG.byte_length() : s.byte_length()].strip())
-            return val
-    return String("")
+    if len(lines) == 0:
+        return TierHeader(False, String(""), False, String(""))
+    var first = String(lines[0].strip())
+    if not first.startswith(TAG):
+        return TierHeader(False, String(""), False, String(""))
+    var rest = String(first[byte = TAG.byte_length() : first.byte_length()].strip())
+    comptime OV_TAG = "(override:"
+    var ov_idx = rest.find(OV_TAG)
+    if ov_idx < 0:
+        return TierHeader(True, rest, False, String(""))
+    var tier_part = String(rest[byte=0:ov_idx].strip())
+    var reason_raw = String(rest[byte = ov_idx + OV_TAG.byte_length() : rest.byte_length()].strip())
+    if reason_raw.endswith(")"):
+        var reason_no_paren = String(reason_raw[byte=0 : reason_raw.byte_length() - 1])
+        reason_raw = reason_no_paren
+    var reason = String(reason_raw.strip())
+    return TierHeader(True, tier_part, True, reason)
 
 
-def transitive_closure_from(
-    seeds: List[String], lt: LayerTable, dirs: Dirs, imports: List[ImportRow]
-) -> List[String]:
-    var visited = List[String]()
-    var frontier = List[String]()
-    for s in seeds:
-        if not contains(visited, s):
-            visited.append(s)
-            frontier.append(s)
-    while len(frontier) > 0:
-        var cur = frontier.pop()
-        var direct = deps_direct(cur, lt, dirs, imports)
-        for d in direct:
-            if not contains(visited, d):
-                visited.append(d)
-                frontier.append(d)
-    sort(visited)
-    return visited^
+@fieldwise_init
+struct TierFacts(Movable):
+    """The mechanical span computation (docs/design/17.0b-test-tiers.md
+    "Rule"): D = engine modules the test imports directly, excluding
+    `harness.*`/`diag.*`; span = packages(D) union the packages the MODULES
+    IN D import (one hop only -- the entry point's own wiring, never a
+    transitive walk past it), minus `geometry` when anything else remains."""
+    var d_module_count: Int
+    var span: List[String]
+    var has_gameloop: Bool
+    var has_ecs: Bool
+    var has_physics: Bool
+
+
+def compute_tier_facts(relpath: String, dirs: Dirs, imports: List[ImportRow]) -> TierFacts:
+    var d_pkgs = List[String]()
+    var d_mod_pkg = List[String]()
+    var d_mod_name = List[String]()
+    var has_gameloop = False
+    var has_ecs = False
+    var has_physics = False
+
+    for r in imports:
+        if r.path != relpath:
+            continue
+        if r.target_pkg == "scheduler" and r.target_mod == "gameloop":
+            has_gameloop = True
+        if r.target_pkg == "ecs":
+            has_ecs = True
+        if r.target_pkg == "physics":
+            has_physics = True
+        # D excludes harness.*/diag.* by name (every test uses them; they say
+        # nothing about a test's own span) and is otherwise restricted to
+        # recognized engine packages, so stdlib/python-interop imports never
+        # pollute it.
+        if r.target_pkg == "harness" or r.target_pkg == "diag":
+            continue
+        if not contains(dirs.layered, r.target_pkg):
+            continue
+        var is_new_mod = True
+        for i in range(len(d_mod_pkg)):
+            if d_mod_pkg[i] == r.target_pkg and d_mod_name[i] == r.target_mod:
+                is_new_mod = False
+        if is_new_mod:
+            d_mod_pkg.append(r.target_pkg)
+            d_mod_name.append(r.target_mod)
+        if not contains(d_pkgs, r.target_pkg):
+            d_pkgs.append(r.target_pkg)
+
+    # One hop: for every module the test imports directly, the packages
+    # THAT module itself imports -- never a transitive walk past it (that
+    # was the old, wrong rule: see the spec's "Problem with the first rule").
+    var span = List[String]()
+    for p in d_pkgs:
+        span.append(p)
+    for i in range(len(d_mod_pkg)):
+        var p = d_mod_pkg[i]
+        var m = d_mod_name[i]
+        for r in imports:
+            if r.package != p or r.module != m:
+                continue
+            if r.target_pkg == p:
+                continue
+            if not contains(dirs.layered, r.target_pkg):
+                continue
+            if not contains(span, r.target_pkg):
+                span.append(r.target_pkg)
+
+    if len(span) > 1 and contains(span, "geometry"):
+        var reduced = List[String]()
+        for s in span:
+            if s != "geometry":
+                reduced.append(s)
+        span = reduced^
+
+    sort(span)
+    return TierFacts(len(d_mod_pkg), span^, has_gameloop, has_ecs, has_physics)
+
+
+def is_trait_seam(relpath: String, only_pkg: String, decls: List[Decl], imports: List[ImportRow]) -> Bool:
+    """`component`'s other admission rule: the test imports (by name) a
+    trait declared in the single surviving package, and >=2 structs anywhere
+    conform to it -- a seam exercised across variants."""
+    for r in imports:
+        if r.path != relpath or r.target_pkg != only_pkg:
+            continue
+        for d in decls:
+            if d.package != only_pkg or d.kind != "trait" or d.name != r.target_name:
+                continue
+            var impl_count = 0
+            for d2 in decls:
+                if d2.kind == "struct" and csv_contains(d2.traits_csv, d.name):
+                    impl_count += 1
+            if impl_count >= 2:
+                return True
+    return False
+
+
+def suggest_tier(
+    relpath: String, fname: String, facts: TierFacts, decls: List[Decl], imports: List[ImportRow]
+) -> String:
+    if fname.startswith("test_stress_"):
+        return "stress"
+    if facts.has_gameloop and facts.has_ecs and facts.has_physics:
+        return "system"
+    if len(facts.span) >= 2:
+        return "integration"
+    if len(facts.span) == 1:
+        if facts.d_module_count >= 2:
+            return "component"
+        if is_trait_seam(relpath, facts.span[0], decls, imports):
+            return "component"
+        return "unit"
+    return "unit"
+
+
+def tier_status(header: TierHeader, suggested: String) -> String:
+    var valid_name = header.present and is_valid_tier(header.tier)
+    if not valid_name:
+        return "MISSING/INVALID"
+    if header.tier == suggested:
+        return "OK"
+    var has_reason = header.is_override and header.reason.byte_length() > 0
+    if has_reason:
+        return "OK (override: " + header.reason + ")"
+    return "MISMATCH"
 
 
 def cmd_tiers(
@@ -1165,76 +1295,20 @@ def cmd_tiers(
     var bad = 0
     for fname in files:
         var relpath = "tests/" + fname
-        var declared = read_tier_header(relpath)
-        var declared_label = declared if declared.byte_length() > 0 else String("MISSING")
-        var valid = declared.byte_length() > 0 and is_valid_tier(declared)
-        if not valid:
+        var header = parse_tier_header(relpath)
+        var declared_label = header.tier if header.present else String("MISSING")
+
+        var facts = compute_tier_facts(relpath, dirs, imports)
+        var suggested = suggest_tier(relpath, fname, facts, decls, imports)
+        var status = tier_status(header, suggested)
+        if not status.startswith("OK"):
             bad += 1
 
-        # direct targets of THIS file only, restricted to layered packages
-        var direct_targets = List[String]()
-        var has_gameloop = False
-        var has_ecs = False
-        var has_physics = False
-        for r in imports:
-            if r.path != relpath:
-                continue
-            if r.target_pkg == "scheduler" and r.target_mod == "gameloop":
-                has_gameloop = True
-            if r.target_pkg == "ecs":
-                has_ecs = True
-            if r.target_pkg == "physics":
-                has_physics = True
-            if contains(dirs.layered, r.target_pkg) and not contains(direct_targets, r.target_pkg):
-                direct_targets.append(r.target_pkg)
-
-        var span = transitive_closure_from(direct_targets, lt, dirs, imports)
-        var span_final = List[String]()
-        for s in span:
-            if s != "diag" and s != "harness":
-                span_final.append(s)
-        if len(span_final) > 1 and contains(span_final, "geometry"):
-            var reduced = List[String]()
-            for s in span_final:
-                if s != "geometry":
-                    reduced.append(s)
-            span_final = reduced^
-
-        var suggested: String
-        if fname.startswith("test_stress_"):
-            suggested = "stress"
-        elif has_gameloop and has_ecs and has_physics:
-            suggested = "system"
-        elif len(span_final) >= 2:
-            suggested = "integration"
-        elif len(span_final) == 1:
-            var only_pkg = span_final[0]
-            var mods = List[String]()
-            for r in imports:
-                if r.path == relpath and r.target_pkg == only_pkg and not contains(mods, r.target_mod):
-                    mods.append(r.target_mod)
-            if len(mods) > 1:
-                suggested = "component"
-            else:
-                var is_trait_seam = False
-                for r in imports:
-                    if r.path != relpath or r.target_pkg != only_pkg:
-                        continue
-                    for d in decls:
-                        if d.package == only_pkg and d.kind == "trait" and d.name == r.target_name:
-                            var impl_count = 0
-                            for d2 in decls:
-                                if d2.kind == "struct" and csv_contains(d2.traits_csv, d.name):
-                                    impl_count += 1
-                            if impl_count >= 2:
-                                is_trait_seam = True
-                suggested = "component" if is_trait_seam else "unit"
-        else:
-            suggested = "unit"
-
-        var span_str = "[" + join_sep(span_final, ",") + "]"
-        var status = "OK" if (valid and declared == suggested) else ("MISMATCH" if valid else "MISSING/INVALID")
-        print(fname + "  declared=" + declared_label + "  span=" + span_str + "  suggested=" + suggested + "  " + status)
+        var span_str = "[" + join_sep(facts.span, ",") + "]"
+        print(
+            fname + "  declared=" + declared_label + "  span=" + span_str
+            + "  suggested=" + suggested + "  " + status
+        )
 
     print("tiers: " + String(len(files) - bad) + "/" + String(len(files)) + " have a valid header")
     if check_only and bad > 0:
@@ -1471,10 +1545,23 @@ def cmd_selftest() raises:
     os.makedirs(tmpdir + "/high")
     os.makedirs(tmpdir + "/cyc")
     os.makedirs(tmpdir + "/orphan")
+    # `tiers` fixtures: package names mirror docs/ARCHITECTURE.md so the
+    # rule's magic names (`scheduler.gameloop`, `ecs`, `physics`, `geometry`,
+    # `diag`, `harness`) exercise the real span/system/geometry-minus logic.
+    os.makedirs(tmpdir + "/diag")
+    os.makedirs(tmpdir + "/geometry")
+    os.makedirs(tmpdir + "/spatial")
+    os.makedirs(tmpdir + "/ecs")
+    os.makedirs(tmpdir + "/physics")
+    os.makedirs(tmpdir + "/scheduler")
+    os.makedirs(tmpdir + "/collision")
+    os.makedirs(tmpdir + "/harness")
+    os.makedirs(tmpdir + "/tests")
 
     var toml_content = (
-        '[layers]\nlow = 0\nmid = 1\nmidb = 1\nhigh = 2\ncyc = 1\n\n'
-        + '[infrastructure]\npackages = []\nconsumers = []\n\n'
+        '[layers]\nlow = 0\nmid = 1\nmidb = 1\nhigh = 2\ncyc = 1\n'
+        + 'diag = 0\ngeometry = 1\nspatial = 2\necs = 2\nphysics = 3\nscheduler = 3\ncollision = 3\n\n'
+        + '[infrastructure]\npackages = ["harness"]\nconsumers = ["tests"]\n\n'
         + '[allow_private]\n"high/h_allowed.mojo:low.priv2._other" = "selftest fixture: deliberately allowed"\n'
     )
     write_file(tmpdir + "/scripts/arch_layers.toml", toml_content)
@@ -1499,16 +1586,76 @@ def cmd_selftest() raises:
     write_file(tmpdir + "/cyc/c.mojo", "from .a import thing_a\n")
     write_file(tmpdir + "/orphan/o1.mojo", "from low.l1 import thing\n")
 
+    write_file(tmpdir + "/diag/log.mojo", "def Logger():\n    pass\n")
+    write_file(tmpdir + "/geometry/vec.mojo", "def Vec3():\n    pass\n")
+    write_file(tmpdir + "/spatial/hashgrid.mojo", "def HashGrid():\n    pass\n")
+    write_file(tmpdir + "/spatial/quadtree.mojo", "def QuadTree():\n    pass\n")
+    write_file(tmpdir + "/ecs/world.mojo", "def World():\n    pass\n")
+    write_file(tmpdir + "/physics/rigid.mojo", "def RigidBody():\n    pass\n")
+    write_file(tmpdir + "/scheduler/gameloop.mojo", "def run_loop():\n    pass\n")
+    write_file(tmpdir + "/collision/broadphase.mojo", "from geometry.vec import Vec3\ndef BroadPhase():\n    pass\n")
+    write_file(tmpdir + "/harness/expect.mojo", "def expect_eq():\n    pass\n")
+
+    write_file(
+        tmpdir + "/tests/test_tier_unit_fixture.mojo",
+        "from geometry.vec import Vec3\nfrom diag.log import Logger\nfrom harness.expect import expect_eq\n",
+    )
+    write_file(
+        tmpdir + "/tests/test_tier_component_fixture.mojo",
+        "from spatial.hashgrid import HashGrid\nfrom spatial.quadtree import QuadTree\n",
+    )
+    write_file(
+        tmpdir + "/tests/test_tier_integration_fixture.mojo",
+        "from collision.broadphase import BroadPhase\nfrom physics.rigid import RigidBody\n",
+    )
+    write_file(
+        tmpdir + "/tests/test_tier_system_fixture.mojo",
+        "from scheduler.gameloop import run_loop\nfrom ecs.world import World\nfrom physics.rigid import RigidBody\n",
+    )
+    write_file(tmpdir + "/tests/test_stress_tier_fixture.mojo", "from geometry.vec import Vec3\n")
+    write_file(
+        tmpdir + "/tests/test_tier_override_fixture.mojo",
+        "# tier: component  (override: exercises all six broadphase backends through one trait)\n"
+        + "from geometry.vec import Vec3\n",
+    )
+
     os.chdir(tmpdir)
     var lt = load_layer_table("scripts/arch_layers.toml")
     var dirs = classify_dirs(lt)
     var imports = List[ImportRow]()
     scan_imports_only(dirs, imports)
     var violations = run_check(lt, dirs, imports)
+    var decls = List[Decl]()
+
+    var facts_unit = compute_tier_facts("tests/test_tier_unit_fixture.mojo", dirs, imports)
+    var tier_unit = suggest_tier("tests/test_tier_unit_fixture.mojo", "test_tier_unit_fixture.mojo", facts_unit, decls, imports)
+
+    var facts_component = compute_tier_facts("tests/test_tier_component_fixture.mojo", dirs, imports)
+    var tier_component = suggest_tier("tests/test_tier_component_fixture.mojo", "test_tier_component_fixture.mojo", facts_component, decls, imports)
+
+    var facts_integration = compute_tier_facts("tests/test_tier_integration_fixture.mojo", dirs, imports)
+    var tier_integration = suggest_tier("tests/test_tier_integration_fixture.mojo", "test_tier_integration_fixture.mojo", facts_integration, decls, imports)
+
+    var facts_system = compute_tier_facts("tests/test_tier_system_fixture.mojo", dirs, imports)
+    var tier_system = suggest_tier("tests/test_tier_system_fixture.mojo", "test_tier_system_fixture.mojo", facts_system, decls, imports)
+
+    var facts_stress = compute_tier_facts("tests/test_stress_tier_fixture.mojo", dirs, imports)
+    var tier_stress = suggest_tier("tests/test_stress_tier_fixture.mojo", "test_stress_tier_fixture.mojo", facts_stress, decls, imports)
+
+    var override_header = parse_tier_header("tests/test_tier_override_fixture.mojo")
+    var facts_override = compute_tier_facts("tests/test_tier_override_fixture.mojo", dirs, imports)
+    var tier_override_suggested = suggest_tier("tests/test_tier_override_fixture.mojo", "test_tier_override_fixture.mojo", facts_override, decls, imports)
+    var override_status = tier_status(override_header, tier_override_suggested)
+
+    var status_missing = tier_status(TierHeader(False, String(""), False, String("")), "unit")
+    var status_invalid = tier_status(TierHeader(True, String("bogus"), False, String("")), "unit")
+    var status_mismatch = tier_status(TierHeader(True, String("component"), False, String("")), "unit")
+    var status_empty_override = tier_status(TierHeader(True, String("component"), True, String("")), "unit")
+
     os.chdir(orig_cwd)
     shutil.rmtree(tmpdir, ignore_errors=True)
 
-    var total = 10
+    var total = 19
     var passed = 0
     var results = List[String]()
 
@@ -1560,6 +1707,52 @@ def cmd_selftest() raises:
     var c10 = violation_count_containing(violations, "orphan") == 1
     results.append("10. package missing from layer table flagged once: " + ("pass" if c10 else "FAIL"))
     if c10:
+        passed += 1
+
+    # tiers: one-hop span rule + tier priority order (docs/design/17.0b-test-tiers.md)
+    var c11 = tier_unit == "unit"
+    results.append("11. tiers: single-module span (harness/diag excluded) -> unit: " + ("pass" if c11 else "FAIL: got " + tier_unit))
+    if c11:
+        passed += 1
+
+    var c12 = tier_component == "component"
+    results.append("12. tiers: |D|>=2 in one package -> component: " + ("pass" if c12 else "FAIL: got " + tier_component))
+    if c12:
+        passed += 1
+
+    var c13 = tier_integration == "integration"
+    results.append("13. tiers: two direct packages -> integration: " + ("pass" if c13 else "FAIL: got " + tier_integration))
+    if c13:
+        passed += 1
+
+    var c14 = tier_system == "system"
+    results.append("14. tiers: gameloop+ecs+physics -> system: " + ("pass" if c14 else "FAIL: got " + tier_system))
+    if c14:
+        passed += 1
+
+    var c15 = tier_stress == "stress"
+    results.append("15. tiers: test_stress_* filename -> stress: " + ("pass" if c15 else "FAIL: got " + tier_stress))
+    if c15:
+        passed += 1
+
+    var c16 = override_header.is_override and override_header.reason == "exercises all six broadphase backends through one trait" and override_status.startswith("OK")
+    results.append("16. tiers: declared override with reason accepted despite mismatch: " + ("pass" if c16 else "FAIL"))
+    if c16:
+        passed += 1
+
+    var c17 = status_missing == "MISSING/INVALID" and status_invalid == "MISSING/INVALID"
+    results.append("17. tiers: missing/invalid header rejected: " + ("pass" if c17 else "FAIL"))
+    if c17:
+        passed += 1
+
+    var c18 = status_mismatch == "MISMATCH"
+    results.append("18. tiers: mismatched header without override rejected: " + ("pass" if c18 else "FAIL"))
+    if c18:
+        passed += 1
+
+    var c19 = status_empty_override == "MISMATCH"
+    results.append("19. tiers: override lacking a reason rejected: " + ("pass" if c19 else "FAIL"))
+    if c19:
         passed += 1
 
     for r in results:

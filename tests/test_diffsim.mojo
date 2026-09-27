@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from geometry.vec import Real
 from geometry.field import RealF, DualReal, DualBatch, Tape, RevReal, rev_seed

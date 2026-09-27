@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from ecs.world import World
 from ecs.reactive_backend import ReactiveBackend

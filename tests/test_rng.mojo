@@ -1,3 +1,4 @@
+# tier: component
 """PRNG contract parity: every generator must be reproducible from a seed, give
 distinct streams for distinct seeds, emit f32 in [0,1), and be coarsely uniform.
 The same generic harness runs over all three implementations.

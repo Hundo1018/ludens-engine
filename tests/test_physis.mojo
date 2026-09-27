@@ -1,3 +1,4 @@
+# tier: integration
 """Semi-implicit Euler integrator, verified on both ECS backends."""
 
 from harness.runner import Suite

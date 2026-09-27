@@ -1,3 +1,4 @@
+# tier: integration
 """Automatic dependency scheduling (architecture law v3).
 
 The claim is that a schedule derived from declared read/write sets produces the

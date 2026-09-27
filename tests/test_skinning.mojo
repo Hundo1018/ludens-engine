@@ -1,3 +1,4 @@
+# tier: component
 """Motor skinning (E3): DLB must reproduce single bones at weight endpoints,
 stay a unit motor, track the screw geodesic for moderate blends, agree with LBS
 on rigid cases — and, at the 180° twist where LBS collapses to the bone axis

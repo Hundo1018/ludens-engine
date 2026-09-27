@@ -1,3 +1,4 @@
+# tier: component
 """Large-N test: proves the sparse index has no fixed cap after WS1.
 
 Before WS1 every backend's `SparseSet` held its index as `Array[Int, 4096]`

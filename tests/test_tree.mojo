@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink

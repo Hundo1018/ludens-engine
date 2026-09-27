@@ -1,3 +1,4 @@
+# tier: integration
 """Collision filtering, sensors and contact events (architecture law v3).
 
 Filtering and events are one feature in two halves: a sensor is a body that is

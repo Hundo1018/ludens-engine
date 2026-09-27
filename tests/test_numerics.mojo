@@ -1,3 +1,4 @@
+# tier: integration
 """Sparse linear algebra and the implicit FEM step it unlocks (law v3).
 
 Every other solver in this engine is a LOCAL iteration — PBD projection, PGS,
