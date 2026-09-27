@@ -1541,6 +1541,49 @@ push/pop) is a fraction of a percent of a 20,000-op phase, which is the "a
 few % or less" bar this table exists to check.
 
 @bench benchmarks/bench_diag.mojo
+## Splines — parametric curves and rotation-minimising frames (17.36)
+
+`geometry/spline.mojo` unifies generalized Catmull-Rom (uniform / centripetal
+/ chordal, selected by a comptime `alpha`) and piecewise cubic Bezier behind
+one evaluator: a Catmull-Rom segment converts to its exact equivalent
+`CubicBezier` (Hermite-to-Bezier on the Barry-Goldman value+tangent), which is
+what the arc-length table, `closest_point`, and RMF-frame machinery are
+written against. That conversion is the `docs/CATEGORY.md` §2 seam ("same
+curve, two representations") — checked by `test_spline_parity`: the uniform
+case equals the textbook closed-form Bezier control points
+`P1, P1+(P2-P0)/6, P2-(P3-P1)/6, P2` to within 1e-6.
+
+Table 1 is `eval()` cost per family (path = 63 segments / 64 control points).
+`CubicBezier` (one segment, no segment lookup) is the floor. `BezierPath` — a
+`CatmullRom` converted ONCE via `to_bezier_path()` — costs ~1.8x that (one
+segment-locate plus the same Bernstein evaluation). Calling `.eval()` directly
+on a `CatmullRom` object costs substantially more, because it rebuilds that
+one segment's equivalent Bezier from scratch every call rather than caching
+it: ~4x a `BezierPath` eval for uniform (alpha=0, no transcendental call —
+its knot deltas are always exactly 1), and an order of magnitude more for
+centripetal/chordal, which both call `pow()` three times per rebuild
+(centripetal ~18x, chordal ~10x a `BezierPath` eval). Centripetal
+consistently lands ~1.8x above chordal across repeated runs despite both
+calling `pow()` the same number of times — plausibly this libm fast-paths an
+exponent of exactly 1.0 (chordal) but not a fractional one (0.5, centripetal).
+Practical takeaway: a caller evaluating the same Catmull-Rom curve
+repeatedly should call `to_bezier_path()` once and evaluate that, not
+`CatmullRom.eval` in a loop — exactly what `build_arc_length_table` and
+`build_rmf_frames` do internally.
+
+Table 2 is the arc-length table: build cost grows with the sample count N (as
+expected — it is an N-sample scan), while a single `sample_at_distance` query
+against an already-built N=256 table costs ~150x LESS than building that same
+table from scratch — the intended usage is build once per curve, query many
+times per frame (`examples/15_spline_rmf.mojo`'s constant-speed stepping does
+exactly this, one query per step, never rebuilding).
+
+Table 3 is `closest_point` (16 coarse samples + up to 8 Newton refinement
+steps, each a combined `eval_deriv`) on the same 63-segment path — ~60x a
+single `BezierPath` eval, consistent with doing on the order of 16-24
+evaluations per query before it converges.
+
+@bench benchmarks/bench_spline.mojo
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
