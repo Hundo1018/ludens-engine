@@ -1303,6 +1303,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | | 大 island / 高質量比 / 接觸密集堆疊壓力測試(現僅驗到 6 箱塔) | 17.19 |
 | **H** 半成品 / gated | 13.7 剛體 solver 可微化收尾(`solver6.mojo` 未穿 `Field`) | 17.20 |
 | | Phase 12 腳本層(gated on 核心 API 凍結) | 17.21 |
+| **I** 2026-09-27 增補盤點 | 物理材質、kinematic 型別、睡眠 API、日誌、斷言、frame arena、計時器 / 補間、樣條、實體池、事件匯流排 | 17.23–17.25 · 17.32–17.38 |
+| | 接觸修改、力場、浮力、可斷裂關節、地形變形、物理 LOD、輸入回放、存檔、繩索 | 17.26–17.31 · 17.39–17.41 |
 
 ### 現況校正(避免重複高估 / 低估)
 
@@ -1321,8 +1323,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 
 | Wave | 主題 | 項目 |
 |---|---|---|
-| **A** — 接線 + 工程 table stakes(低風險、槓桿高) | 讓引擎「能被當遊戲引擎用」 | 17.1 角色控制器 · 17.7 狀態插值 · 17.9 debug-draw · 17.10 profiling hooks · 17.13 查詢完整度 · 17.22 範例覆蓋 |
-| **B** — 差異化 / 解鎖多項(中風險) | 用 GA / 可微 / 決定論 spine 做別家沒有的 | 17.2 主動布娃娃 · 17.3 角色 IK · 17.6 動畫圖 · 17.11 反射 · 17.17 GPU 剛體 solver · 17.18 批次多世界 · 17.19 solver 硬化 · 17.20 13.7 收尾 |
+| **A** — 接線 + 工程 table stakes(低風險、槓桿高) | 讓引擎「能被當遊戲引擎用」 | 17.1 角色控制器 · 17.7 狀態插值 · 17.9 debug-draw · 17.10 profiling hooks · 17.13 查詢完整度 · 17.22 範例覆蓋 · **增補** 17.23 材質 · 17.24 kinematic · 17.25 睡眠 API · 17.32 日誌 · 17.33 斷言 · 17.34 frame arena · 17.35 計時器 / 補間 · 17.36 樣條 · 17.37 實體池 · 17.38 事件匯流排 |
+| **B** — 差異化 / 解鎖多項(中風險) | 用 GA / 可微 / 決定論 spine 做別家沒有的 | 17.2 主動布娃娃 · 17.3 角色 IK · 17.6 動畫圖 · 17.11 反射 · 17.17 GPU 剛體 solver · 17.18 批次多世界 · 17.19 solver 硬化 · 17.20 13.7 收尾 · **增補** 17.26 接觸修改 · 17.27 力場 · 17.28 浮力 · 17.29 可斷裂關節 · 17.30 地形變形 · 17.31 物理 LOD · 17.39 輸入回放 · 17.40 存檔 · 17.41 繩索 |
 | **C** — 大工程 / 綁平台決策(排後) | 成本高或先於技術的架構決策 | 17.4 載具 · 17.5 破壞 · 17.8 大世界座標 · 17.12 場景格式(gated) · 17.14 導航 · 17.15 AI · 17.16 網路(部分 gated) · 17.21 腳本(gated) |
 
 > **相依骨牌**:17.13 查詢 → 17.1 / 17.4 / 17.15(EQS)的前提;17.11 反射 → 17.12 場景
@@ -1333,6 +1335,28 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > MJCF/URDF 之因:格式綁定先於技術)。
 
 ---
+
+### 17.0 架構前置(Wave A 之前必做;2026-09-27 架構審計)
+> **緣起**:使用者要求全程顧及 (1) 模組職責 / 依賴方向 / 循環 / 上層摸底層實作、(2) 責任
+> 分離、(3) 錯誤處理分層、(4) 測試分層、(5) 自動化架構索引。對全樹做了一次唯讀審計
+> (25 項發現、24 個錯誤處理熱點,每項附 `path:line`),其中 10 項會讓 Wave A 直接蓋在錯的
+> 地基上,先修。契約本身見 `docs/ARCHITECTURE.md`。
+>
+> | 子項 | 內容 | 審計編號 |
+> |---|---|---|
+> | 17.0a | 架構閘門:`tools/archindex.mojo`(Mojo 寫;`mojo doc` 宣告 + import 圖)與 `check`(層級 / 循環 / 跨套件 `_` 私名),接進 `pixi run test`;修 `bp_bvh` 對 `geometry.bvh._Leaf` 的越界 | F9 |
+> | 17.0b | 測試分層:每個測試檔標 `# tier:`,runner 依層執行;以索引機械推導(受測模組橫跨的套件數)而非人工判讀;補 system 層(目前實質為空) | F9 |
+> | 17.0c | 契約修正:`diag` 在第 0 層且零引擎依賴(繪圖點用 `SIMD[dtype, 4]` 參數化型別),`geometry` 移到第 1 層;`bvh` / `gpu_lbvh` 移入 `spatial`(GPU 離開數學根套件);`WorldType` 寫死 f32 的 6 處改引用單一來源 | F6 · F17 |
+> | 17.0d | `geometry` 補公開 `cross` / `tangent_basis` / 線性 `Mat3x3`,收掉 11 份私有叉積副本 | F8 |
+> | 17.0e | **`collision/collider_set.mojo` + `contact_gen.mojo`**:把 collider 註冊與形狀配對分派從 solver6(physics,第 4 層)移回 collision,並讓 3D solver 走 `BroadPhase` seam(目前每步自建自丟 BVH,seam benchmark 量的是引擎不跑的路徑) | F1 · F2 |
+> | 17.0f | 讀碼可見的 4 個形狀處理 bug 先寫紅燈測試再修:偏心 mesh / heightfield 在 broadphase 下被剔除、sensor 對 mesh 落入 capsule 萬用分支、軟體把 hull / mesh 當球、CCD 無視過濾與 sensor;分派改為窮舉 + 未支援組合在 API 端拒絕 | F3 · F4 |
+> | 17.0g | `BodySet` + `BodyId` + 運動型別(static / kinematic / dynamic,即 17.24 落點)+ solver 自有的 snapshot / restore(serialize 不再直接改 13 條平行 List) | F5 · F20 |
+> | 17.0h | 錯誤政策落地到 Wave A 會碰的 API:邊界 `raise`(`add*` / `add_joint` / `step_soft` 參數 / `TriMesh` / `HeightField`)、步末 NaN 隔離 + `diag` 計數器 + 注入 NaN 的測試 | F10 |
+> | 17.0i | 執行期容器 `gameplay/runtime.mojo`(擁有 `World + ContactScene6 + FixedLoop` 與位姿→transform 同步):17.1 / 17.7 需要的「有狀態執行期」目前無處可放 | F15 |
+>
+> **Wave B 入口前置**(不擋 Wave A):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
+> **凍結**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)只剩測試 / benchmark 使用,也是 `CollisionPipeline` 唯一真實消費者;標為比較基準、不得新增依賴。**是否刪除待使用者決定。**
+> **驗收閘門(重構類)**:行為不變的重構以「全套測試 stdout 逐位相同(去除計時行)」為身分閘門,不是只看綠燈。
 
 ### 17.1 Kinematic 角色控制器 — Wave A
 > **現況**:無 —— SOTA_GAP §4「10 能力」表第 8 列(character controller / vehicle)❌,
@@ -1628,6 +1652,385 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **優勢區**:不適用(文件)。**規模軸**:不適用。**seam?**:否 —— 展示既有 seam,不新增。
 > **交付**:15–18 四支;驗收即 `pixi run examples` 全綠且每支印出兩條路徑的對照數字。
 
+### 17.23–17.41 增補:同量級、先前未入路線圖的缺口(2026-09-27 盤點)
+
+> **緣起**:使用者 2026-09-27 指示「探索是否有其他介於 A/B 之間的類似功能尚未排入
+> Roadmap,若有則將之排入」。方法:24 個候選逐一 grep 全部引擎套件與 `docs/`,只保留
+> 「程式碼中確實缺席或明顯不完整」且「不是任何既有條目子項」者 —— **保留 19、拒絕 5**
+> (拒絕理由見本節末)。每項的「現況」都附真實 `path:line` 或註明 grep 零命中的詞彙;
+> 格式同 17.1–17.22。**17.32 / 17.33 是 `docs/ARCHITECTURE.md` §2 錯誤處理政策的
+> 「記錄」與「終止」兩層的落地**,與 17.9 / 17.10 同住 `diag` 套件。
+
+### 17.23 物理材質與逐對組合模式 — Wave A
+
+> **現況**:`physics/rigidbody.mojo:20-22`(`inv_mass`/`restitution`/`friction` 是
+> per-body 純量),但 6-DOF solver 的 `Body6` trait(`physics/rigid6.mojo:88-107`)
+> **完全不含材質存取器**;`physics/solver6.mojo:244`(`restitution: List[Real] # per-body
+> coefficient (pair uses max)`——組合模式寫死 max);friction 在 solver6 走全域單一參數
+> `physics/solver6.mojo:1823`(`mu: Real = 0.5`),不是 per-body。舊版
+> `physics/solver.mojo:85`(`min(ba.restitution, bb.restitution)`)與
+> `physics/solver.mojo:101`(`sqrt(ba.friction * bb.friction)`)兩條路徑的組合規則
+> 互相不一致,且都不可配置。
+> **缺口**:solver6 側 per-body/per-shape 摩擦係數、可配置逐對組合模式(min / max /
+> average / multiply)、跨 solver 一致的材質規則。
+> **對照組**:Unity `PhysicMaterial.combine`、PhysX `PxCombineMode`、Jolt
+> `PhysicsMaterial`、UE `UPhysicalMaterial` + `FrictionCombineMode`。
+> **優勢區**:低 —— 純工程 table stakes;若疊加 17.20 可微化,組合權重理論上可學習,
+> 但目前無此串接。
+> **規模軸**:材質數 × 組合模式數(4)查表成本;body 數對 per-body friction 查詢的
+> 快取局部性。
+> **seam?**:是 —— 四種組合模式對同一 (a,b) 係數輸入 → 各自數學定義的 parity +
+> 查表 vs 計算的 bench。
+> **相依**:17.19(極端質量比常伴隨極端摩擦組合)、17.12(場景格式需序列化材質)。
+
+### 17.24 Kinematic 剛體型別(通用可移動體) — Wave A
+
+> **現況**:`physics/solver6.mojo:403`(`add(mut self, var b: Self.B, half: Vec3,
+> is_static: Bool)`)只有二元 `is_static` 旗標;`physics/forces.mojo:14-22`
+> (`apply_gravity`/`integrate_positions` 皆以 `not b.is_static()` 判斷是否推進);
+> `physics/solver6.mojo:888-892` prep 階段 `if not self.statics[i]: va0 = ...`——
+> static 一律視為零速度。動態/靜態两態,沒有第三態。
+> **缺口**:無限質量但由腳本設定速度、每步依速度積分位置(不受重力/衝量影響)、撞擊時
+> 仍把速度傳給動態剛體的「kinematic」型別(電梯、旋轉風扇、平台、活塞門)。與 17.1
+> 不同:17.1 是角色控制器**站上**移動平台時繼承其速度,這裡缺的是「平台本身」作為
+> 可移動物理實體存在於 solver 中的方式。
+> **對照組**:Unity `Rigidbody.isKinematic`、Jolt `EMotionType::Kinematic`、PhysX
+> `PxRigidBodyFlag::eKINEMATIC`、UE `Simulate Physics=false` + `Movable`。
+> **優勢區**:低-中 —— 與 17.1「移動平台速度繼承」共用驗收案例;motor 表示下的位姿
+> 插值可重用 17.7 的 geodesic。
+> **規模軸**:kinematic 體數 × 受影響動態體數;移動速度對穿隧風險(接 17.13/CCD)。
+> **seam?**:是 —— body 動作類型(static/dynamic/kinematic)是同一「位姿推進」態射的
+> 三個實例;kinematic 靜止時應與 static parity 一致 + bench(移動平台推擠成本)。
+> **相依**:17.1(第一個使用者)、17.13(移動 kinematic 需真實 shape 查詢而非
+> `BoxProxy`)。
+
+### 17.25 睡眠/喚醒生命週期公開 API — Wave A
+
+> **現況**:睡眠機制完整但全為內部管理:`physics/solver6.mojo:240-241`
+> (`sleeping`/`sleep_timer` 欄位)、`:357-400`(`_wake_islands`/`_update_sleep`,
+> 島級自動喚醒/入睡)、`:594-596`(`_inactive` 為**私有**方法,無公開
+> `is_sleeping`/`wake`)。喚醒目前只由接觸衝擊觸發(`docs/ROADMAP.md:90`)。
+> **缺口**:公開 `wake(i)`(如遠處爆炸判定後手動喚醒)、`is_sleeping(i)` 查詢(供
+> 17.2 判斷是否該讓動畫接手)、`set_can_sleep(i, bool)`(玩家載具永不睡)、瞬移後
+> 自動喚醒旗標。
+> **對照組**:Unity `Rigidbody.WakeUp()`/`IsSleeping()`、PhysX
+> `PxRigidDynamic::wakeUp()`、Jolt `BodyInterface::ActivateBody`、UE
+> `WakeRigidBody()`。
+> **優勢區**:低 —— table stakes,但直接解鎖 17.2 與 17.16。
+> **規模軸**:每幀外部喚醒呼叫數 vs 島重算成本;強制不睡體數對整體睡眠比例的影響。
+> **seam?**:否新 seam(既有機制介面化);普通(手動喚醒單體)/整合(觸發整島喚醒)/
+> 極端(喚醒 static 體、重複喚醒)。
+> **相依**:17.2、17.16。
+
+### 17.26 接觸修改 / 單向平台 — Wave B
+
+> **現況**:過濾機制只有靜態對稱位元遮罩:`physics/solver6.mojo:488-495`
+> (`set_filter(i, category, mask)` + `_should_collide`,docstring 明言
+> "Symmetric by construction")、`:498-501`(`set_sensor` 只能整體開關,無法依接觸
+> 法向/相對速度動態決定是否生效)。grep `ContactModify`/`PreSolve`/`contact_callback`/
+> `filter_contact` 於 `collision/`、`physics/` 全零命中。
+> **缺口**:逐接觸的執行期回呼/規則(依法向、相對速度、穿透深度決定接觸是否生效或被
+> 修改)。單向平台(由下往上穿越、由上落地才碰撞)是最小驗證案例;可延伸傳送帶
+> (修改切向速度)、逐接觸覆寫 restitution/friction。
+> **對照組**:Unity `PlatformEffector2D`、PhysX `PxContactModifyCallback`、Jolt
+> `ContactListener::OnContactValidate`、Godot `one_way_collision`。
+> **優勢區**:中 —— 回呼規則可設計為對相對速度的次梯度可微(供 17.20 學習式規則),
+> 對照組多為手寫硬規則。
+> **規模軸**:每幀受回呼影響的接觸數 vs 全量接觸的額外分支成本。
+> **seam?**:是 —— 靜態過濾 vs 動態接觸修改是同一「接觸是否生效」謂詞的兩層實作;
+> parity(回呼恆真時退化為現況)+ bench(callback overhead)。
+> **相依**:17.1(單向平台是角色控制器關卡常見元件)、17.13。
+
+### 17.27 力場 / 區域效果 — Wave B
+
+> **現況**:grep `ForceField`/`GravityZone`/`WindVolume`/`AreaEffect` 於
+> `physics/*.mojo`、`docs/*.md` 全零命中;`physics/forces.mojo:1-22` 只有全域重力
+> `apply_gravity`(對所有非 static 體施加同一向量);唯一衝量入口是
+> `physics/chain.mojo:676-702`(`apply_impulse`/`apply_impulse_with`),但那是縮座標
+> 鏈的單點 API,不是「對範圍內所有體施力」的工具。
+> **缺口**:可疊加、依查詢限定範圍的力產生器 —— 重力區(方向覆寫)、徑向力
+> (爆炸/吸引,依距離衰減)、風力區(定向+紊流)、拖曳區。
+> **對照組**:Unity `Rigidbody.AddExplosionForce`、UE `URadialForceComponent`/
+> Wind Directional Source、Godot `Area3D` 的 `gravity_point`/`linear_damp`。
+> **優勢區**:中 —— 風力區可重用 14.4 LBM 的動量交換係數(同 17.4「LBM Cd 餵回車體」
+> 模式),比對照組手調風場更有理論依據。
+> **規模軸**:區域數 × 受影響體數;查詢範圍大小 vs 每步重算力的成本。
+> **seam?**:是 —— 風力來源(常數向量 vs LBM 場採樣)→ parity(常數場退化一致)+
+> bench(採樣額外成本)。
+> **相依**:17.13(範圍查詢)、9.3(sensor 判定進出區域)、14.4(可選 LBM 耦合)。
+
+### 17.28 浮力 / 水體積 — Wave B
+
+> **現況**:grep `buoyan`/`Water` 於 `physics/`、`fluid/` 全零命中(唯一命中是不相關
+> 的 "watertight" 字面重疊,`docs/ROADMAP.md:1397`);唯一流體是 `fluid/lbm.mojo` 全網格
+> LBM 風洞,量級遠大於「水體積 trigger + Archimedes 力」的輕量 gameplay 機制。
+> **缺口**:體積化區域(復用 9.3 sensor)偵測浸沒體積比例、施加浮力(∝ 排開體積 ×
+> 流體密度 × g)+ 線性/角阻尼,不需完整 CFD。
+> **對照組**:常見 Unity `Buoyancy.cs` 樣式套件、UE `PhysicsVolume`(`bWaterVolume` +
+> `FluidFriction`)、Godot `Area3D` 自訂浮力腳本。
+> **優勢區**:中 —— 浸沒體積若走 `geometry/sdf3.mojo` 隱式場或既有 hull 交集,可比
+> 對照組常見的盒體近似更精確;長遠可與 14.4 LBM 阻力係數耦合成「輕量浮力 + 重量級
+> 尾流」雙軌案例。
+> **規模軸**:浸沒體積計算複雜度(box/sphere 解析 vs hull 數值積分)× 受影響體數。
+> **seam?**:是 —— 浸沒體積估計(AABB 近似 vs 解析 vs hull 數值積分)→ parity(規則
+> 形狀下解析與數值積分一致)+ bench。
+> **相依**:17.27(共用「範圍內施力」骨架)、17.13(shape overlap 查詢)。
+
+### 17.29 通用可斷裂關節 — Wave B
+
+> **現況**:`physics/solver6.mojo:194-229`(`struct Joint6` —— ball/distance/hinge,
+> 欄位只有 `kind/a/b/la/lb/rest/axis_a/axis_b/acc/acc_ang`,無斷裂閾值或事件)。
+> `docs/ROADMAP.md:1394`(17.5)已提及「接縫鍵結斷裂(9.1 有 weld,缺斷裂閾值+事件)」,
+> 但那是**破壞/破碎語境**下的結構性斷裂(`physics/self_collide.mojo:163` 的
+> "welded" 只是布料自碰撞註解,非關節);9.1 的 cone-twist/limits/motor/spring/
+> prismatic 關節庫(`physics/chain.mojo`)同樣沒有斷裂欄位。
+> **缺口**:對**所有**關節種類統一的斷裂力/力矩閾值 + 斷裂事件,供 17.2(撕裂 ragdoll
+> 肢體)、車輛零件飛脫、鏈條崩斷等**非破壞語境**使用 —— 與 17.5 的觸發路徑不同
+> (17.5 針對接縫/焊接的結構性破壞,這裡是任意關節超載時的通用行為),需在文件釐清
+> 邊界避免重工。
+> **對照組**:Unity `Joint.breakForce`/`breakTorque`、UE
+> `FConstraintInstance::LinearBreakThreshold`、PhysX `PxJoint::setBreakForce`。
+> **優勢區**:中 —— `acc`/`acc_ang`(累積衝量)已在 `Joint6` 內,斷裂判定只需除以
+> dt 換算力/力矩比閾值;接 17.20 可讓閾值本身可學習(對照組是常數)。
+> **規模軸**:關節數 × 每步斷裂檢查成本;斷裂事件密度對事件佇列(17.38)的壓力。
+> **seam?**:是 —— 斷裂判定(累積衝量/dt 估計 vs 逐步瞬時力採樣)→ parity(穩態一致)
+> + bench。
+> **相依**:17.2、17.5(需文件釐清邊界)、17.38(斷裂事件走事件匯流排)。
+
+### 17.30 地形(HeightField)執行期變形 — Wave B
+
+> **現況**:`collision/trimesh.mojo:157-186`(`struct HeightField`,docstring 明言
+> "The triangles are never stored" / "O(1) in the size of the terrain",只有建構子
+> 讀入 `h: List[Real]`,無 `set_height`/`deform` 方法);`physics/solver6.mojo:474-486`
+> (`add_heightfield` 在加入當下算一次 `f.bounds()` 存為該 static body 的 `half`,
+> 之後若直接改 `.h[i]` 不會重算 bounds/broadphase fattening)。grep
+> `set_height`/`deform`/`modify_height` 全零命中。
+> **缺口**:執行期高度編輯 API(單點/區域下壓或抬升,如彈坑、挖掘、履帶壓痕)+
+> 邊界/broadphase AABB 的重算或增量更新,以及編輯波及既有休眠剛體時的喚醒規則
+> (接 17.25)。與 17.5 不同賽道:17.5 把凸體切成新凸體,這裡是編輯已存在的高度網格,
+> 不需重新三角化或產生新 hull,範疇小得多。
+> **對照組**:Unity `TerrainData.SetHeights` + collider 重建、常見「可挖掘地形」遊戲。
+> **優勢區**:低 —— 純工程。
+> **規模軸**:每次編輯影響的子區塊大小 vs 全地形重算成本;編輯頻率(單次彈坑 vs
+> 每幀連續變形)。
+> **seam?**:是 —— bounds 更新策略(整張重算 vs 受影響子區塊增量 AABB)→ parity
+> (結果 AABB 一致)+ bench。
+> **相依**:17.25(變形波及睡眠體時的喚醒)、17.13(變形後查詢需讀新高度)。
+
+### 17.31 物理 LOD / 模擬預算調度 — Wave B
+
+> **現況**:grep `\bLOD\b`/`simulation_budget`/`sim_budget` 於 `physics/*.mojo`、
+> `docs/ROADMAP.md` 全零命中;17.10(profiling hooks)只提案量測「每系統/每 phase
+> frame 預算」,17.19(solver 硬化)只提案在固定品質下驗證大規模穩定性,兩者都不涉及
+> 「量測後主動降級」。
+> **缺口**:依重要度/距離/預算動態調整 —— 降低 island 子步數/迭代次數、降低更新頻率
+> (每 N 幀 step 一次)、或凍結(非睡眠語意),恢復時無縫接回不產生可見穿透跳變。
+> **對照組**:Havok 自適應求解、多數開放世界遊戲的自建物理預算管理器(無統一業界標準
+> API,多為引擎整合層自建)。
+> **優勢區**:中 —— 6.11 island 著色平行 + 4.1b 變分積分子已是「品質可控」地基,
+> 調整子步/迭代數不需換演算法,只需把既有旋鈕按重要度分組驅動。
+> **規模軸**:island/body 數 vs 可用 frame 預算;降級程度(iters 1↔8)對品質(穿透/
+> 抖動)的曲線。
+> **seam?**:是 —— 全品質 solve vs LOD 降級 solve 是同一不動點迭代在不同
+> iters/substeps 下的實例;parity(LOD=max 與現況逐位相同)+ bench(品質 vs 成本
+> 曲線,呼應 17.19 的 iters-vs-殘差量測設計)。
+> **相依**:17.10(預算量測是降級輸入)、17.19(旋鈕共用)、17.18(批次多世界的每 env
+> 預算是同一問題的另一形式)。
+
+### 17.32 執行期分級日誌設施 — Wave A(工具;錯誤政策的「記錄」層)
+
+> **現況**:grep `Logger`/`LOG_`/`log\b` 於 `ecs/`、`physics/`、`scheduler/` 僅命中
+> `harness/bench.mojo`、`harness/runner.mojo`(離線 benchmark 的 print,非分級/分類
+> 日誌)與 `ecs/commands.mojo`(命中字串是 "recording"/"replay",與日誌無關)。全引擎
+> 無 warn/error/info 分級或按子系統(solver/broadphase/scheduler)分類的日誌設施。
+> **缺口**:分級(trace/debug/info/warn/error)+ 分類(per-subsystem tag)+ 可配置
+> 輸出目的地(可與 17.10 trace 匯出共用環狀緩衝)的最小日誌 API。
+> **對照組**:UE `UE_LOG`(category+verbosity)、Unity `Debug.Log`/`ILogger`、Godot
+> `print_verbose`。
+> **優勢區**:不適用 —— 基礎設施。
+> **規模軸**:每幀日誌呼叫的 overhead(關閉分級時應趨近零成本);緩衝滿載丟棄策略。
+> **seam?**:否(單一設施);定律 v3——至少 solver6 的 NaN/退化偵測、broadphase 容量
+> 溢位須實際發出日誌,不能只是 API 存在。
+> **相依**:17.10(共用緩衝/時間戳)、17.33(斷言失敗走同一輸出)。
+
+### 17.33 執行期斷言 / 不變量檢查層 — Wave A(工具;錯誤政策的「立即終止」層)
+
+> **現況**:grep `debug_assert`/`Contract`/`precondition` 於 `ecs/`、`physics/`、
+> `scheduler/` 全零命中;現有測試用 `harness/runner.mojo` 的 `Suite`,僅存在於
+> `tests/`,不是可留在生產路徑、依 build 設定開關的執行期不變量檢查。
+> **缺口**:可在 debug/release 建置間開關的執行期不變量斷言(如「island label 必須
+> 在 [-1, n)」、「NaN 不得進入 solver」),失敗時可選擇 log(接 17.32)或中止,供
+> **執行期**捕捉定律 v3 提到的退化案例類型,而非只靠離線測試。
+> **對照組**:UE `check()`/`ensure()`、Unity `Debug.Assert`、Godot
+> `ERR_FAIL_COND_V`。
+> **優勢區**:低 —— table stakes,純工程紀律工具。
+> **規模軸**:斷言密度 vs release build 下的零成本編譯期剔除(Mojo comptime 強項)。
+> **seam?**:否;落地方式 = debug 建置下把既有 parity/測試已知的極端案例(零長度法向、
+> NaN、負質量)複用為執行期斷言。
+> **相依**:17.32(共用輸出)、17.19(硬化測試發現的不變量直接變成斷言)。
+
+### 17.34 每幀 / 暫存集區配置器 — Wave A
+
+> **現況**:grep `Allocator`/`Arena`/`PoolAllocator`/`FrameAllocator` 於全樹(排除
+> `build/`)只命中 `tests/_spikes/spike_dispatch_policy.mojo`(未接線的實驗性 spike)。
+> 所有暫存資料(接觸對列表、debug-draw 指令、查詢結果)都用 `List[...]` 逐幀重新配置/
+> 成長,沒有可重置的競技場(arena)供這些「活不過一幀」的資料共用記憶體。
+> **缺口**:逐幀重置(reset,不逐一釋放)的 bump/arena 配置器,供 17.9(debug-draw
+> 佇列)、17.13(batched query 暫存)、solver6 的 `_collect_pairs` 暫存列表使用。
+> **對照組**:UE `FMemStack`、Unity DOTS `Allocator.TempJob`/`Allocator.Temp`。
+> **優勢區**:低-中 —— Mojo 無 GC、手動所有權模型下,frame arena 比對照組(語言有
+> GC 兜底)更直接影響效能上限。
+> **規模軸**:每幀暫存位元組數 vs `List` 逐次成長重配的攤銷成本對照。
+> **seam?**:是 —— 暫存容器實作(`List` 逐幀重配 vs arena reset)→ parity(相同資料
+> 內容)+ bench(配置/釋放開銷)。
+> **相依**:17.9(第一個天然使用者)、17.13(batched query 暫存)。
+
+### 17.35 計時器 / 補間 / 緩動曲線 — Wave A
+
+> **現況**:grep `Timer`/`Tween`/`Easing`/`ease_` 於全樹只命中
+> `tests/test_backend_parity.mojo`(不相關字串)。沒有「N 秒後觸發回呼」的計時器,也
+> 沒有緩動函式庫或對現有型別(`Real`、`Vec3`、`geometry/motor.mojo` 的 Motor)的補間。
+> **缺口**:遊戲邏輯計時器(cooldown、buff 持續時間、延遲觸發)+ 標準緩動曲線集合 +
+> 補間函式,和 17.7(狀態插值)共用 alpha 概念但服務對象不同(17.7 是渲染插值,這裡是
+> 時間驅動的遊戲邏輯數值變化)。
+> **對照組**:Unity 生態系標準 `DOTween`/`iTween`、UE `FTimerManager` +
+> `UCurveFloat`、Godot `Tween` 節點(核心引擎一級功能)。
+> **優勢區**:中 —— motor/bivector 補間可直接復用既有 `geometry/galie.mojo` 的
+> `geodesic`(等速螺旋)而非 lerp+renormalize,天生比對照組「位置 lerp + 四元數 slerp
+> 各自處理」更一致。
+> **規模軸**:同時活躍計時器/tween 數 × 每幀更新成本。
+> **seam?**:是 —— 補間對象的差值方式(scalar lerp / Vec lerp / motor geodesic)是
+> 既有 §3 表示函子在「時間驅動」情境下的重用;parity 與 `test_motor_transform` 的
+> geodesic 端點一致性共用。
+> **相依**:17.7(共用 alpha/插值子概念)、17.6(動畫圖過渡曲線可能重用同一套緩動)。
+
+### 17.36 樣條 / 曲線(路徑) — Wave A
+
+> **現況**:grep `Spline`/`Bezier`/`CatmullRom` 於全樹零命中;`geometry/` 目錄有
+> motor/dualquat/mat/quat 等變換表示,但沒有任何參數化曲線型別。
+> **缺口**:至少 Catmull-Rom 與三次 Bezier 樣條(供載具賽道中線、AI 巡邏路徑等非渲染
+> 用途),含弧長參數化(等速取樣)與最近點查詢。
+> **對照組**:Unity Splines 套件、UE `USplineComponent`、Godot `Curve3D`/`Path3D`。
+> **優勢區**:中 —— 樣條切線可直接餵給 motor 的 look-at/朝向建構(重用
+> `geometry/motor.mojo`),比對照組「曲線位置 + 另算朝向四元數」少一次表示轉換。
+> **規模軸**:控制點數 × 取樣密度;弧長表建構的預處理成本 vs 執行期查詢頻率。
+> **seam?**:是 —— 曲線族(Catmull-Rom vs Bezier)對同一控制點集合在端點/切點的行為
+> → parity(次數退化情形一致)+ bench(取樣成本)。
+> **相依**:17.4(賽道中線)、17.14(導航路徑平滑)、17.3(IK look-at 沿路徑瞄準)。
+
+### 17.37 實體池化 — Wave A
+
+> **現況**:`ecs/entity.mojo:1-19`(`Entity.gen` 只保證同 id 回收後舊 handle 可偵測
+> 為 dead,不等於物件池)、`ecs/world.mojo:27,30,53,58`(`spawn`/`despawn`/`spawn1`/
+> `spawn2` 是唯一生命週期入口)。grep `Pool`/`ObjectPool`/`object_pool` 於 `ecs/*.mojo`
+> 零命中。高頻 spawn/despawn(子彈、特效代理、AI 波次)每次都走完整 archetype 遷移
+> 路徑。
+> **缺口**:預先配置 N 個帶模板元件集的實體、以啟用/停用取代「despawn 再 spawn」,
+> 避免重複的元件插入/archetype 遷移成本。
+> **對照組**:Unity `ObjectPool<T>`、UE 社群常見物件池樣式、Bevy 的 disabled-entity
+> marker 慣例。
+> **優勢區**:低 —— 純工程效能優化。
+> **規模軸**:池大小 × 啟用/停用頻率;與直接 spawn/despawn 的攤銷成本比較(N=1 控制
+> 組須略慢方為可信,呼應既有量測設計慣例,如 `sensors.mojo` 的攤銷 batch 量測)。
+> **seam?**:是 —— 生命週期策略(直接 spawn/despawn vs 池化啟用/停用)→ parity(啟用
+> 後元件值與新 spawn 一致)+ bench(高頻收發吞吐)。
+> **相依**:17.12(prefab 格式若落地,池化模板定義可共用)。
+
+### 17.38 遊戲事件匯流排 / 訊息系統 — Wave A
+
+> **現況**:`ecs/reactive_backend.mojo:15-23`(push observers `observe1`/`observe2`
+> 只針對**元件層級**的 add/set/remove 事件,docstring 明言 "event-kind mask ×
+> component set");`scheduler/message.mojo:1-29`(`Envelope[M]`/`MessageType` 是
+> actor 排程器內部的**定址**信箱,`target` 是 entity id 或 system index,是排程執行
+> 序機制而非跨系統廣播)。兩者都不是「任意具名事件(如 OnPlayerDied)可被任意數量、
+> 彼此不知情的監聽者訂閱」的 gameplay pub/sub。
+> **缺口**:解耦的多對多事件匯流排 —— 具名/型別化事件、動態訂閱/取消訂閱、發布順序
+> 決定性(供 replay/rollback 相容)。
+> **對照組**:Godot `Signal`(一級引擎功能)、UE `Multicast Delegate`/`Event
+> Dispatcher`、Unity C# event 生態慣例。
+> **優勢區**:低-中 —— 可直接複用 `scheduler/message.mojo` 的 envelope/mailbox
+> 決定性投遞模式(已解決「同 tick 送達」與「重播位元相同」,見
+> `docs/ROADMAP.md:729`「wake 階段送出的訊息在同一個 tick 內就被收到並處理」),把
+> 定址方式從「entity id / system index」泛化成「訂閱者清單」即可,實作風險因此屬
+> Wave A 而非從零設計。
+> **規模軸**:事件型別數 × 訂閱者數;每幀事件量對決定性重播(排序穩定性)的要求。
+> **seam?**:是 —— 投遞策略(push 廣播 vs 訂閱者輪詢)是 CATEGORY.md §2 既有「push
+> observers vs 輪詢」列(`ecs/reactive_backend.mojo`)在 gameplay 事件語境的重用;
+> parity = 重播 ≡ 輪詢結果(與 `test_observers` 同構)。
+> **相依**:17.29(斷裂事件)、17.9(debug-draw 可訂閱同一匯流排)、17.16(rollback
+> 需要事件重播決定性,這裡先做基礎機制)。
+
+### 17.39 輸入錄製 / 決定論回放(QA・ghost,非網路) — Wave B
+
+> **現況**:地基已在但未組裝:`scheduler/rng.mojo`(決定論 RNG)、
+> `physics/serialize.mojo:99`(全狀態快照,自註 "not an asset reference",
+> `docs/ROADMAP.md:388-395` 已驗證 save→load→save byte-identical)。但 grep
+> `Replay`/`InputRecord`/`input_record` 於全樹只命中 `ecs/commands.mojo`(命中字串是
+> command buffer 的 "recording order",與輸入錄製無關)。沒有「錄製輸入序列 + 定期
+> 快照,之後可從任一快照點決定性重放」的組裝層。
+> **缺口**:帶 tick 編號的輸入流錄製格式、快照間隔管理、重放驅動(餵錄製輸入 + 從
+> 快照恢復而非從 t=0 重跑)。與 17.16 的差異:不含網路傳輸/預測/reconciliation,純
+> 單機 QA 自動化回歸測試、ghost 賽道錄影、killcam,因此不受 17.16「傳輸層格式綁定
+> 平台整合」的 gating 限制,現在就能做。
+> **對照組**:賽車遊戲 ghost 錄影(如 Trackmania)、格鬥遊戲 replay 系統、UE
+> Demo Net Driver(概念相通)。
+> **優勢區**:中高 —— 決定論快照(6.10)+ 決定論 RNG 已是這件事最難的前提,對照組
+> (非 lockstep 引擎)通常要另外驗證決定性,這裡幾乎是組裝既有零件;做完後直接降低
+> 17.16 的實作風險。
+> **規模軸**:快照間隔(記憶體 vs 回放尋位精度)× 錄製長度;回放時重跑幀數 vs 直接
+> 跳快照的成本。
+> **seam?**:是 —— 回放實作(全程重跑 vs 快照+短重跑)→ parity(同輸入下最終世界
+> 逐位相同)+ bench(回放尋位延遲)。
+> **相依**:6.10(快照)、`scheduler/rng.mojo`、17.16(此項是其地基驗證的前置練習,
+> 非其子項)。
+
+### 17.40 存檔系統(相對於決定論快照) — Wave B
+
+> **現況**:`physics/serialize.mojo:99` 自我定位「this format is a full state
+> snapshot, not an asset reference」;`docs/ROADMAP.md:388-395` 的 6.10 是
+> bit-identical 完整世界 blob(約 20KB),任何程式碼變更都可能讓舊存檔失效,不設計
+> 給跨版本相容。這與玩家導向「存檔」(需 schema 版本升級、只存部分進度、可能跨 build
+> 相容)是不同問題。
+> **缺口**:基於 schema/版本標記的選擇性序列化(存哪些欄位、缺欄位/新欄位如何處理),
+> 依賴 17.11(反射)取得欄位 metadata 而非手寫序列化每個型別。
+> **對照組**:UE `USaveGame` 版本相容、Unity 自訂存檔系統慣例、Godot
+> `ResourceSaver`。
+> **優勢區**:低 —— 工程;差異化同 17.12,依賴 17.11 comptime 反射可省手寫版本遷移
+> 程式碼。
+> **規模軸**:存檔資料量 × schema 版本跨度(遷移路徑數)。
+> **seam?**:是 —— 存檔路徑(schema 驅動 vs 決定論全狀態快照)→ parity(同場景兩
+> 路徑載入後,schema 存檔覆蓋到的欄位與快照一致)。
+> **相依**:17.11(前提)、17.12(姊妹問題,常共用 schema 基礎設施但服務不同資料)。
+
+### 17.41 繩索 / 纜線約束 — Wave B
+
+> **現況**:grep `Rope`/`Cable` 於 `physics/*.mojo` 只命中 `properties`/`property`
+> 的子字串重疊(`physics/adjoint.mojo:25`、`physics/fem.mojo:10,18`、
+> `physics/pbf.mojo:29`、`physics/sensors.mojo:4`),真實的繩索/纜線約束不存在;
+> `physics/solver6.mojo:194-229` 的 `Joint6`(ball/distance/hinge)與
+> `physics/chain.mojo` 的縮座標鏈都是「剛性連桿」語意,沒有多節點、可彎曲、可自我碰撞
+> 的柔性線。
+> **缺口**:由多個距離約束(或 Cosserat 桿模型)串接、可選自我碰撞(重用
+> `physics/self_collide.mojo`)、兩端固定於剛體局部點的柔性纜線。
+> **對照組**:UE `UCableComponent`(引擎內建一級元件)、PhysX FleX 繩索範例、
+> Houdini/Blender 的 Cosserat rod 求解器。
+> **優勢區**:中 —— 既有 PBD/XPBD 距離約束(`physics/pbf.mojo`、
+> `physics/vbd_cloth.mojo` 的著色 Gauss-Seidel)可直接降維重用成 1D 鏈;變分積分子
+> (4.1b)的穩定性優勢在長鏈上比顯式彈簧-阻尼更不易爆炸。
+> **規模軸**:節點數(鏈長)× 子步數;自我碰撞開關的成本影響(同 `test_self_collide`
+> 量測設計)。
+> **seam?**:是 —— 繩索求解器變體(distance-joint 鏈 vs PBD 1D 鏈 vs Cosserat 桿)
+> 對同一「兩端固定、重力下垂」場景的靜止形狀 → parity(無彎曲剛度極限下懸鏈線解析解
+> 三者一致)+ bench。
+> **相依**:9.1(距離關節)、17.5、17.29(纜線斷裂可共用斷裂閾值機制)。
+
+> **拒絕(5)**:時間縮放 / 暫停(`scheduler/gameloop.mojo:27` 的 `frame_dt` 由呼叫端
+> 縮放或跳過即可,非缺失能力);transform 階層傳播(已在 `ecs/hierarchy.mojo` +
+> `ecs/transform_systems.mojo`,CATEGORY §2 有列);gameplay 粒子(solver6 / SPH / PBF /
+> MPM 已可承載,重做屬冗餘);查詢結果快取(持久化 DBVH 已在,且與 17.13 batched 重疊);
+> hot config / CVar(已併入 17.21)。
+
+
 ### Phase 17 建議順序
 > **Wave A 先**(17.13 查詢 → 17.1 控制器 → 17.7 插值 → 17.9 debug-draw → 17.10 profiling):
 > 全是接線 / table stakes,做完引擎「可被當遊戲引擎用」,且 17.13 解鎖 17.1 / 17.4 / 17.15。
@@ -1639,3 +2042,17 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 傳輸 / 17.21 腳本 gated on 平台整合方向** —— 與 [[roadmap-2026-07]] Phase 13 排除 MJCF/URDF
 > 同因,需先與使用者定架構。
 
+
+> **2026-09-27 修訂(納入增補 + 架構閘門)**:執行順序改為
+> **(0)閘門先行** —— 工具鏈升 Mojo 1.1.0;`docs/ARCHITECTURE.md`(套件職責 / 分層 /
+> 錯誤處理政策 / 測試分層)+ 自動化架構索引與 `check` 閘門(層級違規、循環、跨套件摸
+> `_` 私名)先落地,之後每一項都過同一閘門。
+> **(1)`diag` 地基**:17.33 斷言 → 17.32 日誌 → 17.34 frame arena → 17.9 debug-draw →
+> 17.10 profiling(錯誤政策的偵測 / 記錄 / 終止三層一次到位,後續各項直接使用)。
+> **(2)查詢與物理 table stakes**:17.13 查詢 → 17.25 睡眠 API → 17.24 kinematic →
+> 17.23 材質 → 17.1 角色控制器。
+> **(3)時間與 gameplay 服務**:17.7 插值 → 17.35 計時器 / 補間 → 17.36 樣條 →
+> 17.38 事件匯流排 → 17.37 實體池 → 17.22 範例。
+> **(4)Wave B**:17.20 + 17.18 → 17.11 反射 → 17.17 GPU 剛體 → 17.6 → 17.3 → 17.2;
+> 增補的 B 項依相依插入(17.26 / 17.29 接 17.1 / 17.2 之後、17.27 → 17.28、
+> 17.39 接 17.38、17.40 接 17.11、17.31 接 17.10 + 17.19);17.19 貫穿。

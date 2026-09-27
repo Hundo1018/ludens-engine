@@ -6,3 +6,6 @@ build/
 *.egg-info
 # magic environments
 .magic
+
+# campaign working state (local only)
+.campaign/
