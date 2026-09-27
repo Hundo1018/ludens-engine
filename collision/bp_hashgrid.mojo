@@ -11,6 +11,17 @@ struct SpatialHashBroadPhase[D: Int](BroadPhase):
     var grid: SpatialHashGrid[Self.D]
     var items: List[BoxProxy[Self.D]]
 
+    def __init__(out self):
+        """Zero-arg overload so this backend is `Defaultable` (needed to be a
+        `ContactScene6[B, BP: BroadPhase]` type argument,
+        physics/solver6.mojo). A default argument does not itself satisfy
+        `Defaultable` -- its function TYPE still carries the parameter -- so
+        this is a real second constructor, not `cell_size: Real = 4.0` on the
+        one below. Tune the cell size to the scene's own scale for real use;
+        this generic value is a convenience, not a recommendation."""
+        self.grid = SpatialHashGrid[Self.D](4.0)
+        self.items = List[BoxProxy[Self.D]]()
+
     def __init__(out self, cell_size: Real):
         self.grid = SpatialHashGrid[Self.D](cell_size)
         self.items = List[BoxProxy[Self.D]]()

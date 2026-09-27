@@ -26,7 +26,14 @@ struct BoxProxy[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var box: AABB[Self.dim]
 
 
-trait BroadPhase(Movable, Deinitable):
+trait BroadPhase(Movable, Deinitable, Defaultable):
+    """`Defaultable` (a zero-argument `__init__`) lets a generic owner build
+    one from just its type -- `ContactScene6[B, BP: BroadPhase = ...]`
+    (physics/solver6.mojo) does exactly that for the solver's persistent
+    broadphase field. `SpatialHashBroadPhase`/`TreeBroadPhase` gained a
+    default constructor argument for this (bp_hashgrid.mojo, bp_tree.mojo);
+    every existing explicit-argument call site is unaffected."""
+
     comptime dim: Int
     def rebuild(mut self, items: List[BoxProxy[Self.dim]]) raises: ...
     def pairs(self, mut out: List[Pair]) raises: ...

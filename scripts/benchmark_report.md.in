@@ -1323,13 +1323,26 @@ than of task granularity. Finer tasks do cost something visible though: the
 colored path needs more workers before it beats its own serial baseline.
 
 @bench benchmarks/bench_colored.mojo
-## Physics — solver pair collection (brute O(n²) vs per-frame BVH broadphase)
+## Physics — solver pair collection (brute O(n²) vs the full `BroadPhase` seam)
 
-`_collect_pairs` double-looped every body pair; `broadphase=True` swaps that
-for a BVH over fat world-AABBs (bit-identical by construction — the fat radius
-is symmetric and the (i,j) order is preserved, proven in
-`test_solver_broadphase`). Brute wins at small N; the BVH wins as the O(n²)
-enumeration dominates.
+`_collect_pairs` double-looped every body pair; `broadphase=True` now swaps
+that for `self.bp` — ANY `BroadPhase` backend `ContactScene6[B, BP]` is
+instantiated with (ROADMAP 17.0e moved the collider registry and the
+candidate-pair narrowphase out to `collision.collider_set`/
+`collision.contact_gen`, so this is the path the engine actually runs, not a
+throwaway per-step BVH). Bit-identical by construction regardless of backend
+— `collect_bp_pairs` canonicalises every pair to `a < b` and sorts ascending
+before the narrowphase ever sees it, proven for brute/BVH/DBVH/SAP/hash
+grid/octree in `test_solver_bp_seam` (six backends × box-stack, mixed
+trimesh+hull+sphere+capsule, and four extreme cases). Table 1: brute wins at
+small N (no build/query overhead), BVH wins once the O(n²) enumeration
+dominates. Table 2 sweeps N = 64..4096 across every backend — the regime
+where DBVH's persistent, frame-coherent structure should start winning over
+BVH's rebuild-every-step one (advantage-regime rule: most towers do not move
+between frames, so DBVH pays near-zero per step once settled). Table 3 is
+SAP/hash-grid's own advantage-regime scene: uniform body sizes vs a 20:1
+spread, where SAP's single sweep axis and a hash grid's fixed cell size are
+each a plausible place for the O(n) claim to quietly stop holding.
 
 @bench benchmarks/bench_solver_scale.mojo
 ## Collision — BVH build heuristic (median-split vs binned SAH)

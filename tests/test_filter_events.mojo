@@ -22,7 +22,8 @@ EXTREME     an all-zero mask (collides with nothing), a self-excluding category
 from harness.runner import Suite
 from geometry.vec import Real, Vec3, length
 from physics.rigid6 import Inertia3, QuatBody6
-from physics.solver6 import ContactScene6, ContactEvent
+from physics.solver6 import ContactScene6
+from collision.contact_events import ContactEvent
 from physics.serialize import scene_to_string, scene_from_string
 
 comptime DT: Real = 1.0 / 60.0
@@ -183,7 +184,7 @@ def case_roundtrip() raises -> List[Real]:
     var out = List[Real](capacity=3)
     out.append(abs(sc.bodies[a].position()[0] - sc.bodies[b].position()[0]))
     out.append(abs(sc2.bodies[a].position()[0] - sc2.bodies[b].position()[0]))
-    out.append(Real(1) if sc2.sensor[t] else Real(0))
+    out.append(Real(1) if sc2.colliders.sensor[t] else Real(0))
     return out^
 
 

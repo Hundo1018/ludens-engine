@@ -43,7 +43,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | `NarrowPhase`(boolean,含 CGA 代數路徑) | collision/narrowphase.mojo | 同一謂詞的解析 vs 代數實作 | `test_narrowphase` 系列、`test_cga_narrowphase`、`test_cga_plane` | `bench_collision` |
 | `ManifoldNarrowPhase`(AABB/SAT/OBB/GJK/hull) | collision/manifold.mojo、hull.mojo | 接觸謂詞的富化(點集+深度),normal/depth 與 boolean 路徑一致 | `test_manifold`、`test_hull` | `bench_manifold` |
 | `SceneQuery`(brute/bvh/grid/tree) | collision/queries.mojo | 同一查詢謂詞的加速結構 | `test_queries` | `bench_queries` |
-| solver6 pair 收集 brute O(n²) vs BVH | physics/solver6.mojo(`_collect_pairs`) | 同一接觸對集合的加速枚舉;fat-AABB 保守超集 → 命中集相等、同序 → 逐位一致 | `test_solver_broadphase` | `bench_solver_scale` |
+| solver6 pair 收集 brute O(n²) vs `BroadPhase` 全 seam(17.0e:`ContactScene6[B,BP]`,collider 註冊表移至 `collision/collider_set.mojo`) | physics/solver6.mojo(`_collect_pairs`)、collision/contact_gen.mojo(`collect_bp_pairs`) | 同一接觸對集合的加速枚舉,現貫穿真正會跑的 `BroadPhase` trait(brute/BVH/DBVH/SAP/hashgrid/octree);fat-AABB 保守超集 + 逐對正規化排序 → 命中集相等、同序 → 逐位一致,與後端無關 | `test_solver_broadphase`、`test_solver_bp_seam`(6 後端 × 6 案例矩陣,含極端案例) | `bench_solver_scale`(N=64…4096 全後端矩陣 + SAP/hashgrid 20:1 尺寸展延列) |
 | BVH 建樹啟發式 median vs binned SAH | geometry/bvh.mojo(`build(sah=)`) | 同一加速結構的建構品質變體;查詢結果集/最近命中相等,SAH 樹更緊 | `test_sah` | `bench_sah` |
 | `Rng` | scheduler/rng.mojo | 種子單子(state monad)的可交換實作 | `test_rng` | `bench_rng` |
 | `for_each2` vs `query2+get/set` | ecs/storage.mojo | 同一態射的無配置實作 | `test_iter_parity` | `bench_ecs`(存取路徑 rows) |

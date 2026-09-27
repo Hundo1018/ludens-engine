@@ -82,35 +82,35 @@ def scene_to_string(sc: ContactScene6[QuatBody6]) raises -> String:
         _wf(s, b.inertia.ix)
         _wf(s, b.inertia.iy)
         _wf(s, b.inertia.iz)
-        _wv(s, sc.half[i])
+        _wv(s, sc.colliders.half[i])
         _wi(s, 1 if sc.statics[i] else 0)
-        _wi(s, sc.shape[i])
+        _wi(s, sc.colliders.shape[i])
         _wf(s, sc.restitution[i])
         _wi(s, 1 if sc.sleeping[i] else 0)
         _wf(s, sc.sleep_timer[i])
-        _wi(s, Int(sc.category[i]))
-        _wi(s, Int(sc.mask[i]))
-        _wi(s, 1 if sc.sensor[i] else 0)
+        _wi(s, Int(sc.colliders.category[i]))
+        _wi(s, Int(sc.colliders.mask[i]))
+        _wi(s, 1 if sc.colliders.sensor[i] else 0)
         # Shape payload for the kinds that keep their geometry in a side table.
         # A snapshot that restored a hull body without its vertices would load
         # cleanly and then index an empty table on the next contact, so the
         # geometry travels with the body even though a level mesh can be large:
         # this format is a full state snapshot, not an asset reference.
-        if sc.shape[i] == 3:
-            ref hl = sc.hulls[sc.hull_id[i]]
+        if sc.colliders.shape[i] == 3:
+            ref hl = sc.colliders.hulls[sc.colliders.hull_id[i]]
             _wi(s, len(hl.v))
             for k in range(len(hl.v)):
                 _wf(s, hl.v[k])
-        elif sc.shape[i] == 4:
-            ref ms = sc.meshes[sc.mesh_id[i]]
+        elif sc.colliders.shape[i] == 4:
+            ref ms = sc.colliders.meshes[sc.colliders.mesh_id[i]]
             _wi(s, len(ms.v))
             for k in range(len(ms.v)):
                 _wf(s, ms.v[k])
             _wi(s, len(ms.idx))
             for k in range(len(ms.idx)):
                 _wi(s, ms.idx[k])
-        elif sc.shape[i] == 5:
-            ref hf = sc.fields[sc.mesh_id[i]]
+        elif sc.colliders.shape[i] == 5:
+            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
             _wi(s, hf.nx)
             _wi(s, hf.nz)
             _wf(s, hf.cell)
@@ -195,27 +195,27 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             QuatBody6(pos, Quat(qx, qy, qz, qw), vel, omega,
                       Inertia3(im, ix, iy, iz))
         )
-        sc.half.append(r.v3())
+        sc.colliders.half.append(r.v3())
         sc.statics.append(r.i() == 1)
         var kind = r.i()
-        sc.shape.append(kind)
+        sc.colliders.shape.append(kind)
         sc.restitution.append(r.f())
         sc.sleeping.append(r.i() == 1)
         sc.sleep_timer.append(r.f())
-        sc.category.append(UInt32(r.i()))
-        sc.mask.append(UInt32(r.i()))
-        sc.sensor.append(r.i() == 1)
+        sc.colliders.category.append(UInt32(r.i()))
+        sc.colliders.mask.append(UInt32(r.i()))
+        sc.colliders.sensor.append(r.i() == 1)
         sc.island.append(-1)
-        sc.hull_id.append(-1)
-        sc.mesh_id.append(-1)
+        sc.colliders.hull_id.append(-1)
+        sc.colliders.mesh_id.append(-1)
         var bi = len(sc.bodies) - 1
         if kind == 3:
             var nv = r.i()
             var hv = List[Real](capacity=nv)
             for _ in range(nv):
                 hv.append(r.f())
-            sc.hull_id[bi] = len(sc.hulls)
-            sc.hulls.append(HullShape(hv))
+            sc.colliders.hull_id[bi] = len(sc.colliders.hulls)
+            sc.colliders.hulls.append(HullShape(hv))
         elif kind == 4:
             var nv = r.i()
             var mv = List[Real](capacity=nv)
@@ -225,8 +225,8 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             var mi = List[Int](capacity=ni)
             for _ in range(ni):
                 mi.append(r.i())
-            sc.mesh_id[bi] = len(sc.meshes)
-            sc.meshes.append(TriMesh(mv, mi))
+            sc.colliders.mesh_id[bi] = len(sc.colliders.meshes)
+            sc.colliders.meshes.append(TriMesh(mv, mi))
         elif kind == 5:
             var nx = r.i()
             var nz = r.i()
@@ -237,8 +237,8 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             var hh = List[Real](capacity=nh)
             for _ in range(nh):
                 hh.append(r.f())
-            sc.mesh_id[bi] = len(sc.fields)
-            sc.fields.append(HeightField(hh, nx, nz, cell, ox, oz))
+            sc.colliders.mesh_id[bi] = len(sc.colliders.fields)
+            sc.colliders.fields.append(HeightField(hh, nx, nz, cell, ox, oz))
     var nj = r.i()
     for _ in range(nj):
         var kind = r.i()

@@ -18,6 +18,20 @@ struct TreeBroadPhase[D: Int](BroadPhase):
     var tree: LooseTree[Self.D]
     var items: List[BoxProxy[Self.D]]
 
+    def __init__(out self):
+        """Zero-arg overload so this backend is `Defaultable` (needed to be a
+        `ContactScene6[B, BP: BroadPhase]` type argument,
+        physics/solver6.mojo). A default argument does not itself satisfy
+        `Defaultable` -- its function TYPE still carries the parameter -- so
+        this is a real second constructor, not `bounds: AABB[D] = ...` on the
+        one below. Pass real scene bounds for actual use; this generic large
+        symmetric box is a convenience, not a recommendation."""
+        self.bounds = AABB[Self.D].symmetric(1000)
+        self.capacity = 4
+        self.max_depth = 6
+        self.tree = LooseTree[Self.D](self.bounds, self.capacity, self.max_depth)
+        self.items = List[BoxProxy[Self.D]]()
+
     def __init__(out self, bounds: AABB[Self.D], capacity: Int = 4, max_depth: Int = 6):
         self.bounds = bounds
         self.capacity = capacity

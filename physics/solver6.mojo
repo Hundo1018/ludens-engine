@@ -2,9 +2,23 @@
 
 This is the first angular contact response in the engine — the piece
 `physics/rigidbody.mojo` explicitly deferred until the narrowphase produced
-contact points. `ContactScene6[B]` is generic over the `Body6` representation
-(quat+tensor or motor+screw), so the same scene is a parity gate between the
-classical and the GA path.
+contact points. `ContactScene6[B, BP]` is generic over the `Body6`
+representation (quat+tensor or motor+screw) AND over the `BroadPhase`
+backend that enumerates candidate pairs (`collision.broadphase`; defaults to
+the rebuild-per-step BVH), so the same scene is both a parity gate between
+the classical and the GA path, and a parity gate across every broadphase
+backend (`tests/test_solver_bp_seam.mojo`).
+
+The collider registry (shape kinds, hull/mesh/heightfield tables, filters,
+sensors) and the shape-pair narrowphase dispatch live in
+`collision.collider_set.ColliderSet` (audit finding F1) — this scene *holds*
+one (`self.colliders`) instead of owning that data itself, so 17.13 scene
+queries and the 17.1 character controller can use the real collider geometry
+without importing physics. Candidate-pair enumeration through the
+`BroadPhase` seam and the geometry half of the per-pair narrowphase test live
+in `collision.contact_gen` (finding F2); this module keeps warm-start
+matching and the body-frame anchor / approach-speed prep that need a
+`Body6` (`collision.contact_gen`'s docstring explains the split).
 
 Two step modes share the collision prep:
 
@@ -26,23 +40,16 @@ deferred (e = 0 scenes).
 """
 
 from std.math import sqrt
+from std.os import abort
 from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
-from geometry.bvh import BVH
-from geometry.gjk import ConvexPoly
-from collision.hull import HullShape, hull_manifold
-from collision.trimesh import TriMesh, HeightField
-from collision.manifold import (
-    ContactManifold,
-    Axes3,
-    box_box_manifold,
-    sphere_sphere_manifold,
-    sphere_box_manifold,
-    capsule_box_manifold,
-    capsule_capsule_manifold,
-    capsule_sphere_manifold,
-)
+from collision.manifold import ContactManifold, Axes3
+from collision.collider_set import ColliderSet, Pose3, SHAPE_BOX
+from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
+from collision.contact_events import ContactEvent, pack_key, diff_events
+from collision.broadphase import BroadPhase, Pair
+from collision.bp_bvh import BVHBroadPhase
 from collision.toi import swept_box_toi
 from .rigid6 import Body6
 from .softbody import SoftBody
@@ -91,74 +98,6 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
         self.rb = copy.rb.copy()
         self.vn0 = copy.vn0.copy()
         self.racc = copy.racc.copy()
-
-
-@fieldwise_init
-struct ContactEvent(Copyable, ImplicitlyCopyable, Movable):
-    """One transition in the contact set. `kind` is 0 began / 1 stay / 2 ended.
-
-    `feat` is the triangle index for mesh contacts and 0 otherwise, the same
-    sub-key the warm-start cache uses: a crate sliding along a floor genuinely
-    begins and ends contact with each triangle in turn, and collapsing that to
-    one event per body pair would report a single unbroken touch."""
-
-    var a: Int
-    var b: Int
-    var feat: Int
-    var kind: Int
-
-
-comptime _EV_BEGAN = 0
-comptime _EV_STAY = 1
-comptime _EV_ENDED = 2
-
-
-def _ckey(a: Int, b: Int, feat: Int) -> Int:
-    """(body, body, feature) packed into one Int so the frame-to-frame diff is
-    a sorted-list merge. 21 bits each: 2M bodies, 2M triangles per mesh."""
-    return (a << 42) | (b << 21) | feat
-
-
-def _sort_keys(mut k: List[Int]):
-    """Bottom-up merge sort. The event stream has to be in a canonical order,
-    not in whatever order the broadphase happened to enumerate pairs, or the
-    same scene would report the same events differently depending on which
-    collision seam it ran through."""
-    var n = len(k)
-    if n < 2:
-        return
-    var buf = List[Int](capacity=n)
-    for i in range(n):
-        buf.append(k[i])
-    var width = 1
-    while width < n:
-        var i = 0
-        while i < n:
-            var mid = min(i + width, n)
-            var hi = min(i + 2 * width, n)
-            var l = i
-            var r = mid
-            var o = i
-            while l < mid and r < hi:
-                if k[l] <= k[r]:
-                    buf[o] = k[l]
-                    l += 1
-                else:
-                    buf[o] = k[r]
-                    r += 1
-                o += 1
-            while l < mid:
-                buf[o] = k[l]
-                l += 1
-                o += 1
-            while r < hi:
-                buf[o] = k[r]
-                r += 1
-                o += 1
-            i += 2 * width
-        for j in range(n):
-            k[j] = buf[j]
-        width *= 2
 
 
 def _cross(a: Vec3, b: Vec3) -> Vec3:
@@ -229,11 +168,10 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
         )
 
 
-struct ContactScene6[B: Body6](Movable, Deinitable):
+struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
     var bodies: List[Self.B]
-    var half: List[Vec3]  # box half-extents, parallel to `bodies`
     var statics: List[Bool]
     var cache: List[_CPair]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
@@ -242,35 +180,12 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
     var island: List[Int]  # island label per body (last step; -1 = static)
     var softs: List[SoftBody]
     var restitution: List[Real]  # per-body coefficient (pair uses max)
-    # shape kind per body: 0 = box(half), 1 = sphere(r = half.x),
-    # 2 = capsule (r = half.x, half-length = half.y, local Y axis),
-    # 3 = convex hull (`hull_id`), 4 = triangle mesh, 5 = heightfield
-    # (both `mesh_id`, both static-only)
-    var shape: List[Int]
-    # Convex hulls, indexed by `hull_id[i]` (-1 when body i is not a hull).
-    # A side table rather than a field on every body: hulls are rare and carry
-    # a vertex list, so paying for one on every sphere would be wasteful.
-    var hulls: List[HullShape]
-    var hull_id: List[Int]
-    # Static level geometry (kinds 4 and 5), same side-table scheme. Their
-    # vertices are WORLD space and their body pose is ignored: a level does not
-    # move, and keeping the triangles pre-transformed is the whole reason the
-    # midphase query can be a plain AABB test.
-    var meshes: List[TriMesh]
-    var fields: List[HeightField]
-    var mesh_id: List[Int]
-    # Collision filtering, Box2D's scheme: two bodies collide when each one's
-    # category is in the other's mask. Applied at the top of `_try_pair`, which
-    # is the single point both the brute and the broadphase enumeration funnel
-    # through — so a filtered pair costs one AND on either seam, and the two
-    # cannot disagree about what was filtered.
-    var category: List[UInt32]
-    var mask: List[UInt32]
+    var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
+    var bp: Self.BP  # persistent broadphase, used when `step_soft(broadphase=True)`
     # A sensor reports overlap and never receives an impulse. Its pairs are
     # collected separately rather than flagged in `pairs`, so that not one of
     # the solve, warm-start, island or restitution loops needs to learn about
     # them.
-    var sensor: List[Bool]
     var sensor_pairs: List[_CPair]
     # Contact events, rebuilt every step when `events` is on. Off by default:
     # the diff sorts the contact set, which is real work for a scene that never
@@ -280,20 +195,10 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
     var _prev_keys: List[Int]
 
     def __init__(out self):
+        comptime assert Self.BP.dim == 3, (
+            "ContactScene6 is a 3-D solver: its BroadPhase must have dim == 3"
+        )
         self.bodies = List[Self.B]()
-        self.hulls = List[HullShape]()
-        self.hull_id = List[Int]()
-        self.meshes = List[TriMesh]()
-        self.fields = List[HeightField]()
-        self.mesh_id = List[Int]()
-        self.category = List[UInt32]()
-        self.mask = List[UInt32]()
-        self.sensor = List[Bool]()
-        self.sensor_pairs = List[_CPair]()
-        self.events_on = False
-        self.events = List[ContactEvent]()
-        self._prev_keys = List[Int]()
-        self.half = List[Vec3]()
         self.statics = List[Bool]()
         self.cache = List[_CPair]()
         self.joints = List[Joint6]()
@@ -302,7 +207,12 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         self.island = List[Int]()
         self.softs = List[SoftBody]()
         self.restitution = List[Real]()
-        self.shape = List[Int]()
+        self.colliders = ColliderSet()
+        self.bp = Self.BP()
+        self.sensor_pairs = List[_CPair]()
+        self.events_on = False
+        self.events = List[ContactEvent]()
+        self._prev_keys = List[Int]()
 
     def add_soft(mut self, var sb: SoftBody) -> Int:
         self.softs.append(sb^)
@@ -400,57 +310,39 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                         self.sleeping[j] = True
                         self.bodies[j].halt()
 
-    def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> Int:
+    def _push_body(mut self, var b: Self.B, is_static: Bool):
+        """The body-list half of registration, shared by every `add*`
+        variant -- always called exactly once per body, in lockstep with
+        exactly one `self.colliders.add*` call, so the two index spaces stay
+        aligned (collider `i` <-> body `i`)."""
         self.bodies.append(b^)
-        self.half.append(half)
         self.statics.append(is_static)
         self.sleeping.append(False)
         self.sleep_timer.append(0)
         self.island.append(-1)
         self.restitution.append(0)
-        self.shape.append(0)
-        self.hull_id.append(-1)
-        self.mesh_id.append(-1)
-        self.category.append(1)
-        self.mask.append(0xFFFFFFFF)
-        self.sensor.append(False)
-        return len(self.bodies) - 1
+
+    def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> Int:
+        self._push_body(b^, is_static)
+        return self.colliders.add(half)
 
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
-        var i = self.add(b^, Vec3(r, r, r, 0), is_static)
-        self.shape[i] = 1
-        return i
+        self._push_body(b^, is_static)
+        return self.colliders.add_sphere(r)
 
     def add_capsule(
         mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool
     ) -> Int:
-        # conservative box for any AABB-ish uses: r sideways, r+hl tall
-        var i = self.add(b^, Vec3(r, half_len, r, 0), is_static)
-        self.shape[i] = 2
-        return i
+        self._push_body(b^, is_static)
+        return self.colliders.add_capsule(r, half_len)
 
     def add_hull(
         mut self, var b: Self.B, var verts: List[Real], is_static: Bool
     ) -> Int:
         """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
-        vertex). Flat rather than `List[Vec3]` because a width-3 list is
-        miscompiled when passed between functions on this nightly — the reason
-        is measured out in `collision/hull.mojo`.
-
-        The `half` extent recorded is the vertex cloud's bounding half-size, so
-        every AABB-based path (broadphase fattening, sleeping, islands) keeps
-        working unchanged and conservatively — a hull is never smaller than the
-        box the rest of the engine already reasons about."""
-        var h = Vec3(0, 0, 0, 0)
-        for vi in range(len(verts) // 3):
-            comptime for k in range(3):
-                if abs(verts[3 * vi + k]) > h[k]:
-                    h[k] = abs(verts[3 * vi + k])
-        var i = self.add(b^, h, is_static)
-        self.shape[i] = 3
-        self.hull_id[i] = len(self.hulls)
-        self.hulls.append(HullShape(verts^))
-        return i
+        vertex) -- see `collision.collider_set.ColliderSet.add_hull`."""
+        self._push_body(b^, is_static)
+        return self.colliders.add_hull(verts^)
 
     def add_trimesh(
         mut self, var b: Self.B, verts: List[Real], indices: List[Int]
@@ -461,15 +353,9 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         Always static. A mesh has no useful inertia tensor and no closed
         volume, so a dynamic one would be resolved against by contacts that
         cannot conserve anything; refusing it here is cheaper than discovering
-        it as drift. The recorded `half` is the mesh's bounding half-size, so
-        broadphase, sleeping and islands keep working unchanged."""
-        var m = TriMesh(verts, indices)
-        var bb = m.bounds()
-        var i = self.add(b^, bb.half_extents(), True)
-        self.shape[i] = 4
-        self.mesh_id[i] = len(self.meshes)
-        self.meshes.append(m^)
-        return i
+        it as drift."""
+        self._push_body(b^, True)
+        return self.colliders.add_trimesh(verts, indices)
 
     def add_heightfield(
         mut self, var b: Self.B, heights: List[Real], nx: Int, nz: Int,
@@ -478,116 +364,17 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         """Static heightfield: the same surface as a mesh, with the triangles
         left implicit and the midphase reduced to arithmetic. Static for the
         same reason as `add_trimesh`."""
-        var f = HeightField(heights, nx, nz, cell, ox, oz)
-        var bb = f.bounds()
-        var i = self.add(b^, bb.half_extents(), True)
-        self.shape[i] = 5
-        self.mesh_id[i] = len(self.fields)
-        self.fields.append(f^)
-        return i
+        self._push_body(b^, True)
+        return self.colliders.add_heightfield(heights, nx, nz, cell, ox, oz)
 
     def set_filter(mut self, i: Int, category: UInt32, mask: UInt32):
-        """Which layer body `i` is on, and which layers it collides with.
-
-        Symmetric by construction: both directions must agree, so "players do
-        not hit players" is one bit cleared, not a rule that has to be repeated
-        on every other body."""
-        self.category[i] = category
-        self.mask[i] = mask
+        """Which layer body `i` is on, and which layers it collides with."""
+        self.colliders.set_filter(i, category, mask)
 
     def set_sensor(mut self, i: Int, on: Bool):
         """A sensor overlaps but never pushes: it reports contact events and is
         skipped by every solve pass. Trigger volumes are the point."""
-        self.sensor[i] = on
-
-    def _should_collide(self, i: Int, j: Int) -> Bool:
-        return (self.category[i] & self.mask[j]) != 0 and (
-            self.category[j] & self.mask[i]
-        ) != 0
-
-    def _mesh_candidates(self, i: Int, box: AABB[3], mut out: List[Int]):
-        """Triangles of static body `i` that could touch `box`. The two static
-        kinds answer this differently — BVH descent vs cell arithmetic — and
-        that is the only place they differ; everything downstream is shared."""
-        if self.shape[i] == 4:
-            self.meshes[self.mesh_id[i]].candidates(box, out)
-        else:
-            self.fields[self.mesh_id[i]].candidates(box, out)
-
-    def _mesh_tri(self, i: Int, t: Int) -> ConvexPoly[3]:
-        if self.shape[i] == 4:
-            return self.meshes[self.mesh_id[i]].tri(t)
-        return self.fields[self.mesh_id[i]].tri(t)
-
-    def _mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
-        if self.shape[i] == 4:
-            return self.meshes[self.mesh_id[i]].tri_faces(t)
-        return self.fields[self.mesh_id[i]].tri_faces(t)
-
-    def _hull_world(self, i: Int) -> ConvexPoly[3]:
-        var ax = self._axes(i)
-        return self.hulls[self.hull_id[i]].world(
-            self.bodies[i].position(), ax[0], ax[1], ax[2]
-        )
-
-    def _hull_faces(self, i: Int, infl: Vec3, mr: Real) -> List[Real]:
-        """World-frame face normals for body `i` under the same shape
-        substitution `_as_hull` makes. Needed because EPA's normal is only as
-        good as its polytope, and the contact patch depends on snapping it to a
-        real face (see `collision/hull.mojo`)."""
-        var ax = self._axes(i)
-        var k = self.shape[i]
-        if k == 3:
-            return self.hulls[self.hull_id[i]].world_normals(ax[0], ax[1], ax[2])
-        var hs = self.half[i] + infl
-        if k == 1:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][0] + mr, self.half[i][0] + mr, 0)
-        elif k == 2:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
-        return HullShape.box(hs).world_normals(ax[0], ax[1], ax[2])
-
-    def _as_hull(self, i: Int, infl: Vec3, mr: Real) -> ConvexPoly[3]:
-        """Any supported shape as a convex point cloud, so the hull path can
-        meet box/sphere/capsule without a separate routine per pairing.
-
-        Spheres and capsules are only APPROXIMATED here (a sphere has no
-        vertices), so they keep their own exact routines in `_pair_manifold`
-        and this is used solely for hull-vs-* pairs, where an approximation of
-        the round side is still better than no contact at all. The limitation
-        is stated rather than hidden: `test_hull` asserts hull-vs-box exactly
-        and hull-vs-sphere only within the polygonal tolerance."""
-        var ax = self._axes(i)
-        var k = self.shape[i]
-        if k == 3:
-            # Inflate the hull the same way the box path inflates its boxes,
-            # by pushing each vertex out along its own octant. For a box hull
-            # this reproduces `half + infl` exactly; for a general hull it is
-            # the same conservative widening. Without it a hull rests measurably
-            # deeper than an identical box, because the box pair reports an
-            # inflated penetration on BOTH sides and settles shallower.
-            var p = ConvexPoly[3]()
-            for vi in range(self.hulls[self.hull_id[i]].nv()):
-                var v = self.hulls[self.hull_id[i]].vert(vi)
-                var o = Vec3(
-                    infl[0] if v[0] >= 0 else -infl[0],
-                    infl[1] if v[1] >= 0 else -infl[1],
-                    infl[2] if v[2] >= 0 else -infl[2],
-                    0,
-                )
-                var w = v + o
-                p.add(
-                    self.bodies[i].position()
-                    + ax[0] * w[0] + ax[1] * w[1] + ax[2] * w[2]
-                )
-            return p^
-        var hs = self.half[i] + infl
-        if k == 1:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][0] + mr, self.half[i][0] + mr, 0)
-        elif k == 2:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
-        return HullShape.box(hs).world(
-            self.bodies[i].position(), ax[0], ax[1], ax[2]
-        )
+        self.colliders.set_sensor(i, on)
 
     def set_restitution(mut self, i: Int, e: Real):
         self.restitution[i] = e
@@ -648,319 +435,70 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
         return out^
 
-    def _pair_manifold(
-        self, i: Int, j: Int, mr: Real, infl: Vec3
-    ) -> ContactManifold[3]:
-        """Shape-pair dispatch (kinds normalised so a-kind <= b-kind; the
-        manifold normal is flipped back when the pair had to be swapped)."""
-        var a = i
-        var b = j
-        var flip = False
-        if self.shape[a] > self.shape[b]:
-            a = j
-            b = i
-            flip = True
-        var ka = self.shape[a]
-        var kb = self.shape[b]
-        var m: ContactManifold[3]
-        if ka == 0 and kb == 0:
-            m = box_box_manifold(
-                self.bodies[a].position(), self._axes(a), self.half[a] + infl,
-                self.bodies[b].position(), self._axes(b), self.half[b] + infl,
-            )
-        elif ka == 0 and kb == 1:
-            # sphere_box normal is sphere->box == b->a: flip once more
-            m = sphere_box_manifold(
-                self.bodies[b].position(), self.half[b][0] + mr,
-                self.bodies[a].position(), self._axes(a), self.half[a] + infl,
-            )
-            m.normal = -m.normal
-        elif ka == 0 and kb == 2:
-            m = capsule_box_manifold(
-                self.bodies[b].position(), self._axes(b)[1],
-                self.half[b][1], self.half[b][0] + mr,
-                self.bodies[a].position(), self._axes(a), self.half[a] + infl,
-            )
-            m.normal = -m.normal
-        elif ka == 1 and kb == 1:
-            m = sphere_sphere_manifold(
-                self.bodies[a].position(), self.half[a][0] + mr,
-                self.bodies[b].position(), self.half[b][0] + mr,
-            )
-        elif ka == 1 and kb == 2:
-            # capsule_sphere normal is capsule->sphere == b->a
-            m = capsule_sphere_manifold(
-                self.bodies[b].position(), self._axes(b)[1],
-                self.half[b][1], self.half[b][0] + mr,
-                self.bodies[a].position(), self.half[a][0] + mr,
-            )
-            m.normal = -m.normal
-        elif kb == 3:
-            # any-vs-hull: both sides go through the convex point-cloud path.
-            # Placed before capsule-capsule because the kinds are normalised
-            # (ka <= kb) and hull is the highest kind, so kb == 3 catches
-            # hull-box, hull-sphere, hull-capsule and hull-hull alike.
-            m = hull_manifold(
-                self._as_hull(a, infl, mr), self._as_hull(b, infl, mr),
-                self._hull_faces(a, infl, mr), self._hull_faces(b, infl, mr),
-            )
-        else:  # capsule-capsule
-            m = capsule_capsule_manifold(
-                self.bodies[a].position(), self._axes(a)[1],
-                self.half[a][1], self.half[a][0] + mr,
-                self.bodies[b].position(), self._axes(b)[1],
-                self.half[b][1], self.half[b][0] + mr,
-            )
-        if flip and m.hit:
-            m.normal = -m.normal
-        return m
+    def _pose(self, i: Int) -> Pose3:
+        """The seam value: everything `ColliderSet` needs from body `i`'s
+        transform, and nothing else -- collision never sees a `Body6`."""
+        return Pose3(self.bodies[i].position(), self._axes(i))
 
-    def _fat_aabb(self, i: Int, spec_dt: Real) -> AABB[3]:
-        """World AABB of body `i`'s oriented box (`half`, conservative for
-        sphere/capsule too), grown by r_i = SPEC_BASE/2 + |v_i|·spec_dt.
-        Chosen so r_i + r_j == the pair speculative margin exactly, hence
-        fat-AABB overlap is a conservative superset of any inflated-OBB
-        overlap (the broadphase parity guarantee)."""
-        comptime SPEC_BASE: Real = 0.02
-        var ax = self._axes(i)
-        var h = self.half[i]
-        var wh = Vec3(0, 0, 0, 0)
-        comptime for k in range(3):
-            wh[k] = (
-                abs(ax[0][k]) * h[0]
-                + abs(ax[1][k]) * h[1]
-                + abs(ax[2][k]) * h[2]
-            )
-        var r = Real(0)
-        if spec_dt > 0:
-            var v = self.bodies[i].linear_velocity()
-            r = SPEC_BASE * 0.5 + sqrt(dot(v, v)) * spec_dt
-        return AABB[3].from_center(
-            self.bodies[i].position(), wh + Vec3(r, r, r, 0)
+    def _make_sensor_cpair(self, rc: RawContact) -> _CPair:
+        """Wrap a sensor overlap: all-zero accumulators/anchors, matching the
+        original inline construction exactly -- a sensor never receives an
+        impulse, so it never needs an anchor or an approach-speed prep."""
+        return _CPair(
+            rc.a, rc.b, rc.feat, rc.m,
+            Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
         )
 
-    def _try_mesh_pair(
-        mut self, mut pairs: List[_CPair], i: Int, j: Int,
-        warm: Bool, margin: Real,
-    ):
-        """Contact against static level geometry.
+    def _make_cpair(self, rc: RawContact, warm: Bool) -> _CPair:
+        """Wrap raw contact geometry (`collision.contact_gen.RawContact`)
+        into a solved `_CPair`: body-frame anchors and approach-speed prep
+        (need `Body6.to_local`/`velocity_at`), then a warm-start match
+        against last frame's cache (need `self.cache`) -- the two things
+        `contact_gen` cannot do without seeing physics.
 
-        Unlike every other pair, this emits MORE THAN ONE manifold: a crate
-        landing in a valley rests on several triangles, and collapsing them
-        into one contact would pick a single normal for a surface that has
-        two. Each triangle therefore becomes its own `_CPair`, keyed by
-        triangle index so warm-starting stays per-triangle across frames.
-
-        A triangle is handed to the ordinary convex-hull narrowphase with its
-        winding normal as its one face. That single normal is what makes a
-        ramp behave like a ramp: the separating axis is chosen by minimum
-        penetration over both shapes' face normals, and without the triangle's
-        own the crate would be resolved along one of ITS axes instead."""
-        var a = i  # the dynamic body
-        var b = j  # the static mesh
-        if self.shape[i] >= 4:
-            a = j
-            b = i
-        if self.shape[a] >= 4:
-            return  # mesh vs mesh: two static bodies, nothing to resolve
-
-        # The speculative margin is split half-and-half between the two shapes
-        # everywhere else, and the full margin is subtracted from the depth
-        # afterwards. A triangle has no thickness to inflate, so the dynamic
-        # body carries the WHOLE margin here. Inflating it by half instead
-        # leaves the body resting margin/2 too deep -- 0.0102 on a 0.02 margin,
-        # measured against the same crate on a solid box floor.
-        var mr = margin
-        var wide = Vec3(margin, margin, margin, 0)
-
-        var box = self._fat_aabb(a, 0)
-        var lo = box.min - wide
-        var hi = box.max + wide
-        var tris = List[Int]()
-        self._mesh_candidates(b, AABB[3](lo, hi), tris)
-        if len(tris) == 0:
-            return
-
-        var poly_a = self._as_hull(a, wide, mr)
-        var faces_a = self._hull_faces(a, wide, mr)
-        for c in range(len(tris)):
-            var t = tris[c]
-            var tf = self._mesh_tri_faces(b, t)
-            if len(tf) < 3:
-                continue  # degenerate triangle: no normal, no contact
-            var m = hull_manifold(poly_a, self._mesh_tri(b, t), faces_a, tf)
-            if not m.hit:
-                continue
-            if margin > 0:
-                for k in range(m.count):
-                    m.depths[k] -= margin
-            var pr = _CPair(
-                a, b, t, m,
-                Array[Real, 4](fill=0),
-                Array[Real, 4](fill=0),
-                Array[Real, 4](fill=0),
-                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                Array[Real, 4](fill=0),
-                Array[Real, 4](fill=0),
-            )
-            for k in range(m.count):
-                pr.ra[k] = self.bodies[a].to_local(m.points[k])
-                pr.rb[k] = self.bodies[b].to_local(m.points[k])
-                var va0 = Vec3(0, 0, 0, 0)
-                if not self.statics[a]:
-                    va0 = self.bodies[a].velocity_at(m.points[k])
-                pr.vn0[k] = dot(-va0, m.normal)
-            if warm:
-                for q in range(len(self.cache)):
-                    var old = self.cache[q]
-                    if (
-                        old.a == a
-                        and old.b == b
-                        and old.feat == t
-                        and old.m.count == m.count
-                    ):
-                        pr.acc = old.acc.copy()
-                        pr.acc_t1 = old.acc_t1.copy()
-                        pr.acc_t2 = old.acc_t2.copy()
-                        break
-            pairs.append(pr)
-
-    def _try_pair(
-        mut self, mut pairs: List[_CPair], i: Int, j: Int,
-        warm: Bool, spec_dt: Real,
-    ):
-        """The per-pair body of `_collect_pairs`: speculative manifold +
-        restitution prep + warm-start match. Extracted so both the brute and
-        the broadphase enumeration feed the IDENTICAL logic (parity)."""
-        if not self._should_collide(i, j):
-            return
-        comptime SPEC_BASE: Real = 0.02
-        var margin = Real(0)
-        if spec_dt > 0:
-            var va = self.bodies[i].linear_velocity()
-            var vb = self.bodies[j].linear_velocity()
-            margin = SPEC_BASE + (
-                sqrt(dot(va, va)) + sqrt(dot(vb, vb))
-            ) * spec_dt
-        var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
-
-        if self.sensor[i] or self.sensor[j]:
-            # No speculative margin: a trigger should fire when the shapes
-            # actually overlap, not a margin early, and there is no impulse for
-            # the margin to smooth out anyway.
-            var sm = self._pair_manifold(i, j, 0, Vec3(0, 0, 0, 0))
-            if sm.hit:
-                self.sensor_pairs.append(
-                    _CPair(
-                        i, j, 0, sm,
-                        Array[Real, 4](fill=0),
-                        Array[Real, 4](fill=0),
-                        Array[Real, 4](fill=0),
-                        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                        Array[Real, 4](fill=0),
-                        Array[Real, 4](fill=0),
-                    )
-                )
-            return
-
-        if self.shape[i] >= 4 or self.shape[j] >= 4:
-            self._try_mesh_pair(pairs, i, j, warm, margin)
-            return
-
-        var m = self._pair_manifold(i, j, margin * 0.5, infl)
-        if m.hit and margin > 0:
-            for k in range(m.count):
-                m.depths[k] -= margin
-        if m.hit:
-            var pr = _CPair(
-                i,
-                j,
-                0,
-                m,
-                Array[Real, 4](fill=0),
-                Array[Real, 4](fill=0),
-                Array[Real, 4](fill=0),
-                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                Array[Real, 4](fill=0),
-                Array[Real, 4](fill=0),
-            )
-            for k in range(m.count):
-                pr.ra[k] = self.bodies[i].to_local(m.points[k])
-                pr.rb[k] = self.bodies[j].to_local(m.points[k])
-                # approach speed at prep: drives the restitution pass
-                var va0 = Vec3(0, 0, 0, 0)
-                var vb0 = Vec3(0, 0, 0, 0)
-                if not self.statics[i]:
-                    va0 = self.bodies[i].velocity_at(m.points[k])
-                if not self.statics[j]:
-                    vb0 = self.bodies[j].velocity_at(m.points[k])
-                pr.vn0[k] = dot(vb0 - va0, m.normal)
-            if warm:
-                for c in range(len(self.cache)):
-                    var old = self.cache[c]
-                    if (
-                        old.a == i
-                        and old.b == j
-                        and old.feat == 0
-                        and old.m.count == m.count
-                    ):
-                        pr.acc = old.acc.copy()
-                        pr.acc_t1 = old.acc_t1.copy()
-                        pr.acc_t2 = old.acc_t2.copy()
-                        break
-            pairs.append(pr)
-
-    def _emit_events(mut self, pairs: List[_CPair]):
-        """Diff this step's contact set against last step's: began / stay /
-        ended.
-
-        The set is derived, not tracked. The solver already knows exactly which
-        contacts exist this step — it just built them — and the warm-start
-        cache is last step's answer to the same question, so the events are a
-        sorted merge of two key lists and nothing has to be maintained
-        incrementally or invalidated when a body is removed.
-
-        Sensor overlaps are included: a trigger volume that never receives an
-        impulse still has to say when something entered it, and that is the
-        whole reason sensors exist."""
-        self.events = List[ContactEvent]()
-        var cur = List[Int](capacity=len(pairs) + len(self.sensor_pairs))
-        for c in range(len(pairs)):
-            cur.append(_ckey(pairs[c].a, pairs[c].b, pairs[c].feat))
-        for c in range(len(self.sensor_pairs)):
-            ref sp = self.sensor_pairs[c]
-            cur.append(_ckey(sp.a, sp.b, sp.feat))
-        _sort_keys(cur)
-
-        var i = 0
-        var j = 0
-        while i < len(cur) or j < len(self._prev_keys):
-            if j >= len(self._prev_keys) or (
-                i < len(cur) and cur[i] < self._prev_keys[j]
-            ):
-                self._push_event(cur[i], _EV_BEGAN)
-                i += 1
-            elif i >= len(cur) or cur[i] > self._prev_keys[j]:
-                self._push_event(self._prev_keys[j], _EV_ENDED)
-                j += 1
-            else:
-                self._push_event(cur[i], _EV_STAY)
-                i += 1
-                j += 1
-        self._prev_keys = cur^
-
-    def _push_event(mut self, key: Int, kind: Int):
-        self.events.append(
-            ContactEvent(
-                key >> 42,
-                (key >> 21) & 0x1FFFFF,
-                key & 0x1FFFFF,
-                kind,
-            )
+        For a mesh contact `rc.b` is always static, so `vb0` below is always
+        the zero it starts as -- the same value the old mesh-specific path
+        got from `dot(-va0, normal)`, just via the shared formula."""
+        var pr = _CPair(
+            rc.a, rc.b, rc.feat, rc.m,
+            Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
         )
+        for k in range(rc.m.count):
+            pr.ra[k] = self.bodies[rc.a].to_local(rc.m.points[k])
+            pr.rb[k] = self.bodies[rc.b].to_local(rc.m.points[k])
+            var va0 = Vec3(0, 0, 0, 0)
+            var vb0 = Vec3(0, 0, 0, 0)
+            if not self.statics[rc.a]:
+                va0 = self.bodies[rc.a].velocity_at(rc.m.points[k])
+            if not self.statics[rc.b]:
+                vb0 = self.bodies[rc.b].velocity_at(rc.m.points[k])
+            pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
+        if warm:
+            for c in range(len(self.cache)):
+                var old = self.cache[c]
+                if (
+                    old.a == rc.a
+                    and old.b == rc.b
+                    and old.feat == rc.feat
+                    and old.m.count == rc.m.count
+                ):
+                    pr.acc = old.acc.copy()
+                    pr.acc_t1 = old.acc_t1.copy()
+                    pr.acc_t2 = old.acc_t2.copy()
+                    break
+        return pr^
 
     def _collect_pairs(
         mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False
@@ -973,51 +511,75 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         back from the depths so near-contacts enter with NEGATIVE depth and
         the `d < 0 -> bias = -d/h` branch stops fast movers AT the surface.
 
-        `use_bp` swaps the O(n²) double loop for a per-frame BVH over fat
-        world-AABBs: candidates are a conservative superset of the hitting
-        pairs (see `_fat_aabb`), and are fed to `_try_pair` in the SAME
-        (i, j) lexicographic order as the brute path, so the pair set and the
-        Gauss-Seidel sweep are bit-identical (`test_solver_broadphase`)."""
-        var pairs = List[_CPair]()
-        self.sensor_pairs = List[_CPair]()  # rebuilt with the solved pairs
+        `use_bp` swaps the O(n²) double loop for `self.bp` (any `BroadPhase`
+        backend) over fat world-AABBs: `collision.contact_gen.collect_bp_pairs`
+        reduces its candidates to the SAME (i, j) lexicographic order the
+        brute path visits, so the pair set and the Gauss-Seidel sweep are
+        bit-identical regardless of which backend `Self.BP` is
+        (`tests/test_solver_bp_seam.mojo`). Candidate geometry (which pair
+        touched, on what manifold) comes from `collision.contact_gen.try_pair`
+        over `self.colliders`; this method's own job is wrapping that
+        geometry with the warm-start match and body-frame anchors that need
+        `Body6` (`_make_cpair`)."""
+        var raws = List[RawContact]()
+        var sraws = List[RawContact]()
         var n = len(self.bodies)
         if use_bp:
-            var bvh = BVH[3]()
-            var boxes = List[AABB[3]]()
-            var proxies = List[Int]()
+            # `Self.BP.dim` is a dependent expression that never unifies
+            # with the literal `3` `ColliderSet.fat_aabb` returns, even
+            # though the `__init__` comptime assert guarantees they are
+            # equal (mojo_1.1_migration.md Gotcha #2) -- `rebind` bridges
+            # the two syntactically-distinct, semantically-equal types.
+            var boxes = List[AABB[Self.BP.dim]]()
             for i in range(n):
-                boxes.append(self._fat_aabb(i, spec_dt))
-                proxies.append(i)
-            # SAH build: the solver sorts candidates by (i,j) before use, so
-            # the heuristic can't change the pair order — still bit-identical
-            # to brute (test_solver_broadphase), and SAH is tighter + faster.
-            bvh.build_boxes(boxes, proxies, sah=True)
-            for i in range(n):
-                var cand = List[Int]()
-                bvh.query_region(boxes[i], cand)
-                # keep j > i, drop static-static, sort ascending -> the exact
-                # order the nested brute loop would visit them
-                var js = List[Int]()
-                for c in range(len(cand)):
-                    var j = cand[c]
-                    if j <= i or (self.statics[i] and self.statics[j]):
-                        continue
-                    js.append(j)
-                for a in range(1, len(js)):
-                    var key = js[a]
-                    var b = a - 1
-                    while b >= 0 and js[b] > key:
-                        js[b + 1] = js[b]
-                        b -= 1
-                    js[b + 1] = key
-                for a in range(len(js)):
-                    self._try_pair(pairs, i, js[a], warm, spec_dt)
+                boxes.append(
+                    rebind[AABB[Self.BP.dim]](
+                        self.colliders.fat_aabb(
+                            i, self._pose(i), self.bodies[i].linear_velocity(), spec_dt
+                        )
+                    )
+                )
+            var bp_pairs = List[Pair]()
+            # `collect_bp_pairs` is `raises` only because `SpatialHashBroadPhase`
+            # (one of the dim-3 backends `Self.BP` can be) wraps
+            # `SpatialHashGrid`, whose own methods raise. That is a broken-
+            # invariant class of failure for a scene the engine already
+            # validated at `add*`/`set_filter` time, not caller input this
+            # method should propagate (docs/ARCHITECTURE.md S2, "programmer
+            # error... terminate") -- so it is caught and aborted here rather
+            # than making `step`/`step_soft` (and every one of their ~100
+            # call sites across tests/benchmarks) `raises` for a path that
+            # should never actually raise.
+            try:
+                collect_bp_pairs[Self.BP](self.bp, boxes, self.statics, bp_pairs)
+            except e:
+                abort("BroadPhase raised inside ContactScene6: " + String(e))
+            for c in range(len(bp_pairs)):
+                var i = bp_pairs[c].a
+                var j = bp_pairs[c].b
+                try_pair(
+                    self.colliders, i, j, self._pose(i), self._pose(j),
+                    self.bodies[i].linear_velocity(),
+                    self.bodies[j].linear_velocity(),
+                    spec_dt, raws, sraws,
+                )
         else:
             for i in range(n):
                 for j in range(i + 1, n):
                     if self.statics[i] and self.statics[j]:
                         continue
-                    self._try_pair(pairs, i, j, warm, spec_dt)
+                    try_pair(
+                        self.colliders, i, j, self._pose(i), self._pose(j),
+                        self.bodies[i].linear_velocity(),
+                        self.bodies[j].linear_velocity(),
+                        spec_dt, raws, sraws,
+                    )
+        self.sensor_pairs = List[_CPair]()  # rebuilt with the solved pairs
+        for c in range(len(sraws)):
+            self.sensor_pairs.append(self._make_sensor_cpair(sraws[c]))
+        var pairs = List[_CPair]()
+        for c in range(len(raws)):
+            pairs.append(self._make_cpair(raws[c], warm))
         return pairs^
 
     def _warm_start(mut self, pairs: List[_CPair], lo: Int, hi: Int):
@@ -1398,7 +960,13 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         bit-identical to the non-CCD path (zero-regression guarantee). Clamp
         fractions are decided against the substep-start snapshot before any
         pose moves, so mutually-approaching fast pairs resolve symmetrically
-        (the relative displacement already contains both velocities)."""
+        (the relative displacement already contains both velocities).
+
+        # 17.0f: every pair is swept as its `half` box regardless of shape
+        # kind (sphere/capsule/hull all get the conservative box instead of
+        # their own TOI), and `_should_collide`/sensors are never consulted
+        # (F4c) -- a filtered or sensor pair still clamps motion here. Not
+        # fixed here (behaviour-preserving step)."""
         var n = len(self.bodies)
         var frac = List[Real]()
         for _ in range(n):
@@ -1416,8 +984,8 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                 if not self._inactive(j):
                     vj = self.bodies[j].linear_velocity()
                 var rel = (vi - vj) * h
-                var ha = self.half[i]
-                var hb = self.half[j]
+                var ha = self.colliders.half[i]
+                var hb = self.colliders.half[j]
                 var thin = min(
                     min(ha[0], min(ha[1], ha[2])),
                     min(hb[0], min(hb[1], hb[2])),
@@ -1569,18 +1137,23 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                     self.softs[s].pts[ed.b] = pb
                     self.softs[s].edges[e] = ed
             # particle vs every box (bodies are boxes in this scene)
+            #
+            # 17.0f: every non-box shape (hull/mesh/heightfield too, not just
+            # sphere/capsule) is treated below as a sphere of radius `half.x`
+            # at the body position (F4b) -- for a level mesh that is a sphere
+            # the size of the level. Not fixed here (behaviour-preserving).
             for i in range(np):
                 var p = self.softs[s].pts[i]
                 for b in range(len(self.bodies)):
-                    if self.shape[b] != 0:
+                    if self.colliders.shape[b] != SHAPE_BOX:
                         # sphere / capsule: radial pushout from the closest
                         # interior point (capsule = sphere at the closest
                         # point of its world axis segment); same impulse
                         # coupling as the box path below
-                        var hh2 = self.half[b]
+                        var hh2 = self.colliders.half[b]
                         var rad = hh2[0]
                         var cen = self.bodies[b].position()
-                        if self.shape[b] == 2:
+                        if self.colliders.shape[b] == 2:
                             var axw = self.bodies[b].act(
                                 Vec3(0, hh2[1], 0, 0)
                             ) - cen
@@ -1662,7 +1235,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                                     self.sleep_timer[b] = 0
                         continue
                     var lp = self.bodies[b].to_local(p.x)
-                    var hh = self.half[b]
+                    var hh = self.colliders.half[b]
                     var pen = Real(1e30)
                     var ax = -1
                     var inside = True
@@ -1811,6 +1384,30 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
             self._joint_sweep(h, bias_rate, 1, 0, False, 2, label)
             self._soft_sweep(pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
         self._restitution_pass(pairs, plo, phi, 4)
+
+    def _emit_events(mut self, pairs: List[_CPair]):
+        """Diff this step's contact set against last step's: began / stay /
+        ended (`collision.contact_events.diff_events`).
+
+        The set is derived, not tracked. The solver already knows exactly
+        which contacts exist this step — it just built them — and the warm-
+        start cache is last step's answer to the same question, so the
+        events are a sorted merge of two key lists and nothing has to be
+        maintained incrementally or invalidated when a body is removed.
+
+        Sensor overlaps are included: a trigger volume that never receives an
+        impulse still has to say when something entered it, and that is the
+        whole reason sensors exist."""
+        self.events = List[ContactEvent]()
+        var cur = List[Int](capacity=len(pairs) + len(self.sensor_pairs))
+        for c in range(len(pairs)):
+            cur.append(pack_key(pairs[c].a, pairs[c].b, pairs[c].feat))
+        for c in range(len(self.sensor_pairs)):
+            ref sp = self.sensor_pairs[c]
+            cur.append(pack_key(sp.a, sp.b, sp.feat))
+        sort(cur)
+        diff_events(cur, self._prev_keys, self.events)
+        self._prev_keys = cur^
 
     def step_soft(
         mut self,
@@ -1968,8 +1565,8 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
         self.cache = pairs^  # impulses persist to the next frame
 
 
-def _solve_islands_parallel[BB: Body6](
-    mut scene: ContactScene6[BB],
+def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
+    mut scene: ContactScene6[BB, PBP],
     mut pairs2: List[_CPair],
     plo: List[Int],
     phi: List[Int],
@@ -2005,8 +1602,8 @@ def _solve_islands_parallel[BB: Body6](
         parallelize(island_work, len(labels))
 
 
-def _solve_color_parallel[BB: Body6](
-    mut scene: ContactScene6[BB],
+def _solve_color_parallel[BB: Body6, PBP: BroadPhase](
+    mut scene: ContactScene6[BB, PBP],
     mut pairs2: List[_CPair],
     lo: Int,
     hi: Int,
