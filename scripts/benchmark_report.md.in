@@ -1485,6 +1485,49 @@ lookups). fBm is ~octaves× its base, Worley pays the 27-cell search.
 Contract (seeding, range, determinism) in `test_noise`.
 
 @bench benchmarks/bench_noise.mojo
+## `diag` — observability layer (Phase 17.9 / 17.10 / 17.32-17.34)
+
+`diag` is layer 0 (`docs/ARCHITECTURE.md` §1): zero engine dependencies, so
+every other package can use it, and it carries the detect/record/terminate
+half of the error-handling policy (§2). Four tables:
+
+Table 1 (log call cost) is the zero-cost claim for a disabled log level: a
+call to `log[level]` where `level` is above the compiled-in `LOG_LEVEL`
+compiles its body away entirely (`comptime if`), so it should cost the same
+as not calling it at all. The "enabled level" row is the real, non-zero cost
+of actually building and pushing a `LogRecord` — included so the "disabled is
+free" claim isn't just "everything here is free".
+
+Table 2 is the `FrameArena` vs `List`-per-frame seam (`docs/CATEGORY.md`
+§2.2): one allocation, bump-reset every frame, vs a fresh `List` built every
+frame, across an N sweep from 64 to 65536 records. `FrameArena` holds flat
+around ~1.9 ns/record regardless of N (it never allocates after
+construction); `List`-per-frame starts well behind at small N (allocation
+overhead against few elements to amortize it over) and closes some of the gap
+as N grows, but never catches up in this sweep — allocation dominates at
+every size tested here, which is the regime the task asked this table to
+cover.
+
+Table 3 is `DrawQueue[dtype]` push+tick throughput — six command kinds behind
+one flat tagged struct (not a `Variant`, see `diag/draw.mojo`), pushed and
+aged every frame.
+
+Table 4 is trace span overhead, traced vs untraced, wrapping a
+solver-phase-sized workload (thousands of ops per span, not one op per span —
+a span is meant to wrap a whole solver phase, not a single scalar op; wrapping
+a single op in ANY profiler makes its fixed cost look enormous and would
+misrepresent how spans are actually used here). Built without
+`-D LUDENS_TRACE` (the default, matching `pixi run benchmark`), tracing is
+compiled to a no-op and the two rows land within noise of each other. Rebuilt
+with `-D LUDENS_TRACE` (`mojo run -D LUDENS_TRACE -I build
+benchmarks/bench_diag.mojo`, not part of the default report generation since
+one compiled binary only sees one value of the switch), the traced row still
+lands within noise of the untraced row at this granularity — the ~50ns fixed
+cost of one span's open/close (String-carrying `SpanEvent`, two `List`
+push/pop) is a fraction of a percent of a 20,000-op phase, which is the "a
+few % or less" bar this table exists to check.
+
+@bench benchmarks/bench_diag.mojo
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
