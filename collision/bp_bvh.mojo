@@ -2,7 +2,7 @@
 boxes and produces candidate pairs by region-querying each item's box."""
 
 from geometry.aabb import AABB
-from geometry.bvh import BVH, _Leaf
+from geometry.bvh import BVH
 from .broadphase import BroadPhase, Pair, BoxProxy
 
 
@@ -17,10 +17,12 @@ struct BVHBroadPhase[D: Int](BroadPhase):
 
     def rebuild(mut self, items: List[BoxProxy[Self.D]]) raises:
         self.items = items.copy()
-        var leaves = List[_Leaf[Self.D]]()
+        var boxes = List[AABB[Self.D]]()
+        var proxies = List[Int]()
         for i in range(len(items)):
-            leaves.append(_Leaf[Self.D](items[i].box, items[i].proxy))
-        self.bvh.build(leaves^)
+            boxes.append(items[i].box)
+            proxies.append(items[i].proxy)
+        self.bvh.build_boxes(boxes, proxies)
 
     def pairs(self, mut out: List[Pair]) raises:
         for i in range(len(self.items)):

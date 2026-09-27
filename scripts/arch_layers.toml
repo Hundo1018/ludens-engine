@@ -1,0 +1,26 @@
+# Machine-readable layer table for tools/archindex.mojo (prose: docs/ARCHITECTURE.md §1).
+# A package may import only packages in a strictly lower layer, plus itself.
+
+[layers]
+diag = 0
+geometry = 1
+numerics = 2
+spatial = 2
+procedural = 2
+fluid = 2
+ecs = 2
+scheduler = 3
+collision = 3
+physics = 4
+gameplay = 5
+oop = 6
+
+# Test/bench infrastructure: importable only from the top-level consumer
+# directories below, never from an engine package.
+[infrastructure]
+packages = ["harness"]
+consumers = ["tests", "benchmarks", "examples", "experiments"]
+
+# Deliberate cross-package imports of underscore-prefixed names. Each needs a reason.
+[allow_private]
+# "collision/bp_bvh.mojo:geometry.bvh._Leaf" = "reason"

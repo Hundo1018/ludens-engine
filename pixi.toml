@@ -9,8 +9,14 @@ preview = ["pixi-build"]
 [tasks]
 # Precompile all ludens-engine packages into build/ (required before run/test).
 build = "bash scripts/build_engine.sh"
+# Architecture index + gate (tools/archindex.mojo): `pixi run arch -- <cmd>`.
+# The wrapper rebuilds build/archindex only when the source changed.
+arch = "bash scripts/arch.sh"
+# Machine gate for docs/ARCHITECTURE.md S1 (layers/cycles/reach-through):
+# fails the build the same way a compile error would.
+arch-check = { cmd = "bash scripts/arch.sh check", depends-on = ["build"] }
 # Build, then run every test file (stops at the first failure).
-test = { cmd = "bash scripts/run_tests.sh", depends-on = ["build"] }
+test = { cmd = "bash scripts/run_tests.sh", depends-on = ["build", "arch-check"] }
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.
