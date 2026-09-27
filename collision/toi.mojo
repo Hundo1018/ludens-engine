@@ -59,7 +59,7 @@ def swept_box_toi(
 ) -> ToiResult:
     """Earliest touching time of box `b` displaced by `rel_disp` relative to a
     stationary box `a`, as a fraction of `rel_disp` in [0, 1]."""
-    var axes = InlineArray[Vec3, 15](fill=Vec3(0, 0, 0, 0))
+    var axes = Array[Vec3, 15](fill=Vec3(0, 0, 0, 0))
     var count = 0
     comptime for i in range(3):
         axes[count] = axa[i]

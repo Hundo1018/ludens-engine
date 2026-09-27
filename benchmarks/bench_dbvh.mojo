@@ -51,8 +51,7 @@ def main() raises:
     dbvh.rebuild(first)
     bvh.rebuild(first)
 
-    @parameter
-    def run_dbvh():
+    def run_dbvh() {imm cx, imm cy, imm cz, mut dbvh}:
         try:
             for f in range(FRAMES):
                 var items = _frame_items(cx, cy, cz, f)
@@ -63,8 +62,7 @@ def main() raises:
         except:
             pass
 
-    @parameter
-    def run_bvh():
+    def run_bvh() {imm cx, imm cy, imm cz, mut bvh}:
         try:
             for f in range(FRAMES):
                 var items = _frame_items(cx, cy, cz, f)
@@ -75,6 +73,6 @@ def main() raises:
         except:
             pass
 
-    t.add("DBVH (persistent + pair cache)", N, "frame", measure[run_dbvh](2, 8), FRAMES)
-    t.add("BVH (full rebuild)", N, "frame", measure[run_bvh](2, 8), FRAMES)
+    t.add("DBVH (persistent + pair cache)", N, "frame", measure(run_dbvh, 2, 8), FRAMES)
+    t.add("BVH (full rebuild)", N, "frame", measure(run_bvh, 2, 8), FRAMES)
     t.print_report()

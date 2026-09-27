@@ -18,7 +18,7 @@ since nothing differentiates w.r.t. a constant.
 """
 
 from std.math import sqrt, cos, sin
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .vec import WorldType, Real
 
 
@@ -190,7 +190,7 @@ struct Tape(Movable, Deinitable):
         return adj^
 
 
-# UnsafePointer is non-nullable in this nightly, and a stack address carries
+# Pointer is non-nullable in this nightly, and a stack address carries
 # its own origin — the alloc-derived alias (the ecs backends' Slot idiom) plus
 # Optional models "constant, no tape".
 comptime TapePtr = type_of(alloc[Tape](Layout[Tape](count=1)).unsafe_leak())

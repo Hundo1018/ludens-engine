@@ -38,8 +38,8 @@ comptime _PAD = 8  # Int64s per 64-byte cache line (see bench_falseshare)
 
 
 def ws_parallel_for[
-    body: def (Int) capturing [_] -> None
-](n: Int, workers: Int):
+    BodyT: def (Int) -> None
+](body: BodyT, n: Int, workers: Int):
     """Run `body(i)` for every `i` in `[0, n)` across `workers` threads, with
     idle workers stealing from ranges that are not drained yet."""
     if n <= 0:
@@ -67,8 +67,7 @@ def ws_parallel_for[
         at += take
     var cp = cursors.unsafe_ptr()
 
-    @parameter
-    def worker(me: Int):
+    def worker(me: Int) {imm body, imm cp, imm limits, imm w}:
         # 1. drain own range
         while True:
             var i = Int(Atomic.fetch_add(cp.unsafe_offset(me * _PAD), Int64(1)))
@@ -91,4 +90,4 @@ def ws_parallel_for[
             if not stole:
                 break
 
-    parallelize[worker](w, w)
+    parallelize(worker, w, w)

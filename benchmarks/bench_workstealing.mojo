@@ -62,11 +62,11 @@ def _run_serial(kind: Int) raises -> Int:
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         for i in range(N):
-            p[i] = _spin(i, kind)
+            p[unsafe_offset=i] = _spin(i, kind)
         var t1 = Int(perf_counter_ns())
         if t1 - t0 < best:
             best = t1 - t0
-    keep(p[0])
+    keep(p[unsafe_offset=0])
     return best
 
 
@@ -76,18 +76,17 @@ def _run_static(kind: Int, workers: Int) raises -> Int:
         sink.append(0)
     var p = sink.unsafe_ptr()
 
-    @parameter
-    def body(i: Int):
-        p[i] = _spin(i, kind)
+    def body(i: Int) {imm p, imm kind}:
+        p[unsafe_offset=i] = _spin(i, kind)
 
     var best = Int.MAX
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
-        parallelize[body](N, workers)
+        parallelize(body, N, workers)
         var t1 = Int(perf_counter_ns())
         if t1 - t0 < best:
             best = t1 - t0
-    keep(p[0])
+    keep(p[unsafe_offset=0])
     return best
 
 
@@ -97,18 +96,17 @@ def _run_steal(kind: Int, workers: Int) raises -> Int:
         sink.append(0)
     var p = sink.unsafe_ptr()
 
-    @parameter
-    def body(i: Int):
-        p[i] = _spin(i, kind)
+    def body(i: Int) {imm p, imm kind}:
+        p[unsafe_offset=i] = _spin(i, kind)
 
     var best = Int.MAX
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
-        ws_parallel_for[body](N, workers)
+        ws_parallel_for(body, N, workers)
         var t1 = Int(perf_counter_ns())
         if t1 - t0 < best:
             best = t1 - t0
-    keep(p[0])
+    keep(p[unsafe_offset=0])
     return best
 
 
@@ -121,16 +119,15 @@ def _warmup() raises:
         junk.append(0)
     var jp = junk.unsafe_ptr()
 
-    @parameter
-    def w_body(i: Int):
+    def w_body(i: Int) {imm jp}:
         var acc = 0
         for k in range(2000):
             acc += (i + k) & 3
-        jp[i] = acc
+        jp[unsafe_offset=i] = acc
 
     for _ in range(3):
-        parallelize[w_body](64, 16)
-    keep(jp[0])
+        parallelize(w_body, 64, 16)
+    keep(jp[unsafe_offset=0])
 
 
 def main() raises:

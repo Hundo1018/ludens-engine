@@ -14,14 +14,14 @@ trait DispatchPolicy:
     comptime PARALLEL: Bool
 
     @staticmethod
-    def run[body: def (Int) capturing [_] -> None](n: Int): ...
+    def run[F: def (Int) -> None](body: F, n: Int): ...
 
 
 struct Serial(DispatchPolicy):
     comptime PARALLEL = False
 
     @staticmethod
-    def run[body: def (Int) capturing [_] -> None](n: Int):
+    def run[F: def (Int) -> None](body: F, n: Int):
         for i in range(n):
             body(i)
 
@@ -30,18 +30,17 @@ struct Parallel(DispatchPolicy):
     comptime PARALLEL = True
 
     @staticmethod
-    def run[body: def (Int) capturing [_] -> None](n: Int):
-        parallelize[body](n)
+    def run[F: def (Int) -> None](body: F, n: Int):
+        parallelize(body, n)
 
 
 def square_sum[D: DispatchPolicy](n: Int) -> Int:
     var arena = alloc[Int](Layout[Int](count=n)).unsafe_leak()
 
-    @parameter
-    def worker(i: Int):
+    def worker(i: Int) {imm arena}:
         arena[unsafe_offset=i] = i * i  # disjoint slot: worker i touches only arena[i]
 
-    D.run[worker](n)
+    D.run(worker, n)
 
     var s = 0
     for i in range(n):

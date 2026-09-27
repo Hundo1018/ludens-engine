@@ -53,12 +53,11 @@ def run_foreach[B: StorageBackend](n: Int, frames: Int) -> Float64:
         _ = w.spawn2(Pos2(Vec2(Real(i), 0)), Vel2(Vec2(1, 1)))
     var dt = Real(1)
 
-    @parameter
-    def integrate(mut p: Pos2, v: Vel2):
+    def integrate(mut p: Pos2, v: Vel2) {imm dt}:
         p = Pos2(p.p + v.v * dt)
 
     for _ in range(frames):
-        w.for_each2[Pos2, Vel2, integrate]()
+        w.for_each2[Pos2, Vel2](integrate)
     return _sum_x(w)
 
 

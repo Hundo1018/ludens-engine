@@ -36,7 +36,7 @@ comptime REPS = 3
 
 def _chain(n: Int) -> Chain:
     var c = Chain()
-    for i in range(n):
+    for _ in range(n):
         c.add_link(
             ChainLink.revolute(
                 Vec3(0, 0, 1, 0), Vec3(0, -1, 0, 0), Vec3(0, -0.5, 0, 0), 1.0, INER

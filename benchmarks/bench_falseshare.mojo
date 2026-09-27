@@ -53,27 +53,26 @@ def _run(workers: Int, stride: Int, mode: Int) raises -> Int:
         slots.append(0)
     var p = slots.unsafe_ptr()
 
-    @parameter
-    def body(w: Int):
-        var base = p + w * stride
+    def body(w: Int) {imm p, imm mode, imm stride}:
+        var base = p.unsafe_offset(w * stride)
         if mode == MODE_ATOMIC:
             for k in range(ITERS):
                 _ = Atomic.fetch_add(base, Int64((w + k) & 3))
         elif mode == MODE_PLAIN:
             for k in range(ITERS):
-                base[0] += Int64((w + k) & 3)
+                base.unsafe_store(base.unsafe_load() + Int64((w + k) & 3))
         else:
             var acc = Int64(0)
             for k in range(ITERS):
                 acc += Int64((w + k) & 3)
-            base[0] = acc
+            base.unsafe_store(acc)
 
     var best = Int.MAX
     for _ in range(REPS):
         for i in range(len(slots)):
             slots[i] = 0
         var t0 = Int(perf_counter_ns())
-        parallelize[body](workers, workers)
+        parallelize(body, workers, workers)
         var t1 = Int(perf_counter_ns())
         if t1 - t0 < best:
             best = t1 - t0
@@ -98,22 +97,21 @@ def _verify(workers: Int, stride: Int, mode: Int) raises -> Bool:
         slots.append(0)
     var p = slots.unsafe_ptr()
 
-    @parameter
-    def body(w: Int):
-        var base = p + w * stride
+    def body(w: Int) {imm p, imm mode, imm stride}:
+        var base = p.unsafe_offset(w * stride)
         if mode == MODE_ATOMIC:
             for k in range(ITERS):
                 _ = Atomic.fetch_add(base, Int64((w + k) & 3))
         elif mode == MODE_PLAIN:
             for k in range(ITERS):
-                base[0] += Int64((w + k) & 3)
+                base.unsafe_store(base.unsafe_load() + Int64((w + k) & 3))
         else:
             var acc = Int64(0)
             for k in range(ITERS):
                 acc += Int64((w + k) & 3)
-            base[0] = acc
+            base.unsafe_store(acc)
 
-    parallelize[body](workers, workers)
+    parallelize(body, workers, workers)
     var got = Int64(0)
     for w in range(workers):
         got += slots[w * stride]

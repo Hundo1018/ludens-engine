@@ -101,7 +101,7 @@ def program_marks(prog: List[Int]) -> Int:
 
 def eval_program[
     prog: List[Int], nreg: Int
-](mut reg: InlineArray[Real, nreg], consts: InlineArray[Real, 6],
+](mut reg: Array[Real, nreg], consts: Array[Real, 6],
   mut bits: List[Bool]):
     """Forward pass, unrolled. Appends one bit per `OP_MARK`."""
     comptime NOPS = len(prog) // 4
@@ -132,7 +132,7 @@ def eval_program[
 
 def adjoint_program[
     prog: List[Int], nreg: Int
-](mut adj: InlineArray[Real, nreg], consts: InlineArray[Real, 6],
+](mut adj: Array[Real, nreg], consts: Array[Real, 6],
   bits: List[Bool], bit_end: Int):
     """Reverse pass, unrolled: the transpose of `eval_program`.
 
@@ -144,7 +144,7 @@ def adjoint_program[
     exactly its own rule and nothing else. That is required rather than merely
     tidy — with a runtime chain every arm is instantiated for every instruction,
     so `consts[b]` would be compiled with `b` holding a REGISTER index on an
-    `OP_ADD`, which an `InlineArray` rejects at compile time.
+    `OP_ADD`, which an `Array` rejects at compile time.
 
     Each rule reads the destination adjoint into a local and CLEARS it before
     distributing. That ordering is not cosmetic: instructions like
@@ -263,7 +263,7 @@ comptime STEP_IS_LINEAR = program_is_linear(STEP_PROGRAM)
 comptime STEP_BITS = program_marks(STEP_PROGRAM)
 
 
-def step_consts(dt: Real) -> InlineArray[Real, 6]:
+def step_consts(dt: Real) -> Array[Real, 6]:
     """The folded constants the program indexes. Folding `1 - drag*dt` here
     rather than emitting a subtract keeps the program shorter AND keeps it
     linear, which is what the value-free adjoint depends on."""
@@ -278,12 +278,12 @@ def step_consts(dt: Real) -> InlineArray[Real, 6]:
     comptime DRAG: Real = 0.1
     comptime K: Real = 400.0
     comptime C: Real = 8.0
-    # InlineArray, not List: the register file and the constants are indexed by
+    # Array, not List: the register file and the constants are indexed by
     # COMPILE-TIME constants inside the unrolled program, so keeping them on the
     # stack is what lets the whole thing stay in registers. Measured: with a
     # heap List the generated adjoint ran at 19.7ns against the hand-written
     # 5.7ns; the structure was already right and the indirection was the gap.
-    var c = InlineArray[Real, 6](fill=0)
+    var c = Array[Real, 6](fill=0)
     c[C_GDT] = -G * dt
     c[C_DRAG1] = 1 - DRAG * dt
     c[C_KDT] = K * dt
@@ -306,7 +306,7 @@ def rollout_generated(
     Seeding Y is what actually exercises gravity, the ground spring and the
     contact branch — none of which x can see, since they only ever touch vy."""
     var consts = step_consts(dt)
-    var reg = InlineArray[Real, NREG](fill=0)
+    var reg = Array[Real, NREG](fill=0)
     reg[R_X] = 0
     reg[R_Y] = 1.0
     reg[R_VX] = 0
@@ -321,7 +321,7 @@ def rollout_generated(
     var x_final = reg[R_X]
     var y_final = reg[R_Y]
 
-    var adj = InlineArray[Real, NREG](fill=0)
+    var adj = Array[Real, NREG](fill=0)
     adj[seed] = 1
     grad.clear()
     for _ in range(n):

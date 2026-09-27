@@ -222,7 +222,7 @@ def _gimbal() raises:
         var h = f.mass_matrix()
         var d = f.dof()
         var rhs = List[Real]()
-        for j in range(d):
+        for _ in range(d):
             rhs.append(0)
         rhs[2] = 1.0
         var x = Chain.solve_h(h^, rhs^, d)

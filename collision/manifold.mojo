@@ -46,20 +46,20 @@ struct ContactManifold[dim: Int](Copyable, ImplicitlyCopyable, Movable):
     var hit: Bool
     var normal: SIMD[WorldType, PadW[Self.dim]]  # points from a -> b
     var count: Int
-    var points: InlineArray[SIMD[WorldType, PadW[Self.dim]], Self.MAX]
-    var depths: InlineArray[Real, Self.MAX]
+    var points: Array[SIMD[WorldType, PadW[Self.dim]], Self.MAX]
+    var depths: Array[Real, Self.MAX]
 
     def __init__(out self):
         self.hit = False
         self.normal = SIMD[WorldType, PadW[Self.dim]](0)
         self.count = 0
-        self.points = InlineArray[SIMD[WorldType, PadW[Self.dim]], Self.MAX](
+        self.points = Array[SIMD[WorldType, PadW[Self.dim]], Self.MAX](
             fill=SIMD[WorldType, PadW[Self.dim]](0)
         )
-        self.depths = InlineArray[Real, Self.MAX](fill=0)
+        self.depths = Array[Real, Self.MAX](fill=0)
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        """Explicit copy: `Array` stopped being `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one no longer gets a synthesised one."""
         self.hit = copy.hit
         self.normal = copy.normal
@@ -241,7 +241,7 @@ def _cross3v(a: Vec3, b: Vec3) -> Vec3:
     )
 
 
-comptime Axes3 = InlineArray[Vec3, 3]
+comptime Axes3 = Array[Vec3, 3]
 
 
 def _proj_radius(ax: Axes3, h: Vec3, l: Vec3) -> Real:
@@ -253,14 +253,14 @@ def _proj_radius(ax: Axes3, h: Vec3, l: Vec3) -> Real:
     )
 
 
-def _face_verts(c: Vec3, ax: Axes3, h: Vec3, j: Int, sign: Real) -> InlineArray[Vec3, 4]:
+def _face_verts(c: Vec3, ax: Axes3, h: Vec3, j: Int, sign: Real) -> Array[Vec3, 4]:
     """The 4 corners of face `j` (normal ax[j]*sign) of an oriented box."""
     var u = (j + 1) % 3
     var v = (j + 2) % 3
     var fc = c + ax[j] * (h[j] * sign)
     var eu = ax[u] * h[u]
     var ev = ax[v] * h[v]
-    var out = InlineArray[Vec3, 4](fill=fc)
+    var out = Array[Vec3, 4](fill=fc)
     out[0] = fc + eu + ev
     out[1] = fc - eu + ev
     out[2] = fc - eu - ev
@@ -269,13 +269,13 @@ def _face_verts(c: Vec3, ax: Axes3, h: Vec3, j: Int, sign: Real) -> InlineArray[
 
 
 def _clip_poly_plane(
-    pts: InlineArray[Vec3, 8],
+    pts: Array[Vec3, 8],
     n_in: Int,
     axis: Vec3,
     offset: Real,
-) -> Tuple[InlineArray[Vec3, 8], Int]:
+) -> Tuple[Array[Vec3, 8], Int]:
     """Keep the part of the polygon with dot(axis, p) <= offset."""
-    var out = InlineArray[Vec3, 8](fill=Vec3(0, 0, 0, 0))
+    var out = Array[Vec3, 8](fill=Vec3(0, 0, 0, 0))
     var n_out = 0
     for i in range(n_in):
         var p0 = pts[i]
@@ -323,7 +323,7 @@ def _face_manifold(
             best_k = k
             best_sign = -1
     var quad4 = _face_verts(ic, iax, ih, best_k, best_sign)
-    var pts = InlineArray[Vec3, 8](fill=Vec3(0, 0, 0, 0))
+    var pts = Array[Vec3, 8](fill=Vec3(0, 0, 0, 0))
     for i in range(4):
         pts[i] = quad4[i]
     var count = 4
@@ -348,7 +348,7 @@ def _face_manifold(
     var face_off = dot(nf, rc + rax[j] * (rh[j] * sign))
     var m = ContactManifold[3].hit_along(n_out)
     # collect up to the 4 deepest
-    var depths = InlineArray[Real, 8](fill=-1)
+    var depths = Array[Real, 8](fill=-1)
     for i in range(count):
         depths[i] = face_off - dot(nf, pts[i])  # >0 means behind the face
     for _ in range(4):
@@ -560,7 +560,7 @@ def capsule_box_manifold(
     var p1 = cc + cax * hl
     var m = ContactManifold[3].miss()
     var have = False
-    var probes = InlineArray[Real, 3](fill=0)
+    var probes = Array[Real, 3](fill=0)
     probes[0] = _seg_box_closest_t(p0, p1, cb, axb, hb)
     probes[1] = 0
     probes[2] = 1

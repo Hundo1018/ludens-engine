@@ -27,11 +27,10 @@ def main() raises:
         w.set(e, Health(0))  # component pre-exists -> later set() is in-place
         ents.append(e)
 
-    @parameter
-    def worker(i: Int):
+    def worker(i: Int) {mut w, imm ents}:
         w.set(ents[i], Health(i * 2))  # disjoint: worker i touches only entity i
 
-    parallelize[worker](N)
+    parallelize(worker, N)
 
     var bad = 0
     for i in range(N):

@@ -21,14 +21,14 @@ trait DispatchPolicy:
     comptime PARALLEL: Bool
 
     @staticmethod
-    def run[body: def (Int) capturing [_] -> None](n: Int): ...
+    def run[F: def (Int) -> None](body: F, n: Int): ...
 
 
 struct Serial(DispatchPolicy):
     comptime PARALLEL = False
 
     @staticmethod
-    def run[body: def (Int) capturing [_] -> None](n: Int):
+    def run[F: def (Int) -> None](body: F, n: Int):
         for i in range(n):
             body(i)
 
@@ -37,5 +37,5 @@ struct Parallel(DispatchPolicy):
     comptime PARALLEL = True
 
     @staticmethod
-    def run[body: def (Int) capturing [_] -> None](n: Int):
-        parallelize[body](n)
+    def run[F: def (Int) -> None](body: F, n: Int):
+        parallelize(body, n)

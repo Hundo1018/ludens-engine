@@ -20,8 +20,7 @@ def _run_counts(n: Int, workers: Int, skew: Bool) raises -> List[Int]:
         hits.append(0)
     var hp = hits.unsafe_ptr()
 
-    @parameter
-    def body(i: Int):
+    def body(i: Int) {imm hp, imm skew}:
         # Task 0 is made very expensive under `skew` so its owner falls behind
         # and the other workers must steal to finish the round.
         var spin = 200000 if (skew and i == 0) else 200
@@ -31,7 +30,7 @@ def _run_counts(n: Int, workers: Int, skew: Bool) raises -> List[Int]:
         # each index is claimed exactly once, so a plain increment is safe
         hp[unsafe_offset=i] += 1 if acc >= 0 else 1
 
-    ws_parallel_for[body](n, workers)
+    ws_parallel_for(body, n, workers)
     return hits^
 
 

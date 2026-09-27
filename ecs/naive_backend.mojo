@@ -12,7 +12,7 @@ typed `List[Optional[C]]`). `Optional` lets us pad new ids without requiring
 components to be `Defaultable`.
 """
 
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
@@ -147,8 +147,8 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self):
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
         # Optional-column storage: read a/b, run func on a local `a`, write it
         # back. No List[Entity] allocation (the actual win vs matching2 + get/set).
         var sa = self._store[A]()

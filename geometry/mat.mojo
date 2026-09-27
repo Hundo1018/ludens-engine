@@ -1,6 +1,6 @@
 """Dimension-generic dense linear algebra: square matrices + affine helpers.
 
-Matrices are stored **row-major in a flat `InlineArray[Real, n*n]`** and every
+Matrices are stored **row-major in a flat `Array[Real, n*n]`** and every
 operation is a scalar `comptime for` loop — never width-3 SIMD. This is the same
 discipline as `vec.mojo`: width-3 `reduce_*`/realloc silently drops a lane in
 this nightly, so we never put a width-3 vector in a reallocating slot. A `Mat3`
@@ -23,13 +23,13 @@ struct Mat[n: Int](Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Square `n×n` matrix, row-major. Aliased as `Mat2`/`Mat3`/`Mat4`."""
 
     comptime SIZE = Self.n * Self.n
-    var m: InlineArray[Real, Self.SIZE]
+    var m: Array[Real, Self.SIZE]
 
     def __init__(out self):
-        self.m = InlineArray[Real, Self.SIZE](fill=Real(0))
+        self.m = Array[Real, Self.SIZE](fill=Real(0))
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        """Explicit copy: `Array` stopped being `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one can no longer have its copy
         constructor synthesised."""
         self.m = copy.m.copy()

@@ -62,23 +62,23 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
     # cached entry's impulses and warm-starting would fight itself.
     var feat: Int
     var m: ContactManifold[3]
-    var acc: InlineArray[Real, 4]  # per-point accumulated normal impulse
-    var acc_t1: InlineArray[Real, 4]  # accumulated friction impulses
-    var acc_t2: InlineArray[Real, 4]
+    var acc: Array[Real, 4]  # per-point accumulated normal impulse
+    var acc_t1: Array[Real, 4]  # accumulated friction impulses
+    var acc_t2: Array[Real, 4]
     # Body-frame contact anchors (Box2D scheme): both coincide with the
     # manifold point at prep; per-substep world separation is re-derived from
     # the CURRENT poses, so tilting a body deepens its near edge and the bias
     # produces a restoring torque (frozen depths cannot — towers slowly tip).
-    var ra: InlineArray[Vec3, 4]
-    var rb: InlineArray[Vec3, 4]
+    var ra: Array[Vec3, 4]
+    var rb: Array[Vec3, 4]
     # Restitution (Box2D v3 scheme): the approach speed captured at prep time
     # drives a dedicated post-substep pass toward v_target = -e·vn0. Neither
     # field is warm-start-inherited — both are per-frame.
-    var vn0: InlineArray[Real, 4]
-    var racc: InlineArray[Real, 4]
+    var vn0: Array[Real, 4]
+    var racc: Array[Real, 4]
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        """Explicit copy: `Array` is not `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one gets no synthesised copy."""
         self.a = copy.a
         self.b = copy.b
@@ -642,7 +642,7 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
     def _axes(self, i: Int) -> Axes3:
         """World-frame box axes of body `i` (via `act`, representation-free)."""
         var o = self.bodies[i].act(Vec3(0, 0, 0, 0))
-        var out = InlineArray[Vec3, 3](fill=Vec3(0, 0, 0, 0))
+        var out = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
         out[0] = self.bodies[i].act(Vec3(1, 0, 0, 0)) - o
         out[1] = self.bodies[i].act(Vec3(0, 1, 0, 0)) - o
         out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
@@ -796,13 +796,13 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                     m.depths[k] -= margin
             var pr = _CPair(
                 a, b, t, m,
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
+                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                Array[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
             )
             for k in range(m.count):
                 pr.ra[k] = self.bodies[a].to_local(m.points[k])
@@ -854,13 +854,13 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                 self.sensor_pairs.append(
                     _CPair(
                         i, j, 0, sm,
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                        InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                        InlineArray[Real, 4](fill=0),
-                        InlineArray[Real, 4](fill=0),
+                        Array[Real, 4](fill=0),
+                        Array[Real, 4](fill=0),
+                        Array[Real, 4](fill=0),
+                        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                        Array[Real, 4](fill=0),
+                        Array[Real, 4](fill=0),
                     )
                 )
             return
@@ -879,13 +879,13 @@ struct ContactScene6[B: Body6](Movable, Deinitable):
                 j,
                 0,
                 m,
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-                InlineArray[Real, 4](fill=0),
-                InlineArray[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
+                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+                Array[Real, 4](fill=0),
+                Array[Real, 4](fill=0),
             )
             for k in range(m.count):
                 pr.ra[k] = self.bodies[i].to_local(m.points[k])
@@ -1989,8 +1989,7 @@ def _solve_islands_parallel[BB: Body6](
     entity-actor precedent) — islands write disjoint bodies/pairs, so the
     parallel dispatch is race-free and bit-identical to serial."""
 
-    @parameter
-    def island_work(k: Int):
+    def island_work(k: Int) {mut scene, mut pairs2, imm plo, imm phi, imm labels, imm gravity, imm h, imm substeps, imm iters, imm bias_rate, imm mass_scale, imm impulse_scale, imm mu}:
         scene._solve_island(
             pairs2, plo[k], phi[k], labels[k], gravity, h,
             substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
@@ -2001,9 +2000,9 @@ def _solve_islands_parallel[BB: Body6](
     # Islands are disjoint, so the RESULT is worker-count-invariant either way
     # (`test_islands_par` gates this).
     if workers > 0:
-        parallelize[island_work](len(labels), workers)
+        parallelize(island_work, len(labels), workers)
     else:
-        parallelize[island_work](len(labels))
+        parallelize(island_work, len(labels))
 
 
 def _solve_color_parallel[BB: Body6](
@@ -2020,19 +2019,17 @@ def _solve_color_parallel[BB: Body6](
     workers: Int = 0,
 ):
     """Solve one color's pairs on worker threads (same free-function +
-    @parameter implicit-capture pattern as `_solve_islands_parallel`; an
-    explicit capture list does not parse on this nightly). Same-color pairs
-    share no dynamic body, so the writes are disjoint and the result is
+    capture-list closure pattern as `_solve_islands_parallel`). Same-color
+    pairs share no dynamic body, so the writes are disjoint and the result is
     bit-identical to solving the color serially."""
 
-    @parameter
-    def pair_work(k: Int):
+    def pair_work(k: Int) {mut scene, mut pairs2, imm lo, imm h, imm bias_rate, imm mass_scale, imm impulse_scale, imm use_bias, imm mu}:
         scene._solve_pair(
             pairs2, lo + k, h, bias_rate, mass_scale, impulse_scale,
             use_bias, mu,
         )
 
     if workers > 0:
-        parallelize[pair_work](hi - lo, workers)
+        parallelize(pair_work, hi - lo, workers)
     else:
-        parallelize[pair_work](hi - lo)
+        parallelize(pair_work, hi - lo)

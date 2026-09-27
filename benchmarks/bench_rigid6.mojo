@@ -37,57 +37,51 @@ def main() raises:
         Vec3(0, 0, 0, 0), Quat.identity(), Vec3(1, 0, 0, 0), Vec3(0.3, 2, 0.4, 0), ibox
     )
 
-    @parameter
-    def bench_quat():
+    def bench_quat() {mut qb, imm grav}:
         for _ in range(STEPS):
             qb.step(DT, grav, Vec3(0, 0, 0, 0))
         keep(qb.pos[0])
 
-    var ns_q = measure[bench_quat]()
+    var ns_q = measure(bench_quat)
     t.add("QuatBody6 (world Newton-Euler)", 1, "step", ns_q, STEPS)
 
     var sb = ScrewBody6(Motor3.identity(), Screw3.zero(), ibox)
     sb.apply_impulse(Vec3(1, 0, 0, 0), Vec3(0, 0.5, 0, 0))
 
-    @parameter
-    def bench_screw():
+    def bench_screw() {mut sb, imm grav}:
         for _ in range(STEPS):
             sb.step(DT, grav, Vec3(0, 0, 0, 0))
         keep(sb.vel.b12)
 
-    var ns_s = measure[bench_screw]()
+    var ns_s = measure(bench_screw)
     t.add("ScrewBody6 (motor Lie-Poisson)", 1, "step", ns_s, STEPS)
 
     var w0 = Vec3(0.001, 3, 0.001, 0)
 
-    @parameter
-    def bench_euler():
+    def bench_euler() {imm w0, imm ibox}:
         var w = w0
         var r = run_spin[EulerSpin](Motor3.identity(), w, ibox, DT, STEPS)
         keep(r[1][0])
 
-    @parameter
-    def bench_rk2():
+    def bench_rk2() {imm w0, imm ibox}:
         var w = w0
         var r = run_spin[Rk2Spin](Motor3.identity(), w, ibox, DT, STEPS)
         keep(r[1][0])
 
-    @parameter
-    def bench_mid():
+    def bench_mid() {imm w0, imm ibox}:
         var w = w0
         var r = run_spin[MidpointSpin](Motor3.identity(), w, ibox, DT, STEPS)
         keep(r[1][0])
 
-    @parameter
-    def bench_lgvci():
+    def bench_lgvci() {imm w0, imm ibox}:
         var w = w0
         var r = run_spin[LgvciSpin](Motor3.identity(), w, ibox, DT, STEPS)
         keep(r[1][0])
 
-    t.add("EulerSpin", 1, "spin step", measure[bench_euler](), STEPS)
-    t.add("Rk2Spin", 1, "spin step", measure[bench_rk2](), STEPS)
-    t.add("MidpointSpin (implicit)", 1, "spin step", measure[bench_mid](), STEPS)
-    t.add("LgvciSpin (variational)", 1, "spin step", measure[bench_lgvci](), STEPS)
+    t.add("EulerSpin", 1, "spin step", measure(bench_euler), STEPS)
+    t.add("Rk2Spin", 1, "spin step", measure(bench_rk2), STEPS)
+    t.add("MidpointSpin (implicit)", 1, "spin step", measure(bench_mid), STEPS)
+    t.add("LgvciSpin (variational)", 1, "spin step", measure(bench_lgvci), STEPS)
     t.print_report()
 
     # Conservation quality: Dzhanibekov tumble drift after 1e5 steps.

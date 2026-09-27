@@ -8,7 +8,6 @@ cache (`_CPair` impulse accumulators + manifolds) and joint accumulators.
 Islands are recomputed each step and need no entry.
 """
 
-from std.memory import UnsafePointer
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from collision.manifold import ContactManifold
@@ -287,11 +286,11 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
         m.count = r.i()
         var pr = _CPair(
             a, b, feat, m,
-            InlineArray[Real, 4](fill=0), InlineArray[Real, 4](fill=0),
-            InlineArray[Real, 4](fill=0),
-            InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-            InlineArray[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-            InlineArray[Real, 4](fill=0), InlineArray[Real, 4](fill=0),
+            Array[Real, 4](fill=0), Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Real, 4](fill=0), Array[Real, 4](fill=0),
         )
         for p in range(4):
             pr.m.points[p] = r.v3()

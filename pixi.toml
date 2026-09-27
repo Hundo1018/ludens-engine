@@ -21,10 +21,10 @@ experiments = { cmd = "bash scripts/run_experiments.sh", depends-on = ["build"] 
 spikes = { cmd = "bash scripts/run_spikes.sh", depends-on = ["build"] }
 
 [dependencies]
-# Pinned to the current latest stable release (mojo 1.0.0 / modular 26.5.0,
-# both dated 2026-08-09). Exact pins, not a floor: a toolchain bump is a
+# Pinned to the current latest stable release (mojo 1.1.0 / modular 26.6.0,
+# both dated 2026-09-10). Exact pins, not a floor: a toolchain bump is a
 # deliberate change that reruns the whole test + benchmark gate.
-modular = "==26.5.0"
-mojo = "==1.0.0"
+modular = "==26.6.0"
+mojo = "==1.1.0"
 valgrind = ">=3.27.1,<4"
 glfw = ">=3.4,<4"

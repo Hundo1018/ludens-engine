@@ -40,7 +40,7 @@ def scatter[D: Int](mut rng: XorShift64, n: Int) -> List[BoxProxy[D]]:
 
 def make_rays[D: Int](mut rng: XorShift64, m: Int) -> List[Ray[D]]:
     var rays = List[Ray[D]]()
-    for i in range(m):
+    for _ in range(m):
         var o = SIMD[WorldType, PadW[D]](0)
         var d = SIMD[WorldType, PadW[D]](0)
         comptime for k in range(D):
@@ -52,7 +52,7 @@ def make_rays[D: Int](mut rng: XorShift64, m: Int) -> List[Ray[D]]:
 
 def make_boxes[D: Int](mut rng: XorShift64, m: Int) -> List[AABB[D]]:
     var boxes = List[AABB[D]]()
-    for i in range(m):
+    for _ in range(m):
         var c = SIMD[WorldType, PadW[D]](0)
         comptime for k in range(D):
             c[k] = range_f(rng, 0, AREA)

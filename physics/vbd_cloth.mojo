@@ -23,7 +23,7 @@ from std.math import sqrt, ceildiv
 from geometry.vec import Real
 from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
-from std.gpu import global_idx
+from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from .gpu_cloth import ClothState, _init_grid
@@ -44,10 +44,10 @@ def _vbd_vertex(
     tx: Float32,
     ty: Float32,
     tz: Float32,
-    nx: InlineArray[Float32, 4],
-    ny: InlineArray[Float32, 4],
-    nz: InlineArray[Float32, 4],
-    nok: InlineArray[Bool, 4],
+    nx: Array[Float32, 4],
+    ny: Array[Float32, 4],
+    nz: Array[Float32, 4],
+    nok: Array[Bool, 4],
 ) -> Tuple[Float32, Float32, Float32]:
     """One local Newton step for vertex `i`: returns the new position.
     Pure function of the vertex, its inertia target and its (frozen)
@@ -188,10 +188,10 @@ def vbd_solve_kernel[LT: TensorLayout](
         return
     if rebind[Scalar[dtype]](w[i]) <= 0:
         return
-    var nx = InlineArray[Float32, 4](fill=0)
-    var ny = InlineArray[Float32, 4](fill=0)
-    var nz = InlineArray[Float32, 4](fill=0)
-    var nok = InlineArray[Bool, 4](fill=False)
+    var nx = Array[Float32, 4](fill=0)
+    var ny = Array[Float32, 4](fill=0)
+    var nz = Array[Float32, 4](fill=0)
+    var nok = Array[Bool, 4](fill=False)
     for k in range(4):
         var rr = r
         var cc = c
@@ -315,10 +315,10 @@ def cpu_vbd_run[W: Int, H: Int](
                     var c = i % W
                     if (r + c) % 2 != color or w[i] <= 0:
                         continue
-                    var nx = InlineArray[Float32, 4](fill=0)
-                    var ny = InlineArray[Float32, 4](fill=0)
-                    var nz = InlineArray[Float32, 4](fill=0)
-                    var nok = InlineArray[Bool, 4](fill=False)
+                    var nx = Array[Float32, 4](fill=0)
+                    var ny = Array[Float32, 4](fill=0)
+                    var nz = Array[Float32, 4](fill=0)
+                    var nok = Array[Bool, 4](fill=False)
                     for k in range(4):
                         var rr = r
                         var cc = c

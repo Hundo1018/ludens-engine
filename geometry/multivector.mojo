@@ -83,13 +83,13 @@ struct Multivector[p: Int, q: Int, r: Int](
     comptime BLADES: Int = 1 << Self.DIM
     comptime PSS: Int = Self.BLADES - 1  # pseudoscalar blade mask
 
-    var c: InlineArray[Real, Self.BLADES]  # coefficient per basis blade
+    var c: Array[Real, Self.BLADES]  # coefficient per basis blade
 
     def __init__(out self):
-        self.c = InlineArray[Real, Self.BLADES](fill=0)
+        self.c = Array[Real, Self.BLADES](fill=0)
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        """Explicit copy: `Array` stopped being `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one can no longer have its copy
         constructor synthesised."""
         self.c = copy.c.copy()

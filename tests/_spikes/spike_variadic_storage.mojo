@@ -3,7 +3,7 @@
 # through a type-erased pointer slot indexed by the component's pack position.
 # Only the POINTER is erased — store internals stay fully typed and safe.
 
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 

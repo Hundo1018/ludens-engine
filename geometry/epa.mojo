@@ -47,9 +47,9 @@ def _epa2[dim: Int](
     var poly = List[SIMD[WorldType, PadW[dim]]]()
     # Seed from the simplex's (up to 3) distinct points.
     poly.append(simplex.pa)
-    if not _same(simplex.pb, simplex.pa):
+    if not _same[dim](simplex.pb, simplex.pa):
         poly.append(simplex.pb)
-    if not _same(simplex.pc, simplex.pa) and not _same(simplex.pc, simplex.pb):
+    if not _same[dim](simplex.pc, simplex.pa) and not _same[dim](simplex.pc, simplex.pb):
         poly.append(simplex.pc)
 
     var ca = _centroid[dim](a)

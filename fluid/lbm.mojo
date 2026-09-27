@@ -60,11 +60,11 @@ struct Lbm(Movable, Deinitable):
     # asserting a property and catastrophic in a loop that runs 19 times per
     # cell per step: the first benchmark of this module read 0.18 MLUPS, about
     # three orders below any published CPU LBM, and all of it was allocation.
-    var ex: InlineArray[Int, Q]
-    var ey: InlineArray[Int, Q]
-    var ez: InlineArray[Int, Q]
-    var w: InlineArray[Real, Q]
-    var opp: InlineArray[Int, Q]
+    var ex: Array[Int, Q]
+    var ey: Array[Int, Q]
+    var ez: Array[Int, Q]
+    var w: Array[Real, Q]
+    var opp: Array[Int, Q]
     var inlet_u: Real  # x velocity imposed at the inlet
     var force_x: Real  # uniform body force, the pressure gradient of a channel
     # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
@@ -86,11 +86,11 @@ struct Lbm(Movable, Deinitable):
         self.nz = nz
         self.tau = tau_from_viscosity(nu)
         self.mode = mode
-        self.ex = InlineArray[Int, Q](fill=0)
-        self.ey = InlineArray[Int, Q](fill=0)
-        self.ez = InlineArray[Int, Q](fill=0)
-        self.w = InlineArray[Real, Q](fill=0)
-        self.opp = InlineArray[Int, Q](fill=0)
+        self.ex = Array[Int, Q](fill=0)
+        self.ey = Array[Int, Q](fill=0)
+        self.ez = Array[Int, Q](fill=0)
+        self.w = Array[Real, Q](fill=0)
+        self.opp = Array[Int, Q](fill=0)
         for i in range(Q):
             self.ex[i] = cx(i)
             self.ey[i] = cy(i)

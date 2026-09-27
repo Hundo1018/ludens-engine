@@ -78,8 +78,7 @@ def _run_sap(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = SapBroadPhase[3]()
     bp.rebuild(_items(cx, cy, cz, 0, speed))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_items(cx, cy, cz, f, speed))
@@ -89,7 +88,7 @@ def _run_sap(mut table: BenchTable, cx: List[Real], cy: List[Real],
         except:
             pass
 
-    table.add("sap" + tag, N, "frame", measure[run](2, 6), FRAMES)
+    table.add("sap" + tag, N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def _run_dbvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
@@ -97,8 +96,7 @@ def _run_dbvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = DbvhBroadPhase[3]()
     bp.rebuild(_items(cx, cy, cz, 0, speed))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_items(cx, cy, cz, f, speed))
@@ -108,7 +106,7 @@ def _run_dbvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
         except:
             pass
 
-    table.add("dbvh" + tag, N, "frame", measure[run](2, 6), FRAMES)
+    table.add("dbvh" + tag, N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def _run_grid(mut table: BenchTable, cx: List[Real], cy: List[Real],
@@ -116,8 +114,7 @@ def _run_grid(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = SpatialHashBroadPhase[3](2.0)
     bp.rebuild(_items(cx, cy, cz, 0, speed))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_items(cx, cy, cz, f, speed))
@@ -127,7 +124,7 @@ def _run_grid(mut table: BenchTable, cx: List[Real], cy: List[Real],
         except:
             pass
 
-    table.add("hashgrid" + tag, N, "frame", measure[run](2, 6), FRAMES)
+    table.add("hashgrid" + tag, N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def _run_bvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
@@ -135,8 +132,7 @@ def _run_bvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = BVHBroadPhase[3]()
     bp.rebuild(_items(cx, cy, cz, 0, speed))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_items(cx, cy, cz, f, speed))
@@ -146,7 +142,7 @@ def _run_bvh(mut table: BenchTable, cx: List[Real], cy: List[Real],
         except:
             pass
 
-    table.add("bvh rebuild" + tag, N, "frame", measure[run](2, 6), FRAMES)
+    table.add("bvh rebuild" + tag, N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def _mixed_items(
@@ -182,8 +178,7 @@ def _run_sap_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = SapBroadPhase[3]()
     bp.rebuild(_mixed_items(cx, cy, cz, 0, speed, ratio))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed, imm ratio}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_mixed_items(cx, cy, cz, f, speed, ratio))
@@ -197,7 +192,7 @@ def _run_sap_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
     probe.rebuild(_mixed_items(cx, cy, cz, 7, speed, ratio))
     var pp = List[Pair]()
     probe.pairs(pp)
-    table.add("sap" + tag + " p=" + String(len(pp)), N, "frame", measure[run](2, 6), FRAMES)
+    table.add("sap" + tag + " p=" + String(len(pp)), N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def _run_grid_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
@@ -206,8 +201,7 @@ def _run_grid_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = SpatialHashBroadPhase[3](cell)
     bp.rebuild(_mixed_items(cx, cy, cz, 0, speed, ratio))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed, imm ratio}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_mixed_items(cx, cy, cz, f, speed, ratio))
@@ -221,7 +215,7 @@ def _run_grid_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
     probe.rebuild(_mixed_items(cx, cy, cz, 7, speed, ratio))
     var pp = List[Pair]()
     probe.pairs(pp)
-    table.add("hashgrid" + tag + " p=" + String(len(pp)), N, "frame", measure[run](2, 6), FRAMES)
+    table.add("hashgrid" + tag + " p=" + String(len(pp)), N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def _run_dbvh_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
@@ -229,8 +223,7 @@ def _run_dbvh_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
     var bp = DbvhBroadPhase[3]()
     bp.rebuild(_mixed_items(cx, cy, cz, 0, speed, ratio))
 
-    @parameter
-    def run():
+    def run() {mut bp, imm cx, imm cy, imm cz, imm speed, imm ratio}:
         try:
             for f in range(FRAMES):
                 bp.rebuild(_mixed_items(cx, cy, cz, f, speed, ratio))
@@ -240,7 +233,7 @@ def _run_dbvh_mixed(mut table: BenchTable, cx: List[Real], cy: List[Real],
         except:
             pass
 
-    table.add("dbvh" + tag, N, "frame", measure[run](2, 6), FRAMES)
+    table.add("dbvh" + tag, N, "frame", measure(run, 2, 6), FRAMES)
 
 
 def main() raises:

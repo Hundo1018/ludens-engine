@@ -25,7 +25,7 @@ to every implementation; until then it is a context-taking free function, and
 """
 
 from std.sys import has_accelerator
-from std.gpu import global_idx
+from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from std.atomic import Atomic
 from layout import TileTensor, TensorLayout, row_major

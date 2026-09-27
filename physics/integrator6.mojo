@@ -93,7 +93,7 @@ struct MidpointSpin(SpinIntegrator, Movable, Deinitable):
         return (_advance(pose, wh, dt), w2)
 
 
-comptime _Rows3 = InlineArray[Vec3, 3]
+comptime _Rows3 = Array[Vec3, 3]
 
 
 def _rodrigues(f: Vec3) -> _Rows3:

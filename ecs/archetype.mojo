@@ -33,7 +33,7 @@ the heap-allocated column `List` pointers directly, enabling contiguous SoA
 iteration without per-entity `get()` overhead.
 """
 
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
@@ -123,15 +123,15 @@ struct Archetype[*CTs: ComponentType](Movable, Deinitable):
     var mask: Int  # bit i set => component slot i present
     var entities: List[Int]  # row -> entity id
     var cols: List[Slot]  # slot i -> heap List[CTs[i]] (used iff bit i in mask)
-    var add_edges: InlineArray[Int, Self.N]     # slot -> target archetype index on add  (-1 = unset)
-    var remove_edges: InlineArray[Int, Self.N]  # slot -> target archetype index on remove (-1 = unset)
+    var add_edges: Array[Int, Self.N]     # slot -> target archetype index on add  (-1 = unset)
+    var remove_edges: Array[Int, Self.N]  # slot -> target archetype index on remove (-1 = unset)
 
     def __init__(out self, mask: Int):
         self.mask = mask
         self.entities = List[Int]()
         self.cols = List[Slot](capacity=Self.N)
-        self.add_edges = InlineArray[Int, Self.N](fill=-1)
-        self.remove_edges = InlineArray[Int, Self.N](fill=-1)
+        self.add_edges = Array[Int, Self.N](fill=-1)
+        self.remove_edges = Array[Int, Self.N](fill=-1)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var p = alloc[List[T]](Layout[List[T]](count=1)).unsafe_leak()
@@ -349,8 +349,8 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self):
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
         # Column-direct: one contiguous pass per matching archetype, refs straight
         # into the A/B buffers. No List allocation, no entity-index lookup.
         var bits = (1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]())

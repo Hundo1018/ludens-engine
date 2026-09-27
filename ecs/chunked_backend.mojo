@@ -6,7 +6,7 @@ capacity, and a world that has ever been large keeps that whole allocation
 alive afterwards. A chunked store instead splits the column into fixed-size
 pages and appends a page at a time:
 
-  column = List[page], page = InlineArray-sized block of CHUNK_ROWS cells
+  column = List[page], page = Array-sized block of CHUNK_ROWS cells
   id -> (id / CHUNK_ROWS, id % CHUNK_ROWS)
 
 The trade this makes is the point of the comparison, and it is not "chunking is
@@ -30,7 +30,7 @@ commercial implementations this mirrors, with a floor so tiny components do not
 produce absurdly long pages.
 """
 
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
@@ -283,8 +283,8 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self):
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
         # Walk PAGE BY PAGE rather than id by id: within a page the offset is a
         # plain index, so the page lookup is paid once per CHUNK_ROWS rows
         # instead of once per row. This is the access pattern chunked stores

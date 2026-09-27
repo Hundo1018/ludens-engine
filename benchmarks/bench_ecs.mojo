@@ -6,7 +6,7 @@ against all five ECS backends and the OOP engine. The output is a cross matrix
 (variant x N x op) of ns/op so the strategies can be compared directly.
 
 N is capped at a few thousand on purpose: each backend's `SparseSet` stores its
-sparse index as an `InlineArray[Int, cap]` *by value*, so a large `cap` makes
+sparse index as an `Array[Int, cap]` *by value*, so a large `cap` makes
 codegen for the backend types explode (compile-time / memory blowup). The default
 `cap=4096` keeps the whole matrix compiling in seconds — and that ceiling is
 itself a maturity finding (a heap-backed sparse array is the natural next step
@@ -132,15 +132,13 @@ def run_foreach[
     for i in range(n):
         _ = w.spawn2(Pos2(Vec2(Real(i), 0)), Vel2(Vec2(1, 1)))
 
-    @parameter
     def integrate(mut p: Pos2, v: Vel2):
         p = Pos2(p.p + v.v)
 
-    @parameter
-    def frame():
-        w.for_each2[Pos2, Vel2, integrate]()
+    def frame() {mut w}:
+        w.for_each2[Pos2, Vel2](integrate)
 
-    table.add(variant, n, "update(for_each2)", measure[frame](3, 20), n)
+    table.add(variant, n, "update(for_each2)", measure(frame, 3, 20), n)
 
 
 def bench_all(mut table: BenchTable, n: Int, frames: Int):

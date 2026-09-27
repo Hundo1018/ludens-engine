@@ -140,11 +140,10 @@ struct EntityActorScheduler[
         # --- stage 1: wake every actor once (own-entity mutation + initial sends) ---
         var outboxes = empty_envelopes[M](n)
 
-        @parameter
-        def wake(i: Int):
+        def wake(i: Int) {mut world, imm actors, mut outboxes}:
             Self.H.update[Self.B](world, actors[i], outboxes[i])
 
-        Self.D.run[wake](n)
+        Self.D.run(wake, n)
 
         var inboxes = empty_inboxes[M](n)
         self.delivered += _route[M](
@@ -156,14 +155,13 @@ struct EntityActorScheduler[
         while rounds < limit and has_messages[M](inboxes):
             var next_out = empty_envelopes[M](n)
 
-            @parameter
-            def deliver(i: Int):
+            def deliver(i: Int) {mut world, imm actors, imm inboxes, mut next_out}:
                 if len(inboxes[i]) > 0:
                     Self.H.receive[Self.B](
                         world, actors[i], inboxes[i], next_out[i]
                     )
 
-            Self.D.run[deliver](n)
+            Self.D.run(deliver, n)
 
             var next_in = empty_inboxes[M](n)
             self.delivered += _route[M](

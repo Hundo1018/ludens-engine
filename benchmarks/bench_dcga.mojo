@@ -42,8 +42,7 @@ def main() raises:
 
     var t = BenchTable("DCGA: one uniform incidence test vs hand-written surfaces")
 
-    @parameter
-    def torus_dcga():
+    def torus_dcga() {imm px, imm py, imm pz, imm tor}:
         var acc = Real(0)
         for i in range(N):
             acc += dcga_incidence(
@@ -51,15 +50,13 @@ def main() raises:
             )
         keep(acc)
 
-    @parameter
-    def torus_hand():
+    def torus_hand() {imm px, imm py, imm pz}:
         var acc = Real(0)
         for i in range(N):
             acc += torus_analytic(R, r, Vec3(px[i], py[i], pz[i], 0))
         keep(acc)
 
-    @parameter
-    def sphere_dcga():
+    def sphere_dcga() {imm px, imm py, imm pz, imm sph}:
         var acc = Real(0)
         for i in range(N):
             acc += dcga_incidence(
@@ -67,8 +64,7 @@ def main() raises:
             )
         keep(acc)
 
-    @parameter
-    def sphere_hand():
+    def sphere_hand() {imm px, imm py, imm pz}:
         var acc = Real(0)
         var c = Vec3(0.4, -0.3, 0.9, 0)
         for i in range(N):
@@ -76,24 +72,22 @@ def main() raises:
             acc += dot(d, d) - 1.7 * 1.7
         keep(acc)
 
-    @parameter
-    def plane_dcga():
+    def plane_dcga() {imm px, imm py, imm pz, imm pl}:
         var acc = Real(0)
         for i in range(N):
             acc += dcga_incidence(dcga_point(Vec3(px[i], py[i], pz[i], 0)), pl)
         keep(acc)
 
-    @parameter
-    def plane_hand():
+    def plane_hand() {imm px, imm py, imm pz, imm nrm}:
         var acc = Real(0)
         for i in range(N):
             acc += dot(Vec3(px[i], py[i], pz[i], 0), nrm) - 1.25
         keep(acc)
 
-    t.add("torus  dcga (uniform)", N, "test", measure[torus_dcga](3, 20), N)
-    t.add("torus  hand-written", N, "test", measure[torus_hand](3, 20), N)
-    t.add("sphere dcga (uniform)", N, "test", measure[sphere_dcga](3, 20), N)
-    t.add("sphere hand-written", N, "test", measure[sphere_hand](3, 20), N)
-    t.add("plane  dcga (uniform)", N, "test", measure[plane_dcga](3, 20), N)
-    t.add("plane  hand-written", N, "test", measure[plane_hand](3, 20), N)
+    t.add("torus  dcga (uniform)", N, "test", measure(torus_dcga, 3, 20), N)
+    t.add("torus  hand-written", N, "test", measure(torus_hand, 3, 20), N)
+    t.add("sphere dcga (uniform)", N, "test", measure(sphere_dcga, 3, 20), N)
+    t.add("sphere hand-written", N, "test", measure(sphere_hand, 3, 20), N)
+    t.add("plane  dcga (uniform)", N, "test", measure(plane_dcga, 3, 20), N)
+    t.add("plane  hand-written", N, "test", measure(plane_hand, 3, 20), N)
     t.print_report()

@@ -80,7 +80,7 @@ def case_face_face() -> List[Real]:
 
 def case_box_parity() -> List[Real]:
     """The same configuration through the dedicated box-box manifold."""
-    var ax = InlineArray[Vec3, 3](fill=Vec3(0, 0, 0, 0))
+    var ax = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
     ax[0] = Vec3(1, 0, 0, 0)
     ax[1] = Vec3(0, 1, 0, 0)
     ax[2] = Vec3(0, 0, 1, 0)

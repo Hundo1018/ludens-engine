@@ -11,7 +11,7 @@ The slot list is preallocated to exactly N (a realloc would corrupt erased
 pointers) and all access goes through value-returning methods.
 """
 
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
@@ -151,8 +151,8 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self):
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
         # Iterate the smaller dense store, probe the larger. No List[Entity]
         # allocation (the win); A is read/run/written-back (small-value copy).
         var sa = self._store[A]()

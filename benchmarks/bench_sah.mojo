@@ -29,9 +29,9 @@ comptime M = 4000
 def _scene(mut rng: XorShift64, clustered: Bool) -> List[_Leaf[3]]:
     var leaves = List[_Leaf[3]]()
     for i in range(N):
-        var cx = Real(0)
-        var cy = Real(0)
-        var cz = Real(0)
+        var cx: Real
+        var cy: Real
+        var cz: Real
         if clustered and i % 5 != 0:
             var c = i % 3
             var bx = Real(c) * 20 - 20

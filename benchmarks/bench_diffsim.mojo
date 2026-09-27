@@ -45,12 +45,10 @@ def bench_gradient(mut table: BenchTable):
     comptime Y0: Real = 1.0
     comptime H: Real = 1e-4
 
-    @parameter
     def plain():
         var s = rollout2[RealF](RealF(VX), RealF(VY), Y0, STEPS, DT)
         keep(s.x.value())
 
-    @parameter
     def central():
         # d(x_land)/d(vx0) and d(x_land)/d(vy0) via 4 shifted rollouts
         var xp = rollout2[RealF](RealF(VX + H), RealF(VY), Y0, STEPS, DT)
@@ -60,14 +58,12 @@ def bench_gradient(mut table: BenchTable):
         keep((xp.x.value() - xm.x.value()) / (2 * H))
         keep((yp.x.value() - ym.x.value()) / (2 * H))
 
-    @parameter
     def dual():
         var a = rollout2[DualReal](DualReal.seed(VX), DualReal.const(VY), Y0, STEPS, DT)
         var b = rollout2[DualReal](DualReal.const(VX), DualReal.seed(VY), Y0, STEPS, DT)
         keep(a.x.b)
         keep(b.x.b)
 
-    @parameter
     def batch():
         var s = rollout2[DualBatch](
             DualBatch.seed(VX, 0), DualBatch.seed(VY, 1), Y0, STEPS, DT
@@ -75,7 +71,6 @@ def bench_gradient(mut table: BenchTable):
         keep(s.x.b[0])
         keep(s.x.b[1])
 
-    @parameter
     def reverse():
         # 1 taped rollout + 1 backward sweep gives BOTH components; the cost
         # is tape recording (List appends) — but unlike forward mode it stays
@@ -88,11 +83,11 @@ def bench_gradient(mut table: BenchTable):
         keep(adj[0])
         keep(adj[1])
 
-    table.add("realf baseline (1 rollout)", STEPS, "rollout", measure[plain](3, 20), STEPS)
-    table.add("central diff (4 rollouts)", STEPS, "grad(2)", measure[central](3, 20), STEPS)
-    table.add("dualreal (2 rollouts)", STEPS, "grad(2)", measure[dual](3, 20), STEPS)
-    table.add("dualbatch (1 rollout)", STEPS, "grad(2)", measure[batch](3, 20), STEPS)
-    table.add("reverse tape (1 rollout+sweep)", STEPS, "grad(2)", measure[reverse](3, 20), STEPS)
+    table.add("realf baseline (1 rollout)", STEPS, "rollout", measure(plain, 3, 20), STEPS)
+    table.add("central diff (4 rollouts)", STEPS, "grad(2)", measure(central, 3, 20), STEPS)
+    table.add("dualreal (2 rollouts)", STEPS, "grad(2)", measure(dual, 3, 20), STEPS)
+    table.add("dualbatch (1 rollout)", STEPS, "grad(2)", measure(batch, 3, 20), STEPS)
+    table.add("reverse tape (1 rollout+sweep)", STEPS, "grad(2)", measure(reverse, 3, 20), STEPS)
 
 
 def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
@@ -110,8 +105,7 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
     for k in range(NP):
         base.append(0.3 + 0.05 * Real(k))
 
-    @parameter
-    def fd_forward():
+    def fd_forward() {imm base}:
         # N+1 rollouts: baseline + one bumped rollout per parameter
         comptime H: Real = 1e-3
         var u0 = List[RealF]()
@@ -127,8 +121,7 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
             acc += (sp.x.value() - s0.x.value()) / H
         keep(acc)
 
-    @parameter
-    def batch_chunks():
+    def batch_chunks() {imm base}:
         # ceil(NP/4) rollouts, four seeded lanes each
         comptime CHUNKS = (NP + 3) // 4
         var acc = Real(0)
@@ -144,8 +137,7 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
                 acc += sb.x.b[l]
         keep(acc)
 
-    @parameter
-    def adjoint_s2s():
+    def adjoint_s2s() {imm base}:
         # the routine a source-to-source tool emits: explicit backward pass,
         # no node list, one checkpoint BIT per step instead of a node per op
         var g = List[Real]()
@@ -156,8 +148,7 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
             acc += g[j]
         keep(acc)
 
-    @parameter
-    def adjoint_generated():
+    def adjoint_generated() {imm base}:
         # the same backward pass, GENERATED: `physics/adjoint.mojo` describes
         # the step once and derives its transpose by a comptime walk. Warp and
         # Taichi do this at JIT time; here it happens at compile time, so the
@@ -171,8 +162,7 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
             acc += g[j]
         keep(acc)
 
-    @parameter
-    def reverse_tape():
+    def reverse_tape() {imm base}:
         # ONE rollout + one backward sweep, N-independent
         var tape = Tape()
         var ur = List[RevReal]()
@@ -190,21 +180,21 @@ def bench_gradient_n[NP: Int, BURST: Int](mut table: BenchTable):
     comptime G = "grad(" + String(NP) + ")"
     table.add(
         "fd forward (" + String(NP + 1) + " rollouts)",
-        TOTAL, G, measure[fd_forward](3, 20), TOTAL,
+        TOTAL, G, measure(fd_forward, 3, 20), TOTAL,
     )
     table.add(
         "dualbatch (" + String(CHUNKS) + " rollouts)",
-        TOTAL, G, measure[batch_chunks](3, 20), TOTAL,
+        TOTAL, G, measure(batch_chunks, 3, 20), TOTAL,
     )
     table.add(
-        "reverse tape (1 rollout)", TOTAL, G, measure[reverse_tape](3, 20), TOTAL
+        "reverse tape (1 rollout)", TOTAL, G, measure(reverse_tape, 3, 20), TOTAL
     )
     table.add(
-        "adjoint s2s (hand-emitted)", TOTAL, G, measure[adjoint_s2s](3, 20), TOTAL
+        "adjoint s2s (hand-emitted)", TOTAL, G, measure(adjoint_s2s, 3, 20), TOTAL
     )
     table.add(
         "adjoint generated (comptime)", TOTAL, G,
-        measure[adjoint_generated](3, 20), TOTAL,
+        measure(adjoint_generated, 3, 20), TOTAL,
     )
 
 
@@ -260,38 +250,34 @@ def bench_sandwich(mut table: BenchTable):
 
     var p = Vec3(0.7, -0.3, 1.1, 0)
 
-    @parameter
-    def s_motor():
+    def s_motor() {imm motors, imm p}:
         var acc = Real(0)
         for i in range(K):
             acc += motors[i].apply_point(p)[0]
         keep(acc)
 
-    @parameter
-    def s_realf():
+    def s_realf() {imm gr, imm p}:
         var acc = Real(0)
         for i in range(K):
             acc += sandwich_x(gr[i], p)
         keep(acc)
 
-    @parameter
-    def s_dual():
+    def s_dual() {imm gd, imm p}:
         var acc = Real(0)
         for i in range(K):
             acc += sandwich_x(gd[i], p)
         keep(acc)
 
-    @parameter
-    def s_batch():
+    def s_batch() {imm gb, imm p}:
         var acc = Real(0)
         for i in range(K):
             acc += sandwich_x(gb[i], p)
         keep(acc)
 
-    table.add("motor3 (specialized)", K, "sandwich", measure[s_motor](3, 20), K)
-    table.add("gmv[realf]", K, "sandwich", measure[s_realf](3, 20), K)
-    table.add("gmv[dualreal] (+1 dir)", K, "sandwich", measure[s_dual](3, 20), K)
-    table.add("gmv[dualbatch] (+4 dirs)", K, "sandwich", measure[s_batch](3, 20), K)
+    table.add("motor3 (specialized)", K, "sandwich", measure(s_motor, 3, 20), K)
+    table.add("gmv[realf]", K, "sandwich", measure(s_realf, 3, 20), K)
+    table.add("gmv[dualreal] (+1 dir)", K, "sandwich", measure(s_dual, 3, 20), K)
+    table.add("gmv[dualbatch] (+4 dirs)", K, "sandwich", measure(s_batch, 3, 20), K)
 
 
 def main() raises:

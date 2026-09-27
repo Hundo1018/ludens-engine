@@ -19,7 +19,7 @@ def now() -> Int:
     return Int(perf_counter_ns())
 
 
-def measure[body: def () capturing [_] -> None](warmup: Int = 3, reps: Int = 20) -> Int:
+def measure[F: def () -> None](body: F, warmup: Int = 3, reps: Int = 20) -> Int:
     """Hardened timing: run `body` `warmup` times to warm caches/branch predictors,
     then `reps` times and return the **min** wall-clock ns (min rejects scheduler
     noise better than mean). Pin the process to a P-core (`taskset -c`) for stable

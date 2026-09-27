@@ -1,6 +1,6 @@
 """Large-N test: proves the sparse index has no fixed cap after WS1.
 
-Before WS1 every backend's `SparseSet` held its index as `InlineArray[Int, 4096]`
+Before WS1 every backend's `SparseSet` held its index as `Array[Int, 4096]`
 by value, so spawning past ~4096 entities was impossible (and large `cap` blew up
 codegen). Now the index grows on the heap, so hundreds of thousands / millions of
 entities work. This test spawns well past the old ceiling and checks counts,

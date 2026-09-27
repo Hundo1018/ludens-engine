@@ -1,5 +1,5 @@
 # Probe: alloc free function + MutableAnyOrigin erased pointer slots.
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 
 
 @fieldwise_init

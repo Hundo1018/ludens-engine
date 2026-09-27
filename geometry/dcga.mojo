@@ -60,27 +60,27 @@ comptime _ONE = 14
 struct DcgaEntity(Copyable, ImplicitlyCopyable, Movable):
     """A Darboux-cyclide surface as coefficients over the monomial basis."""
 
-    var c: InlineArray[Real, DCGA_DIM]
+    var c: Array[Real, DCGA_DIM]
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` stopped being `ImplicitlyCopyable` in
+        """Explicit copy: `Array` stopped being `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one can no longer have its copy
         constructor synthesised."""
         self.c = copy.c.copy()
 
     @staticmethod
     def zero() -> Self:
-        return Self(InlineArray[Real, DCGA_DIM](fill=0))
+        return Self(Array[Real, DCGA_DIM](fill=0))
 
 
-def dcga_point(p: Vec3) -> InlineArray[Real, DCGA_DIM]:
+def dcga_point(p: Vec3) -> Array[Real, DCGA_DIM]:
     """Monomial extraction from a euclidean point — the value-extraction
     components of the tensored conformal point, written directly."""
     var x = p[0]
     var y = p[1]
     var z = p[2]
     var s = x * x + y * y + z * z
-    var v = InlineArray[Real, DCGA_DIM](fill=0)
+    var v = Array[Real, DCGA_DIM](fill=0)
     v[_S2] = s * s
     v[_SX] = s * x
     v[_SY] = s * y
@@ -99,7 +99,7 @@ def dcga_point(p: Vec3) -> InlineArray[Real, DCGA_DIM]:
     return v^
 
 
-def dcga_incidence(pt: InlineArray[Real, DCGA_DIM], e: DcgaEntity) -> Real:
+def dcga_incidence(pt: Array[Real, DCGA_DIM], e: DcgaEntity) -> Real:
     """`TD · Omega`: zero on the surface, signed off it. ONE expression for
     every surface in the family — that is the whole DCGA claim."""
     var acc = Real(0)

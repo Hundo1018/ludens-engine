@@ -24,7 +24,7 @@ is mutation order — replaying a scenario yields a bit-identical event list
 (`test_observers`).
 """
 
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
@@ -281,8 +281,8 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self):
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
         # Components live in per-type SparseSets (as in the sparse backend); iterate
         # the smaller, probe the larger. No List[Entity] allocation.
         var sa = self._store[A]()

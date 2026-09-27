@@ -86,7 +86,7 @@ def main() raises:
     s.check(Float64(r_lbs) < 0.05, "LBS collapses (the artifact, by design)")
 
     # --- rigid parity: identical bones -> both paths agree ---
-    # Explicit Lists: a bracket literal infers InlineArray here, and Mojo 1.0
+    # Explicit Lists: a bracket literal infers Array here, and Mojo 1.0
     # no longer converts one to the List the skinning entry points take.
     var bones2 = List[Motor3](capacity=2)
     bones2.append(ma)

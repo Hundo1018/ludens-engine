@@ -20,7 +20,7 @@ header for why this is a context-taking free function rather than a
 """
 
 from std.sys import has_accelerator
-from std.gpu import global_idx
+from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 from geometry.vec import Real, Vec3

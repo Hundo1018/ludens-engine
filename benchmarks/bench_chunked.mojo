@@ -71,7 +71,6 @@ def bench_iterate[B: StorageBackend](mut t: BenchTable, name: String, n: Int, fr
     for i in range(n):
         _ = w.spawn2(Pos(i, i), Vel(1, 1))
 
-    @parameter
     def move(mut p: Pos, v: Vel):
         p.x += v.dx
         p.y += v.dy
@@ -80,7 +79,7 @@ def bench_iterate[B: StorageBackend](mut t: BenchTable, name: String, n: Int, fr
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         for _ in range(frames):
-            w.for_each2[Pos, Vel, move]()
+            w.for_each2[Pos, Vel](move)
         var dt = Int(perf_counter_ns()) - t0
         if dt < best:
             best = dt

@@ -57,7 +57,7 @@ struct _Cast(Copyable, ImplicitlyCopyable, Movable):
     var disp: Vec3  # per-step displacement of b relative to a
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `Axes3` is an `InlineArray`, which is not
+        """Explicit copy: `Axes3` is an `Array`, which is not
         `ImplicitlyCopyable` in Mojo 1.0."""
         self.ca = copy.ca
         self.axa = copy.axa.copy()

@@ -168,11 +168,10 @@ def _run_level[
     there because it conflicts with nothing else in it, so no two of these
     systems write the same component."""
 
-    @parameter
-    def level_work(k: Int):
+    def level_work(k: Int) {mut world, imm order, imm lo}:
         _run_one[B, *Systems](world, order[lo + k])
 
     if workers > 0:
-        parallelize[level_work](hi - lo, workers)
+        parallelize(level_work, hi - lo, workers)
     else:
-        parallelize[level_work](hi - lo)
+        parallelize(level_work, hi - lo)

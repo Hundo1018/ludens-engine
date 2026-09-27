@@ -39,8 +39,7 @@ def main() raises:
     comptime for ii in range(3):
         comptime IT = 8 if ii == 0 else (16 if ii == 1 else 32)
 
-        @parameter
-        def sdf_pair():
+        def sdf_pair() {imm ca, imm cb}:
             var acc = Real(0)
             for i in range(N):
                 var pa = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2], 0)
@@ -54,11 +53,10 @@ def main() raises:
 
         t.add(
             "sdf sphere-sphere it=" + String(IT), N, "pair",
-            measure[sdf_pair](3, 20), N,
+            measure(sdf_pair, 3, 20), N,
         )
 
-    @parameter
-    def analytic_pair():
+    def analytic_pair() {imm ca, imm cb}:
         var acc = Real(0)
         for i in range(N):
             var pa = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2], 0)
@@ -68,7 +66,7 @@ def main() raises:
             acc += pen if pen > 0 else Real(0)
         keep(acc)
 
-    t.add("analytic sphere-sphere", N, "pair", measure[analytic_pair](3, 20), N)
+    t.add("analytic sphere-sphere", N, "pair", measure(analytic_pair, 3, 20), N)
 
     # CSG: a box with a sphere bitten out, against a probe sphere. There is no
     # analytic row to put beside this one — that absence is the capability.
@@ -76,8 +74,7 @@ def main() raises:
         OP_SUBTRACT, Sdf3.sphere(Vec3(1, 0, 0, 0), 0.7)
     )
 
-    @parameter
-    def csg_pair():
+    def csg_pair() {imm ca, imm bitten}:
         var acc = Real(0)
         for i in range(N):
             var pb = Vec3(ca[i * 3], ca[i * 3 + 1], ca[i * 3 + 2], 0)
@@ -87,6 +84,6 @@ def main() raises:
 
     t.add(
         "sdf CSG(box minus sphere) vs sphere  [no analytic pair exists]",
-        N, "pair", measure[csg_pair](3, 20), N,
+        N, "pair", measure(csg_pair, 3, 20), N,
     )
     t.print_report()

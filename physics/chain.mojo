@@ -35,7 +35,7 @@ def _cross(a: Vec3, b: Vec3) -> Vec3:
     )
 
 
-comptime _Rows3 = InlineArray[Vec3, 3]
+comptime _Rows3 = Array[Vec3, 3]
 
 
 def _sym_add(a: _Rows3, b: _Rows3) -> _Rows3:
@@ -68,7 +68,7 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
     var io: _Rows3
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        """Explicit copy: `Array` is not `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one gets no synthesised copy."""
         self.m = copy.m
         self.h = copy.h
@@ -1124,7 +1124,7 @@ struct _ABI(Copyable, ImplicitlyCopyable, Movable):
     var d: _Rows3
 
     def __init__(out self, *, copy: Self):
-        """Explicit copy: `InlineArray` is not `ImplicitlyCopyable` in
+        """Explicit copy: `Array` is not `ImplicitlyCopyable` in
         Mojo 1.0, so a struct holding one gets no synthesised copy."""
         self.a = copy.a.copy()
         self.b = copy.b.copy()

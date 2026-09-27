@@ -13,7 +13,7 @@ in the other backends; the bitsets are homogeneous `UInt64` and need no erasure.
 """
 
 from std.bit import count_trailing_zeros
-from std.memory import UnsafePointer, alloc, Layout
+from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend
@@ -199,8 +199,8 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self):
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
         # AND the presence bitsets word-by-word, walk set bits, read/run/write-back.
         # No List[Entity] allocation.
         var sla = Self._slot_of[A]()

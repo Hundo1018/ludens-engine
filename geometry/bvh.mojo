@@ -132,9 +132,9 @@ struct BVH[dim: Int](Copyable, Movable):
             var extent = cmax[a] - cmin[a]
             if extent <= 0:
                 continue
-            var bcount = InlineArray[Int, SAH_BINS](fill=0)
-            var bmin = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](fill=BIG)
-            var bmax = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](
+            var bcount = Array[Int, SAH_BINS](fill=0)
+            var bmin = Array[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](fill=BIG)
+            var bmax = Array[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](
                 fill=SMALL
             )
             for i in range(lo, hi):
@@ -148,9 +148,9 @@ struct BVH[dim: Int](Copyable, Movable):
                 bmin[k] = lane_min(bmin[k], leaves[i].box.min)
                 bmax[k] = lane_max(bmax[k], leaves[i].box.max)
             # left prefix (bins [0..k])
-            var lcount = InlineArray[Int, SAH_BINS](fill=0)
-            var lmin = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](fill=BIG)
-            var lmax = InlineArray[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](
+            var lcount = Array[Int, SAH_BINS](fill=0)
+            var lmin = Array[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](fill=BIG)
+            var lmax = Array[SIMD[WorldType, PadW[Self.dim]], SAH_BINS](
                 fill=SMALL
             )
             var acc_c = 0
@@ -271,7 +271,7 @@ struct BVH[dim: Int](Copyable, Movable):
         var tmp_leaves = leaves.copy()
         var tmp_codes = codes.copy()
         for shift in range(0, 32, 8):
-            var count = InlineArray[Int, 257](fill=0)
+            var count = Array[Int, 257](fill=0)
             for i in range(n):
                 count[Int((codes[i] >> UInt32(shift)) & UInt32(255)) + 1] += 1
             for b in range(1, 257):
@@ -497,7 +497,7 @@ def morton_order[D: Int](boxes: List[AABB[D]]) -> List[Int]:
     var tmp_codes = codes.copy()
     var tmp_order = order.copy()
     for shift in range(0, 32, 8):
-        var count = InlineArray[Int, 257](fill=0)
+        var count = Array[Int, 257](fill=0)
         for i in range(n):
             count[Int((codes[i] >> UInt32(shift)) & UInt32(255)) + 1] += 1
         for b in range(1, 257):

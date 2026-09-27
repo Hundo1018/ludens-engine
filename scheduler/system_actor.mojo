@@ -85,8 +85,7 @@ struct SystemActorScheduler[
             var outboxes = empty_envelopes[M](K)
             var run_all = force_all
 
-            @parameter
-            def worker(i: Int):
+            def worker(i: Int) {mut world, imm inboxes, mut outboxes, imm run_all}:
                 # bridge the runtime dispatch index to the comptime system index
                 comptime for k in range(K):
                     if i == k and (run_all or len(inboxes[k]) > 0):
@@ -96,7 +95,7 @@ struct SystemActorScheduler[
                         for j in range(len(produced)):
                             outboxes[k].append(rebind[Envelope[M]](produced[j]))
 
-            Self.D.run[worker](K)
+            Self.D.run(worker, K)
 
             var next_in = empty_inboxes[M](K)
             _route_by_index[M](outboxes, next_in)

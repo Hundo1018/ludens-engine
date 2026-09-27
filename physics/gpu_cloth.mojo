@@ -21,7 +21,7 @@ from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from std.benchmark import keep
-from std.gpu import global_idx
+from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 

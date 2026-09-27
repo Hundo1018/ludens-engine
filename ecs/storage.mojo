@@ -50,5 +50,5 @@ trait StorageBackend(Defaultable, Movable, Deinitable):
     def for_each2[
         A: ComponentType,
         B: ComponentType,
-        func: def (mut A, B) capturing [_] -> None,
-    ](mut self): ...
+        F: def (mut A, B) -> None,
+    ](mut self, func: F): ...

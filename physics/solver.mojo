@@ -52,7 +52,7 @@ def _penetration[dim: Int](
 ) -> Real:
     """Current penetration of two boxes along contact normal `n` (a -> b)."""
     var sep = dot(b.pos - a.pos, n)
-    return _support(a.half, n) + _support(b.half, n) - sep
+    return _support[dim](a.half, n) + _support[dim](b.half, n) - sep
 
 
 struct SequentialImpulse(ContactSolver):

@@ -65,64 +65,57 @@ def main() raises:
     var p = Vec3(0.7, -0.3, 1.1, 0)
 
     # --- apply: transform a point through all N ---
-    @parameter
-    def apply_motor():
+    def apply_motor() {imm motors, imm p}:
         var acc = Vec3(0)
         for i in range(N):
             acc = acc + motors[i].apply_point(p)
         keep(acc[0])
 
-    @parameter
-    def apply_dq():
+    def apply_dq() {imm dqs, imm p}:
         var acc = Vec3(0)
         for i in range(N):
             acc = acc + dqs[i].transform_point(p)
         keep(acc[0])
 
-    @parameter
-    def apply_mat():
+    def apply_mat() {imm mats, imm p}:
         var acc = Vec3(0)
         for i in range(N):
             acc = acc + transform_point4(mats[i], p)
         keep(acc[0])
 
-    @parameter
-    def apply_quat():
+    def apply_quat() {imm quats, imm trans, imm p}:
         var acc = Vec3(0)
         for i in range(N):
             acc = acc + quats[i].rotate(p) + trans[i]
         keep(acc[0])
 
-    table.add("motor (PGA, 8f)", N, "apply", measure[apply_motor](3, 20), N)
-    table.add("dual quat (8f)", N, "apply", measure[apply_dq](3, 20), N)
-    table.add("mat4 (16f)", N, "apply", measure[apply_mat](3, 20), N)
-    table.add("quat+vec (7f)", N, "apply", measure[apply_quat](3, 20), N)
+    table.add("motor (PGA, 8f)", N, "apply", measure(apply_motor, 3, 20), N)
+    table.add("dual quat (8f)", N, "apply", measure(apply_dq, 3, 20), N)
+    table.add("mat4 (16f)", N, "apply", measure(apply_mat, 3, 20), N)
+    table.add("quat+vec (7f)", N, "apply", measure(apply_quat, 3, 20), N)
 
     # --- compose: chain neighbouring transforms ---
-    @parameter
-    def compose_motor():
+    def compose_motor() {imm motors}:
         var acc = Motor3.identity()
         for i in range(N - 1):
             acc = motors[i] * motors[i + 1]
         keep(acc.s)
 
-    @parameter
-    def compose_dq():
+    def compose_dq() {imm dqs}:
         var acc = DualQuat.identity()
         for i in range(N - 1):
             acc = dqs[i] * dqs[i + 1]
         keep(acc.real.w)
 
-    @parameter
-    def compose_mat():
+    def compose_mat() {imm mats}:
         var acc = Mat4.identity()
         for i in range(N - 1):
             acc = mats[i] * mats[i + 1]
         keep(acc.m[0])
 
-    table.add("motor (PGA, 8f)", N, "compose", measure[compose_motor](3, 20), N)
-    table.add("dual quat (8f)", N, "compose", measure[compose_dq](3, 20), N)
-    table.add("mat4 (16f)", N, "compose", measure[compose_mat](3, 20), N)
+    table.add("motor (PGA, 8f)", N, "compose", measure(compose_motor, 3, 20), N)
+    table.add("dual quat (8f)", N, "compose", measure(compose_dq, 3, 20), N)
+    table.add("mat4 (16f)", N, "compose", measure(compose_mat, 3, 20), N)
 
     # --- skinning: per-vertex 2-bone blend + transform (DLB vs LBS) ---
     var rest = List[Vec3]()
@@ -144,18 +137,16 @@ def main() raises:
         wa.append(Real(rng.next_f32()))
         out.append(Vec3(0))
 
-    @parameter
-    def skin_m():
+    def skin_m() {imm motors, imm rest, imm ia, imm ib, imm wa, mut out}:
         skin_motor(motors, rest, ia, ib, wa, out)
         keep(out.unsafe_ptr())
 
-    @parameter
-    def skin_l():
+    def skin_l() {imm mats, imm rest, imm ia, imm ib, imm wa, mut out}:
         skin_lbs(mats, rest, ia, ib, wa, out)
         keep(out.unsafe_ptr())
 
-    table.add("motor DLB (8f)", N, "skin", measure[skin_m](3, 20), N)
-    table.add("mat4 LBS (16f)", N, "skin", measure[skin_l](3, 20), N)
+    table.add("motor DLB (8f)", N, "skin", measure(skin_m, 3, 20), N)
+    table.add("mat4 LBS (16f)", N, "skin", measure(skin_l, 3, 20), N)
 
     table.print_report()
 
@@ -173,29 +164,25 @@ def main() raises:
 
     comptime T: Real = 0.375
 
-    @parameter
-    def lie_exp():
+    def lie_exp() {imm screws}:
         var acc = Real(0)
         for i in range(N):
             acc += exp_screw3(screws[i]).s
         keep(acc)
 
-    @parameter
-    def lie_log():
+    def lie_log() {imm motors}:
         var acc = Real(0)
         for i in range(N):
             acc += log_motor3(motors[i]).b12
         keep(acc)
 
-    @parameter
-    def interp_motor():
+    def interp_motor() {imm motors}:
         var acc = Real(0)
         for i in range(N - 1):
             acc += geodesic3(motors[i], motors[i + 1], T).s
         keep(acc)
 
-    @parameter
-    def interp_quat():
+    def interp_quat() {imm quats, imm trans}:
         # classical decoupled: slerp the rotation, lerp the translation
         var acc = Real(0)
         for i in range(N - 1):
@@ -204,8 +191,7 @@ def main() raises:
             acc += q.w + t[0]
         keep(acc)
 
-    @parameter
-    def interp_dq():
+    def interp_dq() {imm dqs}:
         # via the motor bridge (DualQuat has no native ScLERP): prices what the
         # engine's API actually makes you pay to screw-interpolate a dual quat.
         var acc = Real(0)
@@ -214,8 +200,7 @@ def main() raises:
             acc += DualQuat.from_motor(g).real.w
         keep(acc)
 
-    @parameter
-    def interp_mat():
+    def interp_mat() {imm mats}:
         # matrices cannot be interpolated directly (the blend leaves SE(3)):
         # decompose -> slerp/lerp -> recompose is the honest matrix route.
         var acc = Real(0)
@@ -238,12 +223,12 @@ def main() raises:
             acc += m.m[0]
         keep(acc)
 
-    lie.add("motor exp (screw->motor)", N, "exp", measure[lie_exp](3, 20), N)
-    lie.add("motor log (motor->screw)", N, "log", measure[lie_log](3, 20), N)
-    lie.add("motor geodesic (PGA screw)", N, "interp", measure[interp_motor](3, 20), N)
-    lie.add("quat slerp + lerp (decoupled)", N, "interp", measure[interp_quat](3, 20), N)
-    lie.add("dual quat (via motor bridge)", N, "interp", measure[interp_dq](3, 20), N)
-    lie.add("mat4 decompose+slerp+recompose", N, "interp", measure[interp_mat](3, 20), N)
+    lie.add("motor exp (screw->motor)", N, "exp", measure(lie_exp, 3, 20), N)
+    lie.add("motor log (motor->screw)", N, "log", measure(lie_log, 3, 20), N)
+    lie.add("motor geodesic (PGA screw)", N, "interp", measure(interp_motor, 3, 20), N)
+    lie.add("quat slerp + lerp (decoupled)", N, "interp", measure(interp_quat, 3, 20), N)
+    lie.add("dual quat (via motor bridge)", N, "interp", measure(interp_dq, 3, 20), N)
+    lie.add("mat4 decompose+slerp+recompose", N, "interp", measure(interp_mat, 3, 20), N)
 
     lie.print_report()
 
@@ -274,15 +259,13 @@ def main() raises:
     var dil_d = dilator(SCALE)
     var dil_dr = dilator_reverse(SCALE)
 
-    @parameter
-    def inv_cga():
+    def inv_cga() {imm inv_versor, imm pts}:
         var acc = Real(0)
         for i in range(N):
             acc += invert_point_with(inv_versor, pts[i])[0]
         keep(acc)
 
-    @parameter
-    def inv_analytic():
+    def inv_analytic() {imm pts, imm ic}:
         var acc = Real(0)
         for i in range(N):
             var d = pts[i] - ic
@@ -291,15 +274,13 @@ def main() raises:
                 acc += (ic + d * (IR * IR / d2))[0]
         keep(acc)
 
-    @parameter
-    def dil_cga():
+    def dil_cga() {imm dil_d, imm dil_dr, imm pts}:
         var acc = Real(0)
         for i in range(N):
             acc += dilate_point_with(dil_d, dil_dr, pts[i])[0]
         keep(acc)
 
-    @parameter
-    def dil_scalar():
+    def dil_scalar() {imm pts}:
         var acc = Real(0)
         for i in range(N):
             acc += (pts[i] * SCALE)[0]
@@ -310,26 +291,24 @@ def main() raises:
     # split-and-recombine algorithm is the same either way.
     var circ = Circle3.make(Vec3(0.5, -0.25, 1.0, 0), normalize(Vec3(0.3, 1.0, -0.2, 0)), 2.0)
 
-    @parameter
-    def arc_cga():
+    def arc_cga() {imm circ, imm pts}:
         var acc = Real(0)
         for i in range(N):
             acc += point_circle_dist_cga(circ, pts[i])
         keep(acc)
 
-    @parameter
-    def arc_closed():
+    def arc_closed() {imm circ, imm pts}:
         var acc = Real(0)
         for i in range(N):
             acc += point_circle_dist(circ, pts[i])
         keep(acc)
 
-    cf.add("point-arc cga carriers", N, "point", measure[arc_cga](3, 20), N)
-    cf.add("point-arc closed form", N, "point", measure[arc_closed](3, 20), N)
-    cf.add("inversion cga versor", N, "point", measure[inv_cga](3, 20), N)
-    cf.add("inversion closed form", N, "point", measure[inv_analytic](3, 20), N)
-    cf.add("dilation cga versor", N, "point", measure[dil_cga](3, 20), N)
-    cf.add("dilation scalar multiply", N, "point", measure[dil_scalar](3, 20), N)
+    cf.add("point-arc cga carriers", N, "point", measure(arc_cga, 3, 20), N)
+    cf.add("point-arc closed form", N, "point", measure(arc_closed, 3, 20), N)
+    cf.add("inversion cga versor", N, "point", measure(inv_cga, 3, 20), N)
+    cf.add("inversion closed form", N, "point", measure(inv_analytic, 3, 20), N)
+    cf.add("dilation cga versor", N, "point", measure(dil_cga, 3, 20), N)
+    cf.add("dilation scalar multiply", N, "point", measure(dil_scalar, 3, 20), N)
     cf.print_report()
 
     # ------------------------------------------------- transform CHAIN regime
@@ -344,8 +323,7 @@ def main() raises:
     comptime for ki in range(4):
         comptime K = 4 if ki == 0 else (16 if ki == 1 else (64 if ki == 2 else 256))
 
-        @parameter
-        def chain_motor():
+        def chain_motor() {imm motors}:
             var acc = Real(0)
             for base in range(0, N - K, K):
                 var m = motors[base]
@@ -354,8 +332,7 @@ def main() raises:
                 acc += m.s
             keep(acc)
 
-        @parameter
-        def chain_dq():
+        def chain_dq() {imm dqs}:
             var acc = Real(0)
             for base in range(0, N - K, K):
                 var d = dqs[base]
@@ -364,8 +341,7 @@ def main() raises:
                 acc += d.real.w
             keep(acc)
 
-        @parameter
-        def chain_mat():
+        def chain_mat() {imm mats}:
             var acc = Real(0)
             for base in range(0, N - K, K):
                 var m = mats[base]
@@ -374,9 +350,9 @@ def main() raises:
                 acc += m.m[0]
             keep(acc)
 
-        ch.add("motor (8f)  K=" + String(K), N, "compose", measure[chain_motor](3, 20), N)
-        ch.add("dualquat(8f) K=" + String(K), N, "compose", measure[chain_dq](3, 20), N)
-        ch.add("mat4 (16f)  K=" + String(K), N, "compose", measure[chain_mat](3, 20), N)
+        ch.add("motor (8f)  K=" + String(K), N, "compose", measure(chain_motor, 3, 20), N)
+        ch.add("dualquat(8f) K=" + String(K), N, "compose", measure(chain_dq, 3, 20), N)
+        ch.add("mat4 (16f)  K=" + String(K), N, "compose", measure(chain_mat, 3, 20), N)
     ch.print_report()
 
     # --------------------------------------- CAPABILITY regime: mixed chains
@@ -417,8 +393,7 @@ def main() raises:
         comptime for k in range(NINV):
             V = sphere_dual(inv_c, INV_R) * rotor(ax, 0.3) * V
 
-        @parameter
-        def chain_versor():
+        def chain_versor() {imm V, imm cpts}:
             var acc = Real(0)
             for i in range(CN):
                 acc += apply_versor(V, cpts[i])[0]
@@ -428,8 +403,7 @@ def main() raises:
         var m0 = compose_trs4(Vec3(0.5, -0.8, 0.3, 0), Quat.from_axis_angle(ax, 0.7), Vec3(1, 1, 1, 0))
         var mk = compose_trs4(Vec3(0, 0, 0, 0), Quat.from_axis_angle(ax, 0.3), Vec3(1, 1, 1, 0))
 
-        @parameter
-        def chain_matrix():
+        def chain_matrix() {imm m0, imm mk, imm inv_c, imm cpts}:
             var acc = Real(0)
             for i in range(CN):
                 var q = transform_point4(m0, cpts[i])
@@ -444,10 +418,10 @@ def main() raises:
 
         cap.add(
             "versor (folded) inversions=" + String(NINV),
-            CN, "point", measure[chain_versor](3, 20), CN,
+            CN, "point", measure(chain_versor, 3, 20), CN,
         )
         cap.add(
             "mat4 + closed-form inversions=" + String(NINV),
-            CN, "point", measure[chain_matrix](3, 20), CN,
+            CN, "point", measure(chain_matrix, 3, 20), CN,
         )
     cap.print_report()
