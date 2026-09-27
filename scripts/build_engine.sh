@@ -17,6 +17,7 @@ pc() {
   mv "build/.stage/$1.mojoc" "build/$1.mojoc"
 }
 
+pc diag
 pc harness
 pc geometry
 pc numerics
