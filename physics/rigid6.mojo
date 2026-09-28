@@ -31,6 +31,18 @@ from .screw import screw_velocity
 
 
 @fieldwise_init
+struct Pose6(Copyable, ImplicitlyCopyable, Movable):
+    """A representation-agnostic target pose (ROADMAP 17.24/17.25):
+    `ContactScene6.move_to`/`teleport` take one of these rather than a
+    `Quat`+`Vec3` pair or a `Motor3`, so callers never need to know which
+    `Body6` the scene was built with. `Body6.set_pose` unpacks it into
+    whichever representation the concrete body uses."""
+
+    var pos: Vec3
+    var rot: Quat
+
+
+@fieldwise_init
 struct Inertia3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Mass plus principal (body-frame diagonal) rotational inertia."""
 
@@ -96,6 +108,19 @@ trait Body6(Copyable, Movable, Deinitable):
     def angular_only_factor(self, n: Vec3) -> Real: ...
     def linear_velocity(self) -> Vec3: ...
     def halt(mut self): ...
+    # ROADMAP 17.24/17.25 additions below. `rotation`: orientation as a
+    # `Quat` regardless of storage (a `ScrewBody6` has no quaternion field --
+    # it derives one from its `Motor3`); `move_to` needs a representation-
+    # agnostic orientation to compute an angular velocity from a pose delta.
+    # `set_pose`: instantly overwrite position + orientation, velocity
+    # untouched (`ContactScene6.teleport`, and the pose half of `move_to`,
+    # which follows it with a `set_velocity` computed from the delta).
+    # `set_velocity`: overwrite linear/angular velocity (world frame), pose
+    # untouched -- a kinematic platform's velocity is entirely caller-driven,
+    # never solver-derived.
+    def rotation(self) -> Quat: ...
+    def set_pose(mut self, p: Pose6): ...
+    def set_velocity(mut self, v: Vec3, w: Vec3): ...
 
 
 @fieldwise_init
@@ -195,6 +220,17 @@ struct QuatBody6(
     def halt(mut self):
         self.vel = Vec3(0, 0, 0, 0)
         self.omega = Vec3(0, 0, 0, 0)
+
+    def rotation(self) -> Quat:
+        return self.q
+
+    def set_pose(mut self, p: Pose6):
+        self.pos = p.pos
+        self.q = p.rot
+
+    def set_velocity(mut self, v: Vec3, w: Vec3):
+        self.vel = v
+        self.omega = w
 
 
 @fieldwise_init
@@ -308,3 +344,17 @@ struct ScrewBody6(
 
     def halt(mut self):
         self.vel = Screw3.zero()
+
+    def rotation(self) -> Quat:
+        return self._rotation()
+
+    def set_pose(mut self, p: Pose6):
+        self.pose = Motor3.from_quat_translation(p.rot, p.pos).normalized()
+
+    def set_velocity(mut self, v: Vec3, w: Vec3):
+        # World-frame v/w -> body-frame twist bivector (same conversion
+        # `apply_impulse` already does for a world impulse).
+        var q = self._rotation()
+        var wb = q.conjugate().rotate(w)
+        var vb = q.conjugate().rotate(v)
+        self.vel = screw_velocity(wb, vb)

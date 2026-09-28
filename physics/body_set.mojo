@@ -30,17 +30,25 @@ removal path) to build on.
 
 from geometry.vec import Real
 from .rigid6 import Body6
+from .material import COMBINE_AVERAGE, COMBINE_MAX
 
 # Motion type (replaces `statics: List[Bool]`, 54 references before this
-# commit). KINEMATIC arrives in 17.0g-2 (ROADMAP 17.24); the values below are
-# stable ABI for `physics/serialize.mojo`'s on-disk format, so KINEMATIC will
-# be appended, never inserted.
+# commit). The values below are stable ABI for `physics/serialize.mojo`'s
+# on-disk format -- appended, never inserted, never renumbered.
 comptime MOTION_STATIC = 0
 comptime MOTION_DYNAMIC = 1
 comptime MOTION_REMOVED = 2
 """A tombstoned slot: `BodySet.remove` sets this so the body is not
 integrated, not collided, and not placed in an island -- the removal
 equivalent of "static", but also excluded from `is_valid`."""
+comptime MOTION_KINEMATIC = 3
+"""ROADMAP 17.24: infinite mass for impulses (never receives one, never
+gets gravity), but its pose still integrates every substep from a velocity
+the CALLER sets (`ContactScene6.set_velocity`/`move_to`) rather than one
+the solver derives -- an elevator or moving platform. Appended after
+`MOTION_REMOVED` (17.0g-1's stable-ABI promise): a saved-before-this-commit
+snapshot's `MOTION_STATIC`/`MOTION_DYNAMIC`/`MOTION_REMOVED` values are
+untouched."""
 
 
 @fieldwise_init
@@ -85,7 +93,16 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var sleeping: List[Bool]
     var sleep_timer: List[Real]
     var island: List[Int]  # island label per body (last step; -1 = static)
-    var restitution: List[Real]  # per-body coefficient (pair uses max)
+    var restitution: List[Real]  # per-body coefficient (default combine: max)
+    var can_sleep: List[Bool]  # ROADMAP 17.25: false = never auto-sleeps
+    # ROADMAP 17.23 per-body materials. `friction < 0` is the "unset" sentinel
+    # (never negative once explicitly set -- `eff_friction` substitutes the
+    # step's `cfg.default_friction` for it), so a body that never calls
+    # `set_friction` behaves EXACTLY like today's single shared `mu`, not
+    # like an explicit friction of 0.
+    var friction: List[Real]
+    var friction_combine: List[Int]
+    var restitution_combine: List[Int]
     var generation: List[UInt32]
     var free: List[Int]
 
@@ -96,6 +113,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.sleep_timer = List[Real]()
         self.island = List[Int]()
         self.restitution = List[Real]()
+        self.can_sleep = List[Bool]()
+        self.friction = List[Real]()
+        self.friction_combine = List[Int]()
+        self.restitution_combine = List[Int]()
         self.generation = List[UInt32]()
         self.free = List[Int]()
 
@@ -128,6 +149,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.sleep_timer[slot] = 0
             self.island[slot] = -1
             self.restitution[slot] = 0
+            self.can_sleep[slot] = True
+            self.friction[slot] = -1
+            self.friction_combine[slot] = COMBINE_AVERAGE
+            self.restitution_combine[slot] = COMBINE_MAX
             return BodyId(slot, self.generation[slot])
         var slot = len(self.bodies)
         self.bodies.append(b^)
@@ -136,6 +161,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.sleep_timer.append(0)
         self.island.append(-1)
         self.restitution.append(0)
+        self.can_sleep.append(True)
+        self.friction.append(-1)
+        self.friction_combine.append(COMBINE_AVERAGE)
+        self.restitution_combine.append(COMBINE_MAX)
         self.generation.append(0)
         return BodyId(slot, 0)
 
@@ -169,8 +198,36 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     def is_static(self, i: Int) -> Bool:
         return self.motion[i] == MOTION_STATIC
 
+    def is_dynamic(self, i: Int) -> Bool:
+        """True only for `MOTION_DYNAMIC` -- the gate for everything that
+        needs a FINITE mass: gravity, receiving an impulse, contributing an
+        inverse-mass term to a Gauss-Seidel denominator, joining a dynamic
+        island. `MOTION_KINEMATIC` (infinite mass, ROADMAP 17.24) reads
+        `False` here even though it moves -- see `moves`."""
+        return self.motion[i] == MOTION_DYNAMIC
+
+    def is_kinematic(self, i: Int) -> Bool:
+        return self.motion[i] == MOTION_KINEMATIC
+
     def is_removed(self, i: Int) -> Bool:
         return self.motion[i] == MOTION_REMOVED
+
+    def moves(self, i: Int) -> Bool:
+        """True for `MOTION_DYNAMIC` OR `MOTION_KINEMATIC` -- the gate for
+        everything that needs the body's CURRENT velocity/pose read (contact
+        relative-velocity, `velocity_at`, pose integration) regardless of
+        whether it has finite mass. A kinematic body reads `True` here (its
+        velocity carries into contacts, its pose advances every substep) and
+        `False` from `is_dynamic` (it never receives the impulse response)
+        -- that split is the whole of 17.24's solver-side behaviour."""
+        return self.motion[i] == MOTION_DYNAMIC or self.motion[i] == MOTION_KINEMATIC
+
+    def eff_friction(self, i: Int, default_mu: Real) -> Real:
+        """Body `i`'s friction coefficient, or `default_mu` (the step's
+        `cfg.default_friction`) if it never called `set_friction` -- the
+        substitution that makes the unset case bit-identical to today's
+        single shared `mu` (`combine`'s docstring has the exact identity)."""
+        return self.friction[i] if self.friction[i] >= 0 else default_mu
 
     def id_of(self, i: Int) -> BodyId:
         """The current `BodyId` for live slot `i` -- for a caller that only

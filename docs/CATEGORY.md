@@ -257,6 +257,49 @@ O(readers) 次複製、單位成本應該打平」的預期漲得更多——讀
 持續大幅領先——與表 1 的結論一致:這個 seam 的分歧軸是 reader 數,不是事件
 數。
 
+### 2.5 `physics.body_set` 動作型別與 `physics.material` 組合模式(Phase 17.0g-2,2026-09-28)
+
+17.0g-1 把 `statics: List[Bool]` 換成 `MotionType`(`MOTION_STATIC`/
+`MOTION_DYNAMIC`)時就在文件裡點名「KINEMATIC 之後補上,只能附加不能插入」;
+17.0g-2 補了 `MOTION_KINEMATIC`(17.24)與逐 body 摩擦/恢復係數 + 逐對組合模
+式(17.23)。兩者都是「同一態射的三/四個實例」形狀的 seam(17.25 的睡眠公開
+API 刻意**不算**新 seam——既有的 `_wake_islands`/`_update_sleep` 內部機制只是
+介面化,見 ROADMAP 17.25 條目)。
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| body 動作型別:`MOTION_STATIC`/`MOTION_DYNAMIC`/`MOTION_KINEMATIC` | physics/body_set.mojo、physics/solver6.mojo(`_solve_pair` 等每個接觸/關節求解站台) | 同一「位姿推進」態射的三個實例;`BodySet.moves`(讀速度:dynamic∪kinematic)與`is_dynamic`(質量項/衝量:僅 dynamic)兩個謂詞的交集決定每個站台的行為——kinematic 靜止時兩個謂詞在其 slot 上的取值與 static 完全相同,退化為同一分支,逐位相等 | `test_kinematic.mojo`(KEY PARITY TEST:零速度 kinematic 與 static 在同場景跑 200 步,每個動態 body 逐位相同;整合案例含 island/sleep/broadphase seam 與序列化續跑;極端案例含 kinematic 撞靜態牆零接觸、`move_to` 巨位移仍有限、kinematic 夾擠動態體仍有限) | `bench_kinematic`(N=16..1024 個動態箱疊在 kinematic 對 static 平台上,量測 kinematic 路徑多付出的 `velocity_at` 讀取成本) |
+| 材質組合模式:`COMBINE_AVERAGE`/`COMBINE_MIN`/`COMBINE_MULTIPLY`/`COMBINE_MAX`(`physics.material.combine`,PhysX「較高優先模式勝」規則) | physics/material.mojo、physics/body_set.mojo(逐 body `friction`/`friction_combine`/`restitution_combine`)、physics/solver6.mojo(`_solve_pair`、`_restitution_pass`) | 同一「逐對係數」態射的四個求值分支,選哪一支由兩個 body 各自的模式取 `max` 決定(而非某個全域開關);兩個係數相等時四個分支在該點退化為同一個數值(`combine(1,1,·,·) == 1` 對全部四模式成立,是四個分支的共同不動點) | `test_materials.mojo`(普通:`combine` 四種公式的直接算術含優先權規則;整合/極端:兩 body 係數與模式皆為 1.0 時四模式跑出逐位相同的軌跡——parity;冰面對橡膠依組合模式排序的滑行距離,配合 `MULTIPLY<=MIN<=AVERAGE<=MAX`(係數皆在 [0,1] 時恆成立)的解析證明;預設 `restitution_combine=MAX` 重現既有 `max(a,b)` 彈跳行為) | `bench_materials`(N=1024 個同時接觸,四種組合模式各跑一輪 solver step——分派開銷應與選哪個模式無關,只是分支目標不同) |
+
+摩擦係數的「未設定」哨兵值(`BodySet.friction[i] < 0`)是恆等閘門的關鍵:
+`eff_friction` 在未呼叫 `set_friction` 時用該步的 `cfg.default_friction` 頂
+替,兩個 body 都走這條路徑時 `combine(mu, mu, AVERAGE, AVERAGE) == mu`(IEEE
+754 下 `(x+x)*0.5` 對任意有限浮點數精確成立,不是近似),所以 17.0g-2 之前寫
+好的每一個場景在沒有呼叫任何新 API 的前提下逐位重現舊行為——這正是
+`.campaign/golden_test_stdout_1.1.0.txt` 這條恆等閘門守住的東西,`test_serialize`
+的 blob 位元組數變大(新增五個逐 body 欄位:`motion`/`friction`/
+`friction_combine`/`restitution_combine`/`can_sleep`)是本次變更唯一允許改動
+的 golden 行。
+
+`bench_kinematic` 量化的成本**只**來自 `moves(i)` 在 kinematic 側多讀一次
+`velocity_at`——`combine()` 的分派本身對 static/kinematic/dynamic 一視同仁
+(每一對接觸都會呼叫,不分 body 動作型別),`bench_materials` 的四列因此預期
+彼此接近,證明「選哪個組合模式」不是新的可觀測成本軸,只有「有沒有 kinematic
+body 需要讀它的速度」才是。**兩個 bench 都得先把箱子釘醒**
+(`set_can_sleep(id, False)`)才量得出這個小差異——箱子一旦睡著,整對接觸直接被
+`_impulse_inert` 跳過,睡/醒狀態的落差(整對跳過 vs 全套求解)比 kinematic 多
+讀一次速度大得多,會把要量的東西完全蓋掉,`bench_kinematic.mojo` 的檔頭把這
+個混淆變數寫在建場景的地方。控制掉睡眠之後,`bench_kinematic` 四個 N 的
+kinematic/static 比值落在 **0.97×–1.00×**(N=16 約 0.97×、N=64 約 0.99×、
+N=256 約 1.00×、N=1024 約 1.00×,`flock` 鎖下的正式記錄跑)——一次額外的
+`velocity_at` 讀取在雜訊範圍內,不是可觀測的成本軸;`bench_materials` 的四個
+組合模式在 N=1024 落在 14.1–15.6 M ns/step(約 1.1× 展延,同量級雜訊),印證
+「選哪個模式不改變求解成本」。`bench_sleep_wake` 印證 `wake(id)` 的 O(bodies)
+宣稱:N 每擴大約 4 倍(16→64→256→1024),單次 `wake` 成本分別約
+37/128/440/2308 ns,倍率 3.5×/3.4×/5.2×——與體數大致線性成長一致,不是
+O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量測在 ns 級別本
+身的雜訊,`bench_sleep_wake.mojo` 每點已是 3000 次重複的總時間平均)。
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

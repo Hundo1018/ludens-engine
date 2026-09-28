@@ -62,11 +62,12 @@ from collision.toi import swept_box_toi
 from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
 from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL
-from .rigid6 import Body6, QuatBody6, Inertia3
-from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC
+from .rigid6 import Body6, QuatBody6, Inertia3, Pose6
+from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC, MOTION_KINEMATIC
 from .solver_config import SolverConfig
 from .state_io import StateWriter, StateReader
 from .softbody import SoftBody, SP, SEdge
+from .material import combine
 
 comptime _BETA: Real = 0.2  # Baumgarte position-correction gain
 comptime _SLOP: Real = 0.005  # allowed penetration
@@ -239,8 +240,22 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def _refresh_islands(mut self, pairs: List[_CPair]):
         """Union-find over the constraint graph (contacts + joints between
-        dynamic bodies; statics do not merge islands), then the wake rule:
-        an island with ANY awake member wakes entirely."""
+        DYNAMIC bodies only -- statics AND kinematics do not merge islands,
+        ROADMAP 17.24: a kinematic platform drives dynamics but never joins
+        their sleep/wake bookkeeping), then the wake rule: an island with
+        ANY awake member wakes entirely.
+
+        A kinematic body still gets a real (non -1) `island` label below --
+        its own index, since the union-find above never touches it (the
+        merge is gated on `is_dynamic` for both sides), so `_find` on it is
+        always a self-loop. That gives every kinematic body a trivial
+        singleton "island" containing only itself and no pairs (any pair
+        touching it is filed under its DYNAMIC partner's label instead --
+        `_pair_island`), which is what lets the `cfg.parallel=True` path
+        (`_solve_island` only touches bodies whose `island == label`)
+        advance a kinematic body's pose at all: without a label of its own
+        it would never appear in ANY island's worker and would sit frozen
+        under `parallel=True` even though the serial path moves it fine."""
         var n = len(self.bset.bodies)
         var parent = List[Int]()
         for i in range(n):
@@ -248,20 +263,37 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         for c in range(len(pairs)):
             var a = pairs[c].a
             var b = pairs[c].b
-            if not self.bset.is_static(a) and not self.bset.is_static(b):
+            if self.bset.is_dynamic(a) and self.bset.is_dynamic(b):
                 parent[self._find(parent, a)] = self._find(parent, b)
         for c in range(len(self.joints)):
             var a = self.joints[c].a
             var b = self.joints[c].b
-            if not self.bset.is_static(a) and not self.bset.is_static(b):
+            if self.bset.is_dynamic(a) and self.bset.is_dynamic(b):
                 parent[self._find(parent, a)] = self._find(parent, b)
         # labels + island-wide wake
         while len(self.bset.island) < n:
             self.bset.island.append(-1)
         for i in range(n):
-            self.bset.island[i] = -1 if self.bset.is_static(i) else self._find(parent, i)
+            self.bset.island[i] = (
+                self._find(parent, i) if self.bset.moves(i) else -1
+            )
+        # ROADMAP 17.24: a MOVING kinematic body must wake a sleeping dynamic
+        # body it touches -- an elevator that starts moving under a sleeping
+        # box (the ordinary "elevator lifts a box" case) must not leave it
+        # frozen. This can't go through the union-find/island-membership wake
+        # above: a kinematic body is deliberately excluded from every dynamic
+        # island (it has its own singleton label), so it never has an "awake
+        # island member" to propagate from. Gated on the kinematic body's OWN
+        # velocity being nonzero -- a STATIONARY kinematic must NOT do this,
+        # or the KEY PARITY TEST breaks (a zero-velocity kinematic must be
+        # bit-identical to static, which never wakes anything by mere
+        # contact; test_kinematic.mojo's "stationary platform lets a resting
+        # box sleep" case is the direct check for this gate).
+        for c in range(len(pairs)):
+            self._wake_if_kinematic_moving(pairs[c].a, pairs[c].b)
+            self._wake_if_kinematic_moving(pairs[c].b, pairs[c].a)
         for i in range(n):
-            if self.bset.is_static(i) or self.bset.sleeping[i]:
+            if not self.bset.is_dynamic(i) or self.bset.sleeping[i]:
                 continue
             # island member i is awake -> wake everyone sharing its label
             for j in range(n):
@@ -269,11 +301,30 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.bset.sleeping[j] = False
                     self.bset.sleep_timer[j] = 0
 
+    def _wake_if_kinematic_moving(mut self, ka: Int, kb: Int):
+        """If `ka` is a MOVING kinematic body and `kb` is a sleeping dynamic
+        one, wake `kb`'s island (`_wake_island`) -- see the call site's
+        docstring in `_refresh_islands`. A no-op for every other combination
+        (including a motionless kinematic, or `kb` not asleep to begin
+        with)."""
+        if not self.bset.is_kinematic(ka) or not self.bset.is_dynamic(kb) or not self.bset.sleeping[kb]:
+            return
+        var v = self.bset.bodies[ka].linear_velocity()
+        var w = self.bset.bodies[ka].omega_world()
+        if dot(v, v) == 0 and dot(w, w) == 0:
+            return
+        self._wake_island(kb)
+
     def _update_sleep(mut self, dt: Real, cfg: SolverConfig):
-        """Advance per-body still-timers; a whole island sleeps together."""
+        """Advance per-body still-timers; a whole island sleeps together.
+        Kinematic bodies never enter this (ROADMAP 17.24: they never sleep,
+        full stop -- not "asleep when still", just outside the concept, the
+        same way statics always were); `can_sleep=False` (17.25) keeps a
+        dynamic body's timer at 0 forever, which starves its whole island's
+        `all_still` check below without needing a second gate there."""
         var n = len(self.bset.bodies)
         for i in range(n):
-            if self.bset.is_static(i) or self.bset.sleeping[i]:
+            if not self.bset.is_dynamic(i) or self.bset.sleeping[i] or not self.bset.can_sleep[i]:
                 continue
             var v = self.bset.bodies[i].linear_velocity()
             var w = self.bset.bodies[i].omega_world()
@@ -286,7 +337,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self.bset.sleep_timer[i] = 0
         # sleep islands whose every member has been still long enough
         for i in range(n):
-            if self.bset.is_static(i) or self.bset.sleeping[i]:
+            if not self.bset.is_dynamic(i) or self.bset.sleeping[i]:
                 continue
             var all_still = True
             for j in range(n):
@@ -394,8 +445,180 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def set_restitution(mut self, i: Int, e: Real):
         self.bset.restitution[i] = e
 
+    def set_restitution_combine(mut self, i: Int, mode: Int):
+        """ROADMAP 17.23: which formula a pair touching body `i` uses when
+        the two bodies' restitution combine modes disagree (`physics
+        .material.combine`'s docstring has the PhysX "higher mode wins"
+        rule). Default `COMBINE_MAX` reproduces today's hardcoded
+        `max(a, b)`."""
+        self.bset.restitution_combine[i] = mode
+
+    def set_friction(mut self, i: Int, mu: Real):
+        """ROADMAP 17.23: body `i`'s own friction coefficient, replacing the
+        step-wide `cfg.default_friction` fallback for every pair touching
+        it (`BodySet.eff_friction`). `mu` must be >= 0 -- the sentinel for
+        "never set" is negative (`BodySet.friction`'s docstring), so a
+        negative call here would silently un-set it; that is caller error,
+        not environment failure (docs/ARCHITECTURE.md S2), hence a
+        `debug_assert` rather than a `raise`."""
+        debug_assert(mu >= 0, "ContactScene6.set_friction: mu must be >= 0")
+        self.bset.friction[i] = mu
+
+    def set_friction_combine(mut self, i: Int, mode: Int):
+        """Same pair-priority rule as `set_restitution_combine`, for
+        friction. Default `COMBINE_AVERAGE` reproduces today's single
+        shared `mu` bit-exactly (`physics.material.combine`'s docstring)."""
+        self.bset.friction_combine[i] = mode
+
+    def set_kinematic(mut self, id: BodyId) raises:
+        """ROADMAP 17.24: promote an already-added body (static or dynamic)
+        to KINEMATIC -- infinite mass for impulses, pose still integrated
+        every substep from a velocity the caller sets (`set_velocity`/
+        `move_to`), never affected by gravity, never merged into a dynamic
+        island, never put to sleep. Deliberately NOT a new `add_kinematic`
+        constructor: every existing `add*` call site keeps its
+        `is_static: Bool` signature unchanged -- a 7-method/~100-call-site
+        signature sweep is exactly the compile-cost-cliff risk 17.0g-2 was
+        warned to avoid ("land in small steps")."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.set_kinematic: invalid BodyId")
+        var i = id.index()
+        self.bset.motion[i] = MOTION_KINEMATIC
+        self.bset.sleeping[i] = False
+        self.bset.sleep_timer[i] = 0
+        self.bset.island[i] = -1  # recomputed by the next `_refresh_islands`
+
+    def set_velocity(mut self, id: BodyId, v: Vec3, w: Vec3) raises:
+        """Directly set body `id`'s linear/angular velocity (world frame) --
+        the primitive a constant-speed kinematic platform drives itself
+        with (once is enough: nothing else ever changes it again the way
+        gravity/impulses would for a dynamic body, so it keeps moving at
+        this velocity every substep until called again)."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.set_velocity: invalid BodyId")
+        self.bset.bodies[id.index()].set_velocity(v, w)
+
+    def move_to(mut self, id: BodyId, pose: Pose6, dt: Real) raises:
+        """Compute the velocity that would carry body `id` from its CURRENT
+        pose to `pose` over `dt`, and set it (`set_velocity`) -- an
+        elevator or door scripted by target pose rather than by velocity.
+        Angular velocity uses the small-angle quaternion-derivative
+        approximation (`w = 2*Im(q_delta)/dt`, shorter-path corrected) the
+        rest of this file already leans on for joint angular error
+        (`_joint_sweep`'s hinge `er = cross(oa, ob)`) -- exact for a single
+        substep's rotation, and bounded (never NaN/Inf) for any finite
+        `pose`/`dt`, including a huge-displacement jump (extreme test)."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.move_to: invalid BodyId")
+        debug_assert(dt > 0, "ContactScene6.move_to: dt must be > 0")
+        var i = id.index()
+        var cur_pos = self.bset.bodies[i].position()
+        var cur_rot = self.bset.bodies[i].rotation()
+        var v = (pose.pos - cur_pos) / dt
+        var qd = pose.rot * cur_rot.conjugate()
+        if qd.w < 0:
+            qd = Quat(-qd.x, -qd.y, -qd.z, -qd.w)  # shorter angular path
+        var w = Vec3(qd.x, qd.y, qd.z, 0) * (2 / dt)
+        self.bset.bodies[i].set_velocity(v, w)
+
+    def is_sleeping(self, id: BodyId) raises -> Bool:
+        """ROADMAP 17.25: e.g. so a character controller (17.2) knows
+        whether the platform it's standing on is still simulated or has
+        handed off to an idle pose."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.is_sleeping: invalid BodyId")
+        return self.bset.sleeping[id.index()]
+
+    def _wake_island(mut self, i: Int):
+        """Wake body `i`'s current island: every body sharing its
+        `bset.island` label -- the same island-wide rule `_refresh_islands`
+        already applies automatically once any member is awake, exposed as
+        its own method so the public `wake`/`teleport` API (17.25) can reach
+        it without duplicating that inline version. A no-op for a static or
+        kinematic `i` (`is_dynamic` gate) -- neither has meaningful sleep
+        state to wake."""
+        if not self.bset.is_dynamic(i):
+            return
+        self.bset.sleeping[i] = False
+        self.bset.sleep_timer[i] = 0
+        var lbl = self.bset.island[i]
+        for j in range(len(self.bset.bodies)):
+            if self.bset.island[j] == lbl and self.bset.sleeping[j]:
+                self.bset.sleeping[j] = False
+                self.bset.sleep_timer[j] = 0
+
+    def wake(mut self, id: BodyId) raises:
+        """Manually wake body `id`'s island (ROADMAP 17.25) -- e.g. a
+        distant explosion's damage query decides a sleeping stack should
+        react NOW rather than at its next contact impulse. Waking a STATIC
+        or KINEMATIC id is a no-op (`_wake_island`'s `is_dynamic` gate); an
+        invalid/removed id raises (docs/ARCHITECTURE.md S2: invalid caller
+        input at the public API)."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.wake: invalid BodyId")
+        self._wake_island(id.index())
+
+    def set_can_sleep(mut self, id: BodyId, on: Bool) raises:
+        """`on=False` keeps body `id`'s whole island awake forever: its own
+        `sleep_timer` never advances (`_update_sleep`'s gate), which starves
+        the island-wide `all_still` check with no second gate needed there.
+        Turning it back off ALSO wakes the body immediately, so a body
+        just marked "never sleep" is never left asleep from before this
+        call."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.set_can_sleep: invalid BodyId")
+        var i = id.index()
+        self.bset.can_sleep[i] = on
+        if not on:
+            self._wake_island(i)
+
+    def teleport(mut self, id: BodyId, pose: Pose6) raises:
+        """Instantly move body `id` to `pose` (velocity untouched), wake it
+        (ROADMAP 17.25's "post-teleport auto-wake"), and drop any warm-start
+        cache entries that reference it -- an impulse accumulator anchored
+        to the OLD position must never be re-applied at the new one next
+        frame (it would inject a spurious impulse at a contact point that
+        no longer describes real overlap)."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.teleport: invalid BodyId")
+        var i = id.index()
+        self.bset.bodies[i].set_pose(pose)
+        self.bset.sleeping[i] = False
+        self.bset.sleep_timer[i] = 0
+        self._wake_island(i)
+        var kept = List[_CPair]()
+        for c in range(len(self.cache)):
+            if self.cache[c].a != i and self.cache[c].b != i:
+                kept.append(self.cache[c])
+        self.cache = kept^
+
     def _inactive(self, i: Int) -> Bool:
+        """"Does this body need its VELOCITY/POSE handled" -- static bodies
+        never move, sleeping bodies are frozen; a kinematic body reads
+        `False` here (not inactive) even at zero velocity, because its pose
+        integration path is the same `not _inactive(i)` gate a dynamic
+        body's is (`step`'s pose loop, `_ccd_advance`)."""
         return self.bset.is_static(i) or self.bset.sleeping[i]
+
+    def _impulse_inert(self, i: Int) -> Bool:
+        """Does body `i` never receive an impulse THIS step -- static,
+        kinematic (ROADMAP 17.24: infinite mass, always excluded), or a
+        still-sleeping dynamic body. Differs from `_inactive` ONLY for
+        kinematic (`_inactive` reads `False` there so pose integration still
+        runs; this reads `True`), so `_impulse_inert(a) and _impulse_inert(b)`
+        is the correct "this pair is a total no-op, skip warm-start/solve
+        entirely" test even when one side is kinematic -- `_inactive` alone
+        under-skips there: a STATIONARY kinematic body next to an already-
+        sleeping dynamic one must behave exactly like a static body (the KEY
+        PARITY TEST), which `_inactive(static)=True` already skips via the
+        old predicate; `_inactive(kinematic)=False` was letting warm-start
+        leak a residual impulse into the sleeping body every step instead
+        (bug caught by `test_kinematic.mojo`'s parity check during
+        development). For DYNAMIC or STATIC bodies this is bit-identical to
+        `_inactive` (`not is_dynamic(i) or sleeping[i]` reduces to exactly
+        `is_static(i) or sleeping[i]` when `i` cannot be kinematic), so
+        nothing pre-existing changes."""
+        return not self.bset.is_dynamic(i) or self.bset.sleeping[i]
 
     def _solve_point(
         mut self,
@@ -411,17 +634,25 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         accumulated normal impulse (clamped >= 0, so later sweeps can remove
         an earlier over-push — without this the solve order injects a net
         torque and resting boxes slowly rotate)."""
+        # `moves` (velocity read: dynamic OR kinematic) vs `is_dynamic` (mass
+        # term + impulse: dynamic only) -- ROADMAP 17.24's whole solver-side
+        # split, see `BodySet.moves`'s docstring. A zero-velocity kinematic
+        # body takes the exact same `moves=True, is_dynamic=False` branches a
+        # static body takes `moves=False`, both landing on `va=0, ka=0` --
+        # the bit-identity the KEY PARITY TEST requires.
         var va = Vec3(0, 0, 0, 0)
         var ka = Real(0)
-        if not self.bset.is_static(ia):
+        if self.bset.moves(ia):
             va = self.bset.bodies[ia].velocity_at(p)
+        if self.bset.is_dynamic(ia):
             ka = self.bset.bodies[ia].inv_mass() + self.bset.bodies[ia].angular_factor(
                 p - self.bset.bodies[ia].position(), n
             )
         var vb = Vec3(0, 0, 0, 0)
         var kb = Real(0)
-        if not self.bset.is_static(ib):
+        if self.bset.moves(ib):
             vb = self.bset.bodies[ib].velocity_at(p)
+        if self.bset.is_dynamic(ib):
             kb = self.bset.bodies[ib].inv_mass() + self.bset.bodies[ib].angular_factor(
                 p - self.bset.bodies[ib].position(), n
             )
@@ -435,9 +666,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if dl == 0:
             return acc
         var j = n * dl
-        if not self.bset.is_static(ia):
+        if self.bset.is_dynamic(ia):
             self.bset.bodies[ia].apply_impulse(-j, p)
-        if not self.bset.is_static(ib):
+        if self.bset.is_dynamic(ib):
             self.bset.bodies[ib].apply_impulse(j, p)
         return new_acc
 
@@ -560,9 +791,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # import `physics.body_set`'s `MOTION_*` constants -- physics is
             # a higher layer); build it from `self.bset.motion` once here
             # rather than widen that seam's parameter type for one caller.
+            # `collect_bp_pairs` drops a pair when BOTH entries read `True`
+            # here -- passing "is dynamic? no" (rather than literally
+            # `is_static`) makes it drop kinematic-static AND
+            # kinematic-kinematic pairs too (ROADMAP 17.24: neither produces
+            # a contact), with no change needed in `collision.contact_gen`
+            # itself, which only ever sees this bool, never a motion type.
             var is_static_bool = List[Bool](capacity=n)
             for i in range(n):
-                is_static_bool.append(self.bset.is_static(i))
+                is_static_bool.append(not self.bset.is_dynamic(i))
             # `collect_bp_pairs` is `raises` only because `SpatialHashBroadPhase`
             # (one of the dim-3 backends `Self.BP` can be) wraps
             # `SpatialHashGrid`, whose own methods raise. That is a broken-
@@ -589,7 +826,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         else:
             for i in range(n):
                 for j in range(i + 1, n):
-                    if self.bset.is_static(i) and self.bset.is_static(j):
+                    # same rule as the broadphase branch above: skip only
+                    # when NEITHER side is dynamic (static-static,
+                    # static-kinematic, kinematic-kinematic all produce no
+                    # contact -- ROADMAP 17.24).
+                    if not self.bset.is_dynamic(i) and not self.bset.is_dynamic(j):
                         continue
                     try_pair(
                         self.colliders, i, j, self._pose(i), self._pose(j),
@@ -610,7 +851,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         soft solve's `-impulseScale·acc` term is what balances this out)."""
         for c in range(lo, hi):
             var pr = pairs[c]
-            if self._inactive(pr.a) and self._inactive(pr.b):
+            if self._impulse_inert(pr.a) and self._impulse_inert(pr.b):
                 continue
             var n = pr.m.normal
             var tb = tangent_basis(n)
@@ -620,19 +861,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     + tb[0] * pr.acc_t1[k]
                     + tb[1] * pr.acc_t2[k]
                 )
-                if not self.bset.is_static(pr.a):
+                if self.bset.is_dynamic(pr.a):
                     self.bset.bodies[pr.a].apply_impulse(
                         -j, self.bset.bodies[pr.a].act(pr.ra[k])
                     )
-                if not self.bset.is_static(pr.b):
+                if self.bset.is_dynamic(pr.b):
                     self.bset.bodies[pr.b].apply_impulse(
                         j, self.bset.bodies[pr.b].act(pr.rb[k])
                     )
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):
-        # 1. Gravity on dynamic bodies (velocity level).
+        # 1. Gravity on dynamic bodies only (velocity level) -- kinematic
+        # bodies (ROADMAP 17.24) are unaffected by gravity, their velocity is
+        # entirely caller-set.
         for i in range(len(self.bset.bodies)):
-            if not self.bset.is_static(i):
+            if self.bset.is_dynamic(i):
                 var f = gravity / self.bset.bodies[i].inv_mass()  # force = m·g
                 self.bset.bodies[i].integrate_force(dt, f, Vec3(0, 0, 0, 0))
         # 2. Contact manifolds at the pre-solve poses.
@@ -676,15 +919,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         position error `c`; returns the accumulated-impulse delta."""
         var va = Vec3(0, 0, 0, 0)
         var ka = Real(0)
-        if not self.bset.is_static(ia):
+        if self.bset.moves(ia):
             va = self.bset.bodies[ia].velocity_at(pwa)
+        if self.bset.is_dynamic(ia):
             ka = self.bset.bodies[ia].inv_mass() + self.bset.bodies[ia].angular_factor(
                 pwa - self.bset.bodies[ia].position(), e
             )
         var vb = Vec3(0, 0, 0, 0)
         var kb = Real(0)
-        if not self.bset.is_static(ib):
+        if self.bset.moves(ib):
             vb = self.bset.bodies[ib].velocity_at(pwb)
+        if self.bset.is_dynamic(ib):
             kb = self.bset.bodies[ib].inv_mass() + self.bset.bodies[ib].angular_factor(
                 pwb - self.bset.bodies[ib].position(), e
             )
@@ -695,14 +940,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var bias = bias_rate * c if use_bias else Real(0)
         var dl = -ms * (vr + bias) / denom - isc * acc_e
         var j = e * dl
-        if not self.bset.is_static(ia):
+        if self.bset.is_dynamic(ia):
             self.bset.bodies[ia].apply_impulse(-j, pwa)
-        if not self.bset.is_static(ib):
+        if self.bset.is_dynamic(ib):
             self.bset.bodies[ib].apply_impulse(j, pwb)
         return dl
 
     def _joint_island(self, jt: Joint6) -> Int:
-        return self.bset.island[jt.a] if not self.bset.is_static(jt.a) else self.bset.island[jt.b]
+        return self.bset.island[jt.a] if self.bset.is_dynamic(jt.a) else self.bset.island[jt.b]
 
     def _joint_sweep(
         mut self,
@@ -717,7 +962,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         for _ in range(iters):
             for c in range(len(self.joints)):
                 var jt = self.joints[c]
-                if self._inactive(jt.a) and self._inactive(jt.b):
+                if self._impulse_inert(jt.a) and self._impulse_inert(jt.b):
                     continue
                 if island_filter != -2 and self._joint_island(jt) != island_filter:
                     continue
@@ -753,18 +998,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         var er = cross(oa, ob)  # small-angle axis error
                         var wa = Vec3(0, 0, 0, 0)
                         var wb2 = Vec3(0, 0, 0, 0)
-                        if not self.bset.is_static(jt.a):
+                        if self.bset.moves(jt.a):
                             wa = self.bset.bodies[jt.a].omega_world()
-                        if not self.bset.is_static(jt.b):
+                        if self.bset.moves(jt.b):
                             wb2 = self.bset.bodies[jt.b].omega_world()
                         var tb = tangent_basis(oa)
                         for ti in range(2):
                             var t = tb[0] if ti == 0 else tb[1]
                             var kaa = Real(0)
                             var kbb = Real(0)
-                            if not self.bset.is_static(jt.a):
+                            if self.bset.is_dynamic(jt.a):
                                 kaa = self.bset.bodies[jt.a].angular_only_factor(t)
-                            if not self.bset.is_static(jt.b):
+                            if self.bset.is_dynamic(jt.b):
                                 kbb = self.bset.bodies[jt.b].angular_only_factor(t)
                             var den = kaa + kbb
                             if den <= 0:
@@ -777,32 +1022,32 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                             var dl = -ms * (vr + bias) / den - isc * acc_t
                             jt.acc_ang = jt.acc_ang + t * dl
                             var limp = t * dl
-                            if not self.bset.is_static(jt.a):
+                            if self.bset.is_dynamic(jt.a):
                                 self.bset.bodies[jt.a].apply_angular_impulse(-limp)
-                            if not self.bset.is_static(jt.b):
+                            if self.bset.is_dynamic(jt.b):
                                 self.bset.bodies[jt.b].apply_angular_impulse(limp)
                             wa = Vec3(0, 0, 0, 0)
                             wb2 = Vec3(0, 0, 0, 0)
-                            if not self.bset.is_static(jt.a):
+                            if self.bset.moves(jt.a):
                                 wa = self.bset.bodies[jt.a].omega_world()
-                            if not self.bset.is_static(jt.b):
+                            if self.bset.moves(jt.b):
                                 wb2 = self.bset.bodies[jt.b].omega_world()
                 self.joints[c] = jt
 
     def _warm_start_joints(mut self, island_filter: Int):
         for c in range(len(self.joints)):
             var jt = self.joints[c]
-            if self._inactive(jt.a) and self._inactive(jt.b):
+            if self._impulse_inert(jt.a) and self._impulse_inert(jt.b):
                 continue
             if island_filter != -2 and self._joint_island(jt) != island_filter:
                 continue
             var pwa = self.bset.bodies[jt.a].act(jt.la)
             var pwb = self.bset.bodies[jt.b].act(jt.lb)
-            if not self.bset.is_static(jt.a):
+            if self.bset.is_dynamic(jt.a):
                 self.bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
                 if jt.kind == JOINT_HINGE:
                     self.bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
-            if not self.bset.is_static(jt.b):
+            if self.bset.is_dynamic(jt.b):
                 self.bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
                 if jt.kind == JOINT_HINGE:
                     self.bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
@@ -878,9 +1123,23 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         """One pair's normal + friction solve (the body of `_soft_sweep`,
         extracted so the colored sweep can schedule it per pair)."""
         var pr = pairs[c]
-        if self._inactive(pr.a) and self._inactive(pr.b):
+        if self._impulse_inert(pr.a) and self._impulse_inert(pr.b):
             return
         var n = pr.m.normal
+        # ROADMAP 17.23: the pair's combined friction, computed ONCE per pair
+        # (not per point/substep) since it depends only on (a, b), not on the
+        # contact geometry -- "cheap per contact" per the spec. `mu` here is
+        # `cfg.default_friction`, substituted for either body's coefficient
+        # when it never called `set_friction` (`eff_friction`'s docstring);
+        # with both bodies unset and the default `COMBINE_AVERAGE` mode,
+        # `combine(mu, mu, AVERAGE, AVERAGE) == mu` bit-exactly, so an
+        # all-default scene is unchanged from before this existed.
+        var pair_mu = combine(
+            self.bset.eff_friction(pr.a, mu),
+            self.bset.eff_friction(pr.b, mu),
+            self.bset.friction_combine[pr.a],
+            self.bset.friction_combine[pr.b],
+        )
         for k in range(pr.m.count):
             var pwa = self.bset.bodies[pr.a].act(pr.ra[k])
             var pwb = self.bset.bodies[pr.b].act(pr.rb[k])
@@ -889,15 +1148,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var d = pr.m.depths[k] - dot(pwb - pwa, n)
             var va = Vec3(0, 0, 0, 0)
             var ka = Real(0)
-            if not self.bset.is_static(pr.a):
+            if self.bset.moves(pr.a):
                 va = self.bset.bodies[pr.a].velocity_at(pwa)
+            if self.bset.is_dynamic(pr.a):
                 ka = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
                     pr.a
                 ].angular_factor(pwa - self.bset.bodies[pr.a].position(), n)
             var vb = Vec3(0, 0, 0, 0)
             var kb = Real(0)
-            if not self.bset.is_static(pr.b):
+            if self.bset.moves(pr.b):
                 vb = self.bset.bodies[pr.b].velocity_at(pwb)
+            if self.bset.is_dynamic(pr.b):
                 kb = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
                     pr.b
                 ].angular_factor(pwb - self.bset.bodies[pr.b].position(), n)
@@ -922,19 +1183,20 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             pr.acc[k] = new_acc
             if dl != 0:
                 var j = n * dl
-                if not self.bset.is_static(pr.a):
+                if self.bset.is_dynamic(pr.a):
                     self.bset.bodies[pr.a].apply_impulse(-j, pwa)
-                if not self.bset.is_static(pr.b):
+                if self.bset.is_dynamic(pr.b):
                     self.bset.bodies[pr.b].apply_impulse(j, pwb)
-            # Coulomb friction: tangent impulses clamped to mu * lambda_n.
+            # Coulomb friction: tangent impulses clamped to pair_mu * lambda_n.
             var tb = tangent_basis(n)
-            var cap = mu * pr.acc[k]
+            var cap = pair_mu * pr.acc[k]
             for ti in range(2):
                 var t = tb[0] if ti == 0 else tb[1]
                 var vat = Vec3(0, 0, 0, 0)
                 var kat = Real(0)
-                if not self.bset.is_static(pr.a):
+                if self.bset.moves(pr.a):
                     vat = self.bset.bodies[pr.a].velocity_at(pwa)
+                if self.bset.is_dynamic(pr.a):
                     kat = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
                         pr.a
                     ].angular_factor(
@@ -942,8 +1204,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     )
                 var vbt = Vec3(0, 0, 0, 0)
                 var kbt = Real(0)
-                if not self.bset.is_static(pr.b):
+                if self.bset.moves(pr.b):
                     vbt = self.bset.bodies[pr.b].velocity_at(pwb)
+                if self.bset.is_dynamic(pr.b):
                     kbt = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
                         pr.b
                     ].angular_factor(
@@ -966,9 +1229,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     pr.acc_t2[k] = new_t
                 if dtl != 0:
                     var jt = t * dtl
-                    if not self.bset.is_static(pr.a):
+                    if self.bset.is_dynamic(pr.a):
                         self.bset.bodies[pr.a].apply_impulse(-jt, pwa)
-                    if not self.bset.is_static(pr.b):
+                    if self.bset.is_dynamic(pr.b):
                         self.bset.bodies[pr.b].apply_impulse(jt, pwb)
         pairs[c] = pr
 
@@ -1020,6 +1283,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     continue
                 if self.colliders.is_sensor(i) or self.colliders.is_sensor(j):
                     continue
+                if not self.bset.is_dynamic(i) and not self.bset.is_dynamic(j):
+                    # ROADMAP 17.24: static-kinematic and kinematic-kinematic
+                    # pairs produce no DISCRETE contact either (`_collect_pairs`)
+                    # -- CCD must agree, or a kinematic body moving toward a
+                    # static wall would get TOI-clamped by a "contact" that
+                    # otherwise never exists (spec: "no contact, no NaN").
+                    continue
                 var kj = self.colliders.shape[j]
                 if kj == SHAPE_HULL or kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD:
                     continue
@@ -1069,8 +1339,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         for _ in range(iters):
             for c in range(lo, hi):
                 var pr = pairs[c]
-                var e = max(
-                    self.bset.restitution[pr.a], self.bset.restitution[pr.b]
+                # ROADMAP 17.23: combined via each body's own
+                # `restitution_combine` (default `COMBINE_MAX` for every
+                # body -- `combine`'s docstring), so an all-default scene's
+                # `max(a, b)` is bit-identical to before this existed.
+                var e = combine(
+                    self.bset.restitution[pr.a], self.bset.restitution[pr.b],
+                    self.bset.restitution_combine[pr.a],
+                    self.bset.restitution_combine[pr.b],
                 )
                 if e <= 0:
                     continue
@@ -1082,15 +1358,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     var pwb = self.bset.bodies[pr.b].act(pr.rb[k])
                     var va = Vec3(0, 0, 0, 0)
                     var ka = Real(0)
-                    if not self.bset.is_static(pr.a):
+                    if self.bset.moves(pr.a):
                         va = self.bset.bodies[pr.a].velocity_at(pwa)
+                    if self.bset.is_dynamic(pr.a):
                         ka = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
                             pr.a
                         ].angular_factor(pwa - self.bset.bodies[pr.a].position(), n)
                     var vb = Vec3(0, 0, 0, 0)
                     var kb = Real(0)
-                    if not self.bset.is_static(pr.b):
+                    if self.bset.moves(pr.b):
                         vb = self.bset.bodies[pr.b].velocity_at(pwb)
+                    if self.bset.is_dynamic(pr.b):
                         kb = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
                             pr.b
                         ].angular_factor(pwb - self.bset.bodies[pr.b].position(), n)
@@ -1104,9 +1382,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     pr.racc[k] = new_acc
                     if dl != 0:
                         var j = n * dl
-                        if not self.bset.is_static(pr.a):
+                        if self.bset.is_dynamic(pr.a):
                             self.bset.bodies[pr.a].apply_impulse(-j, pwa)
-                        if not self.bset.is_static(pr.b):
+                        if self.bset.is_dynamic(pr.b):
                             self.bset.bodies[pr.b].apply_impulse(j, pwb)
                 pairs[c] = pr
 
@@ -1221,7 +1499,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                                 )
                             var dx3 = nw3 - p.x
                             p.x = nw3
-                            if not self.bset.is_static(b):
+                            if self.bset.is_dynamic(b):
                                 var j3 = dx3 * (-(1 / p.w) / h)
                                 self.bset.bodies[b].apply_impulse(j3, nw3)
                                 if self.bset.sleeping[b]:
@@ -1310,7 +1588,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         if hit:
                             var dx2 = nw2 - p.x
                             p.x = nw2
-                            if not self.bset.is_static(b):
+                            if self.bset.is_dynamic(b):
                                 var j2 = dx2 * (-(1 / p.w) / h)
                                 self.bset.bodies[b].apply_impulse(j2, nw2)
                                 if self.bset.sleeping[b]:
@@ -1411,7 +1689,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         )
                     var dx = nw - p.x
                     p.x = nw
-                    if not self.bset.is_static(b):
+                    if self.bset.is_dynamic(b):
                         # equal-and-opposite impulse into the dynamic body
                         var j = dx * (-(1 / p.w) / h)
                         self.bset.bodies[b].apply_impulse(j, nw)
@@ -1427,7 +1705,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self.softs[s].pts[i] = p
 
     def _pair_island(self, pr: _CPair) -> Int:
-        return self.bset.island[pr.a] if not self.bset.is_static(pr.a) else self.bset.island[pr.b]
+        return self.bset.island[pr.a] if self.bset.is_dynamic(pr.a) else self.bset.island[pr.b]
 
     def _solve_island(
         mut self,
@@ -1449,8 +1727,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         contiguous pair range, its joints. Islands share nothing, so running
         these in parallel is bit-identical to running them in sequence."""
         for _ in range(substeps):
+            # gravity: DYNAMIC members of this island only. A kinematic body
+            # gets its OWN singleton island (`_refresh_islands`'s docstring),
+            # so it reaches this loop too, with `is_dynamic == False` --
+            # skipped here, same as it would be in the serial `step` path.
             for i in range(len(self.bset.bodies)):
-                if self.bset.island[i] == label and not self._inactive(i):
+                if self.bset.island[i] == label and self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
                     var f = gravity / self.bset.bodies[i].inv_mass()
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             self._warm_start(pairs, plo, phi)
@@ -1462,6 +1744,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 pairs, plo, phi, h, bias_rate, mass_scale,
                 impulse_scale, True, iters, mu,
             )
+            # pose: dynamic (if awake) OR kinematic -- `not _inactive` is
+            # exactly `moves(i) and not sleeping[i]` here since `_inactive`
+            # is `is_static or sleeping` and this loop never sees a static
+            # body's label (`_refresh_islands` never assigns one).
             for i in range(len(self.bset.bodies)):
                 if self.bset.island[i] == label and not self._inactive(i):
                     self.bset.bodies[i].integrate_pose(h)
@@ -1584,9 +1870,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var pcol = List[Int]()
             for pc in range(len(pairs)):
                 var used = 0
-                if not self.bset.is_static(pairs[pc].a):
+                # DYNAMIC-body adjacency only (was `not is_static`): a
+                # kinematic body, like a static one, is never WRITTEN by the
+                # colored solve (`_solve_pair`'s impulse application is now
+                # `is_dynamic`-gated too), so it must not force a color
+                # conflict between two of its dynamic contacts either --
+                # ROADMAP 17.24's "kinematic platform pushing N boxes"
+                # benchmark would otherwise serialise through one platform
+                # the same way a shared static ground plane is documented
+                # NOT to below.
+                if self.bset.is_dynamic(pairs[pc].a):
                     used |= mask[pairs[pc].a]
-                if not self.bset.is_static(pairs[pc].b):
+                if self.bset.is_dynamic(pairs[pc].b):
                     used |= mask[pairs[pc].b]
                 var col = 0
                 while (used >> col) & 1 == 1:
@@ -1594,9 +1889,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 pcol.append(col)
                 if col + 1 > n_colors:
                     n_colors = col + 1
-                if not self.bset.is_static(pairs[pc].a):
+                if self.bset.is_dynamic(pairs[pc].a):
                     mask[pairs[pc].a] |= 1 << col
-                if not self.bset.is_static(pairs[pc].b):
+                if self.bset.is_dynamic(pairs[pc].b):
                     mask[pairs[pc].b] |= 1 << col
             var pairs3 = List[_CPair]()
             for col in range(n_colors):
@@ -1646,8 +1941,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self.cache = pairs2^
             return
         for _ in range(substeps):
+            # gravity: dynamic + awake only. `not _inactive(i)` alone would
+            # also admit a kinematic body (never static, never sleeping) --
+            # ROADMAP 17.24 says gravity must NOT reach it, so this gate is
+            # tighter than the pose-integration one just below.
             for i in range(len(self.bset.bodies)):
-                if not self._inactive(i):
+                if self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
                     var f = gravity / self.bset.bodies[i].inv_mass()
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
@@ -1804,6 +2103,20 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wi(Int(sc.colliders.category[i]))
         out.wi(Int(sc.colliders.mask[i]))
         out.wi(1 if sc.colliders.sensor[i] else 0)
+        # ROADMAP 17.0g-2 additions (17.23 materials, 17.24 kinematic, 17.25
+        # can-sleep): appended here, AFTER the pre-existing `is_static` bit
+        # above rather than replacing it, so a pre-17.0g-2 field's ENCODED
+        # VALUE for every existing body is untouched -- only the blob grows
+        # (the identity gate's explicitly allowed exception). `motion` is
+        # the field `read_state` actually reconstructs from now on (the old
+        # `is_static` bit alone cannot distinguish DYNAMIC from KINEMATIC);
+        # it is kept in the stream for its position's own stability, not
+        # read back.
+        out.wi(sc.bset.motion[i])
+        out.wf(sc.bset.friction[i])
+        out.wi(sc.bset.friction_combine[i])
+        out.wi(sc.bset.restitution_combine[i])
+        out.wi(1 if sc.bset.can_sleep[i] else 0)
         # Shape payload for the kinds that keep their geometry in a side
         # table -- a snapshot that restored a hull body without its
         # vertices would load cleanly and then index an empty table on the
@@ -1923,7 +2236,13 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         var iy = r.rf()
         var iz = r.rf()
         var half = r.rv()
-        var is_static = r.ri() == 1
+        # Pre-17.0g-2 `is_static` bit: still written (`write_state`), kept
+        # here only for the token stream's position -- superseded by the
+        # authoritative `motion` field read below, which is what
+        # distinguishes KINEMATIC from DYNAMIC (a single bit cannot).
+        # Discarded to `_` rather than bound, per the unused-binding lint
+        # (mojo_1.1_migration.md Gotcha #5).
+        _ = r.ri()
         var kind = r.ri()
         var restitution = r.rf()
         var sleeping = r.ri() == 1
@@ -1931,7 +2250,17 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         var category = UInt32(r.ri())
         var mask = UInt32(r.ri())
         var sensor = r.ri() == 1
-        var motion = MOTION_STATIC if is_static else MOTION_DYNAMIC
+        # ROADMAP 17.0g-2 additions (`write_state`'s docstring has the exact
+        # field order/rationale).
+        var motion = r.ri()
+        if motion < MOTION_STATIC or motion > MOTION_KINEMATIC:
+            raise Error(
+                "physics.serialize: corrupt snapshot (invalid motion type)"
+            )
+        var friction = r.rf()
+        var friction_combine = r.ri()
+        var restitution_combine = r.ri()
+        var can_sleep = r.ri() == 1
         var id = sc.bset.push(
             QuatBody6(
                 pos, Quat(qx, qy, qz, qw), vel, omega,
@@ -1947,6 +2276,10 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         sc.bset.restitution[bi] = restitution
         sc.bset.sleeping[bi] = sleeping
         sc.bset.sleep_timer[bi] = sleep_timer
+        sc.bset.friction[bi] = friction
+        sc.bset.friction_combine[bi] = friction_combine
+        sc.bset.restitution_combine[bi] = restitution_combine
+        sc.bset.can_sleep[bi] = can_sleep
         sc.colliders.shape.append(kind)
         sc.colliders.half.append(half)
         sc.colliders.category.append(category)

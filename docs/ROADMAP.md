@@ -1683,6 +1683,32 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 查表 vs 計算的 bench。
 > **相依**:17.19(極端質量比常伴隨極端摩擦組合)、17.12(場景格式需序列化材質)。
 
+> 進度:✅ 2026-09-28 `physics/material.mojo`(新檔)——`COMBINE_AVERAGE`/`MIN`/
+> `MULTIPLY`/`MAX` comptime 常數 + `combine(a,b,mode_a,mode_b)`(PhysX「較高優先
+> 模式勝」規則,`mode = max(mode_a, mode_b)`)。`physics/body_set.mojo` 增逐 body
+> `friction`(< 0 為「未設定」哨兵)、`friction_combine`、`restitution_combine`
+> 三個 List,`BodySet.push` 一併初始化(預設 `friction=-1`、
+> `friction_combine=COMBINE_AVERAGE`、`restitution_combine=COMBINE_MAX`)、新增
+> `eff_friction(i, default_mu)` 讀取輔助。`ContactScene6` 增
+> `set_friction`/`set_friction_combine`/`set_restitution_combine`(逐 index,呼
+> 應既有 `set_restitution`)。`solver6._solve_pair` 在每對接觸的點迴圈**之前**算一
+> 次 `pair_mu = combine(...)`(非逐點,符合「per contact 需廉價」要求),取代原本
+> 直接用的全域 `mu`;`_restitution_pass` 的 `max(a,b)` 換成
+> `combine(restitution[a], restitution[b], restitution_combine[a],
+> restitution_combine[b])`。恆等閘門:兩 body 都未設定 friction 時
+> `eff_friction` 回退到該步的 `cfg.default_friction`,預設組合模式
+> `COMBINE_AVERAGE` 下 `(mu+mu)*0.5 == mu`(IEEE 754 精確,非近似)——`test_serialize`
+> 的 golden blob 位元組數變大是本次變更**唯一**允許改動的 golden 行,其餘全部逐位
+> 不變。測試:`tests/test_materials.mojo`(15/15)——普通:`combine` 四公式直接算
+> 術 + 優先權規則;整合/極端:兩 body 係數與組合模式皆為 1.0(四公式共同不動點)時
+> 四模式模擬軌跡逐位相同(parity)、冰面對橡膠的滑行距離依 `combine` 算出的組合
+> mu 排序(`MULTIPLY<=MIN<=AVERAGE<=MAX`,係數 ∈[0,1] 時的解析恆真式)、預設
+> `restitution_combine=MAX` 重現既有彈跳行為。`benchmarks/bench_materials.mojo`
+> (N=1024 同時接觸,四模式各跑一輪 step,`flock` 鎖下正式記錄跑):14.1–15.6 M
+> ns/step,四模式落在同一帶內(≈1.1× 展延,雜訊等級)——「選模式」不是新的可
+> 觀測成本軸。seam row 入
+> `docs/CATEGORY.md` §2.5。**17.23 完成。**
+
 ### 17.24 Kinematic 剛體型別(通用可移動體) — Wave A
 
 > **現況**:`physics/solver6.mojo:403`(`add(mut self, var b: Self.B, half: Vec3,
@@ -1704,6 +1730,55 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **相依**:17.1(第一個使用者)、17.13(移動 kinematic 需真實 shape 查詢而非
 > `BoxProxy`)。
 
+> 進度:✅ 2026-09-28 `physics/body_set.mojo` 增 `MOTION_KINEMATIC = 3`(附加在
+> `MOTION_REMOVED` 之後,舊快照的 0/1/2 不受影響)+ `is_dynamic`/`is_kinematic`/
+> `moves`(dynamic∪kinematic)三個新謂詞——`is_dynamic` 管「這個 body 這步會不會
+> 拿到質量項/衝量」,`moves` 管「這個 body 的速度/位姿這步要不要被讀/推進」,兩者
+> 交集就是 17.24 全部的求解端行為:kinematic 靜止時兩個謂詞在其 slot 上的取值與
+> static 完全相同,退化為同一分支。`physics/rigid6.mojo` 增 `Pose6`(表示無關的
+> `pos+Quat` 目標位姿)+ `Body6` trait 三個新方法 `rotation`/`set_pose`/
+> `set_velocity`(`QuatBody6`/`ScrewBody6` 各自實作,`ScrewBody6.set_velocity` 走
+> 既有 `screw_velocity` 的 body-frame twist 轉換)。`physics/solver6.mojo`:
+> `_collect_pairs`(brute + broadphase 兩路)的 static-static 跳過規則改成「雙方
+> 都非 dynamic 才跳過」,連帶跳過 static-kinematic/kinematic-kinematic;
+> `_solve_point`/`_joint_axis`/`_solve_pair`/`_restitution_pass` 等每個求解站台
+> 把原本單一 `if not is_static(x):` 拆成「`moves(x)` 讀速度」+「`is_dynamic(x)`
+> 讀質量項/施加衝量」兩層;`_refresh_islands` 只讓 dynamic-dynamic 併島,
+> kinematic 拿自己的獨立單體 island(`_find` 自環,從未被併入任何聯集)——這正是
+> `cfg.parallel=True` 路徑下 `_solve_island` 只碰 `island==label` 的 body 仍能推進
+> kinematic 位姿的原因,否則平行路徑下 kinematic 永遠推進不到。**踩到的坑**:
+> `_inactive`(`is_static or sleeping`)原本兼職「這對接觸要不要整對跳過」與「這個
+> body 的位姿要不要繼續推進」兩種語意,kinematic 出現後這兩種語意分岔——新增
+> `_impulse_inert`(`not is_dynamic or sleeping`)專職前者,`_inactive` 維持舊語意
+> 專職後者;沒分開之前,靜止 kinematic 平台旁一個已入睡的動態箱每步仍被 warm-start
+> 漏灌極小殘餘衝量(`_inactive(kinematic)=False` 讓「雙方 inactive 才跳過」的判斷
+> 失效),KEY PARITY TEST 開發時當場抓到(見下方測試)。另新增
+> `_wake_if_kinematic_moving`:**移動中**的 kinematic body 必須喚醒它接觸到的已
+> 睡動態 body(電梯開始動時不能把箱子凍結在原地),但**靜止**的 kinematic
+> (速度恰為零)絕不能觸發喚醒,否則破壞與 static 的逐位 parity——閘門就是
+> kinematic 自己的速度是否恰好為零,不是「有沒有接觸」。`set_kinematic(id)`
+> 刻意不是新的 `add_kinematic` 建構子:所有既有 `add*`(7 個方法、~100 個呼叫點)
+> 簽章不變,只在既有 body 上後續呼叫 `set_kinematic` 轉型——避免 17.0g 系列文件
+> 點名的「大範圍簽章掃描可能撞上編譯成本懸崖」風險。公開 API:
+> `set_kinematic(id) raises`、`set_velocity(id,v,w) raises`、
+> `move_to(id,pose,dt) raises`(由目標位姿反推速度,轉角走四元數導數的小角近似
+> `w=2·Im(q_delta)/dt`,與既有 hinge 關節角誤差項同一手法,任意有限位移/dt 恆
+> 有限不會 NaN)。序列化:`write_state`/`read_state` 逐 body 新增五個欄位
+> (`motion`/`friction`/`friction_combine`/`restitution_combine`/`can_sleep`),
+> 附加在既有欄位**之後**(舊 `is_static` bit 保留原樣、原封不動,只是不再是唯一
+> 依據),`_VERSION` 由 1 升到 2。測試:`tests/test_kinematic.mojo`(18/18)——普通:
+> 水平移動平台靠摩擦帶動箱子、電梯帶動箱子(需要上面「移動喚醒已睡箱子」那個修
+> 正才會過);整合:kinematic 旁靜置箱子仍可入睡且 kinematic 自己絕不入睡、
+> broadphase 路徑與 brute 路徑一致、序列化續跑逐位相同;極端:**KEY PARITY
+> TEST**(零速度 kinematic 與 static 在同場景跑 200 步,3 個動態箱逐位相同——
+> 開發過程中連續抓到兩個真 bug,見上);kinematic 撞靜態牆零接觸不穿隧也不
+> NaN;`move_to` 巨位移仍有限;kinematic 夾擠動態體撞靜態牆全程有限。
+> `benchmarks/bench_kinematic.mojo`(N=16..1024,兩欄都 pin 住不准睡眠以隔離睡眠
+> 狀態這個更大的混淆變數,`flock` 鎖下正式記錄跑):kinematic/static 比值
+> 0.97×–1.00×,雜訊等級,一次多讀
+> `velocity_at` 不是可觀測成本。seam row 入 `docs/CATEGORY.md` §2.5。
+> **17.24 完成。**
+
 ### 17.25 睡眠/喚醒生命週期公開 API — Wave A
 
 > **現況**:睡眠機制完整但全為內部管理:`physics/solver6.mojo:240-241`
@@ -1721,6 +1796,26 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:否新 seam(既有機制介面化);普通(手動喚醒單體)/整合(觸發整島喚醒)/
 > 極端(喚醒 static 體、重複喚醒)。
 > **相依**:17.2、17.16。
+
+> 進度:✅ 2026-09-28 `physics/body_set.mojo` 增 `can_sleep: List[Bool]`(預設
+> `True`,`push` 一併初始化)。`physics/solver6.mojo` 增 `_wake_island(i)`(私有
+> 輔助:喚醒 `i` 所在整島,對 static/kinematic 是 no-op——`_refresh_islands` 既有
+> 的島級喚醒邏輯的可重用版本,供下面公開 API 呼叫,不重複實作)。公開 API(皆
+> `raises`,無效/已移除 id → 依 `docs/ARCHITECTURE.md` §2「呼叫端輸入錯誤 →
+> raise」拋錯;static/kinematic id 是合法 id,只是沒有意義的睡眠狀態可動,視為
+> no-op 而非錯誤):`is_sleeping(id)`、`wake(id)`、`set_can_sleep(id, bool)`
+> (`False` 時讓 `_update_sleep` 的 still-timer 對該 body 永遠停在 0,連帶讓整島
+> 的 `all_still` 檢查永遠不過,不需要第二個閘門;重新打開時立刻喚醒,不留「早該醒
+> 卻還在睡」的殘留狀態)、`teleport(id, pose)`(用 17.24 新增的 `Body6.set_pose`
+> 瞬間改位姿、喚醒、並清掉 `cache` 裡引用該 body 的 warm-start 項——舊位置的殘餘
+> 衝量不能在新位置重放)。`docs/ROADMAP.md` 原文已註記本項**不算新 seam**(既有
+> `_wake_islands`/`_update_sleep` 機制介面化),`docs/CATEGORY.md` §2.5 因此不列
+> 本項的表格列。測試:`tests/test_sleep_api.mojo`(20/20)——普通:手動喚醒睡眠中
+> 的塔,`wake` 喚醒整島(兩箱一起醒);整合:`can_sleep=False` 撐過 1000 步不睡、
+> 重新開放後恢復正常入睡、`teleport` 喚醒 + 清 warm-start 快取(先驗證確實有殘留
+> 快取項、瞬移後確認清空);極端:喚醒 static id 是 no-op 不拋錯、喚醒/瞬移/
+> `is_sleeping`/`set_can_sleep` 對從未發出的 id 拋錯、喚醒/瞬移已 `remove()` 的 id
+> 拋錯、連續三次 `wake` 冪等不出錯。**17.25 完成。**
 
 ### 17.26 接觸修改 / 單向平台 — Wave B
 

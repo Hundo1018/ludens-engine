@@ -1345,6 +1345,76 @@ spread, where SAP's single sweep axis and a hash grid's fixed cell size are
 each a plausible place for the O(n) claim to quietly stop holding.
 
 @bench benchmarks/bench_solver_scale.mojo
+## Physics — kinematic motion type (ROADMAP 17.24): cost of the path
+
+`MOTION_KINEMATIC` is a third instance of the same "advance this body's pose"
+morphism `MOTION_STATIC`/`MOTION_DYNAMIC` already were: infinite mass for
+impulses (never written by `apply_impulse`), but its velocity is still READ
+every contact point (`BodySet.moves`), because that is what carries a
+platform's motion into the dynamic boxes riding it. A static body's velocity
+is never read at all. This table pins N=16..1024 dynamic boxes on one wide
+platform and times a full `step_soft` with the platform STATIC vs KINEMATIC
+(velocity held constant) — the delta is exactly that one extra
+`velocity_at` read per contact point, at solver scale; `physics.material
+.combine`'s per-pair dispatch (next section) runs identically either way, so
+it does not show up in this delta.
+
+Every box is pinned awake (`set_can_sleep(id, False)`) in BOTH columns —
+without that, the STATIC column's boxes settle and sleep within a few dozen
+frames (`test_sleep6`'s own number is 35), and `_impulse_inert` then skips
+their pair OUTRIGHT every subsequent step. That sleep/skip delta dwarfs one
+extra `velocity_at` read and would swamp the thing this table exists to
+isolate; an earlier revision of this bench measured exactly that confound
+(kinematic 2–3x SLOWER, because its always-moving platform never lets its
+boxes sleep at all) before the pin was added. With both columns forced
+fully active every step, the kinematic/static ratio lands at 0.97x–1.00x
+across N=16..1024 (the `flock`-locked recorded run below) — inside
+run-to-run noise, not a real cost.
+
+@bench benchmarks/bench_kinematic.mojo
+## Physics — sleep API wake storm (ROADMAP 17.25)
+
+`wake(id)` (and the `_wake_island` it shares with `teleport` and with
+`_refresh_islands`'s own automatic wake) scans every body in the scene once
+to find the ones sharing `id`'s island label — O(bodies), not O(island
+size), by construction: it reuses the same flat index space
+`_refresh_islands` already walks every step. This table builds a single
+N-body island (island size == scene size, the worst case for that scan),
+settles it to sleep, then wakes ONE body in it repeatedly at increasing N —
+a synthetic "wake storm" stress on the scan itself, isolated from any actual
+physics cost.
+
+The scan is O(bodies), not O(1) and not O(island size only) — the numbers
+confirm it: roughly 37/128/440/2308 ns per `wake()` call at N=16/64/256/
+1024, a ~3.4–5.2x cost increase for each ~4x step in N, tracking N roughly
+linearly (each point is already an average over 3000 repeated calls, so the
+larger jump at the top end is read as per-call measurement noise, not a
+super-linear scan). A production scene with one sleeping body per island and a small
+number of islands pays a few hundred ns per wake regardless of total scene
+size (the scan only walks the CALLER's scene, not "every scene"), but a
+single scene with many thousands of bodies and frequent manual wakes (a
+large destructible level, say) would want a per-island member list instead
+of this flat scan — not needed yet at the sizes ROADMAP 17.1/17.2 exercise,
+noted here as the honest scaling ceiling.
+
+@bench benchmarks/bench_sleep_wake.mojo
+## Physics — materials: per-pair combine-mode dispatch cost (ROADMAP 17.23)
+
+Four combine modes (`COMBINE_AVERAGE`/`MIN`/`MULTIPLY`/`MAX`), one pair-rule
+function (`physics.material.combine`, PhysX's "the higher-priority mode of
+the two bodies wins"), called ONCE per contact PAIR per substep (not once
+per contact point — `_solve_pair` computes `pair_mu` before its point loop).
+This table runs the exact same N=1024-contact scene with all four modes set
+uniformly, to check the claim that choosing a mode changes only which branch
+`combine` takes, not the solver's asymptotic cost.
+
+All four modes land in the same 14.1–15.6 M ns/step band (~1.1x spread) —
+within the run-to-run noise this kind of whole-step timing carries at
+N=1024, not a mode-dependent cost. The claim holds: `combine` is a 4-way
+`if`/`elif` over comptime `Int` constants, and which branch it lands on
+doesn't move the needle at solver scale.
+
+@bench benchmarks/bench_materials.mojo
 ## Collision — BVH build heuristic (median-split vs binned SAH)
 
 `test_sah` proves the two builds answer every query identically. Binned SAH
