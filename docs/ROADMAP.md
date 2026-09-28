@@ -1373,6 +1373,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:接 trimesh/heightfield 關卡;普通(平地行走)/ 整合(移動平台 + 動態剛體雙向)/
 > 極端(卡縫、零長度法向、瞬移、極陡坡、天花板夾擠)。
 
+> **進度:✅ 2026-09-29** `gameplay/character.mojo`:`CharacterController` 以 capsule sweep(17.13)做 move-and-slide;台階以「支撐面高度 − 腳底」判定(圓底卡在高箱邊角時抬升看似 < step_height,實際箱高才算數);斜坡上限;邊角支撐面以短射線取真實表面法向;天花板截斷上升;起跳期間不判地面;移動平台(kinematic/dynamic)速度繼承;對動態剛體以速度差施加推擠衝量並喚醒;擠出;蹲伏(站起受阻則拒絕);`teleport`。`tests/test_character.mojo` 21/21(平地、20° 可爬 / 60° 不可爬、0.2 台階可上 / 0.6 擋住、跳撞天花板、1 m/s 平台載運 ~1 m、推箱、生成於牆內擠出、靜止 60 步不漂移、雙牆夾擠有限值、低天花板拒絕站起、20 m 落地)。`bench_character`:空地 ~3.5 µs / update,N=256 障礙 ~33 µs(隨查詢前置線性成長)。**待辦**:seam(raycast 近似 vs shape-sweep)對照、接 `gameplay.runtime`(目前由呼叫端每步呼叫 `update`)。
+
 ### 17.2 主動布娃娃 / 物理動畫 — Wave B
 > **現況**:9.2 浮動基座 + 9.1 關節庫給了 ragdoll 本體;`procedural/anim.mojo` 給姿勢。**兩者未接**。
 > **缺口**:以動畫姿勢為 drive target 的關節馬達(PD / articulation drive,前饋可用 13.1 RNEA)、

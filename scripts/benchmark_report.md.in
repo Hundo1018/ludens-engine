@@ -1831,6 +1831,16 @@ broadphase is meant to take over.
 
 @bench benchmarks/bench_world_query.mojo
 
+## Character controller (17.1)
+
+One `update` of the kinematic capsule controller: a few capsule sweeps for
+move-and-slide (and a step attempt when a low obstacle blocks it), a
+penetration check and a ground probe, all through the world queries above.
+Its cost therefore follows theirs: a few microseconds on an empty floor,
+then growing with the obstacle count through the queries' linear prefilter.
+
+@bench benchmarks/bench_character.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
