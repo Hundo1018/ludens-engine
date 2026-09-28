@@ -1658,6 +1658,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **優勢區**:不適用(文件)。**規模軸**:不適用。**seam?**:否 —— 展示既有 seam,不新增。
 > **交付**:15–18 四支;驗收即 `pixi run examples` 全綠且每支印出兩條路徑的對照數字。
 
+> **進度:✅ 2026-09-29** 新增範例 17–21:`17_spin_integrators`(四種自旋積分子的 Dzhanibekov 漂移)、`18_cloth_xpbd_vbd`(XPBD vs VBD,CPU 與共用單一 context 的 GPU,CPU/GPU 一致)、`19_reactive_commands`(push observer vs 輪詢 + `SetBuffer` 同步點,每 tick 名單一致)、`20_contact_solver_2d`(SequentialImpulse / Pbd / Xpbd 疊塔;如實印出 PBD 系頂端殘餘速度)、`21_runtime_character`(runtime + 角色控制器 + 事件 + 插值端到端)。先前 15 樣條、16 實體池。
+
 ### 17.23–17.41 增補:同量級、先前未入路線圖的缺口(2026-09-27 盤點)
 
 > **緣起**:使用者 2026-09-27 指示「探索是否有其他介於 A/B 之間的類似功能尚未排入
