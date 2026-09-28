@@ -1,4 +1,4 @@
-# tier: unit
+# tier: component
 """Easing (17.35): endpoint exactness and in/out symmetry for all 31 curves,
 comptime-vs-runtime dispatch agreement, and `Tween[T]` ordinary/extreme
 behavior for `Real`, `Vec3` and PGA motors (screw-interpolated via
