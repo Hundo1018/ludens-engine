@@ -1,9 +1,12 @@
-"""Animation runtime: clips, blend trees, and a state machine driving them.
+"""Animation runtime: clips and blend trees.
 
 `geometry/skinning.mojo` already deforms a mesh given the bone motors for a
 frame. What was missing is everything that decides WHAT those motors are: the
-clips they are sampled from, the blend that mixes two clips during a transition,
-and the state machine that decides which clips are playing.
+clips they are sampled from and the blend that mixes two clips during a
+transition. WHICH clip is playing is decided by a state machine —
+`procedural.fsm.StateMachine` (moved here from `scheduler`, see 17.0c F7) —
+driving `AnimPlayer`; this module holds the clips and blends it picks between,
+not the FSM itself.
 
 Three ways to blend are offered, because they differ in a way that shows up on
 screen rather than only in a table:
