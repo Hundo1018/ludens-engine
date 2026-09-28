@@ -1177,7 +1177,7 @@ struct TierFacts(Movable):
     var has_ecs: Bool
     var has_physics: Bool
     var has_gameplay: Bool
-    """ROADMAP 17.0i: the test imports `gameplay.*` directly. `gameplay
+    """ROADMAP 17.0i: the test imports `gameplay.runtime` directly (other gameplay modules -- the controller, interpolation -- are ordinary units or integrations). `gameplay
     .runtime.Runtime` itself wires `ecs` + `scheduler` + `physics` (layer 5,
     `scripts/arch_layers.toml`), so a test reaching it needs only ONE import
     to be a real system test -- `has_gameloop`/`has_ecs`/`has_physics` above
@@ -1227,7 +1227,7 @@ def compute_tier_facts(relpath: String, fname: String, dirs: Dirs, lt: LayerTabl
             has_ecs = True
         if r.target_pkg == "physics":
             has_physics = True
-        if r.target_pkg == "gameplay":
+        if r.target_pkg == "gameplay" and r.target_mod == "runtime":
             has_gameplay = True
         # D excludes harness.*/diag.* by name (every test uses them; they say
         # nothing about a test's own span), excludes [vocabulary] helpers

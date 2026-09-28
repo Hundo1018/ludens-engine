@@ -1,4 +1,4 @@
-# tier: unit
+# tier: unit  (override: exercises gameplay.interpolation alone; geometry.quat supplies its value type)
 """ROADMAP 17.7: the pose-interpolator seam (LerpNlerp / DqNlerp /
 MotorGeodesic) and PoseHistory.
 

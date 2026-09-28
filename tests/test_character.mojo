@@ -99,9 +99,8 @@ def main() raises:
     var cc = CharacterController(Vec3(0, START_Y, 0, 0))
     _run(cc, ceil, ZERO, 3, False)
     var top_max = Real(0)
-    var saw_ceiling = False
     cc.update(ceil, ZERO, 6, DT, G)
-    saw_ceiling = cc.hit_ceiling
+    var saw_ceiling = cc.hit_ceiling
     for _ in range(60):
         cc.update(ceil, ZERO, 0, DT, G)
         top_max = max(top_max, cc.position[1] + 0.6 + 0.3)

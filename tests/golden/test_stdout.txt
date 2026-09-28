@@ -67,6 +67,9 @@ build: all packages precompiled into build/
 [PASS] harness - 4 / 4 checks
 --- tests/test_hash_grid.mojo ---
 [PASS] hash_grid - 5 / 5 checks
+--- tests/test_interpolation.mojo ---
+  screw: off-circle error  geodesic 1.1920929e-07  dq-nlerp 5.9604645e-08  lerp+nlerp 0.29289323
+[PASS] interpolation - 21 / 21 checks
 --- tests/test_inverse_dynamics.mojo ---
   worst round-trip error: n=2 4.887581e-06  n=8 0.0008226633
   worst round-trip error: tree 3.5762787e-06  forest 2.3841858e-06
@@ -395,6 +398,8 @@ build: all packages precompiled into build/
   swept bullet: max x = -0.15143099427223206 final vx = -2.389892
   rest height with TOI stage: 0.24971091747283936
 [PASS] ccd6 - 20 / 20 checks
+--- tests/test_character.mojo ---
+[PASS] character - 21 / 21 checks
 --- tests/test_colored.mojo ---
   colored vs serial GS worst position delta: 0.0012581050395965576
   pyramid top y: 2.7460882663726807 expected settled: 2.75
@@ -573,7 +578,11 @@ build: all packages precompiled into build/
   heightfield candidates — outside 0.0  straddling 2.0
   valley — y 0.38409448  speed 0.0  up.y 0.9998728
 [PASS] trimesh - 18 / 18 checks
+--- tests/test_world_query.mojo ---
+[PASS] world_query - 30 / 30 checks
 --- tests/test_system_determinism.mojo ---
 [PASS] system_determinism - 4 / 4 checks
+--- tests/test_system_render.mojo ---
+[PASS] system_render - 5 / 5 checks
 --- tests/test_system_stack.mojo ---
 [PASS] system_stack - 9 / 9 checks
