@@ -6,9 +6,15 @@ round trip is exact and a loaded scene continues BIT-IDENTICALLY — which
 requires saving everything dynamical, including the cross-frame warm-start
 cache (`_CPair` impulse accumulators + manifolds) and joint accumulators.
 Islands are recomputed each step and need no entry.
+
+The on-disk format is fixed at f32 bit patterns deliberately, independent of
+`geometry.vec.WorldType`: it is a wire format, not the world's compute dtype,
+and changing it would break every saved scene. `_fbits`/`_Reader.f` assert at
+comptime that `WorldType == DType.float32`, so a future switch to f64 fails
+the build here instead of silently truncating precision on save/load.
 """
 
-from geometry.vec import Real, Vec3
+from geometry.vec import Real, Vec3, WorldType
 from geometry.aabb import AABB
 from geometry.quat import Quat
 from collision.manifold import ContactManifold
@@ -22,6 +28,11 @@ comptime _VERSION = 1
 
 
 def _fbits(f: Real) -> Int:
+    comptime assert WorldType == DType.float32, (
+        "physics/serialize.mojo's on-disk format is fixed at f32 bit"
+        " patterns; a WorldType switch needs an explicit format migration,"
+        " not a silent bit-width change"
+    )
     return Int(Float32(f).to_bits())
 
 
@@ -56,6 +67,11 @@ struct _Reader(Movable, Deinitable):
         return v
 
     def f(mut self) raises -> Real:
+        comptime assert WorldType == DType.float32, (
+            "physics/serialize.mojo's on-disk format is fixed at f32 bit"
+            " patterns; a WorldType switch needs an explicit format"
+            " migration, not a silent bit-width change"
+        )
         var u = UInt32(self.i())
         return Real(Pointer(to=u).unsafe_bitcast[Float32]()[])
 

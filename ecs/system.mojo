@@ -20,12 +20,14 @@ SoA path, iterate `backend.query2_views[A, B]()` and use `get_a`/`set_a` directl
 
 from std.memory import alloc
 from std.sys.info import simd_width_of
+from geometry.vec import WorldType
 from .component import ComponentType, SimdComponent
 from .archetype import ArchetypeBackend
 
-# The engine's world scalar type. Kept local so `ecs` stays independent of
-# `geometry`. It matches `geometry.vec.WorldType` (the components are Vec2).
-comptime F = DType.float32
+# The engine's world scalar type, derived from the single source of truth
+# (`geometry.vec.WorldType`) so a future f64 switch needs one edit, not a hunt
+# for every hard-coded `float32`.
+comptime F = WorldType
 
 
 def integrate_simd[
