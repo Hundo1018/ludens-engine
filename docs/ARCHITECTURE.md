@@ -76,6 +76,59 @@ Rules that follow from the table:
    the failure (NaN injection, divergence) and asserts both that stepping
    continues and that the counter moved.
 
+### Where it is implemented (ROADMAP 17.0h)
+
+The policy above was aspirational until 17.0h wired it into the APIs Wave A
+touches and into `physics.solver6.ContactScene6`'s production step path
+(audit F10, E1-E24):
+
+- **Invalid caller input → raise**: `physics.rigid6.Inertia3.validated()` and
+  `physics.solver_config.SolverConfig.validated()` are opt-in raising
+  validators for the two ~100-call-site constructors (`ContactScene6.add*`,
+  `step`/`step_soft`) that cannot themselves become `raises` without a
+  signature sweep across every caller; those two instead `debug_assert` the
+  same invariant as defence-in-depth. `ContactScene6.add_joint`/`set_filter`/
+  `set_sensor`/`set_restitution`/`set_friction` raise directly (bounded
+  blast radius, `docs/audits/2026-09-27-architecture.md` E12), as do
+  `physics.softbody.SoftBody.box_lattice` (E4), `collision.trimesh.TriMesh`/
+  `HeightField` (E13), `physics.chain.Chain.add_link_to` (E18),
+  `procedural.anim.AnimClip` (E23, `fps` only — `frames == 0` is a tested
+  recovery path, not rejected), and `collision.queries._index_boxes` (E24).
+  `spatial.hash_grid.SpatialHashGrid`'s `cell_size` check stays a
+  `debug_assert`: it is constructed non-raising inside
+  `collision.bp_hashgrid.SpatialHashBroadPhase`'s zero-arg `__init__`, which
+  must stay non-raising to satisfy `Defaultable` (`ContactScene6[B, BP:
+  BroadPhase]`'s default type argument).
+- **Numerical failure → recover, count**: `ContactScene6._quarantine_nonfinite`
+  runs once at the end of every `step` (both the serial and the
+  parallel-islands exit path) — a NaN/Inf dynamic body is reset to a finite
+  pose, force-slept, and dropped from the warm-start cache; counted
+  (`diag.counters.NAN_QUARANTINED`) and logged (WARN, `self.log`). The same
+  module also skips the particle-vs-body reaction impulse for a pinned soft
+  particle (`p.w == 0`, E3, three call sites) and falls back the WHOLE
+  step's graph-coloured solve to serial + counts it
+  (`diag.counters.COLOR_OVERFLOW`) if a body would need a 65th colour (E7).
+  `geometry.vec.normalize_or` replaces a silent zero-vector `normalize` in
+  `geometry.sdf`, `collision.clip`, and `scheduler.rng` (E16; `rng.unit_vec2`/
+  `unit_vec3` also switched from normalizing a cube sample to Marsaglia
+  rejection, fixing the corner-direction bias in the same pass).
+  `physics.fem.FemBody.step_implicit` now checks `CgResult.converged` before
+  applying `dv` (E19, `diag.counters.CG_NOT_CONVERGED`).
+  `scheduler.gameloop.FixedLoop.advance` drops accumulated debt instead of
+  carrying it past a `max_steps` clamp (E22/F16,
+  `diag.counters.GAMELOOP_DEBT_DROPPED`).
+- **`diag` wired into the solver**: `ContactScene6` owns `counters: Counters`,
+  `trace: TraceBuffer`, `log: LogRing[256]`, and `draw: DrawQueue[WorldType]`
+  fields (same shape as `counters`, already present since F23) — a caller
+  reads them directly rather than `step`/`step_soft` taking new parameters
+  (same ~100-call-site constraint as above). `step` wraps its phases
+  (`collect_pairs` — broadphase + narrowphase together, `warm_start`,
+  `solve`, `integrate`/`ccd`, `soft_pass`, `sleep`) in `self.trace.begin`/
+  `.end` spans, compiled to no-ops unless `-D LUDENS_TRACE`. When
+  `-D LUDENS_DEBUG_DRAW` is defined, `step` emits one `DrawQueue` arrow
+  command per contact point (point → point + normal), coloured by island,
+  into `self.draw`.
+
 ## 3. Test architecture
 
 Every file in `tests/` declares one tier in a header comment

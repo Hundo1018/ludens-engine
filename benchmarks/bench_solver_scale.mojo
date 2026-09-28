@@ -34,6 +34,7 @@ from collision.bp_dbvh import DbvhBroadPhase
 from collision.bp_sap import SapBroadPhase
 from collision.bp_hashgrid import SpatialHashBroadPhase
 from collision.bp_tree import OctreeBroadPhase
+from diag.level import TRACE_ON
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -184,3 +185,46 @@ def main() raises:
     var hash_spread = _spread_scene[SpatialHashBroadPhase[3]](SPREAD_N, True)
     t3.add("hashgrid 20:1 spread", SPREAD_N, "step", _run_bp(hash_spread), STEPS)
     t3.print_report()
+
+    # Table 4 (ROADMAP 17.0h): diag overhead on the production step path.
+    # `TRACE_ON` is resolved once per COMPILED binary (`-D LUDENS_TRACE` is a
+    # build-time define), so "spans on vs off" is two separate invocations of
+    # THIS file (one plain, one with the flag) compared externally -- not a
+    # runtime toggle inside one `main()`. This table's rows are meant to be
+    # read side by side across those two runs; each run interleaves several
+    # independently-built scenes rather than timing one giant loop, so a
+    # thermal/scheduler drift across the invocation doesn't bias one round.
+    # The NaN scan itself is NOT a toggle (docs/ARCHITECTURE.md S2: a world
+    # must keep stepping, so the end-of-step finite check is unconditional)
+    # -- its share of the traced step is read from `sc.trace.stats()`'s
+    # "nan_scan" entry under `-D LUDENS_TRACE` instead of an on/off delta.
+    var t4 = BenchTable(
+        "ROADMAP 17.0h: diag overhead (compare this table's ns/step across a "
+        + "plain run and a -D LUDENS_TRACE run; NaN-scan share printed below "
+        + "under -D LUDENS_TRACE)"
+    )
+    comptime OVERHEAD_SIDE = 16  # N = 2*16*16 = 512
+    comptime OVERHEAD_ROUNDS = 3
+    var last_scene = _grid(OVERHEAD_SIDE)
+    for r in range(OVERHEAD_ROUNDS):
+        var s = _grid(OVERHEAD_SIDE)
+        t4.add("round=" + String(r), 512, "step", _run(s, True), STEPS)
+        last_scene = s^
+    t4.print_report()
+    comptime if TRACE_ON:
+        var stats = last_scene.trace.stats()
+        var total_ns = 0
+        var nan_ns = 0
+        for i in range(len(stats)):
+            total_ns += stats[i].total_ns
+            if stats[i].name == "nan_scan":
+                nan_ns = stats[i].total_ns
+        if total_ns > 0:
+            var pct = Real(nan_ns) * 100.0 / Real(total_ns)
+            print(
+                "nan_scan share of traced step time: " + String(nan_ns)
+                + " ns / " + String(total_ns) + " ns total = "
+                + String(pct) + "%"
+            )
+    else:
+        print("(rebuild with -D LUDENS_TRACE to see the nan_scan share breakdown)")
