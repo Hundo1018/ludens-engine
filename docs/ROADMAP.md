@@ -1532,6 +1532,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:普通(對 hull 掃一個 capsule)/ 整合(接 17.1 控制器、17.4 載具)/
 > 極端(零長度掃、起點已穿透、相切、退化 shape、命中 static trimesh 接縫)。
 
+> **進度:✅ 2026-09-29** `collision/world_query.mojo`:點對任一 collider 的有號距離(box / sphere / capsule 精確,hull 面平面、mesh 三角候選為下界)為核心;`ray_cast`(各形狀閉式,capsule 保守推進)、`sphere_cast` / `capsule_cast`(保守推進,線段距離以黃金分割搜尋)、`overlap_sphere` / `overlap_capsule`、`capsule_penetrations`(擠出法向 + 深度)、`ray_cast_batch`;`QueryFilter`(類別遮罩 / 忽略自身 / sensor 可選)。`ContactScene6` 提供包裝(姿態由 physics 端組出)。`tests/test_world_query.mojo` 30/30(含舊 `SceneQuery` 會誤判的「穿過球體 AABB 角落」案例、settle 後的疊塔、start_solid / 忽略自身 / sensor / 空場景等極端)。`bench_world_query`:N=16 時 ray/sphere/penetration ~0.6 µs、capsule sweep ~4 µs;N≥256 起每次查詢被線性前置工作主導(逐次組全部姿態 + AABB 線性預篩)。**待辦**:改用持久 broadphase 預篩並每步快取姿態;四索引 seam parity(brute / BVH / grid / tree)。
+
 ### 17.14 導航 — Wave C
 > **現況**:無(舊「明確不做」,已被 [[no-tech-exclusion-principle]] 推翻)。
 > **缺口**:navmesh bake(voxel → region → contour → 三角化)、A* / funnel(string-pulling)、

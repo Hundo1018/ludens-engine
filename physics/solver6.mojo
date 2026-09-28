@@ -46,6 +46,18 @@ from geometry.vec import Real, Vec3, WorldType, dot, cross, tangent_basis
 from geometry.aabb import AABB
 from geometry.quat import Quat
 from collision.manifold import ContactManifold, Axes3
+from collision.world_query import (
+    QueryFilter,
+    Hit,
+    Probe,
+    Penetration,
+    ray_cast as wq_ray_cast,
+    sphere_cast as wq_sphere_cast,
+    capsule_cast as wq_capsule_cast,
+    overlap_sphere as wq_overlap_sphere,
+    capsule_penetrations as wq_capsule_penetrations,
+    point_distance as wq_point_distance,
+)
 from collision.collider_set import (
     ColliderSet,
     Pose3,
@@ -810,6 +822,42 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         """The seam value: everything `ColliderSet` needs from body `i`'s
         transform, and nothing else -- collision never sees a `Body6`."""
         return Pose3(self.bset.bodies[i].position(), self._axes(i))
+
+    # ------------------------------------------------ world queries (17.13)
+    # Thin wrappers over `collision.world_query`: this is the only place that
+    # knows how to turn bodies into the `Pose3`s the collision layer takes.
+
+    def query_poses(self) -> List[Pose3]:
+        var out = List[Pose3](capacity=len(self.bset.bodies))
+        for i in range(len(self.bset.bodies)):
+            out.append(self._pose(i))
+        return out^
+
+    def ray_cast(self, origin: Vec3, dir: Vec3, max_t: Real, f: QueryFilter) -> Hit:
+        return wq_ray_cast(self.colliders, self.query_poses(), origin, dir, max_t, f)
+
+    def sphere_cast(
+        self, c: Vec3, r: Real, dir: Vec3, max_t: Real, f: QueryFilter
+    ) -> Hit:
+        return wq_sphere_cast(self.colliders, self.query_poses(), c, r, dir, max_t, f)
+
+    def capsule_cast(
+        self, a: Vec3, b: Vec3, r: Real, dir: Vec3, max_t: Real, f: QueryFilter
+    ) -> Hit:
+        return wq_capsule_cast(
+            self.colliders, self.query_poses(), a, b, r, dir, max_t, f
+        )
+
+    def overlap_sphere(self, c: Vec3, r: Real, f: QueryFilter) -> List[Int]:
+        return wq_overlap_sphere(self.colliders, self.query_poses(), c, r, f)
+
+    def capsule_penetrations(
+        self, a: Vec3, b: Vec3, r: Real, f: QueryFilter
+    ) -> List[Penetration]:
+        return wq_capsule_penetrations(self.colliders, self.query_poses(), a, b, r, f)
+
+    def closest_point(self, i: Int, p: Vec3) -> Probe:
+        return wq_point_distance(self.colliders, i, self._pose(i), p)
 
     def _make_sensor_cpair(self, rc: RawContact) -> _CPair:
         """Wrap a sensor overlap: all-zero accumulators/anchors, matching the

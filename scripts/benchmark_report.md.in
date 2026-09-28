@@ -1817,6 +1817,20 @@ consistent with table 1's story that the seam's real divergence is driven by
 READER COUNT, not by how many events pass through per frame.
 
 @bench benchmarks/bench_events.mojo
+## World queries on real geometry (17.13)
+
+`collision.world_query` answers rays, sphere and capsule sweeps, overlaps and
+penetrations against the actual collider surfaces (the older `SceneQuery`
+rows above test against broadphase boxes). Sweeps use conservative
+advancement over signed distances, so a capsule sweep costs several distance
+evaluations per candidate, each a short golden-section search along the
+segment. At small N the capsule sweep is the expensive row; by a few hundred
+colliders every row is dominated by the per-query linear work (building every
+body's pose and scanning world AABBs), which is the step the persistent
+broadphase is meant to take over.
+
+@bench benchmarks/bench_world_query.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
