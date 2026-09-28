@@ -1,4 +1,4 @@
-# tier: component
+# tier: integration
 """Batched GPU raycast parity against the CPU BVH.
 
 Unlike the GPU broadphase, this result is fully deterministic — each thread
@@ -20,7 +20,7 @@ from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3, normalize
 from geometry.aabb import AABB
 from geometry.ray import Ray
-from geometry.bvh import BVH
+from spatial.bvh import BVH
 from collision.broadphase import BoxProxy
 from collision.gpu_raycast import gpu_raycast_ctx
 

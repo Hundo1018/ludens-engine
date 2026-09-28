@@ -22,7 +22,7 @@ is the natural extension and is not done here.
 """
 
 from std.math import sqrt
-from geometry.vec import Real, Vec3, dot, length
+from geometry.vec import Real, Vec3, dot, length, cross
 from geometry.quat import Quat
 from physics.chain import Chain
 
@@ -49,9 +49,9 @@ def read_imu(
     var v = m[1][link]
     var wa = m[2][link]
     var va = m[3][link]
-    var a = va + _cross3(w, v)
+    var a = va + cross(w, v)
     if length(local) > 1e-12:
-        a = a + _cross3(wa, local) + _cross3(w, _cross3(w, local))
+        a = a + cross(wa, local) + cross(w, cross(w, local))
     return ImuReading(a, w)
 
 
@@ -74,20 +74,11 @@ def read_imu_batch(
         var r = locals[k]
         var w = m[0][i]
         var v = m[1][i]
-        var a = m[3][i] + _cross3(w, v)
+        var a = m[3][i] + cross(w, v)
         if length(r) > 1e-12:
-            a = a + _cross3(m[2][i], r) + _cross3(w, _cross3(w, r))
+            a = a + cross(m[2][i], r) + cross(w, cross(w, r))
         out.append(ImuReading(a, w))
     return out^
-
-
-def _cross3(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
 
 
 def read_joint_torque(
@@ -108,7 +99,7 @@ def read_joint_vel(c: Chain) -> List[Real]:
 def read_rangefinder(
     c: Chain, link: Int, local: Vec3, dir_local: Vec3, plane_y: Real,
     max_range: Real = 100,
-) raises -> Real:
+) -> Real:
     """Distance along `dir_local` from the mount point to the plane `y = k`,
     or -1 when nothing is in range — the convention a real rangefinder uses
     for "no return".
@@ -133,7 +124,7 @@ def read_rangefinder(
 
 def read_touch(
     c: Chain, link: Int, local: Vec3, floor_y: Real
-) raises -> Real:
+) -> Real:
     """Penetration depth at a mount point, zero when not in contact — the
     scalar a touch pad integrates into a normal force."""
     var pw = c.point_world(link, local)

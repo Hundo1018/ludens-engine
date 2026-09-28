@@ -2,7 +2,7 @@
 boxes and produces candidate pairs by region-querying each item's box."""
 
 from geometry.aabb import AABB
-from geometry.bvh import BVH
+from spatial.bvh import BVH
 from .broadphase import BroadPhase, Pair, BoxProxy
 
 

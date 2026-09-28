@@ -2,7 +2,7 @@
 from harness.runner import Suite
 from geometry.vec import Vec2
 from geometry.aabb import AABB2
-from geometry.bvh import BVH, _Leaf
+from spatial.bvh import BVH, _Leaf
 
 
 def _contains(items: List[Int], v: Int) -> Bool:

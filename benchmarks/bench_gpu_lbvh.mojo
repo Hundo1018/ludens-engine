@@ -21,8 +21,8 @@ from harness.bench import BenchTable
 from scheduler.rng import Pcg32, Rng
 from geometry.vec import Real, Vec3
 from geometry.aabb import AABB
-from geometry.bvh import BVH, morton_order
-from geometry.gpu_lbvh import gpu_morton_order_ctx
+from spatial.bvh import BVH, morton_order
+from spatial.gpu_lbvh import gpu_morton_order_ctx
 
 
 def _boxes_of(items: List[BoxProxy[3]]) -> List[AABB[3]]:

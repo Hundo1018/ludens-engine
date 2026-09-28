@@ -33,7 +33,7 @@ silently loses its tail elements the moment it crosses a function boundary —
 from std.math import sqrt, floor
 from geometry.vec import Real, Vec3, dot, length, normalize
 from geometry.aabb import AABB
-from geometry.bvh import BVH
+from spatial.bvh import BVH
 from geometry.gjk import ConvexPoly
 
 

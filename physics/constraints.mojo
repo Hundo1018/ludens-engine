@@ -122,7 +122,7 @@ struct ConstraintSet(Movable, Deinitable):
 
     def solve(
         mut self, var hmat: List[Real], mut qd: List[Real], iters: Int = 20
-    ) raises:
+    ):
         """Projected Gauss-Seidel over every row, in place on `qd`.
 
         `H⁻¹Jᵀ` is formed ONCE for all rows rather than per row per iteration.

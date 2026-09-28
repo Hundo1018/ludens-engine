@@ -31,10 +31,10 @@ from std.sys import has_accelerator
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
-from geometry.vec import Real, Vec3, lane_min, lane_max
+from geometry.vec import Real, Vec3, lane_min, lane_max, WorldType
 from geometry.aabb import AABB
 
-comptime fdt = DType.float32
+comptime fdt = WorldType
 comptime udt = DType.uint32
 
 

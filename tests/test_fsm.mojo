@@ -1,6 +1,6 @@
 # tier: unit
 from harness.runner import Suite
-from scheduler.fsm import StateMachine
+from procedural.fsm import StateMachine
 
 
 def _eq_list(a: List[Int], b: List[Int]) -> Bool:

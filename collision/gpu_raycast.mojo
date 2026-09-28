@@ -23,12 +23,12 @@ from std.sys import has_accelerator
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
-from geometry.vec import Real, Vec3
+from geometry.vec import Real, Vec3, WorldType
 from geometry.aabb import AABB
 from geometry.ray import Ray
 from collision.broadphase import BoxProxy
 
-comptime fdt = DType.float32
+comptime fdt = WorldType
 comptime idt = DType.int32
 
 

@@ -23,20 +23,11 @@ Both bodies share `Inertia3` (mass + principal diagonal). Parity gates live in
 """
 
 from std.math import sqrt
-from geometry.vec import Real, Vec3, dot
+from geometry.vec import Real, Vec3, dot, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
 from geometry.galie import Screw3, exp_screw3
 from .screw import screw_velocity
-
-
-def _cross(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
 
 
 @fieldwise_init
@@ -136,7 +127,7 @@ struct QuatBody6(
 
     def apply_impulse(mut self, j: Vec3, at: Vec3):
         self.vel = self.vel + j / self.inertia.mass
-        var dl = _cross(at - self.pos, j)  # world angular impulse
+        var dl = cross(at - self.pos, j)  # world angular impulse
         var dwb = self.inertia.apply_inv(self.q.conjugate().rotate(dl))
         self.omega = self.omega + self.q.rotate(dwb)
 
@@ -147,17 +138,17 @@ struct QuatBody6(
         return self.pos
 
     def velocity_at(self, at: Vec3) -> Vec3:
-        return self.vel + _cross(self.omega, at - self.pos)
+        return self.vel + cross(self.omega, at - self.pos)
 
     def angular_factor(self, r: Vec3, n: Vec3) -> Real:
         var u = self.q.rotate(
-            self.inertia.apply_inv(self.q.conjugate().rotate(_cross(r, n)))
+            self.inertia.apply_inv(self.q.conjugate().rotate(cross(r, n)))
         )
-        return dot(n, _cross(u, r))
+        return dot(n, cross(u, r))
 
     def integrate_force(mut self, dt: Real, force: Vec3, torque: Vec3):
         # Euler equations in the world frame: ω̇ = I_w⁻¹(τ − ω × I_w ω).
-        var gyro = torque - _cross(self.omega, self.angular_momentum())
+        var gyro = torque - cross(self.omega, self.angular_momentum())
         var dwb = self.inertia.apply_inv(self.q.conjugate().rotate(gyro))
         self.omega = self.omega + self.q.rotate(dwb) * dt
         self.vel = self.vel + force * (dt / self.inertia.mass)
@@ -251,7 +242,7 @@ struct ScrewBody6(
         var q = self._rotation()
         var jb = q.conjugate().rotate(j)
         var rb = q.conjugate().rotate(at - self.position())
-        var wb = self.omega_body() + self.inertia.apply_inv(_cross(rb, jb))
+        var wb = self.omega_body() + self.inertia.apply_inv(cross(rb, jb))
         var vb = self.vel_body() + jb / self.inertia.mass
         self.vel = screw_velocity(wb, vb)
 
@@ -261,14 +252,14 @@ struct ScrewBody6(
     def velocity_at(self, at: Vec3) -> Vec3:
         var q = self._rotation()
         var rb = q.conjugate().rotate(at - self.position())
-        return q.rotate(self.vel_body() + _cross(self.omega_body(), rb))
+        return q.rotate(self.vel_body() + cross(self.omega_body(), rb))
 
     def angular_factor(self, r: Vec3, n: Vec3) -> Real:
         var q = self._rotation()
         var rb = q.conjugate().rotate(r)
         var nb = q.conjugate().rotate(n)
-        var u = self.inertia.apply_inv(_cross(rb, nb))
-        return dot(nb, _cross(u, rb))
+        var u = self.inertia.apply_inv(cross(rb, nb))
+        return dot(nb, cross(u, rb))
 
     def integrate_force(mut self, dt: Real, force: Vec3, torque: Vec3):
         # Lie–Poisson Euler equations in the principal body frame.
@@ -277,10 +268,10 @@ struct ScrewBody6(
         var vb = self.vel_body()
         var tb = q.conjugate().rotate(torque)
         var fb = q.conjugate().rotate(force)
-        var gyro = tb - _cross(wb, self.inertia.apply(wb))
+        var gyro = tb - cross(wb, self.inertia.apply(wb))
         wb = wb + self.inertia.apply_inv(gyro) * dt
         # Body-frame transport of the linear velocity: v̇_b = f_b/m − ω × v_b.
-        vb = vb + (fb / self.inertia.mass - _cross(wb, vb)) * dt
+        vb = vb + (fb / self.inertia.mass - cross(wb, vb)) * dt
         self.vel = screw_velocity(wb, vb)
 
     def integrate_pose(mut self, dt: Real):

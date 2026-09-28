@@ -208,7 +208,7 @@ struct SpatialTendon(Copyable, Movable):
             raise Error("no segment to wrap yet")
         self.wraps[len(self.wraps) - 1] = WrapSphere(center, radius)
 
-    def length(self, c: Chain) raises -> Real:
+    def length(self, c: Chain) -> Real:
         var pts = self._points(c)
         var total = Real(0)
         for k in range(len(pts) - 1):
@@ -216,13 +216,13 @@ struct SpatialTendon(Copyable, Movable):
             total += r[0]
         return total
 
-    def _points(self, c: Chain) raises -> List[Vec3]:
+    def _points(self, c: Chain) -> List[Vec3]:
         var pts = List[Vec3]()
         for k in range(len(self.sites)):
             pts.append(c.point_world(self.sites[k].link, self.sites[k].local))
         return pts^
 
-    def moment_arms(self, c: Chain) raises -> List[Real]:
+    def moment_arms(self, c: Chain) -> List[Real]:
         """`dL/dq`, from the path directions at each attachment site.
 
         Site `k` sees the tendon leave toward `k+1` and arrive from `k-1`; the
@@ -254,7 +254,7 @@ struct SpatialTendon(Copyable, Movable):
                 out[i] += w[0] * jx[i] + w[1] * jy[i] + w[2] * jz[i]
         return out^
 
-    def apply_tension(self, c: Chain, f: Real, mut tau: List[Real]) raises:
+    def apply_tension(self, c: Chain, f: Real, mut tau: List[Real]):
         """`tau -= F dL/dq`. A positive tension SHORTENS the tendon, which is
         the sign that makes the power balance come out: the tendon does work
         `-F dL/dt` on the mechanism."""
@@ -262,7 +262,7 @@ struct SpatialTendon(Copyable, Movable):
         for i in range(len(tau)):
             tau[i] -= f * ma[i]
 
-    def velocity(self, c: Chain) raises -> Real:
+    def velocity(self, c: Chain) -> Real:
         """`dL/dt` from the moment arms and the joint rates."""
         var ma = self.moment_arms(c)
         var v = Real(0)

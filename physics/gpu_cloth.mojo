@@ -16,7 +16,7 @@ still compiles and the test passes vacuously.
 """
 
 from std.math import sqrt, ceildiv
-from geometry.vec import Real
+from geometry.vec import Real, WorldType
 from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
@@ -25,7 +25,7 @@ from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 
-comptime dtype = DType.float32
+comptime dtype = WorldType
 comptime _G: Float32 = -9.8
 comptime _OMEGA: Float32 = 0.5  # Jacobi under-relaxation
 comptime _DAMP: Float32 = 0.998
@@ -202,7 +202,7 @@ struct ClothState(Movable, Deinitable):
         self.z = List[Float32]()
 
 
-def _init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32):
+def init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32):
     for r in range(H):
         for c in range(W):
             s.x.append(Float32(c) * rest)
@@ -223,7 +223,7 @@ def cpu_cloth_run[W: Int, H: Int](
     lets the existing tests stay untouched."""
     comptime n = W * H
     var s = ClothState()
-    _init_grid[W, H](s, rest)
+    init_grid[W, H](s, rest)
     # cell size = thickness: one hash cell per interaction radius, so the 27
     # neighbouring cells are exactly the candidates within range
     var sc = SelfCollider(
@@ -383,7 +383,7 @@ def gpu_cloth_run_ctx_timed[W: Int, H: Int](
     comptime layout = row_major[n]()
     comptime BLOCK = 256
     var host = ClothState()
-    _init_grid[W, H](host, rest)
+    init_grid[W, H](host, rest)
 
     var bufs = List[DeviceBuffer[dtype]]()
     for _ in range(13):

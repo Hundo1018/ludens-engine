@@ -32,7 +32,7 @@ collinear, single point) that `test_hull` exercises.
 """
 
 from std.math import sqrt
-from geometry.vec import WorldType, Real, Vec3, dot, length, normalize
+from geometry.vec import WorldType, Real, Vec3, dot, length, normalize, cross
 from geometry.gjk import ConvexPoly, gjk_query
 from geometry.epa import Witness, epa_witness3
 from .manifold import ContactManifold
@@ -231,24 +231,21 @@ def _push(mut v: List[Real], p: Vec3):
 
 
 def _basis(n: Vec3) -> Tuple[Vec3, Vec3]:
-    """Any orthonormal pair spanning the plane perpendicular to `n`."""
+    """Any orthonormal pair spanning the plane perpendicular to `n`.
+
+    A deliberately different variant from `geometry.vec.tangent_basis`: this
+    one only needs *some* orthonormal pair (its callers don't care which),
+    uses a different seed threshold (0.7, not 0.9) and cross operand order
+    (`cross(n, x)`, not `cross(x, n)`), so unifying it with the canonical
+    `tangent_basis` would flip signs / change the branch point for callers
+    whose output is in the golden test log. Kept separate per audit F8's own
+    resolution rule; built from the shared `cross` primitive instead of a
+    third hand-inlined copy of the formula."""
     var a = Vec3(1, 0, 0, 0)
     if abs(n[0]) > 0.7:
         a = Vec3(0, 1, 0, 0)
-    var t1 = normalize(
-        Vec3(
-            n[1] * a[2] - n[2] * a[1],
-            n[2] * a[0] - n[0] * a[2],
-            n[0] * a[1] - n[1] * a[0],
-            0,
-        )
-    )
-    var t2 = Vec3(
-        n[1] * t1[2] - n[2] * t1[1],
-        n[2] * t1[0] - n[0] * t1[2],
-        n[0] * t1[1] - n[1] * t1[0],
-        0,
-    )
+    var t1 = normalize(cross(n, a))
+    var t2 = cross(n, t1)
     return (t1, t2)
 
 

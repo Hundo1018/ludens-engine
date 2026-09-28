@@ -29,7 +29,14 @@ from numerics.sparse import LinearOperator
 from numerics.cg import cg, CgResult
 
 
-def _det3(m: Mat3) -> Real:
+def det3(m: Mat3) -> Real:
+    """3x3 determinant. Public (not `_det3`): `physics/mpm.mojo` imports it
+    deliberately, both solvers' plasticity/inversion math needing the same
+    determinant (audit F18). A dedicated `geometry.mat3.Mat3x3` type with its
+    own `.det()` now exists for new code (audit F8); `fem`/`mpm` keep the
+    `Mat3`-based representation here rather than migrating in this pass —
+    that migration made the physics package's compile time regress
+    severely (see 17.0c-d-placement.md step 7 notes) and was reverted."""
     return (
         m.get(0, 0) * (m.get(1, 1) * m.get(2, 2) - m.get(1, 2) * m.get(2, 1))
         - m.get(0, 1) * (m.get(1, 0) * m.get(2, 2) - m.get(1, 2) * m.get(2, 0))
@@ -38,7 +45,7 @@ def _det3(m: Mat3) -> Real:
 
 
 def _inv3(m: Mat3) -> Mat3:
-    var d = _det3(m)
+    var d = det3(m)
     var inv = 1.0 / d if abs(d) > 1e-20 else Real(0)
     var r = Mat3()
     r.set(0, 0, (m.get(1, 1) * m.get(2, 2) - m.get(1, 2) * m.get(2, 1)) * inv)
@@ -144,7 +151,7 @@ struct FemBody(Movable):
             dm.set(k, 0, e1[k])
             dm.set(k, 1, e2[k])
             dm.set(k, 2, e3[k])
-        var det = _det3(dm)
+        var det = det3(dm)
         # Skip degenerate/inverted tets rather than storing an infinite inverse
         if abs(det) < 1e-12:
             return
@@ -162,7 +169,7 @@ struct FemBody(Movable):
                 ds.set(k, 0, e1[k])
                 ds.set(k, 1, e2[k])
                 ds.set(k, 2, e3[k])
-            v += abs(_det3(ds)) / 6.0
+            v += abs(det3(ds)) / 6.0
         return v
 
     def elastic_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):

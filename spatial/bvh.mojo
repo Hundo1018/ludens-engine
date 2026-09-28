@@ -6,9 +6,9 @@ self-pair queries (all overlapping proxy pairs) — the basis of the BVH
 broadphase. Nodes live in a flat `List`; children are referenced by index.
 """
 
-from .vec import WorldType, Real, lane_min, lane_max, PadW
-from .aabb import AABB
-from .ray import Ray, RayHit, ray_aabb
+from geometry.vec import WorldType, Real, lane_min, lane_max, PadW
+from geometry.aabb import AABB
+from geometry.ray import Ray, RayHit, ray_aabb
 
 comptime SAH_BINS = 12  # binned-SAH candidate split planes per axis
 

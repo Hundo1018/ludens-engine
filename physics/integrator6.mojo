@@ -24,25 +24,16 @@ Gates: `tests/test_integrator6.mojo` (cross parity + conservation ordering),
 """
 
 from std.math import sqrt, sin, cos
-from geometry.vec import Real, Vec3
+from geometry.vec import Real, Vec3, cross
 from geometry.motor import Motor3
 from geometry.galie import exp_screw3
 from .screw import screw_velocity
 from .rigid6 import Inertia3
 
 
-def _cross(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
-
-
 def _torque_free(wb: Vec3, inertia: Inertia3) -> Vec3:
     """ω̇ = I⁻¹(−ω × Iω) in the principal body frame."""
-    return inertia.apply_inv(-_cross(wb, inertia.apply(wb)))
+    return inertia.apply_inv(-cross(wb, inertia.apply(wb)))
 
 
 def _advance(pose: Motor3, wb: Vec3, dt: Real) -> Motor3:

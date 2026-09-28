@@ -20,15 +20,15 @@ scenes. Implicit Euler target y = x + h·v + h²·g.
 """
 
 from std.math import sqrt, ceildiv
-from geometry.vec import Real
+from geometry.vec import Real, WorldType
 from physics.self_collide import SelfCollider, resolve_self_collisions
 from std.sys import has_accelerator
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
-from .gpu_cloth import ClothState, _init_grid
+from .gpu_cloth import ClothState, init_grid
 
-comptime dtype = DType.float32
+comptime dtype = WorldType
 comptime _G: Float32 = -9.8
 comptime _DAMP: Float32 = 0.998
 comptime _K: Float32 = 2e5  # spring stiffness (implicit solve: stiff is fine)
@@ -269,7 +269,7 @@ def cpu_vbd_run[W: Int, H: Int](
     )
     var mh2 = 1.0 / (dt * dt)  # unit mass
     var s = ClothState()
-    _init_grid[W, H](s, rest)
+    init_grid[W, H](s, rest)
     var vx = List[Float32]()
     var vy = List[Float32]()
     var vz = List[Float32]()
@@ -377,7 +377,7 @@ def gpu_vbd_run_ctx[W: Int, H: Int](
     comptime BLOCK = 256
     var mh2 = Float32(1.0) / (dt * dt)
     var host = ClothState()
-    _init_grid[W, H](host, rest)
+    init_grid[W, H](host, rest)
 
     var bufs = List[DeviceBuffer[dtype]]()
     for _ in range(13):

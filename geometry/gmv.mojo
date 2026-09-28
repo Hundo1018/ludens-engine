@@ -4,12 +4,12 @@
 F: Field]` is the same algebra with the coefficient type as a parameter — the
 foundation for automatic differentiation (`DualReal` coefficients push
 derivatives through every geometric product) and, later, reverse-mode tape
-nodes. The comptime blade tables (`_gp_sign`, `_swap_sign`, `_reverse_sign`)
+nodes. The comptime blade tables (`gp_sign`, `swap_sign`, `reverse_sign`)
 are shared with `Multivector`, so both stay sign-identical by construction.
 """
 
 from .field import Field
-from .multivector import _gp_sign, _swap_sign, _reverse_sign
+from .multivector import gp_sign, swap_sign, reverse_sign
 
 
 struct GMV[p: Int, q: Int, r: Int, F: Field](
@@ -55,7 +55,7 @@ struct GMV[p: Int, q: Int, r: Int, F: Field](
         var out = Self()
         comptime for i in range(Self.BLADES):
             comptime for j in range(Self.BLADES):
-                comptime s = _gp_sign(i, j, Self.p, Self.q, Self.DIM)
+                comptime s = gp_sign(i, j, Self.p, Self.q, Self.DIM)
                 comptime if s > 0:
                     out.c[i ^ j] = out.c[i ^ j] + self.c[i] * o.c[j]
                 comptime if s < 0:
@@ -68,7 +68,7 @@ struct GMV[p: Int, q: Int, r: Int, F: Field](
         comptime for i in range(Self.BLADES):
             comptime for j in range(Self.BLADES):
                 comptime if (i & j) == 0:
-                    comptime s = _swap_sign(i, j)
+                    comptime s = swap_sign(i, j)
                     comptime if s > 0:
                         out.c[i | j] = out.c[i | j] + self.c[i] * o.c[j]
                     comptime if s < 0:
@@ -79,9 +79,9 @@ struct GMV[p: Int, q: Int, r: Int, F: Field](
     def reverse(self) -> Self:
         var out = Self()
         comptime for i in range(Self.BLADES):
-            comptime if _reverse_sign(i) > 0:
+            comptime if reverse_sign(i) > 0:
                 out.c[i] = self.c[i]
-            comptime if _reverse_sign(i) < 0:
+            comptime if reverse_sign(i) < 0:
                 out.c[i] = Self.F.zero() - self.c[i]
         return out^
 

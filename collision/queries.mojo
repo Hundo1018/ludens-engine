@@ -19,7 +19,7 @@ collision/physics layers produce them.
 from geometry.vec import WorldType, Real, lane_min, lane_max, PadW
 from geometry.aabb import AABB
 from geometry.ray import Ray, RayHit, ray_aabb
-from geometry.bvh import BVH
+from spatial.bvh import BVH
 from spatial.hash_grid import SpatialHashGrid
 from spatial.tree_core import LooseTree
 from .broadphase import BoxProxy

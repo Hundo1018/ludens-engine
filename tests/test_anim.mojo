@@ -1,4 +1,4 @@
-# tier: integration
+# tier: component
 """Animation runtime: clips, blending and state-machine-driven playback (v3).
 
 The skinning maths already existed; what this gates is the runtime around it —
@@ -28,7 +28,7 @@ from procedural.anim import (
     AnimClip, AnimPlayer, blend_poses, pose_to_motors,
     BLEND_LINEAR, BLEND_DLB, BLEND_GEODESIC,
 )
-from scheduler.fsm import StateMachine
+from procedural.fsm import StateMachine
 
 comptime BONES = 3
 

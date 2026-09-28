@@ -30,9 +30,10 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 from std.atomic import Atomic
 from layout import TileTensor, TensorLayout, row_major
 from geometry.aabb import AABB
+from geometry.vec import WorldType
 from .broadphase import Pair, BoxProxy
 
-comptime fdt = DType.float32
+comptime fdt = WorldType
 comptime idt = DType.int32
 
 

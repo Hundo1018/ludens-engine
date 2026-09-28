@@ -18,7 +18,7 @@ Each dim-specific helper is only ever instantiated at its own `dim` (guarded by
 realloc hazard, see gjk.mojo). Normals are oriented from `a` toward `b`.
 """
 
-from .vec import WorldType, Real, Vec2, dot, normalize, length, PadW
+from .vec import WorldType, Real, Vec2, dot, normalize, length, PadW, cross
 from .gjk import ConvexPoly, Simplex, gjk_query
 
 
@@ -186,16 +186,6 @@ struct _Edge(Copyable, ImplicitlyCopyable, Movable):
     var b: Int
 
 
-def _cross3[dim: Int](
-    a: SIMD[WorldType, PadW[dim]], b: SIMD[WorldType, PadW[dim]]
-) -> SIMD[WorldType, PadW[dim]]:
-    var r = SIMD[WorldType, PadW[dim]](0)
-    r[0] = a[1] * b[2] - a[2] * b[1]
-    r[1] = a[2] * b[0] - a[0] * b[2]
-    r[2] = a[0] * b[1] - a[1] * b[0]
-    return r
-
-
 def _wsupport[dim: Int](
     a: ConvexPoly[dim], b: ConvexPoly[dim], dir: SIMD[WorldType, PadW[dim]]
 ) -> _WVert[dim]:
@@ -214,7 +204,7 @@ def _mk_face[dim: Int](
     """Face oriented away from `interior`; degenerate faces get d = 1e30 so
     they are never selected as closest."""
     var v0 = verts[i0].v
-    var n = _cross3[dim](verts[i1].v - v0, verts[i2].v - v0)
+    var n = cross[dim](verts[i1].v - v0, verts[i2].v - v0)
     var ln = length(n)
     if ln < Real(1e-12):
         return _Face[dim](i0, i1, i2, SIMD[WorldType, PadW[dim]](0), Real(1e30))
@@ -267,13 +257,13 @@ def _seed_tetra[dim: Int](
     if dot(d2, d2) < Real(1e-12):
         var ax = SIMD[WorldType, PadW[dim]](0)
         ax[0] = 1
-        d2 = _cross3[dim](ab, ax)
+        d2 = cross[dim](ab, ax)
         if dot(d2, d2) < Real(1e-12):
             ax[0] = 0
             ax[1] = 1
-            d2 = _cross3[dim](ab, ax)
+            d2 = cross[dim](ab, ax)
     verts.append(_wsupport[dim](a, b, normalize(d2)))
-    var n = _cross3[dim](
+    var n = cross[dim](
         verts[1].v - verts[0].v, verts[2].v - verts[0].v
     )
     if dot(n, n) < Real(1e-12):

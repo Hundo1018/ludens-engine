@@ -30,8 +30,12 @@ def _grade(a: Int) -> Int:
     return n
 
 
-def _swap_sign(a: Int, b: Int) -> Int:
-    """Canonical reorder sign of e_A e_B (parity of transpositions to sort)."""
+def swap_sign(a: Int, b: Int) -> Int:
+    """Canonical reorder sign of e_A e_B (parity of transpositions to sort).
+
+    Public (not `_swap_sign`): `geometry.gmv.GMV` imports this and
+    `gp_sign`/`reverse_sign` so both multivector representations stay
+    sign-identical by construction (audit F18)."""
     var x = a >> 1
     var total = 0
     while x != 0:
@@ -57,15 +61,15 @@ def _metric_sign(common: Int, p: Int, q: Int, dim: Int) -> Int:
     return s
 
 
-def _gp_sign(a: Int, b: Int, p: Int, q: Int, dim: Int) -> Int:
+def gp_sign(a: Int, b: Int, p: Int, q: Int, dim: Int) -> Int:
     """Sign of e_A e_B in the geometric product (0 if killed by the metric)."""
     var m = _metric_sign(a & b, p, q, dim)
     if m == 0:
         return 0
-    return m * _swap_sign(a, b)
+    return m * swap_sign(a, b)
 
 
-def _reverse_sign(a: Int) -> Int:
+def reverse_sign(a: Int) -> Int:
     """Sign of the reverse of a grade-k blade: (-1)^(k(k-1)/2)."""
     var k = _grade(a)
     return 1 if ((k * (k - 1)) // 2) & 1 == 0 else -1
@@ -136,7 +140,7 @@ struct Multivector[p: Int, q: Int, r: Int](
         var out = Self()
         comptime for i in range(Self.BLADES):
             comptime for j in range(Self.BLADES):
-                comptime s = _gp_sign(i, j, Self.p, Self.q, Self.DIM)
+                comptime s = gp_sign(i, j, Self.p, Self.q, Self.DIM)
                 comptime if s != 0:
                     out.c[i ^ j] = out.c[i ^ j] + Real(s) * self.c[i] * o.c[j]
         return out^
@@ -148,7 +152,7 @@ struct Multivector[p: Int, q: Int, r: Int](
         comptime for i in range(Self.BLADES):
             comptime for j in range(Self.BLADES):
                 comptime if (i & j) == 0:
-                    comptime s = _swap_sign(i, j)
+                    comptime s = swap_sign(i, j)
                     out.c[i | j] = out.c[i | j] + Real(s) * self.c[i] * o.c[j]
         return out^
 
@@ -159,7 +163,7 @@ struct Multivector[p: Int, q: Int, r: Int](
         comptime for i in range(Self.BLADES):
             comptime for j in range(Self.BLADES):
                 comptime if (i & ~j) == 0:
-                    comptime s = _gp_sign(i, j, Self.p, Self.q, Self.DIM)
+                    comptime s = gp_sign(i, j, Self.p, Self.q, Self.DIM)
                     comptime if s != 0:
                         out.c[i ^ j] = out.c[i ^ j] + Real(s) * self.c[i] * o.c[j]
         return out^
@@ -169,7 +173,7 @@ struct Multivector[p: Int, q: Int, r: Int](
     def reverse(self) -> Self:
         var out = Self()
         comptime for i in range(Self.BLADES):
-            out.c[i] = Real(_reverse_sign(i)) * self.c[i]
+            out.c[i] = Real(reverse_sign(i)) * self.c[i]
         return out^
 
     @always_inline
@@ -195,7 +199,7 @@ struct Multivector[p: Int, q: Int, r: Int](
         var out = Self()
         comptime for i in range(Self.BLADES):
             comptime comp = Self.PSS ^ i
-            comptime s = _swap_sign(i, comp)
+            comptime s = swap_sign(i, comp)
             out.c[comp] = Real(s) * self.c[i]
         return out^
 
@@ -209,9 +213,9 @@ struct Multivector[p: Int, q: Int, r: Int](
         """<reverse(a) a>_0 — may be negative or zero in mixed/degenerate metrics."""
         var s = Real(0)
         comptime for i in range(Self.BLADES):
-            comptime sg = _gp_sign(i, i, Self.p, Self.q, Self.DIM)
+            comptime sg = gp_sign(i, i, Self.p, Self.q, Self.DIM)
             comptime if sg != 0:
-                s += Real(sg * _reverse_sign(i)) * self.c[i] * self.c[i]
+                s += Real(sg * reverse_sign(i)) * self.c[i] * self.c[i]
         return s
 
     def approx_eq(self, o: Self, tol: Real = 1e-4) -> Bool:

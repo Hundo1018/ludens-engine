@@ -20,12 +20,14 @@ SoA path, iterate `backend.query2_views[A, B]()` and use `get_a`/`set_a` directl
 
 from std.memory import alloc
 from std.sys.info import simd_width_of
+from geometry.vec import WorldType
 from .component import ComponentType, SimdComponent
 from .archetype import ArchetypeBackend
 
-# The engine's world scalar type. Kept local so `ecs` stays independent of
-# `geometry`. It matches `geometry.vec.WorldType` (the components are Vec2).
-comptime F = DType.float32
+# The engine's world scalar type, derived from the single source of truth
+# (`geometry.vec.WorldType`) so a future f64 switch needs one edit, not a hunt
+# for every hard-coded `float32`.
+comptime F = WorldType
 
 
 def integrate_simd[
@@ -39,14 +41,14 @@ def integrate_simd[
     comptime dt_t = A.Dtype
     comptime W = simd_width_of[dt_t]()
     comptime LANES_PER = A.Width  # scalar lanes per component
-    var bits = (1 << ArchetypeBackend[*CTs]._slot_of[A]()) | (
-        1 << ArchetypeBackend[*CTs]._slot_of[B]()
+    var bits = (1 << ArchetypeBackend[*CTs].slot_of[A]()) | (
+        1 << ArchetypeBackend[*CTs].slot_of[B]()
     )
     for k in range(len(backend.archetypes)):
         if (backend.archetypes[k].mask & bits) == bits:
             var n = len(backend.archetypes[k].entities)
-            var fa = backend._col[A](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
-            var fb = backend._col[B](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
+            var fa = backend.col[A](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
+            var fb = backend.col[B](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
             var m = LANES_PER * n
             var i = 0
             while i + W <= m:
