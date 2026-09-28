@@ -36,8 +36,13 @@ comptime TRACE_DROPPED: Int = 4
 """`TraceBuffer` was full; a span event was dropped (see `diag/trace.mojo`)."""
 comptime ARENA_OVERFLOW: Int = 5
 """`FrameArena` ran out of space for a typed `alloc` (see `diag/arena.mojo`)."""
+comptime POOL_GROWN: Int = 6
+"""An `ecs.pool.Pool` had no free slot and grew by one (see `ecs/pool.mojo`)."""
+comptime POOL_EXHAUSTED: Int = 7
+"""A fixed-capacity `ecs.pool.Pool` had no free slot and refused `acquire()`
+(see `ecs/pool.mojo`)."""
 
-comptime COUNT: Int = 6
+comptime COUNT: Int = 8
 
 
 def _name(id: Int) -> String:
@@ -53,6 +58,10 @@ def _name(id: Int) -> String:
         return "trace_dropped"
     elif id == ARENA_OVERFLOW:
         return "arena_overflow"
+    elif id == POOL_GROWN:
+        return "pool_grown"
+    elif id == POOL_EXHAUSTED:
+        return "pool_exhausted"
     else:
         return "counter_" + String(id)
 
