@@ -37,6 +37,12 @@ experiments = { cmd = "bash scripts/run_experiments.sh", depends-on = ["build"] 
 # Build, then run every language spike, so toolchain moves cannot rot them unseen.
 spikes = { cmd = "bash scripts/run_spikes.sh", depends-on = ["build"] }
 
+# The golden-output identity gate (tools/golden.mojo; tested by its selftest).
+golden = "bash scripts/golden.sh"
+# One command to gate a change: full suite in the foreground + tested summary +
+# golden compare. `pixi run gate -- --selftest` tests the gate's own tools.
+gate = "bash scripts/agent_gate.sh"
+
 [dependencies]
 # Pinned to the current latest stable release (mojo 1.1.0 / modular 26.6.0,
 # both dated 2026-09-10). Exact pins, not a floor: a toolchain bump is a

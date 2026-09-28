@@ -166,6 +166,26 @@ Each Phase 17 deliverable carries ordinary / integration / extreme cases (testin
 standard v3): ordinary and extreme cases usually live in the unit or component
 tier, the integration case in the integration tier.
 
+### Gate tooling is itself tested
+
+`pixi run gate` is the one command that gates a change: it runs the whole
+suite in the foreground, prints a fixed-format summary (files / passed /
+failed / compiler warnings and errors / arch / tiers) and compares the output
+with `tests/golden/test_stdout.txt` file section by file section
+(`tools/golden.mojo`). Behaviour-preserving refactors must leave every golden
+section unchanged; new test files add sections. `--update-golden` records an
+accepted run.
+
+The tools that judge a change are tested before they judge anything:
+`pixi run gate -- --selftest` runs `golden selftest` (lines that must survive
+normalization, lines that must be dropped, reordered files, changed values,
+missing files, a negative control, and summary fixtures for clean, failing,
+warning, compiler-error and truncated runs) and `arch selftest`. Both
+selftests exist because the first versions were wrong in ways that made a
+gate pass: a `ns\b` filter dropped every line containing "relations", and a
+bare `error:` match counted physics output ("worst inversion error: 4.6e-06")
+as compiler errors.
+
 ## 4. The architecture index
 
 `tools/archindex.mojo` (written in Mojo, like the engine; Python is used only
