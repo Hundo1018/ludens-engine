@@ -12,11 +12,22 @@ build = "bash scripts/build_engine.sh"
 # Architecture index + gate (tools/archindex.mojo): `pixi run arch -- <cmd>`.
 # The wrapper rebuilds build/archindex only when the source changed.
 arch = "bash scripts/arch.sh"
-# Machine gate for docs/ARCHITECTURE.md S1 (layers/cycles/reach-through):
-# fails the build the same way a compile error would.
-arch-check = { cmd = "bash scripts/arch.sh check", depends-on = ["build"] }
-# Build, then run every test file (stops at the first failure).
-test = { cmd = "bash scripts/run_tests.sh", depends-on = ["build", "arch-check"] }
+# Machine gate for docs/ARCHITECTURE.md S1 (layers/cycles/reach-through)
+# plus S3 (every tests/test_*.mojo declares a valid, mechanically-checked
+# tier header): fails the build the same way a compile error would.
+arch-check = { cmd = "bash scripts/arch.sh check && bash scripts/arch.sh tiers --check", depends-on = ["build"] }
+# Per-tier test runs (docs/design/17.0b-test-tiers.md): each is just the
+# full runner filtered to one declared tier.
+test-unit = { cmd = "bash scripts/run_tests.sh unit", depends-on = ["build", "arch-check"] }
+test-component = { cmd = "bash scripts/run_tests.sh component", depends-on = ["build", "arch-check"] }
+test-integration = { cmd = "bash scripts/run_tests.sh integration", depends-on = ["build", "arch-check"] }
+test-system = { cmd = "bash scripts/run_tests.sh system", depends-on = ["build", "arch-check"] }
+test-stress = { cmd = "bash scripts/run_tests.sh stress", depends-on = ["build", "arch-check"] }
+# Build, then run the fast gate: unit -> component -> integration -> system
+# (fastest feedback first; stress is slower/extreme and excluded here).
+test = { cmd = "bash scripts/run_tests.sh unit component integration system", depends-on = ["build", "arch-check"] }
+# Build, then run every tier, including stress.
+test-all = { cmd = "bash scripts/run_tests.sh unit component integration system stress", depends-on = ["build", "arch-check"] }
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.

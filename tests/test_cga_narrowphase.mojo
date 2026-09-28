@@ -1,3 +1,4 @@
+# tier: component
 """CGA narrowphase parity (G4 promotion): `CgaSphereNarrowPhase` must agree
 with analytic sphere-sphere geometry on hit/miss, penetration depth, and
 normal — including the containment case the dual-pencil test alone would miss —

@@ -1,3 +1,4 @@
+# tier: unit
 """Point-to-circle (point-to-arc) distance: CGA carriers vs the closed form.
 
 The critique this closes asked for point-to-arc distance "via CGA". The check

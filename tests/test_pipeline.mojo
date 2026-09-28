@@ -1,3 +1,4 @@
+# tier: integration
 """The full pipeline returns the same contacts regardless of which broadphase
 feeds the (AABB) narrowphase."""
 

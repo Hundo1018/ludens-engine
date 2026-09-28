@@ -1,3 +1,4 @@
+# tier: unit
 """GA core identities (G1): property tests over random multivectors.
 
 The same `Multivector[p,q,r]` code is exercised under two signatures — 2D PGA

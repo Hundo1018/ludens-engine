@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from geometry.mat import (
     Mat3,

@@ -1,3 +1,4 @@
+# tier: integration
 from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import Vec3

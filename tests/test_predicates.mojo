@@ -1,3 +1,4 @@
+# tier: component
 """Exact geometric predicates (architecture law v3).
 
 The claim under test is not "more accurate" but "correct": for float32 inputs,

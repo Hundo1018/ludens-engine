@@ -1,3 +1,4 @@
+# tier: component
 """Robot sensors, gated on facts about what a real instrument reads.
 
 The load-bearing test is the FREE-FALL one. An accelerometer measures proper

@@ -1,3 +1,4 @@
+# tier: unit
 from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import WorldType, Real, Vec3

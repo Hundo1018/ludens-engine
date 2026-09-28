@@ -1,3 +1,4 @@
+# tier: unit
 from std.math import sqrt, floor
 from harness.runner import Suite
 from geometry.vec import Real

@@ -1,3 +1,4 @@
+# tier: component
 """Compile-time adjoint generation (architecture law v3).
 
 `physics/adjoint.mojo` describes one integration step as a small program and

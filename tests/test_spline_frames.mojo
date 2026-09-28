@@ -1,4 +1,4 @@
-# tier: integration
+# tier: unit
 """Integration case (design note 17.36, `docs/design/wave-a-services.md`):
 rotation-minimising frames as PGA motors (`geometry.motor`, `geometry.galie`)
 transporting a point along a `geometry.spline` curve. Exercises the three

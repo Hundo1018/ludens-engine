@@ -1,3 +1,4 @@
+# tier: integration
 """Scheduler swap parity: the sequential baseline, the entity-actor scheduler
 (serial dispatch) and the entity-actor scheduler (parallel dispatch) must all
 produce the identical final world state on the same deterministic workload — and

@@ -1,3 +1,4 @@
+# tier: component
 """SPH physical gates, and the CFL limit that separates it from PBF.
 
 The same containment / conservation / settling checks PBF gets, run on the same

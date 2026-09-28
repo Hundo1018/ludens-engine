@@ -1,3 +1,4 @@
+# tier: integration
 """Cross-paradigm parity: the OOP engine and an ECS world, run on the same
 movement workload, must agree on entity counts and aggregate positions."""
 

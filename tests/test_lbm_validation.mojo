@@ -1,3 +1,4 @@
+# tier: component
 """LBM validation against known values (roadmap 14.6).
 
 The other LBM tests check that the code does what the code was written to do.

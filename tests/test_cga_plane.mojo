@@ -1,3 +1,4 @@
+# tier: component
 """CGA plane primitives + heterogeneous narrowphase (E2): signed distances,
 versor reflection, and sphere/plane contacts must all match analytic geometry;
 the ground-plane-plus-balls scene must run through `CollisionPipeline` like any

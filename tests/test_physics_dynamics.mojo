@@ -1,3 +1,4 @@
+# tier: integration
 """Rigid-body contact solving: per-solver behaviour + cross-solver rest parity.
 
 - rest_test (all 3 solvers): a box dropped on a static floor settles at the

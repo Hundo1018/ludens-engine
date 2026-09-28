@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from geometry.mat import Mat3
 from geometry.quat import Quat, quat_from_mat3, slerp

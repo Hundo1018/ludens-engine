@@ -1,3 +1,4 @@
+# tier: component
 """Parity: the zero-allocation `for_each2` produces the same result as the
 `query2` + `get`/`set` handle loop, on every backend (WS3)."""
 

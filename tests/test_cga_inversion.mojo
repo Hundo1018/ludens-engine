@@ -1,3 +1,4 @@
+# tier: component
 """Conformal versors that the matrix path cannot express: spherical inversion
 and the uniform-scale dilator.
 

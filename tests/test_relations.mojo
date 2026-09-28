@@ -1,3 +1,4 @@
+# tier: component
 from harness.runner import Suite
 from ecs.entity import Entity
 from ecs.world import World

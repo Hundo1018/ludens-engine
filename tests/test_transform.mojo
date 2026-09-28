@@ -1,3 +1,4 @@
+# tier: component
 """Transform hierarchy + propagation parity, across two storage backends.
 
 A root→child→grandchild chain validates hand-computed world positions, then the

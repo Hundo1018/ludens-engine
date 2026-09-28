@@ -85,11 +85,26 @@ without one. Performance lives in `benchmarks/` (the report is the gate).
 | Tier | Scope | Example | Runner |
 |---|---|---|---|
 | unit | one module, pure functions / one type | `test_vec`, `test_quat`, `test_predicates` | `pixi run test-unit` |
-| component | one package seam: every backend/variant of a trait against the same checks | `test_backend_parity`, `test_broadphase` | `pixi run test-component` |
+| component | one package seam: every backend/variant of a trait against the same checks | `test_backend_parity`, `test_motor_parity` | `pixi run test-component` |
 | integration | two or more packages wired together through production entry points | `test_solver_broadphase`, `test_softcouple` | `pixi run test-integration` |
-| system | a whole world stepped through the game loop with ECS + scheduler + physics, checked on end state | `test_system_*` | `pixi run test-system` |
+| system | a whole world stepped through the game loop with ECS + scheduler + physics, checked on end state | (none yet -- see below) | `pixi run test-system` |
 | stress | extreme scale / adversarial inputs, slower; run before a release or a solver change | `test_stress_*` | `pixi run test-stress` |
 | performance | `benchmarks/bench_*`, collected into `BENCHMARK_REPORT.md` | — | `pixi run benchmark` |
+
+`test_backend_parity` stays a clean `component` example: its six ECS storage
+backends live and are exercised entirely inside `ecs`. `test_broadphase` looks
+like the same shape (four 2D `BroadPhase` backends against the same checks)
+but two of those backends (`bp_hashgrid`, `bp_tree`) wrap `spatial`'s hash grid
+/ quadtree, so the one-hop span is `{collision, spatial}` and the mechanical
+rule correctly calls it `integration`: a seam test whose variants wrap another
+package's structures is testing that wiring too, not just the seam.
+
+`system` is empty today, not broken: no test yet imports `scheduler.gameloop`
+alongside both `ecs` and `physics` directly, because there is no runtime
+package wiring those three together outside a test file itself (`gameplay/
+runtime.mojo`, ROADMAP 17.0i, is the intended home). The tier and its gate
+exist now so the first real system test has a runner and a rule waiting for
+it, not a retrofit.
 
 `pixi run test` runs unit → component → integration → system (the fast gate);
 `pixi run test-all` adds stress.

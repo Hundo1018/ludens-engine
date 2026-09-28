@@ -1,3 +1,4 @@
+# tier: component
 """Cloth self-collision (architecture law v3).
 
 Cloth that does not collide with itself can be a flag and cannot be a garment,

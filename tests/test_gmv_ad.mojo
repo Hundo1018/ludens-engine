@@ -1,3 +1,4 @@
+# tier: component
 """GMV / Field parity (E1): the coefficient-generic multivector must agree
 with the specialized `Multivector` on its value lane (both are generated from
 the same comptime sign tables — this asserts the wiring), and its ε-lane must

@@ -1,3 +1,4 @@
+# tier: component
 """Categorical law tests (R4): the algebraic laws behind the engine's seams,
 stated and checked as laws rather than ad-hoc parity.
 

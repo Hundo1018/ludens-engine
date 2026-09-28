@@ -1,3 +1,4 @@
+# tier: integration
 """Seam parity: EVERY dim-3-capable `BroadPhase` backend, plugged into
 `ContactScene6[QuatBody6, BP]`, must reproduce the brute nested-loop
 reference bit-for-bit (spec docs/design/17.0e-collider-set.md, audit finding F2).
@@ -14,7 +15,6 @@ no matter which backend produced the candidates.
 joints, restitution and a fast/speculative mover; this file is the seam
 MATRIX -- brute, BVH, DBVH, SAP, spatial hash grid, octree -- each against
 the ordinary/mixed scenes plus the extreme cases the spec calls out."""
-# tier: integration
 
 from harness.runner import Suite
 from geometry.vec import Real, Vec3

@@ -1,3 +1,4 @@
+# tier: component
 """Actuators: the affine force law, the transmission, and the internal lag.
 
 The servo checks are the important ones and they are deliberately checks of

@@ -1,3 +1,4 @@
+# tier: unit
 """Prismatic joints and joint limits.
 
 The prismatic checks are physical rather than numerical: a sliding mass under

@@ -1,3 +1,4 @@
+# tier: integration
 """Static level geometry in the production solver (architecture law v3).
 
 A level is not a convex body, so until `collision/trimesh.mojo` there was no way

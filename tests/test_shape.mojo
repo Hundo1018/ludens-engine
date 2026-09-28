@@ -1,3 +1,4 @@
+# tier: unit
 from harness.runner import Suite
 from geometry.vec import Vec2, Vec3
 from geometry.shape import Circle, Sphere, Polygon

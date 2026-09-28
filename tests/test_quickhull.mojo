@@ -1,3 +1,4 @@
+# tier: component
 """Quickhull, and the seam that makes it reachable.
 
 The hull itself is checked structurally (convex, CCW, covers its input). The

@@ -1,3 +1,4 @@
+# tier: component
 """Tendons, gated on the one identity everything else follows from:
 `tau = -F dL/dq`.
 

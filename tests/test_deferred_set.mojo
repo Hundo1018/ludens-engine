@@ -1,3 +1,4 @@
+# tier: component
 """Deferred component set gates (ROADMAP 4.4): value parity with immediate
 writes, exact recording-order replay across types, iteration-safety, and
 drop-if-despawned semantics."""

@@ -1,3 +1,4 @@
+# tier: component
 """Generic SIMD (WS4): `integrate_simd` vectorizes ANY `SimdComponent`, not just
 Vec2/float32. Here a float32x4 (Vec4-shaped) component pair is integrated and
 checked lane-by-lane against the closed-form scalar result."""

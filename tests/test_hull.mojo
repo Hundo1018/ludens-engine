@@ -1,3 +1,4 @@
+# tier: integration
 """Convex hulls in the production solver (architecture law v3).
 
 `geometry/quickhull.mojo` existed for months without ever being reachable from

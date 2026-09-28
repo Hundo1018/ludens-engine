@@ -1,3 +1,4 @@
+# tier: unit
 from harness.runner import Suite
 from geometry.vec import Vec2, Vec3, dot, length, length_sq, normalize, lane_min, lane_max
 

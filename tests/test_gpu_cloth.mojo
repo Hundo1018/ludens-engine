@@ -1,3 +1,4 @@
+# tier: unit
 from std.sys import has_accelerator
 from harness.runner import Suite
 from physics.gpu_cloth import cpu_cloth_run, gpu_cloth_run

@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 """Seam parity for `geometry.spline` (docs/CATEGORY.md §2 architecture law
 v2): two independently-computed representations of the "same" curve must
 agree.

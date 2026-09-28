@@ -1,3 +1,4 @@
+# tier: integration
 from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.rigid6 import Inertia3, QuatBody6
