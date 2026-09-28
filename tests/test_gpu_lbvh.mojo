@@ -1,4 +1,4 @@
-# tier: component
+# tier: integration
 """GPU Morton sort for LBVH: the device order must equal the CPU order.
 
 The check is exact permutation equality against a host sort of the same codes,
@@ -17,8 +17,8 @@ from harness.runner import Suite
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3
 from geometry.aabb import AABB
-from geometry.bvh import BVH
-from geometry.gpu_lbvh import gpu_morton_order_ctx
+from spatial.bvh import BVH
+from spatial.gpu_lbvh import gpu_morton_order_ctx
 
 
 def _boxes_of(items: List[BoxProxy[3]]) -> List[AABB[3]]:

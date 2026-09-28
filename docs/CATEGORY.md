@@ -44,7 +44,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | `ManifoldNarrowPhase`(AABB/SAT/OBB/GJK/hull) | collision/manifold.mojo、hull.mojo | 接觸謂詞的富化(點集+深度),normal/depth 與 boolean 路徑一致 | `test_manifold`、`test_hull` | `bench_manifold` |
 | `SceneQuery`(brute/bvh/grid/tree) | collision/queries.mojo | 同一查詢謂詞的加速結構 | `test_queries` | `bench_queries` |
 | solver6 pair 收集 brute O(n²) vs `BroadPhase` 全 seam(17.0e:`ContactScene6[B,BP]`,collider 註冊表移至 `collision/collider_set.mojo`) | physics/solver6.mojo(`_collect_pairs`)、collision/contact_gen.mojo(`collect_bp_pairs`) | 同一接觸對集合的加速枚舉,現貫穿真正會跑的 `BroadPhase` trait(brute/BVH/DBVH/SAP/hashgrid/octree);fat-AABB 保守超集 + 逐對正規化排序 → 命中集相等、同序 → 逐位一致,與後端無關 | `test_solver_broadphase`、`test_solver_bp_seam`(6 後端 × 6 案例矩陣,含極端案例) | `bench_solver_scale`(N=64…4096 全後端矩陣 + SAP/hashgrid 20:1 尺寸展延列) |
-| BVH 建樹啟發式 median vs binned SAH | geometry/bvh.mojo(`build(sah=)`) | 同一加速結構的建構品質變體;查詢結果集/最近命中相等,SAH 樹更緊 | `test_sah` | `bench_sah` |
+| BVH 建樹啟發式 median vs binned SAH | spatial/bvh.mojo(`build(sah=)`) | 同一加速結構的建構品質變體;查詢結果集/最近命中相等,SAH 樹更緊 | `test_sah` | `bench_sah` |
 | `Rng` | scheduler/rng.mojo | 種子單子(state monad)的可交換實作 | `test_rng` | `bench_rng` |
 | `for_each2` vs `query2+get/set` | ecs/storage.mojo | 同一態射的無配置實作 | `test_iter_parity` | `bench_ecs`(存取路徑 rows) |
 | `Body6`(quat+tensor vs motor/screw) | physics/rigid6.mojo | SE(3) 動力學的兩個表示函子,比 action 不比係數 | `test_rigid6`、`test_solver6` | `bench_rigid6` |
@@ -108,7 +108,7 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | SAP 掃掠剪除(時間連續性)vs DBVH/hashgrid/rebuild | collision/bp_sap.mojo | 同一重疊謂詞的加速結構;命中集與 brute 相等,成本由逆序數而非 fat margin 決定 | `test_sap` | `bench_sap` |
 | GPU 全對 broadphase vs CPU 加速結構 | collision/bp_gpu.mojo | 同一謂詞的 host/device 實作;命中集相等、次序不定(原子游標)→ 刻意不實作 `BroadPhase` trait,理由在檔頭 | `test_gpu_broadphase` | `bench_gpu_broadphase` |
 | GPU 批次 raycast vs CPU BVH 走訪 | collision/gpu_raycast.mojo | 同一射線查詢的裝置實作;逐 proxy-id 相等 | `test_gpu_raycast` | `bench_gpu_raycast` |
-| LBVH 建樹(第三種啟發式)+ CPU LSD-radix vs GPU bitonic Morton 排序 | geometry/bvh.mojo(`morton_order`)、gpu_lbvh.mojo | median/SAH 之外的第三個建構函子;查詢結果集相等,建樹支配 median | `test_lbvh`、`test_gpu_lbvh` | `bench_gpu_lbvh` |
+| LBVH 建樹(第三種啟發式)+ CPU LSD-radix vs GPU bitonic Morton 排序 | spatial/bvh.mojo(`morton_order`)、spatial/gpu_lbvh.mojo | median/SAH 之外的第三個建構函子;查詢結果集相等,建樹支配 median | `test_lbvh`、`test_gpu_lbvh` | `bench_gpu_lbvh` |
 | 島求解 serial vs threaded | physics/solver6.mojo(`_solve_islands_parallel`) | 態射合成的求值策略;任一 worker 寬度下世界逐位相同(須先對齊睡眠行為) | `test_islands_par` | `bench_islands` |
 | 島內圖著色 vs 純 Gauss–Seidel | physics/solver6.mojo(`_sweep_colored`) | 同一不動點迭代的掃描序變體;決定性、與執行緒數無關 | `test_colored` | `bench_colored` |
 | work-stealing `ws_parallel_for` vs 靜態 `parallelize` | scheduler/workstealing.mojo | 同一平行 for 的排程策略;每個索引恰執行一次,結果不變 | `test_workstealing` | `bench_workstealing` |

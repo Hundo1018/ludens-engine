@@ -18,7 +18,7 @@ from harness.runner import Suite
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3, Vec2
 from geometry.aabb import AABB
-from geometry.bvh import BVH
+from spatial.bvh import BVH
 from geometry.ray import Ray
 
 

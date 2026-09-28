@@ -18,7 +18,7 @@ from std.time import perf_counter_ns
 from harness.bench import BenchTable
 from geometry.vec import WorldType, Real, Vec3
 from geometry.aabb import AABB
-from geometry.bvh import BVH, _Leaf
+from spatial.bvh import BVH, _Leaf
 from geometry.ray import Ray
 from scheduler.rng import XorShift64, range_f
 
