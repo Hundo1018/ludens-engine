@@ -59,6 +59,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |
 | 曲線表示:generalized Catmull-Rom(comptime `alpha`:uniform/centripetal/chordal)vs 分段三次 Bezier(17.36) | geometry/spline.mojo(`CatmullRom.segment_bezier`) | 同一段曲線的兩個表示函子;`alpha=0` 化簡為教科書封閉式「均勻 CR = Bezier(P1, P1+(P2-P0)/6, P2-(P3-P1)/6, P2)」,任意 `alpha` 走同一 Barry-Goldman 構造的 Hermite→Bezier 轉換,不是特例分支 | `test_spline`、`test_spline_parity`、`test_spline_frames`(RMF motor 幀 + galie 測地線內插,同層跨模組整合) | `bench_spline` |
+| 高頻生滅實體:直接 `spawn`+set+`despawn` vs entity pool `acquire`/`release`,跨六個 `StorageBackend`(17.37) | ecs/pool.mojo | 同一「取得一個帶模板值的活實體」態射的兩個實作;`acquire` 對已存在的模板欄位是 in-place overwrite(archetype 不遷移,只有 `Disabled[DID]` 標記自己遷移),`spawn`+逐一 `set` 是逐欄新增(每次遷移一個 archetype)——同一終態(值相等、查詢集相同),路徑成本不同 | `test_pool`(六 backend parity;耗盡 grow/refuse、雙重釋放、外來實體、跨 release/re-acquire 的過期 handle 四個極端案例) | `bench_pool`(churn N=1..1e5;N=1 對照組——含一次性 `prime`——之下 pool 全六 backend 皆較慢,1.19x-1.74x,N=1e5 轉為較快,1.08x-1.51x,矩陣見報告) |
 
 **架構定律**:任何新 seam 實作必須附上它的自然性方格(parity 測試)。這是引擎
 「swappability holds end-to-end」的形式化理由。
