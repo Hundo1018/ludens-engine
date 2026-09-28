@@ -162,7 +162,7 @@ struct ColliderSet(Movable, Deinitable):
         self.hulls.append(HullShape(verts^))
         return i
 
-    def add_trimesh(mut self, verts: List[Real], indices: List[Int]) -> Int:
+    def add_trimesh(mut self, verts: List[Real], indices: List[Int]) raises -> Int:
         """Static triangle soup. `verts` is flat (x, y, z per vertex) in
         WORLD space, `indices` three per triangle. Always static (see
         `physics.solver6.ContactScene6.add_trimesh`).
@@ -183,7 +183,7 @@ struct ColliderSet(Movable, Deinitable):
     def add_heightfield(
         mut self, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0,
-    ) -> Int:
+    ) raises -> Int:
         """Static heightfield -- see `add_trimesh`; the same world-space
         `world_aabb` treatment (body pose ignored) applies here too."""
         var f = HeightField(heights, nx, nz, cell, ox, oz)

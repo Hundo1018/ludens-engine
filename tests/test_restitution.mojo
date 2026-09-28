@@ -9,7 +9,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def _bounce_apex(e: Real) -> Float64:
+def _bounce_apex(e: Real) raises -> Float64:
     """Drop a box (bottom 1 m above ground) with restitution `e`; return the
     height of the bottom face at the FIRST bounce apex."""
     var sc = ContactScene6[QuatBody6]()

@@ -22,6 +22,17 @@ struct SpatialHashGrid[dim: Int](Movable, Deinitable):
     var buckets: Dict[Int, List[Int]]
 
     def __init__(out self, cell_size: Real):
+        """Audit E17: `cell_size <= 0` makes `_coord` divide by zero (or
+        flip sign), which then makes `_span`'s cartesian-product size
+        computation blow up or go negative. `debug_assert`, not `raise`:
+        `SpatialHashBroadPhase`'s zero-arg `__init__` (`collision
+        /bp_hashgrid.mojo`) constructs one of these with a fixed literal
+        specifically so it satisfies `Defaultable` (`ContactScene6[B, BP:
+        BroadPhase]`'s default type argument needs a non-raising, no-arg
+        constructor) -- a `raises` here would propagate through that
+        `__init__` and break that conformance for every caller of the
+        default broadphase, not just this constructor's own callers."""
+        debug_assert(cell_size > 0, "SpatialHashGrid: cell_size must be > 0")
         self.cell_size = cell_size
         self.buckets = Dict[Int, List[Int]]()
 

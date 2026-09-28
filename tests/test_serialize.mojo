@@ -11,7 +11,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def _rich() -> ContactScene6[QuatBody6]:
+def _rich() raises -> ContactScene6[QuatBody6]:
     """One of everything the format carries: tower contacts (warm-start
     cache), a ball-joint pendulum (joint accumulators), a bouncy sphere
     (restitution + shape), a static capsule, and a soft cube (particles,

@@ -28,7 +28,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def main():
+def main() raises:
     # --- 1. drop a soft cube on the ground; it settles ---
     print("== soft cube dropped on the ground, 300 frames ==")
     var sc = ContactScene6[QuatBody6]()

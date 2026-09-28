@@ -52,7 +52,7 @@ def _count(sc: ContactScene6[QuatBody6], kind: Int) -> Int:
 
 
 # ---------------------------------------------------------------- ORDINARY
-def case_layers(cat_a: UInt32, mask_a: UInt32, cat_b: UInt32, mask_b: UInt32) -> Real:
+def case_layers(cat_a: UInt32, mask_a: UInt32, cat_b: UInt32, mask_b: UInt32) raises -> Real:
     """Two crates side by side, overlapping. Returns their final separation:
     if they collide they push apart, if they are filtered they do not move."""
     var sc = ContactScene6[QuatBody6]()
@@ -65,7 +65,7 @@ def case_layers(cat_a: UInt32, mask_a: UInt32, cat_b: UInt32, mask_b: UInt32) ->
     return abs(sc.bset.bodies[a].position()[0] - sc.bset.bodies[b].position()[0])
 
 
-def case_sensor() -> List[Real]:
+def case_sensor() raises -> List[Real]:
     """A crate falls through a sensor volume onto the floor. It must pass
     STRAIGHT through — the sensor may not slow it — while the events record
     that it was there. Returns [y after 30 steps, sensor's own y, began, ended]."""
@@ -141,7 +141,7 @@ def case_event_order() -> List[Real]:
 
 
 # ------------------------------------------------------------- INTEGRATION
-def case_seam(use_bp: Bool) -> List[Real]:
+def case_seam(use_bp: Bool) raises -> List[Real]:
     """A filtered, sensored, event-emitting scene run through both collision
     seams. Everything observable must match bit for bit."""
     var sc = ContactScene6[QuatBody6]()
@@ -189,7 +189,7 @@ def case_roundtrip() raises -> List[Real]:
     return out^
 
 
-def case_mesh_events() -> List[Real]:
+def case_mesh_events() raises -> List[Real]:
     """Events over static mesh contact, where ONE body pair carries several
     contacts told apart only by triangle index. Returns [distinct contacts in
     the last step, began over the run]."""
@@ -219,7 +219,7 @@ def case_mesh_events() -> List[Real]:
 
 
 # ---------------------------------------------------------------- EXTREME
-def case_zero_mask() -> Real:
+def case_zero_mask() raises -> Real:
     """A mask of zero collides with nothing at all — including the floor."""
     var sc = ContactScene6[QuatBody6]()
     _ = _floor(sc)
@@ -230,7 +230,7 @@ def case_zero_mask() -> Real:
     return sc.bset.bodies[b].position()[1]
 
 
-def case_two_sensors() -> Real:
+def case_two_sensors() raises -> Real:
     """Two overlapping sensors. Neither may push the other, and neither is
     dynamic, so nothing at all should move. Returns their separation."""
     var sc = ContactScene6[QuatBody6]()

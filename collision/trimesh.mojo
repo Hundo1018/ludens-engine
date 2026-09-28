@@ -119,7 +119,19 @@ struct TriMesh(Movable, Deinitable):
     var nrm: List[Real]  # one outward normal per triangle, stride 3
     var bvh: BVH[3]
 
-    def __init__(out self, verts: List[Real], indices: List[Int]):
+    def __init__(out self, verts: List[Real], indices: List[Int]) raises:
+        """Audit E13: `indices` not a multiple of 3 leaves a partial trailing
+        triangle whose missing vertex silently reads whatever `_vert`
+        happens to compute from out-of-range `self.v` offsets; an index
+        `>= len(verts) // 3` is a straight out-of-bounds read in `_vert`.
+        Both are caught once here rather than left as UB the first time
+        `tri()`/`_vert()` is called during BVH construction just below."""
+        if len(indices) % 3 != 0:
+            raise Error("TriMesh: len(indices) must be a multiple of 3")
+        var nverts = len(verts) // 3
+        for i in range(len(indices)):
+            if indices[i] < 0 or indices[i] >= nverts:
+                raise Error("TriMesh: vertex index out of range")
         self.v = List[Real](capacity=len(verts))
         for i in range(len(verts)):
             self.v.append(verts[i])
@@ -222,7 +234,17 @@ struct HeightField(Movable, Deinitable):
     def __init__(
         out self, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0,
-    ):
+    ) raises:
+        """Audit E13: `len(heights) != nx * nz` misaligns every `h[iz * nx +
+        ix]` lookup in `_corner` from the caller's grid intent (silent
+        truncation or an out-of-bounds read, depending on direction);
+        `cell <= 0` divides by zero/flips sign in `_coord` and every caller
+        of it (`candidates`' cell-range clamp, `to_trimesh`'s corner-index
+        recovery)."""
+        if len(heights) != nx * nz:
+            raise Error("HeightField: len(heights) must equal nx * nz")
+        if cell <= 0:
+            raise Error("HeightField: cell must be > 0")
         self.h = List[Real](capacity=len(heights))
         for i in range(len(heights)):
             self.h.append(heights[i])
@@ -351,7 +373,7 @@ struct HeightField(Movable, Deinitable):
             ),
         )
 
-    def to_trimesh(self) -> TriMesh:
+    def to_trimesh(self) raises -> TriMesh:
         """The same surface as an explicit soup — the parity reference. If the
         two disagree on a resting height, one of the two candidate paths is
         wrong, and the test says which."""

@@ -204,7 +204,7 @@ struct Chain(Movable, Deinitable):
 
     def add_link_to(mut self, p: Int, link: ChainLink) raises -> Int:
         """Attach under link `p` (or -1 for a new root); returns the index."""
-        if p >= len(self.links):
+        if p >= len(self.links) or p < -1:
             raise Error("parent must exist before the child")
         self.links.append(link)
         self.q.append(0)

@@ -85,7 +85,7 @@ def _setup_stack[BP: BroadPhase](mut sc: ContactScene6[QuatBody6, BP]):
         )
 
 
-def _setup_mixed[BP: BroadPhase](mut sc: ContactScene6[QuatBody6, BP]):
+def _setup_mixed[BP: BroadPhase](mut sc: ContactScene6[QuatBody6, BP]) raises:
     """(b) trimesh floor + hull + spheres + capsules, spread out so the
     accelerated backends actually prune non-neighbours."""
     var v = List[Real](capacity=12)
@@ -143,7 +143,7 @@ def _case_stack[BP: BroadPhase](steps: Int) -> Bool:
     return True
 
 
-def _case_mixed[BP: BroadPhase](steps: Int) -> Bool:
+def _case_mixed[BP: BroadPhase](steps: Int) raises -> Bool:
     var refsc = ContactScene6[QuatBody6]()
     _setup_mixed(refsc)
     var bpsc = ContactScene6[QuatBody6, BP]()
@@ -225,7 +225,7 @@ def _case_teleport[BP: BroadPhase](steps: Int, at: Int) -> Bool:
     return True
 
 
-def _check_backend[BP: BroadPhase](mut s: Suite, name: String):
+def _check_backend[BP: BroadPhase](mut s: Suite, name: String) raises:
     s.check(_case_stack[BP](200), name + ": box stack (200 steps)")
     s.check(_case_mixed[BP](200), name + ": trimesh + hull + sphere + capsule (200 steps)")
     s.check(_case_empty[BP](20), name + ": 0 bodies")

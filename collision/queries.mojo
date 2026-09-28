@@ -34,10 +34,19 @@ trait SceneQuery(Defaultable, Movable, Deinitable):
 
 # --- shared helpers ---------------------------------------------------------
 
-def _index_boxes[D: Int](items: List[BoxProxy[D]]) -> List[AABB[D]]:
-    """Proxy id -> box lookup (proxies assumed dense from 0)."""
+def _index_boxes[D: Int](items: List[BoxProxy[D]]) raises -> List[AABB[D]]:
+    """Proxy id -> box lookup (proxies assumed dense from 0).
+
+    audit E24: a negative proxy id would be a negative-index write into
+    `boxes` below (silently wrong in the best case; this stdlib rejects a
+    negative *literal* index at compile time, per `mojo-syntax`, but not a
+    negative value carried in a variable at runtime) -- every `rebuild`
+    calling this is already `raises` (the `SceneQuery` trait requires it),
+    so raising here is free."""
     var maxp = -1
     for i in range(len(items)):
+        if items[i].proxy < 0:
+            raise Error("_index_boxes: proxy id must be >= 0")
         if items[i].proxy > maxp:
             maxp = items[i].proxy
     var boxes = List[AABB[D]]()

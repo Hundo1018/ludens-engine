@@ -67,7 +67,7 @@ def _offcentre_heights(n: Int) -> List[Real]:
     return hs^
 
 
-def case_f3_heightfield(broadphase: Bool) -> List[Real]:
+def case_f3_heightfield(broadphase: Bool) raises -> List[Real]:
     """A box dropped onto a flat heightfield whose grid sits at x, z in
     [10, 30] -- nowhere near the origin, while the owning body is added at
     the origin (the pose the docs say a static mesh must ignore). Returns
@@ -96,7 +96,7 @@ def _offcentre_quad() -> List[Real]:
     return v^
 
 
-def case_f3_trimesh(broadphase: Bool) -> List[Real]:
+def case_f3_trimesh(broadphase: Bool) raises -> List[Real]:
     """Same off-centre-surface story, explicit triangle soup this time."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(
@@ -124,7 +124,7 @@ def _flat_quad(ext: Real) -> List[Real]:
     return v^
 
 
-def case_f4a_sensor_mesh(sensor_y: Real) -> List[Real]:
+def case_f4a_sensor_mesh(sensor_y: Real) raises -> List[Real]:
     """A dynamic sensor box held at `sensor_y` above a flat trimesh floor
     spanning [-30, 30]. Nothing moves (no gravity), so the contact set is
     constant: `began` should fire exactly once at step 0 and never again
@@ -178,7 +178,7 @@ def _box_verts3(hx: Real, hy: Real, hz: Real) -> List[Real]:
     return v^
 
 
-def case_f4b_hull_platform() -> List[Real]:
+def case_f4b_hull_platform() raises -> List[Real]:
     """A soft lattice dropped onto a wide, thin static hull platform (half
     (2, 0.2, 2)). The old 'sphere of radius half.x at the body position'
     substitution put the surface at y = +2 (half.x) instead of the
@@ -201,7 +201,7 @@ def case_f4b_hull_platform() -> List[Real]:
     return out^
 
 
-def case_f4b_trimesh_offcentre() -> List[Real]:
+def case_f4b_trimesh_offcentre() raises -> List[Real]:
     """A soft lattice dropped onto an off-centre trimesh floor (x, z in
     [10, 30], the owning body added at the origin) -- the same false
     'sphere at the body position' substitution, against a mesh whose true
@@ -226,7 +226,7 @@ def case_f4b_trimesh_offcentre() -> List[Real]:
 
 # ==================================================================== F4c
 
-def case_f4c_sensor_passthrough() -> Real:
+def case_f4c_sensor_passthrough() raises -> Real:
     """A fast body fired straight through a sensor volume under
     `ccd=True`. The rigid-body TOI sweep must not clamp it at the sensor --
     only the far static wall behind it should stop it. Returns the body's
@@ -245,7 +245,7 @@ def case_f4c_sensor_passthrough() -> Real:
     return sc.bset.bodies[b].position()[0]
 
 
-def case_f4c_filtered_wall() -> Real:
+def case_f4c_filtered_wall() raises -> Real:
     """A fast body whose mask excludes a wall's category must pass through
     it even under `ccd=True` -- the sweep must consult `should_collide`.
     Returns the body's final x."""
@@ -264,7 +264,7 @@ def case_f4c_filtered_wall() -> Real:
     return sc.bset.bodies[b].position()[0]
 
 
-def case_f4c_mesh_bbox() -> Real:
+def case_f4c_mesh_bbox() raises -> Real:
     """A fast-falling body over a large, mostly-flat (y = 0) trimesh floor
     whose bounding box is tall ONLY because of one small spike triangle far
     off in a corner -- the true surface under the falling body is flat at
@@ -300,7 +300,7 @@ def case_f4c_mesh_bbox() -> Real:
 
 # ================================================================ EXTREME
 
-def case_extreme_degenerate_seam(broadphase: Bool) -> List[Real]:
+def case_extreme_degenerate_seam(broadphase: Bool) raises -> List[Real]:
     """An off-centre trimesh floor (same story as F3) with one EXTRA
     degenerate (zero-area, collinear) triangle mixed into the index buffer.
     It must be silently skipped -- no normal, no contact, no crash -- while
@@ -323,7 +323,7 @@ def case_extreme_degenerate_seam(broadphase: Bool) -> List[Real]:
     return out^
 
 
-def case_extreme_edge_rest() -> List[Real]:
+def case_extreme_edge_rest() raises -> List[Real]:
     """A box dropped exactly on the shared diagonal seam between a flat
     mesh floor's two triangles -- both triangles' candidate/manifold paths
     fire on the same body every step, and the two contacts must combine

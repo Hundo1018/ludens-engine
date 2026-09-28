@@ -9,7 +9,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def _mixed() -> ContactScene6[QuatBody6]:
+def _mixed() raises -> ContactScene6[QuatBody6]:
     """Every path the broadphase must reproduce: box towers (persistent
     contacts + warm start), a ball-joint pendulum, a bouncy sphere
     (restitution + shape), a static capsule, all shapes, spread out so the

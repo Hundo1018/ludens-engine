@@ -15,7 +15,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def _slide_scene(f_ground: Real, f_box: Real, mode: Int) -> ContactScene6[QuatBody6]:
+def _slide_scene(f_ground: Real, f_box: Real, mode: Int) raises -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     var ground = sc.add(
         QuatBody6.at_rest(Vec3(0, -0.5, 0, 0), Inertia3.box(1, 50, 0.5, 5)),
@@ -35,7 +35,7 @@ def _slide_scene(f_ground: Real, f_box: Real, mode: Int) -> ContactScene6[QuatBo
     return sc^
 
 
-def _slide_distance(f_ground: Real, f_box: Real, mode: Int, steps: Int) -> Float64:
+def _slide_distance(f_ground: Real, f_box: Real, mode: Int, steps: Int) raises -> Float64:
     var sc = _slide_scene(f_ground, f_box, mode)
     var x0 = Float64(sc.bset.bodies[1].pos[0])
     for _ in range(steps):

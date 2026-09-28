@@ -45,6 +45,12 @@ in everything including TRACE; `-D LUDENS_LOG_LEVEL=0` compiles out all of it.""
 comptime TRACE_ON: Bool = is_defined["LUDENS_TRACE"]()
 """Whether `diag/trace.mojo` spans record anything. Off by default."""
 
+comptime DEBUG_DRAW_ON: Bool = is_defined["LUDENS_DEBUG_DRAW"]()
+"""Whether solver-owned debug-draw emission (ROADMAP 17.0h) runs at all.
+Off by default -- gates a `comptime if` around the whole emit call, so a
+release build without `-D LUDENS_DEBUG_DRAW` pays nothing beyond the
+`DrawQueue` field itself sitting empty."""
+
 
 def level_name(level: Int) -> String:
     """Render a `Level` constant for `LogRing.dump()`. Engine code never prints

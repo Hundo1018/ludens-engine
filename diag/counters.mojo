@@ -50,8 +50,24 @@ comptime PARALLEL_FALLBACK_SERIAL: Int = 9
 serial path because soft bodies, `ccd`, or `colored` solving were also
 requested in the same step (audit F23 -- the island-parallel path assumes
 none of those)."""
+comptime COLOR_OVERFLOW: Int = 10
+"""`physics.solver6.ContactScene6.step(cfg.colored=True)` hit a body touched
+by 64 differently-coloured pairs (audit E7 -- `1 << col` on an `Int` stops
+being a valid single-bit mask past 63); the whole step's colored partition
+was abandoned and the pairs solved serially instead."""
+comptime CG_NOT_CONVERGED: Int = 11
+"""`physics.fem.FemBody`'s implicit Newmark solve's conjugate-gradient pass
+(`numerics.cg.cg`) did not converge within its iteration budget (audit E19);
+the velocity delta it produced was discarded rather than applied, so the
+body keeps last step's velocity instead of one derived from a
+possibly-diverged solve."""
+comptime GAMELOOP_DEBT_DROPPED: Int = 12
+"""`scheduler.gameloop.FixedLoop.advance` hit `max_steps` with accumulated
+time still owed (audit E22/F16 -- a frame-rate spike); the excess debt was
+dropped rather than carried into the next frame, so `alpha` stays in
+`[0, 1)` instead of drifting unbounded."""
 
-comptime COUNT: Int = 10
+comptime COUNT: Int = 13
 
 
 def _name(id: Int) -> String:
@@ -75,6 +91,12 @@ def _name(id: Int) -> String:
         return "event_dropped_unread"
     elif id == PARALLEL_FALLBACK_SERIAL:
         return "parallel_fallback_serial"
+    elif id == COLOR_OVERFLOW:
+        return "color_overflow"
+    elif id == CG_NOT_CONVERGED:
+        return "cg_not_converged"
+    elif id == GAMELOOP_DEBT_DROPPED:
+        return "gameloop_debt_dropped"
     else:
         return "counter_" + String(id)
 

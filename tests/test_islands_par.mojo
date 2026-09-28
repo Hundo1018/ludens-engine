@@ -9,7 +9,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def _scene() -> ContactScene6[QuatBody6]:
+def _scene() raises -> ContactScene6[QuatBody6]:
     """4 separated 3-box towers + a ball-joint pendulum + a bouncy sphere:
     six independent islands exercising contacts, joints, restitution and
     every shape path."""

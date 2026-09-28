@@ -76,3 +76,35 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.colored = False
         self.broadphase = False
         self.workers = 0
+
+    def validated(self) raises -> Self:
+        """Raise if any tuning knob is outside the range the solver assumes
+        (ROADMAP 17.0h / audit E5): `substeps`/`iters` < 1, `hertz` <= 0, or
+        `zeta` < 0 each lead to a division producing `inf`/`NaN` inside
+        `step`'s soft-constraint coefficients (`h = inf`, propagating to
+        every body every substep).
+
+        This is the RAISING half of the "invalid caller input at a public
+        API" row in `docs/ARCHITECTURE.md` S2 for `step`/`step_soft`'s
+        knobs. It is deliberately a method a caller opts into, not something
+        `step`/`step_soft` call on every invocation: both have on the order
+        of a hundred existing call sites across tests/benchmarks/examples,
+        and making either of them `raises` would force every one of those
+        (plus every caller of THEM) to become `raises` too -- exactly the
+        large-signature-sweep compile-cost cliff `.campaign/mojo_1.1_migration
+        .md` warns `physics` is prone to. Instead: a caller building a
+        `SolverConfig` from untrusted input calls `.validated()` once at that
+        boundary (raising is cheap there -- it is not a hot path), and `step`
+        itself only `debug_assert`s the same invariants (terminate-on-bug,
+        zero cost when assertions are off) as defence against a config that
+        skipped validation, per the same file's guidance to prefer
+        validate-once objects over a raising hot path."""
+        if self.substeps < 1:
+            raise Error("SolverConfig.validated: substeps must be >= 1")
+        if self.iters < 1:
+            raise Error("SolverConfig.validated: iters must be >= 1")
+        if self.hertz <= 0:
+            raise Error("SolverConfig.validated: hertz must be > 0")
+        if self.zeta < 0:
+            raise Error("SolverConfig.validated: zeta must be >= 0")
+        return self

@@ -59,7 +59,7 @@ def query_boxes(n: Int, extent: Real) -> List[Real]:
     return out^
 
 
-def bench_size(mut table: BenchTable, grid: Int, nq: Int):
+def bench_size(mut table: BenchTable, grid: Int, nq: Int) raises:
     var cell = Real(1.0)
     var extent = Real(grid - 1) * cell
     var f = HeightField(heights(grid), grid, grid, cell, 0, 0)

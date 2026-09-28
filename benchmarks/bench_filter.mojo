@@ -43,7 +43,7 @@ comptime _RED: UInt32 = 2
 comptime _BLUE: UInt32 = 4
 
 
-def build(n: Int, filtered: Bool, events: Bool) -> ContactScene6[QuatBody6]:
+def build(n: Int, filtered: Bool, events: Bool) raises -> ContactScene6[QuatBody6]:
     """Two populations of `n` crates each, occupying the SAME volume: crate `i`
     of one sits a quarter-cell from crate `i` of the other. Filtered, each
     population ignores itself and the other, and both still land on the floor.
@@ -82,7 +82,7 @@ def build(n: Int, filtered: Bool, events: Bool) -> ContactScene6[QuatBody6]:
 def run(
     mut table: BenchTable, name: String, n: Int, filtered: Bool,
     events: Bool, steps: Int,
-):
+) raises:
     var sc = build(n, filtered, events)
     for _ in range(60):  # settle: the interesting cost is the resting state
         sc.step_soft(DT, G, broadphase=True)

@@ -59,7 +59,17 @@ struct AnimClip(Movable, Deinitable):
     var pos: List[Real]  # 3 per (frame, bone), frame-major
     var rot: List[Real]  # 4 per (frame, bone), frame-major, xyzw
 
-    def __init__(out self, bones: Int, frames: Int, fps: Real, loop: Bool = True):
+    def __init__(out self, bones: Int, frames: Int, fps: Real, loop: Bool = True) raises:
+        """Audit E23: `fps <= 0` makes `duration()` (`(frames-1)/fps`) and
+        every `sample()` time-to-frame conversion (`f = u * self.fps`)
+        divide by zero or flip sign, so a valid-looking clip samples
+        garbage at every call site instead of failing once here. `frames ==
+        0` is NOT rejected: `sample()` already has a deliberate, tested
+        "empty clip writes nothing and does not crash" contract
+        (`tests/test_anim.mojo`'s EXTREME section) -- a real recovery path,
+        not UB, so there is nothing to raise for."""
+        if fps <= 0:
+            raise Error("AnimClip: fps must be > 0")
         self.bones = bones
         self.frames = frames
         self.fps = fps

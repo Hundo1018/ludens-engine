@@ -87,6 +87,29 @@ struct Inertia3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     def apply_inv(self, l: Vec3) -> Vec3:
         return Vec3(l[0] / self.ix, l[1] / self.iy, l[2] / self.iz, 0)
 
+    def validated(self) raises -> Self:
+        """Raise if this is not a usable DYNAMIC inertia (audit E1/E2):
+        `mass <= 0` makes `inv_mass()` return `inf`/`UB`-adjacent garbage,
+        and a zero/negative principal moment makes `apply_inv` divide by
+        zero -- both turn into a NaN pose within one integration step
+        (`ContactScene6.add`'s docstring has the exact propagation).
+
+        A static or kinematic body's `Inertia3` is never dereferenced by
+        the solver (`BodySet.is_dynamic`'s gate gets there first), so this
+        is an opt-in check for the caller building a DYNAMIC body from
+        untrusted input, not something every `Inertia3` construction pays
+        for -- same "validate-once object" shape as `SolverConfig
+        .validated()`, for the same reason: `ContactScene6.add`/`add_sphere`/
+        `add_capsule`/`add_hull` are ~100-call-site APIs, so they
+        `debug_assert` this instead of raising themselves."""
+        if self.mass <= 0:
+            raise Error("Inertia3.validated: mass must be > 0")
+        if self.ix <= 0 or self.iy <= 0 or self.iz <= 0:
+            raise Error(
+                "Inertia3.validated: principal moments must all be > 0"
+            )
+        return self
+
 
 trait Body6(Copyable, Movable, Deinitable):
     """What a 6-DOF contact solver needs from a body, representation-agnostic:
@@ -121,6 +144,14 @@ trait Body6(Copyable, Movable, Deinitable):
     def rotation(self) -> Quat: ...
     def set_pose(mut self, p: Pose6): ...
     def set_velocity(mut self, v: Vec3, w: Vec3): ...
+    # ROADMAP 17.0h: representation-agnostic access to the body's mass/
+    # inertia, so `ContactScene6.add`/`add_sphere`/`add_capsule`/`add_hull`
+    # can `debug_assert` a dynamic body's `Inertia3` is usable (audit E1/E2)
+    # without knowing which concrete `Body6` they were handed. Named
+    # `get_inertia`, not `inertia`: both concrete bodies already have a
+    # field called `inertia`, and a struct cannot have a field and a method
+    # share one name.
+    def get_inertia(self) -> Inertia3: ...
 
 
 @fieldwise_init
@@ -231,6 +262,9 @@ struct QuatBody6(
     def set_velocity(mut self, v: Vec3, w: Vec3):
         self.vel = v
         self.omega = w
+
+    def get_inertia(self) -> Inertia3:
+        return self.inertia
 
 
 @fieldwise_init
@@ -344,6 +378,9 @@ struct ScrewBody6(
 
     def halt(mut self):
         self.vel = Screw3.zero()
+
+    def get_inertia(self) -> Inertia3:
+        return self.inertia
 
     def rotation(self) -> Quat:
         return self._rotation()

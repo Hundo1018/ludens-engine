@@ -64,7 +64,7 @@ def _crate(y: Real, x: Real = 0) -> QuatBody6:
 
 
 # ---------------------------------------------------------------- ORDINARY
-def case_flat_mesh(use_bp: Bool) -> List[Real]:
+def case_flat_mesh(use_bp: Bool) raises -> List[Real]:
     """A crate dropped on a flat triangle floor. Returns [rest y, speed]."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), _quad(0, 0, 30), _quad_idx())
@@ -90,7 +90,7 @@ def case_box_floor() -> Real:
     return sc.bset.bodies[b].position()[1]
 
 
-def case_ramp() -> List[Real]:
+def case_ramp() raises -> List[Real]:
     """A crate on a slope rising 0.36 per unit (about 20 degrees).
 
     The check is on the contact NORMAL, read back as the height the crate holds
@@ -118,7 +118,7 @@ def case_ramp() -> List[Real]:
 
 
 # ------------------------------------------------------------- INTEGRATION
-def case_field_vs_mesh(as_field: Bool) -> Real:
+def case_field_vs_mesh(as_field: Bool) raises -> Real:
     """The SAME surface through the two midphases: a 5x5 heightfield with a
     dip in the middle, and the explicit soup `to_trimesh` derives from it."""
     var hs = List[Real](capacity=25)
@@ -148,7 +148,7 @@ def case_field_vs_mesh(as_field: Bool) -> Real:
     return sc.bset.bodies[b].position()[1]
 
 
-def case_mixed_on_mesh() -> List[Real]:
+def case_mixed_on_mesh() raises -> List[Real]:
     """Box, sphere and convex hull resting on one triangle floor."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), _quad(0, 0, 30), _quad_idx())
@@ -198,7 +198,7 @@ def case_roundtrip() raises -> List[Real]:
 
 
 # ---------------------------------------------------------------- EXTREME
-def case_empty_mesh() -> Real:
+def case_empty_mesh() raises -> Real:
     """No triangles at all: the crate must fall, not crash or stick."""
     var v = List[Real]()
     var i = List[Int]()
@@ -210,7 +210,7 @@ def case_empty_mesh() -> Real:
     return sc.bset.bodies[b].position()[1]
 
 
-def case_degenerate_tri() -> Real:
+def case_degenerate_tri() raises -> Real:
     """A mesh whose only triangles have zero area. They have no normal, so they
     must be skipped rather than producing a garbage axis."""
     var v = List[Real](capacity=12)
@@ -229,7 +229,7 @@ def case_degenerate_tri() -> Real:
     return sc.bset.bodies[b].position()[1]
 
 
-def case_far_above() -> Real:
+def case_far_above() raises -> Real:
     """A body high above the surface: the midphase must report nothing, and the
     body must fall freely. Returns the count of candidate triangles."""
     var v = _quad(0, 0, 30)
@@ -240,7 +240,7 @@ def case_far_above() -> Real:
     return Real(len(out))
 
 
-def case_outside_field() -> List[Real]:
+def case_outside_field() raises -> List[Real]:
     """Heightfield queries wholly outside the grid, and one straddling its edge.
     Returns [outside count, straddling count, total triangles]."""
     var hs = List[Real](capacity=16)
@@ -258,7 +258,7 @@ def case_outside_field() -> List[Real]:
     return out^
 
 
-def case_valley() -> List[Real]:
+def case_valley() raises -> List[Real]:
     """A crate dropped into a V, resting across the seam of two slopes. It
     touches more than one triangle at once, which is the case a single manifold
     per pair cannot represent. Returns [y, |vel|, |tilt|]."""

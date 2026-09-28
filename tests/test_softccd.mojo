@@ -14,7 +14,7 @@ def _len(v: Vec3) -> Float64:
     return Float64(sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]))
 
 
-def _wall_scene() -> ContactScene6[QuatBody6]:
+def _wall_scene() raises -> ContactScene6[QuatBody6]:
     """Soft cube fired at 120 m/s at a thin static wall. Per-substep travel
     (0.5 m) clears the wall's inflated thickness (0.12 m) at every lattice
     plane's sampling phase, so the discrete particle-vs-box test never sees
@@ -45,7 +45,7 @@ def _max_x(sc: ContactScene6[QuatBody6]) -> Float64:
     return mx
 
 
-def _jelly(alpha: Real, damp: Real) -> ContactScene6[QuatBody6]:
+def _jelly(alpha: Real, damp: Real) raises -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add(
         QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),

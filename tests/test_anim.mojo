@@ -50,7 +50,7 @@ def _rots() -> List[Real]:
     return v^
 
 
-def _axis_clip(frames: Int, fps: Real, total_angle: Real, loop: Bool) -> AnimClip:
+def _axis_clip(frames: Int, fps: Real, total_angle: Real, loop: Bool) raises -> AnimClip:
     """Bone 0 spins about z through `total_angle`; bone 1 slides along x; bone 2
     stays put. Keys are exact so a sample AT a key can be compared exactly."""
     var c = AnimClip(BONES, frames, fps, loop)

@@ -70,9 +70,17 @@ struct SoftBody(Movable, Deinitable):
         n: Int,
         mass: Real,
         alpha: Real,
-    ) -> SoftBody:
+    ) raises -> SoftBody:
         """An n*n*n particle lattice filling the box; edges over the 13 unique
-        neighbour directions (offsets with positive leading component)."""
+        neighbour directions (offsets with positive leading component).
+
+        `n < 2` (audit E4) has no well-defined lattice: the per-particle mass
+        divides by `n*n*n` (0/0 = NaN when `n == 0`) and every per-axis
+        fractional coordinate below divides by `n - 1` (1/0 = inf when
+        `n == 1`), so every particle position comes out non-finite instead of
+        the caller's presumably-intended single/degenerate particle."""
+        if n < 2:
+            raise Error("SoftBody.box_lattice: n must be >= 2")
         var sb = SoftBody()
         sb.alpha = alpha
         var per = mass / Real(n * n * n)

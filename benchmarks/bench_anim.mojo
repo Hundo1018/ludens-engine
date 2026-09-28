@@ -55,7 +55,7 @@ def quats(bones: Int, spread: Real) -> List[Real]:
     return v^
 
 
-def clip_of(bones: Int, frames: Int) -> AnimClip:
+def clip_of(bones: Int, frames: Int) raises -> AnimClip:
     var c = AnimClip(bones, frames, 30.0, True)
     for f in range(frames):
         var t = Real(f) / Real(frames - 1)
@@ -68,7 +68,7 @@ def clip_of(bones: Int, frames: Int) -> AnimClip:
     return c^
 
 
-def bench_sample(mut table: BenchTable, bones: Int):
+def bench_sample(mut table: BenchTable, bones: Int) raises:
     var c = clip_of(bones, 60)
     var p = flat(3 * bones)
     var r = flat(4 * bones)
@@ -99,7 +99,7 @@ def bench_blend(mut table: BenchTable, bones: Int, mode: Int, label: String):
     table.add(label, bones, "bone-frame", t1 - t0, FRAMES * bones)
 
 
-def bench_player(mut table: BenchTable, bones: Int, fading: Bool):
+def bench_player(mut table: BenchTable, bones: Int, fading: Bool) raises:
     var clips = List[AnimClip]()
     clips.append(clip_of(bones, 60))
     clips.append(clip_of(bones, 60))

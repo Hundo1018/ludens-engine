@@ -39,10 +39,10 @@ narrowphase is axis-aligned, geometrically unconstrained. Restitution is still
 deferred (e = 0 scenes).
 """
 
-from std.math import sqrt
+from std.math import sqrt, isfinite
 from std.os import abort
 from max.algorithm import parallelize
-from geometry.vec import Real, Vec3, dot, cross, tangent_basis
+from geometry.vec import Real, Vec3, WorldType, dot, cross, tangent_basis
 from geometry.aabb import AABB
 from geometry.quat import Quat
 from collision.manifold import ContactManifold, Axes3
@@ -61,7 +61,11 @@ from collision.bp_bvh import BVHBroadPhase
 from collision.toi import swept_box_toi
 from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
-from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL
+from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED
+from diag.log import LogRing, log
+from diag.level import Level, DEBUG_DRAW_ON
+from diag.trace import TraceBuffer
+from diag.draw import DrawQueue
 from .rigid6 import Body6, QuatBody6, Inertia3, Pose6
 from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC, MOTION_KINEMATIC
 from .solver_config import SolverConfig
@@ -177,6 +181,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var softs: List[SoftBody]
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
+    # ROADMAP 17.0h: `diag` wired into the production solver path.
+    # `trace`/`log` are solver-owned, mirroring `counters` above (a caller
+    # reads `sc.trace`/`sc.log` directly, the same shape as `sc.counters`);
+    # `trace` costs nothing when `-D LUDENS_TRACE` is off (`begin`/`end` are
+    # `comptime if`-eliminated -- see `diag/trace.mojo`) and `log` costs
+    # nothing to construct-and-never-push. `draw` likewise costs nothing
+    # unless `-D LUDENS_DEBUG_DRAW` is defined; kept on the scene rather than
+    # threaded through `step`/`step_soft` as a new parameter because both are
+    # ~100-call-site APIs (same reasoning as `SolverConfig.validated()`) --
+    # "the caller passes/owns" the spec asks for means the caller drains
+    # `sc.draw`/calls `sc.draw.tick()` every frame, not that it lives on
+    # their stack.
+    var trace: TraceBuffer
+    var log: LogRing[256]
+    var draw: DrawQueue[WorldType]
     var bp: Self.BP  # persistent broadphase, used when `step_soft(broadphase=True)`
     # A sensor reports overlap and never receives an impulse. Its pairs are
     # collected separately rather than flagged in `pairs`, so that not one of
@@ -200,6 +219,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.softs = List[SoftBody]()
         self.colliders = ColliderSet()
         self.counters = Counters()
+        self.trace = TraceBuffer(capacity=512)
+        self.log = LogRing[256]()
+        self.draw = DrawQueue[WorldType](capacity=1024)
         self.bp = Self.BP()
         self.sensor_pairs = List[_CPair]()
         self.events_on = False
@@ -210,7 +232,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.softs.append(sb^)
         return len(self.softs) - 1
 
-    def add_joint(mut self, j: Joint6) -> Int:
+    def add_joint(mut self, j: Joint6) raises -> Int:
+        """Audit E12: a joint whose `a`/`b` body index is out of range would
+        be an out-of-bounds write the first time the solver walks `joints`
+        (`_joint_sweep`/`_warm_start_joints` index `self.bset.bodies`
+        directly) -- caught here, once, at the public boundary, rather than
+        left as UB in a release build."""
+        var n = len(self.bset.bodies)
+        if j.a < 0 or j.a >= n or j.b < 0 or j.b >= n:
+            raise Error("ContactScene6.add_joint: body index out of range")
         self.joints.append(j)
         return len(self.joints) - 1
 
@@ -360,7 +390,29 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         aligned (collider `i` <-> body `i`; `add` below asserts it)."""
         return self.bset.push(b^, MOTION_STATIC if is_static else MOTION_DYNAMIC)
 
+    def _debug_assert_dynamic_inertia(self, b: Self.B, is_static: Bool):
+        """audit E1/E2: a DYNAMIC body with `mass <= 0` or a zero/negative
+        principal moment turns into a NaN pose within one integration step
+        (`inv_mass()` -> `inf`, or `apply_inv` dividing by zero). Every
+        `add*` constructor is a ~100-call-site API (see `SolverConfig
+        .validated()`'s docstring for the same trade-off), so this is a
+        `debug_assert`, not a `raise`: a caller that wants a raising check
+        at ITS OWN boundary can call `Inertia3.validated()` before handing
+        the body here. Static/kinematic bodies are exempt -- the solver
+        never dereferences their `Inertia3` (`BodySet.is_dynamic`'s gate)."""
+        if is_static:
+            return
+        var inertia = b.get_inertia()
+        debug_assert(
+            inertia.mass > 0, "ContactScene6.add*: dynamic body mass must be > 0"
+        )
+        debug_assert(
+            inertia.ix > 0 and inertia.iy > 0 and inertia.iz > 0,
+            "ContactScene6.add*: dynamic body principal inertia must be > 0",
+        )
+
     def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> BodyId:
+        self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
         var ci = self.colliders.add(half)
         debug_assert(
@@ -369,6 +421,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         return id
 
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> BodyId:
+        self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
         var ci = self.colliders.add_sphere(r)
         debug_assert(
@@ -380,6 +433,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def add_capsule(
         mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool
     ) -> BodyId:
+        self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
         var ci = self.colliders.add_capsule(r, half_len)
         debug_assert(
@@ -393,6 +447,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     ) -> BodyId:
         """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
         vertex) -- see `collision.collider_set.ColliderSet.add_hull`."""
+        self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
         var ci = self.colliders.add_hull(verts^)
         debug_assert(
@@ -402,7 +457,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def add_trimesh(
         mut self, var b: Self.B, verts: List[Real], indices: List[Int]
-    ) -> BodyId:
+    ) raises -> BodyId:
         """Static triangle soup. `verts` is flat (x, y, z per vertex) in WORLD
         space, `indices` three per triangle.
 
@@ -421,7 +476,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def add_heightfield(
         mut self, var b: Self.B, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0,
-    ) -> BodyId:
+    ) raises -> BodyId:
         """Static heightfield: the same surface as a mesh, with the triangles
         left implicit and the midphase reduced to arithmetic. Static for the
         same reason as `add_trimesh`."""
@@ -433,16 +488,32 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         )
         return id
 
-    def set_filter(mut self, i: Int, category: UInt32, mask: UInt32):
+    def _check_body_index(self, i: Int, who: String) raises:
+        """audit E12: `i` is a raw `Int` (not a `BodyId`) on every `set_*`
+        below -- unlike `set_kinematic`/`set_velocity`/etc, which predate
+        this and already take `BodyId` (`bset.is_valid`'s generation check).
+        Converting these to `BodyId` too would be a signature change on an
+        API with call sites across ~10 test/benchmark files for a check that
+        doesn't need generation tracking (an out-of-range `i` is exactly as
+        wrong as a stale one here), so this only bounds-checks the slot."""
+        if i < 0 or i >= len(self.bset.bodies):
+            raise Error("ContactScene6." + who + ": body index out of range")
+
+    def set_filter(mut self, i: Int, category: UInt32, mask: UInt32) raises:
         """Which layer body `i` is on, and which layers it collides with."""
+        self._check_body_index(i, "set_filter")
         self.colliders.set_filter(i, category, mask)
 
-    def set_sensor(mut self, i: Int, on: Bool):
+    def set_sensor(mut self, i: Int, on: Bool) raises:
         """A sensor overlaps but never pushes: it reports contact events and is
         skipped by every solve pass. Trigger volumes are the point."""
+        self._check_body_index(i, "set_sensor")
         self.colliders.set_sensor(i, on)
 
-    def set_restitution(mut self, i: Int, e: Real):
+    def set_restitution(mut self, i: Int, e: Real) raises:
+        self._check_body_index(i, "set_restitution")
+        if e < 0 or e > 1:
+            raise Error("ContactScene6.set_restitution: e must be in [0, 1]")
         self.bset.restitution[i] = e
 
     def set_restitution_combine(mut self, i: Int, mode: Int):
@@ -453,14 +524,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         `max(a, b)`."""
         self.bset.restitution_combine[i] = mode
 
-    def set_friction(mut self, i: Int, mu: Real):
+    def set_friction(mut self, i: Int, mu: Real) raises:
         """ROADMAP 17.23: body `i`'s own friction coefficient, replacing the
         step-wide `cfg.default_friction` fallback for every pair touching
         it (`BodySet.eff_friction`). `mu` must be >= 0 -- the sentinel for
         "never set" is negative (`BodySet.friction`'s docstring), so a
         negative call here would silently un-set it; that is caller error,
         not environment failure (docs/ARCHITECTURE.md S2), hence a
-        `debug_assert` rather than a `raise`."""
+        `debug_assert` rather than a `raise` for `mu` specifically. `i` out
+        of range (audit E12) does raise -- unlike a bad `mu`, it is not this
+        function's own contract, it is an out-of-bounds write waiting to
+        happen the next time `i` is read."""
+        self._check_body_index(i, "set_friction")
         debug_assert(mu >= 0, "ContactScene6.set_friction: mu must be >= 0")
         self.bset.friction[i] = mu
 
@@ -1499,7 +1574,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                                 )
                             var dx3 = nw3 - p.x
                             p.x = nw3
-                            if self.bset.is_dynamic(b):
+                            # audit E3: a pinned particle (p.w == 0, infinite
+                            # mass) would make 1/p.w = inf here -- skip the
+                            # reaction impulse for it, same as any other
+                            # infinite-mass coupling (the pushout above
+                            # already moved the particle; only the equal-
+                            # and-opposite push into the RIGID body needs
+                            # a finite particle mass to compute).
+                            if self.bset.is_dynamic(b) and p.w != 0:
                                 var j3 = dx3 * (-(1 / p.w) / h)
                                 self.bset.bodies[b].apply_impulse(j3, nw3)
                                 if self.bset.sleeping[b]:
@@ -1588,7 +1670,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         if hit:
                             var dx2 = nw2 - p.x
                             p.x = nw2
-                            if self.bset.is_dynamic(b):
+                            if self.bset.is_dynamic(b) and p.w != 0:  # E3
                                 var j2 = dx2 * (-(1 / p.w) / h)
                                 self.bset.bodies[b].apply_impulse(j2, nw2)
                                 if self.bset.sleeping[b]:
@@ -1689,7 +1771,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         )
                     var dx = nw - p.x
                     p.x = nw
-                    if self.bset.is_dynamic(b):
+                    if self.bset.is_dynamic(b) and p.w != 0:  # E3: pinned particle
                         # equal-and-opposite impulse into the dynamic body
                         var j = dx * (-(1 / p.w) / h)
                         self.bset.bodies[b].apply_impulse(j, nw)
@@ -1779,6 +1861,93 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         diff_events(cur, self._prev_keys, self.events)
         self._prev_keys = cur^
 
+    def _quarantine_nonfinite(mut self):
+        """End-of-step NaN/Inf scan (audit E3/E22-adjacent; the `docs
+        /ARCHITECTURE.md` S2 "Numerical failure" row): ONE pass over dynamic
+        bodies, run once per `step` call, never per substep/iteration --
+        catching a non-finite body an iteration late costs nothing extra
+        (it is already quarantined for the REST of this step's substeps and
+        every step after), and scanning every substep would multiply the
+        cost by `substeps` for no benefit.
+
+        A non-finite body (NaN/Inf position, linear velocity, or angular
+        velocity) is quarantined: velocity zeroed, force-slept so it stops
+        integrating, and dropped from the warm-start cache so a stale
+        accumulated impulse anchored to its last (possibly NaN) contact
+        point is never re-applied next step. Its pose is reset to the
+        origin/identity rather than "the last finite pose" (docs
+        /design/17.0h-error-wiring.md's phrasing allows this: "if kept") --
+        keeping a per-body pose history would turn this one pass into two
+        (capture, then compare) every step, which is exactly the per-step
+        fixed cost `bench_solver_scale`'s NaN-scan-overhead row exists to
+        keep small; a reset-to-origin quarantined body is still FINITE and
+        inert (force-slept), which is what every other body's broadphase/
+        narrowphase queries against it actually need.
+
+        A world must keep stepping (the table's "Propagates?" column for
+        this row is "No exception") -- this never raises, only counts
+        (`NAN_QUARANTINED`) and logs (WARN, via `self.log`)."""
+        for i in range(len(self.bset.bodies)):
+            if not self.bset.is_dynamic(i):
+                continue
+            var pos = self.bset.bodies[i].position()
+            var vel = self.bset.bodies[i].linear_velocity()
+            var w = self.bset.bodies[i].omega_world()
+            if (
+                Bool(isfinite(pos).reduce_and())
+                and Bool(isfinite(vel).reduce_and())
+                and Bool(isfinite(w).reduce_and())
+            ):
+                continue
+            self.bset.bodies[i].set_pose(Pose6(Vec3(0, 0, 0, 0), Quat.identity()))
+            self.bset.bodies[i].set_velocity(Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
+            self.bset.sleeping[i] = True
+            self.bset.sleep_timer[i] = 0
+            self.counters.incr(NAN_QUARANTINED)
+            log[Level.WARN](
+                self.log, i, "solver",
+                "body quarantined: non-finite pose/velocity", Float64(i), 0,
+            )
+            var kept = List[_CPair]()
+            for c in range(len(self.cache)):
+                if self.cache[c].a != i and self.cache[c].b != i:
+                    kept.append(self.cache[c])
+            self.cache = kept^
+
+    def _emit_debug_draw(mut self, pairs: List[_CPair]):
+        """Debug-draw (ROADMAP 17.0h; only compiled to a real call site when
+        `-D LUDENS_DEBUG_DRAW` is defined -- `step`'s caller is a `comptime
+        if DEBUG_DRAW_ON`). One `DrawCommand` per contact POINT (an arrow
+        from the point along the contact normal), coloured by the pair's
+        island -- so `sc.draw.count()` equals the step's total contact-point
+        count exactly (the test this backs asserts that equality on a known
+        stack), with island membership encoded as colour rather than as
+        separate per-island commands that would break that count."""
+        comptime scale = Real(0.15)  # arrow length, world units
+        for pc in range(len(pairs)):
+            ref pr = pairs[pc]
+            var island = self._pair_island(pr)
+            # a small deterministic palette keyed by island label, wrapping
+            # at 6 -- debug-draw is for a human to look at, not a contract.
+            var lbl = island % 6 if island >= 0 else 5
+            var color: SIMD[DType.float32, 4]
+            if lbl == 0:
+                color = SIMD[DType.float32, 4](1, 0, 0, 1)
+            elif lbl == 1:
+                color = SIMD[DType.float32, 4](0, 1, 0, 1)
+            elif lbl == 2:
+                color = SIMD[DType.float32, 4](0, 0, 1, 1)
+            elif lbl == 3:
+                color = SIMD[DType.float32, 4](1, 1, 0, 1)
+            elif lbl == 4:
+                color = SIMD[DType.float32, 4](0, 1, 1, 1)
+            else:
+                color = SIMD[DType.float32, 4](1, 1, 1, 1)
+            for k in range(pr.m.count):
+                var p0 = pr.m.points[k]
+                var p1 = p0 + pr.m.normal * scale
+                self.draw.arrow(p0, p1, color)
+
     def step_soft(
         mut self,
         dt: Real,
@@ -1837,7 +2006,20 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         SCHEDULE, never the result: any `workers` is bit-identical to serial.
         That invariance is what makes a core-scaling sweep (`bench_islands`,
         `bench_colored`) a fair measurement rather than a different
-        computation per point."""
+        computation per point.
+
+        `step`/`step_soft` stay non-raising (ROADMAP 17.0h / audit E5): with
+        ~100 call sites, making either `raises` would force every caller (and
+        every caller of those) to become `raises` too. Instead this
+        `debug_assert`s the same invariants `SolverConfig.validated()`
+        checks -- zero cost in a release build, terminates loudly under
+        `-D ASSERT=all` (every test run) if a config or `dt` slipped through
+        with a value that would otherwise divide out to `inf`/`NaN` below."""
+        debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
+        debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
+        debug_assert(cfg.hertz > 0, "ContactScene6.step: cfg.hertz must be > 0")
+        debug_assert(cfg.zeta >= 0, "ContactScene6.step: cfg.zeta must be >= 0")
+        debug_assert(dt > 0, "ContactScene6.step: dt must be > 0")
         var substeps = cfg.substeps
         var iters = cfg.iters
         var hertz = cfg.hertz
@@ -1854,7 +2036,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var bias_rate = omega / (2 * zeta + h * omega)
         var mass_scale = c / (1 + c)
         var impulse_scale = 1 / (1 + c)
+        # "collect_pairs" covers both broadphase candidate enumeration and
+        # narrowphase manifold generation -- `_collect_pairs` (collision
+        # .contact_gen) does both in one pass, so there is no seam to split
+        # a separate "narrowphase" span at without restructuring that
+        # function; the spec's phase list treats them as one unit here.
+        self.trace.begin("collect_pairs")
         var pairs = self._collect_pairs(True, dt, broadphase)
+        self.trace.end()
         self._refresh_islands(pairs)
         # graph coloring (colored=True): greedy smallest-free-color over the
         # DYNAMIC-body adjacency (a shared static must not chain colors, or
@@ -1868,6 +2057,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             for _ in range(len(self.bset.bodies)):
                 mask.append(0)
             var pcol = List[Int]()
+            var overflow = False
             for pc in range(len(pairs)):
                 var used = 0
                 # DYNAMIC-body adjacency only (was `not is_static`): a
@@ -1884,8 +2074,35 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 if self.bset.is_dynamic(pairs[pc].b):
                     used |= mask[pairs[pc].b]
                 var col = 0
-                while (used >> col) & 1 == 1:
+                # `col < 64` must gate the loop itself, not just be checked
+                # after it: found live (this loop used to be unbounded) --
+                # once `used` has all 64 bits set (a body already touched by
+                # 64 differently-coloured pairs), `used >> col` for `col >=
+                # 64` does NOT read as zero the way a mathematical shift
+                # would. Mojo's `>>` on `Int` bottoms out at the hardware
+                # shift instruction, which masks the shift amount to the
+                # register width (`col mod 64` on this target) -- so
+                # `used >> 64` re-reads the SAME bits as `used >> 0`, the
+                # condition never goes false, and `col` counts up forever.
+                # This was a genuine infinite hang, not just "wrong colours
+                # past 64" as first filed -- caught by this commit's own
+                # extreme test (65 dynamic pairs sharing one body), which
+                # hung indefinitely before this bound was added.
+                while col < 64 and (used >> col) & 1 == 1:
                     col += 1
+                if col >= 64:
+                    # audit E7: a body touched by 64 differently-coloured
+                    # pairs -- `1 << col` on an `Int` is no longer a single
+                    # bit past width 63 (wraps/UB), which would corrupt the
+                    # mask and let two same-colour pairs share a body (a
+                    # data race under colored+parallel). Bail out of the
+                    # WHOLE partition rather than continue with a corrupt
+                    # one: `colored` false below falls through to the
+                    # existing serial `_soft_sweep(pairs, 0, len(pairs))`
+                    # path with `pairs` still in its original (uncoloured)
+                    # order, so this is "fall back to serial", not a crash.
+                    overflow = True
+                    break
                 pcol.append(col)
                 if col + 1 > n_colors:
                     n_colors = col + 1
@@ -1893,14 +2110,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     mask[pairs[pc].a] |= 1 << col
                 if self.bset.is_dynamic(pairs[pc].b):
                     mask[pairs[pc].b] |= 1 << col
-            var pairs3 = List[_CPair]()
-            for col in range(n_colors):
-                clo.append(len(pairs3))
-                for pc in range(len(pairs)):
-                    if pcol[pc] == col:
-                        pairs3.append(pairs[pc])
-                chi.append(len(pairs3))
-            pairs = pairs3^
+            if overflow:
+                self.counters.incr(COLOR_OVERFLOW)
+                colored = False
+            else:
+                var pairs3 = List[_CPair]()
+                for col in range(n_colors):
+                    clo.append(len(pairs3))
+                    for pc in range(len(pairs)):
+                        if pcol[pc] == col:
+                            pairs3.append(pairs[pc])
+                    chi.append(len(pairs3))
+                pairs = pairs3^
         if parallel and (colored or len(self.softs) > 0 or ccd):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be
@@ -1930,12 +2151,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         pairs2.append(pairs[pc])
                 phi.append(len(pairs2))
 
+            self.trace.begin("solve")
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
                 workers, cfg.restitution_threshold,
             )
+            self.trace.end()
+            self.trace.begin("sleep")
             self._update_sleep(dt, cfg)
+            self.trace.end()
+            self.trace.begin("nan_scan")
+            self._quarantine_nonfinite()
+            self.trace.end()
+            comptime if DEBUG_DRAW_ON:
+                self._emit_debug_draw(pairs2)
             if self.events_on:
                 self._emit_events(pairs2)
             self.cache = pairs2^
@@ -1951,8 +2181,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.
+            self.trace.begin("warm_start")
             self._warm_start(pairs, 0, len(pairs))
             self._warm_start_joints(-2)
+            self.trace.end()
+            self.trace.begin("solve")
             self._joint_sweep(
                 h, bias_rate, mass_scale, impulse_scale, True, iters, -2
             )
@@ -1966,16 +2199,24 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     pairs, 0, len(pairs), h, bias_rate, mass_scale,
                     impulse_scale, True, iters, mu,
                 )
+            self.trace.end()
             if ccd:
+                self.trace.begin("ccd")
                 self._ccd_advance(h)
+                self.trace.end()
             else:
+                self.trace.begin("integrate")
                 for i in range(len(self.bset.bodies)):
                     if not self._inactive(i):
                         self.bset.bodies[i].integrate_pose(h)
+                self.trace.end()
             # soft bodies: XPBD lattice + particle-vs-body coupling, at the
             # substep's POST-integration poses (rigid impulses land next substep)
+            self.trace.begin("soft_pass")
             self._softbody_pass(h, gravity, iters, ccd)
+            self.trace.end()
             # relax: remove the bias energy (velocity-only, no bias)
+            self.trace.begin("solve")
             self._joint_sweep(h, bias_rate, 1, 0, False, 2, -2)
             if colored:
                 self._sweep_colored(
@@ -1986,8 +2227,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self._soft_sweep(
                     pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
                 )
+            self.trace.end()
         self._restitution_pass(pairs, 0, len(pairs), 4, cfg.restitution_threshold)
+        self.trace.begin("sleep")
         self._update_sleep(dt, cfg)
+        self.trace.end()
+        self.trace.begin("nan_scan")
+        self._quarantine_nonfinite()
+        self.trace.end()
+        comptime if DEBUG_DRAW_ON:
+            self._emit_debug_draw(pairs)
         if self.events_on:
             self._emit_events(pairs)
         self.cache = pairs^  # impulses persist to the next frame
