@@ -34,7 +34,11 @@ particle count and settles — rather than eyeballing a picture.
 from std.math import sqrt
 from geometry.vec import Real, Vec3
 
-comptime _H: Real = 0.1  # kernel support radius
+comptime H: Real = 0.1
+"""Kernel support radius. Public (not `_H`): `physics/sph.mojo` imports it
+deliberately — SPH and PBF are meant to share the same smoothing length so
+their kernels stay comparable, not two solvers that happen to agree by
+coincidence (audit F18)."""
 comptime _EPS: Real = 1e-4  # CFM relaxation, on the scale of sum|grad C|^2
 comptime _K_CORR: Real = 0.0001  # tensile instability strength
 comptime _N_CORR: Int = 4  # tensile instability exponent
@@ -45,21 +49,21 @@ comptime _MAX_CORR: Real = 0.2  # per-iteration displacement cap, in units of h
 
 def poly6(r2: Real) -> Real:
     """W_poly6(r, h) without its normalisation constant folded out."""
-    var h2 = _H * _H
+    var h2 = H * H
     if r2 >= h2 or r2 < 0:
         return 0
     var t = h2 - r2
-    return 315.0 / (64.0 * 3.14159265 * (_H ** 9)) * t * t * t
+    return 315.0 / (64.0 * 3.14159265 * (H ** 9)) * t * t * t
 
 
 def spiky_grad(r: Real) -> Real:
     """Magnitude of grad W_spiky(r, h); the direction is the separation unit
     vector. Spiky (not poly6) is used for the gradient because poly6's gradient
     vanishes at r -> 0 and particles would collapse onto each other."""
-    if r >= _H or r <= 1e-9:
+    if r >= H or r <= 1e-9:
         return 0
-    var t = _H - r
-    return -45.0 / (3.14159265 * (_H ** 6)) * t * t
+    var t = H - r
+    return -45.0 / (3.14159265 * (H ** 6)) * t * t
 
 
 struct PbfFluid(Movable):
@@ -102,9 +106,9 @@ struct PbfFluid(Movable):
         self.hi = hi
         self.cell_start = List[Int]()
         self.cell_items = List[Int]()
-        self.nx = Int((hi[0] - lo[0]) / _H) + 1
-        self.ny = Int((hi[1] - lo[1]) / _H) + 1
-        self.nz = Int((hi[2] - lo[2]) / _H) + 1
+        self.nx = Int((hi[0] - lo[0]) / H) + 1
+        self.ny = Int((hi[1] - lo[1]) / H) + 1
+        self.nz = Int((hi[2] - lo[2]) / H) + 1
         self.rho0 = 1.0
 
     def calibrate(mut self, spacing: Real):
@@ -115,7 +119,7 @@ struct PbfFluid(Movable):
         fluid explodes against the container instead of settling. Deriving it
         from the same spacing the particles are seeded at makes C ~ 0 at rest
         by construction."""
-        var reach = Int(_H / spacing) + 1
+        var reach = Int(H / spacing) + 1
         var rho = poly6(0)
         for i in range(-reach, reach + 1):
             for j in range(-reach, reach + 1):
@@ -158,9 +162,9 @@ struct PbfFluid(Movable):
             counts.append(0)
         var cid = List[Int]()
         for i in range(n):
-            var cx = self._clampi(Int((self.px[i] - self.lo[0]) / _H), self.nx)
-            var cy = self._clampi(Int((self.py[i] - self.lo[1]) / _H), self.ny)
-            var cz = self._clampi(Int((self.pz[i] - self.lo[2]) / _H), self.nz)
+            var cx = self._clampi(Int((self.px[i] - self.lo[0]) / H), self.nx)
+            var cy = self._clampi(Int((self.py[i] - self.lo[1]) / H), self.ny)
+            var cz = self._clampi(Int((self.pz[i] - self.lo[2]) / H), self.nz)
             var c = self._cell_of(cx, cy, cz)
             cid.append(c)
             counts[c + 1] += 1
@@ -178,9 +182,9 @@ struct PbfFluid(Movable):
 
     def _neighbors(self, i: Int, mut out: List[Int]):
         out.clear()
-        var cx = self._clampi(Int((self.px[i] - self.lo[0]) / _H), self.nx)
-        var cy = self._clampi(Int((self.py[i] - self.lo[1]) / _H), self.ny)
-        var cz = self._clampi(Int((self.pz[i] - self.lo[2]) / _H), self.nz)
+        var cx = self._clampi(Int((self.px[i] - self.lo[0]) / H), self.nx)
+        var cy = self._clampi(Int((self.py[i] - self.lo[1]) / H), self.ny)
+        var cz = self._clampi(Int((self.pz[i] - self.lo[2]) / H), self.nz)
         for dz in range(-1, 2):
             var z2 = cz + dz
             if z2 < 0 or z2 >= self.nz:
@@ -201,7 +205,7 @@ struct PbfFluid(Movable):
                         var ddx = self.px[i] - self.px[j]
                         var ddy = self.py[i] - self.py[j]
                         var ddz = self.pz[i] - self.pz[j]
-                        if ddx * ddx + ddy * ddy + ddz * ddz < _H * _H:
+                        if ddx * ddx + ddy * ddy + ddz * ddz < H * H:
                             out.append(j)
 
     def _clamp_to_box(mut self, i: Int):
@@ -331,7 +335,7 @@ struct PbfFluid(Movable):
                 var dy = corr_y[i]
                 var dz = corr_z[i]
                 var m2 = dx * dx + dy * dy + dz * dz
-                var lim = _MAX_CORR * _H
+                var lim = _MAX_CORR * H
                 if m2 > lim * lim:
                     var sc = lim / sqrt(m2)
                     dx *= sc

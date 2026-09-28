@@ -26,7 +26,7 @@ surface hold together here.
 
 from std.math import sqrt
 from geometry.vec import Real, Vec3
-from physics.pbf import PbfFluid, poly6, spiky_grad, _H
+from physics.pbf import PbfFluid, poly6, spiky_grad, H
 
 comptime _STIFF: Real = 8.0  # equation-of-state stiffness (bulk modulus proxy)
 comptime _VISC: Real = 0.15  # dynamic viscosity
@@ -34,9 +34,9 @@ comptime _VISC: Real = 0.15  # dynamic viscosity
 
 def visc_lap(r: Real) -> Real:
     """Laplacian of the standard SPH viscosity kernel."""
-    if r >= _H or r < 0:
+    if r >= H or r < 0:
         return 0
-    return 45.0 / (3.14159265 * (_H ** 6)) * (_H - r)
+    return 45.0 / (3.14159265 * (H ** 6)) * (H - r)
 
 
 def sph_step(mut f: PbfFluid, dt: Real, gravity: Vec3):

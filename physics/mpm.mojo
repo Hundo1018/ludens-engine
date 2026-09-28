@@ -28,7 +28,7 @@ that never yields would pass any test written only for the elastic case.
 from std.math import sqrt
 from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
-from physics.fem import polar_rotation, _det3
+from physics.fem import polar_rotation, det3
 
 
 @fieldwise_init
@@ -147,7 +147,7 @@ struct MpmSolver(Movable):
             # fixed-corotated stress: P = 2 mu (F - R) + lambda (J - 1) J F^-T,
             # folded into the MLS affine term
             var r = polar_rotation(q.f)
-            var jdet = _det3(q.f)
+            var jdet = det3(q.f)
             var stress = Mat3()
             for a in range(3):
                 for b in range(3):
@@ -306,7 +306,7 @@ struct MpmSolver(Movable):
             # single clamp is what turns an elastic solid into a material that
             # flows and keeps its new shape.
             if self.j_max > self.j_min:
-                var jd = _det3(q.f)
+                var jd = det3(q.f)
                 if jd > self.j_max or jd < self.j_min:
                     var target = self.j_max if jd > self.j_max else self.j_min
                     if abs(jd) > 1e-9:

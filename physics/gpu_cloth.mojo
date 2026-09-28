@@ -202,7 +202,7 @@ struct ClothState(Movable, Deinitable):
         self.z = List[Float32]()
 
 
-def _init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32):
+def init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32):
     for r in range(H):
         for c in range(W):
             s.x.append(Float32(c) * rest)
@@ -223,7 +223,7 @@ def cpu_cloth_run[W: Int, H: Int](
     lets the existing tests stay untouched."""
     comptime n = W * H
     var s = ClothState()
-    _init_grid[W, H](s, rest)
+    init_grid[W, H](s, rest)
     # cell size = thickness: one hash cell per interaction radius, so the 27
     # neighbouring cells are exactly the candidates within range
     var sc = SelfCollider(
@@ -383,7 +383,7 @@ def gpu_cloth_run_ctx_timed[W: Int, H: Int](
     comptime layout = row_major[n]()
     comptime BLOCK = 256
     var host = ClothState()
-    _init_grid[W, H](host, rest)
+    init_grid[W, H](host, rest)
 
     var bufs = List[DeviceBuffer[dtype]]()
     for _ in range(13):

@@ -61,7 +61,7 @@ struct ArchView2[A: ComponentType, B: ComponentType](Copyable, ImplicitlyCopyabl
 
     Internally the column slots point to heap-allocated `List[A]` / `List[B]`
     structs owned by the archetype, so access is two dereferences (pointer →
-    list → element), the same cost as the existing `_col[C](arch)[][row]` path.
+    list → element), the same cost as the existing `col[C](arch)[][row]` path.
 
     The slots are only valid while the backend that produced them is alive and
     no archetype-relocating operation (component add/remove/despawn) is performed
@@ -170,7 +170,13 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
 
     @always_inline
     @staticmethod
-    def _slot_of[C: ComponentType]() -> Int:
+    def slot_of[C: ComponentType]() -> Int:
+        """Column index of component `C` in `Self.CTs` (-1 if absent).
+
+        Public: `ecs/system.mojo`'s fast-path systems (`integrate_simd`) need
+        it to find a component's column without going through `query2_views`
+        (audit F18 — this used to be a same-package private-name reach-through
+        from a different file)."""
         comptime for i in range(Self.N):
             comptime if Self.CTs[i].ID == C.ID:
                 return i
@@ -209,8 +215,10 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         return target
 
     @always_inline
-    def _col[C: ComponentType](self, arch: Int) -> type_of(alloc[List[C]](Layout[List[C]](count=1)).unsafe_leak()):
-        return self.archetypes[arch].cols[Self._slot_of[C]()].unsafe_bitcast[List[C]]()
+    def col[C: ComponentType](self, arch: Int) -> type_of(alloc[List[C]](Layout[List[C]](count=1)).unsafe_leak()):
+        """Type-erased pointer to archetype `arch`'s `C` column, bitcast to
+        `List[C]`. Public for the same reason as `slot_of` (audit F18)."""
+        return self.archetypes[arch].cols[Self.slot_of[C]()].unsafe_bitcast[List[C]]()
 
     def _swap_remove(mut self, arch: Int, row: Int):
         """Remove `row` from `arch`, moving the last row into the hole."""
@@ -267,11 +275,11 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
     # --- typed component access ---
     def set[C: ComponentType](mut self, e: Entity, var value: C):
         var rec = self.entity_index.get(e.id)
-        var slot = Self._slot_of[C]()
+        var slot = Self.slot_of[C]()
         var old_mask = self.archetypes[rec.archetype].mask
         if (old_mask & (1 << slot)) != 0:
             # already present: overwrite in place
-            self._col[C](rec.archetype)[][rec.row] = value
+            self.col[C](rec.archetype)[][rec.row] = value
             return
         # relocate to the archetype with C added
         var target = self._transition_add(rec.archetype, slot)
@@ -284,23 +292,23 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
                 self.archetypes[target].cols[i].unsafe_bitcast[List[T]]()[].append(ov)
         var new_row = len(self.archetypes[target].entities)
         self.archetypes[target].entities.append(e.id)
-        self._col[C](target)[].append(value)
+        self.col[C](target)[].append(value)
         self._swap_remove(old_arch, old_row)
         self.entity_index.set(e.id, Record(target, new_row))
 
     @always_inline
     def has[C: ComponentType](self, e: Entity) -> Bool:
         var rec = self.entity_index.get(e.id)
-        return (self.archetypes[rec.archetype].mask & (1 << Self._slot_of[C]())) != 0
+        return (self.archetypes[rec.archetype].mask & (1 << Self.slot_of[C]())) != 0
 
     @always_inline
     def get[C: ComponentType](self, e: Entity) -> C:
         var rec = self.entity_index.get(e.id)
-        return self._col[C](rec.archetype)[][rec.row]
+        return self.col[C](rec.archetype)[][rec.row]
 
     def remove[C: ComponentType](mut self, e: Entity):
         var rec = self.entity_index.get(e.id)
-        var slot = Self._slot_of[C]()
+        var slot = Self.slot_of[C]()
         var old_mask = self.archetypes[rec.archetype].mask
         if (old_mask & (1 << slot)) == 0:
             return
@@ -328,20 +336,20 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
 
     def matching1[A: ComponentType](self) -> List[Entity]:
         var out = List[Entity]()
-        self._collect(1 << Self._slot_of[A](), out)
+        self._collect(1 << Self.slot_of[A](), out)
         return out^
 
     def matching2[A: ComponentType, B: ComponentType](self) -> List[Entity]:
         var out = List[Entity]()
-        self._collect((1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]()), out)
+        self._collect((1 << Self.slot_of[A]()) | (1 << Self.slot_of[B]()), out)
         return out^
 
     def matching3[
         A: ComponentType, B: ComponentType, C: ComponentType
     ](self) -> List[Entity]:
         var out = List[Entity]()
-        var bits = (1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]()) | (
-            1 << Self._slot_of[C]()
+        var bits = (1 << Self.slot_of[A]()) | (1 << Self.slot_of[B]()) | (
+            1 << Self.slot_of[C]()
         )
         self._collect(bits, out)
         return out^
@@ -353,12 +361,12 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
     ](mut self, func: F):
         # Column-direct: one contiguous pass per matching archetype, refs straight
         # into the A/B buffers. No List allocation, no entity-index lookup.
-        var bits = (1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]())
+        var bits = (1 << Self.slot_of[A]()) | (1 << Self.slot_of[B]())
         for k in range(len(self.archetypes)):
             if (self.archetypes[k].mask & bits) == bits:
                 var n = len(self.archetypes[k].entities)
-                var pa = self._col[A](k)[].unsafe_ptr()
-                var pb = self._col[B](k)[].unsafe_ptr()
+                var pa = self.col[A](k)[].unsafe_ptr()
+                var pb = self.col[B](k)[].unsafe_ptr()
                 for i in range(n):
                     func(pa[unsafe_offset=i], pb[unsafe_offset=i])
 
@@ -369,13 +377,13 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         Iterate `range(v.len())` and call `get_a` / `set_a` / `get_b` / `set_b`
         to read/write component data without per-entity `get()` overhead.
         """
-        var bits = (1 << Self._slot_of[A]()) | (1 << Self._slot_of[B]())
+        var bits = (1 << Self.slot_of[A]()) | (1 << Self.slot_of[B]())
         var out = List[ArchView2[A, B]]()
         for k in range(len(self.archetypes)):
             if (self.archetypes[k].mask & bits) == bits and len(self.archetypes[k].entities) > 0:
                 out.append(ArchView2[A, B](
                     len(self.archetypes[k].entities),
-                    self._col[A](k).unsafe_bitcast[NoneType](),
-                    self._col[B](k).unsafe_bitcast[NoneType](),
+                    self.col[A](k).unsafe_bitcast[NoneType](),
+                    self.col[B](k).unsafe_bitcast[NoneType](),
                 ))
         return out^

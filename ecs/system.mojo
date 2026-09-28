@@ -41,14 +41,14 @@ def integrate_simd[
     comptime dt_t = A.Dtype
     comptime W = simd_width_of[dt_t]()
     comptime LANES_PER = A.Width  # scalar lanes per component
-    var bits = (1 << ArchetypeBackend[*CTs]._slot_of[A]()) | (
-        1 << ArchetypeBackend[*CTs]._slot_of[B]()
+    var bits = (1 << ArchetypeBackend[*CTs].slot_of[A]()) | (
+        1 << ArchetypeBackend[*CTs].slot_of[B]()
     )
     for k in range(len(backend.archetypes)):
         if (backend.archetypes[k].mask & bits) == bits:
             var n = len(backend.archetypes[k].entities)
-            var fa = backend._col[A](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
-            var fb = backend._col[B](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
+            var fa = backend.col[A](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
+            var fb = backend.col[B](k)[].unsafe_ptr().unsafe_bitcast[Scalar[dt_t]]()
             var m = LANES_PER * n
             var i = 0
             while i + W <= m:

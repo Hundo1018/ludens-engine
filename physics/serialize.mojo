@@ -22,7 +22,7 @@ from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
 from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6, Joint6, _CPair
-from physics.softbody import SoftBody, _SP, _SEdge
+from physics.softbody import SoftBody, SP, SEdge
 
 comptime _VERSION = 1
 
@@ -288,14 +288,14 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             var x = r.v3()
             var v = r.v3()
             var w = r.f()
-            sb.pts.append(_SP(x, v, w))
+            sb.pts.append(SP(x, v, w))
         var ne = r.i()
         for _ in range(ne):
             var ea = r.i()
             var eb = r.i()
             var er = r.f()
             var el = r.f()
-            sb.edges.append(_SEdge(ea, eb, er, el))
+            sb.edges.append(SEdge(ea, eb, er, el))
         _ = sc.add_soft(sb^)
     var nc = r.i()
     for _ in range(nc):

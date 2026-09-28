@@ -25,14 +25,22 @@ comptime _DAMP: Real = 0.999
 
 
 @fieldwise_init
-struct _SP(Copyable, ImplicitlyCopyable, Movable):
+struct SP(Copyable, ImplicitlyCopyable, Movable):
+    """One lattice particle. Public (not `SP`): it is the element type of
+    `SoftBody.pts`, a public field — a private type in a public field's
+    signature is itself the reach-through `physics/serialize.mojo` needs
+    (audit F18)."""
+
     var x: Vec3  # position
     var v: Vec3  # velocity
     var w: Real  # inverse mass
 
 
 @fieldwise_init
-struct _SEdge(Copyable, ImplicitlyCopyable, Movable):
+struct SEdge(Copyable, ImplicitlyCopyable, Movable):
+    """One structural/diagonal distance constraint. Public for the same
+    reason as `SP`: it types `SoftBody.edges`, a public field."""
+
     var a: Int
     var b: Int
     var rest: Real
@@ -40,16 +48,16 @@ struct _SEdge(Copyable, ImplicitlyCopyable, Movable):
 
 
 struct SoftBody(Movable, Deinitable):
-    var pts: List[_SP]
-    var edges: List[_SEdge]
+    var pts: List[SP]
+    var edges: List[SEdge]
     var alpha: Real  # XPBD compliance (m/N); 0 = hard distance
     var radius: Real  # particle contact radius
     var damp: Real  # velocity retention per substep (1 = lossless)
     var mu: Real  # Coulomb friction vs rigid shapes (0 = frictionless)
 
     def __init__(out self):
-        self.pts = List[_SP]()
-        self.edges = List[_SEdge]()
+        self.pts = List[SP]()
+        self.edges = List[SEdge]()
         self.alpha = 0
         self.radius = 0.02
         self.damp = 0.999
@@ -78,7 +86,7 @@ struct SoftBody(Movable, Deinitable):
                         0,
                     )
                     sb.pts.append(
-                        _SP(center + f * half, Vec3(0, 0, 0, 0), 1 / per)
+                        SP(center + f * half, Vec3(0, 0, 0, 0), 1 / per)
                     )
         sb.radius = (half[0] / Real(n - 1)) * 0.5
 
@@ -99,7 +107,7 @@ struct SoftBody(Movable, Deinitable):
                                 var b = (kk * n + jj) * n + ii
                                 var d = sb.pts[a].x - sb.pts[b].x
                                 sb.edges.append(
-                                    _SEdge(a, b, sqrt(dot(d, d)), 0)
+                                    SEdge(a, b, sqrt(dot(d, d)), 0)
                                 )
         return sb^
 

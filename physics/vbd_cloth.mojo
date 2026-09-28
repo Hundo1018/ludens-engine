@@ -26,7 +26,7 @@ from std.sys import has_accelerator
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
-from .gpu_cloth import ClothState, _init_grid
+from .gpu_cloth import ClothState, init_grid
 
 comptime dtype = WorldType
 comptime _G: Float32 = -9.8
@@ -269,7 +269,7 @@ def cpu_vbd_run[W: Int, H: Int](
     )
     var mh2 = 1.0 / (dt * dt)  # unit mass
     var s = ClothState()
-    _init_grid[W, H](s, rest)
+    init_grid[W, H](s, rest)
     var vx = List[Float32]()
     var vy = List[Float32]()
     var vz = List[Float32]()
@@ -377,7 +377,7 @@ def gpu_vbd_run_ctx[W: Int, H: Int](
     comptime BLOCK = 256
     var mh2 = Float32(1.0) / (dt * dt)
     var host = ClothState()
-    _init_grid[W, H](host, rest)
+    init_grid[W, H](host, rest)
 
     var bufs = List[DeviceBuffer[dtype]]()
     for _ in range(13):
