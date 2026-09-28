@@ -185,6 +185,7 @@ struct LayerTable(Movable):
     var infra_packages: List[String]
     var consumers: List[String]
     var allow_private: List[String]  # "path:target_pkg.target_mod.name" keys
+    var vocabulary: List[String]  # "pkg.mod" helper modules `tiers` excludes from D/span
 
 
 def load_layer_table(path: String) raises -> LayerTable:
@@ -220,7 +221,14 @@ def load_layer_table(path: String) raises -> LayerTable:
         for key in ap:
             allow.append(String(py=key))
 
-    return LayerTable(layers^, order^, infra^, consumers^, allow^)
+    var vocabulary = List[String]()
+    if "vocabulary" in data:
+        var vocab_obj = data["vocabulary"]
+        if "modules" in vocab_obj:
+            for m in vocab_obj["modules"]:
+                vocabulary.append(String(py=m))
+
+    return LayerTable(layers^, order^, infra^, consumers^, allow^, vocabulary^)
 
 
 def contains(items: List[String], item: String) -> Bool:
@@ -1170,7 +1178,30 @@ struct TierFacts(Movable):
     var has_physics: Bool
 
 
-def compute_tier_facts(relpath: String, dirs: Dirs, imports: List[ImportRow]) -> TierFacts:
+def stem_of_test(fname: String) -> String:
+    """`test_aabb.mojo` -> `aabb`."""
+    var s = fname
+    if s.startswith("test_"):
+        var without_prefix = String(s[byte=5 : s.byte_length()])
+        s = without_prefix
+    if s.endswith(".mojo"):
+        var without_suffix = String(s[byte=0 : s.byte_length() - 5])
+        s = without_suffix
+    return s
+
+
+def is_vocab_helper(fname: String, target_pkg: String, target_mod: String, vocabulary: List[String]) -> Bool:
+    """True when `pkg.mod` is a listed [vocabulary] helper (scripts/arch_layers.toml)
+    AND this test file's own name does not target that exact module --
+    `test_aabb.mojo` targets `geometry.aabb`, so it stays counted there;
+    everywhere else `vec`/`aabb`/`ray`/`shape`/`rng` are a value-type or
+    fuzzing-input helper, not a seam the test exercises."""
+    if not contains(vocabulary, target_pkg + "." + target_mod):
+        return False
+    return stem_of_test(fname) != target_mod
+
+
+def compute_tier_facts(relpath: String, fname: String, dirs: Dirs, lt: LayerTable, imports: List[ImportRow]) -> TierFacts:
     var d_pkgs = List[String]()
     var d_mod_pkg = List[String]()
     var d_mod_name = List[String]()
@@ -1188,10 +1219,13 @@ def compute_tier_facts(relpath: String, dirs: Dirs, imports: List[ImportRow]) ->
         if r.target_pkg == "physics":
             has_physics = True
         # D excludes harness.*/diag.* by name (every test uses them; they say
-        # nothing about a test's own span) and is otherwise restricted to
-        # recognized engine packages, so stdlib/python-interop imports never
-        # pollute it.
+        # nothing about a test's own span), excludes [vocabulary] helpers
+        # imported for their value type rather than as the thing under test,
+        # and is otherwise restricted to recognized engine packages, so
+        # stdlib/python-interop imports never pollute it.
         if r.target_pkg == "harness" or r.target_pkg == "diag":
+            continue
+        if is_vocab_helper(fname, r.target_pkg, r.target_mod, lt.vocabulary):
             continue
         if not contains(dirs.layered, r.target_pkg):
             continue
@@ -1208,6 +1242,9 @@ def compute_tier_facts(relpath: String, dirs: Dirs, imports: List[ImportRow]) ->
     # One hop: for every module the test imports directly, the packages
     # THAT module itself imports -- never a transitive walk past it (that
     # was the old, wrong rule: see the spec's "Problem with the first rule").
+    # [vocabulary] helpers are excluded here too (same "unless targeted by
+    # THIS test file's name" rule), so a backend that merely takes an AABB
+    # or a Vec3 doesn't drag geometry into the span either.
     var span = List[String]()
     for p in d_pkgs:
         span.append(p)
@@ -1218,6 +1255,8 @@ def compute_tier_facts(relpath: String, dirs: Dirs, imports: List[ImportRow]) ->
             if r.package != p or r.module != m:
                 continue
             if r.target_pkg == p:
+                continue
+            if is_vocab_helper(fname, r.target_pkg, r.target_mod, lt.vocabulary):
                 continue
             if not contains(dirs.layered, r.target_pkg):
                 continue
@@ -1298,7 +1337,7 @@ def cmd_tiers(
         var header = parse_tier_header(relpath)
         var declared_label = header.tier if header.present else String("MISSING")
 
-        var facts = compute_tier_facts(relpath, dirs, imports)
+        var facts = compute_tier_facts(relpath, fname, dirs, lt, imports)
         var suggested = suggest_tier(relpath, fname, facts, decls, imports)
         var status = tier_status(header, suggested)
         if not status.startswith("OK"):
@@ -1562,7 +1601,8 @@ def cmd_selftest() raises:
         '[layers]\nlow = 0\nmid = 1\nmidb = 1\nhigh = 2\ncyc = 1\n'
         + 'diag = 0\ngeometry = 1\nspatial = 2\necs = 2\nphysics = 3\nscheduler = 3\ncollision = 3\n\n'
         + '[infrastructure]\npackages = ["harness"]\nconsumers = ["tests"]\n\n'
-        + '[allow_private]\n"high/h_allowed.mojo:low.priv2._other" = "selftest fixture: deliberately allowed"\n'
+        + '[allow_private]\n"high/h_allowed.mojo:low.priv2._other" = "selftest fixture: deliberately allowed"\n\n'
+        + '[vocabulary]\nmodules = ["geometry.vec"]\n'
     )
     write_file(tmpdir + "/scripts/arch_layers.toml", toml_content)
     write_file(tmpdir + "/low/l1.mojo", "def thing():\n    pass\n")
@@ -1588,6 +1628,7 @@ def cmd_selftest() raises:
 
     write_file(tmpdir + "/diag/log.mojo", "def Logger():\n    pass\n")
     write_file(tmpdir + "/geometry/vec.mojo", "def Vec3():\n    pass\n")
+    write_file(tmpdir + "/geometry/aabb.mojo", "def AABB():\n    pass\n")
     write_file(tmpdir + "/spatial/hashgrid.mojo", "def HashGrid():\n    pass\n")
     write_file(tmpdir + "/spatial/quadtree.mojo", "def QuadTree():\n    pass\n")
     write_file(tmpdir + "/ecs/world.mojo", "def World():\n    pass\n")
@@ -1618,6 +1659,18 @@ def cmd_selftest() raises:
         "# tier: component  (override: exercises all six broadphase backends through one trait)\n"
         + "from geometry.vec import Vec3\n",
     )
+    # [vocabulary] fixtures: `geometry.vec` is listed, so a file that merely
+    # imports it alongside its real subject does not get bumped to
+    # `component` for "importing 2 modules of one package" -- unless the
+    # file's own name targets `vec`, in which case it still counts.
+    write_file(
+        tmpdir + "/tests/test_tier_vocab_helper_fixture.mojo",
+        "from geometry.aabb import AABB\nfrom geometry.vec import Vec3\n",
+    )
+    write_file(
+        tmpdir + "/tests/test_vec.mojo",
+        "from geometry.vec import Vec3\nfrom spatial.hashgrid import HashGrid\n",
+    )
 
     os.chdir(tmpdir)
     var lt = load_layer_table("scripts/arch_layers.toml")
@@ -1627,25 +1680,31 @@ def cmd_selftest() raises:
     var violations = run_check(lt, dirs, imports)
     var decls = List[Decl]()
 
-    var facts_unit = compute_tier_facts("tests/test_tier_unit_fixture.mojo", dirs, imports)
+    var facts_unit = compute_tier_facts("tests/test_tier_unit_fixture.mojo", "test_tier_unit_fixture.mojo", dirs, lt, imports)
     var tier_unit = suggest_tier("tests/test_tier_unit_fixture.mojo", "test_tier_unit_fixture.mojo", facts_unit, decls, imports)
 
-    var facts_component = compute_tier_facts("tests/test_tier_component_fixture.mojo", dirs, imports)
+    var facts_component = compute_tier_facts("tests/test_tier_component_fixture.mojo", "test_tier_component_fixture.mojo", dirs, lt, imports)
     var tier_component = suggest_tier("tests/test_tier_component_fixture.mojo", "test_tier_component_fixture.mojo", facts_component, decls, imports)
 
-    var facts_integration = compute_tier_facts("tests/test_tier_integration_fixture.mojo", dirs, imports)
+    var facts_integration = compute_tier_facts("tests/test_tier_integration_fixture.mojo", "test_tier_integration_fixture.mojo", dirs, lt, imports)
     var tier_integration = suggest_tier("tests/test_tier_integration_fixture.mojo", "test_tier_integration_fixture.mojo", facts_integration, decls, imports)
 
-    var facts_system = compute_tier_facts("tests/test_tier_system_fixture.mojo", dirs, imports)
+    var facts_system = compute_tier_facts("tests/test_tier_system_fixture.mojo", "test_tier_system_fixture.mojo", dirs, lt, imports)
     var tier_system = suggest_tier("tests/test_tier_system_fixture.mojo", "test_tier_system_fixture.mojo", facts_system, decls, imports)
 
-    var facts_stress = compute_tier_facts("tests/test_stress_tier_fixture.mojo", dirs, imports)
+    var facts_stress = compute_tier_facts("tests/test_stress_tier_fixture.mojo", "test_stress_tier_fixture.mojo", dirs, lt, imports)
     var tier_stress = suggest_tier("tests/test_stress_tier_fixture.mojo", "test_stress_tier_fixture.mojo", facts_stress, decls, imports)
 
     var override_header = parse_tier_header("tests/test_tier_override_fixture.mojo")
-    var facts_override = compute_tier_facts("tests/test_tier_override_fixture.mojo", dirs, imports)
+    var facts_override = compute_tier_facts("tests/test_tier_override_fixture.mojo", "test_tier_override_fixture.mojo", dirs, lt, imports)
     var tier_override_suggested = suggest_tier("tests/test_tier_override_fixture.mojo", "test_tier_override_fixture.mojo", facts_override, decls, imports)
     var override_status = tier_status(override_header, tier_override_suggested)
+
+    var facts_vocab_helper = compute_tier_facts("tests/test_tier_vocab_helper_fixture.mojo", "test_tier_vocab_helper_fixture.mojo", dirs, lt, imports)
+    var tier_vocab_helper = suggest_tier("tests/test_tier_vocab_helper_fixture.mojo", "test_tier_vocab_helper_fixture.mojo", facts_vocab_helper, decls, imports)
+
+    var facts_vocab_targeted = compute_tier_facts("tests/test_vec.mojo", "test_vec.mojo", dirs, lt, imports)
+    var tier_vocab_targeted = suggest_tier("tests/test_vec.mojo", "test_vec.mojo", facts_vocab_targeted, decls, imports)
 
     var status_missing = tier_status(TierHeader(False, String(""), False, String("")), "unit")
     var status_invalid = tier_status(TierHeader(True, String("bogus"), False, String("")), "unit")
@@ -1655,7 +1714,7 @@ def cmd_selftest() raises:
     os.chdir(orig_cwd)
     shutil.rmtree(tmpdir, ignore_errors=True)
 
-    var total = 19
+    var total = 21
     var passed = 0
     var results = List[String]()
 
@@ -1753,6 +1812,16 @@ def cmd_selftest() raises:
     var c19 = status_empty_override == "MISMATCH"
     results.append("19. tiers: override lacking a reason rejected: " + ("pass" if c19 else "FAIL"))
     if c19:
+        passed += 1
+
+    var c20 = tier_vocab_helper == "unit"
+    results.append("20. tiers: [vocabulary] helper excluded from D when untargeted -> unit: " + ("pass" if c20 else "FAIL: got " + tier_vocab_helper))
+    if c20:
+        passed += 1
+
+    var c21 = tier_vocab_targeted == "component"
+    results.append("21. tiers: [vocabulary] module kept when the file's own name targets it: " + ("pass" if c21 else "FAIL: got " + tier_vocab_targeted))
+    if c21:
         passed += 1
 
     for r in results:

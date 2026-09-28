@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 """3D SDF fields and contact.
 
 Two things are checked separately because they fail for different reasons.

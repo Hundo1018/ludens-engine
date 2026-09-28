@@ -1,4 +1,4 @@
-# tier: integration
+# tier: unit
 """Exact inverse dynamics: tau = ID(q, qd, qdd).
 
 The load-bearing check is the ROUND TRIP. Forward dynamics solves

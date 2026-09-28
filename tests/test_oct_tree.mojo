@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 from harness.runner import Suite
 from geometry.vec import Vec3
 from geometry.aabb import AABB3

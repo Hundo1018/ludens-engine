@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 """Linear BVH (Morton sort + highest-differing-bit split) parity.
 
 The three build heuristics must be interchangeable: same leaves in, same

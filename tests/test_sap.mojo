@@ -1,4 +1,4 @@
-# tier: integration
+# tier: component
 """Sweep-and-prune parity: the pair SET must equal brute force's.
 
 Every `BroadPhase` implementation answers the same question — which boxes

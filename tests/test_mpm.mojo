@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 """MLS-MPM: conservation, containment, and the elastic/plastic distinction.
 
 The last pair of checks is the reason MPM exists in this engine. An elastic

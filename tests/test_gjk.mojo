@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 from harness.runner import Suite
 from geometry.vec import Vec2, Vec3
 from geometry.gjk import ConvexPoly, gjk_intersect

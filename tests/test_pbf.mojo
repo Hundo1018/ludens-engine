@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 """Position-Based Fluids: physical gates, not pictures.
 
 A fluid solver is easy to make look plausible and hard to make correct, so the

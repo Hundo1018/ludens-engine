@@ -1,4 +1,4 @@
-# tier: integration
+# tier: component
 from harness.runner import Suite
 from geometry.vec import Real, Vec2, Vec3
 from geometry.aabb import AABB, AABB3

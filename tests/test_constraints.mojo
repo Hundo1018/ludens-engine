@@ -1,4 +1,4 @@
-# tier: component
+# tier: unit
 """The unified constraint solver, and the friction cone it exposes as a seam.
 
 Most of this file is ordinary: each constraint kind gets a case where the
