@@ -29,7 +29,7 @@ registry, `test_manifold(a, b)`). First implementation:
 """
 
 from std.math import sqrt
-from geometry.vec import WorldType, Real, Vec2, Vec3, dot, PadW
+from geometry.vec import WorldType, Real, Vec2, Vec3, dot, PadW, cross
 from geometry.aabb import AABB
 from geometry.shape import Polygon
 from geometry.quickhull import convex_hull_2d
@@ -232,15 +232,6 @@ struct GjkManifoldNarrowPhase(ManifoldNarrowPhase):
 # --- rotated 3D box-box manifold (SAT + face clipping) -----------------------
 
 
-def _cross3v(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
-
-
 comptime Axes3 = Array[Vec3, 3]
 
 
@@ -410,7 +401,7 @@ def box_box_manifold(
     var best_edge_overlap = Real(1e30)
     for ja in range(3):
         for jb in range(3):
-            var l = _cross3v(axa[ja], axb[jb])
+            var l = cross(axa[ja], axb[jb])
             var ll = dot(l, l)
             if ll < Real(1e-10):
                 continue  # near-parallel edges: face axes cover this

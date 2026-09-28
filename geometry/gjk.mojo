@@ -10,7 +10,7 @@ One toolchain quirk shapes the data structures here:
 Perpendicular search directions use the triple product tprod(a,b,c)=b*(a.c)-c*(a.b).
 """
 
-from .vec import WorldType, Real, dot, PadW
+from .vec import WorldType, Real, dot, PadW, cross
 
 
 comptime _Vec[dim: Int] = SIMD[WorldType, PadW[dim]]
@@ -87,14 +87,6 @@ def _perp[dim: Int](ab: _Vec[dim]) -> _Vec[dim]:
     var r = _Vec[dim](0)
     r[0] = -ab[1]
     r[1] = ab[0]
-    return r
-
-
-def _cross[dim: Int](a: _Vec[dim], b: _Vec[dim]) -> _Vec[dim]:
-    var r = _Vec[dim](0)
-    r[0] = a[1] * b[2] - a[2] * b[1]
-    r[1] = a[2] * b[0] - a[0] * b[2]
-    r[2] = a[0] * b[1] - a[1] * b[0]
     return r
 
 
@@ -186,16 +178,16 @@ def _triangle3[dim: Int](mut s: Simplex[dim], mut d: _Vec[dim]) -> Bool:
     var ao = -a
     var ab = b - a
     var ac = c - a
-    var abc = _cross[dim](ab, ac)
+    var abc = cross[dim](ab, ac)
 
-    if dot(_cross[dim](abc, ac), ao) > 0:
+    if dot(cross[dim](abc, ac), ao) > 0:
         if dot(ac, ao) > 0:
             s.set2(a, c)
             d = _tprod[dim](ac, ao, ac)
             return False
         s.set2(a, b)
         return _line[dim](s, d)
-    if dot(_cross[dim](ab, abc), ao) > 0:
+    if dot(cross[dim](ab, abc), ao) > 0:
         s.set2(a, b)
         return _line[dim](s, d)
     if dot(abc, ao) > 0:
@@ -216,9 +208,9 @@ def _tetra3[dim: Int](mut s: Simplex[dim], mut d: _Vec[dim]) -> Bool:
     var ab = b - a
     var ac = c - a
     var ad = dd - a
-    var abc = _cross[dim](ab, ac)
-    var acd = _cross[dim](ac, ad)
-    var adb = _cross[dim](ad, ab)
+    var abc = cross[dim](ab, ac)
+    var acd = cross[dim](ac, ad)
+    var adb = cross[dim](ad, ab)
 
     if dot(abc, ao) > 0:
         s.set3(a, b, c)

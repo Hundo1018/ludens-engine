@@ -8,16 +8,8 @@ Hamilton product. Depends on `mat.mojo` for matrix conversion, and hosts
 """
 
 from std.math import sqrt, sin, cos, acos
-from .vec import WorldType, Real, Vec3, normalize
+from .vec import WorldType, Real, Vec3, normalize, cross
 from .mat import Mat3, Mat4
-
-
-def _cross3(a: Vec3, b: Vec3) -> Vec3:
-    var r = Vec3(0)
-    r[0] = a[1] * b[2] - a[2] * b[1]
-    r[1] = a[2] * b[0] - a[0] * b[2]
-    r[2] = a[0] * b[1] - a[1] * b[0]
-    return r
 
 
 @fieldwise_init
@@ -69,8 +61,8 @@ struct Quat(Copyable, ImplicitlyCopyable, Movable, Deinitable):
 
     def rotate(self, v: Vec3) -> Vec3:
         var qv = Vec3(self.x, self.y, self.z, 0)
-        var t = _cross3(qv, v) * Real(2)
-        return v + t * self.w + _cross3(qv, t)
+        var t = cross(qv, v) * Real(2)
+        return v + t * self.w + cross(qv, t)
 
     def to_mat3(self) -> Mat3:
         var x = self.x

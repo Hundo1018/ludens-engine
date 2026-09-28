@@ -30,19 +30,10 @@ rather than a tautology, since nothing in the construction enforces it.
 """
 
 from std.math import sqrt
-from geometry.vec import Real, Vec3, dot, length
+from geometry.vec import Real, Vec3, dot, length, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
 from physics.chain import Chain, ChainLink, SpInertia
-
-
-def _cross(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
 
 
 struct FloatingChain(Movable, Deinitable):
@@ -199,8 +190,8 @@ struct FloatingChain(Movable, Deinitable):
         # the base body's own velocity-product force
         var ib = self._base_inertia()
         var mom = ib.apply(self.base_w, self.base_v)
-        fw = fw + _cross(self.base_w, mom[0]) + _cross(self.base_v, mom[1])
-        fv = fv + _cross(self.base_w, mom[1])
+        fw = fw + cross(self.base_w, mom[0]) + cross(self.base_v, mom[1])
+        fv = fv + cross(self.base_w, mom[1])
         var out = List[Real]()
         for j in range(3):
             out.append(fw[j])
@@ -307,10 +298,10 @@ struct FloatingChain(Movable, Deinitable):
         var bq = self.base_rot
         var w_w = bq.rotate(self.base_w)
         var com_w = self.base_pos + bq.rotate(self.base_com)
-        var v_com = bq.rotate(self.base_v + _cross(self.base_w, self.base_com))
+        var v_com = bq.rotate(self.base_v + cross(self.base_w, self.base_com))
         p_lin = p_lin + v_com * self.base_mass
         var i_w = _rotate_inertia(bq, self.base_idiag)
-        l_ang = l_ang + _mul(i_w, w_w) + _cross(com_w, v_com * self.base_mass)
+        l_ang = l_ang + _mul(i_w, w_w) + cross(com_w, v_com * self.base_mass)
 
         for i in range(nn):
             var li = self.chain.links[i]
@@ -322,10 +313,10 @@ struct FloatingChain(Movable, Deinitable):
             var vl = m[1][i]
             var ww = rq.rotate(wl)
             var cw = org + rq.rotate(li.com)
-            var vc = rq.rotate(vl + _cross(wl, li.com))
+            var vc = rq.rotate(vl + cross(wl, li.com))
             p_lin = p_lin + vc * li.mass
             var iw = _rotate_inertia(rq, li.i_diag)
-            l_ang = l_ang + _mul(iw, ww) + _cross(cw, vc * li.mass)
+            l_ang = l_ang + _mul(iw, ww) + cross(cw, vc * li.mass)
         return (p_lin, l_ang)
 
 

@@ -20,7 +20,7 @@ solver's speculative stage already bounds angular tunnelling for box-scale
 spin, and the cast is re-run every substep.
 """
 
-from geometry.vec import Real, Vec3, dot
+from geometry.vec import Real, Vec3, dot, cross
 from collision.manifold import Axes3
 
 
@@ -28,15 +28,6 @@ from collision.manifold import Axes3
 struct ToiResult(Copyable, ImplicitlyCopyable, Movable):
     var hit: Bool
     var t: Real  # fraction of the displacement in [0, 1] (0 = already touching)
-
-
-def _cross(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
 
 
 def _radius(ax: Axes3, h: Vec3, l: Vec3) -> Real:
@@ -68,7 +59,7 @@ def swept_box_toi(
         count += 1
     comptime for i in range(3):
         comptime for j in range(3):
-            axes[count] = _cross(axa[i], axb[j])
+            axes[count] = cross(axa[i], axb[j])
             count += 1
 
     var t_enter = Real(0)

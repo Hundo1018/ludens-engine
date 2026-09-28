@@ -34,7 +34,7 @@ than divided-by-raw-distance.
 """
 
 from std.math import sqrt, acos, isfinite, pow
-from .vec import Real, WorldType, PadW, Vec3, dot, length, length_sq, normalize
+from .vec import Real, WorldType, PadW, Vec3, dot, length, length_sq, normalize, cross
 from .quat import Quat
 from .motor import Motor3
 from .galie import geodesic3
@@ -52,15 +52,6 @@ against accumulated knots up to O(100-1000) and keeps the derivative
 amplification (`1/delta`) from turning ordinary floating-point rounding
 noise into an O(1) error (found empirically: `tests/test_spline.mojo`'s
 coincident-point case NaN'd with the smaller floor)."""
-
-
-def _cross3(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
 
 
 # ------------------------------------------------------------- Barry-Goldman
@@ -447,11 +438,11 @@ def _min_rotation(from_dir: Vec3, to_dir: Vec3) -> Quat:
         return Quat.identity()
     if d < Real(-0.999999):
         # 180-degree flip: any axis perpendicular to from_dir works.
-        var axis = _cross3(Vec3(1, 0, 0, 0), from_dir)
+        var axis = cross(Vec3(1, 0, 0, 0), from_dir)
         if length_sq(axis) < _EPS:
-            axis = _cross3(Vec3(0, 1, 0, 0), from_dir)
+            axis = cross(Vec3(0, 1, 0, 0), from_dir)
         return Quat.from_axis_angle(normalize(axis), Real(3.14159265358979))
-    var axis = normalize(_cross3(from_dir, to_dir))
+    var axis = normalize(cross(from_dir, to_dir))
     var clamped = d
     if clamped > 1:
         clamped = 1

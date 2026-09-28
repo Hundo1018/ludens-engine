@@ -105,3 +105,41 @@ def splat[d: Int](v: Real) -> SIMD[WorldType, PadW[d]]:
     comptime for i in range(d):
         r[i] = v
     return r
+
+
+def cross[dim: Int](
+    a: SIMD[WorldType, PadW[dim]], b: SIMD[WorldType, PadW[dim]]
+) -> SIMD[WorldType, PadW[dim]]:
+    """3-D cross product, dimension-generic over the padded lane width.
+
+    `dim` cannot always be inferred from a plain `SIMD[WorldType, PadW[dim]]`
+    argument (a width-4 value is ambiguous between `dim=3`, padded, and
+    `dim=4`), so a dim-generic call site passes it explicitly: `cross[3](a, b)`.
+    The non-generic `cross(a: Vec3, b: Vec3)` overload below covers the common
+    fixed-width-3 case with no bracket parameter."""
+    var r = SIMD[WorldType, PadW[dim]](0)
+    r[0] = a[1] * b[2] - a[2] * b[1]
+    r[1] = a[2] * b[0] - a[0] * b[2]
+    r[2] = a[0] * b[1] - a[1] * b[0]
+    return r
+
+
+def cross(a: Vec3, b: Vec3) -> Vec3:
+    """3-D cross product. The single shared implementation: this formula and
+    operand order used to be copied privately in 11 modules (audit F8)."""
+    return cross[3](a, b)
+
+
+def tangent_basis(n: Vec3) -> Tuple[Vec3, Vec3]:
+    """Two unit tangents perpendicular to `n` (and each other).
+
+    One fixed convention (seed axis, threshold, cross operand order) shared by
+    every caller that needs A specific orthonormal frame around a normal —
+    moved here verbatim from `physics/solver6.mojo`'s `_tangent_basis` (F8).
+    `collision/hull.mojo`'s `_basis` wants only *some* orthonormal pair, uses a
+    different threshold and operand order, and stays a separate, named
+    variant for that reason (see its docstring)."""
+    var seed = Vec3(0, 1, 0, 0) if abs(n[0]) > 0.9 else Vec3(1, 0, 0, 0)
+    var t1 = cross(seed, n)
+    t1 = t1 / sqrt(max(dot(t1, t1), Real(1e-12)))
+    return (t1, cross(n, t1))

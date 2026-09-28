@@ -42,7 +42,7 @@ deferred (e = 0 scenes).
 from std.math import sqrt
 from std.os import abort
 from max.algorithm import parallelize
-from geometry.vec import Real, Vec3, dot
+from geometry.vec import Real, Vec3, dot, cross, tangent_basis
 from geometry.aabb import AABB
 from collision.manifold import ContactManifold, Axes3
 from collision.collider_set import (
@@ -105,23 +105,6 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
         self.rb = copy.rb.copy()
         self.vn0 = copy.vn0.copy()
         self.racc = copy.racc.copy()
-
-
-def _cross(a: Vec3, b: Vec3) -> Vec3:
-    return Vec3(
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-        0,
-    )
-
-
-def _tangent_basis(n: Vec3) -> Tuple[Vec3, Vec3]:
-    """Two unit tangents perpendicular to `n` (and each other)."""
-    var seed = Vec3(0, 1, 0, 0) if abs(n[0]) > 0.9 else Vec3(1, 0, 0, 0)
-    var t1 = _cross(seed, n)
-    t1 = t1 / sqrt(max(dot(t1, t1), Real(1e-12)))
-    return (t1, _cross(n, t1))
 
 
 # The `_Pt` / `_LV` / `_Half` wrappers that used to sit here existed for one
@@ -597,7 +580,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if self._inactive(pr.a) and self._inactive(pr.b):
                 continue
             var n = pr.m.normal
-            var tb = _tangent_basis(n)
+            var tb = tangent_basis(n)
             for k in range(pr.m.count):
                 var j = (
                     n * pr.acc[k]
@@ -734,14 +717,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         var ob = self.bodies[jt.b].act(jt.axis_b) - self.bodies[
                             jt.b
                         ].act(Vec3(0, 0, 0, 0))
-                        var er = _cross(oa, ob)  # small-angle axis error
+                        var er = cross(oa, ob)  # small-angle axis error
                         var wa = Vec3(0, 0, 0, 0)
                         var wb2 = Vec3(0, 0, 0, 0)
                         if not self.statics[jt.a]:
                             wa = self.bodies[jt.a].omega_world()
                         if not self.statics[jt.b]:
                             wb2 = self.bodies[jt.b].omega_world()
-                        var tb = _tangent_basis(oa)
+                        var tb = tangent_basis(oa)
                         for ti in range(2):
                             var t = tb[0] if ti == 0 else tb[1]
                             var kaa = Real(0)
@@ -911,7 +894,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 if not self.statics[pr.b]:
                     self.bodies[pr.b].apply_impulse(j, pwb)
             # Coulomb friction: tangent impulses clamped to mu * lambda_n.
-            var tb = _tangent_basis(n)
+            var tb = tangent_basis(n)
             var cap = mu * pr.acc[k]
             for ti in range(2):
                 var t = tb[0] if ti == 0 else tb[1]
