@@ -1494,6 +1494,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:普通(單幀 trace dump)/ 整合(標註 job graph、GPU 段)/ 極端(百萬 span、
 > 遞迴 span、執行緒池)。
 
+> **進度:✅ 2026-09-29** `diag/trace.mojo`(`begin`/`end` + `with`-scoped span,`-D LUDENS_TRACE` 關閉時編譯為無)、計數器、Chrome trace 匯出;接入 `ContactScene6`:每步一個 span / 階段(collect_pairs、solve 涵蓋整個子步迴圈、sleep、nan_scan)。17.0h 首版每步 ~23 組 span 量到 ~20% 開銷 → 粗化為每步 5 組;粗化後以兩個獨立行程比較 N=512 的 solve 列差 ~14%,但同表 octree 列方向相反(−15%),且 5 次 `perf_counter` 不可能佔 1 ms → 判定落在本機跨行程雜訊(±15%)內。**待辦**:同一行程交錯量測 trace on/off(需 runtime 開關)以取得乾淨數字。
+
 ### 17.11 反射 / 型別註冊表 — Wave B(架構,解鎖多項)
 > **現況**:`ComponentType` 只有 `comptime ID: Int`;無 runtime metadata。
 > **缺口**:欄位名 / 型別 / offset 的 runtime 表(comptime 生成)、版本標記、(de)serialize
