@@ -75,12 +75,12 @@ def bench_maximal(n: Int) raises -> Int:
             QuatBody6.at_rest(Vec3(0, -0.5 - Real(i), 0, 0), ib),
             Vec3(0.05, 0.5, 0.05, 0),
             False,
-        )
+        ).index()
         _ = sc.add_joint(
             Joint6.hinge(idx - 1, idx, Vec3(0, 0, 0, 0) if i == 0 else Vec3(0, -0.5, 0, 0),
                          Vec3(0, 0.5, 0, 0), Vec3(0, 0, 1, 0))
         )
-    sc.bodies[1].vel = Vec3(0.3, 0, 0, 0)
+    sc.bset.bodies[1].vel = Vec3(0.3, 0, 0, 0)
     var t0 = Int(perf_counter_ns())
     for _ in range(STEPS):
         sc.step_soft(DT, G)

@@ -41,6 +41,13 @@ comptime SHAPE_HULL = 3
 comptime SHAPE_TRIMESH = 4
 comptime SHAPE_HEIGHTFIELD = 5
 
+# Speculative-contact margin base (audit F19): the ONE definition -- both
+# `fat_aabb` below and `collision.contact_gen`'s per-pair margin import this
+# instead of each carrying their own `0.02` literal, so the two can no
+# longer drift apart (the fat-AABB/margin parity guarantee at `fat_aabb`'s
+# docstring depends on them staying equal).
+comptime SPEC_BASE: Real = 0.02
+
 
 @fieldwise_init
 struct Pose3(Copyable, Movable):
@@ -397,7 +404,6 @@ struct ColliderSet(Movable, Deinitable):
         returned instead of a box centred on `pose.position` -- grown by the
         same r_i so the parity guarantee above still holds even though a
         static mesh never moves (17.0f / F3)."""
-        comptime SPEC_BASE: Real = 0.02
         var k = self.shape[i]
         if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
             var r0 = Real(0)

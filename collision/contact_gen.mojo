@@ -22,12 +22,10 @@ controller can call it without ever importing physics.
 from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
-from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH
+from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SPEC_BASE
 from .broadphase import BroadPhase, BoxProxy, Pair
 from .manifold import ContactManifold
 from .hull import hull_manifold
-
-comptime SPEC_BASE: Real = 0.02
 
 
 @fieldwise_init

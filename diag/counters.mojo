@@ -45,8 +45,13 @@ comptime EVENT_DROPPED_UNREAD: Int = 8
 """`scheduler.events.Channel` recycled its double buffer while a reader's
 cursor was still behind it; that reader's events for this cycle were dropped
 (see `scheduler/events.mojo`)."""
+comptime PARALLEL_FALLBACK_SERIAL: Int = 9
+"""`physics.solver6.ContactScene6.step(cfg.parallel=True)` fell back to the
+serial path because soft bodies, `ccd`, or `colored` solving were also
+requested in the same step (audit F23 -- the island-parallel path assumes
+none of those)."""
 
-comptime COUNT: Int = 9
+comptime COUNT: Int = 10
 
 
 def _name(id: Int) -> String:
@@ -68,6 +73,8 @@ def _name(id: Int) -> String:
         return "pool_exhausted"
     elif id == EVENT_DROPPED_UNREAD:
         return "event_dropped_unread"
+    elif id == PARALLEL_FALLBACK_SERIAL:
+        return "parallel_fallback_serial"
     else:
         return "counter_" + String(id)
 

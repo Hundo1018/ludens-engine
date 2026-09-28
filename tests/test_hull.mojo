@@ -126,17 +126,17 @@ def case_rest(use_hull: Bool, use_bp: Bool) -> List[Real]:
         b = sc.add_hull(
             QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
             _box_verts(0.25), False,
-        )
+        ).index()
     else:
         b = sc.add(
             QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
             Vec3(0.25, 0.25, 0.25, 0), False,
-        )
+        ).index()
     for _ in range(240):
         sc.step_soft(DT, G, broadphase=use_bp)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 
@@ -150,20 +150,20 @@ def case_mixed() -> List[Real]:
     var h = sc.add_hull(
         QuatBody6.at_rest(Vec3(-1, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         _box_verts(0.25), False,
-    )
+    ).index()
     var bx = sc.add(
         QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0), False,
-    )
+    ).index()
     var sp = sc.add_sphere(
         QuatBody6.at_rest(Vec3(1, 0.6, 0, 0), Inertia3.sphere(2, 0.25)), 0.25, False
-    )
+    ).index()
     for _ in range(240):
         sc.step_soft(DT, G)
     var out = List[Real](capacity=3)
-    out.append(sc.bodies[h].position()[1])
-    out.append(sc.bodies[bx].position()[1])
-    out.append(sc.bodies[sp].position()[1])
+    out.append(sc.bset.bodies[h].position()[1])
+    out.append(sc.bset.bodies[bx].position()[1])
+    out.append(sc.bset.bodies[sp].position()[1])
     return out^
 
 
@@ -184,10 +184,10 @@ def case_tetra_rest() -> Real:
     var t = sc.add_hull(
         QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.3, 0.3, 0.3)),
         v^, False,
-    )
+    ).index()
     for _ in range(300):
         sc.step_soft(DT, G)
-    return sc.bodies[t].position()[1]
+    return sc.bset.bodies[t].position()[1]
 
 
 # ---------------------------------------------------------------- EXTREME

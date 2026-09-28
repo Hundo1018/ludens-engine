@@ -32,17 +32,17 @@ def _scene() -> ContactScene6[QuatBody6]:
         QuatBody6.at_rest(Vec3(10, 2, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
         Vec3(0.05, 0.05, 0.05, 0),
         True,
-    )
+    ).index()
     var bob = sc.add(
         QuatBody6.at_rest(Vec3(10, 1, 0, 0), Inertia3.box(1, 0.15, 0.15, 0.15)),
         Vec3(0.15, 0.15, 0.15, 0),
         False,
-    )
+    ).index()
     _ = sc.add_joint(Joint6.ball(anchor, bob, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0)))
-    sc.bodies[bob].vel = Vec3(0.3, 0, 0, 0)
+    sc.bset.bodies[bob].vel = Vec3(0.3, 0, 0, 0)
     var ball = sc.add_sphere(
         QuatBody6.at_rest(Vec3(-10, 1.3, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
-    )
+    ).index()
     sc.set_restitution(ball, 0.7)
     return sc^
 
@@ -61,17 +61,17 @@ def main() raises:
     var same_pos = True
     var same_rot = True
     var same_sleep = True
-    for i in range(len(ser.bodies)):
-        var dp = ser.bodies[i].pos - par.bodies[i].pos
+    for i in range(len(ser.bset.bodies)):
+        var dp = ser.bset.bodies[i].pos - par.bset.bodies[i].pos
         if dp[0] != 0 or dp[1] != 0 or dp[2] != 0:
             same_pos = False
             print("  pos mismatch body", i)
         if (
-            ser.bodies[i].q.x != par.bodies[i].q.x
-            or ser.bodies[i].q.w != par.bodies[i].q.w
+            ser.bset.bodies[i].q.x != par.bset.bodies[i].q.x
+            or ser.bset.bodies[i].q.w != par.bset.bodies[i].q.w
         ):
             same_rot = False
-        if ser.sleeping[i] != par.sleeping[i]:
+        if ser.bset.sleeping[i] != par.bset.sleeping[i]:
             same_sleep = False
     s.check(same_pos, "parallel == serial positions (bit-identical)")
     s.check(same_rot, "parallel == serial rotations")
@@ -86,7 +86,7 @@ def main() raises:
     for t in range(4):
         for i in range(3):
             var idx = 1 + t * 3 + i
-            var y = Float64(par.bodies[idx].position()[1])
+            var y = Float64(par.bset.bodies[idx].position()[1])
             if abs(y - (0.25 + 0.5 * Float64(i))) > 0.02:
                 ok = False
     s.check(ok, "all four towers stand under the parallel solver")
@@ -109,12 +109,12 @@ def main() raises:
         var sc = _scene()
         for _ in range(400):
             sc.step_soft(DT, G, parallel=True, workers=w)
-        for i in range(len(ser.bodies)):
-            var d = ser.bodies[i].pos - sc.bodies[i].pos
+        for i in range(len(ser.bset.bodies)):
+            var d = ser.bset.bodies[i].pos - sc.bset.bodies[i].pos
             if d[0] != 0 or d[1] != 0 or d[2] != 0:
                 all_same = False
                 print("  workers=", w, " pos mismatch body", i)
-            if ser.bodies[i].q.w != sc.bodies[i].q.w:
+            if ser.bset.bodies[i].q.w != sc.bset.bodies[i].q.w:
                 all_same = False
     s.check(all_same, "every worker count is bit-identical to serial")
 

@@ -44,6 +44,7 @@ from std.os import abort
 from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot, cross, tangent_basis
 from geometry.aabb import AABB
+from geometry.quat import Quat
 from collision.manifold import ContactManifold, Axes3
 from collision.collider_set import (
     ColliderSet,
@@ -58,8 +59,14 @@ from collision.contact_events import ContactEvent, pack_key, diff_events
 from collision.broadphase import BroadPhase, Pair
 from collision.bp_bvh import BVHBroadPhase
 from collision.toi import swept_box_toi
-from .rigid6 import Body6
-from .softbody import SoftBody
+from collision.hull import HullShape
+from collision.trimesh import TriMesh, HeightField
+from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL
+from .rigid6 import Body6, QuatBody6, Inertia3
+from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC
+from .solver_config import SolverConfig
+from .state_io import StateWriter, StateReader
+from .softbody import SoftBody, SP, SEdge
 
 comptime _BETA: Real = 0.2  # Baumgarte position-correction gain
 comptime _SLOP: Real = 0.005  # allowed penetration
@@ -161,16 +168,14 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
 struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
-    var bodies: List[Self.B]
-    var statics: List[Bool]
+    var bset: BodySet[Self.B]  # body identity + per-body SoA (F5): bodies,
+    # motion (static/dynamic), sleeping, sleep_timer, island, restitution --
+    # see `physics/body_set.mojo`.
     var cache: List[_CPair]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
-    var sleeping: List[Bool]
-    var sleep_timer: List[Real]
-    var island: List[Int]  # island label per body (last step; -1 = static)
     var softs: List[SoftBody]
-    var restitution: List[Real]  # per-body coefficient (pair uses max)
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
+    var counters: Counters  # diag counters (F23: parallel fallback to serial)
     var bp: Self.BP  # persistent broadphase, used when `step_soft(broadphase=True)`
     # A sensor reports overlap and never receives an impulse. Its pairs are
     # collected separately rather than flagged in `pairs`, so that not one of
@@ -188,16 +193,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         comptime assert Self.BP.dim == 3, (
             "ContactScene6 is a 3-D solver: its BroadPhase must have dim == 3"
         )
-        self.bodies = List[Self.B]()
-        self.statics = List[Bool]()
+        self.bset = BodySet[Self.B]()
         self.cache = List[_CPair]()
         self.joints = List[Joint6]()
-        self.sleeping = List[Bool]()
-        self.sleep_timer = List[Real]()
-        self.island = List[Int]()
         self.softs = List[SoftBody]()
-        self.restitution = List[Real]()
         self.colliders = ColliderSet()
+        self.counters = Counters()
         self.bp = Self.BP()
         self.sensor_pairs = List[_CPair]()
         self.events_on = False
@@ -215,16 +216,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def island_count(self) -> Int:
         """Number of distinct dynamic islands from the last `step_soft`."""
         var seen = List[Int]()
-        for i in range(len(self.island)):
-            if self.island[i] < 0:
+        for i in range(len(self.bset.island)):
+            if self.bset.island[i] < 0:
                 continue
             var known = False
             for j in range(len(seen)):
-                if seen[j] == self.island[i]:
+                if seen[j] == self.bset.island[i]:
                     known = True
                     break
             if not known:
-                seen.append(self.island[i])
+                seen.append(self.bset.island[i])
         return len(seen)
 
     def _find(self, mut parent: List[Int], i: Int) -> Int:
@@ -240,103 +241,117 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         """Union-find over the constraint graph (contacts + joints between
         dynamic bodies; statics do not merge islands), then the wake rule:
         an island with ANY awake member wakes entirely."""
-        var n = len(self.bodies)
+        var n = len(self.bset.bodies)
         var parent = List[Int]()
         for i in range(n):
             parent.append(i)
         for c in range(len(pairs)):
             var a = pairs[c].a
             var b = pairs[c].b
-            if not self.statics[a] and not self.statics[b]:
+            if not self.bset.is_static(a) and not self.bset.is_static(b):
                 parent[self._find(parent, a)] = self._find(parent, b)
         for c in range(len(self.joints)):
             var a = self.joints[c].a
             var b = self.joints[c].b
-            if not self.statics[a] and not self.statics[b]:
+            if not self.bset.is_static(a) and not self.bset.is_static(b):
                 parent[self._find(parent, a)] = self._find(parent, b)
         # labels + island-wide wake
-        while len(self.island) < n:
-            self.island.append(-1)
+        while len(self.bset.island) < n:
+            self.bset.island.append(-1)
         for i in range(n):
-            self.island[i] = -1 if self.statics[i] else self._find(parent, i)
+            self.bset.island[i] = -1 if self.bset.is_static(i) else self._find(parent, i)
         for i in range(n):
-            if self.statics[i] or self.sleeping[i]:
+            if self.bset.is_static(i) or self.bset.sleeping[i]:
                 continue
             # island member i is awake -> wake everyone sharing its label
             for j in range(n):
-                if self.island[j] == self.island[i] and self.sleeping[j]:
-                    self.sleeping[j] = False
-                    self.sleep_timer[j] = 0
+                if self.bset.island[j] == self.bset.island[i] and self.bset.sleeping[j]:
+                    self.bset.sleeping[j] = False
+                    self.bset.sleep_timer[j] = 0
 
-    def _update_sleep(mut self, dt: Real):
+    def _update_sleep(mut self, dt: Real, cfg: SolverConfig):
         """Advance per-body still-timers; a whole island sleeps together."""
-        comptime LIN_TOL: Real = 0.01
-        comptime ANG_TOL: Real = 0.05
-        comptime SLEEP_TIME: Real = 0.5
-        var n = len(self.bodies)
+        var n = len(self.bset.bodies)
         for i in range(n):
-            if self.statics[i] or self.sleeping[i]:
+            if self.bset.is_static(i) or self.bset.sleeping[i]:
                 continue
-            var v = self.bodies[i].linear_velocity()
-            var w = self.bodies[i].omega_world()
-            if dot(v, v) < LIN_TOL * LIN_TOL and dot(w, w) < ANG_TOL * ANG_TOL:
-                self.sleep_timer[i] += dt
+            var v = self.bset.bodies[i].linear_velocity()
+            var w = self.bset.bodies[i].omega_world()
+            if (
+                dot(v, v) < cfg.lin_sleep_tol * cfg.lin_sleep_tol
+                and dot(w, w) < cfg.ang_sleep_tol * cfg.ang_sleep_tol
+            ):
+                self.bset.sleep_timer[i] += dt
             else:
-                self.sleep_timer[i] = 0
+                self.bset.sleep_timer[i] = 0
         # sleep islands whose every member has been still long enough
         for i in range(n):
-            if self.statics[i] or self.sleeping[i]:
+            if self.bset.is_static(i) or self.bset.sleeping[i]:
                 continue
             var all_still = True
             for j in range(n):
-                if self.island[j] == self.island[i] and self.sleep_timer[
+                if self.bset.island[j] == self.bset.island[i] and self.bset.sleep_timer[
                     j
-                ] < SLEEP_TIME:
+                ] < cfg.sleep_time:
                     all_still = False
                     break
             if all_still:
                 for j in range(n):
-                    if self.island[j] == self.island[i]:
-                        self.sleeping[j] = True
-                        self.bodies[j].halt()
+                    if self.bset.island[j] == self.bset.island[i]:
+                        self.bset.sleeping[j] = True
+                        self.bset.bodies[j].halt()
 
-    def _push_body(mut self, var b: Self.B, is_static: Bool):
+    def _push_body(mut self, var b: Self.B, is_static: Bool) -> BodyId:
         """The body-list half of registration, shared by every `add*`
-        variant -- always called exactly once per body, in lockstep with
-        exactly one `self.colliders.add*` call, so the two index spaces stay
-        aligned (collider `i` <-> body `i`)."""
-        self.bodies.append(b^)
-        self.statics.append(is_static)
-        self.sleeping.append(False)
-        self.sleep_timer.append(0)
-        self.island.append(-1)
-        self.restitution.append(0)
+        variant -- always called exactly once per body, through
+        `BodySet.push` (the one append site, F5), in lockstep with exactly
+        one `self.colliders.add*` call, so the two index spaces stay
+        aligned (collider `i` <-> body `i`; `add` below asserts it)."""
+        return self.bset.push(b^, MOTION_STATIC if is_static else MOTION_DYNAMIC)
 
-    def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> Int:
-        self._push_body(b^, is_static)
-        return self.colliders.add(half)
+    def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> BodyId:
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add(half)
+        debug_assert(
+            ci == id.index(), "ContactScene6.add: body/collider index desync"
+        )
+        return id
 
-    def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> Int:
-        self._push_body(b^, is_static)
-        return self.colliders.add_sphere(r)
+    def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> BodyId:
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_sphere(r)
+        debug_assert(
+            ci == id.index(),
+            "ContactScene6.add_sphere: body/collider index desync",
+        )
+        return id
 
     def add_capsule(
         mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool
-    ) -> Int:
-        self._push_body(b^, is_static)
-        return self.colliders.add_capsule(r, half_len)
+    ) -> BodyId:
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_capsule(r, half_len)
+        debug_assert(
+            ci == id.index(),
+            "ContactScene6.add_capsule: body/collider index desync",
+        )
+        return id
 
     def add_hull(
         mut self, var b: Self.B, var verts: List[Real], is_static: Bool
-    ) -> Int:
+    ) -> BodyId:
         """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
         vertex) -- see `collision.collider_set.ColliderSet.add_hull`."""
-        self._push_body(b^, is_static)
-        return self.colliders.add_hull(verts^)
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_hull(verts^)
+        debug_assert(
+            ci == id.index(), "ContactScene6.add_hull: body/collider index desync"
+        )
+        return id
 
     def add_trimesh(
         mut self, var b: Self.B, verts: List[Real], indices: List[Int]
-    ) -> Int:
+    ) -> BodyId:
         """Static triangle soup. `verts` is flat (x, y, z per vertex) in WORLD
         space, `indices` three per triangle.
 
@@ -344,18 +359,28 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         volume, so a dynamic one would be resolved against by contacts that
         cannot conserve anything; refusing it here is cheaper than discovering
         it as drift."""
-        self._push_body(b^, True)
-        return self.colliders.add_trimesh(verts, indices)
+        var id = self._push_body(b^, True)
+        var ci = self.colliders.add_trimesh(verts, indices)
+        debug_assert(
+            ci == id.index(),
+            "ContactScene6.add_trimesh: body/collider index desync",
+        )
+        return id
 
     def add_heightfield(
         mut self, var b: Self.B, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0,
-    ) -> Int:
+    ) -> BodyId:
         """Static heightfield: the same surface as a mesh, with the triangles
         left implicit and the midphase reduced to arithmetic. Static for the
         same reason as `add_trimesh`."""
-        self._push_body(b^, True)
-        return self.colliders.add_heightfield(heights, nx, nz, cell, ox, oz)
+        var id = self._push_body(b^, True)
+        var ci = self.colliders.add_heightfield(heights, nx, nz, cell, ox, oz)
+        debug_assert(
+            ci == id.index(),
+            "ContactScene6.add_heightfield: body/collider index desync",
+        )
+        return id
 
     def set_filter(mut self, i: Int, category: UInt32, mask: UInt32):
         """Which layer body `i` is on, and which layers it collides with."""
@@ -367,10 +392,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.colliders.set_sensor(i, on)
 
     def set_restitution(mut self, i: Int, e: Real):
-        self.restitution[i] = e
+        self.bset.restitution[i] = e
 
     def _inactive(self, i: Int) -> Bool:
-        return self.statics[i] or self.sleeping[i]
+        return self.bset.is_static(i) or self.bset.sleeping[i]
 
     def _solve_point(
         mut self,
@@ -388,17 +413,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         torque and resting boxes slowly rotate)."""
         var va = Vec3(0, 0, 0, 0)
         var ka = Real(0)
-        if not self.statics[ia]:
-            va = self.bodies[ia].velocity_at(p)
-            ka = self.bodies[ia].inv_mass() + self.bodies[ia].angular_factor(
-                p - self.bodies[ia].position(), n
+        if not self.bset.is_static(ia):
+            va = self.bset.bodies[ia].velocity_at(p)
+            ka = self.bset.bodies[ia].inv_mass() + self.bset.bodies[ia].angular_factor(
+                p - self.bset.bodies[ia].position(), n
             )
         var vb = Vec3(0, 0, 0, 0)
         var kb = Real(0)
-        if not self.statics[ib]:
-            vb = self.bodies[ib].velocity_at(p)
-            kb = self.bodies[ib].inv_mass() + self.bodies[ib].angular_factor(
-                p - self.bodies[ib].position(), n
+        if not self.bset.is_static(ib):
+            vb = self.bset.bodies[ib].velocity_at(p)
+            kb = self.bset.bodies[ib].inv_mass() + self.bset.bodies[ib].angular_factor(
+                p - self.bset.bodies[ib].position(), n
             )
         var denom = ka + kb
         if denom <= 0:
@@ -410,25 +435,25 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if dl == 0:
             return acc
         var j = n * dl
-        if not self.statics[ia]:
-            self.bodies[ia].apply_impulse(-j, p)
-        if not self.statics[ib]:
-            self.bodies[ib].apply_impulse(j, p)
+        if not self.bset.is_static(ia):
+            self.bset.bodies[ia].apply_impulse(-j, p)
+        if not self.bset.is_static(ib):
+            self.bset.bodies[ib].apply_impulse(j, p)
         return new_acc
 
     def _axes(self, i: Int) -> Axes3:
         """World-frame box axes of body `i` (via `act`, representation-free)."""
-        var o = self.bodies[i].act(Vec3(0, 0, 0, 0))
+        var o = self.bset.bodies[i].act(Vec3(0, 0, 0, 0))
         var out = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
-        out[0] = self.bodies[i].act(Vec3(1, 0, 0, 0)) - o
-        out[1] = self.bodies[i].act(Vec3(0, 1, 0, 0)) - o
-        out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
+        out[0] = self.bset.bodies[i].act(Vec3(1, 0, 0, 0)) - o
+        out[1] = self.bset.bodies[i].act(Vec3(0, 1, 0, 0)) - o
+        out[2] = self.bset.bodies[i].act(Vec3(0, 0, 1, 0)) - o
         return out^
 
     def _pose(self, i: Int) -> Pose3:
         """The seam value: everything `ColliderSet` needs from body `i`'s
         transform, and nothing else -- collision never sees a `Body6`."""
-        return Pose3(self.bodies[i].position(), self._axes(i))
+        return Pose3(self.bset.bodies[i].position(), self._axes(i))
 
     def _make_sensor_cpair(self, rc: RawContact) -> _CPair:
         """Wrap a sensor overlap: all-zero accumulators/anchors, matching the
@@ -466,14 +491,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             Array[Real, 4](fill=0),
         )
         for k in range(rc.m.count):
-            pr.ra[k] = self.bodies[rc.a].to_local(rc.m.points[k])
-            pr.rb[k] = self.bodies[rc.b].to_local(rc.m.points[k])
+            pr.ra[k] = self.bset.bodies[rc.a].to_local(rc.m.points[k])
+            pr.rb[k] = self.bset.bodies[rc.b].to_local(rc.m.points[k])
             var va0 = Vec3(0, 0, 0, 0)
             var vb0 = Vec3(0, 0, 0, 0)
-            if not self.statics[rc.a]:
-                va0 = self.bodies[rc.a].velocity_at(rc.m.points[k])
-            if not self.statics[rc.b]:
-                vb0 = self.bodies[rc.b].velocity_at(rc.m.points[k])
+            if not self.bset.is_static(rc.a):
+                va0 = self.bset.bodies[rc.a].velocity_at(rc.m.points[k])
+            if not self.bset.is_static(rc.b):
+                vb0 = self.bset.bodies[rc.b].velocity_at(rc.m.points[k])
             pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
         if warm:
             for c in range(len(self.cache)):
@@ -513,7 +538,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         `Body6` (`_make_cpair`)."""
         var raws = List[RawContact]()
         var sraws = List[RawContact]()
-        var n = len(self.bodies)
+        var n = len(self.bset.bodies)
         if use_bp:
             # `Self.BP.dim` is a dependent expression that never unifies
             # with the literal `3` `ColliderSet.fat_aabb` returns, even
@@ -525,11 +550,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 boxes.append(
                     rebind[AABB[Self.BP.dim]](
                         self.colliders.fat_aabb(
-                            i, self._pose(i), self.bodies[i].linear_velocity(), spec_dt
+                            i, self._pose(i), self.bset.bodies[i].linear_velocity(), spec_dt
                         )
                     )
                 )
             var bp_pairs = List[Pair]()
+            # `collect_bp_pairs` still wants a plain `List[Bool]` of which
+            # bodies are static (it lives in `collision`, which cannot
+            # import `physics.body_set`'s `MOTION_*` constants -- physics is
+            # a higher layer); build it from `self.bset.motion` once here
+            # rather than widen that seam's parameter type for one caller.
+            var is_static_bool = List[Bool](capacity=n)
+            for i in range(n):
+                is_static_bool.append(self.bset.is_static(i))
             # `collect_bp_pairs` is `raises` only because `SpatialHashBroadPhase`
             # (one of the dim-3 backends `Self.BP` can be) wraps
             # `SpatialHashGrid`, whose own methods raise. That is a broken-
@@ -541,7 +574,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # call sites across tests/benchmarks) `raises` for a path that
             # should never actually raise.
             try:
-                collect_bp_pairs[Self.BP](self.bp, boxes, self.statics, bp_pairs)
+                collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs)
             except e:
                 abort("BroadPhase raised inside ContactScene6: " + String(e))
             for c in range(len(bp_pairs)):
@@ -549,19 +582,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 var j = bp_pairs[c].b
                 try_pair(
                     self.colliders, i, j, self._pose(i), self._pose(j),
-                    self.bodies[i].linear_velocity(),
-                    self.bodies[j].linear_velocity(),
+                    self.bset.bodies[i].linear_velocity(),
+                    self.bset.bodies[j].linear_velocity(),
                     spec_dt, raws, sraws,
                 )
         else:
             for i in range(n):
                 for j in range(i + 1, n):
-                    if self.statics[i] and self.statics[j]:
+                    if self.bset.is_static(i) and self.bset.is_static(j):
                         continue
                     try_pair(
                         self.colliders, i, j, self._pose(i), self._pose(j),
-                        self.bodies[i].linear_velocity(),
-                        self.bodies[j].linear_velocity(),
+                        self.bset.bodies[i].linear_velocity(),
+                        self.bset.bodies[j].linear_velocity(),
                         spec_dt, raws, sraws,
                     )
         self.sensor_pairs = List[_CPair]()  # rebuilt with the solved pairs
@@ -587,21 +620,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     + tb[0] * pr.acc_t1[k]
                     + tb[1] * pr.acc_t2[k]
                 )
-                if not self.statics[pr.a]:
-                    self.bodies[pr.a].apply_impulse(
-                        -j, self.bodies[pr.a].act(pr.ra[k])
+                if not self.bset.is_static(pr.a):
+                    self.bset.bodies[pr.a].apply_impulse(
+                        -j, self.bset.bodies[pr.a].act(pr.ra[k])
                     )
-                if not self.statics[pr.b]:
-                    self.bodies[pr.b].apply_impulse(
-                        j, self.bodies[pr.b].act(pr.rb[k])
+                if not self.bset.is_static(pr.b):
+                    self.bset.bodies[pr.b].apply_impulse(
+                        j, self.bset.bodies[pr.b].act(pr.rb[k])
                     )
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):
         # 1. Gravity on dynamic bodies (velocity level).
-        for i in range(len(self.bodies)):
-            if not self.statics[i]:
-                var f = gravity / self.bodies[i].inv_mass()  # force = m·g
-                self.bodies[i].integrate_force(dt, f, Vec3(0, 0, 0, 0))
+        for i in range(len(self.bset.bodies)):
+            if not self.bset.is_static(i):
+                var f = gravity / self.bset.bodies[i].inv_mass()  # force = m·g
+                self.bset.bodies[i].integrate_force(dt, f, Vec3(0, 0, 0, 0))
         # 2. Contact manifolds at the pre-solve poses.
         var pairs = self._collect_pairs(False, 0)
         # 3. Gauss-Seidel sweeps of accumulated per-point normal impulses.
@@ -620,9 +653,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     )
                 pairs[c] = pr
         # 4. Advance poses.
-        for i in range(len(self.bodies)):
-            if not self.statics[i]:
-                self.bodies[i].integrate_pose(dt)
+        for i in range(len(self.bset.bodies)):
+            if not self.bset.is_static(i):
+                self.bset.bodies[i].integrate_pose(dt)
 
     def _joint_axis(
         mut self,
@@ -643,17 +676,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         position error `c`; returns the accumulated-impulse delta."""
         var va = Vec3(0, 0, 0, 0)
         var ka = Real(0)
-        if not self.statics[ia]:
-            va = self.bodies[ia].velocity_at(pwa)
-            ka = self.bodies[ia].inv_mass() + self.bodies[ia].angular_factor(
-                pwa - self.bodies[ia].position(), e
+        if not self.bset.is_static(ia):
+            va = self.bset.bodies[ia].velocity_at(pwa)
+            ka = self.bset.bodies[ia].inv_mass() + self.bset.bodies[ia].angular_factor(
+                pwa - self.bset.bodies[ia].position(), e
             )
         var vb = Vec3(0, 0, 0, 0)
         var kb = Real(0)
-        if not self.statics[ib]:
-            vb = self.bodies[ib].velocity_at(pwb)
-            kb = self.bodies[ib].inv_mass() + self.bodies[ib].angular_factor(
-                pwb - self.bodies[ib].position(), e
+        if not self.bset.is_static(ib):
+            vb = self.bset.bodies[ib].velocity_at(pwb)
+            kb = self.bset.bodies[ib].inv_mass() + self.bset.bodies[ib].angular_factor(
+                pwb - self.bset.bodies[ib].position(), e
             )
         var denom = ka + kb
         if denom <= 0:
@@ -662,14 +695,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var bias = bias_rate * c if use_bias else Real(0)
         var dl = -ms * (vr + bias) / denom - isc * acc_e
         var j = e * dl
-        if not self.statics[ia]:
-            self.bodies[ia].apply_impulse(-j, pwa)
-        if not self.statics[ib]:
-            self.bodies[ib].apply_impulse(j, pwb)
+        if not self.bset.is_static(ia):
+            self.bset.bodies[ia].apply_impulse(-j, pwa)
+        if not self.bset.is_static(ib):
+            self.bset.bodies[ib].apply_impulse(j, pwb)
         return dl
 
     def _joint_island(self, jt: Joint6) -> Int:
-        return self.island[jt.a] if not self.statics[jt.a] else self.island[jt.b]
+        return self.bset.island[jt.a] if not self.bset.is_static(jt.a) else self.bset.island[jt.b]
 
     def _joint_sweep(
         mut self,
@@ -688,8 +721,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     continue
                 if island_filter != -2 and self._joint_island(jt) != island_filter:
                     continue
-                var pwa = self.bodies[jt.a].act(jt.la)
-                var pwb = self.bodies[jt.b].act(jt.lb)
+                var pwa = self.bset.bodies[jt.a].act(jt.la)
+                var pwb = self.bset.bodies[jt.b].act(jt.lb)
                 var gap = pwb - pwa
                 if jt.kind == JOINT_DISTANCE:
                     var l = sqrt(max(dot(gap, gap), Real(1e-12)))
@@ -711,28 +744,28 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         )
                         jt.acc[ax] += dl
                     if jt.kind == JOINT_HINGE:
-                        var oa = self.bodies[jt.a].act(jt.axis_a) - self.bodies[
+                        var oa = self.bset.bodies[jt.a].act(jt.axis_a) - self.bset.bodies[
                             jt.a
                         ].act(Vec3(0, 0, 0, 0))
-                        var ob = self.bodies[jt.b].act(jt.axis_b) - self.bodies[
+                        var ob = self.bset.bodies[jt.b].act(jt.axis_b) - self.bset.bodies[
                             jt.b
                         ].act(Vec3(0, 0, 0, 0))
                         var er = cross(oa, ob)  # small-angle axis error
                         var wa = Vec3(0, 0, 0, 0)
                         var wb2 = Vec3(0, 0, 0, 0)
-                        if not self.statics[jt.a]:
-                            wa = self.bodies[jt.a].omega_world()
-                        if not self.statics[jt.b]:
-                            wb2 = self.bodies[jt.b].omega_world()
+                        if not self.bset.is_static(jt.a):
+                            wa = self.bset.bodies[jt.a].omega_world()
+                        if not self.bset.is_static(jt.b):
+                            wb2 = self.bset.bodies[jt.b].omega_world()
                         var tb = tangent_basis(oa)
                         for ti in range(2):
                             var t = tb[0] if ti == 0 else tb[1]
                             var kaa = Real(0)
                             var kbb = Real(0)
-                            if not self.statics[jt.a]:
-                                kaa = self.bodies[jt.a].angular_only_factor(t)
-                            if not self.statics[jt.b]:
-                                kbb = self.bodies[jt.b].angular_only_factor(t)
+                            if not self.bset.is_static(jt.a):
+                                kaa = self.bset.bodies[jt.a].angular_only_factor(t)
+                            if not self.bset.is_static(jt.b):
+                                kbb = self.bset.bodies[jt.b].angular_only_factor(t)
                             var den = kaa + kbb
                             if den <= 0:
                                 continue
@@ -744,16 +777,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                             var dl = -ms * (vr + bias) / den - isc * acc_t
                             jt.acc_ang = jt.acc_ang + t * dl
                             var limp = t * dl
-                            if not self.statics[jt.a]:
-                                self.bodies[jt.a].apply_angular_impulse(-limp)
-                            if not self.statics[jt.b]:
-                                self.bodies[jt.b].apply_angular_impulse(limp)
+                            if not self.bset.is_static(jt.a):
+                                self.bset.bodies[jt.a].apply_angular_impulse(-limp)
+                            if not self.bset.is_static(jt.b):
+                                self.bset.bodies[jt.b].apply_angular_impulse(limp)
                             wa = Vec3(0, 0, 0, 0)
                             wb2 = Vec3(0, 0, 0, 0)
-                            if not self.statics[jt.a]:
-                                wa = self.bodies[jt.a].omega_world()
-                            if not self.statics[jt.b]:
-                                wb2 = self.bodies[jt.b].omega_world()
+                            if not self.bset.is_static(jt.a):
+                                wa = self.bset.bodies[jt.a].omega_world()
+                            if not self.bset.is_static(jt.b):
+                                wb2 = self.bset.bodies[jt.b].omega_world()
                 self.joints[c] = jt
 
     def _warm_start_joints(mut self, island_filter: Int):
@@ -763,16 +796,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 continue
             if island_filter != -2 and self._joint_island(jt) != island_filter:
                 continue
-            var pwa = self.bodies[jt.a].act(jt.la)
-            var pwb = self.bodies[jt.b].act(jt.lb)
-            if not self.statics[jt.a]:
-                self.bodies[jt.a].apply_impulse(-jt.acc, pwa)
+            var pwa = self.bset.bodies[jt.a].act(jt.la)
+            var pwb = self.bset.bodies[jt.b].act(jt.lb)
+            if not self.bset.is_static(jt.a):
+                self.bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
                 if jt.kind == JOINT_HINGE:
-                    self.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
-            if not self.statics[jt.b]:
-                self.bodies[jt.b].apply_impulse(jt.acc, pwb)
+                    self.bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
+            if not self.bset.is_static(jt.b):
+                self.bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
                 if jt.kind == JOINT_HINGE:
-                    self.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
+                    self.bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
 
     def _soft_sweep(
         mut self,
@@ -849,25 +882,25 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             return
         var n = pr.m.normal
         for k in range(pr.m.count):
-            var pwa = self.bodies[pr.a].act(pr.ra[k])
-            var pwb = self.bodies[pr.b].act(pr.rb[k])
+            var pwa = self.bset.bodies[pr.a].act(pr.ra[k])
+            var pwb = self.bset.bodies[pr.b].act(pr.rb[k])
             # anchors coincided at prep with depth d0; separation since
             # then is the anchor drift along the normal
             var d = pr.m.depths[k] - dot(pwb - pwa, n)
             var va = Vec3(0, 0, 0, 0)
             var ka = Real(0)
-            if not self.statics[pr.a]:
-                va = self.bodies[pr.a].velocity_at(pwa)
-                ka = self.bodies[pr.a].inv_mass() + self.bodies[
+            if not self.bset.is_static(pr.a):
+                va = self.bset.bodies[pr.a].velocity_at(pwa)
+                ka = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
                     pr.a
-                ].angular_factor(pwa - self.bodies[pr.a].position(), n)
+                ].angular_factor(pwa - self.bset.bodies[pr.a].position(), n)
             var vb = Vec3(0, 0, 0, 0)
             var kb = Real(0)
-            if not self.statics[pr.b]:
-                vb = self.bodies[pr.b].velocity_at(pwb)
-                kb = self.bodies[pr.b].inv_mass() + self.bodies[
+            if not self.bset.is_static(pr.b):
+                vb = self.bset.bodies[pr.b].velocity_at(pwb)
+                kb = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
                     pr.b
-                ].angular_factor(pwb - self.bodies[pr.b].position(), n)
+                ].angular_factor(pwb - self.bset.bodies[pr.b].position(), n)
             var denom = ka + kb
             if denom <= 0:
                 continue
@@ -889,10 +922,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             pr.acc[k] = new_acc
             if dl != 0:
                 var j = n * dl
-                if not self.statics[pr.a]:
-                    self.bodies[pr.a].apply_impulse(-j, pwa)
-                if not self.statics[pr.b]:
-                    self.bodies[pr.b].apply_impulse(j, pwb)
+                if not self.bset.is_static(pr.a):
+                    self.bset.bodies[pr.a].apply_impulse(-j, pwa)
+                if not self.bset.is_static(pr.b):
+                    self.bset.bodies[pr.b].apply_impulse(j, pwb)
             # Coulomb friction: tangent impulses clamped to mu * lambda_n.
             var tb = tangent_basis(n)
             var cap = mu * pr.acc[k]
@@ -900,21 +933,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 var t = tb[0] if ti == 0 else tb[1]
                 var vat = Vec3(0, 0, 0, 0)
                 var kat = Real(0)
-                if not self.statics[pr.a]:
-                    vat = self.bodies[pr.a].velocity_at(pwa)
-                    kat = self.bodies[pr.a].inv_mass() + self.bodies[
+                if not self.bset.is_static(pr.a):
+                    vat = self.bset.bodies[pr.a].velocity_at(pwa)
+                    kat = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
                         pr.a
                     ].angular_factor(
-                        pwa - self.bodies[pr.a].position(), t
+                        pwa - self.bset.bodies[pr.a].position(), t
                     )
                 var vbt = Vec3(0, 0, 0, 0)
                 var kbt = Real(0)
-                if not self.statics[pr.b]:
-                    vbt = self.bodies[pr.b].velocity_at(pwb)
-                    kbt = self.bodies[pr.b].inv_mass() + self.bodies[
+                if not self.bset.is_static(pr.b):
+                    vbt = self.bset.bodies[pr.b].velocity_at(pwb)
+                    kbt = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
                         pr.b
                     ].angular_factor(
-                        pwb - self.bodies[pr.b].position(), t
+                        pwb - self.bset.bodies[pr.b].position(), t
                     )
                 var dent = kat + kbt
                 if dent <= 0:
@@ -933,10 +966,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     pr.acc_t2[k] = new_t
                 if dtl != 0:
                     var jt = t * dtl
-                    if not self.statics[pr.a]:
-                        self.bodies[pr.a].apply_impulse(-jt, pwa)
-                    if not self.statics[pr.b]:
-                        self.bodies[pr.b].apply_impulse(jt, pwb)
+                    if not self.bset.is_static(pr.a):
+                        self.bset.bodies[pr.a].apply_impulse(-jt, pwa)
+                    if not self.bset.is_static(pr.b):
+                        self.bset.bodies[pr.b].apply_impulse(jt, pwb)
         pairs[c] = pr
 
     def _ccd_advance(mut self, h: Real):
@@ -967,7 +1000,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         kinds specifically -- no worse than before CCD existed for them.
         `should_collide`/sensors are consulted too, so a filtered or sensor
         pair is never clamped here regardless of shape (17.0f / F4c)."""
-        var n = len(self.bodies)
+        var n = len(self.bset.bodies)
         var frac = List[Real]()
         for _ in range(n):
             frac.append(1)
@@ -977,7 +1010,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var ki = self.colliders.shape[i]
             if ki == SHAPE_HULL or ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD:
                 continue  # no exact box TOI for this kind (see docstring)
-            var vi = self.bodies[i].linear_velocity()
+            var vi = self.bset.bodies[i].linear_velocity()
             if dot(vi, vi) * h * h < 1e-12:
                 continue
             for j in range(n):
@@ -992,7 +1025,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     continue
                 var vj = Vec3(0, 0, 0, 0)
                 if not self._inactive(j):
-                    vj = self.bodies[j].linear_velocity()
+                    vj = self.bset.bodies[j].linear_velocity()
                 var rel = (vi - vj) * h
                 var ha = self.colliders.half[i]
                 var hb = self.colliders.half[j]
@@ -1003,10 +1036,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 if dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
                     continue  # cannot jump the pair's thinnest feature
                 var r = swept_box_toi(
-                    self.bodies[j].position(),
+                    self.bset.bodies[j].position(),
                     self._axes(j),
                     hb,
-                    self.bodies[i].position(),
+                    self.bset.bodies[i].position(),
                     self._axes(i),
                     ha,
                     rel,
@@ -1019,43 +1052,48 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var f = frac[i]
             if f < 1:
                 f = max(f - Real(0.01), 0)
-            self.bodies[i].integrate_pose(h * f)
+            self.bset.bodies[i].integrate_pose(h * f)
 
     def _restitution_pass(
-        mut self, mut pairs: List[_CPair], lo: Int, hi: Int, iters: Int
+        mut self,
+        mut pairs: List[_CPair],
+        lo: Int,
+        hi: Int,
+        iters: Int,
+        threshold: Real = 1.0,  # m/s approach speed to trigger (SolverConfig
+        # .restitution_threshold; default matches the old comptime REST_THRESH)
     ):
         """Box2D v3 restitution: after the substeps have resolved penetration,
         push each point that arrived faster than the threshold back toward
         `vn = -e·vn0` (its own clamped accumulator, so sweeps can correct)."""
-        comptime REST_THRESH: Real = 1.0  # m/s approach speed to trigger
         for _ in range(iters):
             for c in range(lo, hi):
                 var pr = pairs[c]
                 var e = max(
-                    self.restitution[pr.a], self.restitution[pr.b]
+                    self.bset.restitution[pr.a], self.bset.restitution[pr.b]
                 )
                 if e <= 0:
                     continue
                 var n = pr.m.normal
                 for k in range(pr.m.count):
-                    if pr.vn0[k] >= -REST_THRESH:
+                    if pr.vn0[k] >= -threshold:
                         continue
-                    var pwa = self.bodies[pr.a].act(pr.ra[k])
-                    var pwb = self.bodies[pr.b].act(pr.rb[k])
+                    var pwa = self.bset.bodies[pr.a].act(pr.ra[k])
+                    var pwb = self.bset.bodies[pr.b].act(pr.rb[k])
                     var va = Vec3(0, 0, 0, 0)
                     var ka = Real(0)
-                    if not self.statics[pr.a]:
-                        va = self.bodies[pr.a].velocity_at(pwa)
-                        ka = self.bodies[pr.a].inv_mass() + self.bodies[
+                    if not self.bset.is_static(pr.a):
+                        va = self.bset.bodies[pr.a].velocity_at(pwa)
+                        ka = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
                             pr.a
-                        ].angular_factor(pwa - self.bodies[pr.a].position(), n)
+                        ].angular_factor(pwa - self.bset.bodies[pr.a].position(), n)
                     var vb = Vec3(0, 0, 0, 0)
                     var kb = Real(0)
-                    if not self.statics[pr.b]:
-                        vb = self.bodies[pr.b].velocity_at(pwb)
-                        kb = self.bodies[pr.b].inv_mass() + self.bodies[
+                    if not self.bset.is_static(pr.b):
+                        vb = self.bset.bodies[pr.b].velocity_at(pwb)
+                        kb = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
                             pr.b
-                        ].angular_factor(pwb - self.bodies[pr.b].position(), n)
+                        ].angular_factor(pwb - self.bset.bodies[pr.b].position(), n)
                     var denom = ka + kb
                     if denom <= 0:
                         continue
@@ -1066,10 +1104,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     pr.racc[k] = new_acc
                     if dl != 0:
                         var j = n * dl
-                        if not self.statics[pr.a]:
-                            self.bodies[pr.a].apply_impulse(-j, pwa)
-                        if not self.statics[pr.b]:
-                            self.bodies[pr.b].apply_impulse(j, pwb)
+                        if not self.bset.is_static(pr.a):
+                            self.bset.bodies[pr.a].apply_impulse(-j, pwa)
+                        if not self.bset.is_static(pr.b):
+                            self.bset.bodies[pr.b].apply_impulse(j, pwb)
                 pairs[c] = pr
 
     def _soft_fric(
@@ -1084,7 +1122,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var nl = sqrt(max(dot(nrm, nrm), Real(1e-18)))
         var n = nrm * (1 / nl)
         var dn = abs(dot(nw - x0, n))
-        var vb = self.bodies[b].velocity_at(nw)
+        var vb = self.bset.bodies[b].velocity_at(nw)
         var slide = (x0 - pv) - vb * h
         var st = slide - n * dot(slide, n)
         var stl = sqrt(max(dot(st, st), Real(1e-18)))
@@ -1151,7 +1189,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # below, sphere/capsule keep their own exact closed forms here).
             for i in range(np):
                 var p = self.softs[s].pts[i]
-                for b in range(len(self.bodies)):
+                for b in range(len(self.bset.bodies)):
                     var kind = self.colliders.shape[b]
                     if (
                         kind == SHAPE_HULL
@@ -1183,12 +1221,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                                 )
                             var dx3 = nw3 - p.x
                             p.x = nw3
-                            if not self.statics[b]:
+                            if not self.bset.is_static(b):
                                 var j3 = dx3 * (-(1 / p.w) / h)
-                                self.bodies[b].apply_impulse(j3, nw3)
-                                if self.sleeping[b]:
-                                    self.sleeping[b] = False
-                                    self.sleep_timer[b] = 0
+                                self.bset.bodies[b].apply_impulse(j3, nw3)
+                                if self.bset.sleeping[b]:
+                                    self.bset.sleeping[b] = False
+                                    self.bset.sleep_timer[b] = 0
                         continue
                     if kind != SHAPE_BOX:
                         # sphere / capsule: radial pushout from the closest
@@ -1197,9 +1235,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         # coupling as the box path below
                         var hh2 = self.colliders.half[b]
                         var rad = hh2[0]
-                        var cen = self.bodies[b].position()
+                        var cen = self.bset.bodies[b].position()
                         if self.colliders.shape[b] == 2:
-                            var axw = self.bodies[b].act(
+                            var axw = self.bset.bodies[b].act(
                                 Vec3(0, hh2[1], 0, 0)
                             ) - cen
                             var tt = dot(p.x - cen, axw) / max(
@@ -1230,7 +1268,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                                 prev[i * 3 + 2],
                                 0,
                             )
-                            var s0 = pv2 + self.bodies[
+                            var s0 = pv2 + self.bset.bodies[
                                 b
                             ].linear_velocity() * h
                             var seg = p.x - s0
@@ -1272,14 +1310,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         if hit:
                             var dx2 = nw2 - p.x
                             p.x = nw2
-                            if not self.statics[b]:
+                            if not self.bset.is_static(b):
                                 var j2 = dx2 * (-(1 / p.w) / h)
-                                self.bodies[b].apply_impulse(j2, nw2)
-                                if self.sleeping[b]:
-                                    self.sleeping[b] = False
-                                    self.sleep_timer[b] = 0
+                                self.bset.bodies[b].apply_impulse(j2, nw2)
+                                if self.bset.sleeping[b]:
+                                    self.bset.sleeping[b] = False
+                                    self.bset.sleep_timer[b] = 0
                         continue
-                    var lp = self.bodies[b].to_local(p.x)
+                    var lp = self.bset.bodies[b].to_local(p.x)
                     var hh = self.colliders.half[b]
                     var pen = Real(1e30)
                     var ax = -1
@@ -1308,8 +1346,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         var pv = Vec3(
                             prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
                         , 0)
-                        var lp0 = self.bodies[b].to_local(
-                            pv + self.bodies[b].linear_velocity() * h
+                        var lp0 = self.bset.bodies[b].to_local(
+                            pv + self.bset.bodies[b].linear_velocity() * h
                         )
                         var dv = lp - lp0
                         if dot(dv, dv) > r * r:
@@ -1355,7 +1393,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         else:
                             continue
                     lp[ax] = sgn * (hh[ax] + r)
-                    var nw = self.bodies[b].act(lp)
+                    var nw = self.bset.bodies[b].act(lp)
                     if smu > 0:
                         # world face normal from a unit local offset
                         var lpo = lp
@@ -1367,19 +1405,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                                 prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
                             , 0),
                             nw,
-                            self.bodies[b].act(lpo) - nw,
+                            self.bset.bodies[b].act(lpo) - nw,
                             h,
                             smu,
                         )
                     var dx = nw - p.x
                     p.x = nw
-                    if not self.statics[b]:
+                    if not self.bset.is_static(b):
                         # equal-and-opposite impulse into the dynamic body
                         var j = dx * (-(1 / p.w) / h)
-                        self.bodies[b].apply_impulse(j, nw)
-                        if self.sleeping[b]:
-                            self.sleeping[b] = False
-                            self.sleep_timer[b] = 0
+                        self.bset.bodies[b].apply_impulse(j, nw)
+                        if self.bset.sleeping[b]:
+                            self.bset.sleeping[b] = False
+                            self.bset.sleep_timer[b] = 0
                 self.softs[s].pts[i] = p
             # velocities from positions
             for i in range(np):
@@ -1389,7 +1427,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self.softs[s].pts[i] = p
 
     def _pair_island(self, pr: _CPair) -> Int:
-        return self.island[pr.a] if not self.statics[pr.a] else self.island[pr.b]
+        return self.bset.island[pr.a] if not self.bset.is_static(pr.a) else self.bset.island[pr.b]
 
     def _solve_island(
         mut self,
@@ -1405,15 +1443,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         mass_scale: Real,
         impulse_scale: Real,
         mu: Real,
+        rest_threshold: Real = 1.0,
     ):
         """The full substep loop restricted to one island: its bodies, its
         contiguous pair range, its joints. Islands share nothing, so running
         these in parallel is bit-identical to running them in sequence."""
         for _ in range(substeps):
-            for i in range(len(self.bodies)):
-                if self.island[i] == label and not self._inactive(i):
-                    var f = gravity / self.bodies[i].inv_mass()
-                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
+            for i in range(len(self.bset.bodies)):
+                if self.bset.island[i] == label and not self._inactive(i):
+                    var f = gravity / self.bset.bodies[i].inv_mass()
+                    self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             self._warm_start(pairs, plo, phi)
             self._warm_start_joints(label)
             self._joint_sweep(
@@ -1423,12 +1462,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 pairs, plo, phi, h, bias_rate, mass_scale,
                 impulse_scale, True, iters, mu,
             )
-            for i in range(len(self.bodies)):
-                if self.island[i] == label and not self._inactive(i):
-                    self.bodies[i].integrate_pose(h)
+            for i in range(len(self.bset.bodies)):
+                if self.bset.island[i] == label and not self._inactive(i):
+                    self.bset.bodies[i].integrate_pose(h)
             self._joint_sweep(h, bias_rate, 1, 0, False, 2, label)
             self._soft_sweep(pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
-        self._restitution_pass(pairs, plo, phi, 4)
+        self._restitution_pass(pairs, plo, phi, 4, rest_threshold)
 
     def _emit_events(mut self, pairs: List[_CPair]):
         """Diff this step's contact set against last step's: began / stay /
@@ -1469,21 +1508,60 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         broadphase: Bool = False,
         workers: Int = 0,
     ):
-        """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme):
-        collide once, then per substep integrate velocities, solve with soft
+        """Thin forwarder (audit F19): builds a `SolverConfig` from these
+        keyword arguments and calls `step`. Kept with its original keyword
+        signature so every existing call site (~100 across tests/benchmarks/
+        examples) keeps compiling and behaving identically -- `step(dt,
+        gravity, cfg)` is the config-driven entry point new code should
+        prefer."""
+        var cfg = SolverConfig()
+        cfg.substeps = substeps
+        cfg.iters = iters
+        cfg.hertz = hertz
+        cfg.zeta = zeta
+        cfg.default_friction = mu
+        cfg.ccd = ccd
+        cfg.parallel = parallel
+        cfg.colored = colored
+        cfg.broadphase = broadphase
+        cfg.workers = workers
+        self.step(dt, gravity, cfg)
+
+    def step(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
+        """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme).
+
+        Collide once, then per substep integrate velocities, solve with soft
         bias, integrate poses, and RELAX (bias-free sweep) so the bias energy
-        never becomes bounce.
+        never becomes bounce. (Overloaded with the legacy one-shot `step(dt,
+        gravity, iters: Int = 8)` above -- the two are disambiguated by the
+        3rd argument's type/arity, never both callable with the same args.)
 
-        `parallel=True` solves ISLANDS on worker threads (scenes without soft
-        bodies and without ccd): islands are disjoint by construction, so the
-        result is bit-identical to the serial path (`test_islands_par`).
+        `cfg.parallel=True` solves ISLANDS on worker threads (scenes without
+        soft bodies and without ccd): islands are disjoint by construction,
+        so the result is bit-identical to the serial path
+        (`test_islands_par`). When `cfg.parallel=True` but soft bodies, ccd,
+        or colored solving are also requested, this silently falls back to
+        the serial path below (audit F23) -- counted in
+        `self.counters[PARALLEL_FALLBACK_SERIAL]` rather than staying
+        invisible.
 
-        `workers` pins the fan-out width (0 = let the runtime use every core).
-        Because the partition — islands, or a color's pairs — is what makes the
-        writes disjoint, the worker count changes only the SCHEDULE, never the
-        result: any `workers` is bit-identical to serial. That invariance is
-        what makes a core-scaling sweep (`bench_islands`, `bench_colored`) a
-        fair measurement rather than a different computation per point."""
+        `cfg.workers` pins the fan-out width (0 = let the runtime use every
+        core). Because the partition — islands, or a color's pairs — is what
+        makes the writes disjoint, the worker count changes only the
+        SCHEDULE, never the result: any `workers` is bit-identical to serial.
+        That invariance is what makes a core-scaling sweep (`bench_islands`,
+        `bench_colored`) a fair measurement rather than a different
+        computation per point."""
+        var substeps = cfg.substeps
+        var iters = cfg.iters
+        var hertz = cfg.hertz
+        var zeta = cfg.zeta
+        var mu = cfg.default_friction
+        var ccd = cfg.ccd
+        var parallel = cfg.parallel
+        var colored = cfg.colored
+        var broadphase = cfg.broadphase
+        var workers = cfg.workers
         var h = dt / Real(substeps)
         var omega = Real(6.283185307179586) * hertz
         var c = h * omega * (2 * zeta + h * omega)
@@ -1501,14 +1579,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var chi = List[Int]()
         if colored:
             var mask = List[Int]()
-            for _ in range(len(self.bodies)):
+            for _ in range(len(self.bset.bodies)):
                 mask.append(0)
             var pcol = List[Int]()
             for pc in range(len(pairs)):
                 var used = 0
-                if not self.statics[pairs[pc].a]:
+                if not self.bset.is_static(pairs[pc].a):
                     used |= mask[pairs[pc].a]
-                if not self.statics[pairs[pc].b]:
+                if not self.bset.is_static(pairs[pc].b):
                     used |= mask[pairs[pc].b]
                 var col = 0
                 while (used >> col) & 1 == 1:
@@ -1516,9 +1594,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 pcol.append(col)
                 if col + 1 > n_colors:
                     n_colors = col + 1
-                if not self.statics[pairs[pc].a]:
+                if not self.bset.is_static(pairs[pc].a):
                     mask[pairs[pc].a] |= 1 << col
-                if not self.statics[pairs[pc].b]:
+                if not self.bset.is_static(pairs[pc].b):
                     mask[pairs[pc].b] |= 1 << col
             var pairs3 = List[_CPair]()
             for col in range(n_colors):
@@ -1528,19 +1606,25 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         pairs3.append(pairs[pc])
                 chi.append(len(pairs3))
             pairs = pairs3^
+        if parallel and (colored or len(self.softs) > 0 or ccd):
+            # F23: the island-parallel path assumes no soft bodies, no ccd
+            # and no colored solving; falling back is correct but used to be
+            # silent -- count it so a caller relying on the parallel path
+            # can notice it never actually ran in parallel.
+            self.counters.incr(PARALLEL_FALLBACK_SERIAL)
         if parallel and not colored and len(self.softs) == 0 and not ccd:
             # partition: pairs reordered so each island is a contiguous range
             var labels = List[Int]()
-            for i in range(len(self.bodies)):
-                if self.island[i] < 0:
+            for i in range(len(self.bset.bodies)):
+                if self.bset.island[i] < 0:
                     continue
                 var known = False
                 for k in range(len(labels)):
-                    if labels[k] == self.island[i]:
+                    if labels[k] == self.bset.island[i]:
                         known = True
                         break
                 if not known:
-                    labels.append(self.island[i])
+                    labels.append(self.bset.island[i])
             var pairs2 = List[_CPair]()
             var plo = List[Int]()
             var phi = List[Int]()
@@ -1554,18 +1638,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-                workers,
+                workers, cfg.restitution_threshold,
             )
-            self._update_sleep(dt)
+            self._update_sleep(dt, cfg)
             if self.events_on:
                 self._emit_events(pairs2)
             self.cache = pairs2^
             return
         for _ in range(substeps):
-            for i in range(len(self.bodies)):
+            for i in range(len(self.bset.bodies)):
                 if not self._inactive(i):
-                    var f = gravity / self.bodies[i].inv_mass()
-                    self.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
+                    var f = gravity / self.bset.bodies[i].inv_mass()
+                    self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.
             self._warm_start(pairs, 0, len(pairs))
@@ -1586,9 +1670,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if ccd:
                 self._ccd_advance(h)
             else:
-                for i in range(len(self.bodies)):
+                for i in range(len(self.bset.bodies)):
                     if not self._inactive(i):
-                        self.bodies[i].integrate_pose(h)
+                        self.bset.bodies[i].integrate_pose(h)
             # soft bodies: XPBD lattice + particle-vs-body coupling, at the
             # substep's POST-integration poses (rigid impulses land next substep)
             self._softbody_pass(h, gravity, iters, ccd)
@@ -1603,8 +1687,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self._soft_sweep(
                     pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
                 )
-        self._restitution_pass(pairs, 0, len(pairs), 4)
-        self._update_sleep(dt)
+        self._restitution_pass(pairs, 0, len(pairs), 4, cfg.restitution_threshold)
+        self._update_sleep(dt, cfg)
         if self.events_on:
             self._emit_events(pairs)
         self.cache = pairs^  # impulses persist to the next frame
@@ -1625,16 +1709,18 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     impulse_scale: Real,
     mu: Real,
     workers: Int = 0,
+    rest_threshold: Real = 1.0,
 ):
-    """Worker fan-out for `step_soft(parallel=True)`. A free function so the
+    """Worker fan-out for `step(cfg.parallel=True)`. A free function so the
     closure captures `scene` as an ordinary argument (the scheduler's
     entity-actor precedent) — islands write disjoint bodies/pairs, so the
     parallel dispatch is race-free and bit-identical to serial."""
 
-    def island_work(k: Int) {mut scene, mut pairs2, imm plo, imm phi, imm labels, imm gravity, imm h, imm substeps, imm iters, imm bias_rate, imm mass_scale, imm impulse_scale, imm mu}:
+    def island_work(k: Int) {mut scene, mut pairs2, imm plo, imm phi, imm labels, imm gravity, imm h, imm substeps, imm iters, imm bias_rate, imm mass_scale, imm impulse_scale, imm mu, imm rest_threshold}:
         scene._solve_island(
             pairs2, plo[k], phi[k], labels[k], gravity, h,
             substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
+            rest_threshold,
         )
 
     # `workers <= 0` means "let the runtime pick" (all cores); a positive
@@ -1675,3 +1761,325 @@ def _solve_color_parallel[BB: Body6, PBP: BroadPhase](
         parallelize(pair_work, hi - lo, workers)
     else:
         parallelize(pair_work, hi - lo)
+
+
+def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
+    """Full snapshot of everything dynamical (audit F5/F20): rigid body
+    state, the per-collider payload each shape kind needs to reconstruct
+    (`ColliderSet`'s side tables), joints, soft bodies, the cross-frame
+    warm-start cache, and -- new in this commit -- the contact-event
+    stream's own state (`events_on`, `_prev_keys`). Previously omitted, so
+    `_emit_events`'s `diff_events` compared this step's contacts against an
+    EMPTY `_prev_keys` right after a load and reported a spurious `began`
+    event for every contact that was already live before the save (F20).
+
+    A free function, not a `ContactScene6` method: the wire format reads
+    QuatBody6-specific raw fields (`q`, `omega`, `inertia`) that the
+    representation-agnostic `Body6` trait deliberately does not expose (a
+    `ScrewBody6` has no quaternion), so this is scoped to
+    `ContactScene6[QuatBody6]` exactly the way `physics/serialize.mojo`'s
+    public API already was before this commit. `out: StateWriter` decides
+    HOW each field is encoded; this function decides only WHICH fields and
+    in what order (`physics/state_io.mojo`'s docstring)."""
+    out.wi(len(sc.bset.bodies))
+    for i in range(len(sc.bset.bodies)):
+        var b = sc.bset.bodies[i]
+        out.wv(b.pos)
+        out.wf(b.q.x)
+        out.wf(b.q.y)
+        out.wf(b.q.z)
+        out.wf(b.q.w)
+        out.wv(b.vel)
+        out.wv(b.omega)
+        out.wf(b.inertia.mass)
+        out.wf(b.inertia.ix)
+        out.wf(b.inertia.iy)
+        out.wf(b.inertia.iz)
+        out.wv(sc.colliders.half[i])
+        out.wi(1 if sc.bset.is_static(i) else 0)
+        out.wi(sc.colliders.shape[i])
+        out.wf(sc.bset.restitution[i])
+        out.wi(1 if sc.bset.sleeping[i] else 0)
+        out.wf(sc.bset.sleep_timer[i])
+        out.wi(Int(sc.colliders.category[i]))
+        out.wi(Int(sc.colliders.mask[i]))
+        out.wi(1 if sc.colliders.sensor[i] else 0)
+        # Shape payload for the kinds that keep their geometry in a side
+        # table -- a snapshot that restored a hull body without its
+        # vertices would load cleanly and then index an empty table on the
+        # next contact, so the geometry travels with the body even though a
+        # level mesh can be large: this format is a full state snapshot,
+        # not an asset reference.
+        if sc.colliders.shape[i] == SHAPE_HULL:
+            ref hl = sc.colliders.hulls[sc.colliders.hull_id[i]]
+            out.wi(len(hl.v))
+            for k in range(len(hl.v)):
+                out.wf(hl.v[k])
+        elif sc.colliders.shape[i] == SHAPE_TRIMESH:
+            ref ms = sc.colliders.meshes[sc.colliders.mesh_id[i]]
+            out.wi(len(ms.v))
+            for k in range(len(ms.v)):
+                out.wf(ms.v[k])
+            out.wi(len(ms.idx))
+            for k in range(len(ms.idx)):
+                out.wi(ms.idx[k])
+        elif sc.colliders.shape[i] == SHAPE_HEIGHTFIELD:
+            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
+            out.wi(hf.nx)
+            out.wi(hf.nz)
+            out.wf(hf.cell)
+            out.wf(hf.ox)
+            out.wf(hf.oz)
+            out.wi(len(hf.h))
+            for k in range(len(hf.h)):
+                out.wf(hf.h[k])
+    out.wi(len(sc.joints))
+    for j in range(len(sc.joints)):
+        var jt = sc.joints[j]
+        out.wi(jt.kind)
+        out.wi(jt.a)
+        out.wi(jt.b)
+        out.wv(jt.la)
+        out.wv(jt.lb)
+        out.wf(jt.rest)
+        out.wv(jt.axis_a)
+        out.wv(jt.axis_b)
+        out.wv(jt.acc)
+        out.wv(jt.acc_ang)
+    out.wi(len(sc.softs))
+    for k in range(len(sc.softs)):
+        out.wf(sc.softs[k].alpha)
+        out.wf(sc.softs[k].radius)
+        out.wf(sc.softs[k].damp)
+        out.wf(sc.softs[k].mu)
+        out.wi(len(sc.softs[k].pts))
+        for p in range(len(sc.softs[k].pts)):
+            var pt = sc.softs[k].pts[p]
+            out.wv(pt.x)
+            out.wv(pt.v)
+            out.wf(pt.w)
+        out.wi(len(sc.softs[k].edges))
+        for e in range(len(sc.softs[k].edges)):
+            var ed = sc.softs[k].edges[e]
+            out.wi(ed.a)
+            out.wi(ed.b)
+            out.wf(ed.rest)
+            out.wf(ed.lam)
+    out.wi(len(sc.cache))
+    for c in range(len(sc.cache)):
+        var pr = sc.cache[c]
+        out.wi(pr.a)
+        out.wi(pr.b)
+        out.wi(pr.feat)  # triangle index for mesh contacts, 0 otherwise
+        out.wi(1 if pr.m.hit else 0)
+        out.wv(pr.m.normal)
+        out.wi(pr.m.count)
+        for p in range(4):
+            out.wv(pr.m.points[p])
+            out.wf(pr.m.depths[p])
+            out.wf(pr.acc[p])
+            out.wf(pr.acc_t1[p])
+            out.wf(pr.acc_t2[p])
+            out.wv(pr.ra[p])
+            out.wv(pr.rb[p])
+            out.wf(pr.vn0[p])
+            out.wf(pr.racc[p])
+    # F20: the event stream's own state, so a resumed scene's events
+    # continue identically instead of restarting from an empty history.
+    out.wi(1 if sc.events_on else 0)
+    out.wi(len(sc._prev_keys))
+    for k in range(len(sc._prev_keys)):
+        out.wi(sc._prev_keys[k])
+
+
+def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
+    """The `write_state` counterpart -- see its docstring for the field
+    order and why this is a free function scoped to `ContactScene6
+    [QuatBody6]` rather than a generic method. `sc` must be a freshly
+    constructed, empty scene (`ContactScene6[QuatBody6]()`); this only
+    appends, through `BodySet.push` (F5's one append site) for the body
+    lists and directly for `ColliderSet`'s side tables (unchanged from
+    before this commit -- `ColliderSet` has no `push`-style single entry
+    point of its own yet, and adding one is out of this commit's scope).
+
+    Every count and every body/joint index read from `r` is validated
+    before use: a negative count or an out-of-range index means the input
+    is truncated or corrupt (an environment-class failure, not a programmer
+    error -- docs/ARCHITECTURE.md S2), so this raises rather than indexing
+    out of bounds the way the pre-F20 reader could (F20/E20)."""
+    var nb = r.ri()
+    if nb < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative body count)")
+    for _ in range(nb):
+        var pos = r.rv()
+        var qx = r.rf()
+        var qy = r.rf()
+        var qz = r.rf()
+        var qw = r.rf()
+        var vel = r.rv()
+        var omega = r.rv()
+        var im = r.rf()
+        var ix = r.rf()
+        var iy = r.rf()
+        var iz = r.rf()
+        var half = r.rv()
+        var is_static = r.ri() == 1
+        var kind = r.ri()
+        var restitution = r.rf()
+        var sleeping = r.ri() == 1
+        var sleep_timer = r.rf()
+        var category = UInt32(r.ri())
+        var mask = UInt32(r.ri())
+        var sensor = r.ri() == 1
+        var motion = MOTION_STATIC if is_static else MOTION_DYNAMIC
+        var id = sc.bset.push(
+            QuatBody6(
+                pos, Quat(qx, qy, qz, qw), vel, omega,
+                Inertia3(im, ix, iy, iz),
+            ),
+            motion,
+        )
+        var bi = id.index()
+        if bi != len(sc.colliders.shape):
+            raise Error(
+                "physics.serialize: body/collider index desync on load"
+            )
+        sc.bset.restitution[bi] = restitution
+        sc.bset.sleeping[bi] = sleeping
+        sc.bset.sleep_timer[bi] = sleep_timer
+        sc.colliders.shape.append(kind)
+        sc.colliders.half.append(half)
+        sc.colliders.category.append(category)
+        sc.colliders.mask.append(mask)
+        sc.colliders.sensor.append(sensor)
+        sc.colliders.hull_id.append(-1)
+        sc.colliders.mesh_id.append(-1)
+        sc.colliders.world_aabb.append(
+            AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
+        )
+        if kind == SHAPE_HULL:
+            var nv = r.ri()
+            if nv < 0:
+                raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
+            var hv = List[Real](capacity=nv)
+            for _ in range(nv):
+                hv.append(r.rf())
+            sc.colliders.hull_id[bi] = len(sc.colliders.hulls)
+            sc.colliders.hulls.append(HullShape(hv))
+        elif kind == SHAPE_TRIMESH:
+            var nv = r.ri()
+            if nv < 0:
+                raise Error("physics.serialize: corrupt snapshot (negative mesh vertex count)")
+            var mv = List[Real](capacity=nv)
+            for _ in range(nv):
+                mv.append(r.rf())
+            var ni = r.ri()
+            if ni < 0:
+                raise Error("physics.serialize: corrupt snapshot (negative mesh index count)")
+            var mi = List[Int](capacity=ni)
+            for _ in range(ni):
+                mi.append(r.ri())
+            sc.colliders.mesh_id[bi] = len(sc.colliders.meshes)
+            var tm = TriMesh(mv, mi)
+            sc.colliders.world_aabb[bi] = tm.bounds()
+            sc.colliders.meshes.append(tm^)
+        elif kind == SHAPE_HEIGHTFIELD:
+            var nx = r.ri()
+            var nz = r.ri()
+            var cell = r.rf()
+            var ox = r.rf()
+            var oz = r.rf()
+            var nh = r.ri()
+            if nh < 0:
+                raise Error("physics.serialize: corrupt snapshot (negative heightfield sample count)")
+            var hh = List[Real](capacity=nh)
+            for _ in range(nh):
+                hh.append(r.rf())
+            sc.colliders.mesh_id[bi] = len(sc.colliders.fields)
+            var hfld = HeightField(hh, nx, nz, cell, ox, oz)
+            sc.colliders.world_aabb[bi] = hfld.bounds()
+            sc.colliders.fields.append(hfld^)
+    var nj = r.ri()
+    if nj < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative joint count)")
+    for _ in range(nj):
+        var kind = r.ri()
+        var a = r.ri()
+        var b = r.ri()
+        var la = r.rv()
+        var lb = r.rv()
+        var rest = r.rf()
+        var axa = r.rv()
+        var axb = r.rv()
+        var acc = r.rv()
+        var acca = r.rv()
+        if a < 0 or a >= len(sc.bset.bodies) or b < 0 or b >= len(sc.bset.bodies):
+            raise Error("physics.serialize: corrupt snapshot (joint body index out of range)")
+        sc.joints.append(Joint6(kind, a, b, la, lb, rest, axa, axb, acc, acca))
+    var ns = r.ri()
+    if ns < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative soft-body count)")
+    for _ in range(ns):
+        var sb = SoftBody()
+        sb.alpha = r.rf()
+        sb.radius = r.rf()
+        sb.damp = r.rf()
+        sb.mu = r.rf()
+        var np = r.ri()
+        if np < 0:
+            raise Error("physics.serialize: corrupt snapshot (negative particle count)")
+        for _ in range(np):
+            var x = r.rv()
+            var v = r.rv()
+            var w = r.rf()
+            sb.pts.append(SP(x, v, w))
+        var ne = r.ri()
+        if ne < 0:
+            raise Error("physics.serialize: corrupt snapshot (negative edge count)")
+        for _ in range(ne):
+            var ea = r.ri()
+            var eb = r.ri()
+            var er = r.rf()
+            var el = r.rf()
+            sb.edges.append(SEdge(ea, eb, er, el))
+        _ = sc.add_soft(sb^)
+    var nc = r.ri()
+    if nc < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative cache-pair count)")
+    for _ in range(nc):
+        var a = r.ri()
+        var b = r.ri()
+        var feat = r.ri()
+        if a < 0 or a >= len(sc.bset.bodies) or b < 0 or b >= len(sc.bset.bodies):
+            raise Error("physics.serialize: corrupt snapshot (cache-pair body index out of range)")
+        var m = ContactManifold[3]()
+        m.hit = r.ri() == 1
+        m.normal = r.rv()
+        m.count = r.ri()
+        var pr = _CPair(
+            a, b, feat, m,
+            Array[Real, 4](fill=0), Array[Real, 4](fill=0),
+            Array[Real, 4](fill=0),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Real, 4](fill=0), Array[Real, 4](fill=0),
+        )
+        for p in range(4):
+            pr.m.points[p] = r.rv()
+            pr.m.depths[p] = r.rf()
+            pr.acc[p] = r.rf()
+            pr.acc_t1[p] = r.rf()
+            pr.acc_t2[p] = r.rf()
+            pr.ra[p] = r.rv()
+            pr.rb[p] = r.rv()
+            pr.vn0[p] = r.rf()
+            pr.racc[p] = r.rf()
+        sc.cache.append(pr)
+    # F20: restore the event stream's own state.
+    sc.events_on = r.ri() == 1
+    var nk = r.ri()
+    if nk < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative event-key count)")
+    sc._prev_keys = List[Int](capacity=nk)
+    for _ in range(nk):
+        sc._prev_keys.append(r.ri())

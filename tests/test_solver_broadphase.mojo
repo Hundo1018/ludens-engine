@@ -33,17 +33,17 @@ def _mixed() -> ContactScene6[QuatBody6]:
         QuatBody6.at_rest(Vec3(14, 2, 0, 0), Inertia3.box(1, 0.05, 0.05, 0.05)),
         Vec3(0.05, 0.05, 0.05, 0),
         True,
-    )
+    ).index()
     var bob = sc.add(
         QuatBody6.at_rest(Vec3(14, 1, 0, 0), Inertia3.box(1, 0.15, 0.15, 0.15)),
         Vec3(0.15, 0.15, 0.15, 0),
         False,
-    )
+    ).index()
     _ = sc.add_joint(Joint6.ball(anchor, bob, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0)))
-    sc.bodies[bob].vel = Vec3(0.3, 0, 0, 0)
+    sc.bset.bodies[bob].vel = Vec3(0.3, 0, 0, 0)
     var ball = sc.add_sphere(
         QuatBody6.at_rest(Vec3(-14, 1.3, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
-    )
+    ).index()
     sc.set_restitution(ball, 0.7)
     _ = sc.add_capsule(
         QuatBody6.at_rest(Vec3(-16, -0.45, 0, 0), Inertia3.capsule(1, 0.3, 0.4)),
@@ -55,17 +55,17 @@ def _mixed() -> ContactScene6[QuatBody6]:
 
 
 def _same(a: ContactScene6[QuatBody6], b: ContactScene6[QuatBody6]) -> Bool:
-    for i in range(len(a.bodies)):
-        var dp = a.bodies[i].pos - b.bodies[i].pos
-        var dv = a.bodies[i].vel - b.bodies[i].vel
-        var dw = a.bodies[i].omega - b.bodies[i].omega
+    for i in range(len(a.bset.bodies)):
+        var dp = a.bset.bodies[i].pos - b.bset.bodies[i].pos
+        var dv = a.bset.bodies[i].vel - b.bset.bodies[i].vel
+        var dw = a.bset.bodies[i].omega - b.bset.bodies[i].omega
         if (
             dp[0] != 0 or dp[1] != 0 or dp[2] != 0
             or dv[0] != 0 or dv[1] != 0 or dv[2] != 0
             or dw[0] != 0 or dw[1] != 0 or dw[2] != 0
-            or a.bodies[i].q.x != b.bodies[i].q.x
-            or a.bodies[i].q.w != b.bodies[i].q.w
-            or a.sleeping[i] != b.sleeping[i]
+            or a.bset.bodies[i].q.x != b.bset.bodies[i].q.x
+            or a.bset.bodies[i].q.w != b.bset.bodies[i].q.w
+            or a.bset.sleeping[i] != b.bset.sleeping[i]
         ):
             print("  mismatch body", i)
             return False
@@ -100,7 +100,7 @@ def main() raises:
     for t in range(5):
         for i in range(3):
             var idx = 1 + t * 3 + i
-            var y = Float64(bp.bodies[idx].pos[1])
+            var y = Float64(bp.bset.bodies[idx].pos[1])
             if abs(y - (0.25 + 0.5 * Float64(i))) > 0.03:
                 stand = False
     s.check(stand, "all five towers stand under the broadphase solver")
@@ -117,8 +117,8 @@ def main() raises:
         QuatBody6.at_rest(Vec3(0, 3, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0),
         False,
-    )
-    fb.bodies[faller].vel = Vec3(0, -30, 0, 0)
+    ).index()
+    fb.bset.bodies[faller].vel = Vec3(0, -30, 0, 0)
     var fb2 = ContactScene6[QuatBody6]()
     _ = fb2.add(
         QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)),
@@ -129,8 +129,8 @@ def main() raises:
         QuatBody6.at_rest(Vec3(0, 3, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0),
         False,
-    )
-    fb2.bodies[faller2].vel = Vec3(0, -30, 0, 0)
+    ).index()
+    fb2.bset.bodies[faller2].vel = Vec3(0, -30, 0, 0)
     var fok = True
     for _ in range(120):
         fb.step_soft(DT, G, ccd=True)
@@ -138,7 +138,7 @@ def main() raises:
         if not _same(fb, fb2):
             fok = False
             break
-    print("  fast faller y:", Float64(fb2.bodies[faller2].pos[1]))
+    print("  fast faller y:", Float64(fb2.bset.bodies[faller2].pos[1]))
     s.check(fok, "fast mover (speculative margin) bit-identical under bp")
 
     s.finish()

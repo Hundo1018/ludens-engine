@@ -77,12 +77,12 @@ def case_f3_heightfield(broadphase: Bool) -> List[Real]:
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)),
         _offcentre_heights(5), 5, 5, 5.0, 10.0, 10.0,
     )
-    var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(200):
         sc.step_soft(DT, G, broadphase=broadphase)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 
@@ -103,12 +103,12 @@ def case_f3_trimesh(broadphase: Bool) -> List[Real]:
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)),
         _offcentre_quad(), _quad_idx(),
     )
-    var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(200):
         sc.step_soft(DT, G, broadphase=broadphase)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 
@@ -141,7 +141,7 @@ def case_f4a_sensor_mesh(sensor_y: Real) -> List[Real]:
     var sens = sc.add(
         QuatBody6.at_rest(Vec3(0, sensor_y, 0, 0), Inertia3.box(1, 0.3, 0.3, 0.3)),
         Vec3(0.3, 0.3, 0.3, 0), False,
-    )
+    ).index()
     sc.set_sensor(sens, True)
     var began = 0
     var stay = 0
@@ -235,14 +235,14 @@ def case_f4c_sensor_passthrough() -> Real:
     var sens = sc.add(
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.3, 2, 2)),
         Vec3(0.3, 2, 2, 0), True,
-    )
+    ).index()
     sc.set_sensor(sens, True)
     var bullet = QuatBody6.at_rest(Vec3(-2.5, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
     bullet.vel = Vec3(50, 0, 0, 0)
-    var b = sc.add(bullet, Vec3(0.1, 0.1, 0.1, 0), False)
+    var b = sc.add(bullet, Vec3(0.1, 0.1, 0.1, 0), False).index()
     for _ in range(10):
         sc.step_soft(DT, NO_G, ccd=True)
-    return sc.bodies[b].position()[0]
+    return sc.bset.bodies[b].position()[0]
 
 
 def case_f4c_filtered_wall() -> Real:
@@ -253,15 +253,15 @@ def case_f4c_filtered_wall() -> Real:
     var wall = sc.add(
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.3, 2, 2)),
         Vec3(0.3, 2, 2, 0), True,
-    )
+    ).index()
     sc.set_filter(wall, 2, 0xFFFFFFFF)
     var bullet = QuatBody6.at_rest(Vec3(-2.5, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
     bullet.vel = Vec3(50, 0, 0, 0)
-    var b = sc.add(bullet, Vec3(0.1, 0.1, 0.1, 0), False)
+    var b = sc.add(bullet, Vec3(0.1, 0.1, 0.1, 0), False).index()
     sc.set_filter(b, 1, 1)  # category 1, collides only with category 1
     for _ in range(10):
         sc.step_soft(DT, NO_G, ccd=True)
-    return sc.bodies[b].position()[0]
+    return sc.bset.bodies[b].position()[0]
 
 
 def case_f4c_mesh_bbox() -> Real:
@@ -292,10 +292,10 @@ def case_f4c_mesh_bbox() -> Real:
     )
     var fast = QuatBody6.at_rest(Vec3(-10, 3, 10, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
     fast.vel = Vec3(0, -20, 0, 0)
-    var b = sc.add(fast, Vec3(0.1, 0.1, 0.1, 0), False)
+    var b = sc.add(fast, Vec3(0.1, 0.1, 0.1, 0), False).index()
     for _ in range(90):
         sc.step_soft(DT, G, ccd=True)
-    return sc.bodies[b].position()[1]
+    return sc.bset.bodies[b].position()[1]
 
 
 # ================================================================ EXTREME
@@ -314,12 +314,12 @@ def case_extreme_degenerate_seam(broadphase: Bool) -> List[Real]:
     _ = sc.add_trimesh(
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)), v^, idx^,
     )
-    var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(200):
         sc.step_soft(DT, G, broadphase=broadphase)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 
@@ -333,12 +333,12 @@ def case_extreme_edge_rest() -> List[Real]:
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)),
         _flat_quad(30), _quad_idx(),
     )
-    var b = sc.add(_crate(0, 2, 0), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0, 2, 0), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(200):
         sc.step_soft(DT, G)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 

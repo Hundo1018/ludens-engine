@@ -53,7 +53,7 @@ def main():
     var box = zg.add(
         QuatBody6.at_rest(Vec3(1.0, 0, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0), False,
-    )
+    ).index()
     var cube = SoftBody.box_lattice(Vec3(-0.6, 0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-6)
     cube.damp = 1.0  # lossless: isolates the coupling's conservation
     for i in range(len(cube.pts)):
@@ -63,7 +63,7 @@ def main():
     var p_before = Float64(zg.softs[0].momentum()[0])  # box is at rest -> total = soft
     for _ in range(120):
         zg.step_soft(DT, Vec3(0, 0, 0, 0))
-    var box_p = Float64(zg.bodies[box].vel[0]) * 2.0  # rigid box mass = 2
+    var box_p = Float64(zg.bset.bodies[box].vel[0]) * 2.0  # rigid box mass = 2
     var soft_p = Float64(zg.softs[0].momentum()[0])
     print("  x-momentum before:            ", p_before)
     print("  x-momentum after: soft =", soft_p, " + box =", box_p)

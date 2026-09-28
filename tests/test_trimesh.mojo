@@ -68,12 +68,12 @@ def case_flat_mesh(use_bp: Bool) -> List[Real]:
     """A crate dropped on a flat triangle floor. Returns [rest y, speed]."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), _quad(0, 0, 30), _quad_idx())
-    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(240):
         sc.step_soft(DT, G, broadphase=use_bp)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 
@@ -84,10 +84,10 @@ def case_box_floor() -> Real:
         QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
         Vec3(30, 1, 30, 0), True,
     )
-    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(240):
         sc.step_soft(DT, G)
-    return sc.bodies[b].position()[1]
+    return sc.bset.bodies[b].position()[1]
 
 
 def case_ramp() -> List[Real]:
@@ -105,15 +105,15 @@ def case_ramp() -> List[Real]:
     var b = sc.add(
         QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0), False,
-    )
+    ).index()
     for _ in range(200):
         sc.step_soft(DT, G)
-    var p = sc.bodies[b].position()
+    var p = sc.bset.bodies[b].position()
     var surface = p[2] * (Real(7.2) / (2 * ext))  # height of the ramp under it
     var out = List[Real](capacity=3)
     out.append(p[1])
     out.append(p[1] - surface)
-    out.append(length(sc.bodies[b].vel))
+    out.append(length(sc.bset.bodies[b].vel))
     return out^
 
 
@@ -142,20 +142,20 @@ def case_field_vs_mesh(as_field: Bool) -> Real:
         for i in range(len(m.idx)):
             ii.append(m.idx[i])
         _ = sc.add_trimesh(_floor_body(), vv^, ii^)
-    var b = sc.add(_crate(1.2), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(1.2), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(300):
         sc.step_soft(DT, G)
-    return sc.bodies[b].position()[1]
+    return sc.bset.bodies[b].position()[1]
 
 
 def case_mixed_on_mesh() -> List[Real]:
     """Box, sphere and convex hull resting on one triangle floor."""
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), _quad(0, 0, 30), _quad_idx())
-    var bx = sc.add(_crate(0.6, -1), Vec3(0.25, 0.25, 0.25, 0), False)
+    var bx = sc.add(_crate(0.6, -1), Vec3(0.25, 0.25, 0.25, 0), False).index()
     var sp = sc.add_sphere(
         QuatBody6.at_rest(Vec3(0, 0.6, 0, 0), Inertia3.sphere(2, 0.25)), 0.25, False
-    )
+    ).index()
     var hv = List[Real](capacity=24)
     for sx in range(2):
         for sy in range(2):
@@ -163,13 +163,13 @@ def case_mixed_on_mesh() -> List[Real]:
                 hv.append(0.25 * (Real(1) if sx == 1 else Real(-1)))
                 hv.append(0.25 * (Real(1) if sy == 1 else Real(-1)))
                 hv.append(0.25 * (Real(1) if sz == 1 else Real(-1)))
-    var hl = sc.add_hull(_crate(0.6, 1), hv^, False)
+    var hl = sc.add_hull(_crate(0.6, 1), hv^, False).index()
     for _ in range(240):
         sc.step_soft(DT, G)
     var out = List[Real](capacity=3)
-    out.append(sc.bodies[bx].position()[1])
-    out.append(sc.bodies[sp].position()[1])
-    out.append(sc.bodies[hl].position()[1])
+    out.append(sc.bset.bodies[bx].position()[1])
+    out.append(sc.bset.bodies[sp].position()[1])
+    out.append(sc.bset.bodies[hl].position()[1])
     return out^
 
 
@@ -183,7 +183,7 @@ def case_roundtrip() raises -> List[Real]:
     """
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), _quad(0, 0, 30), _quad_idx())
-    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(60):
         sc.step_soft(DT, G)
     var blob = scene_to_string(sc)
@@ -192,8 +192,8 @@ def case_roundtrip() raises -> List[Real]:
         sc.step_soft(DT, G)
         sc2.step_soft(DT, G)
     var out = List[Real](capacity=2)
-    out.append(sc.bodies[b].position()[1])
-    out.append(sc2.bodies[b].position()[1])
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(sc2.bset.bodies[b].position()[1])
     return out^
 
 
@@ -204,10 +204,10 @@ def case_empty_mesh() -> Real:
     var i = List[Int]()
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), v^, i^)
-    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(60):
         sc.step_soft(DT, G)
-    return sc.bodies[b].position()[1]
+    return sc.bset.bodies[b].position()[1]
 
 
 def case_degenerate_tri() -> Real:
@@ -223,10 +223,10 @@ def case_degenerate_tri() -> Real:
     i.append(0); i.append(1); i.append(3)
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), v^, i^)
-    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(60):
         sc.step_soft(DT, G)
-    return sc.bodies[b].position()[1]
+    return sc.bset.bodies[b].position()[1]
 
 
 def case_far_above() -> Real:
@@ -277,14 +277,14 @@ def case_valley() -> List[Real]:
     i.append(1); i.append(5); i.append(4)
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(_floor_body(), v^, i^)
-    var b = sc.add(_crate(2.0), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(2.0), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(400):
         sc.step_soft(DT, G)
     # rotation only: `act` transforms a point, so subtract the origin
-    var up = sc.bodies[b].act(Vec3(0, 1, 0, 0)) - sc.bodies[b].position()
+    var up = sc.bset.bodies[b].act(Vec3(0, 1, 0, 0)) - sc.bset.bodies[b].position()
     var out = List[Real](capacity=3)
-    out.append(sc.bodies[b].position()[1])
-    out.append(length(sc.bodies[b].vel))
+    out.append(sc.bset.bodies[b].position()[1])
+    out.append(length(sc.bset.bodies[b].vel))
     out.append(abs(up[1]))
     return out^
 

@@ -30,7 +30,7 @@ def _floor(mut sc: ContactScene6[QuatBody6]) -> Int:
     return sc.add(
         QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)),
         Vec3(30, 1, 30, 0), True,
-    )
+    ).index()
 
 
 def _crate(x: Real, y: Real) -> QuatBody6:
@@ -52,7 +52,7 @@ def main() raises:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
     _ = _floor(sc)
-    var b = sc.add(_crate(0, 0.3), Vec3(0.25, 0.25, 0.25, 0), False)
+    var b = sc.add(_crate(0, 0.3), Vec3(0.25, 0.25, 0.25, 0), False).index()
 
     var ch = Channel[ContactEvent]()
     var r = ch.register_reader()
@@ -84,8 +84,8 @@ def main() raises:
     # Teleport the crate away: the contact must END, and the reader (which
     # kept draining every step) must see it -- not miss it to the double
     # buffer's 2-update retention window, since it reads every step.
-    sc.bodies[b].pos = Vec3(0, 40, 0, 0)
-    sc.sleeping[b] = False
+    sc.bset.bodies[b].pos = Vec3(0, 40, 0, 0)
+    sc.bset.sleeping[b] = False
     sc.step_soft(DT, G)
     publish_contact_events(ch, sc.events)
     ch.update()

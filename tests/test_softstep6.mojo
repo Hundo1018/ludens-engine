@@ -39,9 +39,9 @@ def main() raises:
         fr.step_soft(DT, G)
     var frozen_ok = True
     for i in range(6):
-        var y = Float64(fr.bodies[i + 1].position()[1])
+        var y = Float64(fr.bset.bodies[i + 1].position()[1])
         var want = 0.25 + 0.5 * Float64(i)
-        if abs(y - want) > 0.01 or abs(Float64(fr.bodies[i + 1].position()[0])) > 1e-6:
+        if abs(y - want) > 0.01 or abs(Float64(fr.bset.bodies[i + 1].position()[0])) > 1e-6:
             frozen_ok = False
             print("  frozen tower box", i, "y=", y, "want", want)
     s.check(frozen_ok, "frozen-rotation tower of 6: 1000 steps, machine-tight")
@@ -66,17 +66,17 @@ def main() raises:
         sc.step_soft(DT, G)
     var tower_ok = True
     for i in range(6):
-        var y = Float64(sc.bodies[i + 1].position()[1])
+        var y = Float64(sc.bset.bodies[i + 1].position()[1])
         var want = 0.25 + 0.5 * Float64(i)
         if abs(y - want) > 0.02:
             tower_ok = False
             print("  tower box", i, "y=", y, "want", want)
     s.check(tower_ok, "tower of 6 stands 1000 steps (live rotation)")
     s.check(
-        abs(Float64(sc.bodies[6].position()[0])) < 0.01,
+        abs(Float64(sc.bset.bodies[6].position()[0])) < 0.01,
         "tower lean stays millimetric",
     )
-    s.check(_len(sc.bodies[6].omega) < 1e-3, "top box spin converged")
+    s.check(_len(sc.bset.bodies[6].omega) < 1e-3, "top box spin converged")
 
     # 1c. Single box: soft-step rest quality is orders beyond the plain step.
     var one = ContactScene6[QuatBody6]()
@@ -89,11 +89,11 @@ def main() raises:
     for _ in range(300):
         one.step_soft(DT, G)
     s.check(
-        abs(Float64(one.bodies[1].position()[1]) - 0.25) < 0.005,
+        abs(Float64(one.bset.bodies[1].position()[1]) - 0.25) < 0.005,
         "single box rest height within 5mm",
     )
-    s.check(_len(one.bodies[1].vel) < 1e-4, "single box velocity ~0")
-    s.check(_len(one.bodies[1].omega) < 1e-4, "single box spin ~0")
+    s.check(_len(one.bset.bodies[1].vel) < 1e-4, "single box velocity ~0")
+    s.check(_len(one.bset.bodies[1].omega) < 1e-4, "single box spin ~0")
 
     # 2. Mass ratio 100:1 — heavy box resting on a light box does not explode.
     var mr = ContactScene6[QuatBody6]()
@@ -117,15 +117,15 @@ def main() raises:
     # Full-horizon ROADMAP gate: 600 steps, the heavy box stays put on top.
     for _ in range(600):
         mr.step_soft(DT, G)
-    var y_light = Float64(mr.bodies[1].position()[1])
-    var y_heavy = Float64(mr.bodies[2].position()[1])
+    var y_light = Float64(mr.bset.bodies[1].position()[1])
+    var y_heavy = Float64(mr.bset.bodies[2].position()[1])
     s.check(y_light > 0.2 and y_light < 0.26, "100:1 light box not crushed")
     s.check(abs(y_heavy - 0.70) < 0.06, "100:1 heavy box rests on light box")
     s.check(
-        abs(Float64(mr.bodies[2].position()[0])) < 0.05,
+        abs(Float64(mr.bset.bodies[2].position()[0])) < 0.05,
         "100:1 heavy box does not walk off",
     )
-    s.check(_len(mr.bodies[2].vel) < 0.02, "100:1 heavy box at rest")
+    s.check(_len(mr.bset.bodies[2].vel) < 0.02, "100:1 heavy box at rest")
 
     # 3. Cross-representation parity on the soft path (single resting box).
     var sq = ContactScene6[QuatBody6]()
@@ -145,8 +145,8 @@ def main() raises:
     for _ in range(300):
         sq.step_soft(DT, G)
         ss.step_soft(DT, G)
-    var yq = Float64(sq.bodies[1].position()[1])
-    var ys = Float64(ss.bodies[1].position()[1])
+    var yq = Float64(sq.bset.bodies[1].position()[1])
+    var ys = Float64(ss.bset.bodies[1].position()[1])
     s.check(abs(yq - ys) < 5e-3, "soft-step parity: quat vs screw rest height")
     s.check(abs(yq - 0.25) < 0.02, "soft-step rest height near contact")
 

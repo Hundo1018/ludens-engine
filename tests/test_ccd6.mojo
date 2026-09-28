@@ -51,13 +51,13 @@ def main() raises:
     var max_x = Float64(-1e30)
     for _ in range(60):
         sc.step_soft(DT, Vec3(0, 0, 0, 0))
-        var x = Float64(sc.bodies[1].position()[0])
+        var x = Float64(sc.bset.bodies[1].position()[0])
         if x > max_x:
             max_x = x
-    var final_x = Float64(sc.bodies[1].position()[0])
+    var final_x = Float64(sc.bset.bodies[1].position()[0])
     print(
         "  bullet: max x =", max_x, "final x =", final_x,
-        "final vx =", sc.bodies[1].vel[0],
+        "final vx =", sc.bset.bodies[1].vel[0],
     )
     # Speculative-margin guarantees (Box2D-grade first-stage CCD): the bullet
     # may transiently overlap the wall band but must never tunnel through the
@@ -66,7 +66,7 @@ def main() raises:
     s.check(max_x < 0.0, "bullet never crosses the wall midplane")
     s.check(final_x < -0.14, "bullet ends outside the wall")
     s.check(
-        abs(Float64(sc.bodies[1].vel[0])) < 5.0,
+        abs(Float64(sc.bset.bodies[1].vel[0])) < 5.0,
         "bullet speed collapsed (50 -> <5 m/s, e=0 grade)",
     )
 
@@ -89,10 +89,10 @@ def main() raises:
     )
     for _ in range(300):
         one.step_soft(DT, Vec3(0, -9.8, 0, 0))
-    var y = Float64(one.bodies[1].position()[1])
+    var y = Float64(one.bset.bodies[1].position()[1])
     print("  rest height with speculative margin:", y)
     s.check(abs(y - 0.25) < 0.005, "rest height unchanged by margin")
-    s.check(_len(one.bodies[1].vel) < 1e-3, "resting box still rests")
+    s.check(_len(one.bset.bodies[1].vel) < 1e-3, "resting box still rests")
 
     # 4. A moderately fast drop lands without deep penetration or bounce:
     #    speculative contact catches it at the surface.
@@ -110,13 +110,13 @@ def main() raises:
     var min_y = Float64(1e30)
     for _ in range(120):
         drop.step_soft(DT, Vec3(0, -9.8, 0, 0))
-        var yy = Float64(drop.bodies[1].position()[1])
+        var yy = Float64(drop.bset.bodies[1].position()[1])
         if yy < min_y:
             min_y = yy
     print("  fast drop: min y =", min_y)
     s.check(min_y > 0.2, "fast drop never sinks deep")
     s.check(
-        abs(Float64(drop.bodies[1].position()[1]) - 0.25) < 0.01,
+        abs(Float64(drop.bset.bodies[1].position()[1]) - 0.25) < 0.01,
         "fast drop settles at the surface",
     )
 
@@ -184,19 +184,19 @@ def main() raises:
     var max_sx = Float64(-1e30)
     for _ in range(60):
         sw.step_soft(DT, Vec3(0, 0, 0, 0), ccd=True)
-        var x = Float64(sw.bodies[1].position()[0])
+        var x = Float64(sw.bset.bodies[1].position()[0])
         if x > max_sx:
             max_sx = x
     print(
         "  swept bullet: max x =", max_sx,
-        "final vx =", sw.bodies[1].vel[0],
+        "final vx =", sw.bset.bodies[1].vel[0],
     )
     s.check(max_sx <= -0.145, "swept: zero overshoot past the wall surface")
     s.check(max_sx > -0.30, "swept: bullet actually reached the wall")
     # Bias/warm-start energy gives a small rebound (the speculative-only
     # scenario above rebounds at ~4.3 m/s); the TOI stage must not be worse.
     s.check(
-        abs(Float64(sw.bodies[1].vel[0])) < 3.0,
+        abs(Float64(sw.bset.bodies[1].vel[0])) < 3.0,
         "swept: bullet speed collapsed (50 -> <3 m/s)",
     )
 
@@ -215,7 +215,7 @@ def main() raises:
     )
     for _ in range(300):
         one2.step_soft(DT, Vec3(0, -9.8, 0, 0), ccd=True)
-    var y2 = Float64(one2.bodies[1].position()[1])
+    var y2 = Float64(one2.bset.bodies[1].position()[1])
     print("  rest height with TOI stage:", y2)
     s.check(abs(y2 - 0.25) < 0.005, "swept: rest height unchanged")
     s.almost(y2, y, "swept: parity with speculative-only rest height", 1e-6)

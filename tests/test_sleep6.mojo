@@ -35,9 +35,9 @@ def main() raises:
     for _ in range(30):
         sc.step_soft(DT, G)
     s.check(sc.island_count() == 2, "two separated stacks -> 2 islands")
-    s.check(sc.island[1] == sc.island[2], "stack members share an island")
-    s.check(sc.island[1] != sc.island[3], "separate stacks differ")
-    s.check(sc.island[0] == -1, "static ground is no island")
+    s.check(sc.bset.island[1] == sc.bset.island[2], "stack members share an island")
+    s.check(sc.bset.island[1] != sc.bset.island[3], "separate stacks differ")
+    s.check(sc.bset.island[0] == -1, "static ground is no island")
 
     # 2. Sleeping: a settled box falls asleep and freezes bit-exact.
     var one = ContactScene6[QuatBody6]()
@@ -46,19 +46,19 @@ def main() raises:
     var asleep_at = -1
     for t in range(180):
         one.step_soft(DT, G)
-        if asleep_at < 0 and one.sleeping[1]:
+        if asleep_at < 0 and one.bset.sleeping[1]:
             asleep_at = t
     print("  fell asleep at frame", asleep_at)
     s.check(asleep_at > 0, "settled box falls asleep")
     s.check(asleep_at < 150, "asleep within 2.5 s")
-    s.check(_len(one.bodies[1].vel) == 0, "sleeping velocity exactly zero")
-    var y_frozen = Float64(one.bodies[1].pos[1])
+    s.check(_len(one.bset.bodies[1].vel) == 0, "sleeping velocity exactly zero")
+    var y_frozen = Float64(one.bset.bodies[1].pos[1])
     for _ in range(100):
         one.step_soft(DT, G)
     s.check(
-        Float64(one.bodies[1].pos[1]) == y_frozen, "sleeping pose bit-frozen"
+        Float64(one.bset.bodies[1].pos[1]) == y_frozen, "sleeping pose bit-frozen"
     )
-    s.check(one.sleeping[1], "still asleep with no disturbance")
+    s.check(one.bset.sleeping[1], "still asleep with no disturbance")
 
     # 3. Wake on impact: drop a box onto the sleeper; both settle and sleep.
     var b2 = QuatBody6.at_rest(Vec3(0, 1.4, 0, 0), bi)
@@ -67,14 +67,14 @@ def main() raises:
     var both_asleep = False
     for _ in range(300):
         one.step_soft(DT, G)
-        if not one.sleeping[1]:
+        if not one.bset.sleeping[1]:
             woke = True
-        if one.sleeping[1] and one.sleeping[2]:
+        if one.bset.sleeping[1] and one.bset.sleeping[2]:
             both_asleep = True
     s.check(woke, "impact wakes the sleeping box")
     s.check(both_asleep, "the whole stack sleeps again")
     s.check(
-        abs(Float64(one.bodies[2].pos[1]) - 0.75) < 0.03,
+        abs(Float64(one.bset.bodies[2].pos[1]) - 0.75) < 0.03,
         "dropped box rests on the sleeper",
     )
 
@@ -89,7 +89,7 @@ def main() raises:
         ra.step_soft(DT, G)
         rb.step_soft(DT, G)
     s.check(
-        Float64(ra.bodies[1].pos[1]) == Float64(rb.bodies[1].pos[1]),
+        Float64(ra.bset.bodies[1].pos[1]) == Float64(rb.bset.bodies[1].pos[1]),
         "identical runs are bit-identical",
     )
 

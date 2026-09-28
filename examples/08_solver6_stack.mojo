@@ -63,19 +63,19 @@ def main():
     var q = _run_quat(FRAMES)
     print("QuatBody6  rest heights:")
     for i in range(1, 4):
-        print("  box", i, "y =", Float64(q.bodies[i].position()[1]))
+        print("  box", i, "y =", Float64(q.bset.bodies[i].position()[1]))
     print("  islands:", q.island_count())
 
     var w = _run_screw(FRAMES)
     print("ScrewBody6 rest heights:")
     for i in range(1, 4):
-        print("  box", i, "y =", Float64(w.bodies[i].position()[1]))
+        print("  box", i, "y =", Float64(w.bset.bodies[i].position()[1]))
     print("  islands:", w.island_count())
 
     print("== parity: |quat - screw| rest height, tol 1e-2 ==")
     var worst = Float64(0)
     for i in range(1, 4):
-        var d = abs(Float64(q.bodies[i].position()[1]) - Float64(w.bodies[i].position()[1]))
+        var d = abs(Float64(q.bset.bodies[i].position()[1]) - Float64(w.bset.bodies[i].position()[1]))
         if d > worst:
             worst = d
         print("  box", i, "delta =", d)

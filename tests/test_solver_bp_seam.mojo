@@ -49,21 +49,21 @@ def _same[BPA: BroadPhase, BPB: BroadPhase](
 ) -> Bool:
     """Bit-for-bit body-state comparison, independent of which `BroadPhase`
     each scene's type carries -- only `Body6`/sleep state is compared."""
-    if len(a.bodies) != len(b.bodies):
+    if len(a.bset.bodies) != len(b.bset.bodies):
         return False
-    for i in range(len(a.bodies)):
-        var dp = a.bodies[i].pos - b.bodies[i].pos
-        var dv = a.bodies[i].vel - b.bodies[i].vel
-        var dw = a.bodies[i].omega - b.bodies[i].omega
+    for i in range(len(a.bset.bodies)):
+        var dp = a.bset.bodies[i].pos - b.bset.bodies[i].pos
+        var dv = a.bset.bodies[i].vel - b.bset.bodies[i].vel
+        var dw = a.bset.bodies[i].omega - b.bset.bodies[i].omega
         if (
             dp[0] != 0 or dp[1] != 0 or dp[2] != 0
             or dv[0] != 0 or dv[1] != 0 or dv[2] != 0
             or dw[0] != 0 or dw[1] != 0 or dw[2] != 0
-            or a.bodies[i].q.x != b.bodies[i].q.x
-            or a.bodies[i].q.y != b.bodies[i].q.y
-            or a.bodies[i].q.z != b.bodies[i].q.z
-            or a.bodies[i].q.w != b.bodies[i].q.w
-            or a.sleeping[i] != b.sleeping[i]
+            or a.bset.bodies[i].q.x != b.bset.bodies[i].q.x
+            or a.bset.bodies[i].q.y != b.bset.bodies[i].q.y
+            or a.bset.bodies[i].q.z != b.bset.bodies[i].q.z
+            or a.bset.bodies[i].q.w != b.bset.bodies[i].q.w
+            or a.bset.sleeping[i] != b.bset.sleeping[i]
         ):
             return False
     return True
@@ -105,7 +105,7 @@ def _setup_mixed[BP: BroadPhase](mut sc: ContactScene6[QuatBody6, BP]):
     )
     var ball = sc.add_sphere(
         QuatBody6.at_rest(Vec3(0, 3, 0, 0), Inertia3.sphere(1, 0.3)), 0.3, False
-    )
+    ).index()
     sc.set_restitution(ball, 0.4)
     _ = sc.add_capsule(
         QuatBody6.at_rest(Vec3(6, 3, 0, 0), Inertia3.capsule(1, 0.25, 0.3)),
@@ -214,12 +214,12 @@ def _case_teleport[BP: BroadPhase](steps: Int, at: Int) -> Bool:
         refsc.step_soft(DT, G, broadphase=False)
         bpsc.step_soft(DT, G, broadphase=True)
         if f == at:
-            refsc.bodies[1].pos = Vec3(50, 50, 50, 0)
-            refsc.sleeping[1] = False
-            refsc.sleep_timer[1] = 0
-            bpsc.bodies[1].pos = Vec3(50, 50, 50, 0)
-            bpsc.sleeping[1] = False
-            bpsc.sleep_timer[1] = 0
+            refsc.bset.bodies[1].pos = Vec3(50, 50, 50, 0)
+            refsc.bset.sleeping[1] = False
+            refsc.bset.sleep_timer[1] = 0
+            bpsc.bset.bodies[1].pos = Vec3(50, 50, 50, 0)
+            bpsc.bset.sleeping[1] = False
+            bpsc.bset.sleep_timer[1] = 0
         if not _same(refsc, bpsc):
             return False
     return True

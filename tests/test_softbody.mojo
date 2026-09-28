@@ -71,7 +71,7 @@ def main() raises:
         QuatBody6.at_rest(Vec3(1.0, 0, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0),
         False,
-    )
+    ).index()
     var cube = SoftBody.box_lattice(Vec3(-0.6, 0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-6)
     cube.damp = 1.0  # lossless material: isolates the coupling's conservation
     for i in range(len(cube.pts)):
@@ -80,7 +80,7 @@ def main() raises:
     var p_before = Float64(zg.softs[0].momentum()[0])  # box at rest
     for _ in range(120):
         zg.step_soft(DT, Vec3(0, 0, 0, 0))
-    var box_p = Float64(zg.bodies[box].vel[0]) * 2.0
+    var box_p = Float64(zg.bset.bodies[box].vel[0]) * 2.0
     var soft_p = Float64(zg.softs[0].momentum()[0])
     print("  coupling: before", p_before, "after soft", soft_p, "+ box", box_p)
     s.check(box_p > 0.3, "free box picks up momentum from the soft cube")
@@ -103,11 +103,11 @@ def main() raises:
         ),
         Vec3(0.2, 0.2, 0.2, 0),
         False,
-    )
+    ).index()
     for _ in range(360):
         rs.step_soft(DT, G)
     var cube_top = Float64(rs.softs[0].top_y())
-    var box_bot = Float64(rs.bodies[rider].position()[1]) - 0.2
+    var box_bot = Float64(rs.bset.bodies[rider].position()[1]) - 0.2
     print(
         "  rider: top before", top_before, "after", cube_top,
         "box bottom", box_bot,
@@ -120,6 +120,6 @@ def main() raises:
     print("  rider sink below rest plane:", sink)
     s.check(sink > 0.003, "cube compressed under the rider (sink > 3mm)")
     s.check(cube_top > 0.2, "cube not squashed flat")
-    s.check(_len(rs.bodies[rider].vel) < 0.2, "rider settled")
+    s.check(_len(rs.bset.bodies[rider].vel) < 0.2, "rider settled")
 
     s.finish()

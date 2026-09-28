@@ -22,14 +22,14 @@ def _bounce_apex(e: Real) -> Float64:
         QuatBody6.at_rest(Vec3(0, 1.25, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0),
         False,
-    )
+    ).index()
     sc.set_restitution(b, e)
     var falling = True
     var apex = Float64(0)
     for _ in range(300):
         sc.step_soft(DT, G)
-        var y = Float64(sc.bodies[b].position()[1])
-        var vy = Float64(sc.bodies[b].vel[1])
+        var y = Float64(sc.bset.bodies[b].position()[1])
+        var vy = Float64(sc.bset.bodies[b].vel[1])
         if falling and vy > 0.1:
             falling = False  # first impact happened, now rising
         if not falling:
@@ -70,15 +70,15 @@ def main() raises:
         QuatBody6.at_rest(Vec3(0, 1.25, 0, 0), Inertia3.box(2, 0.25, 0.25, 0.25)),
         Vec3(0.25, 0.25, 0.25, 0),
         False,
-    )
+    ).index()
     sc.set_restitution(b, 0.8)
     var apexes = List[Float64]()
     var rising = False
     var cur = Float64(0)
     for _ in range(900):
         sc.step_soft(DT, G)
-        var y = Float64(sc.bodies[b].position()[1]) - 0.25
-        var vy = Float64(sc.bodies[b].vel[1])
+        var y = Float64(sc.bset.bodies[b].position()[1]) - 0.25
+        var vy = Float64(sc.bset.bodies[b].vel[1])
         if vy > 0.1:
             rising = True
             if y > cur:

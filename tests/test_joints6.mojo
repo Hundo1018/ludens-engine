@@ -21,7 +21,7 @@ def _pendulum_period_frames[B: Body6](
     var prev_vx = Float64(0)
     for t in range(frames):
         sc.step_soft(DT, G)
-        var vx = Float64(sc.bodies[1].velocity_at(sc.bodies[1].position())[0])
+        var vx = Float64(sc.bset.bodies[1].velocity_at(sc.bset.bodies[1].position())[0])
         if t > 0 and vx * prev_vx < 0:
             flips.append(t)
         prev_vx = vx
@@ -29,7 +29,7 @@ def _pendulum_period_frames[B: Body6](
     if len(flips) >= 3:
         period = Float64(flips[2] - flips[0])
     var gap = _len(
-        sc.bodies[1].act(Vec3(0, 1, 0, 0)) - sc.bodies[0].position()
+        sc.bset.bodies[1].act(Vec3(0, 1, 0, 0)) - sc.bset.bodies[0].position()
     )
     return (period, gap)
 
@@ -99,7 +99,7 @@ def main() raises:
     var max_x = Float64(0)
     for t in range(300):
         sh.step_soft(DT, G)
-        var p = sh.bodies[1].position()
+        var p = sh.bset.bodies[1].position()
         var az = abs(Float64(p[2]))
         if t < 100:
             if az > max_z_transient:

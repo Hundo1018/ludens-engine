@@ -50,13 +50,13 @@ def _flat(n: Int) -> ContactScene6[QuatBody6]:
 
 
 def _same(a: ContactScene6[QuatBody6], b: ContactScene6[QuatBody6]) -> Bool:
-    for i in range(len(a.bodies)):
-        var dp = a.bodies[i].pos - b.bodies[i].pos
+    for i in range(len(a.bset.bodies)):
+        var dp = a.bset.bodies[i].pos - b.bset.bodies[i].pos
         if dp[0] != 0 or dp[1] != 0 or dp[2] != 0:
             return False
-        if a.bodies[i].q.x != b.bodies[i].q.x or a.bodies[i].q.w != b.bodies[i].q.w:
+        if a.bset.bodies[i].q.x != b.bset.bodies[i].q.x or a.bset.bodies[i].q.w != b.bset.bodies[i].q.w:
             return False
-        if a.sleeping[i] != b.sleeping[i]:
+        if a.bset.sleeping[i] != b.bset.sleeping[i]:
             return False
     return True
 
@@ -85,8 +85,8 @@ def main() raises:
     for _ in range(300):
         d.step_soft(DT, G)
     var worst = Float64(0)
-    for i in range(len(a.bodies)):
-        var dp = a.bodies[i].pos - d.bodies[i].pos
+    for i in range(len(a.bset.bodies)):
+        var dp = a.bset.bodies[i].pos - d.bset.bodies[i].pos
         var m = max(
             abs(Float64(dp[0])), max(abs(Float64(dp[1])), abs(Float64(dp[2])))
         )
@@ -94,7 +94,7 @@ def main() raises:
             worst = m
     print("  colored vs serial GS worst position delta:", worst)
     s.check(worst < 0.05, "colored solver matches serial physics (< 5 cm)")
-    var top = Float64(a.bodies[len(a.bodies) - 1].pos[1])
+    var top = Float64(a.bset.bodies[len(a.bset.bodies) - 1].pos[1])
     print("  pyramid top y:", top, "expected settled:", 0.25 + 0.5 * 5)
     s.check(abs(top - (0.25 + 0.5 * 5)) < 0.05, "pyramid stands when colored")
 
@@ -118,12 +118,12 @@ def main() raises:
     for _ in range(240):
         z.step_soft(DT, G, iters=8, parallel=True, colored=True)
     var asleep = 0
-    for i in range(len(z.bodies)):
-        if z.sleeping[i]:
+    for i in range(len(z.bset.bodies)):
+        if z.bset.sleeping[i]:
             asleep += 1
-    print("  colored iters=8: sleeping", asleep, "of", len(z.bodies) - 1)
+    print("  colored iters=8: sleeping", asleep, "of", len(z.bset.bodies) - 1)
     s.check(
-        asleep == len(z.bodies) - 1,
+        asleep == len(z.bset.bodies) - 1,
         "colored solver at 2x iters reaches full sleep",
     )
 

@@ -181,7 +181,7 @@ def main() raises:
     var mz = ContactScene6[QuatBody6]()
     var ball = mz.add_sphere(
         QuatBody6.at_rest(Vec3(0.15, 0, 0, 0), Inertia3.sphere(2, 0.3)), 0.3, False
-    )
+    ).index()
     var mb = SoftBody.box_lattice(
         Vec3(-0.85, 0, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )
@@ -193,13 +193,13 @@ def main() raises:
     _ = mz.add_soft(mb^)
     for _ in range(300):
         mz.step_soft(DT, Vec3(0, 0, 0, 0))
-    var px = Float64(mz.bodies[ball].vel[0]) * 2.0
+    var px = Float64(mz.bset.bodies[ball].vel[0]) * 2.0
     for i in range(len(mz.softs[0].pts)):
         var p = mz.softs[0].pts[i]
         px += Float64(p.v[0]) / Float64(p.w)
-    print("  momentum: total px", px, "sphere vx", Float64(mz.bodies[ball].vel[0]))
+    print("  momentum: total px", px, "sphere vx", Float64(mz.bset.bodies[ball].vel[0]))
     s.check(abs(px - 2.0) < 0.01, "linear momentum conserved through coupling")
-    s.check(Float64(mz.bodies[ball].vel[0]) > 0.2, "sphere really got pushed")
+    s.check(Float64(mz.bset.bodies[ball].vel[0]) > 0.2, "sphere really got pushed")
 
     # 4. CCD vs sphere: the phased pellet tunnels without ccd, is caught
     #    with it.

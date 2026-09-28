@@ -153,8 +153,8 @@ def bench_step(mut table: BenchTable, grid: Int, nb: Int, steps: Int, as_field: 
         sc.step_soft(DT, G, broadphase=True)
     var t1 = now()
     var rest = Real(0)
-    for i in range(1, len(sc.bodies)):
-        rest += sc.bodies[i].position()[1]
+    for i in range(1, len(sc.bset.bodies)):
+        rest += sc.bset.bodies[i].position()[1]
     keep(rest)
     table.add(label, f.ntri(), "step", t1 - t0, steps)
 

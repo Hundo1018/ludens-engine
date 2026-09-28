@@ -72,7 +72,7 @@ def build(n: Int, filtered: Bool, events: Bool) -> ContactScene6[QuatBody6]:
                     Inertia3.box(2, 0.25, 0.25, 0.25),
                 ),
                 Vec3(0.25, 0.25, 0.25, 0), False,
-            )
+            ).index()
             if filtered:
                 var cat = _RED if pop == 0 else _BLUE
                 sc.set_filter(b, cat, _WORLD)  # world only, neither population
@@ -92,9 +92,9 @@ def run(
     var t1 = now()
     var acc = Real(0)
     var asleep = 0
-    for i in range(len(sc.bodies)):
-        acc += sc.bodies[i].position()[1]
-        if sc.sleeping[i]:
+    for i in range(len(sc.bset.bodies)):
+        acc += sc.bset.bodies[i].position()[1]
+        if sc.bset.sleeping[i]:
             asleep += 1
     keep(acc)
     table.add(

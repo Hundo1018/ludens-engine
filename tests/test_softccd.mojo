@@ -77,12 +77,12 @@ def _plate_slam(ccd: Bool) raises -> Vec3:
         ),
         Vec3(0.25, 0.02, 0.25, 0),
         False,
-    )
-    sc.bodies[plate].vel = Vec3(0, -40, 0, 0)
+    ).index()
+    sc.bset.bodies[plate].vel = Vec3(0, -40, 0, 0)
     var min_bot = Float64(1e30)
     for _ in range(240):
         sc.step_soft(DT, G, ccd=ccd)
-        var bb = Float64(sc.bodies[plate].pos[1]) - 0.02
+        var bb = Float64(sc.bset.bodies[plate].pos[1]) - 0.02
         if bb < min_bot:
             min_bot = bb
     return Vec3(Real(min_bot), sc.softs[0].top_y(), 0, 0)
@@ -131,17 +131,17 @@ def main() raises:
         QuatBody6.at_rest(Vec3(0, 0.85, 0, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)),
         Vec3(0.2, 0.2, 0.2, 0),
         False,
-    )
+    ).index()
     var rb = gb.add(
         QuatBody6.at_rest(Vec3(0, 0.85, 0, 0), Inertia3.box(1.0, 0.2, 0.2, 0.2)),
         Vec3(0.2, 0.2, 0.2, 0),
         False,
-    )
+    ).index()
     for _ in range(300):
         ga.step_soft(DT, G)
         gb.step_soft(DT, G, ccd=True)
     var same = True
-    var dp = ga.bodies[ra].pos - gb.bodies[rb].pos
+    var dp = ga.bset.bodies[ra].pos - gb.bset.bodies[rb].pos
     if dp[0] != 0 or dp[1] != 0 or dp[2] != 0:
         same = False
     for i in range(len(ga.softs[0].pts)):
