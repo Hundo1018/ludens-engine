@@ -41,8 +41,12 @@ comptime POOL_GROWN: Int = 6
 comptime POOL_EXHAUSTED: Int = 7
 """A fixed-capacity `ecs.pool.Pool` had no free slot and refused `acquire()`
 (see `ecs/pool.mojo`)."""
+comptime EVENT_DROPPED_UNREAD: Int = 8
+"""`scheduler.events.Channel` recycled its double buffer while a reader's
+cursor was still behind it; that reader's events for this cycle were dropped
+(see `scheduler/events.mojo`)."""
 
-comptime COUNT: Int = 8
+comptime COUNT: Int = 9
 
 
 def _name(id: Int) -> String:
@@ -62,6 +66,8 @@ def _name(id: Int) -> String:
         return "pool_grown"
     elif id == POOL_EXHAUSTED:
         return "pool_exhausted"
+    elif id == EVENT_DROPPED_UNREAD:
+        return "event_dropped_unread"
     else:
         return "counter_" + String(id)
 

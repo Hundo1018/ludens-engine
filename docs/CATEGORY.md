@@ -218,6 +218,45 @@ comptime 分派(`ease[kind]`)完全內聯、無分支,`EASE_QUAD_IN` 約 1.2 ns/
 讀作編譯器把 0..30 的稠密等式鏈降成跳轉表而非線性掃描;無論如何,comptime 分
 派仍是唯一「真正不用付錢」的路徑。
 
+### 2.4 `scheduler.events`(Phase 17.38,2026-09-28)
+
+事件匯流排落在 layer 3(`scheduler`);seam 是 pull(共用雙緩衝 + 每個 reader
+一個 cursor,production 實作)對 push(`send()` 當下就 fan-out 複製進每個訂閱
+者自己的 inbox,呼應既有 `scheduler/message.mojo` 的 mailbox 風格,僅作為
+seam 的對照組)。`collision.contact_events.ContactEvent` 轉接器**刻意不放進
+`scheduler/events.mojo`**——`collision` 與 `scheduler` 同為 layer 3,同層引入
+違反 §1 的 reach-through 規則——轉接器改放進
+`tests/test_events_contacts.mojo`,在 `gameplay`(layer 5)套件出現前,這個測
+試本身就是定律 v3 要求的「接上專案」生產式呼叫端。
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `EventChannel`:pull 雙緩衝+cursor(`Channel[E]`)vs push fan-out(`PushChannel[E]`) | scheduler/events.mojo | 同一「遞送」態射的兩個求值策略;送出序號(`send()` 呼叫序)全序決定遞送序,與實作無關——重播同一腳本兩次逐位相同(`test_events.mojo` 的 determinism 檢查),換 seam 三個 reader(先註冊/frame 中途註冊/`update()` 後註冊)的觀察序列逐位相同(parity 檢查) | `test_events`(component:普通/parity/多數極端案例)、`test_events_gameloop`(integration:`scheduler.gameloop.FixedLoop` 真實 tick 驅動,驗證「writer 之前/之後讀」逐位不漏)、`test_events_contacts`(integration:真實 `physics.solver6.ContactScene6` 疊出的 `ContactEvent` 經轉接器送達 reader,began/ended 都收到) | `bench_events`(readers×events/frame 雙表;readers 才是 seam 分歧的軸,見下方數字) |
+
+**未讀丟棄計數走 `diag.counters`**:pull 側的雙緩衝每次 `update()` 回收前一
+週期時,任何 cursor 仍落後的 reader 都被計入本地 `dropped_unread`(仿
+`diag/log.mojo`﹑`diag/draw.mojo`﹑`diag/trace.mojo` 既有的「容器自帶
+`dropped: Int`」慣例),`Channel.sync_counters` 再把這個本地計數併入共用的
+`diag.counters.Counters`(新 id `EVENT_DROPPED_UNREAD`)並歸零,避免重複計
+數——`test_events.mojo` 的「一個從不讀取的 reader」極端案例直接斷言這條路徑
+真的計數,不只是文件宣稱。push 側刻意沒有這個計數器:沒 reader 讀走的
+inbox 只會變長,不會丟棄——這正是為什麼 pull 才是 production 選擇,而不是
+對稱地補一個 push 並不真的需要的計數器。
+
+**`bench_events` 表 1(1000 events/frame,readers 掃 1..32)找到真正的交叉
+點**:readers=1 時 push 略勝(約 3.3 對 pull 約 5.3 ns/op——pull 每週期的固定
+開銷,例如 `update()` 逐一檢查每個 cursor,在最小 reader 數時攤不掉);
+readers=2 兩者打平(約 4.6 ns/op);readers≥4 起 pull 反超且差距隨 reader 數擴
+大——8 個 reader 約 3.75 對 5.15 ns/op(push 慢約 1.4×),16 個約 3.57 對
+11.66 ns/op(≈3.3×),32 個約 3.47 對 12.31 ns/op(≈3.5×)。pull 的 ns/op 隨
+reader 數增加反而略降(固定開銷被更多次讀取攤薄),push 的 ns/op 卻比「純粹
+O(readers) 次複製、單位成本應該打平」的預期漲得更多——讀作 fan-out 進多個
+「各自獨立」的 `List` 一旦數量夠多,快取局部性的代價會疊加在複製本身之上,
+這是設計筆記「push 成本 ∝ readers 次複製」這句話沒有拆開講的部分。表 2 固定
+4 個 reader(交叉帶內)改掃 events/frame(1e2..1e6),兩者全程接近,沒有一方
+持續大幅領先——與表 1 的結論一致:這個 seam 的分歧軸是 reader 數,不是事件
+數。
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」
