@@ -34,7 +34,7 @@ def _side(a: Vec2, b: Vec2, c: Vec2, exact: Bool) -> Int:
 
 def _hull_side(
     points: List[Vec2], a: Vec2, b: Vec2, mut hull: List[Vec2], exact: Bool
-) raises:
+):
     """Append hull vertices strictly between `a` and `b` (exclusive), in order,
     for the points lying to the left of the directed line a->b."""
     if len(points) == 0:
@@ -72,7 +72,7 @@ def _signed_area(verts: List[Vec2]) -> Real:
     return area
 
 
-def convex_hull_2d(points: List[Vec2], exact: Bool = True) raises -> Polygon:
+def convex_hull_2d(points: List[Vec2], exact: Bool = True) -> Polygon:
     """The convex hull of a 2D point cloud, CCW.
 
     `exact=False` selects the naive float32 sign test the algorithm used

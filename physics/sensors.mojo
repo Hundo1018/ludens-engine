@@ -108,7 +108,7 @@ def read_joint_vel(c: Chain) -> List[Real]:
 def read_rangefinder(
     c: Chain, link: Int, local: Vec3, dir_local: Vec3, plane_y: Real,
     max_range: Real = 100,
-) raises -> Real:
+) -> Real:
     """Distance along `dir_local` from the mount point to the plane `y = k`,
     or -1 when nothing is in range — the convention a real rangefinder uses
     for "no return".
@@ -133,7 +133,7 @@ def read_rangefinder(
 
 def read_touch(
     c: Chain, link: Int, local: Vec3, floor_y: Real
-) raises -> Real:
+) -> Real:
     """Penetration depth at a mount point, zero when not in contact — the
     scalar a touch pad integrates into a normal force."""
     var pw = c.point_world(link, local)

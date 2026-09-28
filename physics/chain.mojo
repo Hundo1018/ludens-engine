@@ -221,7 +221,7 @@ struct Chain(Movable, Deinitable):
         self.parent.append(p)
         return len(self.links) - 1
 
-    def fk(self) raises -> List[Motor3]:
+    def fk(self) -> List[Motor3]:
         """World pose of every link frame — pure motor composition (GA)."""
         var out = List[Motor3]()
         for i in range(len(self.links)):
@@ -628,14 +628,14 @@ struct Chain(Movable, Deinitable):
     # point back to joint torques. `J H⁻¹ Jᵀ` is then the effective mass the
     # contact sees, which is what makes the impulse solvable in joint space.
 
-    def point_world(self, i: Int, local: Vec3) raises -> Vec3:
+    def point_world(self, i: Int, local: Vec3) -> Vec3:
         """World position of a point given in link `i`'s frame."""
         var poses = self.fk()
         return poses[i].apply_point(local)
 
     def point_jacobian(
         self, i: Int, local: Vec3, dir: Vec3
-    ) raises -> List[Real]:
+    ) -> List[Real]:
         """Row `J` with `J q̇ = (velocity of the point) · dir`.
 
         Only ancestors of link `i` contribute: a joint that is not on the path
@@ -666,7 +666,7 @@ struct Chain(Movable, Deinitable):
             k = self.parent[k]
         return j^
 
-    def point_velocity(self, i: Int, local: Vec3, dir: Vec3) raises -> Real:
+    def point_velocity(self, i: Int, local: Vec3, dir: Vec3) -> Real:
         var j = self.point_jacobian(i, local, dir)
         var v = Real(0)
         for k in range(len(j)):
