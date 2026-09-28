@@ -122,9 +122,14 @@ touches and into `physics.solver6.ContactScene6`'s production step path
   fields (same shape as `counters`, already present since F23) — a caller
   reads them directly rather than `step`/`step_soft` taking new parameters
   (same ~100-call-site constraint as above). `step` wraps its phases
-  (`collect_pairs` — broadphase + narrowphase together, `warm_start`,
-  `solve`, `integrate`/`ccd`, `soft_pass`, `sleep`) in `self.trace.begin`/
-  `.end` spans, compiled to no-ops unless `-D LUDENS_TRACE`. When
+  (`collect_pairs` — broadphase + narrowphase together, `solve` — the whole
+  substep loop: warm start, joint/contact solve, integrate/ccd, soft pass,
+  and the bias-free relax sweep, `sleep`, `nan_scan`) in `self.trace.begin`/
+  `.end` spans, one pair per phase per STEP rather than per substep (ROADMAP
+  17.0i coarsened this from ~23 span pairs/step to 4, cutting traced-build
+  overhead on `bench_solver_scale` table 4 from ~20% to low single digits —
+  see that file and `docs/design/17.0i-runtime.md`), compiled to no-ops
+  unless `-D LUDENS_TRACE`. When
   `-D LUDENS_DEBUG_DRAW` is defined, `step` emits one `DrawQueue` arrow
   command per contact point (point → point + normal), coloured by island,
   into `self.draw`.

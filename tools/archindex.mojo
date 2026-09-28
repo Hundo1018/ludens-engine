@@ -1176,6 +1176,14 @@ struct TierFacts(Movable):
     var has_gameloop: Bool
     var has_ecs: Bool
     var has_physics: Bool
+    var has_gameplay: Bool
+    """ROADMAP 17.0i: the test imports `gameplay.*` directly. `gameplay
+    .runtime.Runtime` itself wires `ecs` + `scheduler` + `physics` (layer 5,
+    `scripts/arch_layers.toml`), so a test reaching it needs only ONE import
+    to be a real system test -- `has_gameloop`/`has_ecs`/`has_physics` above
+    only fire on a DIRECT import of each package by the test file itself,
+    which a `gameplay.runtime` import is not (that wiring is one hop away,
+    inside `gameplay`, not in the test)."""
 
 
 def stem_of_test(fname: String) -> String:
@@ -1208,6 +1216,7 @@ def compute_tier_facts(relpath: String, fname: String, dirs: Dirs, lt: LayerTabl
     var has_gameloop = False
     var has_ecs = False
     var has_physics = False
+    var has_gameplay = False
 
     for r in imports:
         if r.path != relpath:
@@ -1218,6 +1227,8 @@ def compute_tier_facts(relpath: String, fname: String, dirs: Dirs, lt: LayerTabl
             has_ecs = True
         if r.target_pkg == "physics":
             has_physics = True
+        if r.target_pkg == "gameplay":
+            has_gameplay = True
         # D excludes harness.*/diag.* by name (every test uses them; they say
         # nothing about a test's own span), excludes [vocabulary] helpers
         # imported for their value type rather than as the thing under test,
@@ -1271,7 +1282,7 @@ def compute_tier_facts(relpath: String, fname: String, dirs: Dirs, lt: LayerTabl
         span = reduced^
 
     sort(span)
-    return TierFacts(len(d_mod_pkg), span^, has_gameloop, has_ecs, has_physics)
+    return TierFacts(len(d_mod_pkg), span^, has_gameloop, has_ecs, has_physics, has_gameplay)
 
 
 def is_trait_seam(relpath: String, only_pkg: String, decls: List[Decl], imports: List[ImportRow]) -> Bool:
@@ -1298,6 +1309,8 @@ def suggest_tier(
 ) -> String:
     if fname.startswith("test_stress_"):
         return "stress"
+    if facts.has_gameplay:
+        return "system"
     if facts.has_gameloop and facts.has_ecs and facts.has_physics:
         return "system"
     if len(facts.span) >= 2:
@@ -1595,11 +1608,12 @@ def cmd_selftest() raises:
     os.makedirs(tmpdir + "/scheduler")
     os.makedirs(tmpdir + "/collision")
     os.makedirs(tmpdir + "/harness")
+    os.makedirs(tmpdir + "/gameplay")
     os.makedirs(tmpdir + "/tests")
 
     var toml_content = (
         '[layers]\nlow = 0\nmid = 1\nmidb = 1\nhigh = 2\ncyc = 1\n'
-        + 'diag = 0\ngeometry = 1\nspatial = 2\necs = 2\nphysics = 3\nscheduler = 3\ncollision = 3\n\n'
+        + 'diag = 0\ngeometry = 1\nspatial = 2\necs = 2\nphysics = 3\nscheduler = 3\ncollision = 3\ngameplay = 4\n\n'
         + '[infrastructure]\npackages = ["harness"]\nconsumers = ["tests"]\n\n'
         + '[allow_private]\n"high/h_allowed.mojo:low.priv2._other" = "selftest fixture: deliberately allowed"\n\n'
         + '[vocabulary]\nmodules = ["geometry.vec"]\n'
@@ -1636,6 +1650,14 @@ def cmd_selftest() raises:
     write_file(tmpdir + "/scheduler/gameloop.mojo", "def run_loop():\n    pass\n")
     write_file(tmpdir + "/collision/broadphase.mojo", "from geometry.vec import Vec3\ndef BroadPhase():\n    pass\n")
     write_file(tmpdir + "/harness/expect.mojo", "def expect_eq():\n    pass\n")
+    # ROADMAP 17.0i: `gameplay.runtime` wires `scheduler.gameloop` + `ecs` +
+    # `physics` itself (mirrors the real `gameplay/runtime.mojo`), so a test
+    # importing ONLY this one module -- never `scheduler`/`ecs`/`physics`
+    # directly -- must still be classified `system` (`has_gameplay` rule).
+    write_file(
+        tmpdir + "/gameplay/runtime.mojo",
+        "from scheduler.gameloop import run_loop\nfrom ecs.world import World\nfrom physics.rigid import RigidBody\ndef Runtime():\n    pass\n",
+    )
 
     write_file(
         tmpdir + "/tests/test_tier_unit_fixture.mojo",
@@ -1670,6 +1692,10 @@ def cmd_selftest() raises:
     write_file(
         tmpdir + "/tests/test_vec.mojo",
         "from geometry.vec import Vec3\nfrom spatial.hashgrid import HashGrid\n",
+    )
+    write_file(
+        tmpdir + "/tests/test_tier_gameplay_fixture.mojo",
+        "from gameplay.runtime import Runtime\n",
     )
 
     os.chdir(tmpdir)
@@ -1706,6 +1732,9 @@ def cmd_selftest() raises:
     var facts_vocab_targeted = compute_tier_facts("tests/test_vec.mojo", "test_vec.mojo", dirs, lt, imports)
     var tier_vocab_targeted = suggest_tier("tests/test_vec.mojo", "test_vec.mojo", facts_vocab_targeted, decls, imports)
 
+    var facts_gameplay = compute_tier_facts("tests/test_tier_gameplay_fixture.mojo", "test_tier_gameplay_fixture.mojo", dirs, lt, imports)
+    var tier_gameplay = suggest_tier("tests/test_tier_gameplay_fixture.mojo", "test_tier_gameplay_fixture.mojo", facts_gameplay, decls, imports)
+
     var status_missing = tier_status(TierHeader(False, String(""), False, String("")), "unit")
     var status_invalid = tier_status(TierHeader(True, String("bogus"), False, String("")), "unit")
     var status_mismatch = tier_status(TierHeader(True, String("component"), False, String("")), "unit")
@@ -1714,7 +1743,7 @@ def cmd_selftest() raises:
     os.chdir(orig_cwd)
     shutil.rmtree(tmpdir, ignore_errors=True)
 
-    var total = 21
+    var total = 22
     var passed = 0
     var results = List[String]()
 
@@ -1822,6 +1851,11 @@ def cmd_selftest() raises:
     var c21 = tier_vocab_targeted == "component"
     results.append("21. tiers: [vocabulary] module kept when the file's own name targets it: " + ("pass" if c21 else "FAIL: got " + tier_vocab_targeted))
     if c21:
+        passed += 1
+
+    var c22 = tier_gameplay == "system"
+    results.append("22. tiers: single `gameplay.*` import (no direct gameloop/ecs/physics) -> system: " + ("pass" if c22 else "FAIL: got " + tier_gameplay))
+    if c22:
         passed += 1
 
     for r in results:

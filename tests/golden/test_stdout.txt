@@ -384,6 +384,8 @@ build: all packages precompiled into build/
   mailbox cap 4 — delivered 4  dropped 12  actor0 count 4
   ghost targets — delivered 0  dropped 0
 [PASS] actor - 24 / 24 checks
+--- tests/test_body_removal.mojo ---
+[PASS] body_removal - 14 / 14 checks
 --- tests/test_broadphase.mojo ---
 [PASS] broadphase - 4 / 4 checks
 --- tests/test_ccd6.mojo ---
@@ -571,4 +573,7 @@ build: all packages precompiled into build/
   heightfield candidates — outside 0.0  straddling 2.0
   valley — y 0.38409448  speed 0.0  up.y 0.9998728
 [PASS] trimesh - 18 / 18 checks
-all tests passed
+--- tests/test_system_determinism.mojo ---
+[PASS] system_determinism - 4 / 4 checks
+--- tests/test_system_stack.mojo ---
+[PASS] system_stack - 9 / 9 checks

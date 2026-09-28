@@ -120,30 +120,56 @@ struct ColliderSet(Movable, Deinitable):
 
     # ------------------------------------------------------------ registry
 
-    def add(mut self, half: Vec3) -> Int:
-        """Register a box collider (the default kind); returns its index."""
-        self.shape.append(SHAPE_BOX)
-        self.half.append(half)
-        self.hull_id.append(-1)
-        self.mesh_id.append(-1)
-        self.world_aabb.append(AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0)))
-        self.category.append(1)
-        self.mask.append(0xFFFFFFFF)
-        self.sensor.append(False)
-        return len(self.shape) - 1
+    def add(mut self, half: Vec3, at: Int = -1) -> Int:
+        """Register a box collider (the default kind); returns its index.
 
-    def add_sphere(mut self, r: Real) -> Int:
-        var i = self.add(Vec3(r, r, r, 0))
+        `at` (ROADMAP 17.0i, `physics.solver6.ContactScene6.remove_body`):
+        when >= 0, write into that EXACT slot instead of appending -- lets a
+        caller that owns a separate free-list-based index space (`BodySet`)
+        keep `collider i == body i` in lockstep after a removed body's slot
+        is reused by a later `add*`. `at == len(self.shape)` behaves exactly
+        like appending; `at` below that overwrites an existing (tombstoned)
+        row in place. Every field list is written by every branch below, the
+        same "one method, every list grows/overwrites together" discipline
+        `physics.body_set.BodySet.push` uses for the body side."""
+        var i = at
+        if i < 0 or i == len(self.shape):
+            i = len(self.shape)
+            self.shape.append(SHAPE_BOX)
+            self.half.append(half)
+            self.hull_id.append(-1)
+            self.mesh_id.append(-1)
+            self.world_aabb.append(AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0)))
+            self.category.append(1)
+            self.mask.append(0xFFFFFFFF)
+            self.sensor.append(False)
+        else:
+            debug_assert(
+                i < len(self.shape),
+                "ColliderSet.add: `at` must be an existing slot or the next index",
+            )
+            self.shape[i] = SHAPE_BOX
+            self.half[i] = half
+            self.hull_id[i] = -1
+            self.mesh_id[i] = -1
+            self.world_aabb[i] = AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
+            self.category[i] = 1
+            self.mask[i] = 0xFFFFFFFF
+            self.sensor[i] = False
+        return i
+
+    def add_sphere(mut self, r: Real, at: Int = -1) -> Int:
+        var i = self.add(Vec3(r, r, r, 0), at)
         self.shape[i] = SHAPE_SPHERE
         return i
 
-    def add_capsule(mut self, r: Real, half_len: Real) -> Int:
+    def add_capsule(mut self, r: Real, half_len: Real, at: Int = -1) -> Int:
         # conservative box for any AABB-ish uses: r sideways, r+hl tall
-        var i = self.add(Vec3(r, half_len, r, 0))
+        var i = self.add(Vec3(r, half_len, r, 0), at)
         self.shape[i] = SHAPE_CAPSULE
         return i
 
-    def add_hull(mut self, var verts: List[Real]) -> Int:
+    def add_hull(mut self, var verts: List[Real], at: Int = -1) -> Int:
         """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
         vertex) -- see `collision/hull.mojo` for why flat, not `List[Vec3]`.
 
@@ -156,13 +182,15 @@ struct ColliderSet(Movable, Deinitable):
             comptime for k in range(3):
                 if abs(verts[3 * vi + k]) > h[k]:
                     h[k] = abs(verts[3 * vi + k])
-        var i = self.add(h)
+        var i = self.add(h, at)
         self.shape[i] = SHAPE_HULL
         self.hull_id[i] = len(self.hulls)
         self.hulls.append(HullShape(verts^))
         return i
 
-    def add_trimesh(mut self, verts: List[Real], indices: List[Int]) raises -> Int:
+    def add_trimesh(
+        mut self, verts: List[Real], indices: List[Int], at: Int = -1
+    ) raises -> Int:
         """Static triangle soup. `verts` is flat (x, y, z per vertex) in
         WORLD space, `indices` three per triangle. Always static (see
         `physics.solver6.ContactScene6.add_trimesh`).
@@ -173,7 +201,7 @@ struct ColliderSet(Movable, Deinitable):
         centring a box on the body's position (17.0f / F3)."""
         var m = TriMesh(verts, indices)
         var bb = m.bounds()
-        var i = self.add(bb.half_extents())
+        var i = self.add(bb.half_extents(), at)
         self.shape[i] = SHAPE_TRIMESH
         self.mesh_id[i] = len(self.meshes)
         self.world_aabb[i] = bb
@@ -182,13 +210,13 @@ struct ColliderSet(Movable, Deinitable):
 
     def add_heightfield(
         mut self, heights: List[Real], nx: Int, nz: Int,
-        cell: Real, ox: Real = 0, oz: Real = 0,
+        cell: Real, ox: Real = 0, oz: Real = 0, at: Int = -1,
     ) raises -> Int:
         """Static heightfield -- see `add_trimesh`; the same world-space
         `world_aabb` treatment (body pose ignored) applies here too."""
         var f = HeightField(heights, nx, nz, cell, ox, oz)
         var bb = f.bounds()
-        var i = self.add(bb.half_extents())
+        var i = self.add(bb.half_extents(), at)
         self.shape[i] = SHAPE_HEIGHTFIELD
         self.mesh_id[i] = len(self.fields)
         self.world_aabb[i] = bb

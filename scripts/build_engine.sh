@@ -28,6 +28,7 @@ pc ecs
 pc scheduler
 pc collision
 pc physics
+pc gameplay
 pc oop
 
 echo "build: all packages precompiled into build/"

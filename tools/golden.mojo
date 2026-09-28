@@ -82,7 +82,7 @@ def keep(line: String) -> Bool:
         return False
     var prefixes: List[String] = [
         "real\t", "user\t", "sys\t", "✨ Pixi task", "arch check:", "tiers:",
-        "exit=", "EXIT:",
+        "exit=", "EXIT:", "all tests passed",
     ]
     for i in range(len(prefixes)):
         if line.startswith(prefixes[i]):
@@ -297,6 +297,7 @@ def selftest() -> Bool:
         "exit=0",
         "   ",
         "  Elapsed: 3",
+        "all tests passed",
     ]
     for i in range(len(dropped)):
         if not keep(dropped[i]):

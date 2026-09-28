@@ -414,7 +414,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def add(mut self, var b: Self.B, half: Vec3, is_static: Bool) -> BodyId:
         self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
-        var ci = self.colliders.add(half)
+        var ci = self.colliders.add(half, id.index())
         debug_assert(
             ci == id.index(), "ContactScene6.add: body/collider index desync"
         )
@@ -423,7 +423,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def add_sphere(mut self, var b: Self.B, r: Real, is_static: Bool) -> BodyId:
         self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
-        var ci = self.colliders.add_sphere(r)
+        var ci = self.colliders.add_sphere(r, id.index())
         debug_assert(
             ci == id.index(),
             "ContactScene6.add_sphere: body/collider index desync",
@@ -435,7 +435,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     ) -> BodyId:
         self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
-        var ci = self.colliders.add_capsule(r, half_len)
+        var ci = self.colliders.add_capsule(r, half_len, id.index())
         debug_assert(
             ci == id.index(),
             "ContactScene6.add_capsule: body/collider index desync",
@@ -449,7 +449,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         vertex) -- see `collision.collider_set.ColliderSet.add_hull`."""
         self._debug_assert_dynamic_inertia(b, is_static)
         var id = self._push_body(b^, is_static)
-        var ci = self.colliders.add_hull(verts^)
+        var ci = self.colliders.add_hull(verts^, id.index())
         debug_assert(
             ci == id.index(), "ContactScene6.add_hull: body/collider index desync"
         )
@@ -466,7 +466,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         cannot conserve anything; refusing it here is cheaper than discovering
         it as drift."""
         var id = self._push_body(b^, True)
-        var ci = self.colliders.add_trimesh(verts, indices)
+        var ci = self.colliders.add_trimesh(verts, indices, id.index())
         debug_assert(
             ci == id.index(),
             "ContactScene6.add_trimesh: body/collider index desync",
@@ -481,12 +481,57 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         left implicit and the midphase reduced to arithmetic. Static for the
         same reason as `add_trimesh`."""
         var id = self._push_body(b^, True)
-        var ci = self.colliders.add_heightfield(heights, nx, nz, cell, ox, oz)
+        var ci = self.colliders.add_heightfield(
+            heights, nx, nz, cell, ox, oz, id.index()
+        )
         debug_assert(
             ci == id.index(),
             "ContactScene6.add_heightfield: body/collider index desync",
         )
         return id
+
+    def remove_body(mut self, id: BodyId) raises:
+        """ROADMAP 17.0i: full body removal -- the 17.0g-1 deferral
+        `physics/body_set.mojo`'s module docstring flagged (`BodySet.remove`/
+        `is_valid` existed and were tested, but nothing on `ContactScene6`
+        called them). Tombstones the slot (`BodySet.remove`: bumps the
+        generation, so a captured `BodyId` reads `is_valid() == False`
+        afterwards) and drops every cached warm-start pair referencing it
+        (`_quarantine_nonfinite`'s cache-prune has the identical shape) --
+        the NEXT `step`'s `_collect_pairs` never re-generates a pair
+        touching a removed body (the `is_removed` checks added alongside
+        this method), so a stale cache entry would otherwise just sit
+        unused; pruning it now is a courtesy, not a correctness requirement.
+
+        Raises if a joint still references `id`: `_joint_sweep`/
+        `_warm_start_joints` index `self.bset.bodies` directly with no
+        removed-body check of their own (mirroring `add_joint`'s own
+        bounds-check -- ARCHITECTURE.md S2, "invalid caller input"), so a
+        dangling joint would be a live out-of-bounds-meaning read, not just
+        stale data. The caller removes/replaces the joint first.
+
+        `ColliderSet` keeps collider `i`'s shape data in place -- it has no
+        free list of its own (unlike `BodySet`), so a reused slot's `add*`
+        call OVERWRITES it via the `at` parameter (`ColliderSet.add`'s
+        docstring) rather than the two index spaces drifting apart. Until
+        that reuse happens, the stale row is simply never read again: every
+        candidate-pair loop in `_collect_pairs` now skips `is_removed`
+        bodies before touching `self.colliders` at that index."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.remove_body: invalid BodyId")
+        var i = id.index()
+        for c in range(len(self.joints)):
+            if self.joints[c].a == i or self.joints[c].b == i:
+                raise Error(
+                    "ContactScene6.remove_body: body is referenced by a"
+                    " joint; remove the joint first"
+                )
+        self.bset.remove(id)
+        var kept = List[_CPair]()
+        for c in range(len(self.cache)):
+            if self.cache[c].a != i and self.cache[c].b != i:
+                kept.append(self.cache[c])
+        self.cache = kept^
 
     def _check_body_index(self, i: Int, who: String) raises:
         """audit E12: `i` is a raw `Int` (not a `BodyId`) on every `set_*`
@@ -672,8 +717,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         never move, sleeping bodies are frozen; a kinematic body reads
         `False` here (not inactive) even at zero velocity, because its pose
         integration path is the same `not _inactive(i)` gate a dynamic
-        body's is (`step`'s pose loop, `_ccd_advance`)."""
-        return self.bset.is_static(i) or self.bset.sleeping[i]
+        body's is (`step`'s pose loop, `_ccd_advance`). A removed (ROADMAP
+        17.0i `remove_body`) body reads `True` here too -- otherwise
+        `bset.is_static`/`sleeping` both read `False` for a tombstoned slot
+        (`BodySet.remove` clears `sleeping`) and the pose-integration loop
+        below would keep advancing a "despawned" body along whatever
+        velocity it had at removal time forever."""
+        return self.bset.is_static(i) or self.bset.is_removed(i) or self.bset.sleeping[i]
 
     def _impulse_inert(self, i: Int) -> Bool:
         """Does body `i` never receive an impulse THIS step -- static,
@@ -892,6 +942,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             for c in range(len(bp_pairs)):
                 var i = bp_pairs[c].a
                 var j = bp_pairs[c].b
+                # ROADMAP 17.0i: a removed body keeps its stale collider row
+                # in place (`ColliderSet` has no free list of its own -- see
+                # `remove_body`'s docstring), so it must be excluded here,
+                # not just from the `is_dynamic` gate above (a removed body
+                # reads `is_dynamic == False`, same as static, so a pair
+                # against a still-dynamic neighbor is NOT dropped by
+                # `is_static_bool` alone).
+                if self.bset.is_removed(i) or self.bset.is_removed(j):
+                    continue
                 try_pair(
                     self.colliders, i, j, self._pose(i), self._pose(j),
                     self.bset.bodies[i].linear_velocity(),
@@ -901,6 +960,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         else:
             for i in range(n):
                 for j in range(i + 1, n):
+                    # ROADMAP 17.0i: a removed body's collider row is stale
+                    # (see the broadphase branch's matching comment above).
+                    if self.bset.is_removed(i) or self.bset.is_removed(j):
+                        continue
                     # same rule as the broadphase branch above: skip only
                     # when NEITHER side is dynamic (static-static,
                     # static-kinematic, kinematic-kinematic all produce no
@@ -2170,6 +2233,26 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self._emit_events(pairs2)
             self.cache = pairs2^
             return
+        # ROADMAP 17.0i: ONE "solve" span for the WHOLE substep loop, not one
+        # begin/end pair per phase per substep. Measured overhead was ~20% at
+        # N=512 (bench_solver_scale table 4) from ~23 span pairs/step (5
+        # phases -- warm_start/solve/integrate-or-ccd/soft_pass/relax-solve
+        # -- times the default 4 substeps, plus collect_pairs/sleep/
+        # nan_scan); `TraceBuffer.begin`/`end` each pay a `perf_counter_ns`
+        # call, a `List` push/pop, and a `String` copy of the span name even
+        # though `-D LUDENS_TRACE` compiles the CALL away when off (the cost
+        # measured is the traced-build cost) -- coarsening to one span per
+        # phase per STEP amortizes that fixed cost over the whole step
+        # instead of over each substep, without losing what a caller can
+        # still ask `sc.trace.stats()` for (`test_error_wiring.mojo` and
+        # `bench_solver_scale`'s table 4 only ever check for "solve",
+        # "collect_pairs", "sleep", "nan_scan" by name -- never
+        # "warm_start"/"integrate"/"soft_pass", which were never part of
+        # either's contract). The five phases below stay in their original
+        # per-substep INTERLEAVED order (warm start -> solve -> integrate ->
+        # soft pass -> relax, repeated `substeps` times) -- only the tracing
+        # granularity changes, not the algorithm.
+        self.trace.begin("solve")
         for _ in range(substeps):
             # gravity: dynamic + awake only. `not _inactive(i)` alone would
             # also admit a kinematic body (never static, never sleeping) --
@@ -2181,11 +2264,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.
-            self.trace.begin("warm_start")
             self._warm_start(pairs, 0, len(pairs))
             self._warm_start_joints(-2)
-            self.trace.end()
-            self.trace.begin("solve")
             self._joint_sweep(
                 h, bias_rate, mass_scale, impulse_scale, True, iters, -2
             )
@@ -2199,24 +2279,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     pairs, 0, len(pairs), h, bias_rate, mass_scale,
                     impulse_scale, True, iters, mu,
                 )
-            self.trace.end()
             if ccd:
-                self.trace.begin("ccd")
                 self._ccd_advance(h)
-                self.trace.end()
             else:
-                self.trace.begin("integrate")
                 for i in range(len(self.bset.bodies)):
                     if not self._inactive(i):
                         self.bset.bodies[i].integrate_pose(h)
-                self.trace.end()
             # soft bodies: XPBD lattice + particle-vs-body coupling, at the
             # substep's POST-integration poses (rigid impulses land next substep)
-            self.trace.begin("soft_pass")
             self._softbody_pass(h, gravity, iters, ccd)
-            self.trace.end()
             # relax: remove the bias energy (velocity-only, no bias)
-            self.trace.begin("solve")
             self._joint_sweep(h, bias_rate, 1, 0, False, 2, -2)
             if colored:
                 self._sweep_colored(
@@ -2227,7 +2299,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self._soft_sweep(
                     pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
                 )
-            self.trace.end()
+        self.trace.end()
         self._restitution_pass(pairs, 0, len(pairs), 4, cfg.restitution_threshold)
         self.trace.begin("sleep")
         self._update_sleep(dt, cfg)

@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 if [ ! -x build/archindex ] || [ tools/archindex.mojo -nt build/archindex ]; then
     mkdir -p build
-    mojo build tools/archindex.mojo -o build/archindex
+    if command -v mojo >/dev/null; then mojo build tools/archindex.mojo -o build/archindex; else pixi run mojo build tools/archindex.mojo -o build/archindex; fi
 fi
 
 exec build/archindex "$@"
