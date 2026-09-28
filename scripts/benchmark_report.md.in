@@ -1584,6 +1584,82 @@ single `BezierPath` eval, consistent with doing on the order of 16-24
 evaluations per query before it converges.
 
 @bench benchmarks/bench_spline.mojo
+
+## Scheduler — deterministic timers (17.35): binary heap vs hierarchical wheel
+
+`TimerQueue` is the seam: `TimerHeap` (array binary min-heap keyed by
+`(due_tick, schedule sequence)`) against `TimerWheel` (a two-level ring --
+an exact-slot near ring for the next 256 ticks, a coarse far ring cascading
+into it every 256 ticks). Both are gated bit-for-bit identical by
+`test_timers`' seeded randomized schedule/cancel/advance script; this table
+is cost-only.
+
+Table 1 is `schedule()` alone (O(log N) heap push vs O(1) wheel bucket
+append). The two cross between N=1000 and N=10000: at N=1000 the heap is
+still faster (~44 ns/op vs ~57 ns/op -- the wheel's two 256-slot ring
+allocations are a fixed cost that small N has not amortized yet); by
+N=10000 the wheel is ahead (~55 ns/op vs ~71 ns/op) and stays ahead through
+N=1000000 (~28 ns/op vs ~47 ns/op).
+
+Table 2 is the regime the design note calls out: N timers scattered within
+a 256-tick window (near-due, matching the wheel's near-ring size), drained
+by one `advance()` call. Here the wheel wins across the WHOLE tested range,
+not just past a crossover -- even at N=100 (~80 ns/op vs ~134 ns/op) -- and
+the gap widens with N: at N=1000000 the heap costs ~324 ns/op against the
+wheel's ~43 ns/op, roughly 7.5x (the widest gap in this table, at N=100000,
+is ~8.2x). This is the "wheel's advantage regime is large N with near-due
+timers" the design note predicted, and it is a wider win than the raw
+schedule-only table shows, because it also captures the heap's O(log N)
+POP cost (paid N times) against the wheel's O(1) bucket scan.
+
+Table 3 holds N fixed at 200000 and instead sweeps how far out the timers
+are scattered: near (256 ticks, inside the near ring), medium (20000 ticks,
+forces the far ring and a cascade), far (300000 ticks, past the two-level
+horizon documented in `scheduler/timers.mojo` -- timers alias into a far-ring
+slot and get re-filed, still not due, every time that slot's 65536-tick
+cycle comes back around). The heap's cost is flat regardless of window
+(~200-211 ns/op throughout -- it never cared where timers were due, only how
+many are live); the wheel's rises from ~22 ns/op (near, ~9x ahead of the
+heap) to ~58 ns/op (medium, ~3.6x ahead) to ~135 ns/op (far, ~1.6x ahead) --
+still ahead of the heap at every window tested here, but converging hard,
+which is the honest cost of the tradeoff the module docstring discloses
+rather than a free lunch.
+
+@bench benchmarks/bench_timers.mojo
+## Procedural — tweens: easing dispatch cost and interpolant seam (17.35)
+
+`ease[kind]` (`kind` a comptime bracket parameter) against `ease_dyn(kind)`
+(`kind` a runtime `Int`, walking a `comptime for`-generated if-chain) for
+the SAME easing, so table 1's delta is dispatch cost alone. Comptime
+dispatch really is free: it compiles straight to the one formula, no branch
+at all -- `EASE_QUAD_IN` costs ~1.2 ns/op comptime. Runtime dispatch costs
+more for BOTH kinds tested, and the extra cost does not grow with chain
+position the way a hand-rolled linear if-chain would suggest: `EASE_QUAD_IN`
+(id 1, near the front of the 31-entry chain) pays ~11 ns/op more than its
+own comptime row, and `EASE_BOUNCE_INOUT` (id 30, the LAST comparison) pays
+~10 ns/op more than ITS comptime row -- essentially the same dispatch
+overhead whether the chain has to walk past one comparison or thirty, which
+reads as the compiler lowering the dense 0..30 equality chain into a jump
+table rather than a linear scan. Either way, only the comptime path is
+actually free; `ease_dyn` is for the case that needs it (a
+data-driven/loaded-at-runtime easing choice), not a substitute for it.
+
+Table 2 is `Tween[T].value()` per tween per frame, N = 1e3..1e5, across the
+three interpolants `procedural/tween.mojo` ships: `lerp_real` and
+`lerp_vec3` both settle at ~2.2-2.3 ns/op once N is large enough to amortize
+the `List[Tween[...]]` backing store's own allocation (the `vec3` N=1000 row
+reads high, ~27 ns/op, purely from that one-time setup cost, not from
+interpolation), and `geodesic3` holds flat at ~95-98 ns/op regardless of N --
+on the order of 40x the lerp interpolants' steady-state cost (the precise
+multiplier is noisy at the lerp side, since ~2.3 ns/op is close to this
+harness's own per-iteration timing resolution). That gap is exactly the
+price of what a `Motor3` tween buys over lerp+slerp: two motor `log`/`exp`
+per call (`geometry/galie.mojo`) instead of one FMA, in exchange for
+constant angular+linear speed along the true screw path
+(`docs/CATEGORY.md` §3) -- pay it for rigid motion, not for scalars or plain
+vectors.
+
+@bench benchmarks/bench_tween.mojo
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
