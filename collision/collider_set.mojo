@@ -14,11 +14,12 @@ body `i`) and delegates its `add*`/`set_filter`/`set_sensor` API to it.
 """
 
 from std.math import sqrt
+from std.os import abort
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from geometry.gjk import ConvexPoly
 from .hull import HullShape, hull_manifold
-from .trimesh import TriMesh, HeightField
+from .trimesh import TriMesh, HeightField, closest_point_on_triangle
 from .manifold import (
     ContactManifold,
     Axes3,
@@ -78,6 +79,15 @@ struct ColliderSet(Movable, Deinitable):
     var meshes: List[TriMesh]
     var fields: List[HeightField]
     var mesh_id: List[Int]
+    # World AABB of collider `i`, valid only for SHAPE_TRIMESH/SHAPE_HEIGHTFIELD
+    # (zero otherwise). Computed once at `add_trimesh`/`add_heightfield` time
+    # from the mesh's own (already world-space) vertices, so `fat_aabb` never
+    # has to consult -- and cannot be fooled by -- the owning body's pose
+    # (17.0f / F3: a level's vertices are world space and its body pose is
+    # documented as ignored, but the broadphase fattening used to centre the
+    # box on that pose anyway, culling contacts for any mesh not centred on
+    # its body).
+    var world_aabb: List[AABB[3]]
     # Collision filtering, Box2D's scheme: two bodies collide when each one's
     # category is in the other's mask. Applied by `should_collide`, the
     # single point both the brute and the broadphase enumeration funnel
@@ -96,6 +106,7 @@ struct ColliderSet(Movable, Deinitable):
         self.meshes = List[TriMesh]()
         self.fields = List[HeightField]()
         self.mesh_id = List[Int]()
+        self.world_aabb = List[AABB[3]]()
         self.category = List[UInt32]()
         self.mask = List[UInt32]()
         self.sensor = List[Bool]()
@@ -108,6 +119,7 @@ struct ColliderSet(Movable, Deinitable):
         self.half.append(half)
         self.hull_id.append(-1)
         self.mesh_id.append(-1)
+        self.world_aabb.append(AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0)))
         self.category.append(1)
         self.mask.append(0xFFFFFFFF)
         self.sensor.append(False)
@@ -148,17 +160,16 @@ struct ColliderSet(Movable, Deinitable):
         WORLD space, `indices` three per triangle. Always static (see
         `physics.solver6.ContactScene6.add_trimesh`).
 
-        # 17.0f: `half`/`fat_aabb` centre this on the OWNING BODY's pose
-        # (`Pose3.position`), but these vertices are already world-space and
-        # the body pose is meant to be ignored for kinds 4/5 (F3 in
-        # docs/audits/2026-09-27-architecture.md). A level added at a non-origin body pose
-        # is culled wrong under `broadphase=True`. Not fixed here (17.0e is
-        # behaviour-preserving); fix alongside the other three shape bugs."""
+        The owning body's pose is ignored, as documented: `world_aabb` is the
+        mesh's own world-space bounds, computed once here, and `fat_aabb`
+        returns it (grown by the usual speculative margin) instead of
+        centring a box on the body's position (17.0f / F3)."""
         var m = TriMesh(verts, indices)
         var bb = m.bounds()
         var i = self.add(bb.half_extents())
         self.shape[i] = SHAPE_TRIMESH
         self.mesh_id[i] = len(self.meshes)
+        self.world_aabb[i] = bb
         self.meshes.append(m^)
         return i
 
@@ -166,13 +177,14 @@ struct ColliderSet(Movable, Deinitable):
         mut self, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0,
     ) -> Int:
-        """Static heightfield -- see `add_trimesh`; same # 17.0f note (F3)
-        applies to the body-pose-vs-world-vertices mismatch."""
+        """Static heightfield -- see `add_trimesh`; the same world-space
+        `world_aabb` treatment (body pose ignored) applies here too."""
         var f = HeightField(heights, nx, nz, cell, ox, oz)
         var bb = f.bounds()
         var i = self.add(bb.half_extents())
         self.shape[i] = SHAPE_HEIGHTFIELD
         self.mesh_id[i] = len(self.fields)
+        self.world_aabb[i] = bb
         self.fields.append(f^)
         return i
 
@@ -288,11 +300,18 @@ struct ColliderSet(Movable, Deinitable):
         """Shape-pair dispatch (kinds normalised so a-kind <= b-kind; the
         manifold normal is flipped back when the pair had to be swapped).
 
-        # 17.0f: the final `else` below is a catch-all that treats any kind
-        # combination it does not recognise as capsule-capsule (F4a). It is
-        # only reachable today when a caller skips the `shape >= SHAPE_TRIMESH`
-        # mesh check before calling this (`contact_gen.try_pair`'s sensor
-        # short-circuit does exactly that) -- fix both sites together."""
+        Callers must pre-filter out static-mesh kinds (SHAPE_TRIMESH /
+        SHAPE_HEIGHTFIELD) -- `contact_gen.try_pair` routes those through
+        `try_mesh_pair`'s triangle-candidate path before either shape can
+        reach here (17.0f / F4a). What is left below is exhaustive over the
+        remaining kinds {BOX, SPHERE, CAPSULE, HULL}: with ka <= kb, every
+        pair through (0,0)-(2,3) is either an explicit branch or caught by
+        `kb == SHAPE_HULL` (hull is the largest of the four, so that branch
+        alone covers every hull combination), leaving exactly (CAPSULE,
+        CAPSULE) for the explicit branch below -- an unrecognised pair past
+        that point is a broken invariant upstream (a caller that let a mesh
+        kind through), not a case this function can make sense of, so it
+        aborts rather than guessing (docs/ARCHITECTURE.md error policy S2)."""
         var a = i
         var b = j
         var pa = pose_i.copy()
@@ -349,10 +368,17 @@ struct ColliderSet(Movable, Deinitable):
                 self.as_hull(a, pa, infl, mr), self.as_hull(b, pb, infl, mr),
                 self.hull_faces(a, pa, infl, mr), self.hull_faces(b, pb, infl, mr),
             )
-        else:  # capsule-capsule (see the # 17.0f note above the function)
+        elif ka == SHAPE_CAPSULE and kb == SHAPE_CAPSULE:
             m = capsule_capsule_manifold(
                 pa.position, pa.axes[1], self.half[a][1], self.half[a][0] + mr,
                 pb.position, pb.axes[1], self.half[b][1], self.half[b][0] + mr,
+            )
+        else:
+            abort(
+                "ColliderSet.pair_manifold: unsupported collider-kind pair ("
+                + String(ka) + ", " + String(kb) + ") -- static mesh kinds"
+                " must be routed through contact_gen.try_mesh_pair before"
+                " reaching this exhaustive box/sphere/capsule/hull dispatch"
             )
         if flip and m.hit:
             m.normal = -m.normal
@@ -365,11 +391,22 @@ struct ColliderSet(Movable, Deinitable):
         fat-AABB overlap is a conservative superset of any inflated-OBB
         overlap (the broadphase parity guarantee).
 
-        # 17.0f: for kinds SHAPE_TRIMESH/SHAPE_HEIGHTFIELD this centres the
-        # box on `pose.position` (the owning body's pose), which the mesh's
-        # own world-space vertices are supposed to ignore -- same bug as
-        # `add_trimesh`'s note (F3)."""
+        SHAPE_TRIMESH/SHAPE_HEIGHTFIELD are the exception: their `world_aabb`
+        (set once at `add_trimesh`/`add_heightfield` time, world-space,
+        ignoring the owning body's pose per the documented contract) is
+        returned instead of a box centred on `pose.position` -- grown by the
+        same r_i so the parity guarantee above still holds even though a
+        static mesh never moves (17.0f / F3)."""
         comptime SPEC_BASE: Real = 0.02
+        var k = self.shape[i]
+        if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
+            var r0 = Real(0)
+            if spec_dt > 0:
+                r0 = SPEC_BASE * 0.5 + sqrt(dot(vel, vel)) * spec_dt
+            var bb = self.world_aabb[i]
+            return AABB[3](
+                bb.min - Vec3(r0, r0, r0, 0), bb.max + Vec3(r0, r0, r0, 0)
+            )
         ref ax = pose.axes
         var h = self.half[i]
         var wh = Vec3(0, 0, 0, 0)
@@ -383,3 +420,102 @@ struct ColliderSet(Movable, Deinitable):
         if spec_dt > 0:
             r = SPEC_BASE * 0.5 + sqrt(dot(vel, vel)) * spec_dt
         return AABB[3].from_center(pose.position, wh + Vec3(r, r, r, 0))
+
+    def soft_particle_contact(
+        self, i: Int, pose: Pose3, p: Vec3, r: Real
+    ) -> Tuple[Bool, Vec3, Vec3]:
+        """Point-vs-shape closest point / signed distance for a soft-body
+        particle of radius `r` centred at world point `p` against collider
+        `i`, restricted to HULL/TRIMESH/HEIGHTFIELD -- box/sphere/capsule
+        keep their own exact closed forms inline in
+        `physics.solver6._softbody_pass` (17.0f / F4b: those three kinds
+        used to be substituted with a sphere of radius `half.x` at the
+        body's position, which for a level mesh is a sphere the size of the
+        level). Returns (hit, target, normal): if `hit`, `target` is where
+        the particle should be moved so it just touches the surface and
+        `normal` is the outward push direction (unit length).
+
+        HULL: SAT over the hull's own face planes (`HullShape.face` /
+        `face_offset`, built once at construction) -- the same
+        exact-on-a-face, approximate-at-an-edge-or-corner tradeoff
+        `hull_manifold` already makes for rigid hull contacts.
+
+        TRIMESH / HEIGHTFIELD: triangle CANDIDATES from the shared midphase
+        (`mesh_candidates`) -- a heightfield's candidate lookup is already
+        O(1) grid arithmetic (see `collision.trimesh`'s docstring), so there
+        is no separate cheaper 'sample the height' path worth having; this
+        reuses the identical candidate/tri/tri_faces calls the rigid mesh
+        path uses -- then closest-point-on-triangle over the candidates,
+        nearest one wins. Degenerate (zero-area) triangles are skipped, the
+        same rule `try_mesh_pair` uses."""
+        var k = self.shape[i]
+        if k == SHAPE_HULL:
+            ref hs = self.hulls[self.hull_id[i]]
+            var nf = hs.nf()
+            if nf == 0:
+                return (False, p, Vec3(0, 1, 0, 0))
+            ref ax = pose.axes
+            var d = p - pose.position
+            var lp = Vec3(dot(d, ax[0]), dot(d, ax[1]), dot(d, ax[2]), 0)
+            var best = Real(-1e30)
+            var best_f = -1
+            for f in range(nf):
+                var n = hs.face(f)
+                var raw = dot(lp, n) - hs.face_offset(f)
+                if raw > best:
+                    best = raw
+                    best_f = f
+            if best_f < 0 or best > r:
+                return (False, p, Vec3(0, 1, 0, 0))
+            var n = hs.face(best_f)
+            var lp2 = lp + n * (r - best)
+            var wn = ax[0] * n[0] + ax[1] * n[1] + ax[2] * n[2]
+            var target = (
+                pose.position + ax[0] * lp2[0] + ax[1] * lp2[1] + ax[2] * lp2[2]
+            )
+            return (True, target, wn)
+        if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
+            var wide = Vec3(r, r, r, 0)
+            var box = AABB[3](p - wide, p + wide)
+            var tris = List[Int]()
+            self.mesh_candidates(i, box, tris)
+            var best_d2 = r * r
+            var best_pt = p
+            var best_n = Vec3(0, 1, 0, 0)
+            var hit = False
+            for c in range(len(tris)):
+                var t = tris[c]
+                var tf = self.mesh_tri_faces(i, t)
+                if len(tf) < 3:
+                    continue  # degenerate triangle: no normal, no contact
+                var tri = self.mesh_tri(i, t)
+                if len(tri.points) < 3:
+                    continue
+                var cp = closest_point_on_triangle(
+                    p, tri.points[0], tri.points[1], tri.points[2]
+                )
+                var dvec = p - cp
+                var d2 = dot(dvec, dvec)
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best_pt = cp
+                    best_n = Vec3(tf[0], tf[1], tf[2], 0)
+                    hit = True
+            if not hit:
+                return (False, p, Vec3(0, 1, 0, 0))
+            var dist = sqrt(best_d2)
+            var n: Vec3
+            if dist > 1e-9:
+                n = (p - best_pt) * (1 / dist)
+                # `p - cp` points the wrong way when the particle has already
+                # sunk past the surface (cp is then roughly below p along the
+                # triangle's own normal) -- fall back to the triangle's face
+                # normal, the same disambiguation `try_mesh_pair` gets for
+                # free from SAT over both shapes' faces.
+                if dot(n, best_n) < 0:
+                    n = best_n
+            else:
+                n = best_n
+            var target = best_pt + n * r
+            return (True, target, n)
+        return (False, p, Vec3(0, 1, 0, 0))

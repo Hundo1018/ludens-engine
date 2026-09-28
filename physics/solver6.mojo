@@ -45,7 +45,14 @@ from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from collision.manifold import ContactManifold, Axes3
-from collision.collider_set import ColliderSet, Pose3, SHAPE_BOX
+from collision.collider_set import (
+    ColliderSet,
+    Pose3,
+    SHAPE_BOX,
+    SHAPE_HULL,
+    SHAPE_TRIMESH,
+    SHAPE_HEIGHTFIELD,
+)
 from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
 from collision.contact_events import ContactEvent, pack_key, diff_events
 from collision.broadphase import BroadPhase, Pair
@@ -962,11 +969,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         pose moves, so mutually-approaching fast pairs resolve symmetrically
         (the relative displacement already contains both velocities).
 
-        # 17.0f: every pair is swept as its `half` box regardless of shape
-        # kind (sphere/capsule/hull all get the conservative box instead of
-        # their own TOI), and `_should_collide`/sensors are never consulted
-        # (F4c) -- a filtered or sensor pair still clamps motion here. Not
-        # fixed here (behaviour-preserving step)."""
+        Sphere/capsule still use their conservative `half` box (a superset of
+        the real shape centred correctly on the body, so the sweep can only
+        clamp too early, never wrongly): that is unchanged. Hull, trimesh
+        and heightfield have no exact box TOI at all -- a hull's box is not
+        its shape, and a static mesh's `half` is not even centred on the
+        body (F3), so sweeping either as a box can freeze a body far from
+        its real surface. Rather than build a per-kind sweep for three kinds
+        that already get a discrete/speculative contact every substep, this
+        sweep just skips any pair touching one of them (the conservative
+        option the spec allows): CCD there falls back to whatever the
+        ordinary contact path already provides, with the residual tunnelling
+        risk that implies for genuinely fast movers against those three
+        kinds specifically -- no worse than before CCD existed for them.
+        `should_collide`/sensors are consulted too, so a filtered or sensor
+        pair is never clamped here regardless of shape (17.0f / F4c)."""
         var n = len(self.bodies)
         var frac = List[Real]()
         for _ in range(n):
@@ -974,11 +991,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         for i in range(n):
             if self._inactive(i):
                 continue
+            var ki = self.colliders.shape[i]
+            if ki == SHAPE_HULL or ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD:
+                continue  # no exact box TOI for this kind (see docstring)
             var vi = self.bodies[i].linear_velocity()
             if dot(vi, vi) * h * h < 1e-12:
                 continue
             for j in range(n):
                 if j == i:
+                    continue
+                if not self.colliders.should_collide(i, j):
+                    continue
+                if self.colliders.is_sensor(i) or self.colliders.is_sensor(j):
+                    continue
+                var kj = self.colliders.shape[j]
+                if kj == SHAPE_HULL or kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD:
                     continue
                 var vj = Vec3(0, 0, 0, 0)
                 if not self._inactive(j):
@@ -1136,16 +1163,51 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.softs[s].pts[ed.a] = pa
                     self.softs[s].pts[ed.b] = pb
                     self.softs[s].edges[e] = ed
-            # particle vs every box (bodies are boxes in this scene)
-            #
-            # 17.0f: every non-box shape (hull/mesh/heightfield too, not just
-            # sphere/capsule) is treated below as a sphere of radius `half.x`
-            # at the body position (F4b) -- for a level mesh that is a sphere
-            # the size of the level. Not fixed here (behaviour-preserving).
+            # particle vs every collider (bodies default to boxes in this
+            # scene; hull/trimesh/heightfield route through `ColliderSet`
+            # below, sphere/capsule keep their own exact closed forms here).
             for i in range(np):
                 var p = self.softs[s].pts[i]
                 for b in range(len(self.bodies)):
-                    if self.colliders.shape[b] != SHAPE_BOX:
+                    var kind = self.colliders.shape[b]
+                    if (
+                        kind == SHAPE_HULL
+                        or kind == SHAPE_TRIMESH
+                        or kind == SHAPE_HEIGHTFIELD
+                    ):
+                        # Point-vs-shape closest point through the collider
+                        # registry (17.0f / F4b): a hull's SAT over its own
+                        # faces, a mesh's triangle candidates + closest point
+                        # on triangle -- see `ColliderSet.soft_particle_contact`.
+                        # These three kinds do not get the `ccd` sweep the
+                        # box/sphere/capsule paths below have; a fast particle
+                        # can still tunnel through one within a substep. That
+                        # is the same conservative scope limit `_ccd_advance`
+                        # documents for rigid bodies against these kinds.
+                        var res = self.colliders.soft_particle_contact(
+                            b, self._pose(b), p.x, r
+                        )
+                        if res[0]:
+                            var nw3 = res[1]
+                            if smu > 0:
+                                nw3 = self._soft_fric(
+                                    b, p.x,
+                                    Vec3(
+                                        prev[i * 3], prev[i * 3 + 1],
+                                        prev[i * 3 + 2], 0,
+                                    ),
+                                    nw3, res[2], h, smu,
+                                )
+                            var dx3 = nw3 - p.x
+                            p.x = nw3
+                            if not self.statics[b]:
+                                var j3 = dx3 * (-(1 / p.w) / h)
+                                self.bodies[b].apply_impulse(j3, nw3)
+                                if self.sleeping[b]:
+                                    self.sleeping[b] = False
+                                    self.sleep_timer[b] = 0
+                        continue
+                    if kind != SHAPE_BOX:
                         # sphere / capsule: radial pushout from the closest
                         # interior point (capsule = sphere at the closest
                         # point of its world axis segment); same impulse

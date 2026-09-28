@@ -9,6 +9,7 @@ Islands are recomputed each step and need no entry.
 """
 
 from geometry.vec import Real, Vec3
+from geometry.aabb import AABB
 from geometry.quat import Quat
 from collision.manifold import ContactManifold
 from collision.hull import HullShape
@@ -208,6 +209,7 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
         sc.island.append(-1)
         sc.colliders.hull_id.append(-1)
         sc.colliders.mesh_id.append(-1)
+        sc.colliders.world_aabb.append(AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0)))
         var bi = len(sc.bodies) - 1
         if kind == 3:
             var nv = r.i()
@@ -226,7 +228,9 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             for _ in range(ni):
                 mi.append(r.i())
             sc.colliders.mesh_id[bi] = len(sc.colliders.meshes)
-            sc.colliders.meshes.append(TriMesh(mv, mi))
+            var tm = TriMesh(mv, mi)
+            sc.colliders.world_aabb[bi] = tm.bounds()
+            sc.colliders.meshes.append(tm^)
         elif kind == 5:
             var nx = r.i()
             var nz = r.i()
@@ -238,7 +242,9 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
             for _ in range(nh):
                 hh.append(r.f())
             sc.colliders.mesh_id[bi] = len(sc.colliders.fields)
-            sc.colliders.fields.append(HeightField(hh, nx, nz, cell, ox, oz))
+            var hfld = HeightField(hh, nx, nz, cell, ox, oz)
+            sc.colliders.world_aabb[bi] = hfld.bounds()
+            sc.colliders.fields.append(hfld^)
     var nj = r.i()
     for _ in range(nj):
         var kind = r.i()

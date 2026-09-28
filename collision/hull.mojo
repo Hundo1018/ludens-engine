@@ -77,6 +77,14 @@ struct HullShape(Movable, Deinitable):
 
     var v: List[Real]  # vertices, stride 3
     var f: List[Real]  # outward face normals, stride 3
+    # Per-face plane offset (max vertex projection along that face's own
+    # normal), aligned 1:1 with `f`/`face(i)` -- the exact local-frame plane
+    # equation `dot(p, face(i)) <= face_offset(i)` for a point inside the
+    # hull. Captured for free in `_build_faces` (it already computes this
+    # value to test face membership); used by 17.0f's soft-particle-vs-hull
+    # SAT query (`ColliderSet.soft_particle_contact`, F4b) so that query
+    # never has to re-scan every vertex per face per particle per step.
+    var fo: List[Real]
 
     def __init__(out self, verts: List[Real]):
         """`verts` is FLAT: x, y, z per vertex. Not `List[Vec3]` — see above."""
@@ -84,6 +92,7 @@ struct HullShape(Movable, Deinitable):
         for i in range(len(verts)):
             self.v.append(verts[i])
         self.f = List[Real](capacity=96)
+        self.fo = List[Real](capacity=32)
         self._build_faces()
         self._prune_interior()
 
@@ -98,6 +107,10 @@ struct HullShape(Movable, Deinitable):
 
     def face(self, i: Int) -> Vec3:
         return Vec3(self.f[3 * i], self.f[3 * i + 1], self.f[3 * i + 2], 0)
+
+    def face_offset(self, i: Int) -> Real:
+        """`d` in the plane equation `dot(p, face(i)) <= d` (local frame)."""
+        return self.fo[i]
 
     def _build_faces(mut self):
         var n = self.nv()
@@ -141,6 +154,7 @@ struct HullShape(Movable, Deinitable):
                         self.f.append(nrm[0])
                         self.f.append(nrm[1])
                         self.f.append(nrm[2])
+                        self.fo.append(d)
 
     def _prune_interior(mut self):
         """Drop vertices that lie strictly inside the hull.

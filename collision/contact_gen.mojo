@@ -22,7 +22,7 @@ controller can call it without ever importing physics.
 from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
-from .collider_set import ColliderSet, Pose3
+from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH
 from .broadphase import BroadPhase, BoxProxy, Pair
 from .manifold import ContactManifold
 from .hull import hull_manifold
@@ -93,11 +93,11 @@ def try_mesh_pair(
     var a = i  # the dynamic body
     var b = j  # the static mesh
     var pa = pose_i.copy()
-    if colliders.shape[i] >= 4:
+    if colliders.shape[i] >= SHAPE_TRIMESH:
         a = j
         b = i
         pa = pose_j.copy()
-    if colliders.shape[a] >= 4:
+    if colliders.shape[a] >= SHAPE_TRIMESH:
         return  # mesh vs mesh: two static bodies, nothing to resolve
 
     # The speculative margin is split half-and-half between the two shapes
@@ -137,32 +137,41 @@ def try_pair(
     pose_i: Pose3, pose_j: Pose3, vel_i: Vec3, vel_j: Vec3, spec_dt: Real,
     mut out: List[RawContact], mut sensors: List[RawContact],
 ):
-    """The per-pair body of the candidate enumeration: filtering, sensor
-    short-circuit, speculative manifold. Extracted so both the brute loop and
-    the broadphase enumeration in physics feed the IDENTICAL logic (parity).
+    """The per-pair body of the candidate enumeration: filtering, mesh vs
+    non-mesh dispatch, sensor short-circuit, speculative manifold. Extracted
+    so both the brute loop and the broadphase enumeration in physics feed the
+    IDENTICAL logic (parity).
 
-    # 17.0f: the sensor check runs BEFORE the mesh-kind check below, so a
-    # sensor overlapping a static mesh/heightfield reaches `pair_manifold`
-    # directly instead of the triangle-aware `try_mesh_pair` path, and falls
-    # into that function's capsule-capsule catch-all (F4a in
-    # docs/audits/2026-09-27-architecture.md). Not fixed here (behaviour-preserving step);
-    # 17.0f makes both branches exhaustive together."""
+    The MESH check runs first, before the sensor short-circuit (17.0f / F4a):
+    a sensor overlapping a static mesh/heightfield goes through the same
+    triangle-candidate path (`try_mesh_pair`) as a solid body, just with zero
+    margin and its raw contacts routed to `sensors` instead of `out` (no
+    impulse, matching `set_sensor`'s contract) -- rather than reaching
+    `pair_manifold` directly and falling into its capsule-capsule catch-all,
+    which used to report overlap against the mesh's conservative bounding
+    capsule instead of its real triangles."""
     if not colliders.should_collide(i, j):
         return
     var margin = speculative_margin(vel_i, vel_j, spec_dt)
     var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
+    var is_sensor_pair = colliders.is_sensor(i) or colliders.is_sensor(j)
 
-    if colliders.is_sensor(i) or colliders.is_sensor(j):
+    if colliders.shape[i] >= SHAPE_TRIMESH or colliders.shape[j] >= SHAPE_TRIMESH:
+        if is_sensor_pair:
+            # No speculative margin, same reasoning as the non-mesh sensor
+            # branch below: a trigger fires on actual overlap, not early.
+            try_mesh_pair(colliders, i, j, pose_i, pose_j, 0, sensors)
+        else:
+            try_mesh_pair(colliders, i, j, pose_i, pose_j, margin, out)
+        return
+
+    if is_sensor_pair:
         # No speculative margin: a trigger should fire when the shapes
         # actually overlap, not a margin early, and there is no impulse for
         # the margin to smooth out anyway.
         var sm = colliders.pair_manifold(i, j, pose_i, pose_j, 0, Vec3(0, 0, 0, 0))
         if sm.hit:
             sensors.append(RawContact(i, j, 0, sm))
-        return
-
-    if colliders.shape[i] >= 4 or colliders.shape[j] >= 4:
-        try_mesh_pair(colliders, i, j, pose_i, pose_j, margin, out)
         return
 
     var m = colliders.pair_manifold(i, j, pose_i, pose_j, margin * 0.5, infl)

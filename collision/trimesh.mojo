@@ -57,6 +57,49 @@ def _tri_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3:
     return n / l
 
 
+def closest_point_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3:
+    """Closest point on triangle (a, b, c) to `p` (Ericson, Real-Time
+    Collision Detection 5.1.5): region tests via barycentric coordinates
+    that degrade gracefully to an edge or a vertex, never dividing by a
+    zero triangle area on the path actually taken. Used by 17.0f's
+    soft-particle-vs-mesh query (F4b) so a lattice resting on a trimesh or
+    heightfield gets an exact surface point instead of the level-sized fake
+    sphere the old code substituted."""
+    var ab = b - a
+    var ac = c - a
+    var ap = p - a
+    var d1 = dot(ab, ap)
+    var d2 = dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        return a
+    var bp = p - b
+    var d3 = dot(ab, bp)
+    var d4 = dot(ac, bp)
+    if d3 >= 0 and d4 <= d3:
+        return b
+    var vc = d1 * d4 - d3 * d2
+    if vc <= 0 and d1 >= 0 and d3 <= 0:
+        var v = d1 / (d1 - d3)
+        return a + ab * v
+    var cp = p - c
+    var d5 = dot(ab, cp)
+    var d6 = dot(ac, cp)
+    if d6 >= 0 and d5 <= d6:
+        return c
+    var vb = d5 * d2 - d1 * d6
+    if vb <= 0 and d2 >= 0 and d6 <= 0:
+        var w = d2 / (d2 - d6)
+        return a + ac * w
+    var va = d3 * d6 - d5 * d4
+    if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
+        var w2 = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        return b + (c - b) * w2
+    var denom = 1 / (va + vb + vc)
+    var v2 = vb * denom
+    var w3 = vc * denom
+    return a + ab * v2 + ac * w3
+
+
 struct TriMesh(Movable, Deinitable):
     """A static triangle soup with a BVH midphase.
 
