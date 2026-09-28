@@ -274,7 +274,7 @@ comparison: not a faster step, an available one.
 The skinning maths existed; the runtime around it did not. `procedural/anim.mojo`
 adds uniformly-sampled clips, three blend modes, and a player that cross-fades
 between clips under whatever drives it — `test_anim` drives it from
-`scheduler/fsm.mojo`.
+`procedural/fsm.mojo`.
 
 Costs are per BONE per FRAME and are flat in the bone count, which is what they
 should be: the work is per bone and nothing here is quadratic. The three blend
