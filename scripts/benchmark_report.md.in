@@ -1710,6 +1710,43 @@ specifically "no archetype migration of the template", not a universal
 constant-factor speedup.
 
 @bench benchmarks/bench_pool.mojo
+## Scheduler — gameplay event bus (17.38): pull vs push delivery
+
+`EventChannel` is the seam: `Channel[E]` (pull -- a shared double buffer plus
+one cursor per reader, the production implementation) against `PushChannel[E]`
+(fan-out -- a copy into every subscriber's own inbox at `send()` time, the
+`scheduler/message.mojo` mailbox style, kept only as the seam's comparison
+partner). Both are gated bit-for-bit identical by `test_events.mojo`'s parity
+and determinism checks; these tables are cost-only. ns/op here is per
+(reader, event) DELIVERY -- one reader observing one event -- so pull and push
+are compared on the same unit even though the work happens at different
+times (pull pays at `read()`, push pays at `send()`).
+
+Table 1 fixes 1000 events/frame and sweeps the READER COUNT, 1..32. This is
+where the seam's two cost models actually diverge, and there is a real
+crossover: at 1 reader push is ahead (~3.3 ns/op vs pull's ~5.3 ns/op --
+pull's per-frame bookkeeping, e.g. `update()` scanning `prev` against every
+cursor, has more fixed overhead to amortize at the smallest reader count);
+by 2 readers the two are within noise of each other (~4.6 ns/op each); from 4
+readers on, pull is ahead and stays ahead, widening as readers grow — 8
+readers ~3.75 vs ~5.15 ns/op (push ~1.4x costlier), 16 readers ~3.57 vs
+~11.66 ns/op (~3.3x), 32 readers ~3.47 vs ~12.31 ns/op (~3.5x). Pull's ns/op
+actually drifts DOWN slightly as readers grow (more reads amortize the
+per-frame fixed cost over more deliveries); push's rises past what a pure
+"O(readers) copies, so ns/op should be flat" model predicts, which reads as
+fan-out to many SEPARATE per-subscriber `List`s costing more than the copies
+alone once there are enough of them to hurt cache locality — a real cost the
+design note's "push costs copies ∝ readers" framing doesn't separate out,
+worth flagging rather than folding into "copies" silently.
+
+Table 2 holds the reader count fixed at 4 (inside the crossover band table 1
+found) and sweeps events/frame, 1e2..1e6: pull and push stay close across
+the whole range, neither consistently ahead by a wide margin (both land
+5-7 ns/op through 1e5; at 1e6 push edges ahead, ~4.9 vs ~6.8 ns/op) --
+consistent with table 1's story that the seam's real divergence is driven by
+READER COUNT, not by how many events pass through per frame.
+
+@bench benchmarks/bench_events.mojo
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
