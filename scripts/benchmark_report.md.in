@@ -1660,6 +1660,56 @@ constant angular+linear speed along the true screw path
 vectors.
 
 @bench benchmarks/bench_tween.mojo
+## ECS — entity pools: acquire/release vs spawn/despawn churn (17.37)
+
+High-churn gameplay entities (projectiles, effect proxies, AI waves) pay full
+`spawn` + N component `set`s + `despawn` on every cycle; a `Pool` pre-spawns
+its slots once and cycles them between "acquired" and "released" (a
+`Disabled[DID]` marker component, toggled through the SAME `set`/`remove`
+every other component already uses — zero changes to `StorageBackend` or any
+of the six backends) without ever despawning. `acquire` re-applies the
+template on every call (not just once at prime time, since a released slot
+still holds whatever values its previous occupant left it at), so the
+comparison is apples to apples: both sides write the same three components
+every cycle. The difference is HOW those writes land — a fresh `spawn` is
+adding each component for the first time (an archetype relocation per call on
+`ArchetypeBackend`: 0 → {A} → {A,B} → {A,B,C}), while a pool slot already
+carries every template component permanently, so the identical `set` calls
+overwrite each column in place (`ArchetypeBackend.set`'s "already present"
+branch) — plus `despawn`'s full teardown vs `release`'s one-component
+`Disabled` toggle.
+
+The table's N is the churn REPEAT count, not a live-entity count (each cycle
+nets back to zero net entities), and BOTH variants build a fresh `World`
+inside the timed closure — the pool variant additionally pays its one-time
+`Pool.prime` there too, which is what makes the **N=1 control** mean anything
+(docs/design/wave-a-services.md §17.37 requires it): with a fresh `World` +
+one `prime` call charged to a single acquire/release, the pool row must read
+slower than a bare spawn/despawn, or the wide rows proving a win at scale
+would be measuring noise instead. It holds on all six backends — pool is
+1.19x-1.74x SLOWER at N=1 — then crosses over by N=1000 and stays faster
+through N=100,000, once `prime`'s fixed cost is amortized across enough
+cycles to be outweighed by the avoided relocations:
+
+| backend | N=1 (pool/spawn) | N=100,000 churn speedup (pool vs spawn/despawn) |
+|---|---:|---:|
+| sparse | 1.38x slower | 1.51x faster |
+| archetype | 1.49x slower | 1.28x faster |
+| bitset | 1.52x slower | 1.08x faster |
+| reactive | 1.45x slower | 1.29x faster |
+| naive | 1.74x slower | 1.42x faster |
+| chunked | 1.19x slower | 1.19x faster |
+
+`ArchetypeBackend` shows the largest N=1 penalty (a fresh `World` there also
+builds the empty archetype-0 table) and a large sustained win (relocation is
+the most expensive thing the churn avoids); `BitsetBackend` shows the
+smallest win at scale, because a presence-bitset write is already nearly as
+cheap as an overwrite-in-place, so there is less relocation cost to avoid in
+the first place — consistent with `ecs/pool.mojo`'s own claim that the win is
+specifically "no archetype migration of the template", not a universal
+constant-factor speedup.
+
+@bench benchmarks/bench_pool.mojo
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

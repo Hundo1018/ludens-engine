@@ -10,6 +10,20 @@ at instantiation:
 All methods forward to the backend, so swapping `B` changes the storage strategy
 without touching any logic. Queries return the matching entities; iterate them
 and read/write components with `get`/`set`.
+
+Architecture audit F14 (docs/audits/2026-09-27-architecture.md): every backend's
+`get`/`set`/`has`/`remove` indexes storage by `Entity.id` alone and never checks
+`Entity.gen`, so a stale handle (an old copy of an `Entity` whose id has since
+been despawned and recycled) silently aliases whatever now occupies that id --
+contradicting entity.mojo's own contract that "a stale copy can be detected as
+dead". `ecs.pool` makes stale handles routine (an entity cycles between
+acquired and pool-released many times over its life), so the four accessors
+below now `debug_assert(is_alive(e))` before forwarding: a stale handle
+terminates loudly under `-D ASSERT=all` (`pixi run test`) instead of silently
+reading/writing the wrong entity's data, at zero cost in a release build.
+`try_get` is the raising counterpart for a call site where a stale handle is
+caller input to validate (ARCHITECTURE.md §2's "invalid input" row) rather than
+an engine-internal invariant to assert.
 """
 
 from .storage import StorageBackend
@@ -38,16 +52,29 @@ struct World[B: StorageBackend](Movable, Deinitable):
 
     # --- components ---
     def set[C: ComponentType](mut self, e: Entity, var value: C):
+        debug_assert(self.backend.is_alive(e), "World.set: stale or dead entity handle")
         self.backend.set[C](e, value^)
 
     def has[C: ComponentType](self, e: Entity) -> Bool:
+        debug_assert(self.backend.is_alive(e), "World.has: stale or dead entity handle")
         return self.backend.has[C](e)
 
     def get[C: ComponentType](self, e: Entity) -> C:
+        debug_assert(self.backend.is_alive(e), "World.get: stale or dead entity handle")
         return self.backend.get[C](e)
 
     def remove[C: ComponentType](mut self, e: Entity):
+        debug_assert(self.backend.is_alive(e), "World.remove: stale or dead entity handle")
         self.backend.remove[C](e)
+
+    def try_get[C: ComponentType](self, e: Entity) raises -> C:
+        """Raising counterpart to `get` (F14): a stale/dead handle at a public
+        API boundary is caller input, not an engine invariant, so this raises
+        instead of terminating -- for callers (like `ecs.pool`) that want to
+        recover rather than crash."""
+        if not self.backend.is_alive(e):
+            raise Error("World.try_get: stale or dead entity handle")
+        return self.backend.get[C](e)
 
     # --- spawn helpers ---
     def spawn1[A: ComponentType](mut self, a: A) -> Entity:
