@@ -1841,6 +1841,18 @@ then growing with the obstacle count through the queries' linear prefilter.
 
 @bench benchmarks/bench_character.mojo
 
+## Pose interpolation (17.7)
+
+Drawing a body between two fixed ticks. Dual-quaternion nlerp costs about
+three times position-lerp + quaternion-nlerp and, in the test's screw motion
+(a quarter turn about an off-centre axis), stays on the screw's circle to
+~1e-7 where lerp + nlerp cuts the chord by 0.29; the PGA motor geodesic is
+exact by construction and an order of magnitude dearer still (log/exp). The
+runtime therefore defaults to dual-quaternion nlerp and keeps the geodesic as
+the reference variant.
+
+@bench benchmarks/bench_interpolation.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

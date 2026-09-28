@@ -43,7 +43,7 @@ from ecs.entity import Entity
 from ecs.transform import Transform
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
-from physics.rigid6 import Body6
+from physics.rigid6 import Body6, Pose6
 from physics.body_set import BodyId
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
@@ -52,6 +52,7 @@ from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
 from diag.counters import GAMELOOP_DEBT_DROPPED
+from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 
 
 @fieldwise_init
@@ -82,6 +83,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var gravity: Vec3
     var events: Channel[ContactEvent]
     var timers: TimerHeap
+    var history: PoseHistory  # previous + current tick pose per body slot (17.7)
 
     def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8):
         self.world = World[Self.B]()
@@ -97,6 +99,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.gravity = gravity
         self.events = Channel[ContactEvent]()
         self.timers = TimerHeap()
+        self.history = PoseHistory()
 
     # ------------------------------------------------------------ lifecycle
 
@@ -122,6 +125,30 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         t = t.with_rotation(self.scene.bset.bodies[i].rotation())
         self.world.set(e, t)
         return e
+
+    def _capture_history(mut self):
+        var poses = List[PoseQT](capacity=len(self.scene.bset.bodies))
+        for i in range(len(self.scene.bset.bodies)):
+            poses.append(PoseQT(self.scene.bset.bodies[i].position(), self.scene.bset.bodies[i].rotation()))
+        self.history.capture(poses)
+
+    def render_pose[I: PoseInterpolator = DqNlerp](
+        self, e: Entity, extrapolate: Bool = False
+    ) raises -> PoseQT:
+        """Entity `e`'s pose for drawing this frame: `loop.alpha` of the way
+        from the previous tick to the current one (ROADMAP 17.7). Before the
+        first tick it is the spawn pose."""
+        var i = self.world.get[RigidBodyRef](e).id.index()
+        if i >= len(self.history.curr):
+            return PoseQT(self.scene.bset.bodies[i].position(), self.scene.bset.bodies[i].rotation())
+        return self.history.sample[I](i, Real(self.loop.alpha), extrapolate)
+
+    def teleport(mut self, e: Entity, p: Vec3) raises:
+        """Move `e`'s body to `p` and suppress interpolation across the jump."""
+        var r = self.world.get[RigidBodyRef](e)
+        var i = r.id.index()
+        self.scene.teleport(r.id, Pose6(p, self.scene.bset.bodies[i].rotation()))
+        self.history.mark_teleport(i)
 
     def despawn(mut self, e: Entity) raises:
         """Remove both halves: the scene body (`ContactScene6.remove_body`,
@@ -169,6 +196,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
             for i in range(len(self.scene.events)):
                 self.events.send(self.scene.events[i].copy())
             self._sync_transforms()
+            self._capture_history()
             self.loop.accumulator -= self.loop.dt
             steps += 1
         if self.loop.accumulator >= self.loop.dt:

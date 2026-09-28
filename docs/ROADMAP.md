@@ -1456,6 +1456,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:接 gameloop + ECS transform;普通(sim 60 / render 144 平滑)/ 整合(父子階層
 > 插值不脫節、與 CCD 命中影格一致)/ 極端(alpha 超界、teleport、族群變動當幀、dt 抖動)。
 
+> **進度:✅ 2026-09-29** `gameplay/interpolation.mojo`:`PoseHistory`(每 body 前一 / 當前 tick 姿態,新 slot prev==curr,`mark_teleport` 抑制插值)+ 插值子 seam `PoseInterpolator`:`LerpNlerp` / `DqNlerp` / `MotorGeodesic`;`Runtime` 每 tick 擷取、`render_pose[I = DqNlerp](e)` 依 `loop.alpha` 取繪製姿態、`teleport(e, p)`。`test_interpolation` 21/21(三變體端點與純平移 parity;偏心軸 90° 螺旋:geodesic 1e-7、dq-nlerp 6e-8、lerp+nlerp 偏離 0.29;clamp / 外推 / 反向四元數 / 瞬移);`test_system_render` 5/5(sim 60 Hz、render 144 Hz:繪製值恆在兩 tick 之間、單調、多數幀為中間值;瞬移無拖影)。`bench_interpolation`:lerp+nlerp ~4 ns、dq-nlerp ~12 ns、motor geodesic ~200 ns / 姿態 → runtime 預設 dq-nlerp。
+
 ### 17.8 大世界座標 — Wave C(架構)
 > **現況**:全 `f32`(`WorldType`),為 bit-identical 決定論。世界尺度上限 ~單一關卡。
 > **缺口**:64-bit 世界座標 **或** origin rebasing(世界原點位移)、world partition /
