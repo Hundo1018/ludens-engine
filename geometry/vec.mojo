@@ -107,6 +107,7 @@ def splat[d: Int](v: Real) -> SIMD[WorldType, PadW[d]]:
     return r
 
 
+@always_inline
 def cross[dim: Int](
     a: SIMD[WorldType, PadW[dim]], b: SIMD[WorldType, PadW[dim]]
 ) -> SIMD[WorldType, PadW[dim]]:
@@ -124,12 +125,22 @@ def cross[dim: Int](
     return r
 
 
+@always_inline
 def cross(a: Vec3, b: Vec3) -> Vec3:
     """3-D cross product. The single shared implementation: this formula and
-    operand order used to be copied privately in 11 modules (audit F8)."""
-    return cross[3](a, b)
+    operand order used to be copied privately in 11 modules (audit F8).
+    Built in one constructor rather than through `cross[3]`'s lane writes:
+    that is the form the copies used, and the hot solver paths measured
+    faster with it."""
+    return Vec3(
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+        0,
+    )
 
 
+@always_inline
 def tangent_basis(n: Vec3) -> Tuple[Vec3, Vec3]:
     """Two unit tangents perpendicular to `n` (and each other).
 
