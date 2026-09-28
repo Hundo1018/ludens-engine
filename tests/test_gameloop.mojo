@@ -13,6 +13,7 @@ from ecs.component import ComponentType
 from scheduler.scheduler import System
 from scheduler.sequential import SequentialScheduler
 from scheduler.gameloop import FixedLoop
+from diag.counters import GAMELOOP_DEBT_DROPPED
 
 
 @fieldwise_init
@@ -62,6 +63,17 @@ def main() raises:
     var n2 = loop2.advance(sc2, w2, 10.0)
     s.eqi(n2, 8, "huge frame clamped to max_steps")
     s.eqi(w2.get[Tick](w2.query1[Tick]()[0]).n, 8, "8 ticks applied")
+    # ROADMAP 17.0h / audit E22-F16: the excess debt is dropped, not carried
+    # (an unbounded accumulator would push `alpha` outside [0,1)), and the
+    # drop is counted.
+    s.check(
+        loop2.alpha >= 0.0 and loop2.alpha < 1.0,
+        "clamped: alpha still in [0,1) -- the excess debt was dropped, not carried",
+    )
+    s.eqi(
+        Int(loop2.counters.get(GAMELOOP_DEBT_DROPPED)), 1,
+        "clamped: the drop is counted exactly once",
+    )
 
     # accumulation across many calls of exactly DT -> one step each
     var w3 = fresh()

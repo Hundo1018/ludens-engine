@@ -10,7 +10,7 @@ user seed through it so even a `0` seed yields a well-distributed initial state.
 `next_f32` draws from the top 24 bits to land uniformly in `[0, 1)` without bias.
 """
 
-from geometry.vec import Vec2, Vec3, normalize
+from geometry.vec import Vec2, Vec3, Real, normalize_or, length_sq
 
 
 trait Rng(Defaultable, Movable, Deinitable):
@@ -127,8 +127,29 @@ def range_f[R: Rng](mut r: R, lo: Float32, hi: Float32) -> Float32:
 
 
 def unit_vec2[R: Rng](mut r: R) -> Vec2:
-    return normalize(Vec2(range_f(r, -1, 1), range_f(r, -1, 1)))
+    """A uniformly-distributed unit vector (audit E16: normalizing a single
+    cube sample biases toward the cube's corners -- a corner direction is
+    reached by many more cube points than a face-centre direction is).
+    Marsaglia rejection instead: resample the square until the point lands
+    in the inscribed disk, then normalize *that* -- uniform on the disk
+    projects to uniform on the circle. Bounded retry count (a square
+    circumscribes a disk of area pi/4 of it, so ~4 tries on average;
+    32 is generous) with an axis fallback so this can never loop forever."""
+    for _ in range(32):
+        var v = Vec2(range_f(r, -1, 1), range_f(r, -1, 1))
+        var s = length_sq(v)
+        if s <= 1 and s > Real(1e-12):
+            return normalize_or(v, Vec2(1, 0))
+    return Vec2(1, 0)
 
 
 def unit_vec3[R: Rng](mut r: R) -> Vec3:
-    return normalize(Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1), 0))
+    """Uniform unit vector via rejection sampling in the cube, same
+    reasoning as `unit_vec2` (a cube sample normalized directly over-selects
+    the cube's corner directions)."""
+    for _ in range(32):
+        var v = Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1), 0)
+        var s = length_sq(v)
+        if s <= 1 and s > Real(1e-12):
+            return normalize_or(v, Vec3(1, 0, 0, 0))
+    return Vec3(1, 0, 0, 0)

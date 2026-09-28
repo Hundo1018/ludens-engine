@@ -11,7 +11,7 @@ face is its per-point penetration depth. Convex overlap yields 1–2 points
 (2 for face-face, 1 for corner-face).
 """
 
-from geometry.vec import WorldType, Real, Vec2, dot, normalize
+from geometry.vec import WorldType, Real, Vec2, dot, normalize_or
 from geometry.shape import Polygon
 
 
@@ -22,7 +22,10 @@ struct ClipEdge(Copyable, ImplicitlyCopyable, Movable):
     var p2: Vec2
 
     def edge_dir(self) -> Vec2:
-        return normalize(self.p2 - self.p1)
+        # p1 == p2 only for a degenerate polygon (duplicate consecutive
+        # vertex); fall back rather than let a zero edge direction silently
+        # poison the clip planes below (audit E16).
+        return normalize_or(self.p2 - self.p1, Vec2(1, 0))
 
 
 def best_edge(p: Polygon, n: Vec2) -> ClipEdge:
@@ -39,8 +42,8 @@ def best_edge(p: Polygon, n: Vec2) -> ClipEdge:
     var v = p.verts[best]
     var v_prev = p.verts[(best + count - 1) % count]
     var v_next = p.verts[(best + 1) % count]
-    var l = normalize(v - v_next)
-    var r = normalize(v - v_prev)
+    var l = normalize_or(v - v_next, Vec2(1, 0))
+    var r = normalize_or(v - v_prev, Vec2(1, 0))
     if dot(r, n) <= dot(l, n):
         return ClipEdge(v, v_prev, v)
     return ClipEdge(v, v, v_next)

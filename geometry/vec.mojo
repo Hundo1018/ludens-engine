@@ -86,6 +86,23 @@ def normalize[w: SIMDLength, //](a: SIMD[WorldType, w]) -> SIMD[WorldType, w]:
     return a / n
 
 
+def normalize_or[w: SIMDLength, //](
+    a: SIMD[WorldType, w], fallback: SIMD[WorldType, w]
+) -> SIMD[WorldType, w]:
+    """`normalize(a)`, or `fallback` when `a` is (numerically) the zero
+    vector (audit E16: `normalize`'s silent zero return lets a degenerate
+    direction reach downstream code as a valid-looking unit vector -- an
+    sdf gradient at a coincident centre, a clip edge between duplicate
+    vertices, an rng sample that happened to land on the origin). Callers
+    that need geometry to keep working must pick a `fallback` that is
+    itself a unit vector (or use zero deliberately as a sentinel) -- this
+    function does not normalize `fallback` for them."""
+    var n = length(a)
+    if n < Real(1e-12):
+        return fallback
+    return a / n
+
+
 def lane_min[w: SIMDLength, //](
     a: SIMD[WorldType, w], b: SIMD[WorldType, w]
 ) -> SIMD[WorldType, w]:

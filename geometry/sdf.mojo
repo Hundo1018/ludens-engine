@@ -14,7 +14,7 @@ and is documented as such. The contact normal points from `a` toward `b`, like
 """
 
 from std.math import cos, sin
-from .vec import WorldType, Real, Vec2, dot, length, normalize
+from .vec import WorldType, Real, Vec2, dot, length, normalize_or
 from .sat import SATResult
 
 
@@ -98,7 +98,10 @@ struct SdfShape(Copyable, ImplicitlyCopyable, Movable):
         var dy = self.distance(Vec2(p[0], p[1] + eps)) - self.distance(
             Vec2(p[0], p[1] - eps)
         )
-        return normalize(Vec2(dx, dy))
+        # A gradient can only vanish at a query point exactly on the shape's
+        # medial axis (e.g. a box's own centre) -- fall back to "up" rather
+        # than report a hit with a zero normal (audit E16).
+        return normalize_or(Vec2(dx, dy), Vec2(0, 1))
 
 
 def sdf_collide(a: SdfShape, b: SdfShape) -> SATResult:
@@ -121,6 +124,8 @@ def sdf_collide(a: SdfShape, b: SdfShape) -> SATResult:
     var db = b.distance(a.center)
     if da >= 0 and db >= 0:
         return SATResult.miss()
-    var dir = normalize(b.center - a.center)
+    # Coincident centres (fully-overlapping boxes) would otherwise normalize
+    # to zero and report a "hit" with no pushout direction (audit E16).
+    var dir = normalize_or(b.center - a.center, Vec2(0, 1))
     var depth = -min(da, db)
     return SATResult(True, dir, depth)

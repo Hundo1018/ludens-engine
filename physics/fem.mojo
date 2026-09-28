@@ -27,6 +27,7 @@ from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
 from numerics.sparse import LinearOperator
 from numerics.cg import cg, CgResult
+from diag.counters import Counters, CG_NOT_CONVERGED
 
 
 def det3(m: Mat3) -> Real:
@@ -107,6 +108,11 @@ struct FemBody(Movable):
     that shows what the polar decomposition BUYS: `bench_fem` prices the
     rotation extraction, and `test_fem` shows that without it a rigid rotation
     of an undeformed body generates enormous spurious force."""
+    var counters: Counters
+    """ROADMAP 17.0h / audit E19: `diag` counters, so far only
+    `CG_NOT_CONVERGED` (bumped by `step_implicit` when its `cg()` solve
+    didn't converge and the velocity delta it produced was discarded rather
+    than applied -- see that method)."""
 
     def __init__(out self, young: Real, poisson: Real, damping: Real = 4.0):
         self.x = List[Real]()
@@ -122,6 +128,7 @@ struct FemBody(Movable):
         self.lam = young * poisson / ((1 + poisson) * (1 - 2 * poisson))
         self.damping = damping
         self.corotational = True
+        self.counters = Counters()
 
     def node_count(self) -> Int:
         return len(self.x)
@@ -279,6 +286,19 @@ struct FemBody(Movable):
             dv.append(0)
         var res = cg(op, b, dv, tol, max_iters)
 
+        # audit E19: `CgResult.converged` is documented (numerics/cg.mojo)
+        # as "the only field a caller may treat as permission to use the
+        # [result]" -- this used to apply `dv` unconditionally, so a
+        # diverged/stalled solve's garbage delta landed on every node's
+        # velocity and position before the caller ever saw `res`. Numerical
+        # failure recovers locally (docs/ARCHITECTURE.md S2): skip the
+        # update entirely (this step's elastic response is dropped, not
+        # corrupted -- the body keeps last step's state and tries again next
+        # step) and count it; the world keeps stepping either way, and the
+        # caller can still inspect the returned `res` for its own purposes.
+        if not res.converged:
+            self.counters.incr(CG_NOT_CONVERGED)
+            return res
         var damp = Real(1.0) / (1.0 + self.damping * dt)
         for i in range(n):
             if self.inv_m[i] == 0:
