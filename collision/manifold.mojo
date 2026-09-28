@@ -35,7 +35,7 @@ from geometry.shape import Polygon
 from geometry.quickhull import convex_hull_2d
 from geometry.sat import SATResult, sat_collide
 from geometry.obb import OBB, obb_collide
-from geometry.clip import best_edge, clip_manifold
+from .clip import best_edge, clip_manifold
 from geometry.gjk import ConvexPoly
 from geometry.epa import epa_witness3
 from .narrowphase import Contact

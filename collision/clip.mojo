@@ -11,8 +11,8 @@ face is its per-point penetration depth. Convex overlap yields 1–2 points
 (2 for face-face, 1 for corner-face).
 """
 
-from .vec import WorldType, Real, Vec2, dot, normalize
-from .shape import Polygon
+from geometry.vec import WorldType, Real, Vec2, dot, normalize
+from geometry.shape import Polygon
 
 
 @fieldwise_init
