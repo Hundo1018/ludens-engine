@@ -183,6 +183,39 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 字(log 停用 vs 完全不呼叫,誤差在雜訊內;trace 停用/啟用相對一個真實 phase
 大小的 span,開銷同樣落在雜訊內)。
 
+### 2.3 `scheduler.timers` + `procedural.tween`(Phase 17.35,2026-09-28)
+
+計時器落在 layer 3(`scheduler`),補間落在 layer 2(`procedural`,只能引入
+`geometry`/`diag`)——兩者是 17.35 同一份設計筆記(`docs/design/wave-a-services.md`)
+的兩半,各自長出一個 seam:
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `TimerQueue`:陣列二元 min-heap vs 二階環狀 timing wheel | scheduler/timers.mojo | 同一「到期」謂詞的兩個資料結構;`advance()` 回傳的 fired 序列以 `(due_tick, schedule 序號)` 全序比對逐位相同,與實作無關(`_HeapEntry`/`_WheelEntry` 對呼叫者不可見) | `test_timers`(seeded 隨機 schedule/cancel/advance 腳本,12 個種子逐位比對) | `bench_timers`(schedule 吞吐 + 近到期 drain 成本,N=1e2..1e6;heap 對 window 不敏感,wheel 隨散布視窗變寬而變貴,見表 3) |
+| 緩動分派:`ease[kind]`(comptime 参數)vs `ease_dyn(kind)`(執行期,`comptime for` 展開的 if 鏈) | procedural/tween.mojo | 同一組 31 條 Penner 曲線的兩個求值路徑;數值逐點相等(`test_tween` 的 `ease_dyn==ease` 檢查),只有分派成本不同 | `test_tween` | `bench_tween`(同一 kind 比兩種分派,見下方數字) |
+| 補間插值子:`lerp_real`/`lerp_vec3`(線性)vs `geodesic3`(PGA motor 測地線,`geometry.galie`) | procedural/tween.mojo | §3 表示函子在「補間」這個態射上的作用,呼應 `procedural/anim.mojo` 的 `BLEND_GEODESIC` 列;端點以**作用**比對(`M` 與 `−M` 是同一剛體運動,不比係數),`Tween[Motor3,...]` 的端點與 `geodesic3` 的端點在任意取樣點上的作用一致 | `test_tween`(motor 端點 BY ACTION + `Tween.value_at(0.5)` == 原生 `geodesic3(a,b,0.5)`) | `bench_tween` |
+
+**`schedule()` 單看插入成本,heap 與 wheel 在 N≈1000–10000 之間交叉**(heap
+在 N=1000 約 44 ns/op,wheel 約 57 ns/op;到 N=10000 heap 約 71 ns/op,wheel
+降到約 55 ns/op)——小 N 時 wheel 的固定環狀陣列配置蓋過它 O(1) 插入的優勢。
+**近到期 drain 成本(window=256 tick)則 wheel 在整個 1e2..1e6 測試範圍全勝**,
+差距隨 N 擴大——N=1e6 時 heap 約 324 ns/op 對 wheel 約 43 ns/op(≈7.5×,本表
+最大差距落在 N=1e5,≈8.2×),正是設計筆記點名的「wheel 優勢區是大 N、且多數計
+時器接近到期」。固定 N=200000 改掃散布視窗(表 3)則誠實地展示 wheel 的代價:
+視窗從 256 拉到 300000 tick(超出兩階環的 65536 tick 全域,見
+`scheduler/timers.mojo` 模組註解的別名重掃代價),wheel 每 op 成本從約 22 ns
+(≈9× 領先)漲到約 58 ns(≈3.6×)再到約 135 ns(≈1.6×),heap 全程持平在約
+200–211 ns 左右(它本就不在乎到期時間分布)——wheel 仍領先但優勢明顯收斂,與
+模組文件承認的取捨一致。
+
+**分派成本(`bench_tween` 表 1,同一 kind 比兩種路徑,N=2e6 次呼叫)**:
+comptime 分派(`ease[kind]`)完全內聯、無分支,`EASE_QUAD_IN` 約 1.2 ns/op;
+執行期分派(`ease_dyn`)兩個 kind 都多付出約 10–11 ns/op 的分派開銷
+(`EASE_QUAD_IN` id=1 約 +11 ns,`EASE_BOUNCE_INOUT` id=30 約 +10 ns)——與
+「if 鏈長度應該正比分派成本」的預期相反(鏈尾要多比 29 次卻沒有多付這些成本),
+讀作編譯器把 0..30 的稠密等式鏈降成跳轉表而非線性掃描;無論如何,comptime 分
+派仍是唯一「真正不用付錢」的路徑。
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」
