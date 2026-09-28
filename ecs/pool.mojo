@@ -175,11 +175,11 @@ struct Pool[B: StorageBackend, DID: Int](Movable, Deinitable):
         return self.epoch[slot] == h.epoch
 
     # --- one new slot: spawn + apply the template ---
-    def _new_slot[
-        F: def (mut World[Self.B], Entity) -> None
-    ](mut self, mut world: World[Self.B], apply_template: F) -> Int:
+    def _new_slot(mut self, mut world: World[Self.B]) -> Int:
+        """Spawn a bare entity and register a new slot for it. Callers apply
+        the template themselves (`prime`/`acquire` each need it at a
+        different point), so this does the bookkeeping only."""
         var e = world.spawn()
-        apply_template(world, e)
         var slot = len(self.slots)
         self.slots.append(e)
         self.epoch.append(0)
@@ -193,7 +193,8 @@ struct Pool[B: StorageBackend, DID: Int](Movable, Deinitable):
         disabled and pushed onto the free list. Call once at setup (or again
         to top up a fixed-capacity pool before it would otherwise refuse)."""
         for _ in range(n):
-            var slot = self._new_slot[F](world, apply_template)
+            var slot = self._new_slot(world)
+            apply_template(world, self.slots[slot])
             world.set(self.slots[slot], Disabled[Self.DID]())
             self.free_slots.append(slot)
 
@@ -201,12 +202,27 @@ struct Pool[B: StorageBackend, DID: Int](Movable, Deinitable):
     def acquire[
         F: def (mut World[Self.B], Entity) -> None
     ](mut self, mut world: World[Self.B], apply_template: F) -> Optional[PooledEntity]:
-        """Return a live, active entity with template values -- either a
-        released slot pulled off the free list (no spawn, no archetype
-        migration beyond removing `Disabled`), or, if unbounded and empty, a
+        """Return a live, active entity reset to template values -- either a
+        released slot pulled off the free list, or, if unbounded and empty, a
         freshly grown one. Returns None (and counts it) if a fixed-capacity
-        pool is exhausted. `apply_template` is only actually invoked when
-        growing; it is the same closure `prime` was given."""
+        pool is exhausted.
+
+        `apply_template` runs on EVERY acquire, not only when growing: a
+        released slot's components hold whatever values its PREVIOUS
+        occupant left them at (release does not reset them -- that would cost
+        exactly the writes this is choosing when to pay instead), so
+        `acquire` must re-apply the template itself for "returns a live
+        entity with the template values" to hold on a reused slot, not just a
+        freshly grown one. This still avoids what `spawn`+set(...) pays on
+        every cycle: those calls are ADDING each component for the first
+        time (an archetype relocation per call on `ArchetypeBackend` -- 0 ->
+        {A} -> {A,B} -> {A,B,C}), where a reused slot already carries every
+        template component permanently (only `Disabled` ever toggles), so the
+        very same `world.set` calls here overwrite EACH column in place --
+        see `ArchetypeBackend.set`'s "already present: overwrite in place"
+        branch -- zero relocations for the template itself, on every backend,
+        every cycle. `bench_pool` is the measurement of what this is worth
+        (and, at N=1, what it still costs relative to a bare spawn/despawn)."""
         var slot: Int
         if len(self.free_slots) > 0:
             slot = self.free_slots.pop()
@@ -215,8 +231,9 @@ struct Pool[B: StorageBackend, DID: Int](Movable, Deinitable):
             if self.cap > 0 and len(self.slots) >= self.cap:
                 self.counters.incr(POOL_EXHAUSTED)
                 return Optional[PooledEntity]()
-            slot = self._new_slot[F](world, apply_template)
+            slot = self._new_slot(world)
             self.counters.incr(POOL_GROWN)
+        apply_template(world, self.slots[slot])
         return Optional[PooledEntity](PooledEntity(self.slots[slot], self.epoch[slot]))
 
     def release(mut self, mut world: World[Self.B], h: PooledEntity):
