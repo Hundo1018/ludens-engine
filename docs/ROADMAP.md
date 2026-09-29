@@ -1637,6 +1637,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **發現(2026-09-29,`test_diffsolver`)**:球在地面滑行後於 t = 2v0/(7μg) 正確進入 5/7·v0 的滾動,但之後持續減速(v0=3、μ=0.5:1.5 s 時 1.80、4 s 時 1.57),ω·r 高於 vx、並下沉約 7 mm。`ContactScene6` 與可微解算器逐幀一致,故屬正式解算器本身:body-frame 接觸錨點隨滾動的球旋轉,摩擦與分離量取在偏離真實接觸點的位置。修法候選:圓形 shape 每子步重新投影錨點到接觸點,或摩擦改在 manifold 點求相對速度。
 
 > **量測(2026-09-29,`bench_gpu_contact`)**:寬相開啟後,N=4096 箱每幀的 CPU 收集 + 簿記(不含求解)達 82 ms,且 N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,排本項第一個工作。
+> **進度 ✅ F22 第一批(2026-09-29)**:`islands.refresh_islands` 的整島喚醒與 `update_sleep` 的整島入睡改為兩趟 O(n)(先標 label 再套用),warm-start 比對改為每幀建一次 `(a,b,feat)` → 首位索引的 `Dict`(`contact6.cache_index`,自首個鍵相符處續掃,保留原「第一個相符」規則)。身分閘門 148/148 golden 逐節相同。`bench_gpu_contact`(寬相開):N=4096 CPU 簿記 82 → 20.6 ms/幀、GPU 整幀 84.5 → 23 ms、CPU 串行整幀 152 → 82 ms;N=1024 簿記 6.8 → 2.2 ms。仍略超線性(N ×4 → ×9),剩餘熱點待量(著色重排 O(色數 × 對數)、每幀重建 BVH、CCD 全對)。
 
 ### 17.20 剛體 solver 可微化收尾(13.7) — Wave B
 > **現況**:13.7 🔶 —— `Field` 泛型在 `physics/diffrigid.mojo` 完成,但未推進 1555 行的

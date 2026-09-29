@@ -87,6 +87,7 @@ from .contact6 import (
     ContactConstraint,
     contact_island,
     make_contact,
+    cache_index,
     make_sensor_contact,
     warm_start_contacts,
     solve_point,
@@ -675,8 +676,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         for c in range(len(sraws)):
             self.sensor_pairs.append(make_sensor_contact(sraws[c]))
         var pairs = List[ContactConstraint]()
+        var cidx = cache_index(self.cache)
         for c in range(len(raws)):
-            pairs.append(make_contact(self.bset, self.cache, raws[c], warm))
+            pairs.append(make_contact(self.bset, self.cache, cidx, raws[c], warm))
         return pairs^
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):

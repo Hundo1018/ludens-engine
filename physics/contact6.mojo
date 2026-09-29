@@ -18,6 +18,7 @@ from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
+from collision.contact_events import pack_key
 from .rigid6 import Body6
 from .body_set import BodySet
 from .material import combine
@@ -89,9 +90,22 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
     )
 
 
+def cache_index(cache: List[ContactConstraint]) -> Dict[Int, Int]:
+    """First cache position of each (a, b, feat) key -- built once per frame
+    so the warm-start match is a lookup instead of a scan per new contact
+    (audit F22: that scan made collection O(pairs x cache))."""
+    var idx = Dict[Int, Int]()
+    for c in range(len(cache)):
+        var k = pack_key(cache[c].a, cache[c].b, cache[c].feat)
+        if k not in idx:
+            idx[k] = c
+    return idx^
+
+
 def make_contact[B: Body6](
     bset: BodySet[B],
     cache: List[ContactConstraint],
+    cidx: Dict[Int, Int],
     rc: RawContact,
     warm: Bool,
 ) -> ContactConstraint:
@@ -125,7 +139,10 @@ def make_contact[B: Body6](
             vb0 = bset.bodies[rc.b].velocity_at(rc.m.points[k])
         pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
     if warm:
-        for c in range(len(cache)):
+        # Start at the first entry with this key (`cache_index`); the scan
+        # from there keeps the old first-match rule exactly, count included.
+        var start = cidx.get(pack_key(rc.a, rc.b, rc.feat), len(cache))
+        for c in range(start, len(cache)):
             var old = cache[c]
             if (
                 old.a == rc.a

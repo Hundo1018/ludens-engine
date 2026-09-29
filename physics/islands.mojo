@@ -80,14 +80,20 @@ def refresh_islands[B: Body6](
     for c in range(n_contacts):
         wake_if_kinematic_moving(bset, edges[2 * c], edges[2 * c + 1])
         wake_if_kinematic_moving(bset, edges[2 * c + 1], edges[2 * c])
+    # An island with any awake dynamic member wakes entirely. Two O(n)
+    # passes (was a pairwise O(n^2) scan, audit F22): mark the labels that
+    # have an awake dynamic member, then wake every sleeper carrying one.
+    # Waking only ever touches bodies of an already-marked label, so marking
+    # up front gives the same set the old in-order scan reached.
+    var awake = List[Bool](length=n, fill=False)
     for i in range(n):
-        if not bset.is_dynamic(i) or bset.sleeping[i]:
-            continue
-        # island member i is awake -> wake everyone sharing its label
-        for j in range(n):
-            if bset.island[j] == bset.island[i] and bset.sleeping[j]:
-                bset.sleeping[j] = False
-                bset.sleep_timer[j] = 0
+        if bset.is_dynamic(i) and not bset.sleeping[i]:
+            awake[bset.island[i]] = True
+    for j in range(n):
+        var lj = bset.island[j]
+        if lj >= 0 and bset.sleeping[j] and awake[lj]:
+            bset.sleeping[j] = False
+            bset.sleep_timer[j] = 0
 
 
 def wake_if_kinematic_moving[B: Body6](mut bset: BodySet[B], ka: Int, kb: Int):
@@ -144,22 +150,24 @@ def update_sleep[B: Body6](mut bset: BodySet[B], dt: Real, cfg: SolverConfig):
             bset.sleep_timer[i] += dt
         else:
             bset.sleep_timer[i] = 0
-    # sleep islands whose every member has been still long enough
-    for i in range(n):
-        if not bset.is_dynamic(i) or bset.sleeping[i]:
+    # Sleep islands whose every member has been still long enough. O(n)
+    # (was O(n^2), audit F22): an island qualifies when it has an awake
+    # dynamic member and no member's timer is below `sleep_time`.
+    var short = List[Bool](length=n, fill=False)  # some member not still yet
+    var live = List[Bool](length=n, fill=False)  # has an awake dynamic member
+    for j in range(n):
+        var lj = bset.island[j]
+        if lj < 0:
             continue
-        var all_still = True
-        for j in range(n):
-            if bset.island[j] == bset.island[i] and bset.sleep_timer[
-                j
-            ] < cfg.sleep_time:
-                all_still = False
-                break
-        if all_still:
-            for j in range(n):
-                if bset.island[j] == bset.island[i]:
-                    bset.sleeping[j] = True
-                    bset.bodies[j].halt()
+        if bset.sleep_timer[j] < cfg.sleep_time:
+            short[lj] = True
+        if bset.is_dynamic(j) and not bset.sleeping[j]:
+            live[lj] = True
+    for j in range(n):
+        var lj = bset.island[j]
+        if lj >= 0 and live[lj] and not short[lj]:
+            bset.sleeping[j] = True
+            bset.bodies[j].halt()
 
 
 def island_labels[B: Body6](bset: BodySet[B]) -> List[Int]:
