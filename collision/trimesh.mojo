@@ -209,6 +209,9 @@ struct TriMesh(Movable, Deinitable):
         return AABB[3](lo, hi)
 
 
+comptime _HB = 16  # heightfield bounds-summary block size (corners)
+
+
 struct HeightField(Movable, Deinitable):
     """A regular grid of heights, triangulated implicitly.
 
@@ -230,6 +233,13 @@ struct HeightField(Movable, Deinitable):
     var cell: Real
     var ox: Real  # world x of grid corner (0, 0)
     var oz: Real
+    # ROADMAP 17.30: min/max height of each _HB x _HB block of corners, so a
+    # local edit re-derives the field's vertical bounds from the touched
+    # blocks plus the block table instead of rescanning every height.
+    var bmin: List[Real]
+    var bmax: List[Real]
+    var nbx: Int
+    var nbz: Int
 
     def __init__(
         out self, heights: List[Real], nx: Int, nz: Int,
@@ -253,6 +263,79 @@ struct HeightField(Movable, Deinitable):
         self.cell = cell
         self.ox = ox
         self.oz = oz
+        self.nbx = (nx + _HB - 1) // _HB
+        self.nbz = (nz + _HB - 1) // _HB
+        self.bmin = List[Real](length=self.nbx * self.nbz, fill=0)
+        self.bmax = List[Real](length=self.nbx * self.nbz, fill=0)
+        for bz in range(self.nbz):
+            for bx in range(self.nbx):
+                self._refresh_block(bx, bz)
+
+    def _refresh_block(mut self, bx: Int, bz: Int):
+        var lo = Real.MAX
+        var hi = -Real.MAX
+        for iz in range(bz * _HB, min((bz + 1) * _HB, self.nz)):
+            for ix in range(bx * _HB, min((bx + 1) * _HB, self.nx)):
+                var y = self.h[iz * self.nx + ix]
+                lo = min(lo, y)
+                hi = max(hi, y)
+        self.bmin[bz * self.nbx + bx] = lo
+        self.bmax[bz * self.nbx + bx] = hi
+
+    def height_at(self, ix: Int, iz: Int) -> Real:
+        return self.h[min(max(iz, 0), self.nz - 1) * self.nx + min(max(ix, 0), self.nx - 1)]
+
+    def set_height(mut self, ix: Int, iz: Int, y: Real):
+        """Set one corner (ignored outside the grid)."""
+        if ix < 0 or iz < 0 or ix >= self.nx or iz >= self.nz:
+            return
+        self.h[iz * self.nx + ix] = y
+        self._refresh_block(ix // _HB, iz // _HB)
+
+    def deform(mut self, cx: Real, cz: Real, radius: Real, delta: Real) -> Int:
+        """Raise (delta > 0) or dig (delta < 0) a smooth disc of `radius`
+        around world (cx, cz): corner heights change by
+        delta * (1 - (d / radius)^2). Returns the number of corners edited;
+        only the blocks they sit in are re-summarised."""
+        if radius <= 0 or self.nx == 0 or self.nz == 0:
+            return 0
+        var ix0 = max(Int((cx - radius - self.ox) / self.cell), 0)
+        var ix1 = min(Int((cx + radius - self.ox) / self.cell) + 1, self.nx - 1)
+        var iz0 = max(Int((cz - radius - self.oz) / self.cell), 0)
+        var iz1 = min(Int((cz + radius - self.oz) / self.cell) + 1, self.nz - 1)
+        var edited = 0
+        for iz in range(iz0, iz1 + 1):
+            for ix in range(ix0, ix1 + 1):
+                var dx = self.ox + Real(ix) * self.cell - cx
+                var dz = self.oz + Real(iz) * self.cell - cz
+                var d2 = dx * dx + dz * dz
+                if d2 < radius * radius:
+                    self.h[iz * self.nx + ix] += delta * (1 - d2 / (radius * radius))
+                    edited += 1
+        if edited > 0:
+            for bz in range(iz0 // _HB, iz1 // _HB + 1):
+                for bx in range(ix0 // _HB, ix1 // _HB + 1):
+                    self._refresh_block(bx, bz)
+        return edited
+
+    def bounds_blocks(self) -> AABB[3]:
+        """`bounds()` from the block table (the incremental path)."""
+        if len(self.h) == 0:
+            return AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
+        var lo = self.bmin[0]
+        var hi = self.bmax[0]
+        for i in range(1, len(self.bmin)):
+            lo = min(lo, self.bmin[i])
+            hi = max(hi, self.bmax[i])
+        return AABB[3](
+            Vec3(self.ox, lo, self.oz, 0),
+            Vec3(
+                self.ox + Real(self.nx - 1) * self.cell,
+                hi,
+                self.oz + Real(self.nz - 1) * self.cell,
+                0,
+            ),
+        )
 
     def ntri(self) -> Int:
         if self.nx < 2 or self.nz < 2:

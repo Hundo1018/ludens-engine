@@ -368,6 +368,29 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         )
         return id
 
+    def deform_heightfield(
+        mut self, id: BodyId, cx: Real, cz: Real, radius: Real, delta: Real
+    ) raises -> Int:
+        """Dig or raise the heightfield `id` around world (cx, cz) --
+        ROADMAP 17.30 -- and wake every sleeping body whose box reaches the
+        edited disc (a crater under a resting crate must drop it, 17.25)."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.deform_heightfield: invalid BodyId")
+        var edited = self.colliders.deform_heightfield(id.index(), cx, cz, radius, delta)
+        if edited == 0:
+            return 0
+        for i in range(len(self.bset.bodies)):
+            if not self.bset.is_dynamic(i) or not self.bset.sleeping[i]:
+                continue
+            var p = self.bset.bodies[i].position()
+            var hh = self.colliders.half[i]
+            var reach = radius + max(hh[0], hh[2])
+            var dx = p[0] - cx
+            var dz = p[2] - cz
+            if dx * dx + dz * dz <= reach * reach:
+                wake_island(self.bset, i)
+        return edited
+
     def remove_body(mut self, id: BodyId) raises:
         """ROADMAP 17.0i: full body removal -- the 17.0g-1 deferral
         `physics/body_set.mojo`'s module docstring flagged (`BodySet.remove`/

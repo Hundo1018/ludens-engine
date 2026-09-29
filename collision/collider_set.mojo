@@ -223,6 +223,23 @@ struct ColliderSet(Movable, Deinitable):
         self.fields.append(f^)
         return i
 
+    def deform_heightfield(
+        mut self, i: Int, cx: Real, cz: Real, radius: Real, delta: Real,
+        incremental: Bool = True,
+    ) raises -> Int:
+        """Edit heightfield collider `i` (ROADMAP 17.30) and refresh its
+        world AABB and conservative half extents -- from the field's block
+        summary (`incremental`) or by rescanning every height; the two give
+        the same box. Returns the number of corners edited."""
+        if self.shape[i] != SHAPE_HEIGHTFIELD:
+            raise Error("ColliderSet.deform_heightfield: collider is not a heightfield")
+        var k = self.mesh_id[i]
+        var edited = self.fields[k].deform(cx, cz, radius, delta)
+        var bb = self.fields[k].bounds_blocks() if incremental else self.fields[k].bounds()
+        self.world_aabb[i] = bb
+        self.half[i] = bb.half_extents()
+        return edited
+
     def set_filter(mut self, i: Int, category: UInt32, mask: UInt32):
         """Which layer collider `i` is on, and which layers it collides with.
 
