@@ -1511,6 +1511,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:普通(一個 component round-trip)/ 整合(接 6.10、換 backend 後仍一致)/
 > 極端(空型別、巢狀、遞迴參照、版本不符)。
 
+> **進度:✅ 2026-09-29** `ecs/schema.mojo`:以 Mojo 1.1 prelude 的 `reflect[T]`(欄位名 / 型別 / byte offset / `field_ref`)在**編譯期**產生 `TypeSchema`,遞迴展開巢狀 struct 為點號路徑(`rotation.w`),無任何手寫欄位清單。`write_value` / `read_value`(自描述單筆)與 `write_values` / `read_values`(批次:描述一次、名稱比對一次);讀取按**欄位名**對應目前 schema:已刪欄位略過、新欄位保留呼叫端預設、改型欄位不重解釋,結果記在 `ReadReport`(dropped / mismatched / defaulted)。`TypeRegistry`:依型別名註冊,對型別擦除位址按欄位名讀寫純量(工具 / 腳本綁定形狀)。`tests/test_schema.mojo` 22/22(Transform 逐位 round-trip、反射 vs 手寫 parity、50 個 Transform 由 sparse-set world 搬到 archetype world 逐位相同、`SolverConfig` round-trip 後步進場景逐位相同;極端:空型別、巢狀、V1→V2 版本不符、截斷、錯型別名、registry 未知型別 / 欄位 / 非純量)。`bench_schema`(N=65536):單筆自描述 989 ns / 634 B、批次 115 ns / 114 B、手寫 17 ns / 48 B(手寫不存快取世界矩陣)。接線範例 `examples/23_reflection_inspector.mojo`(檢視器:列出並按名稱修改 Transform / SolverConfig 欄位)。**待辦**:批次讀寫仍逐 byte `append`,改整段複製;非純資料型別(`List` / `String`)目前靠契約排除,未在編譯期擋;17.12 場景格式 / 17.16 replication / 17.40 存檔改用此 schema。
+
 ### 17.12 可編輯場景 / prefab / 實例化 — Wave C(gated)
 > **現況**:`physics/serialize.mojo` = 全狀態 f32 bit-pattern 決定論快照(自註「非 asset reference」)。
 > **缺口**:schema 化、可 diff、版本化的場景格式、prefab / blueprint、nested scene 組合、

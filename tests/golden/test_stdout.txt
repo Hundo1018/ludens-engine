@@ -504,6 +504,8 @@ build: all packages precompiled into build/
 [PASS] rigid6 - 15 / 15 checks
 --- tests/test_scheduler_parity.mojo ---
 [PASS] scheduler_parity - 51 / 51 checks
+--- tests/test_schema.mojo ---
+[PASS] schema - 22 / 22 checks
 --- tests/test_serialize.mojo ---
   blob bytes: 20533
 [PASS] serialize - 8 / 8 checks

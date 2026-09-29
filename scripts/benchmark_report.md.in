@@ -1206,6 +1206,19 @@ own value-only version against ~1.1x everywhere else, consistent with f32
 denormals. A vanishing gradient is expensive as well as uninformative.
 
 @bench benchmarks/bench_diffrigid.mojo
+## ECS — reflection-driven serialisation (17.11)
+
+`ecs.schema` builds a type's field table from the compiler's own reflection
+(`reflect[T]`): dotted names, type names, offsets, sizes, no hand-written
+list. A record written with it can be read by a later version of the type,
+matched by field name. That self-description is what the rows price. Written
+one value at a time, each record carries every field's name and type, and
+costs tens of times what a hand-written fixed-order writer does; the batch
+form writes the descriptors once and matches names once, which removes most
+of the gap. The hand-written row also stores less — it skips the cached world
+matrix the schema faithfully includes.
+
+@bench benchmarks/bench_schema.mojo
 ## Physics — the contact solver, differentiable and batched (17.20 / 17.18)
 
 `physics/diffsolver.mojo` re-states `ContactScene6`'s per-frame algorithm —
