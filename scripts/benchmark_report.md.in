@@ -518,15 +518,6 @@ The determinism kit's seeded generators behind the `Rng` seam (see
 `test_rng` for the reproducibility/uniformity contract they all satisfy).
 
 @bench benchmarks/bench_rng.mojo
-## Physics — contact solvers (SequentialImpulse vs PBD vs XPBD)
-
-The same dropped-box-grid workload driven through the swappable `ContactSolver`
-seam. All solvers settle the stack to the same non-penetrating rest (see
-`test_physics_dynamics`); the table shows their relative cost. Each step reuses
-the existing collision pipeline (brute-force broadphase + AABB narrowphase) to
-generate the manifolds the solver resolves.
-
-@bench benchmarks/bench_physics.mojo
 ## Collision — persistent (incremental) vs rebuild broadphase
 
 Frame-coherent workload (jitter inside the fat margin): the dynamic-tree

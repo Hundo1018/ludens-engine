@@ -1356,7 +1356,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > | 17.0i | 執行期容器 `gameplay/runtime.mojo`(擁有 `World + ContactScene6 + FixedLoop` 與位姿→transform 同步):17.1 / 17.7 需要的「有狀態執行期」目前無處可放 | F15 |
 >
 > **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;**單一 device context 擁有者 ✅ 2026-09-29(17.17)**:引擎內不再有 `DeviceContext()`,`gpu_cloth_run` / `gpu_vbd_run` 包裝移除,測試自持 context;FSM 移動已於 17.0c 完成;剩 `chain` 稠密解移 `numerics` + 地面接觸走 `ColliderSet`(17.2 前)):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
-> **凍結**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)只剩測試 / benchmark 使用,也是 `CollisionPipeline` 唯一真實消費者;標為比較基準、不得新增依賴。**是否刪除待使用者決定。**
+> **已刪除(2026-09-29,使用者決定)**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)連同只為它存在的 `test_physics_dynamics`、`test_physis`、`bench_physics`、`examples/20_contact_solver_2d.mojo` 一併移除(範例編號 20 留空)。`CollisionPipeline`(collision 層)保留,現在只由其測試使用;`ContactSolver` 2D seam 列自 CATEGORY §2 移除。`BENCHMARK_REPORT.md` 是產生物,其中的 2D 接觸求解器段落要到下次重新產生才會消失。
 > **驗收閘門(重構類)**:行為不變的重構以「全套測試 stdout 逐位相同(去除計時行)」為身分閘門,不是只看綠燈。
 
 ### 17.1 Kinematic 角色控制器 — Wave A

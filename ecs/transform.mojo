@@ -2,7 +2,7 @@
 
 `Transform` (3D) / `Transform2` (2D) are ordinary `ComponentType`s holding a
 local TRS plus a *cached world matrix* and dirty flags. The split mirrors the
-engine's existing dimension convention (`Body2`, `OBB` are 2D-only) because the
+engine's existing dimension convention (`OBB` is 2D-only) because the
 rotation representation differs — a `Quat` in 3D, a scalar angle in 2D — so a
 single `[dim]`-parametric type would not share a field layout.
 

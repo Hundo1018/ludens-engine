@@ -1,8 +1,7 @@
 """6-DOF contact solving: `ContactManifold` points -> sequential impulses.
 
-This is the first angular contact response in the engine — the piece
-`physics/rigidbody.mojo` explicitly deferred until the narrowphase produced
-contact points. `ContactScene6[B, BP]` is generic over the `Body6`
+The engine's 3-D contact solver (the earlier 2-D linear-only path was
+removed on 2026-09-29). `ContactScene6[B, BP]` is generic over the `Body6`
 representation (quat+tensor or motor+screw) AND over the `BroadPhase`
 backend that enumerates candidate pairs (`collision.broadphase`; defaults to
 the rebuild-per-step BVH), so the same scene is both a parity gate between

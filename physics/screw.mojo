@@ -10,8 +10,7 @@ angular velocity and linear velocity — and integration is the Lie-group step
 so rotation and translation advance in a single uniform screw per step: no
 quaternion renormalization drift vs matrix orthogonalization, and a constant V
 traces an exact helix. `ScrewBody` packages this as an ECS component;
-`integrate_screw` is the system (generic over storage backends, like
-`physics.integrator.integrate`).
+`integrate_screw` is the system (generic over storage backends).
 """
 
 from ecs.component import ComponentType

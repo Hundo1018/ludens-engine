@@ -38,7 +38,6 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | `StorageBackend`(sparse-set / archetype / bitset / reactive / chunked / naive) | ecs/storage.mojo、chunked_backend.mojo | 實作函子間的自然同構 | `test_backend_parity`、`test_iter_parity` | `bench_ecs`、`bench_locality`、`bench_chunked` |
 | 傳播策略 full/dirty/**motor** | ecs/transform_systems.mojo、ecs/motor_transform.mojo | 同一態射的三個實作;dirty 是 full 的等價優化 | `test_transform`、`test_motor_transform` | `bench_transform` |
 | `Scheduler`(sequential / system-actor / entity-actor)×(serial/parallel) | scheduler/scheduler.mojo、system_actor.mojo、entity_actor.mojo | 態射合成的不同求值策略(直接迭代 vs mailbox dataflow),世界逐位相同 | `test_scheduler_parity` | `bench_scheduler` |
-| `ContactSolver` | physics/solver.mojo | 同一物理不動點的不同迭代子 | `test_physics_dynamics` | `bench_physics` |
 | `BroadPhase`(rebuild 5 種 + DBVH 持久化) | collision/broadphase.mojo、bp_dbvh.mojo | 同一謂詞的加速結構;結果集相等 | `test_broadphase`、`test_bvh`、`test_dbvh` | `bench_collision`、`bench_dbvh` |
 | `NarrowPhase`(boolean,含 CGA 代數路徑) | collision/narrowphase.mojo | 同一謂詞的解析 vs 代數實作 | `test_narrowphase` 系列、`test_cga_narrowphase`、`test_cga_plane` | `bench_collision` |
 | `ManifoldNarrowPhase`(AABB/SAT/OBB/GJK/hull) | collision/manifold.mojo、hull.mojo | 接觸謂詞的富化(點集+深度),normal/depth 與 boolean 路徑一致 | `test_manifold`、`test_hull` | `bench_manifold` |

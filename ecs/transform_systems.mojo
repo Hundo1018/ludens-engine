@@ -8,8 +8,8 @@ the crossover:
   - `propagate_dirty`   — recompute only nodes whose local TRS changed or whose
                           parent was recomputed this pass; clear the flags.
 
-They are free functions generic over the storage backend, exactly like
-`physics.integrator.integrate`. A parity test asserts they produce identical
+They are free functions generic over the storage backend, like every other
+ECS system in the engine. A parity test asserts they produce identical
 world matrices, proving `propagate_dirty` is a correct optimization of
 `propagate_full`. (A SoA/archetype-column variant is the natural third strategy
 — left as future work.)

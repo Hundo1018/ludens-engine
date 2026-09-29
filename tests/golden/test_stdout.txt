@@ -519,10 +519,6 @@ build: all packages precompiled into build/
 [PASS] numerics - 36 / 36 checks
 --- tests/test_oop_engine.mojo ---
 [PASS] oop_engine - 4 / 4 checks
---- tests/test_physics_dynamics.mojo ---
-[PASS] physics_dynamics - 14 / 14 checks
---- tests/test_physis.mojo ---
-[PASS] physis - 6 / 6 checks
 --- tests/test_pipeline.mojo ---
 [PASS] pipeline - 5 / 5 checks
 --- tests/test_pool.mojo ---
