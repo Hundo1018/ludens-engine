@@ -1974,6 +1974,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **相依**:17.10(預算量測是降級輸入)、17.19(旋鈕共用)、17.18(批次多世界的每 env
 > 預算是同一問題的另一形式)。
 
+> **進度:✅ 2026-09-29** `ContactScene6.freeze` / `unfreeze` / `is_frozen`:凍結 = 暫時切成 STATIC 並記住原動作型別(`BodySet.frozen_motion`),速度欄位原封不動 → 解凍後以原速度無縫接續,凍結期間是其他物體的靜止障礙;解算器謂詞完全不用改。`physics/lod.mojo`:`DistanceLOD`(依觀察點距離凍結 / 解凍,含遲滯帶)、`SimBudget`(依量測步進時間在 [min, max] 間調 iters 再調 substeps,超過目標 110% 降級、低於 70% 回升、之間持平)。`tests/test_lod.mojo` 18/18:凍結中不動、解凍後速度逐位相同;落在凍結箱上的箱子停在其上;**覆蓋全場的 LOD + 天花板預算與原解算器逐位相同**(seam parity);觀察者移動時的凍結 / 解凍與遲滯;預算降級 / 回升 / 持平。`bench_lod`:10 層箱塔穩態頂誤差在 iters 1–8 皆約 30 mm(軟接觸柔度主導),成本隨 iters 線性 → 此區間降級幾乎不損品質;凍結一半物體每幀成本減半(1.9×)。**待辦**:凍結狀態寫入快照;逐 island 的品質分級(目前 iters / substeps 是全域)。
+
 ### 17.32 執行期分級日誌設施 — Wave A(工具;錯誤政策的「記錄」層)
 
 > **現況**:grep `Logger`/`LOG_`/`log\b` 於 `ecs/`、`physics/`、`scheduler/` 僅命中
@@ -2134,6 +2136,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 逐位相同)+ bench(回放尋位延遲)。
 > **相依**:6.10(快照)、`scheduler/rng.mojo`、17.16(此項是其地基驗證的前置練習,
 > 非其子項)。
+
+> **進度:✅ 2026-09-29** `gameplay/replay.mojo`:`SimState`(場景 + 角色控制器 + RNG)以 `sim_tick` 逐 tick 推進;`Recorder` 錄輸入、每 `interval` tick 存快照(6.10 的 `scene_to_string` + 控制器副本 + RNG 狀態值)、每 tick 存 FNV-1a 狀態雜湊;`replay_from_start` / `seek`(最近快照 + 短重跑)/ `first_divergence`(重跑比對雜湊,回傳第一個分歧 tick)/ `ghost`。`tests/test_replay.mojo` 8/8:角色走、跳、以 RNG 隨機方向踢箱子 300 tick → 從頭回放與實況逐位相同、每 tick 雜湊重現;**seek 與全程重跑在 8 個目標 tick 逐位相同**(seam parity);ghost 軌跡 == 實況軌跡;竄改第 137 tick 的輸入 → 分歧恰在 137;間隔 1。`bench_replay`:600 tick 錄製中尋位到 590,快照間隔 10 → 0.10 ms、120 → 4.2 ms、全程重跑 32.6 ms。**待辦**:錄製檔案化(目前在記憶體);快照差分壓縮;接 17.16 的網路 rollback。
 
 ### 17.40 存檔系統(相對於決定論快照) — Wave B
 

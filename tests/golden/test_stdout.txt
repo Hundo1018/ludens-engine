@@ -430,7 +430,6 @@ build: all packages precompiled into build/
   cantilever tip y: -0.08829661   volume 0.024000002 -> 0.023990544
 [PASS] fem - 9 / 9 checks
 --- tests/test_fields.mojo ---
-Included from /home/hundo/Projects/ludens-engine/tests/test_fields.mojo:24:
 [PASS] fields - 16 / 16 checks
 --- tests/test_filter_events.mojo ---
   gap — unfiltered 0.49864215  same-layer excluded 0.4  one-sided mask 0.4
@@ -487,6 +486,8 @@ Included from /home/hundo/Projects/ludens-engine/tests/test_fields.mojo:24:
 [PASS] joints6 - 8 / 8 checks
 --- tests/test_kinematic.mojo ---
 [PASS] kinematic - 18 / 18 checks
+--- tests/test_lod.mojo ---
+[PASS] lod - 18 / 18 checks
 --- tests/test_materials.mojo ---
   slide distances -- multiply: 3.803211212158203  min: 3.753986358642578  average: 1.9125360250473022  max: 1.01210355758667
 [PASS] materials - 15 / 15 checks
@@ -524,6 +525,8 @@ Included from /home/hundo/Projects/ludens-engine/tests/test_fields.mojo:24:
   hit: before 3.7802036  peak 17.599688  after 1.5 s 4.5896397
   1000 Hz drive: error 0.0
 [PASS] ragdoll - 13 / 13 checks
+--- tests/test_replay.mojo ---
+[PASS] replay - 8 / 8 checks
 --- tests/test_restitution.mojo ---
   e=0.8 first apex: 0.5816680192947388 (analytic 0.64)
   e=0.4 first apex: 0.14359593391418457 (analytic 0.16)

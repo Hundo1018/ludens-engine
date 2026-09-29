@@ -353,6 +353,13 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | 繩索:XPBD 1D 鏈 vs 距離關節剛體鏈 | physics/rope.mojo、physics/joints6.mojo | 同一懸鏈線的兩個離散化 | `test_rope`(兩者與解析下垂 5% 內) | `bench_rope` |
 | 高度場邊界:區塊摘要增量 vs 全表重掃 | collision/trimesh.mojo、collision/collider_set.mojo | 同一 min / max 歸約的兩種結合律分組(max 的結合律 ⇒ 結果逐位相同) | `test_terrain_deform`(每次編輯 AABB 逐位相同) | `bench_terrain_deform` |
 
+### 2.14 物理 LOD 與決定論回放(Phase 17.31 / 17.39,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 求解品質:全品質 vs LOD(凍結 / iters / substeps) | physics/solver6.mojo(`freeze`)、physics/lod.mojo | 同一不動點迭代在不同 iters / substeps 下的實例;凍結 = 動作型別的暫時投影到 STATIC,解凍是其逆 | `test_lod`(全覆蓋 LOD + 天花板預算 == 原解算器逐位;解凍後速度逐位相同) | `bench_lod`(iters 1–8 成本 vs 誤差;凍結一半) |
+| 回放:全程重跑 vs 快照 + 短重跑 | gameplay/replay.mojo | `sim_tick` 的 n 次合成;快照是中間狀態的忠實表示,故從任一快照續合成等於從頭合成 | `test_replay`(8 個目標 tick 逐位相同;分歧定位) | `bench_replay`(尋位延遲 vs 快照間隔) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

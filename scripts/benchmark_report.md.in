@@ -1275,6 +1275,18 @@ cost independent of terrain size, where a full rescan grows with it.
 @bench benchmarks/bench_fields.mojo
 @bench benchmarks/bench_rope.mojo
 @bench benchmarks/bench_terrain_deform.mojo
+## Physics — LOD, budget and deterministic replay (17.31 / 17.39)
+
+The budget controller trades iterations for time; the curve below says how
+much that costs in quality on a settled stack, and in this range the answer
+is almost nothing -- the stack's residual compression is set by the soft
+contacts' compliance, not by the iteration count. Freezing bodies by
+distance removes their work outright. Replay seeks by restoring the nearest
+snapshot and re-running the inputs after it, which lands on the same state
+as a full re-run bit for bit; the snapshot interval sets the seek latency.
+
+@bench benchmarks/bench_lod.mojo
+@bench benchmarks/bench_replay.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection
