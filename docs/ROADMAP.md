@@ -1355,7 +1355,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > | 17.0h | 錯誤政策落地到 Wave A 會碰的 API:邊界 `raise`(`add*` / `add_joint` / `step_soft` 參數 / `TriMesh` / `HeightField`)、步末 NaN 隔離 + `diag` 計數器 + 注入 NaN 的測試 | F10 |
 > | 17.0i | 執行期容器 `gameplay/runtime.mojo`(擁有 `World + ContactScene6 + FixedLoop` 與位姿→transform 同步):17.1 / 17.7 需要的「有狀態執行期」目前無處可放 | F15 |
 >
-> **Wave B 入口前置**(不擋 Wave A):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
+> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;其餘三項待做):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
 > **凍結**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)只剩測試 / benchmark 使用,也是 `CollisionPipeline` 唯一真實消費者;標為比較基準、不得新增依賴。**是否刪除待使用者決定。**
 > **驗收閘門(重構類)**:行為不變的重構以「全套測試 stdout 逐位相同(去除計時行)」為身分閘門,不是只看綠燈。
 
@@ -1614,6 +1614,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:普通(1024 env 自由落同步)/ 整合(接 4.2 reverse tape 出批次梯度、與 13.7 串)/
 > 極端(env=1 控制組須略慢、族群不齊、NaN env 隔離)。
 
+> **進度:✅(可微子集上的批次)2026-09-29** `BatchReal[W]`(`SolverField`,每 SIMD lane 一個世界,env 維在最內)讓 17.20 的 `SphereWorld` 不改一行即成批次步進;`step_worlds_parallel[W]` 再把批次分到各核(env 維在最外)。`test_diffsolver`:lane k 對純量世界 k 最大差 2.4e-6(接觸後 SIMD 與純量路徑的乘加收縮不同,非逐位——量到的,故以 1e-4 為界);NaN 世界只留在自己的 lane。`bench_diffsolver`(20 核):N=1 控制組批次略慢(符合預期);N ≥ 64 時 8 lane 約 7.4×、lane × 核約 22× 於純量循序。**待辦**:批次 × 反向梯度(batched tape)、`ContactScene6` 本體的 SoA 批次(目前只在可微子集上)、GPU 批次。
+
 ### 17.19 生產級 solver 硬化 — Wave B(持續)
 > **現況**:穩定堆疊只驗到 6 箱塔(`tests/test_softstep6.mojo`);大 island / 高質量比 /
 > 接觸密集堆疊未系統測。
@@ -1628,6 +1630,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:普通(現有)/ 整合(高質量比 + island sleep + CCD 同場景)/ 極端(1:1e4 質量比、
 > 1e4 體單 island、瞬移入堆、零質量、退化接觸)。
 
+> **發現(2026-09-29,`test_diffsolver`)**:球在地面滑行後於 t = 2v0/(7μg) 正確進入 5/7·v0 的滾動,但之後持續減速(v0=3、μ=0.5:1.5 s 時 1.80、4 s 時 1.57),ω·r 高於 vx、並下沉約 7 mm。`ContactScene6` 與可微解算器逐幀一致,故屬正式解算器本身:body-frame 接觸錨點隨滾動的球旋轉,摩擦與分離量取在偏離真實接觸點的位置。修法候選:圓形 shape 每子步重新投影錨點到接觸點,或摩擦改在 manifold 點求相對速度。
+
 ### 17.20 剛體 solver 可微化收尾(13.7) — Wave B
 > **現況**:13.7 🔶 —— `Field` 泛型在 `physics/diffrigid.mojo` 完成,但未推進 1555 行的
 > `physics/solver6.mojo`。
@@ -1640,6 +1644,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 逐位相同)+ bench(NP 掃描,接 `bench_diffsim` / `bench_diffrigid`)。
 > **交付**:普通(穿一參數梯度 vs FD)/ 整合(與 island / CCD / warm-start 相容、換環後既有
 > 測試不變)/ 極端(接觸開關不連續點、NP 大、零梯度路徑)。
+
+> **進度:✅(可微子集)2026-09-29** 取 ROADMAP 允許的第二條路:明確定義「可微子集」並寫在檔頭,而非把 `Field` 穿過具體 `Vec3`/`Body6` 的 solver6。`geometry/field.mojo` 新增 `SolverField(Field)`(`recip` / `root` / `positive`;`positive` 導數定義為 0 = 接觸開關的次梯度約定),`RealF` / `DualReal` / `DualBatch` / `RevReal` 皆實作。`physics/diffsolver.mojo`:`SphereWorld[F]` 以同一套 per-frame 演算法(投機收集 + warm-start 快取規則、每子步 重力 / warm start / Box2D v3 軟法向 + Coulomb 摩擦 / 積分 / relax)處理動態球 + 靜態平面,全部分支改為指示函數。`tests/test_diffsolver.mojo` 26/26:`RealF` 對 `ContactScene6`(落下 1e-4、三球疊 1e-3、滑轉滾 5e-3);四方梯度一致(DualReal == 中央差分、DualBatch 兩 lane == DualReal、RevReal 一次掃出兩個參數);靜止高度對落下高度導數 = 0。`bench_diffsolver`:DualBatch 在 NP ≤ 16 全程最便宜;RevReal tape 前置成本對 FD 的比值由 NP=1 約 6× 降到 NP=16 約 2×,交叉點在掃描範圍外。接線範例 `examples/22_diffsolver_sysid.mojo`:由 `ContactScene6` 的單一觀測值反推 μ(8 lane 批次掃描 + DualReal Newton,真值 0.37 → 0.370002)。**待辦**:子集外擴(盒 / 膠囊、關節、恢復係數 pass);全部球對每幀都攜帶是 O(n²),大 n 需寬相;RevReal tape 每運算一次 `List.append` + `Optional` 指標,是反向模式偏慢的主因。
 
 ### 17.21 腳本層(Phase 12 落地) — Wave C(gated)
 > **現況**:Phase 12 ⏸ gated on 核心 API 凍結。

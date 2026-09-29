@@ -36,8 +36,29 @@ trait Field(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     def value(self) -> Real: ...
 
 
+trait SolverField(Field):
+    """The extra arithmetic a rigid contact solver needs on top of `Field`
+    (ROADMAP 17.20 / 17.18): a reciprocal, a square root, and `positive`,
+    the indicator 1 where the value is > 0 and 0 elsewhere.
+
+    `positive` is how a solver written against this trait avoids branching
+    on a coefficient: `max(x, 0)` is `x * x.positive()`, and "use `a` where
+    `c` holds, else `b`" is `b + (a - b) * c`. Its derivative is zero by
+    definition -- the subgradient convention for a contact switch, stated
+    once here rather than at every call site. Written that way the same
+    code runs on one world (`RealF`), carries a derivative (`DualReal`,
+    `DualBatch`, `RevReal`), or steps one world per SIMD lane
+    (`BatchReal[W]`), where different lanes take different branches."""
+
+    def recip(self) -> Self: ...
+
+    def root(self) -> Self: ...
+
+    def positive(self) -> Self: ...
+
+
 @fieldwise_init
-struct RealF(Field):
+struct RealF(SolverField):
     """The engine scalar as a `Field` (thin wrapper; nominal conformance)."""
 
     var v: Real
@@ -62,9 +83,18 @@ struct RealF(Field):
     def value(self) -> Real:
         return self.v
 
+    def recip(self) -> Self:
+        return Self(1 / self.v)
+
+    def root(self) -> Self:
+        return Self(sqrt(self.v))
+
+    def positive(self) -> Self:
+        return Self(1) if self.v > 0 else Self(0)
+
 
 @fieldwise_init
-struct DualReal(Field):
+struct DualReal(SolverField):
     """Dual number a + b·ε (ε² = 0) — forward-mode AD scalar."""
 
     var a: Real  # value
@@ -95,9 +125,20 @@ struct DualReal(Field):
     def value(self) -> Real:
         return self.a
 
+    def recip(self) -> Self:
+        var inv = 1 / self.a
+        return Self(inv, -self.b * inv * inv)
+
+    def root(self) -> Self:
+        var s = sqrt(self.a)
+        return Self(s, self.b * (0.5 / s) if s > 0 else Real(0))
+
+    def positive(self) -> Self:
+        return Self(1, 0) if self.a > 0 else Self(0, 0)
+
 
 @fieldwise_init
-struct DualBatch(Field):
+struct DualBatch(SolverField):
     """Forward-mode AD with FOUR derivative directions in SIMD lanes — one
     rollout yields the gradient w.r.t. four parameters at once (the
     "SIMD lane = derivative direction" batch scheme from ROADMAP 3.1)."""
@@ -131,6 +172,64 @@ struct DualBatch(Field):
 
     def value(self) -> Real:
         return self.a
+
+    def recip(self) -> Self:
+        var inv = 1 / self.a
+        return Self(inv, -self.b * (inv * inv))
+
+    def root(self) -> Self:
+        var s = sqrt(self.a)
+        if s > 0:
+            return Self(s, self.b * (0.5 / s))
+        return Self(s, SIMD[WorldType, 4](0))
+
+    def positive(self) -> Self:
+        return Self(Real(1) if self.a > 0 else Real(0), SIMD[WorldType, 4](0))
+
+
+@fieldwise_init
+struct BatchReal[W: Int](SolverField):
+    """`W` independent worlds' values of one scalar, one per SIMD lane
+    (ROADMAP 17.18: the env dimension innermost). Every operation is
+    lane-wise IEEE arithmetic, so lane `k` of a batched computation is
+    bit-identical to the same computation on `RealF` with lane `k`'s inputs
+    -- the batch is a layout, not a different computation. `value()` is lane
+    0 (the `Field` contract wants one number); read `v[k]` for the rest."""
+
+    var v: SIMD[WorldType, Self.W]
+
+    @staticmethod
+    def const(v: Real) -> Self:
+        return Self(SIMD[WorldType, Self.W](v))
+
+    @staticmethod
+    def zero() -> Self:
+        return Self(SIMD[WorldType, Self.W](0))
+
+    def __add__(self, o: Self) -> Self:
+        return Self(self.v + o.v)
+
+    def __sub__(self, o: Self) -> Self:
+        return Self(self.v - o.v)
+
+    def __mul__(self, o: Self) -> Self:
+        return Self(self.v * o.v)
+
+    def value(self) -> Real:
+        return self.v[0]
+
+    def recip(self) -> Self:
+        return Self(1 / self.v)
+
+    def root(self) -> Self:
+        return Self(sqrt(self.v))
+
+    def positive(self) -> Self:
+        return Self(
+            self.v.gt(0).select(
+                SIMD[WorldType, Self.W](1), SIMD[WorldType, Self.W](0)
+            )
+        )
 
 
 def dcos(x: DualReal) -> DualReal:
@@ -197,7 +296,7 @@ comptime TapePtr = type_of(alloc[Tape](Layout[Tape](count=1)).unsafe_leak())
 
 
 @fieldwise_init
-struct RevReal(Field):
+struct RevReal(SolverField):
     """Reverse-mode AD scalar: primal value + tape node index. See the module
     docstring for the off-tape constant scheme."""
 
@@ -244,6 +343,25 @@ struct RevReal(Field):
 
     def value(self) -> Real:
         return self.v
+
+    def recip(self) -> Self:
+        var inv = 1 / self.v
+        if self.idx < 0:
+            return Self(inv, -1, None)
+        var t = self.tape.value()
+        return Self(inv, t[].push(self.idx, -1, -inv * inv, 0), t)
+
+    def root(self) -> Self:
+        var s = sqrt(self.v)
+        if self.idx < 0:
+            return Self(s, -1, None)
+        var t = self.tape.value()
+        var d = Real(0.5) / s if s > 0 else Real(0)
+        return Self(s, t[].push(self.idx, -1, d, 0), t)
+
+    def positive(self) -> Self:
+        # zero derivative by definition (SolverField): an off-tape constant
+        return Self(Real(1) if self.v > 0 else Real(0), -1, None)
 
 
 def rev_seed(mut t: Tape, v: Real) -> RevReal:

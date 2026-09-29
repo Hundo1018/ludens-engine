@@ -300,6 +300,13 @@ N=256 約 1.00×、N=1024 約 1.00×,`flock` 鎖下的正式記錄跑)——一�
 O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量測在 ns 級別本
 身的雜訊,`bench_sleep_wake.mojo` 每點已是 3000 次重複的總時間平均)。
 
+### 2.6 可微 / 批次接觸求解器(Phase 17.20 / 17.18,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 接觸求解的係數環:`RealF` / `DualReal` / `DualBatch` / `RevReal` / `BatchReal[W]`(`SolverField`) | geometry/field.mojo、physics/diffsolver.mojo | 同一個「一幀」態射在五個係數環上的像;分支全部改寫為指示函數 `positive`(導數定義為 0 = 接觸開關的次梯度約定),所以批次的各 lane 走不同分支仍是同一條指令流 | `test_diffsolver`(`RealF` 對 `ContactScene6`:落下 / 三球疊 / 滑轉滾;DualReal / DualBatch / RevReal / 中央差分四方梯度一致;批次 lane 對純量世界 ≤1e-4;NaN 世界不外溢;無接觸 = 精確彈道、μ=0 不自轉、重合球心有限、靜止高度對落下高度導數為 0) | `bench_diffsolver`(世界佈局:純量循序 / SIMD 8 lane / lane × 核,N=1..4096;梯度:FD / DualReal / DualBatch / RevReal,NP=1..16) |
+| 解算器實作:`ContactScene6`(具體 `Vec3`/`Real`,全功能)vs `SphereWorld[F]`(可微子集:動態球 + 靜態平面) | physics/solver6.mojo + contact6.mojo、physics/diffsolver.mojo | 同一接觸演算法的兩個實作;子集邊界寫在 diffsolver 檔頭 | 同上(parity 容差 1e-4..5e-3,非逐位:運算分組不同) | 同上 |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

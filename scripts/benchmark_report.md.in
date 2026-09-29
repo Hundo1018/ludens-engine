@@ -1206,6 +1206,35 @@ own value-only version against ~1.1x everywhere else, consistent with f32
 denormals. A vanishing gradient is expensive as well as uninformative.
 
 @bench benchmarks/bench_diffrigid.mojo
+## Physics — the contact solver, differentiable and batched (17.20 / 17.18)
+
+`physics/diffsolver.mojo` re-states `ContactScene6`'s per-frame algorithm —
+speculative collection with the warm-start cache rule, then per substep
+gravity, warm start, the soft normal + Coulomb friction sweeps, pose
+integration and the relax sweep — for dynamic spheres on static planes, over
+any `SolverField` scalar. Every branch is written with an indicator
+(`positive`), so the same code carries a forward or reverse derivative, or
+steps one world per SIMD lane. Against `ContactScene6` on the same scenes the
+`RealF` instance agrees to float32 noise (`test_diffsolver`), and the forward,
+four-lane forward, reverse and finite-difference gradients agree.
+
+**Layout.** One `RealF` world per step costs the same as eight worlds packed
+into the lanes of `BatchReal[8]`, so the batch runs roughly **7x** more
+world-steps per second, and fanning the batches over cores adds another ~3x
+at this machine's core count. The N = 1 control is slightly slower batched,
+as it should be: one world pays for eight lanes. Lane k is not bit-identical
+to scalar world k after contact (~1e-6 over 60 frames): the SIMD and scalar
+lowerings contract multiply-adds differently.
+
+**Gradient.** `DualBatch` (four directions per rollout) is the cheapest
+gradient here at every NP measured. Reverse mode is flat in NP by
+construction, but its tape costs several rollouts' worth up front — the
+ratio to central differences falls from about 6x at NP = 1 to about 2x at
+NP = 16 — so the crossover lies beyond the NP this row sweeps (every sphere
+pair is carried every frame, O(NP^2), which also makes large NP expensive
+for everyone).
+
+@bench benchmarks/bench_diffsolver.mojo
 ## Physics — reduced-coordinate contact (articulated bodies that can touch)
 
 Until this landed the two halves of the engine could not meet: `Chain`

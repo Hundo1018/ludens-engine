@@ -405,6 +405,9 @@ build: all packages precompiled into build/
   pyramid top y: 2.7460882663726807 expected settled: 2.75
   colored iters=8: sleeping 21 of 21
 [PASS] colored - 6 / 6 checks
+--- tests/test_diffsolver.mojo ---
+  batch vs scalar worst lane difference: 2.3841858e-06
+[PASS] diffsolver - 26 / 26 checks
 --- tests/test_error_wiring.mojo ---
 [PASS] error_wiring - 38 / 38 checks
 --- tests/test_events_contacts.mojo ---
