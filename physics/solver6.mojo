@@ -869,6 +869,121 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 var p1 = p0 + pr.m.normal * scale
                 self.draw.arrow(p0, p1, color)
 
+    def _color_pairs(
+        mut self,
+        mut pairs: List[ContactConstraint],
+        mut clo: List[Int],
+        mut chi: List[Int],
+    ) -> Bool:
+        """Greedy smallest-free-colour over the DYNAMIC-body adjacency (a
+        shared static must not chain colours, or one ground plane serialises
+        the whole scene); `pairs` reordered into contiguous per-colour ranges
+        `[clo[c], chi[c])`. <= 64 colours (bit masks): on overflow `pairs` is
+        left in its original order, `COLOR_OVERFLOW` counted, and False
+        returned (the caller falls back to the uncoloured sweep)."""
+        var n_colors = 0
+        var mask = List[Int]()
+        for _ in range(len(self.bset.bodies)):
+            mask.append(0)
+        var pcol = List[Int]()
+        var overflow = False
+        for pc in range(len(pairs)):
+            var used = 0
+            # DYNAMIC-body adjacency only (was `not is_static`): a
+            # kinematic body, like a static one, is never WRITTEN by the
+            # colored solve (`_solve_pair`'s impulse application is now
+            # `is_dynamic`-gated too), so it must not force a color
+            # conflict between two of its dynamic contacts either --
+            # ROADMAP 17.24's "kinematic platform pushing N boxes"
+            # benchmark would otherwise serialise through one platform
+            # the same way a shared static ground plane is documented
+            # NOT to below.
+            if self.bset.is_dynamic(pairs[pc].a):
+                used |= mask[pairs[pc].a]
+            if self.bset.is_dynamic(pairs[pc].b):
+                used |= mask[pairs[pc].b]
+            var col = 0
+            # `col < 64` must gate the loop itself, not just be checked
+            # after it: found live (this loop used to be unbounded) --
+            # once `used` has all 64 bits set (a body already touched by
+            # 64 differently-coloured pairs), `used >> col` for `col >=
+            # 64` does NOT read as zero the way a mathematical shift
+            # would. Mojo's `>>` on `Int` bottoms out at the hardware
+            # shift instruction, which masks the shift amount to the
+            # register width (`col mod 64` on this target) -- so
+            # `used >> 64` re-reads the SAME bits as `used >> 0`, the
+            # condition never goes false, and `col` counts up forever.
+            # This was a genuine infinite hang, not just "wrong colours
+            # past 64" as first filed -- caught by this commit's own
+            # extreme test (65 dynamic pairs sharing one body), which
+            # hung indefinitely before this bound was added.
+            while col < 64 and (used >> col) & 1 == 1:
+                col += 1
+            if col >= 64:
+                # audit E7: a body touched by 64 differently-coloured
+                # pairs -- `1 << col` on an `Int` is no longer a single
+                # bit past width 63 (wraps/UB), which would corrupt the
+                # mask and let two same-colour pairs share a body (a
+                # data race under colored+parallel). Bail out of the
+                # WHOLE partition rather than continue with a corrupt
+                # one: `colored` false below falls through to the
+                # existing serial `_soft_sweep(pairs, 0, len(pairs))`
+                # path with `pairs` still in its original (uncoloured)
+                # order, so this is "fall back to serial", not a crash.
+                overflow = True
+                break
+            pcol.append(col)
+            if col + 1 > n_colors:
+                n_colors = col + 1
+            if self.bset.is_dynamic(pairs[pc].a):
+                mask[pairs[pc].a] |= 1 << col
+            if self.bset.is_dynamic(pairs[pc].b):
+                mask[pairs[pc].b] |= 1 << col
+        if overflow:
+            self.counters.incr(COLOR_OVERFLOW)
+            return False
+        else:
+            var pairs3 = List[ContactConstraint]()
+            for col in range(n_colors):
+                clo.append(len(pairs3))
+                for pc in range(len(pairs)):
+                    if pcol[pc] == col:
+                        pairs3.append(pairs[pc])
+                chi.append(len(pairs3))
+            pairs = pairs3^
+        return True
+
+    def begin_external_solve(
+        mut self,
+        dt: Real,
+        cfg: SolverConfig,
+        mut clo: List[Int],
+        mut chi: List[Int],
+    ) -> List[ContactConstraint]:
+        """The first half of a colored `step` for a solver that runs the
+        substep loop elsewhere (`physics.gpu_contact`, ROADMAP 17.17):
+        collect this frame's contacts, refresh islands, colour. On a colour
+        overflow `clo`/`chi` come back empty and the pairs uncoloured; a
+        colour-parallel solver must then refuse the frame."""
+        var pairs = self._collect_pairs(True, dt, cfg.broadphase)
+        refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
+        _ = self._color_pairs(pairs, clo, chi)
+        return pairs^
+
+    def end_external_solve(
+        mut self, var pairs: List[ContactConstraint], dt: Real, cfg: SolverConfig
+    ):
+        """The second half: restitution, sleep, NaN quarantine, debug draw,
+        events, warm-start cache -- the serial `step`'s tail, unchanged."""
+        restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)
+        update_sleep(self.bset, dt, cfg)
+        self._quarantine_nonfinite()
+        comptime if DEBUG_DRAW_ON:
+            self._emit_debug_draw(pairs)
+        if self.events_on:
+            self._emit_events(pairs)
+        self.cache = pairs^
+
     def step_soft(
         mut self,
         dt: Real,
@@ -970,79 +1085,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # DYNAMIC-body adjacency (a shared static must not chain colors, or
         # one ground plane serialises the whole scene); pairs reordered into
         # contiguous per-color ranges. <= 64 colors (bit masks).
-        var n_colors = 0
         var clo = List[Int]()
         var chi = List[Int]()
         if colored:
-            var mask = List[Int]()
-            for _ in range(len(self.bset.bodies)):
-                mask.append(0)
-            var pcol = List[Int]()
-            var overflow = False
-            for pc in range(len(pairs)):
-                var used = 0
-                # DYNAMIC-body adjacency only (was `not is_static`): a
-                # kinematic body, like a static one, is never WRITTEN by the
-                # colored solve (`_solve_pair`'s impulse application is now
-                # `is_dynamic`-gated too), so it must not force a color
-                # conflict between two of its dynamic contacts either --
-                # ROADMAP 17.24's "kinematic platform pushing N boxes"
-                # benchmark would otherwise serialise through one platform
-                # the same way a shared static ground plane is documented
-                # NOT to below.
-                if self.bset.is_dynamic(pairs[pc].a):
-                    used |= mask[pairs[pc].a]
-                if self.bset.is_dynamic(pairs[pc].b):
-                    used |= mask[pairs[pc].b]
-                var col = 0
-                # `col < 64` must gate the loop itself, not just be checked
-                # after it: found live (this loop used to be unbounded) --
-                # once `used` has all 64 bits set (a body already touched by
-                # 64 differently-coloured pairs), `used >> col` for `col >=
-                # 64` does NOT read as zero the way a mathematical shift
-                # would. Mojo's `>>` on `Int` bottoms out at the hardware
-                # shift instruction, which masks the shift amount to the
-                # register width (`col mod 64` on this target) -- so
-                # `used >> 64` re-reads the SAME bits as `used >> 0`, the
-                # condition never goes false, and `col` counts up forever.
-                # This was a genuine infinite hang, not just "wrong colours
-                # past 64" as first filed -- caught by this commit's own
-                # extreme test (65 dynamic pairs sharing one body), which
-                # hung indefinitely before this bound was added.
-                while col < 64 and (used >> col) & 1 == 1:
-                    col += 1
-                if col >= 64:
-                    # audit E7: a body touched by 64 differently-coloured
-                    # pairs -- `1 << col` on an `Int` is no longer a single
-                    # bit past width 63 (wraps/UB), which would corrupt the
-                    # mask and let two same-colour pairs share a body (a
-                    # data race under colored+parallel). Bail out of the
-                    # WHOLE partition rather than continue with a corrupt
-                    # one: `colored` false below falls through to the
-                    # existing serial `_soft_sweep(pairs, 0, len(pairs))`
-                    # path with `pairs` still in its original (uncoloured)
-                    # order, so this is "fall back to serial", not a crash.
-                    overflow = True
-                    break
-                pcol.append(col)
-                if col + 1 > n_colors:
-                    n_colors = col + 1
-                if self.bset.is_dynamic(pairs[pc].a):
-                    mask[pairs[pc].a] |= 1 << col
-                if self.bset.is_dynamic(pairs[pc].b):
-                    mask[pairs[pc].b] |= 1 << col
-            if overflow:
-                self.counters.incr(COLOR_OVERFLOW)
-                colored = False
-            else:
-                var pairs3 = List[ContactConstraint]()
-                for col in range(n_colors):
-                    clo.append(len(pairs3))
-                    for pc in range(len(pairs)):
-                        if pcol[pc] == col:
-                            pairs3.append(pairs[pc])
-                    chi.append(len(pairs3))
-                pairs = pairs3^
+            colored = self._color_pairs(pairs, clo, chi)
         if parallel and (colored or len(self.softs) > 0 or ccd):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be

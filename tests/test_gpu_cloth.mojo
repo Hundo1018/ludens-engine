@@ -1,7 +1,8 @@
 # tier: unit
 from std.sys import has_accelerator
 from harness.runner import Suite
-from physics.gpu_cloth import cpu_cloth_run, gpu_cloth_run
+from physics.gpu_cloth import cpu_cloth_run, gpu_cloth_run_ctx
+from max.gpu.host import DeviceContext
 
 
 def main() raises:
@@ -44,7 +45,8 @@ def main() raises:
 
     comptime if has_accelerator():
         # GPU runs the same arithmetic: parity within float scheduling noise.
-        var gpu = gpu_cloth_run[W, H](STEPS, ITERS, 1.0 / 60.0, 0.05)
+        var ctx = DeviceContext()  # the test is the single owner (F17)
+        var gpu = gpu_cloth_run_ctx[W, H](ctx, STEPS, ITERS, 1.0 / 60.0, 0.05)
         var max_d = Float64(0)
         for i in range(W * H):
             var d = abs(Float64(gpu.x[i] - cpu.x[i]))

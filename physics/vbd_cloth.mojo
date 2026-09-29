@@ -358,16 +358,6 @@ def cpu_vbd_run[W: Int, H: Int](
 
 
 # ---------------------------------------------------------------- GPU driver
-def gpu_vbd_run[W: Int, H: Int](
-    steps: Int, iters: Int, dt: Float32, rest: Float32
-) raises -> ClothState:
-    """The same VBD sweep on the GPU (guarded: raises if no accelerator).
-    Owns its context; benchmarks that run several rollouts must share one
-    context via `gpu_vbd_run_ctx` (see `gpu_cloth.gpu_cloth_run` note)."""
-    var ctx = DeviceContext()
-    return gpu_vbd_run_ctx[W, H](ctx, steps, iters, dt, rest)
-
-
 def gpu_vbd_run_ctx[W: Int, H: Int](
     mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32
 ) raises -> ClothState:

@@ -320,18 +320,6 @@ def cpu_cloth_run[W: Int, H: Int](
 
 
 # ---------------------------------------------------------------- GPU driver
-def gpu_cloth_run[W: Int, H: Int](
-    steps: Int, iters: Int, dt: Float32, rest: Float32
-) raises -> ClothState:
-    """The same cloth on the GPU (guarded: raises if no accelerator).
-    Owns its `DeviceContext`. NOTE: creating many contexts in one process
-    hangs on this nightly (root-caused 2026-07-13 via the cloth benchmarks) —
-    code that runs several GPU rollouts (benchmarks) must build ONE context
-    and call `gpu_cloth_run_ctx` instead of looping this."""
-    var ctx = DeviceContext()
-    return gpu_cloth_run_ctx[W, H](ctx, steps, iters, dt, rest)
-
-
 @fieldwise_init
 struct GpuClothTiming(Copyable, ImplicitlyCopyable, Movable, Deinitable):
     """Wall-clock split of one GPU rollout: what is transfer and what is compute.

@@ -1,7 +1,8 @@
 # tier: component
 from std.sys import has_accelerator
 from harness.runner import Suite
-from physics.vbd_cloth import cpu_vbd_run, gpu_vbd_run
+from physics.vbd_cloth import cpu_vbd_run, gpu_vbd_run_ctx
+from max.gpu.host import DeviceContext
 from physics.gpu_cloth import cpu_cloth_run
 
 
@@ -62,7 +63,8 @@ def main() raises:
 
     comptime if has_accelerator():
         # GPU executes the same two-color Newton sweeps: tight parity.
-        var gpu = gpu_vbd_run[W, H](STEPS, ITERS, 1.0 / 60.0, 0.05)
+        var ctx = DeviceContext()  # the test is the single owner (F17)
+        var gpu = gpu_vbd_run_ctx[W, H](ctx, STEPS, ITERS, 1.0 / 60.0, 0.05)
         var max_d = Float64(0)
         for i in range(W * H):
             var d = abs(Float64(gpu.x[i] - cpu.x[i]))

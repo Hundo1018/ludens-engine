@@ -1355,7 +1355,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > | 17.0h | 錯誤政策落地到 Wave A 會碰的 API:邊界 `raise`(`add*` / `add_joint` / `step_soft` 參數 / `TriMesh` / `HeightField`)、步末 NaN 隔離 + `diag` 計數器 + 注入 NaN 的測試 | F10 |
 > | 17.0i | 執行期容器 `gameplay/runtime.mojo`(擁有 `World + ContactScene6 + FixedLoop` 與位姿→transform 同步):17.1 / 17.7 需要的「有狀態執行期」目前無處可放 | F15 |
 >
-> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;其餘三項待做):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
+> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;**單一 device context 擁有者 ✅ 2026-09-29(17.17)**:引擎內不再有 `DeviceContext()`,`gpu_cloth_run` / `gpu_vbd_run` 包裝移除,測試自持 context;FSM 移動已於 17.0c 完成;剩 `chain` 稠密解移 `numerics` + 地面接觸走 `ColliderSet`(17.2 前)):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
 > **凍結**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)只剩測試 / benchmark 使用,也是 `CollisionPipeline` 唯一真實消費者;標為比較基準、不得新增依賴。**是否刪除待使用者決定。**
 > **驗收閘門(重構類)**:行為不變的重構以「全套測試 stdout 逐位相同(去除計時行)」為身分閘門,不是只看綠燈。
 
@@ -1603,6 +1603,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:普通(箱堆 GPU / CPU 同 rest)/ 整合(GPU 剛體 + CPU 軟體同幀、island 邊界)/
 > 極端(單體、百萬接觸、高質量比、accelerator 缺席自跳過)。
 
+> **進度:✅(剛體接觸;articulation 未做)2026-09-29** `physics/gpu_contact.mojo`:`GpuContactSolver` 把 `ContactScene6.step(cfg.colored=True)` 的子步迴圈(重力 / 各色 warm start / 各色 iters 次軟求解 / 位姿積分 / 各色兩次 relax)搬到裝置上,一個 thread 一個接觸(同色不共用動態體)。kernel 內把 body 載入成真正的 `QuatBody6` 並呼叫它自己的 `velocity_at` / `angular_factor` / `apply_impulse` / `integrate_*`,跑的是正式的 body 算術。CPU 保留收集、island、著色(`ContactScene6.begin_external_solve`)與恢復係數 / 睡眠 / NaN 隔離 / 事件 / 快取(`end_external_solve`;`_color_pairs` 自 `step` 機械抽出)。**判準是量出來的**:箱堆接觸裁剪是離散分支,CPU 自己對 1e-7 的擾動 20 幀內放大到 ~3e-3,故 `tests/test_gpu_contact.mojo`(22/22)以「GPU−CPU ≤ 2 × CPU 對每個動態體 1e-6 擾動的自身發散」+ 靜止狀態 by action 判定:五箱塔、雙 island + 材質 + 滾球(事件開)、10:1 質量比、400 箱場(差 7.6e-6);單體無接觸 == CPU;關節 / 軟體 / CCD 拒絕。`bench_gpu_contact`(RTX 3060,寬相開,箱全醒):GPU 子步迴圈 0.7–1.0 ms/幀於 N=64..4096 幾乎持平(受 kernel 啟動數主導),傳輸 0.15–1.6 ms;N=4096 時 CPU 串行求解約 70 ms → 單看求解 GPU 約 28×(含傳輸)。**但整幀被 CPU 端收集與簿記主導**(N=256/1024/4096:0.6 / 6.8 / 82 ms,近平方),即審計 F22 的 O(n²) 熱點 → 17.19 首要。**待辦**:GPU articulation(Featherstone)、GPU narrowphase、kernel 融合(每子步一次啟動)、持久裝置狀態免每幀上下傳。
+
 ### 17.18 批次多世界步進(13.9 落地) — Wave B
 > **現況**:13.9 標 ⏸ 決策點(綁平台整合)。
 > **缺口**:同構世界的 SoA 批次步進(env 維在最內 / 最外)、批次 GPU、與 diffsim(3.1 / 4.2)
@@ -1633,6 +1635,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 1e4 體單 island、瞬移入堆、零質量、退化接觸)。
 
 > **發現(2026-09-29,`test_diffsolver`)**:球在地面滑行後於 t = 2v0/(7μg) 正確進入 5/7·v0 的滾動,但之後持續減速(v0=3、μ=0.5:1.5 s 時 1.80、4 s 時 1.57),ω·r 高於 vx、並下沉約 7 mm。`ContactScene6` 與可微解算器逐幀一致,故屬正式解算器本身:body-frame 接觸錨點隨滾動的球旋轉,摩擦與分離量取在偏離真實接觸點的位置。修法候選:圓形 shape 每子步重新投影錨點到接觸點,或摩擦改在 manifold 點求相對速度。
+
+> **量測(2026-09-29,`bench_gpu_contact`)**:寬相開啟後,N=4096 箱每幀的 CPU 收集 + 簿記(不含求解)達 82 ms,且 N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,排本項第一個工作。
 
 ### 17.20 剛體 solver 可微化收尾(13.7) — Wave B
 > **現況**:13.7 🔶 —— `Field` 泛型在 `physics/diffrigid.mojo` 完成,但未推進 1555 行的

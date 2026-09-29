@@ -313,6 +313,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 序列化:反射驅動(`ecs.schema`,單筆自描述 / 批次)vs 手寫 | ecs/schema.mojo | 同一「值 → 位元組 → 值」往返態射的兩個實作;反射版的 schema 由編譯器的欄位表生成,手寫版的欄位清單由人維護。往返皆為恆等(逐位) | `test_schema`(round-trip 逐位、反射 == 手寫、ECS backend 互換後逐位相同、V1→V2 按名稱遷移) | `bench_schema`(N=16..65536:單筆 / 批次 / 手寫的 ns 與 B per value) |
 
+### 2.8 接觸求解的裝置實作(Phase 17.17,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 著色接觸求解:CPU(`ContactScene6.step(cfg.colored)`,串行 / 色內多核)vs GPU(`GpuContactSolver`) | physics/solver6.mojo、physics/contact6.mojo、physics/gpu_contact.mojo | 同一排程(色內 Jacobi、色間 Gauss-Seidel)在兩個裝置上的實作;GPU kernel 呼叫同一個 `QuatBody6` 的方法。parity 非逐位:乘加收縮不同,且箱堆接觸裁剪是離散分支(系統對 1e-7 擾動混沌),故以 CPU 自身擾動發散為界 | `test_gpu_contact`(四場景 GPU−CPU ≤ 2× CPU 自身發散 + 靜止狀態 by action + 接觸數 / island 數相同;單體無接觸;拒絕關節) | `bench_gpu_contact`(N=64..4096:CPU 串行 / 多核 / GPU 整幀,GPU 拆 上傳 / 計算 / 下載 / CPU 簿記) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

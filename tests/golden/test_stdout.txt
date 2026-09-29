@@ -433,6 +433,12 @@ build: all packages precompiled into build/
 [PASS] filter_events - 21 / 21 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
+--- tests/test_gpu_contact.mojo ---
+  5-box stack: gpu-cpu 0.0078122206  cpu self-divergence (1e-6 nudge) 0.005211822  speeds 0.0046342984 0.0 0.0
+  two islands + materials + sphere: gpu-cpu 0.0054137707  cpu self-divergence (1e-6 nudge) 0.0059000524  speeds 0.012187211 0.009076258 0.0
+  10:1 mass ratio stack: gpu-cpu 0.008751352  cpu self-divergence (1e-6 nudge) 0.015861077  speeds 0.01023571 0.0 0.0
+  400-box field: gpu-cpu 7.6293945e-06  cpu self-divergence (1e-6 nudge) 1.0037438e-06  speeds 0.0 0.0 0.0
+[PASS] gpu_contact - 22 / 22 checks
 --- tests/test_gpu_lbvh.mojo ---
 [PASS] gpu_lbvh - 4 / 4 checks
 --- tests/test_gpu_raycast.mojo ---

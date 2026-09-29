@@ -1206,6 +1206,23 @@ own value-only version against ~1.1x everywhere else, consistent with f32
 denormals. A vanishing gradient is expensive as well as uninformative.
 
 @bench benchmarks/bench_diffrigid.mojo
+## Physics — the contact solve on the GPU (17.17)
+
+`GpuContactSolver` runs the coloured substep loop of `ContactScene6` on the
+device, one thread per contact, calling the same `QuatBody6` methods the CPU
+does. The device part is nearly flat in N here — the loop is a few hundred
+small kernel launches per frame, so launch count rather than work sets its
+cost — and per-frame upload and download of the whole state are of the same
+order. Against the CPU's serial solve at the largest N the solve itself is
+over an order of magnitude cheaper on the device.
+
+The whole frame is a different story, and the more useful finding: on every
+path it is dominated by the CPU-side collection and bookkeeping, which grows
+roughly quadratically with N even with the broadphase on (island wake and
+sleep loops, and the warm-start cache match — audit F22). That, not the
+solve, is what 17.19 has to fix first.
+
+@bench benchmarks/bench_gpu_contact.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection
