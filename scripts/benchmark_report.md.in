@@ -1287,6 +1287,15 @@ as a full re-run bit for bit; the snapshot interval sets the seek latency.
 
 @bench benchmarks/bench_lod.mojo
 @bench benchmarks/bench_replay.mojo
+## Gameplay — save games vs snapshots (17.40)
+
+A snapshot keeps everything the solver needs to continue bit-exactly; a
+save game keeps what the game chooses and survives code changes. For the
+same crates the save is an order of magnitude smaller and several times
+faster to write and to read back, because it carries poses and velocities
+only and lets the level script rebuild the rest.
+
+@bench benchmarks/bench_save.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

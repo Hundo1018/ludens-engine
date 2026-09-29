@@ -360,6 +360,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | 求解品質:全品質 vs LOD(凍結 / iters / substeps) | physics/solver6.mojo(`freeze`)、physics/lod.mojo | 同一不動點迭代在不同 iters / substeps 下的實例;凍結 = 動作型別的暫時投影到 STATIC,解凍是其逆 | `test_lod`(全覆蓋 LOD + 天花板預算 == 原解算器逐位;解凍後速度逐位相同) | `bench_lod`(iters 1–8 成本 vs 誤差;凍結一半) |
 | 回放:全程重跑 vs 快照 + 短重跑 | gameplay/replay.mojo | `sim_tick` 的 n 次合成;快照是中間狀態的忠實表示,故從任一快照續合成等於從頭合成 | `test_replay`(8 個目標 tick 逐位相同;分歧定位) | `bench_replay`(尋位延遲 vs 快照間隔) |
 
+### 2.15 存檔(Phase 17.40,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 保存路徑:schema 存檔(選擇性、跨版本)vs 決定論全狀態快照 | gameplay/save.mojo、physics/serialize.mojo | 存檔是快照的投影(只保留選定欄位);在投影涵蓋的欄位上兩條「存 → 讀」路徑相等 | `test_save`(涵蓋欄位逐位相同;V1 → V2 按名稱) | `bench_save`(位元組與時間,64 / 1024 體) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

@@ -2157,6 +2157,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 路徑載入後,schema 存檔覆蓋到的欄位與快照一致)。
 > **相依**:17.11(前提)、17.12(姊妹問題,常共用 schema 基礎設施但服務不同資料)。
 
+> **進度:✅ 2026-09-29** `gameplay/save.mojo`(建在 17.11 schema 上):`SaveWriter.add[T](section, values, version, type_name)` / `bytes()`、`SaveReader(bytes).read[T](section, template, out)`——具名區段、描述每段一次、**按欄位名**載入目前型別(新欄位保留預設、舊欄位略過、改型不重解釋,`ReadReport` 回報),缺區段讀為空;`BodyRecord` + `save_bodies` / `load_bodies`(只存動態體姿態與速度,套回關卡腳本重建的場景;快取只在最後剪一次——逐體 `teleport` 會每次重掃快取,1024 體時 16.4 ms → 1.69 ms)。`tests/test_save.mojo` 11/11:物品清單往返;「build 1」的 PlayerV1 存檔載入「build 2」的 PlayerV2;**同一關卡模擬 1 秒後的存檔與 6.10 快照,載入後存檔涵蓋的每個欄位逐位相同**(seam parity),再步進 1 秒兩者差 2.3e-5(差異來自存檔刻意不存的 warm-start 快取);壞 magic / 截斷 / 較新格式拒絕,空存檔可載入。`bench_save`(1024 箱):快照 932 KB、寫 3.9 ms / 讀 8.6 ms;存檔 74 KB、寫 0.17 ms / 讀 + 套用 1.7 ms。**待辦**:ECS 世界整批存讀的便利層;檔案 I/O(目前給 bytes);壓縮。
+
 ### 17.41 繩索 / 纜線約束 — Wave B
 
 > **現況**:grep `Rope`/`Cable` 於 `physics/*.mojo` 只命中 `properties`/`property`
