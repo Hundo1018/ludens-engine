@@ -1,0 +1,45 @@
+# Machine-readable layer table for tools/archindex.mojo (prose: docs/ARCHITECTURE.md §1).
+# A package may import only packages in a strictly lower layer, plus itself.
+
+[layers]
+diag = 0
+geometry = 1
+numerics = 2
+spatial = 2
+procedural = 2
+fluid = 2
+ecs = 2
+scheduler = 3
+collision = 3
+physics = 4
+gameplay = 5
+oop = 6
+
+# Test/bench infrastructure: importable only from the top-level consumer
+# directories below, never from an engine package.
+[infrastructure]
+packages = ["harness"]
+consumers = ["tests", "benchmarks", "examples", "experiments"]
+
+# Deliberate cross-package imports of underscore-prefixed names. Each needs a reason.
+[allow_private]
+# "collision/bp_bvh.mojo:geometry.bvh._Leaf" = "reason"
+
+# `tiers`' vocabulary: value-type/utility modules so widely imported as a
+# HELPER (not the thing under test) that counting them toward a test's `D`
+# or one-hop span mistakes "uses a vector type" for "exercises a seam" --
+# this was the single biggest source of over-counted `component` tiers
+# (test_aabb.mojo importing geometry.vec alongside geometry.aabb, etc.).
+# Excluded from D and from the one-hop span UNLESS the test file's own name
+# targets that exact module (test_aabb.mojo -> geometry.aabb IS the module
+# under test, so it is kept; test_vec.mojo -> geometry.vec kept; and so on).
+# Keep this list short: each entry needs to be a near-universal helper, not
+# merely "imported by several tests".
+[vocabulary]
+modules = [
+    "geometry.vec",    # the point/vector value type -- almost every test needs one
+    "geometry.aabb",   # the axis-aligned box value type -- ubiquitous bounds helper
+    "geometry.ray",    # the ray value type -- ubiquitous query-input helper
+    "geometry.shape",  # generic shape/polygon container -- ubiquitous test-fixture helper
+    "scheduler.rng",   # deterministic PRNG -- ubiquitous fuzzing input source, not a scheduler seam
+]

@@ -1,0 +1,173 @@
+"""Sparse-set ECS backend (EnTT-style).
+
+One `SparseSet[C, CAP]` per component type, plus a liveness sparse set mapping
+`entity id -> generation`. O(1) add/remove/has; single-component iteration is
+dense and cache-friendly; multi-component queries intersect the smallest set.
+
+The N typed stores are heterogeneous, so they live on the heap behind
+type-erased pointer slots indexed by the component's position in `*CTs`. Only
+the *pointer* is erased — each store stays a fully typed `SparseSet[C, CAP]`.
+The slot list is preallocated to exactly N (a realloc would corrupt erased
+pointers) and all access goes through value-returning methods.
+"""
+
+from std.memory import alloc, Layout
+from .component import ComponentType
+from .entity import Entity
+from .sparse_set import SparseSet
+from .storage import StorageBackend
+
+comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
+
+
+struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
+    comptime N: Int = len(Self.CTs)
+    var slots: List[Slot]  # slot i -> heap SparseSet[CTs[i], cap]
+    var alive: SparseSet[Int]  # entity id -> generation
+    var counter: Int
+    # Generational recycling, matching `ArchetypeBackend`: `gens[id]` survives
+    # despawn (unlike `alive`, which drops the id), so a recycled id comes back
+    # with a higher generation and every handle to the previous occupant stays
+    # dead. Without this a reused id would silently resurrect stale handles —
+    # the case `test_backend_parity` now checks on every backend.
+    var free_ids: List[Int]
+    var gens: List[Int]
+
+    def __init__(out self):
+        self.slots = List[Slot](capacity=Self.N)
+        comptime for i in range(Self.N):
+            comptime T = Self.CTs[i]
+            var p = alloc[SparseSet[T]](Layout[SparseSet[T]](count=1)).unsafe_leak()
+            p.unsafe_write(SparseSet[T]())
+            self.slots.append(p.unsafe_bitcast[NoneType]())
+        self.alive = SparseSet[Int]()
+        self.counter = 0
+        self.free_ids = List[Int]()
+        self.gens = List[Int]()
+
+    def __deinit__(deinit self):
+        comptime for i in range(Self.N):
+            comptime T = Self.CTs[i]
+            var p = self.slots[i].unsafe_bitcast[SparseSet[T]]()
+            p.unsafe_deinit_pointee()
+            p.unsafe_free()
+
+    @staticmethod
+    def _slot_of[C: ComponentType]() -> Int:
+        comptime for i in range(Self.N):
+            comptime if Self.CTs[i].ID == C.ID:
+                return i
+        return -1
+
+    def _store[C: ComponentType](self) -> type_of(alloc[SparseSet[C]](Layout[SparseSet[C]](count=1)).unsafe_leak()):
+        return self.slots[Self._slot_of[C]()].unsafe_bitcast[SparseSet[C]]()
+
+    # --- lifecycle ---
+    def _ensure_gen(mut self, id: Int):
+        while len(self.gens) <= id:
+            self.gens.append(0)
+
+    def spawn(mut self) -> Entity:
+        var id: Int
+        if len(self.free_ids) > 0:
+            id = self.free_ids.pop()
+        else:
+            id = self.counter
+            self.counter += 1
+        self._ensure_gen(id)
+        var gen = self.gens[id]
+        self.alive.set(id, gen)
+        return Entity(id, gen)
+
+    def despawn(mut self, e: Entity):
+        if not self.is_alive(e):
+            return
+        comptime for i in range(Self.N):
+            comptime T = Self.CTs[i]
+            self._store[T]()[].remove(e.id)
+        self.alive.remove(e.id)
+        self._ensure_gen(e.id)
+        self.gens[e.id] = e.gen + 1
+        self.free_ids.append(e.id)
+
+    def is_alive(self, e: Entity) -> Bool:
+        return self.alive.contains(e.id) and self.alive.get(e.id) == e.gen
+
+    def entity_count(self) -> Int:
+        return len(self.alive)
+
+    # --- typed component access ---
+    def set[C: ComponentType](mut self, e: Entity, var value: C):
+        self._store[C]()[].set(e.id, value)
+
+    def has[C: ComponentType](self, e: Entity) -> Bool:
+        return self._store[C]()[].contains(e.id)
+
+    def get[C: ComponentType](self, e: Entity) -> C:
+        return self._store[C]()[].get(e.id)
+
+    def remove[C: ComponentType](mut self, e: Entity):
+        self._store[C]()[].remove(e.id)
+
+    # --- queries ---
+    def _entity(self, id: Int) -> Entity:
+        return Entity(id, self.alive.get(id))
+
+    def matching1[A: ComponentType](self) -> List[Entity]:
+        var out = List[Entity]()
+        var store = self._store[A]()
+        for i in range(store[].dense_len()):
+            out.append(self._entity(store[].key_at(i)))
+        return out^
+
+    def matching2[A: ComponentType, B: ComponentType](self) -> List[Entity]:
+        var out = List[Entity]()
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        # iterate the smaller store, probe the larger
+        if sa[].dense_len() <= sb[].dense_len():
+            for i in range(sa[].dense_len()):
+                var id = sa[].key_at(i)
+                if sb[].contains(id):
+                    out.append(self._entity(id))
+        else:
+            for i in range(sb[].dense_len()):
+                var id = sb[].key_at(i)
+                if sa[].contains(id):
+                    out.append(self._entity(id))
+        return out^
+
+    def matching3[
+        A: ComponentType, B: ComponentType, C: ComponentType
+    ](self) -> List[Entity]:
+        var out = List[Entity]()
+        var sa = self._store[A]()
+        for i in range(sa[].dense_len()):
+            var id = sa[].key_at(i)
+            if self._store[B]()[].contains(id) and self._store[C]()[].contains(id):
+                out.append(self._entity(id))
+        return out^
+
+    def for_each2[
+        A: ComponentType,
+        B: ComponentType,
+        F: def (mut A, B) -> None,
+    ](mut self, func: F):
+        # Iterate the smaller dense store, probe the larger. No List[Entity]
+        # allocation (the win); A is read/run/written-back (small-value copy).
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        if sa[].dense_len() <= sb[].dense_len():
+            for i in range(sa[].dense_len()):
+                var id = sa[].key_at(i)
+                if sb[].contains(id):
+                    var a = sa[].value_at(i)
+                    func(a, sb[].get(id))
+                    sa[].set(id, a)
+        else:
+            for i in range(sb[].dense_len()):
+                var id = sb[].key_at(i)
+                if sa[].contains(id):
+                    var a = sa[].get(id)
+                    func(a, sb[].value_at(i))
+                    sa[].set(id, a)

@@ -1,5 +1,5 @@
-fn main():
-    print('a')
-    print('a')
-    print('a')
-    print('a')
+
+
+
+def main():
+    ...

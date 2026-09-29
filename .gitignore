@@ -1,6 +1,11 @@
+# precompiled engine packages
+build/
 
 # pixi environments
 .pixi
 *.egg-info
 # magic environments
 .magic
+
+# campaign working state (local only)
+.campaign/
