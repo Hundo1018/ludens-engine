@@ -1250,6 +1250,16 @@ a multiple, because a drive is three scalar rows per joint while the contact
 and joint work around it is unchanged.
 
 @bench benchmarks/bench_ragdoll.mojo
+## Physics — contact rules and breakable joints (17.26 / 17.29)
+
+Per-contact rules (one-way platforms, conveyors, friction overrides) are
+applied once per frame to the collected contacts; their scan costs less
+than this machine's run-to-run spread, so the rule rows are best read as
+"no measurable cost" rather than ordered against each other. Breakable
+joints sample every joint's load after each substep while any threshold
+is set; that costs a few percent of the frame.
+
+@bench benchmarks/bench_contact_rules.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

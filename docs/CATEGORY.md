@@ -337,6 +337,13 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 關節驅動:無驅動 vs `AngularDrive`(強度 0..1) | physics/joints6.mojo、physics/solver6.mojo、gameplay/ragdoll.mojo | 驅動器是疊加在關節約束上的軟態射;力矩上限為 0 時為恆等(零衝量),逐骨權重 0/1 在姿態混合上是投影 | `test_ragdoll`(零上限 == 無驅動逐位;混合權重 0 == 動畫、1 == 物理) | `bench_ragdoll`(N 條腿,驅動 vs 僅關節) |
 
+### 2.12 接觸修改與關節斷裂(Phase 17.26 / 17.29,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 接觸是否生效 / 如何作用:靜態過濾(`set_filter`)vs 動態規則(`ContactRule`) | physics/contact6.mojo、physics/solver6.mojo | 同一「接觸謂詞」的兩層;不匹配任何接觸的規則(與零速輸送帶)是恆等 | `test_contact_rules`(不匹配規則 == 無規則逐位) | `bench_contact_rules`(無規則 / 全匹配 / 8 條不匹配) |
+| 關節負載估計:最後子步 vs 逐子步峰值 | physics/joints6.mojo(`sample_loads`、`check_breaks`) | 同一負載量的兩個取樣;穩態一致(m·g),衝擊時只有峰值取樣看得到 | `test_joint_break`(懸掛質量 = m·g;扭轉 hinge 只在峰值取樣下斷) | `bench_contact_rules`(有 / 無閾值) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

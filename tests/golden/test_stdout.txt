@@ -407,6 +407,11 @@ build: all packages precompiled into build/
   pyramid top y: 2.7460882663726807 expected settled: 2.75
   colored iters=8: sleeping 21 of 21
 [PASS] colored - 6 / 6 checks
+--- tests/test_contact_rules.mojo ---
+  one-way: highest 3.548625  rest 2.299706
+  conveyor: crate vx 2.0000002
+  friction override: mu=0 3.0  default 0.5499937  mu=1 -0.00012492761
+[PASS] contact_rules - 9 / 9 checks
 --- tests/test_diffsolver.mojo ---
   batch vs scalar worst lane difference: 2.3841858e-06
 [PASS] diffsolver - 26 / 26 checks
@@ -467,6 +472,10 @@ build: all packages precompiled into build/
   levels — Integrate 0  Drag 1  Decay 0  Award 1  depth 2
   sparse digests — seq 7306341537769252880  graph 7306341537769252880  parallel 7306341537769252880
 [PASS] jobgraph - 30 / 30 checks
+--- tests/test_joint_break.mojo ---
+  load estimate 19.6  m*g 19.6
+  torn leg: hip gap 5.6135755  events 1
+[PASS] joint_break - 11 / 11 checks
 --- tests/test_joints6.mojo ---
   ball pendulum: period frames = 123.0 gap = 0.0015959119191393256
   screw pendulum: period frames = 123.0

@@ -52,6 +52,13 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # field is warm-start-inherited — both are per-frame.
     var vn0: Array[Real, 4]
     var racc: Array[Real, 4]
+    # Contact modification (ROADMAP 17.26), set per frame by a
+    # `ContactRule` and never inherited from the cache: the tangential
+    # velocity of b's surface relative to a's that friction should match (a
+    # conveyor belt), and a friction coefficient replacing the combined one
+    # (< 0 = none).
+    var vsurf: Vec3
+    var mu_override: Real
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -67,6 +74,8 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.rb = copy.rb.copy()
         self.vn0 = copy.vn0.copy()
         self.racc = copy.racc.copy()
+        self.vsurf = copy.vsurf
+        self.mu_override = copy.mu_override
 
 
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
@@ -87,6 +96,8 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Real, 4](fill=0),
         Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(-1),
     )
 
 
@@ -127,6 +138,8 @@ def make_contact[B: Body6](
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Real, 4](fill=0),
         Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(-1),
     )
     for k in range(rc.m.count):
         pr.ra[k] = bset.bodies[rc.a].to_local(rc.m.points[k])
@@ -327,6 +340,9 @@ def solve_contact[B: Body6](
         bset.friction_combine[pr.a],
         bset.friction_combine[pr.b],
     )
+    if pr.mu_override >= 0:
+        pair_mu = pr.mu_override
+    var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
     for k in range(pr.m.count):
         var pwa = bset.bodies[pr.a].act(pr.ra[k])
         var pwb = bset.bodies[pr.b].act(pr.rb[k])
@@ -403,6 +419,8 @@ def solve_contact[B: Body6](
             if dent <= 0:
                 continue
             var vt = dot(vbt - vat, t)
+            if conveyor:
+                vt += dot(pr.vsurf, t)
             var acc_t = pr.acc_t1[k] if ti == 0 else pr.acc_t2[k]
             var new_t = acc_t - vt / dent
             if new_t > cap:
@@ -516,3 +534,68 @@ def solve_color_parallel[B: Body6](
         parallelize(pair_work, hi - lo, workers)
     else:
         parallelize(pair_work, hi - lo)
+
+
+# ------------------------------------------------------ contact modification
+
+comptime RULE_ONE_WAY = 0  # body passes through from the far side of `dir`
+comptime RULE_CONVEYOR = 1  # body's surface moves at `dir` (m/s)
+comptime RULE_FRICTION = 2  # contacts of body use friction `value`
+
+
+@fieldwise_init
+struct ContactRule(Copyable, ImplicitlyCopyable, Movable):
+    """A per-contact rule on one body, applied to that frame's contacts
+    after collection (ROADMAP 17.26). ONE_WAY: a contact with `body` counts
+    only when its normal toward the other body is within 60 degrees of
+    `dir`, the other body is not moving along `dir` faster than 0.1 m/s,
+    and it has not sunk deeper than `value` into the platform -- so a body
+    passes up through it and lands on it from above. CONVEYOR: friction
+    drags toward `body`'s surface moving at `dir`. FRICTION: contacts of
+    `body` use coefficient `value` instead of the combined one."""
+
+    var kind: Int
+    var body: Int
+    var dir: Vec3
+    var value: Real
+
+
+def apply_rules[B: Body6](
+    bset: BodySet[B], rules: List[ContactRule], mut pairs: List[ContactConstraint]
+):
+    """Drop or modify this frame's contacts according to `rules`. With no
+    rules nothing is touched (the parity with the unmodified solver)."""
+    if len(rules) == 0:
+        return
+    var kept = List[ContactConstraint](capacity=len(pairs))
+    for c in range(len(pairs)):
+        var pr = pairs[c]
+        var keep = True
+        for r in range(len(rules)):
+            ref ru = rules[r]
+            var on_a = pr.a == ru.body
+            var on_b = pr.b == ru.body
+            if not on_a and not on_b:
+                continue
+            if ru.kind == RULE_ONE_WAY:
+                # normal from the platform toward the other body
+                var n = pr.m.normal if on_a else -pr.m.normal
+                var other = pr.b if on_a else pr.a
+                var up_v = Real(0)
+                if bset.moves(other):
+                    up_v = dot(bset.bodies[other].linear_velocity(), ru.dir)
+                var deepest = Real(0)
+                for k in range(pr.m.count):
+                    deepest = max(deepest, pr.m.depths[k])
+                if dot(n, ru.dir) < 0.5 or up_v > 0.1 or deepest > ru.value:
+                    keep = False
+            elif ru.kind == RULE_CONVEYOR:
+                # relative surface velocity of b w.r.t. a, tangential part
+                var u = ru.dir if on_b else -ru.dir
+                var nn = pr.m.normal
+                pr.vsurf = pr.vsurf + (u - nn * dot(u, nn))
+            elif ru.kind == RULE_FRICTION:
+                pr.mu_override = ru.value
+        if keep:
+            kept.append(pr)
+    pairs = kept^

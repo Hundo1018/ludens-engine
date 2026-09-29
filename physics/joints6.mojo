@@ -14,6 +14,7 @@ from .body_set import BodySet
 comptime JOINT_BALL = 0
 comptime JOINT_DISTANCE = 1
 comptime JOINT_HINGE = 2
+comptime JOINT_BROKEN = 3  # ROADMAP 17.29: overloaded and released; solved by nothing
 
 
 @fieldwise_init
@@ -121,6 +122,8 @@ def joint_sweep[B: Body6](
     for _ in range(iters):
         for c in range(len(joints)):
             var jt = joints[c]
+            if jt.kind == JOINT_BROKEN:
+                continue
             if bset.impulse_inert(jt.a) and bset.impulse_inert(jt.b):
                 continue
             if island_filter != -2 and joint_island(bset, jt) != island_filter:
@@ -199,6 +202,8 @@ def warm_start_joints[B: Body6](
 ):
     for c in range(len(joints)):
         var jt = joints[c]
+        if jt.kind == JOINT_BROKEN:
+            continue
         if bset.impulse_inert(jt.a) and bset.impulse_inert(jt.b):
             continue
         if island_filter != -2 and joint_island(bset, jt) != island_filter:
@@ -311,3 +316,40 @@ def drive_sweep[B: Body6](
                         bset.bodies[d.b].apply_angular_impulse(l)
             drives[c] = d
 
+
+def sample_loads(
+    joints: List[Joint6], h: Real, mut peak_force: List[Real], mut peak_torque: List[Real]
+):
+    """Record each joint's load after a substep -- its accumulated linear
+    and angular impulse over the substep length -- keeping the frame's peak.
+    Sampling every substep is what catches an impact: the last substep
+    alone reads the joint after the impact has already been absorbed."""
+    for c in range(len(joints)):
+        if joints[c].kind == JOINT_BROKEN:
+            continue
+        peak_force[c] = max(peak_force[c], sqrt(dot(joints[c].acc, joints[c].acc)) / h)
+        peak_torque[c] = max(peak_torque[c], sqrt(dot(joints[c].acc_ang, joints[c].acc_ang)) / h)
+
+
+def check_breaks(
+    mut joints: List[Joint6],
+    break_force: List[Real],
+    break_torque: List[Real],
+    mut peak_force: List[Real],
+    mut peak_torque: List[Real],
+    mut broken: List[Int],
+):
+    """Release every joint whose peak load this step exceeded its threshold
+    (ROADMAP 17.29), then reset the peaks. In a steady state the peak equals
+    the constraint force (a hanging mass m reads m·g). A released joint
+    turns `JOINT_BROKEN` and its index is appended to `broken`."""
+    for c in range(len(joints)):
+        if joints[c].kind != JOINT_BROKEN and (
+            peak_force[c] > break_force[c] or peak_torque[c] > break_torque[c]
+        ):
+            joints[c].kind = JOINT_BROKEN
+            joints[c].acc = Vec3(0, 0, 0, 0)
+            joints[c].acc_ang = Vec3(0, 0, 0, 0)
+            broken.append(c)
+        peak_force[c] = 0
+        peak_torque[c] = 0

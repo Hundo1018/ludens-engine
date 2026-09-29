@@ -1868,6 +1868,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > parity(回呼恆真時退化為現況)+ bench(callback overhead)。
 > **相依**:17.1(單向平台是角色控制器關卡常見元件)、17.13。
 
+> **進度:✅ 2026-09-29** `physics/contact6.mojo`:`ContactRule`(資料驅動,非回呼)+ `apply_rules`,在每幀收集後套用:`RULE_ONE_WAY`(平台→對方法向與 `dir` 夾角 < 60°、對方沿 `dir` 速度 ≤ 0.1 m/s、最深穿透 ≤ `value` 才保留 → 由下穿過、由上落地)、`RULE_CONVEYOR`(接觸新增表面速度 `vsurf`,僅在非零時進入摩擦列)、`RULE_FRICTION`(逐接觸摩擦覆寫 `mu_override`)。`ContactScene6.add_contact_rule`;GPU 解算器支援摩擦覆寫、拒絕輸送帶。`tests/test_contact_rules.mojo` 9/9(箱子由下穿過單向平台升到 3.55 m 後停在頂上 2.2997;無規則時被擋在 1.9 以下;**不匹配的規則 + 零速輸送帶與無規則逐位相同** = seam parity;輸送帶把靜止箱帶到 2.0000 m/s;摩擦覆寫 0 / 預設 / 1 → 3.0 / 0.55 / 0)。`bench_contact_rules`:規則掃描成本低於量測雜訊。**待辦**:角色控制器(走世界查詢,不經接觸)尚未套用單向平台;可微規則(對相對速度的次梯度,供 17.20)。
+
 ### 17.27 力場 / 區域效果 — Wave B
 
 > **現況**:grep `ForceField`/`GravityZone`/`WindVolume`/`AreaEffect` 於
@@ -1923,6 +1925,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— 斷裂判定(累積衝量/dt 估計 vs 逐步瞬時力採樣)→ parity(穩態一致)
 > + bench。
 > **相依**:17.2、17.5(需文件釐清邊界)、17.38(斷裂事件走事件匯流排)。
+
+> **進度:✅ 2026-09-29** `JOINT_BROKEN` 種類(sweep / warm start / island 邊皆跳過,既有種類不變)+ `ContactScene6.set_joint_break(j, force, torque)` / `broken_joints`。**seam 的量測結論**:只看最後一個子步的「累積衝量 / h」在穩態下正確(懸掛 2 kg 讀 19.6 = m·g),但**漏掉衝擊**——扭轉的 hinge 在第一個子步吸收了衝擊,最後子步只剩 4.6 N·m;改為有閾值時每子步取峰值(`joints6.sample_loads`),步末以峰值判斷(`check_breaks`)。`tests/test_joint_break.mojo` 11/11(閾值高於重量則保持、低於則斷且只回報一次;無限閾值與未設定逐位相同;布娃娃髖關節受重擊斷開、腿分離,斷裂事件經 `scheduler.events.Channel` 送達;僅力矩閾值也會斷)。`bench_contact_rules`:取樣使有閾值場景每幀 +4–8%;有閾值時島平行路徑退回串行。與 17.5 的邊界:這裡是任意關節超載的通用行為,17.5 是結構破碎。**待辦**:閾值寫入快照;島平行路徑內取樣。
 
 ### 17.30 地形(HeightField)執行期變形 — Wave B
 

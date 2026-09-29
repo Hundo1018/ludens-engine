@@ -358,6 +358,9 @@ struct GpuContactSolver(Movable):
         var pairs = sc.begin_external_solve(dt, cfg, clo, chi)
         var nb = len(sc.bset.bodies)
         var nc = len(pairs)
+        for k in range(nc):
+            if pairs[k].vsurf[0] != 0 or pairs[k].vsurf[1] != 0 or pairs[k].vsurf[2] != 0:
+                raise Error("GpuContactSolver: conveyor contacts are not supported")
         if nc > 0 and len(clo) == 0:
             raise Error("GpuContactSolver: colouring overflowed (> 64 colours); use the CPU step")
         self._reserve(ctx, nb, max(nc, 1))
@@ -395,7 +398,7 @@ struct GpuContactSolver(Movable):
                 _st(t, o + _CNT, Float32(pr.m.count))
                 _st(
                     t, o + _MU,
-                    combine(
+                    pr.mu_override if pr.mu_override >= 0 else combine(
                         sc.bset.eff_friction(pr.a, cfg.default_friction),
                         sc.bset.eff_friction(pr.b, cfg.default_friction),
                         sc.bset.friction_combine[pr.a],

@@ -94,6 +94,8 @@ from .contact6 import (
     soft_sweep,
     sweep_colored,
     restitution_pass,
+    ContactRule,
+    apply_rules,
 )
 from .joints6 import (
     Joint6,
@@ -102,6 +104,9 @@ from .joints6 import (
     JOINT_HINGE,
     warm_start_joints,
     joint_sweep,
+    JOINT_BROKEN,
+    check_breaks,
+    sample_loads,
     AngularDrive,
     warm_start_drives,
     drive_sweep,
@@ -133,6 +138,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var cache: List[ContactConstraint]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
     var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
+    # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
+    # +inf = unbreakable) and the joints released by the last step.
+    var break_force: List[Real]
+    var break_torque: List[Real]
+    var broken_joints: List[Int]
+    var peak_force: List[Real]  # per-substep load peaks of the current step
+    var peak_torque: List[Real]
+    var any_break: Bool  # some joint has a finite threshold: sample loads
+    var rules: List[ContactRule]  # ROADMAP 17.26: per-contact modification
     var softs: List[SoftBody]
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
@@ -172,6 +186,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.cache = List[ContactConstraint]()
         self.joints = List[Joint6]()
         self.drives = List[AngularDrive]()
+        self.break_force = List[Real]()
+        self.break_torque = List[Real]()
+        self.broken_joints = List[Int]()
+        self.peak_force = List[Real]()
+        self.peak_torque = List[Real]()
+        self.any_break = False
+        self.rules = List[ContactRule]()
         self.softs = List[SoftBody]()
         self.colliders = ColliderSet()
         self.counters = Counters()
@@ -198,7 +219,32 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if j.a < 0 or j.a >= n or j.b < 0 or j.b >= n:
             raise Error("ContactScene6.add_joint: body index out of range")
         self.joints.append(j)
+        self.break_force.append(Real.MAX)
+        self.break_torque.append(Real.MAX)
+        self.peak_force.append(0)
+        self.peak_torque.append(0)
         return len(self.joints) - 1
+
+    def set_joint_break(mut self, j: Int, force: Real, torque: Real) raises:
+        """Joint `j` releases once its constraint force exceeds `force` (N)
+        or its torque exceeds `torque` (N·m) -- ROADMAP 17.29. Released
+        joints are listed in `broken_joints` after the step that broke
+        them and are never solved again."""
+        if j < 0 or j >= len(self.joints):
+            raise Error("ContactScene6.set_joint_break: joint index out of range")
+        if not (force > 0 and torque > 0):
+            raise Error("ContactScene6.set_joint_break: thresholds must be > 0")
+        self.break_force[j] = force
+        self.break_torque[j] = torque
+        self.any_break = True
+
+    def add_contact_rule(mut self, r: ContactRule) raises -> Int:
+        """Register a per-contact rule (one-way platform, conveyor, friction
+        override -- `physics.contact6.ContactRule`)."""
+        if r.body < 0 or r.body >= len(self.bset.bodies):
+            raise Error("ContactScene6.add_contact_rule: body index out of range")
+        self.rules.append(r)
+        return len(self.rules) - 1
 
     def add_drive(mut self, d: AngularDrive) raises -> Int:
         """Register a soft angular motor between bodies `d.a` and `d.b`
@@ -583,6 +629,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             edges.append(pairs[c].a)
             edges.append(pairs[c].b)
         for c in range(len(self.joints)):
+            if self.joints[c].kind == JOINT_BROKEN:
+                continue
             edges.append(self.joints[c].a)
             edges.append(self.joints[c].b)
         for c in range(len(self.drives)):
@@ -702,6 +750,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var cidx = cache_index(self.cache)
         for c in range(len(raws)):
             pairs.append(make_contact(self.bset, self.cache, cidx, raws[c], warm))
+        apply_rules(self.bset, self.rules, pairs)
         return pairs^
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):
@@ -978,6 +1027,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             pairs = pairs3^
         return True
 
+    def _release_overloaded(mut self):
+        self.broken_joints = List[Int]()
+        if self.any_break:
+            check_breaks(
+                self.joints, self.break_force, self.break_torque,
+                self.peak_force, self.peak_torque, self.broken_joints,
+            )
+
     def begin_external_solve(
         mut self,
         dt: Real,
@@ -1114,13 +1171,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var chi = List[Int]()
         if colored:
             colored = self._color_pairs(pairs, clo, chi)
-        if parallel and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0):
+        if parallel and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0 or self.any_break):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be
             # silent -- count it so a caller relying on the parallel path
             # can notice it never actually ran in parallel.
             self.counters.incr(PARALLEL_FALLBACK_SERIAL)
-        if parallel and not colored and len(self.softs) == 0 and not ccd and len(self.drives) == 0:
+        if parallel and not colored and len(self.softs) == 0 and not ccd and len(self.drives) == 0 and not self.any_break:
             # partition: pairs reordered so each island is a contiguous range
             var labels = island_labels(self.bset)
             var pairs2 = List[ContactConstraint]()
@@ -1150,6 +1207,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self._emit_debug_draw(pairs2)
             if self.events_on:
                 self._emit_events(pairs2)
+            self._release_overloaded()
             self.cache = pairs2^
             return
         # ROADMAP 17.0i: ONE "solve" span for the WHOLE substep loop, not one
@@ -1222,6 +1280,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 soft_sweep(
                 self.bset, pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
                 )
+            if self.any_break:
+                sample_loads(self.joints, h, self.peak_force, self.peak_torque)
         self.trace.end()
         restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)
         self.trace.begin("sleep")
@@ -1234,6 +1294,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self._emit_debug_draw(pairs)
         if self.events_on:
             self._emit_events(pairs)
+        self._release_overloaded()
         self.cache = pairs^  # impulses persist to the next frame
 
 
@@ -1563,6 +1624,12 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         if a < 0 or a >= len(sc.bset.bodies) or b < 0 or b >= len(sc.bset.bodies):
             raise Error("physics.serialize: corrupt snapshot (joint body index out of range)")
         sc.joints.append(Joint6(kind, a, b, la, lb, rest, axa, axb, acc, acca))
+        # break thresholds are not in the snapshot format (yet): a restored
+        # joint is unbreakable until `set_joint_break` is called again
+        sc.break_force.append(Real.MAX)
+        sc.break_torque.append(Real.MAX)
+        sc.peak_force.append(0)
+        sc.peak_torque.append(0)
     var ns = r.ri()
     if ns < 0:
         raise Error("physics.serialize: corrupt snapshot (negative soft-body count)")
@@ -1610,6 +1677,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
+            Vec3(0, 0, 0, 0), Real(-1),
         )
         for p in range(4):
             pr.m.points[p] = r.rv()
