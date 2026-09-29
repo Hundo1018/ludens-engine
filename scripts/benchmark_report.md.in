@@ -1233,6 +1233,14 @@ path, which matters for large-angle blends and not at all for the small ones
 most locomotion graphs perform.
 
 @bench benchmarks/bench_anim_graph.mojo
+## Animation — IK (17.3)
+
+The closed-form two-bone solve and FABRIK put the same ankle on the same
+target; the closed form is more than an order of magnitude cheaper and
+needs no tolerance, which is why legs and arms use it and FABRIK is kept for
+chains longer than two segments (tails, spines, multi-effector bodies).
+
+@bench benchmarks/bench_ik.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

@@ -5,7 +5,8 @@ drives a 1-D blend space over walk and run (sampled at a shared phase so the
 feet stay in step); an aim layer turns the arm; the root motion of the blended
 cycle is handed to the character controller, and the pose (root stripped) is
 skinned. Printed per half second: state, speed, blend weights, where the
-controller is, and where one skinned vertex on the arm ends up.
+controller is, where one skinned vertex on the arm ends up, and the ankle
+height after foot planting (17.3) on the ground found by a world query.
 
 Run:
 
@@ -23,6 +24,8 @@ from gameplay.character import CharacterController
 from procedural.fsm import StateMachine
 from procedural.anim import AnimClip
 from procedural.anim_graph import Pose, BlendSpace1D, sample_phase, layer, root_motion, strip_root
+from procedural.ik import foot_plant, two_bone
+from collision.world_query import QueryFilter
 
 comptime DT: Real = 1.0 / 60.0
 comptime EV_GO = 0
@@ -119,9 +122,20 @@ def main() raises:
         for b in range(3):
             motors.append(aimed.motor(b))
         skin_motor(motors, rest, ia, ib, wa, skinned)
+        # foot planting (17.3): ground under the foot from a world query,
+        # the ankle target lifted onto it, the leg solved analytically
+        var foot = ctl.foot()
+        var hit = sc.ray_cast(foot + Vec3(0, 1, 0, 0), Vec3(0, -1, 0, 0), 3, QueryFilter.all())
+        var ankle_y = Real(-1)
+        if hit.hit:
+            var fp = foot_plant(foot + Vec3(0, 0.08, 0, 0), 0.08, hit.point[1], hit.normal, 0.3, 0.5)
+            var hip = foot + Vec3(0, 0.9, 0, 0)
+            var leg = two_bone(hip, hip + Vec3(0, -0.45, 0.05, 0), foot + Vec3(0, 0.08, 0, 0), fp.ankle, hip + Vec3(0, 0, 1, 0))
+            ankle_y = leg.end[1]
         if frame % 30 == 0:
             print(
                 "t", t, " state", "moving" if fsm.is_in(moving) else "idle",
                 " speed", speed, " w(walk,run)", w[0], w[1],
                 " controller x", ctl.position[0], " arm vertex", skinned[0],
+                " planted ankle y", ankle_y,
             )

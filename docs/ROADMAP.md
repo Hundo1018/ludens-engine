@@ -1402,6 +1402,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:接 `anim` + skinning;普通(伸手碰點)/ 整合(移動中 foot-lock 不滑步)/
 > 極端(不可達目標、奇異姿態、目標落在關節上、pole flip)。
 
+> **進度:✅ 2026-09-29** `procedural/ik.mojo`(只吃關節位置,不依賴 collision 層):`two_bone`(餘弦定理 + pole 向量,骨長依構造保持;不可達則沿目標伸直;pole 落在目標線上退回目前膝側;零長骨 / NaN 目標回傳輸入)、`fabrik`(固定根)、`fabrik_multi`(多末端:胸腔掛兩臂,中繼點取各鏈後向提議的質心並拉回其繞骨盆的球面)、`look_at`(錐角限制)、`foot_plant`(地面高度 / 法向由呼叫端的世界查詢提供)。`tests/test_ik.mojo` 27/27(解析 vs FABRIK 同一腿末端相同 = seam parity;坡面靜態箱上以 `ray_cast` 找地面後貼腳、傾角 = 坡角、腿 IK 到位;雙手多末端到位)。`bench_ik`:解析 two-bone 18.7 ns vs 同腿 FABRIK 324 ns(約 17×;FABRIK 含 List 配置);FABRIK 64 關節 70 µs / 38 次迭代。接線:`examples/24_locomotion_graph.mojo` 每幀以世界查詢貼腳 + two-bone 解腿。**待辦**:關節角度限制(膝只能單向、肩錐)、IK 結果轉回逐骨旋轉寫入 `Pose`、全身 IK 的質心 / 平衡約束。
+
 ### 17.4 載具動力學 — Wave C
 > **現況**:無(與 17.1 同屬 SOTA_GAP §4 表第 8 列 ❌)。
 > **缺口**:raycast 懸吊車體(彈簧-阻尼 + 輪胎 slip / friction 曲線 + 引擎扭矩 / 變速 / 差速)

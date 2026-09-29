@@ -458,6 +458,8 @@ build: all packages precompiled into build/
   point cloud (35 in) -> kept 8.0  count 4.0  |n.y| 1.0
   near-flat hull: hit 1.0  worst depth 5.0008297e-05
 [PASS] hull - 24 / 24 checks
+--- tests/test_ik.mojo ---
+[PASS] ik - 27 / 27 checks
 --- tests/test_islands_par.mojo ---
   islands: 6
 [PASS] islands_par - 6 / 6 checks

@@ -325,6 +325,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 混合節點家族:1-D 空間 / 2-D gradient band / 遮罩層 / 加法(× 混合模式 LINEAR / DLB / GEODESIC) | procedural/anim_graph.mojo、procedural/anim.mojo(`blend_bone`) | 每個節點是姿勢的凸組合;邊界權重為投影(恰回傳某一輸入)——節點家族在頂點上的限制都是恆等 | `test_anim_graph`(樣本點上 = 該 clip 逐位、遮罩 0/1、加法權重 0;2-D 權重非負且和為 1;NaN clip 權重 0 不外溢) | `bench_anim_graph`(骨數 16/64/256 × 節點組合 × DLB/geodesic) |
 
+### 2.10 角色 IK(Phase 17.3,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 兩段鏈 IK:解析(`two_bone`)vs 迭代(`fabrik`) | procedural/ik.mojo | 同一「末端到目標且保骨長」映射的閉式與不動點迭代兩實作;選哪個膝位置由 pole(解析)或起始姿勢(迭代)決定,末端與骨長相同 | `test_ik`(末端相同、骨長保持;極端:不可達、目標在根、pole 共線、零長骨、NaN) | `bench_ik`(解析 vs FABRIK 同腿;FABRIK 4/16/64 關節) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」
