@@ -1305,6 +1305,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | | Phase 12 腳本層(gated on 核心 API 凍結) | 17.21 |
 | **I** 2026-09-27 增補盤點 | 物理材質、kinematic 型別、睡眠 API、日誌、斷言、frame arena、計時器 / 補間、樣條、實體池、事件匯流排 | 17.23–17.25 · 17.32–17.38 |
 | | 接觸修改、力場、浮力、可斷裂關節、地形變形、物理 LOD、輸入回放、存檔、繩索 | 17.26–17.31 · 17.39–17.41 |
+| **J** Phase 14 遺留 | LBM GPU kernel、插值 bounce-back、壓力 / 黏性應力測力、SPH 邊界粒子對照 | 17.42 |
 
 ### 現況校正(避免重複高估 / 低估)
 
@@ -1324,7 +1325,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | Wave | 主題 | 項目 |
 |---|---|---|
 | **A** — 接線 + 工程 table stakes(低風險、槓桿高) | 讓引擎「能被當遊戲引擎用」 | 17.1 角色控制器 · 17.7 狀態插值 · 17.9 debug-draw · 17.10 profiling hooks · 17.13 查詢完整度 · 17.22 範例覆蓋 · **增補** 17.23 材質 · 17.24 kinematic · 17.25 睡眠 API · 17.32 日誌 · 17.33 斷言 · 17.34 frame arena · 17.35 計時器 / 補間 · 17.36 樣條 · 17.37 實體池 · 17.38 事件匯流排 |
-| **B** — 差異化 / 解鎖多項(中風險) | 用 GA / 可微 / 決定論 spine 做別家沒有的 | 17.2 主動布娃娃 · 17.3 角色 IK · 17.6 動畫圖 · 17.11 反射 · 17.17 GPU 剛體 solver · 17.18 批次多世界 · 17.19 solver 硬化 · 17.20 13.7 收尾 · **增補** 17.26 接觸修改 · 17.27 力場 · 17.28 浮力 · 17.29 可斷裂關節 · 17.30 地形變形 · 17.31 物理 LOD · 17.39 輸入回放 · 17.40 存檔 · 17.41 繩索 |
+| **B** — 差異化 / 解鎖多項(中風險) | 用 GA / 可微 / 決定論 spine 做別家沒有的 | 17.2 主動布娃娃 · 17.3 角色 IK · 17.6 動畫圖 · 17.11 反射 · 17.17 GPU 剛體 solver · 17.18 批次多世界 · 17.19 solver 硬化 · 17.20 13.7 收尾 · **增補** 17.26 接觸修改 · 17.27 力場 · 17.28 浮力 · 17.29 可斷裂關節 · 17.30 地形變形 · 17.31 物理 LOD · 17.39 輸入回放 · 17.40 存檔 · 17.41 繩索 · 17.42 LBM 收尾 |
 | **C** — 大工程 / 綁平台決策(排後) | 成本高或先於技術的架構決策 | 17.4 載具 · 17.5 破壞 · 17.8 大世界座標 · 17.12 場景格式(gated) · 17.14 導航 · 17.15 AI · 17.16 網路(部分 gated) · 17.21 腳本(gated) |
 
 > **相依骨牌**:17.13 查詢 → 17.1 / 17.4 / 17.15(EQS)的前提;17.11 反射 → 17.12 場景
@@ -1482,6 +1483,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > pair、island 顏色、CCD 命中都要發指令。
 > **交付**:普通(畫 100 條線一幀清掉)/ 整合(solver 每個 contact 一點、可視 island)/
 > 極端(0 指令、溢位上限、生命期跨多幀、多執行緒 island 併發寫)。
+
+> **進度:✅ 2026-09-27** `diag/draw.mojo`:`DrawQueue[dtype]` 固定容量指令佇列(line / sphere / box / arrow / text / contact-point 六種指令共用一個扁平 tagged struct,`tick()` 老化生命期,溢位 drop + 計數);點為 `SIMD[dtype, 4]`、`dtype` 為 struct 參數,故 `diag` 零引擎依賴而 `DrawQueue[WorldType]` 直接吃 `Vec3`。`tests/test_diag_draw.mojo`(普通 / 整合 / 極端);`bench_diag` 表 (c) push+tick 吞吐。(commit `7978b69`,merge `10a935f`)
 
 ### 17.10 Profiling / tracing hooks — Wave A(工具)
 > **現況**:僅離線 `benchmarks/` + `harness/bench.mojo`;無 in-loop instrumentation。
@@ -1958,6 +1961,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 溢位須實際發出日誌,不能只是 API 存在。
 > **相依**:17.10(共用緩衝/時間戳)、17.33(斷言失敗走同一輸出)。
 
+> **進度:✅ 2026-09-27** `diag/log.mojo` + `diag/level.mojo`:`LogRing` 分級 + 分類環形緩衝,comptime `LUDENS_LOG_LEVEL` 閘門,溢位 drop-newest 並計數;引擎套件不 `print`(ARCHITECTURE §2 規則 1),由測試 / 範例讀 `dump()`。`tests/test_diag_log.mojo`;`bench_diag` 表 (a):關閉層級與「不呼叫」落在雜訊內,證實編譯期閘門零成本。(`7978b69`)
+
 ### 17.33 執行期斷言 / 不變量檢查層 — Wave A(工具;錯誤政策的「立即終止」層)
 
 > **現況**:grep `debug_assert`/`Contract`/`precondition` 於 `ecs/`、`physics/`、
@@ -1974,6 +1979,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > NaN、負質量)複用為執行期斷言。
 > **相依**:17.32(共用輸出)、17.19(硬化測試發現的不變量直接變成斷言)。
 
+> **進度:✅ 2026-09-27** `diag/invariant.mojo`:文件化引擎的 `debug_assert` 慣例(不重造),加熱路徑用 `invariant_finite`(NaN / Inf);建置以 `-D ASSERT=all` 跑測試(`15a0eb8`)。錯誤政策的「立即終止」層,與 17.0h 的邊界 `raise` / 步末 NaN 隔離分工。`tests/test_diag_invariant.mojo`。(`7978b69`)
+
 ### 17.34 每幀 / 暫存集區配置器 — Wave A
 
 > **現況**:grep `Allocator`/`Arena`/`PoolAllocator`/`FrameAllocator` 於全樹(排除
@@ -1989,6 +1996,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— 暫存容器實作(`List` 逐幀重配 vs arena reset)→ parity(相同資料
 > 內容)+ bench(配置/釋放開銷)。
 > **相依**:17.9(第一個天然使用者)、17.13(batched query 暫存)。
+
+> **進度:✅ 2026-09-27** `diag/arena.mojo`:`FrameArena` 單次配置上的 bump allocator,型別化 `alloc[T]`、`reset()` 重用、溢位 raise + 計數。`tests/test_diag_arena.mojo`(含與 List 的 parity);`bench_diag` 表 (b):N=64..65536 筆 / 幀,arena 持平約 1.9 ns/筆,List-per-frame 慢 1.5–4×(依 N)。seam 列在 CATEGORY §2.2。(`7978b69`、`8f5f29c`)
 
 ### 17.35 計時器 / 補間 / 緩動曲線 — Wave A
 
@@ -2009,6 +2018,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > geodesic 端點一致性共用。
 > **相依**:17.7(共用 alpha/插值子概念)、17.6(動畫圖過渡曲線可能重用同一套緩動)。
 
+> **進度:✅ 2026-09-28** `scheduler/timers.mojo`:`TimerQueue` seam —— `TimerHeap`(陣列二元堆)vs `TimerWheel`(兩層環 + 遠環 cascade),皆以 (due_tick, 排程序號) 觸發,供 17.39 / 17.16 回放決定論。`procedural/tween.mojo`:31 條 Penner 緩動(comptime `kind` 零成本分派 + runtime `ease_dyn` 對照),`Tween` 對 Real / Vec3 用 lerp、對 Motor2 / Motor3 用 `galie` geodesic(螺旋插值,以作用於點比較)。測試 `test_timers`(heap↔wheel 種子 parity)/ `test_tween` / `test_timers_integration`(接 `FixedLoop`);`bench_timers`、`bench_tween`;CATEGORY §2.3。(`9b33cc7`,merge `5429fda`)
+
 ### 17.36 樣條 / 曲線(路徑) — Wave A
 
 > **現況**:grep `Spline`/`Bezier`/`CatmullRom` 於全樹零命中;`geometry/` 目錄有
@@ -2022,6 +2033,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— 曲線族(Catmull-Rom vs Bezier)對同一控制點集合在端點/切點的行為
 > → parity(次數退化情形一致)+ bench(取樣成本)。
 > **相依**:17.4(賽道中線)、17.14(導航路徑平滑)、17.3(IK look-at 沿路徑瞄準)。
+
+> **進度:✅ 2026-09-28** `geometry/spline.mojo`:Catmull-Rom(comptime alpha:uniform / centripetal / chordal)與分段三次 Bezier,維度泛型;CR 段以 Barry-Goldman → Hermite 精確轉為 `CubicBezier`,故弧長表、`closest_point`、RMF(平行移動)motor 標架全只寫一次。`tests/test_spline{,_parity,_frames}.mojo` 共 577 檢查(極端:2 控制點、重合點零長段無 NaN、閉環、查詢點在曲線上 / 無窮遠);`bench_spline`;接線範例 `examples/15_spline_rmf.mojo`。(`06f24e3`,merge `74ae0fb`)
 
 ### 17.37 實體池化 — Wave A
 
@@ -2040,6 +2053,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— 生命週期策略(直接 spawn/despawn vs 池化啟用/停用)→ parity(啟用
 > 後元件值與新 spawn 一致)+ bench(高頻收發吞吐)。
 > **相依**:17.12(prefab 格式若落地,池化模板定義可共用)。
+
+> **進度:✅ 2026-09-28** `ecs/pool.mojo`:`Pool` / `PooledEntity` / `Disabled`,六個 `StorageBackend` 全支援;`acquire` 每次重套 template;順帶修 `World` 存取子的 stale-handle 檢查(審計 F14);容量計數接 `diag`。`tests/test_pool.mojo`(六後端 parity、`active_query2` 排除停用實體、固定容量耗盡拒絕 + 計數、無界成長、外來實體、跨釋放的舊 handle);`bench_pool`:N=1 時 pool 慢 1.19–1.74×(含一次 `prime`),N≥1000 起快 1.08–1.51×;接線範例 `examples/16`(子彈池)。(merge `c069054`)
 
 ### 17.38 遊戲事件匯流排 / 訊息系統 — Wave A
 
@@ -2064,6 +2079,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > parity = 重播 ≡ 輪詢結果(與 `test_observers` 同構)。
 > **相依**:17.29(斷裂事件)、17.9(debug-draw 可訂閱同一匯流排)、17.16(rollback
 > 需要事件重播決定性,這裡先做基礎機制)。
+
+> **進度:✅ 2026-09-28** `scheduler/events.mojo`:`EventChannel` seam —— `Channel[E]`(pull,正式路徑)vs `PushChannel[E]`(fan-out 對照組);呼叫序決定論投遞、保留兩次 `update()` 的雙緩衝、每讀者游標、未讀丟棄計入 `diag.counters`。`ContactEvent` 轉接放在測試端(collision 與 scheduler 同層)。測試 `test_events`(parity / 決定論 / 極端)、`test_events_gameloop`、`test_events_contacts`(真 `ContactScene6` 疊塔);`bench_events` 掃 讀者 × 事件 / 幀。(`02d14c5`,merge `422ab38`)
 
 ### 17.39 輸入錄製 / 決定論回放(QA・ghost,非網路) — Wave B
 
@@ -2136,6 +2153,20 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > hot config / CVar(已併入 17.21)。
 
 
+### 17.42 LBM 風洞收尾(Phase 14 遺留併入) — Wave B
+> **緣起**:Phase 14 各節明列但未入 Phase 17 的四項(2026-09-29 盤點補收)。
+> **現況**:`fluid/` D3Q19 LBM 為純 CPU;壁面為半程 bounce-back(14.2);受力僅動量交換一條路徑(14.4)。
+> **缺口**:
+> - (a)**GPU kernel**(14.1):CPU 參考已存在可做逐位 / 容差 parity;走單一 device context 擁有者(Wave B 前置)。
+> - (b)**插值 bounce-back**(14.2):非格線對齊壁面的二階邊界,作為半程 bounce-back 的 seam 變體。
+> - (c)**壓力 + 黏性應力積分**(14.4):第二條測力路徑,與動量交換互為對照。
+> - (d)**SPH 邊界粒子對照組**(14.2):既有 SPH 無此機制,需一併建立。
+> **對照組**:Palabos / waLBerla(GPU LBM)、Bouzidi 插值 bounce-back、文獻 Cd 關聯式(14.6 既有)。
+> **優勢區**:(a)格數 ≥ 10⁶ 的 GPU 吞吐(MLUPS);(b)彎曲壁面在低解析度下的 Cd 誤差收斂階;(c)兩法差異隨解析度縮小。
+> **規模軸**:格數、壁面曲率 / 解析度。
+> **seam?**:是 —— (a) CPU/GPU、(b) 半程 / 插值邊界、(c) 兩條測力路徑,各附 parity + bench row。
+> **交付**:普通(球繞流 Cd)/ 整合(接 14.6 驗證套件)/ 極端(全埋固體、零進口速度、單格厚板)。
+
 ### Phase 17 建議順序
 > **Wave A 先**(17.13 查詢 → 17.1 控制器 → 17.7 插值 → 17.9 debug-draw → 17.10 profiling):
 > 全是接線 / table stakes,做完引擎「可被當遊戲引擎用」,且 17.13 解鎖 17.1 / 17.4 / 17.15。
@@ -2160,4 +2191,4 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 17.38 事件匯流排 → 17.37 實體池 → 17.22 範例。
 > **(4)Wave B**:17.20 + 17.18 → 17.11 反射 → 17.17 GPU 剛體 → 17.6 → 17.3 → 17.2;
 > 增補的 B 項依相依插入(17.26 / 17.29 接 17.1 / 17.2 之後、17.27 → 17.28、
-> 17.39 接 17.38、17.40 接 17.11、17.31 接 17.10 + 17.19);17.19 貫穿。
+> 17.39 接 17.38、17.40 接 17.11、17.31 接 17.10 + 17.19、17.42 接單一 device context 擁有者);17.19 貫穿。
