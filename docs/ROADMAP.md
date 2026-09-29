@@ -1888,6 +1888,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > bench(採樣額外成本)。
 > **相依**:17.13(範圍查詢)、9.3(sensor 判定進出區域)、14.4(可選 LBM 耦合)。
 
+> **進度:✅ 2026-09-29** `physics/fields.mojo`:`ForceField`(重力區 / 徑向 / 風 / 阻尼)+ `apply_fields`(每幀步進前以衝量施加,並喚醒被推動的睡眠體)。**重力區不是衝量**:幀首抵消重力的衝量會留下每幀 g·dt²/2 的漂移(量到 1 秒 6 cm),改為逐 body 重力覆寫 `BodySet.grav`,解算器每子步使用(無覆寫時走原分支逐位不變;GPU 解算器拒絕)。風速可取自 `WindGrid`(三線性,可由 LBM 速度場填入)。`tests/test_fields.mojo` 16/16:零重力房內靜止 / 房外自由落體、爆炸近強遠弱且半徑外逐位不動、風中 v = w(1−e^{−kt/m})、阻尼 v0·e^{−kt};**常數網格 == 常數風逐位**(seam parity);重疊力場相加。`bench_fields`:網格取樣使風場成本約 ×2.8。**待辦**:LBM 速度場直接接成 `WindGrid` 的範例;力場的空間索引(現為 bodies × fields 全掃)。
+
 ### 17.28 浮力 / 水體積 — Wave B
 
 > **現況**:grep `buoyan`/`Water` 於 `physics/`、`fluid/` 全零命中(唯一命中是不相關
@@ -1904,6 +1906,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— 浸沒體積估計(AABB 近似 vs 解析 vs hull 數值積分)→ parity(規則
 > 形狀下解析與數值積分一致)+ bench。
 > **相依**:17.27(共用「範圍內施力」骨架)、17.13(shape overlap 查詢)。
+
+> **進度:✅ 2026-09-29** 與 17.27 同模組:`WaterVolume` + `apply_buoyancy`(浮力 = ρ g V_sub 施於浮心、隱式線性 / 角阻尼 v/(1+c·frac·dt) —— 顯式阻尼下浮體會長時間擺盪)。浸沒體積:球解析(球冠)、盒 `samples`³ 中點積分(任意旋轉);軸對齊盒另有閉式 `box_submerged_exact`。`test_fields`:取樣 vs 閉式在 11 個水位皆差 < 體積 / 16(seam parity);半密度箱中心停在水面、四分之一密度球浸沒 0.2585(理論 0.25)、重球沉底。`bench_fields`:球解析約 25 ns / 體,盒 8³ 約 2.3 µs、16³ 約 18 µs。**待辦**:hull / 膠囊浸沒、以平面切割凸體求精確體積取代取樣、LBM 阻力耦合。
 
 ### 17.29 通用可斷裂關節 — Wave B
 
@@ -1947,6 +1951,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— bounds 更新策略(整張重算 vs 受影響子區塊增量 AABB)→ parity
 > (結果 AABB 一致)+ bench。
 > **相依**:17.25(變形波及睡眠體時的喚醒)、17.13(變形後查詢需讀新高度)。
+
+> **進度:✅ 2026-09-29** `collision/trimesh.mojo` `HeightField`:`set_height` / `deform`(圓盤下挖 / 抬升,Δ·(1−(d/r)²))與 16×16 區塊 min / max 摘要,`bounds_blocks()` 只重算受影響區塊再合併;`ColliderSet.deform_heightfield(i, …, incremental)` 更新 `world_aabb` / `half`;`ContactScene6.deform_heightfield` 並喚醒觸及編輯圓盤的睡眠體(17.25)。`tests/test_terrain_deform.mojo` 11/11:在睡著的箱子下挖坑 → 喚醒、落到坑底;射線讀到新高度;**區塊摘要 AABB == 全表重掃 AABB**(含把山峰挖回平地時最大值縮小)= seam parity;格外 / 零半徑無效果;非高度場拒絕。`bench_terrain_deform`:1024² 地形每次編輯 11.7 µs vs 全表重掃 2.87 ms。**待辦**:編輯後讓持久寬相增量更新(現每幀由 fat AABB 重建);連續變形(履帶壓痕)的批次 API。
 
 ### 17.31 物理 LOD / 模擬預算調度 — Wave B
 
@@ -2175,6 +2181,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > MPM 已可承載,重做屬冗餘);查詢結果快取(持久化 DBVH 已在,且與 17.13 batched 重疊);
 > hot config / CVar(已併入 17.21)。
 
+> **進度:✅ 2026-09-29** `physics/rope.mojo`:`Rope` = XPBD 1D 鏈(柔度 α、自身子步、兩端可釘住世界點或掛在剛體局部點、粒子對場景碰撞器推出、段張力超限即斷)。**載重路徑走解算器**:`tie()` 在兩端間加一條繩長的距離關節(釘住端建不碰撞的靜態錨體),吊物重量由關節承擔、斷裂走 17.29 閾值,XPBD 粒子只負責形狀與披掛(單向;與引擎的 cable component + physics constraint 配對同理)——先試過把剛體當繩端無限質量錨點並回饋反作用衝量,張力被高估到 160 N(應為 19.6)。`tests/test_rope.mojo` 12/12:下垂 1.0073 vs 懸鏈線解析 1.0053;距離關節剛體鏈 1.0417(seam:兩者皆近似懸鏈線,5% 內);吊 2 kg 箱於 2.9997、載重恰 19.6 N;斷裂後箱落下;披掛在箱頂;柔性繩伸長更多;單段即擺。`bench_rope`:XPBD 繩比同長剛體鏈快約 5–6×。**待辦**:關節為雙向(無鬆弛);繩自碰撞;Cosserat 桿(彎曲 / 扭轉剛度)。
 
 ### 17.42 LBM 風洞收尾(Phase 14 遺留併入) — Wave B
 > **緣起**:Phase 14 各節明列但未入 Phase 17 的四項(2026-09-29 盤點補收)。

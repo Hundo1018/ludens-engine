@@ -344,6 +344,15 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | 接觸是否生效 / 如何作用:靜態過濾(`set_filter`)vs 動態規則(`ContactRule`) | physics/contact6.mojo、physics/solver6.mojo | 同一「接觸謂詞」的兩層;不匹配任何接觸的規則(與零速輸送帶)是恆等 | `test_contact_rules`(不匹配規則 == 無規則逐位) | `bench_contact_rules`(無規則 / 全匹配 / 8 條不匹配) |
 | 關節負載估計:最後子步 vs 逐子步峰值 | physics/joints6.mojo(`sample_loads`、`check_breaks`) | 同一負載量的兩個取樣;穩態一致(m·g),衝擊時只有峰值取樣看得到 | `test_joint_break`(懸掛質量 = m·g;扭轉 hinge 只在峰值取樣下斷) | `bench_contact_rules`(有 / 無閾值) |
 
+### 2.13 力場、浮力、繩索、地形變形(Phase 17.27 / 17.28 / 17.41 / 17.30,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 風速來源:常數 vs `WindGrid` 取樣 | physics/fields.mojo | 常數場是網格取樣態射的常數截面;三線性插值對常數網格是恆等 | `test_fields`(常數網格 == 常數風逐位) | `bench_fields` |
+| 浸沒體積:閉式(軸對齊盒、球)vs 中點積分 | physics/fields.mojo | 同一體積泛函的精確與數值求積 | `test_fields`(11 水位差 < V/16) | `bench_fields`(8³ / 16³ vs 球閉式) |
+| 繩索:XPBD 1D 鏈 vs 距離關節剛體鏈 | physics/rope.mojo、physics/joints6.mojo | 同一懸鏈線的兩個離散化 | `test_rope`(兩者與解析下垂 5% 內) | `bench_rope` |
+| 高度場邊界:區塊摘要增量 vs 全表重掃 | collision/trimesh.mojo、collision/collider_set.mojo | 同一 min / max 歸約的兩種結合律分組(max 的結合律 ⇒ 結果逐位相同) | `test_terrain_deform`(每次編輯 AABB 逐位相同) | `bench_terrain_deform` |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

@@ -1260,6 +1260,21 @@ joints sample every joint's load after each substep while any threshold
 is set; that costs a few percent of the frame.
 
 @bench benchmarks/bench_contact_rules.mojo
+## Physics — fields, water, ropes, deformable terrain (17.27 / 17.28 / 17.41 / 17.30)
+
+Region forces are a pass over bodies x fields before the step; sampling the
+wind from a grid instead of a constant costs a few times the constant field
+and is what lets a simulated flow drive it. Buoyancy's cost is the
+submerged-volume estimate: closed form for spheres, midpoint integration
+for boxes, where the sample count is the accuracy knob and cubes its cost.
+The XPBD rope is several times cheaper than the same span built from rigid
+links on distance joints and reaches the same catenary. Terrain edits are
+local: re-deriving the vertical bounds from a block summary keeps an edit's
+cost independent of terrain size, where a full rescan grows with it.
+
+@bench benchmarks/bench_fields.mojo
+@bench benchmarks/bench_rope.mojo
+@bench benchmarks/bench_terrain_deform.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

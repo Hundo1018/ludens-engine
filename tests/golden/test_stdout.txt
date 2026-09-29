@@ -429,6 +429,9 @@ build: all packages precompiled into build/
   restoring force at the stretched end: -2.2435906
   cantilever tip y: -0.08829661   volume 0.024000002 -> 0.023990544
 [PASS] fem - 9 / 9 checks
+--- tests/test_fields.mojo ---
+Included from /home/hundo/Projects/ludens-engine/tests/test_fields.mojo:24:
+[PASS] fields - 16 / 16 checks
 --- tests/test_filter_events.mojo ---
   gap — unfiltered 0.49864215  same-layer excluded 0.4  one-sided mask 0.4
   sensor: crate y at step 30 1.764792  free-fall reference 1.764792
@@ -529,6 +532,11 @@ build: all packages precompiled into build/
 [PASS] restitution - 7 / 7 checks
 --- tests/test_rigid6.mojo ---
 [PASS] rigid6 - 15 / 15 checks
+--- tests/test_rope.mojo ---
+  catenary sag 1.0052668  rope 1.0073015  length 3.0027263
+  rigid-link chain sag 1.0416659
+  hanging crate y 2.9997272  rope load 19.6
+[PASS] rope - 12 / 12 checks
 --- tests/test_scheduler_parity.mojo ---
 [PASS] scheduler_parity - 51 / 51 checks
 --- tests/test_schema.mojo ---
@@ -597,6 +605,9 @@ build: all packages precompiled into build/
   brute cache pairs: 16  bp cache pairs: 16
   fast faller y: 0.24971109628677368
 [PASS] solver_broadphase - 4 / 4 checks
+--- tests/test_terrain_deform.mojo ---
+  crate after the crater: -0.7460463  edited corners 45
+[PASS] terrain_deform - 11 / 11 checks
 --- tests/test_timers_integration.mojo ---
 [PASS] timers_integration - 9 / 9 checks
 --- tests/test_trimesh.mojo ---
