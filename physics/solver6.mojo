@@ -102,6 +102,9 @@ from .joints6 import (
     JOINT_HINGE,
     warm_start_joints,
     joint_sweep,
+    AngularDrive,
+    warm_start_drives,
+    drive_sweep,
 )
 from .islands import (
     island_count as count_islands,
@@ -129,6 +132,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     # see `physics/body_set.mojo`.
     var cache: List[ContactConstraint]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
+    var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     var softs: List[SoftBody]
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
@@ -167,6 +171,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset = BodySet[Self.B]()
         self.cache = List[ContactConstraint]()
         self.joints = List[Joint6]()
+        self.drives = List[AngularDrive]()
         self.softs = List[SoftBody]()
         self.colliders = ColliderSet()
         self.counters = Counters()
@@ -194,6 +199,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             raise Error("ContactScene6.add_joint: body index out of range")
         self.joints.append(j)
         return len(self.joints) - 1
+
+    def add_drive(mut self, d: AngularDrive) raises -> Int:
+        """Register a soft angular motor between bodies `d.a` and `d.b`
+        (ROADMAP 17.2). Same boundary check as `add_joint`."""
+        var n = len(self.bset.bodies)
+        if d.a < 0 or d.a >= n or d.b < 0 or d.b >= n:
+            raise Error("ContactScene6.add_drive: body index out of range")
+        self.drives.append(d)
+        return len(self.drives) - 1
 
     def island_count(self) -> Int:
         """Number of distinct dynamic islands from the last `step_soft`."""
@@ -338,6 +352,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if not self.bset.is_valid(id):
             raise Error("ContactScene6.remove_body: invalid BodyId")
         var i = id.index()
+        for c in range(len(self.drives)):
+            if self.drives[c].a == i or self.drives[c].b == i:
+                raise Error(
+                    "ContactScene6.remove_body: body is referenced by a"
+                    " drive; remove the drive first"
+                )
         for c in range(len(self.joints)):
             if self.joints[c].a == i or self.joints[c].b == i:
                 raise Error(
@@ -558,13 +578,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         """The flat `(a, b)` edge list `islands.refresh_islands` takes:
         this step's contacts first, then the joints -- the order the island
         union-find has always merged them in."""
-        var edges = List[Int](capacity=2 * (len(pairs) + len(self.joints)))
+        var edges = List[Int](capacity=2 * (len(pairs) + len(self.joints) + len(self.drives)))
         for c in range(len(pairs)):
             edges.append(pairs[c].a)
             edges.append(pairs[c].b)
         for c in range(len(self.joints)):
             edges.append(self.joints[c].a)
             edges.append(self.joints[c].b)
+        for c in range(len(self.drives)):
+            edges.append(self.drives[c].a)
+            edges.append(self.drives[c].b)
         return edges^
 
     def _collect_pairs(
@@ -743,10 +766,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             warm_start_contacts(self.bset, pairs, plo, phi)
             warm_start_joints(self.bset, self.joints, label)
             joint_sweep(
-                self.bset, self.joints,                 h, bias_rate, mass_scale, impulse_scale, True, iters, label
+                self.bset, self.joints, h, bias_rate, mass_scale, impulse_scale, True, iters, label
             )
             soft_sweep(
-                self.bset,                 pairs, plo, phi, h, bias_rate, mass_scale,
+                self.bset, pairs, plo, phi, h, bias_rate, mass_scale,
                 impulse_scale, True, iters, mu,
             )
             # pose: dynamic (if awake) OR kinematic -- `not _inactive` is
@@ -1091,13 +1114,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var chi = List[Int]()
         if colored:
             colored = self._color_pairs(pairs, clo, chi)
-        if parallel and (colored or len(self.softs) > 0 or ccd):
+        if parallel and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be
             # silent -- count it so a caller relying on the parallel path
             # can notice it never actually ran in parallel.
             self.counters.incr(PARALLEL_FALLBACK_SERIAL)
-        if parallel and not colored and len(self.softs) == 0 and not ccd:
+        if parallel and not colored and len(self.softs) == 0 and not ccd and len(self.drives) == 0:
             # partition: pairs reordered so each island is a contiguous range
             var labels = island_labels(self.bset)
             var pairs2 = List[ContactConstraint]()
@@ -1162,17 +1185,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # -impulseScale·acc decay is the matching counter-term.
             warm_start_contacts(self.bset, pairs, 0, len(pairs))
             warm_start_joints(self.bset, self.joints, -2)
+            if len(self.drives) > 0:
+                warm_start_drives(self.bset, self.drives)
             joint_sweep(
-                self.bset, self.joints,                 h, bias_rate, mass_scale, impulse_scale, True, iters, -2
+                self.bset, self.joints, h, bias_rate, mass_scale, impulse_scale, True, iters, -2
             )
+            if len(self.drives) > 0:
+                drive_sweep(self.bset, self.drives, h, iters)
             if colored:
                 sweep_colored(
-                    self.bset,                     pairs, clo, chi, h, bias_rate, mass_scale,
+                    self.bset, pairs, clo, chi, h, bias_rate, mass_scale,
                     impulse_scale, True, iters, mu, parallel, workers,
                 )
             else:
                 soft_sweep(
-                self.bset,                     pairs, 0, len(pairs), h, bias_rate, mass_scale,
+                self.bset, pairs, 0, len(pairs), h, bias_rate, mass_scale,
                     impulse_scale, True, iters, mu,
                 )
             if ccd:
@@ -1188,12 +1215,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, -2)
             if colored:
                 sweep_colored(
-                    self.bset,                     pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
+                    self.bset, pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
                     parallel, workers,
                 )
             else:
                 soft_sweep(
-                self.bset,                     pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
+                self.bset, pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
                 )
         self.trace.end()
         restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)

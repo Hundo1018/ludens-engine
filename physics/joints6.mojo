@@ -4,8 +4,9 @@ solve, the sweep, and warm starting -- free functions over a `BodySet` view
 and a joint slice, composed by `ContactScene6` (`physics/solver6.mojo`).
 """
 
-from std.math import sqrt
+from std.math import sqrt, atan2
 from geometry.vec import Real, Vec3, dot, cross, tangent_basis
+from geometry.quat import Quat
 from .rigid6 import Body6
 from .body_set import BodySet
 
@@ -212,3 +213,101 @@ def warm_start_joints[B: Body6](
             bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
             if jt.kind == JOINT_HINGE:
                 bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
+
+
+# ------------------------------------------------------------ angular drives
+
+
+@fieldwise_init
+struct AngularDrive(Copyable, ImplicitlyCopyable, Movable):
+    """A soft angular motor pulling body `b`'s orientation toward
+    `rotation(a) * target` (ROADMAP 17.2: an animation pose as the drive
+    target of a ragdoll joint). Its stiffness is its own `hertz` / `zeta`
+    (Box2D v3 soft-constraint coefficients, like the contacts' but per
+    drive), and the accumulated impulse is capped at `max_torque * h` per
+    substep, so a drive can be as weak as a tired arm or turned off with a
+    zero cap -- in which case it applies exactly nothing."""
+
+    var a: Int
+    var b: Int
+    var target: Quat  # desired rotation of b relative to a
+    var hertz: Real
+    var zeta: Real
+    var max_torque: Real
+    var acc: Vec3  # accumulated angular impulse (world axes)
+
+    @staticmethod
+    def make(a: Int, b: Int, target: Quat, hertz: Real, zeta: Real, max_torque: Real) -> Self:
+        return Self(a, b, target, hertz, zeta, max_torque, Vec3(0, 0, 0, 0))
+
+
+def drive_error(qa: Quat, qb: Quat, target: Quat) -> Vec3:
+    """Rotation vector (world frame) that would take b's current orientation
+    to `qa * target` -- axis times angle, shortest way round."""
+    var want = qa * target
+    var qe = want * qb.conjugate()
+    if qe.w < 0:
+        qe = Quat(-qe.x, -qe.y, -qe.z, -qe.w)
+    var s = sqrt(qe.x * qe.x + qe.y * qe.y + qe.z * qe.z)
+    if s < 1e-9:
+        return Vec3(2 * qe.x, 2 * qe.y, 2 * qe.z, 0)
+    var ang = 2 * atan2(s, qe.w)
+    return Vec3(qe.x, qe.y, qe.z, 0) * (ang / s)
+
+
+def warm_start_drives[B: Body6](mut bset: BodySet[B], drives: List[AngularDrive]):
+    for c in range(len(drives)):
+        ref d = drives[c]
+        if bset.impulse_inert(d.a) and bset.impulse_inert(d.b):
+            continue
+        if bset.is_dynamic(d.a):
+            bset.bodies[d.a].apply_angular_impulse(-d.acc)
+        if bset.is_dynamic(d.b):
+            bset.bodies[d.b].apply_angular_impulse(d.acc)
+
+
+def drive_sweep[B: Body6](
+    mut bset: BodySet[B], mut drives: List[AngularDrive], h: Real, iters: Int
+):
+    """Soft angular solve of every drive, along the three world axes."""
+    for _ in range(iters):
+        for c in range(len(drives)):
+            var d = drives[c]
+            if bset.impulse_inert(d.a) and bset.impulse_inert(d.b):
+                continue
+            var e = drive_error(bset.bodies[d.a].rotation(), bset.bodies[d.b].rotation(), d.target)
+            var omega = Real(6.283185307179586) * d.hertz
+            var cc = h * omega * (2 * d.zeta + h * omega)
+            var bias_rate = omega / (2 * d.zeta + h * omega)
+            var ms = cc / (1 + cc)
+            var isc = 1 / (1 + cc)
+            var cap = d.max_torque * h
+            for k in range(3):
+                var ax = Vec3(0, 0, 0, 0)
+                ax[k] = 1
+                var kk = Real(0)
+                if bset.is_dynamic(d.a):
+                    kk += bset.bodies[d.a].angular_only_factor(ax)
+                if bset.is_dynamic(d.b):
+                    kk += bset.bodies[d.b].angular_only_factor(ax)
+                if kk <= 0:
+                    continue
+                var wa = Vec3(0, 0, 0, 0)
+                var wb = Vec3(0, 0, 0, 0)
+                if bset.moves(d.a):
+                    wa = bset.bodies[d.a].omega_world()
+                if bset.moves(d.b):
+                    wb = bset.bodies[d.b].omega_world()
+                var wrel = dot(wb - wa, ax)
+                var dl = -ms * (wrel - bias_rate * e[k]) / kk - isc * d.acc[k]
+                var na = min(max(d.acc[k] + dl, -cap), cap)
+                dl = na - d.acc[k]
+                d.acc[k] = na
+                if dl != 0:
+                    var l = ax * dl
+                    if bset.is_dynamic(d.a):
+                        bset.bodies[d.a].apply_angular_impulse(-l)
+                    if bset.is_dynamic(d.b):
+                        bset.bodies[d.b].apply_angular_impulse(l)
+            drives[c] = d
+

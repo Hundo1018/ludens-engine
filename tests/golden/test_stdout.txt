@@ -504,6 +504,14 @@ build: all packages precompiled into build/
 [PASS] pool - 90 / 90 checks
 --- tests/test_queries.mojo ---
 [PASS] queries - 28 / 28 checks
+--- tests/test_ragdoll.mojo ---
+  driven: worst joint error (deg) 3.7802036
+  driven at 20 Hz: worst joint error (deg) 0.7252338
+  limp: worst joint error (deg) 29.999954
+  walking: pelvis tracking error 1.1920929e-07  hip gap 0.001078039
+  hit: before 3.7802036  peak 17.599688  after 1.5 s 4.5896397
+  1000 Hz drive: error 0.0
+[PASS] ragdoll - 13 / 13 checks
 --- tests/test_restitution.mojo ---
   e=0.8 first apex: 0.5816680192947388 (analytic 0.64)
   e=0.4 first apex: 0.14359593391418457 (analytic 0.16)

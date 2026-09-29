@@ -1241,6 +1241,15 @@ needs no tolerance, which is why legs and arms use it and FABRIK is kept for
 chains longer than two segments (tails, spines, multi-effector bodies).
 
 @bench benchmarks/bench_ik.mojo
+## Physics — active ragdoll drives (17.2)
+
+A ragdoll that follows an animation adds one soft angular drive per
+simulated joint to the joints it already has. The rows price that on top of
+the same legs simulated with joints only; it is a fraction of the frame, not
+a multiple, because a drive is three scalar rows per joint while the contact
+and joint work around it is unchanged.
+
+@bench benchmarks/bench_ragdoll.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

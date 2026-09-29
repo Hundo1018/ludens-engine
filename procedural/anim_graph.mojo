@@ -400,3 +400,15 @@ struct MotionDB(Movable):
                 bd = d
                 best = i
         return best
+
+
+def to_world(local: Pose, parent: List[Int]) -> Pose:
+    """Forward kinematics: world motor of bone b = world(parent[b]) * local(b).
+    Parents must precede their children (the usual bone order)."""
+    var out = Pose(local.bones)
+    for b in range(local.bones):
+        var m = local.motor(b)
+        if parent[b] >= 0:
+            m = (out.motor(parent[b]) * m).normalized()
+        out.set_motor(b, m)
+    return out^

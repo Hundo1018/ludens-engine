@@ -1388,6 +1388,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:接 `chain`/`floating` + `anim`;普通(全 ragdoll 自由落)/ 整合(上半身 ragdoll +
 > 下半身動畫驅動同一骨架)/ 極端(gain→∞、目標跳變、零質量 link、單影格切換)。
 
+> **進度:✅ 2026-09-29** 建在 `ContactScene6` 的最大座標關節上(Unity / UE ragdoll 同路線),故 `chain` 的前置重構對此路線非必要(仍列在 17.0)。`physics/joints6.mojo` 新增 `AngularDrive`:以驅動器**自己的** hertz / zeta 算 Box2D v3 軟係數,沿世界三軸把 b 相對 a 的姿態拉向目標,累積衝量夾在 `max_torque·h`;`ContactScene6.add_drive`,串行子步中 warm start + 求解(不進 relax),驅動器邊併入 island,島平行 / GPU 路徑遇驅動器退回串行 / 拒絕,`remove_body` 檢查引用。`gameplay/ragdoll.mojo`:`Ragdoll`(每骨一箱 + 父子球關節 + 驅動;逐骨遮罩決定模擬或以 kinematic `move_to` 跟隨動畫 = 部分布娃娃)、`follow` / `set_strength`(0 = 軟癱)/ `hit` / `physics_pose`、`blend_world`(起身過渡,權重 0 即動畫本身);`procedural/anim_graph.to_world`(FK)。`tests/test_ragdoll.mojo` 13/13:直腿被驅動成動畫姿態(8 Hz 穩態下垂 3.8°、20 Hz 0.7° —— 軟驅動無積分項,下垂隨剛性下降)、軟癱時垂 30°;**零上限驅動與無驅動逐位相同**(seam parity);動畫骨盆行走時 kinematic 追蹤誤差 1.2e-7、髖關節間隙 1.1 mm;受擊峰值 17.6° 後 1.5 s 回到受擊前穩態;1000 Hz 驅動有限且誤差 0。`bench_ragdoll`:驅動器使每幀成本增加約 13–40%(N=1..128 條腿)。**待辦**:驅動器序列化、關節角度限制(膝單向)、起身時的姿態匹配與地面對齊、以 PD 積分項消除穩態下垂(可選)。
+
 ### 17.3 角色 IK — Wave B
 > **現況**:`experiments/exp_autodiff.mojo` 的 AD-IK probe(未接線);`physics/chain.mojo`
 > 的 `point_jacobian`(robotics 用,非 gameplay)。

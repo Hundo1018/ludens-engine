@@ -344,8 +344,8 @@ struct GpuContactSolver(Movable):
     ) raises:
         """One frame of `sc` with the contact solve on the device;
         equivalent to `sc.step(dt, gravity, cfg)` with `cfg.colored=True`."""
-        if len(sc.joints) > 0 or len(sc.softs) > 0 or cfg.ccd:
-            raise Error("GpuContactSolver: joints, soft bodies and CCD are not supported")
+        if len(sc.joints) > 0 or len(sc.drives) > 0 or len(sc.softs) > 0 or cfg.ccd:
+            raise Error("GpuContactSolver: joints, drives, soft bodies and CCD are not supported")
         var h = dt / Real(cfg.substeps)
         var omega = Real(6.283185307179586) * cfg.hertz
         var cc = h * omega * (2 * cfg.zeta + h * omega)

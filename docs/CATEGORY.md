@@ -331,6 +331,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 兩段鏈 IK:解析(`two_bone`)vs 迭代(`fabrik`) | procedural/ik.mojo | 同一「末端到目標且保骨長」映射的閉式與不動點迭代兩實作;選哪個膝位置由 pole(解析)或起始姿勢(迭代)決定,末端與骨長相同 | `test_ik`(末端相同、骨長保持;極端:不可達、目標在根、pole 共線、零長骨、NaN) | `bench_ik`(解析 vs FABRIK 同腿;FABRIK 4/16/64 關節) |
 
+### 2.11 主動布娃娃驅動(Phase 17.2,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 關節驅動:無驅動 vs `AngularDrive`(強度 0..1) | physics/joints6.mojo、physics/solver6.mojo、gameplay/ragdoll.mojo | 驅動器是疊加在關節約束上的軟態射;力矩上限為 0 時為恆等(零衝量),逐骨權重 0/1 在姿態混合上是投影 | `test_ragdoll`(零上限 == 無驅動逐位;混合權重 0 == 動畫、1 == 物理) | `bench_ragdoll`(N 條腿,驅動 vs 僅關節) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」
