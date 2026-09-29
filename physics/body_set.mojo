@@ -28,7 +28,9 @@ future `ContactScene6.remove_body`, once `ColliderSet` grows a matching
 removal path) to build on.
 """
 
-from geometry.vec import Real
+from geometry.vec import Real, Vec3
+from collision.manifold import Axes3
+from collision.collider_set import Pose3
 from .rigid6 import Body6
 from .material import COMBINE_AVERAGE, COMBINE_MAX
 
@@ -234,3 +236,41 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         has the raw index (e.g. a loop over `range(len(bset))`) and wants a
         handle it can hold past this step."""
         return BodyId(i, self.generation[i])
+
+    # -- solver-facing predicates and the collision seam value (F11 split) --
+    # These used to be private methods on `ContactScene6`; the constraint
+    # modules (`contact6`, `joints6`, `islands`, `ccd6`, `soft_couple`) are
+    # free functions over a `BodySet`, so the predicates live with the data.
+
+    def inactive(self, i: Int) -> Bool:
+        """Does this body need its VELOCITY/POSE handled? Static bodies never
+        move, sleeping bodies are frozen. A kinematic body reads `False` here
+        even at zero velocity -- its pose integrates on the same `not
+        inactive(i)` gate a dynamic body's does. A removed body (17.0i) reads
+        `True`: `remove` clears `sleeping`, and without this the pose loop
+        would keep advancing a despawned body along its last velocity."""
+        return self.is_static(i) or self.is_removed(i) or self.sleeping[i]
+
+    def impulse_inert(self, i: Int) -> Bool:
+        """Does body `i` never receive an impulse this step -- static,
+        kinematic (17.24: infinite mass), or a still-sleeping dynamic body.
+        Differs from `inactive` only for kinematic, so `impulse_inert(a) and
+        impulse_inert(b)` is the right "skip this pair entirely" test even
+        with a kinematic side: a stationary kinematic next to a sleeping
+        dynamic body must behave exactly like a static one (the 17.24 parity
+        test). For dynamic or static bodies it equals `inactive`."""
+        return not self.is_dynamic(i) or self.sleeping[i]
+
+    def axes(self, i: Int) -> Axes3:
+        """World-frame box axes of body `i` (via `act`, representation-free)."""
+        var o = self.bodies[i].act(Vec3(0, 0, 0, 0))
+        var out = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
+        out[0] = self.bodies[i].act(Vec3(1, 0, 0, 0)) - o
+        out[1] = self.bodies[i].act(Vec3(0, 1, 0, 0)) - o
+        out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
+        return out^
+
+    def pose3(self, i: Int) -> Pose3:
+        """The seam value: everything `ColliderSet` needs from body `i`'s
+        transform, and nothing else -- collision never sees a `Body6`."""
+        return Pose3(self.bodies[i].position(), self.axes(i))

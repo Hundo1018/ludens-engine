@@ -83,52 +83,34 @@ from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC, MOTION_KIN
 from .solver_config import SolverConfig
 from .state_io import StateWriter, StateReader
 from .softbody import SoftBody, SP, SEdge
-from .material import combine
-
-comptime _BETA: Real = 0.2  # Baumgarte position-correction gain
-comptime _SLOP: Real = 0.005  # allowed penetration
-
-
-@fieldwise_init
-struct _CPair(Copyable, ImplicitlyCopyable, Movable):
-    var a: Int
-    var b: Int
-    # Sub-key within the pair. Zero for shape-vs-shape, which produces one
-    # manifold; for static mesh contact it is the triangle index, because one
-    # crate resting on a level touches several triangles at once and each is a
-    # separate manifold. Without it every one of them would inherit the first
-    # cached entry's impulses and warm-starting would fight itself.
-    var feat: Int
-    var m: ContactManifold[3]
-    var acc: Array[Real, 4]  # per-point accumulated normal impulse
-    var acc_t1: Array[Real, 4]  # accumulated friction impulses
-    var acc_t2: Array[Real, 4]
-    # Body-frame contact anchors (Box2D scheme): both coincide with the
-    # manifold point at prep; per-substep world separation is re-derived from
-    # the CURRENT poses, so tilting a body deepens its near edge and the bias
-    # produces a restoring torque (frozen depths cannot — towers slowly tip).
-    var ra: Array[Vec3, 4]
-    var rb: Array[Vec3, 4]
-    # Restitution (Box2D v3 scheme): the approach speed captured at prep time
-    # drives a dedicated post-substep pass toward v_target = -e·vn0. Neither
-    # field is warm-start-inherited — both are per-frame.
-    var vn0: Array[Real, 4]
-    var racc: Array[Real, 4]
-
-    def __init__(out self, *, copy: Self):
-        """Explicit copy: `Array` is not `ImplicitlyCopyable` in
-        Mojo 1.0, so a struct holding one gets no synthesised copy."""
-        self.a = copy.a
-        self.b = copy.b
-        self.feat = copy.feat
-        self.m = copy.m.copy()
-        self.acc = copy.acc.copy()
-        self.acc_t1 = copy.acc_t1.copy()
-        self.acc_t2 = copy.acc_t2.copy()
-        self.ra = copy.ra.copy()
-        self.rb = copy.rb.copy()
-        self.vn0 = copy.vn0.copy()
-        self.racc = copy.racc.copy()
+from .contact6 import (
+    ContactConstraint,
+    contact_island,
+    make_contact,
+    make_sensor_contact,
+    warm_start_contacts,
+    solve_point,
+    soft_sweep,
+    sweep_colored,
+    restitution_pass,
+)
+from .joints6 import (
+    Joint6,
+    JOINT_BALL,
+    JOINT_DISTANCE,
+    JOINT_HINGE,
+    warm_start_joints,
+    joint_sweep,
+)
+from .islands import (
+    island_count as count_islands,
+    island_labels,
+    refresh_islands,
+    update_sleep,
+    wake_island,
+)
+from .ccd6 import ccd_advance
+from .soft_couple import softbody_pass
 
 
 # The `_Pt` / `_LV` / `_Half` wrappers that used to sit here existed for one
@@ -138,57 +120,13 @@ struct _CPair(Copyable, ImplicitlyCopyable, Movable):
 # reads back with zero wrong entries.
 
 
-comptime JOINT_BALL = 0
-comptime JOINT_DISTANCE = 1
-comptime JOINT_HINGE = 2
-
-
-@fieldwise_init
-struct Joint6(Copyable, ImplicitlyCopyable, Movable):
-    """A two-body joint solved in the soft substep loop (equality constraints,
-    no cone clamp). `kind`: ball (anchors coincide), distance (anchor gap =
-    rest), hinge (ball + the two local axes stay aligned)."""
-
-    var kind: Int
-    var a: Int
-    var b: Int
-    var la: Vec3  # anchor in a's body frame
-    var lb: Vec3
-    var rest: Real  # distance joint rest length
-    var axis_a: Vec3  # hinge axis in each body frame
-    var axis_b: Vec3
-    var acc: Vec3  # accumulated linear impulse (distance uses acc[0])
-    var acc_ang: Vec3  # accumulated angular impulse (hinge tangents)
-
-    @staticmethod
-    def ball(a: Int, b: Int, la: Vec3, lb: Vec3) -> Self:
-        return Self(
-            JOINT_BALL, a, b, la, lb, 0,
-            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
-        )
-
-    @staticmethod
-    def distance(a: Int, b: Int, la: Vec3, lb: Vec3, rest: Real) -> Self:
-        return Self(
-            JOINT_DISTANCE, a, b, la, lb, rest,
-            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
-        )
-
-    @staticmethod
-    def hinge(a: Int, b: Int, la: Vec3, lb: Vec3, axis: Vec3) -> Self:
-        return Self(
-            JOINT_HINGE, a, b, la, lb, 0,
-            axis, axis, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
-        )
-
-
 struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
     var bset: BodySet[Self.B]  # body identity + per-body SoA (F5): bodies,
     # motion (static/dynamic), sleeping, sleep_timer, island, restitution --
     # see `physics/body_set.mojo`.
-    var cache: List[_CPair]  # last frame's pairs (cross-frame warm starting)
+    var cache: List[ContactConstraint]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
     var softs: List[SoftBody]
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
@@ -213,7 +151,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     # collected separately rather than flagged in `pairs`, so that not one of
     # the solve, warm-start, island or restitution loops needs to learn about
     # them.
-    var sensor_pairs: List[_CPair]
+    var sensor_pairs: List[ContactConstraint]
     # Contact events, rebuilt every step when `events` is on. Off by default:
     # the diff sorts the contact set, which is real work for a scene that never
     # reads the result.
@@ -226,7 +164,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             "ContactScene6 is a 3-D solver: its BroadPhase must have dim == 3"
         )
         self.bset = BodySet[Self.B]()
-        self.cache = List[_CPair]()
+        self.cache = List[ContactConstraint]()
         self.joints = List[Joint6]()
         self.softs = List[SoftBody]()
         self.colliders = ColliderSet()
@@ -235,7 +173,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.log = LogRing[256]()
         self.draw = DrawQueue[WorldType](capacity=1024)
         self.bp = Self.BP()
-        self.sensor_pairs = List[_CPair]()
+        self.sensor_pairs = List[ContactConstraint]()
         self.events_on = False
         self.events = List[ContactEvent]()
         self._prev_keys = List[Int]()
@@ -258,141 +196,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def island_count(self) -> Int:
         """Number of distinct dynamic islands from the last `step_soft`."""
-        var seen = List[Int]()
-        for i in range(len(self.bset.island)):
-            if self.bset.island[i] < 0:
-                continue
-            var known = False
-            for j in range(len(seen)):
-                if seen[j] == self.bset.island[i]:
-                    known = True
-                    break
-            if not known:
-                seen.append(self.bset.island[i])
-        return len(seen)
+        return count_islands(self.bset)
 
-    def _find(self, mut parent: List[Int], i: Int) -> Int:
-        var r = i
-        while parent[r] != r:
-            var pr = parent[r]
-            var gp = parent[pr]  # path halving
-            parent[r] = gp
-            r = gp
-        return r
-
-    def _refresh_islands(mut self, pairs: List[_CPair]):
-        """Union-find over the constraint graph (contacts + joints between
-        DYNAMIC bodies only -- statics AND kinematics do not merge islands,
-        ROADMAP 17.24: a kinematic platform drives dynamics but never joins
-        their sleep/wake bookkeeping), then the wake rule: an island with
-        ANY awake member wakes entirely.
-
-        A kinematic body still gets a real (non -1) `island` label below --
-        its own index, since the union-find above never touches it (the
-        merge is gated on `is_dynamic` for both sides), so `_find` on it is
-        always a self-loop. That gives every kinematic body a trivial
-        singleton "island" containing only itself and no pairs (any pair
-        touching it is filed under its DYNAMIC partner's label instead --
-        `_pair_island`), which is what lets the `cfg.parallel=True` path
-        (`_solve_island` only touches bodies whose `island == label`)
-        advance a kinematic body's pose at all: without a label of its own
-        it would never appear in ANY island's worker and would sit frozen
-        under `parallel=True` even though the serial path moves it fine."""
-        var n = len(self.bset.bodies)
-        var parent = List[Int]()
-        for i in range(n):
-            parent.append(i)
-        for c in range(len(pairs)):
-            var a = pairs[c].a
-            var b = pairs[c].b
-            if self.bset.is_dynamic(a) and self.bset.is_dynamic(b):
-                parent[self._find(parent, a)] = self._find(parent, b)
-        for c in range(len(self.joints)):
-            var a = self.joints[c].a
-            var b = self.joints[c].b
-            if self.bset.is_dynamic(a) and self.bset.is_dynamic(b):
-                parent[self._find(parent, a)] = self._find(parent, b)
-        # labels + island-wide wake
-        while len(self.bset.island) < n:
-            self.bset.island.append(-1)
-        for i in range(n):
-            self.bset.island[i] = (
-                self._find(parent, i) if self.bset.moves(i) else -1
-            )
-        # ROADMAP 17.24: a MOVING kinematic body must wake a sleeping dynamic
-        # body it touches -- an elevator that starts moving under a sleeping
-        # box (the ordinary "elevator lifts a box" case) must not leave it
-        # frozen. This can't go through the union-find/island-membership wake
-        # above: a kinematic body is deliberately excluded from every dynamic
-        # island (it has its own singleton label), so it never has an "awake
-        # island member" to propagate from. Gated on the kinematic body's OWN
-        # velocity being nonzero -- a STATIONARY kinematic must NOT do this,
-        # or the KEY PARITY TEST breaks (a zero-velocity kinematic must be
-        # bit-identical to static, which never wakes anything by mere
-        # contact; test_kinematic.mojo's "stationary platform lets a resting
-        # box sleep" case is the direct check for this gate).
-        for c in range(len(pairs)):
-            self._wake_if_kinematic_moving(pairs[c].a, pairs[c].b)
-            self._wake_if_kinematic_moving(pairs[c].b, pairs[c].a)
-        for i in range(n):
-            if not self.bset.is_dynamic(i) or self.bset.sleeping[i]:
-                continue
-            # island member i is awake -> wake everyone sharing its label
-            for j in range(n):
-                if self.bset.island[j] == self.bset.island[i] and self.bset.sleeping[j]:
-                    self.bset.sleeping[j] = False
-                    self.bset.sleep_timer[j] = 0
-
-    def _wake_if_kinematic_moving(mut self, ka: Int, kb: Int):
-        """If `ka` is a MOVING kinematic body and `kb` is a sleeping dynamic
-        one, wake `kb`'s island (`_wake_island`) -- see the call site's
-        docstring in `_refresh_islands`. A no-op for every other combination
-        (including a motionless kinematic, or `kb` not asleep to begin
-        with)."""
-        if not self.bset.is_kinematic(ka) or not self.bset.is_dynamic(kb) or not self.bset.sleeping[kb]:
-            return
-        var v = self.bset.bodies[ka].linear_velocity()
-        var w = self.bset.bodies[ka].omega_world()
-        if dot(v, v) == 0 and dot(w, w) == 0:
-            return
-        self._wake_island(kb)
-
-    def _update_sleep(mut self, dt: Real, cfg: SolverConfig):
-        """Advance per-body still-timers; a whole island sleeps together.
-        Kinematic bodies never enter this (ROADMAP 17.24: they never sleep,
-        full stop -- not "asleep when still", just outside the concept, the
-        same way statics always were); `can_sleep=False` (17.25) keeps a
-        dynamic body's timer at 0 forever, which starves its whole island's
-        `all_still` check below without needing a second gate there."""
-        var n = len(self.bset.bodies)
-        for i in range(n):
-            if not self.bset.is_dynamic(i) or self.bset.sleeping[i] or not self.bset.can_sleep[i]:
-                continue
-            var v = self.bset.bodies[i].linear_velocity()
-            var w = self.bset.bodies[i].omega_world()
-            if (
-                dot(v, v) < cfg.lin_sleep_tol * cfg.lin_sleep_tol
-                and dot(w, w) < cfg.ang_sleep_tol * cfg.ang_sleep_tol
-            ):
-                self.bset.sleep_timer[i] += dt
-            else:
-                self.bset.sleep_timer[i] = 0
-        # sleep islands whose every member has been still long enough
-        for i in range(n):
-            if not self.bset.is_dynamic(i) or self.bset.sleeping[i]:
-                continue
-            var all_still = True
-            for j in range(n):
-                if self.bset.island[j] == self.bset.island[i] and self.bset.sleep_timer[
-                    j
-                ] < cfg.sleep_time:
-                    all_still = False
-                    break
-            if all_still:
-                for j in range(n):
-                    if self.bset.island[j] == self.bset.island[i]:
-                        self.bset.sleeping[j] = True
-                        self.bset.bodies[j].halt()
 
     def _push_body(mut self, var b: Self.B, is_static: Bool) -> BodyId:
         """The body-list half of registration, shared by every `add*`
@@ -539,7 +344,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     " joint; remove the joint first"
                 )
         self.bset.remove(id)
-        var kept = List[_CPair]()
+        var kept = List[ContactConstraint]()
         for c in range(len(self.cache)):
             if self.cache[c].a != i and self.cache[c].b != i:
                 kept.append(self.cache[c])
@@ -661,24 +466,6 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             raise Error("ContactScene6.is_sleeping: invalid BodyId")
         return self.bset.sleeping[id.index()]
 
-    def _wake_island(mut self, i: Int):
-        """Wake body `i`'s current island: every body sharing its
-        `bset.island` label -- the same island-wide rule `_refresh_islands`
-        already applies automatically once any member is awake, exposed as
-        its own method so the public `wake`/`teleport` API (17.25) can reach
-        it without duplicating that inline version. A no-op for a static or
-        kinematic `i` (`is_dynamic` gate) -- neither has meaningful sleep
-        state to wake."""
-        if not self.bset.is_dynamic(i):
-            return
-        self.bset.sleeping[i] = False
-        self.bset.sleep_timer[i] = 0
-        var lbl = self.bset.island[i]
-        for j in range(len(self.bset.bodies)):
-            if self.bset.island[j] == lbl and self.bset.sleeping[j]:
-                self.bset.sleeping[j] = False
-                self.bset.sleep_timer[j] = 0
-
     def wake(mut self, id: BodyId) raises:
         """Manually wake body `id`'s island (ROADMAP 17.25) -- e.g. a
         distant explosion's damage query decides a sleeping stack should
@@ -688,7 +475,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         input at the public API)."""
         if not self.bset.is_valid(id):
             raise Error("ContactScene6.wake: invalid BodyId")
-        self._wake_island(id.index())
+        wake_island(self.bset, id.index())
 
     def set_can_sleep(mut self, id: BodyId, on: Bool) raises:
         """`on=False` keeps body `id`'s whole island awake forever: its own
@@ -702,7 +489,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var i = id.index()
         self.bset.can_sleep[i] = on
         if not on:
-            self._wake_island(i)
+            wake_island(self.bset, i)
 
     def teleport(mut self, id: BodyId, pose: Pose6) raises:
         """Instantly move body `id` to `pose` (velocity untouched), wake it
@@ -717,111 +504,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.bodies[i].set_pose(pose)
         self.bset.sleeping[i] = False
         self.bset.sleep_timer[i] = 0
-        self._wake_island(i)
-        var kept = List[_CPair]()
+        wake_island(self.bset, i)
+        var kept = List[ContactConstraint]()
         for c in range(len(self.cache)):
             if self.cache[c].a != i and self.cache[c].b != i:
                 kept.append(self.cache[c])
         self.cache = kept^
 
-    def _inactive(self, i: Int) -> Bool:
-        """"Does this body need its VELOCITY/POSE handled" -- static bodies
-        never move, sleeping bodies are frozen; a kinematic body reads
-        `False` here (not inactive) even at zero velocity, because its pose
-        integration path is the same `not _inactive(i)` gate a dynamic
-        body's is (`step`'s pose loop, `_ccd_advance`). A removed (ROADMAP
-        17.0i `remove_body`) body reads `True` here too -- otherwise
-        `bset.is_static`/`sleeping` both read `False` for a tombstoned slot
-        (`BodySet.remove` clears `sleeping`) and the pose-integration loop
-        below would keep advancing a "despawned" body along whatever
-        velocity it had at removal time forever."""
-        return self.bset.is_static(i) or self.bset.is_removed(i) or self.bset.sleeping[i]
-
-    def _impulse_inert(self, i: Int) -> Bool:
-        """Does body `i` never receive an impulse THIS step -- static,
-        kinematic (ROADMAP 17.24: infinite mass, always excluded), or a
-        still-sleeping dynamic body. Differs from `_inactive` ONLY for
-        kinematic (`_inactive` reads `False` there so pose integration still
-        runs; this reads `True`), so `_impulse_inert(a) and _impulse_inert(b)`
-        is the correct "this pair is a total no-op, skip warm-start/solve
-        entirely" test even when one side is kinematic -- `_inactive` alone
-        under-skips there: a STATIONARY kinematic body next to an already-
-        sleeping dynamic one must behave exactly like a static body (the KEY
-        PARITY TEST), which `_inactive(static)=True` already skips via the
-        old predicate; `_inactive(kinematic)=False` was letting warm-start
-        leak a residual impulse into the sleeping body every step instead
-        (bug caught by `test_kinematic.mojo`'s parity check during
-        development). For DYNAMIC or STATIC bodies this is bit-identical to
-        `_inactive` (`not is_dynamic(i) or sleeping[i]` reduces to exactly
-        `is_static(i) or sleeping[i]` when `i` cannot be kinematic), so
-        nothing pre-existing changes."""
-        return not self.bset.is_dynamic(i) or self.bset.sleeping[i]
-
-    def _solve_point(
-        mut self,
-        ia: Int,
-        ib: Int,
-        n: Vec3,
-        p: Vec3,
-        depth: Real,
-        dt: Real,
-        acc: Real,
-    ) -> Real:
-        """One accumulated-impulse Gauss-Seidel update; returns the new
-        accumulated normal impulse (clamped >= 0, so later sweeps can remove
-        an earlier over-push — without this the solve order injects a net
-        torque and resting boxes slowly rotate)."""
-        # `moves` (velocity read: dynamic OR kinematic) vs `is_dynamic` (mass
-        # term + impulse: dynamic only) -- ROADMAP 17.24's whole solver-side
-        # split, see `BodySet.moves`'s docstring. A zero-velocity kinematic
-        # body takes the exact same `moves=True, is_dynamic=False` branches a
-        # static body takes `moves=False`, both landing on `va=0, ka=0` --
-        # the bit-identity the KEY PARITY TEST requires.
-        var va = Vec3(0, 0, 0, 0)
-        var ka = Real(0)
-        if self.bset.moves(ia):
-            va = self.bset.bodies[ia].velocity_at(p)
-        if self.bset.is_dynamic(ia):
-            ka = self.bset.bodies[ia].inv_mass() + self.bset.bodies[ia].angular_factor(
-                p - self.bset.bodies[ia].position(), n
-            )
-        var vb = Vec3(0, 0, 0, 0)
-        var kb = Real(0)
-        if self.bset.moves(ib):
-            vb = self.bset.bodies[ib].velocity_at(p)
-        if self.bset.is_dynamic(ib):
-            kb = self.bset.bodies[ib].inv_mass() + self.bset.bodies[ib].angular_factor(
-                p - self.bset.bodies[ib].position(), n
-            )
-        var denom = ka + kb
-        if denom <= 0:
-            return acc
-        var vn = dot(vb - va, n)  # >0 means separating (n points a -> b)
-        var bias = _BETA / dt * max(depth - _SLOP, 0)
-        var new_acc = max(acc + (bias - vn) / denom, 0)
-        var dl = new_acc - acc
-        if dl == 0:
-            return acc
-        var j = n * dl
-        if self.bset.is_dynamic(ia):
-            self.bset.bodies[ia].apply_impulse(-j, p)
-        if self.bset.is_dynamic(ib):
-            self.bset.bodies[ib].apply_impulse(j, p)
-        return new_acc
-
-    def _axes(self, i: Int) -> Axes3:
-        """World-frame box axes of body `i` (via `act`, representation-free)."""
-        var o = self.bset.bodies[i].act(Vec3(0, 0, 0, 0))
-        var out = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
-        out[0] = self.bset.bodies[i].act(Vec3(1, 0, 0, 0)) - o
-        out[1] = self.bset.bodies[i].act(Vec3(0, 1, 0, 0)) - o
-        out[2] = self.bset.bodies[i].act(Vec3(0, 0, 1, 0)) - o
-        return out^
-
     def _pose(self, i: Int) -> Pose3:
         """The seam value: everything `ColliderSet` needs from body `i`'s
         transform, and nothing else -- collision never sees a `Body6`."""
-        return Pose3(self.bset.bodies[i].position(), self._axes(i))
+        return self.bset.pose3(i)
+
 
     # ------------------------------------------------ world queries (17.13)
     # Thin wrappers over `collision.world_query`: this is the only place that
@@ -859,69 +553,22 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def closest_point(self, i: Int, p: Vec3) -> Probe:
         return wq_point_distance(self.colliders, i, self._pose(i), p)
 
-    def _make_sensor_cpair(self, rc: RawContact) -> _CPair:
-        """Wrap a sensor overlap: all-zero accumulators/anchors, matching the
-        original inline construction exactly -- a sensor never receives an
-        impulse, so it never needs an anchor or an approach-speed prep."""
-        return _CPair(
-            rc.a, rc.b, rc.feat, rc.m,
-            Array[Real, 4](fill=0),
-            Array[Real, 4](fill=0),
-            Array[Real, 4](fill=0),
-            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-            Array[Real, 4](fill=0),
-            Array[Real, 4](fill=0),
-        )
-
-    def _make_cpair(self, rc: RawContact, warm: Bool) -> _CPair:
-        """Wrap raw contact geometry (`collision.contact_gen.RawContact`)
-        into a solved `_CPair`: body-frame anchors and approach-speed prep
-        (need `Body6.to_local`/`velocity_at`), then a warm-start match
-        against last frame's cache (need `self.cache`) -- the two things
-        `contact_gen` cannot do without seeing physics.
-
-        For a mesh contact `rc.b` is always static, so `vb0` below is always
-        the zero it starts as -- the same value the old mesh-specific path
-        got from `dot(-va0, normal)`, just via the shared formula."""
-        var pr = _CPair(
-            rc.a, rc.b, rc.feat, rc.m,
-            Array[Real, 4](fill=0),
-            Array[Real, 4](fill=0),
-            Array[Real, 4](fill=0),
-            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
-            Array[Real, 4](fill=0),
-            Array[Real, 4](fill=0),
-        )
-        for k in range(rc.m.count):
-            pr.ra[k] = self.bset.bodies[rc.a].to_local(rc.m.points[k])
-            pr.rb[k] = self.bset.bodies[rc.b].to_local(rc.m.points[k])
-            var va0 = Vec3(0, 0, 0, 0)
-            var vb0 = Vec3(0, 0, 0, 0)
-            if not self.bset.is_static(rc.a):
-                va0 = self.bset.bodies[rc.a].velocity_at(rc.m.points[k])
-            if not self.bset.is_static(rc.b):
-                vb0 = self.bset.bodies[rc.b].velocity_at(rc.m.points[k])
-            pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
-        if warm:
-            for c in range(len(self.cache)):
-                var old = self.cache[c]
-                if (
-                    old.a == rc.a
-                    and old.b == rc.b
-                    and old.feat == rc.feat
-                    and old.m.count == rc.m.count
-                ):
-                    pr.acc = old.acc.copy()
-                    pr.acc_t1 = old.acc_t1.copy()
-                    pr.acc_t2 = old.acc_t2.copy()
-                    break
-        return pr^
+    def _constraint_edges(self, pairs: List[ContactConstraint]) -> List[Int]:
+        """The flat `(a, b)` edge list `islands.refresh_islands` takes:
+        this step's contacts first, then the joints -- the order the island
+        union-find has always merged them in."""
+        var edges = List[Int](capacity=2 * (len(pairs) + len(self.joints)))
+        for c in range(len(pairs)):
+            edges.append(pairs[c].a)
+            edges.append(pairs[c].b)
+        for c in range(len(self.joints)):
+            edges.append(self.joints[c].a)
+            edges.append(self.joints[c].b)
+        return edges^
 
     def _collect_pairs(
         mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False
-    ) -> List[_CPair]:
+    ) -> List[ContactConstraint]:
         """Manifolds at the current poses (ROTATED box-box manifold — tilted
         geometry produces restoring contacts). With `warm`, impulses are
         inherited from last frame's matching pair by (a, b) key (order-
@@ -1024,37 +671,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         self.bset.bodies[j].linear_velocity(),
                         spec_dt, raws, sraws,
                     )
-        self.sensor_pairs = List[_CPair]()  # rebuilt with the solved pairs
+        self.sensor_pairs = List[ContactConstraint]()  # rebuilt with the solved pairs
         for c in range(len(sraws)):
-            self.sensor_pairs.append(self._make_sensor_cpair(sraws[c]))
-        var pairs = List[_CPair]()
+            self.sensor_pairs.append(make_sensor_contact(sraws[c]))
+        var pairs = List[ContactConstraint]()
         for c in range(len(raws)):
-            pairs.append(self._make_cpair(raws[c], warm))
+            pairs.append(make_contact(self.bset, self.cache, raws[c], warm))
         return pairs^
-
-    def _warm_start(mut self, pairs: List[_CPair], lo: Int, hi: Int):
-        """Apply the accumulated impulses at each anchor (Box2D v3 scheme: the
-        soft solve's `-impulseScale·acc` term is what balances this out)."""
-        for c in range(lo, hi):
-            var pr = pairs[c]
-            if self._impulse_inert(pr.a) and self._impulse_inert(pr.b):
-                continue
-            var n = pr.m.normal
-            var tb = tangent_basis(n)
-            for k in range(pr.m.count):
-                var j = (
-                    n * pr.acc[k]
-                    + tb[0] * pr.acc_t1[k]
-                    + tb[1] * pr.acc_t2[k]
-                )
-                if self.bset.is_dynamic(pr.a):
-                    self.bset.bodies[pr.a].apply_impulse(
-                        -j, self.bset.bodies[pr.a].act(pr.ra[k])
-                    )
-                if self.bset.is_dynamic(pr.b):
-                    self.bset.bodies[pr.b].apply_impulse(
-                        j, self.bset.bodies[pr.b].act(pr.rb[k])
-                    )
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):
         # 1. Gravity on dynamic bodies only (velocity level) -- kinematic
@@ -1071,7 +694,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             for c in range(len(pairs)):
                 var pr = pairs[c]
                 for k in range(pr.m.count):
-                    pr.acc[k] = self._solve_point(
+                    pr.acc[k] = solve_point(
+                        self.bset,
                         pr.a,
                         pr.b,
                         pr.m.normal,
@@ -1086,823 +710,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if not self.bset.is_static(i):
                 self.bset.bodies[i].integrate_pose(dt)
 
-    def _joint_axis(
-        mut self,
-        ia: Int,
-        ib: Int,
-        pwa: Vec3,
-        pwb: Vec3,
-        e: Vec3,
-        c: Real,
-        h: Real,
-        bias_rate: Real,
-        ms: Real,
-        isc: Real,
-        use_bias: Bool,
-        acc_e: Real,
-    ) -> Real:
-        """One scalar equality-constraint solve along unit axis `e` with
-        position error `c`; returns the accumulated-impulse delta."""
-        var va = Vec3(0, 0, 0, 0)
-        var ka = Real(0)
-        if self.bset.moves(ia):
-            va = self.bset.bodies[ia].velocity_at(pwa)
-        if self.bset.is_dynamic(ia):
-            ka = self.bset.bodies[ia].inv_mass() + self.bset.bodies[ia].angular_factor(
-                pwa - self.bset.bodies[ia].position(), e
-            )
-        var vb = Vec3(0, 0, 0, 0)
-        var kb = Real(0)
-        if self.bset.moves(ib):
-            vb = self.bset.bodies[ib].velocity_at(pwb)
-        if self.bset.is_dynamic(ib):
-            kb = self.bset.bodies[ib].inv_mass() + self.bset.bodies[ib].angular_factor(
-                pwb - self.bset.bodies[ib].position(), e
-            )
-        var denom = ka + kb
-        if denom <= 0:
-            return 0
-        var vr = dot(vb - va, e)
-        var bias = bias_rate * c if use_bias else Real(0)
-        var dl = -ms * (vr + bias) / denom - isc * acc_e
-        var j = e * dl
-        if self.bset.is_dynamic(ia):
-            self.bset.bodies[ia].apply_impulse(-j, pwa)
-        if self.bset.is_dynamic(ib):
-            self.bset.bodies[ib].apply_impulse(j, pwb)
-        return dl
-
-    def _joint_island(self, jt: Joint6) -> Int:
-        return self.bset.island[jt.a] if self.bset.is_dynamic(jt.a) else self.bset.island[jt.b]
-
-    def _joint_sweep(
-        mut self,
-        h: Real,
-        bias_rate: Real,
-        ms: Real,
-        isc: Real,
-        use_bias: Bool,
-        iters: Int,
-        island_filter: Int,
-    ):
-        for _ in range(iters):
-            for c in range(len(self.joints)):
-                var jt = self.joints[c]
-                if self._impulse_inert(jt.a) and self._impulse_inert(jt.b):
-                    continue
-                if island_filter != -2 and self._joint_island(jt) != island_filter:
-                    continue
-                var pwa = self.bset.bodies[jt.a].act(jt.la)
-                var pwb = self.bset.bodies[jt.b].act(jt.lb)
-                var gap = pwb - pwa
-                if jt.kind == JOINT_DISTANCE:
-                    var l = sqrt(max(dot(gap, gap), Real(1e-12)))
-                    var u = gap / l
-                    var acc_s = dot(jt.acc, u)
-                    var dl = self._joint_axis(
-                        jt.a, jt.b, pwa, pwb, u, l - jt.rest,
-                        h, bias_rate, ms, isc, use_bias, acc_s,
-                    )
-                    jt.acc = u * (acc_s + dl)
-                else:
-                    # ball part (shared by hinge): drive the anchor gap to 0.
-                    for ax in range(3):
-                        var e = Vec3(0, 0, 0, 0)
-                        e[ax] = 1
-                        var dl = self._joint_axis(
-                            jt.a, jt.b, pwa, pwb, e, gap[ax],
-                            h, bias_rate, ms, isc, use_bias, jt.acc[ax],
-                        )
-                        jt.acc[ax] += dl
-                    if jt.kind == JOINT_HINGE:
-                        var oa = self.bset.bodies[jt.a].act(jt.axis_a) - self.bset.bodies[
-                            jt.a
-                        ].act(Vec3(0, 0, 0, 0))
-                        var ob = self.bset.bodies[jt.b].act(jt.axis_b) - self.bset.bodies[
-                            jt.b
-                        ].act(Vec3(0, 0, 0, 0))
-                        var er = cross(oa, ob)  # small-angle axis error
-                        var wa = Vec3(0, 0, 0, 0)
-                        var wb2 = Vec3(0, 0, 0, 0)
-                        if self.bset.moves(jt.a):
-                            wa = self.bset.bodies[jt.a].omega_world()
-                        if self.bset.moves(jt.b):
-                            wb2 = self.bset.bodies[jt.b].omega_world()
-                        var tb = tangent_basis(oa)
-                        for ti in range(2):
-                            var t = tb[0] if ti == 0 else tb[1]
-                            var kaa = Real(0)
-                            var kbb = Real(0)
-                            if self.bset.is_dynamic(jt.a):
-                                kaa = self.bset.bodies[jt.a].angular_only_factor(t)
-                            if self.bset.is_dynamic(jt.b):
-                                kbb = self.bset.bodies[jt.b].angular_only_factor(t)
-                            var den = kaa + kbb
-                            if den <= 0:
-                                continue
-                            var vr = dot(wb2 - wa, t)
-                            var bias = (
-                                bias_rate * dot(er, t) if use_bias else Real(0)
-                            )
-                            var acc_t = dot(jt.acc_ang, t)
-                            var dl = -ms * (vr + bias) / den - isc * acc_t
-                            jt.acc_ang = jt.acc_ang + t * dl
-                            var limp = t * dl
-                            if self.bset.is_dynamic(jt.a):
-                                self.bset.bodies[jt.a].apply_angular_impulse(-limp)
-                            if self.bset.is_dynamic(jt.b):
-                                self.bset.bodies[jt.b].apply_angular_impulse(limp)
-                            wa = Vec3(0, 0, 0, 0)
-                            wb2 = Vec3(0, 0, 0, 0)
-                            if self.bset.moves(jt.a):
-                                wa = self.bset.bodies[jt.a].omega_world()
-                            if self.bset.moves(jt.b):
-                                wb2 = self.bset.bodies[jt.b].omega_world()
-                self.joints[c] = jt
-
-    def _warm_start_joints(mut self, island_filter: Int):
-        for c in range(len(self.joints)):
-            var jt = self.joints[c]
-            if self._impulse_inert(jt.a) and self._impulse_inert(jt.b):
-                continue
-            if island_filter != -2 and self._joint_island(jt) != island_filter:
-                continue
-            var pwa = self.bset.bodies[jt.a].act(jt.la)
-            var pwb = self.bset.bodies[jt.b].act(jt.lb)
-            if self.bset.is_dynamic(jt.a):
-                self.bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
-                if jt.kind == JOINT_HINGE:
-                    self.bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
-            if self.bset.is_dynamic(jt.b):
-                self.bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
-                if jt.kind == JOINT_HINGE:
-                    self.bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
-
-    def _soft_sweep(
-        mut self,
-        mut pairs: List[_CPair],
-        lo: Int,
-        hi: Int,
-        h: Real,
-        bias_rate: Real,
-        mass_scale: Real,
-        impulse_scale: Real,
-        use_bias: Bool,
-        iters: Int,
-        mu: Real,
-    ):
-        """Gauss-Seidel sweeps with Solver2D soft coefficients. Separation is
-        re-derived per point from the CURRENT poses via body-frame anchors, so
-        rotation shows up as differential depth (restoring torque)."""
-        for _ in range(iters):
-            for c in range(lo, hi):
-                self._solve_pair(
-                    pairs, c, h, bias_rate, mass_scale, impulse_scale,
-                    use_bias, mu,
-                )
-
-    def _sweep_colored(
-        mut self,
-        mut pairs: List[_CPair],
-        clo: List[Int],
-        chi: List[Int],
-        h: Real,
-        bias_rate: Real,
-        mass_scale: Real,
-        impulse_scale: Real,
-        use_bias: Bool,
-        iters: Int,
-        mu: Real,
-        par: Bool,
-        workers: Int = 0,
-    ):
-        """Graph-colored sweeps: pairs in one color share no DYNAMIC body
-        (statics are excluded from adjacency and never written), so a color
-        solves in parallel — Jacobi within the color, Gauss-Seidel across
-        colors. The schedule is fixed and same-color writes are disjoint, so
-        par=True is bit-identical to par=False (and to any `workers` count)."""
-        for _ in range(iters):
-            for col in range(len(clo)):
-                if par and chi[col] - clo[col] >= 8:
-                    _solve_color_parallel(
-                        self, pairs, clo[col], chi[col], h, bias_rate,
-                        mass_scale, impulse_scale, use_bias, mu, workers,
-                    )
-                else:
-                    for c in range(clo[col], chi[col]):
-                        self._solve_pair(
-                            pairs, c, h, bias_rate, mass_scale,
-                            impulse_scale, use_bias, mu,
-                        )
-
-    def _solve_pair(
-        mut self,
-        mut pairs: List[_CPair],
-        c: Int,
-        h: Real,
-        bias_rate: Real,
-        mass_scale: Real,
-        impulse_scale: Real,
-        use_bias: Bool,
-        mu: Real,
-    ):
-        """One pair's normal + friction solve (the body of `_soft_sweep`,
-        extracted so the colored sweep can schedule it per pair)."""
-        var pr = pairs[c]
-        if self._impulse_inert(pr.a) and self._impulse_inert(pr.b):
-            return
-        var n = pr.m.normal
-        # ROADMAP 17.23: the pair's combined friction, computed ONCE per pair
-        # (not per point/substep) since it depends only on (a, b), not on the
-        # contact geometry -- "cheap per contact" per the spec. `mu` here is
-        # `cfg.default_friction`, substituted for either body's coefficient
-        # when it never called `set_friction` (`eff_friction`'s docstring);
-        # with both bodies unset and the default `COMBINE_AVERAGE` mode,
-        # `combine(mu, mu, AVERAGE, AVERAGE) == mu` bit-exactly, so an
-        # all-default scene is unchanged from before this existed.
-        var pair_mu = combine(
-            self.bset.eff_friction(pr.a, mu),
-            self.bset.eff_friction(pr.b, mu),
-            self.bset.friction_combine[pr.a],
-            self.bset.friction_combine[pr.b],
-        )
-        for k in range(pr.m.count):
-            var pwa = self.bset.bodies[pr.a].act(pr.ra[k])
-            var pwb = self.bset.bodies[pr.b].act(pr.rb[k])
-            # anchors coincided at prep with depth d0; separation since
-            # then is the anchor drift along the normal
-            var d = pr.m.depths[k] - dot(pwb - pwa, n)
-            var va = Vec3(0, 0, 0, 0)
-            var ka = Real(0)
-            if self.bset.moves(pr.a):
-                va = self.bset.bodies[pr.a].velocity_at(pwa)
-            if self.bset.is_dynamic(pr.a):
-                ka = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
-                    pr.a
-                ].angular_factor(pwa - self.bset.bodies[pr.a].position(), n)
-            var vb = Vec3(0, 0, 0, 0)
-            var kb = Real(0)
-            if self.bset.moves(pr.b):
-                vb = self.bset.bodies[pr.b].velocity_at(pwb)
-            if self.bset.is_dynamic(pr.b):
-                kb = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
-                    pr.b
-                ].angular_factor(pwb - self.bset.bodies[pr.b].position(), n)
-            var denom = ka + kb
-            if denom <= 0:
-                continue
-            var vn = dot(vb - va, n)
-            # Box2D sign convention: separation s = -d (negative when
-            # penetrating), bias <= 0 pulls vn upward past zero.
-            var bias = Real(0)
-            var ms = Real(1)
-            var isc = Real(0)
-            if d < 0:
-                bias = -d / h  # speculative: match approach speed
-            elif use_bias:
-                bias = max(-bias_rate * d, Real(-4))
-                ms = mass_scale
-                isc = impulse_scale
-            var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
-            var new_acc = max(pr.acc[k] + raw, 0)
-            var dl = new_acc - pr.acc[k]
-            pr.acc[k] = new_acc
-            if dl != 0:
-                var j = n * dl
-                if self.bset.is_dynamic(pr.a):
-                    self.bset.bodies[pr.a].apply_impulse(-j, pwa)
-                if self.bset.is_dynamic(pr.b):
-                    self.bset.bodies[pr.b].apply_impulse(j, pwb)
-            # Coulomb friction: tangent impulses clamped to pair_mu * lambda_n.
-            var tb = tangent_basis(n)
-            var cap = pair_mu * pr.acc[k]
-            for ti in range(2):
-                var t = tb[0] if ti == 0 else tb[1]
-                var vat = Vec3(0, 0, 0, 0)
-                var kat = Real(0)
-                if self.bset.moves(pr.a):
-                    vat = self.bset.bodies[pr.a].velocity_at(pwa)
-                if self.bset.is_dynamic(pr.a):
-                    kat = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
-                        pr.a
-                    ].angular_factor(
-                        pwa - self.bset.bodies[pr.a].position(), t
-                    )
-                var vbt = Vec3(0, 0, 0, 0)
-                var kbt = Real(0)
-                if self.bset.moves(pr.b):
-                    vbt = self.bset.bodies[pr.b].velocity_at(pwb)
-                if self.bset.is_dynamic(pr.b):
-                    kbt = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
-                        pr.b
-                    ].angular_factor(
-                        pwb - self.bset.bodies[pr.b].position(), t
-                    )
-                var dent = kat + kbt
-                if dent <= 0:
-                    continue
-                var vt = dot(vbt - vat, t)
-                var acc_t = pr.acc_t1[k] if ti == 0 else pr.acc_t2[k]
-                var new_t = acc_t - vt / dent
-                if new_t > cap:
-                    new_t = cap
-                elif new_t < -cap:
-                    new_t = -cap
-                var dtl = new_t - acc_t
-                if ti == 0:
-                    pr.acc_t1[k] = new_t
-                else:
-                    pr.acc_t2[k] = new_t
-                if dtl != 0:
-                    var jt = t * dtl
-                    if self.bset.is_dynamic(pr.a):
-                        self.bset.bodies[pr.a].apply_impulse(-jt, pwa)
-                    if self.bset.is_dynamic(pr.b):
-                        self.bset.bodies[pr.b].apply_impulse(jt, pwb)
-        pairs[c] = pr
-
-    def _ccd_advance(mut self, h: Real):
-        """Swept/TOI pose advance (second-stage CCD, Jolt LinearCast
-        direction): a body whose relative travel this substep could jump the
-        thinnest feature of a pair linear-casts its box along the substep
-        displacement (`swept_box_toi`) and advances only to the time of
-        impact, minus a hair of back-off — the speculative solver then removes
-        the approach velocity with the pair already AT the surface, so the
-        midplane can never be crossed. Slow bodies take the plain pose step,
-        bit-identical to the non-CCD path (zero-regression guarantee). Clamp
-        fractions are decided against the substep-start snapshot before any
-        pose moves, so mutually-approaching fast pairs resolve symmetrically
-        (the relative displacement already contains both velocities).
-
-        Sphere/capsule still use their conservative `half` box (a superset of
-        the real shape centred correctly on the body, so the sweep can only
-        clamp too early, never wrongly): that is unchanged. Hull, trimesh
-        and heightfield have no exact box TOI at all -- a hull's box is not
-        its shape, and a static mesh's `half` is not even centred on the
-        body (F3), so sweeping either as a box can freeze a body far from
-        its real surface. Rather than build a per-kind sweep for three kinds
-        that already get a discrete/speculative contact every substep, this
-        sweep just skips any pair touching one of them (the conservative
-        option the spec allows): CCD there falls back to whatever the
-        ordinary contact path already provides, with the residual tunnelling
-        risk that implies for genuinely fast movers against those three
-        kinds specifically -- no worse than before CCD existed for them.
-        `should_collide`/sensors are consulted too, so a filtered or sensor
-        pair is never clamped here regardless of shape (17.0f / F4c)."""
-        var n = len(self.bset.bodies)
-        var frac = List[Real]()
-        for _ in range(n):
-            frac.append(1)
-        for i in range(n):
-            if self._inactive(i):
-                continue
-            var ki = self.colliders.shape[i]
-            if ki == SHAPE_HULL or ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD:
-                continue  # no exact box TOI for this kind (see docstring)
-            var vi = self.bset.bodies[i].linear_velocity()
-            if dot(vi, vi) * h * h < 1e-12:
-                continue
-            for j in range(n):
-                if j == i:
-                    continue
-                if not self.colliders.should_collide(i, j):
-                    continue
-                if self.colliders.is_sensor(i) or self.colliders.is_sensor(j):
-                    continue
-                if not self.bset.is_dynamic(i) and not self.bset.is_dynamic(j):
-                    # ROADMAP 17.24: static-kinematic and kinematic-kinematic
-                    # pairs produce no DISCRETE contact either (`_collect_pairs`)
-                    # -- CCD must agree, or a kinematic body moving toward a
-                    # static wall would get TOI-clamped by a "contact" that
-                    # otherwise never exists (spec: "no contact, no NaN").
-                    continue
-                var kj = self.colliders.shape[j]
-                if kj == SHAPE_HULL or kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD:
-                    continue
-                var vj = Vec3(0, 0, 0, 0)
-                if not self._inactive(j):
-                    vj = self.bset.bodies[j].linear_velocity()
-                var rel = (vi - vj) * h
-                var ha = self.colliders.half[i]
-                var hb = self.colliders.half[j]
-                var thin = min(
-                    min(ha[0], min(ha[1], ha[2])),
-                    min(hb[0], min(hb[1], hb[2])),
-                )
-                if dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
-                    continue  # cannot jump the pair's thinnest feature
-                var r = swept_box_toi(
-                    self.bset.bodies[j].position(),
-                    self._axes(j),
-                    hb,
-                    self.bset.bodies[i].position(),
-                    self._axes(i),
-                    ha,
-                    rel,
-                )
-                if r.hit and r.t < frac[i]:
-                    frac[i] = r.t
-        for i in range(n):
-            if self._inactive(i):
-                continue
-            var f = frac[i]
-            if f < 1:
-                f = max(f - Real(0.01), 0)
-            self.bset.bodies[i].integrate_pose(h * f)
-
-    def _restitution_pass(
-        mut self,
-        mut pairs: List[_CPair],
-        lo: Int,
-        hi: Int,
-        iters: Int,
-        threshold: Real = 1.0,  # m/s approach speed to trigger (SolverConfig
-        # .restitution_threshold; default matches the old comptime REST_THRESH)
-    ):
-        """Box2D v3 restitution: after the substeps have resolved penetration,
-        push each point that arrived faster than the threshold back toward
-        `vn = -e·vn0` (its own clamped accumulator, so sweeps can correct)."""
-        for _ in range(iters):
-            for c in range(lo, hi):
-                var pr = pairs[c]
-                # ROADMAP 17.23: combined via each body's own
-                # `restitution_combine` (default `COMBINE_MAX` for every
-                # body -- `combine`'s docstring), so an all-default scene's
-                # `max(a, b)` is bit-identical to before this existed.
-                var e = combine(
-                    self.bset.restitution[pr.a], self.bset.restitution[pr.b],
-                    self.bset.restitution_combine[pr.a],
-                    self.bset.restitution_combine[pr.b],
-                )
-                if e <= 0:
-                    continue
-                var n = pr.m.normal
-                for k in range(pr.m.count):
-                    if pr.vn0[k] >= -threshold:
-                        continue
-                    var pwa = self.bset.bodies[pr.a].act(pr.ra[k])
-                    var pwb = self.bset.bodies[pr.b].act(pr.rb[k])
-                    var va = Vec3(0, 0, 0, 0)
-                    var ka = Real(0)
-                    if self.bset.moves(pr.a):
-                        va = self.bset.bodies[pr.a].velocity_at(pwa)
-                    if self.bset.is_dynamic(pr.a):
-                        ka = self.bset.bodies[pr.a].inv_mass() + self.bset.bodies[
-                            pr.a
-                        ].angular_factor(pwa - self.bset.bodies[pr.a].position(), n)
-                    var vb = Vec3(0, 0, 0, 0)
-                    var kb = Real(0)
-                    if self.bset.moves(pr.b):
-                        vb = self.bset.bodies[pr.b].velocity_at(pwb)
-                    if self.bset.is_dynamic(pr.b):
-                        kb = self.bset.bodies[pr.b].inv_mass() + self.bset.bodies[
-                            pr.b
-                        ].angular_factor(pwb - self.bset.bodies[pr.b].position(), n)
-                    var denom = ka + kb
-                    if denom <= 0:
-                        continue
-                    var vn = dot(vb - va, n)
-                    var target = -e * pr.vn0[k]
-                    var new_acc = max(pr.racc[k] + (target - vn) / denom, 0)
-                    var dl = new_acc - pr.racc[k]
-                    pr.racc[k] = new_acc
-                    if dl != 0:
-                        var j = n * dl
-                        if self.bset.is_dynamic(pr.a):
-                            self.bset.bodies[pr.a].apply_impulse(-j, pwa)
-                        if self.bset.is_dynamic(pr.b):
-                            self.bset.bodies[pr.b].apply_impulse(j, pwb)
-                pairs[c] = pr
-
-    def _soft_fric(
-        self, b: Int, x0: Vec3, pv: Vec3, nw: Vec3, nrm: Vec3,
-        h: Real, mu: Real,
-    ) -> Vec3:
-        """Position-level Coulomb friction for a particle contact: clamp the
-        tangential slide (relative to the body's contact-point motion) to
-        mu times the normal correction — static grip inside the cone,
-        sliding on it. Folded into the target point so the coupling impulse
-        carries the tangential reaction automatically."""
-        var nl = sqrt(max(dot(nrm, nrm), Real(1e-18)))
-        var n = nrm * (1 / nl)
-        var dn = abs(dot(nw - x0, n))
-        var vb = self.bset.bodies[b].velocity_at(nw)
-        var slide = (x0 - pv) - vb * h
-        var st = slide - n * dot(slide, n)
-        var stl = sqrt(max(dot(st, st), Real(1e-18)))
-        if stl <= Real(1e-9):
-            return nw
-        var corr = stl
-        if mu * dn < corr:
-            corr = mu * dn
-        return nw - st * (corr / stl)
-
-    def _softbody_pass(mut self, h: Real, gravity: Vec3, iters: Int, ccd: Bool):
-        """One XPBD substep for every soft body: predict, solve the lattice
-        distance constraints, collide particles against every box (pushing
-        the equivalent impulse back into dynamic bodies), derive velocities.
-
-        With `ccd` a particle that ends the substep OUTSIDE a box is also
-        swept: its pre-substep-to-current segment (in the box's current local
-        frame — first-order relative motion) is slab-tested against the
-        inflated box, and a crossing snaps it back to the entry face. Slow
-        paths never trigger the sweep, so ccd=False results are unchanged."""
-        for s in range(len(self.softs)):
-            var np = len(self.softs[s].pts)
-            var alpha_h = self.softs[s].alpha / (h * h)
-            var r = self.softs[s].radius
-            var damp = self.softs[s].damp
-            var smu = self.softs[s].mu
-            # predict (store the pre-step position in v temporarily? no —
-            # keep explicit: prev list rebuilt per substep)
-            var prev = List[Real](capacity=np * 3)
-            for i in range(np):
-                var p = self.softs[s].pts[i]
-                prev.append(p.x[0])
-                prev.append(p.x[1])
-                prev.append(p.x[2])
-                p.v = p.v + gravity * h
-                p.x = p.x + p.v * h
-                self.softs[s].pts[i] = p
-            for e in range(len(self.softs[s].edges)):
-                var ed = self.softs[s].edges[e]
-                ed.lam = 0
-                self.softs[s].edges[e] = ed
-            # XPBD Gauss-Seidel over the lattice edges
-            for _ in range(iters):
-                for e in range(len(self.softs[s].edges)):
-                    var ed = self.softs[s].edges[e]
-                    var pa = self.softs[s].pts[ed.a]
-                    var pb = self.softs[s].pts[ed.b]
-                    var d = pa.x - pb.x
-                    var l = sqrt(max(dot(d, d), Real(1e-12)))
-                    var cc = l - ed.rest
-                    var wsum = pa.w + pb.w
-                    if wsum <= 0:
-                        continue
-                    var dl = (-cc - alpha_h * ed.lam) / (wsum + alpha_h)
-                    ed.lam += dl
-                    var corr = d * (dl / l)
-                    pa.x = pa.x + corr * pa.w
-                    pb.x = pb.x - corr * pb.w
-                    self.softs[s].pts[ed.a] = pa
-                    self.softs[s].pts[ed.b] = pb
-                    self.softs[s].edges[e] = ed
-            # particle vs every collider (bodies default to boxes in this
-            # scene; hull/trimesh/heightfield route through `ColliderSet`
-            # below, sphere/capsule keep their own exact closed forms here).
-            for i in range(np):
-                var p = self.softs[s].pts[i]
-                for b in range(len(self.bset.bodies)):
-                    var kind = self.colliders.shape[b]
-                    if (
-                        kind == SHAPE_HULL
-                        or kind == SHAPE_TRIMESH
-                        or kind == SHAPE_HEIGHTFIELD
-                    ):
-                        # Point-vs-shape closest point through the collider
-                        # registry (17.0f / F4b): a hull's SAT over its own
-                        # faces, a mesh's triangle candidates + closest point
-                        # on triangle -- see `ColliderSet.soft_particle_contact`.
-                        # These three kinds do not get the `ccd` sweep the
-                        # box/sphere/capsule paths below have; a fast particle
-                        # can still tunnel through one within a substep. That
-                        # is the same conservative scope limit `_ccd_advance`
-                        # documents for rigid bodies against these kinds.
-                        var res = self.colliders.soft_particle_contact(
-                            b, self._pose(b), p.x, r
-                        )
-                        if res[0]:
-                            var nw3 = res[1]
-                            if smu > 0:
-                                nw3 = self._soft_fric(
-                                    b, p.x,
-                                    Vec3(
-                                        prev[i * 3], prev[i * 3 + 1],
-                                        prev[i * 3 + 2], 0,
-                                    ),
-                                    nw3, res[2], h, smu,
-                                )
-                            var dx3 = nw3 - p.x
-                            p.x = nw3
-                            # audit E3: a pinned particle (p.w == 0, infinite
-                            # mass) would make 1/p.w = inf here -- skip the
-                            # reaction impulse for it, same as any other
-                            # infinite-mass coupling (the pushout above
-                            # already moved the particle; only the equal-
-                            # and-opposite push into the RIGID body needs
-                            # a finite particle mass to compute).
-                            if self.bset.is_dynamic(b) and p.w != 0:
-                                var j3 = dx3 * (-(1 / p.w) / h)
-                                self.bset.bodies[b].apply_impulse(j3, nw3)
-                                if self.bset.sleeping[b]:
-                                    self.bset.sleeping[b] = False
-                                    self.bset.sleep_timer[b] = 0
-                        continue
-                    if kind != SHAPE_BOX:
-                        # sphere / capsule: radial pushout from the closest
-                        # interior point (capsule = sphere at the closest
-                        # point of its world axis segment); same impulse
-                        # coupling as the box path below
-                        var hh2 = self.colliders.half[b]
-                        var rad = hh2[0]
-                        var cen = self.bset.bodies[b].position()
-                        if self.colliders.shape[b] == 2:
-                            var axw = self.bset.bodies[b].act(
-                                Vec3(0, hh2[1], 0, 0)
-                            ) - cen
-                            var tt = dot(p.x - cen, axw) / max(
-                                dot(axw, axw), Real(1e-12)
-                            )
-                            if tt > 1:
-                                tt = 1
-                            if tt < -1:
-                                tt = -1
-                            cen = cen + axw * tt
-                        var rr = rad + r
-                        var dvec = p.x - cen
-                        var d2 = dot(dvec, dvec)
-                        var nw2 = p.x
-                        var hit = False
-                        if ccd:
-                            # swept segment vs the inflated sphere
-                            # (quadratic, earliest root in [0,1]) — and it
-                            # OUTRANKS the radial pushout, which would eject
-                            # a particle that crossed the midplane within
-                            # one substep out the FAR side (same trap as the
-                            # box path). Capsule: the sphere sits at the
-                            # closest axis point of the CURRENT position —
-                            # first-order, same spirit as the box sweep.
-                            var pv2 = Vec3(
-                                prev[i * 3],
-                                prev[i * 3 + 1],
-                                prev[i * 3 + 2],
-                                0,
-                            )
-                            var s0 = pv2 + self.bset.bodies[
-                                b
-                            ].linear_velocity() * h
-                            var seg = p.x - s0
-                            var oc = s0 - cen
-                            var cc2 = dot(oc, oc) - rr * rr
-                            if dot(seg, seg) > r * r and cc2 > 0:
-                                var aa = dot(seg, seg)
-                                var bb2 = 2 * dot(oc, seg)
-                                var disc = bb2 * bb2 - 4 * aa * cc2
-                                if disc >= 0:
-                                    var tq = (-bb2 - sqrt(disc)) / (2 * aa)
-                                    if tq >= 0 and tq <= 1:
-                                        var entry = s0 + seg * tq
-                                        var ed = entry - cen
-                                        var el = sqrt(
-                                            max(dot(ed, ed), Real(1e-12))
-                                        )
-                                        nw2 = cen + ed * (rr / el)
-                                        hit = True
-                        if not hit and d2 < rr * rr:
-                            var dist = sqrt(max(d2, Real(1e-12)))
-                            nw2 = cen + dvec * (rr / dist)
-                            hit = True
-                        if hit and smu > 0:
-                            nw2 = self._soft_fric(
-                                b,
-                                p.x,
-                                Vec3(
-                                    prev[i * 3],
-                                    prev[i * 3 + 1],
-                                    prev[i * 3 + 2],
-                                    0,
-                                ),
-                                nw2,
-                                (nw2 - cen) * (1 / rr),
-                                h,
-                                smu,
-                            )
-                        if hit:
-                            var dx2 = nw2 - p.x
-                            p.x = nw2
-                            if self.bset.is_dynamic(b) and p.w != 0:  # E3
-                                var j2 = dx2 * (-(1 / p.w) / h)
-                                self.bset.bodies[b].apply_impulse(j2, nw2)
-                                if self.bset.sleeping[b]:
-                                    self.bset.sleeping[b] = False
-                                    self.bset.sleep_timer[b] = 0
-                        continue
-                    var lp = self.bset.bodies[b].to_local(p.x)
-                    var hh = self.colliders.half[b]
-                    var pen = Real(1e30)
-                    var ax = -1
-                    var inside = True
-                    comptime for k in range(3):
-                        var pk = (hh[k] + r) - abs(lp[k])
-                        if pk <= 0:
-                            inside = False
-                        elif pk < pen:
-                            pen = pk
-                            ax = k
-                    var sgn = Real(0)
-                    var swept = False
-                    if ccd:
-                        # Swept clamp, and it OUTRANKS the discrete pushout:
-                        # a fast particle that crossed the box's midplane
-                        # within one substep would be ejected out the FAR
-                        # face by min-penetration — the entry face from the
-                        # sweep is the truth. RELATIVE motion: shifting the
-                        # particle's start by the box's own substep
-                        # displacement (+v·h, exact for integrate_pose) lets
-                        # one segment in the box's current frame carry both
-                        # motions; the box's rotation change is ignored
-                        # (first-order sweep). Gated on |dv| > r so slow
-                        # scenes keep the discrete path bit-identically.
-                        var pv = Vec3(
-                            prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
-                        , 0)
-                        var lp0 = self.bset.bodies[b].to_local(
-                            pv + self.bset.bodies[b].linear_velocity() * h
-                        )
-                        var dv = lp - lp0
-                        if dot(dv, dv) > r * r:
-                            # t_in >= 0 (not > 0): a particle clamped ONTO
-                            # the face last substep re-enters with t_in == 0
-                            var t_in = Real(-1e30)
-                            var t_out = Real(1)
-                            var ax_in = -1
-                            var miss = False
-                            for k in range(3):
-                                var he = hh[k] + r
-                                if abs(dv[k]) < Real(1e-12):
-                                    if abs(lp0[k]) > he:
-                                        miss = True
-                                else:
-                                    var t1 = (-he - lp0[k]) / dv[k]
-                                    var t2 = (he - lp0[k]) / dv[k]
-                                    if t1 > t2:
-                                        var tmp = t1
-                                        t1 = t2
-                                        t2 = tmp
-                                    if t1 > t_in:
-                                        t_in = t1
-                                        ax_in = k
-                                    if t2 < t_out:
-                                        t_out = t2
-                            if (
-                                not miss
-                                and ax_in >= 0
-                                and t_in >= 0
-                                and t_in <= t_out
-                                and t_in <= 1
-                            ):
-                                ax = ax_in
-                                # entry side comes from the START point:
-                                # after crossing the midplane lp[ax] is
-                                # already on the far side
-                                sgn = Real(1) if lp0[ax] >= 0 else Real(-1)
-                                swept = True
-                    if not swept:
-                        if inside and ax >= 0:
-                            sgn = Real(1) if lp[ax] >= 0 else Real(-1)
-                        else:
-                            continue
-                    lp[ax] = sgn * (hh[ax] + r)
-                    var nw = self.bset.bodies[b].act(lp)
-                    if smu > 0:
-                        # world face normal from a unit local offset
-                        var lpo = lp
-                        lpo[ax] = sgn * (hh[ax] + r + 1)
-                        nw = self._soft_fric(
-                            b,
-                            p.x,
-                            Vec3(
-                                prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2]
-                            , 0),
-                            nw,
-                            self.bset.bodies[b].act(lpo) - nw,
-                            h,
-                            smu,
-                        )
-                    var dx = nw - p.x
-                    p.x = nw
-                    if self.bset.is_dynamic(b) and p.w != 0:  # E3: pinned particle
-                        # equal-and-opposite impulse into the dynamic body
-                        var j = dx * (-(1 / p.w) / h)
-                        self.bset.bodies[b].apply_impulse(j, nw)
-                        if self.bset.sleeping[b]:
-                            self.bset.sleeping[b] = False
-                            self.bset.sleep_timer[b] = 0
-                self.softs[s].pts[i] = p
-            # velocities from positions
-            for i in range(np):
-                var p = self.softs[s].pts[i]
-                var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2], 0)
-                p.v = (p.x - pv) * (damp / h)
-                self.softs[s].pts[i] = p
-
-    def _pair_island(self, pr: _CPair) -> Int:
-        return self.bset.island[pr.a] if self.bset.is_dynamic(pr.a) else self.bset.island[pr.b]
-
     def _solve_island(
         mut self,
-        mut pairs: List[_CPair],
+        mut pairs: List[ContactConstraint],
         plo: Int,
         phi: Int,
         label: Int,
@@ -1928,13 +738,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 if self.bset.island[i] == label and self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
                     var f = gravity / self.bset.bodies[i].inv_mass()
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
-            self._warm_start(pairs, plo, phi)
-            self._warm_start_joints(label)
-            self._joint_sweep(
-                h, bias_rate, mass_scale, impulse_scale, True, iters, label
+            warm_start_contacts(self.bset, pairs, plo, phi)
+            warm_start_joints(self.bset, self.joints, label)
+            joint_sweep(
+                self.bset, self.joints,                 h, bias_rate, mass_scale, impulse_scale, True, iters, label
             )
-            self._soft_sweep(
-                pairs, plo, phi, h, bias_rate, mass_scale,
+            soft_sweep(
+                self.bset,                 pairs, plo, phi, h, bias_rate, mass_scale,
                 impulse_scale, True, iters, mu,
             )
             # pose: dynamic (if awake) OR kinematic -- `not _inactive` is
@@ -1942,13 +752,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # is `is_static or sleeping` and this loop never sees a static
             # body's label (`_refresh_islands` never assigns one).
             for i in range(len(self.bset.bodies)):
-                if self.bset.island[i] == label and not self._inactive(i):
+                if self.bset.island[i] == label and not self.bset.inactive(i):
                     self.bset.bodies[i].integrate_pose(h)
-            self._joint_sweep(h, bias_rate, 1, 0, False, 2, label)
-            self._soft_sweep(pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
-        self._restitution_pass(pairs, plo, phi, 4, rest_threshold)
+            joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, label)
+            soft_sweep(self.bset, pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
+        restitution_pass(self.bset, pairs, plo, phi, 4, rest_threshold)
 
-    def _emit_events(mut self, pairs: List[_CPair]):
+    def _emit_events(mut self, pairs: List[ContactConstraint]):
         """Diff this step's contact set against last step's: began / stay /
         ended (`collision.contact_events.diff_events`).
 
@@ -2019,13 +829,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self.log, i, "solver",
                 "body quarantined: non-finite pose/velocity", Float64(i), 0,
             )
-            var kept = List[_CPair]()
+            var kept = List[ContactConstraint]()
             for c in range(len(self.cache)):
                 if self.cache[c].a != i and self.cache[c].b != i:
                     kept.append(self.cache[c])
             self.cache = kept^
 
-    def _emit_debug_draw(mut self, pairs: List[_CPair]):
+    def _emit_debug_draw(mut self, pairs: List[ContactConstraint]):
         """Debug-draw (ROADMAP 17.0h; only compiled to a real call site when
         `-D LUDENS_DEBUG_DRAW` is defined -- `step`'s caller is a `comptime
         if DEBUG_DRAW_ON`). One `DrawCommand` per contact POINT (an arrow
@@ -2037,7 +847,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         comptime scale = Real(0.15)  # arrow length, world units
         for pc in range(len(pairs)):
             ref pr = pairs[pc]
-            var island = self._pair_island(pr)
+            var island = contact_island(self.bset, pr)
             # a small deterministic palette keyed by island label, wrapping
             # at 6 -- debug-draw is for a human to look at, not a contract.
             var lbl = island % 6 if island >= 0 else 5
@@ -2155,7 +965,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.trace.begin("collect_pairs")
         var pairs = self._collect_pairs(True, dt, broadphase)
         self.trace.end()
-        self._refresh_islands(pairs)
+        refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         # graph coloring (colored=True): greedy smallest-free-color over the
         # DYNAMIC-body adjacency (a shared static must not chain colors, or
         # one ground plane serialises the whole scene); pairs reordered into
@@ -2225,7 +1035,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self.counters.incr(COLOR_OVERFLOW)
                 colored = False
             else:
-                var pairs3 = List[_CPair]()
+                var pairs3 = List[ContactConstraint]()
                 for col in range(n_colors):
                     clo.append(len(pairs3))
                     for pc in range(len(pairs)):
@@ -2241,24 +1051,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self.counters.incr(PARALLEL_FALLBACK_SERIAL)
         if parallel and not colored and len(self.softs) == 0 and not ccd:
             # partition: pairs reordered so each island is a contiguous range
-            var labels = List[Int]()
-            for i in range(len(self.bset.bodies)):
-                if self.bset.island[i] < 0:
-                    continue
-                var known = False
-                for k in range(len(labels)):
-                    if labels[k] == self.bset.island[i]:
-                        known = True
-                        break
-                if not known:
-                    labels.append(self.bset.island[i])
-            var pairs2 = List[_CPair]()
+            var labels = island_labels(self.bset)
+            var pairs2 = List[ContactConstraint]()
             var plo = List[Int]()
             var phi = List[Int]()
             for k in range(len(labels)):
                 plo.append(len(pairs2))
                 for pc in range(len(pairs)):
-                    if self._pair_island(pairs[pc]) == labels[k]:
+                    if contact_island(self.bset, pairs[pc]) == labels[k]:
                         pairs2.append(pairs[pc])
                 phi.append(len(pairs2))
 
@@ -2270,7 +1070,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             )
             self.trace.end()
             self.trace.begin("sleep")
-            self._update_sleep(dt, cfg)
+            update_sleep(self.bset, dt, cfg)
             self.trace.end()
             self.trace.begin("nan_scan")
             self._quarantine_nonfinite()
@@ -2312,45 +1112,45 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.
-            self._warm_start(pairs, 0, len(pairs))
-            self._warm_start_joints(-2)
-            self._joint_sweep(
-                h, bias_rate, mass_scale, impulse_scale, True, iters, -2
+            warm_start_contacts(self.bset, pairs, 0, len(pairs))
+            warm_start_joints(self.bset, self.joints, -2)
+            joint_sweep(
+                self.bset, self.joints,                 h, bias_rate, mass_scale, impulse_scale, True, iters, -2
             )
             if colored:
-                self._sweep_colored(
-                    pairs, clo, chi, h, bias_rate, mass_scale,
+                sweep_colored(
+                    self.bset,                     pairs, clo, chi, h, bias_rate, mass_scale,
                     impulse_scale, True, iters, mu, parallel, workers,
                 )
             else:
-                self._soft_sweep(
-                    pairs, 0, len(pairs), h, bias_rate, mass_scale,
+                soft_sweep(
+                self.bset,                     pairs, 0, len(pairs), h, bias_rate, mass_scale,
                     impulse_scale, True, iters, mu,
                 )
             if ccd:
-                self._ccd_advance(h)
+                ccd_advance(self.bset, self.colliders, h)
             else:
                 for i in range(len(self.bset.bodies)):
-                    if not self._inactive(i):
+                    if not self.bset.inactive(i):
                         self.bset.bodies[i].integrate_pose(h)
             # soft bodies: XPBD lattice + particle-vs-body coupling, at the
             # substep's POST-integration poses (rigid impulses land next substep)
-            self._softbody_pass(h, gravity, iters, ccd)
+            softbody_pass(self.softs, self.bset, self.colliders, h, gravity, iters, ccd)
             # relax: remove the bias energy (velocity-only, no bias)
-            self._joint_sweep(h, bias_rate, 1, 0, False, 2, -2)
+            joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, -2)
             if colored:
-                self._sweep_colored(
-                    pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
+                sweep_colored(
+                    self.bset,                     pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
                     parallel, workers,
                 )
             else:
-                self._soft_sweep(
-                    pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
+                soft_sweep(
+                self.bset,                     pairs, 0, len(pairs), h, bias_rate, 1, 0, False, 2, mu
                 )
         self.trace.end()
-        self._restitution_pass(pairs, 0, len(pairs), 4, cfg.restitution_threshold)
+        restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)
         self.trace.begin("sleep")
-        self._update_sleep(dt, cfg)
+        update_sleep(self.bset, dt, cfg)
         self.trace.end()
         self.trace.begin("nan_scan")
         self._quarantine_nonfinite()
@@ -2364,7 +1164,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
 def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     mut scene: ContactScene6[BB, PBP],
-    mut pairs2: List[_CPair],
+    mut pairs2: List[ContactConstraint],
     plo: List[Int],
     phi: List[Int],
     labels: List[Int],
@@ -2399,36 +1199,6 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
         parallelize(island_work, len(labels), workers)
     else:
         parallelize(island_work, len(labels))
-
-
-def _solve_color_parallel[BB: Body6, PBP: BroadPhase](
-    mut scene: ContactScene6[BB, PBP],
-    mut pairs2: List[_CPair],
-    lo: Int,
-    hi: Int,
-    h: Real,
-    bias_rate: Real,
-    mass_scale: Real,
-    impulse_scale: Real,
-    use_bias: Bool,
-    mu: Real,
-    workers: Int = 0,
-):
-    """Solve one color's pairs on worker threads (same free-function +
-    capture-list closure pattern as `_solve_islands_parallel`). Same-color
-    pairs share no dynamic body, so the writes are disjoint and the result is
-    bit-identical to solving the color serially."""
-
-    def pair_work(k: Int) {mut scene, mut pairs2, imm lo, imm h, imm bias_rate, imm mass_scale, imm impulse_scale, imm use_bias, imm mu}:
-        scene._solve_pair(
-            pairs2, lo + k, h, bias_rate, mass_scale, impulse_scale,
-            use_bias, mu,
-        )
-
-    if workers > 0:
-        parallelize(pair_work, hi - lo, workers)
-    else:
-        parallelize(pair_work, hi - lo)
 
 
 def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
@@ -2758,7 +1528,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         m.hit = r.ri() == 1
         m.normal = r.rv()
         m.count = r.ri()
-        var pr = _CPair(
+        var pr = ContactConstraint(
             a, b, feat, m,
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
             Array[Real, 4](fill=0),
