@@ -759,7 +759,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # entirely caller-set.
         for i in range(len(self.bset.bodies)):
             if self.bset.is_dynamic(i):
-                var f = gravity / self.bset.bodies[i].inv_mass()  # force = m·g
+                var f = self.bset.gravity_for(i, gravity) / self.bset.bodies[i].inv_mass()  # force = m·g
                 self.bset.bodies[i].integrate_force(dt, f, Vec3(0, 0, 0, 0))
         # 2. Contact manifolds at the pre-solve poses.
         var pairs = self._collect_pairs(False, 0)
@@ -810,7 +810,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # skipped here, same as it would be in the serial `step` path.
             for i in range(len(self.bset.bodies)):
                 if self.bset.island[i] == label and self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
-                    var f = gravity / self.bset.bodies[i].inv_mass()
+                    var f = self.bset.gravity_for(i, gravity) / self.bset.bodies[i].inv_mass()
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             warm_start_contacts(self.bset, pairs, plo, phi)
             warm_start_joints(self.bset, self.joints, label)
@@ -1237,7 +1237,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # tighter than the pose-integration one just below.
             for i in range(len(self.bset.bodies)):
                 if self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
-                    var f = gravity / self.bset.bodies[i].inv_mass()
+                    var f = self.bset.gravity_for(i, gravity) / self.bset.bodies[i].inv_mass()
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             # Warm start: re-apply accumulated impulses; the soft solve's
             # -impulseScale·acc decay is the matching counter-term.

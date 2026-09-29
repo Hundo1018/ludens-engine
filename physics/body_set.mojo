@@ -106,6 +106,13 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var friction_combine: List[Int]
     var restitution_combine: List[Int]
     var generation: List[UInt32]
+    # ROADMAP 17.27: a per-body gravity replacing the step's global one
+    # (gravity zones). `grav_on` false = use the global gravity; the solver
+    # only looks at `grav` when `any_grav` is set, so scenes without zones
+    # take exactly the old path.
+    var grav_on: List[Bool]
+    var grav: List[Vec3]
+    var any_grav: Bool
     var free: List[Int]
 
     def __init__(out self):
@@ -120,6 +127,9 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.friction_combine = List[Int]()
         self.restitution_combine = List[Int]()
         self.generation = List[UInt32]()
+        self.grav_on = List[Bool]()
+        self.grav = List[Vec3]()
+        self.any_grav = False
         self.free = List[Int]()
 
     def __len__(self) -> Int:
@@ -155,6 +165,8 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.friction[slot] = -1
             self.friction_combine[slot] = COMBINE_AVERAGE
             self.restitution_combine[slot] = COMBINE_MAX
+            self.grav_on[slot] = False
+            self.grav[slot] = Vec3(0, 0, 0, 0)
             return BodyId(slot, self.generation[slot])
         var slot = len(self.bodies)
         self.bodies.append(b^)
@@ -167,6 +179,8 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.friction.append(-1)
         self.friction_combine.append(COMBINE_AVERAGE)
         self.restitution_combine.append(COMBINE_MAX)
+        self.grav_on.append(False)
+        self.grav.append(Vec3(0, 0, 0, 0))
         self.generation.append(0)
         return BodyId(slot, 0)
 
@@ -274,3 +288,9 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         """The seam value: everything `ColliderSet` needs from body `i`'s
         transform, and nothing else -- collision never sees a `Body6`."""
         return Pose3(self.bodies[i].position(), self.axes(i))
+
+    def gravity_for(self, i: Int, g: Vec3) -> Vec3:
+        """The gravity body `i` feels: its override, or the step's `g`."""
+        if self.any_grav and self.grav_on[i]:
+            return self.grav[i]
+        return g
