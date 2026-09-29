@@ -387,6 +387,8 @@ build: all packages precompiled into build/
   mailbox cap 4 — delivered 4  dropped 12  actor0 count 4
   ghost targets — delivered 0  dropped 0
 [PASS] actor - 24 / 24 checks
+--- tests/test_anim_graph.mojo ---
+[PASS] anim_graph - 29 / 29 checks
 --- tests/test_body_removal.mojo ---
 [PASS] body_removal - 14 / 14 checks
 --- tests/test_broadphase.mojo ---

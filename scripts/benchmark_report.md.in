@@ -1223,6 +1223,16 @@ sleep loops, and the warm-start cache match — audit F22). That, not the
 solve, is what 17.19 has to fix first.
 
 @bench benchmarks/bench_gpu_contact.mojo
+## Animation — graph nodes (17.6)
+
+Blend spaces, masked layers and additive poses on top of the clip runtime.
+Cost is linear in bones for every node, and composing nodes adds their costs
+— there is no shared setup to amortise. The geodesic (screw) blend costs
+about half again as much as the dual-quaternion one; it buys a constant-speed
+path, which matters for large-angle blends and not at all for the small ones
+most locomotion graphs perform.
+
+@bench benchmarks/bench_anim_graph.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

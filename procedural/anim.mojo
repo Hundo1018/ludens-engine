@@ -183,6 +183,43 @@ def pose_to_motors(
         )
 
 
+def blend_bone(
+    p0: Vec3, q0: Quat, p1: Vec3, q1: Quat, w: Real, mode: Int
+) -> Tuple[Vec3, Quat]:
+    """One bone of `blend_poses`: `w` is the weight of the SECOND pose."""
+    if mode == BLEND_LINEAR:
+        # hemisphere-align first: without it a blend between q and -q, the
+        # SAME rotation, spins the bone all the way round
+        var d = q0.x * q1.x + q0.y * q1.y + q0.z * q1.z + q0.w * q1.w
+        var s = Real(-1) if d < 0 else Real(1)
+        var qx = q0.x * (1 - w) + s * q1.x * w
+        var qy = q0.y * (1 - w) + s * q1.y * w
+        var qz = q0.z * (1 - w) + s * q1.z * w
+        var qw = q0.w * (1 - w) + s * q1.w * w
+        var n = sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+        if n < 1e-12:
+            n = 1
+        return (p0 + (p1 - p0) * w, Quat(qx / n, qy / n, qz / n, qw / n))
+    var m: Motor3
+    if mode == BLEND_DLB:
+        m = blend2(
+            Motor3.from_quat_translation(q0, p0),
+            Motor3.from_quat_translation(q1, p1),
+            1 - w, w,
+        )
+    else:
+        m = geodesic3(
+            Motor3.from_quat_translation(q0, p0),
+            Motor3.from_quat_translation(q1, p1),
+            w,
+        )
+    # `Motor3.to_quat_translation` already inverts `from_quat_translation`
+    # exactly; writing the rotor extraction out again here would be a second
+    # place for the e23/e13/e12 sign convention to drift from the first.
+    var qt = m.to_quat_translation()
+    return (qt[1], qt[0])
+
+
 def blend_poses(
     pa: List[Real], ra: List[Real],
     pb: List[Real], rb: List[Real],
@@ -199,50 +236,8 @@ def blend_poses(
         var p1 = Vec3(pb[3 * b], pb[3 * b + 1], pb[3 * b + 2], 0)
         var q0 = Quat(ra[4 * b], ra[4 * b + 1], ra[4 * b + 2], ra[4 * b + 3])
         var q1 = Quat(rb[4 * b], rb[4 * b + 1], rb[4 * b + 2], rb[4 * b + 3])
-
-        if mode == BLEND_LINEAR:
-            # hemisphere-align first: without it a blend between q and -q, the
-            # SAME rotation, spins the bone all the way round
-            var d = q0.x * q1.x + q0.y * q1.y + q0.z * q1.z + q0.w * q1.w
-            var s = Real(-1) if d < 0 else Real(1)
-            var qx = q0.x * (1 - w) + s * q1.x * w
-            var qy = q0.y * (1 - w) + s * q1.y * w
-            var qz = q0.z * (1 - w) + s * q1.z * w
-            var qw = q0.w * (1 - w) + s * q1.w * w
-            var n = sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
-            if n < 1e-12:
-                n = 1
-            _write(
-                out_pos, out_rot, b,
-                p0 + (p1 - p0) * w,
-                Quat(qx / n, qy / n, qz / n, qw / n),
-            )
-        elif mode == BLEND_DLB:
-            var m = blend2(
-                Motor3.from_quat_translation(q0, p0),
-                Motor3.from_quat_translation(q1, p1),
-                1 - w, w,
-            )
-            _motor_out(out_pos, out_rot, b, m)
-        else:
-            var m = geodesic3(
-                Motor3.from_quat_translation(q0, p0),
-                Motor3.from_quat_translation(q1, p1),
-                w,
-            )
-            _motor_out(out_pos, out_rot, b, m)
-
-
-def _motor_out(
-    mut out_pos: List[Real], mut out_rot: List[Real], b: Int, m: Motor3
-):
-    """Decompose a motor back into translation and quaternion.
-
-    `Motor3.to_quat_translation` already inverts `from_quat_translation`
-    exactly; writing the rotor extraction out again here would be a second
-    place for the e23/e13/e12 sign convention to drift from the first."""
-    var qt = m.to_quat_translation()
-    _write(out_pos, out_rot, b, qt[1], qt[0])
+        var r = blend_bone(p0, q0, p1, q1, w, mode)
+        _write(out_pos, out_rot, b, r[0], r[1])
 
 
 struct AnimPlayer(Movable, Deinitable):

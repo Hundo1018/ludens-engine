@@ -319,6 +319,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 著色接觸求解:CPU(`ContactScene6.step(cfg.colored)`,串行 / 色內多核)vs GPU(`GpuContactSolver`) | physics/solver6.mojo、physics/contact6.mojo、physics/gpu_contact.mojo | 同一排程(色內 Jacobi、色間 Gauss-Seidel)在兩個裝置上的實作;GPU kernel 呼叫同一個 `QuatBody6` 的方法。parity 非逐位:乘加收縮不同,且箱堆接觸裁剪是離散分支(系統對 1e-7 擾動混沌),故以 CPU 自身擾動發散為界 | `test_gpu_contact`(四場景 GPU−CPU ≤ 2× CPU 自身發散 + 靜止狀態 by action + 接觸數 / island 數相同;單體無接觸;拒絕關節) | `bench_gpu_contact`(N=64..4096:CPU 串行 / 多核 / GPU 整幀,GPU 拆 上傳 / 計算 / 下載 / CPU 簿記) |
 
+### 2.9 動畫圖節點(Phase 17.6,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 混合節點家族:1-D 空間 / 2-D gradient band / 遮罩層 / 加法(× 混合模式 LINEAR / DLB / GEODESIC) | procedural/anim_graph.mojo、procedural/anim.mojo(`blend_bone`) | 每個節點是姿勢的凸組合;邊界權重為投影(恰回傳某一輸入)——節點家族在頂點上的限制都是恆等 | `test_anim_graph`(樣本點上 = 該 clip 逐位、遮罩 0/1、加法權重 0;2-D 權重非負且和為 1;NaN clip 權重 0 不外溢) | `bench_anim_graph`(骨數 16/64/256 × 節點組合 × DLB/geodesic) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

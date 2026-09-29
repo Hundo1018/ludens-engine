@@ -1443,6 +1443,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **交付**:接 skinning + fsm;普通(idle↔walk↔run 1D)/ 整合(上半身瞄準層疊加、root
 > motion 位移與碰撞一致)/ 極端(權重全 0、NaN clip、單影格 clip、retarget 到骨長差 10×)。
 
+> **進度:✅ 2026-09-29** `procedural/anim_graph.mojo`(`procedural/anim.mojo` 的逐骨混合抽為 `blend_bone`,行為不變):`Pose`;`BlendSpace1D`(分段線性、所有 clip 取**同一正規化相位**,walk 1.0 s 與 run 0.6 s 混合時步伐同步);`BlendSpace2D`(freeform cartesian gradient band,樣本點上權重恰為 one-hot);`layer`(逐骨遮罩 × alpha);`make_additive` / `apply_additive`(PGA motor 商 D = M·M_ref⁻¹,沿 motor geodesic 縮放:90° 的一半恰 45°);`root_motion`(跨 loop 累積)/ `strip_root`;`Skeleton` / `retarget`(旋轉照抄、平移依骨長比縮放);`MotionDB`(暴力最近幀)。混合節點跳過零權重輸入、權重 1 回傳輸入副本 → 邊界權重**恰**退化為單一 clip(seam parity),且被權重排除的 NaN clip 不外溢。`tests/test_anim_graph.mojo` 29/29(含 root motion 驅動 17.1 角色控制器:空曠處走出擷取距離、撞牆停下;10× 骨長 retarget;motion matching 找回自身幀)。`bench_anim_graph`:成本線性於骨數(DLB 1-D 約 240 ns/骨),geodesic 約 DLB 的 1.5×。接線範例 `examples/24_locomotion_graph.mojo`(FSM → 1-D 空間 → 瞄準層 → root motion 進控制器 → 蒙皮)。**待辦**:姿勢改用預配置緩衝(現每節點配置 `List`);方向性(polar)2-D 空間;骨架階層世界矩陣組合(範例以局部 motor 直接蒙皮);motion matching 加速結構。
+
 ### 17.7 固定步 ↔ 繪製率解耦的狀態插值 — Wave A
 > **現況**:`scheduler/gameloop.mojo` `FixedLoop.advance` 已回傳 leftover 分數;但**無 prev↔curr
 > 變換雙緩衝與插值輸出**。
