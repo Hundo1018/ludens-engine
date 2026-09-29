@@ -113,6 +113,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var grav_on: List[Bool]
     var grav: List[Vec3]
     var any_grav: Bool
+    # ROADMAP 17.31: a frozen body is temporarily MOTION_STATIC; this keeps
+    # the motion type it had (-1 = not frozen). Its velocity fields are
+    # untouched while frozen, so unfreezing resumes exactly where it was.
+    var frozen_motion: List[Int]
     var free: List[Int]
 
     def __init__(out self):
@@ -130,6 +134,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.grav_on = List[Bool]()
         self.grav = List[Vec3]()
         self.any_grav = False
+        self.frozen_motion = List[Int]()
         self.free = List[Int]()
 
     def __len__(self) -> Int:
@@ -167,6 +172,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.restitution_combine[slot] = COMBINE_MAX
             self.grav_on[slot] = False
             self.grav[slot] = Vec3(0, 0, 0, 0)
+            self.frozen_motion[slot] = -1
             return BodyId(slot, self.generation[slot])
         var slot = len(self.bodies)
         self.bodies.append(b^)
@@ -181,6 +187,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.restitution_combine.append(COMBINE_MAX)
         self.grav_on.append(False)
         self.grav.append(Vec3(0, 0, 0, 0))
+        self.frozen_motion.append(-1)
         self.generation.append(0)
         return BodyId(slot, 0)
 

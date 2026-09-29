@@ -548,6 +548,37 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var w = Vec3(qd.x, qd.y, qd.z, 0) * (2 / dt)
         self.bset.bodies[i].set_velocity(v, w)
 
+    def freeze(mut self, id: BodyId) raises:
+        """Take body `id` out of the simulation without the sleep semantics
+        (ROADMAP 17.31: physics LOD): it becomes static -- it neither moves
+        nor responds, contacts do not wake it, others collide with it where
+        it stands -- until `unfreeze`. Its velocity is kept, so unfreezing
+        resumes the motion exactly. Freezing a static or frozen body is a
+        no-op."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.freeze: invalid BodyId")
+        var i = id.index()
+        if self.bset.frozen_motion[i] >= 0 or self.bset.is_static(i):
+            return
+        self.bset.frozen_motion[i] = self.bset.motion[i]
+        self.bset.motion[i] = MOTION_STATIC
+
+    def unfreeze(mut self, id: BodyId) raises:
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.unfreeze: invalid BodyId")
+        var i = id.index()
+        if self.bset.frozen_motion[i] < 0:
+            return
+        self.bset.motion[i] = self.bset.frozen_motion[i]
+        self.bset.frozen_motion[i] = -1
+        self.bset.sleeping[i] = False
+        self.bset.sleep_timer[i] = 0
+
+    def is_frozen(self, id: BodyId) raises -> Bool:
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.is_frozen: invalid BodyId")
+        return self.bset.frozen_motion[id.index()] >= 0
+
     def is_sleeping(self, id: BodyId) raises -> Bool:
         """ROADMAP 17.25: e.g. so a character controller (17.2) knows
         whether the platform it's standing on is still simulated or has
