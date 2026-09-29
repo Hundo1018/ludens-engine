@@ -77,6 +77,11 @@ struct Lbm(Movable, Deinitable):
     var fy: Real
     var fz: Real
     var mode: Int
+    # ROADMAP 17.42: interpolated bounce-back needs the true wall position
+    # of curved solids; spheres keep their exact geometry here.
+    var sph_c: List[Vec3]
+    var sph_r: List[Real]
+    var interp: Bool  # Bouzidi linear interpolated bounce-back
 
     def __init__(
         out self, nx: Int, ny: Int, nz: Int, nu: Real, mode: Int = BC_PERIODIC
@@ -103,6 +108,9 @@ struct Lbm(Movable, Deinitable):
         self.fx = 0
         self.fy = 0
         self.fz = 0
+        self.sph_c = List[Vec3]()
+        self.sph_r = List[Real]()
+        self.interp = False
         var n = nx * ny * nz
         self.f = List[Real](capacity=Q * n)
         self.g = List[Real](capacity=Q * n)
@@ -187,6 +195,8 @@ struct Lbm(Movable, Deinitable):
                         self.flag[self.idx(x, y, z)] = CELL_SOLID
 
     def set_solid_sphere(mut self, cxx: Real, cyy: Real, czz: Real, r: Real):
+        self.sph_c.append(Vec3(cxx, cyy, czz, 0))
+        self.sph_r.append(r)
         for z in range(self.nz):
             for y in range(self.ny):
                 for x in range(self.nx):
@@ -202,6 +212,74 @@ struct Lbm(Movable, Deinitable):
             if self.flag[c] == CELL_SOLID:
                 n += 1
         return n
+
+    def link_q(self, x: Int, y: Int, z: Int, i: Int) -> Real:
+        """Fraction of the link from fluid node (x, y, z) along -c_i at which
+        the wall sits: the nearest sphere surface crossing in (0, 1], or 0.5
+        (half-way, exact for grid-aligned walls) when no sphere is crossed."""
+        var best = Real(2)
+        var px = Real(x)
+        var py = Real(y)
+        var pz = Real(z)
+        var dx = -Real(self.ex[i])
+        var dy = -Real(self.ey[i])
+        var dz = -Real(self.ez[i])
+        for k in range(len(self.sph_r)):
+            var ox = px - self.sph_c[k][0]
+            var oy = py - self.sph_c[k][1]
+            var oz = pz - self.sph_c[k][2]
+            var a = dx * dx + dy * dy + dz * dz
+            var b = 2 * (ox * dx + oy * dy + oz * dz)
+            var c = ox * ox + oy * oy + oz * oz - self.sph_r[k] * self.sph_r[k]
+            var disc = b * b - 4 * a * c
+            if disc < 0:
+                continue
+            var t = (-b - sqrt(disc)) / (2 * a)
+            if t > 0 and t <= 1 and t < best:
+                best = t
+        return best if best <= 1 else Real(0.5)
+
+    def momentum_flux_force(self, x0: Int, y0: Int, z0: Int, x1: Int, y1: Int, z1: Int) -> Vec3:
+        """Force on whatever is inside the box of cells [x0..x1] x [y0..y1] x
+        [z0..z1], from the momentum flux through its faces: F = -sum Pi . n,
+        Pi = Pi_eq + (1 - 1/(2 tau)) Pi_neq (pressure + convective + viscous
+        stress in one tensor). The second force path (ROADMAP 17.42): it
+        needs no knowledge of the boundary links, only a surface around the
+        body in the fluid, and agrees with momentum exchange in the steady
+        state."""
+        var fsum = Vec3(0, 0, 0, 0)
+        var n = self.cells()
+        var k = 1 - 1 / (2 * self.tau)
+        for face in range(6):
+            var axis = face // 2
+            var sgn = Real(-1) if face % 2 == 0 else Real(1)
+            var fixed = (x0 if face == 0 else x1) if axis == 0 else ((y0 if face == 2 else y1) if axis == 1 else (z0 if face == 4 else z1))
+            var alo = y0 if axis == 0 else x0
+            var ahi = y1 if axis == 0 else x1
+            var blo = z0 if axis != 2 else y0
+            var bhi = z1 if axis != 2 else y1
+            for a in range(alo, ahi + 1):
+                for bb in range(blo, bhi + 1):
+                    var x = fixed if axis == 0 else a
+                    var y = a if axis == 0 else (fixed if axis == 1 else bb)
+                    var z = bb if axis != 2 else fixed
+                    var c = self.idx(x, y, z)
+                    if self.flag[c] == CELL_SOLID:
+                        continue
+                    var rho = self.density(c)
+                    var u = self.velocity(c)
+                    for r in range(3):
+                        var pi_rn = Real(0)
+                        for i in range(Q):
+                            var ci = Array[Real, 3](fill=0)
+                            ci[0] = Real(self.ex[i])
+                            ci[1] = Real(self.ey[i])
+                            ci[2] = Real(self.ez[i])
+                            var fi = self.f[i * n + c]
+                            var fe = self._feq(i, rho, u[0], u[1], u[2])
+                            pi_rn += (fe + k * (fi - fe)) * ci[r] * ci[axis]
+                        fsum[r] = fsum[r] - pi_rn * sgn
+        return fsum
 
     def _wrap(self, v: Int, n: Int) -> Int:
         var w = v % n
@@ -328,7 +406,29 @@ struct Lbm(Movable, Deinitable):
                         var wy = self._wrap(sy, self.ny)
                         var wz = self._wrap(sz, self.nz)
                         var src = self.idx(wx, wy, wz)
-                        if self.flag[src] == CELL_SOLID:
+                        if self.flag[src] == CELL_SOLID and self.interp:
+                            # Bouzidi linear interpolated bounce-back: the
+                            # wall sits a fraction q along the link, not at
+                            # its middle. At q = 1/2 both branches reduce to
+                            # the half-way value exactly.
+                            var fb = self.f[self.opp[i] * n + c]
+                            var q = self.link_q(x, y, z, i)
+                            var gi = fb
+                            if q < 0.5:
+                                var fx2 = x + self.ex[i]
+                                var fy2 = self._wrap(y + self.ey[i], self.ny)
+                                var fz2 = self._wrap(z + self.ez[i], self.nz)
+                                if fx2 >= 0 and fx2 < self.nx:
+                                    var cff = self.idx(fx2, fy2, fz2)
+                                    if self.flag[cff] != CELL_SOLID:
+                                        gi = 2 * q * fb + (1 - 2 * q) * self.f[self.opp[i] * n + cff]
+                            else:
+                                gi = (1 / (2 * q)) * fb + ((2 * q - 1) / (2 * q)) * self.f[i * n + c]
+                            self.g[i * n + c] = gi
+                            self.fx -= Real(self.ex[i]) * (fb + gi)
+                            self.fy -= Real(self.ey[i]) * (fb + gi)
+                            self.fz -= Real(self.ez[i]) * (fb + gi)
+                        elif self.flag[src] == CELL_SOLID:
                             var back = self.f[self.opp[i] * n + c]
                             self.g[i * n + c] = back
                             # Momentum exchange across this link. The fluid
