@@ -2203,6 +2203,13 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > **seam?**:是 —— (a) CPU/GPU、(b) 半程 / 插值邊界、(c) 兩條測力路徑,各附 parity + bench row。
 > **交付**:普通(球繞流 Cd)/ 整合(接 14.6 驗證套件)/ 極端(全埋固體、零進口速度、單格厚板)。
 
+> **進度:✅ 2026-09-29**(四項全做)
+> (b)**插值 bounce-back**:`Lbm.interp` + `link_q`(球的真實幾何以射線求交得 q),Bouzidi 線性公式;q = ½ 時兩分支恰退化為半程。`tests/test_lbm_bounce.mojo`:只有盒狀固體(所有連結 q = ½)時與半程**逐位相同**(seam parity);球心平移半格,阻力變動 半程 6.9% vs 插值 1.8%;周期盒質量漂移 1.1e-4。
+> (c)**第二條測力路徑**:`Lbm.momentum_flux_force`(控制面上 Π = Π_eq + (1−1/2τ)Π_neq 的通量)與動量交換在四個組態中最大相差 1.5%。
+> (a)**GPU kernel**:`fluid/lbm_gpu.mojo` `LbmGpu`(BGK + 均勻體力、拉取式串流 + 半程 bounce-back、風洞進出口,三個 kernel 逐行對應 CPU;以 CPU `Lbm` 建場後上傳、下載回 CPU;拒絕 LES / 插值格網;context 由呼叫端傳入)。`tests/test_lbm_gpu.mojo`:風洞 + 球 200 步 |Δf| ≤ 3.6e-7、體力通道速度剖面逐位相同。`bench_lbm_gpu`:1.77M 格 GPU 55.6 MLUPS vs CPU 3.2(約 17×)——**仍遠低於記憶體頻寬上限(約 20× 空間)**,kernel 改 32 位元索引只從 43 升到 55,瓶頸未定位(待 profiler)。
+> (d)**SPH 邊界粒子對照組**:`physics/sph.mojo` `BoundaryParticles`(Akinci 2012,ψ = ρ0 / 自身核和)+ `box_floor_boundary` + `sph_step_boundary`(`sph_step` 即無邊界粒子的特例)。`tests/test_sph_boundary.mojo` 6/6:無邊界粒子、以及邊界粒子在核半徑外時與原 `sph_step` 逐位相同;流體在地板攤平 1 秒後,夾回式牆面的質心塌到 3 mm(底層缺鄰居而低估密度),邊界粒子維持 25 mm。
+> **待辦**:GPU kernel 效能定位、GPU 上的動量交換歸約 / LES / 插值 bounce-back;邊界粒子的鄰居搜尋走格網(現為暴力)、牆面(非僅地板)取樣。
+
 ### Phase 17 建議順序
 > **Wave A 先**(17.13 查詢 → 17.1 控制器 → 17.7 插值 → 17.9 debug-draw → 17.10 profiling):
 > 全是接線 / table stakes,做完引擎「可被當遊戲引擎用」,且 17.13 解鎖 17.1 / 17.4 / 17.15。

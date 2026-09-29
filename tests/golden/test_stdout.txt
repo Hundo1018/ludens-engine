@@ -84,6 +84,11 @@ build: all packages precompiled into build/
   worst overshoot past the stop: 0.0  final q = 0.5
   qd leaving the stop: -2.0 -> -2.0
 [PASS] joints_lib - 8 / 8 checks
+--- tests/test_lbm_bounce.mojo ---
+  drag change for a half-cell shift: half-way 0.069023006  interpolated 0.017955935
+  momentum exchange vs control-surface flux, worst relative difference 0.015169148
+  periodic box with an interpolated sphere: relative mass drift 0.00011142196
+[PASS] lbm_bounce - 5 / 5 checks
 --- tests/test_lbm_force.mojo ---
   still fluid force: 2.2351742e-08 2.30968e-07 4.61936e-07
   sphere in tunnel — Fx 0.17174578  Fy -1.9092113e-08  Fz -1.8635765e-07
@@ -267,6 +272,10 @@ build: all packages precompiled into build/
 [PASS] iter_parity - 12 / 12 checks
 --- tests/test_laws.mojo ---
 [PASS] laws - 120 / 120 checks
+--- tests/test_lbm_gpu.mojo ---
+  tunnel + sphere, 200 steps: worst |f_cpu - f_gpu| 3.5762787e-07
+  body-force channel: worst velocity difference 0.0
+[PASS] lbm_gpu - 4 / 4 checks
 --- tests/test_lbm.mojo ---
   moments — sum w 1.0000002  w*cx 0.0  w*cx^2 0.33333337  w*cx*cy 0.0
   uniform after 50 steps — mass 511.99997  u 0.050000068
@@ -346,6 +355,9 @@ build: all packages precompiled into build/
 [PASS] skinning - 19 / 19 checks
 --- tests/test_sparse_large.mojo ---
 [PASS] sparse_large - 6 / 6 checks
+--- tests/test_sph_boundary.mojo ---
+  after 1 s: centre of mass, clamped 0.0029529782  boundary particles 0.02483603
+[PASS] sph_boundary - 6 / 6 checks
 --- tests/test_sph.mojo ---
   settled rho/rest: 1.020115  max|v|: 0.120838955
   dt=1/60 -> rho/rest: 1.7625449  max|v|: 21.317734

@@ -1296,6 +1296,16 @@ faster to write and to read back, because it carries poses and velocities
 only and lets the level script rebuild the rest.
 
 @bench benchmarks/bench_save.mojo
+## Fluids — LBM on the GPU, interpolated walls, a second force path (17.42)
+
+The same D3Q19 stencil runs on the GPU from the CPU grid's setup and agrees
+with it to float32 noise. Throughput grows with grid size as launch
+overhead amortises, but the largest grid here is still far below what the
+memory bandwidth allows, so these rows are a first port, not a tuned
+kernel. On the CPU the interpolated bounce-back costs no measurable extra
+per step; the control-surface force is a single pass over a box of cells.
+
+@bench benchmarks/bench_lbm_gpu.mojo
 ## ECS — reflection-driven serialisation (17.11)
 
 `ecs.schema` builds a type's field table from the compiler's own reflection

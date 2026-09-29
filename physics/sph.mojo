@@ -39,8 +39,65 @@ def visc_lap(r: Real) -> Real:
     return 45.0 / (3.14159265 * (H ** 6)) * (H - r)
 
 
+struct BoundaryParticles(Movable):
+    """Static particles sampling a wall (Akinci et al. 2012). `psi` is each
+    one's effective mass: rho0 over the kernel sum of its own boundary
+    neighbourhood, so a densely or sparsely sampled wall contributes the
+    same density to the fluid next to it."""
+
+    var x: List[Real]
+    var y: List[Real]
+    var z: List[Real]
+    var psi: List[Real]
+
+    def __init__(out self):
+        self.x = List[Real]()
+        self.y = List[Real]()
+        self.z = List[Real]()
+        self.psi = List[Real]()
+
+    def add(mut self, p: Vec3):
+        self.x.append(p[0])
+        self.y.append(p[1])
+        self.z.append(p[2])
+        self.psi.append(0)
+
+    def finalize(mut self, rho0: Real):
+        for b in range(len(self.x)):
+            var delta = Real(0)
+            for k in range(len(self.x)):
+                var dx = self.x[b] - self.x[k]
+                var dy = self.y[b] - self.y[k]
+                var dz = self.z[b] - self.z[k]
+                delta += poly6(dx * dx + dy * dy + dz * dz)
+            self.psi[b] = rho0 / delta if delta > 0 else Real(0)
+
+
+def box_floor_boundary(lo: Vec3, hi: Vec3, spacing: Real, rho0: Real) -> BoundaryParticles:
+    """One layer of boundary particles half a spacing below the floor of the
+    box [lo, hi], covering its footprint plus a kernel radius."""
+    var b = BoundaryParticles()
+    var nx = Int((hi[0] - lo[0] + 2 * H) / spacing) + 1
+    var nz = Int((hi[2] - lo[2] + 2 * H) / spacing) + 1
+    for i in range(nx):
+        for k in range(nz):
+            b.add(Vec3(lo[0] - H + Real(i) * spacing, lo[1] - spacing * 0.5, lo[2] - H + Real(k) * spacing, 0))
+    b.finalize(rho0)
+    return b^
+
+
 def sph_step(mut f: PbfFluid, dt: Real, gravity: Vec3):
-    """One explicit WCSPH step over the shared particle state."""
+    """One explicit WCSPH step over the shared particle state, walls by
+    clamping only (no boundary particles)."""
+    sph_step_boundary(f, BoundaryParticles(), dt, gravity)
+
+
+def sph_step_boundary(mut f: PbfFluid, bnd: BoundaryParticles, dt: Real, gravity: Vec3):
+    """`sph_step` with Akinci-style boundary particles (ROADMAP 17.42 d):
+    each boundary particle adds `psi_b W` to a fluid particle's density --
+    so a particle at the floor is no longer missing half its neighbours --
+    and pushes with the pressure term `-psi_b p_i / rho_i^2 grad W`. With no
+    boundary particles the loops are empty and this IS `sph_step`."""
     var n = f.count()
     f._rebuild_grid()
 
@@ -50,6 +107,11 @@ def sph_step(mut f: PbfFluid, dt: Real, gravity: Vec3):
     for i in range(n):
         f._neighbors(i, nbr)
         var d = f.density(i, nbr)
+        for b in range(len(bnd.x)):
+            var bx = f.px[i] - bnd.x[b]
+            var by = f.py[i] - bnd.y[b]
+            var bz = f.pz[i] - bnd.z[b]
+            d += bnd.psi[b] * poly6(bx * bx + by * by + bz * bz)
         rho.append(d)
         # clamped equation of state: tension would pull particles together and
         # reproduce the clumping PBF spends its tensile term suppressing
@@ -84,6 +146,18 @@ def sph_step(mut f: PbfFluid, dt: Real, gravity: Vec3):
             fx += lap * (f.vx[j] - f.vx[i])
             fy += lap * (f.vy[j] - f.vy[i])
             fz += lap * (f.vz[j] - f.vz[i])
+        for b in range(len(bnd.x)):
+            var bx = f.px[i] - bnd.x[b]
+            var by = f.py[i] - bnd.y[b]
+            var bz = f.pz[i] - bnd.z[b]
+            var r = sqrt(bx * bx + by * by + bz * bz)
+            if r <= 1e-9 or r >= H:
+                continue
+            var coeff = bnd.psi[b] * pres[i] / (ri * ri)
+            var g = spiky_grad(r) / r
+            fx -= coeff * g * bx
+            fy -= coeff * g * by
+            fz -= coeff * g * bz
         ax.append(fx + gravity[0])
         ay.append(fy + gravity[1])
         az.append(fz + gravity[2])

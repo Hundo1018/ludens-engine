@@ -366,6 +366,15 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 保存路徑:schema 存檔(選擇性、跨版本)vs 決定論全狀態快照 | gameplay/save.mojo、physics/serialize.mojo | 存檔是快照的投影(只保留選定欄位);在投影涵蓋的欄位上兩條「存 → 讀」路徑相等 | `test_save`(涵蓋欄位逐位相同;V1 → V2 按名稱) | `bench_save`(位元組與時間,64 / 1024 體) |
 
+### 2.16 LBM 風洞收尾與 SPH 邊界(Phase 17.42,2026-09-29)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 固體邊界:半程 vs Bouzidi 插值 bounce-back | fluid/lbm.mojo | 插值族在 q = ½ 的截面即半程 | `test_lbm_bounce`(盒狀固體逐位相同;球的次格敏感度) | `bench_lbm_gpu`(CPU 每步成本) |
+| 測力:動量交換 vs 控制面動量通量 | fluid/lbm.mojo | 同一動量平衡的邊界形式與體積形式 | `test_lbm_bounce`(1.5% 內) | `bench_lbm_gpu` |
+| 裝置:CPU `Lbm` vs `LbmGpu` | fluid/lbm_gpu.mojo | 同一 stencil 的兩個裝置實作 | `test_lbm_gpu`(3.6e-7;通道逐位) | `bench_lbm_gpu`(MLUPS) |
+| SPH 牆面:夾回 vs 邊界粒子 | physics/sph.mojo | `sph_step` 是 `sph_step_boundary` 在空邊界上的限制 | `test_sph_boundary`(空 / 核外邊界逐位相同) | — |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」
