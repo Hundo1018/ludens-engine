@@ -71,6 +71,22 @@ struct Engine(Movable):
         """1 = ok; 0 corrupt, 2 unresolved rename, 3 changed type (engine.mojo)."""
         return self.h.get_function[Int]("engine_load")(s, buf)
 
+    # R1 observations
+    def trail_len(self, s: Int) raises -> Int:
+        return self.h.get_function[Int]("engine_trail_len")(s)
+
+    def trail_sum(self, s: Int) raises -> Int:
+        return self.h.get_function[Int]("engine_trail_sum")(s)
+
+    def grid_sum(self, s: Int) raises -> Int:
+        return self.h.get_function[Int]("engine_grid_sum")(s)
+
+    def body_count(self, s: Int) raises -> Int:
+        return self.h.get_function[Int]("engine_body_count")(s)
+
+    def body_x(self, s: Int, i: Int) raises -> Int:
+        return self.h.get_function[Int]("engine_body_x")(s, i)
+
 
 def block(nbytes: Int) -> Int:
     """A state block from libc `malloc`, freed with `free_state`. Not Mojo's
@@ -86,6 +102,14 @@ def free_state(addr: Int):
 
 def maps_count(needle: String) raises -> Int:
     return open("/proc/self/maps", "r").read().count(needle)
+
+
+def rss_kib() raises -> Int:
+    """VmRSS of this process, KiB."""
+    for line in open("/proc/self/status", "r").read().split("\n"):
+        if line.startswith("VmRSS:"):
+            return atol(String(line.split()[1]))
+    return -1
 
 
 def owner(addr: Int, old_path: String, new_path: String, same_path: Bool) raises -> String:

@@ -6,6 +6,9 @@
   test    variant x strategy matrix, one host process per cell, vs a float32
           oracle; PREDICTED below was written before the first run
   bench   repeated swaps per strategy + rebuild time of the engine .so
+  r1      R1 matrix (memory / comptime / trait / struct / ABI edits) and the
+          boundary scenarios B1 (empty state) and B2 (1000 swaps);
+          predictions in predictions_r1.py, committed before this code
   all     build + test + bench (default)
 
     python3 experiments/hot_reload/native/run_native.py [build|test|bench|all] [--reps N]
@@ -35,7 +38,8 @@ CAPACITY, PRE, MID, POST = 8, 30, 10, 30
 DESPAWN = [2, 5]
 
 # name -> ([(old, new) or (old, new, "all") text edits], oracle facts)
-V1 = {"speed": 60.0, "color": 0xFF0000FF, "label": "ludens: engine v1"}
+V1 = {"speed": 60.0, "color": 0xFF0000FF, "label": "ludens: engine v1",
+      "gain": 1, "damping": 0, "extra": 0}  # R1: bodies x += v * gain - damping + extra
 VARIANTS = {
     "v1": ([], V1),
     "v2_code": ([("comptime SPEED: Float32 = 60.0", "comptime SPEED: Float32 = 120.0"),
@@ -54,6 +58,22 @@ VARIANTS = {
     "v8_rename": ([("box_x", "offset_x", "all")], V1),
     "v8_rule": ([("box_x", "offset_x", "all"),
                  ("    # @@MIGRATE@@", '    alias_field(sch, "offset_x", "box_x")')], V1),
+    # R1 (predictions_r1.py, committed before this code)
+    "m1_elem": ([("comptime TRAIL_T = Int\n", "comptime TRAIL_T = Int32\n")], V1),
+    "m2_nested": ([("    # @@BODY_FRONT@@", "    var mass: Int"),
+                   ("        # @@BODY_INIT@@", "        self.mass = 0")], V1),
+    "c1_comptime_n": ([("comptime GRID_N = 4\n", "comptime GRID_N = 8\n")], V1),
+    "t1_impl": ([("        # @@ADVANCE@@\n        return x + v * self.gain + self.bias + self.extra()",
+                  "        return x + v * self.gain * 2 + self.bias + self.extra()")], {**V1, "gain": 2}),
+    "t2_swap_type": ([("comptime ActiveMover = Linear\n", "comptime ActiveMover = Damped\n")],
+                     {**V1, "damping": 1}),
+    "t3_default": ([("        # @@EXTRA@@\n        return 0", "        return 1")], {**V1, "extra": 1}),
+    "s1_retype": ([("    var box_x: Float32", "    var box_x: Float64"),
+                   ("st.core.box_x += st.core.speed() * dt", "st.core.box_x += Float64(st.core.speed() * dt)"),
+                   ("return s.core.box_x + s.entities.value_at(i)",
+                    "return Float32(s.core.box_x) + s.entities.value_at(i)")], V1),
+    "a1_abi": ([('def engine_update(addr: Int, dt: Float32) abi("C"):\n',
+                 'def engine_update(addr: Int, dt64: Float64) abi("C"):\n    var dt = Float32(dt64)\n')], V1),
 }
 # Edits that must NOT build: the compile-time rule of nostatic.mojo (H2).
 REJECTED = {
@@ -179,35 +199,45 @@ def f32_bits(x: float) -> int:
     return struct.unpack("<I", struct.pack("<f", x))[0]
 
 
-def oracle(v_old: dict, v_new: dict) -> dict:
-    """Sparse set with swap-remove, entity value = e*24, box_x in float32."""
+def simulate(schedule: list[dict], despawn: list[int], color: int) -> dict:
+    """The engine in Python. `schedule` = the facts of the code running each
+    frame; entities in `despawn` are removed after PRE frames. Sparse set
+    with swap-remove, entity value = e*24, box_x in float32; R1: trail of
+    frame numbers, grid[frame % 4] += 1, 4 bodies x += v * gain - damping + extra."""
     dense = list(range(CAPACITY))
     values = {e: f32(e * 24.0) for e in dense}
     dt = f32(1.0 / 60.0)
     x, frame = 0.0, 0
-
-    def step(speed: float) -> None:
-        nonlocal x, frame
-        x = f32(x + f32(f32(speed) * dt))
+    trail: list[int] = []
+    grid = 0
+    bodies = [[100 * i, i + 1] for i in range(4)]
+    for n, facts in enumerate(schedule):
+        if n == PRE:
+            for e in despawn:
+                i = dense.index(e)
+                dense[i] = dense[-1]
+                dense.pop()
+        x = f32(x + f32(f32(facts["speed"]) * dt))
         frame += 1
+        trail.append(frame)
+        grid += 1
+        for b in bodies:
+            b[0] = b[0] + b[1] * facts["gain"] - facts["damping"] + facts["extra"]
+    return {"count": len(dense), "frame": frame, "color": color, "keys": dense,
+            "xbits": [f32_bits(f32(x + values[e])) for e in dense],
+            "trail_len": len(trail), "trail_sum": sum(trail), "grid_sum": grid,
+            "bodies": [b[0] for b in bodies]}
 
-    for _ in range(PRE):
-        step(v_old["speed"])
-    for e in DESPAWN:
-        i = dense.index(e)
-        dense[i] = dense[-1]
-        dense.pop()
-    for _ in range(MID):
-        step(v_old["speed"])
-    for _ in range(POST):
-        step(v_new["speed"])
-    return {"count": len(dense), "frame": frame, "color": v_new["color"], "keys": dense,
-            "xbits": [f32_bits(f32(x + values[e])) for e in dense]}
+
+def oracle(v_old: dict, v_new: dict, despawn: list[int] | None = None) -> dict:
+    return simulate([v_old] * (PRE + MID) + [v_new] * POST, DESPAWN if despawn is None else despawn,
+                    v_new["color"])
 
 
 # ---- matrix -----------------------------------------------------------------------
 
-def run_cell(old: str, new: str, strategy: str, cell_dir: Path, extra: list[str] | None = None) -> dict:
+def run_cell(old: str, new: str, strategy: str, cell_dir: Path, extra: list[str] | None = None,
+             timeout: int = 60) -> dict:
     """Run host in a fresh process on private copies of the two .so files."""
     if cell_dir.exists():
         shutil.rmtree(cell_dir)
@@ -216,7 +246,7 @@ def run_cell(old: str, new: str, strategy: str, cell_dir: Path, extra: list[str]
     shutil.copy(OUT / old / "libengine.so", a)
     shutil.copy(OUT / new / "libengine.so", b)
     p = subprocess.run([str(OUT / "host"), str(a), str(b), strategy, *(extra or [])],
-                       cwd=ROOT, capture_output=True, text=True, timeout=60)
+                       cwd=ROOT, capture_output=True, text=True, timeout=timeout)
     kv = dict(line.split("=", 1) for line in p.stdout.splitlines() if "=" in line)
     kv["returncode"] = p.returncode
     return kv
@@ -226,21 +256,23 @@ def ints(csv: str) -> list[int]:
     return [int(t) for t in csv.split(",") if t]
 
 
-def classify(kv: dict, v_old: dict, v_new: dict) -> tuple[str, str]:
+def classify(kv: dict, v_old: dict, v_new: dict, despawn: list[int] | None = None) -> tuple[str, str]:
     """state from behaviour + which module's code ran (code_owner);
     label from where the state's label pointer points (label_owner),
     `trap` when reading it crashed the process."""
     if kv.get("load") == "rejected":
         return "rejected", "-"
-    if "xbits" not in kv:
+    if "bodies" not in kv:
         state = "trap"
     else:
         got = {"count": int(kv["count"]), "frame": int(kv["frame"]), "color": int(kv["color"]),
-               "keys": ints(kv["keys"]), "xbits": ints(kv["xbits"])}
+               "keys": ints(kv["keys"]), "xbits": ints(kv["xbits"]),
+               "trail_len": int(kv["trail_len"]), "trail_sum": int(kv["trail_sum"]),
+               "grid_sum": int(kv["grid_sum"]), "bodies": ints(kv["bodies"])}
         code = kv.get("code_owner")
-        if code == "new" and got == oracle(v_old, v_new):
+        if code == "new" and got == oracle(v_old, v_new, despawn):
             state = "ok"
-        elif code == "old" and got == oracle(v_old, v_old):
+        elif code == "old" and got == oracle(v_old, v_old, despawn):
             state = "stale-code"
         elif got["count"] == CAPACITY and got["frame"] == POST:
             state = "lost"
@@ -309,6 +341,70 @@ def test() -> int:
     return 0
 
 
+# ---- R1 -------------------------------------------------------------------------
+
+def test_r1() -> int:
+    import predictions_r1 as P
+    facts = {name: meta for name, (_, meta) in VARIANTS.items()}
+    rows, failures = [], 0
+
+    def record(kind: str, s: str, v: str, kv: dict, observed: str, pred: str, hit: bool, **extra) -> None:
+        nonlocal failures
+        failures += not hit
+        rows.append({"kind": kind, "strategy": s, "variant": v, "observed": observed, "predicted": pred,
+                     "hit": hit, **extra, **{k: kv.get(k) for k in ("used", "load_code", "returncode",
+                                                                     "code_owner", "label_owner", "frame")}})
+        print(f"{'PASS' if hit else 'FAIL':<6}{kind:<4}{s:<10}{v:<15}{observed:<18}{pred:<18}"
+              f"{kv.get('used', '-'):<9}{kv['returncode']:>4}  {kv.get('load_code', '')}")
+
+    print(f"\n{'':6}{'':4}{'strategy':<10}{'variant':<15}{'observed':<18}{'predicted':<18}{'used':<9}{'rc':>4}")
+    for s in STRATEGIES:
+        for v in P.R1_VARIANTS:
+            kv = run_cell("v1", v, s, OUT / "cells_r1" / f"{s}-{v}")
+            state, label = classify(kv, facts["v1"], facts[v])
+            pred = P.PREDICTED_R1[s][v]
+            hit = matches(pred, state, label)
+            want_used = P.PREDICTED_USED_R1.get(s, {}).get(v)
+            if want_used and kv.get("used") != want_used:
+                hit = False
+            record("R1", s, v, kv, f"{state}/{label}", pred + (f" [{want_used}]" if want_used else ""), hit)
+
+    # B1: all entities despawned before the swap
+    for (s, v), pred in P.PREDICTED_B1.items():
+        kv = run_cell("v1", v, s, OUT / "cells_r1" / f"B1-{s}-{v}", ["empty"])
+        state, label = classify(kv, facts["v1"], facts[v], despawn=list(range(CAPACITY)))
+        record("B1", s, v, kv, f"{state}/{label}", pred, matches(pred, state, label))
+
+    # B2: 1000 swaps v1 <-> v2_code, one frame after each
+    k = P.B2_SWAPS_LONG
+    for s in P.B2_STRATEGIES:
+        kv = run_cell("v1", "v2_code", s, OUT / "cells_r1" / f"B2-{s}", ["repeat", str(k)], timeout=600)
+        sched = [facts["v1"]] * (PRE + MID) + [facts["v2_code"] if i % 2 else facts["v1"] for i in range(1, k + 1)]
+        sched += [facts["v2_code"] if k % 2 else facts["v1"]] * POST
+        want = simulate(sched, DESPAWN, (facts["v2_code"] if k % 2 else facts["v1"])["color"])
+        state_ok = "bodies" in kv and {
+            "count": int(kv["count"]), "frame": int(kv["frame"]), "color": int(kv["color"]),
+            "keys": ints(kv["keys"]), "xbits": ints(kv["xbits"]), "trail_len": int(kv["trail_len"]),
+            "trail_sum": int(kv["trail_sum"]), "grid_sum": int(kv["grid_sum"]),
+            "bodies": ints(kv["bodies"])} == want
+        if "rss_last" in kv:
+            early = int(kv["rss_100"]) - int(kv["rss_first"])
+            late = int(kv["rss_last"]) - int(kv["rss_100"])
+        else:
+            early = late = None
+        hit = (state_ok and kv.get("idle_mapped") == "0" and early is not None
+               and early < P.B2_MAX_RSS_GROWTH_KIB and late < P.B2_MAX_LATE_GROWTH_KIB)
+        observed = f"{'ok' if state_ok else 'bad'} +{early}/+{late}KiB map={kv.get('idle_mapped')}"
+        record("B2", s, f"x{k}", kv, observed,
+               f"ok <{P.B2_MAX_RSS_GROWTH_KIB}/<{P.B2_MAX_LATE_GROWTH_KIB} map=0", hit,
+               rss_first=kv.get("rss_first"), rss_100=kv.get("rss_100"), rss_last=kv.get("rss_last"))
+
+    (OUT / "r1.json").write_text(json.dumps(rows, indent=2))
+    print(f"wrote {(OUT / 'r1.json').relative_to(ROOT)}")
+    print(f"{'FAIL' if failures else 'PASS'}  R1: {len(rows) - failures}/{len(rows)} observations match predictions")
+    return 1 if failures else 0
+
+
 # ---- bench ------------------------------------------------------------------------
 
 def bench(reps: int) -> None:
@@ -332,7 +428,7 @@ def bench(reps: int) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", nargs="?", default="all", choices=["build", "test", "bench", "all"])
+    ap.add_argument("step", nargs="?", default="all", choices=["build", "test", "bench", "r1", "all"])
     ap.add_argument("--reps", type=int, default=50)
     a = ap.parse_args()
     if a.step in ("build", "all") or not (OUT / "host").exists():
@@ -340,6 +436,8 @@ def main() -> int:
     rc = 0
     if a.step in ("test", "all"):
         rc = test()
+    if a.step in ("r1", "all"):
+        rc |= test_r1()
     if a.step in ("bench", "all"):
         bench(a.reps)
     return rc
