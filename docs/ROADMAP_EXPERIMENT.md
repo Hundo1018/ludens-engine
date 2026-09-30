@@ -152,6 +152,17 @@
   - 否則安裝 dev 的 `valgrind` 依賴,在 valgrind 下跑該 3 格。
 - **Gate**:預測成立;不成立時照實記錄原因。
 
+> **進度:✅ 2026-09-30** `sanitize_native.py`
+> - ASan(`--sanitize address`):6 格全部符合預測。`keep`/`close` × v6 報 `heap-buffer-overflow`,
+>   在 `engine_update`,第一個越界存取是 `s.extra += 1` 的讀取;`auto` × v6 與對照組沒有報告。
+> - valgrind 經三輪才可用:
+>   1. host CPU 版含 AVX-512,valgrind 3.22 SIGILL → 改用 `--target-cpu x86-64-v3` 編譯;
+>   2. 全部 0 錯誤,違反預測 → probe 證明 Mojo `alloc` 用自己的 arena,valgrind 看不到區塊邊界
+>      → host 的狀態區塊改用 libc `malloc`;
+>   3. 60 個錯誤、沒有一個標成 "Invalid write" → `incq` 是讀改寫,memcheck 把 load + store 記成 2 個 "Invalid read"(probe 驗證)。
+>   判準改為「`engine_update` 存取 host 區塊之後的位址」後,6 格全部符合。
+> - 預測的措辭「invalid write」對存取本身成立,對 valgrind 的標籤不成立。
+
 ### H5 熱編譯涵蓋 import 的套件
 
 - **問題**:`dev_native.py` 只監看 `engine.mojo`。改了 `ecs/`、`geometry/` 要手動重新 precompile。

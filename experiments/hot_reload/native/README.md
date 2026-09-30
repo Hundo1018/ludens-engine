@@ -134,9 +134,9 @@ What the matrix shows:
    hot reloader has to load every build from a new path.
 6. ⚠ **v6_append under `keep`/`rebind`** matches the oracle, but the new code
    writes `extra` past the end of the host's block, which was sized for the
-   old struct. That is an out-of-bounds heap write this matrix cannot see. It
-   was not checked with a sanitizer (valgrind is not installed here). The size
-   guard rejects it, so `auto` never takes that path.
+   old struct. That is an out-of-bounds heap write this matrix cannot see.
+   H4 confirmed it with ASan and valgrind (see below). The size guard rejects
+   it, so `auto` never takes that path.
 
 ### Latency (`run_native.py bench`, Xeon 2.8 GHz × 4)
 
@@ -401,6 +401,58 @@ same moment by two threads and merged into one line, so the check timed
 out. `dev_native.py` now prints under a lock, and prints the build line
 before publishing, so it always comes before the swap.
 
+## H4: v6's in-place swap under two memory checkers
+
+v6 appends `extra` to the state and increments it every frame. In place, the
+host's block is sized for the old state, so `extra` lies past its end. The
+matrix output is correct, so the matrix cannot see this. `sanitize_native.py`
+runs `keep`, `close` and `auto` × {v2_code (control), v6_append} under two
+detectors.
+
+Predictions (in the script, before the first run): `keep`/`close` × v6
+report an invalid write; `auto` × v6 and every v2 cell report nothing.
+
+**ASan** (`mojo build --sanitize address` for host and engine):
+- all 6 cells match;
+- `keep`/`close` × v6: `heap-buffer-overflow`, `READ of size 8` in
+  `engine_update`. The first bad access is the read half of
+  `s.extra += 1`, and ASan stops at the first error;
+- LeakSanitizer also reports the blocks the matrix host never frees; those
+  are not access errors.
+- `--shared-libasan` could not be used: it passes a clang-only option to the
+  linker, which is gcc here and rejects it. gcc links libasan dynamically
+  anyway, so host and engine share one runtime.
+
+**valgrind** took three rounds to become a working instrument:
+
+1. **SIGILL before any engine code ran.** Valgrind 3.22 cannot decode AVX-512
+   (EVEX) instructions, and a host-CPU Mojo build contains them. Fix: build
+   the valgrind set with `--target-cpu x86-64-v3`.
+2. **0 errors in every cell**, contradicting the prediction. Probe
+   (`probes/probe_alloc_bounds.mojo`): 8 bytes written past a 40-byte block
+   from Mojo's `alloc` are not reported; the same write past a `malloc` block
+   is ("0 bytes after a block of size 40"). Mojo's allocator carves blocks
+   out of its own arena, which valgrind maps as one large range. Fix:
+   `hotswap.block()` now takes host state blocks from libc `malloc`
+   (`free_state`); engine-made snapshot buffers are still freed with Mojo's
+   allocator (`free_buffer`).
+3. **60 errors, none labelled "Invalid write".** `engine_update` compiles
+   `s.extra += 1` to one `incq 0x68(%rdi)`, and 0x68 = 104 = the v1 state
+   size. The probe shows memcheck files a read-modify-write past a block as
+   2 errors in one context labelled `Invalid read`. So 60 = 30 frames × (load +
+   store). The criterion is now: an inline report whose top frame is
+   `engine_update` in the new `.so`, at an address past a block allocated by
+   `host::main`.
+
+With that criterion all 6 cells match. `keep`/`close` × v6 report "Invalid read of
+size 8 in engine_update, 0 bytes after a 104-byte block from host::main()".
+The prediction's wording ("invalid write") holds for the access, not for
+valgrind's label: valgrind never prints "Invalid write" here.
+
+After the allocator change the 48-cell matrix, the e2e and the snapshot
+bench were rerun: all pass, and the bench numbers are within noise
+(9.74 ms against 9.30 ms at 100k).
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
@@ -441,6 +493,7 @@ before publishing, so it always comes before the swap.
 | `dev_native.py` | hot compile: watch → `mojo build` → publish `latest` (optionally starts the host) |
 | `e2e_native.py` | edits the source three ways while the host runs; measures edit → swap latency |
 | `run_native.py` | builds the variants and host, runs the matrix vs. the oracle, benchmarks |
+| `sanitize_native.py` | H4: the v6 cells under ASan and valgrind |
 | `guard.mojo` | fault guard for H1: fixed-address jmp_buf page, handler, `guarded_update` / `guarded_load` |
 | `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
 | `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |

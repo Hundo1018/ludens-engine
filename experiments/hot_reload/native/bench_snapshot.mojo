@@ -16,7 +16,7 @@ buffer, ecs/schema.mojo records). bench_snapshot.py builds both and runs this.
 from std.ffi import OwnedDLHandle, RTLD
 from std.sys import argv
 from std.time import perf_counter_ns
-from hotswap import block, free_block, snapshot_bytes
+from hotswap import block, free_buffer, free_state, snapshot_bytes
 
 
 def equal(h: OwnedDLHandle, a: Int, b: Int) raises -> Bool:
@@ -67,7 +67,10 @@ def main() raises:
             raise Error("engine_load returned " + String(ok))
         var same = equal(h, s, s2)
         h.get_function[NoneType]("engine_destroy")(s2)
-        free_block(s2)
-        free_block(buf)
+        free_state(s2)
+        if mode == "hand":
+            free_state(buf)  # host-allocated
+        else:
+            free_buffer(buf)  # engine-allocated
         print("rep=", r, " bytes=", nbytes, " save_us=", Float64(t1 - t0) / 1000.0,
               " load_us=", Float64(t2 - t1) / 1000.0, " equal=", 1 if same else 0, sep="")

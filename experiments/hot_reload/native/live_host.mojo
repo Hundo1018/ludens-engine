@@ -34,7 +34,7 @@ from std.ffi import RTLD
 from std.os.path import exists
 from std.sys import argv
 from std.time import perf_counter_ns, sleep
-from hotswap import CAPACITY, Engine, block, free_block, snapshot_bytes
+from hotswap import CAPACITY, Engine, block, free_buffer, free_state, snapshot_bytes
 from guard import guard_install, guarded_load, guarded_update
 
 comptime FRAME_S = 1.0 / 60.0
@@ -103,7 +103,7 @@ def main() raises:
             s = block(old.size())
             if old.load(s, snap) != 1:
                 raise Error("rollback: the old module rejected its own snapshot")
-            free_block(snap)
+            free_buffer(snap)
             eng = old^  # drops the faulted module
             probation = 0
             print("rollback version=", version, " at=update signal=", sig, " frame=", eng.frame(s),
@@ -113,7 +113,7 @@ def main() raises:
             probation -= 1
             if probation == 0:
                 _ = prev.take()  # unload the old module
-                free_block(snap)
+                free_buffer(snap)
                 print("commit version=", version, " frames=", PROBATION, sep="", flush=True)
         var frame = eng.frame(s)
         if frame % 30 == 0:
@@ -137,14 +137,14 @@ def main() raises:
                     var rc = guarded_load(new, s_new, snap)
                     if rc != 0:
                         # the old module and its state are untouched: nothing to restore
-                        free_block(snap)
+                        free_buffer(snap)
                         print("rollback version=", nxt[0], " at=load signal=", rc, " frame=", frame_before,
                               " count=", eng.count(s), " rollback_us=0", sep="", flush=True)
                         version = nxt[0]
                         sleep(FRAME_S)
                         continue
                     eng.destroy(s)
-                    free_block(s)
+                    free_state(s)
                 var t2 = perf_counter_ns()
                 prev = eng^
                 eng = new^

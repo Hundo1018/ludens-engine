@@ -63,7 +63,8 @@ struct Engine(Movable):
         return self.h.get_function[Int]("engine_label_byte")(s, i)
 
     def save(self, s: Int) raises -> Int:
-        """Snapshot buffer: [u64 byte length][bytes]; free it with free_block."""
+        """Snapshot buffer: [u64 byte length][bytes], allocated by the engine
+        with Mojo's allocator; free it with free_buffer."""
         return self.h.get_function[Int]("engine_save")(s)
 
     def load(self, s: Int, buf: Int) raises -> Int:
@@ -72,7 +73,15 @@ struct Engine(Movable):
 
 
 def block(nbytes: Int) -> Int:
-    return Int(alloc[UInt8](Layout[UInt8](count=nbytes)).unsafe_leak())
+    """A state block from libc `malloc`, freed with `free_state`. Not Mojo's
+    `alloc`: that allocator carves blocks out of its own arena, so valgrind
+    cannot see where a block ends (H4, probes/probe_alloc_bounds.mojo)."""
+    return external_call["malloc", Int](nbytes)
+
+
+def free_state(addr: Int):
+    """Free a block from `block`."""
+    external_call["free", NoneType](addr)
 
 
 def maps_count(needle: String) raises -> Int:
@@ -116,5 +125,7 @@ def snapshot_bytes(buf: Int) -> Int:
     return Int(BytePtr(unsafe_from_address=buf).unsafe_bitcast[UInt64]()[]) + 8
 
 
-def free_block(addr: Int):
+def free_buffer(addr: Int):
+    """Free a buffer the engine allocated (Mojo's allocator, shared by every
+    module: README finding 3)."""
     BytePtr(unsafe_from_address=addr).unsafe_free()
