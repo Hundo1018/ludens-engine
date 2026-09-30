@@ -318,8 +318,11 @@ def bench(reps: int) -> None:
         rows[s] = {"median_us": statistics.median(us), "p95_us": sorted(us)[int(0.95 * (len(us) - 1))],
                    "max_us": max(us)}
     rebuild = []
-    for _ in range(max(3, reps // 10)):
-        rebuild.append(build_variant("bench_rebuild", variant_source(VARIANTS["v2_code"][0])))
+    salt = time.time_ns() % 100000  # a SPEED never built before: mojo caches builds per (path, code)
+    for r in range(max(3, reps // 10)):
+        src = variant_source(VARIANTS["v2_code"][0]).replace(
+            "comptime SPEED: Float32 = 120.0", f"comptime SPEED: Float32 = {salt + r}.25")
+        rebuild.append(build_variant("bench_rebuild", src))
     summary = {"swap": rows, "rebuild_s": {"median": statistics.median(rebuild), "max": max(rebuild),
                                            "n": len(rebuild)}, "reps": reps}
     (OUT / "bench_summary.json").write_text(json.dumps(summary, indent=2))
