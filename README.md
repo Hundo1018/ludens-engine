@@ -18,10 +18,10 @@ Two laws govern the codebase (see [docs/CATEGORY.md](docs/CATEGORY.md)):
 
 | Subsystem | Seam | Implementations |
 |---|---|---|
-| ECS storage | `StorageBackend` | sparse-set (EnTT), archetype/SoA (flecs), bitset, reactive (+push observers), naive baseline |
+| ECS storage | `StorageBackend` | sparse-set (EnTT), archetype/SoA (flecs), chunked, bitset, reactive (+push observers), naive baseline |
 | ECS extras | — | entity relationships (pair store, wildcard queries), command buffers (deferred despawn/relate/**set**), transform hierarchy (matrix & motor propagation) |
 | Scheduling | `Scheduler` / `DispatchPolicy` | sequential baseline; **system-as-actor** and **entity-as-actor** (mailbox dataflow) under serial/parallel dispatch — all produce bit-identical worlds (`test_scheduler_parity`) |
-| Broadphase | `BroadPhase` | brute force, quad/octree, spatial hash, BVH, **persistent dynamic BVH + pair cache** |
+| Broadphase | `BroadPhase` | brute force, quad/octree, spatial hash, sweep-and-prune, BVH, **persistent dynamic BVH + pair cache** |
 | Narrowphase | `NarrowPhase` / `ManifoldNarrowPhase` | AABB, circle, SAT, OBB, SDF, GJK+EPA (2D/3D with witness points), CGA spheres/planes; **contact manifolds** (clipped patches, per-point depth), rotated box-box (15-axis SAT) |
 | Solver shapes (6-DOF) | — | box, sphere, capsule, **convex hull**, and static triangle-mesh / heightfield — all dispatched through one manifold path |
 | Rigid bodies (6-DOF) | `Body6` | `QuatBody6` (quat + inertia tensor) **and** `ScrewBody6` (PGA motor pose + twist bivector, Lie–Poisson) — parity compared **by action**, not coefficients |
@@ -40,21 +40,24 @@ float-roundoff over 20k chaotic-tumble steps.
 ## Build & run
 
 Linux x86-64 + [pixi](https://pixi.sh). Built on the **stable** toolchain
-(Mojo 1.0.0 / modular 26.5.0, constrained by `pixi.toml`); every package
+(Mojo 1.1.0 / modular 26.6.0, pinned exactly in `pixi.toml`); every package
 precompiles into `build/` first, because cross-file imports resolve only
 through precompiled packages.
 
 ```sh
 pixi run build       # precompile all engine packages
-pixi run test        # 116 self-checking test programs (stops at first failure)
-pixi run examples    # runnable demos (01 movement … 14 deformables)
+pixi run test        # arch gate + 160 self-checking test programs, unit → component → integration → system
+pixi run test-all    # same, plus the stress tier
+pixi run gate        # full suite + summary + compare with tests/golden/test_stdout.txt
+pixi run arch -- check   # layer / cycle / private-name gate (see docs/ARCHITECTURE.md)
+pixi run examples    # runnable demos (01 movement … 24 locomotion graph)
 pixi run benchmark   # regenerate BENCHMARK_REPORT.md
 ```
 
 Run one thing directly after `pixi run build`:
 
 ```sh
-pixi run mojo run -I build tests/test_softstep6.mojo
+pixi run mojo run -D ASSERT=all -I build tests/test_softstep6.mojo
 pixi run mojo run -I build examples/06_ga_motor.mojo
 ```
 
@@ -65,20 +68,34 @@ renderer binds to it as a separate layer.
 ## Layout
 
 ```
+diag/        invariants · leveled log · counters · trace spans · debug draw · frame arena
 geometry/    vec/mat/quat · GA core (multivector, motors, galie, cga, AD fields) · gjk/epa/sat/clip
 collision/   broadphase seams · narrowphase seams · manifolds · dynamic BVH · swept TOI
 physics/     6-DOF bodies (quat & screw) · soft-step solver · joints/islands/sleeping ·
              spin integrators · GPU cloth (XPBD, VBD) · differentiable rollouts ·
              articulated chains · FEM/MPM/SPH/PBF softbodies · actuators · sensors
-ecs/         storage backends · relations · command buffers · observers · transforms
-scheduler/   sequential + actor-model schedulers · dispatch policies · fixed loop · seeded RNGs
-spatial/     loose quad/octree · hash grid            harness/    test & bench harness
-fluid/       lattice-Boltzmann (D3Q19)                numerics/   CG · sparse · vec ops
-procedural/  value noise · animation curves           oop/        the OOP control engine
+ecs/         storage backends · relations · command buffers · observers · transforms · schemas
+scheduler/   sequential / job-graph / work-stealing / actor schedulers · dispatch policies ·
+             fixed loop · events · timers · seeded RNGs
+gameplay/    runtime · character controller · interpolation · active ragdoll · replay · save
+spatial/     loose quad/octree · hash grid · BVH/LBVH
+fluid/       lattice-Boltzmann (D3Q19, CPU + GPU)
+numerics/    CG · sparse · vec ops
+procedural/  noise · animation graph · IK · tween · FSM
+oop/         the OOP control engine (benchmark baseline only)
+harness/     test & bench harness (tests/benchmarks/examples only)
 tests/       one self-checking program per seam       benchmarks/ one cross matrix per seam
 tests/_spikes/  language probes (`pixi run spikes`)   experiments/ GA research probes
-docs/        CATEGORY (laws) · SOTA_GAP_ANALYSIS · ROADMAP (per-phase progress + numbers)
+tools/       archindex (architecture index + gate) · golden (output identity gate)
+scripts/     pixi task bodies · arch_layers.toml · benchmark report template
+docs/        ARCHITECTURE (layers, error policy, test tiers) · CATEGORY (laws) ·
+             SOTA_GAP_ANALYSIS · ROADMAP (per-phase progress + numbers) · design/ · audits/
 ```
+
+Packages are layered (`scripts/arch_layers.toml`): a package imports only
+strictly lower layers — `diag` → `geometry` → {`numerics`, `spatial`,
+`procedural`, `fluid`, `ecs`} → {`scheduler`, `collision`} → `physics` →
+`gameplay` → `oop`. `pixi run test` fails when that is violated.
 
 ## Honest status
 

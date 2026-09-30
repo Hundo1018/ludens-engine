@@ -17,12 +17,12 @@ test/bench infrastructure: engine packages must never import it.
 | 1 | `geometry` | Scalar/vector/matrix math, rotations (quat, motor, dual quat, PGA/CGA/DCGA), coefficient fields for AD, primitive shapes, pairwise geometric tests (GJK/EPA/SAT/clip/SDF/predicates), static BVH + LBVH construction, skinning math | Anything with a time step, a world, or an entity |
 | 2 | `numerics` | Sparse matrices, Krylov solvers, flat-vector kernels | Physics meaning of the vectors |
 | 2 | `spatial` | Dynamic spatial indexes over AABBs (hash grid, loose quad/octree) | Pair generation policy (that is `collision`) |
-| 2 | `procedural` | Noise, animation clips/blending/pose evaluation, gameplay IK | Physics, scheduling |
+| 2 | `procedural` | Noise, animation clips/blending/pose evaluation, gameplay IK, hierarchical FSM | Physics, scheduling |
 | 2 | `fluid` | Lattice-Boltzmann (grid fluid) | Particle fluids (those are `physics`) |
 | 2 | `ecs` | Entities, components, storage backends, queries, relations, commands, transform propagation | Scheduling of systems |
-| 3 | `scheduler` | System scheduling (sequential/job graph/actors/work stealing), fixed-step loop, RNG, FSM | Physics or collision meaning |
+| 3 | `scheduler` | System scheduling (sequential/job graph/actors/work stealing), fixed-step loop, events, timers, RNG | Physics or collision meaning |
 | 3 | `collision` | Broadphase seam, narrowphase seam, contact manifolds, CCD/TOI, static level geometry, scene queries | Impulses, integration |
-| 4 | `physics` | Every dynamics solver: rigid 2D/6-DOF, articulated chains, constraints, soft bodies, cloth, FEM/MPM/SPH/PBF, differentiable rollouts, serialization of solver state | Gameplay policy (controllers, vehicles, AI) |
+| 4 | `physics` | Every dynamics solver: rigid 6-DOF, articulated chains, constraints, soft bodies, cloth, FEM/MPM/SPH/PBF, differentiable rollouts, serialization of solver state | Gameplay policy (controllers, vehicles, AI) |
 | 5 | `gameplay` | Game-facing runtime shell built on physics + collision + ecs: character controller, state interpolation, active ragdoll (Phase 17) | Solver internals |
 | 6 | `oop` | The object-oriented baseline engine used only by comparative benchmarks | — |
 
