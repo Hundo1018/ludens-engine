@@ -2,7 +2,7 @@
 """End-to-end check of native hot compile (dev_native.py + live_host).
 
 Edits a COPY of engine.mojo three times while the host runs:
-  1. SPEED/COLOR (code only)   -> swap via rebind, frame counter continues, 6 entities
+  1. SPEED/COLOR (code only)   -> swap in place, frame counter continues, 6 entities
   2. syntax error              -> build fails, host keeps running the old module
   3. fix + insert a field      -> swap via snapshot, frame counter continues, 6 entities
 and measures edit -> swap latency (file write to the host's swap line).
@@ -91,21 +91,23 @@ def main() -> int:
         _, kv, _ = proc.wait_for(lambda kv: kv["_kind"] == "tick")
         check("boot: 6 entities, red", kv["count"] == "6" and kv["color"] == str(0xFF0000FF), kv)
 
-        # 1. code-only edit (repeated for latency statistics, alternating speeds)
+        # 1. code-only edit, repeated for latency statistics. Every round uses a
+        # SPEED never built before: mojo caches builds per (path, code), so
+        # repeating a value measures a cache hit (~0.9 s), not a compile (~3 s).
         code_edit = VARIANTS["v2_code"][0]
         latencies, builds = [], []
+        salt = time.time_ns() % 1_000_000
         for r in range(a.rounds):
             text = apply(original, code_edit)
-            if r % 2 == 1:  # alternate so every round is a real change
-                text = text.replace("comptime SPEED: Float32 = 120.0", "comptime SPEED: Float32 = 90.0")
+            text = text.replace("comptime SPEED: Float32 = 120.0", f"comptime SPEED: Float32 = {salt + r}.5")
             t_edit = time.perf_counter()
             src.write_text(text)
             _, b, _ = proc.wait_for(lambda kv: kv["_kind"] == "build")
             builds.append(float(b["build_s"]))
             t_swap, kv, line = proc.wait_for(lambda kv: kv["_kind"] in ("swap", "swap_error"))
             latencies.append(t_swap - t_edit)
-            check(f"edit 1.{r}: code edit swapped via rebind, frame continues, 6 entities",
-                  kv["_kind"] == "swap" and kv["used"] == "rebind" and kv["frame_before"] == kv["frame_after"]
+            check(f"edit 1.{r}: code edit swapped in place, frame continues, 6 entities",
+                  kv["_kind"] == "swap" and kv["used"] == "inplace" and kv["frame_before"] == kv["frame_after"]
                   and kv["count"] == "6", kv)
         _, kv, _ = proc.wait_for(lambda kv: kv["_kind"] == "tick")
         check("edit 1: new color live (green)", kv["color"] == str(0x00FF00FF), kv)
