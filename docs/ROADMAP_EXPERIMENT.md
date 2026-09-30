@@ -130,6 +130,15 @@
   - snapshot 時間對實體數作圖(10、1k、100k),和現在的手寫格式比較。
 - **Gate**:矩陣全部符合預測;snapshot 在 100k 實體時 < 16.7 ms,否則記錄實際數字並說明。
 
+> **進度:✅ 2026-09-30**
+> - `EngineState { entities; core: Core }`:`Core` 以 `write_value`、實體以 `write_values[Entity]` 序列化;
+>   `engine_layout_id` 改由 `schema_of[EngineState]` 雜湊,不再手寫欄位清單。
+> - 規則:一次載入同時「丟掉舊欄位」且「新欄位取預設」視為改名,先套 `migrate()` 的別名重試,仍不成立則拒絕(code 2)。
+> - 矩陣 6 策略 × 8 修改 = 48 格全部符合事前預測:v7 自動通過;v8 無規則被拒;v8 加一行 `alias_field` 通過。
+>   第一次跑 47/48:host 在拒絕時沒印 `used=`(harness 錯誤,已修)。
+> - snapshot 成本(save + load):100k 實體 9.30 ms(手寫 1.57 ms),gate 通過;大小少 25%(每實體 12 B 對 16 B)。
+> - 代價:engine 每次編譯多約 0.3 s(2.74 → 3.04 s,未快取)。
+
 ### H4 v6 越界寫入的 sanitizer 驗證
 
 - **問題**:v6(追加欄位)在 `keep`/`rebind` 下輸出正確,
@@ -150,6 +159,11 @@
 - **預測**:改 `ecs/sparse_set.mojo` 的一個函式 → host 換上新版;延遲 = 該套件 precompile + engine build。
 - **量測**:e2e 加一輪修改 `ecs/`;記錄各段耗時。
 - **Gate**:e2e 通過;延遲數字寫入 native README。
+
+> **進度:✅ 2026-09-30**
+> - `dev_native.py` 監看 `diag/`、`geometry/`、`ecs/` 的所有 `.mojo`;有變的套件與依賴它的套件依序 precompile,再 build engine。
+> - e2e(在套件複本上):`SparseSet.__len__` 改成 `+100` → `pkgs=ecs`,precompile 2.48 s + engine 3.97 s,in-place 換上,`count=106`;存檔 → 換上 6.56 s。
+> - 第一次跑:build 行與 host 的 swap 行由兩個執行緒同時印出而黏成一行,檢查逾時;已改為加鎖輸出,並先印 build 行再發布。
 
 ---
 

@@ -152,7 +152,8 @@ variant took 2.9–3.5 s. The dev loop is bounded by the compiler, not by the sw
 
 ## Hot compile (`dev_native.py` + `live_host.mojo`)
 
-`dev_native.py` polls `engine.mojo` every 100 ms. On each change it runs
+`dev_native.py` polls `engine.mojo` every 100 ms (since H5, also the packages
+it imports; see below). On each change it runs
 `mojo build --emit shared-lib` into `build/hot_native/dev/<n>/libengine.so`
 (a new path each time, because of finding 5). After a successful build it
 atomically replaces `dev/latest` with `"<n> <path>"`; a failed build leaves
@@ -160,9 +161,9 @@ atomically replaces `dev/latest` with `"<n> <path>"`; a failed build leaves
 
 `live_host.mojo` runs the engine at about 60 Hz and reads `latest` every
 frame. On a new version it loads the candidate first; only when that works
-does it hand the state over with `swap_auto` (shared with the matrix host in
-`hotswap.mojo`). A candidate that fails to load is reported, and the old
-module keeps running.
+does it hand the state over (phase 1: `rebind` if the layout matched, else
+`snapshot`; since H1 with a guarded probation, see below). A candidate that
+fails to load is reported, and the old module keeps running.
 
 `e2e_native.py` edits a copy of `engine.mojo` while both run:
 
@@ -285,6 +286,121 @@ Limits:
 - The fixed guard address can be taken in another process layout; then
   `guard_install` raises at start-up.
 
+## H3: snapshots from reflection schemas, migration by field name
+
+The phase 1 snapshot was a hand-written word array: every added, removed or
+renamed field meant editing `engine_save` / `engine_load`. H3 serialises with
+dev's `ecs/schema.mojo` (built for save games), which generates the field
+table from `reflect[T]` at compile time.
+
+**Engine layout.** `EngineState { entities: SparseSet[Float32]; core: Core }`:
+- `Core` holds only plain data (`capacity`, `frame`, `box_x`, `label_id`).
+  It is written as one self-describing record (`write_value`).
+- Entities are written as a batch of `Entity { key, x }` records (`write_values`).
+- `core` is the last field, so a field appended to `Core` is appended to the
+  whole state, as before (v6, the H4 target).
+- `engine_layout_id` is now an FNV-1a hash over `schema_of[EngineState]`
+  (every dotted field name, type name, offset and size), so there is no
+  hand-kept list of fields left.
+
+**ABI.** `engine_save(state) -> buffer` returns `[u64 length][bytes]`, which
+the host frees; this works because all modules share one allocator.
+`engine_load(state, buffer)` returns 1 (ok), 0 (corrupt), 2 (unresolved
+rename) or 3 (a field changed type).
+
+**Migration rule.** `read_value` matches stored fields to current ones by name:
+- an added field keeps the value `Core(0)` gives it;
+- a deleted field is skipped.
+
+A load that both drops a stored field and defaults a current one looks like a
+rename. It is retried with the aliases in `migrate()`
+(`alias_field(sch, "offset_x", "box_x")` reads stored `box_x` into `offset_x`).
+If it still looks like one, the load is refused (code 2); the field is not
+silently zeroed. The aliases are only applied to such loads, so a stale alias
+does not break the next swap.
+
+**New variants.**
+- `v7_delete` removes `capacity`, the first `Core` field.
+- `v8_rename` renames `box_x` to `offset_x` everywhere.
+- `v8_rule` is v8 plus the one-line alias.
+
+**Predictions** (`PREDICTED_H3`, written before the run):
+- the phase 1 and H2 columns do not change;
+- `keep`/`close` × v7: `corrupt|trap` (the new code reads `frame` from `capacity`'s slot);
+- `keep`/`close` × v8: `ok/new` (same offsets);
+- `snapshot`/`auto` × v7: `ok/new`;
+- `snapshot`/`auto` × v8_rename: `rejected`. The layout id hashes field names,
+  so `auto` takes the snapshot path;
+- `snapshot`/`auto` × v8_rule: `ok/new`.
+
+| Strategy | v2 | v3 | v4 | v5 | v6 | v7_delete | v8_rename | v8_rule |
+|---|---|---|---|---|---|---|---|---|
+| restart | lost/new | lost/new | lost/new | lost/new | lost/new | lost/new | lost/new | lost/new |
+| keep | ok/new | ok/new | corrupt | corrupt/new | ok/new ⚠ | corrupt (label `?`) | ok/new | ok/new |
+| close | ok/new | ok/new | corrupt | corrupt/new | ok/new ⚠ | corrupt (label `?`) | ok/new | ok/new |
+| snapshot | ok/new | ok/new | ok/new | ok/new | ok/new | ok/new | **rejected** (code 2) | ok/new |
+| auto | ok/new (inplace) | ok/new (inplace) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) | **rejected** (code 2) | ok/new (snapshot) |
+| samepath | stale-code/old | … | … | … | … | … | … | stale-code/old |
+
+48/48 match.
+- The first run had 47/48: `auto` × v8_rename was `rejected` as predicted, but
+  the host returned before printing `used=`, so the `used` check failed. The
+  host now prints `used=` before the rejection. This was a harness bug, not a
+  wrong prediction.
+- `keep`/`close` × v4 changed from `trap` (H2) to `corrupt`, which is still
+  inside the predicted set. With the entities first, the inserted field no
+  longer shifts the `SparseSet`, so the new code misreads numbers instead of
+  a heap pointer.
+
+**Snapshot cost** (`bench_snapshot.py`, median of 7; save + load, and every
+load compared field by field with the original):
+
+| Entities | hand-written bytes | hand ms | schema bytes | schema ms |
+|---|---|---|---|---|
+| 9 | 192 | 0.001 | 516 | 0.004 |
+| 999 | 16 032 | 0.009 | 12 396 | 0.079 |
+| 99 999 | 1 600 032 | 1.57 | 1 200 396 | **9.30** |
+
+Gate (< 16.7 ms at 100k): passed. The schema format is 25% smaller (12 bytes per
+entity against 16) and 5.9× slower at 100k; `write_values` appends one byte
+at a time (the 17.11 to-do in ROADMAP.md). The H1 rollback copy uses the same
+format, so with 100k entities each swap spends about 4 ms saving it.
+
+In the live loop (e2e), the 6-entity snapshot is 480–541 bytes and takes
+6–29 µs to save; the H2 hand format took 144 bytes and 1.3–2.2 µs.
+
+**Build cost.** `build_time.py --unique` (4 reps, interleaved, code never
+built before): H2 engine 2.74 s, H3 engine 3.04 s. Importing `ecs.schema` adds
+about 0.3 s to every engine build. The first attempt at this comparison
+appended a unique *comment* per build, which the cache ignores; `--unique` now
+appends an unused `comptime` constant.
+
+## H5: hot compile follows the packages the engine imports
+
+`dev_native.py` now also polls every `.mojo` file of `diag/`, `geometry/`
+and `ecs/` (under `--packages-root`). For a changed package it:
+1. re-precompiles that package into `--include`;
+2. re-precompiles every package that imports it, directly or not, in
+   `PACKAGES` order (found by scanning the `from X` / `import X` lines);
+3. rebuilds the engine.
+
+A failed precompile keeps the previous `.mojoc` and is retried on the next
+change. The e2e runs on copies of the packages and its own include directory,
+so the repository tree is not touched.
+
+Prediction (written in `e2e_native.py` first): make `SparseSet.__len__` in
+the copy of `ecs/` return `len + 100`; then the build line says `pkgs=ecs`,
+`build_s = pkg_s + engine_s`, the swap is in place, and ticks report
+`count=106`. Result: `pkgs=ecs pkg_s=2.48 engine_s=3.97`, in-place swap,
+`count=106`; edit → swap 6.56 s. The engine rebuild saw the new `ecs.mojoc`:
+the compile cache does not hand back a stale engine when only an imported
+package changed.
+
+On the first run the build line and the host's swap line were printed at the
+same moment by two threads and merged into one line, so the check timed
+out. `dev_native.py` now prints under a lock, and prints the build line
+before publishing, so it always comes before the swap.
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
@@ -308,17 +424,18 @@ Limits:
   not tested. Mojo 1.1 rejects a `def(Int) -> Int` field type ("struct
   fields do not support trait types"), so a function-pointer field needs
   another form to test.
-- The snapshot format is hand-written. dev's `ecs/schema.mojo` (reflection
-  schemas, used for save games) could produce it instead; not tried.
-- The watcher polls one file. Edits to packages the engine imports (`ecs`,
-  `geometry`) need `run_native.py build` to re-precompile them first.
+- Snapshot cost against state size: measured in H3 (9.3 ms for 100k entities).
+- The migration rule cannot tell a rename from a delete plus an unrelated
+  add in the same edit; that edit needs an alias or is refused.
+- A field whose type changes is refused (code 3); no variant tests it.
 
 ## Files
 
 | File | Role |
 |---|---|
 | `engine.mojo` | engine as a reloadable `.so`; `@@…@@` markers are where the edits go |
-| `hotswap.mojo` | shared: `Engine` wrapper over the C ABI, state blocks, maps lookup, `swap_auto` |
+| `hotswap.mojo` | shared: `Engine` wrapper over the C ABI, state blocks, maps lookup |
+| `bench_snapshot.mojo`, `bench_snapshot.py` | H3: snapshot size and time, hand-written vs schema, 10 / 1k / 100k entities |
 | `host.mojo` | runs one (old, new, strategy) cell and prints observations |
 | `live_host.mojo` | runs the engine continuously and swaps in each published build |
 | `dev_native.py` | hot compile: watch → `mojo build` → publish `latest` (optionally starts the host) |
