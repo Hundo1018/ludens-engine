@@ -1,0 +1,525 @@
+"""Co-rotational linear tetrahedral FEM — a continuum next to the mass-spring lattice.
+
+`softbody.mojo` models a deformable as particles joined by distance
+constraints. That is cheap and stable but it is not a material: its stiffness
+depends on how the lattice happens to be connected, it has no Poisson effect,
+and "volume" is only preserved to the extent the spring topology happens to
+resist it. FEM instead discretises the CONTINUUM: each tetrahedron carries a
+deformation gradient, and stress comes from a constitutive law with real
+material parameters (Lame mu and lambda), so stiffness and volume response are
+properties of the material rather than of the mesh wiring.
+
+The "co-rotational" part is the whole reason this is usable. Linear elasticity
+computes stress from the small-strain tensor, which is only valid for small
+DISPLACEMENTS — rotate an undeformed body and linear FEM reports enormous
+spurious strain and tears it apart. Co-rotational FEM extracts the rotation R
+from the deformation gradient F by polar decomposition and measures strain in
+the unrotated frame, so a rigid rotation produces exactly zero force. That
+property is asserted directly in `test_fem`, because it is the one that
+separates a working implementation from one that merely looks elastic at rest.
+
+Stress (co-rotational linear):  P(F) = 2*mu*(F - R) + lambda * tr(R^T F - I) * R
+Nodal forces:                   H = -W * P * Dm^-T,  columns give f0..f2, f3 = -sum
+"""
+
+from std.math import sqrt
+from geometry.vec import Real, Vec3
+from geometry.mat import Mat3
+from numerics.sparse import LinearOperator
+from numerics.cg import cg, CgResult
+from diag.counters import Counters, CG_NOT_CONVERGED
+
+
+def det3(m: Mat3) -> Real:
+    """3x3 determinant. Public (not `_det3`): `physics/mpm.mojo` imports it
+    deliberately, both solvers' plasticity/inversion math needing the same
+    determinant (audit F18). A dedicated `geometry.mat3.Mat3x3` type with its
+    own `.det()` now exists for new code (audit F8); `fem`/`mpm` keep the
+    `Mat3`-based representation here rather than migrating in this pass —
+    that migration made the physics package's compile time regress
+    severely (see 17.0c-d-placement.md step 7 notes) and was reverted."""
+    return (
+        m.get(0, 0) * (m.get(1, 1) * m.get(2, 2) - m.get(1, 2) * m.get(2, 1))
+        - m.get(0, 1) * (m.get(1, 0) * m.get(2, 2) - m.get(1, 2) * m.get(2, 0))
+        + m.get(0, 2) * (m.get(1, 0) * m.get(2, 1) - m.get(1, 1) * m.get(2, 0))
+    )
+
+
+def _inv3(m: Mat3) -> Mat3:
+    var d = det3(m)
+    var inv = 1.0 / d if abs(d) > 1e-20 else Real(0)
+    var r = Mat3()
+    r.set(0, 0, (m.get(1, 1) * m.get(2, 2) - m.get(1, 2) * m.get(2, 1)) * inv)
+    r.set(0, 1, (m.get(0, 2) * m.get(2, 1) - m.get(0, 1) * m.get(2, 2)) * inv)
+    r.set(0, 2, (m.get(0, 1) * m.get(1, 2) - m.get(0, 2) * m.get(1, 1)) * inv)
+    r.set(1, 0, (m.get(1, 2) * m.get(2, 0) - m.get(1, 0) * m.get(2, 2)) * inv)
+    r.set(1, 1, (m.get(0, 0) * m.get(2, 2) - m.get(0, 2) * m.get(2, 0)) * inv)
+    r.set(1, 2, (m.get(0, 2) * m.get(1, 0) - m.get(0, 0) * m.get(1, 2)) * inv)
+    r.set(2, 0, (m.get(1, 0) * m.get(2, 1) - m.get(1, 1) * m.get(2, 0)) * inv)
+    r.set(2, 1, (m.get(0, 1) * m.get(2, 0) - m.get(0, 0) * m.get(2, 1)) * inv)
+    r.set(2, 2, (m.get(0, 0) * m.get(1, 1) - m.get(0, 1) * m.get(1, 0)) * inv)
+    return r^
+
+
+def polar_rotation(f: Mat3) -> Mat3:
+    """Rotation factor of `F = R S` by Newton iteration `R <- (R + R^-T)/2`.
+
+    Cheap, quadratically convergent, and the standard choice for co-rotational
+    FEM. It is what makes a rigid rotation cost zero force: without it the
+    strain measure sees the rotation as stretch."""
+    var r = f.copy()
+    for _ in range(12):
+        var rit = _inv3(r).transpose()
+        var nr = Mat3()
+        for i in range(3):
+            for j in range(3):
+                nr.set(i, j, 0.5 * (r.get(i, j) + rit.get(i, j)))
+        r = nr^
+    return r^
+
+
+@fieldwise_init
+struct Tet(Copyable, ImplicitlyCopyable, Movable):
+    var a: Int
+    var b: Int
+    var c: Int
+    var d: Int
+    var dm_inv: Mat3  # inverse rest shape matrix
+    var vol: Real  # rest volume
+
+
+struct FemBody(Movable):
+    """Node state as SoA plus a tetrahedron list."""
+
+    var x: List[Real]
+    var y: List[Real]
+    var z: List[Real]
+    var vx: List[Real]
+    var vy: List[Real]
+    var vz: List[Real]
+    var inv_m: List[Real]  # 0 = pinned
+    var tets: List[Tet]
+    var mu: Real
+    var lam: Real
+    var damping: Real
+    var corotational: Bool
+    """When False, strain is measured with R = I — plain linear elasticity.
+    Kept as a switchable variant rather than deleted because it is the control
+    that shows what the polar decomposition BUYS: `bench_fem` prices the
+    rotation extraction, and `test_fem` shows that without it a rigid rotation
+    of an undeformed body generates enormous spurious force."""
+    var counters: Counters
+    """ROADMAP 17.0h / audit E19: `diag` counters, so far only
+    `CG_NOT_CONVERGED` (bumped by `step_implicit` when its `cg()` solve
+    didn't converge and the velocity delta it produced was discarded rather
+    than applied -- see that method)."""
+
+    def __init__(out self, young: Real, poisson: Real, damping: Real = 4.0):
+        self.x = List[Real]()
+        self.y = List[Real]()
+        self.z = List[Real]()
+        self.vx = List[Real]()
+        self.vy = List[Real]()
+        self.vz = List[Real]()
+        self.inv_m = List[Real]()
+        self.tets = List[Tet]()
+        # Lame parameters from the engineering constants a user actually knows
+        self.mu = young / (2 * (1 + poisson))
+        self.lam = young * poisson / ((1 + poisson) * (1 - 2 * poisson))
+        self.damping = damping
+        self.corotational = True
+        self.counters = Counters()
+
+    def node_count(self) -> Int:
+        return len(self.x)
+
+    def add_node(mut self, p: Vec3, mass: Real):
+        self.x.append(p[0])
+        self.y.append(p[1])
+        self.z.append(p[2])
+        self.vx.append(0)
+        self.vy.append(0)
+        self.vz.append(0)
+        self.inv_m.append(1.0 / mass if mass > 0 else Real(0))
+
+    def pos(self, i: Int) -> Vec3:
+        return Vec3(self.x[i], self.y[i], self.z[i], 0)
+
+    def pin(mut self, i: Int):
+        self.inv_m[i] = 0
+
+    def add_tet(mut self, a: Int, b: Int, c: Int, d: Int):
+        var pa = self.pos(a)
+        var e1 = self.pos(b) - pa
+        var e2 = self.pos(c) - pa
+        var e3 = self.pos(d) - pa
+        var dm = Mat3()
+        for k in range(3):
+            dm.set(k, 0, e1[k])
+            dm.set(k, 1, e2[k])
+            dm.set(k, 2, e3[k])
+        var det = det3(dm)
+        # Skip degenerate/inverted tets rather than storing an infinite inverse
+        if abs(det) < 1e-12:
+            return
+        self.tets.append(Tet(a, b, c, d, _inv3(dm), abs(det) / 6.0))
+
+    def total_volume(self) -> Real:
+        var v = Real(0)
+        for ref t in self.tets:
+            var pa = self.pos(t.a)
+            var e1 = self.pos(t.b) - pa
+            var e2 = self.pos(t.c) - pa
+            var e3 = self.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            v += abs(det3(ds)) / 6.0
+        return v
+
+    def elastic_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+        """Accumulate co-rotational elastic forces into the given arrays."""
+        for ref t in self.tets:
+            var pa = self.pos(t.a)
+            var e1 = self.pos(t.b) - pa
+            var e2 = self.pos(t.c) - pa
+            var e3 = self.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var f = ds * t.dm_inv  # deformation gradient
+            var r = polar_rotation(f) if self.corotational else Mat3.identity()
+            # P = 2 mu (F - R) + lambda tr(R^T F - I) R
+            var rtf = r.transpose() * f
+            var tr = rtf.get(0, 0) + rtf.get(1, 1) + rtf.get(2, 2) - 3.0
+            var p = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    p.set(
+                        i, j,
+                        2 * self.mu * (f.get(i, j) - r.get(i, j))
+                        + self.lam * tr * r.get(i, j),
+                    )
+            # H = -W P Dm^-T ; its columns are the forces on nodes b, c, d
+            var h = p * t.dm_inv.transpose()
+            var w = t.vol
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            fx[t.a] += f0[0]
+            fy[t.a] += f0[1]
+            fz[t.a] += f0[2]
+            fx[t.b] += f1[0]
+            fy[t.b] += f1[1]
+            fz[t.b] += f1[2]
+            fx[t.c] += f2[0]
+            fy[t.c] += f2[1]
+            fz[t.c] += f2[2]
+            fx[t.d] += f3[0]
+            fy[t.d] += f3[1]
+            fz[t.d] += f3[2]
+
+    def step_implicit(
+        mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30,
+        tol: Real = 1e-4, max_iters: Int = 64,
+    ) -> CgResult:
+        """Backward Euler on the linearised system (Baraff-Witkin).
+
+            (M - dt^2 df/dx) dv = dt (f0 + dt (df/dx) v0)
+
+        solved matrix-free by conjugate gradients. No global stiffness matrix is
+        ever assembled — the operator loops over elements, which is the whole
+        reason `LinearOperator` asks for `apply` rather than for a matrix.
+
+        The point is the step size. The explicit integrator's stable dt is set
+        by the stiffest element, so a stiff material forces small steps no
+        matter how coarse the mesh is; the implicit one is unconditionally
+        stable and its cost per step is the CG solve. `test_linalg` runs both at
+        a dt the explicit path cannot survive.
+
+        Returns the solver's own report, so a caller can tell a converged step
+        from one that ran out of iterations."""
+        var n = self.node_count()
+        var dof = 3 * n
+        var fx = List[Real]()
+        var fy = List[Real]()
+        var fz = List[Real]()
+        for _ in range(n):
+            fx.append(0)
+            fy.append(0)
+            fz.append(0)
+        self.elastic_forces(fx, fy, fz)
+
+        var v0 = List[Real](capacity=dof)
+        for i in range(n):
+            v0.append(self.vx[i])
+            v0.append(self.vy[i])
+            v0.append(self.vz[i])
+        var op = FemImplicitOp(self, dt)
+        var kv = List[Real](capacity=dof)
+        for _ in range(dof):
+            kv.append(0)
+        op.stiffness_apply(v0, kv)
+
+        var b = List[Real](capacity=dof)
+        for i in range(n):
+            if self.inv_m[i] == 0:
+                # pinned: the row is the identity and the right-hand side is
+                # zero, so dv is exactly zero and the constraint is exact
+                # rather than enforced afterwards
+                b.append(0)
+                b.append(0)
+                b.append(0)
+                continue
+            var m = Real(1) / self.inv_m[i]
+            b.append(dt * (fx[i] + m * gravity[0] + dt * kv[3 * i]))
+            b.append(dt * (fy[i] + m * gravity[1] + dt * kv[3 * i + 1]))
+            b.append(dt * (fz[i] + m * gravity[2] + dt * kv[3 * i + 2]))
+
+        var dv = List[Real](capacity=dof)
+        for _ in range(dof):
+            dv.append(0)
+        var res = cg(op, b, dv, tol, max_iters)
+
+        # audit E19: `CgResult.converged` is documented (numerics/cg.mojo)
+        # as "the only field a caller may treat as permission to use the
+        # [result]" -- this used to apply `dv` unconditionally, so a
+        # diverged/stalled solve's garbage delta landed on every node's
+        # velocity and position before the caller ever saw `res`. Numerical
+        # failure recovers locally (docs/ARCHITECTURE.md S2): skip the
+        # update entirely (this step's elastic response is dropped, not
+        # corrupted -- the body keeps last step's state and tries again next
+        # step) and count it; the world keeps stepping either way, and the
+        # caller can still inspect the returned `res` for its own purposes.
+        if not res.converged:
+            self.counters.incr(CG_NOT_CONVERGED)
+            return res
+        var damp = Real(1.0) / (1.0 + self.damping * dt)
+        for i in range(n):
+            if self.inv_m[i] == 0:
+                self.vx[i] = 0
+                self.vy[i] = 0
+                self.vz[i] = 0
+                continue
+            self.vx[i] = (self.vx[i] + dv[3 * i]) * damp
+            self.vy[i] = (self.vy[i] + dv[3 * i + 1]) * damp
+            self.vz[i] = (self.vz[i] + dv[3 * i + 2]) * damp
+            self.x[i] += self.vx[i] * dt
+            self.y[i] += self.vy[i] * dt
+            self.z[i] += self.vz[i] * dt
+            if self.y[i] < floor_y:
+                self.y[i] = floor_y
+                if self.vy[i] < 0:
+                    self.vy[i] = 0
+        return res
+
+    def step(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
+        var n = self.node_count()
+        var fx = List[Real]()
+        var fy = List[Real]()
+        var fz = List[Real]()
+        for _ in range(n):
+            fx.append(0)
+            fy.append(0)
+            fz.append(0)
+        self.elastic_forces(fx, fy, fz)
+        for i in range(n):
+            if self.inv_m[i] == 0:
+                self.vx[i] = 0
+                self.vy[i] = 0
+                self.vz[i] = 0
+                continue
+            var im = self.inv_m[i]
+            self.vx[i] += (fx[i] * im + gravity[0]) * dt
+            self.vy[i] += (fy[i] * im + gravity[1]) * dt
+            self.vz[i] += (fz[i] * im + gravity[2]) * dt
+            # mass-proportional damping keeps the explicit integrator usable
+            var d = 1.0 / (1.0 + self.damping * dt)
+            self.vx[i] *= d
+            self.vy[i] *= d
+            self.vz[i] *= d
+            self.x[i] += self.vx[i] * dt
+            self.y[i] += self.vy[i] * dt
+            self.z[i] += self.vz[i] * dt
+            if self.y[i] < floor_y:
+                self.y[i] = floor_y
+                if self.vy[i] < 0:
+                    self.vy[i] = 0
+
+
+struct FemImplicitOp(LinearOperator, Movable, Deinitable):
+    """`A = M - dt^2 df/dx`, applied without ever forming it.
+
+    The per-element rotations are SNAPSHOT at construction rather than
+    recomputed inside `apply`. That is not a cache — it is the warped-stiffness
+    assumption written into the data layout. Holding R fixed for the duration of
+    the solve is what makes the operator symmetric, and recomputing it per CG
+    iteration would silently change the operator between iterations, which is
+    the one thing a Krylov method cannot tolerate. It is also cheaper: the polar
+    decomposition runs once per step instead of once per iteration."""
+
+    var n: Int
+    var dt: Real
+    var mu: Real
+    var lam: Real
+    var tet_idx: List[Int]  # 4 per element
+    var rot: List[Real]  # 9 per element, row-major
+    var dm_inv: List[Real]  # 9 per element, row-major
+    var vol: List[Real]
+    var mass: List[Real]  # per node; 0 marks a pinned node
+
+    def __init__(out self, body: FemBody, dt: Real):
+        self.n = body.node_count()
+        self.dt = dt
+        self.mu = body.mu
+        self.lam = body.lam
+        var nt = len(body.tets)
+        self.tet_idx = List[Int](capacity=4 * nt)
+        self.rot = List[Real](capacity=9 * nt)
+        self.dm_inv = List[Real](capacity=9 * nt)
+        self.vol = List[Real](capacity=nt)
+        for ref t in body.tets:
+            self.tet_idx.append(t.a)
+            self.tet_idx.append(t.b)
+            self.tet_idx.append(t.c)
+            self.tet_idx.append(t.d)
+            var pa = body.pos(t.a)
+            var e1 = body.pos(t.b) - pa
+            var e2 = body.pos(t.c) - pa
+            var e3 = body.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var f = ds * t.dm_inv
+            var r = polar_rotation(f) if body.corotational else Mat3.identity()
+            for i in range(3):
+                for j in range(3):
+                    self.rot.append(r.get(i, j))
+                    self.dm_inv.append(t.dm_inv.get(i, j))
+            self.vol.append(t.vol)
+        self.mass = List[Real](capacity=self.n)
+        for i in range(self.n):
+            self.mass.append(
+                Real(0) if body.inv_m[i] == 0 else Real(1) / body.inv_m[i]
+            )
+
+    def _mat(self, src: List[Real], e: Int) -> Mat3:
+        var m = Mat3()
+        for i in range(3):
+            for j in range(3):
+                m.set(i, j, src[9 * e + 3 * i + j])
+        return m
+
+    def size(self) -> Int:
+        return 3 * self.n
+
+    def stiffness_apply(self, du: List[Real], mut out: List[Real]):
+        """`out = (df/dx) du` — the differential of the co-rotational elastic
+        force at the snapshot rotations. Mirrors `FemBody.elastic_forces` term
+        for term with F replaced by its differential and the constant terms
+        dropped."""
+        for i in range(len(out)):
+            out[i] = 0
+        for e in range(len(self.vol)):
+            var a = self.tet_idx[4 * e]
+            var b = self.tet_idx[4 * e + 1]
+            var c = self.tet_idx[4 * e + 2]
+            var d = self.tet_idx[4 * e + 3]
+            var r = self._mat(self.rot, e)
+            var dmi = self._mat(self.dm_inv, e)
+            var dds = Mat3()
+            for k in range(3):
+                dds.set(k, 0, du[3 * b + k] - du[3 * a + k])
+                dds.set(k, 1, du[3 * c + k] - du[3 * a + k])
+                dds.set(k, 2, du[3 * d + k] - du[3 * a + k])
+            var dfm = r.transpose() * (dds * dmi)
+            var tr = dfm.get(0, 0) + dfm.get(1, 1) + dfm.get(2, 2)
+            var dp = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    var lamterm = self.lam * tr if i == j else Real(0)
+                    dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
+            var h = (r * dp) * dmi.transpose()
+            var w = self.vol[e]
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            comptime for k in range(3):
+                out[3 * a + k] += f0[k]
+                out[3 * b + k] += f1[k]
+                out[3 * c + k] += f2[k]
+                out[3 * d + k] += f3[k]
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        self.stiffness_apply(x, out)
+        var dt2 = self.dt * self.dt
+        for i in range(self.n):
+            if self.mass[i] == 0:
+                # A pinned node's row is the identity, so its dv comes out
+                # exactly zero. Leaving mass * dv there would let the solver
+                # push a node that is supposed to be nailed down.
+                comptime for k in range(3):
+                    out[3 * i + k] = x[3 * i + k]
+                continue
+            comptime for k in range(3):
+                out[3 * i + k] = self.mass[i] * x[3 * i + k] - dt2 * out[3 * i + k]
+
+    def diagonal(self, mut out: List[Real]):
+        """Mass only. The stiffness diagonal would need a per-element pass of
+        its own; mass alone already captures the part that varies most — a
+        pinned node against a free one, which is the ratio Jacobi exists for."""
+        for i in range(self.n):
+            var d = Real(1) if self.mass[i] == 0 else self.mass[i]
+            comptime for k in range(3):
+                out[3 * i + k] = d
+
+
+def _lat_idx(i: Int, j: Int, k: Int, ny: Int, nz: Int) -> Int:
+    """Lattice node index. Module level: a nested def cannot infer the capture
+    convention of an outer `var` on this nightly."""
+    return (i * (ny + 1) + j) * (nz + 1) + k
+
+
+def make_beam(
+    mut b: FemBody, nx: Int, ny: Int, nz: Int, h: Real, mass_per_node: Real
+):
+    """A box lattice split into 5 tetrahedra per cell, the standard
+    decomposition that tiles without leaving gaps."""
+    for i in range(nx + 1):
+        for j in range(ny + 1):
+            for k in range(nz + 1):
+                b.add_node(
+                    Vec3(Real(i) * h, Real(j) * h, Real(k) * h, 0), mass_per_node
+                )
+    for i in range(nx):
+        for j in range(ny):
+            for k in range(nz):
+                var v000 = _lat_idx(i, j, k, ny, nz)
+                var v100 = _lat_idx(i + 1, j, k, ny, nz)
+                var v010 = _lat_idx(i, j + 1, k, ny, nz)
+                var v001 = _lat_idx(i, j, k + 1, ny, nz)
+                var v110 = _lat_idx(i + 1, j + 1, k, ny, nz)
+                var v101 = _lat_idx(i + 1, j, k + 1, ny, nz)
+                var v011 = _lat_idx(i, j + 1, k + 1, ny, nz)
+                var v111 = _lat_idx(i + 1, j + 1, k + 1, ny, nz)
+                # alternate the split so neighbouring cells share faces
+                if (i + j + k) % 2 == 0:
+                    b.add_tet(v000, v100, v010, v001)
+                    b.add_tet(v100, v110, v010, v111)
+                    b.add_tet(v100, v010, v001, v111)
+                    b.add_tet(v010, v011, v001, v111)
+                    b.add_tet(v100, v001, v101, v111)
+                else:
+                    b.add_tet(v100, v000, v110, v101)
+                    b.add_tet(v000, v010, v110, v011)
+                    b.add_tet(v000, v001, v101, v011)
+                    b.add_tet(v110, v101, v011, v111)
+                    b.add_tet(v000, v110, v101, v011)
