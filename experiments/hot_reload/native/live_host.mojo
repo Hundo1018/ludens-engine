@@ -25,6 +25,7 @@ Output, one line per event, flushed:
     swap  version=.. used=inplace|snapshot frame_before=.. frame_after=.. count=.. swap_us=..
           copy_bytes=.. copy_us=..          (the rollback snapshot)
     rollback version=.. at=load|update signal=.. frame=.. count=.. rollback_us=..
+             (at=load: signal < 0 is guard.guarded_load's code, e.g. -12 = rename without alias)
     commit version=.. frames=..
     swap_error version=.. error=...
 """
@@ -33,7 +34,7 @@ from std.ffi import RTLD
 from std.os.path import exists
 from std.sys import argv
 from std.time import perf_counter_ns, sleep
-from hotswap import CAPACITY, Engine, block, free_block
+from hotswap import CAPACITY, Engine, block, free_block, snapshot_bytes
 from guard import guard_install, guarded_load, guarded_update
 
 comptime FRAME_S = 1.0 / 60.0
@@ -125,9 +126,8 @@ def main() raises:
                 var new = candidate.take()
                 var frame_before = eng.frame(s)
                 var t0 = perf_counter_ns()
-                var nbytes = 8 * eng.snapshot_words(s)
-                snap = block(nbytes)
-                eng.save(s, snap)
+                snap = eng.save(s)
+                var nbytes = snapshot_bytes(snap)
                 var t1 = perf_counter_ns()
                 var used = String("inplace")
                 var s_new = s

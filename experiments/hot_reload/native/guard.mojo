@@ -75,15 +75,16 @@ def guarded_update(eng: Engine, s: Int) -> Int:
 
 @no_inline
 def guarded_load(eng: Engine, s: Int, buf: Int) -> Int:
-    """`eng.load(s, buf)`: 0, the signal that stopped it, or -1 if it raised
-    or rejected the snapshot."""
+    """`eng.load(s, buf)`: 0 on success, the signal that stopped it (> 0),
+    -1 if it raised, or -(10 + code) if engine_load returned `code` != 1."""
     if external_call["__sigsetjmp", Int32](GUARD_PAGE, Int32(1)) != 0:
         return _word(_LAST)[]
     _word(_ARMED)[] = 1
-    var ok: Int
+    var code: Int
     try:
-        ok = eng.load(s, buf)
+        code = eng.load(s, buf)
     except:
-        ok = 0
+        _word(_ARMED)[] = 0
+        return -1
     _word(_ARMED)[] = 0
-    return 0 if ok == 1 else -1
+    return 0 if code == 1 else -(10 + code)

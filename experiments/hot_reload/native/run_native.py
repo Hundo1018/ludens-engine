@@ -34,7 +34,7 @@ PACKAGES = ["diag", "geometry", "ecs"]  # what engine.mojo imports, in dependenc
 CAPACITY, PRE, MID, POST = 8, 30, 10, 30
 DESPAWN = [2, 5]
 
-# name -> ([(old, new) text edits], oracle facts)
+# name -> ([(old, new) or (old, new, "all") text edits], oracle facts)
 V1 = {"speed": 60.0, "color": 0xFF0000FF, "label": "ludens: engine v1"}
 VARIANTS = {
     "v1": ([], V1),
@@ -49,6 +49,11 @@ VARIANTS = {
     "v6_append": ([("    # @@FIELDS_BACK@@", "    var extra: Int"),
                    ("        # @@INIT_BACK@@", "        self.extra = 0"),
                    ("    # @@UPDATE@@", "    s.extra += 1")], V1),
+    # H3: schema migration
+    "v7_delete": ([("    var capacity: Int\n", ""), ("        self.capacity = capacity\n", "")], V1),
+    "v8_rename": ([("box_x", "offset_x", "all")], V1),
+    "v8_rule": ([("box_x", "offset_x", "all"),
+                 ("    # @@MIGRATE@@", '    alias_field(sch, "offset_x", "box_x")')], V1),
 }
 # Edits that must NOT build: the compile-time rule of nostatic.mojo (H2).
 REJECTED = {
@@ -58,41 +63,60 @@ REJECTED = {
 }
 STRATEGIES = ["restart", "keep", "close", "snapshot", "auto", "samepath"]
 
-# state: ok | lost | stale-code | corrupt | trap
+# state: ok | lost | stale-code | corrupt | trap | rejected (engine_load refused the snapshot)
 # label: new | old | none | trap | - ; `new` also requires the new variant's label text
-_ALL = ["v2_code", "v3_label", "v4_layout", "v5_swap", "v6_append"]
+_PHASE1 = ["v2_code", "v3_label", "v4_layout", "v5_swap", "v6_append"]
+_ALL = _PHASE1 + ["v7_delete", "v8_rename", "v8_rule"]
 
 # Phase 1 (label = StaticString into the .so), written before its first run.
 # All 35 cells matched; kept as the record. Not run any more: H2 removed the
 # label pointer and `engine_rebind`.
 PREDICTED_PHASE1 = {
-    "restart":  {v: "lost/new" for v in _ALL},
+    "restart":  {v: "lost/new" for v in _PHASE1},
     "keep":     {"v2_code": "ok/old", "v3_label": "ok/old", "v4_layout": "corrupt|trap",
                  "v5_swap": "corrupt/old", "v6_append": "ok/old"},
     "close":    {"v2_code": "ok/trap", "v3_label": "ok/trap", "v4_layout": "corrupt|trap",
                  "v5_swap": "corrupt/trap", "v6_append": "ok/trap"},
     "rebind":   {"v2_code": "ok/new", "v3_label": "ok/new", "v4_layout": "corrupt|trap",
                  "v5_swap": "corrupt/new", "v6_append": "ok/new"},
-    "snapshot": {v: "ok/new" for v in _ALL},
-    "auto":     {v: "ok/new" for v in _ALL},
-    "samepath": {v: "stale-code/old" for v in _ALL},
+    "snapshot": {v: "ok/new" for v in _PHASE1},
+    "auto":     {v: "ok/new" for v in _PHASE1},
+    "samepath": {v: "stale-code/old" for v in _PHASE1},
 }
 
 # H2 (label = index, text looked up in the running code), written 2026-09-30
 # before the first H2 run. Changes from phase 1: keep and close read the label
 # from the new code (old/trap -> new); rebind no longer exists (it equals close).
 PREDICTED = {
-    "restart":  {v: "lost/new" for v in _ALL},
+    "restart":  {v: "lost/new" for v in _PHASE1},
     "keep":     {"v2_code": "ok/new", "v3_label": "ok/new", "v4_layout": "corrupt|trap",
                  "v5_swap": "corrupt/new", "v6_append": "ok/new"},
     "close":    {"v2_code": "ok/new", "v3_label": "ok/new", "v4_layout": "corrupt|trap",
                  "v5_swap": "corrupt/new", "v6_append": "ok/new"},
-    "snapshot": {v: "ok/new" for v in _ALL},
-    "auto":     {v: "ok/new" for v in _ALL},
-    "samepath": {v: "stale-code/old" for v in _ALL},
+    "snapshot": {v: "ok/new" for v in _PHASE1},
+    "auto":     {v: "ok/new" for v in _PHASE1},
+    "samepath": {v: "stale-code/old" for v in _PHASE1},
 }
 PREDICTED_USED = {"auto": {"v2_code": "inplace", "v3_label": "inplace", "v4_layout": "snapshot",
                            "v5_swap": "snapshot", "v6_append": "snapshot"}}
+
+# H3 (snapshot = ecs/schema.mojo, migration by field name), written 2026-09-30
+# before the first H3 run. The phase 1 / H2 columns are predicted unchanged.
+# v7 deletes the FIRST Core field, so in place the new code misreads frame.
+# v8 renames box_x: same offsets, so in place it is fine; the layout id hashes
+# field names, so auto takes the snapshot path, where a rename without a rule
+# must be refused (dropped + defaulted in one load), not silently zeroed.
+PREDICTED_H3 = {
+    "restart":  {"v7_delete": "lost/new", "v8_rename": "lost/new", "v8_rule": "lost/new"},
+    "keep":     {"v7_delete": "corrupt|trap", "v8_rename": "ok/new", "v8_rule": "ok/new"},
+    "close":    {"v7_delete": "corrupt|trap", "v8_rename": "ok/new", "v8_rule": "ok/new"},
+    "snapshot": {"v7_delete": "ok/new", "v8_rename": "rejected/-", "v8_rule": "ok/new"},
+    "auto":     {"v7_delete": "ok/new", "v8_rename": "rejected/-", "v8_rule": "ok/new"},
+    "samepath": {v: "stale-code/old" for v in ["v7_delete", "v8_rename", "v8_rule"]},
+}
+for _s, _cells in PREDICTED_H3.items():
+    PREDICTED[_s].update(_cells)
+PREDICTED_USED["auto"].update({"v7_delete": "snapshot", "v8_rename": "snapshot", "v8_rule": "snapshot"})
 
 
 def mojo() -> str:
@@ -119,10 +143,10 @@ def precompile() -> None:
 
 def variant_source(edits: list[tuple[str, str]]) -> str:
     src = ENGINE.read_text()
-    for old, new in edits:
+    for old, new, *mode in edits:
         if old not in src:
             raise SystemExit(f"edit anchor not found in engine.mojo: {old!r}")
-        src = src.replace(old, new, 1)
+        src = src.replace(old, new) if mode == ["all"] else src.replace(old, new, 1)
     return src
 
 
@@ -206,6 +230,8 @@ def classify(kv: dict, v_old: dict, v_new: dict) -> tuple[str, str]:
     """state from behaviour + which module's code ran (code_owner);
     label from where the state's label pointer points (label_owner),
     `trap` when reading it crashed the process."""
+    if kv.get("load") == "rejected":
+        return "rejected", "-"
     if "xbits" not in kv:
         state = "trap"
     else:
@@ -270,7 +296,7 @@ def test() -> int:
                 hit = False
             failures += not hit
             cells.append({"strategy": s, "variant": v, "state": state, "label": label, "predicted": pred,
-                          "hit": hit, **{k: kv.get(k) for k in ("used", "swap_us", "old_mapped", "returncode",
+                          "hit": hit, **{k: kv.get(k) for k in ("used", "load_code", "swap_us", "old_mapped", "returncode",
                                                                    "teardown", "frame", "code_owner", "label_owner", "label")}})
             print(f"{'PASS' if hit else 'FAIL':<6}{s:<10}{v:<11}{state + '/' + label:<18}{pred:<18}"
                   f"{kv.get('used', '-'):<9}{kv['returncode']:>4}  {kv.get('code_owner', '-'):<5} {kv.get('label_owner', '-')}")

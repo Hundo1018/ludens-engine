@@ -6,8 +6,10 @@
 Runs the sources round-robin (A, B, A, B, ...) so machine drift hits every
 source alike, and prints median / min / max seconds per source. Each build
 writes to a fresh path under build/hot_native/build_time/. With --unique,
-each build compiles a copy of the source with a distinct trailing comment, so
-no two builds see the same content (defeats any content-keyed compile cache).
+each build compiles a copy of the source with a distinct trailing
+`comptime _BUILD_UNIQUE = <ns>` line, so no two builds see the same code. (A
+distinct trailing comment is not enough: --probe-cache shows the cache
+ignores comments.)
 """
 from __future__ import annotations
 
@@ -44,7 +46,7 @@ def measure(sources: list[Path], reps: int, includes: list[str], emit: str = "sh
             if unique:
                 d.mkdir(parents=True, exist_ok=True)
                 src = d / s.name
-                src.write_text(s.read_text() + f"\n# unique {time.time_ns()}\n")
+                src.write_text(s.read_text() + f"\ncomptime _BUILD_UNIQUE = {time.time_ns()}\n")
             times[str(s)].append(time_build(src, d / "lib.so", includes, emit))
     return {k: {"median": statistics.median(v), "min": min(v), "max": max(v), "n": len(v)} for k, v in times.items()}
 

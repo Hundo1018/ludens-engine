@@ -77,13 +77,16 @@ def main() raises:
         if used == "inplace":
             _ = old^
         elif used == "snapshot":
-            var buf = block(8 * old.snapshot_words(s))
-            old.save(s, buf)
+            var buf = old.save(s)
             old.destroy(s)
             _ = old^
             s = block(cur.size())
-            if cur.load(s, buf) != 1:
-                raise Error("engine_load rejected the snapshot")
+            var rc = cur.load(s, buf)
+            if rc != 1:
+                print("used=", used, sep="")
+                print("load=rejected")
+                print("load_code=", rc, sep="")
+                return
         else:
             raise Error("unknown strategy " + strategy)
     var t1 = perf_counter_ns()
