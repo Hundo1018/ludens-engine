@@ -237,6 +237,80 @@
 
 ---
 
+## 第二輪:驗證與測試改善(2026-09-30 起)
+
+> 起因:審查第一輪後發現三個缺口。
+> 1. 修改種類只涵蓋 `Core` 的純量欄位:沒有 heap 容器的元素型別、容器內的巢狀 struct、comptime 決定的大小、trait、改型別、ABI、邊界情形。
+> 2. 熱編譯沒有和一般編譯比較;H6 沒把固定開銷拆成階段就下了結論。
+> 3. 預測與結果在同一個 commit,「先預測」無法由 git 歷史驗證。
+>
+> 另外,Mojo 編譯器原始碼在 `modular/modular`(C++,Apache 2.0),先前的 retarget 是在不知道這點的情況下選的路。
+> 改編譯器只為驗證:修改放在使用者的 fork(`Hundo1018/modular`)的 branch 與 draft PR(base 為 fork 自己的 main),
+> 不放進本 repo,也不向上游提交。欲提交上游的內容寫成 `docs/upstream/` 下的檔案,由使用者審查。
+
+### R4 預測先行(本輪起的規則)
+
+- 每題的預測是獨立的 commit,在實作與執行之前 push。結果 commit 的訊息寫出預測 commit 的 hash。
+- 實作時若發現某個預測描述的修改做不出來,修正也是獨立的 commit,在執行之前 push,並寫明原因。
+- R1、R2 的預測:`experiments/hot_reload/native/predictions_r1.py`、`predictions_r2.py`。
+
+### R1 修改種類與邊界
+
+- **問題**:第一輪矩陣只測 `Core` 的純量欄位,各種記憶體用法、comptime、trait、struct 的情況未知。
+- **做法**:EngineState 在 `core` 之前加入 `trail: List[TRAIL_T]`、`bodies: List[Body]`、
+  `aux: Aux{grid: InlineArray[Int, GRID_N], mover: ActiveMover}`(`ActiveMover` 經 trait `Mover` 泛型呼叫)。
+  新增 8 種修改 × 6 策略 = 48 格,另有邊界情境 B1–B3;舊的 48 格作為回歸。
+- **假說與預測**:見 `predictions_r1.py`。要點:
+  - `List[Body]` 內的 `Body` 改 layout 時,layout id 不變,`auto` 走 in-place 而錯(guard 缺口);
+  - `InlineArray` 的長度改變、欄位改型別 → snapshot 拒絕載入;
+  - trait 實作與 trait 預設方法的修改等同只改程式碼;
+  - 匯出函式簽章改變時,沒有任何 guard 擋得住,連 snapshot 也錯;
+  - ASan 看不到 Mojo `alloc` 區塊的邊界;
+  - 連續 100 次換版,RSS 成長 < 2 MiB。
+- **不涵蓋**(記錄在案):換版時另一執行緒在 `engine_update` 裡;持有鎖時當機;10 萬實體跑完整矩陣;狀態內的裸指標。
+- **Gate**:所有格子與預測比對的結果照實記錄;推翻的預測不改寫,並寫出原因。
+
+### R2 熱編譯與一般編譯的速度比較
+
+- **問題**:熱路徑(改檔 → build `.so` → 換上)和一般路徑(build 執行檔 → 啟動 → 重跑到同一狀態)差多少;
+  `-O0`、JIT(`mojo run`)的影響。先導量測(n=3)雜訊 ±50%,engine 的 `-O0` 比 `-O3` 慢。
+- **量測**:`compile_speed.py`。6 種條件 × 10 次,每次空快取、每輪順序打亂;報中位數、IQR、最小/最大、機器規格;
+  另跑一次 `--mlir-timing`,拆出各階段。
+- **預測**:見 `predictions_r2.py`。要點:
+  - 執行檔與 `.so` 的 build 時間差在 −0.3 到 +0.5 s;
+  - 冷路徑減熱路徑 < 0.5 s;
+  - `mojo run` 比 build 執行檔快 0.05–0.4 s;
+  - `-O0`/`-O3` 比值在 0.8–1.2;
+  - 空模組 ≥ engine 的 50%。
+- **Gate**:同 R1。
+
+### P0 在本環境從原始碼建出 `mojo`(改編譯器的前提)
+
+- **量測**:`./bazelw build --config=build-mojo //Mojo:mojo` 的時間、磁碟用量。
+- **Gate**:自建的 `mojo` 跑 native 矩陣、W1 differential、W2 矩陣,結果與 pip 版 1.1.0 相同。
+  建不起來或結果不同,就跳過 C1/J1/J2 並記錄原因。
+
+### C1 原生 wasm32 目標(fork)
+
+- 依據:`bazel/public-patches/llvm_project.bzl` 的 `BACKENDS = [AArch64, RISCV, X86]`,解釋了 W1 的 wasm32 被拒、riscv32 可用。
+- 做法:`extra_targets` 加 `WebAssembly`,新增 wasm32 的 `TargetTraits`。
+- 預測:`--target-triple wasm32-unknown-unknown` 可用;`probe_layout` 直接得到 8/8、12;
+  不經 `retarget_ir.py`,W1 digest 與 W2 矩陣不變。
+
+### J1 / J2 以 JIT 取代 `dlopen`(fork 或連結 `ExecutionEngine` 的工具)
+
+- 依據:`Mojo/lib/ExecutionEngine` 是 LLVM ORC(具名 `JITDylib`),`mojo run` 用它。
+- J1:每個版本一個 `JITDylib`。預測 `samepath` 陷阱消失、不需要 `cc`/`ld`、heap 狀態可用。
+- J2:透過 ORC 間接 stub 做函式層級修補。預測只改程式碼的修改換版 < 1 ms,不需要 snapshot;
+  已 inline 的呼叫換不掉。
+
+### U 欲提交上游的內容(只寫成檔案,不提交)
+
+- 位置:`docs/upstream/<題目>.md`,內容包括問題、最小重現、數據、nightly 重測結果、建議的修改或 fork PR 連結。
+- 候選:wasm32 後端(C1)、前端固定成本(R2)、`-O0` 比 `-O3` 慢(R2 若重現)、R1 發現的 bug。
+
+---
+
 ## 工具鏈與雜項
 
 - **T1** dev 的完整套件建置在本環境失敗:缺 `max`,`pip install modular==26.6.0` 依賴衝突。
