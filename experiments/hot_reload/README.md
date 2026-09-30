@@ -8,6 +8,11 @@ simulation. The experiment runs in two phases, in this order:
 | 1 | native `.so` | pure Mojo (engine uses dev's `ecs.SparseSet`) | `make hot-native`, `make hot-native-dev` (hot compile) | [native/README.md](native/README.md) |
 | 2 | wasm | C stand-in core → wasm, JS host, browser dev loop | `make hot-reload`, `make hot-dev` | [wasm/README.md](wasm/README.md) |
 
+How other languages implement hot reload (Handmade Hero, cr.h, Live++,
+Unreal, .NET, JVM, Dart, Rust Subsecond, Erlang, Vite, React, Python, Unity,
+Common Lisp, Go, Zig) and how they compare with these results:
+[PRIOR_ART.md](PRIOR_ART.md).
+
 Both phases use the same protocol: init 8 entities, 30 frames, despawn two,
 10 frames, swap, 30 frames. Both use the same kinds of edits and the same
 strategy families, and predictions are recorded before each run.
