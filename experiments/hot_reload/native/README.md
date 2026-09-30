@@ -7,6 +7,11 @@ keeps running. There is no C, no wasm and no JS in this phase.
 python3 -m venv .venv && .venv/bin/pip install mojo==1.1.0   # or the pixi env
 python3 experiments/hot_reload/native/run_native.py           # build + matrix + bench
 make hot-native                                               # same
+
+# hot compile: edit engine.mojo while this runs
+python3 experiments/hot_reload/native/dev_native.py --run-host
+make hot-native-dev                                           # same
+python3 experiments/hot_reload/native/e2e_native.py --rounds 6  # automated check
 ```
 
 Toolchain: Mojo **1.1.0** (the version `pixi.toml` pins), installed from PyPI.
@@ -142,6 +147,32 @@ What the matrix shows:
 Swap time includes `dlopen`, which dominates it. The first build of each
 variant took 2.9–3.5 s. The dev loop is bounded by the compiler, not by the swap.
 
+## Hot compile (`dev_native.py` + `live_host.mojo`)
+
+`dev_native.py` polls `engine.mojo` every 100 ms. On each change it runs
+`mojo build --emit shared-lib` into `build/hot_native/dev/<n>/libengine.so`
+(a new path each time, because of finding 5). After a successful build it
+atomically replaces `dev/latest` with `"<n> <path>"`; a failed build leaves
+`latest` alone.
+
+`live_host.mojo` runs the engine at about 60 Hz and reads `latest` every
+frame. On a new version it loads the candidate first; only when that works
+does it hand the state over with `swap_auto` (shared with the matrix host in
+`hotswap.mojo`). A candidate that fails to load is reported, and the old
+module keeps running.
+
+`e2e_native.py` edits a copy of `engine.mojo` while both run:
+
+| Edit | Result (1 run, 6 code-edit rounds) |
+|---|---|
+| SPEED/COLOR, 6 times | 6/6 swapped via `rebind`, `frame_before == frame_after`, 6 entities, color turns green |
+| syntax error | build fails in 0.43 s; host frame keeps advancing (690 → 720) on the old module |
+| fix + insert a field | swapped via `snapshot`, frame continues, 6 entities |
+
+Latency from writing the file to the host's swap line (n = 7): **median
+1.08 s, max 3.29 s** (the first build). `mojo build` alone: median 0.98 s. The
+swap itself: 25–37 µs. Almost all of the latency is the compiler.
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
@@ -164,12 +195,17 @@ variant took 2.9–3.5 s. The dev loop is bounded by the compiler, not by the sw
   not tested.
 - The snapshot format is hand-written. dev's `ecs/schema.mojo` (reflection
   schemas, used for save games) could produce it instead; not tried.
-- No file watcher yet (the wasm phase has one). The host runs a fixed protocol.
+- The watcher polls one file. Edits to packages the engine imports (`ecs`,
+  `geometry`) need `run_native.py build` to re-precompile them first.
 
 ## Files
 
 | File | Role |
 |---|---|
 | `engine.mojo` | engine as a reloadable `.so`; `@@…@@` markers are where the edits go |
+| `hotswap.mojo` | shared: `Engine` wrapper over the C ABI, state blocks, maps lookup, `swap_auto` |
 | `host.mojo` | runs one (old, new, strategy) cell and prints observations |
+| `live_host.mojo` | runs the engine continuously and swaps in each published build |
+| `dev_native.py` | hot compile: watch → `mojo build` → publish `latest` (optionally starts the host) |
+| `e2e_native.py` | edits the source three ways while the host runs; measures edit → swap latency |
 | `run_native.py` | builds the variants and host, runs the matrix vs. the oracle, benchmarks |

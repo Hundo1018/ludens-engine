@@ -5,7 +5,7 @@ simulation. The experiment runs in two phases, in this order:
 
 | Phase | Target | Engine / host | Run | Write-up |
 |---|---|---|---|---|
-| 1 | native `.so` | pure Mojo (engine uses dev's `ecs.SparseSet`) | `make hot-native` | [native/README.md](native/README.md) |
+| 1 | native `.so` | pure Mojo (engine uses dev's `ecs.SparseSet`) | `make hot-native`, `make hot-native-dev` (hot compile) | [native/README.md](native/README.md) |
 | 2 | wasm | C stand-in core → wasm, JS host, browser dev loop | `make hot-reload`, `make hot-dev` | [wasm/README.md](wasm/README.md) |
 
 Both phases use the same protocol: init 8 entities, 30 frames, despawn two,
@@ -23,6 +23,7 @@ strategy families, and predictions are recorded before each run.
 | Layout guard that worked | size + field offsets from a live instance | source offsets **and** link-map fingerprint (the optimizer split the static struct) |
 | Correct for every edit tested | `snapshot`, `auto` | `snapshot`, `auto` |
 | Swap time | ≈ 0.1 ms (mostly `dlopen`) | ≈ 0.5 ms p50, ≤ 1.5 ms p95 |
+| Edit → swap (hot compile) | 1.08 s median, 3.29 s max (`mojo build` ≈ 0.98 s of it) | not measured end to end; build 0.22–0.34 s + swap 1–3 ms in the browser e2e |
 | Rebuild time | 1.1 s median (`mojo build --emit shared-lib`) | ≈ 0.2–0.3 s (clang → llc → wasm-ld, C stand-in) |
 | Target-specific trap | `dlopen` of an already-loaded path returns the old library | memory copy cost grows ~1 ms/MiB |
 

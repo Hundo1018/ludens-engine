@@ -116,7 +116,7 @@ def build_variant(name: str, src: str) -> float:
 def build() -> None:
     precompile()
     times = {name: build_variant(name, variant_source(edits)) for name, (edits, _) in VARIANTS.items()}
-    sh([mojo(), "build", "-I", "build", str(HERE / "host.mojo"), "-o", str(OUT / "host")])
+    sh([mojo(), "build", "-I", "build", "-I", str(HERE), str(HERE / "host.mojo"), "-o", str(OUT / "host")])
     (OUT / "build_times.json").write_text(json.dumps(times, indent=2))
 
 
