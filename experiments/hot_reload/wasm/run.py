@@ -10,7 +10,13 @@ Builds the engine_hot.c variants through the normal retarget back-half
   e2e     edit a source file under the dev server, verify the browser swapped
   all     build + test + bench + e2e (default)
 
-    python3 experiments/hot_reload/wasm/run.py [build|test|bench|e2e|all] [--reps N]
+    python3 experiments/hot_reload/wasm/run.py [build|test|bench|e2e|all] [--reps N] [--core c|mojo]
+
+--core mojo (W1) builds engine_hot.mojo instead of engine_hot.c: each variant
+is a text edit of the Mojo source, compiled with `mojo build --emit llvm`,
+retargeted to wasm32 (experiments/wasm_mojo/retarget_ir.py) and linked by the
+same back half. Its outputs go to build/hot_mojo/. The e2e step (browser dev
+loop) exists only for the C core.
 """
 from __future__ import annotations
 
@@ -28,6 +34,9 @@ from layout_map import fingerprint  # noqa: E402
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 OUT = ROOT / "build" / "hot"
+sys.path.insert(0, str(ROOT / "experiments" / "wasm_mojo"))
+from retarget_ir import retarget  # noqa: E402
+from build import EMIT_FLAGS  # noqa: E402  (experiments/wasm_mojo/build.py: baseline x86-64)
 
 CORE = ["toolchain/standin/sparse_set.c", "toolchain/standin/wasm_rt.c"]
 SOURCE = "experiments/hot_reload/wasm/engine_hot.c"
@@ -43,6 +52,128 @@ VARIANTS = {
     "v5_swap": (["-DLAYOUT_SWAP"], {"speed": 60.0, "color": 0xFF0000FF, "msg": "ludens: engine_init v1"}),
     "v6_static": (["-DEXTRA_STATIC"], {"speed": 60.0, "color": 0xFF0000FF, "msg": "ludens: engine_init v1"}),
 }
+
+
+# --core mojo: name -> ([(old, new) text edits of engine_hot.mojo], oracle facts)
+MOJO_SOURCE = HERE / "engine_hot.mojo"
+NATIVE = HERE.parent / "native"  # nostatic.mojo (H2)
+MOJO_SHIMS = ["toolchain/standin/wasm_rt.c", "experiments/wasm_mojo/mojo_rt.c",
+              "experiments/hot_reload/wasm/engine_hot_rt.c"]
+MOJO_EXPORTS = ["__heap_base", "__data_end", "engine_layout_id", "engine_init", "engine_despawn", "engine_update",
+                "engine_entity_count", "engine_frame", "engine_log_msg", "engine_save", "engine_load"]
+MOJO_V1 = {"speed": 60.0, "color": 0xFF0000FF, "msg": "ludens: engine_init v1"}
+MOJO_VARIANTS = {
+    "v1": ([], MOJO_V1),
+    "v2_code": ([("comptime SPEED: Float32 = 60.0", "comptime SPEED: Float32 = 120.0"),
+                 ("comptime COLOR: UInt32 = 0xFF0000FF", "comptime COLOR: UInt32 = 0x00FF00FF")],
+                {**MOJO_V1, "speed": 120.0, "color": 0x00FF00FF}),
+    "v3_rodata": ([('"ludens: engine_init v1"', '"ludens: engine_init v3"')],
+                  {**MOJO_V1, "msg": "ludens: engine_init v3"}),
+    "v4_layout": ([("    # @@FIELDS_FRONT@@", "    var speed_scale: Float32"),
+                   ("        # @@INIT_FRONT@@", "        self.speed_scale = 1.0"),
+                   ("        # @@SPEED@@\n        return SPEED", "        return SPEED * self.speed_scale")], MOJO_V1),
+    "v5_swap": ([("    var capacity: Int\n    var frame: Int", "    var frame: Int\n    var capacity: Int")], MOJO_V1),
+    "v6_append": ([("    # @@FIELDS_BACK@@", "    var extra: Int"),
+                   ("        # @@INIT_BACK@@", "        self.extra = 0"),
+                   ("    # @@UPDATE@@", "    g.extra += 1")], MOJO_V1),
+    # W2 (H3 on wasm): schema migration
+    "v7_delete": ([("    var capacity: Int\n", ""), ("        self.capacity = capacity\n", "")], MOJO_V1),
+    "v8_rename": ([("box_x", "offset_x", "all")], MOJO_V1),
+    "v8_rule": ([("box_x", "offset_x", "all"),
+                 ("    # @@MIGRATE@@", '    alias_field(sch, "offset_x", "box_x")')], MOJO_V1),
+}
+# W2 (H1 on wasm): builds used by rollback.test.mjs, not by the matrix
+MOJO_EXTRA = {
+    "v9_trap": [("    # @@UPDATE@@", "    BytePtr(unsafe_from_address=0x7FFFFFF0)[] = 1  # out of bounds: traps")],
+}
+# W2 (H2 on wasm): edits that must not build
+MOJO_REJECTED = {
+    "x_static_field": ([("    # @@FIELDS_BACK@@", "    var note: StaticString"),
+                        ("        # @@INIT_BACK@@", '        self.note = "points into .rodata"')],
+                       "state field holds a pointer or string view: note"),
+}
+
+
+def mojo() -> str:
+    cand = ROOT / ".venv" / "bin" / "mojo"
+    return str(cand) if cand.exists() else "mojo"
+
+
+def mojo_source(edits: list) -> str:
+    src = MOJO_SOURCE.read_text()
+    for old, new, *mode in edits:
+        if old not in src:
+            raise SystemExit(f"edit anchor not found in engine_hot.mojo: {old!r}")
+        src = src.replace(old, new) if mode == ["all"] else src.replace(old, new, 1)
+    return src
+
+
+def build_one_mojo(out: Path, source_text: str) -> dict:
+    """Mojo source -> host IR -> wasm32 IR -> the same back half as build_one.
+
+    Every variant is compiled from ONE path (build/hot_mojo/src/engine_hot.mojo),
+    as in the dev loop, where the edited file does not move: Mojo puts the
+    source path into .rodata (panic locations), so compiling each variant
+    from its own directory made .rodata's size, and every address after it,
+    depend on the directory name (first W2 run: v3 "moved" by 16 bytes)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    src = ROOT / "build" / "hot_mojo" / "src" / "engine_hot.mojo"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(source_text)
+    (out.parent / "engine_hot.mojo").write_text(source_text)  # the variant's source, for reading
+    host_ll = out.parent / "engine_hot.host.ll"
+    sh([mojo(), "build", "--emit", "llvm", *EMIT_FLAGS, "-I", "build", "-I", str(NATIVE), str(src), "-o", str(host_ll)])
+    (out.parent / "ir").mkdir(exist_ok=True)
+    ir = out.parent / "ir" / "engine_hot.ll"
+    retarget(host_ll, ir)
+    cmd = ["bash", "scripts/emit-and-link.sh", "--out", str(out)]
+    for e in MOJO_EXPORTS:
+        cmd += ["--export", e]
+    link_map = out.with_suffix(".map")
+    sh(cmd + MOJO_SHIMS + [str(ir)], env={"LDFLAGS": f"--Map={link_map}"})
+    layout = fingerprint(link_map)
+    out.with_suffix(".layout.json").write_text(json.dumps(layout, indent=2))
+    return layout
+
+
+def build_mojo() -> Path:
+    out_root = ROOT / "build" / "hot_mojo"
+    manifest = {"core": "mojo", "variants": []}
+    for name, (edits, meta) in MOJO_VARIANTS.items():
+        wasm = out_root / name / "engine_hot.wasm"
+        layout = build_one_mojo(wasm, mojo_source(edits))
+        entry = {"name": name, "wasm": str(wasm.relative_to(ROOT)), "edits": edits,
+                 "mapFingerprint": layout["mapFingerprint"], **meta}
+        if name == "v1":
+            manifest["base"] = entry
+        else:
+            manifest["variants"].append(entry)
+    manifest["extra"] = []
+    for name, edits in MOJO_EXTRA.items():
+        wasm = out_root / name / "engine_hot.wasm"
+        layout = build_one_mojo(wasm, mojo_source(edits))
+        manifest["extra"].append({"name": name, "wasm": str(wasm.relative_to(ROOT)), "edits": edits,
+                                  "mapFingerprint": layout["mapFingerprint"], **MOJO_V1})
+    path = out_root / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2))
+    print(f"wrote {path.relative_to(ROOT)}")
+    return path
+
+
+def check_rejected_mojo() -> int:
+    """Each MOJO_REJECTED edit must fail to compile with its message (H2 on wasm)."""
+    fails = 0
+    for name, (edits, needle) in MOJO_REJECTED.items():
+        d = ROOT / "build" / "hot_mojo" / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "engine_hot.mojo").write_text(mojo_source(edits))
+        p = subprocess.run([mojo(), "build", "--emit", "llvm", "-I", "build", "-I", str(NATIVE),
+                            str(d / "engine_hot.mojo"), "-o", str(d / "engine_hot.host.ll")],
+                           cwd=ROOT, capture_output=True, text=True)
+        hit = p.returncode != 0 and needle in p.stderr
+        fails += not hit
+        print(f"{'PASS' if hit else 'FAIL'}  build rejected  {name}  rc={p.returncode}  expects {needle!r}")
+    return fails
 
 
 def sh(cmd: list[str], env: dict | None = None) -> None:
@@ -79,9 +210,9 @@ def build() -> Path:
     return path
 
 
-def test() -> None:
-    sh(["node", "experiments/hot_reload/wasm/hot_reload.test.mjs",
-        "build/hot/manifest.json", "build/hot/matrix.json"])
+def test(out: Path = OUT) -> None:
+    rel = out.relative_to(ROOT)
+    sh(["node", "experiments/hot_reload/wasm/hot_reload.test.mjs", f"{rel}/manifest.json", f"{rel}/matrix.json"])
 
 
 def pct(xs: list[float], q: float) -> float:
@@ -89,9 +220,9 @@ def pct(xs: list[float], q: float) -> float:
     return xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))]
 
 
-def bench(reps: int) -> None:
-    out = OUT / "bench.json"
-    sh(["node", "experiments/hot_reload/wasm/bench.mjs", "build/hot/manifest.json", str(out), str(reps)])
+def bench(reps: int, root: Path = OUT) -> None:
+    out = root / "bench.json"
+    sh(["node", "experiments/hot_reload/wasm/bench.mjs", str(root / "manifest.json"), str(out), str(reps)])
     data = json.loads(out.read_text())
 
     print(f"\nswap latency, {reps} reps, v1 -> v2_code, ms")
@@ -113,8 +244,8 @@ def bench(reps: int) -> None:
                     for r in data["scaling"]],
         "env": data["env"],
     }
-    (OUT / "bench_summary.json").write_text(json.dumps(summary, indent=2))
-    print(f"wrote {(OUT / 'bench_summary.json').relative_to(ROOT)}")
+    (root / "bench_summary.json").write_text(json.dumps(summary, indent=2))
+    print(f"wrote {(root / 'bench_summary.json').relative_to(ROOT)}")
 
 
 def e2e() -> None:
@@ -125,7 +256,20 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("step", nargs="?", default="all", choices=["build", "test", "bench", "e2e", "all"])
     ap.add_argument("--reps", type=int, default=200)
+    ap.add_argument("--core", default="c", choices=["c", "mojo"])
     a = ap.parse_args()
+    if a.core == "mojo":
+        root = ROOT / "build" / "hot_mojo"
+        if a.step in ("build", "all") or not (root / "manifest.json").exists():
+            build_mojo()
+        if a.step in ("test", "all"):
+            if check_rejected_mojo():
+                sys.exit(1)
+            test(root)
+            sh(["node", "experiments/hot_reload/wasm/rollback.test.mjs", str(root / "manifest.json")])
+        if a.step in ("bench", "all"):
+            bench(a.reps, root)
+        return
     if a.step in ("build", "all") or not (OUT / "manifest.json").exists():
         build()
     if a.step in ("test", "all"):

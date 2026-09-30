@@ -20,7 +20,9 @@ isolated so it can be dropped in unchanged later.
 Only the top-left box is gated. Everything downstream is built and tested here
 with LLVM 18 + Node, driven by a **faithful C stand-in** whose semantics and
 wasm ABI match the Mojo core (`toolchain/standin/sparse_set.c` ↔
-`src/core/sparse_set.mojo`).
+the Mojo core; since W1 that is `experiments/wasm_mojo/core.mojo` on dev's
+`ecs/sparse_set.mojo`. The first Mojo core, `src/core/sparse_set.mojo`, did
+not compile on Mojo 1.1 and was removed).
 
 ## ✅ Proven today (`make test` / `pixi run test`)
 
@@ -33,6 +35,17 @@ wasm ABI match the Mojo core (`toolchain/standin/sparse_set.c` ↔
 | **Layer B** host inversion | engine core imports `host.*`, exports `engine.*`, JS drives it | `bindings/js/run-node.mjs` |
 | **Layer B** Component Model | WIT → `jco embed/new/transpile` → typed JS bindings | `scripts/componentize.sh` |
 | Golden IR drift guard | `toolchain/ir/golden/*.ll` baseline (bootstrapped per toolchain) diffed on rebuild | `scripts/ir-snapshot.sh` |
+
+## ✅ 2026-09-30: Mojo source → wasm runs (W1)
+
+`mojo build --emit llvm` writes the whole module's IR for the host;
+`experiments/wasm_mojo/retarget_ir.py` rewrites it for wasm32 and LLVM 18,
+and the back half below is unchanged. The Mojo SparseSet core passes the
+differential test, matches a native Mojo run step by step, and the hot
+reload matrix passes on a Mojo engine. Details, and the limits that remain
+(compile-time struct offsets are the host's; `Int` stays 64-bit), in
+[experiments/wasm_mojo/README.md](experiments/wasm_mojo/README.md). The
+section below is the original gate, kept as the record.
 
 ## ⛔ Gated: the Mojo front-end (emit LLVM IR)
 
@@ -61,7 +74,8 @@ technique is blocked — only this sandbox's access to Modular's channel.
    mojo build --help | grep -iE 'emit|target|llvm|freestanding'
    ```
    Then, whichever of these the nightly exposes:
-   - whole-module: `mojo build --emit=llvm src/core/sparse_set.mojo -o sparse_set.ll`
+   - whole-module: `mojo build --emit llvm experiments/wasm_mojo/core.mojo -o core.ll`
+     (done in W1; see experiments/wasm_mojo/build.py)
    - per-function: assemble from `compile_info[...]().asm` (LLVM IR) fragments.
 3. Retarget the emitted IR (identical to what runs today):
    ```bash

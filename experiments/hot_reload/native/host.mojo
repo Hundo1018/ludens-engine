@@ -14,9 +14,10 @@ Strategies:
   restart   destroy old state, unload old, new state from engine_init
   keep      state block untouched, old .so stays loaded
   close     state block untouched, old .so unloaded
-  rebind    `close` + new .so re-points fields that reference static data
+            (phase 1 also had `rebind` = close + re-point the label; H2 removed
+            the label pointer, so rebind is close and the row was dropped)
   snapshot  old saves -> old destroys -> unload old -> new loads into a fresh block
-  auto      rebind if (state size, layout id) match, else snapshot
+  auto      in place (= close) if (state size, layout id) match, else snapshot
   samepath  new .so moved onto the OLD path, then loaded by that path
 """
 
@@ -72,18 +73,20 @@ def main() raises:
         cur = Engine(new_path, flags)
         if strategy == "auto":
             var same = old.size() == cur.size() and old.layout_id() == cur.layout_id()
-            used = "rebind" if same else "snapshot"
-        if used == "rebind":
+            used = "inplace" if same else "snapshot"
+        if used == "inplace":
             _ = old^
-            cur.rebind(s)
         elif used == "snapshot":
-            var buf = block(8 * old.snapshot_words(s))
-            old.save(s, buf)
+            var buf = old.save(s)
             old.destroy(s)
             _ = old^
             s = block(cur.size())
-            if cur.load(s, buf) != 1:
-                raise Error("engine_load rejected the snapshot")
+            var rc = cur.load(s, buf)
+            if rc != 1:
+                print("used=", used, sep="")
+                print("load=rejected")
+                print("load_code=", rc, sep="")
+                return
         else:
             raise Error("unknown strategy " + strategy)
     var t1 = perf_counter_ns()

@@ -49,7 +49,83 @@ const PREDICTED_GUARD = {
   v5_swap:   { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
   v6_static: { addressesMatch: true, layoutIdMatch: true, mapMatch: false },
 };
+// W1 (manifest.core === "mojo": engine_hot.mojo), written 2026-09-30 before
+// the first run. The state is a heap EngineState (Mojo has no globals), so
+//  * no GlobalOpt split can happen to it, and the writable symbols in the
+//    link map are the C shims' only: mapMatch is true for every variant;
+//  * size classes of the allocator are 16 << k, so v4/v6's 8 extra bytes stay
+//    in the same 128-byte block: addresses match everywhere; v6 in place
+//    writes past the struct but inside its block -> ok;
+//  * the log text is a Mojo string literal in .rodata: memcopy keeps the old one.
+const PREDICTED_MOJO_W1 = {
+  restart:      { v2_code: "lost/new", v3_rodata: "lost/new", v4_layout: "lost/new", v5_swap: "lost/new", v6_append: "lost/new" },
+  memcopy:      { v2_code: "ok/new", v3_rodata: "ok/old", v4_layout: "corrupt|trap", v5_swap: "corrupt/new", v6_append: "ok/new" },
+  "memcopy-rw": { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "corrupt|trap", v5_swap: "corrupt/new", v6_append: "ok/new" },
+  snapshot:     { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "ok/new", v5_swap: "ok/new", v6_append: "ok/new" },
+  auto:         { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "ok/new", v5_swap: "ok/new", v6_append: "ok/new" },
+};
+const PREDICTED_GUARD_MOJO_W1 = {
+  v2_code:   { addressesMatch: true, layoutIdMatch: true, mapMatch: true },
+  v3_rodata: { addressesMatch: true, layoutIdMatch: true, mapMatch: true },
+  v4_layout: { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+  v5_swap:   { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+  v6_append: { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+};
+// W1's engine_hot.mojo matched all of the above (25/25, 5/5); kept as the
+// record. W2 (H2 + H3 on wasm) changed the engine: EngineState { entities;
+// core: Core }, snapshots through ecs/schema.mojo into the snapshot buffer,
+// layout id hashed from schema_of[EngineState], nostatic check compiled in.
+// Predictions below written 2026-09-30 before the first W2 run:
+//  * schema field names are string literals in .rodata; an edit that adds,
+//    removes or renames a Core field changes .rodata's size, so __data_end /
+//    __heap_base and every writable symbol move: addresses and map differ for
+//    v4, v6, v7, v8, v8_rule; v5 (same names) and v2/v3 keep them
+//  * memcopy then copies the old allocator and state slot onto the wrong
+//    addresses: corrupt|trap for every variant whose addresses moved
+//  * snapshot: by field name, as native H3: v8 without an alias is refused
+const PREDICTED_MOJO = {
+  restart:      { v2_code: "lost/new", v3_rodata: "lost/new", v4_layout: "lost/new", v5_swap: "lost/new",
+                  v6_append: "lost/new", v7_delete: "lost/new", v8_rename: "lost/new", v8_rule: "lost/new" },
+  memcopy:      { v2_code: "ok/new", v3_rodata: "ok/old", v4_layout: "corrupt|trap", v5_swap: "corrupt/new",
+                  v6_append: "corrupt|trap", v7_delete: "corrupt|trap", v8_rename: "corrupt|trap", v8_rule: "corrupt|trap" },
+  "memcopy-rw": { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "corrupt|trap", v5_swap: "corrupt/new",
+                  v6_append: "corrupt|trap", v7_delete: "corrupt|trap", v8_rename: "corrupt|trap", v8_rule: "corrupt|trap" },
+  snapshot:     { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "ok/new", v5_swap: "ok/new",
+                  v6_append: "ok/new", v7_delete: "ok/new", v8_rename: "rejected/-", v8_rule: "ok/new" },
+  auto:         { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "ok/new", v5_swap: "ok/new",
+                  v6_append: "ok/new", v7_delete: "ok/new", v8_rename: "rejected/-", v8_rule: "ok/new" },
+};
+const moved = { addressesMatch: false, layoutIdMatch: false, mapMatch: false };
+const PREDICTED_GUARD_MOJO = {
+  v2_code:   { addressesMatch: true, layoutIdMatch: true, mapMatch: true },
+  v3_rodata: { addressesMatch: true, layoutIdMatch: true, mapMatch: true },
+  v4_layout: moved,
+  v5_swap:   { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+  v6_append: moved,
+  v7_delete: moved,
+  v8_rename: moved,
+  v8_rule:   moved,
+};
+// W2 refutations, recorded after the run WITHOUT editing the predictions
+// above. A cell listed here passes when it shows the refuted observation, and
+// is printed as REFUTED. (Runs that preceded these were not valid evidence:
+// every variant was compiled from its own directory, and Mojo puts the
+// source path into .rodata, which moved v3's addresses and hid v7's move.
+// All variants now compile from one path; see run.py build_one_mojo.)
+//  v8_rename: predicted addresses/map differ, memcopy corrupt|trap.
+//    Observed: .rodata keeps its size (0x6b3). Mojo aligns every string
+//    literal to 16 bytes, so "box_x\0" (6) and "offset_x\0" (9) fill the
+//    same 16-byte slot; no address moves, the in-place copy is correct.
+const REFUTED_MOJO = {
+  "guard:v8_rename": { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+  "memcopy:v8_rename": "ok/new",
+  "memcopy-rw:v8_rename": "ok/new",
+};
 const GUARDS = ["addressesMatch", "layoutIdMatch", "mapMatch"];
+const isMojo = manifest.core === "mojo";
+const predicted = isMojo ? PREDICTED_MOJO : PREDICTED;
+const predictedGuard = isMojo ? PREDICTED_GUARD_MOJO : PREDICTED_GUARD;
+console.log(`core: ${isMojo ? "mojo (engine_hot.mojo)" : "c (engine_hot.c)"}`);
 
 function makeHost() {
   const h = { current: null, draws: [], logs: [] };
@@ -87,9 +163,17 @@ async function runCell(v1, vN, strategy) {
   for (const e of DESPAWN) x.engine_despawn(e);
   for (let f = 0; f < MID; f++) x.engine_update(DT);
 
-  const swap = await hotSwap(x, vN.bytes, h.instantiate, {
-    strategy, capacity: CAPACITY, fingerprints: { old: v1.mapFingerprint, new: vN.mapFingerprint },
-  });
+  let swap;
+  try {
+    swap = await hotSwap(x, vN.bytes, h.instantiate, {
+      strategy, capacity: CAPACITY, fingerprints: { old: v1.mapFingerprint, new: vN.mapFingerprint },
+    });
+  } catch (err) {
+    // W2: engine_load refusing a snapshot (e.g. a rename without an alias)
+    if (!String(err).includes("rejected")) throw err;
+    return { state: "rejected", msg: "-", used: strategy === "auto" ? "snapshot" : strategy, transferred: 0,
+             observed: { error: String(err) } };
+  }
   h.current = x = swap.exports;
   h.logs.length = 0;
   let state;
@@ -133,10 +217,13 @@ for (const v of variants) {
     mapMatch: mapMatch(v1.mapFingerprint, v.mapFingerprint),
   };
   guards[v.name] = { ...g, v1: l1, variant: lv };
-  const p = PREDICTED_GUARD[v.name];
+  const p = predictedGuard[v.name];
   const hit = GUARDS.every((k) => p[k] === g[k]);
-  if (!hit) failures++;
-  console.log(`${hit ? "PASS" : "FAIL"}  ${v.name.padEnd(15)}  ${GUARDS.map((k) => String(g[k]).padEnd(14)).join(" ")}`);
+  const ref = isMojo && REFUTED_MOJO[`guard:${v.name}`];
+  const refuted = !hit && ref && GUARDS.every((k) => ref[k] === g[k]);
+  if (!hit && !refuted) failures++;
+  const tag = hit ? "PASS" : refuted ? "REFUTED" : "FAIL";
+  console.log(`${tag.padEnd(4)}  ${v.name.padEnd(15)}  ${GUARDS.map((k) => String(g[k]).padEnd(14)).join(" ")}`);
 }
 
 console.log("\nstrategy     variant     observed        predicted       used");
@@ -144,11 +231,13 @@ for (const s of STRATEGIES) {
   for (const v of variants) {
     const r = await runCell(v1, v, s);
     const obs = `${r.state}/${r.msg}`;
-    const pred = PREDICTED[s][v.name];
+    const pred = predicted[s][v.name];
     const hit = pred.includes("|") ? pred.split("|").includes(r.state) : obs === pred;
-    if (!hit) failures++;
-    cells.push({ strategy: s, variant: v.name, predicted: pred, hit, ...r });
-    console.log(`${hit ? "PASS" : "FAIL"}  ${s.padEnd(11)} ${v.name.padEnd(11)} ${obs.padEnd(15)} ${pred.padEnd(15)} ${r.used}`);
+    const refuted = !hit && isMojo && REFUTED_MOJO[`${s}:${v.name}`] === obs;
+    if (!hit && !refuted) failures++;
+    cells.push({ strategy: s, variant: v.name, predicted: pred, hit, refuted, ...r });
+    const tag = hit ? "PASS" : refuted ? "REFUTED" : "FAIL";
+    console.log(`${tag.padEnd(4)}  ${s.padEnd(11)} ${v.name.padEnd(11)} ${obs.padEnd(15)} ${pred.padEnd(15)} ${r.used}`);
     if (!hit) console.log("      ", JSON.stringify(r.observed));
   }
 }
@@ -159,4 +248,5 @@ if (failures) {
   console.log(`FAIL  ${failures} observation(s) contradict the predictions`);
   process.exit(1);
 }
-console.log("PASS  hot reload: all observations match predictions");
+const nRefuted = cells.filter((c) => c.refuted).length;
+console.log(`PASS  hot reload: all observations match predictions${nRefuted ? ` (${nRefuted} recorded refutation(s) reproduced)` : ""}`);

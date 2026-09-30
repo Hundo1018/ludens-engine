@@ -1,6 +1,6 @@
 """Shared by host.mojo (matrix cells) and live_host.mojo (hot compile loop):
-the C-ABI wrapper around one loaded engine .so, raw state blocks, the
-/proc/self/maps lookups, and the `auto` swap.
+the C-ABI wrapper around one loaded engine .so, raw state blocks and the
+/proc/self/maps lookups.
 """
 
 from std.ffi import OwnedDLHandle, RTLD, external_call
@@ -28,9 +28,6 @@ struct Engine(Movable):
 
     def destroy(self, s: Int) raises:
         self.h.get_function[NoneType]("engine_destroy")(s)
-
-    def rebind(self, s: Int) raises:
-        self.h.get_function[NoneType]("engine_rebind")(s)
 
     def update(self, s: Int) raises:
         self.h.get_function[NoneType]("engine_update")(s, DT)
@@ -65,18 +62,26 @@ struct Engine(Movable):
     def label_byte(self, s: Int, i: Int) raises -> Int:
         return self.h.get_function[Int]("engine_label_byte")(s, i)
 
-    def snapshot_words(self, s: Int) raises -> Int:
-        return self.h.get_function[Int]("engine_snapshot_words")(s)
-
-    def save(self, s: Int, buf: Int) raises:
-        self.h.get_function[NoneType]("engine_save")(s, buf)
+    def save(self, s: Int) raises -> Int:
+        """Snapshot buffer: [u64 byte length][bytes], allocated by the engine
+        with Mojo's allocator; free it with free_buffer."""
+        return self.h.get_function[Int]("engine_save")(s)
 
     def load(self, s: Int, buf: Int) raises -> Int:
+        """1 = ok; 0 corrupt, 2 unresolved rename, 3 changed type (engine.mojo)."""
         return self.h.get_function[Int]("engine_load")(s, buf)
 
 
 def block(nbytes: Int) -> Int:
-    return Int(alloc[UInt8](Layout[UInt8](count=nbytes)).unsafe_leak())
+    """A state block from libc `malloc`, freed with `free_state`. Not Mojo's
+    `alloc`: that allocator carves blocks out of its own arena, so valgrind
+    cannot see where a block ends (H4, probes/probe_alloc_bounds.mojo)."""
+    return external_call["malloc", Int](nbytes)
+
+
+def free_state(addr: Int):
+    """Free a block from `block`."""
+    external_call["free", NoneType](addr)
 
 
 def maps_count(needle: String) raises -> Int:
@@ -116,39 +121,11 @@ def rename(src: String, dst: String) raises:
         raise Error("rename failed: " + src + " -> " + dst)
 
 
-def free_block(addr: Int):
+def snapshot_bytes(buf: Int) -> Int:
+    return Int(BytePtr(unsafe_from_address=buf).unsafe_bitcast[UInt64]()[]) + 8
+
+
+def free_buffer(addr: Int):
+    """Free a buffer the engine allocated (Mojo's allocator, shared by every
+    module: README finding 3)."""
     BytePtr(unsafe_from_address=addr).unsafe_free()
-
-
-struct Swapped(Movable):
-    var engine: Engine
-    var state: Int
-    var used: String
-
-    def __init__(out self, var engine: Engine, state: Int, used: String):
-        self.engine = engine^
-        self.state = state
-        self.used = used
-
-    def into_engine(deinit self) -> Engine:
-        return self.engine^
-
-
-def swap_auto(var old: Engine, var new: Engine, state: Int) raises -> Swapped:
-    """`rebind` in place when state size and layout id match, else `snapshot`
-    into a fresh block. Unloads `old` either way."""
-    if old.size() == new.size() and old.layout_id() == new.layout_id():
-        _ = old^
-        new.rebind(state)
-        return Swapped(new^, state, "rebind")
-    var buf = block(8 * old.snapshot_words(state))
-    old.save(state, buf)
-    old.destroy(state)
-    _ = old^
-    free_block(state)
-    var fresh = block(new.size())
-    var ok = new.load(fresh, buf)
-    free_block(buf)
-    if ok != 1:
-        raise Error("engine_load rejected the snapshot")
-    return Swapped(new^, fresh, "snapshot")

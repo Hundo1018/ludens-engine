@@ -195,3 +195,56 @@ export async function hotSwap(oldX, newBytes, instantiate,
     ms: { compile: t1 - t0, instantiate: t2 - t1, transfer: t3 - t2, total: t3 - t0 },
   };
 }
+
+// ---- W2 (H1 on wasm): probation and rollback --------------------------------
+// After a swap the old instance stays referenced for `probation` frames and
+// every engine_update of the new one runs in try/catch. A WebAssembly trap
+// (RuntimeError) switches back to the old instance. No state copy is needed:
+// instances do not share memory, and the transfer only READ the old one
+// (memcopy reads it; snapshot's engine_save writes only its snapshot buffer),
+// so the old instance still holds the state as of the swap.
+export class LiveEngine {
+  constructor(exports, { probation = 60 } = {}) {
+    this.x = exports;
+    this.prev = null;
+    this.left = 0;
+    this.probation = probation;
+  }
+
+  // -> { swapped: result of hotSwap } | { rejected: error message }
+  async swap(newBytes, instantiate, opts) {
+    let r;
+    try {
+      r = await hotSwap(this.x, newBytes, instantiate, opts);
+    } catch (err) {
+      return { rejected: String(err) };  // old instance untouched: keep running it
+    }
+    this.prev = this.x;
+    this.x = r.exports;
+    this.left = this.probation;
+    return { swapped: r };
+  }
+
+  // one frame -> { event: "frame" | "rollback" | "commit", error?, rollbackMs? }
+  step(dt) {
+    if (this.left === 0) {
+      this.x.engine_update(dt);
+      return { event: "frame" };
+    }
+    try {
+      this.x.engine_update(dt);
+    } catch (err) {
+      if (!(err instanceof WebAssembly.RuntimeError)) throw err;
+      const t0 = performance.now();
+      this.x = this.prev;
+      this.prev = null;
+      this.left = 0;
+      return { event: "rollback", error: String(err), rollbackMs: performance.now() - t0 };
+    }
+    if (--this.left === 0) {
+      this.prev = null;
+      return { event: "commit" };
+    }
+    return { event: "frame" };
+  }
+}

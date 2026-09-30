@@ -40,7 +40,7 @@ the **host** allocates (`engine_state_size()` bytes) and passes by address:
 |---|---|---|
 | `capacity`, `frame` | `Int` | – |
 | `box_x` | `Float32` | – |
-| `label` | `StaticString` | literal in the `.so` that ran `engine_init` / `engine_rebind` |
+| `label` | `StaticString` | literal in the `.so` that ran `engine_init` / `engine_rebind` (phase 1; H2 replaced it with `label_id: Int`) |
 | `entities` | `ecs.SparseSet[Float32]` | heap `List`s allocated by the `.so` that created them |
 
 Strategies (`host.mojo`):
@@ -93,6 +93,9 @@ the wasm phase: `init(8)`, 30 frames, despawn 2 and 5, 10 frames, swap, 30 frame
 
 ## 6–9. Results (35 cells, all match the predictions)
 
+This is the phase 1 record (label as a `StaticString`). The H2 section below
+has the current engine's matrix.
+
 | Strategy | v2_code | v3_label | v4_layout | v5_swap | v6_append |
 |---|---|---|---|---|---|
 | restart | lost/new | lost/new | lost/new | lost/new | lost/new |
@@ -131,9 +134,9 @@ What the matrix shows:
    hot reloader has to load every build from a new path.
 6. ⚠ **v6_append under `keep`/`rebind`** matches the oracle, but the new code
    writes `extra` past the end of the host's block, which was sized for the
-   old struct. That is an out-of-bounds heap write this matrix cannot see. It
-   was not checked with a sanitizer (valgrind is not installed here). The size
-   guard rejects it, so `auto` never takes that path.
+   old struct. That is an out-of-bounds heap write this matrix cannot see.
+   H4 confirmed it with ASan and valgrind (see below). The size guard rejects
+   it, so `auto` never takes that path.
 
 ### Latency (`run_native.py bench`, Xeon 2.8 GHz × 4)
 
@@ -149,7 +152,8 @@ variant took 2.9–3.5 s. The dev loop is bounded by the compiler, not by the sw
 
 ## Hot compile (`dev_native.py` + `live_host.mojo`)
 
-`dev_native.py` polls `engine.mojo` every 100 ms. On each change it runs
+`dev_native.py` polls `engine.mojo` every 100 ms (since H5, also the packages
+it imports; see below). On each change it runs
 `mojo build --emit shared-lib` into `build/hot_native/dev/<n>/libengine.so`
 (a new path each time, because of finding 5). After a successful build it
 atomically replaces `dev/latest` with `"<n> <path>"`; a failed build leaves
@@ -157,9 +161,9 @@ atomically replaces `dev/latest` with `"<n> <path>"`; a failed build leaves
 
 `live_host.mojo` runs the engine at about 60 Hz and reads `latest` every
 frame. On a new version it loads the candidate first; only when that works
-does it hand the state over with `swap_auto` (shared with the matrix host in
-`hotswap.mojo`). A candidate that fails to load is reported, and the old
-module keeps running.
+does it hand the state over (phase 1: `rebind` if the layout matched, else
+`snapshot`; since H1 with a guarded probation, see below). A candidate that
+fails to load is reported, and the old module keeps running.
 
 `e2e_native.py` edits a copy of `engine.mojo` while both run:
 
@@ -173,18 +177,325 @@ Latency from writing the file to the host's swap line (n = 7): **median
 1.08 s, max 3.29 s** (the first build). `mojo build` alone: median 0.98 s. The
 swap itself: 25–37 µs. Almost all of the latency is the compiler.
 
+**Correction (2026-09-30): the 1.08 s median was mostly compile-cache hits.**
+The e2e alternated `SPEED` between two values, and `mojo build` caches builds.
+`build_time.py --probe-cache` (3 reps each, same machine):
+
+| Condition | `mojo build` median |
+|---|---|
+| same path, same content | 0.93 s |
+| same path, only a trailing comment changed | 0.93 s |
+| same path, mtime bumped | 1.00 s |
+| same path, `SPEED` set to a value never built | **3.11 s** |
+| same content at a path never built | 2.74 s (0.90 s once that path was built) |
+
+The cache (`~/.cache/modular/.mojo_cache/`) is keyed on the path and the code
+with comments dropped. `e2e_native.py` now uses a `SPEED` value never built
+before in every round. Re-measured (n = 5): **edit → swap median 3.03 s, max
+3.09 s; `mojo build` median 2.94 s.**
+
+## H2: no pointers into a `.so` in the state
+
+Phase 1 kept `label: StaticString` in `EngineState` and needed `engine_rebind`
+to re-point it after each swap; nothing checked that rebind covered every such
+field. H2 replaces it with `label_id: Int`. The text comes from
+`label_text(id)` in the code, so it always comes from the running module.
+`engine_rebind` is gone, and the `rebind` strategy with it (without a rebind
+step it is `close`). `auto` now keeps the block in place (`inplace`) when the
+layout matches.
+
+Predictions, written before the run (`PREDICTED` in `run_native.py`; the phase 1
+table is kept as `PREDICTED_PHASE1`): `keep` and `close` × v2/v3/v6 go from
+`ok/old` and `ok/trap` to `ok/new`; the other cells do not change. A `new` label
+now also requires the new variant's text (`ludens: engine v3` for v3).
+
+| Strategy | v2_code | v3_label | v4_layout | v5_swap | v6_append |
+|---|---|---|---|---|---|
+| restart | lost/new | lost/new | lost/new | lost/new | lost/new |
+| keep | ok/new | ok/new | trap | corrupt/new | ok/new ⚠ |
+| close | ok/new | ok/new | trap | corrupt/new | ok/new ⚠ |
+| snapshot | ok/new | ok/new | ok/new | ok/new | ok/new |
+| auto | ok/new (inplace) | ok/new (inplace) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) |
+| samepath | stale-code/old | stale-code/old | stale-code/old | stale-code/old | stale-code/old |
+
+30/30 match. e2e: 4 code edits swapped `inplace`, the syntax error kept the old
+module, the layout edit went through `snapshot`.
+
+**Compile-time rule** (`nostatic.mojo`). `assert_no_static_refs[EngineState]()`
+runs inside `engine_state_size`. It rejects a direct field whose type's
+`reflect[].base_name()` is `StringSpan` (what `StaticString` reports),
+`StringSlice`, `Span`, `Pointer`, `UnsafePointer` or `OpaquePointer`.
+
+- `run_native.py test` builds `x_static_field` (adds `var note: StaticString`)
+  and requires the build to fail with
+  `constraint failed: state field holds a pointer or string view: note`. It does.
+- Gap, shown in `probes/probe_nostatic.mojo`: type parameters of containers are
+  not inspected. `SparseSet[StaticString]` passes the check.
+
+## H1: roll back a build that crashes
+
+Without a guard, a new build whose `engine_update` faults kills `live_host`
+and the state with it. H1 follows cr.h: guard the first frames after a swap
+with `sigsetjmp` / `siglongjmp` and return to the previous module on a fault.
+
+**Probe first** (`probes/probe_sigjmp.mojo`):
+- `__sigsetjmp` / `siglongjmp` through `external_call` recover from a SIGSEGV
+  three times in a row.
+- Mojo 1.1 has no global variables ("global variables are not supported"), so
+  the handler cannot find the jmp_buf through one. The jmp_buf lives on a page
+  mapped at a fixed address (`mmap` with `MAP_FIXED_NOREPLACE`); the handler
+  knows it as a compile-time constant.
+- A local incremented between `sigsetjmp` and the fault read 0 afterwards.
+  Locals are indeterminate after the jump, as in C, so the guarded functions
+  keep nothing live across the call; the state is in the heap block.
+- One symbol cannot be declared with two signatures: `signal(sig, handler)`
+  and `signal(sig, SIG_DFL)` in one module fail to lower. The reset uses
+  `bsd_signal`.
+
+**Design** (`guard.mojo`, `live_host.mojo`):
+1. Before a swap, the old module saves a snapshot of the state (the
+   rollback copy), and the old module stays loaded.
+2. For the next 60 frames every `engine_update` of the new module runs under
+   the guard (`guarded_update`); on the snapshot path `engine_load` does as
+   well (`guarded_load`).
+3. On a fault the old module rebuilds the state from the snapshot and keeps
+   running (`rollback`). The block the new code ran on is leaked, because
+   destroying it could fault again.
+4. After 60 clean frames the old module is unloaded and the snapshot freed
+   (`commit`).
+5. A fault while no guarded call runs restores the default action, so the
+   process dies as before: `probes/probe_guard_unarmed.mojo` exits with 139.
+
+**Predictions** (written in `e2e_native.py` before implementing) and results:
+
+| Edit | Predicted | Observed |
+|---|---|---|
+| 4a null write in `engine_update`, same layout | host lives, `rollback`, frame = swap's frame_before, 6 entities, old colour ticks on | `rollback at=update signal=11 frame=880` (frame_before 880), 6 entities, green ticks 900, 930 |
+| 4b same + appended field (snapshot path) | same | `rollback … frame=1102` (frame_before 1102), 6 entities, ticks 1110, 1140 |
+| 4c crash removed | in-place swap, `commit` | `swap used=inplace`, `commit frames=60` |
+
+Cost with 6 entities: rollback copy 144 bytes, saved in 1.3–2.2 µs;
+rollback 6–7 µs. How the copy scales with the entity count is measured in H3.
+The `swap_us` column now excludes the copy and the unload of the old module
+(which moves to `commit`), so it reads 2–9 µs instead of 25–37 µs.
+
+Limits:
+- Only faults in the first 60 frames are caught.
+- A fault while the engine holds a lock (for example inside `malloc`) leaves the
+  lock held. Not tested.
+- The fixed guard address can be taken in another process layout; then
+  `guard_install` raises at start-up.
+
+## H3: snapshots from reflection schemas, migration by field name
+
+The phase 1 snapshot was a hand-written word array: every added, removed or
+renamed field meant editing `engine_save` / `engine_load`. H3 serialises with
+dev's `ecs/schema.mojo` (built for save games), which generates the field
+table from `reflect[T]` at compile time.
+
+**Engine layout.** `EngineState { entities: SparseSet[Float32]; core: Core }`:
+- `Core` holds only plain data (`capacity`, `frame`, `box_x`, `label_id`).
+  It is written as one self-describing record (`write_value`).
+- Entities are written as a batch of `Entity { key, x }` records (`write_values`).
+- `core` is the last field, so a field appended to `Core` is appended to the
+  whole state, as before (v6, the H4 target).
+- `engine_layout_id` is now an FNV-1a hash over `schema_of[EngineState]`
+  (every dotted field name, type name, offset and size), so there is no
+  hand-kept list of fields left.
+
+**ABI.** `engine_save(state) -> buffer` returns `[u64 length][bytes]`, which
+the host frees; this works because all modules share one allocator.
+`engine_load(state, buffer)` returns 1 (ok), 0 (corrupt), 2 (unresolved
+rename) or 3 (a field changed type).
+
+**Migration rule.** `read_value` matches stored fields to current ones by name:
+- an added field keeps the value `Core(0)` gives it;
+- a deleted field is skipped.
+
+A load that both drops a stored field and defaults a current one looks like a
+rename. It is retried with the aliases in `migrate()`
+(`alias_field(sch, "offset_x", "box_x")` reads stored `box_x` into `offset_x`).
+If it still looks like one, the load is refused (code 2); the field is not
+silently zeroed. The aliases are only applied to such loads, so a stale alias
+does not break the next swap.
+
+**New variants.**
+- `v7_delete` removes `capacity`, the first `Core` field.
+- `v8_rename` renames `box_x` to `offset_x` everywhere.
+- `v8_rule` is v8 plus the one-line alias.
+
+**Predictions** (`PREDICTED_H3`, written before the run):
+- the phase 1 and H2 columns do not change;
+- `keep`/`close` × v7: `corrupt|trap` (the new code reads `frame` from `capacity`'s slot);
+- `keep`/`close` × v8: `ok/new` (same offsets);
+- `snapshot`/`auto` × v7: `ok/new`;
+- `snapshot`/`auto` × v8_rename: `rejected`. The layout id hashes field names,
+  so `auto` takes the snapshot path;
+- `snapshot`/`auto` × v8_rule: `ok/new`.
+
+| Strategy | v2 | v3 | v4 | v5 | v6 | v7_delete | v8_rename | v8_rule |
+|---|---|---|---|---|---|---|---|---|
+| restart | lost/new | lost/new | lost/new | lost/new | lost/new | lost/new | lost/new | lost/new |
+| keep | ok/new | ok/new | corrupt | corrupt/new | ok/new ⚠ | corrupt (label `?`) | ok/new | ok/new |
+| close | ok/new | ok/new | corrupt | corrupt/new | ok/new ⚠ | corrupt (label `?`) | ok/new | ok/new |
+| snapshot | ok/new | ok/new | ok/new | ok/new | ok/new | ok/new | **rejected** (code 2) | ok/new |
+| auto | ok/new (inplace) | ok/new (inplace) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) | **rejected** (code 2) | ok/new (snapshot) |
+| samepath | stale-code/old | … | … | … | … | … | … | stale-code/old |
+
+48/48 match.
+- The first run had 47/48: `auto` × v8_rename was `rejected` as predicted, but
+  the host returned before printing `used=`, so the `used` check failed. The
+  host now prints `used=` before the rejection. This was a harness bug, not a
+  wrong prediction.
+- `keep`/`close` × v4 changed from `trap` (H2) to `corrupt`, which is still
+  inside the predicted set. With the entities first, the inserted field no
+  longer shifts the `SparseSet`, so the new code misreads numbers instead of
+  a heap pointer.
+
+**Snapshot cost** (`bench_snapshot.py`, median of 7; save + load, and every
+load compared field by field with the original):
+
+| Entities | hand-written bytes | hand ms | schema bytes | schema ms |
+|---|---|---|---|---|
+| 9 | 192 | 0.001 | 516 | 0.004 |
+| 999 | 16 032 | 0.009 | 12 396 | 0.079 |
+| 99 999 | 1 600 032 | 1.57 | 1 200 396 | **9.30** |
+
+Gate (< 16.7 ms at 100k): passed. The schema format is 25% smaller (12 bytes per
+entity against 16) and 5.9× slower at 100k; `write_values` appends one byte
+at a time (the 17.11 to-do in ROADMAP.md). The H1 rollback copy uses the same
+format, so with 100k entities each swap spends about 4 ms saving it.
+
+In the live loop (e2e), the 6-entity snapshot is 480–541 bytes and takes
+6–29 µs to save; the H2 hand format took 144 bytes and 1.3–2.2 µs.
+
+**Build cost.** `build_time.py --unique` (4 reps, interleaved, code never
+built before): H2 engine 2.74 s, H3 engine 3.04 s. Importing `ecs.schema` adds
+about 0.3 s to every engine build. The first attempt at this comparison
+appended a unique *comment* per build, which the cache ignores; `--unique` now
+appends an unused `comptime` constant.
+
+## H5: hot compile follows the packages the engine imports
+
+`dev_native.py` now also polls every `.mojo` file of `diag/`, `geometry/`
+and `ecs/` (under `--packages-root`). For a changed package it:
+1. re-precompiles that package into `--include`;
+2. re-precompiles every package that imports it, directly or not, in
+   `PACKAGES` order (found by scanning the `from X` / `import X` lines);
+3. rebuilds the engine.
+
+A failed precompile keeps the previous `.mojoc` and is retried on the next
+change. The e2e runs on copies of the packages and its own include directory,
+so the repository tree is not touched.
+
+Prediction (written in `e2e_native.py` first): make `SparseSet.__len__` in
+the copy of `ecs/` return `len + 100`; then the build line says `pkgs=ecs`,
+`build_s = pkg_s + engine_s`, the swap is in place, and ticks report
+`count=106`. Result: `pkgs=ecs pkg_s=2.48 engine_s=3.97`, in-place swap,
+`count=106`; edit → swap 6.56 s. The engine rebuild saw the new `ecs.mojoc`:
+the compile cache does not hand back a stale engine when only an imported
+package changed.
+
+On the first run the build line and the host's swap line were printed at the
+same moment by two threads and merged into one line, so the check timed
+out. `dev_native.py` now prints under a lock, and prints the build line
+before publishing, so it always comes before the swap.
+
+## H4: v6's in-place swap under two memory checkers
+
+v6 appends `extra` to the state and increments it every frame. In place, the
+host's block is sized for the old state, so `extra` lies past its end. The
+matrix output is correct, so the matrix cannot see this. `sanitize_native.py`
+runs `keep`, `close` and `auto` × {v2_code (control), v6_append} under two
+detectors.
+
+Predictions (in the script, before the first run): `keep`/`close` × v6
+report an invalid write; `auto` × v6 and every v2 cell report nothing.
+
+**ASan** (`mojo build --sanitize address` for host and engine):
+- all 6 cells match;
+- `keep`/`close` × v6: `heap-buffer-overflow`, `READ of size 8` in
+  `engine_update`. The first bad access is the read half of
+  `s.extra += 1`, and ASan stops at the first error;
+- LeakSanitizer also reports the blocks the matrix host never frees; those
+  are not access errors.
+- `--shared-libasan` could not be used: it passes a clang-only option to the
+  linker, which is gcc here and rejects it. gcc links libasan dynamically
+  anyway, so host and engine share one runtime.
+
+**valgrind** took three rounds to become a working instrument:
+
+1. **SIGILL before any engine code ran.** Valgrind 3.22 cannot decode AVX-512
+   (EVEX) instructions, and a host-CPU Mojo build contains them. Fix: build
+   the valgrind set with `--target-cpu x86-64-v3`.
+2. **0 errors in every cell**, contradicting the prediction. Probe
+   (`probes/probe_alloc_bounds.mojo`): 8 bytes written past a 40-byte block
+   from Mojo's `alloc` are not reported; the same write past a `malloc` block
+   is ("0 bytes after a block of size 40"). Mojo's allocator carves blocks
+   out of its own arena, which valgrind maps as one large range. Fix:
+   `hotswap.block()` now takes host state blocks from libc `malloc`
+   (`free_state`); engine-made snapshot buffers are still freed with Mojo's
+   allocator (`free_buffer`).
+3. **60 errors, none labelled "Invalid write".** `engine_update` compiles
+   `s.extra += 1` to one `incq 0x68(%rdi)`, and 0x68 = 104 = the v1 state
+   size. The probe shows memcheck files a read-modify-write past a block as
+   2 errors in one context labelled `Invalid read`. So 60 = 30 frames × (load +
+   store). The criterion is now: an inline report whose top frame is
+   `engine_update` in the new `.so`, at an address past a block allocated by
+   `host::main`.
+
+With that criterion all 6 cells match. `keep`/`close` × v6 report "Invalid read of
+size 8 in engine_update, 0 bytes after a 104-byte block from host::main()".
+The prediction's wording ("invalid write") holds for the access, not for
+valgrind's label: valgrind never prints "Invalid write" here.
+
+After the allocator change the 48-cell matrix, the e2e and the snapshot
+bench were rerun: all pass, and the bench numbers are within noise
+(9.74 ms against 9.30 ms at 100k).
+
+## H6: split the engine into several `.so` files? Measured first; not done
+
+The idea: rebuild only the `.so` of the system that was edited, and get
+under 0.5 s. The roadmap's gate was to measure `mojo build`'s fixed cost
+first. `h6_fixed_cost.py` builds four shared libraries, uncached and
+interleaved, 5 each:
+
+| Source | median | min | max |
+|---|---|---|---|
+| `empty`: one export returning 1 | **2.52 s** | 2.40 | 3.14 |
+| `sparse_set`: + uses `ecs.SparseSet` | 2.91 s | 2.66 | 3.28 |
+| `schema`: + uses `ecs.schema` | 3.16 s | 2.90 | 3.49 |
+| `engine.mojo` | 4.17 s | 3.85 | 4.38 |
+
+The prediction was `empty` ≥ 0.8 s; it is 2.52 s, 60% of the engine build.
+
+Where the fixed cost is not:
+- `mojo --version` takes 0.05 s, and a build of a missing file 0.06 s.
+- The empty module builds in 2.50 s without `-I build`, and in 2.51 s with
+  `--emit object` (no link step).
+
+So about 2.45 s is spent compiling an empty module, independent of the
+imported packages and of linking.
+
+Decision: a `.so` per system would cost at least 2.4 s per edit, against the
+3–4 s the whole engine costs now. The 0.5 s target cannot be reached, so the
+split is not implemented. The engine build here varies between runs (3.04 s
+and 4.17 s uncached for the same source on different runs); the comparisons
+above are within one interleaved run.
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
-  `rebind`, else `snapshot`) is correct as well.
+  in place, else `snapshot`) is correct as well.
 - An in-place swap needs three things:
   1. the same layout (size and offsets),
-  2. every pointer into the old module's static data re-pointed (`engine_rebind`),
+  2. no pointer into the old module's static data in the state: since H2
+     there is none, and `nostatic.mojo` rejects direct fields of pointer or
+     string-view type at compile time,
   3. heap memory from a shared allocator, which holds here.
-
-  Item 2 has no automatic check. A new `StaticString` field that
-  `engine_rebind` forgets would reproduce the `close` crash.
 - Each build must be loaded from a unique path.
+- A real code edit costs about 3 s of `mojo build` on this machine; about
+  0.9 s only when the (path, code) pair was built before.
 
 ## 11. Limits and next steps
 
@@ -192,20 +503,29 @@ swap itself: 25–37 µs. Almost all of the latency is the compiler.
   size was not measured natively; the wasm phase has that scaling.
 - Only one kind of static pointer (a string literal) was tested. Function
   pointers or trait objects stored in the state would dangle the same way;
-  not tested.
-- The snapshot format is hand-written. dev's `ecs/schema.mojo` (reflection
-  schemas, used for save games) could produce it instead; not tried.
-- The watcher polls one file. Edits to packages the engine imports (`ecs`,
-  `geometry`) need `run_native.py build` to re-precompile them first.
+  not tested. Mojo 1.1 rejects a `def(Int) -> Int` field type ("struct
+  fields do not support trait types"), so a function-pointer field needs
+  another form to test.
+- Snapshot cost against state size: measured in H3 (9.3 ms for 100k entities).
+- The migration rule cannot tell a rename from a delete plus an unrelated
+  add in the same edit; that edit needs an alias or is refused.
+- A field whose type changes is refused (code 3); no variant tests it.
 
 ## Files
 
 | File | Role |
 |---|---|
 | `engine.mojo` | engine as a reloadable `.so`; `@@…@@` markers are where the edits go |
-| `hotswap.mojo` | shared: `Engine` wrapper over the C ABI, state blocks, maps lookup, `swap_auto` |
+| `hotswap.mojo` | shared: `Engine` wrapper over the C ABI, state blocks, maps lookup |
+| `bench_snapshot.mojo`, `bench_snapshot.py` | H3: snapshot size and time, hand-written vs schema, 10 / 1k / 100k entities |
 | `host.mojo` | runs one (old, new, strategy) cell and prints observations |
 | `live_host.mojo` | runs the engine continuously and swaps in each published build |
 | `dev_native.py` | hot compile: watch → `mojo build` → publish `latest` (optionally starts the host) |
 | `e2e_native.py` | edits the source three ways while the host runs; measures edit → swap latency |
 | `run_native.py` | builds the variants and host, runs the matrix vs. the oracle, benchmarks |
+| `sanitize_native.py` | H4: the v6 cells under ASan and valgrind |
+| `guard.mojo` | fault guard for H1: fixed-address jmp_buf page, handler, `guarded_update` / `guarded_load` |
+| `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
+| `h6_fixed_cost.py` | H6: fixed cost of `mojo build` (empty module vs engine) |
+| `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |
+| `probes/` | small programs that each answer one question about the toolchain |

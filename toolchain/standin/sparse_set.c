@@ -1,5 +1,12 @@
 /* ===========================================================================
- * FAITHFUL STAND-IN for src/core/sparse_set.mojo  (NOT the engine source).
+ * FAITHFUL STAND-IN for the Mojo SparseSet core (NOT the engine source).
+ *
+ * Since W1 the Mojo side exists: experiments/wasm_mojo/core.mojo wraps dev's
+ * ecs/sparse_set.mojo behind this same ABI and is built to wasm from Mojo;
+ * experiments/wasm_mojo/native_vs_wasm.py checks native Mojo, the Mojo wasm
+ * and this stand-in against each other. (The older src/core/sparse_set.mojo
+ * this file first mirrored no longer compiled and was removed, T2.) The
+ * paragraphs below describe the situation before W1.
  *
  * Why this file exists
  * --------------------
