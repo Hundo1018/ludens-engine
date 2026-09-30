@@ -395,9 +395,19 @@ def test_r1() -> int:
         hit = (state_ok and kv.get("idle_mapped") == "0" and early is not None
                and early < P.B2_MAX_RSS_GROWTH_KIB and late < P.B2_MAX_LATE_GROWTH_KIB)
         observed = f"{'ok' if state_ok else 'bad'} +{early}/+{late}KiB map={kv.get('idle_mapped')}"
-        record("B2", s, f"x{k}", kv, observed,
-               f"ok <{P.B2_MAX_RSS_GROWTH_KIB}/<{P.B2_MAX_LATE_GROWTH_KIB} map=0", hit,
-               rss_first=kv.get("rss_first"), rss_100=kv.get("rss_100"), rss_last=kv.get("rss_last"))
+        refuted = not hit and ("B2", s) in P.REFUTED_R1 and state_ok
+        record("B2", s, f"x{k}", kv, observed + (" REFUTED(recorded)" if refuted else ""),
+               f"ok <{P.B2_MAX_RSS_GROWTH_KIB}/<{P.B2_MAX_LATE_GROWTH_KIB} map=0", hit or refuted,
+               rss_first=kv.get("rss_first"), rss_100=kv.get("rss_100"), rss_last=kv.get("rss_last"),
+               refuted_recorded=refuted)
+        # live Mojo allocations at exit must not depend on the number of swaps
+        from leak_probe import build_shim, run as run_counted
+        build_shim()
+        short, long_ = run_counted(s, P.B2_SWAPS), run_counted(s, k)
+        per_swap = (long_["live_bytes"] - short["live_bytes"]) / (k - P.B2_SWAPS)
+        record("B2L", s, f"x{P.B2_SWAPS}/{k}", {"returncode": 0},
+               f"live {short['live_bytes']}B/{long_['live_bytes']}B", "equal", per_swap == 0,
+               leak_bytes_per_swap=per_swap)
 
     (OUT / "r1.json").write_text(json.dumps(rows, indent=2))
     print(f"wrote {(OUT / 'r1.json').relative_to(ROOT)}")
@@ -414,8 +424,11 @@ def bench(reps: int) -> None:
         rows[s] = {"median_us": statistics.median(us), "p95_us": sorted(us)[int(0.95 * (len(us) - 1))],
                    "max_us": max(us)}
     rebuild = []
-    for _ in range(max(3, reps // 10)):
-        rebuild.append(build_variant("bench_rebuild", variant_source(VARIANTS["v2_code"][0])))
+    salt = time.time_ns() % 100000  # a SPEED never built before: mojo caches builds per (path, code)
+    for r in range(max(3, reps // 10)):
+        src = variant_source(VARIANTS["v2_code"][0]).replace(
+            "comptime SPEED: Float32 = 120.0", f"comptime SPEED: Float32 = {salt + r}.25")
+        rebuild.append(build_variant("bench_rebuild", src))
     summary = {"swap": rows, "rebuild_s": {"median": statistics.median(rebuild), "max": max(rebuild),
                                            "n": len(rebuild)}, "reps": reps}
     (OUT / "bench_summary.json").write_text(json.dumps(summary, indent=2))

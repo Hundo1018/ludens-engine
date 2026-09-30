@@ -34,6 +34,10 @@ SHIM_SRC = HERE / "probes" / "kgen_alloc_count.c"
 SHIM = OUT / "kgen_alloc_count.so"
 
 
+def build_shim() -> None:
+    subprocess.run(["cc", "-O2", "-shared", "-fPIC", "-o", str(SHIM), str(SHIM_SRC), "-ldl"], check=True)
+
+
 def run(strategy: str, k: int) -> dict:
     cell = OUT / "leak" / f"{strategy}-{k}"
     if cell.exists():
@@ -55,7 +59,7 @@ def run(strategy: str, k: int) -> dict:
 
 
 def main() -> int:
-    subprocess.run(["cc", "-O2", "-shared", "-fPIC", "-o", str(SHIM), str(SHIM_SRC), "-ldl"], check=True)
+    build_shim()
     rows = [run(s, k) for s in ("close", "snapshot") for k in (100, 1000)]
     for r in rows:
         print(f"{r['strategy']:<9} K={r['k']:<5} live_count={r['live_count']:<5} live_bytes={r['live_bytes']:<7} "

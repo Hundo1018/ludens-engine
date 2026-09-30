@@ -70,6 +70,7 @@ def main() raises:
     var cur: Engine
     if strategy == "restart":
         old.destroy(s)
+        free_state(s)
         _ = old^
         cur = Engine(new_path, flags)
         s = block(cur.size())
@@ -94,9 +95,11 @@ def main() raises:
         elif used == "snapshot":
             var buf = old.save(s)
             old.destroy(s)
+            free_state(s)
             _ = old^
             s = block(cur.size())
             var rc = cur.load(s, buf)
+            free_buffer(buf)
             if rc != 1:
                 print("used=", used, sep="")
                 print("load=rejected")
@@ -166,5 +169,6 @@ def main() raises:
         label += chr(cur.label_byte(s, i))
     print("label=", label, sep="")
     cur.destroy(s)
+    free_state(s)
     print("teardown=ok")
     print("retained=", len(retained), sep="")

@@ -254,6 +254,11 @@
 - 實作時若發現某個預測描述的修改做不出來,修正也是獨立的 commit,在執行之前 push,並寫明原因。
 - R1、R2 的預測:`experiments/hot_reload/native/predictions_r1.py`、`predictions_r2.py`。
 
+> **進度:✅ 2026-09-30** 本輪的順序(PR #5):
+> 預測 `9cfbb74` → 修正 `504e7cd` → R1 harness `237b09c` → 執行 → B2 探針 `7ec4c44` → B3 `2d99dc5` →
+> R2 harness `b5f678b` → 執行 → R2b 預測 `faa7cbf` → 執行。每一步都在執行前 push。
+> 推翻的預測留在原處,結果另外寫在同一檔案結尾的紀錄區(`REFUTED_R1`、`REFUTED_R2`)。
+
 ### R1 修改種類與邊界
 
 - **問題**:第一輪矩陣只測 `Core` 的純量欄位,各種記憶體用法、comptime、trait、struct 的情況未知。
@@ -270,6 +275,20 @@
 - **不涵蓋**(記錄在案):換版時另一執行緒在 `engine_update` 裡;持有鎖時當機;10 萬實體跑完整矩陣;狀態內的裸指標。
 - **Gate**:所有格子與預測比對的結果照實記錄;推翻的預測不改寫,並寫出原因。
 
+> **進度:✅ 2026-09-30** [native README 的 R1 節](../experiments/hot_reload/native/README.md)
+> - R1 的 48 格、B1 的 6 格全部符合預測;第一輪的 48 格回歸不變。
+> - guard 缺口 1:`List[Body]` 內的 `Body` 加欄位時 layout id 不變,`auto` 走 in-place 而錯。
+> - guard 缺口 2:匯出函式簽章改變時,所有執行新程式碼的路徑都錯,snapshot 也一樣。
+> - B2:1000 次換版狀態正確。
+>   - RSS 預測第一次被推翻(+496 KiB),重跑時成立(+168 KiB):RSS 不穩定。
+>   - 改用分配器 shim 計數:100 次與 1000 次換版結束時存活的配置數相同,沒有洩漏。
+>     Mojo 的 `alloc` 是 TCMalloc,釋放的記憶體留在分配器內。
+> - B3 推翻 2 格:ASan **有**抓到 `m2_nested` 的越界讀取。
+>   原因:以 `--sanitize address` 建置的程式在 `main` 把分配器換成 malloc(`std/builtin/_startup.mojo`)。
+>   H4 的 valgrind 結論只適用於一般建置。
+> - harness 修正:host 未釋放狀態區塊(LSan 200 B);`bench` 的 rebuild 量到的是快取命中。
+> - 下一步候選:layout id 納入元素型別的 schema;匯出簽章的 ABI id。
+
 ### R2 熱編譯與一般編譯的速度比較
 
 - **問題**:熱路徑(改檔 → build `.so` → 換上)和一般路徑(build 執行檔 → 啟動 → 重跑到同一狀態)差多少;
@@ -283,6 +302,20 @@
   - `-O0`/`-O3` 比值在 0.8–1.2;
   - 空模組 ≥ engine 的 50%。
 - **Gate**:同 R1。
+
+> **進度:✅ 2026-09-30** [native README 的 R2 節](../experiments/hot_reload/native/README.md),兩個 seed 各 10 次
+> - `.so` 2.57 s;執行檔 1.80–1.85 s;`mojo run` 1.77–1.82 s;`.so -O0` 3.61 s;空模組 1.40 s。
+> - P1 兩次都被推翻:執行檔比 `.so` 快 0.72–0.77 s。
+>   F1 證實原因是 `.so` 要保留所有 export(save/load/schema);呼叫全部 export 的程式比 `.so` 慢 0.23 s。
+> - **結論:此 engine 的一般 build 比熱 build 快;熱更新省下的是執行中的狀態,不是編譯時間。**
+> - P4 兩次都被推翻:`-O0` 比 `-O3` 慢 40%。
+>   `-O0` 時 `kgen.generator` pipeline 與 `RemoveUnusedParams` 不執行,IR 有 412 個函式(`-O3`:111 個)。
+>   F2 對「其餘時間」的量法有誤(MLIR root 已包含 LLVM),照實記錄。
+> - P3(JIT 省去連結)第二次不成立,差距在雜訊內。
+> - R2c(`9d41e93`):
+>   - 只用 stdlib 的獨立 probe 在 1.1.0 上 `-O0`/`-O3` = 1.03(預測 ≥ 1.2,推翻),nightly 上 1.21;
+>   - 函式數兩版都是 4–5 倍;
+>   - 暖快取加新程式碼並不比空快取快。
 
 ### P0 在本環境從原始碼建出 `mojo`(改編譯器的前提)
 
@@ -308,6 +341,13 @@
 
 - 位置:`docs/upstream/<題目>.md`,內容包括問題、最小重現、數據、nightly 重測結果、建議的修改或 fork PR 連結。
 - 候選:wasm32 後端(C1)、前端固定成本(R2)、`-O0` 比 `-O3` 慢(R2 若重現)、R1 發現的 bug。
+
+> **進度:草稿完成,待審查(2026-09-30)** [docs/upstream/](upstream/README.md)
+> - `wasm32-backend.md`:nightly 1.2.0.dev2026093005 仍只註冊 AArch64/RISC-V/x86;附 W1/W2 證據。
+>   沒有 patch(P0/C1 未做)。
+> - `o0-build-time.md`:證據程度中等,IR 函式數差 4–5 倍,建置時間的差距視程式碼而定。
+> - 不提:前端固定成本(沒有可提的設計)、valgrind 與 TCMalloc(原始碼已說明)、R1 的 guard 缺口(屬於本專案)。
+> - 未做:上游 issue 查重(本 session 無權查 modular/modular 的 issue)。
 
 ---
 

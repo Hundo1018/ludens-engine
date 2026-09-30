@@ -83,3 +83,14 @@ REFUTED_R2 |= {"P3"}
 #     built before is not slower than an empty cache: median(warm) <= median(empty).
 C_A_RATIO_MIN = 1.2
 C_A_DEFINE_RATIO_MIN = 2.0
+# R2c results (9d41e93, n=5 each, interleaved, uncached):
+#   1.1.0   probe  O3 2.72 s  O0 2.80 s  ratio 1.03  defines 67 -> 309 (4.6x)
+#   1.1.0   engine O3 3.24 s  O0 3.88 s  ratio 1.20  defines 111 -> 412 (3.7x)
+#   nightly probe  O3 2.13 s  O0 2.58 s  ratio 1.21  defines 64 -> 316 (4.9x)
+#   nightly engine does not build (ecs.schema import fails on the nightly API)
+#   cache, 1.1.0, empty module: empty 1.43 s, warm + new code 1.50 s
+# C-a time part refuted (1.03); define part held. C-b held (1.21, at the
+# bound; defines 4.9x). C-c refuted (warm 0.07 s slower, inside the noise).
+# What holds across versions: -O0 sends 4-5x the functions to LLVM. The
+# build time penalty depends on the code: 1.0-1.2x standalone, 1.2-1.4x engine.
+REFUTED_R2 |= {"C-a_time", "C-c"}

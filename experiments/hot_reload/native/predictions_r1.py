@@ -132,3 +132,20 @@ PREDICTED_B3 = {
 #     B2_SWAPS) is kept as written.
 B2_SWAPS_LONG = 1000
 B2_MAX_LATE_GROWTH_KIB = 256
+
+# ---- results record, 2026-09-30 (after the first run; predictions above unchanged)
+# Harness 237b09c + 2d99dc5, run on Mojo 1.1.0, 4 vCPU Xeon. R1 48/48 and B1
+# 6/6 matched. Refuted, kept as observed:
+#   B2 snapshot: VmRSS grew 496 KiB over swaps 100..1000 (bound 256).
+#       leak_probe.py (7ec4c44, prediction "no leak" written before its run):
+#       live Mojo allocations at exit are equal for K=100 and K=1000 (1 block,
+#       1371 B), so no leak. The growth is memory TCMalloc keeps. RSS was the
+#       wrong measure; from now on B2 also checks the live-allocation count.
+#   B3 keep x m2_nested, auto x m2_nested: ASan DID report heap-buffer-overflow
+#       (READ 8 in engine_update). H-e was wrong: an ASan-built program's
+#       main calls KGEN_CompilerRT_SetAsanAllocators (std/builtin/_startup.mojo),
+#       which swaps TCMalloc for aligned malloc, which ASan tracks. H4's probe
+#       used a normal build.
+REFUTED_R1 = {("B2", "snapshot"), ("B3", "keep", "m2_nested"), ("B3", "auto", "m2_nested")}
+# B2 from now on: live Mojo allocations at exit (kgen_alloc_count shim) must be
+# equal for K=B2_SWAPS and K=B2_SWAPS_LONG.

@@ -483,10 +483,145 @@ split is not implemented. The engine build here varies between runs (3.04 s
 and 4.17 s uncached for the same source on different runs); the comparisons
 above are within one interleaved run.
 
+## R1: memory, comptime, trait, struct, ABI and boundary edits
+
+Predictions: `predictions_r1.py`, committed in `9cfbb74` (amendment
+`504e7cd`), before the code that tests them (`237b09c`). Run:
+`run_native.py r1`, `sanitize_native.py asan-r1`, `leak_probe.py`.
+
+The state gains, before `core`:
+- `trail: List[TRAIL_T]`: one append per frame, so it reallocates across the swap;
+- `bodies: List[Body]`: stepped through a generic over trait `Mover`;
+- `aux: Aux{grid: Array[Int, GRID_N], mover: ActiveMover}`.
+
+Snapshots store all three.
+
+| Edit | keep / close | snapshot | auto (path) |
+|---|---|---|---|
+| `m1_elem` `List[Int]` → `List[Int32]` | corrupt | rejected (retype) | rejected (snapshot) |
+| `m2_nested` field added to `Body` inside `List[Body]` | corrupt | ok | **corrupt (in place)** |
+| `c1_comptime_n` `GRID_N` 4 → 8 | corrupt | rejected (retype) | rejected (snapshot) |
+| `t1_impl` trait implementation body | ok | ok | ok (in place) |
+| `t2_swap_type` `ActiveMover` Linear → Damped | corrupt | ok (new field defaulted) | ok (snapshot) |
+| `t3_default` trait default method body | ok | ok | ok (in place) |
+| `s1_retype` `box_x` Float32 → Float64 | corrupt | rejected (retype) | rejected (snapshot) |
+| `a1_abi` `engine_update(dt: Float32)` → `(dt: Float64)` | **corrupt** | **corrupt** | **corrupt (in place)** |
+
+`restart` loses the state and `samepath` runs the old code in every row, as
+before. All 48 cells, the 6 B1 cells (all entities despawned before the swap)
+and the 48 regression cells of phase 1–H3 matched the predictions.
+
+What this shows:
+- **Guard gap 1 (`m2_nested`).** The layout id hashes what `_walk` sees.
+  `_walk` goes into the fields of a `List` but not into its element type, so
+  a field added to `Body` leaves the id unchanged. `auto` then swaps in place
+  and misreads `bodies`.
+- **Guard gap 2 (`a1_abi`).** No check looks at export signatures. The host
+  passes a `Float32` where the new code reads a `Float64`, and every path that
+  runs the new code is wrong, `snapshot` included.
+- Changing a comptime value that sizes the state (`c1`) and retyping a field
+  (`s1`, `m1`) are refused, not migrated. The refusal is the H3 rule; nothing
+  is lost silently.
+- Code reached through generics and trait default methods (`t1`, `t3`)
+  behaves like any code-only edit.
+
+B2: 1000 swaps v1 ↔ v2_code, one frame after each. The final state matches
+the oracle and the idle module is unmapped.
+- The VmRSS prediction (< 256 KiB over swaps 100..1000) failed once for
+  `snapshot` (+496 KiB), then passed on the rerun (+168 KiB). RSS is not a
+  stable measure here: Mojo allocates through TCMalloc
+  (`Mojo/lib/CompilerRT/Memory.cpp` in modular/modular), which keeps freed
+  memory.
+- `leak_probe.py` preloads `probes/kgen_alloc_count.c`, a shim over
+  `KGEN_CompilerRT_AlignedAlloc`/`AlignedFree`. Live allocations at exit are
+  equal for 100 and 1000 swaps, so there is no leak. B2 now checks this
+  count (row `B2L`).
+- A snapshot swap makes about 97 Mojo allocations.
+
+B3 (ASan). `t1_impl` under keep/close/auto: nothing reported, as predicted.
+`m2_nested` under keep/auto: **heap-buffer-overflow, READ 8 in
+`engine_update`**. The prediction was "not detected", taken from H4's
+valgrind probe. Refuted: a program built with `--sanitize address` calls
+`KGEN_CompilerRT_SetAsanAllocators` from `main`
+(`std/builtin/_startup.mojo`). That replaces TCMalloc with aligned `malloc`,
+which ASan tracks. So an ASan host does catch a layout break inside a heap
+container.
+
+Harness fixes found on the way:
+- The host did not free its state blocks and the first snapshot buffer; LeakSanitizer reported 200 B.
+- `bench`'s rebuild timing rebuilt the same source, so it measured cache hits (0.72 s). It now uses a new `SPEED` for each rebuild.
+
+## R2: hot compile against the ordinary build
+
+Predictions: `predictions_r2.py` (`9cfbb74`); harness `compile_speed.py`
+and `mono.mojo` (the engine and its main loop as one program), `b5f678b`.
+Each build is uncached, the order is shuffled every repetition, n = 10.
+Machine: 4 vCPU Intel Xeon, Mojo 1.1.0.
+
+| Condition | seed 1 median (q1–q3) | seed 2 median (q1–q3) |
+|---|---|---|
+| `so_O3` engine `.so` (hot path) | 2.57 (2.52–2.69) | 2.57 (2.55–2.66) |
+| `so_O0` | 3.61 (3.47–3.72) | 3.61 (3.49–3.83) |
+| `exe_O3` `mono.mojo` executable (ordinary) | 1.85 (1.80–2.00) | 1.80 (1.79–1.84) |
+| `exe_O0` | 1.93 (1.90–1.96) | 1.93 (1.90–2.01) |
+| `run_O3` `mojo run mono.mojo` (JIT) | 1.77 (1.73–1.82) | 1.82 (1.77–1.91) |
+| `empty_so` one export | 1.40 (1.34–1.47) | 1.40 (1.37–1.49) |
+
+Start + replay of the executable is 8 ms; a swap is 0.08 ms.
+
+| Prediction | seed 1 | seed 2 |
+|---|---|---|
+| P1 exe − so in [−0.3, 0.5] s | **−0.72, refuted** | **−0.77, refuted** |
+| P2 cold − hot < 0.5 s | −0.71, held | −0.77, held |
+| P3 exe − run in [0.05, 0.4] s | 0.08, held | **−0.02, failed** |
+| P4 so −O0 / −O3 in [0.8, 1.2] | **1.41, refuted** | **1.40, refuted** |
+| P5 empty / engine ≥ 0.5 | 0.55, held | 0.55, held |
+
+Follow-ups (`compile_speed_followup.py`, predictions in `faa7cbf` before the run):
+- **F1**, held (+0.225 s against [−0.3, 0.3]). The executable is faster
+  because it does not keep what it does not call. `mono_all.mojo` calls
+  every export and builds 0.23 s slower than the `.so`.
+- **F2**, the extra `-O0` time:
+  - The MLIR part held (+0.82 s against ≥ 0.4 s).
+  - The "rest" part (predicted 0.2–0.8 s) was refuted at 0.00 s. The MLIR
+    root timer already contains LLVM codegen, so the measurement split
+    nothing.
+  - Per pass at `-O0`: the `kgen.generator` pipeline and
+    `RemoveUnusedParams` do not run, and the lowering passes take 3–4× as long.
+  - The emitted IR has **412 functions at `-O0` against 111 at `-O3`**.
+
+R2c (`o0_repro.py`, predictions in `9d41e93` before the run):
+- A standalone stdlib-only probe (`probes/probe_o0_cost.mojo`), 1.1.0: O0/O3
+  1.03. Predicted ≥ 1.2, refuted. Functions 67 → 309 (4.6×).
+- The same probe on nightly 1.2.0.dev2026093005: 1.21, functions 64 → 316 (4.9×).
+- The engine does not compile on nightly (this repo's `ecs.schema` against
+  the nightly API).
+- Across versions, what holds is that `-O0` sends 4–5× the functions to LLVM.
+  The build-time penalty depends on the code.
+- A warm cache with new code is not faster than an empty cache for an empty
+  module: 1.50 s against 1.43 s, n = 5, within the noise. So the uncached
+  numbers above also stand for a normal edit loop.
+
+What this changes:
+- **In this engine the ordinary build (1.8 s) is faster than the hot build
+  (2.6 s).** A `.so` must keep every export alive: `engine_save`/`engine_load`
+  and the schema code, about 0.7 s. Hot reload costs build time here; what
+  it saves is the running state.
+- Do not build hot code with `-O0`: it is 40% slower, not faster.
+- The JIT (`mojo run`) saving over a linked executable is below the noise
+  at n = 10.
+- H6's fixed cost measured 1.40 s here (2.52 s in H6, on an earlier run).
+  About 0.75 s of it is `Import Mojo` + `VerifyParameters` + `LowerLIT` on a
+  module with one function. The split into several `.so` stays out: 1.40 s
+  is above H6's 0.5 s gate.
+
 ## 10. Updated model
 
-- `snapshot` is correct for every edit here, and `auto` (layout guard →
-  in place, else `snapshot`) is correct as well.
+- `snapshot` is correct for every layout edit of phase 1–H3 and R1 except
+  `a1_abi`; it refuses retypes (`m1`, `c1`, `s1`). `auto` is correct for the
+  phase 1–H3 edits, but **not** for a layout change inside a heap container's
+  element type (`m2_nested`: guard gap 1) or for an export signature change
+  (`a1_abi`: guard gap 2).
 - An in-place swap needs three things:
   1. the same layout (size and offsets),
   2. no pointer into the old module's static data in the state: since H2
@@ -509,7 +644,16 @@ above are within one interleaved run.
 - Snapshot cost against state size: measured in H3 (9.3 ms for 100k entities).
 - The migration rule cannot tell a rename from a delete plus an unrelated
   add in the same edit; that edit needs an alias or is refused.
-- A field whose type changes is refused (code 3); no variant tests it.
+- A field whose type changes is refused (code 3); R1 `s1_retype`, `m1_elem`
+  and `c1_comptime_n` test it.
+- `trail` grows by one entry per frame, on purpose (it forces reallocation
+  across the swap). In `live_host` the H1 rollback copy grows with it: 12 KB
+  and 1.4 ms at frame 1409 in `e2e_native.py`.
+- Not covered by R1: a swap while another thread is inside `engine_update`;
+  a fault while the engine holds a lock; 100k entities through the whole
+  matrix; raw owned pointers in the state (the nostatic rule forbids them).
+- Next candidates: include element-type schemas in the layout id (gap 1);
+  an ABI id over export signatures (gap 2).
 
 ## Files
 
@@ -528,4 +672,8 @@ above are within one interleaved run.
 | `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
 | `h6_fixed_cost.py` | H6: fixed cost of `mojo build` (empty module vs engine) |
 | `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |
+| `predictions_r1.py`, `predictions_r2.py` | R1 / R2 predictions, committed before their code; results record at the end |
+| `leak_probe.py`, `probes/kgen_alloc_count.c` | R1 B2: live Mojo allocations at exit under an allocator shim |
+| `compile_speed.py`, `mono.mojo` | R2: hot build vs ordinary build vs JIT, -O0 / -O3, uncached, shuffled |
+| `compile_speed_followup.py`, `mono_all.mojo` | R2b: F1 (unused exports) and F2 (where -O0 spends time) |
 | `probes/` | small programs that each answer one question about the toolchain |

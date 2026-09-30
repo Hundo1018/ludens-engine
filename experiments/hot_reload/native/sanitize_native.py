@@ -145,14 +145,20 @@ def main() -> int:
     if a.tool in ("asan", "all"):
         rows += asan()
     if a.tool in ("asan-r1", "all"):
-        from predictions_r1 import PREDICTED_B3
+        from predictions_r1 import PREDICTED_B3, REFUTED_R1
         rows += asan(list(PREDICTED_B3), OUT / "asan_r1", "asan-r1")
         PREDICTED.update(PREDICTED_B3)
+        for r in rows:
+            if r["tool"] == "asan-r1" and ("B3", r["strategy"], r["variant"]) in REFUTED_R1:
+                r["refuted_recorded"] = True
     fails = 0
     for r in rows:
         want = PREDICTED[(r["strategy"], r["variant"])]
         # a run that died of a tool problem (SIGILL under valgrind) is no evidence either way
         hit = r["detected"] == want and not r.get("sigill")
+        if not hit and r.get("refuted_recorded") and r["detected"] != want:
+            hit = True  # refuted before, kept as observed (predictions_r1.REFUTED_R1)
+            want = f"{want} REFUTED(recorded)"
         fails += not hit
         detail = {k: r[k] for k in r if k not in ("tool", "strategy", "variant", "detected")}
         print(f"{'PASS' if hit else 'FAIL'}  {r['tool']:<9}{r['strategy']:<7}{r['variant']:<10} "
