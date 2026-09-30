@@ -49,8 +49,8 @@ GPU 測試與 bench 在無加速器的主機上自動跳過(`has_accelerator`)�
 |---:|---|---|
 | 0 | `diag` | invariant、log、counters、trace、debug-draw、frame arena |
 | 1 | `geometry` | 向量/矩陣/四元數、GA(PGA/CGA/DCGA)、AD 係數場、GJK/EPA/SAT/clip/SDF、靜態 BVH |
-| 2 | `numerics` `spatial` `procedural` `fluid` `ecs` | 稀疏矩陣與 Krylov、動態空間索引、雜訊與動畫/IK、LBM、ECS |
-| 3 | `scheduler` `collision` | 系統排程/固定步長迴圈/RNG/FSM;broadphase、narrowphase、manifold、CCD、場景查詢 |
+| 2 | `numerics` `spatial` `procedural` `fluid` `ecs` | 稀疏矩陣與 Krylov、動態空間索引、雜訊、動畫/IK、tween、FSM、LBM、ECS |
+| 3 | `scheduler` `collision` | 系統排程/固定步長迴圈/事件/計時器/RNG;broadphase、narrowphase、manifold、CCD、場景查詢 |
 | 4 | `physics` | 所有動力學求解器 |
 | 5 | `gameplay` | 角色控制、插值、ragdoll、replay、存檔、`runtime.mojo` |
 | 6 | `oop` | 僅供比較 benchmark 用的 OOP 基準引擎 |
