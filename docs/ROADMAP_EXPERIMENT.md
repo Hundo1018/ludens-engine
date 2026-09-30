@@ -243,6 +243,8 @@
   要嘛找出可行的 pip 組合,要嘛讓 pixi 在此環境可用。
 - **T2** `src/core/sparse_set.mojo` 在 Mojo 1.1 無法編譯,且與 dev 的 `ecs/sparse_set.mojo` 重複。
   改由 wasm 端的 differential oracle 參照 `ecs/`,然後刪除它。
+  > **進度:✅ 2026-09-30** 已刪除。native oracle 改為 `experiments/wasm_mojo/native_oracle.mojo`(dev 的 `ecs.SparseSet`),
+  > 由 `native_vs_wasm.py` 與 Mojo→wasm、C 替身比對;CI 的 best-effort Mojo 步驟改跑它。
 - **T3** 分支整理:`experiment` 已於 2026-09-30 建立,從此作為本分支。
   舊的 `experimental/wasm`(停在 `b150fe4`,內容已包含在 `experiment` 中)由使用者在 GitHub 上刪除;
   本 session 刪除遠端分支會被拒絕(HTTP 403)。

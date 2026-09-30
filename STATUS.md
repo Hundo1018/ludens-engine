@@ -20,7 +20,9 @@ isolated so it can be dropped in unchanged later.
 Only the top-left box is gated. Everything downstream is built and tested here
 with LLVM 18 + Node, driven by a **faithful C stand-in** whose semantics and
 wasm ABI match the Mojo core (`toolchain/standin/sparse_set.c` ↔
-`src/core/sparse_set.mojo`).
+the Mojo core; since W1 that is `experiments/wasm_mojo/core.mojo` on dev's
+`ecs/sparse_set.mojo`. The first Mojo core, `src/core/sparse_set.mojo`, did
+not compile on Mojo 1.1 and was removed).
 
 ## ✅ Proven today (`make test` / `pixi run test`)
 
@@ -72,7 +74,8 @@ technique is blocked — only this sandbox's access to Modular's channel.
    mojo build --help | grep -iE 'emit|target|llvm|freestanding'
    ```
    Then, whichever of these the nightly exposes:
-   - whole-module: `mojo build --emit=llvm src/core/sparse_set.mojo -o sparse_set.ll`
+   - whole-module: `mojo build --emit llvm experiments/wasm_mojo/core.mojo -o core.ll`
+     (done in W1; see experiments/wasm_mojo/build.py)
    - per-function: assemble from `compile_info[...]().asm` (LLVM IR) fragments.
 3. Retarget the emitted IR (identical to what runs today):
    ```bash

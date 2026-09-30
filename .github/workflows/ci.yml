@@ -44,7 +44,10 @@ jobs:
         continue-on-error: true
         run: |
           if command -v mojo >/dev/null 2>&1; then
-            mojo run main.mojo && mojo run src/core/sparse_set.mojo
+            mojo run main.mojo
+            # W1: native ecs.SparseSet vs its Mojo-derived wasm vs the C stand-in
+            python3 experiments/hot_reload/native/run_native.py build >/dev/null
+            python3 experiments/wasm_mojo/native_vs_wasm.py
           else
             echo "mojo not installed on this runner — skipping (see STATUS.md)"
           fi
