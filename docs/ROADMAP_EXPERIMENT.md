@@ -237,6 +237,38 @@
 
 ---
 
+## 第二輪:測試涵蓋與編譯時間(2026-09-30)
+
+### R1 更多種類的修改
+
+- **問題**:第一輪只改 `Core` 的純量欄位。heap 容器、trait、comptime、改型別、匯出簽章的修改,結果未知。
+- **結果**:✅ 56/56 符合預測;第一輪的 48 格不變。
+  [native README 的 R1 節](../experiments/hot_reload/native/README.md#r1-edits-to-heap-trait-comptime-and-abi-state)
+  - 缺口 1:`List[Body]` 內的 `Body` 改 layout 時,layout id 不變,`auto` 走 in-place 而錯。
+  - 缺口 2:匯出函式簽章改變時,沒有任何檢查擋得住,snapshot 也錯。
+  - 連續換版 1000 次沒有洩漏:改以存活配置數判定,RSS 受 TCMalloc 保留記憶體影響,不能用。
+  - ASan 抓得到 Mojo heap 區塊越界:ASan 建置會把分配器換成 malloc。
+- **下一步**:layout id 納入元素型別的 schema;為匯出簽章加一個 id。
+
+### R2 熱編譯與一般編譯
+
+- **問題**:熱路徑(build `.so` → 換上)比一般路徑(build 執行檔 → 重啟)省多少時間?`-O0` 有沒有幫助?
+- **結果**:✅ `compile_speed.py`,空快取,n = 10。
+  [native README 的 R2 節](../experiments/hot_reload/native/README.md#r2-hot-build-against-an-ordinary-build)
+  - 一般 build 比熱 build 快 0.8 s(1.9 s 對 2.7 s):`.so` 要保留所有 export。熱更新省下的是執行中的狀態,不是編譯時間。
+  - `-O0` 慢 38%:IR 函式數 412 對 111。
+  - 單一 export 的模組就要 1.47 s,H6 的判斷不變。
+
+### 之後:改編譯器(在 `Hundo1018/modular` fork 上驗證,不進本 repo)
+
+- **P0**:在本環境用 bazel 建出 `mojo`,確認自建版跑本 repo 的測試結果與 pip 版相同。這是後兩項的前提。
+- **C1**:WebAssembly 後端。現在的 `BACKENDS` 只有 AArch64、RISCV、X86,這也是 W1 需要借道 riscv32 的原因。
+- **J1**:用 Mojo 的 ORC `ExecutionEngine` 取代 `dlopen` 做換版。
+
+要提交上游的內容先寫在 [docs/upstream/](upstream/README.md),由 repo 擁有者審查後決定是否提交。
+
+---
+
 ## 工具鏈與雜項
 
 - **T1** dev 的完整套件建置在本環境失敗:缺 `max`,`pip install modular==26.6.0` 依賴衝突。

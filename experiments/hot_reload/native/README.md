@@ -483,10 +483,92 @@ split is not implemented. The engine build here varies between runs (3.04 s
 and 4.17 s uncached for the same source on different runs); the comparisons
 above are within one interleaved run.
 
+## R1: edits to heap, trait, comptime and ABI state
+
+`run_native.py r1`. The engine state gained a `List` that grows every frame,
+a `List[Body]` stepped through a generic over trait `Mover`, and an
+`Array[Int, GRID_N]`. Predictions are in `run_native.py` (`PREDICTED_R1`).
+All 56 observations matched them; the 48 older cells did not change.
+
+| Edit | keep / close | snapshot | auto |
+|---|---|---|---|
+| `List[Int]` → `List[Int32]` | corrupt | refused (retype) | refused |
+| field added to `Body` inside `List[Body]` | corrupt | ok | **corrupt** (took the in-place path) |
+| `GRID_N` 4 → 8 | corrupt | refused (retype) | refused |
+| body of a trait method | ok | ok | ok |
+| `ActiveMover` switched to another conformer | corrupt | ok | ok |
+| body of a trait default method | ok | ok | ok |
+| `box_x` Float32 → Float64 | corrupt | refused (retype) | refused |
+| `engine_update(dt: Float32)` → `(dt: Float64)` | **corrupt** | **corrupt** | **corrupt** |
+
+Two gaps in the swap checks:
+1. The layout id is built from what `_walk` sees. `_walk` enters a `List`'s
+   own fields but not its element type, so changing `Body` keeps the id and
+   `auto` swaps in place.
+2. Nothing checks export signatures. After the signature change the host
+   passes a `Float32` where the new code reads a `Float64`, on every path.
+
+Also checked:
+- **Empty state** (every entity despawned before the swap): same verdicts as
+  with entities.
+- **1000 swaps**: the state matches the oracle and the idle module is
+  unmapped. Mojo allocations still live at exit are the same after 100 and
+  after 1000 swaps (`probes/kgen_alloc_count.c`, an `LD_PRELOAD` shim), so
+  nothing leaks. VmRSS cannot answer this: Mojo allocates through TCMalloc,
+  which keeps freed memory. Over swaps 100..1000 it grew +496 KiB in one run
+  and +168 KiB in another.
+- **ASan** (`sanitize_native.py asan-r1`). The prediction for the `Body`
+  edit was "not reported", from H4's finding that valgrind cannot see Mojo
+  heap block ends. ASan does report it: heap-buffer-overflow, READ 8 in
+  `engine_update`. The reason: a program built with `--sanitize address`
+  switches Mojo's allocator to `malloc` in `main`
+  (`std/builtin/_startup.mojo` in modular/modular). An ASan build of the host
+  therefore catches layout breaks inside heap containers.
+
+Harness fixes:
+- The host did not free its state blocks and snapshot buffers (LeakSanitizer
+  flagged 200 B).
+- `bench` timed rebuilds of an unchanged source, i.e. cache hits.
+
+## R2: hot build against an ordinary build
+
+`compile_speed.py`. Every build uses an empty cache, conditions are
+shuffled, n = 10; Mojo 1.1.0, 4 vCPU Xeon. Two earlier runs of the same
+conditions (without `mono_all`) agreed within 0.15 s on every median.
+
+| Build | median (s) | q1–q3 |
+|---|---|---|
+| engine `.so` (what the hot path rebuilds) | 2.71 | 2.61–2.76 |
+| engine `.so`, `-O0` | 3.74 | 3.62–3.88 |
+| `mono.mojo`: engine + main loop as one executable | 1.91 | 1.84–2.17 |
+| `mono_all.mojo`: same, calling every export | 2.99 | 2.91–3.06 |
+| `mojo run mono.mojo` | 1.84 | 1.79–2.01 |
+| a module with one export | 1.47 | 1.44–1.56 |
+
+The executable then starts and replays to the swap point in 10 ms; a swap
+takes 0.08 ms.
+
+- **The ordinary build is 0.8 s faster than the hot build.** It was predicted
+  to be about equal. A `.so` has to keep every export alive, including
+  `engine_save`/`engine_load` and the schema code. Once the program calls
+  every export too (`mono_all`), it is 0.3 s slower than the `.so` (linking).
+  In this engine hot reload costs build time; what it saves is the running
+  state.
+- **`-O0` is 38% slower, not faster.** At `-O0` the `kgen.generator` pipeline
+  and `RemoveUnusedParams` do not run, the LLVM IR has 412 functions instead
+  of 111, and the lowering passes take 3–4× as long. The executable, where
+  most exports are dead, shows no difference.
+- `mojo run` saves the link step, 0.08 s here; in the second run the
+  difference was within the noise.
+- A one-export module takes 1.47 s, 54% of the engine build. This is why H6
+  (split the engine into several `.so`) stays shelved.
+
 ## 10. Updated model
 
-- `snapshot` is correct for every edit here, and `auto` (layout guard →
-  in place, else `snapshot`) is correct as well.
+- `snapshot` is correct for every layout edit tested, except an export
+  signature change, and it refuses retypes. `auto` is correct for the phase
+  1–H3 edits, but not for a layout change inside a `List`'s element type or
+  for an export signature change (R1).
 - An in-place swap needs three things:
   1. the same layout (size and offsets),
   2. no pointer into the old module's static data in the state: since H2
@@ -495,7 +577,8 @@ above are within one interleaved run.
   3. heap memory from a shared allocator, which holds here.
 - Each build must be loaded from a unique path.
 - A real code edit costs about 3 s of `mojo build` on this machine; about
-  0.9 s only when the (path, code) pair was built before.
+  0.9 s only when the (path, code) pair was built before. An ordinary
+  executable of the same engine builds about 0.8 s faster (R2).
 
 ## 11. Limits and next steps
 
@@ -509,7 +592,13 @@ above are within one interleaved run.
 - Snapshot cost against state size: measured in H3 (9.3 ms for 100k entities).
 - The migration rule cannot tell a rename from a delete plus an unrelated
   add in the same edit; that edit needs an alias or is refused.
-- A field whose type changes is refused (code 3); no variant tests it.
+- A field whose type changes is refused (code 3); R1 tests three such edits.
+- The trail grows one entry per frame by design; in `live_host` the H1
+  rollback copy grows with it (12 KB, 1.4 ms at frame 1409 in `e2e_native.py`).
+- Not tested: a swap while another thread runs `engine_update`; a fault while
+  the engine holds a lock; the whole matrix at 100k entities.
+- Next: put element-type schemas into the layout id (gap 1) and an id over
+  export signatures (gap 2).
 
 ## Files
 
@@ -528,4 +617,6 @@ above are within one interleaved run.
 | `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
 | `h6_fixed_cost.py` | H6: fixed cost of `mojo build` (empty module vs engine) |
 | `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |
+| `compile_speed.py`, `mono.mojo`, `mono_all.mojo` | R2: hot build vs ordinary build vs `mojo run`, -O0 / -O3 |
+| `probes/kgen_alloc_count.c` | `LD_PRELOAD` shim counting live Mojo allocations (R1 leak check) |
 | `probes/` | small programs that each answer one question about the toolchain |
