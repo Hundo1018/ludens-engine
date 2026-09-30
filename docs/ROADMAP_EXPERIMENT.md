@@ -81,6 +81,16 @@
   - Mojo 能否呼叫 `sigsetjmp`/`siglongjmp`(`external_call`)要先做 probe。
 - **Gate**:e2e 通過,既有 35 格矩陣不退步。
 
+> **進度:✅ 2026-09-30**
+> - Probe:`__sigsetjmp`/`siglongjmp` 可經 `external_call` 從 SIGSEGV 恢復。
+>   Mojo 1.1 沒有全域變數,jmp_buf 放在固定位址 mmap 的頁面(`MAP_FIXED_NOREPLACE`)。
+> - `guard.mojo` + `live_host.mojo`:換版前舊模組存 snapshot 且不卸載;之後 60 幀在保護下執行;
+>   fault 時由舊模組從 snapshot 重建狀態;60 幀無事則卸載舊模組(`commit`)。
+> - e2e 預測全部成立:in-place 與 snapshot 兩條路徑的當機都回滾到交換前的 frame(880、1102),6 個實體,舊模組繼續跑;修好後正常換上並 commit。
+> - 成本(6 實體):副本 144 B、1.3–2.2 µs;回滾 6–7 µs。
+> - 未保護時的 fault 仍讓行程結束(exit 139);30 格矩陣不退步(原 35 格,H2 已去掉 `rebind` 列)。
+> - 限制:只保護換版後 60 幀;engine 持有鎖(如 malloc 內)時當機未測。
+
 ### H2 狀態中不放靜態指標
 
 - **問題**:`EngineState.label` 指向 `.so` 的唯讀資料。卸載舊 `.so` 後它懸空,

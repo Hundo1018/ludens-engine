@@ -5,6 +5,14 @@ Edits a COPY of engine.mojo three times while the host runs:
   1. SPEED/COLOR (code only)   -> swap in place, frame counter continues, 6 entities
   2. syntax error              -> build fails, host keeps running the old module
   3. fix + insert a field      -> swap via snapshot, frame counter continues, 6 entities
+  4. H1 crash rollback (predictions written 2026-09-30, before live_host had it):
+     a. engine_update writes through a null pointer, same layout (in-place path)
+        -> host does not exit; prints `rollback version=N`; the restored frame
+           equals the swap's frame_before; 6 entities; the old module's colour
+           (green) keeps ticking and the frame keeps increasing
+     b. the same crash plus an appended field (snapshot path) -> same as (a)
+     c. the crash removed again (new SPEED) -> ordinary swap in place, then
+        `commit` after the probation frames
 and measures edit -> swap latency (file write to the host's swap line).
 
     python3 experiments/hot_reload/native/e2e_native.py [--rounds N]
@@ -79,6 +87,7 @@ def main() -> int:
     proc = Proc([sys.executable, str(HERE / "dev_native.py"), "--run-host", "--source", str(src),
                  "--out", str(E2E / "dev"), "--seconds", "600"])
     results, ok = [], True
+    rollbacks: list[dict] = []
 
     def check(name: str, cond: bool, detail) -> None:
         nonlocal ok
@@ -130,6 +139,33 @@ def main() -> int:
               kv["_kind"] == "swap" and kv["used"] == "snapshot" and kv["frame_before"] == kv["frame_after"]
               and kv["count"] == "6", kv)
         latencies.append(t_swap - t_edit)
+        _, kv, _ = proc.wait_for(lambda kv: kv["_kind"] in ("commit", "rollback"))
+        check("edit 3: probation passes (commit)", kv["_kind"] == "commit", kv)
+        good3 = src.read_text()
+
+        # 4. H1: a crashing build is rolled back
+        crash = [("    # @@UPDATE@@", "    BytePtr(unsafe_from_address=8)[] = 1  # H1: null write")]
+        for tag, edits, used in (("4a", crash, "inplace"), ("4b", crash + VARIANTS["v6_append"][0][:2], "snapshot")):
+            src.write_text(apply(good3, edits))
+            _, sw, _ = proc.wait_for(lambda kv: kv["_kind"] in ("swap", "swap_error"))
+            _, rb, _ = proc.wait_for(lambda kv: kv["_kind"] in ("commit", "rollback"))
+            rollbacks.append(rb)
+            check(f"edit {tag}: crash ({used} path) rolled back to the swap's frame, 6 entities",
+                  sw.get("used") == used and rb["_kind"] == "rollback" and rb["version"] == sw["version"]
+                  and rb["frame"] == sw["frame_before"] and rb["count"] == "6", {"swap": sw, "rollback": rb})
+            _, t1, _ = proc.wait_for(lambda kv: kv["_kind"] == "tick")
+            _, t2, _ = proc.wait_for(lambda kv: kv["_kind"] == "tick")
+            check(f"edit {tag}: old module keeps running (green, frame increases)",
+                  int(t2["frame"]) > int(t1["frame"]) > int(rb["frame"]) and t2["color"] == str(0x00FF00FF)
+                  and t2["count"] == "6", {"ticks": [t1, t2]})
+
+        # 4c. crash removed: an ordinary swap again
+        src.write_text(good3.replace("comptime SPEED: Float32 = ", f"comptime SPEED: Float32 = 1{salt}", 1))
+        _, sw, _ = proc.wait_for(lambda kv: kv["_kind"] in ("swap", "swap_error"))
+        _, cm, _ = proc.wait_for(lambda kv: kv["_kind"] in ("commit", "rollback"))
+        check("edit 4c: fixed build swaps in place and commits",
+              sw.get("used") == "inplace" and sw["frame_before"] == sw["frame_after"] and cm["_kind"] == "commit",
+              {"swap": sw, "commit": cm})
     except TimeoutError as err:
         check("e2e ran to completion", False, str(err))
     finally:
@@ -140,7 +176,8 @@ def main() -> int:
     if latencies:
         summary = {"edit_to_swap_s": {"median": statistics.median(latencies), "max": max(latencies),
                                       "n": len(latencies)},
-                   "build_s": {"median": statistics.median(builds), "max": max(builds)} if builds else None}
+                   "build_s": {"median": statistics.median(builds), "max": max(builds)} if builds else None,
+                   "rollbacks": rollbacks}
         print("edit -> swap latency:", json.dumps(summary), flush=True)
         (E2E / "e2e.json").write_text(json.dumps({"results": results, "summary": summary,
                                                    "log": proc.log}, indent=2))

@@ -231,6 +231,60 @@ runs inside `engine_state_size`. It rejects a direct field whose type's
 - Gap, shown in `probes/probe_nostatic.mojo`: type parameters of containers are
   not inspected. `SparseSet[StaticString]` passes the check.
 
+## H1: roll back a build that crashes
+
+Without a guard, a new build whose `engine_update` faults kills `live_host`
+and the state with it. H1 follows cr.h: guard the first frames after a swap
+with `sigsetjmp` / `siglongjmp` and return to the previous module on a fault.
+
+**Probe first** (`probes/probe_sigjmp.mojo`):
+- `__sigsetjmp` / `siglongjmp` through `external_call` recover from a SIGSEGV
+  three times in a row.
+- Mojo 1.1 has no global variables ("global variables are not supported"), so
+  the handler cannot find the jmp_buf through one. The jmp_buf lives on a page
+  mapped at a fixed address (`mmap` with `MAP_FIXED_NOREPLACE`); the handler
+  knows it as a compile-time constant.
+- A local incremented between `sigsetjmp` and the fault read 0 afterwards.
+  Locals are indeterminate after the jump, as in C, so the guarded functions
+  keep nothing live across the call; the state is in the heap block.
+- One symbol cannot be declared with two signatures: `signal(sig, handler)`
+  and `signal(sig, SIG_DFL)` in one module fail to lower. The reset uses
+  `bsd_signal`.
+
+**Design** (`guard.mojo`, `live_host.mojo`):
+1. Before a swap, the old module saves a snapshot of the state (the
+   rollback copy), and the old module stays loaded.
+2. For the next 60 frames every `engine_update` of the new module runs under
+   the guard (`guarded_update`); on the snapshot path `engine_load` does as
+   well (`guarded_load`).
+3. On a fault the old module rebuilds the state from the snapshot and keeps
+   running (`rollback`). The block the new code ran on is leaked, because
+   destroying it could fault again.
+4. After 60 clean frames the old module is unloaded and the snapshot freed
+   (`commit`).
+5. A fault while no guarded call runs restores the default action, so the
+   process dies as before: `probes/probe_guard_unarmed.mojo` exits with 139.
+
+**Predictions** (written in `e2e_native.py` before implementing) and results:
+
+| Edit | Predicted | Observed |
+|---|---|---|
+| 4a null write in `engine_update`, same layout | host lives, `rollback`, frame = swap's frame_before, 6 entities, old colour ticks on | `rollback at=update signal=11 frame=880` (frame_before 880), 6 entities, green ticks 900, 930 |
+| 4b same + appended field (snapshot path) | same | `rollback … frame=1102` (frame_before 1102), 6 entities, ticks 1110, 1140 |
+| 4c crash removed | in-place swap, `commit` | `swap used=inplace`, `commit frames=60` |
+
+Cost with 6 entities: rollback copy 144 bytes, saved in 1.3–2.2 µs;
+rollback 6–7 µs. How the copy scales with the entity count is measured in H3.
+The `swap_us` column now excludes the copy and the unload of the old module
+(which moves to `commit`), so it reads 2–9 µs instead of 25–37 µs.
+
+Limits:
+- Only faults in the first 60 frames are caught.
+- A fault while the engine holds a lock (for example inside `malloc`) leaves the
+  lock held. Not tested.
+- The fixed guard address can be taken in another process layout; then
+  `guard_install` raises at start-up.
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
@@ -270,6 +324,7 @@ runs inside `engine_state_size`. It rejects a direct field whose type's
 | `dev_native.py` | hot compile: watch → `mojo build` → publish `latest` (optionally starts the host) |
 | `e2e_native.py` | edits the source three ways while the host runs; measures edit → swap latency |
 | `run_native.py` | builds the variants and host, runs the matrix vs. the oracle, benchmarks |
+| `guard.mojo` | fault guard for H1: fixed-address jmp_buf page, handler, `guarded_update` / `guarded_load` |
 | `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
 | `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |
 | `probes/` | small programs that each answer one question about the toolchain |
