@@ -37,3 +37,23 @@ P3_EXE_MINUS_RUN_S = (0.05, 0.4)
 P4_O0_OVER_O3 = (0.8, 1.2)
 # P5  fixed cost dominates: median(empty_so) / median(so_O3) >= 0.5
 P5_EMPTY_OVER_ENGINE_MIN = 0.5
+
+# ---- R2b, 2026-09-30: written after the R2 run, before the follow-ups ran ------
+# R2 refuted P1 (exe_O3 - so_O3 = -0.72 s: the program built FASTER than the
+# .so) and P4 (so_O0 / so_O3 = 1.41; exe_O0 / exe_O3 = 1.04).
+#
+# F1 hypothesis: the gap is code the program never reaches. mono.mojo calls 6
+#    of the engine's exports; engine_save / engine_load (the schema code, H3:
+#    +0.3 s) are dead in the program and removed, while a .so must keep every
+#    export. mono_all.mojo calls every export, including save and load.
+#    Prediction: median(exe_all_O3) - median(so_O3) within [-0.3, +0.3] s.
+F1_EXE_ALL_MINUS_SO_S = (-0.3, 0.3)
+# F2 hypothesis: -O0 turns off MLIR-level simplification, so more code reaches
+#    the later MLIR passes and LLVM. The n=3 pilot split: MLIR root wall O0
+#    2.73 s vs O3 2.18 s. Split of the extra time of so_O0 over so_O3 (median
+#    of F2_REPS runs each, --mlir-timing, uncached):
+#    MLIR (root wall) difference >= 0.4 s, and the rest (wall - MLIR root:
+#    LLVM, link, process) difference within [0.2, 0.8] s.
+F2_REPS = 5
+F2_MLIR_DIFF_MIN_S = 0.4
+F2_REST_DIFF_S = (0.2, 0.8)
