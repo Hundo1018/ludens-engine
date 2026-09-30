@@ -5,7 +5,7 @@ name, address and size of every symbol in the writable output sections
 (.data, .bss) of the LINKED binary, after the optimizer has run. It is
 derived from the binary's own link map, not from source declarations.
 
-    python3 experiments/hot_reload/layout_map.py build/hot/v1/engine_hot.map
+    python3 experiments/hot_reload/wasm/layout_map.py build/hot/v1/engine_hot.map
 """
 from __future__ import annotations
 

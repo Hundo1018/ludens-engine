@@ -7,7 +7,7 @@
 //   edit 2  syntax error                  -> build error reported, old module keeps running
 //   edit 3  fix + struct layout change    -> swapped via snapshot, state kept
 //
-//   node experiments/hot_reload/e2e_browser.mjs <pageUrl> <watchedSource> <outDir>
+//   node experiments/hot_reload/wasm/e2e_browser.mjs <pageUrl> <watchedSource> <outDir>
 // ===========================================================================
 import { execSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";

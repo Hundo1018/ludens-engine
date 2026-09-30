@@ -10,8 +10,8 @@
 A failed build is pushed as {"ok": false, "error": ...}; the page keeps
 running the previous module.
 
-    python3 experiments/hot_reload/dev_server.py [--port 8080] [--source FILE]
-    open http://localhost:8080/experiments/hot_reload/
+    python3 experiments/hot_reload/wasm/dev_server.py [--port 8080] [--source FILE]
+    open http://localhost:8080/experiments/hot_reload/wasm/
 """
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ def main() -> None:
     Handler.builds = builds
     server = ThreadingHTTPServer(("127.0.0.1", a.port), partial(Handler, directory=str(ROOT)))
     server.daemon_threads = True
-    print(f"hot-reload dev server: http://127.0.0.1:{a.port}/experiments/hot_reload/  (watching {source})",
+    print(f"hot-reload dev server: http://127.0.0.1:{a.port}/experiments/hot_reload/wasm/  (watching {source})",
           flush=True)
     server.serve_forever()
 

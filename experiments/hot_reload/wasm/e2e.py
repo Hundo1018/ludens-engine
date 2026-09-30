@@ -5,7 +5,7 @@ Copies engine_hot.c to build/hot/e2e/src/ (the test edits the copy, never the
 tracked file), starts dev_server.py on a free port watching that copy, and runs
 e2e_browser.mjs in headless Chromium against it.
 
-    python3 experiments/hot_reload/e2e.py
+    python3 experiments/hot_reload/wasm/e2e.py
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parents[2]
 OUT = ROOT / "build" / "hot" / "e2e"
 
 
@@ -55,7 +55,7 @@ def main() -> int:
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         wait_ready(f"http://127.0.0.1:{port}/__hot/latest")
-        url = f"http://127.0.0.1:{port}/experiments/hot_reload/"
+        url = f"http://127.0.0.1:{port}/experiments/hot_reload/wasm/"
         return subprocess.run(["node", str(HERE / "e2e_browser.mjs"), url, str(src), str(OUT)],
                               cwd=ROOT).returncode
     finally:

@@ -86,7 +86,8 @@ docs/        CATEGORY (laws) · SOTA_GAP_ANALYSIS · ROADMAP (per-phase progress
   Mojo → LLVM IR → `wasm32`, driven today by a C stand-in. `make test`; see
   [STATUS.md](STATUS.md).
 - **hot reload** (`experiments/hot_reload/`): swapping a rebuilt engine module
-  into a running host while keeping state. See
+  into a running host while keeping state. Phase 1 is pure Mojo on the native
+  target (`make hot-native`); phase 2 is wasm (`make hot-reload`). See
   [experiments/hot_reload/README.md](experiments/hot_reload/README.md).
 
 ## Honest status

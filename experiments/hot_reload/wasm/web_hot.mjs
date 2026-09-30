@@ -7,7 +7,7 @@
 // guard passes, snapshot otherwise. A failed build leaves the running module
 // untouched. Progress is exposed on window.__hot for the e2e test.
 // ===========================================================================
-import { makeHostImports } from "../../bindings/js/host.mjs";
+import { makeHostImports } from "../../../bindings/js/host.mjs";
 import { hotSwap } from "./hot_reload.mjs";
 
 const CAPACITY = 12;

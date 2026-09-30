@@ -36,6 +36,11 @@ wasm ABI match the Mojo core (`toolchain/standin/sparse_set.c` ↔
 
 ## ⛔ Gated: the Mojo front-end (emit LLVM IR)
 
+> Update 2026-09-30: `mojo` itself is now installable here from PyPI
+> (`pip install mojo==1.1.0`, the version `pixi.toml` pins). The native hot
+> reload experiment (`experiments/hot_reload/native/`) builds and runs with it.
+> What stays gated is whole-module LLVM IR emission for the wasm path.
+
 **Why gated here:** `conda.modular.com` and `pixi.sh` are blocked by this
 environment's network policy (HTTP 403), so `mojo`/`magic`/`pixi` cannot be
 installed. `mojo` is required to (a) compile-check the migrated nightly sources

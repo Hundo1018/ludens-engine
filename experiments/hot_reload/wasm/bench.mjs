@@ -7,7 +7,7 @@
 // Every rep swaps in DIFFERENT bytes (a unique trailing custom section), so a
 // V8 compiled-module cache keyed on wire bytes cannot make compile look free.
 //
-//   node experiments/hot_reload/bench.mjs [manifest.json] [out.json] [reps]
+//   node experiments/hot_reload/wasm/bench.mjs [manifest.json] [out.json] [reps]
 // ===========================================================================
 import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";

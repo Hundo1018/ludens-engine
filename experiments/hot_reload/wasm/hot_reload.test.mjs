@@ -11,10 +11,10 @@
 // PREDICTED below was written before the first run (see README.md); any cell
 // whose observation differs from its prediction fails this test.
 //
-//   node experiments/hot_reload/hot_reload.test.mjs [manifest.json] [out.json]
+//   node experiments/hot_reload/wasm/hot_reload.test.mjs [manifest.json] [out.json]
 // ===========================================================================
 import { readFile, writeFile } from "node:fs/promises";
-import { createOracle } from "../../tests/differential/lib/sparse_set_oracle.mjs";
+import { createOracle } from "../../../tests/differential/lib/sparse_set_oracle.mjs";
 import { addressesMatch, hotSwap, layoutIdMatch, layoutOf, mapMatch } from "./hot_reload.mjs";
 
 const manifestPath = process.argv[2] ?? "build/hot/manifest.json";

@@ -10,7 +10,7 @@ Builds the engine_hot.c variants through the normal retarget back-half
   e2e     edit a source file under the dev server, verify the browser swapped
   all     build + test + bench + e2e (default)
 
-    python3 experiments/hot_reload/run.py [build|test|bench|e2e|all] [--reps N]
+    python3 experiments/hot_reload/wasm/run.py [build|test|bench|e2e|all] [--reps N]
 """
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from layout_map import fingerprint  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 OUT = ROOT / "build" / "hot"
 
 CORE = ["toolchain/standin/sparse_set.c", "toolchain/standin/wasm_rt.c"]
-SOURCE = "experiments/hot_reload/engine_hot.c"
+SOURCE = "experiments/hot_reload/wasm/engine_hot.c"
 EXPORTS = ["__heap_base", "__data_end"]  # engine_* come from export_name attrs
 
 # name -> (clang -D flags, what the oracle must know about the variant)
@@ -80,7 +80,7 @@ def build() -> Path:
 
 
 def test() -> None:
-    sh(["node", "experiments/hot_reload/hot_reload.test.mjs",
+    sh(["node", "experiments/hot_reload/wasm/hot_reload.test.mjs",
         "build/hot/manifest.json", "build/hot/matrix.json"])
 
 
@@ -91,7 +91,7 @@ def pct(xs: list[float], q: float) -> float:
 
 def bench(reps: int) -> None:
     out = OUT / "bench.json"
-    sh(["node", "experiments/hot_reload/bench.mjs", "build/hot/manifest.json", str(out), str(reps)])
+    sh(["node", "experiments/hot_reload/wasm/bench.mjs", "build/hot/manifest.json", str(out), str(reps)])
     data = json.loads(out.read_text())
 
     print(f"\nswap latency, {reps} reps, v1 -> v2_code, ms")
@@ -118,7 +118,7 @@ def bench(reps: int) -> None:
 
 
 def e2e() -> None:
-    sh([sys.executable, "experiments/hot_reload/e2e.py"])
+    sh([sys.executable, "experiments/hot_reload/wasm/e2e.py"])
 
 
 def main() -> None:
