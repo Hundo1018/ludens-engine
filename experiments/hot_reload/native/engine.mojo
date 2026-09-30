@@ -10,8 +10,10 @@ run_native.py produces each variant by applying a text edit to this file
 State is an `EngineState` in a block the HOST owns (`engine_state_size()`
 bytes): the entities in dev's `ecs.SparseSet[Float32]` (entity -> x offset),
 whose Lists are heap-allocated by whichever .so ran `engine_init`, then the
-plain-data `Core`. `core` is the last field, so a field appended to `Core` is
-appended to the whole state (variant v6).
+plain-data `Core`. Between them: a `List` appended to every frame, a
+`List[Body]` stepped through a generic over trait `Mover`, and an `Array`
+sized by a comptime value. `core` is the last field, so a field appended to
+`Core` is appended to the whole state (variant v6).
 
 The state holds no pointer into this .so's static data (H2): the label is an
 index, and the text is looked up in the code (`label_text`), so it always
@@ -46,6 +48,81 @@ comptime LOAD_CORRUPT = 0
 comptime LOAD_RENAME = 2  # a field vanished and another appeared, no alias
 comptime LOAD_RETYPE = 3  # a field kept its name and changed type
 
+# State whose layout or behaviour comes from comptime values, a trait and
+# heap containers. The variants in run_native.py edit these.
+comptime TRAIL_T = Int
+comptime GRID_N = 4
+comptime BODIES = 4
+
+
+trait Mover(Copyable, Movable):
+    def advance(self, x: Int, v: Int) -> Int:
+        ...
+
+    def extra(self) -> Int:
+        # @@EXTRA@@
+        return 0
+
+
+struct Linear(Mover):
+    var gain: Int
+    var bias: Int
+
+    def __init__(out self):
+        self.gain = 1
+        self.bias = 0
+
+    def advance(self, x: Int, v: Int) -> Int:
+        # @@ADVANCE@@
+        return x + v * self.gain + self.bias + self.extra()
+
+
+struct Damped(Mover):
+    var gain: Int
+    var bias: Int
+    var damping: Int
+
+    def __init__(out self):
+        self.gain = 1
+        self.bias = 0
+        self.damping = 1
+
+    def advance(self, x: Int, v: Int) -> Int:
+        return x + v * self.gain + self.bias - self.damping + self.extra()
+
+
+comptime ActiveMover = Linear
+
+
+struct Body(Copyable, Movable):
+    # @@BODY_FRONT@@
+    var x: Int
+    var v: Int
+
+    def __init__(out self, x: Int, v: Int):
+        # @@BODY_INIT@@
+        self.x = x
+        self.v = v
+
+
+struct Aux(Copyable, Movable):
+    var grid: Array[Int, GRID_N]
+    var mover: ActiveMover
+
+    def __init__(out self):
+        self.grid = Array[Int, GRID_N](fill=0)
+        self.mover = ActiveMover()
+
+
+@fieldwise_init
+struct TrailRec(Copyable, Movable):
+    var t: TRAIL_T
+
+
+def step_bodies[M: Mover](m: M, mut bodies: List[Body]):
+    for i in range(len(bodies)):
+        bodies[i].x = m.advance(bodies[i].x, bodies[i].v)
+
 
 struct Core(Copyable, Movable):
     # @@FIELDS_FRONT@@
@@ -76,10 +153,18 @@ struct Entity(Copyable, Movable):
 
 struct EngineState(Movable):
     var entities: SparseSet[Float32]
-    var core: Core
+    var trail: List[TRAIL_T]
+    var bodies: List[Body]
+    var aux: Aux
+    var core: Core  # last: a field appended to Core is appended to the state (v6)
 
     def __init__(out self, capacity: Int):
         self.entities = SparseSet[Float32]()
+        self.trail = List[TRAIL_T]()
+        self.bodies = List[Body](capacity=BODIES)
+        for i in range(BODIES):
+            self.bodies.append(Body(100 * i, i + 1))
+        self.aux = Aux()
         self.core = Core(capacity)
         for e in range(capacity):
             self.entities.add(e, Float32(e) * 24.0)
@@ -120,6 +205,8 @@ def _state(addr: Int) -> StatePtr:
 def engine_state_size() abi("C") -> Int:
     assert_no_static_refs[EngineState]()
     assert_no_static_refs[Core]()
+    assert_no_static_refs[Aux]()
+    assert_no_static_refs[Body]()
     return size_of[EngineState]()
 
 
@@ -152,9 +239,13 @@ def engine_destroy(addr: Int) abi("C"):
 
 @export
 def engine_update(addr: Int, dt: Float32) abi("C"):
-    ref s = _state(addr)[].core
+    ref st = _state(addr)[]
+    ref s = st.core
     s.box_x += s.speed() * dt
     s.frame += 1
+    st.trail.append(TRAIL_T(s.frame))
+    st.aux.grid[s.frame % GRID_N] += 1
+    step_bodies(st.aux.mover, st.bodies)
     # @@UPDATE@@
 
 
@@ -190,6 +281,37 @@ def engine_draw_x(addr: Int, i: Int) abi("C") -> Float32:
 @export
 def engine_color() abi("C") -> UInt32:
     return COLOR
+
+
+@export
+def engine_trail_len(addr: Int) abi("C") -> Int:
+    return len(_state(addr)[].trail)
+
+
+@export
+def engine_trail_sum(addr: Int) abi("C") -> Int:
+    var t = 0
+    for v in _state(addr)[].trail:
+        t += Int(v)
+    return t
+
+
+@export
+def engine_grid_sum(addr: Int) abi("C") -> Int:
+    var t = 0
+    for i in range(GRID_N):
+        t += _state(addr)[].aux.grid[i]
+    return t
+
+
+@export
+def engine_body_count(addr: Int) abi("C") -> Int:
+    return len(_state(addr)[].bodies)
+
+
+@export
+def engine_body_x(addr: Int, i: Int) abi("C") -> Int:
+    return _state(addr)[].bodies[i].x
 
 
 @export
@@ -229,6 +351,12 @@ def engine_save(addr: Int) abi("C") -> Int:
     for i in range(len(s.entities)):
         ents.append(Entity(s.entities.key_at(i), s.entities.value_at(i)))
     write_values(ents, schema_of[Entity](), out)
+    write_value(s.aux, schema_of[Aux](), out)
+    write_values(s.bodies, schema_of[Body](), out)
+    var recs = List[TrailRec](capacity=len(s.trail))
+    for t in s.trail:
+        recs.append(TrailRec(t))
+    write_values(recs, schema_of[TrailRec](), out)
     var n = len(out)
     var buf = alloc[UInt8](Layout[UInt8](count=8 + n)).unsafe_leak()
     buf.unsafe_bitcast[UInt64]()[] = UInt64(n)
@@ -263,10 +391,29 @@ def _load(addr: Int, buf: Int) raises -> Int:
         return LOAD_RETYPE
     var ents = List[Entity]()
     _ = read_values(ents, Entity(0, 0.0), schema_of[Entity](), data, pos)
+    # a field that changed type or size is refused, as for Core
+    var aux = Aux()
+    var rep_a = read_value(aux, schema_of[Aux](), data, pos)
+    if rep_a.mismatched > 0:
+        return LOAD_RETYPE
+    if rep_a.dropped > 0 and rep_a.defaulted > 0:
+        return LOAD_RENAME
+    var bodies = List[Body]()
+    var rep_b = read_values(bodies, Body(0, 0), schema_of[Body](), data, pos)
+    if rep_b.mismatched > 0:
+        return LOAD_RETYPE
+    var recs = List[TrailRec]()
+    var rep_t = read_values(recs, TrailRec(0), schema_of[TrailRec](), data, pos)
+    if rep_t.mismatched > 0:
+        return LOAD_RETYPE
     var s = EngineState(0)
     s.core = core^
     for e in ents:
         s.entities.add(e.key, e.x)
+    s.aux = aux^
+    s.bodies = bodies^
+    for r in recs:
+        s.trail.append(r.t)
     _state(addr).unsafe_write(s^)
     return LOAD_OK
 
