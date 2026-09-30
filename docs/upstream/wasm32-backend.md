@@ -37,5 +37,27 @@ The workaround has limits a real target would remove:
 2. Add a wasm32 `TargetTraits`, and decide the width of `Int` there.
 3. Document which runtime symbols a freestanding wasm module must provide.
 
+## Smallest first step (checked against upstream `e700d92`)
+
+This step only emits IR, bitcode, assembly and object files. Running and
+linking programs is a later step.
+
+- `bazel/public-patches/llvm_project.bzl`: one line in `BACKENDS`.
+- `Mojo/lib/Target/`: a traits class shaped like `Host/HostTraits.h`, with
+  `matches` returning `triple.isWasm()`. `supportedEmissionKinds` lists
+  `llvm`, `llvm-bitcode`, `asm` and `object`, but not `exe` or `shared-lib`:
+  there is no linker or runtime yet.
+  `HostTraits::matches` itself stays as it is: its comment ties it to the
+  CPU backends the build carries.
+- `Mojo/test/mojo-tool/build/mojo_targets.mojo`: one RUN line. The file
+  already runs `riscv32-unknown-none-elf --emit=llvm`, a 32-bit freestanding
+  target of the same kind.
+- `stdlib/std/sys/info.mojo`: `CompilationTarget.is_wasm()`, tested in
+  `stdlib/test/sys/test_arch_predicates.mojo`.
+
+A 32-bit `Int` is already exercised by riscv32, so wasm32 does not add a new
+kind of layout. The size and build-time cost of the extra LLVM backend has
+not been measured. It is the first number to get from a fork build.
+
 No patch yet. Building the compiler from source and trying this on a fork
 is the next step (roadmap P0, C1).

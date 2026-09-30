@@ -5,8 +5,12 @@ Nothing here has been submitted. The repo owner decides whether to file
 each one and rewrites it in their own words: upstream's `AI_TOOL_POLICY.md`
 asks for human-written descriptions and an `Assisted-by: AI` label.
 
+Order, scope and cost to the upstream team: [PRIORITY.md](PRIORITY.md).
+Probes behind every claim: `python3 experiments/upstream_probes/run.py <mojo>`.
+
 | Draft | Kind | Confidence |
 |---|---|---|
+| [unload-global-destroy.md](unload-global-destroy.md) | bug (crash) | high: 5/5 on 1.1.0 and nightly, control 5/5 clean, cause located |
 | [wasm32-backend.md](wasm32-backend.md) | feature request | high: reproduced on 1.1.0 and nightly, cause located |
 | [o0-build-time.md](o0-build-time.md) | performance report | moderate: the size of the effect depends on the code |
 
