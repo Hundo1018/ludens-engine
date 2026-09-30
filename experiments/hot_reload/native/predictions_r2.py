@@ -57,3 +57,29 @@ F1_EXE_ALL_MINUS_SO_S = (-0.3, 0.3)
 F2_REPS = 5
 F2_MLIR_DIFF_MIN_S = 0.4
 F2_REST_DIFF_S = (0.2, 0.8)
+
+# ---- results record, 2026-09-30 (predictions above unchanged) ----------------
+# R2 (b5f678b, n=10, seed 1): P2, P3, P5 held; P1 and P4 refuted.
+# R2b (faa7cbf): F1 held (+0.225 s): the P1 gap is exports the program never
+#   calls. F2-MLIR held (+0.82 s). F2-rest refuted (0.00 s): the MLIR root
+#   timer already contains LLVM codegen, so wall - root is only process
+#   start; the measurement assumed otherwise. Per-pass: at -O0 the
+#   kgen.generator pipeline and RemoveUnusedParams do not run, the lowering
+#   passes take 3-4x as long, and the emitted IR has 412 functions vs 111.
+REFUTED_R2 = {"P1", "P4", "F2_rest"}
+# Replication, seed 2 (n=10): P1 -0.774 s and P4 1.402 refuted again; P2, P5
+#   held; P3 FAILED (exe_O3 - run_O3 = -0.024 s; seed 1: +0.080 s). The JIT
+#   saving is inside the noise at n=10 (IQRs 0.05-0.14 s): P3 is not supported.
+REFUTED_R2 |= {"P3"}
+
+# ---- R2c, 2026-09-30: written before o0_repro.py ran --------------------------
+# C-a (the -O0 cost is not specific to this engine): the standalone
+#     probes/probe_o0_cost.mojo (List, Dict, String, sort; stdlib only) builds
+#     as a shared lib with median(O0) / median(O3) >= 1.2 on Mojo 1.1.0, and its
+#     -O0 IR has >= 2x the `define`s of -O3.
+# C-b (not fixed on nightly): the same two holds on the nightly installed here
+#     (1.2.0.dev2026093005).
+# C-c (cache): for an empty module, a warm MODULAR_CACHE_DIR with code never
+#     built before is not slower than an empty cache: median(warm) <= median(empty).
+C_A_RATIO_MIN = 1.2
+C_A_DEFINE_RATIO_MIN = 2.0

@@ -22,3 +22,4 @@ node_modules/
 
 # python bytecode
 __pycache__/
+.venv-nightly/
