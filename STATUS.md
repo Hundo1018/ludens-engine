@@ -34,6 +34,17 @@ wasm ABI match the Mojo core (`toolchain/standin/sparse_set.c` ↔
 | **Layer B** Component Model | WIT → `jco embed/new/transpile` → typed JS bindings | `scripts/componentize.sh` |
 | Golden IR drift guard | `toolchain/ir/golden/*.ll` baseline (bootstrapped per toolchain) diffed on rebuild | `scripts/ir-snapshot.sh` |
 
+## ✅ 2026-09-30: Mojo source → wasm runs (W1)
+
+`mojo build --emit llvm` writes the whole module's IR for the host;
+`experiments/wasm_mojo/retarget_ir.py` rewrites it for wasm32 and LLVM 18,
+and the back half below is unchanged. The Mojo SparseSet core passes the
+differential test, matches a native Mojo run step by step, and the hot
+reload matrix passes on a Mojo engine. Details, and the limits that remain
+(compile-time struct offsets are the host's; `Int` stays 64-bit), in
+[experiments/wasm_mojo/README.md](experiments/wasm_mojo/README.md). The
+section below is the original gate, kept as the record.
+
 ## ⛔ Gated: the Mojo front-end (emit LLVM IR)
 
 > Update 2026-09-30: `mojo` itself is now installable here from PyPI

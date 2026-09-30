@@ -159,14 +159,70 @@ run before the transfer.
 - **Copying the whole memory resurrects stale `.rodata`** (v3). Any memory
   transplant must at least skip the new module's read-only segments.
 
+## W1: the same matrix on a Mojo core (`run.py --core mojo`)
+
+`engine_hot.mojo` is `engine_hot.c` in Mojo, with the same ABI and snapshot
+format. It is compiled with `mojo build --emit llvm`, retargeted to wasm32
+(`experiments/wasm_mojo/retarget_ir.py`), and linked by the same back half
+with `mojo_rt.c` and `engine_hot_rt.c`.
+
+Mojo has no global variables, so the state is a heap `EngineState` whose
+address sits in an 8-byte slot in `engine_hot_rt.c`. Variants are text edits:
+- v2_code: `SPEED`, `COLOR`
+- v3_rodata: the log text, same length
+- v4_layout: field inserted first
+- v5_swap: two fields swapped
+- v6_append: field appended. The C core's v6_static (a new static before `g`)
+  has no Mojo counterpart.
+
+The roadmap predicted that "GlobalOpt splits the struct in Mojo too". It
+cannot be tested: with no globals the state is never a global, so GlobalOpt
+has nothing to split.
+
+Predictions (`PREDICTED_MOJO`, `PREDICTED_GUARD_MOJO` in
+`hot_reload.test.mjs`, written before the run):
+- **map** matches for every variant. The link map's writable symbols belong
+  to the C shims only, so this guard sees no struct edit.
+- **addresses** match everywhere.
+- **layoutId** differs for v4, v5 and v6.
+- memcopy: v3 ok/old; v4 corrupt|trap; v5 corrupt; v6 ok. The extra 8 bytes
+  stay inside the struct's 128-byte allocator block.
+
+| Guard | v2 | v3 | v4 | v5 | v6_append |
+|---|---|---|---|---|---|
+| addresses | match | match | match | match | match |
+| layoutId | match | match | differ | differ | differ |
+| map | match | match | **match** | **match** | **match** |
+
+| Strategy | v2_code | v3_rodata | v4_layout | v5_swap | v6_append |
+|---|---|---|---|---|---|
+| restart | lost/new | lost/new | lost/new | lost/new | lost/new |
+| memcopy | ok/new | ok/**old** | corrupt/new | corrupt/new | ok/new |
+| memcopy-rw | ok/new | ok/new | corrupt/new | corrupt/new | ok/new |
+| snapshot | ok/new | ok/new | ok/new | ok/new | ok/new |
+| auto | ok/new (memcopy-rw) | ok/new (memcopy-rw) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) |
+
+25/25 cells and 5/5 guard rows match. For the Mojo core, `auto` rests on the
+layoutId guard alone: the map guard is blind to heap state.
+
+Latency on the same machine (100 reps, median ms, v1 → v2_code):
+
+| Core | Module | compile | total (auto) | total p95 (auto) |
+|---|---|---|---|---|
+| C | 2.3 KB | 0.32 | 0.60 | 1.05 |
+| Mojo | 37.6 KB | 0.48 | 0.86 | 1.16 |
+
+A 16× larger module compiles about 1.5× slower. The snapshot transfer with
+1000 entities is 0.43 ms for Mojo and 0.10 ms for C, because the Mojo core
+rebuilds its `List`s element by element.
+
 ## 11–12. Limits and next steps
 
-- The engine is the C stand-in, not Mojo. Mojo lowers through the same LLVM
-  passes, so GlobalOpt SRA is expected to apply as well. Re-run this matrix
-  once `mojo` can emit IR (STATUS.md).
-- The module is 2.3 KB. Compile time for a realistic Mojo core (hundreds of KB)
-  has not been measured. Streaming compile (`compileStreaming`) and a worker
-  are the obvious next steps if it exceeds a frame.
+- W1 replaced the C stand-in with a Mojo core (section above). The C core's
+  results remain as the record of the GlobalOpt and padding findings.
+- The Mojo module is 37.6 KB. A realistic engine (hundreds of KB) has not
+  been measured. Streaming compile (`compileStreaming`) and a worker are the
+  obvious next steps if it exceeds a frame.
 - Snapshot schema migration is shown for one added field (v4 defaults
   `speed_scale`). Removed or retyped fields need an explicit per-version
   migrator.
@@ -179,6 +235,7 @@ run before the transfer.
 | File | Role |
 |---|---|
 | `engine_hot.c` | engine core with edit knobs, `engine_layout_id`, `engine_save`/`engine_load` |
+| `engine_hot.mojo`, `engine_hot_rt.c` | W1: the same engine in Mojo, and the C it needs on wasm (state slot, snapshot buffer, host imports) |
 | `hot_reload.mjs` | strategies, guards, wasm data-segment/name reader, `hotSwap()` |
 | `hot_reload.test.mjs` | variant × strategy matrix vs float32 oracle, with pre-registered predictions |
 | `bench.mjs` | raw latency samples (swap phases, memory-size scaling) |

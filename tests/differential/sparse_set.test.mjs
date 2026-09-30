@@ -26,10 +26,14 @@ const { instance } = await WebAssembly.instantiate(await readFile(wasmPath), {})
 const x = instance.exports;
 const mem = x.memory;
 
-// zero-copy view of the wasm module's packed dense array
+// zero-copy view of the wasm module's packed dense array. The C stand-in
+// stores 4-byte keys; the Mojo core (experiments/wasm_mojo) stores Mojo `Int`,
+// 8 bytes, and says so through ss_key_bytes().
+const keyBytes = x.ss_key_bytes ? x.ss_key_bytes() : 4;
 function wasmDense(handle) {
   const len = x.ss_len(handle);
   const ptr = x.ss_dense_ptr(handle);
+  if (keyBytes === 8) return Array.from(new BigInt64Array(mem.buffer, ptr, len), Number);
   return Array.from(new Int32Array(mem.buffer, ptr, len));
 }
 

@@ -49,7 +49,33 @@ const PREDICTED_GUARD = {
   v5_swap:   { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
   v6_static: { addressesMatch: true, layoutIdMatch: true, mapMatch: false },
 };
+// W1 (manifest.core === "mojo": engine_hot.mojo), written 2026-09-30 before
+// the first run. The state is a heap EngineState (Mojo has no globals), so
+//  * no GlobalOpt split can happen to it, and the writable symbols in the
+//    link map are the C shims' only: mapMatch is true for every variant;
+//  * size classes of the allocator are 16 << k, so v4/v6's 8 extra bytes stay
+//    in the same 128-byte block: addresses match everywhere; v6 in place
+//    writes past the struct but inside its block -> ok;
+//  * the log text is a Mojo string literal in .rodata: memcopy keeps the old one.
+const PREDICTED_MOJO = {
+  restart:      { v2_code: "lost/new", v3_rodata: "lost/new", v4_layout: "lost/new", v5_swap: "lost/new", v6_append: "lost/new" },
+  memcopy:      { v2_code: "ok/new", v3_rodata: "ok/old", v4_layout: "corrupt|trap", v5_swap: "corrupt/new", v6_append: "ok/new" },
+  "memcopy-rw": { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "corrupt|trap", v5_swap: "corrupt/new", v6_append: "ok/new" },
+  snapshot:     { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "ok/new", v5_swap: "ok/new", v6_append: "ok/new" },
+  auto:         { v2_code: "ok/new", v3_rodata: "ok/new", v4_layout: "ok/new", v5_swap: "ok/new", v6_append: "ok/new" },
+};
+const PREDICTED_GUARD_MOJO = {
+  v2_code:   { addressesMatch: true, layoutIdMatch: true, mapMatch: true },
+  v3_rodata: { addressesMatch: true, layoutIdMatch: true, mapMatch: true },
+  v4_layout: { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+  v5_swap:   { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+  v6_append: { addressesMatch: true, layoutIdMatch: false, mapMatch: true },
+};
 const GUARDS = ["addressesMatch", "layoutIdMatch", "mapMatch"];
+const isMojo = manifest.core === "mojo";
+const predicted = isMojo ? PREDICTED_MOJO : PREDICTED;
+const predictedGuard = isMojo ? PREDICTED_GUARD_MOJO : PREDICTED_GUARD;
+console.log(`core: ${isMojo ? "mojo (engine_hot.mojo)" : "c (engine_hot.c)"}`);
 
 function makeHost() {
   const h = { current: null, draws: [], logs: [] };
@@ -133,7 +159,7 @@ for (const v of variants) {
     mapMatch: mapMatch(v1.mapFingerprint, v.mapFingerprint),
   };
   guards[v.name] = { ...g, v1: l1, variant: lv };
-  const p = PREDICTED_GUARD[v.name];
+  const p = predictedGuard[v.name];
   const hit = GUARDS.every((k) => p[k] === g[k]);
   if (!hit) failures++;
   console.log(`${hit ? "PASS" : "FAIL"}  ${v.name.padEnd(15)}  ${GUARDS.map((k) => String(g[k]).padEnd(14)).join(" ")}`);
@@ -144,7 +170,7 @@ for (const s of STRATEGIES) {
   for (const v of variants) {
     const r = await runCell(v1, v, s);
     const obs = `${r.state}/${r.msg}`;
-    const pred = PREDICTED[s][v.name];
+    const pred = predicted[s][v.name];
     const hit = pred.includes("|") ? pred.split("|").includes(r.state) : obs === pred;
     if (!hit) failures++;
     cells.push({ strategy: s, variant: v.name, predicted: pred, hit, ...r });

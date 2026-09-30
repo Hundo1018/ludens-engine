@@ -202,6 +202,17 @@
   所以 link-map 指紋仍然需要。
 - **Gate**:wasm 矩陣用 Mojo 核心全部符合預測。
 
+> **進度:✅ 2026-09-30** [experiments/wasm_mojo/](../experiments/wasm_mojo/README.md)
+> - 前置 gate 以另一條路解開:Mojo 1.1.0 沒有 wasm 後端(`--target-triple wasm32` 失敗),
+>   但 `--emit llvm` 可輸出整個模組的 host IR。`retarget_ir.py` 改 triple/datalayout、移除 x86 屬性、
+>   刪 lifetime intrinsic、移除 LLVM 18 不認得的語法,再走原本的 llc → wasm-ld。
+> - `mojo_rt.c` 提供 KGEN 配置器與錯誤路徑的 stub;SparseSet 核心(dev 的 `ecs.SparseSet`)36 KB、無 import。
+> - differential 3 seeds × 20000 步通過;native Mojo / Mojo→wasm / C→wasm 三方 digest 相同。
+> - `engine_hot.mojo` 上的 hot reload 矩陣 25/25 格、guard 5/5 列符合事前預測。
+> - 「GlobalOpt 拆 struct」的預測無法檢驗:Mojo 沒有全域變數,狀態在 heap 上;因此 map guard 看不到任何 struct 修改。
+> - 已量到的限制:Mojo 在編譯期以 host(64 位元指標)計算 `size_of`/`reflect` offset。
+>   `{ptr, ptr, Int}` 的 `c` 編譯期 offset 16、wasm 執行期 8。
+
 ### W2 把 H1–H3 套到 wasm
 
 - **內容**:回滾、無靜態指標、schema 遷移,在 wasm host(JS)上實作並重跑矩陣。
