@@ -44,6 +44,8 @@
 > 進度:✅ 2026-09-30 `dev_native.py` + `live_host.mojo`(`make hot-native-dev`)。
 > - e2e:6 次 code 修改、1 次語法錯誤、1 次 layout 修改,全部通過。
 > - 延遲:存檔 → 換上,中位數 1.08 s,最大 3.29 s;其中 `mojo build` 約 0.98 s。
+> - **更正(2026-09-30)**:1.08 s 大多是編譯快取命中(e2e 只在兩個 `SPEED` 值之間切換)。
+>   快取以(路徑, 去掉註解後的程式碼)為鍵。每輪改成從未編過的值後:中位數 3.03 s,`mojo build` 2.94 s。
 
 ### E4 hot reload phase 2:wasm
 
@@ -91,6 +93,13 @@
 - **量測**:重跑 35 格矩陣,預測表先改,再執行。
 - **Gate**:矩陣全部符合新預測;e2e 通過。
 - **附帶**:研究能否在編譯期檢查 `EngineState` 沒有指標型別的欄位(`comptime assert`),把這條規則機械化。
+
+> **進度:✅ 2026-09-30**
+> - `label: StaticString` 改成 `label_id: Int`,`engine_rebind` 與 `rebind` 策略刪除(沒有 rebind 步驟時它就是 `close`)。
+> - 矩陣 6 策略 × 5 修改 = 30 格,全部符合事前預測:`keep`/`close` × v2/v3/v6 由 `ok/old`、`ok/trap` 變成 `ok/new`,其餘不變。
+> - 編譯期規則 `nostatic.mojo`:直接欄位的型別是 `StringSpan`/`Pointer`/… 時 build 失敗;`run_native.py test` 驗證加了 `StaticString` 欄位的版本無法編譯。
+> - 缺口:容器的型別參數不檢查,`SparseSet[StaticString]` 會通過(`probes/probe_nostatic.mojo`)。
+> - e2e 通過(4 次程式碼修改走 `inplace`)。
 
 ---
 

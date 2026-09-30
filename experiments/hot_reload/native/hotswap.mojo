@@ -29,9 +29,6 @@ struct Engine(Movable):
     def destroy(self, s: Int) raises:
         self.h.get_function[NoneType]("engine_destroy")(s)
 
-    def rebind(self, s: Int) raises:
-        self.h.get_function[NoneType]("engine_rebind")(s)
-
     def update(self, s: Int) raises:
         self.h.get_function[NoneType]("engine_update")(s, DT)
 
@@ -135,12 +132,12 @@ struct Swapped(Movable):
 
 
 def swap_auto(var old: Engine, var new: Engine, state: Int) raises -> Swapped:
-    """`rebind` in place when state size and layout id match, else `snapshot`
-    into a fresh block. Unloads `old` either way."""
+    """Keep the state block in place (`inplace`) when state size and layout id
+    match, else `snapshot` into a fresh block. Unloads `old` either way.
+    `inplace` needs no rebind step: the state holds no pointer into a .so (H2)."""
     if old.size() == new.size() and old.layout_id() == new.layout_id():
         _ = old^
-        new.rebind(state)
-        return Swapped(new^, state, "rebind")
+        return Swapped(new^, state, "inplace")
     var buf = block(8 * old.snapshot_words(state))
     old.save(state, buf)
     old.destroy(state)

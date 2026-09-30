@@ -14,7 +14,7 @@ after `max_seconds` (default 600).
 Output, one line per event, flushed:
     load  version=1 path=...
     tick  frame=.. count=.. color=..            (every 30 frames)
-    swap  version=.. used=rebind|snapshot frame_before=.. frame_after=.. count=.. swap_us=..
+    swap  version=.. used=inplace|snapshot frame_before=.. frame_after=.. count=.. swap_us=..
     swap_error version=.. error=...
 """
 

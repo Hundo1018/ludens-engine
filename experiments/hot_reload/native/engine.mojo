@@ -9,8 +9,12 @@ run_native.py produces each variant by applying a text edit to this file
 
 State is an `EngineState` in a block the HOST owns (`engine_state_size()`
 bytes). Entities live in dev's `ecs.SparseSet[Float32]` (entity -> x offset),
-whose Lists are heap-allocated by whichever .so ran `engine_init`. `label`
-points at a string literal inside the .so that created it.
+whose Lists are heap-allocated by whichever .so ran `engine_init`.
+
+The state holds no pointer into this .so's static data (H2): the label is an
+index, and the text is looked up in the code (`label_text`), so it always
+comes from the module that is running. `assert_no_static_refs[EngineState]`
+rejects at compile time a field whose type is a pointer or string view.
 
 Every export is C ABI and takes the state block as an address (`Int`).
 """
@@ -18,12 +22,14 @@ Every export is C ABI and takes the state block as an address (`Int`).
 from std.memory import alloc, bitcast, Layout
 from std.sys import size_of
 from ecs.sparse_set import SparseSet
+from nostatic import assert_no_static_refs
 
 comptime SPEED: Float32 = 60.0
 comptime COLOR: UInt32 = 0xFF0000FF
 comptime LABEL: StaticString = "ludens: engine v1"
 comptime SNAP_MAGIC = 0x4C444E53  # "SNDL"
 comptime SNAP_SCHEMA = 1
+comptime LABEL_MAIN = 0
 
 
 struct EngineState(Movable):
@@ -31,7 +37,7 @@ struct EngineState(Movable):
     var capacity: Int
     var frame: Int
     var box_x: Float32
-    var label: StaticString
+    var label_id: Int
     var entities: SparseSet[Float32]
     # @@FIELDS_BACK@@
 
@@ -40,7 +46,7 @@ struct EngineState(Movable):
         self.capacity = capacity
         self.frame = 0
         self.box_x = 0.0
-        self.label = LABEL
+        self.label_id = LABEL_MAIN
         self.entities = SparseSet[Float32]()
         # @@INIT_BACK@@
         for e in range(capacity):
@@ -49,6 +55,13 @@ struct EngineState(Movable):
     def speed(self) -> Float32:
         # @@SPEED@@
         return SPEED
+
+
+def label_text(id: Int) -> StaticString:
+    """The label table lives in the code, not in the state."""
+    if id == LABEL_MAIN:
+        return LABEL
+    return "?"
 
 
 comptime StatePtr = type_of(alloc[EngineState](Layout[EngineState](count=1)).unsafe_leak())
@@ -68,6 +81,7 @@ def _state(addr: Int) -> StatePtr:
 
 @export
 def engine_state_size() abi("C") -> Int:
+    assert_no_static_refs[EngineState]()
     return size_of[EngineState]()
 
 
@@ -83,7 +97,7 @@ def engine_layout_id() abi("C") -> Int:
         Int(Pointer(to=s.capacity)) - base,
         Int(Pointer(to=s.frame)) - base,
         Int(Pointer(to=s.box_x)) - base,
-        Int(Pointer(to=s.label)) - base,
+        Int(Pointer(to=s.label_id)) - base,
         Int(Pointer(to=s.entities)) - base,
     ]
     for v in vals:
@@ -99,12 +113,6 @@ def engine_init(addr: Int, capacity: Int) abi("C"):
 @export
 def engine_destroy(addr: Int) abi("C"):
     _state(addr).unsafe_deinit_pointee()
-
-
-@export
-def engine_rebind(addr: Int) abi("C"):
-    """Re-point fields that reference this .so's static data (the label)."""
-    _state(addr)[].label = LABEL
 
 
 # ---- simulation ---------------------------------------------------------------
@@ -160,18 +168,18 @@ def engine_module_addr() abi("C") -> Int:
 
 @export
 def engine_label_addr(addr: Int) abi("C") -> Int:
-    """Where the state's label points (it may be another, even unloaded, .so)."""
-    return Int(_state(addr)[].label.unsafe_ptr())
+    """Where the label text the state resolves to lives: always this .so."""
+    return Int(label_text(_state(addr)[].label_id).unsafe_ptr())
 
 
 @export
 def engine_label_len(addr: Int) abi("C") -> Int:
-    return _state(addr)[].label.byte_length()
+    return label_text(_state(addr)[].label_id).byte_length()
 
 
 @export
 def engine_label_byte(addr: Int, i: Int) abi("C") -> Int:
-    return Int(_state(addr)[].label.unsafe_ptr()[unsafe_offset=i])
+    return Int(label_text(_state(addr)[].label_id).unsafe_ptr()[unsafe_offset=i])
 
 
 # ---- snapshot: [magic, schema, capacity, frame, box_x bits, n, (key, value bits)*n]

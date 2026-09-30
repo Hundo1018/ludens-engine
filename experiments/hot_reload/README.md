@@ -23,12 +23,12 @@ strategy families, and predictions are recorded before each run.
 |---|---|---|
 | Keep the state where it is, swap the code | works for code-only edits | works for code-only edits (`memcopy`) |
 | Pointers into the old module's static data | **dangling**: SIGSEGV once the old `.so` is unloaded | **stale**: old `.rodata` copied along; old text printed |
-| Fix for those pointers | `engine_rebind` re-points them | skip the `.rodata` segment when copying (`memcopy-rw`) |
+| Fix for those pointers | phase 1: `engine_rebind` re-points them; H2: no such pointers in the state (index + compile-time check) | skip the `.rodata` segment when copying (`memcopy-rw`) |
 | Struct layout edits (insert, swap fields) | corrupt / SIGSEGV unless guarded | corrupt unless guarded |
 | Layout guard that worked | size + field offsets from a live instance | source offsets **and** link-map fingerprint (the optimizer split the static struct) |
 | Correct for every edit tested | `snapshot`, `auto` | `snapshot`, `auto` |
 | Swap time | ≈ 0.1 ms (mostly `dlopen`) | ≈ 0.5 ms p50, ≤ 1.5 ms p95 |
-| Edit → swap (hot compile) | 1.08 s median, 3.29 s max (`mojo build` ≈ 0.98 s of it) | not measured end to end; build 0.22–0.34 s + swap 1–3 ms in the browser e2e |
+| Edit → swap (hot compile) | 3.03 s median, 3.09 s max, uncached (`mojo build` ≈ 2.94 s of it); the earlier 1.08 s were cache hits | not measured end to end; build 0.22–0.34 s + swap 1–3 ms in the browser e2e |
 | Rebuild time | 1.1 s median (`mojo build --emit shared-lib`) | ≈ 0.2–0.3 s (clang → llc → wasm-ld, C stand-in) |
 | Target-specific trap | `dlopen` of an already-loaded path returns the old library | memory copy cost grows ~1 ms/MiB |
 

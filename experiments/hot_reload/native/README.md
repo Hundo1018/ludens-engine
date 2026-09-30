@@ -40,7 +40,7 @@ the **host** allocates (`engine_state_size()` bytes) and passes by address:
 |---|---|---|
 | `capacity`, `frame` | `Int` | – |
 | `box_x` | `Float32` | – |
-| `label` | `StaticString` | literal in the `.so` that ran `engine_init` / `engine_rebind` |
+| `label` | `StaticString` | literal in the `.so` that ran `engine_init` / `engine_rebind` (phase 1; H2 replaced it with `label_id: Int`) |
 | `entities` | `ecs.SparseSet[Float32]` | heap `List`s allocated by the `.so` that created them |
 
 Strategies (`host.mojo`):
@@ -92,6 +92,9 @@ the wasm phase: `init(8)`, 30 frames, despawn 2 and 5, 10 frames, swap, 30 frame
   mapped shows up as `(deleted)`, which identifies the old inode under `samepath`.
 
 ## 6–9. Results (35 cells, all match the predictions)
+
+This is the phase 1 record (label as a `StaticString`). The H2 section below
+has the current engine's matrix.
 
 | Strategy | v2_code | v3_label | v4_layout | v5_swap | v6_append |
 |---|---|---|---|---|---|
@@ -173,18 +176,74 @@ Latency from writing the file to the host's swap line (n = 7): **median
 1.08 s, max 3.29 s** (the first build). `mojo build` alone: median 0.98 s. The
 swap itself: 25–37 µs. Almost all of the latency is the compiler.
 
+**Correction (2026-09-30): the 1.08 s median was mostly compile-cache hits.**
+The e2e alternated `SPEED` between two values, and `mojo build` caches builds.
+`build_time.py --probe-cache` (3 reps each, same machine):
+
+| Condition | `mojo build` median |
+|---|---|
+| same path, same content | 0.93 s |
+| same path, only a trailing comment changed | 0.93 s |
+| same path, mtime bumped | 1.00 s |
+| same path, `SPEED` set to a value never built | **3.11 s** |
+| same content at a path never built | 2.74 s (0.90 s once that path was built) |
+
+The cache (`~/.cache/modular/.mojo_cache/`) is keyed on the path and the code
+with comments dropped. `e2e_native.py` now uses a `SPEED` value never built
+before in every round. Re-measured (n = 5): **edit → swap median 3.03 s, max
+3.09 s; `mojo build` median 2.94 s.**
+
+## H2: no pointers into a `.so` in the state
+
+Phase 1 kept `label: StaticString` in `EngineState` and needed `engine_rebind`
+to re-point it after each swap; nothing checked that rebind covered every such
+field. H2 replaces it with `label_id: Int`. The text comes from
+`label_text(id)` in the code, so it always comes from the running module.
+`engine_rebind` is gone, and the `rebind` strategy with it (without a rebind
+step it is `close`). `auto` now keeps the block in place (`inplace`) when the
+layout matches.
+
+Predictions, written before the run (`PREDICTED` in `run_native.py`; the phase 1
+table is kept as `PREDICTED_PHASE1`): `keep` and `close` × v2/v3/v6 go from
+`ok/old` and `ok/trap` to `ok/new`; the other cells do not change. A `new` label
+now also requires the new variant's text (`ludens: engine v3` for v3).
+
+| Strategy | v2_code | v3_label | v4_layout | v5_swap | v6_append |
+|---|---|---|---|---|---|
+| restart | lost/new | lost/new | lost/new | lost/new | lost/new |
+| keep | ok/new | ok/new | trap | corrupt/new | ok/new ⚠ |
+| close | ok/new | ok/new | trap | corrupt/new | ok/new ⚠ |
+| snapshot | ok/new | ok/new | ok/new | ok/new | ok/new |
+| auto | ok/new (inplace) | ok/new (inplace) | ok/new (snapshot) | ok/new (snapshot) | ok/new (snapshot) |
+| samepath | stale-code/old | stale-code/old | stale-code/old | stale-code/old | stale-code/old |
+
+30/30 match. e2e: 4 code edits swapped `inplace`, the syntax error kept the old
+module, the layout edit went through `snapshot`.
+
+**Compile-time rule** (`nostatic.mojo`). `assert_no_static_refs[EngineState]()`
+runs inside `engine_state_size`. It rejects a direct field whose type's
+`reflect[].base_name()` is `StringSpan` (what `StaticString` reports),
+`StringSlice`, `Span`, `Pointer`, `UnsafePointer` or `OpaquePointer`.
+
+- `run_native.py test` builds `x_static_field` (adds `var note: StaticString`)
+  and requires the build to fail with
+  `constraint failed: state field holds a pointer or string view: note`. It does.
+- Gap, shown in `probes/probe_nostatic.mojo`: type parameters of containers are
+  not inspected. `SparseSet[StaticString]` passes the check.
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
-  `rebind`, else `snapshot`) is correct as well.
+  in place, else `snapshot`) is correct as well.
 - An in-place swap needs three things:
   1. the same layout (size and offsets),
-  2. every pointer into the old module's static data re-pointed (`engine_rebind`),
+  2. no pointer into the old module's static data in the state: since H2
+     there is none, and `nostatic.mojo` rejects direct fields of pointer or
+     string-view type at compile time,
   3. heap memory from a shared allocator, which holds here.
-
-  Item 2 has no automatic check. A new `StaticString` field that
-  `engine_rebind` forgets would reproduce the `close` crash.
 - Each build must be loaded from a unique path.
+- A real code edit costs about 3 s of `mojo build` on this machine; about
+  0.9 s only when the (path, code) pair was built before.
 
 ## 11. Limits and next steps
 
@@ -192,7 +251,9 @@ swap itself: 25–37 µs. Almost all of the latency is the compiler.
   size was not measured natively; the wasm phase has that scaling.
 - Only one kind of static pointer (a string literal) was tested. Function
   pointers or trait objects stored in the state would dangle the same way;
-  not tested.
+  not tested. Mojo 1.1 rejects a `def(Int) -> Int` field type ("struct
+  fields do not support trait types"), so a function-pointer field needs
+  another form to test.
 - The snapshot format is hand-written. dev's `ecs/schema.mojo` (reflection
   schemas, used for save games) could produce it instead; not tried.
 - The watcher polls one file. Edits to packages the engine imports (`ecs`,
@@ -209,3 +270,6 @@ swap itself: 25–37 µs. Almost all of the latency is the compiler.
 | `dev_native.py` | hot compile: watch → `mojo build` → publish `latest` (optionally starts the host) |
 | `e2e_native.py` | edits the source three ways while the host runs; measures edit → swap latency |
 | `run_native.py` | builds the variants and host, runs the matrix vs. the oracle, benchmarks |
+| `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
+| `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |
+| `probes/` | small programs that each answer one question about the toolchain |

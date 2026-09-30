@@ -38,7 +38,8 @@ def say(msg: str) -> None:
 def build(source: Path, dest: Path) -> tuple[bool, float, str]:
     dest.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
-    p = subprocess.run([mojo(), "build", "--emit", "shared-lib", "-I", "build", str(source), "-o", str(dest)],
+    p = subprocess.run([mojo(), "build", "--emit", "shared-lib", "-I", "build", "-I", str(HERE), str(source),
+                        "-o", str(dest)],
                        cwd=ROOT, capture_output=True, text=True)
     dt = time.perf_counter() - t0
     err = next((line for line in p.stderr.splitlines() if "error:" in line), p.stderr.strip()[:200])
