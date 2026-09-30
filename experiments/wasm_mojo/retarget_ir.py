@@ -14,7 +14,10 @@ scripts/emit-and-link.sh) accepts it:
   3. delete `llvm.lifetime.start/end` calls and declarations: the newer
      LLVM form takes only a pointer, LLVM 18's takes (size, pointer), and
      they are optimisation hints only
-  4. parse with llc; while it reports an attribute or flag it does not know
+  4. `llvm.stepvector.<N x iK>` (fixed width) becomes the constant
+     <0, 1, ..., N-1>: LLVM 18 does not have this intrinsic under that
+     name, and wasm-ld would turn the call into an import
+  5. parse with llc; while it reports an attribute or flag it does not know
      (the IR comes from a newer LLVM than the system's LLVM 18), remove that
      token everywhere and try again. Seen so far: `nuw` on constant
      expressions, `captures(none)`, `nocreateundeforpoison`. Each only
@@ -49,6 +52,13 @@ def rewrite_target(text: str) -> str:
     text = HOST_ATTRS.sub("", text)
     text = re.sub(r"^\s*call void @llvm\.lifetime\.(start|end)\.p0\([^)]*\)\n", "", text, flags=re.M)
     text = re.sub(r"^declare void @llvm\.lifetime\.(start|end)\.p0\([^)]*\)[^\n]*\n", "", text, flags=re.M)
+
+    def stepvector(m: re.Match) -> str:
+        n, k = int(m.group(2)), m.group(3)
+        consts = ", ".join(f"i{k} {i}" for i in range(n))
+        return f"{m.group(1)} = add <{n} x i{k}> <{consts}>, zeroinitializer"
+    text = re.sub(r"(%[\w.]+) = (?:tail )?call <(\d+) x i(\d+)> @llvm\.stepvector\.v\d+i\d+\(\)", stepvector, text)
+    text = re.sub(r"^declare <\d+ x i\d+> @llvm\.stepvector\.[^\n]*\n", "", text, flags=re.M)
     return re.sub(r"^(attributes #\d+ = \{)\s*\}", r'\1 "ludens-retarget"="1" }', text, flags=re.M)
 
 

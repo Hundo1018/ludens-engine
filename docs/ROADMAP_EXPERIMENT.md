@@ -218,6 +218,18 @@
 - **內容**:回滾、無靜態指標、schema 遷移,在 wasm host(JS)上實作並重跑矩陣。
 - **Gate**:同 native。
 
+> **進度:✅ 2026-09-30**(Mojo 核心,[wasm README](../experiments/hot_reload/wasm/README.md) W2 節)
+> - H2:`nostatic` 用在 wasm 引擎;加 `StaticString` 欄位的版本無法編譯。
+> - H3:5 策略 × 8 修改 = 40 格、guard 8 列。預測推翻 1 項:v8_rename 的位址不變
+>   (Mojo 字串常數以 16 bytes 對齊,`box_x` 與 `offset_x` 佔同一格),in-place 複製因此正確;
+>   已照實記錄在 `REFUTED_MOJO`,未改寫預測。`auto` 每欄都正確,沒有別名的改名被拒絕。
+> - H1:`LiveEngine`。trap 後回到交換前的 frame(40)、6 實體,之後與 v1 oracle 相同,下一版正常 commit。
+>   回滾 7–11 µs,不需要複製狀態(wasm instance 不共用記憶體)。
+> - 前置修正:
+>   1. x86-64 IR 的 `String` 短字串布局在 wasm 錯誤(schema 欄位名被截成 4 bytes)→ IR 改為以 riscv32 輸出;
+>   2. 各變體從不同目錄編譯,原始碼路徑進入 `.rodata` 而改變位址 → 統一從同一路徑編譯。
+> - 成本:模組 98.8 KB,1000 實體 snapshot 1.66 ms(W1 手寫格式 0.43 ms)。
+
 ### 函式層級熱修補(僅記錄,不排程)
 
 - Live++ 和 Subsecond 只換函式,不換整個模組。這需要編譯器和 linker 支援,Mojo 目前沒有。

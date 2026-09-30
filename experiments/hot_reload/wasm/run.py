@@ -36,6 +36,7 @@ HERE = Path(__file__).resolve().parent
 OUT = ROOT / "build" / "hot"
 sys.path.insert(0, str(ROOT / "experiments" / "wasm_mojo"))
 from retarget_ir import retarget  # noqa: E402
+from build import EMIT_FLAGS  # noqa: E402  (experiments/wasm_mojo/build.py: baseline x86-64)
 
 CORE = ["toolchain/standin/sparse_set.c", "toolchain/standin/wasm_rt.c"]
 SOURCE = "experiments/hot_reload/wasm/engine_hot.c"
@@ -55,6 +56,7 @@ VARIANTS = {
 
 # --core mojo: name -> ([(old, new) text edits of engine_hot.mojo], oracle facts)
 MOJO_SOURCE = HERE / "engine_hot.mojo"
+NATIVE = HERE.parent / "native"  # nostatic.mojo (H2)
 MOJO_SHIMS = ["toolchain/standin/wasm_rt.c", "experiments/wasm_mojo/mojo_rt.c",
               "experiments/hot_reload/wasm/engine_hot_rt.c"]
 MOJO_EXPORTS = ["__heap_base", "__data_end", "engine_layout_id", "engine_init", "engine_despawn", "engine_update",
@@ -74,6 +76,21 @@ MOJO_VARIANTS = {
     "v6_append": ([("    # @@FIELDS_BACK@@", "    var extra: Int"),
                    ("        # @@INIT_BACK@@", "        self.extra = 0"),
                    ("    # @@UPDATE@@", "    g.extra += 1")], MOJO_V1),
+    # W2 (H3 on wasm): schema migration
+    "v7_delete": ([("    var capacity: Int\n", ""), ("        self.capacity = capacity\n", "")], MOJO_V1),
+    "v8_rename": ([("box_x", "offset_x", "all")], MOJO_V1),
+    "v8_rule": ([("box_x", "offset_x", "all"),
+                 ("    # @@MIGRATE@@", '    alias_field(sch, "offset_x", "box_x")')], MOJO_V1),
+}
+# W2 (H1 on wasm): builds used by rollback.test.mjs, not by the matrix
+MOJO_EXTRA = {
+    "v9_trap": [("    # @@UPDATE@@", "    BytePtr(unsafe_from_address=0x7FFFFFF0)[] = 1  # out of bounds: traps")],
+}
+# W2 (H2 on wasm): edits that must not build
+MOJO_REJECTED = {
+    "x_static_field": ([("    # @@FIELDS_BACK@@", "    var note: StaticString"),
+                        ("        # @@INIT_BACK@@", '        self.note = "points into .rodata"')],
+                       "state field holds a pointer or string view: note"),
 }
 
 
@@ -82,22 +99,30 @@ def mojo() -> str:
     return str(cand) if cand.exists() else "mojo"
 
 
-def mojo_source(edits: list[tuple[str, str]]) -> str:
+def mojo_source(edits: list) -> str:
     src = MOJO_SOURCE.read_text()
-    for old, new in edits:
+    for old, new, *mode in edits:
         if old not in src:
             raise SystemExit(f"edit anchor not found in engine_hot.mojo: {old!r}")
-        src = src.replace(old, new, 1)
+        src = src.replace(old, new) if mode == ["all"] else src.replace(old, new, 1)
     return src
 
 
 def build_one_mojo(out: Path, source_text: str) -> dict:
-    """Mojo source -> host IR -> wasm32 IR -> the same back half as build_one."""
+    """Mojo source -> host IR -> wasm32 IR -> the same back half as build_one.
+
+    Every variant is compiled from ONE path (build/hot_mojo/src/engine_hot.mojo),
+    as in the dev loop, where the edited file does not move: Mojo puts the
+    source path into .rodata (panic locations), so compiling each variant
+    from its own directory made .rodata's size, and every address after it,
+    depend on the directory name (first W2 run: v3 "moved" by 16 bytes)."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    src = out.parent / "engine_hot.mojo"
+    src = ROOT / "build" / "hot_mojo" / "src" / "engine_hot.mojo"
+    src.parent.mkdir(parents=True, exist_ok=True)
     src.write_text(source_text)
+    (out.parent / "engine_hot.mojo").write_text(source_text)  # the variant's source, for reading
     host_ll = out.parent / "engine_hot.host.ll"
-    sh([mojo(), "build", "--emit", "llvm", "-I", "build", str(src), "-o", str(host_ll)])
+    sh([mojo(), "build", "--emit", "llvm", *EMIT_FLAGS, "-I", "build", "-I", str(NATIVE), str(src), "-o", str(host_ll)])
     (out.parent / "ir").mkdir(exist_ok=True)
     ir = out.parent / "ir" / "engine_hot.ll"
     retarget(host_ll, ir)
@@ -123,10 +148,32 @@ def build_mojo() -> Path:
             manifest["base"] = entry
         else:
             manifest["variants"].append(entry)
+    manifest["extra"] = []
+    for name, edits in MOJO_EXTRA.items():
+        wasm = out_root / name / "engine_hot.wasm"
+        layout = build_one_mojo(wasm, mojo_source(edits))
+        manifest["extra"].append({"name": name, "wasm": str(wasm.relative_to(ROOT)), "edits": edits,
+                                  "mapFingerprint": layout["mapFingerprint"], **MOJO_V1})
     path = out_root / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2))
     print(f"wrote {path.relative_to(ROOT)}")
     return path
+
+
+def check_rejected_mojo() -> int:
+    """Each MOJO_REJECTED edit must fail to compile with its message (H2 on wasm)."""
+    fails = 0
+    for name, (edits, needle) in MOJO_REJECTED.items():
+        d = ROOT / "build" / "hot_mojo" / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "engine_hot.mojo").write_text(mojo_source(edits))
+        p = subprocess.run([mojo(), "build", "--emit", "llvm", "-I", "build", "-I", str(NATIVE),
+                            str(d / "engine_hot.mojo"), "-o", str(d / "engine_hot.host.ll")],
+                           cwd=ROOT, capture_output=True, text=True)
+        hit = p.returncode != 0 and needle in p.stderr
+        fails += not hit
+        print(f"{'PASS' if hit else 'FAIL'}  build rejected  {name}  rc={p.returncode}  expects {needle!r}")
+    return fails
 
 
 def sh(cmd: list[str], env: dict | None = None) -> None:
@@ -216,7 +263,10 @@ def main() -> None:
         if a.step in ("build", "all") or not (root / "manifest.json").exists():
             build_mojo()
         if a.step in ("test", "all"):
+            if check_rejected_mojo():
+                sys.exit(1)
             test(root)
+            sh(["node", "experiments/hot_reload/wasm/rollback.test.mjs", str(root / "manifest.json")])
         if a.step in ("bench", "all"):
             bench(a.reps, root)
         return

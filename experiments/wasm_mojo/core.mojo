@@ -6,10 +6,11 @@ differential test and the layer A test run against either:
     ss_create(fixed_size) -> handle      ss_add / ss_remove / ss_contains
     ss_len / ss_dense_at / ss_dense_ptr  (zero-copy view of the dense keys)
 
-Differences from the stand-in, both visible to the host:
-  * keys in the dense array are Mojo `Int`, which stays 64-bit after the
-    retarget (retarget_ir.py), so `ss_key_bytes()` returns 8 and the host
-    reads them as BigInt64 (the stand-in has no ss_key_bytes: 4 bytes);
+Differences from the stand-in, visible to the host:
+  * keys in the dense array are Mojo `Int`; `ss_key_bytes()` reports its
+    size (4: the IR is emitted for riscv32, see build.py; it was 8 when the
+    IR came from x86-64), and the host reads the dense array accordingly
+    (the stand-in has no ss_key_bytes: 4 bytes);
   * parameters and results are Int32 at the ABI, so JS passes plain numbers.
 
 The fixed key range of the stand-in (`fixed_size`) is kept at the ABI: keys
@@ -19,6 +20,7 @@ Build: experiments/wasm_mojo/build.py
 """
 
 from std.memory import alloc, Layout
+from std.sys import size_of
 from ecs.sparse_set import SparseSet
 
 
@@ -83,4 +85,4 @@ def ss_dense_ptr(h: Int32) abi("C") -> Int32:
 
 @export
 def ss_key_bytes() abi("C") -> Int32:
-    return 8
+    return Int32(size_of[Int]())

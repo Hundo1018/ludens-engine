@@ -8,6 +8,8 @@
  *   KGEN_CompilerRT_fprintf, write, dup, fdopen, fflush, fclose
  *       only on the stdlib's error-reporting path, right before llvm.trap
  *       (unreachable in wasm); stubs that report failure
+ *   KGEN_CompilerRT_GetStackTrace
+ *       called when an Error is raised (ecs.schema raises); returns 0 frames
  *
  * Allocator: power-of-two size classes from 16 bytes, one free list per
  * class, fresh memory from a bump pointer over __heap_base, growing linear
@@ -18,7 +20,7 @@
  * ===========================================================================*/
 
 typedef unsigned long usize;
-typedef long long i64;
+typedef long iptr; /* Mojo's Int: 32-bit, the IR is emitted for riscv32 (build.py) */
 typedef int i32;
 
 extern unsigned char __heap_base;
@@ -53,8 +55,8 @@ static void *bump(usize n) {
 }
 
 __attribute__((visibility("default")))
-void *KGEN_CompilerRT_AlignedAlloc(i64 align, i64 size) {
-  if (align > (i64)HDR || size < 0) __builtin_trap();
+void *KGEN_CompilerRT_AlignedAlloc(iptr align, iptr size) {
+  if (align > (iptr)HDR || size < 0) __builtin_trap();
   unsigned c = class_of((usize)size);
   unsigned char *blk;
   if (g_free[c]) {
@@ -76,13 +78,14 @@ void KGEN_CompilerRT_AlignedFree(void *p) {
   g_free[c] = blk;
 }
 
-/* error-path stubs */
-__attribute__((visibility("default"))) i32 KGEN_CompilerRT_fprintf(i64 f, const char *fmt, ...) { return -1; }
-__attribute__((visibility("default"))) i64 write(i64 fd, const void *buf, i64 n) { return -1; }
+/* error-path stubs (KGEN_CompilerRT_GetStackTrace: raising an Error captures one) */
+__attribute__((visibility("default"))) iptr KGEN_CompilerRT_GetStackTrace(void *buf, iptr n) { return 0; }
+__attribute__((visibility("default"))) i32 KGEN_CompilerRT_fprintf(void *f, const char *fmt, ...) { return -1; }
+__attribute__((visibility("default"))) iptr write(iptr fd, const void *buf, iptr n) { return -1; }
 __attribute__((visibility("default"))) i32 dup(i32 fd) { return -1; }
-__attribute__((visibility("default"))) i64 fdopen(i32 fd, const char *mode) { return 0; }
-__attribute__((visibility("default"))) i32 fflush(i64 f) { return 0; }
-__attribute__((visibility("default"))) i32 fclose(i64 f) { return 0; }
+__attribute__((visibility("default"))) void *fdopen(i32 fd, const char *mode) { return 0; }
+__attribute__((visibility("default"))) i32 fflush(void *f) { return 0; }
+__attribute__((visibility("default"))) i32 fclose(void *f) { return 0; }
 
 /* allocator statistics for tests: bytes taken from the bump pointer */
 __attribute__((export_name("mojo_rt_heap_used")))

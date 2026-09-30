@@ -11,32 +11,33 @@
  *                         wasm-ld would import from module "env"; the
  *                         import attributes live here instead.
  *
- * Addresses cross the boundary as 64-bit integers: Mojo's `Int` stays i64 in
- * the retargeted IR (experiments/wasm_mojo/retarget_ir.py), and a signature
- * mismatch between caller and callee is a wasm-ld error.
+ * Addresses cross the boundary as Mojo `Int`, 32-bit because the IR is
+ * emitted for riscv32 (experiments/wasm_mojo/build.py); caller and callee
+ * signatures must match exactly, or wasm-ld reports a mismatch.
  * ===========================================================================*/
 
 typedef unsigned long usize;
-typedef long long i64;
+typedef long iptr;
 
 __attribute__((import_module("host"), import_name("log")))
 extern void host_log(const char *ptr, int len);
 __attribute__((import_module("host"), import_name("draw_rect")))
 extern void host_draw_rect(float x, float y, float w, float h, unsigned rgba);
 
-static i64 g_state;
+static iptr g_state;
 
-#define SNAP_MAX_WORDS 4096
-static unsigned g_snap[SNAP_MAX_WORDS];
+#define SNAP_MAX_WORDS 16384 /* 64 KiB: engine_hot.mojo's SNAP_MAX_BYTES (schema records, W2) */
+static unsigned long long g_snap_storage[SNAP_MAX_WORDS / 2]; /* 8-byte aligned for the u64 header */
+#define g_snap ((unsigned *)g_snap_storage)
 
-__attribute__((visibility("default"))) i64 ludens_state_slot(void) { return (i64)(usize)&g_state; }
-__attribute__((visibility("default"))) i64 ludens_snap_ptr(void) { return (i64)(usize)g_snap; }
+__attribute__((visibility("default"))) iptr ludens_state_slot(void) { return (iptr)&g_state; }
+__attribute__((visibility("default"))) iptr ludens_snap_ptr(void) { return (iptr)g_snap; }
 
 __attribute__((export_name("engine_snapshot_ptr")))
 unsigned *engine_snapshot_ptr(void) { return g_snap; }
 
 __attribute__((visibility("default")))
-void ludens_host_log(i64 ptr, int len) { host_log((const char *)(usize)ptr, len); }
+void ludens_host_log(iptr ptr, int len) { host_log((const char *)ptr, len); }
 
 __attribute__((visibility("default")))
 void ludens_host_draw_rect(float x, float y, float w, float h, unsigned rgba) { host_draw_rect(x, y, w, h, rgba); }

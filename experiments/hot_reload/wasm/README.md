@@ -216,6 +216,82 @@ A 16× larger module compiles about 1.5× slower. The snapshot transfer with
 1000 entities is 0.43 ms for Mojo and 0.10 ms for C, because the Mojo core
 rebuilds its `List`s element by element.
 
+## W2: H1–H3 on the wasm host (Mojo core)
+
+`engine_hot.mojo` now follows the native H2 and H3:
+- `EngineState { entities; core: Core }`;
+- `assert_no_static_refs` (from `native/nostatic.mojo`) runs on both structs;
+- snapshots are `ecs.schema` records in the snapshot buffer, loaded by field
+  name, with the rename rule;
+- `engine_layout_id` is hashed from `schema_of[EngineState]`.
+
+The module is 98.8 KB. `hot_reload.mjs` gains `LiveEngine` (H1): probation
+and rollback.
+
+**Setup fixes before the results counted:**
+- The IR is emitted for riscv32 (see `experiments/wasm_mojo/README.md`).
+  With x86-64 IR every snapshot was refused, because field names were cut
+  to 4 bytes.
+- Every variant compiles from one path, `build/hot_mojo/src/engine_hot.mojo`.
+  Mojo puts the source path into `.rodata`, so per-variant directories
+  moved v3's addresses and hid v7's move.
+
+**H2.** `run.py test --core mojo` builds `x_static_field` (adds
+`var note: StaticString` to `Core`) and requires it to fail to compile; it does.
+
+**H3: matrix, 5 strategies × 8 variants.** The predictions (`PREDICTED_MOJO`)
+were written before the run:
+- a `Core` field edit changes `.rodata` (schema names), so addresses and map
+  move for v4, v6, v7, v8 and v8_rule;
+- memcopy is then corrupt or traps;
+- snapshot works by name, as native H3 does.
+
+| Guard | v2 | v3 | v4 | v5 | v6 | v7 | v8_rename | v8_rule |
+|---|---|---|---|---|---|---|---|---|
+| addresses | match | match | differ | match | differ | differ | **match** ✗ | differ |
+| layoutId | match | match | differ | differ | differ | differ | differ | differ |
+| map | match | match | differ | match | differ | differ | **match** ✗ | differ |
+
+| Strategy | v2 | v3 | v4 | v5 | v6 | v7 | v8_rename | v8_rule |
+|---|---|---|---|---|---|---|---|---|
+| memcopy | ok/new | ok/old | corrupt | corrupt | corrupt | corrupt | **ok/new** ✗ | corrupt |
+| memcopy-rw | ok/new | ok/new | corrupt | corrupt | corrupt | corrupt | **ok/new** ✗ | corrupt |
+| snapshot | ok/new | ok/new | ok/new | ok/new | ok/new | ok/new | rejected | ok/new |
+| auto | ok (memcopy-rw) | ok (memcopy-rw) | ok (snapshot) | ok (snapshot) | ok (snapshot) | ok (snapshot) | rejected | ok (snapshot) |
+
+(restart is lost/new everywhere.) ✗ marks the one refuted prediction.
+v8_rename was predicted to move addresses. `.rodata` kept its size (0x6b3):
+Mojo aligns every string literal to 16 bytes, so `box_x\0` (6) and
+`offset_x\0` (9) fill the same slot. Nothing moved, and the in-place copy is
+correct. The test keeps the prediction and lists the refutation in
+`REFUTED_MOJO`; those cells print as `REFUTED`.
+
+`auto` is correct in every column; the rename without an alias is refused,
+not zeroed.
+
+**H1: rollback** (`rollback.test.mjs`, predictions written before
+`LiveEngine`). `v9_trap` stores out of bounds in `engine_update`.
+
+| Check | Result |
+|---|---|
+| no probation (control) | the `RuntimeError` escapes the frame loop |
+| memcopy-rw / snapshot / auto: first frame | rolled back; frame 40 = frame_before; 6 entities |
+| then | v1 runs on; state equals the v1 oracle at frame 69 |
+| next good build (v2) | swaps, commits after 60 frames, green |
+
+A rollback takes 7–11 µs and copies nothing. Wasm instances do not share
+memory, and the transfer only reads the old instance, so the old instance
+still holds the state as of the swap. The native H1 needed a snapshot for
+the same guarantee.
+
+**Cost** (100 reps, median ms, v1 → v2_code):
+
+| Core | Module | compile | snapshot transfer (1000 entities) | total (auto) |
+|---|---|---|---|---|
+| C | 2.3 KB | 0.32 | 0.10 | 0.60 |
+| Mojo, W1 (hand-written snapshot) | 37.6 KB | 0.48 | 0.43 | 0.86 |
+| Mojo, W2 (schema snapshot) | 98.8 KB | 0.70 | 1.66 | 1.46 |
+
 ## 11–12. Limits and next steps
 
 - W1 replaced the C stand-in with a Mojo core (section above). The C core's
@@ -235,7 +311,8 @@ rebuilds its `List`s element by element.
 | File | Role |
 |---|---|
 | `engine_hot.c` | engine core with edit knobs, `engine_layout_id`, `engine_save`/`engine_load` |
-| `engine_hot.mojo`, `engine_hot_rt.c` | W1: the same engine in Mojo, and the C it needs on wasm (state slot, snapshot buffer, host imports) |
+| `engine_hot.mojo`, `engine_hot_rt.c` | W1/W2: the same engine in Mojo (H2 + H3 applied), and the C it needs on wasm (state slot, snapshot buffer, host imports) |
+| `rollback.test.mjs` | W2: H1 on the wasm host (`LiveEngine`: probation and rollback) |
 | `hot_reload.mjs` | strategies, guards, wasm data-segment/name reader, `hotSwap()` |
 | `hot_reload.test.mjs` | variant × strategy matrix vs float32 oracle, with pre-registered predictions |
 | `bench.mjs` | raw latency samples (swap phases, memory-size scaling) |

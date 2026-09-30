@@ -29,6 +29,16 @@ EXPORTS = {
     "probe_int": ["add", "sum_to"],
 }
 SHIMS = [ROOT / "toolchain" / "standin" / "wasm_rt.c", HERE / "mojo_rt.c"]
+# The IR is emitted for riscv32, not for the host. Mojo bakes struct sizes and
+# offsets (size_of, reflect, String's inline small-string layout) for the
+# target it compiles for; after the retarget LLVM lays structs out for
+# wasm32. riscv32's datalayout (32-bit pointers, i64 aligned to 8) matches
+# wasm32's, so the baked numbers hold: probe_layout.mojo reads baked ==
+# run-time offsets for every struct, where the x86-64 IR gave 16 vs 8. Two
+# earlier attempts, kept as the record in README.md: host x86-64 IR (String
+# truncated to 4 bytes on wasm) and baseline `--target-cpu x86-64` (needed
+# for a vector op llc 18's wasm backend cannot lower on AVX-512 IR).
+EMIT_FLAGS = ["--target-triple", "riscv32-unknown-linux-gnu"]
 
 
 def mojo() -> str:
@@ -39,8 +49,8 @@ def mojo() -> str:
 def build(name: str, out: Path) -> Path:
     (OUT / "ir").mkdir(parents=True, exist_ok=True)
     host_ll = OUT / f"{name}.host.ll"
-    subprocess.run([mojo(), "build", "--emit", "llvm", "-I", str(ROOT / "build"), str(HERE / f"{name}.mojo"),
-                    "-o", str(host_ll)], cwd=ROOT, check=True)
+    subprocess.run([mojo(), "build", "--emit", "llvm", *EMIT_FLAGS, "-I", str(ROOT / "build"),
+                    str(HERE / f"{name}.mojo"), "-o", str(host_ll)], cwd=ROOT, check=True)
     ir = OUT / "ir" / f"{name}.ll"
     retarget(host_ll, ir)
     externs = sorted({m for m in re.findall(r"^declare [^@]*@([\w.]+)\(", ir.read_text(), re.M)
