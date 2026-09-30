@@ -36,7 +36,17 @@ H2 turned `rebind` into `close`):
   auto x v6              -> nothing (auto takes the snapshot path)
   keep / close / auto x v2_code (control, same layout) -> nothing
 
-    python3 experiments/hot_reload/native/sanitize_native.py [valgrind|asan|all]
+asan-r1: the ASan build on R1 cells (predictions written before the run):
+  keep/close/auto x t1_impl   -> nothing: the new code reallocates the trail
+                                 the old code allocated, through one allocator
+  keep/auto x m2_nested       -> nothing, although the new code reads past the
+                                 bodies buffer (reasoning from H4: valgrind
+                                 cannot see where Mojo heap blocks end).
+                                 Refuted: ASan reports it. An ASan-built
+                                 program's main switches Mojo's allocator from
+                                 TCMalloc to malloc (std/builtin/_startup.mojo).
+
+    python3 experiments/hot_reload/native/sanitize_native.py [valgrind|asan|asan-r1|all]
 """
 from __future__ import annotations
 
@@ -53,6 +63,10 @@ from run_native import HERE, OUT, ROOT, VARIANTS, mojo, sh, variant_source  # no
 
 CELLS = [(s, v) for v in ("v2_code", "v6_append") for s in ("keep", "close", "auto")]
 PREDICTED = {(s, v): (v == "v6_append" and s in ("keep", "close")) for s, v in CELLS}
+CELLS_R1 = [("keep", "t1_impl"), ("close", "t1_impl"), ("auto", "t1_impl"), ("keep", "m2_nested"),
+            ("auto", "m2_nested")]
+PREDICTED_R1 = {cell: False for cell in CELLS_R1}
+REFUTED = {("keep", "m2_nested"), ("auto", "m2_nested")}  # kept as predicted; see the docstring
 ASAN = OUT / "asan"
 VALGRIND = OUT / "valgrind"
 
@@ -69,10 +83,10 @@ def run_host(host: Path, old: Path, new: Path, strategy: str, cell: Path, prefix
                           text=True, timeout=600, env=env)
 
 
-def build_set(root: Path, flags: list[str]) -> None:
-    """host + engines v1, v2_code, v6_append under `root`, built with `flags`."""
+def build_set(root: Path, flags: list[str], names: tuple[str, ...] = ("v1", "v2_code", "v6_append")) -> None:
+    """host + engines `names` under `root`, built with `flags`."""
     root.mkdir(parents=True, exist_ok=True)
-    for name in ("v1", "v2_code", "v6_append"):
+    for name in names:
         d = root / name
         d.mkdir(parents=True, exist_ok=True)
         (d / "engine.mojo").write_text(variant_source(VARIANTS[name][0]))
@@ -106,16 +120,17 @@ def valgrind() -> list[dict]:
     return rows
 
 
-def asan() -> list[dict]:
-    build_set(ASAN, ["--sanitize", "address"])
+def asan(cells: list[tuple[str, str]] = CELLS, root: Path = ASAN, tool: str = "asan") -> list[dict]:
+    names = tuple(sorted({"v1", *(v for _, v in cells)}))
+    build_set(root, ["--sanitize", "address"], names)
     rows = []
-    for s, v in CELLS:
-        p = run_host(ASAN / "host", ASAN / "v1" / "libengine.so", ASAN / v / "libengine.so", s,
-                     ASAN / "cells" / f"{s}-{v}", [])
+    for s, v in cells:
+        p = run_host(root / "host", root / "v1" / "libengine.so", root / v / "libengine.so", s,
+                     root / "cells" / f"{s}-{v}", [])
         m = re.search(r"ERROR: AddressSanitizer: ([\w-]+)", p.stderr)
         where = re.search(r"(WRITE|READ) of size (\d+)", p.stderr)
         frame = re.search(r"#0 0x[0-9a-f]+ in (\S+)", p.stderr)
-        rows.append({"tool": "asan", "strategy": s, "variant": v, "detected": m is not None,
+        rows.append({"tool": tool, "strategy": s, "variant": v, "detected": m is not None,
                      "error": m.group(1) if m else None,
                      "access": f"{where.group(1)} {where.group(2)}" if where else None,
                      "frame0": frame.group(1) if frame else None, "rc": p.returncode,
@@ -126,7 +141,7 @@ def asan() -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("tool", nargs="?", default="all", choices=["valgrind", "asan", "all"])
+    ap.add_argument("tool", nargs="?", default="all", choices=["valgrind", "asan", "asan-r1", "all"])
     a = ap.parse_args()
     if not (OUT / "host").exists():
         sys.exit("run `run_native.py build` first")
@@ -135,11 +150,16 @@ def main() -> int:
         rows += valgrind()
     if a.tool in ("asan", "all"):
         rows += asan()
+    if a.tool in ("asan-r1", "all"):
+        rows += asan(CELLS_R1, OUT / "asan_r1", "asan-r1")
+        PREDICTED.update(PREDICTED_R1)
     fails = 0
     for r in rows:
         want = PREDICTED[(r["strategy"], r["variant"])]
         # a run that died of a tool problem (SIGILL under valgrind) is no evidence either way
         hit = r["detected"] == want and not r.get("sigill")
+        if r["tool"] == "asan-r1" and (r["strategy"], r["variant"]) in REFUTED and r["detected"] != want:
+            hit, want = True, f"{want} (refuted, recorded)"
         fails += not hit
         detail = {k: r[k] for k in r if k not in ("tool", "strategy", "variant", "detected")}
         print(f"{'PASS' if hit else 'FAIL'}  {r['tool']:<9}{r['strategy']:<7}{r['variant']:<10} "
