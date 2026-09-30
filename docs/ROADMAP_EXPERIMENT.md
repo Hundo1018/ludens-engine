@@ -189,6 +189,11 @@
   若固定開銷本身就接近 1 s,這題的上限就很低,先記錄再決定是否繼續。
 - **Gate**:有量測數據支持才實作。
 
+> **進度:✅(量測完成,決定不實作)2026-09-30** `h6_fixed_cost.py`
+> - 未快取、交錯、各 5 次:空模組 **2.52 s**,+SparseSet 2.91 s,+schema 3.16 s,engine 4.17 s。固定開銷佔 engine build 的 60%。
+> - 固定開銷不在:行程啟動(`mojo --version` 0.05 s)、`-I build`(去掉仍 2.50 s)、連結(`--emit object` 2.51 s)。
+> - 每個系統一個 `.so`,每次修改至少 2.4 s,達不到 < 0.5 s 的目標 → 不拆。
+
 ### W1 真的 Mojo → wasm
 
 - **前置**:Mojo 能輸出整個模組的 LLVM IR([STATUS.md](../STATUS.md) 的 gate)。

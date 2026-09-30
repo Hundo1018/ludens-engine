@@ -453,6 +453,36 @@ After the allocator change the 48-cell matrix, the e2e and the snapshot
 bench were rerun: all pass, and the bench numbers are within noise
 (9.74 ms against 9.30 ms at 100k).
 
+## H6: split the engine into several `.so` files? Measured first; not done
+
+The idea: rebuild only the `.so` of the system that was edited, and get
+under 0.5 s. The roadmap's gate was to measure `mojo build`'s fixed cost
+first. `h6_fixed_cost.py` builds four shared libraries, uncached and
+interleaved, 5 each:
+
+| Source | median | min | max |
+|---|---|---|---|
+| `empty`: one export returning 1 | **2.52 s** | 2.40 | 3.14 |
+| `sparse_set`: + uses `ecs.SparseSet` | 2.91 s | 2.66 | 3.28 |
+| `schema`: + uses `ecs.schema` | 3.16 s | 2.90 | 3.49 |
+| `engine.mojo` | 4.17 s | 3.85 | 4.38 |
+
+The prediction was `empty` ≥ 0.8 s; it is 2.52 s, 60% of the engine build.
+
+Where the fixed cost is not:
+- `mojo --version` takes 0.05 s, and a build of a missing file 0.06 s.
+- The empty module builds in 2.50 s without `-I build`, and in 2.51 s with
+  `--emit object` (no link step).
+
+So about 2.45 s is spent compiling an empty module, independent of the
+imported packages and of linking.
+
+Decision: a `.so` per system would cost at least 2.4 s per edit, against the
+3–4 s the whole engine costs now. The 0.5 s target cannot be reached, so the
+split is not implemented. The engine build here varies between runs (3.04 s
+and 4.17 s uncached for the same source on different runs); the comparisons
+above are within one interleaved run.
+
 ## 10. Updated model
 
 - `snapshot` is correct for every edit here, and `auto` (layout guard →
@@ -496,5 +526,6 @@ bench were rerun: all pass, and the bench numbers are within noise
 | `sanitize_native.py` | H4: the v6 cells under ASan and valgrind |
 | `guard.mojo` | fault guard for H1: fixed-address jmp_buf page, handler, `guarded_update` / `guarded_load` |
 | `nostatic.mojo` | compile-time rule: no pointer / string-view fields in the state (H2) |
+| `h6_fixed_cost.py` | H6: fixed cost of `mojo build` (empty module vs engine) |
 | `build_time.py` | times `mojo build`, interleaved; `--unique`, `--probe-cache` |
 | `probes/` | small programs that each answer one question about the toolchain |
