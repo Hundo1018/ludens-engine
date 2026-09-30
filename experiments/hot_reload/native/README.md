@@ -587,8 +587,9 @@ takes 0.08 ms.
 - Only one kind of static pointer (a string literal) was tested. Function
   pointers or trait objects stored in the state would dangle the same way;
   not tested. Mojo 1.1 rejects a `def(Int) -> Int` field type ("struct
-  fields do not support trait types"), so a function-pointer field needs
-  another form to test.
+  fields do not support trait types"), but accepts the non-capturing form
+  `def(Int) thin -> Int` (`experiments/upstream_probes/probe_thin_field.mojo`);
+  that is the form to test with.
 - Snapshot cost against state size: measured in H3 (9.3 ms for 100k entities).
 - The migration rule cannot tell a rename from a delete plus an unrelated
   add in the same edit; that edit needs an alias or is refused.

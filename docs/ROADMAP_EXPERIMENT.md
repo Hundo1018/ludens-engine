@@ -261,9 +261,15 @@
 
 ### 之後:改編譯器(在 `Hundo1018/modular` fork 上驗證,不進本 repo)
 
-- **P0**:在本環境用 bazel 建出 `mojo`,確認自建版跑本 repo 的測試結果與 pip 版相同。這是後兩項的前提。
-- **C1**:WebAssembly 後端。現在的 `BACKENDS` 只有 AArch64、RISCV、X86,這也是 W1 需要借道 riscv32 的原因。
-- **J1**:用 Mojo 的 ORC `ExecutionEngine` 取代 `dlopen` 做換版。
+> 2026-09-30 重排,依據與排序見 [docs/upstream/PRIORITY.md](upstream/PRIORITY.md)。
+> 上游 compiler 只收 bug fix,新功能要先開 issue 並對上 roadmap。
+
+- **P0**:在本環境用 bazel 建出 `mojo`,確認自建版跑 `experiments/upstream_probes/run.py` 的結果與 pip 版相同。這是以下各項的前提。
+- **U1**:卸載 Mojo `.so` 後,程序結束時 SIGSEGV(`_Global` 的 destroy 指向已卸載的程式碼)。bug fix,可以送 PR。
+- **U2**:編譯固定開銷,空程式約 1.5 s。開附量測的 issue。
+- **U3/C1**:WebAssembly 後端的 A 段,只輸出 IR 或 object。現在的 `BACKENDS` 只有 AArch64、RISCV、X86,這也是 W1 需要借道 riscv32 的原因。
+- **U4**:wasm freestanding runtime 契約;**U5**:公開 `_Global`(stdlib proposal,排在 U1 之後);**U6**:為 existentials 提供使用案例。
+- ~~**J1**:用 Mojo 的 ORC `ExecutionEngine` 取代 `dlopen` 做換版~~。取消:它是內部 C++ API,沒有卸載介面;換版只要 0.1 ms,瓶頸在編譯。
 
 要提交上游的內容先寫在 [docs/upstream/](upstream/README.md),由 repo 擁有者審查後決定是否提交。
 
