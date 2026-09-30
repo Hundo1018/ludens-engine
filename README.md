@@ -48,6 +48,7 @@ plan and **[STATUS.md](STATUS.md)**.
 | `bindings/c/` | layer-A C physics linked into the core module |
 | `tests/` | differential harness, capability corpus, layer-A test |
 | `scripts/` | `emit-and-link`, `build-all`, `componentize`, `ir-snapshot`, `test-all` |
+| `experiments/hot_reload/` | hot reload of the wasm core: strategies, measurements, dev server ([README](experiments/hot_reload/README.md)) |
 | `legacy/` | retired desktop pygfx/glfw prototype (not in the wasm path) |
 
 ## Quick start

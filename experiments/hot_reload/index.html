@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LudensEngine · hot reload</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; color: #222; }
+      canvas { border: 1px solid #ccc; display: block; background: #fafafa; max-width: 100%; }
+      pre, #status { font-family: ui-monospace, monospace; color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>Hot reload experiment</h1>
+    <p>
+      Edit <code>experiments/hot_reload/engine_hot.c</code> while
+      <code>dev_server.py</code> runs. Each rebuild is swapped into this page
+      without restarting the simulation.
+    </p>
+    <canvas id="view" width="640" height="160"></canvas>
+    <div id="status">booting…</div>
+    <pre id="reloads"></pre>
+    <script type="module" src="./web_hot.mjs"></script>
+  </body>
+</html>

@@ -14,6 +14,8 @@
 #
 # Intermediate .ll / .o land next to --out so every pipeline stage is
 # inspectable (golden-IR snapshots, DWARF debugging, etc.).
+# Extra clang flags for .c inputs (e.g. -DSPEED=120.0f) come from $CFLAGS,
+# extra wasm-ld flags (e.g. --Map=build/x.map) from $LDFLAGS.
 # ===========================================================================
 set -euo pipefail
 
@@ -21,6 +23,8 @@ OUT=""
 EXPORTS=()
 SRCS=()
 OPT="${OPT:-2}"
+read -r -a EXTRA_CFLAGS <<<"${CFLAGS:-}"
+read -r -a EXTRA_LDFLAGS <<<"${LDFLAGS:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +51,7 @@ for SRC in "${SRCS[@]}"; do
     *.c)
       # Front-end stand-in: C -> LLVM IR (the artifact Mojo will emit).
       clang --target=wasm32 -O"$OPT" -ffreestanding -fno-builtin \
+            ${EXTRA_CFLAGS[@]+"${EXTRA_CFLAGS[@]}"} \
             -emit-llvm -S "$SRC" -o "$IR" ;;
     *.ll)
       cp "$SRC" "$IR" ;;
@@ -60,6 +65,7 @@ done
 # Objects -> one linked core module (layer-A: everything shares linear memory).
 ldflags=(--no-entry --allow-undefined --export-memory --export-table)
 for e in "${EXPORTS[@]}"; do ldflags+=(--export="$e"); done
+ldflags+=(${EXTRA_LDFLAGS[@]+"${EXTRA_LDFLAGS[@]}"})
 wasm-ld "${ldflags[@]}" "${OBJS[@]}" -o "$OUT"
 
 echo "built $OUT ($(wc -c <"$OUT") bytes) <- ${SRCS[*]}"
