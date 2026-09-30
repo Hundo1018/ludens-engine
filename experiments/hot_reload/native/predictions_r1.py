@@ -119,3 +119,16 @@ PREDICTED_B3 = {
 #   (malloc) when it faults; 100k entities through the whole matrix (only
 #   snapshot cost is measured, H3); owned raw pointers in the state (the
 #   nostatic rule forbids pointer fields).
+
+# ---- amendment 1, 2026-09-30, before any R1 cell was built or run ------------
+# (a) Mojo 1.1.0 has no `InlineArray`; the fixed-size array is `Array[T, N]`
+#     (std/collections/array.mojo, in the prelude). The engine uses
+#     `Array[Int, GRID_N]`. H-b applies to it unchanged.
+# (b) B2 as written cannot see a small leak: 100 swaps x ~1 KiB is ~100 KiB,
+#     under the 2 MiB bound. B2 therefore runs B2_SWAPS_LONG swaps and reads
+#     VmRSS after swap 1, swap B2_SWAPS and the last swap. Added prediction:
+#     RSS(last) - RSS(swap B2_SWAPS) < B2_MAX_LATE_GROWTH_KIB, i.e. less than
+#     ~290 bytes per swap over the last 900. The 2 MiB bound (swap 1 -> swap
+#     B2_SWAPS) is kept as written.
+B2_SWAPS_LONG = 1000
+B2_MAX_LATE_GROWTH_KIB = 256
