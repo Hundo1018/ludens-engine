@@ -171,8 +171,9 @@
   要嘛找出可行的 pip 組合,要嘛讓 pixi 在此環境可用。
 - **T2** `src/core/sparse_set.mojo` 在 Mojo 1.1 無法編譯,且與 dev 的 `ecs/sparse_set.mojo` 重複。
   改由 wasm 端的 differential oracle 參照 `ecs/`,然後刪除它。
-- **T3** 分支整理:舊的 `experimental/wasm` 由使用者在 GitHub 上刪除或封存。
-  本 session 無法推送到指定分支以外的分支。
+- **T3** 分支整理:`experiment` 已於 2026-09-30 建立,從此作為本分支。
+  舊的 `experimental/wasm`(停在 `b150fe4`,內容已包含在 `experiment` 中)由使用者在 GitHub 上刪除;
+  本 session 刪除遠端分支會被拒絕(HTTP 403)。
 
 ---
 
