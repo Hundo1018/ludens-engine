@@ -71,7 +71,12 @@ comptime FRAGMENT_EVICTED: Int = 13
 """`physics.fracture.FractureSet.enforce_budget` removed a free fragment
 because the live count exceeded the budget (ROADMAP 17.5)."""
 
-comptime COUNT: Int = 14
+comptime VEHICLE_FORCE_DROPPED: Int = 14
+"""`gameplay.vehicle.Vehicle.update` computed a non-finite wheel force or an
+unusable chassis pose (ROADMAP 17.4) and applied nothing for that wheel / that
+step instead of poisoning the rigid body."""
+
+comptime COUNT: Int = 15
 
 
 def _name(id: Int) -> String:
@@ -103,6 +108,8 @@ def _name(id: Int) -> String:
         return "gameloop_debt_dropped"
     elif id == FRAGMENT_EVICTED:
         return "fragment_evicted"
+    elif id == VEHICLE_FORCE_DROPPED:
+        return "vehicle_force_dropped"
     else:
         return "counter_" + String(id)
 
