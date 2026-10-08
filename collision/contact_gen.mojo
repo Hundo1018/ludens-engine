@@ -22,7 +22,7 @@ controller can call it without ever importing physics.
 from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
-from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_HULL, SPEC_BASE
+from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SPEC_BASE
 from .broadphase import BroadPhase, BoxProxy, Pair
 from .manifold import ContactManifold
 from .hull import hull_manifold
@@ -116,7 +116,7 @@ def try_mesh_pair(
 
     # a HULL body is not inflated (see `hull_manifold`): the whole margin goes
     # to the narrowphase as its speculative distance instead
-    var a_is_hull = colliders.shape[a] == SHAPE_HULL
+    var a_is_hull = colliders.hull_is_bent_by_inflation(a)
     var zero = Vec3(0, 0, 0, 0)
     var spec = margin if a_is_hull else Real(0)
     var poly_a = colliders.as_hull(a, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)

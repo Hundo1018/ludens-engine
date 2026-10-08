@@ -373,6 +373,12 @@ struct ColliderSet(Movable, Deinitable):
             hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
         return HullShape.box(hs).world(pose.position, ax[0], ax[1], ax[2])
 
+    def hull_is_bent_by_inflation(self, i: Int) -> Bool:
+        """True for a HULL collider that is not a centred box: octant inflation
+        would bend its faces, so the speculative margin goes to
+        `hull_manifold` instead (see there)."""
+        return self.shape[i] == SHAPE_HULL and not self.hulls[self.hull_id[i]].box_like
+
     def pair_manifold(
         self, i: Int, j: Int, pose_i: Pose3, pose_j: Pose3, mr: Real, infl: Vec3
     ) -> ContactManifold[3]:
@@ -453,11 +459,11 @@ struct ColliderSet(Movable, Deinitable):
             var ma = mr
             var ib = infl
             var mb = mr
-            if ka == SHAPE_HULL:
+            if self.hull_is_bent_by_inflation(a):
                 ia = zero
                 ma = Real(0)
                 spec += infl[0]
-            if kb == SHAPE_HULL:
+            if self.hull_is_bent_by_inflation(b):
                 ib = zero
                 mb = Real(0)
                 spec += infl[0]

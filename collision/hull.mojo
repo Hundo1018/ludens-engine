@@ -85,6 +85,12 @@ struct HullShape(Movable, Deinitable):
     # SAT query (`ColliderSet.soft_particle_contact`, F4b) so that query
     # never has to re-scan every vertex per face per particle per step.
     var fo: List[Real]
+    # A box centred on its origin (8 vertices at (+-hx, +-hy, +-hz), 6 faces).
+    # The speculative margin can still inflate THIS hull the old way, by
+    # pushing each vertex out along its own octant, because for a centred box
+    # that keeps every face flat and reproduces the dedicated box path exactly;
+    # for any other hull it bends the faces (see `hull_manifold`).
+    var box_like: Bool
 
     def __init__(out self, verts: List[Real]):
         """`verts` is FLAT: x, y, z per vertex. Not `List[Vec3]` — see above."""
@@ -93,8 +99,10 @@ struct HullShape(Movable, Deinitable):
             self.v.append(verts[i])
         self.f = List[Real](capacity=96)
         self.fo = List[Real](capacity=32)
+        self.box_like = False
         self._build_faces()
         self._prune_interior()
+        self._detect_box()
 
     def nv(self) -> Int:
         return len(self.v) // 3
@@ -155,6 +163,26 @@ struct HullShape(Movable, Deinitable):
                         self.f.append(nrm[1])
                         self.f.append(nrm[2])
                         self.fo.append(d)
+
+    def _detect_box(mut self):
+        if self.nv() != 8 or self.nf() != 6:
+            return
+        var h = List[Real](capacity=3)
+        for k in range(3):
+            h.append(abs(self.v[k]))
+        for i in range(8):
+            for k in range(3):
+                if h[k] <= 1e-9 or abs(abs(self.v[3 * i + k]) - h[k]) > 1e-6 * h[k]:
+                    return
+        # eight DISTINCT sign patterns
+        var seen = 0
+        for i in range(8):
+            var code = 0
+            for k in range(3):
+                if self.v[3 * i + k] > 0:
+                    code |= 1 << k
+            seen |= 1 << code
+        self.box_like = seen == 255
 
     def _prune_interior(mut self):
         """Drop vertices that lie strictly inside the hull.

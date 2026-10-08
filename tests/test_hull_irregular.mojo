@@ -85,33 +85,20 @@ def _ball(seed: Int) -> List[Real]:
     var rng = UInt64(seed * 7919 + 13)
     var v = List[Real]()
     for _ in range(14):
-        var x = Float64(0)
-        var y = Float64(0)
-        var z = Float64(0)
         while True:
             rng = rng * 6364136223846793005 + 1442695040888963407
-            x = Float64((rng >> 33) % 2001) / 1000.0 - 1.0
+            var x = Float64((rng >> 33) % 2001) / 1000.0 - 1.0
             rng = rng * 6364136223846793005 + 1442695040888963407
-            y = Float64((rng >> 33) % 2001) / 1000.0 - 1.0
+            var y = Float64((rng >> 33) % 2001) / 1000.0 - 1.0
             rng = rng * 6364136223846793005 + 1442695040888963407
-            z = Float64((rng >> 33) % 2001) / 1000.0 - 1.0
+            var z = Float64((rng >> 33) % 2001) / 1000.0 - 1.0
             var l = (x * x + y * y + z * z) ** 0.5
             if l > 0.3 and l < 1.0:
-                x /= l
-                y /= l
-                z /= l
+                v.append(Real(0.3 * x / l))
+                v.append(Real(0.3 * y / l))
+                v.append(Real(0.3 * z / l))
                 break
-        v.append(Real(0.3 * x))
-        v.append(Real(0.3 * y))
-        v.append(Real(0.3 * z))
     return v^
-
-
-def _poly(v: List[Real], dy: Real) -> ConvexPoly[3]:
-    var p = ConvexPoly[3]()
-    for i in range(len(v) // 3):
-        p.add(Vec3(v[3 * i], v[3 * i + 1] + dy, v[3 * i + 2], 0))
-    return p^
 
 
 def main() raises:
