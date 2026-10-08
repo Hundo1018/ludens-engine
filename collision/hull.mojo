@@ -395,22 +395,53 @@ def _dedup(p: ConvexPoly[3]) -> ConvexPoly[3]:
     return out^
 
 
+def _incident_contact(
+    mut m: ContactManifold[3], inc: List[Real], n: Vec3, ref_level: Real, ref_is_a: Bool
+):
+    """Contact from the incident body's support set (one vertex, or the ends of
+    an edge) against the reference body's face, each point at its own depth
+    below the reference plane. Used when EPA has nothing to say because the
+    hulls are not overlapping yet (a speculative contact)."""
+    m.count = min(len(inc) // 3, ContactManifold[3].MAX)
+    for i in range(m.count):
+        var q = _at(inc, i)
+        var dq = (ref_level - dot(q, n)) if ref_is_a else (dot(q, n) - ref_level)
+        m.points[i] = q
+        m.depths[i] = dq
+
+
 def hull_manifold(
     a_in: ConvexPoly[3], b_in: ConvexPoly[3],
     faces_a: List[Real], faces_b: List[Real],
+    margin: Real = 0,
 ) -> ContactManifold[3]:
     """Contact patch between two convex hulls. Normal points a -> b, matching
     every other manifold in `collision/manifold.mojo`.
 
     `faces_*` are world-frame face normals (flat, stride 3) from
     `HullShape.world_normals`; empty lists fall back to the cloud path, which
-    then degrades to a single contact point on large flat bodies."""
+    then degrades to a single contact point on large flat bodies.
+
+    `margin` is the SPECULATIVE distance: hulls that do not overlap yet but are
+    closer than `margin` along some face axis still produce a contact, with a
+    NEGATIVE depth (minus the gap), so the solver can let them close exactly to
+    touching. The hulls are NOT inflated to get this. (They used to be:
+    `ColliderSet.as_hull` pushed every vertex out along its own octant, which
+    keeps a box's faces flat but bends every other hull's -- a vertex of a
+    sloped face moved up to `infl * (|nx| + |ny| + |nz|)` off its face plane,
+    only one vertex then qualified as "on" the face, the patch collapsed to a
+    point that hopped from frame to frame, and an irregular hull -- a fracture
+    fragment -- rocked with growing amplitude and sank through the floor.)
+    Depths are returned as `max(sep, -margin)`, which for `margin == 0` is the
+    old `max(sep, 0)`; the caller adds `margin` back to reproduce the
+    inflated-hull convention `try_pair` subtracts from."""
     var a = _dedup(a_in)
     var b = _dedup(b_in)
     var m = ContactManifold[3].miss()
     if len(a.points) == 0 or len(b.points) == 0:
         return m
-    if not gjk_query[3](a, b).hit:
+    var overlapping = gjk_query[3](a, b).hit
+    if not overlapping and margin <= 0:
         return m
 
     # Normal and depth by SAT over the two bodies' FACE NORMALS, not by EPA.
@@ -424,6 +455,9 @@ def hull_manifold(
     var best_d = Real(1e30)
     var n = Vec3(0, 1, 0, 0)
     var found = False
+    var axis_from_a = True
+    var best_amax = Real(0)
+    var best_bmin = Real(0)
     for fi in range(na + nb):
         var ax = _at(faces_a, fi) if fi < na else -_at(faces_b, fi - na)
         var la = length(ax)
@@ -445,9 +479,18 @@ def hull_manifold(
             best_d = overlap
             n = ax
             found = True
+            axis_from_a = fi < na
+            best_amax = amax
+            best_bmin = bmin
 
-    var w = epa_witness3(a, b)
-    if not found or best_d <= 0:
+    if not overlapping:
+        # speculative: only a face axis along which they are separated by less
+        # than `margin` qualifies (an edge-edge near miss gets no contact)
+        if not found or best_d > 0 or best_d < -margin:
+            return m
+
+    var w = epa_witness3(a, b) if overlapping else Witness[3].miss()
+    if overlapping and (not found or best_d <= 0):
         if not w.hit:
             return m
         var nl = length(w.normal)
@@ -465,7 +508,11 @@ def hull_manifold(
 
     var fa = _face_by_normal(a, faces_a, n)
     var fb = _face_by_normal(b, faces_b, -n)
+    var ref_level = best_amax if axis_from_a else best_bmin
     if len(fa) < 9 or len(fb) < 9:
+        if not overlapping:
+            _incident_contact(m, fb if axis_from_a else fa, n, ref_level, axis_from_a)
+            return m
         # vertex or edge touch: EPA's witness pair IS the contact
         m.count = 1
         m.points[0] = (w.point_a + w.point_b) * 0.5
@@ -479,6 +526,9 @@ def hull_manifold(
     _order_ccw(fb, t1, t2)
     var clipped = _clip_poly(fb, fa, t1, t2)
     if len(clipped) == 0:
+        if not overlapping:
+            _incident_contact(m, fb if axis_from_a else fa, n, ref_level, axis_from_a)
+            return m
         m.count = 1
         m.points[0] = (w.point_a + w.point_b) * 0.5
         m.depths[0] = w.depth
@@ -491,12 +541,15 @@ def hull_manifold(
             break
         var p = _at(clipped, i)
         var sep = plane_d - dot(p, n)
-        if sep < -_FACE_EPS:
+        if sep < -(_FACE_EPS + margin):
             continue  # above the reference face: not in contact
         m.points[cnt] = p
-        m.depths[cnt] = sep if sep > 0 else Real(0)
+        m.depths[cnt] = sep if sep > -margin else -margin
         cnt += 1
     if cnt == 0:
+        if not overlapping:
+            _incident_contact(m, fb if axis_from_a else fa, n, ref_level, axis_from_a)
+            return m
         m.count = 1
         m.points[0] = (w.point_a + w.point_b) * 0.5
         m.depths[0] = w.depth

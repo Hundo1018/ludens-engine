@@ -443,10 +443,32 @@ struct ColliderSet(Movable, Deinitable):
             # (ka <= kb) and hull is the highest kind BELOW the static mesh
             # kinds, so kb == SHAPE_HULL catches hull-box, hull-sphere,
             # hull-capsule and hull-hull alike.
+            # A HULL side is not inflated by the speculative margin (inflation
+            # bends the faces of any non-box hull -- see `hull_manifold`); its
+            # share of the margin goes to `hull_manifold` as `spec` instead and
+            # is added back to the depths, the convention `try_pair` expects.
+            var zero = Vec3(0, 0, 0, 0)
+            var spec = Real(0)
+            var ia = infl
+            var ma = mr
+            var ib = infl
+            var mb = mr
+            if ka == SHAPE_HULL:
+                ia = zero
+                ma = Real(0)
+                spec += infl[0]
+            if kb == SHAPE_HULL:
+                ib = zero
+                mb = Real(0)
+                spec += infl[0]
             m = hull_manifold(
-                self.as_hull(a, pa, infl, mr), self.as_hull(b, pb, infl, mr),
-                self.hull_faces(a, pa, infl, mr), self.hull_faces(b, pb, infl, mr),
+                self.as_hull(a, pa, ia, ma), self.as_hull(b, pb, ib, mb),
+                self.hull_faces(a, pa, ia, ma), self.hull_faces(b, pb, ib, mb),
+                spec,
             )
+            if spec > 0:
+                for kk in range(m.count):
+                    m.depths[kk] += spec
         elif ka == SHAPE_CAPSULE and kb == SHAPE_CAPSULE:
             m = capsule_capsule_manifold(
                 pa.position, pa.axes[1], self.half[a][1], self.half[a][0] + mr,
