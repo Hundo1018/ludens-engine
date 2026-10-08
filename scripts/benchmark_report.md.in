@@ -1974,6 +1974,20 @@ then growing with the obstacle count through the queries' linear prefilter.
 
 @bench benchmarks/bench_character.mojo
 
+## Raycast vehicles (17.4)
+
+One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a
+swept sphere or a swept capsule per wheel), the suspension, and the implicit
+per-axis tire solve (bisection on the rising branch of the Pacejka-shaped curve,
+the part that lets a parked car hold a slope). On this flat road with a few
+obstacles the cast is not the dominant cost -- the ray and the sphere sweep
+cost the same, because a sweep onto a plane converges in two advancement steps --
+and the capsule sweep adds roughly half again. The per-vehicle cost grows
+with the fleet because every wheel query scans every collider (one per car
+plus the road), the same linear prefilter as the world queries above.
+
+@bench benchmarks/bench_vehicle.mojo
+
 ## Pose interpolation (17.7)
 
 Drawing a body between two fixed ticks. Dual-quaternion nlerp costs about

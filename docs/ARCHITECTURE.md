@@ -23,7 +23,7 @@ test/bench infrastructure: engine packages must never import it.
 | 3 | `scheduler` | System scheduling (sequential/job graph/actors/work stealing), fixed-step loop, events, timers, RNG | Physics or collision meaning |
 | 3 | `collision` | Broadphase seam, narrowphase seam, contact manifolds, CCD/TOI, static level geometry, scene queries | Impulses, integration |
 | 4 | `physics` | Every dynamics solver: rigid 6-DOF, articulated chains, constraints, soft bodies, cloth, FEM/MPM/SPH/PBF, differentiable rollouts, serialization of solver state, fracture bonds and fragment budget (`physics/fracture.mojo`, Phase 17.5) | Gameplay policy (controllers, vehicles, AI) |
-| 5 | `gameplay` | Game-facing runtime shell built on physics + collision + ecs: character controller, state interpolation, active ragdoll (Phase 17) | Solver internals |
+| 5 | `gameplay` | Game-facing runtime shell built on physics + collision + ecs: character controller, raycast vehicles with tire / drivetrain / LBM-drag coupling (Phase 17.4), state interpolation, active ragdoll (Phase 17) | Solver internals |
 | 6 | `oop` | The object-oriented baseline engine used only by comparative benchmarks | — |
 
 `harness` (tests/benches), `tests/`, `benchmarks/`, `examples/`, `experiments/`

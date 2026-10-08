@@ -393,6 +393,8 @@ build: all packages precompiled into build/
   xpbd same-budget max distance: 0.05000007152337331
   max CPU/GPU divergence after 60 steps: 4.863739013671875e-05
 [PASS] vbd_cloth - 6 / 6 checks
+--- tests/test_vehicle_drive.mojo ---
+[PASS] vehicle_drive - 62 / 62 checks
 --- tests/test_world.mojo ---
 [PASS] world - 15 / 15 checks
 --- tests/test_actor.mojo ---
@@ -663,6 +665,14 @@ build: all packages precompiled into build/
   heightfield candidates — outside 0.0  straddling 2.0
   valley — y 0.38409448  speed 0.0  up.y 0.9998728
 [PASS] trimesh - 18 / 18 checks
+--- tests/test_vehicle_aero.mojo ---
+  LBM Cd: boxy 6.2032742  streamlined 5.634494  frontal cells 66 66
+  top speed: boxy 51.099136  streamlined 53.499096
+[PASS] vehicle_aero - 25 / 25 checks
+--- tests/test_vehicle.mojo ---
+[PASS] vehicle - 88 / 88 checks
+--- tests/test_vehicle_wheel.mojo ---
+[PASS] vehicle_wheel - 133 / 133 checks
 --- tests/test_weld.mojo ---
   weld drift 0.009460454  ball drift 1.2818166  weld tilt 0.0022981346
   landed pair: gap 0.49982712 heights 0.24970783 0.2497141

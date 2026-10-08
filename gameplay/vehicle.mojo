@@ -464,6 +464,9 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
     ):
         """Apply this step's vehicle forces to the chassis (call before the
         scene's `step`). `poses` is `sc.query_poses()` of the same step."""
+        if not sc.bset.is_valid(self.chassis):
+            sc.counters.incr(VEHICLE_FORCE_DROPPED)  # the chassis was removed under us
+            return
         var ci = self.chassis.index()
         var q = sc.bset.bodies[ci].rotation()
         var pos = sc.bset.bodies[ci].position()
@@ -680,11 +683,10 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
             var s_y = -vy
             var kappa = s_x / den
             var tan_a = s_y / den
-            var locked = om == 0 and t_brake > 0
+            var locked = om == 0 and t_brake > 0  # a wheel the brake has stopped
             var bx = dt * (im_x + (Real(0) if locked else wheel_resp))
             var fx = solve_axis(self.cfg.tire, True, s_x, bx, s_y, den, mu_eff, ws.fz)
             if locked and abs(fx) * wc.radius > tb:  # the brake cannot hold the wheel against the road
-                locked = False
                 bx = dt * (im_x + wheel_resp)
                 fx = solve_axis(self.cfg.tire, True, s_x, bx, s_y, den, mu_eff, ws.fz)
             var fy = solve_axis(self.cfg.tire, False, s_y, dt * im_y, s_x - bx * fx, den, mu_eff, ws.fz)

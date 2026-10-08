@@ -117,7 +117,7 @@ def solve_axis(
     entirely]), so a stiff contact is solved instead of being stepped over.
     `other_s` is the slip velocity on the other axis (it shares the friction
     ellipse). When the tire cannot supply the force that brings the slip down to
-    its peak, the wheel keeps sliding and the force is the curve's value there.
+    its peak, the wheel keeps sliding and the root is found in the falling tail.
     """
     var sgn = Real(1) if a >= 0 else Real(-1)
     var aa = a * sgn
@@ -127,17 +127,15 @@ def solve_axis(
     var f_at_peak = _axis_force(tire, on_x, s_pk, other_s, den, mu_eff, fz)
     if b <= 1e-12:
         return sgn * _axis_force(tire, on_x, aa, other_s, den, mu_eff, fz)
-    var hi = aa / b
+    var hi = min(aa / b, mu_eff * fz * Real(1.01))  # the curve never exceeds mu Fz
     var lo = aa - s_pk
     lo = lo / b if lo > 0 else Real(0)
-    # slip after the force at `lo` is s_pk: if the tire cannot even supply `lo`
-    # there, the contact slides past the peak
+    # `lo` leaves the peak slip s_pk. If the tire cannot supply even that, the
+    # contact keeps sliding in the falling tail: the root lies below `lo`.
     if lo > f_at_peak:
-        var s = aa - b * f_at_peak
-        if s < s_pk:
-            s = s_pk
-        return sgn * _axis_force(tire, on_x, s, other_s, den, mu_eff, fz)
-    for _ in range(10):
+        hi = lo
+        lo = 0
+    for _ in range(12):
         var mid = (lo + hi) * 0.5
         var fm = _axis_force(tire, on_x, aa - b * mid, other_s, den, mu_eff, fz)
         if mid > fm:

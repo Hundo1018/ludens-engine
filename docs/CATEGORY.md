@@ -380,6 +380,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 凸分解演算法:階層軸平面切分(`SplitDecomposer`)vs 體素 k-means(`ClusterDecomposer`),同在 `ConvexDecomposer` trait 後 | geometry/convex_decomp.mojo | 兩者都是「體素集合 → 凸覆蓋」的函子,共同的可觀察定律是覆蓋(每個體素在某個凸塊內)與 narrowphase 一致(GJK / `hull_manifold` 對非擦邊探針給相同的命中 / 未命中);差別只在冗餘(excess)與成本 | `test_convex_decomp`(覆蓋 ≥ 0.999、excess ≤ 35 %、兩者體積差 ≤ 25 %、L / U 板 81 + 41 個非擦邊探針逐一一致、`hull_manifold` 對同一探針一致) | `bench_fracture`(L / U 板:零件數、excess、時間) |
 
+### 2.18 載具輪胎接觸(Phase 17.4,2026-10-09)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 輪-路接觸:單射線(`RayWheel`)vs 球掃(`SphereWheel`)vs 膠囊掃(`CapsuleWheel`),同在 `WheelCast` trait 後 | gameplay/vehicle_wheel.mojo | 三者都是「懸吊座 + 方向 → 輪心高度 / 接觸點 / 法向」的函子;共同的可觀察定律是在**平面路面**(平地、20° 斜坡、heightfield)上給相同的輪心距離、接觸點與法向(射線的輪心距離以 `t − R/cos` 修正坡度,所以與球掃在平面上精確相同);差別只在路面於一個輪半徑內**非平面**處——路緣、窄坑——掃描看得到邊緣,射線只看到安裝點正下方,測試把這個差異當作被斷言的行為而非容差 | `test_vehicle_wheel`(133:三變體平地 / 斜坡解析 / heightfield / 動態體 / 濾除 / 路緣差異 / 窄坑 / 牆邊回退 / 極端);`test_vehicle`(整車同一路徑:球掃 / 膠囊掃與射線在 1 % 內) | `bench_vehicle`(N 車 × 子步,三變體) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

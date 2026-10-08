@@ -158,4 +158,7 @@ struct CapsuleWheel(WheelCast):
             return WheelHit.miss()
         if h.start_solid and dot(h.normal, -down) < _SUPPORT_COS:
             return RayWheel().cast(cs, poses, mount, down, axle, reach, radius, half_width, f)
-        return WheelHit(True, h.body, h.t, h.point, h.normal)
+        # The capsule touches somewhere along the axle; the tire force acts on the
+        # wheel's centre plane, under the hub.
+        var centre = mount + down * h.t
+        return WheelHit(True, h.body, h.t, centre - h.normal * radius, h.normal)

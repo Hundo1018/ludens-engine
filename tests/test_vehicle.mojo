@@ -32,7 +32,7 @@ from gameplay.vehicle import (
     WheelConfig,
     spawn_chassis,
 )
-from gameplay.vehicle_wheel import RayWheel, SphereWheel
+from gameplay.vehicle_wheel import RayWheel, SphereWheel, CapsuleWheel
 from gameplay.vehicle_drive import DIFF_OPEN, DIFF_LSD
 
 comptime DT: Real = 1.0 / 60.0
@@ -378,6 +378,53 @@ def main() raises:
             dist_lsd = _pos(vx, scx)[0]
     s.check(dist_lsd > dist_open * 1.05, "diff: limited slip covers more ground than open on a split-mu road (" + String(dist_lsd) + " vs " + String(dist_open) + " m)")
 
+    # ---- seam at vehicle level: the same drive with each wheel cast ----
+    var xs = List[Real]()
+    for variant in range(3):
+        var scw = _road()
+        var cfgw = VehicleConfig()
+        var idw = spawn_chassis(scw, cfgw, Vec3(0, REST_Y, 0, 0))
+        if variant == 0:
+            var vw = Vehicle[RayWheel].attach(scw, idw, cfgw^, RayWheel())
+            _run(vw, scw, VehicleInput.idle(), 90)
+            _run(vw, scw, VehicleInput(0.7, 0, 0.3, 0), 240)
+            xs.append(scw.bset.bodies[idw.index()].pos[0])
+            xs.append(scw.bset.bodies[idw.index()].pos[2])
+        elif variant == 1:
+            var vw = Vehicle[SphereWheel].attach(scw, idw, cfgw^, SphereWheel())
+            for kk in range(330):
+                vw.update(scw, VehicleInput.idle() if kk < 90 else VehicleInput(0.7, 0, 0.3, 0), DT)
+                scw.step_soft(DT, G)
+            xs.append(scw.bset.bodies[idw.index()].pos[0])
+            xs.append(scw.bset.bodies[idw.index()].pos[2])
+        else:
+            var vw = Vehicle[CapsuleWheel].attach(scw, idw, cfgw^, CapsuleWheel())
+            for kk in range(330):
+                vw.update(scw, VehicleInput.idle() if kk < 90 else VehicleInput(0.7, 0, 0.3, 0), DT)
+                scw.step_soft(DT, G)
+            xs.append(scw.bset.bodies[idw.index()].pos[0])
+            xs.append(scw.bset.bodies[idw.index()].pos[2])
+    s.almost(Float64(xs[2]), Float64(xs[0]), "wheel-cast seam: sphere sweep drives the same path as the ray (x)", Float64(xs[0]) * 0.01)
+    s.almost(Float64(xs[4]), Float64(xs[0]), "wheel-cast seam: capsule sweep drives the same path as the ray (x)", Float64(xs[0]) * 0.01)
+    s.almost(Float64(xs[3]), Float64(xs[1]), "wheel-cast seam: sphere sweep, lateral", 0.05 + Float64(abs(xs[1])) * 0.01)
+    s.almost(Float64(xs[5]), Float64(xs[1]), "wheel-cast seam: capsule sweep, lateral", 0.05 + Float64(abs(xs[1])) * 0.01)
+
+    # ---- over a kerb the sweeps and the ray genuinely differ (documented) ----
+    var sck = _road()
+    _ = sck.add(_st(Vec3(30, 0.06, 0, 0)), Vec3(30, 0.06, 20, 0), True)  # a 12 cm raised road from x = 0
+    var cfgk = VehicleConfig()
+    var idk2 = spawn_chassis(sck, cfgk, Vec3(-6, REST_Y, 0, 0))
+    var vk = Vehicle[SphereWheel].attach(sck, idk2, cfgk^, SphereWheel())
+    sck.set_velocity(idk2, Vec3(6, 0, 0, 0), ZERO)
+    vk.sync_wheels(6)
+    var k_up = False
+    for _ in range(240):
+        vk.update(sck, VehicleInput(0.5, 0, 0, 0), DT)
+        sck.step_soft(DT, G)
+        if sck.bset.bodies[idk2.index()].pos[1] > REST_Y + 0.07:
+            k_up = True
+    s.check(k_up and vk.up_dot(sck) > 0.97 and sck.bset.bodies[idk2.index()].pos[0] > 10.0, "kerb: the sphere-cast car climbs a 12 cm kerb and keeps going")
+
     # ================= EXTREME =================
     # ---- rollover at very high grip ----
     var scv = _road(5.0)
@@ -415,7 +462,6 @@ def main() raises:
     cfga.aero = Aero.none()
     var va2 = _car(sca, cfga, Vec3(0, 40, 0, 0))
     sca.set_velocity(va2.chassis, Vec3(10, 0, 0, 0), ZERO)
-    var vx_air = Real(10)
     var om_max = Real(0)
     for _ in range(90):
         va2.update(sca, VehicleInput(1, 0, 0.5, 0), DT)
@@ -493,6 +539,14 @@ def main() raises:
     scn.bset.bodies[vn.chassis.index()].vel = nanv
     vn.update(scn, VehicleInput(1, 0, 0, 0), DT)
     s.check(scn.counters.get(VEHICLE_FORCE_DROPPED) >= 1, "non-finite state: counted, no force applied, no crash")
+
+    # ---- chassis removed under the controller ----
+    var scg = _road()
+    var vg = _car(scg, VehicleConfig(), Vec3(0, REST_Y, 0, 0))
+    scg.remove_body(vg.chassis)
+    var dropped0 = scg.counters.get(VEHICLE_FORCE_DROPPED)
+    vg.update(scg, VehicleInput(1, 0, 0, 0), DT)
+    s.check(scg.counters.get(VEHICLE_FORCE_DROPPED) == dropped0 + 1, "removed chassis: counted, no crash")
 
     # ---- configuration errors ----
     var bad = VehicleConfig()

@@ -14,7 +14,7 @@ curve with one point or none, a limited-slip with bias larger than the torque.""
 from harness.runner import Suite
 from std.math import sqrt
 from geometry.vec import Real
-from gameplay.vehicle_tire import TireCurve, TireModel
+from gameplay.vehicle_tire import TireCurve, TireModel, solve_axis
 from gameplay.vehicle_drive import (
     TorqueCurve,
     DriveConfig,
@@ -75,6 +75,43 @@ def main() raises:
     s.check(no_load[0] == 0 and no_load[1] == 0, "zero load gives no force")
     var huge = t.grip(1.0e6, -1.0e6, 1.0, 1000.0)
     s.check(huge[0] == huge[0] and huge[1] == huge[1] and abs(huge[0]) <= 1000.0 and abs(huge[1]) <= 1000.0, "absurd slip stays finite and bounded")
+
+    # ---- implicit axis solve ----
+    var den = Real(0.25)
+    s.almost(Float64(solve_axis(t, True, 0, 1e-3, 0, den, 1.0, 1000.0)), 0.0, "solve: no slip, no force", 1e-9)
+    s.almost(Float64(solve_axis(t, True, 0.1, 1e-3, 0, den, 1.0, 0.0)), 0.0, "solve: no load, no force", 1e-9)
+    var explicit = t.grip(0.1 / den, 0, 1.0, 1000.0)[0]
+    s.almost(Float64(solve_axis(t, True, 0.1, 1e-12, 0, den, 1.0, 1000.0)), Float64(explicit), "solve: no response = the explicit curve", 0.5)
+    var worst_res = Real(0)
+    var worst_mu = Real(0)
+    for i in range(1, 40):
+        var a = Real(i) * 0.05
+        for bi in [Real(1e-6), Real(1e-5), Real(1e-4), Real(1e-3)]:
+            var f = solve_axis(t, True, a, bi, 0.02, den, 1.0, 1000.0)
+            var slip1 = a - bi * f
+            if slip1 > t.long_peak * den:  # on the rising branch the fixed point must hold
+                continue
+            var f2 = t.grip(slip1 / den, 0.02 / den, 1.0, 1000.0)[0]
+            worst_res = max(worst_res, abs(f - f2))
+            worst_mu = max(worst_mu, abs(f))
+    s.check(worst_res < 12.0, "solve: F = Grip(a - bF) holds on the low-slip branch (worst residual " + String(worst_res) + " N)")
+    s.check(worst_mu <= 1004.0, "solve: never beyond mu Fz")
+    s.almost(Float64(solve_axis(t, True, -0.3, 1e-4, 0.0, den, 1.0, 1000.0) + solve_axis(t, True, 0.3, 1e-4, 0.0, den, 1.0, 1000.0)), 0.0, "solve: odd in the slip", 1e-3)
+    var sticky = solve_axis(t, True, 0.01, 1e-4, 0.0, den, 1.0, 1000.0)
+    s.check(sticky > 40.0 and sticky < 100.0, "solve: a stiff contact sticks (force " + String(sticky) + " N, slip mostly cancelled)")
+    var sat = solve_axis(t, True, 20.0, 1e-4, 0.0, den, 1.0, 1000.0)
+    s.check(sat > 400.0 and sat < 1004.0, "solve: a spinning wheel gets the sliding level (" + String(sat) + " N)")
+    var mono = True
+    var prevf = Real(0)
+    for i in range(1, 40):
+        var f = solve_axis(t, True, Real(i) * 0.002, 5e-5, 0.0, den, 1.0, 1000.0)
+        if f + 1e-3 < prevf:
+            mono = False
+        prevf = f
+    s.check(mono, "solve: more slip, never less force below the peak")
+    s.almost(Float64(solve_axis(t, True, 0.1, 1e-3, 0, 1e-9 + den, 0.0, 1000.0)), 0.0, "solve: mu 0, no force", 1e-9)
+    var lat_f = solve_axis(t, False, 0.2, 1e-4, 0.0, den, 1.0, 1000.0)
+    s.check(lat_f > 0 and lat_f <= 1004.0, "solve: lateral axis works the same way")
 
     # ---- torque curve and gearbox ----
     var tc = TorqueCurve.sedan()
