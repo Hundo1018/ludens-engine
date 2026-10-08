@@ -1,4 +1,4 @@
-# tier: unit
+# tier: unit  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 """The unified constraint solver, and the friction cone it exposes as a seam.
 
 Most of this file is ordinary: each constraint kind gets a case where the

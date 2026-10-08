@@ -33,6 +33,7 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, dot, length, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
+from numerics.dense import solve_dense
 from physics.chain import Chain, ChainLink, SpInertia
 
 
@@ -85,8 +86,9 @@ struct FloatingChain(Movable, Deinitable):
         return SpInertia.of_link(self.base_mass, self.base_com, self.base_idiag)
 
     def _sync(mut self):
-        self.chain.base_w = self.base_w
-        self.chain.base_v = self.base_v
+        """Hand the chain the base velocity; accelerations are zero except
+        inside the unit-acceleration assembly, which sets them itself."""
+        self.chain.set_base_motion(self.base_w, self.base_v)
 
     def mass_matrix(mut self) raises -> List[Real]:
         """The (6+n)x(6+n) inertia, row-major, ordered [angular, linear, q].
@@ -113,14 +115,14 @@ struct FloatingChain(Movable, Deinitable):
         for _ in range(d * d):
             h.append(0)
 
+        var zero3 = Vec3(0, 0, 0, 0)
         var save_w = self.base_w
         var save_v = self.base_v
         var save_qd = self.chain.qd.copy()
-        self.base_w = Vec3(0, 0, 0, 0)
-        self.base_v = Vec3(0, 0, 0, 0)
+        self.base_w = zero3
+        self.base_v = zero3
         for i in range(nn):
             self.chain.qd[i] = 0
-        self._sync()
 
         var ib = self._base_inertia()
         for k in range(d):
@@ -145,8 +147,7 @@ struct FloatingChain(Movable, Deinitable):
                 )
             else:
                 qdd[k - 6] = 1
-            self.chain.base_wa = aw
-            self.chain.base_va = av
+            self.chain.set_base_motion(zero3, zero3, aw, av)
             var r = self.chain.rnea_root(qdd, Vec3(0, 0, 0, 0))
             var tau = r[0].copy()
             var fw = r[1]
@@ -161,12 +162,10 @@ struct FloatingChain(Movable, Deinitable):
             for j in range(nn):
                 h[(6 + j) * d + k] = tau[j]
 
-        self.chain.base_wa = Vec3(0, 0, 0, 0)
-        self.chain.base_va = Vec3(0, 0, 0, 0)
         self.base_w = save_w
         self.base_v = save_v
         self.chain.qd = save_qd^
-        self._sync()
+        self._sync()  # restores the base velocity and zeroes the accelerations
         return h^
 
     def bias(mut self, gravity: Vec3) raises -> List[Real]:
@@ -176,13 +175,11 @@ struct FloatingChain(Movable, Deinitable):
         here, which is what keeps the free-fall case exact: a body with no
         joints has an identically zero bias, so nothing can perturb the g that
         the shift puts back."""
-        self._sync()
+        self._sync()  # base velocity in, accelerations zero
         var nn = self.n()
         var qdd = List[Real]()
         for _ in range(nn):
             qdd.append(0)
-        self.chain.base_wa = Vec3(0, 0, 0, 0)
-        self.chain.base_va = Vec3(0, 0, 0, 0)
         var r = self.chain.rnea_root(qdd, Vec3(0, 0, 0, 0))
         var tau = r[0].copy()
         var fw = r[1]
@@ -234,7 +231,7 @@ struct FloatingChain(Movable, Deinitable):
                     h[r * d + cc] = Real(1) if r == cc else Real(0)
                 rhs[r] = 0 if r < 3 else -g_body[r - 3]
 
-        var x = Chain.solve_h(h^, rhs^, d)
+        var x = solve_dense(h^, rhs^, d)
         # undo the shift: the solve returned a_base - g
         for j in range(3):
             x[3 + j] = x[3 + j] + g_body[j]

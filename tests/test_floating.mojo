@@ -1,4 +1,4 @@
-# tier: component
+# tier: component  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 """A floating base, gated on the things a fixed base can never test.
 
 Three gates carry this file.

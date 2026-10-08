@@ -1,4 +1,4 @@
-# tier: component
+# tier: component  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 """Actuators: the affine force law, the transmission, and the internal lag.
 
 The servo checks are the important ones and they are deliberately checks of

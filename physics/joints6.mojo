@@ -15,6 +15,7 @@ comptime JOINT_BALL = 0
 comptime JOINT_DISTANCE = 1
 comptime JOINT_HINGE = 2
 comptime JOINT_BROKEN = 3  # ROADMAP 17.29: overloaded and released; solved by nothing
+comptime JOINT_WELD = 4  # ROADMAP 17.5: ball + full 3-axis angular lock (rigid bond)
 
 
 @fieldwise_init
@@ -54,6 +55,23 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
             JOINT_HINGE, a, b, la, lb, 0,
             axis, axis, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
         )
+
+    @staticmethod
+    def weld(a: Int, b: Int, la: Vec3, lb: Vec3, ref_rel: Quat) -> Self:
+        """Rigid bond (ROADMAP 17.5): anchors coincide AND the relative
+        rotation stays `ref_rel` (= rotation(a)^-1 * rotation(b) at the time
+        the bond is made). The reference quaternion rides in the fields a
+        weld does not otherwise use -- `axis_a` = (x, y, z), `rest` = w -- so
+        the struct layout and the snapshot format are unchanged."""
+        return Self(
+            JOINT_WELD, a, b, la, lb, ref_rel.w,
+            Vec3(ref_rel.x, ref_rel.y, ref_rel.z, 0), Vec3(0, 0, 1, 0),
+            Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+        )
+
+    def ref_rotation(self) -> Quat:
+        """The weld's reference relative rotation (see `weld`)."""
+        return Quat(self.axis_a[0], self.axis_a[1], self.axis_a[2], self.rest)
 
 
 
@@ -194,6 +212,40 @@ def joint_sweep[B: Body6](
                             wa = bset.bodies[jt.a].omega_world()
                         if bset.moves(jt.b):
                             wb2 = bset.bodies[jt.b].omega_world()
+                elif jt.kind == JOINT_WELD:
+                    # angular lock about the three world axes. `er` is the
+                    # rotation vector by which b leads its reference pose
+                    # rotation(a) * ref (`drive_error` points the other way).
+                    var er = drive_error(
+                        bset.bodies[jt.a].rotation(),
+                        bset.bodies[jt.b].rotation(),
+                        jt.ref_rotation(),
+                    ) * Real(-1)
+                    for k in range(3):
+                        var ax = Vec3(0, 0, 0, 0)
+                        ax[k] = 1
+                        var den = Real(0)
+                        if bset.is_dynamic(jt.a):
+                            den += bset.bodies[jt.a].angular_only_factor(ax)
+                        if bset.is_dynamic(jt.b):
+                            den += bset.bodies[jt.b].angular_only_factor(ax)
+                        if den <= 0:
+                            continue
+                        var wa = Vec3(0, 0, 0, 0)
+                        var wb2 = Vec3(0, 0, 0, 0)
+                        if bset.moves(jt.a):
+                            wa = bset.bodies[jt.a].omega_world()
+                        if bset.moves(jt.b):
+                            wb2 = bset.bodies[jt.b].omega_world()
+                        var vr = dot(wb2 - wa, ax)
+                        var bias = bias_rate * er[k] if use_bias else Real(0)
+                        var dl = -ms * (vr + bias) / den - isc * jt.acc_ang[k]
+                        jt.acc_ang[k] += dl
+                        var limp = ax * dl
+                        if bset.is_dynamic(jt.a):
+                            bset.bodies[jt.a].apply_angular_impulse(-limp)
+                        if bset.is_dynamic(jt.b):
+                            bset.bodies[jt.b].apply_angular_impulse(limp)
             joints[c] = jt
 
 
@@ -212,11 +264,11 @@ def warm_start_joints[B: Body6](
         var pwb = bset.bodies[jt.b].act(jt.lb)
         if bset.is_dynamic(jt.a):
             bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
-            if jt.kind == JOINT_HINGE:
+            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD:
                 bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
         if bset.is_dynamic(jt.b):
             bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
-            if jt.kind == JOINT_HINGE:
+            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD:
                 bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
 
 

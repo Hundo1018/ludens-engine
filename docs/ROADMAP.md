@@ -20,6 +20,13 @@
 > **重整(2026-07-22):物理演算法核心已達競爭級 —— 焦點轉向「接線 + 表現力 +
 > gameplay/程序化基礎 + 分離的外殼」。** 前瞻路線見下方 [前瞻路線總覽](#前瞻路線總覽2026-07-22-重整)
 > (Phase 7–12)。
+>
+> **狀態(2026-10-09):Wave A / B 全數交付;Wave C 進行到一半後暫停(使用者指示)。**
+> 本輪完成 17.0 F12(`f308a05`,架構前置全數收尾)、17.5 破壞 / 破碎(`422589c`..`28e4ca3`)、
+> 17.4 載具(`b9bd0fd`、`988a11a`)。**平台整合方向拍板 = C(被宿主引擎嵌入的模擬函式庫,
+> RL 平台次要)**(`a93c53d`),解開 17.16 / 17.21 的 gating。剩餘依序:17.14 導航 → 17.15 AI →
+> 17.16 rollback → 12.1 C-ABI → 17.21 Python 綁定 → 17.17 GPU articulation → 17.8 大世界座標;
+> 編輯器相關的 17.12 / 17.43 不排。見 [Phase 17 建議順序](#phase-17-建議順序) 的 2026-10-09 修訂。
 
 ---
 
@@ -792,6 +799,11 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 >   天真做法會轉一整圈;三種模式的偏差都是 0.0)。
 
 ## Phase 12 — 腳本層(架構分離,獨立層)⏸ gated
+> **決定(2026-10-09,使用者)**:平台方向 = **C(被宿主引擎嵌入的模擬函式庫)**。12.1 core embedding
+> 邊界宣告 **v0.x 凍結**,以 C-ABI 共享庫提供給宿主;12.2 先做 **Python 綁定**,hot reload
+> (experiment 分支 H1–H6、R1/R2)之後再接。**修正本節「不入核心 repo」**:Python 綁定是腳本層,
+> 放核心 repo 的最上層獨立套件;其測試須**環境隔離** —— 建出的擴充模組以客戶端方式安裝進乾淨環境
+> (不用 repo 的 `-I build` / repo 路徑)再測,確保客戶端實際可用。落地見 17.21。
 
 > **架構分離定律(使用者明令)**:核心 API 仍在演進 → 腳本層**不入核心 repo**,以獨立
 > 層/repo 綁定;本階段**先定邊界**,實作 gated on **核心 API 凍結 + 使用者確認**。
@@ -924,6 +936,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 接觸數與解析度無關)+ bench row。**相依**:8.1(narrowphase 接線的既有路徑)。
 
 ### 13.9 批次多世界步進 — ⏸ 決策點(與平台整合綁定)
+> **決定(2026-10-09)**:平台方向 C 為主、RL 平台(B)為次要;批次能力以 17.18(可微子集上的
+> `BatchReal[W]`)為現行落點,完整 solver6 批次隨 B 的需求再擴。
 > **狀態**:**不排入實作,先標記** —— 這是 MJX / MJWarp 提供的能力,而使用者明令
 > MuJoCo 特定實作不入路線;但「多個獨立世界一起步進」是**通用 RL 需求**而非 MuJoCo 專屬。
 > **與被排除項的關係**:實作方式(SoA 批次 vs 多執行緒多世界 vs GPU 批次)取決於
@@ -1334,7 +1348,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 收尾 → 合流為「可微批次模擬」主打(都接 4.2 reverse tape);17.17 GPU 剛體的 parity
 > 基準用 6.11 colored CPU 版;17.8 f64 會重觸 16.3 的 Vec3 重構 → 排 Wave C 末;
 > **17.12 / 17.16 的傳輸層與檔案格式 gated on 平台整合方向**(同 13.9、同 Phase 13 排除
-> MJCF/URDF 之因:格式綁定先於技術)。
+> MJCF/URDF 之因:格式綁定先於技術)。**2026-10-09 已拍板 = C**:傳輸層交宿主、場景格式跟宿主走
+> (glTF / USD),不自訂格式。
 
 ### 編輯器邊界分類(2026-09-30,使用者指示)
 
@@ -1350,7 +1365,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | 領域 | 條目 | 狀態 |
 |---|---|---|
 | GA 數學 / 數值 | Phase 1(manifold、screw、Lie 積分器)· 15.1 稀疏線代 · 15.3 comptime 伴隨 · 10.1 exact predicates | ✅ |
-| 剛體 solver | Phase 2 · 6.2 恢復係數 · 6.3 形狀 · 6.5 / 6.11 島平行 · 7.2 寬相 · 9.1–9.4 · 17.0 · 17.23–17.25 · 17.26 · 17.29 | ✅(17.0 剩 F12) |
+| 剛體 solver | Phase 2 · 6.2 恢復係數 · 6.3 形狀 · 6.5 / 6.11 島平行 · 7.2 寬相 · 9.1–9.4 · 17.0 · 17.23–17.25 · 17.26 · 17.29 | ✅ |
 | 碰撞 / 幾何 | 2.3 · 4.1 CCD · 7.1 SAH · 8.1 凸包 · 8.2 mesh / heightfield · 13.8 SDF · 17.13 查詢 · 17.30 地形變形 | ✅ |
 | 關節體 / 機器人 | 6.4 / 6.8 / 6.12 · 13.1–13.6 | ✅ |
 | 軟體 / 布料 / 繩 | 6.1 · 6.6–6.9 · 15.2 · 4.3 VBD · 17.41 | ✅ |
@@ -1363,7 +1378,9 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | 程序化 | 11.1 noise | ✅ |
 | 診斷(headless) | 17.33 斷言 / 不變量 · 17.0h NaN 隔離 + 計數器 | ✅ |
 | 決定論 | 6.10 快照 · 17.39 回放 · 17.40 存檔 | ✅ |
-| **未做** | 17.4 載具 · 17.5 破壞 · 17.8 大世界座標 · 17.16 網路 / rollback(模擬側;傳輸層 gated) | ⬜ |
+| 破壞 / 破碎 | 17.5 凸分解 · Voronoi 預切 · 執行期切割 · 鍵結斷裂 | ✅ |
+| 載具 | 17.4 raycast 懸吊 · 輪胎 slip 曲線 · 引擎 / 變速 / 差速 · LBM Cd 餵回車體 | ✅ |
+| **未做** | 17.8 大世界座標 · 17.16 網路 / rollback(rollback 核心 + 預測 seam + 給宿主的 byte payload;傳輸交宿主)· 12.1 C-ABI 嵌入邊界 | ⬜ |
 | **未做,但資產面偏重** | 17.14 導航(bake 可由幾何自動完成,off-mesh link / 區域標記以 API 指定)· 17.15 AI(BT / utility 以程式碼組樹) | ⬜ |
 
 > 後兩列在無編輯器時**仍可完整使用**(自動烘焙、程式碼建樹),只是手工 authoring 不便;
@@ -1374,7 +1391,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | 編輯器需要的能力 | 核心提供者 | 狀態 |
 |---|---|---|
 | Inspector:按名稱列出 / 讀寫任意型別的欄位 | 17.11 `TypeSchema` / `TypeRegistry` | ✅(非純資料型別未在編譯期擋) |
-| 場景 / prefab / 實例覆寫的**可編輯、可 diff 資產格式** | 17.12 | ⏸ **gated —— 編輯器的最大缺口** |
+| 場景 / prefab / 實例覆寫的**可編輯、可 diff 資產格式** | 17.12 | ⬜ **編輯器的最大缺口**(gating 已解:跟宿主格式;本輪不排) |
 | 視窗疊圖 / gizmo 的繪圖來源(接觸點、AABB、island 顏色) | 17.9 `DrawQueue` | ✅ |
 | 滑鼠點選物件(picking) | 17.13 raycast / shapecast | ✅ |
 | 跨存讀穩定的物件身分(選取、參照不因重載失效) | 17.0g `BodyId` · ECS entity id · 3.3 relationships(階層 / outliner) | ✅ |
@@ -1384,17 +1401,17 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | 時間軸拖動 / 回看模擬 | 17.39 `seek` / `first_divergence` | ✅ |
 | Profiler 面板 | 17.10 trace(Chrome trace 匯出) | ✅(runtime 開關待辦) |
 | Console / log 面板 | 17.32 分級日誌 | ✅ |
-| Live 參數調校、CVar、hot-reload | 17.21 | ⏸ gated(Phase 12) |
+| Live 參數調校、CVar、hot-reload | 17.21 | ⬜ gating 已解(2026-10-09):先 Python 綁定,hot reload 後接 |
 | 動畫圖 / BT / navmesh 的**節點圖存檔** | 17.6 · 17.15 · 17.14 → 皆經 17.12 的資產格式 | 17.6 ✅(僅程式碼定義)· 其餘 ⬜ |
 | 曲線 / 路徑的控制點編輯 | 17.36 樣條(控制點資料模型) | ✅ |
-| 資產匯入(glTF / USD) | 17.12 對照組所列 | ⬜(gated,同 17.12) |
+| 資產匯入(glTF / USD) | 17.12 對照組所列 | ⬜(同 17.12;平台方向 C 下為主要場景來源) |
 
 #### (III) 編輯器本體(不在本 repo,僅為劃界)
 視窗 / 相機導覽、gizmo 拖曳、inspector 與 outliner 面板、節點圖編輯器 UI、資產瀏覽器、
 undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以獨立層 / repo 建在 (II) 之上。
 
-> **結論**:(I) 除 Wave C 的 6 項外都已交付;(II) 的 15 項中 10 項已在核心就緒,
-> 真正擋住外部編輯器的是 **17.12 場景 / prefab 格式(gated)** 與 **17.43 undo 交易層**,
+> **結論(2026-10-09 更新)**:(I) 除 17.8 / 17.14 / 17.15 / 17.16 與 12.1 外都已交付;(II) 的 15 項中 10 項已在核心就緒,
+> 真正擋住外部編輯器的是 **17.12 場景 / prefab 格式** 與 **17.43 undo 交易層**,
 > 其次是 17.21 的 live 調校。
 
 ---
@@ -1417,7 +1434,7 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > | 17.0h | 錯誤政策落地到 Wave A 會碰的 API:邊界 `raise`(`add*` / `add_joint` / `step_soft` 參數 / `TriMesh` / `HeightField`)、步末 NaN 隔離 + `diag` 計數器 + 注入 NaN 的測試 | F10 |
 > | 17.0i | 執行期容器 `gameplay/runtime.mojo`(擁有 `World + ContactScene6 + FixedLoop` 與位姿→transform 同步):17.1 / 17.7 需要的「有狀態執行期」目前無處可放 | F15 |
 >
-> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;**單一 device context 擁有者 ✅ 2026-09-29(17.17)**:引擎內不再有 `DeviceContext()`,`gpu_cloth_run` / `gpu_vbd_run` 包裝移除,測試自持 context;FSM 移動已於 17.0c 完成;剩 `chain` 稠密解移 `numerics` + 地面接觸走 `ColliderSet`(17.2 前)):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
+> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;**單一 device context 擁有者 ✅ 2026-09-29(17.17)**:引擎內不再有 `DeviceContext()`,`gpu_cloth_run` / `gpu_vbd_run` 包裝移除,測試自持 context;FSM 移動已於 17.0c 完成;**F12 `chain` 稠密解移 `numerics`(`numerics/dense.mojo`: `solve_dense` / `solve_dense_checked`)+ 地面接觸走 `ColliderSet`(`Chain.resolve_contacts` 經 `collision.world_query.nearest_surface`)+ `FloatingChain` 改走公開 `Chain.set_base_motion` ✅ 2026-10-08 `f308a05`**,身分閘門 golden 既有各段逐位相同,設計筆記 `docs/design/17.0-f12-chain.md`;17.0 架構前置至此全數完成):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
 > **已刪除(2026-09-29,使用者決定)**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)連同只為它存在的 `test_physics_dynamics`、`test_physis`、`bench_physics`、`examples/20_contact_solver_2d.mojo` 一併移除(範例編號 20 留空)。`CollisionPipeline`(collision 層)保留,現在只由其測試使用;`ContactSolver` 2D seam 列自 CATEGORY §2 移除。`BENCHMARK_REPORT.md` 是產生物,其中的 2D 接觸求解器段落要到下次重新產生才會消失。
 > **驗收閘門(重構類)**:行為不變的重構以「全套測試 stdout 逐位相同(去除計時行)」為身分閘門,不是只看綠燈。
 
@@ -1480,6 +1497,13 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **交付**:接 solver6 + queries;普通(平地加速煞車)/ 整合(斜坡、跳台落地、多車)/
 > 極端(翻車、車輪懸空、極低 / 極高摩擦、瞬移)。
 
+> **進度:✅ 2026-10-09** 車是真的 `ContactScene6` 動力學體(一個會碰撞、翻車、睡眠的盒),輪子不是剛體——每步在 `scene.step` 前由 `gameplay/vehicle.mojo` 的 `Vehicle.update` 以 impulse 施力(經 `Body6.apply_impulse`,不繞過 solver6),查詢走 `collision.world_query`(射線 / 球掃 / 膠囊掃)。**檔案**:`vehicle.mojo`(`Vehicle[W]` / `VehicleSet` / `VehicleConfig` / `Aero`)、`vehicle_wheel.mojo`(seam)、`vehicle_tire.mojo`(輪胎)、`vehicle_drive.mojo`(引擎 / 變速 / 差速)、`vehicle_tunnel.mojo`(LBM 風洞);`diag` 新計數器 `VEHICLE_FORCE_DROPPED`。**懸吊**:彈簧 + 壓縮 / 回彈雙速阻尼 + bump stop + 防傾桿;阻尼力以隱式上限截斷(不能在一步內反轉相對速度)。**輪胎**:正規化 Pacejka「magic formula」(B,C,E 三個數,峰值位置數值定位後除掉,峰在 slip 比 0.125、鎖死剩 69 %),縱向 / 側向各以自己的峰值 slip 正規化後取向量模長,等於**摩擦橢圓**(煞車中轉向會損失側向抓地,任何方向的力都不超過 μFz);μ 以地面 body 的 `friction`(17.23)相對 solver 預設 0.5 縮放,地面 μ = 0 就完全沒有抓地。**輪胎力是隱式解的**:`F = Grip(a − bF)`(a = 無輪胎力時步末的滑移速度,b = 一牛頓使其減少多少,縱向含輪的轉動慣量),`solve_axis` 在曲線上升支上二分求不動點,所以停在斜坡上不需要先蠕動、剎死的輪不會被路面轉動(顯式模型在低速需要 `dt·μFz·R²/(I·κp·v) < 2`,低速時差 100 倍)。滑移以「重力作用這一步後」的速度計算,因此 15° 斜坡上煞車保持 4 秒移動 < 0.15 m。**所有輪讀同一個步初底盤狀態、impulse 加總後一次施加**(逐輪施加會讓第一個輪改變下一個輪看到的 slip——量到左右輪側向力正負交替)。**傳動**:分段線性扭矩曲線、離合在起步轉速打滑、紅線斷油、收油門引擎煞車、自動變速(遲滯 + 換檔時間扭矩歸零)、倒檔由「往後油門 + 低速」選取、FWD / RWD / AWD(中央扭矩比),軸差速 **開放 / 限滑(預載 + 速差鎖定,封頂)/ 鎖死**(皆守恆軸扭矩)。**輔助**:ABS(煞車扭矩上限 0.95·μFzR,輪不鎖)與循跡控制(驅動扭矩上限 0.9·μFzR)可關。**空氣動力**:`Aero`(ρ、Cd、迎風面積、Cl、風)阻力 `½ρCdA|v|v` 與下壓力,阻力一步最多把相對風速減到 0。
+> **LBM 耦合(差異化)**:`vehicle_tunnel.car_cd(CarShape)` 在 `fluid.lbm` 風洞(動量交換測力,14.4)跑一個體素車,回傳時間平均 Cd;`scaled_cd` 對已知參考車校準後交給 `Aero.from_cd`。實測(48×24×24,Re≈35,800 步取後 200 步平均):磚形 Cd(格子)**6.20**、斜引擎蓋 + 船尾 **5.63**(−9.2 %,迎風面積同為 66 格),校準磚 = 0.45 → 流線 0.409;帶入同推力(1800 N)的車,模擬極速 **51.8 → 54.2 m/s**(預測 52.3 → 54.9;比例 √(Cd 比) 在 2.5 % 內)。**誠實的限制**:格子 Re 與路上車差 4 個數量級、階梯體素、無地面,所以**絕對 Cd 是格子數,可信的是形狀排序與接線**;高解析度 / GPU 風洞(`lbm_gpu`)的 Cd 可原樣接入。
+> **seam**:`WheelCast` trait(`RayWheel` / `SphereWheel` / `CapsuleWheel`,編譯期選擇 `Vehicle[W]`)。`tests/test_vehicle_wheel.mojo` 133/133:平地、20° 斜坡(對解析的輪心高度 `h = 安裝高 − 坡高 − R/cos` 在 3 mm 內)、heightfield 三變體輪心距離 / 接觸點 / 法向相同(< 2–6 mm);**差異被當成行為斷言**:12 cm 路緣前 0.1 m 處射線仍看見低路面而球掃騎上邊緣(輪心較高),窄 10 cm 坑射線落入(在行程內找不到路面 = 懸空)而掃描橋過;牆貼著輪胎時掃描回退成射線,不會讓牆擋住下方路面。整車層級:同一段 330 步的加速 + 轉向,球掃 / 膠囊掃終點與射線差 < 1 %。`bench_vehicle`(N 車 × 步,`VehicleSet` 共用一份 pose 列表):**射線 13.6 µs / 球掃 13.7 µs / 膠囊掃 23.0 µs 每車步**(N = 1),N = 128 時 19.5 / 24.2 / 28.1 µs——**投射不是主要成本**(平面上的球掃兩步就收斂),輪胎隱式解與線性的碰撞體前置過濾才是;每車成本隨車隊上升是因為每個輪查詢都掃全部碰撞體(同 world_query)。
+> **測試**(新增 4 檔,全過):`test_vehicle_drive` 62(輪胎曲線歸一化 / 奇函數 / 單峰 / 摩擦橢圓上界;`solve_axis` 不動點殘差 < 12 N、奇對稱、剛接觸會黏、旋轉輪取滑動值;扭矩曲線內插與截止、檔位比、轉速 / 紅線 / 引擎煞車;三種差速守恆軸扭矩、限滑封頂、不反轉較快輪的扭矩)、`test_vehicle_wheel` 133、`test_vehicle` 88(**普通**:停車胎載和 = 車重 ±120 N、停車 5 秒不爬行;全油門 6 秒 > 22 m/s、直行 z < 0.3 m、換檔、不傾斜;**煞車距離 21.0 m(理想 v²/(2μg) = 20.4 m)**,ABS 勝鎖死,峰值減速 1.12 g;煞車距離隨 v² 縮放;穩態轉向半徑對自行車模型(容許不足轉向);倒車 / 倒檔切換;手煞。**整合**:15° 斜坡煞車保持、無煞車滾下、20° 爬坡、2 m 落下(底盤從未碰路,最低 y > 0.42,回到同一車高 ±2 cm)、坡道跳台(滯空 > 15 幀、落地四輪直立)、追撞(動量共享 50–120 %)、推木箱、開上動態木板(輪回報板為地面、板不被壓穿)、四車 `VehicleSet`、起伏 heightfield 穿越 25 m+、分裂 μ 路面限滑勝開放。**極端**:μ_eff = 10 高速急轉**翻車**(最小 up = −0.98;之後靜止)、車頂朝下(0 接地、輪胎力恰為 0、不穿路)、四輪懸空(自由落體 −14.7 m/s、水平速度不變、轉速受紅線限制、未驅動輪經軸承摩擦減速)、μ = 0(油門空轉、煞車轉向無效、TC 在 μ=0 時削扭矩不空轉)、μ = 100(停車 11.2 m、減速 2.2 g 由煞車扭矩決定)、瞬移(無速度尖峰、無被丟棄的力;瞬移進路面內被推出後在 0.7 m 車高穩住)、底盤速度非有限(計數、不施力、不 crash)、底盤被移除(計數)、錯誤設定 raise)、`test_vehicle_aero` 25(力律;滑行對解析律 0.35 m/s 內;下壓力;三個 Cd 的極速對 `推力 = ½ρCdAv² + 滾阻` 在 6 % 內且單調;LBM 磚 vs 流線 Cd;Cd = 0、Cd = 1000 只停不倒車)。
+> **決定**:forward = +X、up = +Y、right = +Z;輪胎力作用在路面往輪心 70 % 高度處(`tire_force_lift`,減少每牛頓側向力造成的車身側傾);底盤用 `Never sleep`;打滑保護以重力預測(`VehicleConfig.gravity` 須與場景重力一致);開放差速的近似(見待辦);不實作約束式車輪。
+> **待辦**:開放差速目前是「平分扭矩」,真開放差速兩輪扭矩被抓地較差的輪限制(分裂 μ 路面上抓地輪應被一併削弱,現在只有限滑勝過開放這一個比較);Ackermann 轉向、前束 / 外傾;輪的非懸吊質量(輪是運動學的);車輛狀態(輪速、檔位、轉向角)未入快照(同 17.29);拖車 / 多軸 > 2 輪每軸;進階輪胎(鬆弛長度、溫度、載重敏感度);`CapsuleWheel` 的接觸點固定在輪中央平面下(側緣接觸只影響法向);引擎轉動慣量(換檔時 rpm 瞬變)。
+
 ### 17.5 破壞 / 破碎 — Wave C
 > **現況**:無破壞 / 破碎能力。凸包這一塊的前置已備妥:2D `geometry/quickhull.mojo`
 > 與 3D `collision/hull.mojo`(`HullShape` + `_prune_interior`)都已接進 narrowphase
@@ -1494,6 +1518,13 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **交付**:凸分解 → 預切破碎 → 執行期切割;
 > 普通(牆被打穿)/ 整合(碎片與既有剛體 / 軟體碰撞、落進 island sleep)/
 > 極端(退化三角、共面、單一碎片、一次切上千片)。
+
+> **進度:✅ 2026-10-08** 全鏈接進真路徑(碎片是 `ContactScene6` 的 hull 剛體,不是旁路)。**幾何**(`geometry/`):`polytope.mojo`(float64 閉合三角網的凸多面體:增量凸包、平面切分、體積 / 質心 / 慣量、接縫面積 / 中心;切分按邊鍵建新頂點,兩側共用同一索引故 watertight;`simplified` 只留真角點,否則 Voronoi 胞切十幾刀後可達數千個共線點)、`convex_decomp.mojo`(體素化 + **`ConvexDecomposer` seam 兩個變體**:`SplitDecomposer` 階層軸平面切分、`ClusterDecomposer` 體素 k-means)、`fracture_cut.mojo`(Voronoi 預切——精確鄰居剪枝:切面距離 `|sj-si|/2` 小於胞半徑才可能有影響,所以先切最近 12 個再只切 2R 內的;`cut_by_planes` 多平面執行期切;胞的切面帽帶鄰居 seed 為標籤)。**物理**(`physics/`):`JOINT_WELD`(ball + 三軸角鎖,參考相對旋轉寄存在 `axis_a` / `rest`,結構與快照格式不變;3D 場景原本只有 ball / distance / hinge)、焊接中的兩體不互相碰撞(斷開後下一步恢復);`fracture.mojo` 的 `FractureSet`:`spawn`(碎片 → `add_hull`,質量 / 慣量取自多面體)、`bond_neighbors`(共享 Voronoi 面 → 焊接,斷裂力 = `stress × 接縫面積`,下限 `floor_g` 倍較輕塊的重量,否則碎屑面一受重力就剪斷)、`bond_overlapping`(凹體分解零件間以 AABB + GJK 找重疊)、`anchor`(腳底焊到地面)、`poll`(掃描鍵結狀態,每個斷裂恰好回報一次,`FractureEvent`,可轉送 `scheduler.events.Channel`)、`enforce_budget`(游離碎片超額時先移睡眠的、再小的,記入新計數器 `FRAGMENT_EVICTED`)、`cut_fragment` / `cut_fragment_planes` / `replace_fragment`(執行期切:碎片換成切片,繼承父體速度場 `v + w × r`,父體每個關節重新錨到含該錨點的切片)。島 / 睡眠無需專碼:鍵結結構是一個島,整塊睡、整塊醒;碎裂後是許多小島。
+> **順帶修掉的引擎缺陷(前置,量到才發現)**:任意形狀的 hull 落地會沉進地板——基準 72 塊 Voronoi 碎片從 2 cm / 1 m 落下,48–49 塊沉超過 2 cm、20–22 塊超過 10 cm、只有 18 塊入睡。根因是投機邊距:`ColliderSet.as_hull` 把 hull 每個頂點沿所在八分域外推,盒子的面仍平,**其他 hull 的斜面被彎曲**(頂點離面可達 `infl·(|nx|+|ny|+|nz|)`),`_face_by_normal` 的 1 mm 面容差只剩一個頂點合格,接觸片退成每幀跳動的單點,hull 搖晃、沉陷(三角柱尖端朝下落地:最低頂點 −0.21 m)。修法:hull 不再膨脹,`hull_manifold(…, margin)` 自己產生投機接觸(沿面軸間隙 < margin → 負深度),呼叫端把 margin 加回深度以維持 `try_pair` 的慣例;`margin = 0` 與舊行為逐位相同(既有 hull / 求解器 / trimesh / 軟體耦合測試全過);置中的盒狀 hull(`HullShape.box_like`)仍走舊的八分域膨脹——對它面保持平且與盒路徑逐位相同,所以 golden 的盒 hull 各行不變,**唯一變動的 golden 行是四面體 rest y `0.1996508 → 0.19966601`**(1.5e-5 m,不規則 hull 改用新慣例)。修後同一批 72 塊:沉超過 2 cm 的 18–19 塊、超過 10 cm 的 1–2 塊、入睡 45–47 塊;抖動立方體(沒有任何面完全平)3/8 → 8/8 靜止,尖端朝下三角柱 −0.21 → −0.0003 m。`tests/test_hull_irregular.mojo` 13/13。
+> **量測**(`bench_fracture`):L 板 res 24 分解:split 2 零件 / excess 0 / 0.94 s,cluster 3 零件 / 0 / 0.09 s;U 板 res 30:split 3 零件 / **2.0 %** / 2.04 s,cluster 4 零件 / 4.5 % / 0.17 s——品質換建構時間(離線選 split、快速選 cluster)。Voronoi 預切 100 seed 41 ms、**1000 seed 0.77 s**(體積 8.000000000000004 / 8);一次 27 個平面切出 **1000 片** 105 ms(體積誤差 3e-14);1000 片加入場景成 hull 剛體 5.9 ms;40 碎片 / 155 焊接的牆清醒時 4.6 ms / 步。
+> **測試**(新增 5 檔,全過):`test_polytope` 44(盒的體積 / 質心 / 慣量解析值;切分守恆與帽標籤;60 個隨機平面連切得 1576 片,體積誤差 1e-14、每片閉合且凸;共面 / 共線 / 重合 / 不足四點 → 空凸包而非垃圾)、`test_convex_decomp` 44(seam parity:兩變體覆蓋 ≥ 0.999、excess ≤ 35 %、L 板 81 + U 板 41 個非擦邊探針的 GJK 命中 / 未命中逐一相同且不與實體矛盾,`hull_manifold` 同;凸網格 → 1 零件;退化三角被略過;共面網格 → 0 零件;錯誤索引 / res 0 / 長度不是 3 的倍數 raise)、`test_weld` 15(離心錨點的焊接盒保持姿態,同錨點的 ball 關節擺動 1.28 m;帶扭轉的焊接保持扭轉;焊接雙盒落地同睡一島;超載焊接斷開、只回報一次;焊接兩體互不碰撞、未焊的被推開)、`test_fracture` 75(**普通**:40 碎片的牆 135 + 8 焊接站穩 90 幀零斷裂;100 kg 球 50 m/s 打擊,121 / 143 鍵結斷、37 塊被打穿牆面、射線上 0 塊殘留、22 鍵結仍站著;閾值 3× 載重保持、0.3× 斷且只回報一次、Channel 亦收到一次;**整合**:2 × 27 塊磚(及 2 × 24 塊 Voronoi 碎片)落在剛性箱子 / 靜態台座上、另一批輕質的落在軟體上,剛性側磚 54/54、碎片 47/48 入睡,箱子承重,軟體被撞後仍健全;L 板 → 體素 → 分解 → 各零件 Voronoi → 生成 → 零件內 104 + 跨零件 23 焊接 → 全部入睡成一島;執行期切割保體積、鍵結全數重新錨定;預算上限 12,淘汰數 = 超額數且記數、最小者先走;**極端**:單 seed = 單碎片無鍵結、重合 seed、共面胞不生成剛體、零 stress / 零法向 / 未知碎片 raise;**1000 胞** Voronoi 與 **一刀 1000 片**——皆保體積並步進無 NaN)。
+> **決定**:焊接用既有的 `set_joint_break`(17.29)當斷裂閾值與事件來源,不另造斷裂機制;碎片慣量只取張量對角(`TODO` 轉主軸);`debris_config()` 把睡眠容差放寬 10 倍給碎屑場景(不規則碎片在接觸片上以數 cm/s 緩慢搖擺,預設 1 cm/s 永遠睡不著);軟體不睡,壓在其上的碎片也保持清醒,所以測試把軟體隔在別處。
+> **待辦**:慣量轉主軸;`polytope_split` 的符號判斷改走 `geometry/predicates.orient3d`(目前是 epsilon 帶);`bond_overlapping` 為 O(n²)、跨零件接縫面積以 `min(V)^(2/3)` 估;`HullShape` 面表上限 30 面、O(V⁴) 建構,所以單碎片頂點數宜 ≲ 60;只切**凸**實體(凹體先分解);`FractureSet` 與斷裂閾值未入快照(同 17.29);單塊不規則碎片孤立落地 6 秒內約 6 成入睡(搖擺緩慢,尚非靜止),其接觸片品質值得單獨處理;「一次切上千片」的 O(pieces × planes) 分類尚未加空間索引。
 
 ### 17.6 動畫圖深度 — Wave B
 > **現況**:`procedural/anim.mojo` = clip / blend(linear·DLB·geodesic)/ crossfade +
@@ -1528,6 +1559,8 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **進度:✅ 2026-09-29** `gameplay/interpolation.mojo`:`PoseHistory`(每 body 前一 / 當前 tick 姿態,新 slot prev==curr,`mark_teleport` 抑制插值)+ 插值子 seam `PoseInterpolator`:`LerpNlerp` / `DqNlerp` / `MotorGeodesic`;`Runtime` 每 tick 擷取、`render_pose[I = DqNlerp](e)` 依 `loop.alpha` 取繪製姿態、`teleport(e, p)`。`test_interpolation` 21/21(三變體端點與純平移 parity;偏心軸 90° 螺旋:geodesic 1e-7、dq-nlerp 6e-8、lerp+nlerp 偏離 0.29;clamp / 外推 / 反向四元數 / 瞬移);`test_system_render` 5/5(sim 60 Hz、render 144 Hz:繪製值恆在兩 tick 之間、單調、多數幀為中間值;瞬移無拖影)。`bench_interpolation`:lerp+nlerp ~4 ns、dq-nlerp ~12 ns、motor geodesic ~200 ns / 姿態 → runtime 預設 dq-nlerp。
 
 ### 17.8 大世界座標 — Wave C(架構)
+> **決定(2026-10-09)**:先做 f32 + origin rebasing + world partition;f64 只做到 `WorldType`
+> 參數化與小世界 parity,完整精度曲線視代價再補。
 > **現況**:全 `f32`(`WorldType`),為 bit-identical 決定論。世界尺度上限 ~單一關卡。
 > **缺口**:64-bit 世界座標 **或** origin rebasing(世界原點位移)、world partition /
 > cell streaming、與決定論相容的方案(rebasing 事件也要進序列化)。
@@ -1582,6 +1615,8 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **進度:✅ 2026-09-29** `ecs/schema.mojo`:以 Mojo 1.1 prelude 的 `reflect[T]`(欄位名 / 型別 / byte offset / `field_ref`)在**編譯期**產生 `TypeSchema`,遞迴展開巢狀 struct 為點號路徑(`rotation.w`),無任何手寫欄位清單。`write_value` / `read_value`(自描述單筆)與 `write_values` / `read_values`(批次:描述一次、名稱比對一次);讀取按**欄位名**對應目前 schema:已刪欄位略過、新欄位保留呼叫端預設、改型欄位不重解釋,結果記在 `ReadReport`(dropped / mismatched / defaulted)。`TypeRegistry`:依型別名註冊,對型別擦除位址按欄位名讀寫純量(工具 / 腳本綁定形狀)。`tests/test_schema.mojo` 22/22(Transform 逐位 round-trip、反射 vs 手寫 parity、50 個 Transform 由 sparse-set world 搬到 archetype world 逐位相同、`SolverConfig` round-trip 後步進場景逐位相同;極端:空型別、巢狀、V1→V2 版本不符、截斷、錯型別名、registry 未知型別 / 欄位 / 非純量)。`bench_schema`(N=65536):單筆自描述 989 ns / 634 B、批次 115 ns / 114 B、手寫 17 ns / 48 B(手寫不存快取世界矩陣)。接線範例 `examples/23_reflection_inspector.mojo`(檢視器:列出並按名稱修改 Transform / SolverConfig 欄位)。**待辦**:批次讀寫仍逐 byte `append`,改整段複製;非純資料型別(`List` / `String`)目前靠契約排除,未在編譯期擋;17.12 場景格式 / 17.16 replication / 17.40 存檔改用此 schema。
 
 ### 17.12 可編輯場景 / prefab / 實例化 — Wave C(gated)
+> **決定(2026-10-09)**:平台方向 C → 場景格式**跟宿主走**(glTF / USD 匯入),不自訂檔案格式;
+> 場景(作者資料)與決定論快照分開,以 parity 連結。屬編輯器相關,本輪不做。
 > **現況**:`physics/serialize.mojo` = 全狀態 f32 bit-pattern 決定論快照(自註「非 asset reference」)。
 > **缺口**:schema 化、可 diff、版本化的場景格式、prefab / blueprint、nested scene 組合、
 > 實例覆寫(override)、entity template。
@@ -1640,6 +1675,9 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > 極端(空樹、深遞迴、每 tick 目標消失、1e4 agent)。
 
 ### 17.16 網路 / rollback — Wave C(部分 gated)
+> **決定(2026-10-09)**:平台方向 C → **傳輸層與線路格式交給宿主**;引擎提供 rollback 核心、
+> 預測策略 seam(lockstep / predict-rollback / snapshot-interp)與給宿主傳送的 byte payload API。
+> 權威模型以 lockstep + rollback 為主;決定論只承諾**同工具鏈、同架構**(不做跨平台定點 / 軟浮點)。
 > **現況**:刻意未做。**地基已在**:決定論 RNG(`scheduler/rng.mojo`)、actor model(10.3)、
 > 全狀態快照(6.10)。
 > **缺口**:snapshot ring buffer + 重模擬(rollback)、input prediction / server reconciliation、
@@ -1723,6 +1761,8 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **進度:✅(可微子集)2026-09-29** 取 ROADMAP 允許的第二條路:明確定義「可微子集」並寫在檔頭,而非把 `Field` 穿過具體 `Vec3`/`Body6` 的 solver6。`geometry/field.mojo` 新增 `SolverField(Field)`(`recip` / `root` / `positive`;`positive` 導數定義為 0 = 接觸開關的次梯度約定),`RealF` / `DualReal` / `DualBatch` / `RevReal` 皆實作。`physics/diffsolver.mojo`:`SphereWorld[F]` 以同一套 per-frame 演算法(投機收集 + warm-start 快取規則、每子步 重力 / warm start / Box2D v3 軟法向 + Coulomb 摩擦 / 積分 / relax)處理動態球 + 靜態平面,全部分支改為指示函數。`tests/test_diffsolver.mojo` 26/26:`RealF` 對 `ContactScene6`(落下 1e-4、三球疊 1e-3、滑轉滾 5e-3);四方梯度一致(DualReal == 中央差分、DualBatch 兩 lane == DualReal、RevReal 一次掃出兩個參數);靜止高度對落下高度導數 = 0。`bench_diffsolver`:DualBatch 在 NP ≤ 16 全程最便宜;RevReal tape 前置成本對 FD 的比值由 NP=1 約 6× 降到 NP=16 約 2×,交叉點在掃描範圍外。接線範例 `examples/22_diffsolver_sysid.mojo`:由 `ContactScene6` 的單一觀測值反推 μ(8 lane 批次掃描 + DualReal Newton,真值 0.37 → 0.370002)。**待辦**:子集外擴(盒 / 膠囊、關節、恢復係數 pass);全部球對每幀都攜帶是 O(n²),大 n 需寬相;RevReal tape 每運算一次 `List.append` + `Optional` 指標,是反向模式偏慢的主因。
 
 ### 17.21 腳本層(Phase 12 落地) — Wave C(gated)
+> **決定(2026-10-09)**:gating 解除 —— 見 Phase 12 決定註:12.1 邊界凍結(C-ABI)、先做 Python
+> 綁定(核心 repo 最上層套件,測試環境隔離),hot reload 後接。
 > **現況**:Phase 12 ⏸ gated on 核心 API 凍結。
 > **保持 gated**,但列出前提:core embedding 邊界定義、Mojo / Python 雙腳本(技術偵察已在
 > [[roadmap-2026-07]]:`PythonModuleBuilder` 擴充模組驗證過 rest y=0.2497、跨語言 bit-identical)、
@@ -2326,3 +2366,17 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **(4)Wave B**:17.20 + 17.18 → 17.11 反射 → 17.17 GPU 剛體 → 17.6 → 17.3 → 17.2;
 > 增補的 B 項依相依插入(17.26 / 17.29 接 17.1 / 17.2 之後、17.27 → 17.28、
 > 17.39 接 17.38、17.40 接 17.11、17.31 接 17.10 + 17.19、17.42 接單一 device context 擁有者);17.19 貫穿。
+
+> **2026-10-09 修訂(Wave C 暫停點)**:平台方向拍板 = **C(嵌入式模擬函式庫)**,原 gated 項重排為:
+> **已交付**:17.0 F12 · 17.5 破壞 / 破碎 · 17.4 載具。
+> **剩餘順序**:(1)17.14 導航 → (2)17.15 AI(EQS 接 17.13、BT tick 可入 10.2)→
+> (3)17.16 rollback 核心 + 預測策略 seam + 給宿主傳送的 byte payload API(傳輸層交宿主;
+> 決定論只承諾同工具鏈同架構)→ (4)**12.1 C-ABI 嵌入邊界**(世界建構 / 系統註冊 / 查詢 /
+> 事件訂閱,v0.x 凍結;前面各項的資料導向 API 由此包出)→ (5)**17.21 Python 綁定**(核心 repo
+> 最上層套件;測試以客戶端方式安裝進乾淨環境、不靠 `-I build`)→ (6)17.17 GPU articulation /
+> narrowphase → (7)17.8 大世界座標(先 f32 + rebasing + partition,f64 只參數化)。
+> **不排**:17.12 場景格式、17.43 undo 層(編輯器相關)。
+> **本輪遺留待辦**(詳見各節進度註):F12 —— mesh / heightfield 接觸只有觸碰無深度、base motion
+> 未參數化;17.5 —— 碎片慣量只取對角、`FractureSet` 不在快照、單片碎片入睡率 ~60%;17.4 ——
+> 開放式差速只均分、無 Ackermann / 簧下質量、載具狀態不在快照。`BENCHMARK_REPORT.md` 尚未
+> 以 `pixi run benchmark` 重產(17.5 / 17.4 的 bench 列已在範本)。

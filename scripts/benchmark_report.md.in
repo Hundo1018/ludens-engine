@@ -1974,6 +1974,20 @@ then growing with the obstacle count through the queries' linear prefilter.
 
 @bench benchmarks/bench_character.mojo
 
+## Raycast vehicles (17.4)
+
+One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a
+swept sphere or a swept capsule per wheel), the suspension, and the implicit
+per-axis tire solve (bisection on the rising branch of the Pacejka-shaped curve,
+the part that lets a parked car hold a slope). On this flat road with a few
+obstacles the cast is not the dominant cost -- the ray and the sphere sweep
+cost the same, because a sweep onto a plane converges in two advancement steps --
+and the capsule sweep adds roughly half again. The per-vehicle cost grows
+with the fleet because every wheel query scans every collider (one per car
+plus the road), the same linear prefilter as the world queries above.
+
+@bench benchmarks/bench_vehicle.mojo
+
 ## Pose interpolation (17.7)
 
 Drawing a body between two fixed ticks. Dual-quaternion nlerp costs about
@@ -1985,6 +1999,27 @@ runtime therefore defaults to dual-quaternion nlerp and keeps the geodesic as
 the reference variant.
 
 @bench benchmarks/bench_interpolation.mojo
+
+## Destruction and fracture (17.5)
+
+Convex decomposition is a seam: `SplitDecomposer` (hierarchical axis-plane
+splits, worst part first) and `ClusterDecomposer` (k-means on voxel centres)
+turn the same voxelised mesh into convex parts that cover all of it
+(`test_convex_decomp`: coverage 1.0, bounded excess, identical narrowphase
+verdicts on every non-grazing probe). The row labels carry the quality each
+reaches: on the concave L slab both find the two-part answer at 0 % excess; on
+the U slab the split needs 3 parts for 2 % excess where k-means needs 4 for
+4.5 %, but the split's plane search builds a hull per candidate cut and costs
+about ten times as much -- quality for build time, an offline choice versus a
+quick one.
+
+The second table is the fracture pipeline: Voronoi pre-fracture with exact
+neighbour pruning (a thousand cells in well under a second), one 27-plane
+runtime cut that yields a thousand pieces, adding a thousand fragments to a
+`ContactScene6` as hull bodies, and the awake per-step cost of a 40-fragment
+wall held together by 155 breakable welds.
+
+@bench benchmarks/bench_fracture.mojo
 
 ## Maturity assessment
 

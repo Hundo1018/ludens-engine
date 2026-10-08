@@ -40,6 +40,7 @@ deferred (e = 0 scenes).
 
 from std.math import sqrt, isfinite
 from std.os import abort
+from std.collections import Dict
 from max.algorithm import parallelize
 from geometry.vec import Real, Vec3, WorldType, dot, cross, tangent_basis
 from geometry.aabb import AABB
@@ -101,6 +102,7 @@ from .joints6 import (
     JOINT_BALL,
     JOINT_DISTANCE,
     JOINT_HINGE,
+    JOINT_WELD,
     warm_start_joints,
     joint_sweep,
     JOINT_BROKEN,
@@ -715,6 +717,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var raws = List[RawContact]()
         var sraws = List[RawContact]()
         var n = len(self.bset.bodies)
+        # ROADMAP 17.5: two bodies held together by a live weld do not collide
+        # with each other (a fracture bond is a rigid seam, not two touching
+        # solids); the pair collides normally the step after the weld breaks.
+        # Built only when a weld exists, so scenes without one are untouched.
+        var weld_keys = Dict[Int, Bool]()
+        for c in range(len(self.joints)):
+            if self.joints[c].kind == JOINT_WELD:
+                var wa = min(self.joints[c].a, self.joints[c].b)
+                var wb = max(self.joints[c].a, self.joints[c].b)
+                weld_keys[wa * n + wb] = True
+        var has_weld = len(weld_keys) > 0
         if use_bp:
             # `Self.BP.dim` is a dependent expression that never unifies
             # with the literal `3` `ColliderSet.fat_aabb` returns, even
@@ -771,6 +784,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 # `is_static_bool` alone).
                 if self.bset.is_removed(i) or self.bset.is_removed(j):
                     continue
+                if has_weld and (min(i, j) * n + max(i, j)) in weld_keys:
+                    continue
                 try_pair(
                     self.colliders, i, j, self._pose(i), self._pose(j),
                     self.bset.bodies[i].linear_velocity(),
@@ -783,6 +798,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     # ROADMAP 17.0i: a removed body's collider row is stale
                     # (see the broadphase branch's matching comment above).
                     if self.bset.is_removed(i) or self.bset.is_removed(j):
+                        continue
+                    if has_weld and (i * n + j) in weld_keys:
                         continue
                     # same rule as the broadphase branch above: skip only
                     # when NEITHER side is dynamic (static-static,

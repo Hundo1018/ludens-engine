@@ -114,16 +114,24 @@ def try_mesh_pair(
     if len(tris) == 0:
         return
 
-    var poly_a = colliders.as_hull(a, pa, wide, mr)
-    var faces_a = colliders.hull_faces(a, pa, wide, mr)
+    # a HULL body is not inflated (see `hull_manifold`): the whole margin goes
+    # to the narrowphase as its speculative distance instead
+    var a_is_hull = colliders.hull_is_bent_by_inflation(a)
+    var zero = Vec3(0, 0, 0, 0)
+    var spec = margin if a_is_hull else Real(0)
+    var poly_a = colliders.as_hull(a, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
+    var faces_a = colliders.hull_faces(a, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
     for c in range(len(tris)):
         var t = tris[c]
         var tf = colliders.mesh_tri_faces(b, t)
         if len(tf) < 3:
             continue  # degenerate triangle: no normal, no contact
-        var m = hull_manifold(poly_a, colliders.mesh_tri(b, t), faces_a, tf)
+        var m = hull_manifold(poly_a, colliders.mesh_tri(b, t), faces_a, tf, spec)
         if not m.hit:
             continue
+        if spec > 0:
+            for k in range(m.count):
+                m.depths[k] += spec
         if margin > 0:
             for k in range(m.count):
                 m.depths[k] -= margin

@@ -119,7 +119,7 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 |---|---|---|---|---|
 | 關節鏈:縮座標 CRBA+RNEA vs O(n) ABA vs 極大座標 solver6 | physics/chain.mojo(`step`／`step_aba`) | SE(3)ⁿ 動力學的三個實作;同初態下關節角一致 | `test_chain`、`test_aba` | `bench_chain` |
 | 反向動力學(RNEA 掃)vs 正向動力學(CRBA 稠密解)往返 | physics/chain.mojo(`inverse_dynamics`／`mass_matrix`) | 同一運動方程的兩向;τ→q̈→τ 還原 | `test_inverse_dynamics` | `bench_chain`(idt 表) |
-| 縮座標接觸(point-Jacobian `J H⁻¹ Jᵀ`)vs 極大座標接觸 | physics/chain.mojo(`point_jacobian`／`resolve_ground`) | 同一接觸不動點在兩種座標下;落地高度一致 | `test_chain_contact` | `bench_chain_contact` |
+| 縮座標接觸(point-Jacobian `J H⁻¹ Jᵀ`)vs 極大座標接觸 | physics/chain.mojo(`point_jacobian`／`resolve_contacts`) | 同一接觸不動點在兩種座標下;落地高度一致 | `test_chain_contact` | `bench_chain_contact` |
 | 浮動基座 vs 六個偽關節;複合慣量 vs 單位加速度 兩種 H 組裝 | physics/floating.mojo(`mass_matrix`／`_mass_matrix_units`) | 6-DOF 根的兩個表示 + 質量矩陣兩獨立推導互為 parity | `test_floating` | `bench_floating` |
 | 關節運動子空間 revolute vs prismatic + 關節極限 | physics/chain.mojo(`revolute`／`prismatic`／`resolve_limits`) | 同一 link 態射的運動子空間變體;極限為投影 | `test_joints_lib`、`test_joints6` | `bench_chain`(jt 表) |
 
@@ -373,6 +373,18 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | 測力:動量交換 vs 控制面動量通量 | fluid/lbm.mojo | 同一動量平衡的邊界形式與體積形式 | `test_lbm_bounce`(1.5% 內) | `bench_lbm_gpu` |
 | 裝置:CPU `Lbm` vs `LbmGpu` | fluid/lbm_gpu.mojo | 同一 stencil 的兩個裝置實作 | `test_lbm_gpu`(3.6e-7;通道逐位) | `bench_lbm_gpu`(MLUPS) |
 | SPH 牆面:夾回 vs 邊界粒子 | physics/sph.mojo | `sph_step` 是 `sph_step_boundary` 在空邊界上的限制 | `test_sph_boundary`(空 / 核外邊界逐位相同) | — |
+
+### 2.17 破壞 / 破碎(Phase 17.5,2026-10-08)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 凸分解演算法:階層軸平面切分(`SplitDecomposer`)vs 體素 k-means(`ClusterDecomposer`),同在 `ConvexDecomposer` trait 後 | geometry/convex_decomp.mojo | 兩者都是「體素集合 → 凸覆蓋」的函子,共同的可觀察定律是覆蓋(每個體素在某個凸塊內)與 narrowphase 一致(GJK / `hull_manifold` 對非擦邊探針給相同的命中 / 未命中);差別只在冗餘(excess)與成本 | `test_convex_decomp`(覆蓋 ≥ 0.999、excess ≤ 35 %、兩者體積差 ≤ 25 %、L / U 板 81 + 41 個非擦邊探針逐一一致、`hull_manifold` 對同一探針一致) | `bench_fracture`(L / U 板:零件數、excess、時間) |
+
+### 2.18 載具輪胎接觸(Phase 17.4,2026-10-09)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 輪-路接觸:單射線(`RayWheel`)vs 球掃(`SphereWheel`)vs 膠囊掃(`CapsuleWheel`),同在 `WheelCast` trait 後 | gameplay/vehicle_wheel.mojo | 三者都是「懸吊座 + 方向 → 輪心高度 / 接觸點 / 法向」的函子;共同的可觀察定律是在**平面路面**(平地、20° 斜坡、heightfield)上給相同的輪心距離、接觸點與法向(射線的輪心距離以 `t − R/cos` 修正坡度,所以與球掃在平面上精確相同);差別只在路面於一個輪半徑內**非平面**處——路緣、窄坑——掃描看得到邊緣,射線只看到安裝點正下方,測試把這個差異當作被斷言的行為而非容差 | `test_vehicle_wheel`(133:三變體平地 / 斜坡解析 / heightfield / 動態體 / 濾除 / 路緣差異 / 窄坑 / 牆邊回退 / 極端);`test_vehicle`(整車同一路徑:球掃 / 膠囊掃與射線在 1 % 內) | `bench_vehicle`(N 車 × 子步,三變體) |
 
 ## 3. SE(3) 的三個表示函子(GA 層)
 

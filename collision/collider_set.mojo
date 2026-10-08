@@ -158,6 +158,33 @@ struct ColliderSet(Movable, Deinitable):
             self.sensor[i] = False
         return i
 
+    def add_ground_slab(
+        mut self, top: Real, thickness: Real = 0.25, extent: Real = 1000
+    ) -> Tuple[Int, Pose3]:
+        """Register a horizontal slab whose upper face is the plane `y = top`;
+        returns its collider index and the world `Pose3` that places it.
+
+        The ground for callers that have no body to hang a collider on (an
+        articulated chain's feet, a particle test): the slab is `2*extent`
+        wide in x and z and `thickness` deep, so a point that sinks up to
+        `thickness` below the plane is still INSIDE it and gets a push-out
+        normal of `+y`; deeper than that it is outside the bottom face, and a
+        collider-based contact query reports nothing. Size it for the deepest
+        penetration you expect to repair.
+
+        Precision: the centre sits at `top - thickness`, so `top` is recovered
+        exactly (distance to the plane == `p.y - top`, bit for bit) when that
+        subtraction is exact -- true whenever `top - thickness` lies in the
+        same binade as `top`, e.g. `thickness` a power of two no larger than
+        about half of `|top|`. Otherwise the answer is off by an ulp of
+        `top`, which no contact tolerance cares about."""
+        var i = self.add(Vec3(extent, thickness, extent, 0))
+        var axes = Axes3(fill=Vec3(0, 0, 0, 0))
+        axes[0] = Vec3(1, 0, 0, 0)
+        axes[1] = Vec3(0, 1, 0, 0)
+        axes[2] = Vec3(0, 0, 1, 0)
+        return (i, Pose3(Vec3(0, top - thickness, 0, 0), axes^))
+
     def add_sphere(mut self, r: Real, at: Int = -1) -> Int:
         var i = self.add(Vec3(r, r, r, 0), at)
         self.shape[i] = SHAPE_SPHERE
@@ -346,6 +373,12 @@ struct ColliderSet(Movable, Deinitable):
             hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
         return HullShape.box(hs).world(pose.position, ax[0], ax[1], ax[2])
 
+    def hull_is_bent_by_inflation(self, i: Int) -> Bool:
+        """True for a HULL collider that is not a centred box: octant inflation
+        would bend its faces, so the speculative margin goes to
+        `hull_manifold` instead (see there)."""
+        return self.shape[i] == SHAPE_HULL and not self.hulls[self.hull_id[i]].box_like
+
     def pair_manifold(
         self, i: Int, j: Int, pose_i: Pose3, pose_j: Pose3, mr: Real, infl: Vec3
     ) -> ContactManifold[3]:
@@ -416,10 +449,32 @@ struct ColliderSet(Movable, Deinitable):
             # (ka <= kb) and hull is the highest kind BELOW the static mesh
             # kinds, so kb == SHAPE_HULL catches hull-box, hull-sphere,
             # hull-capsule and hull-hull alike.
+            # A HULL side is not inflated by the speculative margin (inflation
+            # bends the faces of any non-box hull -- see `hull_manifold`); its
+            # share of the margin goes to `hull_manifold` as `spec` instead and
+            # is added back to the depths, the convention `try_pair` expects.
+            var zero = Vec3(0, 0, 0, 0)
+            var spec = Real(0)
+            var ia = infl
+            var ma = mr
+            var ib = infl
+            var mb = mr
+            if self.hull_is_bent_by_inflation(a):
+                ia = zero
+                ma = Real(0)
+                spec += infl[0]
+            if self.hull_is_bent_by_inflation(b):
+                ib = zero
+                mb = Real(0)
+                spec += infl[0]
             m = hull_manifold(
-                self.as_hull(a, pa, infl, mr), self.as_hull(b, pb, infl, mr),
-                self.hull_faces(a, pa, infl, mr), self.hull_faces(b, pb, infl, mr),
+                self.as_hull(a, pa, ia, ma), self.as_hull(b, pb, ib, mb),
+                self.hull_faces(a, pa, ia, ma), self.hull_faces(b, pb, ib, mb),
+                spec,
             )
+            if spec > 0:
+                for kk in range(m.count):
+                    m.depths[kk] += spec
         elif ka == SHAPE_CAPSULE and kb == SHAPE_CAPSULE:
             m = capsule_capsule_manifold(
                 pa.position, pa.axes[1], self.half[a][1], self.half[a][0] + mr,
