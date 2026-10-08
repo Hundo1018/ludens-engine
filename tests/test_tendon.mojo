@@ -1,4 +1,4 @@
-# tier: component
+# tier: component  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 """Tendons, gated on the one identity everything else follows from:
 `tau = -F dL/dq`.
 

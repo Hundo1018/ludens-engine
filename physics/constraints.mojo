@@ -2,7 +2,7 @@
 dry friction, and contact with friction.
 
 The engine solved these in separate passes — limits in `resolve_limits`,
-contacts in `resolve_ground` — and separate passes fight. A limit pass that
+contacts in `resolve_contacts` — and separate passes fight. A limit pass that
 runs after a contact pass undoes some of the contact impulse, the contact pass
 next step undoes some of the limit impulse, and the visible result is a foot
 that buzzes against a joint stop. Putting every row in ONE system means each
@@ -32,6 +32,7 @@ anisotropy directly.
 
 from std.math import sqrt
 from geometry.vec import Real, Vec3, length
+from numerics.dense import solve_dense
 from physics.chain import Chain
 
 comptime CON_EQUALITY = 0
@@ -140,7 +141,7 @@ struct ConstraintSet(Movable, Deinitable):
             var rhs = List[Real]()
             for i in range(self.n):
                 rhs.append(self.jac[r * self.n + i])
-            var col = Chain.solve_h(hmat.copy(), rhs^, self.n)
+            var col = solve_dense(hmat.copy(), rhs^, self.n)
             for i in range(self.n):
                 minv_jt[r * self.n + i] = col[i]
         # diagonal of A = J H⁻¹ Jᵀ

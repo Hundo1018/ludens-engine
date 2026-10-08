@@ -15,7 +15,7 @@ test/bench infrastructure: engine packages must never import it.
 |---:|---|---|---|
 | 0 | `diag` | Engine-side observability and the error policy's detect/record/terminate layers: invariant assertions, leveled logging, counters, trace spans, debug-draw command queue, frame arena (Phase 17.9 / 17.10 / 17.32–17.34). Zero engine dependencies, so every package may use it; points are `SIMD[dtype, 4]`, so it needs no `geometry` import | Rendering, file formats beyond a trace dump, any global mutable state |
 | 1 | `geometry` | Scalar/vector/matrix math, rotations (quat, motor, dual quat, PGA/CGA/DCGA), coefficient fields for AD, primitive shapes, pairwise geometric tests (GJK/EPA/SAT/clip/SDF/predicates), static BVH + LBVH construction, skinning math | Anything with a time step, a world, or an entity |
-| 2 | `numerics` | Sparse matrices, Krylov solvers, flat-vector kernels | Physics meaning of the vectors |
+| 2 | `numerics` | Sparse matrices, Krylov solvers, small dense direct solves, flat-vector kernels | Physics meaning of the vectors |
 | 2 | `spatial` | Dynamic spatial indexes over AABBs (hash grid, loose quad/octree) | Pair generation policy (that is `collision`) |
 | 2 | `procedural` | Noise, animation clips/blending/pose evaluation, gameplay IK, hierarchical FSM | Physics, scheduling |
 | 2 | `fluid` | Lattice-Boltzmann (grid fluid) | Particle fluids (those are `physics`) |

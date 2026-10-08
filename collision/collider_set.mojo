@@ -158,6 +158,33 @@ struct ColliderSet(Movable, Deinitable):
             self.sensor[i] = False
         return i
 
+    def add_ground_slab(
+        mut self, top: Real, thickness: Real = 0.25, extent: Real = 1000
+    ) -> Tuple[Int, Pose3]:
+        """Register a horizontal slab whose upper face is the plane `y = top`;
+        returns its collider index and the world `Pose3` that places it.
+
+        The ground for callers that have no body to hang a collider on (an
+        articulated chain's feet, a particle test): the slab is `2*extent`
+        wide in x and z and `thickness` deep, so a point that sinks up to
+        `thickness` below the plane is still INSIDE it and gets a push-out
+        normal of `+y`; deeper than that it is outside the bottom face, and a
+        collider-based contact query reports nothing. Size it for the deepest
+        penetration you expect to repair.
+
+        Precision: the centre sits at `top - thickness`, so `top` is recovered
+        exactly (distance to the plane == `p.y - top`, bit for bit) when that
+        subtraction is exact -- true whenever `top - thickness` lies in the
+        same binade as `top`, e.g. `thickness` a power of two no larger than
+        about half of `|top|`. Otherwise the answer is off by an ulp of
+        `top`, which no contact tolerance cares about."""
+        var i = self.add(Vec3(extent, thickness, extent, 0))
+        var axes = Axes3(fill=Vec3(0, 0, 0, 0))
+        axes[0] = Vec3(1, 0, 0, 0)
+        axes[1] = Vec3(0, 1, 0, 0)
+        axes[2] = Vec3(0, 0, 1, 0)
+        return (i, Pose3(Vec3(0, top - thickness, 0, 0), axes^))
+
     def add_sphere(mut self, r: Real, at: Int = -1) -> Int:
         var i = self.add(Vec3(r, r, r, 0), at)
         self.shape[i] = SHAPE_SPHERE

@@ -20,6 +20,7 @@ from std.time import perf_counter_ns
 from harness.bench import BenchTable
 from geometry.vec import Real, Vec3
 from physics.chain import Chain, ChainLink
+from collision.collider_set import ColliderSet, Pose3
 
 comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
@@ -51,6 +52,10 @@ def _row(mut t: BenchTable, n: Int, with_contact: Bool) raises:
     # floor placed as a fixed FRACTION of the chain's reach, so the number of
     # links that can strike it is comparable across n rather than shrinking
     var floor_y = -0.85 * Real(n)
+    var ground = ColliderSet()
+    var slab = ground.add_ground_slab(floor_y)
+    var poses = List[Pose3]()
+    poses.append(slab[1].copy())
 
     var best = Int.MAX
     for _ in range(REPS):
@@ -60,7 +65,7 @@ def _row(mut t: BenchTable, n: Int, with_contact: Bool) raises:
         for _ in range(STEPS):
             c.step(DT, zero, G)
             if with_contact:
-                _ = c.resolve_ground(floor_y, 0.0, pts, locs, DT)
+                _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT)
         var dt = Int(perf_counter_ns()) - t0
         keep(c.q[0])
         if dt < best:

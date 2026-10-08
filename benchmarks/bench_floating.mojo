@@ -35,6 +35,7 @@ from std.time import perf_counter_ns
 from harness.bench import BenchTable
 from geometry.vec import Real, Vec3, length
 from geometry.quat import Quat
+from numerics.dense import solve_dense
 from physics.chain import Chain, ChainLink
 from physics.floating import FloatingChain
 
@@ -180,7 +181,7 @@ def _breakdown(mut t: BenchTable, n: Int) raises:
             var rhs = List[Real]()
             for j in range(d):
                 rhs.append(Real(j) * 0.1)
-            var x = Chain.solve_h(h^, rhs^, d)
+            var x = solve_dense(h^, rhs^, d)
             keep(x[0])
         var dt = Int(perf_counter_ns()) - t0
         if dt < b3:
@@ -225,7 +226,7 @@ def _gimbal() raises:
         for _ in range(d):
             rhs.append(0)
         rhs[2] = 1.0
-        var x = Chain.solve_h(h^, rhs^, d)
+        var x = solve_dense(h^, rhs^, d)
         for j in range(d):
             var v = Real(abs(Float64(x[j])))
             if v > bw:

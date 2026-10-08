@@ -24,6 +24,9 @@ from std.math import sqrt, cos, sin
 from geometry.vec import Real, Vec3, dot, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
+from numerics.dense import solve_dense
+from collision.collider_set import ColliderSet, Pose3
+from collision.world_query import QueryFilter, nearest_surface
 
 
 comptime _Rows3 = Array[Vec3, 3]
@@ -180,21 +183,40 @@ struct Chain(Movable, Deinitable):
     # Root motion, base frame. Zero for a fixed base, which is what every
     # existing caller gets: the sweeps read these where they previously read
     # literal zeros, so a bolted-down chain is the special case rather than a
-    # separate code path. `FloatingChain` drives them.
-    var base_w: Vec3  # angular velocity of the root frame
-    var base_v: Vec3  # linear velocity of the root frame origin
-    var base_wa: Vec3  # angular acceleration
-    var base_va: Vec3  # linear acceleration, BEFORE the gravity shift
+    # separate code path. `FloatingChain` drives them through
+    # `set_base_motion`; nothing else writes them.
+    var _base_w: Vec3  # angular velocity of the root frame
+    var _base_v: Vec3  # linear velocity of the root frame origin
+    var _base_wa: Vec3  # angular acceleration
+    var _base_va: Vec3  # linear acceleration, BEFORE the gravity shift
 
     def __init__(out self):
         self.links = List[ChainLink]()
         self.q = List[Real]()
         self.qd = List[Real]()
         self.parent = List[Int]()
-        self.base_w = Vec3(0, 0, 0, 0)
-        self.base_v = Vec3(0, 0, 0, 0)
-        self.base_wa = Vec3(0, 0, 0, 0)
-        self.base_va = Vec3(0, 0, 0, 0)
+        self._base_w = Vec3(0, 0, 0, 0)
+        self._base_v = Vec3(0, 0, 0, 0)
+        self._base_wa = Vec3(0, 0, 0, 0)
+        self._base_va = Vec3(0, 0, 0, 0)
+
+    def set_base_motion(
+        mut self, w: Vec3, v: Vec3, wa: Vec3 = Vec3(0, 0, 0, 0),
+        va: Vec3 = Vec3(0, 0, 0, 0),
+    ):
+        """Set the root frame's motion for the next dynamics call, all in the
+        base frame: angular and linear velocity `w`, `v`, and angular and
+        linear acceleration `wa`, `va` (the latter BEFORE the gravity shift).
+
+        The one sanctioned way to move the root. A bolted-down chain never
+        calls it and keeps all four at zero; `FloatingChain` calls it before
+        every sweep so the two never hold diverging copies of the base state.
+        Setting all four together (the acceleration pair defaults to zero)
+        is deliberate: a half-updated base is the bug this replaces."""
+        self._base_w = w
+        self._base_v = v
+        self._base_wa = wa
+        self._base_va = va
 
     def add_link(mut self, link: ChainLink):
         self.links.append(link)
@@ -264,10 +286,10 @@ struct Chain(Movable, Deinitable):
         for i in range(n):
             var l = self.links[i]
             var pi = self.parent[i]
-            var w_p = ws[pi] if pi >= 0 else self.base_w
-            var v_p = vs[pi] if pi >= 0 else self.base_v
-            var wa_p = wa[pi] if pi >= 0 else self.base_wa
-            var va_p = va[pi] if pi >= 0 else self.base_va - gravity
+            var w_p = ws[pi] if pi >= 0 else self._base_w
+            var v_p = vs[pi] if pi >= 0 else self._base_v
+            var wa_p = wa[pi] if pi >= 0 else self._base_wa
+            var va_p = va[pi] if pi >= 0 else self._base_va - gravity
             var rt = _rot_rows(self._joint_rot(i))  # parent -> link (Rᵀ)
             var off = self._joint_offset(i)
             # motion subspace: S = (axis, 0) revolute, (0, axis) prismatic
@@ -558,45 +580,6 @@ struct Chain(Movable, Deinitable):
                 hmat[(6 + i) * d + 3 + r] = fv_b[r]
         return hmat^
 
-    @staticmethod
-    def solve_h(var hmat: List[Real], var rhs: List[Real], n: Int) -> List[Real]:
-        """Dense solve of `H x = rhs` (Gaussian elimination, partial pivot).
-
-        Static and taking its operands by value so the contact solver can reuse
-        it for `H⁻¹ Jᵀ` without re-deriving H per contact."""
-        for col in range(n):
-            var piv = col
-            var best = abs(hmat[col * n + col])
-            for r in range(col + 1, n):
-                if abs(hmat[r * n + col]) > best:
-                    best = abs(hmat[r * n + col])
-                    piv = r
-            if piv != col:
-                for cc in range(n):
-                    var tmp = hmat[col * n + cc]
-                    hmat[col * n + cc] = hmat[piv * n + cc]
-                    hmat[piv * n + cc] = tmp
-                var tr = rhs[col]
-                rhs[col] = rhs[piv]
-                rhs[piv] = tr
-            var d = hmat[col * n + col]
-            for r in range(col + 1, n):
-                var fscale = hmat[r * n + col] / d
-                for cc in range(col, n):
-                    hmat[r * n + cc] -= fscale * hmat[col * n + cc]
-                rhs[r] -= fscale * rhs[col]
-        var qdd = List[Real]()
-        for _ in range(n):
-            qdd.append(0)
-        var rr2 = n - 1
-        while rr2 >= 0:
-            var acc = rhs[rr2]
-            for cc in range(rr2 + 1, n):
-                acc -= hmat[rr2 * n + cc] * qdd[cc]
-            qdd[rr2] = acc / hmat[rr2 * n + rr2]
-            rr2 -= 1
-        return qdd^
-
     def dynamics(self, tau: List[Real], gravity: Vec3) raises -> List[Real]:
         """`qdd = H⁻¹ (tau − C)` — CRBA mass matrix + RNEA bias, dense solve."""
         var n = len(self.links)
@@ -608,7 +591,7 @@ struct Chain(Movable, Deinitable):
         var rhs = List[Real]()
         for i in range(n):
             rhs.append(tau[i] - c_bias[i])
-        return Self.solve_h(hmat^, rhs^, n)
+        return solve_dense(hmat^, rhs^, n)
 
 
     # ------------------------------------------------ contact coupling
@@ -675,7 +658,7 @@ struct Chain(Movable, Deinitable):
         iterations, and dominated the step by ~29x at 2 links."""
         var n = len(self.links)
         var j = self.point_jacobian(i, local, dir)
-        var hinv_jt = Self.solve_h(h.copy(), j.copy(), n)
+        var hinv_jt = solve_dense(h.copy(), j.copy(), n)
         var w = Real(0)
         for k in range(n):
             w += j[k] * hinv_jt[k]
@@ -697,7 +680,7 @@ struct Chain(Movable, Deinitable):
         var n = len(self.links)
         var j = self.point_jacobian(i, local, dir)
         var h = self.mass_matrix()
-        var hinv_jt = Self.solve_h(h^, j.copy(), n)
+        var hinv_jt = solve_dense(h^, j.copy(), n)
         var w = Real(0)
         for k in range(n):
             w += j[k] * hinv_jt[k]
@@ -708,16 +691,27 @@ struct Chain(Movable, Deinitable):
             self.qd[k] += hinv_jt[k] * lam
         return lam
 
-    def resolve_ground(
+    def resolve_contacts(
         mut self,
-        floor_y: Real,
+        world: ColliderSet,
+        poses: List[Pose3],
         restitution: Real,
         contacts: List[Int],
         locals: List[Vec3],
         dt: Real,
         iters: Int = 8,
     ) raises -> Int:
-        """Sequential-impulse ground contact, SPLIT into velocity and position.
+        """Sequential-impulse contact against a `collision.ColliderSet`, SPLIT
+        into velocity and position.
+
+        Each contact is a material point (link `contacts[c]`, offset
+        `locals[c]` in its frame). Where it touches the world is NOT decided
+        here: `collision.world_query.nearest_surface` names the closest
+        collider and returns the signed distance and push-out normal, so the
+        ground can be a box slab, a sphere, a hull, or (touch only, see that
+        function) a level mesh, with whatever orientation it has. `poses[k]`
+        is collider `k`'s world pose; the colliders are static as far as this
+        call is concerned.
 
         The velocity pass applies only impulses that make the normal velocity
         non-negative, which by construction removes kinetic energy or leaves it
@@ -735,15 +729,16 @@ struct Chain(Movable, Deinitable):
         successful resolve none are active, so the exit count is always zero
         and would report "nothing touched" for every working contact."""
         var n = len(self.links)
+        var filt = QueryFilter.all()
         var initial_active = 0
         for c in range(len(contacts)):
             var pw = self.point_world(contacts[c], locals[c])
-            if pw[1] <= floor_y:
+            var hit = nearest_surface(world, poses, pw, filt)
+            if hit[0] >= 0 and hit[1].dist <= 0:
                 initial_active += 1
         if initial_active == 0:
             return 0
 
-        var up = Vec3(0, 1, 0, 0)
         # H is a function of q alone, so it is computed ONCE per pass rather
         # than per contact per iteration
         var h1 = self.mass_matrix()
@@ -752,13 +747,14 @@ struct Chain(Movable, Deinitable):
             for c in range(len(contacts)):
                 var i = contacts[c]
                 var pw = self.point_world(i, locals[c])
-                if pw[1] > floor_y:
+                var hit = nearest_surface(world, poses, pw, filt)
+                if hit[0] < 0 or hit[1].dist > 0:
                     continue
-                var vn = self.point_velocity(i, locals[c], up)
+                var vn = self.point_velocity(i, locals[c], hit[1].normal)
                 if vn >= 0:
                     continue  # already separating
                 _ = self.apply_impulse_with(
-                    h1, i, locals[c], up, -(1 + restitution) * vn
+                    h1, i, locals[c], hit[1].normal, -(1 + restitution) * vn
                 )
 
         # --- pass 2: positional repair on a pseudo-velocity ----------------
@@ -770,14 +766,17 @@ struct Chain(Movable, Deinitable):
             for c in range(len(contacts)):
                 var i = contacts[c]
                 var pw = self.point_world(i, locals[c])
-                var pen = floor_y - pw[1]
+                var hit = nearest_surface(world, poses, pw, filt)
+                if hit[0] < 0:
+                    continue
+                var pen = -hit[1].dist
                 if pen <= 0:
                     continue
-                var vn = self.point_velocity(i, locals[c], up)
+                var vn = self.point_velocity(i, locals[c], hit[1].normal)
                 var want = pen / dt - vn
                 if want <= 0:
                     continue
-                _ = self.apply_impulse_with(h2, i, locals[c], up, want)
+                _ = self.apply_impulse_with(h2, i, locals[c], hit[1].normal, want)
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
@@ -825,7 +824,7 @@ struct Chain(Movable, Deinitable):
                     continue
                 _ = self._joint_impulse(h1, k, -self.qd[k])
 
-        # --- position pass on a pseudo-velocity, as in resolve_ground ------
+        # --- position pass on a pseudo-velocity, as in resolve_contacts ------
         var saved = self.qd.copy()
         var h2 = self.mass_matrix()
         for k in range(n):
@@ -857,7 +856,7 @@ struct Chain(Movable, Deinitable):
         var e = List[Real]()
         for i in range(n):
             e.append(Real(1) if i == k else Real(0))
-        var hinv_e = Self.solve_h(h.copy(), e^, n)
+        var hinv_e = solve_dense(h.copy(), e^, n)
         var w = hinv_e[k]
         if w < 1e-12:
             return 0

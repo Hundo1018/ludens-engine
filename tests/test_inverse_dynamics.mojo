@@ -1,4 +1,4 @@
-# tier: unit
+# tier: unit  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 """Exact inverse dynamics: tau = ID(q, qd, qdd).
 
 The load-bearing check is the ROUND TRIP. Forward dynamics solves

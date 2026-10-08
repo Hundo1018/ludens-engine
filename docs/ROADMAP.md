@@ -1350,7 +1350,7 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 | 領域 | 條目 | 狀態 |
 |---|---|---|
 | GA 數學 / 數值 | Phase 1(manifold、screw、Lie 積分器)· 15.1 稀疏線代 · 15.3 comptime 伴隨 · 10.1 exact predicates | ✅ |
-| 剛體 solver | Phase 2 · 6.2 恢復係數 · 6.3 形狀 · 6.5 / 6.11 島平行 · 7.2 寬相 · 9.1–9.4 · 17.0 · 17.23–17.25 · 17.26 · 17.29 | ✅(17.0 剩 F12) |
+| 剛體 solver | Phase 2 · 6.2 恢復係數 · 6.3 形狀 · 6.5 / 6.11 島平行 · 7.2 寬相 · 9.1–9.4 · 17.0 · 17.23–17.25 · 17.26 · 17.29 | ✅ |
 | 碰撞 / 幾何 | 2.3 · 4.1 CCD · 7.1 SAH · 8.1 凸包 · 8.2 mesh / heightfield · 13.8 SDF · 17.13 查詢 · 17.30 地形變形 | ✅ |
 | 關節體 / 機器人 | 6.4 / 6.8 / 6.12 · 13.1–13.6 | ✅ |
 | 軟體 / 布料 / 繩 | 6.1 · 6.6–6.9 · 15.2 · 4.3 VBD · 17.41 | ✅ |
@@ -1417,7 +1417,7 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > | 17.0h | 錯誤政策落地到 Wave A 會碰的 API:邊界 `raise`(`add*` / `add_joint` / `step_soft` 參數 / `TriMesh` / `HeightField`)、步末 NaN 隔離 + `diag` 計數器 + 注入 NaN 的測試 | F10 |
 > | 17.0i | 執行期容器 `gameplay/runtime.mojo`(擁有 `World + ContactScene6 + FixedLoop` 與位姿→transform 同步):17.1 / 17.7 需要的「有狀態執行期」目前無處可放 | F15 |
 >
-> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;**單一 device context 擁有者 ✅ 2026-09-29(17.17)**:引擎內不再有 `DeviceContext()`,`gpu_cloth_run` / `gpu_vbd_run` 包裝移除,測試自持 context;FSM 移動已於 17.0c 完成;剩 `chain` 稠密解移 `numerics` + 地面接觸走 `ColliderSet`(17.2 前)):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
+> **Wave B 入口前置**(不擋 Wave A;**solver6 拆分 ✅ 2026-09-29 `01cd3d0`**:`contact6` / `joints6` / `islands` / `ccd6` / `soft_couple` 為作用在 `BodySet` 上的自由函式,solver6 2787→~1570 行,身分閘門 golden 逐節相同;**單一 device context 擁有者 ✅ 2026-09-29(17.17)**:引擎內不再有 `DeviceContext()`,`gpu_cloth_run` / `gpu_vbd_run` 包裝移除,測試自持 context;FSM 移動已於 17.0c 完成;**F12 `chain` 稠密解移 `numerics`(`numerics/dense.mojo`: `solve_dense` / `solve_dense_checked`)+ 地面接觸走 `ColliderSet`(`Chain.resolve_contacts` 經 `collision.world_query.nearest_surface`)+ `FloatingChain` 改走公開 `Chain.set_base_motion` ✅ 2026-10-08**,身分閘門 golden 既有各段逐位相同,設計筆記 `docs/design/17.0-f12-chain.md`;17.0 架構前置至此全數完成):solver6 依 13 個職責群拆分為作用在 body view 上的自由函式(17.17 / 17.18 / 17.20 的第一個 commit)、`chain` 的稠密解移 `numerics` 與地面接觸改走 `ColliderSet`(17.2 前)、單一 device context 擁有者(17.17 前)、FSM 移到 `procedural` 之下可被動畫圖使用(17.6 前)。
 > **已刪除(2026-09-29,使用者決定)**:舊 2D 物理路徑(`physics/{solver,step,rigidbody,forces,body,integrator}.mojo`)連同只為它存在的 `test_physics_dynamics`、`test_physis`、`bench_physics`、`examples/20_contact_solver_2d.mojo` 一併移除(範例編號 20 留空)。`CollisionPipeline`(collision 層)保留,現在只由其測試使用;`ContactSolver` 2D seam 列自 CATEGORY §2 移除。`BENCHMARK_REPORT.md` 是產生物,其中的 2D 接觸求解器段落要到下次重新產生才會消失。
 > **驗收閘門(重構類)**:行為不變的重構以「全套測試 stdout 逐位相同(去除計時行)」為身分閘門,不是只看綠燈。
 

@@ -1,4 +1,4 @@
-# tier: unit
+# tier: unit  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import Real, Vec3

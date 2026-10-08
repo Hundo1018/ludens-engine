@@ -263,6 +263,37 @@ def point_distance(
     return best
 
 
+def nearest_surface(
+    cs: ColliderSet,
+    poses: List[Pose3],
+    p: Vec3,
+    f: QueryFilter,
+    search: Real = 1.0,
+) -> Tuple[Int, Probe]:
+    """The collider whose surface is closest to world point `p` (smallest
+    signed distance, lowest index on a tie) among those `f` lets through,
+    with the `point_distance` probe against it. When none qualifies the index is
+    -1 and the probe has `dist = 1e30`.
+
+    This is the contact query for a POINT that belongs to something else (an
+    articulated chain's foot, a particle): `probe.dist <= 0` means the point
+    touches or is inside, `-probe.dist` is the depth and `probe.normal` the
+    direction that pushes it out. Box, sphere, capsule and hull report a
+    signed distance, so depth is meaningful; trimesh and heightfield report an
+    unsigned distance within `search`, so they register only on touch (see the
+    module doc)."""
+    var best_i = -1
+    var best = Probe(Real(1e30), p, Vec3(0, 1, 0, 0))
+    for i in range(len(cs.shape)):
+        if not _passes(cs, i, f):
+            continue
+        var pr = point_distance(cs, i, poses[i], p, search)
+        if best_i < 0 or pr.dist < best.dist:
+            best_i = i
+            best = pr
+    return (best_i, best)
+
+
 def segment_distance(
     cs: ColliderSet, i: Int, pose: Pose3, a: Vec3, b: Vec3, search: Real = 1e30
 ) -> Tuple[Probe, Vec3]:

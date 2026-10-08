@@ -1,4 +1,4 @@
-# tier: unit
+# tier: integration
 """Reduced-coordinate contact: an articulated body that can touch the world.
 
 Until now the two halves of the engine could not meet — `Chain` integrates in
@@ -24,6 +24,7 @@ from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import Real, Vec3, length
 from physics.chain import Chain, ChainLink
+from collision.collider_set import ColliderSet, Pose3
 
 comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
@@ -121,11 +122,15 @@ def main() raises:
     # two unit rods hanging straight down put the tip at y = -2, so a floor
     # at -1.6 is struck partway through the swing
     comptime FLOOR: Real = -1.6
+    var ground = ColliderSet()
+    var slab = ground.add_ground_slab(FLOOR)
+    var poses = List[Pose3]()
+    poses.append(slab[1].copy())
     var worst_pen = Real(0)
     var ever_touched = False
     for _ in range(1200):
         f.step(DT, zero, G)
-        var n_act = f.resolve_ground(FLOOR, 0.0, pts, locs, DT)
+        var n_act = f.resolve_contacts(ground, poses, 0.0, pts, locs, DT)
         if n_act > 0:
             ever_touched = True
         for c2 in range(len(pts)):
@@ -155,7 +160,7 @@ def main() raises:
     f2.q[0] = 1.2
     for _ in range(1200):
         f2.step(DT, zero, G)
-        _ = f2.resolve_ground(FLOOR, 0.0, pts, locs, DT)
+        _ = f2.resolve_contacts(ground, poses, 0.0, pts, locs, DT)
         var sp = abs(f2.qd[0]) + abs(f2.qd[1])
         if sp > contact_max:
             contact_max = sp

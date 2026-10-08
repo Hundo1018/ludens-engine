@@ -13,13 +13,6 @@ build: all packages precompiled into build/
 --- tests/test_cga_circle.mojo ---
   worst random-point error: 5.2452087e-06
 [PASS] cga_circle - 4 / 4 checks
---- tests/test_chain_contact.mojo ---
-  worst relative |J - dFK/dq|: 0.00023919344
-  J for a point on branch A: 0.38165587 0.38165587 0.0
-  requested dv 1.7  achieved 1.7
-  worst penetration below the floor: 3.5762787e-07
-  peak joint speed: free 9.286495  with contact 5.8686285
-[PASS] chain_contact - 7 / 7 checks
 --- tests/test_chain.mojo ---
   1-link period: 1.6400000397115946 s (analytic 1.6392)
   1-link energy drift: 0.0025677345463364283
@@ -43,6 +36,8 @@ build: all packages precompiled into build/
   worst |incidence| on the torus surface: 1.5258789e-05
   worst sphere discrepancy: 7.6293945e-06
 [PASS] dcga - 6 / 6 checks
+--- tests/test_dense.mojo ---
+[PASS] dense - 21 / 21 checks
 --- tests/test_diag_arena.mojo ---
 [PASS] diag_arena - 15 / 15 checks
 --- tests/test_diag_draw.mojo ---
@@ -412,6 +407,15 @@ build: all packages precompiled into build/
   swept bullet: max x = -0.15143099427223206 final vx = -2.389892
   rest height with TOI stage: 0.24971091747283936
 [PASS] ccd6 - 20 / 20 checks
+--- tests/test_chain_contact.mojo ---
+  worst relative |J - dFK/dq|: 0.00023919344
+  J for a point on branch A: 0.38165587 0.38165587 0.0
+  requested dv 1.7  achieved 1.7
+  worst penetration below the floor: 3.5762787e-07
+  peak joint speed: free 9.286495  with contact 5.8686285
+[PASS] chain_contact - 7 / 7 checks
+--- tests/test_chain_ground.mojo ---
+[PASS] chain_ground - 14 / 14 checks
 --- tests/test_character.mojo ---
 [PASS] character - 21 / 21 checks
 --- tests/test_colored.mojo ---

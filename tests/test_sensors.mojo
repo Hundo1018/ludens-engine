@@ -1,4 +1,4 @@
-# tier: component
+# tier: component  (override: exercises the physics articulated-body code alone; numerics.dense (the shared dense solve) and collision (chain's ground contact) are its internal wiring, not a second package under test)
 """Robot sensors, gated on facts about what a real instrument reads.
 
 The load-bearing test is the FREE-FALL one. An accelerometer measures proper
