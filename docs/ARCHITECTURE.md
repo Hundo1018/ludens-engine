@@ -14,7 +14,7 @@ test/bench infrastructure: engine packages must never import it.
 | Layer | Package | Owns | Must NOT own |
 |---:|---|---|---|
 | 0 | `diag` | Engine-side observability and the error policy's detect/record/terminate layers: invariant assertions, leveled logging, counters, trace spans, debug-draw command queue, frame arena (Phase 17.9 / 17.10 / 17.32–17.34). Zero engine dependencies, so every package may use it; points are `SIMD[dtype, 4]`, so it needs no `geometry` import | Rendering, file formats beyond a trace dump, any global mutable state |
-| 1 | `geometry` | Scalar/vector/matrix math, rotations (quat, motor, dual quat, PGA/CGA/DCGA), coefficient fields for AD, primitive shapes, pairwise geometric tests (GJK/EPA/SAT/clip/SDF/predicates), static BVH + LBVH construction, skinning math | Anything with a time step, a world, or an entity |
+| 1 | `geometry` | Scalar/vector/matrix math, rotations (quat, motor, dual quat, PGA/CGA/DCGA), coefficient fields for AD, primitive shapes, pairwise geometric tests (GJK/EPA/SAT/clip/SDF/predicates), static BVH + LBVH construction, skinning math, convex polytopes (hull, plane clipping, volume / inertia), convex decomposition and Voronoi / plane fracture patterns (Phase 17.5) | Anything with a time step, a world, or an entity |
 | 2 | `numerics` | Sparse matrices, Krylov solvers, small dense direct solves, flat-vector kernels | Physics meaning of the vectors |
 | 2 | `spatial` | Dynamic spatial indexes over AABBs (hash grid, loose quad/octree) | Pair generation policy (that is `collision`) |
 | 2 | `procedural` | Noise, animation clips/blending/pose evaluation, gameplay IK, hierarchical FSM | Physics, scheduling |
@@ -22,7 +22,7 @@ test/bench infrastructure: engine packages must never import it.
 | 2 | `ecs` | Entities, components, storage backends, queries, relations, commands, transform propagation | Scheduling of systems |
 | 3 | `scheduler` | System scheduling (sequential/job graph/actors/work stealing), fixed-step loop, events, timers, RNG | Physics or collision meaning |
 | 3 | `collision` | Broadphase seam, narrowphase seam, contact manifolds, CCD/TOI, static level geometry, scene queries | Impulses, integration |
-| 4 | `physics` | Every dynamics solver: rigid 6-DOF, articulated chains, constraints, soft bodies, cloth, FEM/MPM/SPH/PBF, differentiable rollouts, serialization of solver state | Gameplay policy (controllers, vehicles, AI) |
+| 4 | `physics` | Every dynamics solver: rigid 6-DOF, articulated chains, constraints, soft bodies, cloth, FEM/MPM/SPH/PBF, differentiable rollouts, serialization of solver state, fracture bonds and fragment budget (`physics/fracture.mojo`, Phase 17.5) | Gameplay policy (controllers, vehicles, AI) |
 | 5 | `gameplay` | Game-facing runtime shell built on physics + collision + ecs: character controller, state interpolation, active ragdoll (Phase 17) | Solver internals |
 | 6 | `oop` | The object-oriented baseline engine used only by comparative benchmarks | — |
 

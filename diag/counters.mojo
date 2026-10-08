@@ -67,7 +67,11 @@ time still owed (audit E22/F16 -- a frame-rate spike); the excess debt was
 dropped rather than carried into the next frame, so `alpha` stays in
 `[0, 1)` instead of drifting unbounded."""
 
-comptime COUNT: Int = 13
+comptime FRAGMENT_EVICTED: Int = 13
+"""`physics.fracture.FractureSet.enforce_budget` removed a free fragment
+because the live count exceeded the budget (ROADMAP 17.5)."""
+
+comptime COUNT: Int = 14
 
 
 def _name(id: Int) -> String:
@@ -97,6 +101,8 @@ def _name(id: Int) -> String:
         return "cg_not_converged"
     elif id == GAMELOOP_DEBT_DROPPED:
         return "gameloop_debt_dropped"
+    elif id == FRAGMENT_EVICTED:
+        return "fragment_evicted"
     else:
         return "counter_" + String(id)
 

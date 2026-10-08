@@ -374,6 +374,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | 裝置:CPU `Lbm` vs `LbmGpu` | fluid/lbm_gpu.mojo | 同一 stencil 的兩個裝置實作 | `test_lbm_gpu`(3.6e-7;通道逐位) | `bench_lbm_gpu`(MLUPS) |
 | SPH 牆面:夾回 vs 邊界粒子 | physics/sph.mojo | `sph_step` 是 `sph_step_boundary` 在空邊界上的限制 | `test_sph_boundary`(空 / 核外邊界逐位相同) | — |
 
+### 2.17 破壞 / 破碎(Phase 17.5,2026-10-08)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 凸分解演算法:階層軸平面切分(`SplitDecomposer`)vs 體素 k-means(`ClusterDecomposer`),同在 `ConvexDecomposer` trait 後 | geometry/convex_decomp.mojo | 兩者都是「體素集合 → 凸覆蓋」的函子,共同的可觀察定律是覆蓋(每個體素在某個凸塊內)與 narrowphase 一致(GJK / `hull_manifold` 對非擦邊探針給相同的命中 / 未命中);差別只在冗餘(excess)與成本 | `test_convex_decomp`(覆蓋 ≥ 0.999、excess ≤ 35 %、兩者體積差 ≤ 25 %、L / U 板 81 + 41 個非擦邊探針逐一一致、`hull_manifold` 對同一探針一致) | `bench_fracture`(L / U 板:零件數、excess、時間) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

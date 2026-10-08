@@ -131,6 +131,9 @@ build: all packages precompiled into build/
 [PASS] pbf - 10 / 10 checks
 --- tests/test_pip.mojo ---
 [PASS] pip - 16 / 16 checks
+--- tests/test_polytope.mojo ---
+  rolling cuts: 1576 pieces, volume error 1.0658141036401503e-14 worst open 1.5057955228406652e-15
+[PASS] polytope - 44 / 44 checks
 --- tests/test_quad_tree.mojo ---
 [PASS] quad_tree - 7 / 7 checks
 --- tests/test_sah.mojo ---
@@ -207,6 +210,12 @@ build: all packages precompiled into build/
 [PASS] cga_narrowphase - 83 / 83 checks
 --- tests/test_cga_plane.mojo ---
 [PASS] cga_plane - 70 / 70 checks
+--- tests/test_convex_decomp.mojo ---
+  L split: 2 parts excess 0.0 | cluster: 3 parts excess 0.0
+   probes graded 81 variants agree 81 contradict the solid 0
+  U split: 3 parts excess 0.019999999999999928 | cluster: 4 parts excess 0.04500000000000011
+   probes graded 41 variants agree 41 contradict the solid 0
+[PASS] convex_decomp - 44 / 44 checks
 --- tests/test_dbvh.mojo ---
 [PASS] dbvh - 3 / 3 checks
 --- tests/test_deferred_set.mojo ---
@@ -456,6 +465,16 @@ build: all packages precompiled into build/
   mesh events — contacts in the last step 2.0  began total 2.0
   zero mask, crate after 2s: -19.04086
 [PASS] filter_events - 21 / 21 checks
+--- tests/test_fracture.mojo ---
+  wall: 40 fragments 135 bonds 8 footing anchors
+  shot: broke 121 bonds, thrown through 37 , left in line 0 , live bonds 22 of 143 , ball z -1.0060688
+  bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 23 , on crate 27 , on ledge 17 , lowest centre 0.16574130952358246 , soft top moved -0.04999268054962158 , crate sag 0.011480957269668579 , max speed 0.017683830112218857
+  shards: 72 fragments, asleep 47 of 48 on rigid bodies, islands 18 , on crate 7 , on ledge 4 , lowest centre 0.0354248471558094 , soft top moved -0.049281418323516846 , crate sag 0.004768773913383484 , max speed 0.1920706182718277
+  L chain: parts 2 fragments 36 volume 1.2 parts volume 1.2
+  L chain: bonds within parts 104 across parts 23
+  voronoi: 1000 cells, volume 8.000000000000004 of 8.0
+  one cut: 1000 pieces, volume error 3.241851231905457e-14
+[PASS] fracture - 75 / 75 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
 --- tests/test_gpu_contact.mojo ---
@@ -469,12 +488,17 @@ build: all packages precompiled into build/
 --- tests/test_gpu_raycast.mojo ---
   hits: 405  misses: 1643  worst |dt|: 0.0
 [PASS] gpu_raycast - 5 / 5 checks
+--- tests/test_hull_irregular.mojo ---
+  prism apex-down: lowest vertex -0.00032920390367507935 asleep 1.0
+  14-vertex balls: rested 6 of 6, asleep 6
+  jittered cubes: rested 8 of 8, asleep 8
+[PASS] hull_irregular - 13 / 13 checks
 --- tests/test_hull.mojo ---
   face-face: hit 1.0  count 4.0  |n.y| 1.0  depth 0.19999999
   box-box reference: |n.y| 1.0  depth 0.19999999
   rest y — hull 0.24971156  real box 0.24971099   hull speed 0.0
   mixed — hull 0.24971156  box 0.24971099  sphere 0.24972828
-  tetrahedron rest y: 0.1996508  (spawned at 0.6)
+  tetrahedron rest y: 0.19966601  (spawned at 0.6)
   collinear-hull contact count: 1.0
   duplicated-vertex |n.y|: 1.0
   coincident-hull worst depth: 1.0
@@ -639,6 +663,11 @@ build: all packages precompiled into build/
   heightfield candidates — outside 0.0  straddling 2.0
   valley — y 0.38409448  speed 0.0  up.y 0.9998728
 [PASS] trimesh - 18 / 18 checks
+--- tests/test_weld.mojo ---
+  weld drift 0.009460454  ball drift 1.2818166  weld tilt 0.0022981346
+  landed pair: gap 0.49982712 heights 0.24970783 0.2497141
+  overlap 0.4: welded spacing 0.6000000238418579  free spacing 0.9949652552604675
+[PASS] weld - 15 / 15 checks
 --- tests/test_world_query.mojo ---
 [PASS] world_query - 30 / 30 checks
 --- tests/test_system_determinism.mojo ---

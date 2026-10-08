@@ -1986,6 +1986,27 @@ the reference variant.
 
 @bench benchmarks/bench_interpolation.mojo
 
+## Destruction and fracture (17.5)
+
+Convex decomposition is a seam: `SplitDecomposer` (hierarchical axis-plane
+splits, worst part first) and `ClusterDecomposer` (k-means on voxel centres)
+turn the same voxelised mesh into convex parts that cover all of it
+(`test_convex_decomp`: coverage 1.0, bounded excess, identical narrowphase
+verdicts on every non-grazing probe). The row labels carry the quality each
+reaches: on the concave L slab both find the two-part answer at 0 % excess; on
+the U slab the split needs 3 parts for 2 % excess where k-means needs 4 for
+4.5 %, but the split's plane search builds a hull per candidate cut and costs
+about ten times as much -- quality for build time, an offline choice versus a
+quick one.
+
+The second table is the fracture pipeline: Voronoi pre-fracture with exact
+neighbour pruning (a thousand cells in well under a second), one 27-plane
+runtime cut that yields a thousand pieces, adding a thousand fragments to a
+`ContactScene6` as hull bodies, and the awake per-step cost of a 40-fragment
+wall held together by 155 breakable welds.
+
+@bench benchmarks/bench_fracture.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
