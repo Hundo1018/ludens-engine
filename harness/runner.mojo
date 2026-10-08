@@ -6,7 +6,7 @@ test file is a normal program: build a `Suite`, run checks, then call `finish()`
 `test` task stops at the first failing file.
 
 Usage:
-    from ludens_testing.runner import Suite
+    from harness.runner import Suite
 
     def main() raises:
         var s = Suite("my_module")
