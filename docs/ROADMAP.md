@@ -792,6 +792,11 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 >   天真做法會轉一整圈;三種模式的偏差都是 0.0)。
 
 ## Phase 12 — 腳本層(架構分離,獨立層)⏸ gated
+> **決定(2026-10-09,使用者)**:平台方向 = **C(被宿主引擎嵌入的模擬函式庫)**。12.1 core embedding
+> 邊界宣告 **v0.x 凍結**,以 C-ABI 共享庫提供給宿主;12.2 先做 **Python 綁定**,hot reload
+> (experiment 分支 H1–H6、R1/R2)之後再接。**修正本節「不入核心 repo」**:Python 綁定是腳本層,
+> 放核心 repo 的最上層獨立套件;其測試須**環境隔離** —— 建出的擴充模組以客戶端方式安裝進乾淨環境
+> (不用 repo 的 `-I build` / repo 路徑)再測,確保客戶端實際可用。落地見 17.21。
 
 > **架構分離定律(使用者明令)**:核心 API 仍在演進 → 腳本層**不入核心 repo**,以獨立
 > 層/repo 綁定;本階段**先定邊界**,實作 gated on **核心 API 凍結 + 使用者確認**。
@@ -924,6 +929,8 @@ solver6 泛型化在這些性質確立之前做,只會得到一個更大的、�
 > 接觸數與解析度無關)+ bench row。**相依**:8.1(narrowphase 接線的既有路徑)。
 
 ### 13.9 批次多世界步進 — ⏸ 決策點(與平台整合綁定)
+> **決定(2026-10-09)**:平台方向 C 為主、RL 平台(B)為次要;批次能力以 17.18(可微子集上的
+> `BatchReal[W]`)為現行落點,完整 solver6 批次隨 B 的需求再擴。
 > **狀態**:**不排入實作,先標記** —— 這是 MJX / MJWarp 提供的能力,而使用者明令
 > MuJoCo 特定實作不入路線;但「多個獨立世界一起步進」是**通用 RL 需求**而非 MuJoCo 專屬。
 > **與被排除項的關係**:實作方式(SoA 批次 vs 多執行緒多世界 vs GPU 批次)取決於
@@ -1544,6 +1551,8 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **進度:✅ 2026-09-29** `gameplay/interpolation.mojo`:`PoseHistory`(每 body 前一 / 當前 tick 姿態,新 slot prev==curr,`mark_teleport` 抑制插值)+ 插值子 seam `PoseInterpolator`:`LerpNlerp` / `DqNlerp` / `MotorGeodesic`;`Runtime` 每 tick 擷取、`render_pose[I = DqNlerp](e)` 依 `loop.alpha` 取繪製姿態、`teleport(e, p)`。`test_interpolation` 21/21(三變體端點與純平移 parity;偏心軸 90° 螺旋:geodesic 1e-7、dq-nlerp 6e-8、lerp+nlerp 偏離 0.29;clamp / 外推 / 反向四元數 / 瞬移);`test_system_render` 5/5(sim 60 Hz、render 144 Hz:繪製值恆在兩 tick 之間、單調、多數幀為中間值;瞬移無拖影)。`bench_interpolation`:lerp+nlerp ~4 ns、dq-nlerp ~12 ns、motor geodesic ~200 ns / 姿態 → runtime 預設 dq-nlerp。
 
 ### 17.8 大世界座標 — Wave C(架構)
+> **決定(2026-10-09)**:先做 f32 + origin rebasing + world partition;f64 只做到 `WorldType`
+> 參數化與小世界 parity,完整精度曲線視代價再補。
 > **現況**:全 `f32`(`WorldType`),為 bit-identical 決定論。世界尺度上限 ~單一關卡。
 > **缺口**:64-bit 世界座標 **或** origin rebasing(世界原點位移)、world partition /
 > cell streaming、與決定論相容的方案(rebasing 事件也要進序列化)。
@@ -1598,6 +1607,8 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **進度:✅ 2026-09-29** `ecs/schema.mojo`:以 Mojo 1.1 prelude 的 `reflect[T]`(欄位名 / 型別 / byte offset / `field_ref`)在**編譯期**產生 `TypeSchema`,遞迴展開巢狀 struct 為點號路徑(`rotation.w`),無任何手寫欄位清單。`write_value` / `read_value`(自描述單筆)與 `write_values` / `read_values`(批次:描述一次、名稱比對一次);讀取按**欄位名**對應目前 schema:已刪欄位略過、新欄位保留呼叫端預設、改型欄位不重解釋,結果記在 `ReadReport`(dropped / mismatched / defaulted)。`TypeRegistry`:依型別名註冊,對型別擦除位址按欄位名讀寫純量(工具 / 腳本綁定形狀)。`tests/test_schema.mojo` 22/22(Transform 逐位 round-trip、反射 vs 手寫 parity、50 個 Transform 由 sparse-set world 搬到 archetype world 逐位相同、`SolverConfig` round-trip 後步進場景逐位相同;極端:空型別、巢狀、V1→V2 版本不符、截斷、錯型別名、registry 未知型別 / 欄位 / 非純量)。`bench_schema`(N=65536):單筆自描述 989 ns / 634 B、批次 115 ns / 114 B、手寫 17 ns / 48 B(手寫不存快取世界矩陣)。接線範例 `examples/23_reflection_inspector.mojo`(檢視器:列出並按名稱修改 Transform / SolverConfig 欄位)。**待辦**:批次讀寫仍逐 byte `append`,改整段複製;非純資料型別(`List` / `String`)目前靠契約排除,未在編譯期擋;17.12 場景格式 / 17.16 replication / 17.40 存檔改用此 schema。
 
 ### 17.12 可編輯場景 / prefab / 實例化 — Wave C(gated)
+> **決定(2026-10-09)**:平台方向 C → 場景格式**跟宿主走**(glTF / USD 匯入),不自訂檔案格式;
+> 場景(作者資料)與決定論快照分開,以 parity 連結。屬編輯器相關,本輪不做。
 > **現況**:`physics/serialize.mojo` = 全狀態 f32 bit-pattern 決定論快照(自註「非 asset reference」)。
 > **缺口**:schema 化、可 diff、版本化的場景格式、prefab / blueprint、nested scene 組合、
 > 實例覆寫(override)、entity template。
@@ -1656,6 +1667,9 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > 極端(空樹、深遞迴、每 tick 目標消失、1e4 agent)。
 
 ### 17.16 網路 / rollback — Wave C(部分 gated)
+> **決定(2026-10-09)**:平台方向 C → **傳輸層與線路格式交給宿主**;引擎提供 rollback 核心、
+> 預測策略 seam(lockstep / predict-rollback / snapshot-interp)與給宿主傳送的 byte payload API。
+> 權威模型以 lockstep + rollback 為主;決定論只承諾**同工具鏈、同架構**(不做跨平台定點 / 軟浮點)。
 > **現況**:刻意未做。**地基已在**:決定論 RNG(`scheduler/rng.mojo`)、actor model(10.3)、
 > 全狀態快照(6.10)。
 > **缺口**:snapshot ring buffer + 重模擬(rollback)、input prediction / server reconciliation、
@@ -1739,6 +1753,8 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **進度:✅(可微子集)2026-09-29** 取 ROADMAP 允許的第二條路:明確定義「可微子集」並寫在檔頭,而非把 `Field` 穿過具體 `Vec3`/`Body6` 的 solver6。`geometry/field.mojo` 新增 `SolverField(Field)`(`recip` / `root` / `positive`;`positive` 導數定義為 0 = 接觸開關的次梯度約定),`RealF` / `DualReal` / `DualBatch` / `RevReal` 皆實作。`physics/diffsolver.mojo`:`SphereWorld[F]` 以同一套 per-frame 演算法(投機收集 + warm-start 快取規則、每子步 重力 / warm start / Box2D v3 軟法向 + Coulomb 摩擦 / 積分 / relax)處理動態球 + 靜態平面,全部分支改為指示函數。`tests/test_diffsolver.mojo` 26/26:`RealF` 對 `ContactScene6`(落下 1e-4、三球疊 1e-3、滑轉滾 5e-3);四方梯度一致(DualReal == 中央差分、DualBatch 兩 lane == DualReal、RevReal 一次掃出兩個參數);靜止高度對落下高度導數 = 0。`bench_diffsolver`:DualBatch 在 NP ≤ 16 全程最便宜;RevReal tape 前置成本對 FD 的比值由 NP=1 約 6× 降到 NP=16 約 2×,交叉點在掃描範圍外。接線範例 `examples/22_diffsolver_sysid.mojo`:由 `ContactScene6` 的單一觀測值反推 μ(8 lane 批次掃描 + DualReal Newton,真值 0.37 → 0.370002)。**待辦**:子集外擴(盒 / 膠囊、關節、恢復係數 pass);全部球對每幀都攜帶是 O(n²),大 n 需寬相;RevReal tape 每運算一次 `List.append` + `Optional` 指標,是反向模式偏慢的主因。
 
 ### 17.21 腳本層(Phase 12 落地) — Wave C(gated)
+> **決定(2026-10-09)**:gating 解除 —— 見 Phase 12 決定註:12.1 邊界凍結(C-ABI)、先做 Python
+> 綁定(核心 repo 最上層套件,測試環境隔離),hot reload 後接。
 > **現況**:Phase 12 ⏸ gated on 核心 API 凍結。
 > **保持 gated**,但列出前提:core embedding 邊界定義、Mojo / Python 雙腳本(技術偵察已在
 > [[roadmap-2026-07]]:`PythonModuleBuilder` 擴充模組驗證過 rest y=0.2497、跨語言 bit-identical)、
