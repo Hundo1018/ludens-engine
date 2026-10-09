@@ -616,7 +616,19 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 
 ## Phase 9 — 物理完整度(2026-07-22)
 
-### 9.1 關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)— ✅ 已完成
+### 9.1 關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)— 🔶 部分完成(2026-10-09 校正)
+> **狀態校正(2026-10-09,負空間盤點)**:原標 ✅,但程式碼只交付了一部分。
+> 已有:縮座標 `physics/chain.mojo:96-97`(`JOINT_REVOLUTE` / `JOINT_PRISMATIC`)、
+> `:108-109,130-139`(`lo` / `hi` 與 `limited()`)、`:785` `resolve_limits`
+> (`tests/test_joints_lib.mojo`);最大座標 weld 來自 17.5(`physics/joints6.mojo:18`
+> `JOINT_WELD`);17.2 的 `AngularDrive`(`joints6.mojo:279`)是姿態驅動 + `max_torque`,
+> 不是速度馬達。
+> 未做:`Joint6`(`joints6.mojo:14-18` 只有 BALL / DISTANCE / HINGE / BROKEN / WELD)
+> 無上下限、速度馬達、彈簧、滑軌、cone-twist;`joints6.mojo` 與 `chain.mojo` grep
+> `cone|twist|swing|spring` 只命中註解(`joints6.mojo:24` 寫明「no cone clamp」),
+> 沒有對應的欄位或關節型別;縮座標也沒有球關節 / 多自由度關節(Phase 13 開頭
+> 「關節型別只有 revolute」的缺口,在球關節這部分仍在)。
+> 剩餘工作移至 **17.47**(最大座標)與 **17.51**(縮座標多自由度關節)。
 > **現況**:`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接。
 > **設計**:hinge/prismatic 加下上限(單邊不等式,錐外投影)、馬達(目標速度 + 力矩上限)、
 > 軟約束彈簧(復用 soft coefficient)、weld(6-DOF 剛接)、cone-twist(ragdoll 肩髖);
@@ -923,7 +935,13 @@ EPA 3D(witness points)、樹狀關節 —— 全部 ✅ 且有 parity + benchmar
 有 366 次排程改變,可用的有限差分探針隨 dt 縮小(dt=1/120 時 2.5e-3 → 1.6e-4)。
 solver6 泛型化在這些性質確立之前做,只會得到一個更大的、同樣有這些陷阱的東西。
 
-### 13.8 SDF / 橢球 / 圓柱 narrowphase — ✅ 已完成
+### 13.8 SDF / 橢球 / 圓柱 narrowphase — 🔶 部分完成(2026-10-09 校正)
+> **狀態校正(2026-10-09,負空間盤點)**:原標 ✅,本節沒有進度註,程式碼對不上:
+> 3D SDF 場與 SDF 對 SDF 接觸在 `geometry/sdf3.mojo`,只被 `tests/test_sdf3.mojo` 與
+> `benchmarks/bench_sdf3.mojo` 使用;`collision/collider_set.mojo:37-42` 的形狀種類只有
+> box / sphere / capsule / hull / trimesh / heightfield,沒有 SDF,所以 **SDF 未接進
+> solver6**;橢球與圓柱沒有任何形狀程式碼;本節交付物 `test_sdf_narrowphase` 不存在。
+> 剩餘工作(SDF 作為 solver 形狀、橢球、圓柱)移至 **17.52**。
 > **現況**:`SDFNarrowPhase` **已存在但未接進 solver6**(與 8.1 凸包同樣是「有碼未接線」);
 > 橢球與圓柱**完全沒有**。
 > **設計**:先接線 SDF(接觸點 = 兩 SDF 最大值的梯度下降極小點,MuJoCo 路線),
@@ -1661,6 +1679,16 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > pathfinder(A* / JPS / funnel)路徑等價類。
 > **交付**:普通(單 agent 繞牆)/ 整合(crowd 對衝不卡死、動態障礙即時挖洞、與物理地面一致)/
 > 極端(無路徑、瓶頸門、agent 重疊出生、navmesh 破洞)。
+> **增補(2026-10-09 負空間盤點,本節尚未開工故直接擴充範圍)**:
+> - **流場尋路**:每個目標算一次 integration field + 方向場,同目標的大量單位 O(1) 讀方向
+>   (例:5000 個 RTS 單位走向同一集結點,不跑 5000 次 A*)。grep `flow.?field|流場尋路`
+>   於 docs / 程式碼只命中 LBM 的「流場」。pathfinder seam 加一個變體。
+> - **3D 體積導航**(飛行 / 游泳 agent):稀疏體素八叉樹 + 3D A*(例:無人機敵人穿過建築
+>   內部空間)。navmesh 只處理可行走表面;既有 `spatial/` 八叉樹是寬相索引,不是導航圖。
+> - **階層式長程尋路**(HPA* / 每個 partition cell 一份 navmesh):公里級分區世界先在抽象
+>   cluster graph 上粗規劃,只有已載入的 cell 持有細 navmesh;接 17.8 world partition。
+> 對照組補:Unity DOTS 流場範例 / Supreme Commander 2 flow field、UE Mass 的 3D 導航插件、
+> HPA*(Botea 2004)。**相依**補:17.8(partition 與串流)。
 
 ### 17.15 AI 框架 — Wave C
 > **現況**:僅 `scheduler/fsm.mojo`(FSM / HSM)。
@@ -1673,6 +1701,21 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > **seam?**:是 —— BT vs FSM vs utility 對同一決策問題的行為等價(可定義的情境集)+ tick 成本 row。
 > **交付**:普通(巡邏→追擊→搜索)/ 整合(perception 接 17.13、多 agent 共享 blackboard)/
 > 極端(空樹、深遞迴、每 tick 目標消失、1e4 agent)。
+> **增補(2026-10-09 負空間盤點,本節尚未開工故直接擴充範圍)**:
+> - **轉向行為 / 群聚 / 隊形**:Reynolds seek / flee / arrive / pursue / evade / wander /
+>   path-follow、boids(separation / cohesion / alignment)、隊形槽位與跟隨隊長(例:1 萬條
+>   魚群用 hash grid 鄰居查詢、8 人小隊沿 navmesh 路徑保持楔形)。17.14 只規劃了避讓
+>   (RVO / ORCA / 力場),seek / arrive / 群聚 / 隊形不在其中。
+> - **GOAP / HTN 規劃器**:以前置條件 / 效果搜尋動作序列(例:冷了 → 拿斧 → 砍樹 → 生火);
+>   作為決策 seam 的第四個變體(BT / FSM / utility / planner)。grep `GOAP|HTN|planner` 零命中。
+> - **Smart objects / 互動點**:物件公告可佔用的互動槽(坐、使用、開門),含預約與標籤
+>   (例:三個 NPC 各佔一個長椅座位,第四個找不到空位)。
+> - **影響力圖 / 戰爭迷霧 / 可見性格**:戰術用純量格(威脅、控制)與以視線計算的每隊可見性
+>   (例:RTS 只顯示各單位視野半徑內、被地形遮擋後的區域)。本節 perception 是單 agent 感知,
+>   不是隊伍層級的格;視線查詢用 17.13 `ray_cast`(`collision/world_query.mojo:5` 已點名
+>   AI line-of-sight 為用途)。
+> 對照組補:Craig Reynolds steering、F.E.A.R. 的 GOAP、Horizon / Killzone 的 HTN、UE Smart
+> Objects、RTS 迷霧實作。**規模軸**補:boids 數 × 鄰居半徑;planner 動作數 × 搜尋深度;格解析度。
 
 ### 17.16 網路 / rollback — Wave C(部分 gated)
 > **決定(2026-10-09)**:平台方向 C → **傳輸層與線路格式交給宿主**;引擎提供 rollback 核心、
@@ -1693,6 +1736,18 @@ undo 歷史 UI、play-in-editor 的外殼。依架構分離定律,若要做,以�
 > 序列的最終世界 parity;各自頻寬 / CPU row。
 > **交付**:普通(2 端同輸入 → 逐位相同世界)/ 整合(丟包重排下重模擬收斂、與 CCD / island
 > sleep 相容)/ 極端(rollback 深度上限、當幀族群變動、時鐘漂移、跨平台 f32)。
+> **增補(2026-10-09 負空間盤點,本節尚未開工故直接擴充範圍)**:
+> - **延遲補償 / 伺服器回溯命中**:保留短期 collider 位姿環形緩衝,讓伺服器對「射擊者 N ms
+>   前看到的世界」做 raycast / overlap,不必整個世界 rollback(例:120 ms 延遲的爆頭,對目標
+>   7 tick 前的位姿判定)。零件:`collision/world_query.mojo:566-573` `ray_cast` 已接受外部
+>   `poses: List[Pose3]`;缺的是位姿歷史環(`gameplay/interpolation.mojo:96` `PoseHistory`
+>   只存 prev / curr)與回溯查詢服務。
+> - **伺服器端輸入驗證與失步偵測**:拒絕不可能的輸入 / 位移(速度上限、瞬移偵測),各端交換
+>   每 tick 狀態雜湊偵測 desync(例:回報速度超過衝刺上限 3 倍的客戶端被拉回)。零件:17.39
+>   的逐 tick FNV-1a 雜湊(`gameplay/replay.mojo:86` `checksum`)與 `first_divergence`,
+>   目前只用於 replay QA。**邊界**:反作弊的帳號 / 封禁 / 用戶端防護屬宿主與線上服務。
+> 對照組補:Valve Source 的 lag compensation、Overwatch 的 hit registration、GGPO desync
+> 檢查。**規模軸**補:回溯深度(tick)× collider 數的記憶體;每 tick 雜湊成本。
 
 ### 17.17 GPU 剛體 / articulation solver — Wave B
 > **現況**:GPU 僅覆蓋布料(4.3 / 6)、broadphase(3.2)、LBVH、raycast。剛體 solver 全 CPU
