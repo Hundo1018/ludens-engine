@@ -106,7 +106,10 @@ def main() raises:
 
 - `docs/ARCHITECTURE.md`:分層、錯誤政策、測試架構、archindex(`arch-check` 執行的契約)。
 - `docs/CATEGORY.md`:seam 與 parity 測試的範疇論對應表;新增 seam 時補一列。
-- `docs/ROADMAP.md`:依 Phase 記錄做了什麼、通過的 gate、量到的數字。完成一項工作時更新對應段落。
+- `docs/ROADMAP.md`:原則、邊界、優先序,以及依子系統分組的現況與待辦。編號是永久 ID(程式碼與 commit 引用它),
+  不改、不重用;新條目取下一個未用的編號放進對應子系統。完成一項工作時:把進度註(做了什麼、通過的 gate、
+  量到的數字、commit)寫進該條目,更新子系統表與編號索引的狀態。
+- `docs/ROADMAP_HISTORY.md`:2026-10-11 整理前的路線圖原文(依原 Phase 順序),已完成條目的完整紀錄在這裡。
 - `docs/design/`:較大變更先寫設計筆記(檔名用 ROADMAP 編號,例:`17.0i-runtime.md`)。
 - `docs/audits/`:架構稽核;ROADMAP 與 commit 以 `audit F11`、`E12` 等編號引用。
 
