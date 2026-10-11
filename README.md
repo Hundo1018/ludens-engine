@@ -89,7 +89,7 @@ tests/_spikes/  language probes (`pixi run spikes`)   experiments/ GA research p
 tools/       archindex (architecture index + gate) · golden (output identity gate)
 scripts/     pixi task bodies · arch_layers.toml · benchmark report template
 docs/        ARCHITECTURE (layers, error policy, test tiers) · CATEGORY (laws) ·
-             SOTA_GAP_ANALYSIS · ROADMAP (per-phase progress + numbers) · design/ · audits/
+             SOTA_GAP_ANALYSIS · ROADMAP (status + plan by subsystem) · ROADMAP_HISTORY · design/ · audits/
 ```
 
 Packages are layered (`scripts/arch_layers.toml`): a package imports only
@@ -110,5 +110,6 @@ strictly lower layers — `diag` → `geometry` → {`numerics`, `spatial`,
   — GPU drivers share one context (`*_run_ctx`). Details in the docs/ notes.
 
 Every claim above is backed by a test or a benchmark row — when in doubt, read
-[docs/ROADMAP.md](docs/ROADMAP.md): each phase section records what was built,
+[docs/ROADMAP.md](docs/ROADMAP.md) (current status by subsystem) and
+[docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md): each phase section records what was built,
 the gate it passed, and the numbers it produced.
