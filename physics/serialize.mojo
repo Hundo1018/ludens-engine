@@ -36,8 +36,9 @@ from physics.solver6 import ContactScene6, write_state, read_state
 from physics.state_io import StateWriter, StateReader
 
 comptime _VERSION = 3
-"""3 since ROADMAP 17.85: the stream ends with the tier phase clock
-(`step_index`), the tier table and the per-body tier plan. 2 since ROADMAP
+"""3 since ROADMAP 17.85 / 17.16: the stream ends with the tier phase clock
+(`step_index`), the tier table, the per-body tier plan and the island
+labels. 2 since ROADMAP
 17.0g-2: each body's fixed-size fields grew by
 five tokens (`motion`, `friction`, `friction_combine`, `restitution_combine`,
 `can_sleep` -- `physics.solver6.write_state`'s docstring), so a v1 snapshot
@@ -132,3 +133,80 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
     read_state(sc, r)
     return sc^
 
+
+struct _BinWriter(StateWriter, Movable, Deinitable):
+    """Fixed-width binary `StateWriter` (ROADMAP 17.16): ints as 8 bytes,
+    floats as their 4-byte f32 bit pattern, little-endian. Fixed widths keep
+    every field at the same offset from one snapshot to the next while the
+    scene's shape is unchanged, which is what makes an XOR delta against the
+    previous snapshot mostly zeros (`gameplay.netcode.delta_encode`)."""
+
+    var b: List[UInt8]
+
+    def __init__(out self):
+        self.b = List[UInt8]()
+
+    def wi(mut self, i: Int):
+        var u = UInt64(i)
+        for k in range(8):
+            self.b.append(UInt8((u >> UInt64(8 * k)) & 0xFF))
+
+    def wf(mut self, f: Real):
+        var u = UInt32(_fbits(f))
+        for k in range(4):
+            self.b.append(UInt8((u >> UInt32(8 * k)) & 0xFF))
+
+    def wv(mut self, v: Vec3):
+        self.wf(v[0])
+        self.wf(v[1])
+        self.wf(v[2])
+
+
+struct _BinReader(StateReader, Movable, Deinitable):
+    var d: List[UInt8]
+    var at: Int
+
+    def __init__(out self, var data: List[UInt8]):
+        self.d = data^
+        self.at = 0
+
+    def ri(mut self) raises -> Int:
+        if self.at + 8 > len(self.d):
+            raise Error("physics.serialize: truncated binary snapshot")
+        var u = UInt64(0)
+        for k in range(8):
+            u |= UInt64(self.d[self.at + k]) << UInt64(8 * k)
+        self.at += 8
+        return Int(u)
+
+    def rf(mut self) raises -> Real:
+        if self.at + 4 > len(self.d):
+            raise Error("physics.serialize: truncated binary snapshot")
+        var u = UInt32(0)
+        for k in range(4):
+            u |= UInt32(self.d[self.at + k]) << UInt32(8 * k)
+        self.at += 4
+        return Real(Pointer(to=u).unsafe_bitcast[Float32]()[])
+
+    def rv(mut self) raises -> Vec3:
+        var x = self.rf()
+        var y = self.rf()
+        var z = self.rf()
+        return Vec3(x, y, z, 0)
+
+
+def scene_to_bytes(sc: ContactScene6[QuatBody6]) -> List[UInt8]:
+    """Exact binary snapshot (same fields and guarantees as `scene_to_string`)."""
+    var w = _BinWriter()
+    w.wi(_VERSION)
+    write_state(sc, w)
+    return w.b.copy()
+
+
+def scene_from_bytes(var data: List[UInt8]) raises -> ContactScene6[QuatBody6]:
+    var r = _BinReader(data^)
+    if r.ri() != _VERSION:
+        raise Error("scene format version mismatch")
+    var sc = ContactScene6[QuatBody6]()
+    read_state(sc, r)
+    return sc^

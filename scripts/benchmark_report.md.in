@@ -2084,6 +2084,19 @@ not move is the next step for this item.
 
 @bench benchmarks/bench_tiers.mojo
 
+## Netcode strategies (17.16)
+
+All three strategies end at the world the inputs produce offline; what they
+trade is where the latency goes. Lockstep displays the world as many ticks
+late as the slowest input; rollback displays the present and pays by
+re-simulating every tick it mispredicted (its frame cost grows with latency,
+because each late input reopens more ticks); snapshot clients do no
+simulation but show the server's past, and their bandwidth is the delta
+snapshots (a few hundred bytes per client per frame against a ~5 kB full
+snapshot).
+
+@bench benchmarks/bench_netcode.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

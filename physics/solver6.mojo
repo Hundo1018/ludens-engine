@@ -1764,6 +1764,14 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
     out.wi(len(sc.tier_of))
     for i in range(len(sc.tier_of)):
         out.wi(sc.tier_of[i])
+    # ROADMAP 17.16: island labels. `wake` / `teleport` wake a body's whole
+    # island by label; without them a restored scene read every label as
+    # unknown and woke every sleeping body instead of one island, so a
+    # rollback re-simulation diverged from the original run at the first
+    # wake after a load.
+    out.wi(len(sc.bset.island))
+    for i in range(len(sc.bset.island)):
+        out.wi(sc.bset.island[i])
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -2005,3 +2013,12 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         if t < 0 or t >= nt:
             raise Error("physics.serialize: corrupt snapshot (tier out of range)")
         sc.tier_of.append(t)
+    var nil = r.ri()
+    if nil < 0 or nil > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (island label count)")
+    sc.bset.island = List[Int]()
+    for _ in range(nil):
+        var l = r.ri()
+        if l < -1 or l >= len(sc.bset.bodies):
+            raise Error("physics.serialize: corrupt snapshot (island label out of range)")
+        sc.bset.island.append(l)

@@ -409,6 +409,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 
 這一列取代 §2.14 的「品質參數 seam」說明(該處沒有 trait 支撐)。
 
+### 2.22 網路預測策略(Phase 17.16,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 預測策略:`LockstepPeer` vs `RollbackPeer` vs `SnapshotServer` + `SnapshotClient`,同在 `NetPeer` trait 後,驅動同一個 `NetSim` | gameplay/netcode.mojo | 三者都是「(輸入序列, 有損連線) → 最終世界」的函子;定律是最終世界雜湊 == 離線依序套用同一輸入(延遲、抖動、丟包下逐位成立);差別只在顯示落後幾 tick、CPU(重模擬)與頻寬 | `test_netcode`(3 玩家 240 tick、10 % 丟包,三策略皆 == 離線參考) | `bench_netcode`(延遲 2 / 6 tick:每 frame 時間、位元組、顯示落後、回滾與重模擬數) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

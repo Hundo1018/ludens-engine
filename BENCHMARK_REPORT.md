@@ -4217,6 +4217,30 @@ not move is the next step for this item.
 
 
 
+## Netcode strategies (17.16)
+
+All three strategies end at the world the inputs produce offline; what they
+trade is where the latency goes. Lockstep displays the world as many ticks
+late as the slowest input; rollback displays the present and pays by
+re-simulating every tick it mispredicted (its frame cost grows with latency,
+because each late input reopens more ticks); snapshot clients do no
+simulation but show the server's past, and their bandwidth is the delta
+snapshots (a few hundred bytes per client per frame against a ~5 kB full
+snapshot).
+
+### Netcode strategies (17.16): 3 players, 240 ticks, 2 ticks jitter, 5 % loss
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| Lockstep, latency 2 (behind 3 ticks, 760 B / frame) | 3 | frame | 249718.65 | 0.00 | 60.68 |
+| Rollback ring 12, latency 2 (behind 0 ticks, 615 rollbacks, 2084 re-simulated ticks, 762 B / frame) | 3 | frame | 1150451.93 | 0.00 | 277.26 |
+| Snapshot interp, every 3 ticks, latency 2 (behind 7 ticks, 1809 B / frame, full snapshot 4952 B) | 3 | frame | 139035.70 | 0.01 | 35.45 |
+| Lockstep, latency 6 (behind 7 ticks, 1303 B / frame) | 3 | frame | 238804.35 | 0.00 | 58.98 |
+| Rollback ring 12, latency 6 (behind 0 ticks, 605 rollbacks, 4471 re-simulated ticks, 1310 B / frame) | 3 | frame | 2193151.91 | 0.00 | 528.55 |
+| Snapshot interp, every 3 ticks, latency 6 (behind 15 ticks, 2251 B / frame, full snapshot 4952 B) | 3 | frame | 161481.75 | 0.01 | 41.18 |
+
+
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
