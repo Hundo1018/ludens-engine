@@ -26,6 +26,7 @@ pc procedural
 pc spatial
 pc ecs
 pc scheduler
+pc nav
 pc collision
 pc physics
 pc gameplay

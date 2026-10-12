@@ -2021,6 +2021,40 @@ wall held together by 155 breakable welds.
 
 @bench benchmarks/bench_fracture.mojo
 
+## Navigation (17.14)
+
+The navmesh bake is Recast's first half (voxelise, filter, compact, erode)
+followed by per-tile greedy rectangles instead of watershed regions and
+contour simplification; cost grows linearly with the span count. Of the three
+pathfinders on the same queries, the polygon A* + funnel expands two orders
+of magnitude fewer nodes than the 8-connected span A* and returns the shorter
+any-angle path; the flow field costs one Dijkstra over every span per goal,
+which only pays when many agents share the goal -- the 5000-agent table is
+that case (one build plus O(1) reads against one search per agent). Carving a
+dynamic obstacle recomputes blocked flags and erosion in the changed window
+and rebuilds only the touched tiles; the remaining global work is the link
+rebuild, which is linear in polygons. On long queries across the 128 m maze
+the hierarchical search (HPA* with tiles as clusters) is not faster than the
+flat polygon search at this size -- attaching start and goal to their tiles
+costs about what it saves -- but it searches only the few dozen tiles on the
+coarse route in detail, which is what a streamed world needs. In free 3D
+space the sparse voxel octree turns open regions into single nodes: two
+orders of magnitude fewer nodes expanded than the dense voxel A* for the same
+smoothed path length.
+
+@bench benchmarks/bench_nav.mojo
+
+Crowd avoidance is a second seam on the same mesh. ORCA (the RVO2 linear
+programs) and the social force cost about the same per agent-tick; the
+sampled RVO evaluates a time-to-collision for every candidate velocity
+against every neighbour and is an order of magnitude dearer. At 1024 agents
+the sampled RVO also lets agents sink deepest into each other -- the
+sampling misses the narrow free velocities in a jam -- while ORCA keeps the
+overlap to a few centimetres (its guarantee is exact only away from walls:
+the navmesh slide after the linear program breaks reciprocity).
+
+@bench benchmarks/bench_crowd.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
