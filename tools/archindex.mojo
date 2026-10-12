@@ -400,12 +400,15 @@ def run_mojo_doc(pkg: String) raises -> PythonObject:
         Python.list("mojo", "doc", "-I", "build", pkg, "-o", out_path),
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if Int(py=res.returncode) != 0:
         raise Error("mojo doc failed for " + pkg + ": " + String(py=res.stderr))
     var json = Python.import_module("json")
     var builtins = Python.import_module("builtins")
-    var f = builtins.open(out_path, "r")
+    # Explicit: Python's default follows the locale, which is ASCII in a bare
+    # container or CI runner, and docstrings carry UTF-8 (ROADMAP 17.81).
+    var f = builtins.open(out_path, "r", encoding="utf-8")
     var obj = json.load(f)
     f.close()
     return obj
