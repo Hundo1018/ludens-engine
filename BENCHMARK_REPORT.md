@@ -3933,6 +3933,37 @@ then growing with the obstacle count through the queries' linear prefilter.
 
 
 
+## Raycast vehicles (17.4)
+
+One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a
+swept sphere or a swept capsule per wheel), the suspension, and the implicit
+per-axis tire solve (bisection on the rising branch of the Pacejka-shaped curve,
+the part that lets a parked car hold a slope). On this flat road with a few
+obstacles the cast is not the dominant cost -- the ray and the sphere sweep
+cost the same, because a sweep onto a plane converges in two advancement steps --
+and the capsule sweep adds roughly half again. The per-vehicle cost grows
+with the fleet because every wheel query scans every collider (one per car
+plus the road), the same linear prefilter as the world queries above.
+
+### Raycast vehicle (17.4): one update per vehicle, wheel-cast variants
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| ray | 1 | vehicle-step | 12821.96 | 0.08 | 1.54 |
+| sphere sweep | 1 | vehicle-step | 12701.23 | 0.08 | 1.52 |
+| capsule sweep | 1 | vehicle-step | 18533.80 | 0.05 | 2.22 |
+| ray | 8 | vehicle-step | 13069.91 | 0.08 | 12.55 |
+| sphere sweep | 8 | vehicle-step | 13016.53 | 0.08 | 12.50 |
+| capsule sweep | 8 | vehicle-step | 19803.73 | 0.05 | 19.01 |
+| ray | 32 | vehicle-step | 14926.06 | 0.07 | 57.32 |
+| sphere sweep | 32 | vehicle-step | 14372.68 | 0.07 | 55.19 |
+| capsule sweep | 32 | vehicle-step | 19988.51 | 0.05 | 76.76 |
+| ray | 128 | vehicle-step | 22498.31 | 0.04 | 345.57 |
+| sphere sweep | 128 | vehicle-step | 21064.87 | 0.05 | 323.56 |
+| capsule sweep | 128 | vehicle-step | 26513.05 | 0.04 | 407.24 |
+
+
+
 ## Pose interpolation (17.7)
 
 Drawing a body between two fixed ticks. Dual-quaternion nlerp costs about
@@ -3953,6 +3984,149 @@ the reference variant.
 | LerpNlerp | 4096 | pose | 4.88 | 204.85 | 0.16 |
 | DqNlerp | 4096 | pose | 30.11 | 33.21 | 0.99 |
 | MotorGeodesic | 4096 | pose | 323.29 | 3.09 | 10.59 |
+
+
+
+## Destruction and fracture (17.5)
+
+Convex decomposition is a seam: `SplitDecomposer` (hierarchical axis-plane
+splits, worst part first) and `ClusterDecomposer` (k-means on voxel centres)
+turn the same voxelised mesh into convex parts that cover all of it
+(`test_convex_decomp`: coverage 1.0, bounded excess, identical narrowphase
+verdicts on every non-grazing probe). The row labels carry the quality each
+reaches: on the concave L slab both find the two-part answer at 0 % excess; on
+the U slab the split needs 3 parts for 2 % excess where k-means needs 4 for
+4.5 %, but the split's plane search builds a hull per candidate cut and costs
+about ten times as much -- quality for build time, an offline choice versus a
+quick one.
+
+The second table is the fracture pipeline: Voronoi pre-fracture with exact
+neighbour pruning (a thousand cells in well under a second), one 27-plane
+runtime cut that yields a thousand pieces, adding a thousand fragments to a
+`ContactScene6` as hull bodies, and the awake per-step cost of a 40-fragment
+wall held together by 155 breakable welds.
+
+### Convex decomposition variants (17.5 seam)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| split | 2592 | L slab res 24: 2 parts, excess 0.000 | 974103511.00 | 0.00 | 974.10 |
+| cluster | 2592 | L slab res 24: 3 parts, excess 0.000 | 85152875.00 | 0.00 | 85.15 |
+| split | 2500 | U slab res 30: 3 parts, excess 0.020 | 2204711403.00 | 0.00 | 2204.71 |
+| cluster | 2500 | U slab res 30: 4 parts, excess 0.045 | 148831763.00 | 0.00 | 148.83 |
+
+
+### Fracture pipeline (17.5)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| voronoi | 100 | pre-fracture 100 seeds | 387915.34 | 0.00 | 38.79 |
+| voronoi | 1000 | pre-fracture 1000 seeds | 768174.24 | 0.00 | 768.17 |
+| cut | 1000 | 27 planes -> pieces (geometry) | 110841.93 | 0.01 | 110.84 |
+| spawn | 1000 | fragments -> hull bodies | 6084.07 | 0.16 | 6.08 |
+| step | 40 | bonded wall, 155 welds, awake (soft step) | 4843184.52 | 0.00 | 290.59 |
+
+
+
+## Navigation (17.14)
+
+The navmesh bake is Recast's first half (voxelise, filter, compact, erode)
+followed by per-tile greedy rectangles instead of watershed regions and
+contour simplification; cost grows linearly with the span count. Of the three
+pathfinders on the same queries, the polygon A* + funnel expands two orders
+of magnitude fewer nodes than the 8-connected span A* and returns the shorter
+any-angle path; the flow field costs one Dijkstra over every span per goal,
+which only pays when many agents share the goal -- the 5000-agent table is
+that case (one build plus O(1) reads against one search per agent). Carving a
+dynamic obstacle recomputes blocked flags and erosion in the changed window
+and rebuilds only the touched tiles; the remaining global work is the link
+rebuild, which is linear in polygons. On long queries across the 128 m maze
+the hierarchical search (HPA* with tiles as clusters) is not faster than the
+flat polygon search at this size -- attaching start and goal to their tiles
+costs about what it saves -- but it searches only the few dozen tiles on the
+coarse route in detail, which is what a streamed world needs. In free 3D
+space the sparse voxel octree turns open regions into single nodes: two
+orders of magnitude fewer nodes expanded than the dense voxel A* for the same
+smoothed path length.
+
+### Navmesh bake (17.14): voxelise -> compact -> erode -> tile rectangles -> links
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| bake 32 m (374 tris, 16335 spans, 134 polys, 404 links) | 32 | bake | 13214766.00 | 0.00 | 13.21 |
+| bake 64 m (1742 tris, 65325 spans, 576 polys, 1730 links) | 64 | bake | 54811553.00 | 0.00 | 54.81 |
+| bake 128 m (7238 tris, 261285 spans, 2368 polys, 7298 links) | 128 | bake | 231678822.00 | 0.00 | 231.68 |
+
+
+### Pathfinder seam (17.14): 200 seeded queries on the 64 m maze
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| PolyFunnel (A* polys + funnel + smooth) (found 117, mean expanded 41, mean length 35 m) | 64 | query | 15102.07 | 0.07 | 3.02 |
+| PolyFunnel (no smoothing) (found 117, mean expanded 41, mean length 35 m) | 64 | query | 9898.60 | 0.10 | 1.98 |
+| GridAStar (8-conn spans) (found 117, mean expanded 2347, mean length 36 m) | 64 | query | 1054837.49 | 0.00 | 210.97 |
+| FlowFieldPath (field per goal) (found 117, mean expanded 48667, mean length 36 m) | 64 | query | 12305424.18 | 0.00 | 2461.08 |
+
+
+### 5000 agents to one goal (17.14): per-agent search vs one flow field
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| PolyFunnel x 5000 | 5000 | agent | 40178.83 | 0.02 | 200.89 |
+| FlowField build (once) | 65325 | span | 235.86 | 4.24 | 15.41 |
+| FlowField direction read | 5000 | agent | 242.96 | 4.12 | 1.21 |
+
+
+### Dynamic obstacle (17.14): 1 x 1 m box on the 64 m maze
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| incremental update (4 tiles / update) | 64 | update | 1101503.43 | 0.00 | 44.06 |
+| rebuild every tile (289 tiles) | 64 | update | 7505170.25 | 0.00 | 30.02 |
+| full re-bake | 64 | update | 47327373.50 | 0.00 | 94.65 |
+
+
+### Hierarchical pathfinding (17.14): 100 long queries on the 128 m maze
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| HPA abstract graph build (2305 entrances, 19762 edges) | 1089 | tile | 3177.21 | 0.31 | 3.46 |
+| PolyFunnel (flat) (found 56, mean expanded 222, mean length 100 m) | 128 | query | 122180.39 | 0.01 | 12.22 |
+| HierFunnel (found 56, mean expanded 238, mean length 100 m, tiles searched 32 of 1089) | 128 | query | 155582.30 | 0.01 | 15.56 |
+
+
+### 3D volume navigation (17.14): 64 x 16 x 64 m, 0.25 m voxels, pillars + floating slabs
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| build (4325376 voxels, 164625 octree nodes, 72610 free leaves) | 4325376 | voxel | 55.83 | 17.91 | 241.47 |
+| SvoAStar (found 30, mean expanded 1705, mean length 32 m) | 30 | query | 1372388.77 | 0.00 | 41.17 |
+| SmoothedVoxelAStar (found 30, mean expanded 127205, mean length 32 m) | 30 | query | 246382045.27 | 0.00 | 7391.46 |
+
+
+
+Crowd avoidance is a second seam on the same mesh. ORCA (the RVO2 linear
+programs) and the social force cost about the same per agent-tick; the
+sampled RVO evaluates a time-to-collision for every candidate velocity
+against every neighbour and is an order of magnitude dearer. At 1024 agents
+the sampled RVO also lets agents sink deepest into each other -- the
+sampling misses the narrow free velocities in a jam -- while ORCA keeps the
+overlap to a few centimetres (its guarantee is exact only away from walls:
+the navmesh slide after the linear program breaks reciprocity).
+
+### Crowd avoidance (17.14): 64 m floor with pillars, random goals
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| Orca (arrived 96 %, mean t 11 s, deepest overlap 0 mm, replans 6) | 64 | agent-tick | 364.24 | 2.75 | 27.95 |
+| SampledRvo (arrived 95 %, mean t 11 s, deepest overlap 0 mm, replans 6) | 64 | agent-tick | 2824.23 | 0.35 | 216.72 |
+| SocialForce (arrived 100 %, mean t 11 s, deepest overlap 0 mm, replans 15) | 64 | agent-tick | 395.95 | 2.53 | 30.38 |
+| Orca (arrived 99 %, mean t 10 s, deepest overlap 2 mm, replans 38) | 256 | agent-tick | 501.25 | 2.00 | 153.86 |
+| SampledRvo (arrived 100 %, mean t 10 s, deepest overlap 0 mm, replans 54) | 256 | agent-tick | 6643.14 | 0.15 | 2039.07 |
+| SocialForce (arrived 99 %, mean t 12 s, deepest overlap 0 mm, replans 90) | 256 | agent-tick | 599.96 | 1.67 | 184.16 |
+| Orca (arrived 96 %, mean t 12 s, deepest overlap 34 mm, replans 472) | 1024 | agent-tick | 1412.76 | 0.71 | 1734.55 |
+| SampledRvo (arrived 99 %, mean t 12 s, deepest overlap 512 mm, replans 753) | 1024 | agent-tick | 14406.31 | 0.07 | 17687.72 |
+| SocialForce (arrived 91 %, mean t 19 s, deepest overlap 43 mm, replans 1074) | 1024 | agent-tick | 1361.54 | 0.73 | 1671.67 |
 
 
 

@@ -41,7 +41,7 @@
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 7 | 0 | 3 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
-| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 0 | 0 | 6 | 0 |
+| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 1 | 0 | 5 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 0 | 5 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 0 | 0 | 6 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
@@ -1581,7 +1581,7 @@
 
 | 編號 | 條目 | 狀態 | Wave | 說明 |
 |---|---|:-:|:-:|---|
-| 17.14 | [導航](#1714-導航) | ⬜ | C | 規劃 navmesh bake、A* / funnel、動態障礙、crowd 避讓(RVO / ORCA)、off-mesh link,以及 2026-10-09 增補的流場尋路、3D 體積導航與階層式長程尋路;尚無程式碼。 |
+| 17.14 | [導航](#1714-導航) | ✅ | C | 新套件 `nav`(layer 3):navmesh bake(體素 → 緊湊場 → 侵蝕 → tile 矩形)、尋路 seam(多邊形 A* + funnel / 格 A* / 流場 / HPA*)、off-mesh link、動態障礙增量挖洞、crowd 與避讓 seam(ORCA / 取樣 RVO / 社會力)、3D 體積導航(稀疏體素八叉樹 A* vs 稠密體素 A*)。 |
 | 17.15 | [AI 框架](#1715-ai-框架) | ⬜ | C | 規劃 behavior tree、utility AI、blackboard、perception、EQS,以及 2026-10-09 增補的轉向 / 群聚 / 隊形、GOAP / HTN、smart objects、影響力圖 / 戰爭迷霧;目前只有 FSM / HSM。 |
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | ⬜ | C | 規劃 rollback 核心、預測策略 seam(lockstep / predict-rollback / snapshot-interp)與給宿主傳送的 byte payload API,另含延遲補償與輸入驗證 / 失步偵測;傳輸層與線路格式交給宿主,尚未開工。 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | ⬜ | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
@@ -1592,8 +1592,19 @@
 
 #### 17.14 導航
 
-> **狀態**:⬜ 未開始(Wave C;2026-10-09 修訂後為剩餘順序第 (1) 項)
-> **現況**:無(舊「明確不做」,已被 [[no-tech-exclusion-principle]] 推翻)。
+> **狀態**:✅ 完成(Wave C;剩餘順序第 (1) 項)。2026-10-11 交付,設計筆記 `docs/design/17.14-navigation.md`。
+> **進度(2026-10-11)**:新套件 `nav`(layer 3,只依賴 `geometry`)。
+> - `nav/heightfield.mojo`:Recast 式體素化(逐格裁切三角形,排除格線上的零寬切片)、low-hanging / low-height 過濾、緊湊場(4 鄰接)、2/3 chamfer 侵蝕;`erode_window` 是視窗版,窗內結果與全場相同(單調最短路論證寫在註解,測試逐位驗證)。
+> - `nav/navmesh.mojo`:每 tile 貪婪矩形合併成凸多邊形(取代 watershed / 輪廓 / 三角化)、portal 連結(建立時定好左右)、`raycast`(Amanatides–Woo,沿連通關係走)、off-mesh link(單 / 雙向、成本倍率)、動態障礙 `add_obstacle` / `remove_obstacle` / `update`(只重算變動窗並重建被觸及的 tile)、`height_at`(span 地板 + 中央差分坡度)。
+> - `nav/path.mojo`:`PathFinder` seam —— `PolyFunnel`(多邊形 A*,Detour 成本模型 + simple stupid funnel + 可見性平滑)、`GridAStar`(8 連通 span,不切角)、`FlowFieldPath` / `FlowField`(每目標一張 Dijkstra 積分場,O(1) 方向讀取,依 `mesh.version` 失效)。
+> - 測試:`test_nav`(44:繞牆、窄於 2r 的縫、坡道、0.3 / 0.6 m 台階、1.0 m 低天花板、地板洞、off-mesh 單向、挖洞 == 全量重建、移除後還原、起點離網、起終點相同、錯誤輸入)、`test_nav_parity`(5:300 個種子查詢,三變體可達性相同、格 A* 長度 == 流場長度、所有行走段通過 raycast、funnel 與 octile 長度在寫明的經驗界內;octile / funnel 平均 1.063)、`test_nav_world`(6,integration:同一三角形給 `bake_navmesh` 與 `ContactScene6.add_trimesh`,路徑上 109 個取樣點的 navmesh 高度與物理射線地面差最大 0.125 m;落在坡上的箱子停在 navmesh 高度;12 次隨機增刪障礙每步 == 全量重建)。
+> - 量測(`bench_nav`,64 m 迷宮,65 k span):烘焙 47 ms(32 m 12 ms、128 m 210 ms,線性);每查詢 `PolyFunnel` 16 µs(展開 41 個多邊形)、`GridAStar` 1.2 ms(展開 2347 span)、`FlowFieldPath` 12.6 ms(每目標建場);5000 agent 同目標:逐 agent funnel 168 ms vs 建一張流場 15 ms + 5000 次讀取 1.1 ms;1 m 障礙 incremental update 1.2 ms(4 tiles)vs 全 tile 重建 8.2 ms vs 重新烘焙 43 ms。
+> - 與 Recast 的差異:多邊形是 tile 內矩形(數量較多,無輪廓簡化參數);ledge 過濾由侵蝕吸收;連結重建是全域(與多邊形數線性),是 incremental update 的主要剩餘成本。
+> - Crowd(`nav/crowd.mojo`):`Crowd[A: Avoidance]`(均勻格鄰居、偏好速度含 5 % 右手偏置、`NavMesh.move_along` 逐格滑牆、可見性推進 corner、corner 看不見時冷卻式重新規劃、off-mesh 直線穿越);避讓 seam `Orca`(RVO2 LP 逐行移植)/ `SampledRvo` / `SocialForce`。`test_crowd`(52:對心交換 16、走廊對衝 12、單門 12、4 個重疊出生、off-mesh 跳躍,三變體全員到達、不離網、逐位決定論,重疊依場景設界)。`bench_crowd`(64 m 柱陣、目標 20 m 內、40 s):每 agent-tick ORCA 0.32 / 0.43 / 1.37 µs(N = 64 / 256 / 1024)、社會力 0.34 / 0.51 / 1.41 µs、取樣 RVO 2.7 / 6.3 / 15.0 µs;N = 1024 最深重疊 ORCA 34 mm、社會力 43 mm、取樣 RVO 512 mm;到達率 91–100 %。
+> - 3D 體積導航(`nav/volume.mojo`):三角形經同一個逐格裁切光柵器成為佔據體素,依 agent 半徑做可分離盒膨脹,補成 2 的冪立方體後以 summed-volume table O(1) 判斷節點是否均勻,建稀疏體素八叉樹;自由葉為圖節點,共面者相鄰。seam `VolumeFinder`:`SvoAStar`(portal 成本模型 + 視線平滑)vs `SmoothedVoxelAStar`(26 連通不切角 + 同一平滑);`line_of_sight` 是 3D Amanatides–Woo,過邊 / 角時所有碰到的體素都要空。`test_nav_volume`(19:無人機從窗戶進入建築、窗寬 < 直徑時無路、目標在牆內、空體積一個葉、60 個種子查詢兩變體可達性相同、所有線段有視線、長度差 15 % 內)。`bench_nav`:64 × 16 × 64 m(433 萬體素)建樹 271 ms、7.3 萬自由葉;每查詢 SVO 1.4 ms(展開 1705)vs 稠密體素 246 ms(展開 12.7 萬),同長度。
+> - 階層式長程尋路(`nav/hpa.mojo`):HPA*,cluster = navmesh tile;portal 圖(portal 中點 + off-mesh 端點,同一凸多邊形上的兩點以直線相連)、tile 邊界上的 entrance、每個 entrance 在其 tile 內一次 Dijkstra 得到抽象邊;查詢在抽象圖上 A*,再以粗路徑經過的 tile 為遮罩跑 `PolyFunnel`。依 `mesh.version` 重建。`test_nav_parity` 把它列為第四個變體(400 個查詢含挖洞後 100 個:可達性一致、長度界相同、長查詢只細搜粗路徑上的 tile)。`bench_nav`(128 m 迷宮、1089 tiles、100 個長查詢):抽象圖建置 3.6 ms(2305 entrances);每查詢 HierFunnel 171 µs vs 平面 `PolyFunnel` 123 µs —— 在這個尺度上**更慢**,量到的好處是局部性:只細搜 1089 個 tile 中的 32 個(串流世界只需載入這些 tile 的細 navmesh)。
+> **遺留待辦**:連結的增量重建(incremental update 的主要剩餘成本)、navmesh 邊界作為 ORCA 靜態障礙線(恢復牆邊的無碰撞保證)、學習式避讓權重(可微 ORCA)、HPA 抽象圖只重建髒 tile(目前 version 變動即全量重建,3.6 ms)、與 17.8 world partition 串流接線(HPA 的 cluster 改用 partition cell)。
+> **現況(開工前)**:無(舊「明確不做」,已被 [[no-tech-exclusion-principle]] 推翻)。
 > **缺口**:navmesh bake(voxel → region → contour → 三角化)、A* / funnel(string-pulling)、動態障礙挖洞、crowd + 區域避讓(RVO / ORCA)、off-mesh link、tile 重烘。
 > **增補缺口(2026-10-09 負空間盤點,本節尚未開工故直接擴充範圍)**:
 > - **流場尋路**:每個目標算一次 integration field + 方向場,同目標的大量單位 O(1) 讀方向(例:5000 個 RTS 單位走向同一集結點,不跑 5000 次 A*)。grep `flow.?field|流場尋路` 於 docs / 程式碼只命中 LBM 的「流場」。pathfinder seam 加一個變體。
@@ -2450,7 +2461,7 @@
 | 17.11 | [反射 / 型別註冊表](ROADMAP_HISTORY.md#1711-反射--型別註冊表--wave-b架構解鎖多項) | ECS、排程、執行期與診斷 | ✅ |
 | 17.12 | [可編輯場景 / prefab / 實例化](#1712-可編輯場景--prefab--實例化) | ECS、排程、執行期與診斷 | 不排 |
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
-| 17.14 | [導航](#1714-導航) | gameplay 服務、AI、導航與網路 | ⬜ |
+| 17.14 | [導航](#1714-導航) | gameplay 服務、AI、導航與網路 | ✅ |
 | 17.15 | [AI 框架](#1715-ai-框架) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.17 | [GPU 剛體 / articulation solver](#1717-gpu-剛體--articulation-solver) | GPU 計算 | 🔶 |

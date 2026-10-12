@@ -216,6 +216,20 @@ build: all packages precompiled into build/
   U split: 3 parts excess 0.019999999999999928 | cluster: 4 parts excess 0.04500000000000011
    probes graded 41 variants agree 41 contradict the solid 0
 [PASS] convex_decomp - 44 / 44 checks
+--- tests/test_crowd.mojo ---
+  crowd: swap/orca time 12.1 min sep 8.583069e-06 late 8.583069e-06
+  crowd: swap/rvo time 11.900001 min sep 0.003354013 late 0.003354013
+  crowd: swap/force time 15.366668 min sep 0.05644393 late 0.05644393
+  crowd: corridor/orca time 19.733334 min sep -0.0024133325 late -0.0024133325
+  crowd: corridor/rvo time 24.866669 min sep -0.012874126 late -0.012874126
+  crowd: corridor/force time 38.100002 min sep -0.037939668 late -0.037939668
+  crowd: door/orca time 14.300001 min sep -0.029511452 late -0.029511452
+  crowd: door/rvo time 14.433334 min sep -0.0059827566 late -0.0059827566
+  crowd: door/force time 23.233335 min sep 0.06992924 late 0.06992924
+  crowd: spawn/orca time 4.2333336 min sep -0.57427335 late 0.056748807
+  crowd: spawn/rvo time 4.3333335 min sep -0.56428266 late 0.09153372
+  crowd: spawn/force time 7.7000003 min sep -0.5642853 late 0.088178396
+[PASS] crowd - 52 / 52 checks
 --- tests/test_dbvh.mojo ---
 [PASS] dbvh - 3 / 3 checks
 --- tests/test_deferred_set.mojo ---
@@ -311,6 +325,14 @@ build: all packages precompiled into build/
 [PASS] naive_backend - 11 / 11 checks
 --- tests/test_narrowphase.mojo ---
 [PASS] narrowphase - 12 / 12 checks
+--- tests/test_nav.mojo ---
+[PASS] nav - 44 / 44 checks
+--- tests/test_nav_parity.mojo ---
+  nav_parity: found 131 of 400 | octile/funnel mean 1.0628282 worst 1.3730338
+[PASS] nav_parity - 6 / 6 checks
+--- tests/test_nav_volume.mojo ---
+  nav_volume: leaves 7534 free voxels 211031 | svo 11.222561 expanded 495 | voxel 11.26619 expanded 1577
+[PASS] nav_volume - 19 / 19 checks
 --- tests/test_obb.mojo ---
 [PASS] obb - 11 / 11 checks
 --- tests/test_observers.mojo ---
@@ -535,6 +557,9 @@ build: all packages precompiled into build/
 [PASS] materials - 15 / 15 checks
 --- tests/test_motor_transform.mojo ---
 [PASS] motor_transform - 33 / 33 checks
+--- tests/test_nav_world.mojo ---
+  nav_world: samples 109 worst |dy| 0.125
+[PASS] nav_world - 6 / 6 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
   poisson n 64  iters 32  residual 5.1880166e-17  worst error 0.0

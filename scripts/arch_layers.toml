@@ -11,6 +11,7 @@ fluid = 2
 ecs = 2
 scheduler = 3
 collision = 3
+nav = 3
 physics = 4
 gameplay = 5
 oop = 6

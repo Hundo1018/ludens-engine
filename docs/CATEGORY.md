@@ -386,6 +386,15 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 輪-路接觸:單射線(`RayWheel`)vs 球掃(`SphereWheel`)vs 膠囊掃(`CapsuleWheel`),同在 `WheelCast` trait 後 | gameplay/vehicle_wheel.mojo | 三者都是「懸吊座 + 方向 → 輪心高度 / 接觸點 / 法向」的函子;共同的可觀察定律是在**平面路面**(平地、20° 斜坡、heightfield)上給相同的輪心距離、接觸點與法向(射線的輪心距離以 `t − R/cos` 修正坡度,所以與球掃在平面上精確相同);差別只在路面於一個輪半徑內**非平面**處——路緣、窄坑——掃描看得到邊緣,射線只看到安裝點正下方,測試把這個差異當作被斷言的行為而非容差 | `test_vehicle_wheel`(133:三變體平地 / 斜坡解析 / heightfield / 動態體 / 濾除 / 路緣差異 / 窄坑 / 牆邊回退 / 極端);`test_vehicle`(整車同一路徑:球掃 / 膠囊掃與射線在 1 % 內) | `bench_vehicle`(N 車 × 子步,三變體) |
 
+### 2.19 導航尋路與動態挖洞(Phase 17.14,2026-10-11)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 尋路:多邊形 A* + funnel(+ 可見性平滑)(`PolyFunnel`)vs 8 連通 span A*(`GridAStar`)vs 每目標一張 Dijkstra 積分場(`FlowFieldPath`)vs tile 階層 HPA* + 遮罩 funnel(`HierFunnel`),同在 `PathFinder` trait 後 | nav/path.mojo、nav/hpa.mojo | 三者都是「(起點, 終點) → 可走折線」的函子,在同一張可走圖(含 off-mesh link 邊)上;可觀察定律是可達性相同、每段行走線段通過 `NavMesh.raycast`、`GridAStar` 與 `FlowFieldPath` 長度相同(同一圖上的兩個精確最短路),funnel(任意角)與 octile 長度落在寫明的經驗界內 | `test_nav_parity`(400 個種子查詢,含不可達、off-mesh、挖洞後重查);`test_nav`(繞牆、坡道、台階、低天花板、洞、off-mesh) | `bench_nav`(同 200 查詢三變體:每查詢成本、展開節點、平均長度;5000 agent 同目標:逐 agent funnel vs 一張流場;128 m 迷宮長查詢:平面 vs HPA*) |
+| 群眾避讓:`Orca`(RVO2 半平面 + 增量 2D LP 逐行移植)vs `SampledRvo`(取樣式互惠速度障礙)vs `SocialForce`(Helbing 指數斥力),同在 `Avoidance` trait 後,由 `Crowd[A]` 驅動 | nav/crowd.mojo | 三者都是「(鄰居狀態, 偏好速度) → 新速度」的函子;可觀察定律是同場景(對心交換、走廊對衝、單門瓶頸、重疊出生、off-mesh 跳躍)全員到達、不離開 navmesh、兩次執行逐位相同;重疊深度是被量測的差異(開闊地 ORCA 在 2 % 半徑內,牆邊因 navmesh 滑動破壞互惠而放寬到 15 %) | `test_crowd`(52) | `bench_crowd`(N = 64 / 256 / 1024:每 agent-tick 成本、到達率、平均到達時間、最深重疊、重新規劃數) |
+| 3D 體積尋路:稀疏體素八叉樹葉上的 A*(`SvoAStar`,portal 成本模型)vs 稠密 26 連通體素 A*(`SmoothedVoxelAStar`),同在 `VolumeFinder` trait 後,兩者都接同一個視線平滑 | nav/volume.mojo | 兩者都是「(起點, 終點) → 自由空間折線」的函子,在同一張膨脹後的佔據格上;定律是可達性相同(八叉樹自由葉的鄰接 = 自由體素的面連通)、每段通過 `line_of_sight`、平滑後長度在 15 % 內 | `test_nav_volume`(60 個種子查詢 + 窗戶進入 / 窄窗 / 牆內目標 / 空體積) | `bench_nav`(體積表:建樹、葉數、兩變體每查詢成本與展開節點) |
+| 動態障礙:增量 `update`(只重算變動窗的 blocked / 侵蝕、只重建被觸及的 tile)vs `rebuild_all` vs 重新烘焙 | nav/navmesh.mojo、nav/heightfield.mojo(`erode_window`) | 同一「障礙集合 → navmesh」映射的增量與全量實作;窗內侵蝕的正確性由 chamfer 最短路的單調性保證(見 `erode_window` 註解),多邊形與連結逐位相同 | `test_nav`(堵住缺口 == 全量重建;移除後 == 原烘焙)、`test_nav_world`(12 次隨機增刪,每步 == 全量重建) | `bench_nav`(動態障礙表) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」
