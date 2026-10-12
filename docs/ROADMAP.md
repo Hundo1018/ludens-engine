@@ -42,7 +42,7 @@
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 7 | 0 | 3 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 2 | 0 | 4 | 0 |
-| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 0 | 5 | 2 |
+| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 1 | 4 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 0 | 0 | 6 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
 
@@ -194,7 +194,7 @@
 - **17.29**([紀錄](ROADMAP_HISTORY.md#1729-通用可斷裂關節--wave-b)):斷裂閾值寫入快照(17.32 車輛與 17.5 FractureSet 的待辦也以「同 17.29」引用此缺口;physics/serialize.mojo、state_io.mojo 目前無相關欄位)
 - **17.29**([紀錄](ROADMAP_HISTORY.md#1729-通用可斷裂關節--wave-b)):島平行路徑內取樣(現在有閾值時島平行路徑退回串行)
 - **17.31**([紀錄](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b)):凍結狀態(BodySet.frozen_motion)寫入快照(physics/serialize.mojo、state_io.mojo 目前無此欄位)
-- **17.31**([紀錄](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b)):逐 island 的品質分級(目前 iters / substeps 是全域)
+- **17.31**([紀錄](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b)):逐 island 的品質分級 —— 2026-10-12 由 17.85 的 tier 表交付(`ContactScene6.set_tier_table`)。
 
 ### 待辦與部分完成條目
 
@@ -1751,7 +1751,7 @@
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ⬜ | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ⬜ | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ⬜ | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
-| 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ⬜ | C | 時間解析度、空間解析度、active set、分級策略本身可替換 |
+| 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
 
 ### 已完成條目的遺留待辦
 
@@ -1974,6 +1974,16 @@
 > 本條是**診斷擷取**(給人除錯),兩者不共用格式;反作弊與線上遙測屬宿主;GPU kernel 內部剖析(Nsight 類)屬廠商工具,本條只併入時間區段。
 
 #### 17.85 分級模擬:依因果可達性分配時間 / 空間解析度 — Wave C(架構)
+> **狀態**:🔶 部分完成(2026-10-12,第一刀;剩餘順序第 (3) 項)。設計筆記末段「Delivered」記錄與原設計的差異。
+> **進度(2026-10-12)**:
+> - 物理逐 island 分級(`ContactScene6.set_tier_table` / `set_body_tiers` / `_step_tiered`):tier 表 = 每 tier 的 (iters, substeps, period);island 取成員中最細的 tier(合併取較細者),相位 = 首個成員 slot,到期的 island 以 period × dt **catch-up** 解(不丟模擬時間;原設計的「off-phase 只以速度積分位姿」會讓靜止堆疊在兩次解之間互相沉入,因此改掉),period 0 = 不解(凍結端,不轉 static)。關掉 17.31 的「逐 island 品質分級」待辦。
+> - 全 0 計畫(tier 0 = 該步設定)與不分級**逐位相同**:QuatBody6 × BVH / 持久 DBVH、ScrewBody6(`test_tiers_parity`)。
+> - 策略 seam `TierPolicy`(`gameplay/tiers.mojo`):`DistanceTiers`(多圈 + 遲滯)、`CausalReach`(沿上一步接觸 + 關節 BFS,static 不傳導)、`RoundRobin`、`BudgetTiers`;`Runtime.advance_tiered[P]`;`scheduler/tiered.mojo` `TieredScheduler[S]`(系統包的時間解析度)。
+> - 快照格式 v3:`step_index`、tier 表、計畫入快照,還原後逐位續跑(`test_system_tiers`:150 步快照 + 60 步 == 不中斷 210 步)。
+> - 順帶修掉 island 路徑的兩個平方項:`_solve_island` 每島掃全部 body(O(bodies × islands))與 pair 分島的 O(pairs × islands) 過濾 —— 改成線性分割(`_island_partition`)後,1e4 body 的全 0 計畫從 885 ms / 步降到 322 ms(與不分級 333 ms 持平),既有 island 平行路徑同樣受益,結果逐位不變(`test_islands_par`)。
+> - 測試:`test_tiers`(26)、`test_tiers_parity`(11)、`test_system_tiers`(7,1800 個 awake body,觀察者斜穿世界:3430 次 tier 變動,位置跳變最大 7 mm、速度跳變 ≤ 一個粗步重力、穿透比全品質多 4.3 cm、每步解的 body 627 vs 1800)。
+> - 量測(`bench_tiers`,awake 兩箱堆疊,觀察者在角落):n = 1e3 不分級 28 ms / 步 → DistanceTiers 7.3、CausalReach 5.5、RoundRobin 5.0、BudgetTiers 5.0 ms(粗 tier 穿透 +35 mm);n = 1e4 333 ms → 138–145 ms。1e4 時剩下的約 70 ms 是收集 pair(寬相 + 窄相)的全量成本,tier 還沒碰到它。
+> **剩餘**:ECS `Tier[N]` tag(待 17.77 的延遲 remove 與元件型別上限)、睡眠 bookkeeping 的 awake list、`BroadPhase.update_moved` 與「兩端都沒動的 pair 跳過窄相」(1e4 時的主要剩餘成本)、軟體 / LBM / 粒子的 per-object period、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
 > **緣起**:2026-10-10 使用者提問 —— 世界中實體數遠大於玩家能產生因果交互的實體數時,
 > 引擎能否以適當的時間 / 空間解析度維護 simulation state,且分級(LOD)模組本身可替換。
 > 設計筆記:`docs/design/17.85-tiered-simulation.md`。
@@ -2547,4 +2557,4 @@
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ⬜ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | ⬜ |
 | 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | ⬜ |
-| 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | 🔶 |

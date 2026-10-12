@@ -73,7 +73,7 @@ from collision.bp_bvh import BVHBroadPhase
 from collision.toi import swept_box_toi
 from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
-from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED
+from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED, TIER_FALLBACK
 from diag.log import LogRing, log
 from diag.level import Level, DEBUG_DRAW_ON
 from diag.trace import TraceBuffer
@@ -178,6 +178,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var events_on: Bool
     var events: List[ContactEvent]
     var _prev_keys: List[Int]
+    # ROADMAP 17.85: tiered simulation. A tier table (per tier: iters,
+    # substeps, period; period 0 = never solved) and a tier per body slot
+    # (missing entries = tier 0). Empty table = untiered (the existing path).
+    var tier_iters: List[Int]
+    var tier_substeps: List[Int]
+    var tier_period: List[Int]
+    var tier_of: List[Int]
+    var step_index: Int  # steps taken; the tier phase clock
+    var islands_solved: Int  # islands the last tiered step solved (diagnostic)
+    var islands_skipped: Int
 
     def __init__(out self):
         comptime assert Self.BP.dim == 3, (
@@ -205,6 +215,50 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.events_on = False
         self.events = List[ContactEvent]()
         self._prev_keys = List[Int]()
+        self.tier_iters = List[Int]()
+        self.tier_substeps = List[Int]()
+        self.tier_period = List[Int]()
+        self.tier_of = List[Int]()
+        self.step_index = 0
+        self.islands_solved = 0
+        self.islands_skipped = 0
+
+    # ------------------------------------------------------------ tiers (17.85)
+
+    def set_tier_table(mut self, iters: List[Int], substeps: List[Int], period: List[Int]) raises:
+        """Quality per tier: tier t solves with `iters[t]` iterations and
+        `substeps[t]` substeps, once every `period[t]` steps over `period[t]`
+        steps' worth of time (catch-up, so simulated time is preserved);
+        `period[t] == 0` never solves (the island holds still but stays an
+        obstacle). Tier 0 should match the step's own config: an all-tier-0
+        plan is then bit-identical to the untiered step."""
+        if len(iters) == 0 or len(iters) != len(substeps) or len(iters) != len(period):
+            raise Error("set_tier_table: iters, substeps and period need the same non-zero length")
+        for t in range(len(iters)):
+            if iters[t] < 1 or substeps[t] < 1 or period[t] < 0:
+                raise Error("set_tier_table: iters >= 1, substeps >= 1, period >= 0")
+        self.tier_iters = iters.copy()
+        self.tier_substeps = substeps.copy()
+        self.tier_period = period.copy()
+
+    def set_body_tiers(mut self, tiers: List[Int]) raises:
+        """Tier per body slot (index = `BodyId.index()`); slots past the end
+        count as tier 0. Needs a tier table."""
+        if len(self.tier_period) == 0:
+            raise Error("set_body_tiers: set a tier table first")
+        for t in tiers:
+            if t < 0 or t >= len(self.tier_period):
+                raise Error("set_body_tiers: tier out of range")
+        self.tier_of = tiers.copy()
+
+    def clear_tiers(mut self):
+        self.tier_iters = List[Int]()
+        self.tier_substeps = List[Int]()
+        self.tier_period = List[Int]()
+        self.tier_of = List[Int]()
+
+    def body_tier(self, i: Int) -> Int:
+        return self.tier_of[i] if i < len(self.tier_of) else 0
 
     def add_soft(mut self, var sb: SoftBody) -> Int:
         self.softs.append(sb^)
@@ -868,18 +922,26 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         mass_scale: Real,
         impulse_scale: Real,
         mu: Real,
+        members: List[Int],
+        mlo: Int,
+        mhi: Int,
         rest_threshold: Real = 1.0,
     ):
-        """The full substep loop restricted to one island: its bodies, its
-        contiguous pair range, its joints. Islands share nothing, so running
-        these in parallel is bit-identical to running them in sequence."""
+        """The full substep loop restricted to one island: its bodies
+        (`members[mlo:mhi]`, ascending slot order), its contiguous pair
+        range, its joints. Islands share nothing, so running these in
+        parallel is bit-identical to running them in sequence. The member
+        range replaced a scan of every body per island (O(bodies x islands),
+        885 ms / step at 1e4 bodies in `bench_tiers`); per-body updates are
+        independent, so visiting only the members changes nothing else."""
         for _ in range(substeps):
             # gravity: DYNAMIC members of this island only. A kinematic body
             # gets its OWN singleton island (`_refresh_islands`'s docstring),
             # so it reaches this loop too, with `is_dynamic == False` --
             # skipped here, same as it would be in the serial `step` path.
-            for i in range(len(self.bset.bodies)):
-                if self.bset.island[i] == label and self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
+            for m in range(mlo, mhi):
+                var i = members[m]
+                if self.bset.is_dynamic(i) and not self.bset.sleeping[i]:
                     var f = self.bset.gravity_for(i, gravity) / self.bset.bodies[i].inv_mass()
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             warm_start_contacts(self.bset, pairs, plo, phi)
@@ -895,8 +957,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # exactly `moves(i) and not sleeping[i]` here since `_inactive`
             # is `is_static or sleeping` and this loop never sees a static
             # body's label (`_refresh_islands` never assigns one).
-            for i in range(len(self.bset.bodies)):
-                if self.bset.island[i] == label and not self.bset.inactive(i):
+            for m in range(mlo, mhi):
+                var i = members[m]
+                if not self.bset.inactive(i):
                     self.bset.bodies[i].integrate_pose(h)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, label)
             soft_sweep(self.bset, pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
@@ -1241,6 +1304,28 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var chi = List[Int]()
         if colored:
             colored = self._color_pairs(pairs, clo, chi)
+        var tiered = len(self.tier_period) > 0
+        if tiered and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0 or self.any_break):
+            self.counters.incr(TIER_FALLBACK)
+            tiered = False
+        if tiered:
+            self.trace.begin("solve")
+            var pairs2 = self._step_tiered(pairs, dt, gravity, cfg)
+            self.trace.end()
+            self.trace.begin("sleep")
+            update_sleep(self.bset, dt, cfg)
+            self.trace.end()
+            self.trace.begin("nan_scan")
+            self._quarantine_nonfinite()
+            self.trace.end()
+            comptime if DEBUG_DRAW_ON:
+                self._emit_debug_draw(pairs2)
+            if self.events_on:
+                self._emit_events(pairs2)
+            self._release_overloaded()
+            self.cache = pairs2^
+            self.step_index += 1
+            return
         if parallel and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0 or self.any_break):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be
@@ -1249,22 +1334,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self.counters.incr(PARALLEL_FALLBACK_SERIAL)
         if parallel and not colored and len(self.softs) == 0 and not ccd and len(self.drives) == 0 and not self.any_break:
             # partition: pairs reordered so each island is a contiguous range
-            var labels = island_labels(self.bset)
+            var labels = List[Int]()
+            var first = List[Int]()
             var pairs2 = List[ContactConstraint]()
             var plo = List[Int]()
+            var members = List[Int]()
+            var mstart = List[Int]()
+            self._island_partition(pairs, labels, first, pairs2, plo, members, mstart)
             var phi = List[Int]()
             for k in range(len(labels)):
-                plo.append(len(pairs2))
-                for pc in range(len(pairs)):
-                    if contact_island(self.bset, pairs[pc]) == labels[k]:
-                        pairs2.append(pairs[pc])
-                phi.append(len(pairs2))
-
+                phi.append(plo[k + 1])
             self.trace.begin("solve")
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-                workers, cfg.restitution_threshold,
+                members, mstart, workers, cfg.restitution_threshold,
             )
             self.trace.end()
             self.trace.begin("sleep")
@@ -1279,6 +1363,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 self._emit_events(pairs2)
             self._release_overloaded()
             self.cache = pairs2^
+            self.step_index += 1
             return
         # ROADMAP 17.0i: ONE "solve" span for the WHOLE substep loop, not one
         # begin/end pair per phase per substep. Measured overhead was ~20% at
@@ -1366,6 +1451,124 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self._emit_events(pairs)
         self._release_overloaded()
         self.cache = pairs^  # impulses persist to the next frame
+        self.step_index += 1
+
+    def _island_partition(
+        self,
+        pairs: List[ContactConstraint],
+        mut labels: List[Int],
+        mut first: List[Int],
+        mut pairs2: List[ContactConstraint],
+        mut plo: List[Int],
+        mut members: List[Int],
+        mut mstart: List[Int],
+    ):
+        """Islands in first-seen slot order (`labels`, each island's first
+        slot in `first`); pairs regrouped per island into contiguous ranges
+        `plo[k]..plo[k+1]` keeping their order (stable counting sort); island
+        members per island in ascending slot order (`mstart`). O(bodies +
+        pairs) -- replaced the O(pairs x islands) filter loop and the
+        O(bodies x islands) `island_labels` the island-parallel path used;
+        the result (order included) is the same."""
+        var n = len(self.bset.bodies)
+        var ordinal = List[Int](length=n, fill=-1)
+        for i in range(n):
+            var l = self.bset.island[i] if i < len(self.bset.island) else -1
+            if l >= 0 and ordinal[l] < 0:
+                ordinal[l] = len(labels)
+                labels.append(l)
+                first.append(i)
+        var k = len(labels)
+        mstart = List[Int](length=k + 1, fill=0)
+        for i in range(n):
+            var l = self.bset.island[i] if i < len(self.bset.island) else -1
+            if l >= 0:
+                mstart[ordinal[l] + 1] += 1
+        for o in range(k):
+            mstart[o + 1] += mstart[o]
+        var mfill = mstart.copy()
+        members = List[Int](length=mstart[k], fill=-1)
+        for i in range(n):
+            var l = self.bset.island[i] if i < len(self.bset.island) else -1
+            if l >= 0:
+                members[mfill[ordinal[l]]] = i
+                mfill[ordinal[l]] += 1
+        plo = List[Int](length=k + 1, fill=0)
+        var pl = List[Int](length=len(pairs), fill=-1)
+        for pc in range(len(pairs)):
+            var l = contact_island(self.bset, pairs[pc])
+            if l >= 0 and ordinal[l] >= 0:
+                pl[pc] = ordinal[l]
+                plo[ordinal[l] + 1] += 1
+        for o in range(k):
+            plo[o + 1] += plo[o]
+        var fill = plo.copy()
+        var order = List[Int](length=plo[k], fill=-1)
+        for pc in range(len(pairs)):
+            if pl[pc] >= 0:
+                order[fill[pl[pc]]] = pc
+                fill[pl[pc]] += 1
+        pairs2 = List[ContactConstraint](capacity=plo[k])
+        for j in range(len(order)):
+            pairs2.append(pairs[order[j]])
+
+    def _step_tiered(
+        mut self, pairs: List[ContactConstraint], dt: Real, gravity: Vec3, cfg: SolverConfig
+    ) -> List[ContactConstraint]:
+        """ROADMAP 17.85: solve island by island at each island's tier.
+
+        An island's tier is the finest (lowest) tier of its members, so a
+        coarse body touched by a fine one is solved finely (the merge rule).
+        Its phase is its first member's slot index: island k of tier t is
+        due when `(step_index + first) % period[t] == 0`, which spreads the
+        islands of one tier evenly over the period. A due island runs the
+        same per-island substep loop as the island-parallel path
+        (`_solve_island`) with its tier's iters / substeps over
+        `period * dt` (catch-up: no simulated time is lost); an off-phase or
+        period-0 island is not touched, its contacts keep their accumulated
+        impulses for the next warm start.
+
+        O(bodies + pairs): labels by first sight, pairs partitioned by a
+        counting sort (stable, so each island's pair order is the order the
+        serial path sees). With every body at tier 0 and tier 0 = the
+        step's config, this is exactly the island-parallel path run serially,
+        which `test_islands_par` pins bit-identical to the serial step."""
+        var labels = List[Int]()
+        var first = List[Int]()
+        var pairs2 = List[ContactConstraint]()
+        var plo = List[Int]()
+        var members = List[Int]()
+        var mcnt = List[Int]()
+        self._island_partition(pairs, labels, first, pairs2, plo, members, mcnt)
+        var k = len(labels)
+        var itier = List[Int](length=k, fill=0)
+        for o in range(k):
+            var t = self.body_tier(members[mcnt[o]])
+            for m in range(mcnt[o] + 1, mcnt[o + 1]):
+                t = min(t, self.body_tier(members[m]))
+            itier[o] = t
+        self.islands_solved = 0
+        self.islands_skipped = 0
+        for o in range(k):
+            var t = itier[o]
+            var period = self.tier_period[t]
+            if period == 0 or (self.step_index + first[o]) % period != 0:
+                self.islands_skipped += 1
+                continue
+            self.islands_solved += 1
+            var substeps = self.tier_substeps[t]
+            var h = dt * Real(period) / Real(substeps)
+            var omega = Real(6.283185307179586) * cfg.hertz
+            var c = h * omega * (2 * cfg.zeta + h * omega)
+            var bias_rate = omega / (2 * cfg.zeta + h * omega)
+            var mass_scale = c / (1 + c)
+            var impulse_scale = 1 / (1 + c)
+            self._solve_island(
+                pairs2, plo[o], plo[o + 1], labels[o], gravity, h,
+                substeps, self.tier_iters[t], bias_rate, mass_scale, impulse_scale,
+                cfg.default_friction, members, mcnt[o], mcnt[o + 1], cfg.restitution_threshold,
+            )
+        return pairs2^
 
 
 def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
@@ -1382,6 +1585,8 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     mass_scale: Real,
     impulse_scale: Real,
     mu: Real,
+    members: List[Int],
+    mstart: List[Int],
     workers: Int = 0,
     rest_threshold: Real = 1.0,
 ):
@@ -1390,11 +1595,11 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     entity-actor precedent) — islands write disjoint bodies/pairs, so the
     parallel dispatch is race-free and bit-identical to serial."""
 
-    def island_work(k: Int) {mut scene, mut pairs2, imm plo, imm phi, imm labels, imm gravity, imm h, imm substeps, imm iters, imm bias_rate, imm mass_scale, imm impulse_scale, imm mu, imm rest_threshold}:
+    def island_work(k: Int) {mut scene, mut pairs2, imm plo, imm phi, imm labels, imm gravity, imm h, imm substeps, imm iters, imm bias_rate, imm mass_scale, imm impulse_scale, imm mu, imm rest_threshold, imm members, imm mstart}:
         scene._solve_island(
             pairs2, plo[k], phi[k], labels[k], gravity, h,
             substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-            rest_threshold,
+            members, mstart[k], mstart[k + 1], rest_threshold,
         )
 
     # `workers <= 0` means "let the runtime pick" (all cores); a positive
@@ -1548,6 +1753,17 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
     out.wi(len(sc._prev_keys))
     for k in range(len(sc._prev_keys)):
         out.wi(sc._prev_keys[k])
+    # ROADMAP 17.85: the tier phase clock, table and plan, so a resumed scene
+    # solves the same islands on the same steps.
+    out.wi(sc.step_index)
+    out.wi(len(sc.tier_period))
+    for t in range(len(sc.tier_period)):
+        out.wi(sc.tier_iters[t])
+        out.wi(sc.tier_substeps[t])
+        out.wi(sc.tier_period[t])
+    out.wi(len(sc.tier_of))
+    for i in range(len(sc.tier_of)):
+        out.wi(sc.tier_of[i])
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -1768,3 +1984,24 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
     sc._prev_keys = List[Int](capacity=nk)
     for _ in range(nk):
         sc._prev_keys.append(r.ri())
+    # ROADMAP 17.85: tier phase clock, table, plan.
+    sc.step_index = r.ri()
+    var nt = r.ri()
+    if nt < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative tier count)")
+    sc.tier_iters = List[Int]()
+    sc.tier_substeps = List[Int]()
+    sc.tier_period = List[Int]()
+    for _ in range(nt):
+        sc.tier_iters.append(r.ri())
+        sc.tier_substeps.append(r.ri())
+        sc.tier_period.append(r.ri())
+    var ntb = r.ri()
+    if ntb < 0:
+        raise Error("physics.serialize: corrupt snapshot (negative tier plan length)")
+    sc.tier_of = List[Int]()
+    for _ in range(ntb):
+        var t = r.ri()
+        if t < 0 or t >= nt:
+            raise Error("physics.serialize: corrupt snapshot (tier out of range)")
+        sc.tier_of.append(t)

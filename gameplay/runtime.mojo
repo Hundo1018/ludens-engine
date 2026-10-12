@@ -53,6 +53,7 @@ from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
 from diag.counters import GAMELOOP_DEBT_DROPPED
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
+from .tiers import TierPolicy
 
 
 @fieldwise_init
@@ -190,15 +191,41 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.events.update()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
-            var fired = List[TimerFire]()
-            self.timers.advance(1, fired)
-            self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
-            for i in range(len(self.scene.events)):
-                self.events.send(self.scene.events[i].copy())
-            self._sync_transforms()
-            self._capture_history()
+            self._tick()
             self.loop.accumulator -= self.loop.dt
             steps += 1
+        return self._finish_frame()
+
+    def advance_tiered[P: TierPolicy](
+        mut self, frame_dt: Float64, mut policy: P, observers: List[Vec3]
+    ) raises -> Float64:
+        """`advance` with tiered simulation (ROADMAP 17.85): before every
+        fixed tick `policy` assigns a tier per body from the observers and
+        the scene's step index, and the scene solves each island at its
+        tier (`ContactScene6.set_tier_table` must have been called). The
+        rest of the tick -- timers, events, transform sync, interpolation
+        history -- is `advance`'s."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_tiered: loop.dt must be > 0")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var steps = 0
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            self.scene.set_body_tiers(policy.assign(self.scene, observers, self.scene.step_index))
+            self._tick()
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
+        return self._finish_frame()
+
+    def _tick(mut self) raises:
+        var fired = List[TimerFire]()
+        self.timers.advance(1, fired)
+        self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
+        for i in range(len(self.scene.events)):
+            self.events.send(self.scene.events[i].copy())
+        self._sync_transforms()
+        self._capture_history()
+
+    def _finish_frame(mut self) -> Float64:
         if self.loop.accumulator >= self.loop.dt:
             # audit E22/F16's drop, replicated (FixedLoop.advance's own
             # docstring has the full reasoning): a frame-rate spike clamped
