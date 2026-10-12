@@ -41,7 +41,7 @@ deferred (e = 0 scenes).
 from std.math import sqrt, isfinite
 from std.os import abort
 from std.collections import Dict
-from max.algorithm import parallelize
+from scheduler.dispatch import Dispatch, Task, dispatch_for
 from geometry.vec import Real, Vec3, WorldType, dot, cross, tangent_basis
 from geometry.aabb import AABB
 from geometry.quat import Quat
@@ -1381,7 +1381,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-                members, mstart, workers, cfg.restitution_threshold,
+                members, mstart, workers, cfg.restitution_threshold, cfg.dispatch,
             )
             self.trace.end()
             self.trace.begin("sleep")
@@ -1441,7 +1441,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if colored:
                 sweep_colored(
                     self.bset, pairs, clo, chi, h, bias_rate, mass_scale,
-                    impulse_scale, True, iters, mu, parallel, workers,
+                    impulse_scale, True, iters, mu, parallel, workers, cfg.dispatch,
                 )
             else:
                 soft_sweep(
@@ -1462,7 +1462,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if colored:
                 sweep_colored(
                     self.bset, pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
-                    parallel, workers,
+                    parallel, workers, cfg.dispatch,
                 )
             else:
                 soft_sweep(
@@ -1604,12 +1604,69 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         return pairs2^
 
 
+struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
+    """One island per item: islands write disjoint bodies and pairs."""
+
+    var scene: Pointer[ContactScene6[Self.BB, Self.PBP], MutUntrackedOrigin]
+    var pairs2: Pointer[List[ContactConstraint], MutUntrackedOrigin]
+    var plo: Pointer[List[Int], MutUntrackedOrigin]
+    var phi: Pointer[List[Int], MutUntrackedOrigin]
+    var labels: Pointer[List[Int], MutUntrackedOrigin]
+    var members: Pointer[List[Int], MutUntrackedOrigin]
+    var mstart: Pointer[List[Int], MutUntrackedOrigin]
+    var gravity: Vec3
+    var h: Real
+    var substeps: Int
+    var iters: Int
+    var bias_rate: Real
+    var mass_scale: Real
+    var impulse_scale: Real
+    var mu: Real
+    var rest_threshold: Real
+
+    def __init__(
+        out self,
+        mut scene: ContactScene6[Self.BB, Self.PBP],
+        mut pairs2: List[ContactConstraint],
+        mut plo: List[Int],
+        mut phi: List[Int],
+        mut labels: List[Int],
+        mut members: List[Int],
+        mut mstart: List[Int],
+        gravity: Vec3, h: Real, substeps: Int, iters: Int, bias_rate: Real,
+        mass_scale: Real, impulse_scale: Real, mu: Real, rest_threshold: Real,
+    ):
+        self.scene = Pointer(to=scene).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.plo = Pointer(to=plo).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.phi = Pointer(to=phi).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.labels = Pointer(to=labels).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.members = Pointer(to=members).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.mstart = Pointer(to=mstart).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.gravity = gravity
+        self.h = h
+        self.substeps = substeps
+        self.iters = iters
+        self.bias_rate = bias_rate
+        self.mass_scale = mass_scale
+        self.impulse_scale = impulse_scale
+        self.mu = mu
+        self.rest_threshold = rest_threshold
+
+    def run(self, k: Int):
+        self.scene[]._solve_island(
+            self.pairs2[], self.plo[][k], self.phi[][k], self.labels[][k], self.gravity, self.h,
+            self.substeps, self.iters, self.bias_rate, self.mass_scale, self.impulse_scale, self.mu,
+            self.members[], self.mstart[][k], self.mstart[][k + 1], self.rest_threshold,
+        )
+
+
 def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     mut scene: ContactScene6[BB, PBP],
     mut pairs2: List[ContactConstraint],
-    plo: List[Int],
-    phi: List[Int],
-    labels: List[Int],
+    mut plo: List[Int],
+    mut phi: List[Int],
+    mut labels: List[Int],
     gravity: Vec3,
     h: Real,
     substeps: Int,
@@ -1618,31 +1675,23 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     mass_scale: Real,
     impulse_scale: Real,
     mu: Real,
-    members: List[Int],
-    mstart: List[Int],
+    mut members: List[Int],
+    mut mstart: List[Int],
     workers: Int = 0,
     rest_threshold: Real = 1.0,
+    dispatch: Dispatch = Dispatch.parallel(),
 ):
-    """Worker fan-out for `step(cfg.parallel=True)`. A free function so the
-    closure captures `scene` as an ordinary argument (the scheduler's
-    entity-actor precedent) — islands write disjoint bodies/pairs, so the
-    parallel dispatch is race-free and bit-identical to serial."""
-
-    def island_work(k: Int) {mut scene, mut pairs2, imm plo, imm phi, imm labels, imm gravity, imm h, imm substeps, imm iters, imm bias_rate, imm mass_scale, imm impulse_scale, imm mu, imm rest_threshold, imm members, imm mstart}:
-        scene._solve_island(
-            pairs2, plo[k], phi[k], labels[k], gravity, h,
-            substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-            members, mstart[k], mstart[k + 1], rest_threshold,
-        )
-
-    # `workers <= 0` means "let the runtime pick" (all cores); a positive
-    # value pins the fan-out width so the core-scaling curve can be measured.
-    # Islands are disjoint, so the RESULT is worker-count-invariant either way
-    # (`test_islands_par` gates this).
-    if workers > 0:
-        parallelize(island_work, len(labels), workers)
-    else:
-        parallelize(island_work, len(labels))
+    """Worker fan-out for `step(cfg.parallel=True)`: one `_IslandTask` item
+    per island, run by `dispatch` (ROADMAP 17.75: the runtime pool, serial,
+    reversed, or a host job system). Islands write disjoint bodies/pairs, so
+    the result is bit-identical to serial whatever runs the items
+    (`test_islands_par`, `test_dispatch`). `workers <= 0` lets the runtime
+    pick the width of the default pool."""
+    var task = _IslandTask[BB, PBP](
+        scene, pairs2, plo, phi, labels, members, mstart, gravity, h, substeps,
+        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold,
+    )
+    dispatch_for(dispatch, task, len(labels), workers)
 
 
 def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
