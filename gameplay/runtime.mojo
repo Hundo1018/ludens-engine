@@ -57,6 +57,16 @@ from .tiers import TierPolicy
 
 
 @fieldwise_init
+struct StepHandle(Copyable, ImplicitlyCopyable, Movable):
+    """What `Runtime.begin_advance` hands back (ROADMAP 17.75): how many fixed
+    ticks this frame owes and which begin it belongs to. Pass it to
+    `execute` (on any thread the host likes) and then `finish`."""
+
+    var ticks: Int
+    var serial: Int
+
+
+@fieldwise_init
 struct RigidBodyRef(ComponentType):
     """Links an entity to a scene body. `id` is a stable `BodyId` (slot +
     generation, `physics.body_set`): after `Runtime.despawn`, the id this
@@ -85,6 +95,13 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var events: Channel[ContactEvent]
     var timers: TimerHeap
     var history: PoseHistory  # previous + current tick pose per body slot (17.7)
+    # Non-blocking stepping (ROADMAP 17.75): `begin_advance` / `execute` /
+    # `finish`. While a step is in flight the host reads `published` (the
+    # poses of the last completed tick), never the scene.
+    var in_flight: Bool
+    var executed: Bool
+    var serial: Int
+    var published: List[PoseQT]
 
     def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8):
         self.world = World[Self.B]()
@@ -101,6 +118,10 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.events = Channel[ContactEvent]()
         self.timers = TimerHeap()
         self.history = PoseHistory()
+        self.in_flight = False
+        self.executed = False
+        self.serial = 0
+        self.published = List[PoseQT]()
 
     # ------------------------------------------------------------ lifecycle
 
@@ -109,12 +130,14 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         + `Transform` (initialized to the body's own pose) -- one call, the
         design note's requirement that a gameplay caller never has a scene
         body without a matching entity or vice versa."""
+        debug_assert(not self.in_flight, "Runtime: spawn while a step is in flight (begin_advance without finish)")
         var id = self.scene.add(b^, half, is_static)
         return self._spawn_entity(id)
 
     def spawn_sphere(mut self, var b: Self.Body, r: Real, is_static: Bool) -> Entity:
         """Same as `spawn_body`, for a sphere collider (`ContactScene6
         .add_sphere`)."""
+        debug_assert(not self.in_flight, "Runtime: spawn while a step is in flight (begin_advance without finish)")
         var id = self.scene.add_sphere(b^, r, is_static)
         return self._spawn_entity(id)
 
@@ -146,6 +169,8 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
 
     def teleport(mut self, e: Entity, p: Vec3) raises:
         """Move `e`'s body to `p` and suppress interpolation across the jump."""
+        if self.in_flight:
+            raise Error("Runtime: scene changed while a step is in flight (begin_advance without finish)")
         var r = self.world.get[RigidBodyRef](e)
         var i = r.id.index()
         self.scene.teleport(r.id, Pose6(p, self.scene.bset.bodies[i].rotation()))
@@ -159,6 +184,8 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         spawned through `spawn_body`/`spawn_sphere`) just despawns from the
         world -- not every entity a gameplay `World` holds need be a rigid
         body."""
+        if self.in_flight:
+            raise Error("Runtime: scene changed while a step is in flight (begin_advance without finish)")
         if self.world.has[RigidBodyRef](e):
             var r = self.world.get[RigidBodyRef](e)
             if self.scene.bset.is_valid(r.id):
@@ -184,6 +211,8 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         same contract (`GAMELOOP_DEBT_DROPPED` counted on the same clamp,
         `alpha` in the same range), different per-tick body."""
         debug_assert(self.loop.dt > 0, "Runtime.advance: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance: a begin_advance step is still in flight")
         self.loop.accumulator += frame_dt
         # Age the event double buffer once per FRAME, not per fixed tick: a
         # frame that runs several ticks must still deliver the first tick's
@@ -194,6 +223,55 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
             self._tick()
             self.loop.accumulator -= self.loop.dt
             steps += 1
+        return self._finish_frame()
+
+    def begin_advance(mut self, frame_dt: Float64) raises -> StepHandle:
+        """First half of a non-blocking `advance` (ROADMAP 17.75, PhysX
+        `simulate` / `fetchResults` shape): the accumulator work and the
+        event-buffer ageing `advance` does up front, plus a copy of the last
+        completed tick's poses into `published` for the host to read while
+        the step runs. The owed ticks are counted here and run by
+        `execute(handle)` -- which a host may call on a worker thread --
+        and `finish(handle)` returns the interpolation alpha. The three
+        calls produce the same world, history and alpha as `advance`.
+
+        Raises when a previous step was begun and not finished."""
+        debug_assert(self.loop.dt > 0, "Runtime.begin_advance: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.begin_advance: the previous step was not finished")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var ticks = 0
+        while self.loop.accumulator >= self.loop.dt and ticks < self.loop.max_steps:
+            self.loop.accumulator -= self.loop.dt
+            ticks += 1
+        self.published = self.history.curr.copy()
+        self.serial += 1
+        self.in_flight = True
+        self.executed = False
+        return StepHandle(ticks, self.serial)
+
+    def execute(mut self, h: StepHandle) raises:
+        """Run the fixed ticks `h` owes. Callable from any one thread; the
+        host must not touch the scene or this runtime from another thread
+        until it returns."""
+        if not self.in_flight or h.serial != self.serial:
+            raise Error("Runtime.execute: handle does not belong to the step in flight")
+        if self.executed:
+            raise Error("Runtime.execute: this step was already executed")
+        for _ in range(h.ticks):
+            self._tick()
+        self.executed = True
+
+    def finish(mut self, h: StepHandle) raises -> Float64:
+        """Second half: close the frame and return `alpha` in [0, 1).
+        Raises for a handle that is not the step in flight, a step not yet
+        executed, or a second `finish`."""
+        if not self.in_flight or h.serial != self.serial:
+            raise Error("Runtime.finish: handle does not belong to the step in flight")
+        if not self.executed:
+            raise Error("Runtime.finish: execute(handle) has not run")
+        self.in_flight = False
         return self._finish_frame()
 
     def advance_tiered[P: TierPolicy](

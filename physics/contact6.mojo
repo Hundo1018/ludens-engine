@@ -331,15 +331,17 @@ def soft_sweep[B: Body6](
     use_bias: Bool,
     iters: Int,
     mu: Real,
+    max_push: Real = 4,
 ):
-    """Gauss-Seidel sweeps with Solver2D soft coefficients. Separation is
+    """Gauss-Seidel sweeps with Solver2D soft coefficients. `max_push` caps
+    the soft push-out speed (m/s, `SolverConfig.max_push_speed`). Separation is
     re-derived per point from the CURRENT poses via body-frame anchors, so
     rotation shows up as differential depth (restoring torque)."""
     for _ in range(iters):
         for c in range(lo, hi):
             solve_contact(bset,
                 pairs, c, h, bias_rate, mass_scale, impulse_scale,
-                use_bias, mu,
+                use_bias, mu, max_push,
             )
 
 
@@ -358,6 +360,7 @@ def sweep_colored[B: Body6](
     par: Bool,
     workers: Int = 0,
     dispatch: Dispatch = Dispatch.parallel(),
+    max_push: Real = 4,
 ):
     """Graph-colored sweeps: pairs in one color share no DYNAMIC body
     (statics are excluded from adjacency and never written), so a color
@@ -369,13 +372,13 @@ def sweep_colored[B: Body6](
             if par and chi[col] - clo[col] >= 8:
                 solve_color_parallel(
                     bset, pairs, clo[col], chi[col], h, bias_rate,
-                    mass_scale, impulse_scale, use_bias, mu, workers, dispatch,
+                    mass_scale, impulse_scale, use_bias, mu, workers, dispatch, max_push,
                 )
             else:
                 for c in range(clo[col], chi[col]):
                     solve_contact(bset,
                         pairs, c, h, bias_rate, mass_scale,
-                        impulse_scale, use_bias, mu,
+                        impulse_scale, use_bias, mu, max_push,
                     )
 
 
@@ -389,6 +392,7 @@ def solve_contact[B: Body6](
     impulse_scale: Real,
     use_bias: Bool,
     mu: Real,
+    max_push: Real = 4,
 ):
     """One pair's normal + friction solve (the body of `_soft_sweep`,
     extracted so the colored sweep can schedule it per pair)."""
@@ -447,7 +451,7 @@ def solve_contact[B: Body6](
         if d < 0:
             bias = -d / h  # speculative: match approach speed
         elif use_bias:
-            bias = max(-bias_rate * d, Real(-4))
+            bias = max(-bias_rate * d, -max_push)
             ms = mass_scale
             isc = impulse_scale
         var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
@@ -588,10 +592,12 @@ struct _ColorTask[B: Body6](Task):
     var impulse_scale: Real
     var use_bias: Bool
     var mu: Real
+    var max_push: Real
 
     def __init__(
         out self, mut bset: BodySet[Self.B], mut pairs2: List[ContactConstraint], lo: Int,
         h: Real, bias_rate: Real, mass_scale: Real, impulse_scale: Real, use_bias: Bool, mu: Real,
+        max_push: Real,
     ):
         self.bset = Pointer(to=bset).unsafe_origin_cast[MutUntrackedOrigin]()
         self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -602,11 +608,12 @@ struct _ColorTask[B: Body6](Task):
         self.impulse_scale = impulse_scale
         self.use_bias = use_bias
         self.mu = mu
+        self.max_push = max_push
 
     def run(self, k: Int):
         solve_contact(
             self.bset[], self.pairs2[], self.lo + k, self.h, self.bias_rate, self.mass_scale,
-            self.impulse_scale, self.use_bias, self.mu,
+            self.impulse_scale, self.use_bias, self.mu, self.max_push,
         )
 
 
@@ -623,12 +630,13 @@ def solve_color_parallel[B: Body6](
     mu: Real,
     workers: Int = 0,
     dispatch: Dispatch = Dispatch.parallel(),
+    max_push: Real = 4,
 ):
     """Solve one color's pairs as `_ColorTask` items run by `dispatch`
     (ROADMAP 17.75). Same-color pairs share no dynamic body, so the writes
     are disjoint and the result is bit-identical to solving the color
     serially, whoever runs the items."""
-    var task = _ColorTask[B](bset, pairs2, lo, h, bias_rate, mass_scale, impulse_scale, use_bias, mu)
+    var task = _ColorTask[B](bset, pairs2, lo, h, bias_rate, mass_scale, impulse_scale, use_bias, mu, max_push)
     dispatch_for(dispatch, task, hi - lo, workers)
 
 

@@ -69,12 +69,15 @@ def collect_bp_pairs[BP: BroadPhase](
         out.append(Pair(keys[c] >> 32, keys[c] & 0xFFFFFFFF))
 
 
-def speculative_margin(vel_a: Vec3, vel_b: Vec3, spec_dt: Real) -> Real:
-    """The per-pair speculative margin (0 outside CCD): `SPEC_BASE` plus how
-    far the pair could close together this step."""
+def speculative_margin(
+    vel_a: Vec3, vel_b: Vec3, spec_dt: Real, base: Real = SPEC_BASE
+) -> Real:
+    """The per-pair speculative margin (0 outside CCD): `base` (default
+    `SPEC_BASE`; `SolverConfig.margin_base`, scaled by `UnitScale`, ROADMAP
+    17.75) plus how far the pair could close together this step."""
     if spec_dt <= 0:
         return 0
-    return SPEC_BASE + (sqrt(dot(vel_a, vel_a)) + sqrt(dot(vel_b, vel_b))) * spec_dt
+    return base + (sqrt(dot(vel_a, vel_a)) + sqrt(dot(vel_b, vel_b))) * spec_dt
 
 
 def try_mesh_pair(
@@ -142,6 +145,7 @@ def try_pair(
     colliders: ColliderSet, i: Int, j: Int,
     pose_i: Pose3, pose_j: Pose3, vel_i: Vec3, vel_j: Vec3, spec_dt: Real,
     mut out: List[RawContact], mut sensors: List[RawContact],
+    margin_base: Real = SPEC_BASE,
 ):
     """The per-pair body of the candidate enumeration: filtering, mesh vs
     non-mesh dispatch, sensor short-circuit, speculative manifold. Extracted
@@ -158,7 +162,7 @@ def try_pair(
     capsule instead of its real triangles."""
     if not colliders.should_collide(i, j):
         return
-    var margin = speculative_margin(vel_i, vel_j, spec_dt)
+    var margin = speculative_margin(vel_i, vel_j, spec_dt, margin_base)
     var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
     var is_sensor_pair = colliders.is_sensor(i) or colliders.is_sensor(j)
 

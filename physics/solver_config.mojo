@@ -49,6 +49,11 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # engages (`_restitution_pass`'s old comptime `REST_THRESH`).
     var restitution_threshold: Real
 
+    # Cap on the soft push-out speed (m/s) when resolving penetration
+    # (`contact6.solve_contact`'s bias clamp, a literal -4 before ROADMAP
+    # 17.75 found it with the unit-scale similarity test).
+    var max_push_speed: Real
+
     # `step_soft`'s old keyword arguments; defaults unchanged.
     var substeps: Int
     var iters: Int
@@ -68,6 +73,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.ang_sleep_tol = 0.05
         self.sleep_time = 0.5
         self.restitution_threshold = 1.0
+        self.max_push_speed = 4
         self.substeps = 4
         self.iters = 4
         self.hertz = 30
@@ -111,3 +117,29 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         if self.zeta < 0:
             raise Error("SolverConfig.validated: zeta must be >= 0")
         return self
+
+
+@fieldwise_init
+struct UnitScale(Copyable, ImplicitlyCopyable, Movable):
+    """How many host length units make one meter (ROADMAP 17.75): 1 for an
+    engine working in meters, 100 for Unreal's centimetres, 0.01 for a host
+    that counts in hundreds of meters. The core works in whatever unit its
+    inputs use -- positions, extents, velocities, gravity -- and only the
+    solver's ABSOLUTE length tolerances need telling: `apply` returns a copy
+    of a `SolverConfig` with every length-dimensioned knob multiplied by
+    `per_meter` (speculative margin in m, linear sleep threshold and
+    restitution threshold and push-out speed cap in m/s). Angular thresholds (rad/s), times (s) and
+    the dimensionless soft-constraint knobs are unit-free and unchanged.
+    `test_unit_scale` checks the claim by similarity: a scene with every
+    length multiplied by 2^k, stepped with `UnitScale(2^k)`, must follow the
+    original trajectory times 2^k."""
+
+    var per_meter: Real
+
+    def apply(self, cfg: SolverConfig) -> SolverConfig:
+        var c = cfg
+        c.margin_base = cfg.margin_base * self.per_meter
+        c.lin_sleep_tol = cfg.lin_sleep_tol * self.per_meter
+        c.restitution_threshold = cfg.restitution_threshold * self.per_meter
+        c.max_push_speed = cfg.max_push_speed * self.per_meter
+        return c

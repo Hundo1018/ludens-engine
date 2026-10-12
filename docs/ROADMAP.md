@@ -27,11 +27,12 @@
   - **17.17 GPU articulation / narrowphase**:程式碼已交付(`98a69cb`)。`test_gpu_narrow` 的裝置半段
     已在 GPU 主機上跑過,box / capsule 的容差因此放寬到 5e-3(`94493c2`);`test_gpu_artic` 裝置半段與
     bench 裝置列的 GPU 實跑結果尚未記入 17.17 進度註。「GPU 剛體 + CPU 軟體同幀」未達成。
-- **17.75 嵌入契約**:宿主派發器注入 ✅(`71cb718`);配置器、非同步步進、`UnitScale`、執行緒契約成文未做。
-- **gate**:197/197 通過、arch OK、tiers 197/197;依裝置而變的檢查改以 `Suite.begin_device()` 分段,
-  有無 GPU 的主機共用同一份 golden(`f5ca7df`)。
-- **下一步**:依[剩餘順序](#剩餘順序2026-10-13-決定同日修訂gpu-延後)(GPU 相關延後到最後一層);🔶 8 項、⬜ 40 項,見
-  [編號索引](#編號索引)。
+- **17.75 嵌入契約**:宿主派發器注入 ✅(`71cb718`);2026-10-13 補上 job graph / work-stealing 派發、`FrameArena.from_block`、非同步步進、`UnitScale`、契約成文。
+- **gate**:依裝置而變的檢查以 `Suite.begin_device()` 分段,有無 GPU 的主機共用同一份 golden(`f5ca7df`);
+  2026-10-13 起測試以固定編譯目標跑,另一台主機(無 GPU、AVX-512)上也逐段重現 golden。
+- **剩餘順序進度(2026-10-13)**:第 1 步 17.19 滾動球錨點 ✅;第 2–4 步 17.81(🔶,待 GitHub 上首次 CI)/ 17.83(🔶)/ 17.82(✅);
+  第 5 步 17.75(🔶,剩 actor 靜態策略與 box / capsule 尺度殘差)。跨機 golden 探針結論:測試一律以 `--target-cpu skylake` 編譯。
+  下一步 17.76 平台可攜。見[剩餘順序](#剩餘順序2026-10-13-決定同日修訂gpu-延後)與[編號索引](#編號索引)。
 - **平台方向已定為 C**:被宿主引擎嵌入的模擬函式庫,RL 平台次要(2026-10-09,`a93c53d`)。
 - **2026-10-09 負空間盤點**:對照 SOTA 引擎找出「不在路線上」的能力,RL / 機器人以外全數入路線,
   成為 17.44–17.84,並擴充尚未開工的 17.14 / 17.15 / 17.16。同一次盤點發現 9.1、13.8 標 ✅ 但程式碼
@@ -57,7 +58,7 @@
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 16 | 1 | 3 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 1 | 2 | 0 |
-| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
+| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 9 | 2 | 0 | 0 |
 
 ## 原則與決策
 
@@ -242,7 +243,7 @@
 | 6.11 | [島內著色平行(單大島的約束圖著色)](ROADMAP_HISTORY.md#611-島內著色平行單大島的約束圖著色) | ✅ |  | step_soft 的 colored 模式以貪婪著色(靜態體不入鄰接)把 pairs 排成色段,色內 parallelize、色間順序,排程決定且串行==平行逐位相同,120 盒單島平行 1.66×、iters=8 品質對齊行 1.21×。 |
 | 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | 🔶 |  | 已有縮座標 revolute / prismatic 與上下限(physics/chain.mojo resolve_limits)、最大座標 weld(17.5)與 AngularDrive 姿態驅動(17.2);Joint6 仍沒有上下限、速度馬達、彈簧、滑軌、cone-twist,縮座標也沒有球關節 / 多自由度關節。 |
 | 9.4 | [接觸事件(began / stay / ended)](ROADMAP_HISTORY.md#94-接觸事件began--stay--ended--完成2026-08-11) | ✅ |  | `events_on` 開啟時每步以排序合併差分本步與上步接觸集(鍵為 (a,b,feat) 打包的 Int)產生 began/stay/ended 事件,含 sensor 重疊,事件流在 brute 與寬相 seam 上逐位相同,開啟成本 <3%。 |
-| 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),但高質量比、大 island、接觸密集堆疊等壓力測試尚未做,滾動球減速 / 下沉的錨點缺陷也未修。 |
+| 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),但高質量比、大 island、接觸密集堆疊等壓力測試尚未做;滾動球的錨點缺陷已修(2026-10-13:球 / 膠囊維持解析滾動速度、不再下沉,`test_rolling_sphere`)。 |
 | 17.23 | [物理材質與逐對組合模式](ROADMAP_HISTORY.md#1723-物理材質與逐對組合模式--wave-a) | ✅ | A | physics/material.mojo 提供四種組合模式(average/min/multiply/max,較高優先模式勝),BodySet 存逐 body 的 friction 與兩種組合模式,solver6 每對接觸算一次 pair_mu 與組合後的 restitution,並有 parity 測試與 bench(四模式成本在雜訊範圍內)。 |
 | 17.24 | [Kinematic 剛體型別(通用可移動體)](ROADMAP_HISTORY.md#1724-kinematic-剛體型別通用可移動體--wave-a) | ✅ | A | solver6 支援 static/dynamic/kinematic 三種運動型別:kinematic 由腳本設定速度或用 move_to 指定目標位姿、會推動動態體,也會喚醒已入睡的動態體;零速度時與 static 逐位 parity,序列化格式升到 v2。 |
 | 17.25 | [睡眠/喚醒生命週期公開 API](ROADMAP_HISTORY.md#1725-睡眠喚醒生命週期公開-api--wave-a) | ✅ | A | ContactScene6 提供公開的 is_sleeping、wake(整島喚醒)、set_can_sleep 與 teleport(瞬移、喚醒並清掉 warm-start 快取),無效 id 會 raise;本項不是新 seam,所以 CATEGORY 沒有對應列。 |
@@ -299,7 +300,7 @@
 
 #### 17.19 生產級 solver 硬化
 
-> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;壓力測試案例與滾動球錨點缺陷尚未處理)
+> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;壓力測試案例尚未處理)
 > **現況**:穩定堆疊只驗到 6 箱塔(`tests/test_softstep6.mojo`);大 island / 高質量比 / 接觸密集堆疊未系統測試(17.17 的 `tests/test_gpu_contact.mojo` 有 10:1 質量比與 400 箱場,但那是 GPU/CPU parity,不是穩定性壓力測試)。
 > **缺口**:高質量比(1:1000)、長鏈受載、單 island 數千體、接觸密集堆疊(碎石 / 骨牌)、warm-start 接觸點 feature-ID 穩定性、contact reduction。
 > **對照組**:Jolt(Horizon FW 實戰)、Box2D v3 Soft Step、TGS Soft、AVBD 堆疊 demo。
@@ -308,13 +309,24 @@
 > **seam?**:否,不新增 seam —— 對既有 solver6 補極端案例覆蓋(定律 v3 §4)+ 擴大 `bench_solver_scale` / `bench_islands` 的規模軸。
 > **交付**:普通(現有)/ 整合(高質量比 + island sleep + CCD 同場景)/ 極端(1:1e4 質量比、1e4 體單 island、瞬移入堆、零質量、退化接觸)。
 >
-> **發現(2026-09-29,`test_diffsolver`)—— 未修**:球在地面滑行後於 t = 2v0/(7μg) 正確進入 5/7·v0 的滾動,但之後持續減速(v0=3、μ=0.5:1.5 s 時 1.80、4 s 時 1.57),ω·r 高於 vx,並下沉約 7 mm。`ContactScene6` 與可微解算器逐幀一致,所以問題在正式解算器本身:body-frame 接觸錨點隨滾動的球旋轉,摩擦與分離量取在偏離真實接觸點的位置。修法候選:圓形 shape 每子步重新投影錨點到接觸點,或摩擦改在 manifold 點求相對速度。
+> **發現(2026-09-29,`test_diffsolver`)—— 已修(2026-10-13,見下方進度)**:球在地面滑行後於 t = 2v0/(7μg) 正確進入 5/7·v0 的滾動,但之後持續減速(v0=3、μ=0.5:1.5 s 時 1.80、4 s 時 1.57),ω·r 高於 vx,並下沉約 7 mm。`ContactScene6` 與可微解算器逐幀一致,所以問題在正式解算器本身:body-frame 接觸錨點隨滾動的球旋轉,摩擦與分離量取在偏離真實接觸點的位置。修法候選:圓形 shape 每子步重新投影錨點到接觸點,或摩擦改在 manifold 點求相對速度。
 >
 > **進度 F22 第一批 ✅(2026-09-29)**:`islands.refresh_islands` 的整島喚醒與 `update_sleep` 的整島入睡改為兩趟 O(n)(先標 label 再套用);warm-start 比對改為每幀建一次 `(a,b,feat)` → 首位索引的 `Dict`(`contact6.cache_index`,從第一個鍵相符處續掃,保留原本「第一個相符」規則)。身分閘門 148/148 golden 逐節相同。`bench_gpu_contact`(寬相開):N=4096 CPU 簿記 82 → 20.6 ms/幀、GPU 整幀 84.5 → 23 ms、CPU 串行整幀 152 → 82 ms;N=1024 簿記 6.8 → 2.2 ms。
 >
+> **進度 滾動球錨點 ✅(2026-10-13)**:兩個原因,各自量到。(1)球 / 膠囊的錨點改為「核心點(球心 / 膠囊線段上的最近點,
+> body frame)+ 世界座標偏移」(`ContactConstraint.oa / ob`,`contact6.round_core` / `anchor_world`),偏移不隨 body 轉;
+> 其他形狀仍是 body-frame 錨點,算式逐位不變。只修這點時速度不再衰減(1.5 s 與 4 s 皆 2.066),但 ω·r = 2.187 ≠ vx。
+> (2)球對盒的 manifold 點在膨脹 margin/2 的面上,離球面 2.75 cm,摩擦力臂 0.4725 而非 0.5;`make_contact` 把圓形側的點沿法向
+> 移到其表面(兩個都圓則取兩表面中點;兩錨點一起移,分離量不變)。可微解算器(17.20)同步改為球心 + 世界偏移、平面接觸點取球面,
+> `test_diffsolver` 26/26(原「rolling resistance present」改為「保持 5/7 v0」)。GPU 解算器上傳時把偏移折回 frame 起點的 body-frame
+> 錨點(子步內仍是舊行為;GPU 的同等修正隨 GPU 延後,剩餘順序第 7 層)。
+> 新測試 `test_rolling_sphere` 11/11,修前修後同一程式:
+> v0=3、μ=0.5 的球 vx(1.5 s) 1.8054 → 2.1428554、vx(4 s) 1.5710 → 2.1428554(解析 5/7·v0 = 2.1428571);ω·r 1.6657 → 2.1428554;
+> 球心高度 0.49543 → 0.49972(r = 0.5);只有自旋 ω0 = 8 的球 vx 1.1971 → 1.1428576(解析 2/7·ω0·r = 1.1428571);
+> 橫躺膠囊繞自身軸滾 vx 2.033897(解析 v0/(1 + I/(m r²)) = 2.0338984);球在 1000 kg 動態板上相對滾動 ω·r == 相對 vx(2.1428573)。
+>
 > **待辦**:
 > - 簿記仍略超線性(N ×4 → ×9),剩餘熱點待量:著色重排 O(色數 × 對數)、每幀重建 BVH、CCD 全對。
-> - 修正上述滾動球錨點缺陷。
 > - 缺口所列的壓力測試案例,以及整合 / 極端交付。
 >
 > **歷史**:
@@ -434,7 +446,7 @@
 
 | 編號 | 條目 | 狀態 | Wave | 說明 |
 |---|---|:-:|:-:|---|
-| 1.1 | [Contact manifold 生成(一切的前置)](ROADMAP_HISTORY.md#11-contact-manifold-生成一切的前置) | ✅ |  | `collision/manifold.mojo` 提供 `ContactManifold[dim]` 與 `ManifoldNarrowPhase` seam(AABB / SAT / OBB / GJK 實作),`geometry/clip.mojo` 做 reference/incident 裁切,3D EPA 回真實深度與 witness points,並與既有 narrowphase 做 normal/depth parity。 |
+| 1.1 | [Contact manifold 生成(一切的前置)](ROADMAP_HISTORY.md#11-contact-manifold-生成一切的前置) | ✅ |  | `collision/manifold.mojo` 提供 `ContactManifold[dim]` 與 `ManifoldNarrowPhase` seam(AABB / SAT / OBB / GJK 實作),`collision/clip.mojo` 做 reference/incident 裁切,3D EPA 回真實深度與 witness points,並與既有 narrowphase 做 normal/depth parity。 |
 | 2.3 | [持久化 broadphase + speculative CCD 第一步](ROADMAP_HISTORY.md#23-持久化-broadphase--speculative-ccd-第一步) | ✅ |  | `collision/bp_dbvh.mojo` 提供 Box2D 式 dynamic tree + fat-overlap pair 快取(與 BruteForce pair-set parity,N=4096 相干負載 70µs vs 全重建 18.9ms),solver 的 `_collect_pairs` 以速度比例 speculative margin 攔截高速體(`tests/test_ccd6.mojo`)。 |
 | 7.1 | [SAH-BVH(建樹啟發式:median vs SAH seam)](ROADMAP_HISTORY.md#71-sah-bvh建樹啟發式median-vs-sah-seam--2026-07-22) | ✅ |  | 靜態 BVH 加入 binned SAH 建樹(每軸 12 桶,退化回退 median),與 median 樹 region-query/raycast 結果集相等,群聚 raycast 1.62×、樹緊 43%,且因 median 用插入排序,SAH 建樹反而更快。 |
 | 7.2 | [solver6 接寬相(生產 solver 脫離 O(n²))](ROADMAP_HISTORY.md#72-solver6-接寬相生產-solver-脫離-on²--2026-07-22) | ✅ |  | solver6 的 pair 收集可改走 fat 世界-AABB 上的寬相(半徑設計使命中集與 brute 相同、依 (i,j) 字典序發出),400 幀混合場景 brute vs bvh bit-identical,N=512 快 1.76×。 |
@@ -2257,13 +2269,31 @@
 > - 原現況:Phase 12 ⏸ gated on 核心 API 凍結;本項「保持 gated」,交付寫「gated —— 使用者確認架構後才動」。已由 2026-10-09 決定取代。
 
 #### 17.75 嵌入契約 — Wave B(平台方向 C 前提,與 12.1 同期)
-> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;配置器、非同步步進、`UnitScale`、執行緒契約成文未做)。
+> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;2026-10-13:job graph 與 work-stealing 派發、暫存層宿主區塊、非同步步進、`UnitScale`、執行緒 / 錯誤 / 單位契約成文 ✅;剩 actor 排程器的靜態 `DispatchPolicy`、box / capsule manifold 的尺度殘差,見進度)。
 > **進度(派發器,2026-10-12)**:`scheduler/dispatch.mojo`:`Task` trait(`run(i)`)+ `Dispatch` 值(`parallel` 預設 = `max.algorithm.parallelize` /
 > `serial` / `reverse` / `from_host(fn, ctx)`)+ `dispatch_for`;宿主形式經 C ABI:`host(ctx, n, task, data)`,`task` 是每個 Task 型別一個的 thin C 函式
 > (`_task_trampoline[T]`,先以閉包嘗試 —— 對閉包型別泛型的函式會變成 capturing、不能當 C 函式指標,故改為 struct Task)。`SolverConfig.dispatch` 選擇派發器;
 > 物理的三處 fan-out 改為 Task:island(`solver6._IslandTask`)、同色接觸對(`contact6._ColorTask`)、批次可微世界(`diffsolver._WorldsTask`)。
 > 測試 `test_dispatch`(8,integration):40 個 island、120 tick,island fan-out 在 parallel / serial / reverse / 宿主 C 回呼(反序)四種派發下快照位元組相同;
 > 同色 fan-out 四種派發皆 == 一般串行 step。受影響的 22 個既有測試輸出不變。scheduler 內部的 jobgraph / policy / workstealing 仍直接呼叫 `parallelize`(待辦)。
+> **進度(2026-10-13)**:契約全文 `docs/design/17.75-embedding-contract.md`(執行緒、錯誤、單位 / 座標、記憶體、決定論)。
+> - **派發器擴到 scheduler**:`JobGraphScheduler.dispatch`(同層系統改為 `_LevelTask`,經 `dispatch_for`);`Dispatch.work_stealing()`
+>   以 `scheduler.workstealing.ws_parallel_for` 為第五種派發器。`test_dispatch` 10/10(island 與同色 fan-out 在 parallel / serial / reverse /
+>   宿主 C 回呼 / work stealing 下快照位元組相同)、`test_jobgraph` 34/34(同層系統經 serial / reverse / work stealing / 宿主回呼 == 循序)。
+>   途中找到一個生命週期錯誤:`_LevelTask` 指向的 `order` 副本在建構後即被 Mojo 結束生命週期(讀到空 List),以 `_ = ord^` 延長。
+>   未改:actor 排程器的 `DispatchPolicy`(`scheduler/policy.mojo`)是無實例的編譯期策略,無處攜帶宿主 context。
+> - **暫存層宿主區塊**:`FrameArena.from_block(span)` 在宿主記憶體上 bump 配置、不釋放它;`test_diag_arena` 19/19(寫入落在宿主記憶體、
+>   溢位照樣 raise + 計數、arena 消失後宿主區塊完好)。求解器暫存改走它屬 17.79。
+> - **非同步步進**:`Runtime.begin_advance(frame_dt) -> StepHandle` / `execute(handle)`(可在宿主任一 worker 上)/ `finish(handle) -> alpha`;
+>   進行中宿主讀 `Runtime.published`(上一個完成 tick 的姿態)。`test_async_step` 11/11:90 個不等長 frame(每 frame 欠 1 / 2 / 0 tick)
+>   下 alpha 每 frame 相同、場景快照位元組相同、內插歷史相同;begin 兩次、stale handle、finish 先於 execute、finish 兩次、進行中 teleport 皆 raise。
+> - **`UnitScale` + 相似性測試**:`UnitScale(per_meter).apply(cfg)` 縮放 `margin_base`、`lin_sleep_tol`、`restitution_threshold`、新增的
+>   `max_push_speed`;`margin_base` 原本只存在於設定、未接線,這次一路接到 `fat_aabb` / `speculative_margin` / `try_pair` / `_collect_pairs`。
+>   相似性測試(長度 × 2^k)找到的缺陷:soft 推出速度上限寫死 4 m/s(`contact6.solve_contact`)→ 改為 `SolverConfig.max_push_speed`,
+>   s = 2^4 的偏差 0.235 → 5.7e-4。`test_unit_scale` 12/12:球在 2^-7…2^10 每個尺度逐位相同;盒塔與膠囊在 5e-3 內(2^7 最大 1.1e-3);
+>   對照組(不套 `UnitScale`)偏差 0.249。**未解**:盒 / 膠囊對地的 manifold 對精確縮放的輸入不是逐位等變(膠囊 step 0 深度 0.2816667 vs 0.28166664;
+>   盒塔 step 1 的法向衝量 0.0304 vs 0.0364),已排除 `manifold.mojo:347` 與 `clip.mojo:99` 的 1e-6 門檻,來源未定位。
+> - **慣例釘死**:`test_conventions` 8/8:右手系(X × Y = +Z)、+90° 繞 +Y 把 +X 轉到 −Z、`Quat` 欄位 x, y, z, w(w 為純量)、`UnitScale(100)` 只縮放長度類旋鈕。
 > **緣起**:2026-10-09 平台方向拍板為 C(被宿主引擎嵌入的模擬函式庫)。嵌入者(Godot / Unity / Unreal)
 > 已有自己的 job system、配置器、frame graph 與單位約定;引擎若自起執行緒、自管記憶體、同步獨佔一個
 > 呼叫,就只能「旁邊跑」而不能「被整合」。本條定義宿主與引擎之間的**執行契約**;C-ABI 的簽名與凍結屬 12.1。
@@ -2448,9 +2478,9 @@
 | 16.3 | [Vec3 重構(width-3 SIMD 被禁)](ROADMAP_HISTORY.md#163-vec3-重構width-3-simd-被禁--完成2026-08-12分支-mojo-stable) | ✅ |  | `Vec3` 改為 lane 3 恆為 0 的 `SIMD[WorldType, 4]`,維度泛型容器用 `PadW`,同時完成 API 搬遷、`InlineArray` 複製、棄用清理,並拆掉 `SkinVert`、`_Pt`、`_LV`、`_Half` 包裝;`AABB.symmetric()` 會把 pad lane 設為 0。 |
 | 17.0 | [架構前置(Wave A 之前必做;2026-09-27 架構審計)](ROADMAP_HISTORY.md#170-架構前置wave-a-之前必做2026-09-27-架構審計) | ✅ | A | 架構閘門(archindex check)、測試 tier、分層修正(diag 在第 0 層,bvh / gpu_lbvh 在 spatial)、collider_set / contact_gen 移到 collision、BodySet、錯誤政策、gameplay/runtime.mojo 都已落地;solver6 拆成 contact6 / joints6 / islands / ccd6 / soft_couple;舊 2D 物理路徑已刪除。 |
 | 17.22 | [範例覆蓋補完](ROADMAP_HISTORY.md#1722-範例覆蓋補完--wave-a文件) | ✅ | A | examples/ 新增 17_spin_integrators、18_cloth_xpbd_vbd、19_reactive_commands、21_runtime_character,讓 README / CATEGORY §2 列出的 seam swap 都有可跑的範例,且每支都印出兩條路徑的對照數字。 |
-| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | ⬜ | A | CI 工作流、golden 跨機決定論探針、授權、發行管線、衛生、工具鏈升版金絲雀 |
-| 17.82 | [品質工具](#1782-品質工具--wave-a工程) | ⬜ | A | 格式 / 靜態檢查決策、孤島 / 接線報告、路線圖 / 文件引用 linter、執行緒 / 記憶體檢查、種子掃描 fuzz、穩定性 / 決定論重跑 |
-| 17.83 | [效能治理](#1783-效能治理--wave-a工程) | ⬜ | A | 基準結果的機器可讀輸出、比較工具、確定性閘門、牆鐘閘門、漸近斜率閘門、影格預算表 |
+| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 🔶 | A | CI 工作流、golden 跨機決定論探針、授權、發行管線、衛生、工具鏈升版金絲雀 |
+| 17.82 | [品質工具](#1782-品質工具--wave-a工程) | ✅ | A | 格式 / 靜態檢查決策、孤島 / 接線報告、路線圖 / 文件引用 linter、執行緒 / 記憶體檢查、種子掃描 fuzz、穩定性 / 決定論重跑 |
+| 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 🔶 | A | 基準結果的機器可讀輸出、比較工具、確定性閘門、牆鐘閘門、漸近斜率閘門、影格預算表 |
 
 ### 已完成條目的遺留待辦
 
@@ -2461,6 +2491,7 @@
 ### 待辦與部分完成條目
 
 #### 17.81 CI / 授權 / 發行 — Wave A(工程,先於其他各項)
+> **狀態**:🔶 部分完成(2026-10-13:CI / 發行工作流、授權、衛生、跨機 golden 探針 ✅;GitHub 上的首次 CI 結果、可重現性探針、工具鏈升版金絲雀未做)。
 > **現況**:
 > - **沒有 CI**:`.github/` 目錄不存在(`ls .github` 失敗);`git ls-files` 中 `\.github|\.ya?ml$` 零命中。`origin` 是 GitHub(`git@github.com:Hundo1018/ludens-engine.git`),
 >   且已有 PR 合併(`git log --merges` 見 `Merge pull request #10 / #11`),但沒有任何自動檢查掛在 PR 上。
@@ -2504,7 +2535,29 @@
 > **邊界**:套件發佈到外部管道(conda channel、PyPI)屬後續且須使用者同意;跨平台(macOS / Windows / wasm)矩陣屬 17.76;GPU runner 屬另案(目前 GPU 測試靠自動跳過);
 > 效能數字的比對與預算屬 17.83,本條只提供其執行的場所。
 
+> **進度(2026-10-13)**:
+> - **跨機 golden 探針(結論:有差,已處理)**:第一台既非開發機也非 GPU 工作站的主機(無 GPU、AVX-512 Xeon)上,golden 有 9 段的末位數字不同,
+>   且與本次變更無關的測試也在其中(例:`test_tree` Y-tree energy drift 0.011868272829287659 vs 錄製值 0.011869547291799025);未改的 `origin/main`
+>   在同主機上輸出同樣的新值。原因是編譯目標:`--target-cpu skylake` 或 `alderlake` 下每段都重現 golden,`x86-64-v3` / `haswell` 仍讓 `test_mpm`
+>   末位不同(CPU 型號而非只是 ISA 等級)。`run_tests.sh` 改為一律 `--target-cpu ${LUDENS_TARGET_CPU:-skylake}`(任何 AVX2 主機可跑)。
+>   決定論範圍的含義記入 17.76 / 17.16:承諾的是「同工具鏈 + 同編譯目標」,而非「同架構」。
+> - **無 GPU 主機的編譯失敗**:五個 GPU 測試以 `comptime if not has_accelerator(): ... return` 後接裝置程式碼,return 之後仍被具現化,
+>   `DeviceContext()` 報 "Unknown GPU architecture detected",檔案編不過、runner 停在它(main 亦然)。裝置半段移進 `else`;`gpu-compile` 15 / 15。
+> - **locale**:`arch-check` 在未設 locale 的主機上以 "'ascii' codec can't decode byte 0xe2" 失敗;`tools/archindex.mojo` 讀 `mojo doc` 輸出改為明示 UTF-8,
+>   在 `LANG` / `LC_ALL` 皆未設下通過。
+> - **CI**:`.github/workflows/ci.yml`(PR / push main:`setup-pixi --locked` → 閘門自測 → `doclint` → `orphans` → `pixi run gate`,上傳 gate log;
+>   夜間:stress / examples / experiments / spikes / benchmark 冒煙);`release.yml`(`vX.Y.Z` 標籤且與 `pixi.toml` 版本相符 → 閘門 → `capi` + `wheel` →
+>   Release:`.mojoc`、`libludens.so`、`ludens.h`、授權、工具鏈釘版、`SHA256SUMS`、changelog)。
+> - **授權**(使用者決定):MIT OR Apache-2.0,著作權人 Tien Chueh Wang(`LICENSE-MIT`、`LICENSE-APACHE`、`pixi.toml`、README)。
+>   Modular 工具鏈再散布條款已讀(Modular Community License,last modified 2026-08-18):可在「有實質額外功能的應用」內以 object code 再散布 MAX 元件、
+>   須保留其標示;Mojo 為 Apache-2.0 with LLVM exceptions。結論寫入 `NOTICE`,wheel 的 dist-info 帶 `LICENSE-MIT` / `LICENSE-APACHE` / `NOTICE`。
+> - **衛生**:`CONTRIBUTING.md`、`SECURITY.md`(私下回報)、`CHANGELOG.md` 由 `scripts/changelog.py` 產生(`pixi run changelog`;淺 clone 拒絕執行)、
+>   README 測試數不再手寫、移除殘留 `glfw`(`pixi lock` 只刪 glfw 與 xorg-libxinerama 兩項)。
+> - **待辦**:PR 上首次 CI 的實際結果(runner 上的 golden 是否在 skylake 釘選下逐字相同);可重現性探針(同 commit 建兩次比 `.mojoc` 校驗和);
+>   工具鏈升版金絲雀(選配)。
+
 #### 17.82 品質工具 — Wave A(工程)
+> **狀態**:✅ 完成(2026-10-13;格式化與執行緒 / 記憶體檢查的探針結論為「目前不可閘門」,理由見進度)。
 > **現況**:
 > - 已有的機器閘門:分層 / 循環 / 私有名稱穿透(`tools/archindex.mojo` 的 `check`,指令表 `:15-27`;`pixi run arch-check`)、測試 tier 標頭驗證(`scripts/run_tests.sh:57-64`,啟動即失敗)、
 >   `-D ASSERT=all` 讓 `debug_assert` 生效(`scripts/run_tests.sh:19,68`)、golden 各段比對(`tools/golden.mojo`)、閘門工具自測(`scripts/agent_gate.sh:17-18`;`archindex selftest` `tools/archindex.mojo:27`)。
@@ -2541,7 +2594,24 @@
 > **相依**:17.81(閘門執行場所)、17.80(執行期擷取可作為決定論重跑的比對來源,後做)、既有 `archindex` / `golden` 工具。
 > **邊界**:效能回歸偵測屬 17.83;測試**內容**的覆蓋(哪些行為要測)不是本條 —— 屬測試標準 v3 與各條目自己的交付;引擎執行期診斷(`diag/`、17.80)不在本條。
 
+> **進度(2026-10-13)**:工具皆為 `scripts/*.py`(pixi 環境的 Python),各附 `--selftest`(植入違規):
+> - **路線圖 / 文件引用 linter** `pixi run doclint`(6/6):反引號內的 repo 路徑須存在,否則須在 `scripts/doclint_allow.txt` 附理由;README 若寫測試數須相符。
+>   782 個引用;找到一個寫錯的路徑 geometry/clip.mojo(實為 `collision/clip.mojo`,已修正)與 33 個失效路徑,分類為「計畫中」(17.64–17.74 規劃的檔案)或「歷史」。
+>   selftest 進 `pixi run gate -- --selftest`,檢查本身進 CI。
+> - **孤島 / 接線報告** `pixi run orphans`(7/7):引擎與 examples 皆無 importer 的模組。128 個已接線、54 個只被 tests / benchmarks 使用、3 個無人 import,
+>   全數在 `scripts/orphans_allow.txt` 分流(seam 變體 / GPU 後端 / 宿主 API / 入口 / 文件 / 缺口)。真缺口一個:`geometry.mat3`(遷移已回退,
+>   連測試都沒有)。進 CI。
+> - **種子掃描** `pixi run fuzz`(2/2):`harness.runner.fuzz_seed(default)` 在設了 `LUDENS_SEED` 時回傳它;`test_sap` / `test_lbvh` / `test_predicates` /
+>   `test_laws` 改經它取種子(預設輸出不變)。種子 1..1000 四者全過(65 s)。
+> - **穩定性 / 耗時** `pixi run stability`(3/3):每個測試建一次跑兩次,以 golden 正規化比較,並列出最慢的檔案。
+> - **覆蓋率**:Mojo 1.1.0 無行覆蓋工具;以符號級近似 `pixi run symcov`(3/3):測試 import 到的公開引擎名稱 666 / 1141(58.4 %),逐套件列出;
+>   `embed` 18.8 % 是低估(測試經編譯出的 C ABI 呼叫,不經 Mojo import)。只回報,不閘門。
+> - **探針,結論為不閘門**:`mojo format` 在釘選環境中無法執行("unable to resolve Mojo formatter in PATH");helgrind 對 `test_islands_par`
+>   (平行與串行逐位相同)報 160 個 race context,大多在 `libKGENCompilerRTShared.so`(其同步 helgrind 看不見);memcheck 看不見 Mojo 的堆積記憶體 ——
+>   1e6 元素的 `List` 與刻意洩漏的 64 個 4 KiB 區塊都不改變 valgrind 的堆積統計(兩者皆 499 allocs),乾淨報告不構成證據,故不加 memcheck 閘門。
+
 #### 17.83 效能治理 — Wave A(工程)
+> **狀態**:🔶 部分完成(2026-10-13:機器可讀輸出、比較工具、確定性計數器閘門、斜率閘門、影格預算表、報告治理、bisect 判定器、交錯 A/B harness ✅;夜間牆鐘閘門需固定主機,cachegrind 指令數探針未做)。
 > **現況**:
 > - 基準規模:`benchmarks/bench_*.mojo` 共 79 支,皆已登記於 `scripts/benchmark_report.md.in`(79 條 `@bench`;逐一核對無缺漏),報告 `BENCHMARK_REPORT.md` 4026 行。
 > - 量測方法:`harness/bench.mojo:25-37` 的 `measure` = 暖機後取 `reps` 次的**最小**牆鐘時間;檔頭建議用 `taskset` 釘核。報告自述「絕對數字與機器相關,讀相對欄位」(BENCHMARK_REPORT 開頭說明)。
@@ -2576,6 +2646,27 @@
 > **邊界**:**與 17.85 分級模擬的界線** —— 17.85 改變引擎每步**算什麼**(tick 週期、active set、分級品質、增量 broadphase;屬執行期 LOD),本條不改引擎行為,只治理**如何發現、阻擋效能回歸**(基準線、預算、CI 閘門);
 > 17.85 完成後其 `bench_tiers` 各列成為本條的閘門輸入,但分級策略的設計與預算旋鈕不在本條。
 > 同理:17.79 資源治理 / 17.80 觀測 / 17.31 `SimBudget` 是**宿主在執行期使用**的預算與擷取機制,本條的預算是**CI 對引擎量測值的斷言**,二者名稱相近、用途不同,本條只消費它們的輸出。
+
+> **進度(2026-10-13)**:`scripts/perf.py`(`pixi run perf -- ...`,selftest 17/17,含植入回歸):
+> - **機器可讀輸出 + 主機指紋**:`collect` 把每支 bench 跑 `--reps` 次,解析標準 `BenchTable` 表為 `bench :: 表 :: 變體 :: N :: op` → ns/op 樣本,
+>   附指紋(CPU 型號、邏輯核數、編譯目標、mojo / modular 釘版、`Real` 型別);非標準表只計數、不猜。首份基準線
+>   `benchmarks/perf_baselines/scale-xeon2.8-4c-skylake.json`(4 支擴展 bench、95 列、3 reps)。
+> - **比較**:`compare` 指紋不同即拒絕(exit 2);每列雜訊 = 兩組樣本相對全距的較大者(下限 3 %),中位數超過基準線 × (1 + 3 × 雜訊) 才算回歸;
+>   雜訊 > 50 % 標為不可判定(不當通過);新列無基準線必須登記。實測雜訊(上述 95 列):中位 5.5 %、p90 17.4 %、最大 71.8 %(2 列不可判定)——
+>   即典型列可抓 ~16 % 以上的回歸,貼近雜訊底的小回歸抓不到(方法弱點,照實記)。`bisect-check` 是 `git bisect run` 的判定器(0 / 1 / 125)。
+> - **確定性閘門(託管 CI 可跑)**:`diag.counters` 新增工作量計數 `NARROWPHASE_PAIRS` / `CONTACT_MANIFOLDS` / `CONTACT_POINTS`(`ContactScene6` 收集時累加);
+>   `test_work_counters`(16/16)對解析值做精確斷言:N 顆不相觸的球,暴力列舉 N + N(N-1)/2 對、寬相 N 對,N×4 時暴力 ×15.29、寬相恰 ×4 ——
+>   F22 型 O(n²) 由計數器而非計時抓到。
+> - **斜率閘門**:`slopes` 以 log(ns/op) 對 log(N) 擬合(變體名中的 `N=…` 會被去除以成序列),與 `scripts/perf_slopes.toml` 宣告比較(容差 +0.25)。
+>   實測:solver broadphase seam 的五個後端 1.06–1.10(宣告 1.0)、BVH pair collection 1.03、brute 1.23(N ≤ 512 時窄相仍主導;宣告 2.0)。
+> - **影格預算表**:`budgets` 以註冊時中位數 × 1.2 為預算(`scripts/perf_budgets.json`,39 列:broadphase seam 各 N、island 平行塔場景),
+>   超出預算 + 該列雜訊帶才失敗;預算屬單一主機,換主機拒絕。
+> - **報告治理**:`governance` 檢查範本 `@bench` ↔ `benchmarks/bench_*.mojo` ↔ 報告章節(現況 88 = 88、報告已含全部章節;本條「現況」所記
+>   vehicle / fracture 列缺漏在 2026-10-12 的重產中已補上);進 CI。
+> - **交錯 A/B harness**:`harness.bench.measure_ab(a, b)` 在同一行程內交錯執行兩個變體(輪流先後),回傳各自最小值與每輪 b/a 比值的範圍,
+>   `resolved()` 只在每輪都同向時為真;`test_bench_ab`(5/5):植入的 2 倍工作量量得比值在 [1.5, 2.5] 且每輪皆較慢,A 對 A 比值在 [0.8, 1.25]。
+> - **待辦**:夜間牆鐘閘門需要固定主機(託管 runner 的指紋每次不同,`compare` / `budgets` 會拒絕);cachegrind 指令數探針(memcheck 已證實看不見
+>   Mojo 堆積,17.82 進度,cachegrind 的指令計數是否穩定待量);每步配置次數屬 17.79 的 `AllocStats`。
 
 ---
 
@@ -2731,8 +2822,8 @@
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | ⬜ |
-| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | ⬜ |
-| 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ⬜ |
-| 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | ⬜ |
+| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |
+| 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
+| 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | ⬜ |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | 🔶 |

@@ -519,9 +519,11 @@ struct ColliderSet(Movable, Deinitable):
             m.normal = -m.normal
         return m
 
-    def fat_aabb(self, i: Int, pose: Pose3, vel: Vec3, spec_dt: Real) -> AABB[3]:
+    def fat_aabb(
+        self, i: Int, pose: Pose3, vel: Vec3, spec_dt: Real, margin_base: Real = SPEC_BASE
+    ) -> AABB[3]:
         """World AABB of collider `i`'s oriented box (`half`, conservative for
-        sphere/capsule too), grown by r_i = SPEC_BASE/2 + |v_i|*spec_dt.
+        sphere/capsule too), grown by r_i = margin_base/2 + |v_i|*spec_dt.
         Chosen so r_i + r_j == the pair speculative margin exactly, hence
         fat-AABB overlap is a conservative superset of any inflated-OBB
         overlap (the broadphase parity guarantee).
@@ -536,7 +538,7 @@ struct ColliderSet(Movable, Deinitable):
         if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
             var r0 = Real(0)
             if spec_dt > 0:
-                r0 = SPEC_BASE * 0.5 + sqrt(dot(vel, vel)) * spec_dt
+                r0 = margin_base * 0.5 + sqrt(dot(vel, vel)) * spec_dt
             var bb = self.world_aabb[i]
             return AABB[3](
                 bb.min - Vec3(r0, r0, r0, 0), bb.max + Vec3(r0, r0, r0, 0)
@@ -552,7 +554,7 @@ struct ColliderSet(Movable, Deinitable):
             )
         var r = Real(0)
         if spec_dt > 0:
-            r = SPEC_BASE * 0.5 + sqrt(dot(vel, vel)) * spec_dt
+            r = margin_base * 0.5 + sqrt(dot(vel, vel)) * spec_dt
         return AABB[3].from_center(pose.position, wh + Vec3(r, r, r, 0))
 
     def soft_particle_contact(

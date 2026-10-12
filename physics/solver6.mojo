@@ -59,6 +59,7 @@ from collision.world_query import (
     point_distance as wq_point_distance,
 )
 from collision.collider_set import (
+    SPEC_BASE,
     ColliderSet,
     Pose3,
     SHAPE_BOX,
@@ -154,6 +155,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var softs: List[SoftBody]
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
+    var max_push: Real  # this step's SolverConfig.max_push_speed, for the island path (17.75)
     # ROADMAP 17.0h: `diag` wired into the production solver path.
     # `trace`/`log` are solver-owned, mirroring `counters` above (a caller
     # reads `sc.trace`/`sc.log` directly, the same shape as `sc.counters`);
@@ -210,6 +212,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.softs = List[SoftBody]()
         self.colliders = ColliderSet()
         self.counters = Counters()
+        self.max_push = 4
         self.trace = TraceBuffer(capacity=512)
         self.log = LogRing[256]()
         self.draw = DrawQueue[WorldType](capacity=1024)
@@ -784,7 +787,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         return edges^
 
     def _collect_pairs(
-        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False
+        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False, margin_base: Real = SPEC_BASE
     ) -> List[ContactConstraint]:
         """Manifolds at the current poses (ROTATED box-box manifold — tilted
         geometry produces restoring contacts). With `warm`, impulses are
@@ -829,7 +832,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 boxes.append(
                     rebind[AABB[Self.BP.dim]](
                         self.colliders.fat_aabb(
-                            i, self._pose(i), self.bset.bodies[i].linear_velocity(), spec_dt
+                            i, self._pose(i), self.bset.bodies[i].linear_velocity(), spec_dt, margin_base
                         )
                     )
                 )
@@ -881,7 +884,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.colliders, i, j, self._pose(i), self._pose(j),
                     self.bset.bodies[i].linear_velocity(),
                     self.bset.bodies[j].linear_velocity(),
-                    spec_dt, raws, sraws,
+                    spec_dt, raws, sraws, margin_base,
                 )
         else:
             for i in range(n):
@@ -903,7 +906,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         self.colliders, i, j, self._pose(i), self._pose(j),
                         self.bset.bodies[i].linear_velocity(),
                         self.bset.bodies[j].linear_velocity(),
-                        spec_dt, raws, sraws,
+                        spec_dt, raws, sraws, margin_base,
                     )
         self.sensor_pairs = List[ContactConstraint]()  # rebuilt with the solved pairs
         for c in range(len(sraws)):
@@ -992,7 +995,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             )
             soft_sweep(
                 self.bset, pairs, plo, phi, h, bias_rate, mass_scale,
-                impulse_scale, True, iters, mu,
+                impulse_scale, True, iters, mu, self.max_push,
             )
             # pose: dynamic (if awake) OR kinematic -- `not _inactive` is
             # exactly `moves(i) and not sleeping[i]` here since `_inactive`
@@ -1221,7 +1224,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         collect this frame's contacts, refresh islands, colour. On a colour
         overflow `clo`/`chi` come back empty and the pairs uncoloured; a
         colour-parallel solver must then refuse the frame."""
-        var pairs = self._collect_pairs(True, dt, cfg.broadphase)
+        var pairs = self._collect_pairs(True, dt, cfg.broadphase, cfg.margin_base)
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         _ = self._color_pairs(pairs, clo, chi)
         return pairs^
@@ -1307,6 +1310,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         checks -- zero cost in a release build, terminates loudly under
         `-D ASSERT=all` (every test run) if a config or `dt` slipped through
         with a value that would otherwise divide out to `inf`/`NaN` below."""
+        self.max_push = cfg.max_push_speed
         debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
         debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
         debug_assert(cfg.hertz > 0, "ContactScene6.step: cfg.hertz must be > 0")
@@ -1334,7 +1338,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # a separate "narrowphase" span at without restructuring that
         # function; the spec's phase list treats them as one unit here.
         self.trace.begin("collect_pairs")
-        var pairs = self._collect_pairs(True, dt, broadphase)
+        var pairs = self._collect_pairs(True, dt, broadphase, cfg.margin_base)
         self.trace.end()
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         # graph coloring (colored=True): greedy smallest-free-color over the
@@ -1449,12 +1453,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if colored:
                 sweep_colored(
                     self.bset, pairs, clo, chi, h, bias_rate, mass_scale,
-                    impulse_scale, True, iters, mu, parallel, workers, cfg.dispatch,
+                    impulse_scale, True, iters, mu, parallel, workers, cfg.dispatch, cfg.max_push_speed,
                 )
             else:
                 soft_sweep(
                 self.bset, pairs, 0, len(pairs), h, bias_rate, mass_scale,
-                    impulse_scale, True, iters, mu,
+                    impulse_scale, True, iters, mu, cfg.max_push_speed,
                 )
             if ccd:
                 ccd_advance(self.bset, self.colliders, h)
