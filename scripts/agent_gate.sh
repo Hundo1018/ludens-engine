@@ -10,7 +10,15 @@
 #   scripts/agent_gate.sh --selftest       test the gate's own tools first
 set -uo pipefail
 cd "$(dirname "$0")/.."
-GOLDEN=tests/golden/test_stdout.txt
+# One golden per platform (ROADMAP 17.76): linux x86-64 keeps the original
+# file; any other OS / architecture reads test_stdout.<os>-<arch>.txt, which
+# `--update-golden` creates there on first record.
+PLAT="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+if [ "$PLAT" = "linux-x86_64" ]; then
+  GOLDEN=tests/golden/test_stdout.txt
+else
+  GOLDEN=tests/golden/test_stdout.$PLAT.txt
+fi
 LOG=build/agent_gate.log
 mkdir -p build
 
@@ -29,6 +37,8 @@ bash scripts/golden.sh summary "$LOG"; srow=$?
 if [ "${1:-}" = "--update-golden" ] && [ $rc -eq 0 ] && [ $srow -eq 0 ]; then
   bash scripts/golden.sh normalize "$LOG" > "$GOLDEN"
   echo "GOLDEN updated ($(wc -l < "$GOLDEN") lines)"; grow=0
+elif [ ! -f "$GOLDEN" ]; then
+  echo "GOLDEN missing for $PLAT ($GOLDEN): record one with --update-golden"; grow=1
 else
   bash scripts/golden.sh compare "$GOLDEN" "$LOG"; grow=$?
 fi

@@ -31,7 +31,18 @@
 # `skylake` runs on any AVX2 host (ROADMAP 17.81 cross-machine probe).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TARGET_CPU="${LUDENS_TARGET_CPU:-skylake}"
+# x86-64 pins skylake (above). Other architectures (linux-aarch64, osx-arm64;
+# ROADMAP 17.76) compile for the host until each has a pinned target and its
+# own golden file (scripts/agent_gate.sh picks the file per platform).
+if [ -n "${LUDENS_TARGET_CPU:-}" ]; then
+    TARGET_CPU="$LUDENS_TARGET_CPU"
+elif [ "$(uname -m)" = "x86_64" ]; then
+    TARGET_CPU=skylake
+else
+    TARGET_CPU=""
+fi
+TARGET_FLAGS=()
+[ -n "$TARGET_CPU" ] && TARGET_FLAGS=(--target-cpu "$TARGET_CPU")
 
 VALID_TIERS="unit component integration system stress"
 
@@ -75,7 +86,7 @@ done
 
 run_one() {
     echo "--- $1 ---"
-    mojo run --target-cpu "$TARGET_CPU" -D ASSERT=all -I build "$1"
+    mojo run "${TARGET_FLAGS[@]}" -D ASSERT=all -I build "$1"
 }
 
 if [ "$#" -eq 0 ]; then
