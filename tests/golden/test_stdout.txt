@@ -82,7 +82,8 @@ build: all packages precompiled into build/
   mixed revolute+prismatic round trip: 1.5497208e-06
   worst overshoot past the stop: 0.0  final q = 0.5
   qd leaving the stop: -2.0 -> -2.0
-[PASS] joints_lib - 8 / 8 checks
+  bead on spinning rod: theta'' = -0.9837831  r'' = 1.183
+[PASS] joints_lib - 11 / 11 checks
 --- tests/test_lbm_bounce.mojo ---
   drag change for a half-cell shift: half-way 0.069023006  interpolated 0.017955935
   momentum exchange vs control-surface flux, worst relative difference 0.015169148
