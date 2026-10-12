@@ -576,6 +576,10 @@ build: all packages precompiled into build/
 --- tests/test_nav_world.mojo ---
   nav_world: samples 109 worst |dy| 0.125
 [PASS] nav_world - 6 / 6 checks
+--- tests/test_netcode.mojo ---
+  netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
+  netcode: snapshot 4952 bytes full, 1574 bytes per frame to all clients (delta), frames 249
+[PASS] netcode - 28 / 28 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
   poisson n 64  iters 32  residual 5.1880166e-17  worst error 0.0
@@ -627,7 +631,7 @@ build: all packages precompiled into build/
 --- tests/test_schema.mojo ---
 [PASS] schema - 22 / 22 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20541
+  blob bytes: 20562
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.24997935  bp y 0.24997935

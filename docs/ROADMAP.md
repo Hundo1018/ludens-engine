@@ -41,7 +41,7 @@
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 7 | 0 | 3 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
-| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 2 | 0 | 4 | 0 |
+| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 1 | 4 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 0 | 0 | 6 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
@@ -1583,7 +1583,7 @@
 |---|---|:-:|:-:|---|
 | 17.14 | [導航](#1714-導航) | ✅ | C | 新套件 `nav`(layer 3):navmesh bake(體素 → 緊湊場 → 侵蝕 → tile 矩形)、尋路 seam(多邊形 A* + funnel / 格 A* / 流場 / HPA*)、off-mesh link、動態障礙增量挖洞、crowd 與避讓 seam(ORCA / 取樣 RVO / 社會力)、3D 體積導航(稀疏體素八叉樹 A* vs 稠密體素 A*)。 |
 | 17.15 | [AI 框架](#1715-ai-框架) | ✅ | C | 新套件 `ai`(layer 4):blackboard、behavior tree(迭代 tick)、utility AI、GOAP / HTN、決策 seam(BT / FSM / utility / GOAP)、感知(視錐 + 宿主視線批次、聽覺、記憶)、EQS、轉向 / 群聚 / 隊形、smart objects、影響力圖與隊伍戰爭迷霧。 |
-| 17.16 | [網路 / rollback](#1716-網路--rollback) | ⬜ | C | 規劃 rollback 核心、預測策略 seam(lockstep / predict-rollback / snapshot-interp)與給宿主傳送的 byte payload API,另含延遲補償與輸入驗證 / 失步偵測;傳輸層與線路格式交給宿主,尚未開工。 |
+| 17.16 | [網路 / rollback](#1716-網路--rollback) | ✅ | C | `gameplay/netcode.mojo`:`NetSim` 契約、預測策略 seam(`LockstepPeer` / `RollbackPeer` / `SnapshotServer` + `SnapshotClient`)、位元組訊息(冗餘輸入 + ack、XOR + RLE 差分快照)、雜湊交換失步偵測、輸入驗證、延遲補償(`PoseRing` + `rewind_ray_cast`);傳輸層交宿主。 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | ⬜ | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | ⬜ | C | 流程狀態堆疊、全域旗標 / 黑板、任務 / 目標圖、對話 / 敘事狀態、關卡切換協定、檢查點 / 重生 |
 | 17.73 | [營運邊界](#1773-營運邊界--wave-c) | ⬜ | C | 對外 outbox、遙測分流、成就 / 統計計數、本地化鍵、入站資料決定論、黑盒記錄器 |
@@ -1651,7 +1651,17 @@
 
 #### 17.16 網路 / rollback
 
-> **狀態**:⬜ 未開始(Wave C;2026-10-09 平台方向 C 拍板解開 gating,為剩餘順序第 (3) 項:rollback 核心 + 預測策略 seam + 給宿主的 byte payload API)
+> **狀態**:✅ 完成(Wave C;剩餘順序第 (4) 項)。2026-10-12 交付,設計筆記 `docs/design/17.16-netcode.md`。
+> **進度(2026-10-12)**:`gameplay/netcode.mojo`。
+> - 契約 `NetSim`(players / tick / step(每人一個輸入)/ save / load 精確位元組 / hash);具體實作 `ArenaSim`(箱子玩家 + 可推木箱,`ContactScene6`)。`physics/serialize.mojo` 新增固定寬度二進位快照 `scene_to_bytes` / `scene_from_bytes`(欄位位移固定,XOR 差分才大多為零)。
+> - `PlayerInput` 12 位元組;輸入訊息帶寄送者、對收件者輸入的 ack、最新最終雜湊與收件者尚未 ack 的全部本地輸入(冗餘,丟包與亂序不需重傳協定)。
+> - 預測策略 seam `NetPeer`:`LockstepPeer`(全員輸入到齊才步進)、`RollbackPeer`(GGPO:以「重複上一個確認輸入」預測、快照環、遲到輸入與預測不同就載回該 tick 快照重模擬;預測深度不超過環,寧可停也不超前)、`SnapshotServer` + `SnapshotClient`(伺服器對客戶端輸入做 lockstep,每 3 tick 取快照,對每個客戶端已 ack 的快照做 XOR + 零位元組 RLE 差分,新快照送一次、未 ack 8 次 update 後重送)。
+> - 失步偵測:每個 peer 保存以確認輸入步進的每 tick 雜湊(rollback 在 tick 全部輸入確認且無待處理回滾時才轉為最終),訊息帶最新一筆,不同即記 `desync_tick`。
+> - 輸入驗證 `InputValidator`(冒名、過舊、過遠、與已收到同 tick 輸入矛盾)與 `motion_plausible`(宿主信任位置的速度檢查);延遲補償 `PoseRing` + `rewind_ray_cast`(以過去 tick 的碰撞體位姿做射線)。`SimLink` 是測試用的決定論行程內連線(延遲、抖動、丟包),不是傳輸層。
+> - 開發中發現並修正:快照沒有存 island 標籤,還原後 `wake` 把所有睡眠 body 都喚醒(而非一個 island),rollback 重模擬在第一次喚醒時與原始執行分岔(第 30 tick);標籤已入快照 v3。
+> - 測試 `test_netcode`(28,integration:3 玩家、240 tick、延遲 + 抖動 + 10 % 丟包,lockstep / rollback / 快照伺服器 + 3 客戶端最終世界雜湊皆 == 離線套用同一輸入;rollback 實際回滾 181 次、重模擬 1094 tick;2-tick 環在 8 tick 延遲下仍精確;一個 peer 的世界被改動時雜湊交換回報失步;差分快照 1574 B / frame vs 全快照 4952 B;驗證、速度檢查、差分編解碼、截斷訊息、延遲補償:目標 7 tick 前的位置對現在射線落空、回溯命中)。
+> - 量測(`bench_netcode`,3 玩家、240 tick、2 tick 抖動、5 % 丟包):延遲 2 / 6 tick 時,lockstep 顯示落後 3 / 7 tick、每 frame 0.25 / 0.24 ms;rollback 落後 0、每 frame 1.15 / 2.19 ms(615 / 605 次回滾、2084 / 4471 tick 重模擬);快照客戶端落後 7 / 15 tick、每 frame 0.14 / 0.16 ms、1.8 / 2.3 kB / frame(3 個客戶端合計)。
+> **遺留待辦**:interest management(依 17.85 `CausalReach` 只送相關 body 的部分快照)、authority / ownership(目前全部由輸入驅動)、客戶端插值顯示(`SnapshotClient` 只保留最新快照)、時鐘漂移與動態輸入延遲、跨平台 f32(依決定論邊界不做)。
 > **決定(2026-10-09)**:平台方向 C → **傳輸層與線路格式交給宿主**;引擎提供 rollback 核心、預測策略 seam(lockstep / predict-rollback / snapshot-interp)與給宿主傳送的 byte payload API。權威模型以 lockstep + rollback 為主;決定論只承諾**同工具鏈、同架構**(不做跨平台定點 / 軟浮點)。
 > **現況**:刻意未做。**地基已在**:決定論 RNG(`scheduler/rng.mojo`)、actor model(10.3)、全狀態快照(6.10)、17.39 replay 的逐 tick FNV-1a 雜湊與 `first_divergence`(目前只用於 replay QA)。
 > **缺口(引擎內)**:snapshot ring buffer + 重模擬(rollback)、input prediction / server reconciliation、delta 壓縮 state replication、authority / ownership、interest management、給宿主傳送的 byte payload API。
@@ -2488,7 +2498,7 @@
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.14 | [導航](#1714-導航) | gameplay 服務、AI、導航與網路 | ✅ |
 | 17.15 | [AI 框架](#1715-ai-框架) | gameplay 服務、AI、導航與網路 | ✅ |
-| 17.16 | [網路 / rollback](#1716-網路--rollback) | gameplay 服務、AI、導航與網路 | ⬜ |
+| 17.16 | [網路 / rollback](#1716-網路--rollback) | gameplay 服務、AI、導航與網路 | ✅ |
 | 17.17 | [GPU 剛體 / articulation solver](#1717-gpu-剛體--articulation-solver) | GPU 計算 | 🔶 |
 | 17.18 | [批次多世界步進(13.9 落地)](ROADMAP_HISTORY.md#1718-批次多世界步進139-落地--wave-b) | 可微模擬、批次世界與數值深化 | ✅ |
 | 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 剛體動力學、接觸與關節 | 🔶 |
