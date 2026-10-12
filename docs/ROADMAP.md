@@ -43,7 +43,7 @@
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 16 | 1 | 3 | 2 |
-| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 0 | 3 | 0 |
+| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 1 | 2 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
 
 ## 原則與決策
@@ -2092,7 +2092,7 @@
 | 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | ✅ | C | `embed` 套件 + `build/libludens.so`(`pixi run capi`)+ `embed/ludens.h`:35 個 C 函式涵蓋世界建構、系統註冊(C 回呼)、查詢、事件訂閱、存讀檔、導航;v0.x 凍結清單 `embed/abi_v0.txt` 由測試機械檢查。 |
 | 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | ✅ | C | Python(`ludens` 套件,ctypes 包 12.1 C-ABI)與 Mojo 原生系統(`EmbedWorld`)雙腳本,同場景逐位相同;落地見 17.21。 |
 | 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | ✅ | C | `python/ludens`(ctypes 包 C-ABI)+ `python/build_wheel.py`(wheel 內含函式庫與 Mojo runtime);乾淨 venv 安裝測試;Python 系統 / 接觸訂閱、CVar(tick 邊界套用)、hot reload(保留狀態、失敗保留舊版)。 |
-| 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | ⬜ | B | 宿主 job system 注入、宿主配置器(分兩層)、非同步步進、單位與座標契約成文 + `UnitScale`、錯誤與執行緒契約 |
+| 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 🔶 | B | 宿主 job system 注入、宿主配置器(分兩層)、非同步步進、單位與座標契約成文 + `UnitScale`、錯誤與執行緒契約 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | ⬜ | B | 目標矩陣 + 實測、每目標一份 golden + 跨目標容差表、浮點位元因子清單、降級矩陣、wasm 核心切分的機器檢查 |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | ⬜ | C | per-host 適配層、批量 SoA 交換、POD 事件緩衝、宿主定義元件、綁定產生、多實例與執行緒 |
 
@@ -2175,6 +2175,13 @@
 > - 原現況:Phase 12 ⏸ gated on 核心 API 凍結;本項「保持 gated」,交付寫「gated —— 使用者確認架構後才動」。已由 2026-10-09 決定取代。
 
 #### 17.75 嵌入契約 — Wave B(平台方向 C 前提,與 12.1 同期)
+> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;配置器、非同步步進、`UnitScale`、執行緒契約成文未做)。
+> **進度(派發器,2026-10-12)**:`scheduler/dispatch.mojo`:`Task` trait(`run(i)`)+ `Dispatch` 值(`parallel` 預設 = `max.algorithm.parallelize` /
+> `serial` / `reverse` / `from_host(fn, ctx)`)+ `dispatch_for`;宿主形式經 C ABI:`host(ctx, n, task, data)`,`task` 是每個 Task 型別一個的 thin C 函式
+> (`_task_trampoline[T]`,先以閉包嘗試 —— 對閉包型別泛型的函式會變成 capturing、不能當 C 函式指標,故改為 struct Task)。`SolverConfig.dispatch` 選擇派發器;
+> 物理的三處 fan-out 改為 Task:island(`solver6._IslandTask`)、同色接觸對(`contact6._ColorTask`)、批次可微世界(`diffsolver._WorldsTask`)。
+> 測試 `test_dispatch`(8,integration):40 個 island、120 tick,island fan-out 在 parallel / serial / reverse / 宿主 C 回呼(反序)四種派發下快照位元組相同;
+> 同色 fan-out 四種派發皆 == 一般串行 step。受影響的 22 個既有測試輸出不變。scheduler 內部的 jobgraph / policy / workstealing 仍直接呼叫 `parallelize`(待辦)。
 > **緣起**:2026-10-09 平台方向拍板為 C(被宿主引擎嵌入的模擬函式庫)。嵌入者(Godot / Unity / Unreal)
 > 已有自己的 job system、配置器、frame graph 與單位約定;引擎若自起執行緒、自管記憶體、同步獨佔一個
 > 呼叫,就只能「旁邊跑」而不能「被整合」。本條定義宿主與引擎之間的**執行契約**;C-ABI 的簽名與凍結屬 12.1。
@@ -2636,7 +2643,7 @@
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.73 | [營運邊界](#1773-營運邊界--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
-| 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | ⬜ |
+| 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | 🔶 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | ⬜ |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |

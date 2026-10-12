@@ -43,7 +43,7 @@ starts from zero).
 """
 
 from std.math import sqrt
-from max.algorithm import parallelize
+from scheduler.dispatch import Dispatch, Task, dispatch_for
 from geometry.vec import Real, Vec3
 from geometry.field import SolverField, RealF, BatchReal
 from collision.collider_set import SPEC_BASE
@@ -448,19 +448,28 @@ struct SphereWorld[F: SolverField](Movable):
                     self._solve_contact(c, h, bias_rate, one, zero, zero)
 
 
+struct _WorldsTask[W: Int](Task):
+    var worlds: Pointer[List[SphereWorld[BatchReal[Self.W]]], MutUntrackedOrigin]
+    var dt: Real
+    var frames: Int
+
+    def __init__(out self, mut worlds: List[SphereWorld[BatchReal[Self.W]]], dt: Real, frames: Int):
+        self.worlds = Pointer(to=worlds).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.dt = dt
+        self.frames = frames
+
+    def run(self, k: Int):
+        for _ in range(self.frames):
+            self.worlds[][k].step(self.dt)
+
+
 def step_worlds_parallel[W: Int](
-    mut worlds: List[SphereWorld[BatchReal[W]]], dt: Real, frames: Int, workers: Int = 0
+    mut worlds: List[SphereWorld[BatchReal[W]]], dt: Real, frames: Int, workers: Int = 0,
+    dispatch: Dispatch = Dispatch.parallel(),
 ):
-    """Step independent batched worlds (each `W` lanes wide) on worker
-    threads -- the outer env dimension over cores, the inner one over SIMD
-    lanes (ROADMAP 17.18). Worlds share nothing, so the result is
-    worker-count-invariant."""
-
-    def work(k: Int) {mut worlds, imm dt, imm frames}:
-        for _ in range(frames):
-            worlds[k].step(dt)
-
-    if workers > 0:
-        parallelize(work, len(worlds), workers)
-    else:
-        parallelize(work, len(worlds))
+    """Step independent batched worlds (each `W` lanes wide) as tasks run by
+    `dispatch` -- the outer env dimension over cores, the inner one over SIMD
+    lanes (ROADMAP 17.18, 17.75). Worlds share nothing, so the result is
+    dispatcher- and worker-count-invariant."""
+    var task = _WorldsTask[W](worlds, dt, frames)
+    dispatch_for(dispatch, task, len(worlds), workers)

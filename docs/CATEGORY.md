@@ -435,6 +435,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 座標策略:`AbsoluteF32` vs `RebasedF32`(同在 `CoordStrategy` 後)vs f64 建置變體(`build64/`) | gameplay/large_world.mojo、physics/solver6.mojo(`shift_origin`)、scripts/build_f64.sh | 位移是平移群作用;模擬對平移等變,故「位移後模擬 == 模擬後位移」在 f32 中於 2 的冪格點上逐位成立(原點處 vs 1e6 / 1e7 m 處逐位相同),否則每座標一次捨入;f64 是同一程式在另一個純量體上的實例,小世界差異只來自捨入 | `test_large_world`(遠處 == 原點逐位、位移中途無衝擊、存讀檔續跑、小世界兩策略逐位)、`test_world_f64`(f64 建置、小世界 f32 / f64 一致) | `bench_large_world`(距離 1 m–1e7 m 精度曲線:三種設定;位移與串流成本) |
 
+### 2.26 派發器(Phase 17.75,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 派發器:`parallelize` / 串行 / 反序 / 宿主 C 回呼(`Dispatch`,`dispatch_for`) | scheduler/dispatch.mojo、physics/solver6.mojo、physics/contact6.mojo、physics/diffsolver.mojo | 各 fan-out 的項寫不相交狀態,故結果是項集合上的函數、與執行順序與執行緒無關;定律是四種派發的快照位元組相同 | `test_dispatch`(island 與同色 fan-out,四種派發) | 尚無(待補每步派發開銷列) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

@@ -20,6 +20,7 @@ refactor (ROADMAP 17.0g-1), not a new step mode.
 
 from geometry.vec import Real
 from collision.collider_set import SPEC_BASE
+from scheduler.dispatch import Dispatch
 
 
 @fieldwise_init
@@ -59,6 +60,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     var colored: Bool
     var broadphase: Bool
     var workers: Int
+    var dispatch: Dispatch  # who runs the parallel fan-outs (ROADMAP 17.75)
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -76,6 +78,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.colored = False
         self.broadphase = False
         self.workers = 0
+        self.dispatch = Dispatch.parallel()
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes

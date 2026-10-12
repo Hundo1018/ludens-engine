@@ -14,7 +14,7 @@ gate for the move).
 """
 
 from std.math import sqrt
-from max.algorithm import parallelize
+from scheduler.dispatch import Dispatch, Task, dispatch_for
 from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
@@ -288,6 +288,7 @@ def sweep_colored[B: Body6](
     mu: Real,
     par: Bool,
     workers: Int = 0,
+    dispatch: Dispatch = Dispatch.parallel(),
 ):
     """Graph-colored sweeps: pairs in one color share no DYNAMIC body
     (statics are excluded from adjacency and never written), so a color
@@ -299,7 +300,7 @@ def sweep_colored[B: Body6](
             if par and chi[col] - clo[col] >= 8:
                 solve_color_parallel(
                     bset, pairs, clo[col], chi[col], h, bias_rate,
-                    mass_scale, impulse_scale, use_bias, mu, workers,
+                    mass_scale, impulse_scale, use_bias, mu, workers, dispatch,
                 )
             else:
                 for c in range(clo[col], chi[col]):
@@ -506,6 +507,40 @@ def restitution_pass[B: Body6](
             pairs[c] = pr
 
 
+struct _ColorTask[B: Body6](Task):
+    """One same-colour pair per item: no two share a dynamic body."""
+
+    var bset: Pointer[BodySet[Self.B], MutUntrackedOrigin]
+    var pairs2: Pointer[List[ContactConstraint], MutUntrackedOrigin]
+    var lo: Int
+    var h: Real
+    var bias_rate: Real
+    var mass_scale: Real
+    var impulse_scale: Real
+    var use_bias: Bool
+    var mu: Real
+
+    def __init__(
+        out self, mut bset: BodySet[Self.B], mut pairs2: List[ContactConstraint], lo: Int,
+        h: Real, bias_rate: Real, mass_scale: Real, impulse_scale: Real, use_bias: Bool, mu: Real,
+    ):
+        self.bset = Pointer(to=bset).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.lo = lo
+        self.h = h
+        self.bias_rate = bias_rate
+        self.mass_scale = mass_scale
+        self.impulse_scale = impulse_scale
+        self.use_bias = use_bias
+        self.mu = mu
+
+    def run(self, k: Int):
+        solve_contact(
+            self.bset[], self.pairs2[], self.lo + k, self.h, self.bias_rate, self.mass_scale,
+            self.impulse_scale, self.use_bias, self.mu,
+        )
+
+
 def solve_color_parallel[B: Body6](
     mut bset: BodySet[B],
     mut pairs2: List[ContactConstraint],
@@ -518,22 +553,14 @@ def solve_color_parallel[B: Body6](
     use_bias: Bool,
     mu: Real,
     workers: Int = 0,
+    dispatch: Dispatch = Dispatch.parallel(),
 ):
-    """Solve one color's pairs on worker threads (free function + capture-list
-    closure, the scheduler's entity-actor precedent). Same-color pairs share
-    no dynamic body, so the writes are disjoint and the result is
-    bit-identical to solving the color serially."""
-
-    def pair_work(k: Int) {mut bset, mut pairs2, imm lo, imm h, imm bias_rate, imm mass_scale, imm impulse_scale, imm use_bias, imm mu}:
-        solve_contact(
-            bset, pairs2, lo + k, h, bias_rate, mass_scale, impulse_scale,
-            use_bias, mu,
-        )
-
-    if workers > 0:
-        parallelize(pair_work, hi - lo, workers)
-    else:
-        parallelize(pair_work, hi - lo)
+    """Solve one color's pairs as `_ColorTask` items run by `dispatch`
+    (ROADMAP 17.75). Same-color pairs share no dynamic body, so the writes
+    are disjoint and the result is bit-identical to solving the color
+    serially, whoever runs the items."""
+    var task = _ColorTask[B](bset, pairs2, lo, h, bias_rate, mass_scale, impulse_scale, use_bias, mu)
+    dispatch_for(dispatch, task, hi - lo, workers)
 
 
 # ------------------------------------------------------ contact modification
