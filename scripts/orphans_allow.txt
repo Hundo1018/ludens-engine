@@ -1,0 +1,72 @@
+# Engine modules no engine module or example imports (ROADMAP 17.82, scripts/orphans.py).
+# Format: pkg.mod  # reason. Triaged 2026-10-13 from `pixi run orphans -- --all`.
+# Categories: [seam] a variant the caller picks at compile time, exercised by its
+# parity test + bench; [gpu] a GPU backend (GPU work deferred, remaining order
+# layer 7); [api] public Mojo API a host calls, nothing inside the engine
+# needs it; [entry] built on its own; [doc] documentation-only; [gap] a real
+# gap, kept until fixed.
+
+# --- no importer at all
+embed.capi  # [entry] compiled alone by `pixi run capi` into build/libludens.so (12.1)
+ecs.query  # [doc] intentionally empty: documents where queries live (World.query1/2/3)
+geometry.mat3  # [gap] Mat3x3 was meant to replace fem/mpm/chain 3x3 helpers; that migration was reverted for compile time (17.0c step 7, physics/fem.mojo det3 docstring) and nothing, not even a test, uses it now
+
+# --- seam variants
+collision.bp_dbvh  # [seam] BroadPhase backend (test_dbvh, test_solver_bp)
+collision.bp_sap  # [seam] BroadPhase backend (test_sap)
+collision.pipeline  # [seam] 2D CollisionPipeline kept for its own tests after the 2D path was removed (ROADMAP boundaries)
+ecs.bitset_backend  # [seam] StorageBackend variant (test_backend_parity)
+ecs.chunked_backend  # [seam] StorageBackend variant (test_backend_parity)
+ecs.naive_backend  # [seam] StorageBackend variant (test_backend_parity)
+spatial.quad_tree  # [seam] spatial index variant (test_quad_tree)
+scheduler.workstealing  # [seam] scheduling policy variant (test_workstealing)
+scheduler.jobgraph  # [seam] job-graph scheduler (test_jobgraph)
+scheduler.tiered  # [seam] TieredScheduler for 17.85 (test_tiers_parity)
+nav.hpa  # [seam] hierarchical pathfinding variant (test_nav_parity)
+ai.decision  # [seam] decision seam (BT / utility / GOAP / HTN; test_ai_decision)
+geometry.dcga  # [seam] double-conformal GA variant (test_dcga)
+geometry.gmv  # [seam] AD coefficient multivector (test_gmv_ad, test_diffsim)
+physics.diffrigid  # [seam] differentiable rigid toy, 13.7 (test_diffrigid)
+physics.adjoint  # [seam] hand-written adjoint vs tape (test_adjoint)
+physics.floating  # [seam] floating-base reduced coordinates vs maximal (test_floating)
+oop.engine  # [seam] OOP baseline engine, exists only for the ECS-vs-OOP benchmarks (layer 6 by design)
+
+# --- GPU backends
+collision.bp_gpu  # [gpu] GPU broadphase (test_gpu_broadphase)
+collision.gpu_narrow  # [gpu] GPU narrowphase, 17.17 (test_gpu_narrow)
+collision.gpu_raycast  # [gpu] GPU ray batch on AABB proxies (test_gpu_raycast)
+fluid.lbm_gpu  # [gpu] GPU LBM (test_lbm_gpu)
+physics.gpu_artic  # [gpu] GPU articulation batch, 17.17 (test_gpu_artic)
+physics.gpu_contact  # [gpu] GPU contact solver, 17.17 (test_gpu_contact)
+spatial.gpu_lbvh  # [gpu] GPU LBVH build (test_gpu_lbvh)
+
+# --- public API a host calls
+ai.eqs  # [api] environment queries (test_ai_perception)
+ai.influence  # [api] influence maps (test_ai_influence)
+ai.perception  # [api] perception (test_ai_perception)
+ai.smart_objects  # [api] smart objects (test_ai_smart)
+ai.steering  # [api] steering / flocking (test_ai_steering)
+collision.queries  # [api] SceneQuery (brute / BVH / grid / tree); its fate is decided in 17.53
+diag.arena  # [api] frame arena (test_diag_arena)
+diag.invariant  # [api] invariant helpers (test_diag_invariant)
+ecs.system  # [api] system trait for ECS users (test_system_soa)
+ecs.transform_systems  # [api] transform propagation systems (test_transform)
+gameplay.large_world  # [api] origin rebasing / world partition, 17.8 (test_large_world)
+gameplay.netcode  # [api] rollback core, 17.16 (test_netcode)
+gameplay.ragdoll  # [api] ragdoll (test_ragdoll)
+gameplay.replay  # [api] replay recording / seek (test_replay)
+gameplay.save  # [api] versioned save / load, 17.40 (test_save)
+geometry.convex_decomp  # [api] convex decomposition for fracture assets (test_convex_decomp)
+geometry.pip  # [api] point-in-polygon (test_pip)
+geometry.sdf3  # [api] 3D signed distance fields (test_sdf3)
+nav.volume  # [api] volume navigation (test_nav_volume)
+physics.actuator  # [api] chain actuators (test_actuator)
+physics.constraints  # [api] unified constraint rows, 13.5 (test_constraints)
+physics.fields  # [api] force fields (test_fields)
+physics.fracture  # [api] fracture sets, 17.5 (test_fracture)
+physics.lod  # [api] SimBudget / physics LOD, 17.31 (test_lod)
+physics.rope  # [api] ropes and cables, 17.41 (test_rope)
+physics.sensors  # [api] robot sensors, 13.6 (test_sensors)
+physics.tendon  # [api] tendons, 13.4 (test_tendon)
+procedural.noise  # [api] noise (test_noise)
+procedural.tween  # [api] tweens (test_tween)

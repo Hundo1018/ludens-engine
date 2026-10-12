@@ -16,7 +16,7 @@ BroadPhase, Scheduler, ...) onto the same picture; the existing parity suites
 (`test_backend_parity`, `test_transform`, `test_scheduler_parity`) are its
 naturality squares."""
 
-from harness.runner import Suite
+from harness.runner import Suite, fuzz_seed
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3, normalize
 from geometry.quat import Quat
@@ -52,7 +52,7 @@ def _near3(mut s: Suite, a: Vec3, b: Vec3, label: String, tol: Float64 = 1e-3):
 
 def main() raises:
     var s = Suite("laws")
-    var rng = SplitMix64.seeded(23)
+    var rng = SplitMix64.seeded(fuzz_seed(23))
     var p = Vec3(0.4, -0.8, 0.6, 0)
 
     for _ in range(5):

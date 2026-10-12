@@ -14,7 +14,7 @@ measurement that justifies keeping all three: a Z-order curve approximates
 spatial proximity, so LBVH is expected to build the loosest tree of the three.
 """
 
-from harness.runner import Suite
+from harness.runner import Suite, fuzz_seed
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec3, Vec2
 from geometry.aabb import AABB
@@ -54,7 +54,7 @@ def _build3(
 
 def main() raises:
     var s = Suite("lbvh")
-    var rng = SplitMix64.seeded(31)
+    var rng = SplitMix64.seeded(fuzz_seed(31))
 
     # --- scene 1: ordinary random cloud ---
     var boxes = List[AABB[3]]()

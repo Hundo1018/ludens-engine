@@ -15,7 +15,7 @@ LOG=build/agent_gate.log
 mkdir -p build
 
 if [ "${1:-}" = "--selftest" ]; then
-  bash scripts/golden.sh selftest && bash scripts/arch.sh selftest
+  bash scripts/golden.sh selftest && bash scripts/arch.sh selftest && pixi run doclint -- --selftest
   exit $?
 fi
 
