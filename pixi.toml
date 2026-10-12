@@ -30,6 +30,8 @@ test = { cmd = "bash scripts/run_tests.sh unit component integration system", de
 test-all = { cmd = "bash scripts/run_tests.sh unit component integration system stress", depends-on = ["build", "arch-check"] }
 # Build the C-ABI shared library build/libludens.so (embed/capi.mojo, header embed/ludens.h; ROADMAP 12.1).
 capi = { cmd = "mojo build --emit shared-lib -I build -o build/libludens.so embed/capi.mojo", depends-on = ["build"] }
+# Build the Python wheel build/dist/ludens-*.whl (python/build_wheel.py; ROADMAP 17.21).
+wheel = { cmd = "python3 python/build_wheel.py", depends-on = ["build"] }
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.

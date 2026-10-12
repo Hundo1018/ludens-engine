@@ -2108,6 +2108,18 @@ way); save and load pay one extra copy into or out of the host's buffer.
 
 @bench benchmarks/bench_capi.mojo
 
+## Python bindings (17.21)
+
+The `ludens` package is ctypes over the C-ABI. A ctypes call costs a few
+hundred ns per argument, so per-body calls from Python (`Body.state()`) cost
+one to two µs against ~10 ns natively; the batch call (`World.poses_into`, one
+call for every pose) costs the same few ns per body as native. A Python
+system called once per tick is negligible next to a physics tick, so the
+1000-body step with a Python system is within a few percent of native and
+hashes equal.
+
+@bench benchmarks/bench_python.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

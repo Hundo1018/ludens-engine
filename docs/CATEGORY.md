@@ -421,6 +421,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 驅動者:C 宿主經 `libludens.so`(系統與接觸訂閱為 C 回呼)vs Mojo 原生在 `EmbedWorld` 上的迴圈 | embed/capi.mojo、embed/world.mojo | C-ABI 是 `EmbedWorld` 操作的忠實函子(每個 `ld_*` 對應一個方法,值經編碼 / 解碼往返不變);定律是同一操作序列在兩邊產生同一世界(存檔雜湊逐位相同) | `test_capi`(13 body、240 tick、C 系統 + C 訂閱者 vs 原生:雜湊、事件數、射線、導航路徑相同) | `bench_capi`(同一步進、逐 body 取狀態、批次姿態、存 / 讀檔:C vs 原生) |
 
+### 2.24 腳本驅動者(Phase 17.21,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 驅動者:Python(`ludens` 套件,ctypes 包 C-ABI,裝在乾淨 venv)vs C 宿主 vs Mojo 原生 `EmbedWorld`;另含 CVar 變更 vs 直接呼叫、hot reload vs 切換函式 | python/ludens/*.py | 三個驅動語言是同一組世界操作的三個表示;定律是同一操作序列產生同一世界(存檔雜湊);CVar 與 hot reload 是「延遲到 tick 邊界的同一操作」,定律是與在該邊界直接操作逐位相同 | `test_python_binding`(雜湊 == 原生 == `test_capi` 的 C 宿主;CVar / hot reload 等式在 client 端檢查) | `bench_python`(步進、單次呼叫、批次姿態、回呼開銷:Python vs 原生) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

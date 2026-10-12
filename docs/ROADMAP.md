@@ -43,7 +43,7 @@
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 1 | 4 | 2 |
-| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 1 | 0 | 5 | 0 |
+| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 0 | 3 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
 
 ## 原則與決策
@@ -2049,8 +2049,8 @@
 | 編號 | 條目 | 狀態 | Wave | 說明 |
 |---|---|:-:|:-:|---|
 | 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | ✅ | C | `embed` 套件 + `build/libludens.so`(`pixi run capi`)+ `embed/ludens.h`:35 個 C 函式涵蓋世界建構、系統註冊(C 回呼)、查詢、事件訂閱、存讀檔、導航;v0.x 凍結清單 `embed/abi_v0.txt` 由測試機械檢查。 |
-| 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | ⬜ | C | Python(PythonModuleBuilder 擴充模組)與 Mojo 原生系統雙腳本;先做 Python 綁定,落地為 17.21。 |
-| 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | ⬜ | C | 計畫在核心 repo 最上層新增 Python 綁定套件(測試以客戶端方式安裝進乾淨環境),之後再接 hot reload、CVar / 設定系統與 live 參數調校;目前尚無實作。 |
+| 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | ✅ | C | Python(`ludens` 套件,ctypes 包 12.1 C-ABI)與 Mojo 原生系統(`EmbedWorld`)雙腳本,同場景逐位相同;落地見 17.21。 |
+| 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | ✅ | C | `python/ludens`(ctypes 包 C-ABI)+ `python/build_wheel.py`(wheel 內含函式庫與 Mojo runtime);乾淨 venv 安裝測試;Python 系統 / 接觸訂閱、CVar(tick 邊界套用)、hot reload(保留狀態、失敗保留舊版)。 |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | ⬜ | B | 宿主 job system 注入、宿主配置器(分兩層)、非同步步進、單位與座標契約成文 + `UnitScale`、錯誤與執行緒契約 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | ⬜ | B | 目標矩陣 + 實測、每目標一份 golden + 跨目標容差表、浮點位元因子清單、降級矩陣、wasm 核心切分的機器檢查 |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | ⬜ | C | per-host 適配層、批量 SoA 交換、POD 事件緩衝、宿主定義元件、綁定產生、多實例與執行緒 |
@@ -2087,7 +2087,10 @@
 
 #### 12.2 Mojo / Python 雙腳本
 
-> **狀態**:⬜ 未開始;落地條目為 **17.21**(先做 Python 綁定,hot reload 之後再接)。
+> **狀態**:✅ 完成(2026-10-12,隨 17.21 交付)。Python 端 = `python/ludens`;Mojo 端 = `embed.world.EmbedWorld`(12.1);兩者驅動同一場景世界雜湊相同(`test_python_binding`,
+> 亦 == C 宿主 `test_capi`)。
+> **決定(2026-10-12)**:Python 綁定走 ctypes 包 12.1 C-ABI,而非 PythonModuleBuilder 擴充模組 —— 只有一個凍結 ABI 面;wheel 與 CPython 版本無關(`py3-none`,
+> 實測以 3.13 venv 安裝、repo 的 pixi 為 3.14);代價是每次呼叫的 ctypes 開銷(見 17.21 量測),批次介面抵銷。
 > **內容**:Python(PythonModuleBuilder 擴充模組,快速迭代)+ Mojo(原生系統,零開銷);使用者可選其一或混用。
 > **決定(2026-10-09)**:Python 綁定是腳本層,放核心 repo 的最上層獨立套件(修正原「不入核心 repo」);
 > 其測試須**環境隔離** —— 建出的擴充模組以客戶端方式安裝進乾淨環境(不用 repo 的 `-I build` / repo 路徑)再測。
@@ -2097,7 +2100,25 @@
 
 #### 17.21 腳本層(Phase 12 落地)
 
-> **狀態**:⬜ 未開始(Wave C;gating 已於 2026-10-09 解除,排在 Phase 17 建議順序 2026-10-09 修訂剩餘順序第 (5) 項,接在 12.1 C-ABI 之後)
+> **狀態**:✅ 完成(Wave C;剩餘順序第 (6) 項)。2026-10-12 交付,設計筆記 `docs/design/17.21-python.md`。
+> **進度(2026-10-12)**:
+> - `python/ludens`(無 Mojo,不入分層):`_capi.py`(ctypes 原型表,與 `embed/ludens.h` 函式集合由測試比對)、`world.py`(`World` / `Body` / `NavMesh`;狀態碼 → 例外階層
+>   `ArgumentError` / `StaleBodyError` / `FormatError` / `CallbackError` / `StateError` / `HandleError`;Python 系統 `fn(world, dt, tick)` 與接觸訂閱者,
+>   系統內丟出的 Python 例外停步並由 `step` 原樣重丟(cause 為 `CallbackError`);`poses_into` 寫入呼叫端緩衝的批次姿態)、
+>   `cvar.py`(型別 / 範圍檢查的 CVar、主控台列 `name value`、設定檔整批驗證後才套用、`dump` ↔ `load` 往返;`bind_world` 把 `physics.iterations` / `substeps` /
+>   `gravity_{x,y,z}` 接到世界,變更於下一個 tick 邊界由 PRE 系統套用)、`hot.py`(`HotSystem`:檔案內容雜湊變更即重新執行模組並換上新 `system`,
+>   `state` dict 跨版本保留、可選 `migrate(state)`;語法錯誤 / 匯入例外時保留舊函式並記 `last_error` / `failures`)。
+> - `python/build_wheel.py`(`pixi run wheel`):建 `libludens.so`、隨附非系統來源的相依(Mojo runtime 4 個 + 其建置用的 libstdc++ / libgcc_s,runtime 需 GLIBCXX_3.4.30),
+>   strip 除錯段(libstdc++ 24 MB → 2.8 MB)、以 Python 改寫 ELF `RUNPATH` 為 `$ORIGIN`(不需 patchelf)、輸出 `py3-none-linux_x86_64` wheel(2.6 MB)。
+> - 隔離測試 `test_python_binding`(14,integration):建 wheel → 系統 python3 建全新 venv → `pip install --no-index` → 在暫存目錄以 `env -i PATH=/usr/bin:/bin`
+>   執行 `python/tests/client_check.py`(40 項:自身隔離 —— `/proc/self/maps` 無 repo 下的函式庫、`sys.modules` 無 repo 下的模組;綁定、錯誤、事件、存讀檔、
+>   導航、CVar、hot reload)→ Mojo 端比對:Python 驅動的世界雜湊 == 原生 `EmbedWorld` 同場景(== C 宿主);CVar 於 tick 60 改 `physics.iterations 1` /
+>   `physics.gravity_y -3` 的雜湊 == 同 tick 直接 `set_solver` / `set_gravity`,且 ≠ 不改;綁定預設值不改變模擬;hot reload 於 tick 60 換版 == 同 tick 切換函式。
+> - 量測(`bench_python`):1000 body 步進(每 10 個 box 由 Python 系統推動)14.70 vs 原生 14.28 ms / tick(+3 %,雜湊相同);每次 Python 系統回呼 0.34–0.36 µs;
+>   `Body.state()` 1.43–1.45 µs vs 原生 13–15 ns(ctypes 每次呼叫約 0.2 µs + 每個參數約 0.2 µs;首版 2.2 µs,改用 `struct.unpack_from` 後降低);
+>   `World.poses_into` 7.8–13.4 ns / body(與原生同級);`World.bodies()`(每 body 建 Python 物件)0.56–0.60 µs / body。
+> **遺留待辦**:更低的單次呼叫開銷(PythonModuleBuilder 或 CPython 擴充直連 `EmbedWorld`,以同一套 client 測試驗證)、NumPy 零複製視圖、
+> 引擎端更多可調參數的 CVar(睡眠門檻、恢復係數門檻等需先在 C-ABI 加函式)、Mojo 系統的 hot reload(experiment 分支 H1–H6)、wheel 發佈(17.81)。
 > **決定(2026-10-09)**:gating 解除 —— 見 Phase 12 決定註:平台方向 = C(被宿主引擎嵌入的模擬函式庫);12.1 core embedding 邊界宣告 v0.x 凍結,以 C-ABI 共享庫提供;先做 Python 綁定,hot reload 之後再接。Python 綁定放核心 repo 的最上層獨立套件(修正 Phase 12 原本的「不入核心 repo」);其測試須環境隔離 —— 建出的擴充模組以客戶端方式安裝進乾淨環境(不用 repo 的 `-I build` / repo 路徑)再測,確保客戶端實際可用。
 > **前提與範圍**:
 > - core embedding 邊界定義(12.1 C-ABI)
@@ -2477,7 +2498,7 @@
 | 11.2 | [狀態機(FSM / HSM)](ROADMAP_HISTORY.md#112-狀態機fsm--hsm--2026-07-22) | 動畫與程序化 | ✅ |
 | 11.3 | [動畫 runtime(clip / blend / 狀態機驅動)](ROADMAP_HISTORY.md#113-動畫-runtimeclip--blend--狀態機驅動--完成2026-08-11) | 動畫與程序化 | ✅ |
 | 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | 嵌入、腳本與平台 | ✅ |
-| 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | 嵌入、腳本與平台 | ⬜ |
+| 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | 嵌入、腳本與平台 | ✅ |
 | 13.1 | [反向動力學(精確 τ = ID(q, q̇, q̈))](ROADMAP_HISTORY.md#131-反向動力學精確-τ--idq-q-q--已完成) | 縮座標關節體與致動 | ✅ |
 | 13.2 | [縮座標 ↔ 接觸耦合(關節體能碰到世界)](ROADMAP_HISTORY.md#132-縮座標--接觸耦合關節體能碰到世界--已完成) | 縮座標關節體與致動 | ✅ |
 | 13.3 | [致動器模型(傳動 + 力生成 + 內部動力學)](ROADMAP_HISTORY.md#133-致動器模型傳動--力生成--內部動力學--已完成) | 縮座標關節體與致動 | ✅ |
@@ -2520,7 +2541,7 @@
 | 17.18 | [批次多世界步進(13.9 落地)](ROADMAP_HISTORY.md#1718-批次多世界步進139-落地--wave-b) | 可微模擬、批次世界與數值深化 | ✅ |
 | 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.20 | [剛體 solver 可微化收尾(13.7)](ROADMAP_HISTORY.md#1720-剛體-solver-可微化收尾137--wave-b) | 可微模擬、批次世界與數值深化 | ✅ |
-| 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | 嵌入、腳本與平台 | ⬜ |
+| 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | 嵌入、腳本與平台 | ✅ |
 | 17.22 | [範例覆蓋補完](ROADMAP_HISTORY.md#1722-範例覆蓋補完--wave-a文件) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.23 | [物理材質與逐對組合模式](ROADMAP_HISTORY.md#1723-物理材質與逐對組合模式--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.24 | [Kinematic 剛體型別(通用可移動體)](ROADMAP_HISTORY.md#1724-kinematic-剛體型別通用可移動體--wave-a) | 剛體動力學、接觸與關節 | ✅ |

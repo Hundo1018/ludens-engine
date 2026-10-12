@@ -9,3 +9,6 @@ build/
 
 # campaign working state (local only)
 .campaign/
+
+# Python bytecode
+__pycache__/

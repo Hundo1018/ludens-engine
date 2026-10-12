@@ -4275,6 +4275,37 @@ way); save and load pay one extra copy into or out of the host's buffer.
 
 
 
+## Python bindings (17.21)
+
+The `ludens` package is ctypes over the C-ABI. A ctypes call costs a few
+hundred ns per argument, so per-body calls from Python (`Body.state()`) cost
+one to two µs against ~10 ns natively; the batch call (`World.poses_into`, one
+call for every pose) costs the same few ns per body as native. A Python
+system called once per tick is negligible next to a physics tick, so the
+1000-body step with a Python system is within a few percent of native and
+hashes equal.
+
+### Python bindings (17.21): ludens package (ctypes over libludens.so) vs native EmbedWorld
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| native: step with a Mojo loop pushing every 10th box (hash == Python: True) | 100 | tick | 1127204.84 | 0.00 | 135.26 |
+| Python: step with a Python PRE system pushing every 10th box | 100 | tick | 1020554.72 | 0.00 | 122.47 |
+| Python: Body.state() per body | 100 | call | 1433.15 | 0.70 | 286.63 |
+| Python: World.poses_into (all poses, one call) | 100 | body | 13.36 | 74.85 | 2.70 |
+| Python: World.bodies() (Body + tuple per body) | 100 | body | 559.51 | 1.79 | 11.30 |
+| Python: one no-op system callback (step cost minus empty-world step) | 100 | callback | 341.73 | 2.93 | 3.42 |
+| native: EmbedWorld.state per body | 100 | call | 14.84 | 67.37 | 2.97 |
+| native: step with a Mojo loop pushing every 10th box (hash == Python: True) | 1000 | tick | 14281858.64 | 0.00 | 1713.82 |
+| Python: step with a Python PRE system pushing every 10th box | 1000 | tick | 14702374.02 | 0.00 | 1764.28 |
+| Python: Body.state() per body | 1000 | call | 1451.38 | 0.69 | 290.28 |
+| Python: World.poses_into (all poses, one call) | 1000 | body | 7.82 | 127.86 | 1.57 |
+| Python: World.bodies() (Body + tuple per body) | 1000 | body | 596.68 | 1.68 | 11.95 |
+| Python: one no-op system callback (step cost minus empty-world step) | 1000 | callback | 360.32 | 2.78 | 3.60 |
+| native: EmbedWorld.state per body | 1000 | call | 13.01 | 76.87 | 2.60 |
+
+
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

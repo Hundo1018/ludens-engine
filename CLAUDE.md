@@ -28,6 +28,7 @@ pixi run gate -- --update-golden   # 接受本次輸出為新 golden
 pixi run gate -- --selftest        # 測試閘門工具本身(golden、archindex)
 pixi run benchmark         # 重跑所有 bench,重新產生 BENCHMARK_REPORT.md
 pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.mojo;凍結清單 embed/abi_v0.txt)
+pixi run wheel             # 建 Python wheel build/dist/ludens-*.whl(python/;ctypes 包 C-ABI,內含 Mojo runtime)
 pixi run examples | experiments | spikes
 ```
 
