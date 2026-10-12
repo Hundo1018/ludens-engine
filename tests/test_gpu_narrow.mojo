@@ -82,6 +82,7 @@ def main() raises:
     s.check(hits > PAIRS // 4, "host reference: " + String(hits) + " of " + String(PAIRS) + " pairs touch")
 
     comptime if has_accelerator():
+        s.begin_device()
         var ctx = DeviceContext()  # the test is the single owner (F17)
         var dev = build(cs)
         var g = GpuNarrow(ctx, 256)  # smaller than PAIRS: exercises growth
@@ -105,10 +106,10 @@ def main() raises:
                 worst_bc = max(worst_bc, pw)
             else:
                 worst = max(worst, pw)
-        print("  device vs host: hit/count disagree on", disagree, "pairs; max normal/depth diff", worst, "(box/capsule", worst_bc, ")")
+        print("  [device] device vs host: hit/count disagree on", disagree, "pairs; max normal/depth diff", worst, "(box/capsule", worst_bc, ")")
         s.check(disagree * 1000 <= PAIRS, "hit / count agree on >= 99.9 % of pairs")
         s.check(worst < 1e-4, "normals and depths agree within 1e-4 (all kinds but box / capsule)")
         s.check(worst_bc < 5e-3, "box / capsule normals and depths agree within 5e-3")
     else:
-        print("  (no GPU on this host: device half skipped)")
+        s.skip_device("no accelerator on this host")
     s.finish()

@@ -35,10 +35,10 @@ def _worst(a: Lbm, b: Lbm) -> Real:
 def main() raises:
     var s = Suite("lbm_gpu")
     comptime if not has_accelerator():
-        print("  no accelerator: skipped")
-        s.check(True, "skipped without accelerator")
+        s.skip_device("no accelerator on this host")
         s.finish()
         return
+    s.begin_device()
     var ctx = DeviceContext()
 
     var cpu = _tunnel()
@@ -49,7 +49,7 @@ def main() raises:
     gpu.step(ctx, 200)
     gpu.download(host)
     var w = _worst(cpu, host)
-    print("  tunnel + sphere, 200 steps: worst |f_cpu - f_gpu|", w)
+    print("  [device] tunnel + sphere, 200 steps: worst |f_cpu - f_gpu|", w)
     s.check(w < 1e-5, "GPU distributions == CPU to float32 noise")
     s.check(abs(cpu.total_mass() - host.total_mass()) / cpu.total_mass() < 1e-5, "mass agrees")
 
@@ -72,7 +72,7 @@ def main() raises:
     for y in range(1, 15):
         var c = pc.idx(4, y, 4)
         prof = max(prof, abs(pc.velocity(c)[0] - ph.velocity(c)[0]))
-    print("  body-force channel: worst velocity difference", prof)
+    print("  [device] body-force channel: worst velocity difference", prof)
     s.check(prof < 1e-6, "channel velocity profile matches")
 
     var les = _tunnel()

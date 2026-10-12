@@ -80,6 +80,11 @@ def keep(line: String) -> Bool:
     var s = String(line.strip())
     if s.byte_length() == 0:
         return False
+    # Device-dependent output (harness `Suite.begin_device`): present only on
+    # hosts with an accelerator, so one golden serves both kinds of host.
+    # Device failures print `[FAIL] [device]` and are still kept.
+    if s.startswith("[device]"):
+        return False
     var prefixes: List[String] = [
         "real\t", "user\t", "sys\t", "✨ Pixi task", "arch check:", "tiers:",
         "exit=", "EXIT:", "all tests passed",
@@ -273,6 +278,9 @@ def selftest() -> Bool:
         "  max force at rest: 1.21327375e-05",
         "  rest height: 0.2497",
         "  2 sensors, 3 steps, 4 axes",
+        "  [FAIL] [device] gpu_artic - device == host",
+        "[FAIL] [device] gpu_artic - 1 of 2 device checks failed",
+        "  device vs host: 0 pairs differ",
     ]
     for i in range(len(kept)):
         if keep(kept[i]):
@@ -298,6 +306,9 @@ def selftest() -> Bool:
         "   ",
         "  Elapsed: 3",
         "all tests passed",
+        "  [device] max |device - host|: 7.6e-06",
+        "  [device] gpu_artic - 2 / 2 device checks",
+        "  [device] skipped: no accelerator",
     ]
     for i in range(len(dropped)):
         if not keep(dropped[i]):
@@ -346,6 +357,32 @@ def selftest() -> Bool:
     else:
         failed += 1
         print("  [FAIL] negative control passed")
+
+    # The same file recorded on a host without an accelerator and run on one
+    # with: only `[device]` lines differ, so the sections must compare equal.
+    var no_gpu = _lines(
+        "--- tests/test_g.mojo ---\n  [device] skipped: no accelerator\n"
+        "[PASS] g - 1 / 1 checks"
+    )
+    var with_gpu = _lines(
+        "--- tests/test_g.mojo ---\n  [device] max |device - host|: 7.6e-06\n"
+        "  [device] g - 2 / 2 device checks\n[PASS] g - 1 / 1 checks"
+    )
+    if compare(no_gpu, with_gpu).ok() and compare(with_gpu, no_gpu).ok():
+        passed += 1
+    else:
+        failed += 1
+        print("  [FAIL] [device] lines made the host kinds compare unequal")
+    # ...but a device failure is still a change.
+    var gpu_fail = _lines(
+        "--- tests/test_g.mojo ---\n  [FAIL] [device] g - device == host\n"
+        "[FAIL] g - 0 of 1 checks failed"
+    )
+    if not compare(no_gpu, gpu_fail).ok():
+        passed += 1
+    else:
+        failed += 1
+        print("  [FAIL] a device failure compared equal to the golden")
 
     # Summary: a clean run, a failing file, a warning, a truncated run.
     var clean = summarize(_lines(

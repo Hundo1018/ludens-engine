@@ -62,6 +62,7 @@ def main() raises:
     )
 
     comptime if has_accelerator():
+        s.begin_device()
         # GPU executes the same two-color Newton sweeps: tight parity.
         var ctx = DeviceContext()  # the test is the single owner (F17)
         var gpu = gpu_vbd_run_ctx[W, H](ctx, STEPS, ITERS, 1.0 / 60.0, 0.05)
@@ -74,9 +75,9 @@ def main() raises:
                 d = abs(Float64(gpu.z[i] - cpu.z[i]))
             if d > max_d:
                 max_d = d
-        print("  max CPU/GPU divergence after", STEPS, "steps:", max_d)
+        print("  [device] max CPU/GPU divergence after", STEPS, "steps:", max_d)
         s.check(max_d < 1e-3, "CPU/GPU parity (same colored Newton sweeps)")
     else:
-        print("  (no GPU on this host: parity gate skipped)")
+        s.skip_device("no accelerator on this host")
 
     s.finish()

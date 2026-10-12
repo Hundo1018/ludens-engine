@@ -187,6 +187,13 @@ with `tests/golden/test_stdout.txt` file section by file section
 section unchanged; new test files add sections. `--update-golden` records an
 accepted run.
 
+One golden serves hosts with and without an accelerator. Checks and output
+that only exist under `has_accelerator()` go after `Suite.begin_device()`:
+they count separately and print with a `[device]` tag, which the normalizer
+drops (device failures print `[FAIL] [device]` and still count). Before this,
+a golden recorded on a GPU-less cloud host failed on the GPU workstation and
+vice versa.
+
 The tools that judge a change are tested before they judge anything:
 `pixi run gate -- --selftest` runs `golden selftest` (lines that must survive
 normalization, lines that must be dropped, reordered files, changed values,

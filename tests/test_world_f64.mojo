@@ -47,6 +47,8 @@ def main() raises:
     var dp = Float64(0)
     for i in range(1, 4):
         dp = max(dp, abs(Float64(k32[i]) - Float64(k64[i])))
-    print("  settling stack, top box |f32 - f64|:", dp, "m")
+    # Printed to the nanometre: the f64 side varies in its last bits between
+    # runs (~4e-17 m observed), which is noise, not a behaviour change.
+    print("  settling stack, top box |f32 - f64|:", Int(dp * 1e9 + 0.5), "nm")
     s.check(dp < 2e-3, "small world: f32 and f64 stacks agree within 2 mm")
     s.finish()

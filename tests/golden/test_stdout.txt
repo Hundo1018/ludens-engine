@@ -60,8 +60,7 @@ build: all packages precompiled into build/
 [PASS] gjk - 9 / 9 checks
 --- tests/test_gpu_cloth.mojo ---
   max horizontal neighbour distance: 0.05000007152337331
-  max CPU/GPU divergence after 60 steps: 2.3562461137771606e-06
-[PASS] gpu_cloth - 5 / 5 checks
+[PASS] gpu_cloth - 4 / 4 checks
 --- tests/test_harness.mojo ---
 [PASS] harness - 4 / 4 checks
 --- tests/test_hash_grid.mojo ---
@@ -115,9 +114,6 @@ build: all packages precompiled into build/
   plastic  height 0.28340086  spread 0.1958955
   free-fall momentum y: -0.40140828  expected ~ -0.40140772
 [PASS] mpm - 8 / 8 checks
---- tests/test_narrow_batch.mojo ---
-  2000 pairs, 806 touching; fewest pairs of one ordered kind combination: 203
-[PASS] narrow_batch - 4 / 4 checks
 --- tests/test_noise.mojo ---
   perlin3 range: -0.7781264781951904 0.7502906322479248  value3: -0.9594535231590271 0.9886785745620728  fbm3: -0.4969647228717804 0.49642834067344666
   worley3 min distance: 0.05094904080033302
@@ -205,11 +201,6 @@ build: all packages precompiled into build/
 [PASS] anim - 34 / 34 checks
 --- tests/test_archetype_backend.mojo ---
 [PASS] archetype_backend - 17 / 17 checks
---- tests/test_artic_batch.mojo ---
-  revolute: max rel diff vs dynamics_aba 0.0  vs CRBA 6.501723803386518e-06
-  mixed prismatic/revolute: max rel diff vs CRBA 3.9916580732921114e-07
-  2 s mixed tree: max |q_batch - q_cpu| 2.384185791015625e-07  energy drift cpu 0.12417316436767578  batch 0.12419319152832031
-[PASS] artic_batch - 11 / 11 checks
 --- tests/test_backend_parity.mojo ---
 [PASS] backend_parity - 71 / 71 checks
 --- tests/test_bitset_backend.mojo ---
@@ -296,9 +287,9 @@ build: all packages precompiled into build/
 --- tests/test_gmv_ad.mojo ---
 [PASS] gmv_ad - 266 / 266 checks
 --- tests/test_gpu_broadphase.mojo ---
-  sparse pairs cpu= 26  gpu= 26
-  dense pairs cpu= 4467  gpu= 4467
-[PASS] gpu_broadphase - 5 / 5 checks
+[PASS] gpu_broadphase - 0 / 0 checks
+--- tests/test_gpu_narrow.mojo ---
+[PASS] gpu_narrow - 1 / 1 checks
 --- tests/test_integrator6.mojo ---
   drift: euler E 0.01260009820266772 L 0.006280878623861064 | midpoint E 3.554799107674533e-05 L 1.8525764747590046e-05
   drift: lgvci E 1.8579463614054603e-05 L 5.31608901455094e-06
@@ -308,9 +299,7 @@ build: all packages precompiled into build/
 --- tests/test_laws.mojo ---
 [PASS] laws - 120 / 120 checks
 --- tests/test_lbm_gpu.mojo ---
-  tunnel + sphere, 200 steps: worst |f_cpu - f_gpu| 3.5762787e-07
-  body-force channel: worst velocity difference 0.0
-[PASS] lbm_gpu - 4 / 4 checks
+[PASS] lbm_gpu - 0 / 0 checks
 --- tests/test_lbm.mojo ---
   moments — sum w 1.0000002  w*cx 0.0  w*cx^2 0.33333337  w*cx*cy 0.0
   uniform after 50 steps — mass 511.99997  u 0.050000068
@@ -340,6 +329,9 @@ build: all packages precompiled into build/
 [PASS] motor_parity - 285 / 285 checks
 --- tests/test_naive_backend.mojo ---
 [PASS] naive_backend - 11 / 11 checks
+--- tests/test_narrow_batch.mojo ---
+  2000 pairs, 806 touching; fewest pairs of one ordered kind combination: 203
+[PASS] narrow_batch - 4 / 4 checks
 --- tests/test_narrowphase.mojo ---
 [PASS] narrowphase - 12 / 12 checks
 --- tests/test_nav.mojo ---
@@ -430,8 +422,7 @@ build: all packages precompiled into build/
 --- tests/test_vbd_cloth.mojo ---
   max horizontal neighbour distance: 0.05003971242034327
   xpbd same-budget max distance: 0.05000007152337331
-  max CPU/GPU divergence after 60 steps: 4.863739013671875e-05
-[PASS] vbd_cloth - 6 / 6 checks
+[PASS] vbd_cloth - 5 / 5 checks
 --- tests/test_vehicle_drive.mojo ---
 [PASS] vehicle_drive - 62 / 62 checks
 --- tests/test_world.mojo ---
@@ -454,6 +445,11 @@ build: all packages precompiled into build/
 [PASS] ai_world - 15 / 15 checks
 --- tests/test_anim_graph.mojo ---
 [PASS] anim_graph - 29 / 29 checks
+--- tests/test_artic_batch.mojo ---
+  revolute: max rel diff vs dynamics_aba 0.0  vs CRBA 6.501723803386518e-06
+  mixed prismatic/revolute: max rel diff vs CRBA 3.9916580732921114e-07
+  2 s mixed tree: max |q_batch - q_cpu| 2.384185791015625e-07  energy drift cpu 0.12417316436767578  batch 0.12419319152832031
+[PASS] artic_batch - 11 / 11 checks
 --- tests/test_body_removal.mojo ---
 [PASS] body_removal - 14 / 14 checks
 --- tests/test_broadphase.mojo ---
@@ -531,22 +527,13 @@ build: all packages precompiled into build/
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
 --- tests/test_gpu_artic.mojo ---
-  (no GPU on this host: device half skipped)
 [PASS] gpu_artic - 1 / 1 checks
 --- tests/test_gpu_contact.mojo ---
-  5-box stack: gpu-cpu 0.0078122206  cpu self-divergence (1e-6 nudge) 0.005211822  speeds 0.0046342984 0.0 0.0
-  two islands + materials + sphere: gpu-cpu 0.0054137707  cpu self-divergence (1e-6 nudge) 0.0059000524  speeds 0.012187211 0.009076258 0.0
-  10:1 mass ratio stack: gpu-cpu 0.008751352  cpu self-divergence (1e-6 nudge) 0.015861077  speeds 0.01023571 0.0 0.0
-  400-box field: gpu-cpu 7.6293945e-06  cpu self-divergence (1e-6 nudge) 1.0037438e-06  speeds 0.0 0.0 0.0
-[PASS] gpu_contact - 22 / 22 checks
+[PASS] gpu_contact - 0 / 0 checks
 --- tests/test_gpu_lbvh.mojo ---
-[PASS] gpu_lbvh - 4 / 4 checks
---- tests/test_gpu_narrow.mojo ---
-  (no GPU on this host: device half skipped)
-[PASS] gpu_narrow - 1 / 1 checks
+[PASS] gpu_lbvh - 0 / 0 checks
 --- tests/test_gpu_raycast.mojo ---
-  hits: 405  misses: 1643  worst |dt|: 0.0
-[PASS] gpu_raycast - 5 / 5 checks
+[PASS] gpu_raycast - 0 / 0 checks
 --- tests/test_hull_irregular.mojo ---
   prism apex-down: lowest vertex -0.00032920390367507935 asleep 1.0
   14-vertex balls: rested 6 of 6, asleep 6
@@ -756,7 +743,7 @@ build: all packages precompiled into build/
   overlap 0.4: welded spacing 0.6000000238418579  free spacing 0.9949652552604675
 [PASS] weld - 15 / 15 checks
 --- tests/test_world_f64.mojo ---
-  settling stack, top box |f32 - f64|: 0.0008510459807514363 m
+  settling stack, top box |f32 - f64|: 851046 nm
 [PASS] world_f64 - 5 / 5 checks
 --- tests/test_world_query.mojo ---
 [PASS] world_query - 30 / 30 checks

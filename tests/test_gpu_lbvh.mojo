@@ -88,10 +88,10 @@ def main() raises:
     var s = Suite("gpu_lbvh")
 
     comptime if not has_accelerator():
-        print("  (no accelerator: GPU LBVH checks skipped)")
-        s.check(True, "no accelerator — vacuously satisfied")
+        s.skip_device("no accelerator on this host")
         s.finish()
         return
+    s.begin_device()
 
     var ctx = DeviceContext()
     var rng = SplitMix64.seeded(53)

@@ -33,10 +33,10 @@ def main() raises:
     var s = Suite("gpu_raycast")
 
     comptime if not has_accelerator():
-        print("  (no accelerator: GPU raycast checks skipped)")
-        s.check(True, "no accelerator — vacuously satisfied")
+        s.skip_device("no accelerator on this host")
         s.finish()
         return
+    s.begin_device()
 
     var rng = SplitMix64.seeded(97)
     var items = List[BoxProxy[3]]()
@@ -100,7 +100,7 @@ def main() raises:
             misses += 1
             if gp[i] == -1:
                 same_miss += 1
-    print("  hits:", hits, " misses:", misses, " worst |dt|:", worst_t)
+    print("  [device] hits:", hits, " misses:", misses, " worst |dt|:", worst_t)
     s.eqi(same_proxy, hits, "every hit returns the SAME proxy as the CPU BVH")
     s.eqi(same_miss, misses, "every miss returns -1")
     s.check(worst_t < 1e-2, "hit distances agree")

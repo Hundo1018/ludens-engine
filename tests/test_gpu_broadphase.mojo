@@ -67,10 +67,10 @@ def main() raises:
     var s = Suite("gpu_broadphase")
 
     comptime if not has_accelerator():
-        print("  (no accelerator: GPU broadphase checks skipped)")
-        s.check(True, "no accelerator — vacuously satisfied")
+        s.skip_device("no accelerator on this host")
         s.finish()
         return
+    s.begin_device()
 
     var ctx = DeviceContext()
     var rng = SplitMix64.seeded(77)
@@ -84,7 +84,7 @@ def main() raises:
     var got = List[Pair]()
     var ok = gpu_pairs_ctx[512, 1 << 16](ctx, sparse, got)
     s.check(ok, "sparse scene: no capacity overflow")
-    print("  sparse pairs cpu=", len(want), " gpu=", len(got))
+    print("  [device] sparse pairs cpu=", len(want), " gpu=", len(got))
     s.check(_same(want, got), "sparse scene: GPU pair set == brute force")
 
     # dense scene: many overlaps, exercises the atomic cursor hard
@@ -96,7 +96,7 @@ def main() raises:
     var got2 = List[Pair]()
     var ok2 = gpu_pairs_ctx[512, 1 << 18](ctx, dense, got2)
     s.check(ok2, "dense scene: no capacity overflow")
-    print("  dense pairs cpu=", len(want2), " gpu=", len(got2))
+    print("  [device] dense pairs cpu=", len(want2), " gpu=", len(got2))
     s.check(_same(want2, got2), "dense scene: GPU pair set == brute force")
 
     # capacity guard: a deliberately tiny buffer must REPORT failure

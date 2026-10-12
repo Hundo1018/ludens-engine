@@ -127,7 +127,7 @@ def _scenario(
         solver.step(ctx, gpu, DT, g, cfg)
         floor = max(floor, _max_diff(cpu, nudged))
         worst = max(worst, _max_diff(cpu, gpu))
-    print("  " + name + ": gpu-cpu", worst, " cpu self-divergence (1e-6 nudge)", floor, " speeds", _speed(cpu), _speed(nudged), _speed(gpu))
+    print("  [device] " + name + ": gpu-cpu", worst, " cpu self-divergence (1e-6 nudge)", floor, " speeds", _speed(cpu), _speed(nudged), _speed(gpu))
     s.check(worst <= max(2 * floor, Real(1e-4)), name + ": GPU within the CPU's own sensitivity")
     s.check(_max_diff(cpu, gpu) < 2e-2, name + ": same rest state by action")
     # settled on both: residual jitter below 5 cm/s (whether a stack has
@@ -141,10 +141,10 @@ def _scenario(
 def main() raises:
     var s = Suite("gpu_contact")
     comptime if not has_accelerator():
-        print("  no accelerator: GPU contact solver skipped")
-        s.check(True, "skipped without accelerator")
+        s.skip_device("no accelerator on this host")
         s.finish()
         return
+    s.begin_device()
     var ctx = DeviceContext()  # the single owner (F17)
     var solver = GpuContactSolver(ctx)
     var cfg = _cfg()

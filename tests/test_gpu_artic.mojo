@@ -60,6 +60,7 @@ def main() raises:
     s.check(finite, "host reference stays finite over " + String(STEPS) + " steps x " + String(N) + " instances")
 
     comptime if has_accelerator():
+        s.begin_device()
         var ctx = DeviceContext()  # the test is the single owner (F17)
         var dev = seeded()
         var g = GpuArticBatch(ctx, dev)
@@ -69,8 +70,8 @@ def main() raises:
         var worst = Float64(0)
         for i in range(len(dev.state)):
             worst = max(worst, abs(Float64(dev.state[i] - host.state[i])))
-        print("  max |device - host| over q, qd, tau:", worst)
+        print("  [device] max |device - host| over q, qd, tau:", worst)
         s.check(worst < 1e-3, "device == host kernel body (float-contraction noise only)")
     else:
-        print("  (no GPU on this host: device half skipped)")
+        s.skip_device("no accelerator on this host")
     s.finish()
