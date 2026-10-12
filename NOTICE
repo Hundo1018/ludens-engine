@@ -1,0 +1,19 @@
+ludens-engine
+Copyright (c) 2026 Tien Chueh Wang
+
+Licensed under either of the Apache License, Version 2.0 (LICENSE-APACHE)
+or the MIT license (LICENSE-MIT), at your option.
+
+Third-party components in binary artifacts
+------------------------------------------
+The shared library (build/libludens.so) and the Python wheel
+(build/dist/ludens-*.whl) link or bundle parts of the Mojo / MAX runtime.
+Those components are licensed by Modular Inc under the Modular Community
+License (https://www.modular.com/legal/community, last modified 2026-08-18)
+and are redistributed in object-code form as part of this library, unmodified.
+Mojo is licensed by Modular Inc under the Apache License 2.0 with LLVM
+exceptions. Modular's proprietary notices, labels and marks in those
+components are preserved.
+
+The wheel also bundles libstdc++ / libgcc_s from the toolchain environment
+(GCC Runtime Library Exception).

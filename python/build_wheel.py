@@ -19,8 +19,9 @@ Steps:
 4. Write a py3-none-linux_x86_64 wheel (zip + METADATA / WHEEL / RECORD).
    The package is pure ctypes, so the wheel works with any CPython 3.8+.
 
-Redistribution terms of the bundled Mojo runtime are ROADMAP 17.81's
-business; this wheel is for local client installs and tests.
+The wheel carries LICENSE-MIT, LICENSE-APACHE and NOTICE in its dist-info;
+NOTICE records the terms the bundled Mojo / MAX runtime is redistributed
+under (ROADMAP 17.81).
 """
 
 import argparse
@@ -129,7 +130,8 @@ def build(out_dir, prebuilt=None):
     meta = (
         "Metadata-Version: 2.1\nName: ludens\nVersion: %s\n"
         "Summary: Python bindings for ludens-engine (ctypes over the frozen C-ABI)\n"
-        "Requires-Python: >=3.8\n" % version
+        "Requires-Python: >=3.8\n"
+        "License: MIT OR Apache-2.0\n" % version
     )
     wheel_meta = "Wheel-Version: 1.0\nGenerator: ludens build_wheel.py\nRoot-Is-Purelib: false\nTag: py3-none-linux_x86_64\n"
     os.makedirs(out_dir, exist_ok=True)
@@ -144,6 +146,10 @@ def build(out_dir, prebuilt=None):
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, payload)
             records.append(record_line("ludens/" + name, payload))
+        for lic in ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE"):
+            payload = open(os.path.join(ROOT, lic), "rb").read()
+            z.writestr(dist + "/" + lic, payload)
+            records.append(record_line(dist + "/" + lic, payload))
         for name, text in (("METADATA", meta), ("WHEEL", wheel_meta)):
             payload = text.encode()
             z.writestr(dist + "/" + name, payload)

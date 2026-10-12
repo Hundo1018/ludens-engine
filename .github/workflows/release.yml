@@ -1,0 +1,55 @@
+# ROADMAP 17.81: a `vX.Y.Z` tag builds, gates and publishes a GitHub Release
+# with the precompiled packages, the C shared library + header, the Python
+# wheel, the licenses and SHA-256 checksums.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          locked: true
+          cache: true
+      - name: version in pixi.toml matches the tag
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(grep -m1 '^version' pixi.toml | sed 's/.*"\(.*\)".*/\1/')"
+          test "$want" = "$have" || { echo "tag $GITHUB_REF_NAME vs pixi.toml $have"; exit 1; }
+      - run: pixi run gate -- --selftest
+      - run: pixi run gate
+      - run: pixi run capi
+      - run: pixi run wheel
+      - name: package
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME}"
+          d="dist/ludens-engine-$v"
+          mkdir -p "$d/mojoc" "$d/lib" "$d/include"
+          cp build/*.mojoc "$d/mojoc/"
+          cp build/libludens.so "$d/lib/"
+          cp embed/ludens.h "$d/include/"
+          cp LICENSE-MIT LICENSE-APACHE NOTICE README.md "$d/"
+          grep -E '^(modular|mojo) ' pixi.toml > "$d/TOOLCHAIN"
+          tar -C dist -czf "dist/ludens-engine-$v-linux-64.tar.gz" "ludens-engine-$v"
+          cp build/dist/*.whl dist/
+          (cd dist && sha256sum *.tar.gz *.whl > SHA256SUMS)
+          pixi run changelog -- --stdout > dist/CHANGELOG.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: dist/CHANGELOG.md
+          files: |
+            dist/*.tar.gz
+            dist/*.whl
+            dist/SHA256SUMS
