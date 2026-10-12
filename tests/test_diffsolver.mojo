@@ -9,8 +9,8 @@
      operation grouping inside the vector helpers).
   2. Physics: a sphere launched along the ground starts rolling at 5/7 of
      its launch speed (Coulomb friction on a solid sphere) in both solvers,
-     and then loses speed identically in both (rolling resistance from the
-     rotating contact anchors -- a production-solver finding, 17.19).
+     and then holds it in both (17.19 fixed the anchor drift that used to
+     brake it).
   3. Gradients: forward (`DualReal`), 4-direction forward (`DualBatch`),
      reverse (`RevReal`) and central finite differences agree on the
      derivative of the final x-position w.r.t. launch speed and friction.
@@ -133,11 +133,11 @@ def main() raises:
     var r15 = _ref_scene(ground, 3, 0.5, 15)
     _al(s, early.bodies[0].vel.x.v, 3.0 * 5.0 / 7.0, 0.1, "diffsolver: rolling starts at 5/7 v0")
     _al(s, r15[2][0], 3.0 * 5.0 / 7.0, 0.1, "ContactScene6: rolling starts at 5/7 v0")
-    # FINDING (ROADMAP 17.19): after that the ball keeps losing speed -- the
-    # body-frame contact anchors rotate with a rolling sphere, so friction
-    # acts at a point off the true contact. Both solvers share it exactly.
-    s.check(d2.bodies[0].vel.x.v < early.bodies[0].vel.x.v, "rolling resistance present (anchor rotation)")
-    _al(s, d2.bodies[0].vel.x.v, r2[2][0], 5e-3, "rolling resistance identical in both solvers")
+    # ROADMAP 17.19: and it keeps that speed (no rolling resistance is
+    # modelled). Before the fix both solvers lost speed identically because
+    # the body-frame contact anchor turned with the ball.
+    _al(s, d2.bodies[0].vel.x.v, 3.0 * 5.0 / 7.0, 5e-3, "rolling speed held at 5/7 v0 (no anchor drag)")
+    _al(s, d2.bodies[0].vel.x.v, r2[2][0], 5e-3, "rolling speed identical in both solvers")
 
     # ---- 3. gradients: dual / dual-batch / reverse / FD ------------------
     var vx0 = Real(3)

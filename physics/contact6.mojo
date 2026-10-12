@@ -19,6 +19,7 @@ from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
 from collision.contact_events import pack_key
+from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE
 from .rigid6 import Body6
 from .body_set import BodySet
 from .material import combine
@@ -47,6 +48,16 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # produces a restoring torque (frozen depths cannot — towers slowly tip).
     var ra: Array[Vec3, 4]
     var rb: Array[Vec3, 4]
+    # ROADMAP 17.19: round shapes (sphere, capsule). For them `ra` / `rb` is
+    # the closest point on the shape's CORE (sphere centre, capsule segment)
+    # in the body frame, and `oa` / `ob` the world-frame offset from that core
+    # point to the contact point, which does NOT turn with the body. A rolling
+    # ball's contact stays under its centre; with a body-frame anchor the
+    # point rotated forward each substep, friction acted ahead of the true
+    # contact and braked the roll, and the anchor's lift sank the ball. Zero
+    # for every other shape, where the anchor is the body-frame point as before.
+    var oa: Array[Vec3, 4]
+    var ob: Array[Vec3, 4]
     # Restitution (Box2D v3 scheme): the approach speed captured at prep time
     # drives a dedicated post-substep pass toward v_target = -e·vn0. Neither
     # field is warm-start-inherited — both are per-frame.
@@ -72,6 +83,8 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.acc_t2 = copy.acc_t2.copy()
         self.ra = copy.ra.copy()
         self.rb = copy.rb.copy()
+        self.oa = copy.oa.copy()
+        self.ob = copy.ob.copy()
         self.vn0 = copy.vn0.copy()
         self.racc = copy.racc.copy()
         self.vsurf = copy.vsurf
@@ -94,6 +107,8 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Array[Real, 4](fill=0),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Real, 4](fill=0),
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
@@ -113,8 +128,34 @@ def cache_index(cache: List[ContactConstraint]) -> Dict[Int, Int]:
     return idx^
 
 
+def round_core[B: Body6](
+    bset: BodySet[B], colliders: ColliderSet, i: Int, p: Vec3
+) -> Optional[Vec3]:
+    """Body-frame core point of a round collider nearest to world point
+    `p` -- the sphere's centre, or the clamped point on a capsule's local-y
+    segment -- or None for any other shape (ROADMAP 17.19)."""
+    var k = colliders.shape[i]
+    if k == SHAPE_SPHERE:
+        return Vec3(0, 0, 0, 0)
+    if k == SHAPE_CAPSULE:
+        var hl = colliders.half[i][1]
+        var y = bset.bodies[i].to_local(p)[1]
+        return Vec3(0, min(max(y, -hl), hl), 0, 0)
+    return None
+
+
+def anchor_world[B: Body6](
+    bset: BodySet[B], i: Int, r: Vec3, o: Vec3
+) -> Vec3:
+    """World position of a contact anchor: body-frame point `r` under the
+    current pose, plus the world-frame round-shape offset `o` (zero for
+    non-round shapes, so this is `act(r)` exactly)."""
+    return bset.bodies[i].act(r) + o
+
+
 def make_contact[B: Body6](
     bset: BodySet[B],
+    colliders: ColliderSet,
     cache: List[ContactConstraint],
     cidx: Dict[Int, Int],
     rc: RawContact,
@@ -136,20 +177,48 @@ def make_contact[B: Body6](
         Array[Real, 4](fill=0),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Real, 4](fill=0),
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(-1),
     )
     for k in range(rc.m.count):
-        pr.ra[k] = bset.bodies[rc.a].to_local(rc.m.points[k])
-        pr.rb[k] = bset.bodies[rc.b].to_local(rc.m.points[k])
+        var p = rc.m.points[k]
+        var ca = round_core(bset, colliders, rc.a, p)
+        var cb = round_core(bset, colliders, rc.b, p)
+        # A round side's lever arm must reach its real surface: the
+        # narrowphase puts e.g. a sphere-on-box point on the margin-inflated
+        # face, half a speculative margin inside the ball, and friction
+        # there makes a ball roll at omega * (r - margin/2) == v. Slide the
+        # point along the normal (both anchors together, so separation is
+        # unchanged) to the round surface, or midway between two of them.
+        if ca or cb:
+            var n = rc.m.normal
+            var target = Real(0)
+            if ca:
+                target = dot(bset.bodies[rc.a].act(ca.value()), n) + colliders.half[rc.a][0]
+            if cb:
+                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - colliders.half[rc.b][0]
+                target = (target + sb) * 0.5 if ca else sb
+            p = p + n * (target - dot(p, n))
+        if ca:
+            pr.ra[k] = ca.value()
+            pr.oa[k] = p - bset.bodies[rc.a].act(ca.value())
+        else:
+            pr.ra[k] = bset.bodies[rc.a].to_local(p)
+        if cb:
+            pr.rb[k] = cb.value()
+            pr.ob[k] = p - bset.bodies[rc.b].act(cb.value())
+        else:
+            pr.rb[k] = bset.bodies[rc.b].to_local(p)
         var va0 = Vec3(0, 0, 0, 0)
         var vb0 = Vec3(0, 0, 0, 0)
         if not bset.is_static(rc.a):
-            va0 = bset.bodies[rc.a].velocity_at(rc.m.points[k])
+            va0 = bset.bodies[rc.a].velocity_at(p)
         if not bset.is_static(rc.b):
-            vb0 = bset.bodies[rc.b].velocity_at(rc.m.points[k])
+            vb0 = bset.bodies[rc.b].velocity_at(p)
         pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
     if warm:
         # Start at the first entry with this key (`cache_index`); the scan
@@ -189,11 +258,11 @@ def warm_start_contacts[B: Body6](
             )
             if bset.is_dynamic(pr.a):
                 bset.bodies[pr.a].apply_impulse(
-                    -j, bset.bodies[pr.a].act(pr.ra[k])
+                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
                 )
             if bset.is_dynamic(pr.b):
                 bset.bodies[pr.b].apply_impulse(
-                    j, bset.bodies[pr.b].act(pr.rb[k])
+                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
                 )
 
 
@@ -345,8 +414,8 @@ def solve_contact[B: Body6](
         pair_mu = pr.mu_override
     var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
     for k in range(pr.m.count):
-        var pwa = bset.bodies[pr.a].act(pr.ra[k])
-        var pwb = bset.bodies[pr.b].act(pr.rb[k])
+        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
+        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
         # anchors coincided at prep with depth d0; separation since
         # then is the anchor drift along the normal
         var d = pr.m.depths[k] - dot(pwb - pwa, n)
@@ -472,8 +541,8 @@ def restitution_pass[B: Body6](
             for k in range(pr.m.count):
                 if pr.vn0[k] >= -threshold:
                     continue
-                var pwa = bset.bodies[pr.a].act(pr.ra[k])
-                var pwb = bset.bodies[pr.b].act(pr.rb[k])
+                var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
+                var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
                 var va = Vec3(0, 0, 0, 0)
                 var ka = Real(0)
                 if bset.moves(pr.a):

@@ -906,7 +906,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var pairs = List[ContactConstraint]()
         var cidx = cache_index(self.cache)
         for c in range(len(raws)):
-            pairs.append(make_contact(self.bset, self.cache, cidx, raws[c], warm))
+            pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
         apply_rules(self.bset, self.rules, pairs)
         return pairs^
 
@@ -2050,6 +2050,8 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             a, b, feat, m,
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
             Array[Real, 4](fill=0),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+            Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
