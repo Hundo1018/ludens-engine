@@ -1297,7 +1297,7 @@
 |---|---|:-:|:-:|---|
 | 3.2 | [GPU 物理(Mojo kernels)](ROADMAP_HISTORY.md#32-gpu-物理mojo-kernels) | ✅ |  | 引擎首個 GPU 常駐物理:gather 式 Jacobi XPBD 布料 4 kernels、`has_accelerator` 守衛,CPU/GPU parity 2.4e-6,RTX 3060 上 16k 粒子 8.3×、65k 粒子 1.08 ms/step。 |
 | 4.3 | [GPU 物理擴張:VBD 原型](ROADMAP_HISTORY.md#43-gpu-物理擴張vbd-原型) | ✅ |  | VBD 布料原型(每頂點 3×3 局部 Newton、棋盤 2 著色 Gauss-Seidel、4 個 kernel)與 XPBD 同場景比較:在簡單布料上 XPBD 收斂較快較省;另修好多 DeviceContext 掛死問題(共享單 context,128² XPBD GPU 28×)。 |
-| 17.17 | [GPU 剛體 / articulation solver](#1717-gpu-剛體--articulation-solver) | 🔶 | B | `GpuContactSolver` 把 `ContactScene6` 著色模式的接觸子步迴圈搬到 GPU(CPU 保留收集、island、著色與簿記),以量測出的擾動界通過 parity 測試 22/22,但 GPU articulation 與 GPU narrowphase 尚未做。 |
+| 17.17 | [GPU 剛體 / articulation solver](#1717-gpu-剛體--articulation-solver) | 🔶 | B | `GpuContactSolver` 把 `ContactScene6` 著色模式的接觸子步迴圈搬到 GPU(CPU 保留收集、island、著色與簿記),以量測出的擾動界通過 parity 測試 22/22。2026-10-12 加上批次 articulation(ABA,每個 thread 一個實例,支援轉動 / 滑動關節)與批次 narrowphase(box / sphere / capsule),裝置程式碼已為 sm_86 編譯並檢查 PTX,但尚未在 GPU 主機上執行。 |
 
 ### 已完成條目的遺留待辦
 
@@ -1311,7 +1311,7 @@
 
 #### 17.17 GPU 剛體 / articulation solver
 
-> **狀態**:🔶 部分完成(Wave B;GPU 剛體接觸 ✅ 2026-09-29;GPU articulation / narrowphase 未做,排在 Phase 17 建議順序 2026-10-09 修訂剩餘順序第 (6) 項)
+> **狀態**:🔶 部分完成(Wave B;GPU 剛體接觸 ✅ 2026-09-29;GPU articulation / narrowphase 程式碼 2026-10-12 交付,**裝置端尚未在 GPU 上執行** —— 本機無加速器,見下方進度;剩餘順序第 (7) 項)
 > **缺口**:GPU 端 contact solver(著色 / Jacobi PGS)、GPU narrowphase / manifold、GPU articulation(Featherstone on device),以及 CPU↔GPU parity。
 > **對照組**:PhysX 5 GPU rigid bodies、Newton(Warp)、Genesis、AVBD(SIGGRAPH 2025 擴到剛體)。SOTA_GAP 自述「領域已決定性轉向 GPU-first」。
 > **優勢區**:中 ——(a)Mojo GPU kernels 在 memory-bound 負載與 CUDA 相當(ORNL);(b)著色平行(6.11)的 CPU 版可作 parity 基準;(c)motor / screw 狀態緊湊(8 float)利於頻寬。
@@ -1325,11 +1325,32 @@
 > - 當時整幀被 CPU 端收集與簿記主導(N=256/1024/4096:0.6 / 6.8 / 82 ms,近平方),即審計 F22 的 O(n²) 熱點,交給 17.19 優先處理。
 > - 相關前置:單一 device context 擁有者 ✅ 2026-09-29(Wave B 入口前置,標為 17.17):引擎內不再建立 `DeviceContext()`。
 >
+> **進度(articulation + narrowphase,2026-10-12)**:
+> - 做法:kernel 每個 thread 的本體寫成扁平陣列上的一般函式,裝置 kernel 與主機迴圈呼叫**同一個函式**;主機版與既有 CPU 求解器做 parity,
+>   裝置版以 `pixi run gpu-compile`(`scripts/gpu_compile_check.sh`,`--target-accelerator sm_86` 建置所有 GPU 測試與 bench,15 / 15)證明可編譯,
+>   並檢查 PTX:articulation kernel 2624 行、narrowphase kernel 3682 行,零 malloc / call(全內聯),每 thread 堆疊 448 / 928 B。
+>   **未做到的是在真 GPU 上執行**:`test_gpu_artic` / `test_gpu_narrow` 的裝置半段(容差 1e-3 / 99.9 % 一致 + 1e-4)與 bench 的裝置列需在有加速器的主機跑。
+> - `physics/artic_batch.mojo`:`aba_instance`(Featherstone RBDA 7.3 三趟掃描,沿用 `chain.mojo` 的空間代數 helper,motion subspace 一般化為 (s_w, s_v),
+>   故支援滑動關節 —— 既有 `Chain.dynamics_aba` 只支援轉動;每 link 64 float 工作區,不配置)、`artic_step_instance`(半隱式 Euler)、`ArticBatch`(同一模型的多個實例,
+>   主機執行);`physics/gpu_artic.mojo`:`GpuArticBatch`(模型 / 狀態 / 工作區常駐裝置,`step(ctx, steps, ...)` 一次啟動跑 `steps` 步 —— 本條「kernel 融合」與
+>   「持久裝置狀態」對 articulation 已做;`download` 只在需要時回傳)。
+> - `collision/narrow_batch.mojo`:`narrow_pair`(`ColliderSet.pair_manifold` 對 box / sphere / capsule 的分派,同一算術、同一組 `*_manifold` 函式)、
+>   `NarrowBatch`(扁平 pair 紀錄);`collision/gpu_narrow.mojo`:`GpuNarrow`(緩衝倍增成長、常駐)。hull / 靜態網格留在 CPU 路徑(可變長資料)。
+> - 測試:`test_artic_batch`(11:轉動鏈與 Y 樹 qdd 與 `dynamics_aba` **逐位相同**(差 0.0)、與 CRBA 差 6.5e-6;混合滑動 / 轉動樹與 CRBA 差 4.0e-7;
+>   珠子在旋轉桿上的解析解;64 實例互不干擾逐位相同;2 s 軌跡與 `Chain.step` 差 2.4e-7、能量漂移 0.124 J 與 CPU 路徑相同)、
+>   `test_narrow_batch`(4:2000 對、9 種有序形狀組合各 ≥ 203 對、806 對接觸,與 `pair_manifold` **逐位相同**;hull 被拒)、
+>   `test_gpu_artic` / `test_gpu_narrow`(主機半段本機通過;裝置半段待 GPU 主機)。
+> - 開發中發現並修正 `Chain` 的兩個既有錯誤(commit `fix(physics)`):`link_motion` 把滑動關節的速度積項 w × (s_v q̇) 算兩次(轉動父體下的滑塊,
+>   θ'' 錯 1.5 倍:−1.4757 vs 解析 −0.98378),`energy()` 把所有關節當轉動(滑塊動能 0.4225 vs 解析 1.4106);`test_joints_lib` 加上解析檢查(修正前 2 項失敗),
+>   其他 188 個測試輸出不變。
+> - 量測(`bench_gpu_batch`,本機 CPU):articulation 每實例步 `ArticBatch.step_host` 1.66–1.69 µs vs `Chain.step_aba` 4.19–4.44 µs(2.5–2.6×,差在每次呼叫配置約 14 個 List;
+>   另一次執行 4.00–6.93 µs,64 實例時波動大);narrowphase 每對 `run_host` 370–404 ns vs `pair_manifold` 368–389 ns(同一函式,僅多扁平化)。裝置列只在有加速器時輸出。
+>
 > **待辦**:
-> - GPU articulation(Featherstone on device)
-> - GPU narrowphase / manifold
-> - kernel 融合(每子步一次啟動)
-> - 持久裝置狀態,免每幀上下傳
+> - 在 GPU 主機執行 `test_gpu_artic` / `test_gpu_narrow` / `bench_gpu_batch` 的裝置半段,並把量到的數字補進本條
+> - 接觸求解器(`GpuContactSolver`)的 kernel 融合與常駐狀態(articulation 已做)
+> - narrowphase 接進 `GpuContactSolver`(目前收集仍在 CPU)、hull 上 GPU
+> - articulation 的接觸 / 限位(`resolve_contacts` / `resolve_limits`)與浮動基座上裝置
 > - 整合交付「GPU 剛體 + CPU 軟體同幀」尚未達成(目前關節 / 軟體 / CCD 場景被 GPU 解算器拒絕)
 >
 > **歷史**:

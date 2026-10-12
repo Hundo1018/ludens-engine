@@ -115,6 +115,9 @@ build: all packages precompiled into build/
   plastic  height 0.28340086  spread 0.1958955
   free-fall momentum y: -0.40140828  expected ~ -0.40140772
 [PASS] mpm - 8 / 8 checks
+--- tests/test_narrow_batch.mojo ---
+  2000 pairs, 806 touching; fewest pairs of one ordered kind combination: 203
+[PASS] narrow_batch - 4 / 4 checks
 --- tests/test_noise.mojo ---
   perlin3 range: -0.7781264781951904 0.7502906322479248  value3: -0.9594535231590271 0.9886785745620728  fbm3: -0.4969647228717804 0.49642834067344666
   worley3 min distance: 0.05094904080033302
@@ -202,6 +205,11 @@ build: all packages precompiled into build/
 [PASS] anim - 34 / 34 checks
 --- tests/test_archetype_backend.mojo ---
 [PASS] archetype_backend - 17 / 17 checks
+--- tests/test_artic_batch.mojo ---
+  revolute: max rel diff vs dynamics_aba 0.0  vs CRBA 6.501723803386518e-06
+  mixed prismatic/revolute: max rel diff vs CRBA 3.9916580732921114e-07
+  2 s mixed tree: max |q_batch - q_cpu| 2.384185791015625e-07  energy drift cpu 0.12417316436767578  batch 0.12419319152832031
+[PASS] artic_batch - 11 / 11 checks
 --- tests/test_backend_parity.mojo ---
 [PASS] backend_parity - 71 / 71 checks
 --- tests/test_bitset_backend.mojo ---
@@ -520,6 +528,9 @@ build: all packages precompiled into build/
 [PASS] fracture - 75 / 75 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
+--- tests/test_gpu_artic.mojo ---
+  (no GPU on this host: device half skipped)
+[PASS] gpu_artic - 1 / 1 checks
 --- tests/test_gpu_contact.mojo ---
   5-box stack: gpu-cpu 0.0078122206  cpu self-divergence (1e-6 nudge) 0.005211822  speeds 0.0046342984 0.0 0.0
   two islands + materials + sphere: gpu-cpu 0.0054137707  cpu self-divergence (1e-6 nudge) 0.0059000524  speeds 0.012187211 0.009076258 0.0
@@ -528,6 +539,9 @@ build: all packages precompiled into build/
 [PASS] gpu_contact - 22 / 22 checks
 --- tests/test_gpu_lbvh.mojo ---
 [PASS] gpu_lbvh - 4 / 4 checks
+--- tests/test_gpu_narrow.mojo ---
+  (no GPU on this host: device half skipped)
+[PASS] gpu_narrow - 1 / 1 checks
 --- tests/test_gpu_raycast.mojo ---
   hits: 405  misses: 1643  worst |dt|: 0.0
 [PASS] gpu_raycast - 5 / 5 checks
