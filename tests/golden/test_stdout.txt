@@ -627,7 +627,7 @@ build: all packages precompiled into build/
 --- tests/test_schema.mojo ---
 [PASS] schema - 22 / 22 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20533
+  blob bytes: 20541
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.24997935  bp y 0.24997935
@@ -690,9 +690,14 @@ build: all packages precompiled into build/
   brute cache pairs: 16  bp cache pairs: 16
   fast faller y: 0.24971109628677368
 [PASS] solver_broadphase - 4 / 4 checks
+--- tests/test_system_tiers.mojo ---
+  system_tiers: tier changes 3430 max dp 0.0070824204 max dv 0.4262242 pen gap 0.043386906 bodies solved per step full 1800 tiered 627
+[PASS] system_tiers - 7 / 7 checks
 --- tests/test_terrain_deform.mojo ---
   crate after the crater: -0.7460463  edited corners 45
 [PASS] terrain_deform - 11 / 11 checks
+--- tests/test_tiers.mojo ---
+[PASS] tiers - 26 / 26 checks
 --- tests/test_timers_integration.mojo ---
 [PASS] timers_integration - 9 / 9 checks
 --- tests/test_trimesh.mojo ---
@@ -727,3 +732,5 @@ build: all packages precompiled into build/
 [PASS] system_render - 5 / 5 checks
 --- tests/test_system_stack.mojo ---
 [PASS] system_stack - 9 / 9 checks
+--- tests/test_tiers_parity.mojo ---
+[PASS] tiers_parity - 11 / 11 checks

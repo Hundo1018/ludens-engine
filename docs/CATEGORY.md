@@ -401,6 +401,14 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 決策:behavior tree(`BtDecider`)vs 守衛式 FSM(`FsmDecider`,`procedural.fsm`)vs utility(`UtilityDecider`)vs GOAP 規劃(`GoapDecider`),同在 `Decider` trait 後 | ai/decision.mojo、ai/bt.mojo、ai/utility.mojo、ai/planner.mojo | 四者都是「黑板 → 動作」的函子;可觀察定律是對同一份規則清單(巡邏 / 追擊 / 攻擊 / 搜索 / 逃跑)每個輸入給相同動作 —— 「行為等價」由規則清單本身當 oracle 定義,而不是四者互比 | `test_ai_decision`(600 tick 劇本 + 2000 個種子隨機黑板,四者皆 = 規則) | `bench_ai`(每次決策成本;GOAP 規劃隨動作數;BT tick 隨樹大小) |
 
+### 2.21 分級模擬(Phase 17.85,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 分級策略:`DistanceTiers` vs `CausalReach` vs `RoundRobin` vs `BudgetTiers`,同在 `TierPolicy` trait 後;由 `ContactScene6` 的 tier 表(逐 tier 的 iters / substeps / period)逐 island 套用 | gameplay/tiers.mojo、physics/solver6.mojo(`_step_tiered`) | 四者都是「(場景, 觀察者集合, step) → 每 body 的 tier」的函子;單位元是全 0 計畫(tier 0 = 該步自身設定),它與不分級的步進**逐位相同**(自然性方格的錨點);距離與因果可達一致的場景上 `DistanceTiers` 與 `CausalReach` 給同一計畫、同一世界 | `test_tiers_parity`(QuatBody6 × BVH / 持久 DBVH、ScrewBody6;`Runtime.advance_tiered` 全 0 == `advance`;`TieredScheduler` period 1 == 內層)、`test_tiers`(遲滯不抖動、RoundRobin 每週期每島恰一次、catch-up 保時間、因果深度單調、合併取較細、period 0 靜止、回退計數)、`test_system_tiers`(1800 個 awake body:無 pop、速度跳變 ≤ 一個粗步重力、快照 → 還原 → 續跑逐位相同) | `bench_tiers`(n = 1e3 / 1e4,每策略每步成本、解的 island 數、相對全品質的穿透增量) |
+
+這一列取代 §2.14 的「品質參數 seam」說明(該處沒有 trait 支撐)。
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

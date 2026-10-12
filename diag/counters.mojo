@@ -76,7 +76,13 @@ comptime VEHICLE_FORCE_DROPPED: Int = 14
 unusable chassis pose (ROADMAP 17.4) and applied nothing for that wheel / that
 step instead of poisoning the rigid body."""
 
-comptime COUNT: Int = 15
+comptime TIER_FALLBACK: Int = 15
+"""`physics.solver6.ContactScene6.step` had a tier plan set (ROADMAP 17.85)
+but the step also needed soft bodies, `ccd`, colored solving, drives or
+breakable joints, which the island-tiered path does not cover; the step ran
+untiered at full quality instead."""
+
+comptime COUNT: Int = 16
 
 
 def _name(id: Int) -> String:
@@ -110,6 +116,8 @@ def _name(id: Int) -> String:
         return "fragment_evicted"
     elif id == VEHICLE_FORCE_DROPPED:
         return "vehicle_force_dropped"
+    elif id == TIER_FALLBACK:
+        return "tier_fallback"
     else:
         return "counter_" + String(id)
 

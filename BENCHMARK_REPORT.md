@@ -4186,6 +4186,37 @@ the brute-force perception candidate pass as the scaling item to watch.
 
 
 
+## Tiered simulation (17.85)
+
+Awake two-box stacks with one observer in a corner: the policies differ in how
+they pick the fine set, and all of them cut the solve to roughly a quarter of
+the islands per step. The coarse tier (2 iterations over two 33 ms substeps,
+every 4th step) costs about 3.5 cm of extra penetration on 0.5 m boxes. The
+all-tier-0 row is the parity anchor -- bit-identical to the untiered step and,
+since the island partition became linear, the same cost. At 1e4 bodies the
+gain stops near 2.4x because pair collection (broadphase + narrowphase over
+every body) is still paid in full every step; skipping pairs whose bodies did
+not move is the next step for this item.
+
+### Tiered simulation (17.85): awake two-box stacks, observer at a corner
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| untiered | 1000 | step | 26880441.00 | 0.00 | 1075.22 |
+| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +35 mm) | 1000 | step | 7207440.13 | 0.00 | 288.30 |
+| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +35 mm) | 1000 | step | 5907736.53 | 0.00 | 236.31 |
+| RoundRobin (all tier 2) (125 islands solved / step, penetration +35 mm) | 1000 | step | 4943136.83 | 0.00 | 197.73 |
+| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +35 mm) | 1000 | step | 5103577.15 | 0.00 | 204.14 |
+| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 27751732.30 | 0.00 | 1110.07 |
+| untiered | 10000 | step | 333137940.00 | 0.00 | 13325.52 |
+| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 142391973.85 | 0.00 | 5695.68 |
+| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 135028996.45 | 0.00 | 5401.16 |
+| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 134821643.05 | 0.00 | 5392.87 |
+| BudgetTiers (50 % of untiered) (1270 islands solved / step) | 10000 | step | 142276209.55 | 0.00 | 5691.05 |
+| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 325335584.15 | 0.00 | 13013.42 |
+
+
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

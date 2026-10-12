@@ -2070,6 +2070,20 @@ the brute-force perception candidate pass as the scaling item to watch.
 
 @bench benchmarks/bench_ai.mojo
 
+## Tiered simulation (17.85)
+
+Awake two-box stacks with one observer in a corner: the policies differ in how
+they pick the fine set, and all of them cut the solve to roughly a quarter of
+the islands per step. The coarse tier (2 iterations over two 33 ms substeps,
+every 4th step) costs about 3.5 cm of extra penetration on 0.5 m boxes. The
+all-tier-0 row is the parity anchor -- bit-identical to the untiered step and,
+since the island partition became linear, the same cost. At 1e4 bodies the
+gain stops near 2.4x because pair collection (broadphase + narrowphase over
+every body) is still paid in full every step; skipping pairs whose bodies did
+not move is the next step for this item.
+
+@bench benchmarks/bench_tiers.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

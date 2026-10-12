@@ -35,8 +35,10 @@ from physics.rigid6 import QuatBody6
 from physics.solver6 import ContactScene6, write_state, read_state
 from physics.state_io import StateWriter, StateReader
 
-comptime _VERSION = 2
-"""Bumped from 1 in ROADMAP 17.0g-2: each body's fixed-size fields grew by
+comptime _VERSION = 3
+"""3 since ROADMAP 17.85: the stream ends with the tier phase clock
+(`step_index`), the tier table and the per-body tier plan. 2 since ROADMAP
+17.0g-2: each body's fixed-size fields grew by
 five tokens (`motion`, `friction`, `friction_combine`, `restitution_combine`,
 `can_sleep` -- `physics.solver6.write_state`'s docstring), so a v1 snapshot
 would silently misalign every read past that point rather than fail
@@ -129,3 +131,4 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
     read_state(sc, r)
     return sc^
+
