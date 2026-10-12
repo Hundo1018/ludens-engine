@@ -28,6 +28,8 @@ test-stress = { cmd = "bash scripts/run_tests.sh stress", depends-on = ["build",
 test = { cmd = "bash scripts/run_tests.sh unit component integration system", depends-on = ["build", "arch-check"] }
 # Build, then run every tier, including stress.
 test-all = { cmd = "bash scripts/run_tests.sh unit component integration system stress", depends-on = ["build", "arch-check"] }
+# Build the C-ABI shared library build/libludens.so (embed/capi.mojo, header embed/ludens.h; ROADMAP 12.1).
+capi = { cmd = "mojo build --emit shared-lib -I build -o build/libludens.so embed/capi.mojo", depends-on = ["build"] }
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.

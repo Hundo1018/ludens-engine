@@ -415,6 +415,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 預測策略:`LockstepPeer` vs `RollbackPeer` vs `SnapshotServer` + `SnapshotClient`,同在 `NetPeer` trait 後,驅動同一個 `NetSim` | gameplay/netcode.mojo | 三者都是「(輸入序列, 有損連線) → 最終世界」的函子;定律是最終世界雜湊 == 離線依序套用同一輸入(延遲、抖動、丟包下逐位成立);差別只在顯示落後幾 tick、CPU(重模擬)與頻寬 | `test_netcode`(3 玩家 240 tick、10 % 丟包,三策略皆 == 離線參考) | `bench_netcode`(延遲 2 / 6 tick:每 frame 時間、位元組、顯示落後、回滾與重模擬數) |
 
+### 2.23 嵌入邊界(Phase 12.1,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 驅動者:C 宿主經 `libludens.so`(系統與接觸訂閱為 C 回呼)vs Mojo 原生在 `EmbedWorld` 上的迴圈 | embed/capi.mojo、embed/world.mojo | C-ABI 是 `EmbedWorld` 操作的忠實函子(每個 `ld_*` 對應一個方法,值經編碼 / 解碼往返不變);定律是同一操作序列在兩邊產生同一世界(存檔雜湊逐位相同) | `test_capi`(13 body、240 tick、C 系統 + C 訂閱者 vs 原生:雜湊、事件數、射線、導航路徑相同) | `bench_capi`(同一步進、逐 body 取狀態、批次姿態、存 / 讀檔:C vs 原生) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

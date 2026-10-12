@@ -4241,6 +4241,40 @@ snapshot).
 
 
 
+## C-ABI boundary (12.1)
+
+The same work driven by a C host through `build/libludens.so` and natively on
+`EmbedWorld`. The step row runs a PRE system that reads and sets every 10th
+box's velocity each tick (a C callback calling back into the library on the C
+side); its label states whether the two worlds hash equal afterwards. The
+boundary adds nothing measurable to a call (state reads are a few ns either
+way); save and load pay one extra copy into or out of the host's buffer.
+
+### C-ABI boundary (12.1): C host through libludens.so vs native EmbedWorld
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| native: step with a Mojo loop pushing every 10th box (hash == C host: True) | 100 | tick | 960679.00 | 0.00 | 115.28 |
+| C host: step with a PRE system pushing every 10th box | 100 | tick | 951439.84 | 0.00 | 114.17 |
+| native: EmbedWorld.state per body | 100 | call | 10.97 | 91.16 | 10.97 |
+| C host: ld_body_get_state per body | 100 | call | 8.57 | 116.67 | 8.57 |
+| C host: ld_world_get_bodies (all poses, one call) | 100 | body | 6.02 | 166.08 | 6.08 |
+| native: EmbedWorld.save (48300 B) | 100 | save | 44350.80 | 0.02 | 0.89 |
+| C host: ld_world_save (48300 B) | 100 | save | 61673.80 | 0.02 | 1.23 |
+| native: EmbedWorld.load | 100 | load | 210534.45 | 0.00 | 4.21 |
+| C host: ld_world_load | 100 | load | 224362.40 | 0.00 | 4.49 |
+| native: step with a Mojo loop pushing every 10th box (hash == C host: True) | 1000 | tick | 14073398.57 | 0.00 | 1688.81 |
+| C host: step with a PRE system pushing every 10th box | 1000 | tick | 13981483.67 | 0.00 | 1677.78 |
+| native: EmbedWorld.state per body | 1000 | call | 11.52 | 86.80 | 11.52 |
+| C host: ld_body_get_state per body | 1000 | call | 8.75 | 114.34 | 8.75 |
+| C host: ld_world_get_bodies (all poses, one call) | 1000 | body | 7.44 | 134.34 | 7.45 |
+| native: EmbedWorld.save (480300 B) | 1000 | save | 685896.75 | 0.00 | 13.72 |
+| C host: ld_world_save (480300 B) | 1000 | save | 682395.10 | 0.00 | 13.65 |
+| native: EmbedWorld.load | 1000 | load | 2246221.15 | 0.00 | 44.92 |
+| C host: ld_world_load | 1000 | load | 2316449.55 | 0.00 | 46.33 |
+
+
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

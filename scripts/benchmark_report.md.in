@@ -2097,6 +2097,17 @@ snapshot).
 
 @bench benchmarks/bench_netcode.mojo
 
+## C-ABI boundary (12.1)
+
+The same work driven by a C host through `build/libludens.so` and natively on
+`EmbedWorld`. The step row runs a PRE system that reads and sets every 10th
+box's velocity each tick (a C callback calling back into the library on the C
+side); its label states whether the two worlds hash equal afterwards. The
+boundary adds nothing measurable to a call (state reads are a few ns either
+way); save and load pay one extra copy into or out of the host's buffer.
+
+@bench benchmarks/bench_capi.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

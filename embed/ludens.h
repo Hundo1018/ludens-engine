@@ -1,0 +1,111 @@
+/* ludens-engine embedding API (ROADMAP 12.1), ABI v0.1.
+ *
+ * Build the library with `pixi run capi` -> build/libludens.so.
+ * Contract (docs/design/12.1-embedding.md):
+ *   - v0.x freeze: a declaration below never changes its name, parameter
+ *     list, return type or meaning; new functions and new status codes may
+ *     be added (minor version bump). `tests/test_capi.mojo` checks every
+ *     line of embed/abi_v0.txt is still present here verbatim.
+ *   - Units: SI (m, kg, s, rad). Right-handed, +Y up for the default
+ *     gravity the host passes. Quaternions are x, y, z, w.
+ *   - Status: >= 0 success (or a count / handle), < 0 an LD_ERR_* code;
+ *     ld_world_last_error() gives the message of the latest failure.
+ *   - Threads: a world (and a navmesh) is used from one thread at a time;
+ *     different worlds are independent.
+ *   - Callbacks run inside ld_world_step / ld_world_step_ticks and may call
+ *     any function on the same world except ld_world_destroy and
+ *     ld_world_load (refused with LD_ERR_STATE); a non-zero return stops
+ *     the step with LD_ERR_CALLBACK.
+ *   - Output buffers are caller-owned; too small -> LD_ERR_BUFFER, nothing
+ *     written; the *_count / *_size call gives the size needed.
+ */
+#ifndef LUDENS_H
+#define LUDENS_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define LD_ABI_MAJOR 0
+#define LD_ABI_MINOR 1
+
+#define LD_OK 0
+#define LD_ERR_HANDLE (-1)   /* null or destroyed world / navmesh handle */
+#define LD_ERR_ARG (-2)      /* invalid argument */
+#define LD_ERR_STALE (-3)    /* body handle removed or never issued */
+#define LD_ERR_BUFFER (-4)   /* output buffer too small */
+#define LD_ERR_FORMAT (-5)   /* save blob truncated or not a world blob */
+#define LD_ERR_CALLBACK (-6) /* a host callback returned non-zero */
+#define LD_ERR_STATE (-7)    /* refused in the current state */
+
+#define LD_PHASE_PRE 0  /* systems run before the physics tick */
+#define LD_PHASE_POST 1 /* systems run after it (and after contact subscribers) */
+
+#define LD_EVENT_BEGAN 0
+#define LD_EVENT_STAY 1
+#define LD_EVENT_ENDED 2
+
+typedef struct ld_world ld_world;
+typedef struct ld_nav ld_nav;
+typedef int64_t ld_body; /* slot | generation << 32; never negative */
+
+typedef struct ld_contact_event {
+    int64_t tick;
+    ld_body a;
+    ld_body b;
+    int64_t kind; /* LD_EVENT_* */
+    int64_t feature;
+} ld_contact_event;
+
+typedef int32_t (*ld_system_fn)(ld_world* w, double dt, int64_t tick, void* user);
+typedef int32_t (*ld_contact_fn)(ld_world* w, const ld_contact_event* ev, void* user);
+
+uint32_t ld_abi_version(void);
+
+int32_t ld_world_create(double dt, float gx, float gy, float gz, ld_world** out_world);
+int32_t ld_world_destroy(ld_world* w);
+int64_t ld_world_last_error(ld_world* w, char* buf, int64_t cap);
+int32_t ld_world_set_solver(ld_world* w, int32_t iterations, int32_t substeps);
+int32_t ld_world_set_gravity(ld_world* w, float gx, float gy, float gz);
+int64_t ld_world_tick(ld_world* w);
+
+ld_body ld_body_add_box(ld_world* w, float px, float py, float pz, float hx, float hy, float hz, float mass, int32_t is_static);
+ld_body ld_body_add_sphere(ld_world* w, float px, float py, float pz, float r, float mass, int32_t is_static);
+int32_t ld_body_remove(ld_world* w, ld_body b);
+int32_t ld_body_alive(ld_world* w, ld_body b);
+int32_t ld_body_set_velocity(ld_world* w, ld_body b, float vx, float vy, float vz, float wx, float wy, float wz);
+int32_t ld_body_apply_impulse(ld_world* w, ld_body b, float jx, float jy, float jz);
+int32_t ld_body_teleport(ld_world* w, ld_body b, float px, float py, float pz, float qx, float qy, float qz, float qw);
+int32_t ld_body_get_state(ld_world* w, ld_body b, float* out13);
+int64_t ld_world_body_count(ld_world* w);
+int64_t ld_world_get_bodies(ld_world* w, ld_body* handles, float* poses7, int64_t cap);
+
+int32_t ld_world_raycast(ld_world* w, float ox, float oy, float oz, float dx, float dy, float dz, float max_t, ld_body* out_body, float* out_hit7);
+
+int64_t ld_world_add_system(ld_world* w, int32_t phase, ld_system_fn fn, void* user);
+int32_t ld_world_remove_system(ld_world* w, int64_t id);
+int64_t ld_world_subscribe_contacts(ld_world* w, int32_t kind_mask, ld_contact_fn fn, void* user);
+int32_t ld_world_unsubscribe(ld_world* w, int64_t id);
+int32_t ld_world_step(ld_world* w, double frame_dt);
+int32_t ld_world_step_ticks(ld_world* w, int32_t n);
+int64_t ld_world_event_count(ld_world* w);
+int64_t ld_world_get_events(ld_world* w, ld_contact_event* out, int64_t cap);
+
+int64_t ld_world_save_size(ld_world* w);
+int64_t ld_world_save(ld_world* w, uint8_t* buf, int64_t cap);
+int32_t ld_world_load(ld_world* w, const uint8_t* data, int64_t n);
+int32_t ld_world_hash(ld_world* w, uint64_t* out);
+
+int32_t ld_nav_bake(const float* verts_xyz, int64_t nverts, const int32_t* tris, int64_t nidx, const float* cfg7, ld_nav** out_nav);
+int32_t ld_nav_destroy(ld_nav* n);
+int64_t ld_nav_poly_count(ld_nav* n);
+int64_t ld_nav_find_path(ld_nav* n, float sx, float sy, float sz, float gx, float gy, float gz, float* out_xyz, int64_t cap);
+int64_t ld_nav_last_error(ld_nav* n, char* buf, int64_t cap);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* LUDENS_H */

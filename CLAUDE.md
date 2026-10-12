@@ -27,6 +27,7 @@ pixi run gate              # 變更的總閘門:整套測試 + 摘要 + 與 test
 pixi run gate -- --update-golden   # 接受本次輸出為新 golden
 pixi run gate -- --selftest        # 測試閘門工具本身(golden、archindex)
 pixi run benchmark         # 重跑所有 bench,重新產生 BENCHMARK_REPORT.md
+pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.mojo;凍結清單 embed/abi_v0.txt)
 pixi run examples | experiments | spikes
 ```
 
@@ -54,6 +55,7 @@ GPU 測試與 bench 在無加速器的主機上自動跳過(`has_accelerator`)�
 | 4 | `physics` `ai` | 所有動力學求解器;AI(blackboard、BT、utility、GOAP / HTN、決策 seam、感知、EQS、轉向 / 群聚、smart objects、影響力圖) |
 | 5 | `gameplay` | 角色控制、插值、ragdoll、replay、存檔、`runtime.mojo` |
 | 6 | `oop` | 僅供比較 benchmark 用的 OOP 基準引擎 |
+| 6 | `embed` | 嵌入邊界(12.1):`EmbedWorld` / `EmbedNav` 與 C-ABI 薄殼 `embed/capi.mojo`(→ `build/libludens.so`,標頭 `embed/ludens.h`) |
 
 - `harness` 只能被 `tests/`、`benchmarks/`、`examples/`、`experiments/` import,引擎套件不得 import。
 - 新增套件時要同時改 `scripts/build_engine.sh`(依層序加一行 `pc <pkg>`)與 `arch_layers.toml`。

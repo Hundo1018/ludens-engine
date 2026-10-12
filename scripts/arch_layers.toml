@@ -16,6 +16,7 @@ physics = 4
 ai = 4
 gameplay = 5
 oop = 6
+embed = 6
 
 # Test/bench infrastructure: importable only from the top-level consumer
 # directories below, never from an engine package.
