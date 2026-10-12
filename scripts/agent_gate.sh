@@ -19,9 +19,11 @@ if [ "${1:-}" = "--selftest" ]; then
   exit $?
 fi
 
-timeout 1800 pixi run test > "$LOG" 2>&1
+# Suite budget: ~1800 s was exceeded once the suite passed ~190 files (2026-10-12).
+GATE_TIMEOUT="${GATE_TIMEOUT:-3600}"
+timeout "$GATE_TIMEOUT" pixi run test > "$LOG" 2>&1
 rc=$?
-[ $rc -eq 124 ] && echo "SUITE  TIMEOUT after 1800 s (log: $LOG)"
+[ $rc -eq 124 ] && echo "SUITE  TIMEOUT after $GATE_TIMEOUT s (log: $LOG)"
 bash scripts/golden.sh summary "$LOG"; srow=$?
 if [ "${1:-}" = "--update-golden" ] && [ $rc -eq 0 ] && [ $srow -eq 0 ]; then
   bash scripts/golden.sh normalize "$LOG" > "$GOLDEN"
