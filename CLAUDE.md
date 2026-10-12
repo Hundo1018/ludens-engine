@@ -51,7 +51,7 @@ GPU 測試與 bench 在無加速器的主機上自動跳過(`has_accelerator`)�
 | 1 | `geometry` | 向量/矩陣/四元數、GA(PGA/CGA/DCGA)、AD 係數場、GJK/EPA/SAT/clip/SDF、靜態 BVH |
 | 2 | `numerics` `spatial` `procedural` `fluid` `ecs` | 稀疏矩陣與 Krylov、動態空間索引、雜訊、動畫/IK、tween、FSM、LBM、ECS |
 | 3 | `scheduler` `collision` `nav` | 系統排程/固定步長迴圈/事件/計時器/RNG;broadphase、narrowphase、manifold、CCD、場景查詢;navmesh 烘焙、尋路 seam、crowd |
-| 4 | `physics` | 所有動力學求解器 |
+| 4 | `physics` `ai` | 所有動力學求解器;AI(blackboard、BT、utility、GOAP / HTN、決策 seam、感知、EQS、轉向 / 群聚、smart objects、影響力圖) |
 | 5 | `gameplay` | 角色控制、插值、ragdoll、replay、存檔、`runtime.mojo` |
 | 6 | `oop` | 僅供比較 benchmark 用的 OOP 基準引擎 |
 

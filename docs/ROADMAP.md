@@ -41,7 +41,7 @@
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 7 | 0 | 3 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
-| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 1 | 0 | 5 | 0 |
+| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 2 | 0 | 4 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 0 | 5 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 0 | 0 | 6 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
@@ -1582,7 +1582,7 @@
 | 編號 | 條目 | 狀態 | Wave | 說明 |
 |---|---|:-:|:-:|---|
 | 17.14 | [導航](#1714-導航) | ✅ | C | 新套件 `nav`(layer 3):navmesh bake(體素 → 緊湊場 → 侵蝕 → tile 矩形)、尋路 seam(多邊形 A* + funnel / 格 A* / 流場 / HPA*)、off-mesh link、動態障礙增量挖洞、crowd 與避讓 seam(ORCA / 取樣 RVO / 社會力)、3D 體積導航(稀疏體素八叉樹 A* vs 稠密體素 A*)。 |
-| 17.15 | [AI 框架](#1715-ai-框架) | ⬜ | C | 規劃 behavior tree、utility AI、blackboard、perception、EQS,以及 2026-10-09 增補的轉向 / 群聚 / 隊形、GOAP / HTN、smart objects、影響力圖 / 戰爭迷霧;目前只有 FSM / HSM。 |
+| 17.15 | [AI 框架](#1715-ai-框架) | ✅ | C | 新套件 `ai`(layer 4):blackboard、behavior tree(迭代 tick)、utility AI、GOAP / HTN、決策 seam(BT / FSM / utility / GOAP)、感知(視錐 + 宿主視線批次、聽覺、記憶)、EQS、轉向 / 群聚 / 隊形、smart objects、影響力圖與隊伍戰爭迷霧。 |
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | ⬜ | C | 規劃 rollback 核心、預測策略 seam(lockstep / predict-rollback / snapshot-interp)與給宿主傳送的 byte payload API,另含延遲補償與輸入驗證 / 失步偵測;傳輸層與線路格式交給宿主,尚未開工。 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | ⬜ | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | ⬜ | C | 流程狀態堆疊、全域旗標 / 黑板、任務 / 目標圖、對話 / 敘事狀態、關卡切換協定、檢查點 / 重生 |
@@ -1619,8 +1619,23 @@
 
 #### 17.15 AI 框架
 
-> **狀態**:⬜ 未開始(Wave C;2026-10-09 修訂後為剩餘順序第 (2) 項:EQS 接 17.13、BT tick 可入 10.2)
-> **現況**:僅 FSM / HSM(`procedural/fsm.mojo`)。
+> **狀態**:✅ 完成(Wave C;剩餘順序第 (2) 項)。2026-10-12 交付,設計筆記 `docs/design/17.15-ai.md`。
+> **進度(2026-10-12)**:新套件 `ai`(layer 4,依賴 `nav` 與 `procedural.fsm`;不依賴 `collision`,視線由宿主批次查詢)。
+> - `ai/blackboard.mojo`:整數鍵、`Vec3` 值、set 位元與版本;`CMP_*` 資料驅動條件。
+> - `ai/bt.mojo`:共享定義(扁平陣列)+ 每 agent `BtState`;sequence / selector(記憶式或 reactive,後者搶占並經 `BtHost.abort` 中止低優先分支)、parallel(N 成功門檻,已完成子節點保留狀態)、inverter / succeeder / repeat / cooldown / guard(含 abort)/ service、action / condition / check / wait。tick 是**迭代**(顯式 frame 堆疊放在 `BtState` 重用):遞迴第一版在 ~2000 深度爆堆疊,現在測 20 000 深;13 節點樹 249 ns / tick。
+> - `ai/utility.mojo`:考量(線性 / 多項式 / logistic / 階躍 / 反階躍曲線)、Dave Mark 補償因子、momentum 遲滯。
+> - `ai/planner.mojo`:GOAP(64 位事實集,A*,啟發式 = 錯誤位元數 × 最便宜動作成本 / 64,可採納;展開預算)與 HTN(依序方法、回溯、深度上限)。
+> - `ai/decision.mojo`:seam `Decider` —— `BtDecider` / `FsmDecider`(`procedural.fsm.StateMachine` + 黑板守衛)/ `UtilityDecider` / `GoapDecider`(目標優先序 + 相關性條件)。
+> - `ai/perception.mojo`:兩階段視覺(候選射線 → 宿主批次視線 → commit)、聽覺(半徑 × 聽力倍率)、記憶(過期、同 tick 視覺蓋過聽覺)、寫入黑板。
+> - `ai/eqs.mojo`:grid / ring / 清單生成、投到 navmesh、距離 / 朝向 / 路徑長 / navmesh 可見 / 宿主外部值測試、過濾、正規化計分。
+> - `ai/steering.mojo`:seek / flee / arrive / pursue / evade / wander / 沿路徑;`Flock`(均勻格 boids,最低速度);`Formation`(line / column / wedge 槽位)。
+> - `ai/smart_objects.mojo`:槽位 tag、保留 → 佔用 → 釋放、保留逾時、停用物件、每 agent 一槽。
+> - `ai/influence.mojo`:影響力圖(stamp、Champandard 傳播、牆擋、層組合)與 `TeamVision`(supercover 格線視線、可見 / 已探索)。
+> - 測試:`test_ai_decision`(12:同一守衛行為四種寫法,600 tick 劇本與 2000 個隨機黑板逐一與規則一致;小隊共享黑板)、`test_ai_bt`(25:記憶 / reactive 搶占與中止、guard abort、parallel、repeat、cooldown、wait、service、20 000 深鏈、結構錯誤、1 萬 agent)、`test_ai_planner`(19)、`test_ai_steering`(19:arrive / pursue 比 seek 快 / evade / 沿 L 路徑 / wander 決定論 / 群聚局部對齊 > 0.95 / 隊形)、`test_ai_smart`(17:三 NPC 佔三座位、第四個沒有)、`test_ai_influence`(18:牆擋影響力、控制層變號、牆後不可見、已探索保留)、`test_ai_perception`(21)、`test_ai_world`(15,integration:物理世界射線當視線 → 黑板 → BT:巡邏 → 追擊 → 搜索 → 記憶過期回巡邏、聽覺喚醒、EQS 搜索點在 navmesh 上且不在牆內)。
+> - 量測(`bench_ai`,1 萬 agent × 10 tick 每次決策):utility 103 ns、FSM 180 ns、BT 747 ns、GOAP(每次決策都規劃)1.07 µs;GOAP 鏈式領域 64 個動作規劃 39 µs;BT 13 / 769 節點 249 ns / 14 µs;群聚 1 萬條魚 0.50 µs / boid-step;感知候選 1000 × 1000 暴力 7.4 ns / 對;EQS 441 點 149 µs;影響力傳播 68 ns / cell-iteration。
+> - 量測中發現並修正:群聚用全速 seek 做 cohesion 且無最低速度時,密集魚群停滯、方向抖動(局部對齊 ~0.5);加最低速度後 0.999。
+> **遺留待辦**:BT tick 入 10.2 job graph 依讀寫集平行(目前逐 agent 串行)、EQS 打分可微、感知候選用空間格取代暴力 O(N·M)、EQS 排序改 O(n log n)(現為插入排序)。
+> **現況(開工前)**:僅 FSM / HSM(`procedural/fsm.mojo`)。
 > **缺口**:behavior tree(decorator / service / 平行節點)、utility AI、blackboard、perception(視錐 / 聽覺 / 記憶)、EQS 式空間查詢(接 17.13)。
 > **增補缺口(2026-10-09 負空間盤點,本節尚未開工故直接擴充範圍)**:
 > - **轉向行為 / 群聚 / 隊形**:Reynolds seek / flee / arrive / pursue / evade / wander / path-follow、boids(separation / cohesion / alignment)、隊形槽位與跟隨隊長(例:1 萬條魚群用 hash grid 鄰居查詢、8 人小隊沿 navmesh 路徑保持楔形)。17.14 只規劃了避讓(RVO / ORCA / 力場),seek / arrive / 群聚 / 隊形不在其中。
@@ -2462,7 +2477,7 @@
 | 17.12 | [可編輯場景 / prefab / 實例化](#1712-可編輯場景--prefab--實例化) | ECS、排程、執行期與診斷 | 不排 |
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.14 | [導航](#1714-導航) | gameplay 服務、AI、導航與網路 | ✅ |
-| 17.15 | [AI 框架](#1715-ai-框架) | gameplay 服務、AI、導航與網路 | ⬜ |
+| 17.15 | [AI 框架](#1715-ai-框架) | gameplay 服務、AI、導航與網路 | ✅ |
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.17 | [GPU 剛體 / articulation solver](#1717-gpu-剛體--articulation-solver) | GPU 計算 | 🔶 |
 | 17.18 | [批次多世界步進(13.9 落地)](ROADMAP_HISTORY.md#1718-批次多世界步進139-落地--wave-b) | 可微模擬、批次世界與數值深化 | ✅ |

@@ -29,6 +29,7 @@ pc scheduler
 pc nav
 pc collision
 pc physics
+pc ai
 pc gameplay
 pc oop
 
