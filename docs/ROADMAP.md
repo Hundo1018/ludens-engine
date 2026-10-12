@@ -12,13 +12,26 @@
 > 依據:[SOTA_GAP_ANALYSIS.md](SOTA_GAP_ANALYSIS.md)(2026-07-10 差距分析)、[ARCHITECTURE.md](ARCHITECTURE.md)
 > (分層、錯誤政策、測試分層)、[CATEGORY.md](CATEGORY.md)(seam 與 parity 對照)。
 
-## 目前位置(2026-10-11)
+## 目前位置(2026-10-13)
 
 - **物理與數值核心**:角動力學、sub-stepped soft solver、CCD、islands / sleeping / warm-start、軟體與雙向耦合、
   縮座標關節體(ABA / RNEA / 致動器 / 腱 / 感測器)、FEM / MPM / SPH / PBF / 布料、LBM 風洞、可微模擬
   (reverse tape、comptime 伴隨)皆已交付,各附 parity 測試與 benchmark 列。
-- **遊戲執行期外殼(Phase 17)**:Wave A / B 全數交付;Wave C 已交付 17.4 載具、17.5 破壞,其餘
-  (17.14 導航起)在 2026-10-09 依使用者指示暫停。
+- **遊戲執行期外殼(Phase 17)**:Wave A / B 全數交付;Wave C 已交付 17.4 載具、17.5 破壞,以及
+  2026-10-12 的剩餘順序各項(見下)。
+- **已決定的剩餘順序(2026-10-12)**:8 項中 6 項 ✅ —— 17.14 導航(`99fe1d9`)、17.15 AI(`7c4f4d6`)、
+  17.16 rollback(`fdfba02`)、12.1 C-ABI(`4e3ef8c`)、17.21 Python 綁定 + 12.2(`9cedbb5`)、
+  17.8 大世界座標(`ee946e8`)。其餘 2 項 🔶:
+  - **17.85 分級模擬**:第一刀(逐 island tier 表、`TierPolicy` seam、`TieredScheduler`,`8e7edcb`);
+    剩 ECS `Tier[N]` tag、`BroadPhase.update_moved`、軟體 / LBM / 粒子的 per-object period、n = 1e5 量測等。
+  - **17.17 GPU articulation / narrowphase**:程式碼已交付(`98a69cb`)。`test_gpu_narrow` 的裝置半段
+    已在 GPU 主機上跑過,box / capsule 的容差因此放寬到 5e-3(`94493c2`);`test_gpu_artic` 裝置半段與
+    bench 裝置列的 GPU 實跑結果尚未記入 17.17 進度註。「GPU 剛體 + CPU 軟體同幀」未達成。
+- **17.75 嵌入契約**:宿主派發器注入 ✅(`71cb718`);配置器、非同步步進、`UnitScale`、執行緒契約成文未做。
+- **gate**:197/197 通過、arch OK、tiers 197/197;依裝置而變的檢查改以 `Suite.begin_device()` 分段,
+  有無 GPU 的主機共用同一份 golden(`f5ca7df`)。
+- **下一步**:剩餘順序完成後,從「17.44–17.84 的插入建議」挑選(待使用者決定);🔶 8 項、⬜ 40 項,見
+  [編號索引](#編號索引)。
 - **平台方向已定為 C**:被宿主引擎嵌入的模擬函式庫,RL 平台次要(2026-10-09,`a93c53d`)。
 - **2026-10-09 負空間盤點**:對照 SOTA 引擎找出「不在路線上」的能力,RL / 機器人以外全數入路線,
   成為 17.44–17.84,並擴充尚未開工的 17.14 / 17.15 / 17.16。同一次盤點發現 9.1、13.8 標 ✅ 但程式碼
