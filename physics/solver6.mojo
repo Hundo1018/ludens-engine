@@ -73,7 +73,10 @@ from collision.bp_bvh import BVHBroadPhase
 from collision.toi import swept_box_toi
 from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
-from diag.counters import Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED, TIER_FALLBACK
+from diag.counters import (
+    Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED, TIER_FALLBACK,
+    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS,
+)
 from diag.log import LogRing, log
 from diag.level import Level, DEBUG_DRAW_ON
 from diag.trace import TraceBuffer
@@ -873,6 +876,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     continue
                 if has_weld and (min(i, j) * n + max(i, j)) in weld_keys:
                     continue
+                self.counters.incr(NARROWPHASE_PAIRS)
                 try_pair(
                     self.colliders, i, j, self._pose(i), self._pose(j),
                     self.bset.bodies[i].linear_velocity(),
@@ -894,6 +898,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     # contact -- ROADMAP 17.24).
                     if not self.bset.is_dynamic(i) and not self.bset.is_dynamic(j):
                         continue
+                    self.counters.incr(NARROWPHASE_PAIRS)
                     try_pair(
                         self.colliders, i, j, self._pose(i), self._pose(j),
                         self.bset.bodies[i].linear_velocity(),
@@ -903,6 +908,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.sensor_pairs = List[ContactConstraint]()  # rebuilt with the solved pairs
         for c in range(len(sraws)):
             self.sensor_pairs.append(make_sensor_contact(sraws[c]))
+        self.counters.incr(CONTACT_MANIFOLDS, Int64(len(raws)))
+        for c in range(len(raws)):
+            self.counters.incr(CONTACT_POINTS, Int64(raws[c].m.count))
         var pairs = List[ContactConstraint]()
         var cidx = cache_index(self.cache)
         for c in range(len(raws)):

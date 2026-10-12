@@ -33,6 +33,8 @@ jobs:
         run: pixi run doclint
       - name: unwired modules (scripts/orphans_allow.txt)
         run: pixi run orphans
+      - name: benchmark template / files / report consistency
+        run: pixi run perf -- governance
       - name: gate (build, arch-check, unit..system, golden compare)
         run: pixi run gate
       - name: upload gate log

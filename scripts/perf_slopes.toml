@@ -1,0 +1,13 @@
+# Declared cost exponents for `pixi run perf -- slopes` (ROADMAP 17.83).
+# Key: a substring of "bench :: table title :: variant :: op" (the most
+# specific matching key wins); value: the exponent p in cost-per-op ~ N^p.
+# A measured slope above p + 0.25 fails. First measured 2026-10-13 on an
+# Intel Xeon @ 2.80 GHz (4 logical cores, --target-cpu skylake), 3 reps.
+
+[slopes]
+# Every broadphase backend should keep a step linear in N (measured 1.06-1.10).
+"bench_solver_scale :: solver broadphase seam at scale" = 1.0
+# BVH pair collection: linear (measured 1.03). Brute force is the O(n^2)
+# control: at N <= 512 the narrowphase still dominates (measured 1.23).
+"bench_solver_scale :: 6-DOF solver pair collection" = 1.0
+"bench_solver_scale :: 6-DOF solver pair collection: brute O(n²) vs BVH :: brute" = 2.0

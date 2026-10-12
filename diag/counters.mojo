@@ -82,7 +82,18 @@ but the step also needed soft bodies, `ccd`, colored solving, drives or
 breakable joints, which the island-tiered path does not cover; the step ran
 untiered at full quality instead."""
 
-comptime COUNT: Int = 16
+# Workload counters (ROADMAP 17.83). Unlike the ids above these are not
+# failures: they count work done, so a CI host can assert them EXACTLY (they
+# do not depend on the machine) and catch an algorithmic regression that a
+# wall-clock gate would see only as noise.
+comptime NARROWPHASE_PAIRS: Int = 16
+"""Candidate pairs `ContactScene6` handed to the narrowphase (`try_pair`)."""
+comptime CONTACT_MANIFOLDS: Int = 17
+"""Contact manifolds the narrowphase produced (sensors excluded)."""
+comptime CONTACT_POINTS: Int = 18
+"""Contact points across those manifolds."""
+
+comptime COUNT: Int = 19
 
 
 def _name(id: Int) -> String:
@@ -118,6 +129,12 @@ def _name(id: Int) -> String:
         return "vehicle_force_dropped"
     elif id == TIER_FALLBACK:
         return "tier_fallback"
+    elif id == NARROWPHASE_PAIRS:
+        return "narrowphase_pairs"
+    elif id == CONTACT_MANIFOLDS:
+        return "contact_manifolds"
+    elif id == CONTACT_POINTS:
+        return "contact_points"
     else:
         return "counter_" + String(id)
 

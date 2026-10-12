@@ -107,3 +107,68 @@ struct BenchTable(Movable):
 
     def print_report(self):
         print(self.report())
+
+
+@fieldwise_init
+struct ABResult(Copyable, Movable):
+    """`measure_ab`'s answer: each variant's minimum ns over the rounds, and
+    the spread of the per-round ratio b/a (max/min - 1), which is the noise
+    estimate a caller compares the ratio against (ROADMAP 17.83)."""
+
+    var a_ns: Int
+    var b_ns: Int
+    var ratio_lo: Float64
+    var ratio_hi: Float64
+
+    def ratio(self) -> Float64:
+        """The ratio b / a of the per-variant minima (> 1: b is slower)."""
+        return Float64(self.b_ns) / Float64(max(self.a_ns, 1))
+
+    def resolved(self) -> Bool:
+        """True when every round agrees on which side is slower -- the only
+        case in which the ratio is a finding rather than noise."""
+        return self.ratio_lo > 1.0 or self.ratio_hi < 1.0
+
+
+def measure_ab[FA: def () -> None, FB: def () -> None](
+    a: FA, b: FB, rounds: Int = 15, warmup: Int = 3
+) -> ABResult:
+    """Interleaved A/B timing in ONE process: each round runs `a` then `b`
+    back to back (alternating which goes first), so frequency scaling,
+    thermal state and neighbours hit both sides alike. Cross-process numbers
+    on the same machine move by about +-15 % (ROADMAP 17.10); a ratio from
+    interleaved rounds does not carry that drift. Returns the minima and the
+    range of per-round ratios b/a."""
+    for _ in range(warmup):
+        a()
+        b()
+    var best_a = Int.MAX
+    var best_b = Int.MAX
+    var lo = Float64.MAX
+    var hi = Float64(0)
+    for r in range(rounds):
+        var ta: Int
+        var tb: Int
+        if r % 2 == 0:
+            var t0 = now()
+            a()
+            var t1 = now()
+            b()
+            var t2 = now()
+            ta = t1 - t0
+            tb = t2 - t1
+        else:
+            var t0 = now()
+            b()
+            var t1 = now()
+            a()
+            var t2 = now()
+            tb = t1 - t0
+            ta = t2 - t1
+        keep(ta + tb)
+        best_a = min(best_a, ta)
+        best_b = min(best_b, tb)
+        var q = Float64(tb) / Float64(max(ta, 1))
+        lo = min(lo, q)
+        hi = max(hi, q)
+    return ABResult(best_a, best_b, lo, hi)

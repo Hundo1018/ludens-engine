@@ -1,0 +1,494 @@
+{
+ "fingerprint": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+  "logical_cores": "4",
+  "modular": "==26.6.0",
+  "mojo": "==1.1.0",
+  "real": "Scalar[WorldType]",
+  "target_cpu": "skylake"
+ },
+ "reps": 3,
+ "rows": {
+  "bench_dbvh :: broadphase: persistent (incremental) vs rebuild :: BVH (full rebuild) :: 4096 :: frame": [
+   20277886.2,
+   19783942.9,
+   20159591.43
+  ],
+  "bench_dbvh :: broadphase: persistent (incremental) vs rebuild :: DBVH (persistent + pair cache) :: 4096 :: frame": [
+   83551.8,
+   85166.47,
+   123491.9
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: serial (no fan-out) :: 64 :: step": [
+   514212.36,
+   494262.58,
+   508059.25
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=1 :: 64 :: step": [
+   538804.3,
+   502871.55,
+   501951.41
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=12 :: 64 :: step": [
+   374026.96,
+   383747.52,
+   414085.81
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=16 :: 64 :: step": [
+   369837.01,
+   381908.68,
+   365014.66
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=2 :: 64 :: step": [
+   417540.99,
+   404232.96,
+   413206.94
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=20 :: 64 :: step": [
+   406832.89,
+   350564.52,
+   376659.59
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=4 :: 64 :: step": [
+   505521.81,
+   409950.6,
+   387281.8
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=6 :: 64 :: step": [
+   380099.76,
+   406910.7,
+   375041.52
+  ],
+  "bench_islands :: island-parallel core scaling: 16 islands at pinned worker counts :: workers=8 :: 64 :: step": [
+   357938.44,
+   411100.93,
+   377214.32
+  ],
+  "bench_islands :: island-parallel solver: serial vs threads :: parallel 1 tower x8 :: 8 :: step": [
+   98418.1,
+   126564.34,
+   96311.17
+  ],
+  "bench_islands :: island-parallel solver: serial vs threads :: parallel 16 towers x4 :: 64 :: step": [
+   671222.41,
+   459358.44,
+   406163.42
+  ],
+  "bench_islands :: island-parallel solver: serial vs threads :: serial 1 tower x8 :: 8 :: step": [
+   77200.78,
+   75050.85,
+   76962.4
+  ],
+  "bench_islands :: island-parallel solver: serial vs threads :: serial 16 towers x4 :: 64 :: step": [
+   533973.95,
+   585350.68,
+   529485.39
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: dbvh 1:1 (uniform) :: 4096 :: frame": [
+   32102831.75,
+   34573389.5,
+   32912598.65
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: dbvh 20:1 :: 4096 :: frame": [
+   88645282.8,
+   89618237.3,
+   91672288.2
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: dbvh 5:1 :: 4096 :: frame": [
+   42105953.45,
+   42125508.05,
+   41497315.75
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: hashgrid 1:1 (uniform) cell=2 (small-tuned) p=862 :: 4096 :: frame": [
+   2823158.8,
+   2883239.05,
+   2830665.1
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: hashgrid 1:1 (uniform) cell=2*max p=353 :: 4096 :: frame": [
+   6752368.6,
+   6941305.1,
+   6953733.3
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: hashgrid 20:1 cell=2 (small-tuned) p=182282 :: 4096 :: frame": [
+   874517585.0,
+   889544719.75,
+   968850380.25
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: hashgrid 20:1 cell=2*max p=732550 :: 4096 :: frame": [
+   88071043.9,
+   90141515.05,
+   89480206.85
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: hashgrid 5:1 cell=2 (small-tuned) p=7113 :: 4096 :: frame": [
+   16227348.5,
+   17833939.3,
+   16284657.55
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: hashgrid 5:1 cell=2*max p=17510 :: 4096 :: frame": [
+   5450735.35,
+   5608445.65,
+   5827946.25
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: sap 1:1 (uniform) p=96 :: 4096 :: frame": [
+   7867156.05,
+   7466719.8,
+   7557611.7
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: sap 20:1 p=147969 :: 4096 :: frame": [
+   34666472.65,
+   34317960.3,
+   33445671.3
+  ],
+  "bench_sap :: broadphase vs OBJECT-SIZE SPREAD (SAP's predicted advantage regime) :: sap 5:1 p=3334 :: 4096 :: frame": [
+   11472230.4,
+   11357913.25,
+   11040982.2
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: bvh rebuild @ 0.03 box widths/frame (jitter) :: 4096 :: frame": [
+   20313771.3,
+   19711215.8,
+   19846029.3
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: bvh rebuild @ 0.3 box widths/frame :: 4096 :: frame": [
+   20495104.15,
+   19906651.85,
+   19518276.45
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: bvh rebuild @ 1.5 box widths/frame :: 4096 :: frame": [
+   19505626.95,
+   20108596.3,
+   19772788.35
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: bvh rebuild @ 5.4 box widths/frame (incoherent) :: 4096 :: frame": [
+   19990649.95,
+   20805909.6,
+   19758383.6
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: dbvh @ 0.03 box widths/frame (jitter) :: 4096 :: frame": [
+   8479004.2,
+   8128791.8,
+   8289465.75
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: dbvh @ 0.3 box widths/frame :: 4096 :: frame": [
+   33068852.45,
+   33687263.25,
+   34122283.55
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: dbvh @ 1.5 box widths/frame :: 4096 :: frame": [
+   35395566.15,
+   34923984.35,
+   34297519.65
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: dbvh @ 5.4 box widths/frame (incoherent) :: 4096 :: frame": [
+   36710926.85,
+   36424879.05,
+   36805145.25
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: hashgrid @ 0.03 box widths/frame (jitter) :: 4096 :: frame": [
+   2868572.05,
+   2841583.45,
+   2940974.15
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: hashgrid @ 0.3 box widths/frame :: 4096 :: frame": [
+   2822261.6,
+   2940052.4,
+   2883337.5
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: hashgrid @ 1.5 box widths/frame :: 4096 :: frame": [
+   2833961.6,
+   2895002.3,
+   2874289.5
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: hashgrid @ 5.4 box widths/frame (incoherent) :: 4096 :: frame": [
+   2807795.1,
+   2982038.05,
+   3000772.55
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: sap @ 0.03 box widths/frame (jitter) :: 4096 :: frame": [
+   2737356.2,
+   2727563.4,
+   2696113.25
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: sap @ 0.3 box widths/frame :: 4096 :: frame": [
+   7871437.0,
+   7445569.0,
+   7400722.1
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: sap @ 1.5 box widths/frame :: 4096 :: frame": [
+   7301737.65,
+   6536843.75,
+   6727489.6
+  ],
+  "bench_sap :: broadphase vs motion speed: SAP / DBVH / hashgrid / BVH rebuild :: sap @ 5.4 box widths/frame (incoherent) :: 4096 :: frame": [
+   7892541.0,
+   7480438.4,
+   7277528.05
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: brute N=128 :: 128 :: step": [
+   2575358.38,
+   2295831.92,
+   2374869.88
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: brute N=288 :: 288 :: step": [
+   7424691.83,
+   8114920.54,
+   8644105.32
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: brute N=32 :: 32 :: step": [
+   597472.29,
+   478592.33,
+   446344.26
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: brute N=512 :: 512 :: step": [
+   18247193.09,
+   16940151.24,
+   18074857.64
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: brute N=8 :: 8 :: step": [
+   177060.09,
+   100656.66,
+   106465.25
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: bvh   N=128 :: 128 :: step": [
+   2014238.83,
+   1780690.73,
+   1809184.99
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: bvh   N=288 :: 288 :: step": [
+   4636849.36,
+   4485660.5,
+   4589117.53
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: bvh   N=32 :: 32 :: step": [
+   560395.04,
+   467632.86,
+   532098.38
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: bvh   N=512 :: 512 :: step": [
+   8745196.81,
+   8716696.9,
+   8389961.09
+  ],
+  "bench_solver_scale :: 6-DOF solver pair collection: brute O(n\u00b2) vs BVH :: bvh   N=8 :: 8 :: step": [
+   144435.71,
+   107191.49,
+   111128.79
+  ],
+  "bench_solver_scale :: ROADMAP 17.0h: diag overhead (compare this table's ns/step across a plain run and a -D LUDENS_TRACE run; NaN-scan share printed below under -D LUDENS_TRACE) :: round=0 :: 512 :: step": [
+   8326912.14,
+   8042687.71,
+   7864639.56
+  ],
+  "bench_solver_scale :: ROADMAP 17.0h: diag overhead (compare this table's ns/step across a plain run and a -D LUDENS_TRACE run; NaN-scan share printed below under -D LUDENS_TRACE) :: round=1 :: 512 :: step": [
+   8256595.01,
+   7897775.71,
+   8434244.91
+  ],
+  "bench_solver_scale :: ROADMAP 17.0h: diag overhead (compare this table's ns/step across a plain run and a -D LUDENS_TRACE run; NaN-scan share printed below under -D LUDENS_TRACE) :: round=2 :: 512 :: step": [
+   7848240.16,
+   7787660.18,
+   8351458.43
+  ],
+  "bench_solver_scale :: SAP vs hash grid: uniform sizes vs 20:1 size spread (N=1024) :: hashgrid 20:1 spread :: 1024 :: step": [
+   18916513.11,
+   19751732.96,
+   19603848.88
+  ],
+  "bench_solver_scale :: SAP vs hash grid: uniform sizes vs 20:1 size spread (N=1024) :: hashgrid uniform :: 1024 :: step": [
+   17238546.13,
+   16219090.59,
+   16927500.02
+  ],
+  "bench_solver_scale :: SAP vs hash grid: uniform sizes vs 20:1 size spread (N=1024) :: sap      20:1 spread :: 1024 :: step": [
+   8863961.89,
+   9028293.1,
+   8980589.04
+  ],
+  "bench_solver_scale :: SAP vs hash grid: uniform sizes vs 20:1 size spread (N=1024) :: sap      uniform :: 1024 :: step": [
+   7821164.69,
+   8342960.35,
+   7913189.04
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=1058 :: 1058 :: step": [
+   18994352.77,
+   17338590.71,
+   17709579.68
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=128 :: 128 :: step": [
+   1855012.78,
+   1904013.78,
+   1754952.56
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=2048 :: 2048 :: step": [
+   37422651.69,
+   38464174.3,
+   37811877.63
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=242 :: 242 :: step": [
+   3347983.55,
+   3436239.23,
+   3639018.93
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=4050 :: 4050 :: step": [
+   89957759.45,
+   87088284.2,
+   85176671.65
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=512 :: 512 :: step": [
+   9427364.57,
+   9279963.59,
+   8330130.66
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: bvh      N=72 :: 72 :: step": [
+   1249066.5,
+   942116.03,
+   1012615.11
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=1058 :: 1058 :: step": [
+   16982895.59,
+   16772186.13,
+   16333906.55
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=128 :: 128 :: step": [
+   1696737.05,
+   1894761.44,
+   1809026.33
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=2048 :: 2048 :: step": [
+   32037656.16,
+   32943721.0,
+   32677881.76
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=242 :: 242 :: step": [
+   3311784.06,
+   3325867.48,
+   3538134.38
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=4050 :: 4050 :: step": [
+   72271432.49,
+   71934186.34,
+   72248900.54
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=512 :: 512 :: step": [
+   7835414.34,
+   7606925.48,
+   8192373.38
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: dbvh     N=72 :: 72 :: step": [
+   919743.11,
+   999742.08,
+   931238.19
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=1058 :: 1058 :: step": [
+   16948100.63,
+   17402752.99,
+   17904977.41
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=128 :: 128 :: step": [
+   1873565.48,
+   1902038.0,
+   1877223.26
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=2048 :: 2048 :: step": [
+   36320114.2,
+   36875239.15,
+   36410672.88
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=242 :: 242 :: step": [
+   3604191.75,
+   3592448.54,
+   3705615.91
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=4050 :: 4050 :: step": [
+   79866046.68,
+   75649693.24,
+   76014863.18
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=512 :: 512 :: step": [
+   9336388.01,
+   8397574.61,
+   9053240.59
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: hashgrid N=72 :: 72 :: step": [
+   1081902.36,
+   1002170.19,
+   1061737.15
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=1058 :: 1058 :: step": [
+   17562806.73,
+   17339064.83,
+   17901408.91
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=128 :: 128 :: step": [
+   1806282.46,
+   1830568.69,
+   1982870.84
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=2048 :: 2048 :: step": [
+   39138531.81,
+   39177004.15,
+   38505517.7
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=242 :: 242 :: step": [
+   3541444.26,
+   3913065.36,
+   3949600.6
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=4050 :: 4050 :: step": [
+   91602615.73,
+   88522485.35,
+   87346922.91
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=512 :: 512 :: step": [
+   8666373.49,
+   8802457.3,
+   8818667.68
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: octree   N=72 :: 72 :: step": [
+   1143805.04,
+   1374883.33,
+   1050102.89
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=1058 :: 1058 :: step": [
+   17007304.83,
+   17307316.34,
+   16990584.45
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=128 :: 128 :: step": [
+   1731603.5,
+   1709982.54,
+   1700994.64
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=2048 :: 2048 :: step": [
+   34901253.84,
+   34920905.06,
+   34092183.17
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=242 :: 242 :: step": [
+   3481544.38,
+   3508629.19,
+   3316785.13
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=4050 :: 4050 :: step": [
+   74898869.61,
+   73549528.24,
+   74675740.85
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=512 :: 512 :: step": [
+   7962271.06,
+   7651964.5,
+   8928972.09
+  ],
+  "bench_solver_scale :: solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree :: sap      N=72 :: 72 :: step": [
+   950594.34,
+   962276.4,
+   913682.8
+  ]
+ },
+ "unparsed": {
+  "bench_dbvh": 0,
+  "bench_islands": 0,
+  "bench_sap": 0,
+  "bench_solver_scale": 0
+ }
+}
