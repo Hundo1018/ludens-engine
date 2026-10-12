@@ -20,8 +20,18 @@
 # `diag/invariant.mojo`), so the suite runs with every invariant live: a real
 # bug behind a `debug_assert` fails loudly here instead of silently passing
 # in a build that never checks it.
+#
+# Every test compiles for one fixed CPU, `skylake` (AVX2 + FMA, no AVX-512),
+# unless LUDENS_TARGET_CPU says otherwise. The golden holds floats whose last
+# digits depend on what the compiler targets: compiled for the host, an
+# AVX-512 Xeon prints `Y-tree energy drift: 0.011868272829287659` where the
+# machine that recorded the golden prints 0.011869547291799025. The CPU model
+# matters, not just the ISA level: `x86-64-v3` and `haswell` still change
+# test_mpm's last digits, `skylake` and `alderlake` reproduce every section.
+# `skylake` runs on any AVX2 host (ROADMAP 17.81 cross-machine probe).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+TARGET_CPU="${LUDENS_TARGET_CPU:-skylake}"
 
 VALID_TIERS="unit component integration system stress"
 
@@ -65,7 +75,7 @@ done
 
 run_one() {
     echo "--- $1 ---"
-    mojo run -D ASSERT=all -I build "$1"
+    mojo run --target-cpu "$TARGET_CPU" -D ASSERT=all -I build "$1"
 }
 
 if [ "$#" -eq 0 ]; then

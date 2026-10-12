@@ -143,37 +143,37 @@ def main() raises:
     comptime if not has_accelerator():
         s.skip_device("no accelerator on this host")
         s.finish()
-        return
-    s.begin_device()
-    var ctx = DeviceContext()  # the single owner (F17)
-    var solver = GpuContactSolver(ctx)
-    var cfg = _cfg()
-    var g = Vec3(0, -9.8, 0, 0)
+    else:
+        s.begin_device()
+        var ctx = DeviceContext()  # the single owner (F17)
+        var solver = GpuContactSolver(ctx)
+        var cfg = _cfg()
+        var g = Vec3(0, -9.8, 0, 0)
 
-    _scenario(s, ctx, solver, 0, 180, "5-box stack")
-    _scenario(s, ctx, solver, 1, 180, "two islands + materials + sphere")
-    _scenario(s, ctx, solver, 2, 180, "10:1 mass ratio stack")
-    _scenario(s, ctx, solver, 3, 60, "400-box field")
+        _scenario(s, ctx, solver, 0, 180, "5-box stack")
+        _scenario(s, ctx, solver, 1, 180, "two islands + materials + sphere")
+        _scenario(s, ctx, solver, 2, 180, "10:1 mass ratio stack")
+        _scenario(s, ctx, solver, 3, 60, "400-box field")
 
-    # ---- extremes -----------------------------------------------------------
-    var lone = ContactScene6[QuatBody6]()
-    var lc = ContactScene6[QuatBody6]()
-    _ = lone.add(QuatBody6.at_rest(Vec3(0, 5, 0, 0), Inertia3.box(1, 0.5, 0.5, 0.5)), Vec3(0.5, 0.5, 0.5, 0), False)
-    _ = lc.add(QuatBody6.at_rest(Vec3(0, 5, 0, 0), Inertia3.box(1, 0.5, 0.5, 0.5)), Vec3(0.5, 0.5, 0.5, 0), False)
-    for _ in range(30):
-        solver.step(ctx, lone, DT, g, cfg)
-        lc.step(DT, g, cfg)
-    s.check(_max_diff(lone, lc) < 1e-5, "single body, no contacts: device free fall == CPU")
+        # ---- extremes -----------------------------------------------------------
+        var lone = ContactScene6[QuatBody6]()
+        var lc = ContactScene6[QuatBody6]()
+        _ = lone.add(QuatBody6.at_rest(Vec3(0, 5, 0, 0), Inertia3.box(1, 0.5, 0.5, 0.5)), Vec3(0.5, 0.5, 0.5, 0), False)
+        _ = lc.add(QuatBody6.at_rest(Vec3(0, 5, 0, 0), Inertia3.box(1, 0.5, 0.5, 0.5)), Vec3(0.5, 0.5, 0.5, 0), False)
+        for _ in range(30):
+            solver.step(ctx, lone, DT, g, cfg)
+            lc.step(DT, g, cfg)
+        s.check(_max_diff(lone, lc) < 1e-5, "single body, no contacts: device free fall == CPU")
 
-    var jc = ContactScene6[QuatBody6]()
-    _ground(jc, 5)
-    _stack(jc, 0, 2, 1)
-    _ = jc.add_joint(Joint6.ball(1, 2, Vec3(0, 0.25, 0, 0), Vec3(0, -0.25, 0, 0)))
-    var refused = False
-    try:
-        solver.step(ctx, jc, DT, g, cfg)
-    except:
-        refused = True
-    s.check(refused, "joints are refused, not silently ignored")
+        var jc = ContactScene6[QuatBody6]()
+        _ground(jc, 5)
+        _stack(jc, 0, 2, 1)
+        _ = jc.add_joint(Joint6.ball(1, 2, Vec3(0, 0.25, 0, 0), Vec3(0, -0.25, 0, 0)))
+        var refused = False
+        try:
+            solver.step(ctx, jc, DT, g, cfg)
+        except:
+            refused = True
+        s.check(refused, "joints are refused, not silently ignored")
 
-    s.finish()
+        s.finish()
