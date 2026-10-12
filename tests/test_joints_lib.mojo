@@ -13,6 +13,9 @@ is the check that the two subspaces coexist. A chain of one kind exercises only
 one branch of every sweep, so it cannot catch a projection that is right for
 revolute and silently wrong for prismatic.
 
+A bead sliding on a spinning rod pins the Coriolis coupling between the two
+kinds against its closed form (theta'', r'' and the kinetic energy).
+
 Limits are checked for the failure that clamping q produces: a clamped joint
 leaves its velocity pointing into the stop, so it re-violates every step. The
 gate is therefore that the joint STAYS at the stop over many steps, not merely
@@ -134,5 +137,29 @@ def main() raises:
         abs(back.qd[0] - qd_before) < 1e-6,
         "a joint moving away from its stop is untouched",
     )
+
+    # ---- 7. a slider on a spinning rod: the Coriolis coupling ----
+    # Bead (point mass m, prismatic along x) on a rod spinning about z with
+    # inertia I0, no gravity. Closed form: theta'' = -2 m r r' theta' /
+    # (I0 + m r^2), r'' = r theta'^2, KE = (I0 + m r^2) theta'^2 / 2 + m r'^2 / 2.
+    # Before 17.17 link_motion doubled the prismatic velocity-product term
+    # (theta'' came out 1.5x too large) and energy() treated the slider as
+    # revolute (KE 0.42 instead of 1.41).
+    var bead = Chain()
+    bead.add_link(ChainLink.revolute(Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1.0, Vec3(0.5, 0.5, 0.5, 0)))
+    _ = bead.add_link_to(0, ChainLink.prismatic(Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 2.0, Vec3(1e-6, 1e-6, 1e-6, 0)))
+    bead.q[1] = 0.7
+    bead.qd[0] = 1.3
+    bead.qd[1] = 0.4
+    var z2 = List[Real]()
+    z2.append(0)
+    z2.append(0)
+    var bq = bead.dynamics(z2, Vec3(0, 0, 0, 0))
+    var itot = Real(0.5 + 2.0 * 0.49 + 1e-6)
+    print("  bead on spinning rod: theta'' =", bq[0], " r'' =", bq[1])
+    s.check(abs(bq[0] + 2 * 2.0 * 0.7 * 0.4 * 1.3 / itot) < 1e-5, "Coriolis: theta'' matches the closed form")
+    s.check(abs(bq[1] - 0.7 * 1.69) < 1e-5, "centrifugal: r'' = r theta'^2")
+    var ke = 0.5 * itot * 1.69 + Real(0.5 * 2.0 * 0.16)
+    s.check(abs(bead.energy(Vec3(0, 0, 0, 0)) - ke) < 1e-5, "energy() counts the slider's velocity")
 
     s.finish()

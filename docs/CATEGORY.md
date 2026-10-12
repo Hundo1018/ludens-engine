@@ -316,6 +316,8 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 
 | Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
 |---|---|---|---|---|
+| 批次 articulation:`Chain.dynamics_aba` / `Chain.dynamics`(CRBA)vs `ArticBatch`(kernel 本體在主機)vs `GpuArticBatch`(同一本體在裝置) | physics/chain.mojo、physics/artic_batch.mojo、physics/gpu_artic.mojo | 同一前向動力學的三個實作;主機版與 `dynamics_aba` 逐位相同(同一組 helper、同一順序),與 CRBA 在浮點誤差內;裝置版呼叫同一函式 | `test_artic_batch`(轉動逐位、混合關節對 CRBA、珠子解析解、實例獨立、能量)、`test_gpu_artic`(裝置 vs 主機,需 GPU) | `bench_gpu_batch`(每實例步:`step_aba` / `step_host` / 裝置融合步) |
+| 批次 narrowphase:`ColliderSet.pair_manifold` vs `NarrowBatch`(kernel 本體在主機)vs `GpuNarrow` | collision/collider_set.mojo、collision/narrow_batch.mojo、collision/gpu_narrow.mojo | 同一分派、同一算術;主機版逐位相同;裝置版呼叫同一函式,差異只來自乘加收縮 | `test_narrow_batch`(2000 對逐位)、`test_gpu_narrow`(裝置 vs 主機,需 GPU) | `bench_gpu_batch`(每對:`pair_manifold` / `run_host` / 裝置) |
 | 著色接觸求解:CPU(`ContactScene6.step(cfg.colored)`,串行 / 色內多核)vs GPU(`GpuContactSolver`) | physics/solver6.mojo、physics/contact6.mojo、physics/gpu_contact.mojo | 同一排程(色內 Jacobi、色間 Gauss-Seidel)在兩個裝置上的實作;GPU kernel 呼叫同一個 `QuatBody6` 的方法。parity 非逐位:乘加收縮不同,且箱堆接觸裁剪是離散分支(系統對 1e-7 擾動混沌),故以 CPU 自身擾動發散為界 | `test_gpu_contact`(四場景 GPU−CPU ≤ 2× CPU 自身發散 + 靜止狀態 by action + 接觸數 / island 數相同;單體無接觸;拒絕關節) | `bench_gpu_contact`(N=64..4096:CPU 串行 / 多核 / GPU 整幀,GPU 拆 上傳 / 計算 / 下載 / CPU 簿記) |
 
 ### 2.9 動畫圖節點(Phase 17.6,2026-09-29)

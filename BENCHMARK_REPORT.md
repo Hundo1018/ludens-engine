@@ -2556,6 +2556,34 @@ only and lets the level script rebuild the rest.
 | save read + apply (level rebuild excluded) | 1024 | scene | 2105006.00 | 0.00 | 2.11 |
 
 
+## Batched articulations and narrowphase (17.17)
+
+Both GPU kernels are written as a per-thread body on flat arrays that the host
+can also run, so the host rows below are the kernel's own arithmetic. The
+articulation body (ABA, no allocation, revolute and prismatic joints) beats the
+existing per-chain `Chain.step_aba`, which allocates its sweeps' Lists on
+every call; the narrowphase body calls the same manifold functions as
+`pair_manifold`, so its host cost matches. Device rows (fused steps with
+resident state; narrowphase including transfers) appear only on a host with an
+accelerator — this report was generated on one without, so they are absent.
+
+### Batched articulations and narrowphase (17.17): host kernel body vs existing CPU path (+ device when present)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| articulation: Chain.step_aba per instance (revolute tree) | 64 | instance-step | 4187.84 | 0.24 | 85.77 |
+| articulation: ArticBatch.step_host (kernel body on host, revolute tree) | 64 | instance-step | 1681.24 | 0.59 | 34.43 |
+| articulation: ArticBatch.step_host (kernel body on host, revolute + prismatic tree) | 64 | instance-step | 1660.99 | 0.60 | 34.02 |
+| articulation: Chain.step_aba per instance (revolute tree) | 1024 | instance-step | 4435.53 | 0.23 | 90.84 |
+| articulation: ArticBatch.step_host (kernel body on host, revolute tree) | 1024 | instance-step | 1678.29 | 0.60 | 34.37 |
+| articulation: ArticBatch.step_host (kernel body on host, revolute + prismatic tree) | 1024 | instance-step | 1689.85 | 0.59 | 34.61 |
+| narrowphase: ColliderSet.pair_manifold per pair | 1024 | pair | 368.38 | 2.71 | 24.14 |
+| narrowphase: NarrowBatch.run_host (kernel body on host) | 1024 | pair | 370.03 | 2.70 | 24.25 |
+| narrowphase: ColliderSet.pair_manifold per pair | 16384 | pair | 389.38 | 2.57 | 25.52 |
+| narrowphase: NarrowBatch.run_host (kernel body on host) | 16384 | pair | 403.70 | 2.48 | 26.46 |
+
+
+
 ## Fluids — LBM on the GPU, interpolated walls, a second force path (17.42)
 
 The same D3Q19 stencil runs on the GPU from the CPU grid's setup and agrees

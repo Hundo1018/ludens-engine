@@ -40,7 +40,8 @@ pixi run mojo run -I build examples/06_ga_motor.mojo
 ```
 
 `run_tests.sh` 以 `-D ASSERT=all` 執行,`debug_assert` 在測試中生效;單檔手動跑時也加上。
-GPU 測試與 bench 在無加速器的主機上自動跳過(`has_accelerator`)。
+GPU 測試與 bench 在無加速器的主機上自動跳過(`has_accelerator`);裝置程式碼以 `pixi run gpu-compile`
+(`--target-accelerator sm_86` 建置全部 GPU 測試 / bench,不執行)檢查可編譯。
 
 ## 套件分層
 

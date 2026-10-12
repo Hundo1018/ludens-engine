@@ -299,8 +299,14 @@ struct Chain(Movable, Deinitable):
             var w_here = _matvec(rt, w_p) + s_w * self.qd[i]
             var v_here = _matvec(rt, v_p + cross(w_p, off)) + s_v * self.qd[i]
             # SPATIAL accelerations: same transform as velocities, plus the
-            # velocity-product joint term  v_i ×ₘ (S q̇) with S = (axis, 0),
-            # plus the joint acceleration S·q̈ (zero in the bias case).
+            # velocity-product joint term  v_i ×ₘ (S q̇)  =  (w × s_w q̇,
+            # w × s_v q̇ + v × s_w q̇), plus the joint acceleration S·q̈ (zero
+            # in the bias case). The prismatic term w × s_v q̇ has coefficient
+            # 1 here: the classical Coriolis 2ω×v is split between it and the
+            # transform of the parent's spatial acceleration (ROADMAP 17.17
+            # found a factor 2 here that made a bead on a spinning rod
+            # decelerate the rod 1.5x too fast; tests/test_artic_batch.mojo
+            # pins the analytic answer).
             var wa_here = (
                 _matvec(rt, wa_p)
                 + cross(w_here, s_w * self.qd[i])
@@ -309,7 +315,7 @@ struct Chain(Movable, Deinitable):
             var va_here = (
                 _matvec(rt, va_p + cross(wa_p, off))
                 + cross(v_here, s_w * self.qd[i])
-                + cross(w_here, s_v * self.qd[i]) * 2
+                + cross(w_here, s_v * self.qd[i])
                 + s_v * qdd[i]
             )
             ws.append((w_here))
@@ -1009,8 +1015,14 @@ struct Chain(Movable, Deinitable):
             var w_p = ws2[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
             var v_p = vs2[pi] if pi >= 0 else Vec3(0, 0, 0, 0)
             var rt = _rot_rows(self._joint_rot(i))
-            var w = _matvec(rt, w_p) + l.axis * self.qd[i]
-            var v = _matvec(rt, v_p + cross(w_p, l.pivot))
+            # same motion subspace and moving origin as `link_motion`: a
+            # prismatic joint adds axis*qd to v, not w (ROADMAP 17.17 found
+            # this treating every joint as revolute)
+            var rev = l.kind == JOINT_REVOLUTE
+            var s_w = l.axis if rev else Vec3(0, 0, 0, 0)
+            var s_v = Vec3(0, 0, 0, 0) if rev else l.axis
+            var w = _matvec(rt, w_p) + s_w * self.qd[i]
+            var v = _matvec(rt, v_p + cross(w_p, self._joint_offset(i))) + s_v * self.qd[i]
             var ii = SpInertia.of_link(l.mass, l.com, l.i_diag)
             var mom = ii.apply(w, v)
             e += (dot(w, mom[0]) + dot(v, mom[1])) * 0.5
