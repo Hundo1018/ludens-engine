@@ -110,7 +110,7 @@ def _ldq(p: FPtr, o: Int) -> Quat:
 
 
 def aba_instance(model: FPtr, parent: IPtr, n: Int, state: FPtr, qdd: FPtr, ws: FPtr, gravity: Vec3):
-    """qdd = forward dynamics of one instance (fixed base at rest, gravity via
+    """Qdd = forward dynamics of one instance (fixed base at rest, gravity via
     the base-acceleration trick)."""
     var zero = Vec3(0, 0, 0, 0)
     # --- pass 1 (outward): joint transforms, velocities, bias terms -------
@@ -297,7 +297,7 @@ struct ArticBatch(Movable):
         var qa = _fp(self.qdd)
         var w = _fp(self.ws)
         for k in range(self.count):
-            aba_instance(m, p, self.n, st + k * 3 * self.n, qa + k * self.n, w + k * self.n * WS, gravity)
+            aba_instance(m, p, self.n, st.unsafe_offset(k * 3 * self.n), qa.unsafe_offset(k * self.n), w.unsafe_offset(k * self.n * WS), gravity)
 
     def step_host(mut self, dt: Real, gravity: Vec3):
         var m = _fp(self.model)
@@ -306,4 +306,4 @@ struct ArticBatch(Movable):
         var qa = _fp(self.qdd)
         var w = _fp(self.ws)
         for k in range(self.count):
-            artic_step_instance(m, p, self.n, st + k * 3 * self.n, qa + k * self.n, w + k * self.n * WS, gravity, dt)
+            artic_step_instance(m, p, self.n, st.unsafe_offset(k * 3 * self.n), qa.unsafe_offset(k * self.n), w.unsafe_offset(k * self.n * WS), gravity, dt)

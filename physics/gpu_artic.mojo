@@ -32,7 +32,7 @@ def artic_step_kernel(
     var nn = Int(n)
     var g = Vec3(gx, gy, gz, 0)
     for _ in range(Int(steps)):
-        artic_step_instance(model, parent, nn, state + k * 3 * nn, qdd + k * nn, ws + k * nn * WS, g, dt)
+        artic_step_instance(model, parent, nn, state.unsafe_offset(k * 3 * nn), qdd.unsafe_offset(k * nn), ws.unsafe_offset(k * nn * WS), g, dt)
 
 
 struct GpuArticBatch(Movable):
