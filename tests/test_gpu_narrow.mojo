@@ -6,7 +6,12 @@
 test_narrow_batch); the device results must agree on hit / count for at
 least 99.9 % of pairs (a contact exactly at a clipping boundary may flip
 under fused multiply-add) and on normals / depths within 1e-4 where they
-agree. No accelerator -> the device half is skipped.
+agree. Box / capsule pairs get 5e-3: `capsule_box_manifold` locates the
+deepest segment point by a ternary search on squared distance, whose argmin
+is only resolvable to ~sqrt(eps) of the segment length (f32: ~3e-4), so
+host and device land on different t from rounding alone (measured on an
+RTX host: ~1.2e-3 normal difference, box / capsule pairs only).
+No accelerator -> the device half is skipped.
 """
 
 from std.sys import has_accelerator
@@ -14,9 +19,9 @@ from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
-from collision.collider_set import ColliderSet, Pose3
+from collision.collider_set import ColliderSet, Pose3, SHAPE_BOX, SHAPE_CAPSULE
 from collision.manifold import Axes3
-from collision.narrow_batch import NarrowBatch, OUT_STRIDE, O_HIT, O_COUNT, O_NORMAL, O_POINTS
+from collision.narrow_batch import PAIR_STRIDE, NarrowBatch, OUT_STRIDE, O_HIT, O_COUNT, O_NORMAL, O_POINTS
 from collision.gpu_narrow import GpuNarrow
 from max.gpu.host import DeviceContext
 
@@ -82,19 +87,28 @@ def main() raises:
         var g = GpuNarrow(ctx, 256)  # smaller than PAIRS: exercises growth
         g.run(ctx, dev)
         var disagree = 0
-        var worst = Float64(0)
+        var worst = Float64(0)  # every pair kind except box / capsule
+        var worst_bc = Float64(0)  # box / capsule (ternary-search contact point)
         for k in range(PAIRS):
             var o = k * OUT_STRIDE
             if dev.out[o + O_HIT] != host.out[o + O_HIT] or dev.out[o + O_COUNT] != host.out[o + O_COUNT]:
                 disagree += 1
                 continue
+            var pw = Float64(0)
             for c in range(3):
-                worst = max(worst, abs(Float64(dev.out[o + O_NORMAL + c] - host.out[o + O_NORMAL + c])))
+                pw = max(pw, abs(Float64(dev.out[o + O_NORMAL + c] - host.out[o + O_NORMAL + c])))
             for c in range(Int(host.out[o + O_COUNT])):
-                worst = max(worst, abs(Float64(dev.out[o + O_POINTS + 4 * c + 3] - host.out[o + O_POINTS + 4 * c + 3])))
-        print("  device vs host: hit/count disagree on", disagree, "pairs; max normal/depth diff", worst)
+                pw = max(pw, abs(Float64(dev.out[o + O_POINTS + 4 * c + 3] - host.out[o + O_POINTS + 4 * c + 3])))
+            var ka = Int(host.inp[k * PAIR_STRIDE])
+            var kb = Int(host.inp[k * PAIR_STRIDE + 1])
+            if min(ka, kb) == SHAPE_BOX and max(ka, kb) == SHAPE_CAPSULE:
+                worst_bc = max(worst_bc, pw)
+            else:
+                worst = max(worst, pw)
+        print("  device vs host: hit/count disagree on", disagree, "pairs; max normal/depth diff", worst, "(box/capsule", worst_bc, ")")
         s.check(disagree * 1000 <= PAIRS, "hit / count agree on >= 99.9 % of pairs")
-        s.check(worst < 1e-4, "normals and depths agree within 1e-4")
+        s.check(worst < 1e-4, "normals and depths agree within 1e-4 (all kinds but box / capsule)")
+        s.check(worst_bc < 5e-3, "box / capsule normals and depths agree within 5e-3")
     else:
         print("  (no GPU on this host: device half skipped)")
     s.finish()
