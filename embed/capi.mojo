@@ -129,7 +129,7 @@ def _nav(h: Optional[Handle]) -> Optional[NPtr]:
 
 
 def _v(x: Float32, y: Float32, z: Float32) -> Vec3:
-    return Vec3(x, y, z, 0)
+    return Vec3(Real(x), Real(y), Real(z), 0)
 
 
 def _fail(p: WPtr, code: Int, msg: String) -> Int:
@@ -252,7 +252,7 @@ def ld_body_add_box(
         return Int64(LD_ERR_HANDLE)
     var p = o.value()
     try:
-        return p[].w.add_box(_v(px, py, pz), _v(hx, hy, hz), mass, is_static != 0)
+        return p[].w.add_box(_v(px, py, pz), _v(hx, hy, hz), Real(mass), is_static != 0)
     except e:
         return Int64(_fail(p, LD_ERR_ARG, String(e)))
 
@@ -266,7 +266,7 @@ def ld_body_add_sphere(
         return Int64(LD_ERR_HANDLE)
     var p = o.value()
     try:
-        return p[].w.add_sphere(_v(px, py, pz), r, mass, is_static != 0)
+        return p[].w.add_sphere(_v(px, py, pz), Real(r), Real(mass), is_static != 0)
     except e:
         return Int64(_fail(p, LD_ERR_ARG, String(e)))
 
@@ -336,7 +336,7 @@ def ld_body_teleport(
         return Int32(LD_ERR_HANDLE)
     var p = o.value()
     try:
-        p[].w.teleport(b, _v(px, py, pz), Quat(qx, qy, qz, qw))
+        p[].w.teleport(b, _v(px, py, pz), Quat(Real(qx), Real(qy), Real(qz), Real(qw)))
         return Int32(LD_OK)
     except e:
         return Int32(_body_err(p, b, e))
@@ -354,13 +354,13 @@ def ld_body_get_state(h: Optional[Handle], b: Int64, out13: Optional[F32Ptr]) ab
     try:
         var s = p[].w.state(b)
         for k in range(3):
-            out13.value()[unsafe_offset=k] = s.pos[k]
-            out13.value()[unsafe_offset=7 + k] = s.vel[k]
-            out13.value()[unsafe_offset=10 + k] = s.omega[k]
-        out13.value()[unsafe_offset=3] = s.rot.x
-        out13.value()[unsafe_offset=4] = s.rot.y
-        out13.value()[unsafe_offset=5] = s.rot.z
-        out13.value()[unsafe_offset=6] = s.rot.w
+            out13.value()[unsafe_offset=k] = Float32(s.pos[k])
+            out13.value()[unsafe_offset=7 + k] = Float32(s.vel[k])
+            out13.value()[unsafe_offset=10 + k] = Float32(s.omega[k])
+        out13.value()[unsafe_offset=3] = Float32(s.rot.x)
+        out13.value()[unsafe_offset=4] = Float32(s.rot.y)
+        out13.value()[unsafe_offset=5] = Float32(s.rot.z)
+        out13.value()[unsafe_offset=6] = Float32(s.rot.w)
         return Int32(LD_OK)
     except e:
         return Int32(_body_err(p, b, e))
@@ -397,13 +397,13 @@ def ld_world_get_bodies(h: Optional[Handle], handles: Optional[I64Ptr], poses7: 
             var d = poses7.value()
             var pos = bset.bodies[i].position()
             var q = bset.bodies[i].rotation()
-            d[unsafe_offset=7 * j] = pos[0]
-            d[unsafe_offset=7 * j + 1] = pos[1]
-            d[unsafe_offset=7 * j + 2] = pos[2]
-            d[unsafe_offset=7 * j + 3] = q.x
-            d[unsafe_offset=7 * j + 4] = q.y
-            d[unsafe_offset=7 * j + 5] = q.z
-            d[unsafe_offset=7 * j + 6] = q.w
+            d[unsafe_offset=7 * j] = Float32(pos[0])
+            d[unsafe_offset=7 * j + 1] = Float32(pos[1])
+            d[unsafe_offset=7 * j + 2] = Float32(pos[2])
+            d[unsafe_offset=7 * j + 3] = Float32(q.x)
+            d[unsafe_offset=7 * j + 4] = Float32(q.y)
+            d[unsafe_offset=7 * j + 5] = Float32(q.z)
+            d[unsafe_offset=7 * j + 6] = Float32(q.w)
         j += 1
     return Int64(n)
 
@@ -426,16 +426,16 @@ def ld_world_raycast(
         return Int32(LD_ERR_HANDLE)
     var p = o.value()
     try:
-        var r = p[].w.raycast(_v(ox, oy, oz), _v(dx, dy, dz), max_t)
+        var r = p[].w.raycast(_v(ox, oy, oz), _v(dx, dy, dz), Real(max_t))
         if r.body < 0:
             return Int32(0)
         if out_body:
             out_body.value()[] = r.body
         if out_hit7:
-            out_hit7.value()[unsafe_offset=0] = r.t
+            out_hit7.value()[unsafe_offset=0] = Float32(r.t)
             for k in range(3):
-                out_hit7.value()[unsafe_offset=1 + k] = r.point[k]
-                out_hit7.value()[unsafe_offset=4 + k] = r.normal[k]
+                out_hit7.value()[unsafe_offset=1 + k] = Float32(r.point[k])
+                out_hit7.value()[unsafe_offset=4 + k] = Float32(r.normal[k])
         return Int32(1)
     except e:
         return Int32(_fail(p, LD_ERR_ARG, String(e)))
@@ -681,7 +681,7 @@ def ld_nav_bake(verts_xyz: Optional[F32Ptr], nverts: Int64, tris: Optional[I32Pt
         ts.append(Int(tris.value()[unsafe_offset=i]))
     var cfg = NavBakeConfig.default()
     if cfg7:
-        cfg = NavBakeConfig(cfg7.value()[unsafe_offset=0], cfg7.value()[unsafe_offset=1], cfg7.value()[unsafe_offset=2], cfg7.value()[unsafe_offset=3], cfg7.value()[unsafe_offset=4], cfg7.value()[unsafe_offset=5], Int(cfg7.value()[unsafe_offset=6]))
+        cfg = NavBakeConfig(Real(cfg7.value()[unsafe_offset=0]), Real(cfg7.value()[unsafe_offset=1]), Real(cfg7.value()[unsafe_offset=2]), Real(cfg7.value()[unsafe_offset=3]), Real(cfg7.value()[unsafe_offset=4]), Real(cfg7.value()[unsafe_offset=5]), Int(cfg7.value()[unsafe_offset=6]))
     try:
         var nav = EmbedNav(vs, ts, cfg)
         var p = alloc[_CNav](Layout[_CNav](count=1)).unsafe_leak()
@@ -732,7 +732,7 @@ def ld_nav_find_path(
             return Int64(LD_ERR_BUFFER)
         for i in range(n):
             for k in range(3):
-                out_xyz.value()[unsafe_offset=3 * i + k] = path.points[i][k]
+                out_xyz.value()[unsafe_offset=3 * i + k] = Float32(path.points[i][k])
         return Int64(n)
     except e:
         p[].error = String(e)

@@ -70,7 +70,7 @@ def collide_kernel[LF: TensorLayout, LC: TensorLayout](
     comptime for i in range(Q):
         var k = Int(Int32(i) * n32 + c32)
         var fi = _ld(f, k)
-        _st(f, k, fi + (equilibrium(i, rho, ux, uy, uz) - fi) * inv_tau)
+        _st(f, k, fi + (Float32(equilibrium(i, Real(rho), Real(ux), Real(uy), Real(uz))) - fi) * inv_tau)
 
 
 def stream_kernel[LF: TensorLayout, LC: TensorLayout](
@@ -138,7 +138,7 @@ def tunnel_kernel[LF: TensorLayout, LC: TensorLayout](
         comptime for i in range(Q):
             rho += _ld(f, i * nn + ci)
         comptime for i in range(Q):
-            _st(f, i * nn + ci, equilibrium(i, rho, inlet_u, 0, 0))
+            _st(f, i * nn + ci, Float32(equilibrium(i, Real(rho), Real(inlet_u), 0, 0)))
     var co = ci + X - 1
     var cu = ci + X - 2
     if _ld(flag, co) != Float32(CELL_SOLID):
@@ -175,11 +175,11 @@ struct LbmGpu(Movable):
         with self.fbuf.map_to_host() as m:
             var t = TileTensor(m, row_major(Q * n))
             for k in range(Q * n):
-                _st(t, k, cpu.f[k])
+                _st(t, k, Float32(cpu.f[k]))
         with self.gbuf.map_to_host() as m:
             var t = TileTensor(m, row_major(Q * n))
             for k in range(Q * n):
-                _st(t, k, cpu.g[k])
+                _st(t, k, Float32(cpu.g[k]))
         with self.flagbuf.map_to_host() as m:
             var t = TileTensor(m, row_major(n))
             for k in range(n):
@@ -199,7 +199,7 @@ struct LbmGpu(Movable):
             var ft = TileTensor(self.fbuf, row_major(Q * n))
             var gt = TileTensor(self.gbuf, row_major(Q * n))
             ctx.enqueue_function[kc](
-                ft, fl, Int32(n), Float32(1) / self.tau, self.tau, self.force_x,
+                ft, fl, Int32(n), Float32(1) / Float32(self.tau), Float32(self.tau), Float32(self.force_x),
                 grid_dim=grid, block_dim=_BLOCK,
             )
             ctx.enqueue_function[ks](
@@ -224,4 +224,4 @@ struct LbmGpu(Movable):
         with self.fbuf.map_to_host() as m:
             var t = TileTensor(m, row_major(Q * n))
             for k in range(Q * n):
-                cpu.f[k] = _ld(t, k)
+                cpu.f[k] = Real(_ld(t, k))

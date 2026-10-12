@@ -4334,6 +4334,32 @@ hashes equal.
 
 
 
+## Large worlds (17.8)
+
+What f32 loses far from the origin is resolution: at 1e5 m the spacing of
+representable positions is 8 mm, so a body moving 0.5 m/s (8.3 mm per tick at
+60 Hz) rounds to no motion at all. Rebasing keeps the simulated region near
+the origin (host coordinates live in f64), so the error stays at the size it
+has a few metres out; the f64 build removes it everywhere but doubles every
+position, velocity and solver value.
+
+### Large worlds (17.8): precision per coordinate strategy, rebasing and streaming cost
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| 0.5 m/s mover at 1.0 m: |travel error| f32 7.62939453125e-06 m, f32 rebased 7.62939453125e-06 m, f64 2.4868995751603507e-14 m | 1 | tick (absolute f32) | 1074.88 | 0.93 | 0.06 |
+| 0.5 m/s mover at 1000.0 m: |travel error| f32 0.001953125 m, f32 rebased 0.001953125 m, f64 7.275957614183426e-12 m | 1 | tick (absolute f32) | 1124.83 | 0.89 | 0.07 |
+| 0.5 m/s mover at 10000.0 m: |travel error| f32 0.03125 m, f32 rebased 0.0001220703125 m, f64 1.1641532182693481e-10 m | 1 | tick (absolute f32) | 2108.45 | 0.47 | 0.13 |
+| 0.5 m/s mover at 100000.0 m: |travel error| f32 0.5 m, f32 rebased 0.0001220703125 m, f64 1.6298145055770874e-09 m | 1 | tick (absolute f32) | 1117.82 | 0.89 | 0.07 |
+| 0.5 m/s mover at 1000000.0 m: |travel error| f32 0.5 m, f32 rebased 3.8743019104003906e-07 m, f64 1.862645149230957e-09 m | 1 | tick (absolute f32) | 1082.15 | 0.92 | 0.06 |
+| 0.5 m/s mover at 10000000.0 m: |travel error| f32 0.5 m, f32 rebased 3.8743019104003906e-07 m, f64 2.9802322387695313e-08 m | 1 | tick (absolute f32) | 1104.23 | 0.91 | 0.07 |
+| small world: settling stack, top box |f32 - f64| after 4 s = 0.0008510459807514363 m | 4 | tick (f32) | 29971.60 | 0.03 | 7.19 |
+| ContactScene6.shift_origin | 1000 | body | 8.31 | 120.27 | 0.17 |
+| ContactScene6.shift_origin | 10000 | body | 5.34 | 187.21 | 1.07 |
+| WorldPartition.update (1024 bodies in 64 cells, walking observer, 607 load/unload events) | 1024 | update | 16075.93 | 0.06 | 4.82 |
+
+
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

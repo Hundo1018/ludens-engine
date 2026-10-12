@@ -34,7 +34,7 @@ from std.time import perf_counter_ns
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
-from geometry.vec import Real, Vec3, dot, tangent_basis
+from geometry.vec import Real, Vec3, WorldType, dot, tangent_basis
 from geometry.quat import Quat
 from .rigid6 import QuatBody6, Inertia3
 from .contact6 import ContactConstraint
@@ -42,7 +42,7 @@ from .material import combine
 from .solver_config import SolverConfig
 from .solver6 import ContactScene6
 
-comptime dtype = DType.float32
+comptime dtype = WorldType
 comptime _BS = 24  # floats per body
 comptime _CS = 48  # floats per contact
 comptime _BLOCK = 128
@@ -78,13 +78,13 @@ comptime _AT2 = 43
 
 
 @always_inline
-def _ld[LT: TensorLayout](t: TileTensor[dtype, LT, MutAnyOrigin], i: Int) -> Float32:
+def _ld[LT: TensorLayout](t: TileTensor[dtype, LT, MutAnyOrigin], i: Int) -> Real:
     comptime assert t.flat_rank == 1
     return rebind[Scalar[dtype]](t[i])
 
 
 @always_inline
-def _st[LT: TensorLayout](t: TileTensor[dtype, LT, MutAnyOrigin], i: Int, v: Float32):
+def _st[LT: TensorLayout](t: TileTensor[dtype, LT, MutAnyOrigin], i: Int, v: Real):
     comptime assert t.flat_rank == 1
     t[i] = rebind[t.ElementType](v)
 
@@ -125,8 +125,8 @@ def _save[LT: TensorLayout](b: TileTensor[dtype, LT, MutAnyOrigin], i: Int, body
     _st(b, o + _Q + 3, body.q.w)
 
 
-def _b(x: Bool) -> Float32:
-    return Float32(1) if x else Float32(0)
+def _b(x: Bool) -> Real:
+    return Real(1) if x else Real(0)
 
 
 @always_inline
@@ -139,7 +139,7 @@ def _flag[LT: TensorLayout](b: TileTensor[dtype, LT, MutAnyOrigin], i: Int, f: I
 
 def gravity_kernel[LT: TensorLayout](
     b: TileTensor[dtype, LT, MutAnyOrigin],
-    n: Int32, h: Float32, gx: Float32, gy: Float32, gz: Float32,
+    n: Int32, h: Real, gx: Real, gy: Real, gz: Real,
 ):
     var i = global_idx.x
     if i < Int(n) and _flag(b, i, _GRAV):
@@ -150,7 +150,7 @@ def gravity_kernel[LT: TensorLayout](
 
 
 def integrate_kernel[LT: TensorLayout](
-    b: TileTensor[dtype, LT, MutAnyOrigin], n: Int32, h: Float32
+    b: TileTensor[dtype, LT, MutAnyOrigin], n: Int32, h: Real
 ):
     var i = global_idx.x
     if i < Int(n) and not _flag(b, i, _INACT):
@@ -199,7 +199,7 @@ def solve_kernel[LT: TensorLayout, LC: TensorLayout](
     b: TileTensor[dtype, LT, MutAnyOrigin],
     c: TileTensor[dtype, LC, MutAnyOrigin],
     lo: Int32, count: Int32,
-    h: Float32, bias_rate: Float32, mass_scale: Float32, impulse_scale: Float32,
+    h: Real, bias_rate: Real, mass_scale: Real, impulse_scale: Real,
     use_bias: Int32,
 ):
     """`contact6.solve_contact`, line for line, one thread per contact."""
@@ -393,9 +393,9 @@ struct GpuContactSolver(Movable):
             for k in range(nc):
                 var o = k * _CS
                 ref pr = pairs[k]
-                _st(t, o + _A, Float32(pr.a))
-                _st(t, o + _B, Float32(pr.b))
-                _st(t, o + _CNT, Float32(pr.m.count))
+                _st(t, o + _A, Real(pr.a))
+                _st(t, o + _B, Real(pr.b))
+                _st(t, o + _CNT, Real(pr.m.count))
                 _st(
                     t, o + _MU,
                     pr.mu_override if pr.mu_override >= 0 else combine(
@@ -407,7 +407,7 @@ struct GpuContactSolver(Movable):
                 )
                 _put3(t, o + _N, pr.m.normal)
                 for p in range(4):
-                    _st(t, o + _DEP + p, pr.m.depths[p] if p < pr.m.count else Float32(0))
+                    _st(t, o + _DEP + p, pr.m.depths[p] if p < pr.m.count else Real(0))
                     _put3(t, o + _RA + 3 * p, pr.ra[p])
                     _put3(t, o + _RB + 3 * p, pr.rb[p])
                     _st(t, o + _ACC + p, pr.acc[p])
@@ -450,7 +450,7 @@ struct GpuContactSolver(Movable):
                     var cnt = chi[col] - clo[col]
                     ctx.enqueue_function[ks](
                         bt, ct, Int32(clo[col]), Int32(cnt),
-                        h, bias_rate, Float32(1), Float32(0), Int32(0),
+                        h, bias_rate, Real(1), Real(0), Int32(0),
                         grid_dim=ceildiv(cnt, _BLOCK), block_dim=_BLOCK,
                     )
         ctx.synchronize()

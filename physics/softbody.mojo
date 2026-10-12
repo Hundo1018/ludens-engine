@@ -63,6 +63,12 @@ struct SoftBody(Movable, Deinitable):
         self.damp = 0.999
         self.mu = 0.5
 
+    def shift(mut self, d: Vec3):
+        """Origin rebasing (ROADMAP 17.8): every particle moves by `-d`;
+        velocities and rest lengths are translation-invariant."""
+        for i in range(len(self.pts)):
+            self.pts[i].x -= d
+
     @staticmethod
     def box_lattice(
         center: Vec3,

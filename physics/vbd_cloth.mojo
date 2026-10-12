@@ -29,26 +29,26 @@ from layout import TileTensor, TensorLayout, row_major
 from .gpu_cloth import ClothState, init_grid
 
 comptime dtype = WorldType
-comptime _G: Float32 = -9.8
-comptime _DAMP: Float32 = 0.998
-comptime _K: Float32 = 2e5  # spring stiffness (implicit solve: stiff is fine)
+comptime _G: Real = -9.8
+comptime _DAMP: Real = 0.998
+comptime _K: Real = 2e5  # spring stiffness (implicit solve: stiff is fine)
 
 
 # ------------------------------------------------------------ vertex update
 def _vbd_vertex(
-    rest: Float32,
-    mh2: Float32,
-    xi0: Float32,
-    yi0: Float32,
-    zi0: Float32,
-    tx: Float32,
-    ty: Float32,
-    tz: Float32,
-    nx: Array[Float32, 4],
-    ny: Array[Float32, 4],
-    nz: Array[Float32, 4],
+    rest: Real,
+    mh2: Real,
+    xi0: Real,
+    yi0: Real,
+    zi0: Real,
+    tx: Real,
+    ty: Real,
+    tz: Real,
+    nx: Array[Real, 4],
+    ny: Array[Real, 4],
+    nz: Array[Real, 4],
     nok: Array[Bool, 4],
-) -> Tuple[Float32, Float32, Float32]:
+) -> Tuple[Real, Real, Real]:
     """One local Newton step for vertex `i`: returns the new position.
     Pure function of the vertex, its inertia target and its (frozen)
     neighbours — the single arithmetic body both CPU and GPU execute."""
@@ -58,9 +58,9 @@ def _vbd_vertex(
     var h00 = mh2
     var h11 = mh2
     var h22 = mh2
-    var h01: Float32 = 0
-    var h02: Float32 = 0
-    var h12: Float32 = 0
+    var h01: Real = 0
+    var h02: Real = 0
+    var h12: Real = 0
     for k in range(4):
         if not nok[k]:
             continue
@@ -126,7 +126,7 @@ def vbd_predict_kernel[LT: TensorLayout](
     oz: TileTensor[dtype, LT, MutAnyOrigin],
     w: TileTensor[dtype, LT, MutAnyOrigin],
     n: Int32,
-    dt: Float32,
+    dt: Real,
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
@@ -167,8 +167,8 @@ def vbd_solve_kernel[LT: TensorLayout](
     w: TileTensor[dtype, LT, MutAnyOrigin],
     grid_w: Int32,
     grid_h: Int32,
-    rest: Float32,
-    mh2: Float32,
+    rest: Real,
+    mh2: Real,
     color: Int32,
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
@@ -188,9 +188,9 @@ def vbd_solve_kernel[LT: TensorLayout](
         return
     if rebind[Scalar[dtype]](w[i]) <= 0:
         return
-    var nx = Array[Float32, 4](fill=0)
-    var ny = Array[Float32, 4](fill=0)
-    var nz = Array[Float32, 4](fill=0)
+    var nx = Array[Real, 4](fill=0)
+    var ny = Array[Real, 4](fill=0)
+    var nz = Array[Real, 4](fill=0)
     var nok = Array[Bool, 4](fill=False)
     for k in range(4):
         var rr = r
@@ -236,7 +236,7 @@ def vbd_finalize_kernel[LT: TensorLayout](
     vy: TileTensor[dtype, LT, MutAnyOrigin],
     vz: TileTensor[dtype, LT, MutAnyOrigin],
     n: Int32,
-    inv_dt: Float32,
+    inv_dt: Real,
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
@@ -252,7 +252,7 @@ def vbd_finalize_kernel[LT: TensorLayout](
 
 # ---------------------------------------------------------------- CPU reference
 def cpu_vbd_run[W: Int, H: Int](
-    steps: Int, iters: Int, dt: Float32, rest: Float32,
+    steps: Int, iters: Int, dt: Real, rest: Real,
     self_thickness: Real = 0,
 ) -> ClothState:
     """Sequential reference: the same per-vertex Newton arithmetic, swept in
@@ -270,21 +270,21 @@ def cpu_vbd_run[W: Int, H: Int](
     var mh2 = 1.0 / (dt * dt)  # unit mass
     var s = ClothState()
     init_grid[W, H](s, rest)
-    var vx = List[Float32]()
-    var vy = List[Float32]()
-    var vz = List[Float32]()
-    var w = List[Float32]()
+    var vx = List[Real]()
+    var vy = List[Real]()
+    var vz = List[Real]()
+    var w = List[Real]()
     for i in range(n):
         vx.append(0)
         vy.append(0)
         vz.append(0)
-        w.append(Float32(0) if i < W else Float32(1))  # top row pinned
-    var tx = List[Float32]()
-    var ty = List[Float32]()
-    var tz = List[Float32]()
-    var ox = List[Float32]()
-    var oy = List[Float32]()
-    var oz = List[Float32]()
+        w.append(Real(0) if i < W else Real(1))  # top row pinned
+    var tx = List[Real]()
+    var ty = List[Real]()
+    var tz = List[Real]()
+    var ox = List[Real]()
+    var oy = List[Real]()
+    var oz = List[Real]()
     for _ in range(n):
         tx.append(0)
         ty.append(0)
@@ -315,9 +315,9 @@ def cpu_vbd_run[W: Int, H: Int](
                     var c = i % W
                     if (r + c) % 2 != color or w[i] <= 0:
                         continue
-                    var nx = Array[Float32, 4](fill=0)
-                    var ny = Array[Float32, 4](fill=0)
-                    var nz = Array[Float32, 4](fill=0)
+                    var nx = Array[Real, 4](fill=0)
+                    var ny = Array[Real, 4](fill=0)
+                    var nz = Array[Real, 4](fill=0)
                     var nok = Array[Bool, 4](fill=False)
                     for k in range(4):
                         var rr = r
@@ -359,13 +359,13 @@ def cpu_vbd_run[W: Int, H: Int](
 
 # ---------------------------------------------------------------- GPU driver
 def gpu_vbd_run_ctx[W: Int, H: Int](
-    mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32
+    mut ctx: DeviceContext, steps: Int, iters: Int, dt: Real, rest: Real
 ) raises -> ClothState:
     """VBD on a caller-provided context (shared across GPU rollouts)."""
     comptime n = W * H
     comptime layout = row_major[n]()
     comptime BLOCK = 256
-    var mh2 = Float32(1.0) / (dt * dt)
+    var mh2 = Real(1.0) / (dt * dt)
     var host = ClothState()
     init_grid[W, H](host, rest)
 

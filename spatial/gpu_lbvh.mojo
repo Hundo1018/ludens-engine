@@ -64,9 +64,9 @@ def morton_kernel[LT: TensorLayout](
         codes[i] = rebind[codes.ElementType](UInt32(0xFFFFFFFF))
         idx[i] = rebind[idx.ElementType](UInt32(i))
         return
-    var tx = (rebind[Scalar[fdt]](cx[i]) - minx) * invx
-    var ty = (rebind[Scalar[fdt]](cy[i]) - miny) * invy
-    var tz = (rebind[Scalar[fdt]](cz[i]) - minz) * invz
+    var tx = (Float32(rebind[Scalar[fdt]](cx[i])) - minx) * invx
+    var ty = (Float32(rebind[Scalar[fdt]](cy[i])) - miny) * invy
+    var tz = (Float32(rebind[Scalar[fdt]](cz[i])) - minz) * invz
     if tx < 0:
         tx = 0
     if tx > 1:

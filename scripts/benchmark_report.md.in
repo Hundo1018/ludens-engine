@@ -2133,6 +2133,17 @@ hashes equal.
 
 @bench benchmarks/bench_python.mojo
 
+## Large worlds (17.8)
+
+What f32 loses far from the origin is resolution: at 1e5 m the spacing of
+representable positions is 8 mm, so a body moving 0.5 m/s (8.3 mm per tick at
+60 Hz) rounds to no motion at all. Rebasing keeps the simulated region near
+the origin (host coordinates live in f64), so the error stays at the size it
+has a few metres out; the f64 build removes it everywhere but doubles every
+position, velocity and solver value.
+
+@bench benchmarks/bench_large_world.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

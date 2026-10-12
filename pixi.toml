@@ -30,6 +30,8 @@ test = { cmd = "bash scripts/run_tests.sh unit component integration system", de
 test-all = { cmd = "bash scripts/run_tests.sh unit component integration system stress", depends-on = ["build", "arch-check"] }
 # Build the C-ABI shared library build/libludens.so (embed/capi.mojo, header embed/ludens.h; ROADMAP 12.1).
 capi = { cmd = "mojo build --emit shared-lib -I build -o build/libludens.so embed/capi.mojo", depends-on = ["build"] }
+# Precompile every package with an f64 world scalar into build64/ (ROADMAP 17.8; scripts/build_f64.sh).
+build-f64 = "bash scripts/build_f64.sh"
 # Compile every GPU test and bench for an explicit accelerator (default sm_86) without running it (ROADMAP 17.17).
 gpu-compile = { cmd = "bash scripts/gpu_compile_check.sh", depends-on = ["build"] }
 # Build the Python wheel build/dist/ludens-*.whl (python/build_wheel.py; ROADMAP 17.21).

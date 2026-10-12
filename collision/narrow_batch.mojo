@@ -9,7 +9,7 @@ a-kind <= b-kind, normal flipped back), calling the same `*_manifold`
 functions, so a host run is bit-identical to `pair_manifold` (tested). Hulls
 and static meshes stay on the CPU path (their data is variable-length).
 
-Flat layouts (float32):
+Flat layouts (world scalar `Real`: f32, or f64 under build-f64):
 - pair record, `PAIR_STRIDE` floats: kind a, kind b, position a, axes a
   (3 rows), half a, position b, axes b, half b, speculative margin `mr`,
   inflation `infl` xyz (the `pair_manifold` arguments);
@@ -30,7 +30,7 @@ from collision.manifold import (
     capsule_capsule_manifold,
 )
 
-comptime FPtr = Pointer[Float32, MutAnyOrigin]
+comptime FPtr = Pointer[Real, MutAnyOrigin]  # world scalar (f32, or f64 under build-f64)
 
 comptime PAIR_STRIDE = 36
 comptime P_KA = 0
@@ -114,7 +114,7 @@ def narrow_pair(inp: FPtr, res: FPtr, k: Int):
     var o = k * OUT_STRIDE
     res[unsafe_offset=o + O_HIT] = 1 if m.hit else 0
     _st3(res, o + O_NORMAL, m.normal)
-    res[unsafe_offset=o + O_COUNT] = Float32(m.count)
+    res[unsafe_offset=o + O_COUNT] = Real(m.count)
     for c in range(ContactManifold[3].MAX):
         var po = o + O_POINTS + 4 * c
         if c < m.count:
@@ -133,13 +133,13 @@ struct NarrowBatch(Movable):
     """Pair records in the flat layout the GPU kernel reads; `run_host` runs
     the kernel body per pair on the CPU."""
 
-    var inp: List[Float32]
-    var out: List[Float32]
+    var inp: List[Real]
+    var out: List[Real]
     var count: Int
 
     def __init__(out self, capacity: Int = 0):
-        self.inp = List[Float32](capacity=capacity * PAIR_STRIDE)
-        self.out = List[Float32]()
+        self.inp = List[Real](capacity=capacity * PAIR_STRIDE)
+        self.out = List[Real]()
         self.count = 0
 
     def clear(mut self):
@@ -151,8 +151,8 @@ struct NarrowBatch(Movable):
         hull or static-mesh collider (those stay on the CPU path)."""
         if not is_batchable(cs.shape[i]) or not is_batchable(cs.shape[j]):
             raise Error("NarrowBatch.add_pair: only box, sphere and capsule colliders batch")
-        self.inp.append(Float32(cs.shape[i]))
-        self.inp.append(Float32(cs.shape[j]))
+        self.inp.append(Real(cs.shape[i]))
+        self.inp.append(Real(cs.shape[j]))
         self._side(pose_i, cs.half[i])
         self._side(pose_j, cs.half[j])
         self.inp.append(mr)
@@ -170,7 +170,7 @@ struct NarrowBatch(Movable):
             self.inp.append(half[c])
 
     def run_host(mut self):
-        self.out = List[Float32](length=self.count * OUT_STRIDE, fill=0)
+        self.out = List[Real](length=self.count * OUT_STRIDE, fill=0)
         var ip = self.inp.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
         var op = self.out.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
         for k in range(self.count):

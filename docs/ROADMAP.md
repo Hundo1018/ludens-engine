@@ -42,7 +42,7 @@
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 7 | 0 | 3 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
-| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 1 | 4 | 2 |
+| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 16 | 1 | 3 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 0 | 3 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
 
@@ -1766,7 +1766,7 @@
 | 6.10 | [場景序列化(精確存檔/載入)](ROADMAP_HISTORY.md#610-場景序列化精確存檔載入) | ✅ |  | physics/serialize.mojo 的 scene_to_string/scene_from_string 把 ContactScene6[QuatBody6] 的全部動力學狀態(含 warm-start cache、joint 累積器、sleep timer、軟體)以 f32 位元模式存成 token 流,save→load→save byte-identical、續跑 bit-identical。 |
 | 10.2 | [自動依賴 job graph(DOTS 式讀寫衝突)](ROADMAP_HISTORY.md#102-自動依賴-job-graphdots-式讀寫衝突--完成2026-08-11) | ✅ |  | `DeclaredSystem` trait 讓系統宣告 component 讀/寫遮罩,`JobGraphScheduler` 依 RAW/WAW/WAR 衝突律以最長路徑分層,與 `SequentialScheduler` 逐位相同,同層並行 1.40×(推導 228 ns 只建構一次)。 |
 | 10.3 | [Actor Model 硬化(既有雛形 → 生產)](ROADMAP_HISTORY.md#103-actor-model-硬化既有雛形--生產--完成2026-08-11) | ✅ |  | `EntityActorScheduler` 加上可觀測背壓(`max_rounds`、`mailbox_cap`,回報 `rounds_used`/`truncated`/`dropped`/`delivered`),溢位丟最新、保留 sender id 最小的訊息,serial 與 parallel dispatch 的世界摘要、投遞數與級聯輪數逐位相同。 |
-| 17.8 | [大世界座標](#178-大世界座標) | ⬜ | C | 計畫以 f32 + origin rebasing + world partition / cell streaming 支援大世界,f64 只做到 `WorldType` 參數化與小世界 parity,並以座標策略 seam 量測遠離原點的精度退化。 |
+| 17.8 | [大世界座標](#178-大世界座標) | ✅ | C | `gameplay/large_world.mojo`:座標策略 seam(`AbsoluteF32` / `RebasedF32`,origin 以 f64 保存、位移貼齊 2 的冪格點)、`ContactScene6.shift_origin`、`WorldPartition`(cell 串流、遲滯、跨格換主);f64 為整引擎可建置的變體(`pixi run build-f64`),小世界與 f32 一致;精度曲線見 `bench_large_world`。 |
 | 17.9 | [Debug-draw 指令佇列](ROADMAP_HISTORY.md#179-debug-draw-指令佇列--wave-a工具) | ✅ | A | `diag/draw.mojo` 的 `DrawQueue[dtype]` 是固定容量的 immediate-mode 指令佇列(line / sphere / box / arrow / text / contact-point,帶生命期、溢位 drop + 計數),由 test_diag_draw 與 bench_diag 表 (c) 覆蓋。 |
 | 17.10 | [Profiling / tracing hooks](ROADMAP_HISTORY.md#1710-profiling--tracing-hooks--wave-a工具) | ✅ | A | `diag/trace.mojo` 提供 begin/end 與 with-scoped span(`-D LUDENS_TRACE` 關閉時編譯為無)、計數器與 Chrome trace 匯出,並在 `ContactScene6` 每步標註 5 組階段 span。 |
 | 17.11 | [反射 / 型別註冊表](ROADMAP_HISTORY.md#1711-反射--型別註冊表--wave-b架構解鎖多項) | ✅ | B | `ecs/schema.mojo` 以 Mojo 1.1 `reflect[T]` 在編譯期產生 `TypeSchema`(含巢狀點號路徑)、按欄位名的版本容忍讀寫與 `TypeRegistry` 型別擦除存取,並有 parity 測試、bench_schema 與範例 23_reflection_inspector。 |
@@ -1809,7 +1809,27 @@
 
 #### 17.8 大世界座標
 
-> **狀態**:⬜ 未開始(Wave C,架構;2026-10-09 修訂排在 Wave C 剩餘順序第 (7) 項,即最末;程式碼中尚無 rebasing / partition 實作)
+> **狀態**:✅ 完成(Wave C;剩餘順序第 (8) 項)。2026-10-12 交付,設計筆記 `docs/design/17.8-large-world.md`。
+> **進度(2026-10-12)**:
+> - 座標策略 seam(`gameplay/large_world.mojo`):`CoordStrategy` trait,`AbsoluteF32`(不位移,17.8 前的行為)、`RebasedF32(threshold, grid)`(觀察者離原點超過
+>   `threshold` 時把原點移到觀察者位置,貼齊 2 的冪格點 —— 原點與位移都可精確表示);`Rebaser` 以 f64 保存 `origin`、記錄每次位移的 tick;宿主以 f64 `WorldPos` 給座標,
+>   `local = world - origin` 在 f64 內算完才轉 f32。第三個設定 f64 是**建置變體**:`WorldType` 是普通 comptime 別名(條件式別名會失去 `cos` / `sin` 需要的靜態浮點證據,
+>   且 `mojo precompile` 不收 `-D`),`scripts/build_f64.sh`(`pixi run build-f64`,約 1 分鐘)以切換該行的原始碼副本建出 `build64/`。為此修掉 13 個檔案中寫死 f32 的地方
+>   (GPU 模組改用 `WorldType` / `Real`;C-ABI 邊界維持 C `float` 並顯式轉換;f32 建置下全是 no-op)。
+> - `ContactScene6.shift_origin(d)`:所有 body 位置、warm-start 與 sensor 快取的世界座標接觸點、軟體粒子、靜態三角網格與高度場(經各自建構子以位移後資料重建,
+>   BVH / 法線 / 區塊界自然一致;`ColliderSet.shift_static`)移 `-d`;關節錨點、`ra` / `rb`、速度、衝量、island / 睡眠是相對量,不動;broadphase 每步重建,無狀態可移。
+> - `WorldPartition`:宿主以世界座標登記 body;cell 在觀察者 `load_radius` 內才在場景中,所有觀察者都超過 `unload_radius` 時把 body(姿態 + 速度)擷取回世界座標規格並移除
+>   (遲滯);動態 body 跨格後下一次 `update` 換主;載入 / 卸載事件帶 tick,依 cell key 與規格序決定順序。`save_large_world` / `load_large_world`:origin + 位移記錄 + 17.16 的精確快照。
+> - 測試 `test_large_world`(22,integration):1e6 m 處以 `RebasedF32` 建的三箱堆與原點處**逐位相同**;不位移時 0.5 m/s 物體在 1e6 m 完全不動(誤差 0.5 m,
+>   每 tick 8.3 mm < 半個 ulp 31 mm),位移後誤差 3.9e-7 m;靜止箱堆在 tick 120 位移:接觸數不變、之後最大速度 0(無 warm-start 衝擊)、60 tick 後與未位移者差 3.5e-6 m;
+>   位移後存檔 → 載入續跑 == 不中斷(逐位),origin 與記錄還原;(1e7, 0, −1e7) m 的箱堆與原點逐位相同;150 m/s 球在位移當 tick 仍被 CCD 擋在牆前;非有限位移被拒;
+>   小世界 `RebasedF32`(未觸發)== `AbsoluteF32` 逐位;partition:觀察者在格界來回無事件、跨格 body 換主且不隨舊格卸載、卸載 + 重載姿態與速度逐位還原、
+>   觀察者瞬移 5 km 後條帶全部卸載、兩次相同行走事件記錄相同。`test_world_f64`(5,integration):整引擎以 f64 建置成功;f64 在 1e7 m 誤差 3.0e-8 m;
+>   小世界 f32 / f64 慢速物體皆 < 1e-5 m,箱堆頂盒差 0.85 mm。
+> - 量測(`bench_large_world`,0.5 m/s 物體 1 s 的行程誤差):1 m:f32 7.6e-6 / f32 位移 7.6e-6 / f64 2.5e-14 m;1e4 m:3.1e-2 / 1.2e-4 / 1.2e-10;
+>   1e5 m:0.5(不動)/ 1.2e-4 / 1.6e-9;1e7 m:0.5 / 3.9e-7 / 3.0e-8。`shift_origin` 每 body 5.3–8.3 ns;`WorldPartition.update` 1024 body / 64 cell 每次 16.1 µs(含 607 次載入 / 卸載)。
+> **遺留待辦**:`Runtime` / `EmbedWorld` / C-ABI 接上位移與分區(目前在 `ContactScene6` 層使用);導航(17.14)與 AI 的世界座標資料隨位移移動、cluster graph 接分區;
+> 分區 cell 只依 xz;分區載入的 body 形狀只有 box / sphere;關節跨 cell 的 body 尚未處理(卸載時需整組);f64 完整精度曲線以外的 f64 效能量測。
 > **決定(2026-10-09)**:先做 f32 + origin rebasing + world partition;f64 只做到 `WorldType` 參數化與小世界 parity,完整精度曲線視代價再補。
 > **現況**:全部使用 `f32`(`WorldType`),以維持 bit-identical 決定論。世界尺度上限約為單一關卡。
 > **缺口**:
@@ -2549,7 +2569,7 @@
 | 17.5 | [破壞 / 破碎](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c) | 角色、載具、破壞與 gameplay 物理 | ✅ |
 | 17.6 | [動畫圖深度](ROADMAP_HISTORY.md#176-動畫圖深度--wave-b) | 動畫與程序化 | ✅ |
 | 17.7 | [固定步 ↔ 繪製率解耦的狀態插值](ROADMAP_HISTORY.md#177-固定步--繪製率解耦的狀態插值--wave-a) | 角色、載具、破壞與 gameplay 物理 | ✅ |
-| 17.8 | [大世界座標](#178-大世界座標) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.8 | [大世界座標](#178-大世界座標) | ECS、排程、執行期與診斷 | ✅ |
 | 17.9 | [Debug-draw 指令佇列](ROADMAP_HISTORY.md#179-debug-draw-指令佇列--wave-a工具) | ECS、排程、執行期與診斷 | ✅ |
 | 17.10 | [Profiling / tracing hooks](ROADMAP_HISTORY.md#1710-profiling--tracing-hooks--wave-a工具) | ECS、排程、執行期與診斷 | ✅ |
 | 17.11 | [反射 / 型別註冊表](ROADMAP_HISTORY.md#1711-反射--型別註冊表--wave-b架構解鎖多項) | ECS、排程、執行期與診斷 | ✅ |

@@ -14,6 +14,7 @@ for an explicit architecture on hosts without one.
 from std.math import ceildiv
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
+from geometry.vec import Real, WorldType
 from collision.narrow_batch import NarrowBatch, narrow_pair, FPtr, PAIR_STRIDE, OUT_STRIDE
 
 comptime _BLOCK = 128
@@ -27,13 +28,13 @@ def narrow_kernel(inp: FPtr, res: FPtr, count: Int32):
 
 struct GpuNarrow(Movable):
     var cap: Int
-    var inp: DeviceBuffer[DType.float32]
-    var res: DeviceBuffer[DType.float32]
+    var inp: DeviceBuffer[WorldType]
+    var res: DeviceBuffer[WorldType]
 
     def __init__(out self, mut ctx: DeviceContext, capacity: Int = 1024) raises:
         self.cap = max(capacity, 1)
-        self.inp = ctx.enqueue_create_buffer[DType.float32](self.cap * PAIR_STRIDE)
-        self.res = ctx.enqueue_create_buffer[DType.float32](self.cap * OUT_STRIDE)
+        self.inp = ctx.enqueue_create_buffer[WorldType](self.cap * PAIR_STRIDE)
+        self.res = ctx.enqueue_create_buffer[WorldType](self.cap * OUT_STRIDE)
 
     def run(mut self, mut ctx: DeviceContext, mut batch: NarrowBatch) raises:
         """Fill `batch.out` with every pair's manifold (synchronises)."""
@@ -41,8 +42,8 @@ struct GpuNarrow(Movable):
         if n > self.cap:
             while self.cap < n:
                 self.cap *= 2
-            self.inp = ctx.enqueue_create_buffer[DType.float32](self.cap * PAIR_STRIDE)
-            self.res = ctx.enqueue_create_buffer[DType.float32](self.cap * OUT_STRIDE)
+            self.inp = ctx.enqueue_create_buffer[WorldType](self.cap * PAIR_STRIDE)
+            self.res = ctx.enqueue_create_buffer[WorldType](self.cap * OUT_STRIDE)
         with self.inp.map_to_host() as m:
             for i in range(n * PAIR_STRIDE):
                 m[i] = batch.inp[i]
@@ -52,7 +53,7 @@ struct GpuNarrow(Movable):
                 grid_dim=ceildiv(n, _BLOCK), block_dim=_BLOCK,
             )
         ctx.synchronize()
-        batch.out = List[Float32](length=n * OUT_STRIDE, fill=0)
+        batch.out = List[Real](length=n * OUT_STRIDE, fill=0)
         with self.res.map_to_host() as m:
             for i in range(n * OUT_STRIDE):
                 batch.out[i] = m[i]
