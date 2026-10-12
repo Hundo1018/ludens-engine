@@ -26,9 +26,9 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 from layout import TileTensor, TensorLayout, row_major
 
 comptime dtype = WorldType
-comptime _G: Float32 = -9.8
-comptime _OMEGA: Float32 = 0.5  # Jacobi under-relaxation
-comptime _DAMP: Float32 = 0.998
+comptime _G: Real = -9.8
+comptime _OMEGA: Real = 0.5  # Jacobi under-relaxation
+comptime _DAMP: Real = 0.998
 
 
 # ---------------------------------------------------------------- kernels
@@ -44,7 +44,7 @@ def predict_kernel[LT: TensorLayout](
     vz: TileTensor[dtype, LT, MutAnyOrigin],
     w: TileTensor[dtype, LT, MutAnyOrigin],
     n: Int32,
-    dt: Float32,
+    dt: Real,
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
@@ -82,7 +82,7 @@ def jacobi_kernel[LT: TensorLayout](
     dz: TileTensor[dtype, LT, MutAnyOrigin],
     grid_w: Int32,
     grid_h: Int32,
-    rest: Float32,
+    rest: Real,
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
@@ -171,7 +171,7 @@ def finalize_kernel[LT: TensorLayout](
     vy: TileTensor[dtype, LT, MutAnyOrigin],
     vz: TileTensor[dtype, LT, MutAnyOrigin],
     n: Int32,
-    inv_dt: Float32,
+    inv_dt: Real,
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
@@ -192,26 +192,26 @@ def finalize_kernel[LT: TensorLayout](
 struct ClothState(Movable, Deinitable):
     """Final particle positions (component lists — no bare List[SIMD3])."""
 
-    var x: List[Float32]
-    var y: List[Float32]
-    var z: List[Float32]
+    var x: List[Real]
+    var y: List[Real]
+    var z: List[Real]
 
     def __init__(out self):
-        self.x = List[Float32]()
-        self.y = List[Float32]()
-        self.z = List[Float32]()
+        self.x = List[Real]()
+        self.y = List[Real]()
+        self.z = List[Real]()
 
 
-def init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32):
+def init_grid[W: Int, H: Int](mut s: ClothState, rest: Real):
     for r in range(H):
         for c in range(W):
-            s.x.append(Float32(c) * rest)
+            s.x.append(Real(c) * rest)
             s.y.append(2.0)
-            s.z.append(Float32(r) * rest)
+            s.z.append(Real(r) * rest)
 
 
 def cpu_cloth_run[W: Int, H: Int](
-    steps: Int, iters: Int, dt: Float32, rest: Float32,
+    steps: Int, iters: Int, dt: Real, rest: Real,
     self_thickness: Real = 0,
 ) -> ClothState:
     """Sequential reference: same gather-Jacobi arithmetic as the kernels.
@@ -229,21 +229,21 @@ def cpu_cloth_run[W: Int, H: Int](
     var sc = SelfCollider(
         self_thickness if self_thickness > 0 else Real(1)
     )
-    var vx = List[Float32]()
-    var vy = List[Float32]()
-    var vz = List[Float32]()
-    var w = List[Float32]()
+    var vx = List[Real]()
+    var vy = List[Real]()
+    var vz = List[Real]()
+    var w = List[Real]()
     for i in range(n):
         vx.append(0)
         vy.append(0)
         vz.append(0)
-        w.append(Float32(0) if i < W else Float32(1))  # top row pinned
-    var px = List[Float32]()
-    var py = List[Float32]()
-    var pz = List[Float32]()
-    var dx = List[Float32]()
-    var dy = List[Float32]()
-    var dz = List[Float32]()
+        w.append(Real(0) if i < W else Real(1))  # top row pinned
+    var px = List[Real]()
+    var py = List[Real]()
+    var pz = List[Real]()
+    var dx = List[Real]()
+    var dy = List[Real]()
+    var dz = List[Real]()
     for _ in range(n):
         px.append(0)
         py.append(0)
@@ -266,9 +266,9 @@ def cpu_cloth_run[W: Int, H: Int](
             for i in range(n):
                 var r = i // W
                 var c = i % W
-                var sx: Float32 = 0
-                var sy: Float32 = 0
-                var sz: Float32 = 0
+                var sx: Real = 0
+                var sy: Real = 0
+                var sz: Real = 0
                 for k in range(4):
                     var rr = r
                     var cc = c
@@ -340,7 +340,7 @@ struct GpuClothTiming(Copyable, ImplicitlyCopyable, Movable, Deinitable):
 
 
 def gpu_cloth_run_ctx[W: Int, H: Int](
-    mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32
+    mut ctx: DeviceContext, steps: Int, iters: Int, dt: Real, rest: Real
 ) raises -> ClothState:
     """Cloth on a caller-provided context (shared across GPU rollouts)."""
     var timing = GpuClothTiming.zero()
@@ -351,8 +351,8 @@ def gpu_cloth_run_ctx_timed[W: Int, H: Int](
     mut ctx: DeviceContext,
     steps: Int,
     iters: Int,
-    dt: Float32,
-    rest: Float32,
+    dt: Real,
+    rest: Real,
     readback_every: Int,
     mut timing: GpuClothTiming,
 ) raises -> ClothState:
@@ -435,7 +435,7 @@ def gpu_cloth_run_ctx_timed[W: Int, H: Int](
     # the enqueue loop alone would only price the launch calls.
     var compute_ns = 0
     var download_ns = 0
-    var rb_sink = Float32(0)
+    var rb_sink = Real(0)
     var phase_t0 = Int(perf_counter_ns())
     for stp in range(steps):
         ctx.enqueue_function[kp](

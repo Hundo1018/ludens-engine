@@ -583,6 +583,12 @@ build: all packages precompiled into build/
 [PASS] joints6 - 8 / 8 checks
 --- tests/test_kinematic.mojo ---
 [PASS] kinematic - 18 / 18 checks
+--- tests/test_large_world.mojo ---
+  stack 1e6 m out: absolute f32 rest speed 0.0 settle 0.023252103477716446 | rebased 0.0 0.02266051433980465 | at origin 0.0 0.02266051433980465
+  0.5 m/s body for 1 s at 1e6 m: |travel - 0.5| absolute 0.5  rebased 3.8743019104003906e-07
+  rebase at tick 120: max top speed after 0.0  max |moved + d - plain| 3.48001231031958e-06
+  CCD across a rebase: sphere world x 1.8499984741210938  (wall face at 1.95)
+[PASS] large_world - 22 / 22 checks
 --- tests/test_lod.mojo ---
 [PASS] lod - 18 / 18 checks
 --- tests/test_materials.mojo ---
@@ -747,6 +753,9 @@ build: all packages precompiled into build/
   landed pair: gap 0.49982712 heights 0.24970783 0.2497141
   overlap 0.4: welded spacing 0.6000000238418579  free spacing 0.9949652552604675
 [PASS] weld - 15 / 15 checks
+--- tests/test_world_f64.mojo ---
+  settling stack, top box |f32 - f64|: 0.0008510459807514363 m
+[PASS] world_f64 - 5 / 5 checks
 --- tests/test_world_query.mojo ---
 [PASS] world_query - 30 / 30 checks
 --- tests/test_system_determinism.mojo ---

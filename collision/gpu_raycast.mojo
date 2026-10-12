@@ -49,7 +49,7 @@ def raycast_kernel[BLT: TensorLayout, RLT: TensorLayout](
     out_t: TileTensor[fdt, RLT, MutAnyOrigin],
     nb: Int32,
     nr: Int32,
-    max_t: Float32,
+    max_t: Scalar[fdt],
 ):
     # Scalar kernel arguments are FIXED WIDTH: Mojo 1.0 dropped Int and UInt
     # from DevicePassable because their size is host-defined while a kernel
@@ -70,9 +70,9 @@ def raycast_kernel[BLT: TensorLayout, RLT: TensorLayout](
     var dz = rebind[Scalar[fdt]](rdz[r])
     # slab test wants 1/d; a zero component means "parallel", handled by the
     # infinity that 1/0 produces combining correctly with the min/max below
-    var ix = Float32(1.0) / dx
-    var iy = Float32(1.0) / dy
-    var iz = Float32(1.0) / dz
+    var ix = Scalar[fdt](1.0) / dx
+    var iy = Scalar[fdt](1.0) / dy
+    var iz = Scalar[fdt](1.0) / dz
     var best_t = max_t
     var best_p = Int32(-1)
     for b in range(nb_):
@@ -98,7 +98,7 @@ def raycast_kernel[BLT: TensorLayout, RLT: TensorLayout](
             tmax = hi
         if tmax < tmin or tmax < 0:
             continue
-        var t = tmin if tmin >= 0 else Float32(0)
+        var t = tmin if tmin >= 0 else Scalar[fdt](0)
         # strict `<` keeps the LOWEST index on an exact tie, matching the CPU
         # BVH's descent order
         if t < best_t:
@@ -195,7 +195,7 @@ def gpu_raycast_ctx[NB: Int, NR: Int](
         TileTensor(ox, rlay), TileTensor(oy, rlay), TileTensor(oz, rlay),
         TileTensor(dx, rlay), TileTensor(dy, rlay), TileTensor(dz, rlay),
         TileTensor(op, rlay), TileTensor(ot, rlay),
-        Int32(nb), Int32(nr), Float32(max_t),
+        Int32(nb), Int32(nr), max_t,
         grid_dim=grid, block_dim=BLOCK,
     )
     ctx.synchronize()

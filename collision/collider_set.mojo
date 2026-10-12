@@ -250,6 +250,34 @@ struct ColliderSet(Movable, Deinitable):
         self.fields.append(f^)
         return i
 
+    def shift_static(mut self, d: Vec3) raises:
+        """Origin rebasing (ROADMAP 17.8): move every WORLD-space static shape
+        by `-d` -- triangle meshes and heightfields store world coordinates
+        (their owning body's pose is ignored, see `add_trimesh`). Each is
+        rebuilt through its constructor from the shifted source data, so the
+        BVH, normals and per-block bounds come out exactly as if it had been
+        added at the new coordinates; `world_aabb` follows. Box, sphere,
+        capsule and hull shapes are body-relative and need nothing."""
+        for i in range(len(self.shape)):
+            var k = self.shape[i]
+            if k == SHAPE_TRIMESH:
+                var mi = self.mesh_id[i]
+                var v = self.meshes[mi].v.copy()
+                for j in range(len(v) // 3):
+                    v[3 * j] -= d[0]
+                    v[3 * j + 1] -= d[1]
+                    v[3 * j + 2] -= d[2]
+                self.meshes[mi] = TriMesh(v, self.meshes[mi].idx)
+                self.world_aabb[i] = self.meshes[mi].bounds()
+            elif k == SHAPE_HEIGHTFIELD:
+                var fi = self.mesh_id[i]
+                ref f = self.fields[fi]
+                var h = f.h.copy()
+                for j in range(len(h)):
+                    h[j] -= d[1]
+                self.fields[fi] = HeightField(h, f.nx, f.nz, f.cell, f.ox - d[0], f.oz - d[2])
+                self.world_aabb[i] = self.fields[fi].bounds()
+
     def deform_heightfield(
         mut self, i: Int, cx: Real, cz: Real, radius: Real, delta: Real,
         incremental: Bool = True,

@@ -16,7 +16,7 @@ for an explicit architecture on hosts without one.
 from std.math import ceildiv
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
-from geometry.vec import Real, Vec3
+from geometry.vec import Real, Vec3, WorldType
 from physics.artic_batch import ArticBatch, artic_step_instance, FPtr, IPtr, WS
 
 comptime _BLOCK = 64
@@ -24,7 +24,7 @@ comptime _BLOCK = 64
 
 def artic_step_kernel(
     model: FPtr, parent: IPtr, n: Int32, state: FPtr, qdd: FPtr, ws: FPtr,
-    count: Int32, gx: Float32, gy: Float32, gz: Float32, dt: Float32, steps: Int32,
+    count: Int32, gx: Real, gy: Real, gz: Real, dt: Real, steps: Int32,
 ):
     var k = Int(global_idx.x)
     if k >= Int(count):
@@ -38,20 +38,20 @@ def artic_step_kernel(
 struct GpuArticBatch(Movable):
     var n: Int
     var count: Int
-    var model: DeviceBuffer[DType.float32]
+    var model: DeviceBuffer[WorldType]
     var parent: DeviceBuffer[DType.int32]
-    var state: DeviceBuffer[DType.float32]
-    var qdd: DeviceBuffer[DType.float32]
-    var ws: DeviceBuffer[DType.float32]
+    var state: DeviceBuffer[WorldType]
+    var qdd: DeviceBuffer[WorldType]
+    var ws: DeviceBuffer[WorldType]
 
     def __init__(out self, mut ctx: DeviceContext, batch: ArticBatch) raises:
         self.n = batch.n
         self.count = batch.count
-        self.model = ctx.enqueue_create_buffer[DType.float32](len(batch.model))
+        self.model = ctx.enqueue_create_buffer[WorldType](len(batch.model))
         self.parent = ctx.enqueue_create_buffer[DType.int32](len(batch.parent))
-        self.state = ctx.enqueue_create_buffer[DType.float32](len(batch.state))
-        self.qdd = ctx.enqueue_create_buffer[DType.float32](len(batch.qdd))
-        self.ws = ctx.enqueue_create_buffer[DType.float32](len(batch.ws))
+        self.state = ctx.enqueue_create_buffer[WorldType](len(batch.state))
+        self.qdd = ctx.enqueue_create_buffer[WorldType](len(batch.qdd))
+        self.ws = ctx.enqueue_create_buffer[WorldType](len(batch.ws))
         with self.model.map_to_host() as m:
             for i in range(len(batch.model)):
                 m[i] = batch.model[i]
@@ -71,8 +71,8 @@ struct GpuArticBatch(Movable):
         ctx.enqueue_function[artic_step_kernel](
             self.model.unsafe_ptr(), self.parent.unsafe_ptr(), Int32(self.n),
             self.state.unsafe_ptr(), self.qdd.unsafe_ptr(), self.ws.unsafe_ptr(),
-            Int32(self.count), Float32(gravity[0]), Float32(gravity[1]), Float32(gravity[2]),
-            Float32(dt), Int32(steps),
+            Int32(self.count), gravity[0], gravity[1], gravity[2],
+            dt, Int32(steps),
             grid_dim=ceildiv(self.count, _BLOCK), block_dim=_BLOCK,
         )
 

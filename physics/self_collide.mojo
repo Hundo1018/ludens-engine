@@ -60,13 +60,13 @@ struct SelfCollider(Movable, Deinitable):
         var m = h % self.nbuckets
         return m + self.nbuckets if m < 0 else m
 
-    def _cellof(self, v: Float32) -> Int:
+    def _cellof(self, v: Real) -> Int:
         var q = Real(v) / self.cell
         var i = Int(q)
         return i - 1 if q < 0 and Real(i) != q else i
 
     def rebuild(
-        mut self, px: List[Float32], py: List[Float32], pz: List[Float32]
+        mut self, px: List[Real], py: List[Real], pz: List[Real]
     ):
         var n = len(px)
         self.start = List[Int](capacity=self.nbuckets + 1)
@@ -101,8 +101,8 @@ struct SelfCollider(Movable, Deinitable):
 
 
 def resolve_self_collisions(
-    mut px: List[Float32], mut py: List[Float32], mut pz: List[Float32],
-    w: List[Float32], width: Int, thickness: Real,
+    mut px: List[Real], mut py: List[Real], mut pz: List[Real],
+    w: List[Real], width: Int, thickness: Real,
     mut grid: SelfCollider,
 ) -> Int:
     """One repulsion pass. Returns the number of pairs corrected, so a caller
@@ -164,11 +164,11 @@ def resolve_self_collisions(
                         var pen = thickness - d
                         var si = pen * wi / wsum
                         var sj = pen * wj / wsum
-                        px[i] += Float32(nx * si)
-                        py[i] += Float32(ny * si)
-                        pz[i] += Float32(nz * si)
-                        px[j] -= Float32(nx * sj)
-                        py[j] -= Float32(ny * sj)
-                        pz[j] -= Float32(nz * sj)
+                        px[i] += Real(nx * si)
+                        py[i] += Real(ny * si)
+                        pz[i] += Real(nz * si)
+                        px[j] -= Real(nx * sj)
+                        py[j] -= Real(ny * sj)
+                        pz[j] -= Real(nz * sj)
                         hits += 1
     return hits

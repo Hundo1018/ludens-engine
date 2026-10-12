@@ -14,7 +14,7 @@ differences:
   workspace of `WS` floats per link, so the body runs unchanged on a GPU
   thread (`physics/gpu_artic.mojo`) and on the host (`ArticBatch`).
 
-Flat layouts (float32):
+Flat layouts (world scalar `Real`: f32, or f64 under build-f64):
 - model: `MODEL_STRIDE` floats per link: axis, pivot, com, principal
   inertia about the COM, mass, kind (0 revolute, 1 prismatic);
 - parent: one int32 per link, -1 for a root, parents before children;
@@ -42,7 +42,7 @@ from physics.chain import (
     JOINT_PRISMATIC,
 )
 
-comptime FPtr = Pointer[Float32, MutAnyOrigin]
+comptime FPtr = Pointer[Real, MutAnyOrigin]  # world scalar (f32, or f64 under build-f64)
 comptime IPtr = Pointer[Int32, MutAnyOrigin]
 
 comptime MODEL_STRIDE = 16
@@ -223,7 +223,7 @@ def artic_step_instance(model: FPtr, parent: IPtr, n: Int, state: FPtr, qdd: FPt
         state[unsafe_offset=i] = state[unsafe_offset=i] + state[unsafe_offset=n + i] * dt
 
 
-def _fp(mut l: List[Float32]) -> FPtr:
+def _fp(mut l: List[Real]) -> FPtr:
     return l.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
 
 
@@ -238,11 +238,11 @@ struct ArticBatch(Movable):
 
     var n: Int
     var count: Int
-    var model: List[Float32]
+    var model: List[Real]
     var parent: List[Int32]
-    var state: List[Float32]
-    var qdd: List[Float32]
-    var ws: List[Float32]
+    var state: List[Real]
+    var qdd: List[Real]
+    var ws: List[Real]
 
     def __init__(out self, chain: Chain, count: Int) raises:
         if count < 1:
@@ -252,7 +252,7 @@ struct ArticBatch(Movable):
             raise Error("ArticBatch: chain has no links")
         self.n = n
         self.count = count
-        self.model = List[Float32](length=n * MODEL_STRIDE, fill=0)
+        self.model = List[Real](length=n * MODEL_STRIDE, fill=0)
         self.parent = List[Int32](capacity=n)
         for i in range(n):
             ref l = chain.links[i]
@@ -263,17 +263,17 @@ struct ArticBatch(Movable):
                 self.model[o + M_COM + k] = l.com[k]
                 self.model[o + M_IDIAG + k] = l.i_diag[k]
             self.model[o + M_MASS] = l.mass
-            self.model[o + M_KIND] = Float32(l.kind)
+            self.model[o + M_KIND] = Real(l.kind)
             if chain.parent[i] >= i:
                 raise Error("ArticBatch: parents must come before children")
             self.parent.append(Int32(chain.parent[i]))
-        self.state = List[Float32](length=count * 3 * n, fill=0)
+        self.state = List[Real](length=count * 3 * n, fill=0)
         for k in range(count):
             for i in range(n):
                 self.state[k * 3 * n + i] = chain.q[i]
                 self.state[k * 3 * n + n + i] = chain.qd[i]
-        self.qdd = List[Float32](length=count * n, fill=0)
-        self.ws = List[Float32](length=count * n * WS, fill=0)
+        self.qdd = List[Real](length=count * n, fill=0)
+        self.ws = List[Real](length=count * n * WS, fill=0)
 
     def q(self, k: Int, i: Int) -> Real:
         return self.state[k * 3 * self.n + i]

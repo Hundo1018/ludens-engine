@@ -12,3 +12,6 @@ build/
 
 # Python bytecode
 __pycache__/
+
+# f64 world-scalar build (scripts/build_f64.sh)
+build64/

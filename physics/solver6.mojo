@@ -687,6 +687,39 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 kept.append(self.cache[c])
         self.cache = kept^
 
+    def shift_origin(mut self, d: Vec3) raises:
+        """Origin rebasing (ROADMAP 17.8): the world origin moves to `d`, so
+        every world-space quantity becomes `p - d`. That is every body's
+        position (static, kinematic and removed slots too), the world-space
+        manifold points of the warm-start and sensor caches, soft-body
+        particles and static meshes / heightfields (`ColliderSet
+        .shift_static`). Joint anchors, contact offsets `ra` / `rb`, drive
+        targets, velocities, impulses and island / sleep state are
+        body-relative or translation-invariant and stay as they are, so a
+        resting stack keeps its warm start across the shift. The broadphase
+        is rebuilt every step and holds nothing to move.
+
+        Exact when every coordinate and `d` are multiples of a common power
+        of two that each `p - d` can still represent (e.g. `d` snapped to a
+        grid of 2^k m and |p - d| <= |p|); otherwise each coordinate rounds
+        once, at the new, finer resolution."""
+        if not (isfinite(d[0]) and isfinite(d[1]) and isfinite(d[2])):
+            raise Error("ContactScene6.shift_origin: shift must be finite")
+        var dd = Vec3(d[0], d[1], d[2], 0)
+        for i in range(len(self.bset.bodies)):
+            var p = self.bset.bodies[i].position()
+            var r = self.bset.bodies[i].rotation()
+            self.bset.bodies[i].set_pose(Pose6(p - dd, r))
+        for c in range(len(self.cache)):
+            for k in range(self.cache[c].m.count):
+                self.cache[c].m.points[k] = self.cache[c].m.points[k] - dd
+        for c in range(len(self.sensor_pairs)):
+            for k in range(self.sensor_pairs[c].m.count):
+                self.sensor_pairs[c].m.points[k] = self.sensor_pairs[c].m.points[k] - dd
+        for s in range(len(self.softs)):
+            self.softs[s].shift(dd)
+        self.colliders.shift_static(dd)
+
     def _pose(self, i: Int) -> Pose3:
         """The seam value: everything `ColliderSet` needs from body `i`'s
         transform, and nothing else -- collision never sees a `Body6`."""

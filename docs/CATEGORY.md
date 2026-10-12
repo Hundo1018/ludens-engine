@@ -429,6 +429,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 驅動者:Python(`ludens` 套件,ctypes 包 C-ABI,裝在乾淨 venv)vs C 宿主 vs Mojo 原生 `EmbedWorld`;另含 CVar 變更 vs 直接呼叫、hot reload vs 切換函式 | python/ludens/*.py | 三個驅動語言是同一組世界操作的三個表示;定律是同一操作序列產生同一世界(存檔雜湊);CVar 與 hot reload 是「延遲到 tick 邊界的同一操作」,定律是與在該邊界直接操作逐位相同 | `test_python_binding`(雜湊 == 原生 == `test_capi` 的 C 宿主;CVar / hot reload 等式在 client 端檢查) | `bench_python`(步進、單次呼叫、批次姿態、回呼開銷:Python vs 原生) |
 
+### 2.25 座標策略(Phase 17.8,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 座標策略:`AbsoluteF32` vs `RebasedF32`(同在 `CoordStrategy` 後)vs f64 建置變體(`build64/`) | gameplay/large_world.mojo、physics/solver6.mojo(`shift_origin`)、scripts/build_f64.sh | 位移是平移群作用;模擬對平移等變,故「位移後模擬 == 模擬後位移」在 f32 中於 2 的冪格點上逐位成立(原點處 vs 1e6 / 1e7 m 處逐位相同),否則每座標一次捨入;f64 是同一程式在另一個純量體上的實例,小世界差異只來自捨入 | `test_large_world`(遠處 == 原點逐位、位移中途無衝擊、存讀檔續跑、小世界兩策略逐位)、`test_world_f64`(f64 建置、小世界 f32 / f64 一致) | `bench_large_world`(距離 1 m–1e7 m 精度曲線:三種設定;位移與串流成本) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

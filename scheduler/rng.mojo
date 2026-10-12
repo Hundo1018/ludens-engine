@@ -136,7 +136,7 @@ def unit_vec2[R: Rng](mut r: R) -> Vec2:
     circumscribes a disk of area pi/4 of it, so ~4 tries on average;
     32 is generous) with an axis fallback so this can never loop forever."""
     for _ in range(32):
-        var v = Vec2(range_f(r, -1, 1), range_f(r, -1, 1))
+        var v = Vec2(Real(range_f(r, -1, 1)), Real(range_f(r, -1, 1)))
         var s = length_sq(v)
         if s <= 1 and s > Real(1e-12):
             return normalize_or(v, Vec2(1, 0))
@@ -148,7 +148,7 @@ def unit_vec3[R: Rng](mut r: R) -> Vec3:
     reasoning as `unit_vec2` (a cube sample normalized directly over-selects
     the cube's corner directions)."""
     for _ in range(32):
-        var v = Vec3(range_f(r, -1, 1), range_f(r, -1, 1), range_f(r, -1, 1), 0)
+        var v = Vec3(Real(range_f(r, -1, 1)), Real(range_f(r, -1, 1)), Real(range_f(r, -1, 1)), 0)
         var s = length_sq(v)
         if s <= 1 and s > Real(1e-12):
             return normalize_or(v, Vec3(1, 0, 0, 0))

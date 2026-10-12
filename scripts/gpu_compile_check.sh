@@ -21,7 +21,7 @@ for f in tests/test_gpu_*.mojo tests/test_lbm_gpu.mojo benchmarks/bench_gpu_*.mo
         echo "ok    $f"
     else
         echo "FAIL  $f"
-        grep -v warning "$OUT/log" | grep -B2 -A8 error | head -30
+        { grep -v warning "$OUT/log" | grep -B2 -A8 error || tail -20 "$OUT/log"; } | head -30
         fail=$((fail + 1))
     fi
 done
