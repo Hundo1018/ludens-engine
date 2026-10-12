@@ -2055,6 +2055,21 @@ the navmesh slide after the linear program breaks reciprocity).
 
 @bench benchmarks/bench_crowd.mojo
 
+## AI decision making and agent services (17.15)
+
+The same guard behaviour written four ways costs very different amounts per
+decision: a utility score over seven step considerations and a guarded FSM
+are cheapest, the behavior tree pays for walking a reactive selector from
+the root every tick, and GOAP re-plans on every decision (a real game would
+cache the plan and re-plan on a world-state change). GOAP planning grows
+with the domain: a 64-action chain costs tens of microseconds. The behavior
+tree tick is iterative, so its cost is linear in the nodes visited and its
+depth is not bounded by the call stack. The spatial services table shows the
+boid step staying flat per boid from 1 000 to 10 000 fish (uniform grid), and
+the brute-force perception candidate pass as the scaling item to watch.
+
+@bench benchmarks/bench_ai.mojo
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /

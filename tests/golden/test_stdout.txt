@@ -6,6 +6,10 @@ build: all packages precompiled into build/
   hanging equilibrium: max |qdd| 0.0
   double pendulum via ABA: energy drift: 0.002937075593044455
 [PASS] aba - 3 / 3 checks
+--- tests/test_ai_smart.mojo ---
+[PASS] ai_smart - 17 / 17 checks
+--- tests/test_ai_steering.mojo ---
+[PASS] ai_steering - 19 / 19 checks
 --- tests/test_body_set.mojo ---
 [PASS] body_set - 171 / 171 checks
 --- tests/test_bvh.mojo ---
@@ -184,6 +188,10 @@ build: all packages precompiled into build/
   forward dual d(x)/d(u[2]): 0.64465266  generated: 0.64465237
   long rollout (800 steps) final y: -0.022866668
 [PASS] adjoint - 27 / 27 checks
+--- tests/test_ai_bt.mojo ---
+[PASS] ai_bt - 25 / 25 checks
+--- tests/test_ai_planner.mojo ---
+[PASS] ai_planner - 19 / 19 checks
 --- tests/test_anim.mojo ---
   blend mode 0  endpoint error w=0 0.0  w=1 5.9604645e-08
   blend mode 1  endpoint error w=0 0.0  w=1 1.1920929e-07
@@ -427,6 +435,14 @@ build: all packages precompiled into build/
   mailbox cap 4 — delivered 4  dropped 12  actor0 count 4
   ghost targets — delivered 0  dropped 0
 [PASS] actor - 24 / 24 checks
+--- tests/test_ai_decision.mojo ---
+[PASS] ai_decision - 12 / 12 checks
+--- tests/test_ai_influence.mojo ---
+[PASS] ai_influence - 18 / 18 checks
+--- tests/test_ai_perception.mojo ---
+[PASS] ai_perception - 21 / 21 checks
+--- tests/test_ai_world.mojo ---
+[PASS] ai_world - 15 / 15 checks
 --- tests/test_anim_graph.mojo ---
 [PASS] anim_graph - 29 / 29 checks
 --- tests/test_body_removal.mojo ---

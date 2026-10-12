@@ -395,6 +395,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | 3D 體積尋路:稀疏體素八叉樹葉上的 A*(`SvoAStar`,portal 成本模型)vs 稠密 26 連通體素 A*(`SmoothedVoxelAStar`),同在 `VolumeFinder` trait 後,兩者都接同一個視線平滑 | nav/volume.mojo | 兩者都是「(起點, 終點) → 自由空間折線」的函子,在同一張膨脹後的佔據格上;定律是可達性相同(八叉樹自由葉的鄰接 = 自由體素的面連通)、每段通過 `line_of_sight`、平滑後長度在 15 % 內 | `test_nav_volume`(60 個種子查詢 + 窗戶進入 / 窄窗 / 牆內目標 / 空體積) | `bench_nav`(體積表:建樹、葉數、兩變體每查詢成本與展開節點) |
 | 動態障礙:增量 `update`(只重算變動窗的 blocked / 侵蝕、只重建被觸及的 tile)vs `rebuild_all` vs 重新烘焙 | nav/navmesh.mojo、nav/heightfield.mojo(`erode_window`) | 同一「障礙集合 → navmesh」映射的增量與全量實作;窗內侵蝕的正確性由 chamfer 最短路的單調性保證(見 `erode_window` 註解),多邊形與連結逐位相同 | `test_nav`(堵住缺口 == 全量重建;移除後 == 原烘焙)、`test_nav_world`(12 次隨機增刪,每步 == 全量重建) | `bench_nav`(動態障礙表) |
 
+### 2.20 AI 決策(Phase 17.15,2026-10-12)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| 決策:behavior tree(`BtDecider`)vs 守衛式 FSM(`FsmDecider`,`procedural.fsm`)vs utility(`UtilityDecider`)vs GOAP 規劃(`GoapDecider`),同在 `Decider` trait 後 | ai/decision.mojo、ai/bt.mojo、ai/utility.mojo、ai/planner.mojo | 四者都是「黑板 → 動作」的函子;可觀察定律是對同一份規則清單(巡邏 / 追擊 / 攻擊 / 搜索 / 逃跑)每個輸入給相同動作 —— 「行為等價」由規則清單本身當 oracle 定義,而不是四者互比 | `test_ai_decision`(600 tick 劇本 + 2000 個種子隨機黑板,四者皆 = 規則) | `bench_ai`(每次決策成本;GOAP 規劃隨動作數;BT tick 隨樹大小) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

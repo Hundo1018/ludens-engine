@@ -13,6 +13,7 @@ scheduler = 3
 collision = 3
 nav = 3
 physics = 4
+ai = 4
 gameplay = 5
 oop = 6
 

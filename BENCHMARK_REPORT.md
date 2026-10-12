@@ -4130,6 +4130,62 @@ the navmesh slide after the linear program breaks reciprocity).
 
 
 
+## AI decision making and agent services (17.15)
+
+The same guard behaviour written four ways costs very different amounts per
+decision: a utility score over seven step considerations and a guarded FSM
+are cheapest, the behavior tree pays for walking a reactive selector from
+the root every tick, and GOAP re-plans on every decision (a real game would
+cache the plan and re-plan on a world-state change). GOAP planning grows
+with the domain: a 64-action chain costs tens of microseconds. The behavior
+tree tick is iterative, so its cost is linear in the nodes visited and its
+depth is not bounded by the call stack. The spatial services table shows the
+boid step staying flat per boid from 1 000 to 10 000 fish (uniform grid), and
+the brute-force perception candidate pass as the scaling item to watch.
+
+### Decision seam (17.15): guard behaviour, 10 000 agents x 10 ticks
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| BtDecider (reactive selector, 5 branches) | 10000 | decision | 633.76 | 1.58 | 63.38 |
+| FsmDecider (6 guarded transitions) | 10000 | decision | 152.73 | 6.55 | 15.27 |
+| UtilityDecider (5 actions, 7 considerations) | 10000 | decision | 95.88 | 10.43 | 9.59 |
+| GoapDecider (5 ops, 4 goals, plan per decision) | 10000 | decision | 967.99 | 1.03 | 96.80 |
+
+
+### GOAP planning (17.15): chain domain, plan uses every action
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| Goap 8 actions (plan length 4, expanded 5) | 8 | plan | 1259.28 | 0.79 | 0.06 |
+| Goap 16 actions (plan length 8, expanded 9) | 16 | plan | 2224.34 | 0.45 | 0.11 |
+| Goap 32 actions (plan length 16, expanded 17) | 32 | plan | 7018.04 | 0.14 | 0.35 |
+| Goap 64 actions (plan length 32, expanded 33) | 64 | plan | 40874.68 | 0.02 | 2.04 |
+
+
+### Behavior tree tick (17.15): reactive selector over N guarded branches, last applies
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| BT 13 nodes | 4 | tick | 287.39 | 3.48 | 5.75 |
+| BT 49 nodes | 16 | tick | 1018.31 | 0.98 | 20.37 |
+| BT 193 nodes | 64 | tick | 3978.03 | 0.25 | 79.56 |
+| BT 769 nodes | 256 | tick | 17250.15 | 0.06 | 345.00 |
+
+
+### AI spatial services (17.15)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| Flock step (33 neighbour checks / boid) | 1000 | boid-step | 478.61 | 2.09 | 14.36 |
+| Flock step (35 neighbour checks / boid) | 10000 | boid-step | 539.40 | 1.85 | 161.82 |
+| Perception candidates 1000 x 1000 (9653 rays) | 1000000 | pair | 8.20 | 121.94 | 41.00 |
+| EQS 21 x 21 grid, 2 tests | 441 | query | 225950.57 | 0.00 | 22.60 |
+| Influence propagate 128 x 128 | 16384 | cell-iteration | 134.98 | 7.41 | 22.11 |
+| Team vision 50 units, radius 12 (10094 lines) | 50 | unit | 17388.58 | 0.06 | 0.87 |
+
+
+
 ## Maturity assessment
 
 - **Every comparable-method seam has a benchmark row.** The seam / parity-test /
