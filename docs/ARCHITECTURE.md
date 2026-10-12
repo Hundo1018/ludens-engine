@@ -30,7 +30,10 @@ test/bench infrastructure: engine packages must never import it.
 | 6 | `embed` | The embedding boundary (ROADMAP 12.1): `EmbedWorld` / `EmbedNav` value-semantics API and `embed/capi.mojo`, the C-ABI shim built into `build/libludens.so` (`pixi run capi`) with header `embed/ludens.h`; v0.x freeze list `embed/abi_v0.txt` | New simulation behaviour (it only wraps lower layers), transport, scripting runtimes |
 
 `harness` (tests/benches), `tests/`, `benchmarks/`, `examples/`, `experiments/`
-sit above everything and may import anything.
+sit above everything and may import anything. `python/` (ROADMAP 17.21) holds no
+Mojo: it is the `ludens` Python package, a ctypes layer over `embed/ludens.h`,
+and `python/build_wheel.py`, which packages it with `build/libludens.so` and
+the Mojo runtime into a wheel.
 
 ### Reach-through rule ("上層直接摸到底層實作")
 

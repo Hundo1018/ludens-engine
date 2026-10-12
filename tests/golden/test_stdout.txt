@@ -600,6 +600,8 @@ build: all packages precompiled into build/
 [PASS] pipeline - 5 / 5 checks
 --- tests/test_pool.mojo ---
 [PASS] pool - 90 / 90 checks
+--- tests/test_python_binding.mojo ---
+[PASS] python_binding - 14 / 14 checks
 --- tests/test_queries.mojo ---
 [PASS] queries - 28 / 28 checks
 --- tests/test_ragdoll.mojo ---
