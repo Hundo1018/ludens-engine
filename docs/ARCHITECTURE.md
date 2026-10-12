@@ -27,6 +27,7 @@ test/bench infrastructure: engine packages must never import it.
 | 4 | `ai` | Decision making and agent services (ROADMAP 17.15): blackboard, behavior trees (iterative tick), utility AI, GOAP / HTN planners, the `Decider` seam (BT / FSM / utility / GOAP), perception (sight cone + host line of sight, hearing, memory), EQS point queries, steering / flocking / formations, smart-object slots, influence maps and team fog of war | Physics (line of sight is the host's batch query), rendering, content / tuning |
 | 5 | `gameplay` | Game-facing runtime shell built on physics + collision + ecs: character controller, raycast vehicles with tire / drivetrain / LBM-drag coupling (Phase 17.4), state interpolation, active ragdoll (Phase 17) | Solver internals |
 | 6 | `oop` | The object-oriented baseline engine used only by comparative benchmarks | — |
+| 6 | `embed` | The embedding boundary (ROADMAP 12.1): `EmbedWorld` / `EmbedNav` value-semantics API and `embed/capi.mojo`, the C-ABI shim built into `build/libludens.so` (`pixi run capi`) with header `embed/ludens.h`; v0.x freeze list `embed/abi_v0.txt` | New simulation behaviour (it only wraps lower layers), transport, scripting runtimes |
 
 `harness` (tests/benches), `tests/`, `benchmarks/`, `examples/`, `experiments/`
 sit above everything and may import anything.

@@ -1,0 +1,748 @@
+"""C-ABI shim (ROADMAP 12.1): every `ld_*` symbol of `embed/ludens.h`.
+
+Built as a shared library, not imported: `pixi run capi` runs
+`mojo build --emit shared-lib -I build embed/capi.mojo -o build/libludens.so`.
+
+Rules every function follows (the v0.x contract, docs/design/12.1-embedding.md):
+- Never raises across the boundary: a Mojo raise becomes a negative status
+  (`LD_ERR_*`) and its message is kept for `ld_world_last_error`.
+- A handle is checked for null and for the live magic before use; a
+  destroyed handle is detected as long as its memory was not reused
+  (best effort -- use after destroy is a host bug).
+- Output buffers are host-owned. A buffer that is too small makes the call
+  return `LD_ERR_BUFFER` without writing; the matching `*_count` / `*_size`
+  call says how much is needed.
+- Host callbacks (systems, contact subscribers) run inside `ld_world_step`;
+  they may call any `ld_*` function on the same world except
+  `ld_world_destroy` and `ld_world_load` (refused with `LD_ERR_STATE`). The
+  tick loop below holds no Mojo reference to the world across a callback:
+  every access goes through the raw pointer again afterwards.
+"""
+
+from std.memory import alloc, Layout
+from geometry.vec import Real, Vec3
+from geometry.quat import Quat
+from nav.heightfield import NavBakeConfig
+from embed.world import (
+    EmbedWorld,
+    TickEvent,
+    pack_body,
+    ABI_MAJOR,
+    ABI_MINOR,
+    LD_OK,
+    LD_ERR_HANDLE,
+    LD_ERR_ARG,
+    LD_ERR_STALE,
+    LD_ERR_BUFFER,
+    LD_ERR_FORMAT,
+    LD_ERR_CALLBACK,
+    LD_ERR_STATE,
+    PHASE_PRE,
+    PHASE_POST,
+)
+from embed.navigation import EmbedNav
+
+comptime Handle = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
+comptime F32Ptr = Pointer[Float32, MutAnyOrigin]
+comptime I64Ptr = Pointer[Int64, MutAnyOrigin]
+comptime I32Ptr = Pointer[Int32, MutAnyOrigin]
+comptime U8Ptr = Pointer[UInt8, MutAnyOrigin]
+comptime U64Ptr = Pointer[UInt64, MutAnyOrigin]
+comptime HandlePtr = Pointer[Handle, MutAnyOrigin]
+
+# int32_t (*)(ld_world* w, double dt, int64_t tick, void* user)
+comptime SystemFn = def(Optional[Handle], Float64, Int64, Optional[Handle]) thin abi("C") -> Int32
+# int32_t (*)(ld_world* w, const ld_contact_event* ev, void* user)
+comptime ContactFn = def(Optional[Handle], I64Ptr, Optional[Handle]) thin abi("C") -> Int32
+
+comptime _WORLD_MAGIC = UInt64(0x4C44574F524C4431)  # "LDWORLD1"
+comptime _NAV_MAGIC = UInt64(0x4C444E41564D4831)  # "LDNAVMH1"
+comptime _DEAD = UInt64(0xDEADDEADDEADDEAD)
+comptime _EVENT_WORDS = 5  # tick, a, b, kind, feat
+
+
+@fieldwise_init
+struct _System(Copyable, ImplicitlyCopyable, Movable):
+    var f: SystemFn
+    var user: Optional[Handle]
+    var phase: Int
+    var active: Bool
+
+
+@fieldwise_init
+struct _Sub(Copyable, ImplicitlyCopyable, Movable):
+    var f: ContactFn
+    var user: Optional[Handle]
+    var mask: Int
+    var active: Bool
+
+
+struct _CWorld(Movable):
+    var magic: UInt64
+    var w: EmbedWorld
+    var systems: List[_System]
+    var subs: List[_Sub]
+    var in_step: Bool
+    var ev: List[Int64]  # one event, handed to subscribers by pointer
+
+    def __init__(out self, var w: EmbedWorld):
+        self.magic = _WORLD_MAGIC
+        self.w = w^
+        self.systems = List[_System]()
+        self.subs = List[_Sub]()
+        self.in_step = False
+        self.ev = List[Int64](length=_EVENT_WORDS, fill=0)
+
+
+struct _CNav(Movable):
+    var magic: UInt64
+    var nav: EmbedNav
+    var error: String
+
+    def __init__(out self, var nav: EmbedNav):
+        self.magic = _NAV_MAGIC
+        self.nav = nav^
+        self.error = String()
+
+
+comptime WPtr = type_of(alloc[_CWorld](Layout[_CWorld](count=1)).unsafe_leak())
+comptime NPtr = type_of(alloc[_CNav](Layout[_CNav](count=1)).unsafe_leak())
+
+
+def _world(h: Optional[Handle]) -> Optional[WPtr]:
+    """The world behind `h`; None for null / dead handles."""
+    if not h:
+        return None
+    var p = h.value().unsafe_bitcast[_CWorld]()
+    if p[].magic != _WORLD_MAGIC:
+        return None
+    return p
+
+
+def _nav(h: Optional[Handle]) -> Optional[NPtr]:
+    if not h:
+        return None
+    var p = h.value().unsafe_bitcast[_CNav]()
+    if p[].magic != _NAV_MAGIC:
+        return None
+    return p
+
+
+def _v(x: Float32, y: Float32, z: Float32) -> Vec3:
+    return Vec3(x, y, z, 0)
+
+
+def _fail(p: WPtr, code: Int, msg: String) -> Int:
+    p[].w.error = msg
+    return code
+
+
+def _live_count(p: WPtr) -> Int:
+    var n = 0
+    for i in range(len(p[].w.scene.bset.bodies)):
+        if not p[].w.scene.bset.is_removed(i):
+            n += 1
+    return n
+
+
+def _copy_str(s: String, buf: Optional[U8Ptr], cap: Int64) -> Int64:
+    var b = s.as_bytes()
+    var n = len(b)
+    if buf and cap > 0:
+        var d = buf.value()
+        var m = min(n, Int(cap) - 1)
+        for i in range(m):
+            d[unsafe_offset=i] = b[i]
+        d[unsafe_offset=m] = 0
+    return Int64(n)
+
+
+# ------------------------------------------------------------------ version
+
+
+@export
+def ld_abi_version() abi("C") -> UInt32:
+    return UInt32((ABI_MAJOR << 16) | ABI_MINOR)
+
+
+# -------------------------------------------------------------------- world
+
+
+@export
+def ld_world_create(dt: Float64, gx: Float32, gy: Float32, gz: Float32, out_world: Optional[HandlePtr]) abi("C") -> Int32:
+    if not out_world:
+        return Int32(LD_ERR_ARG)
+    try:
+        var w = EmbedWorld(dt, _v(gx, gy, gz))
+        var p = alloc[_CWorld](Layout[_CWorld](count=1)).unsafe_leak()
+        p.unsafe_write(_CWorld(w^))
+        out_world.value()[] = p.unsafe_bitcast[NoneType]()
+        return Int32(LD_OK)
+    except:
+        return Int32(LD_ERR_ARG)
+
+
+@export
+def ld_world_destroy(h: Optional[Handle]) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if p[].in_step:
+        return Int32(_fail(p, LD_ERR_STATE, "ld_world_destroy: called from a callback"))
+    p[].magic = _DEAD
+    p.unsafe_deinit_pointee()
+    p.unsafe_free()
+    return Int32(LD_OK)
+
+
+@export
+def ld_world_last_error(h: Optional[Handle], buf: Optional[U8Ptr], cap: Int64) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return _copy_str(p[].w.error, buf, cap)
+
+
+@export
+def ld_world_set_solver(h: Optional[Handle], iterations: Int32, substeps: Int32) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        p[].w.set_solver(Int(iterations), Int(substeps))
+        return Int32(LD_OK)
+    except e:
+        return Int32(_fail(p, LD_ERR_ARG, String(e)))
+
+
+@export
+def ld_world_set_gravity(h: Optional[Handle], gx: Float32, gy: Float32, gz: Float32) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        p[].w.set_gravity(_v(gx, gy, gz))
+        return Int32(LD_OK)
+    except e:
+        return Int32(_fail(p, LD_ERR_ARG, String(e)))
+
+
+@export
+def ld_world_tick(h: Optional[Handle]) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return Int64(p[].w.tick)
+
+
+# ------------------------------------------------------------------- bodies
+
+
+@export
+def ld_body_add_box(
+    h: Optional[Handle], px: Float32, py: Float32, pz: Float32, hx: Float32, hy: Float32, hz: Float32, mass: Float32, is_static: Int32
+) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        return p[].w.add_box(_v(px, py, pz), _v(hx, hy, hz), mass, is_static != 0)
+    except e:
+        return Int64(_fail(p, LD_ERR_ARG, String(e)))
+
+
+@export
+def ld_body_add_sphere(
+    h: Optional[Handle], px: Float32, py: Float32, pz: Float32, r: Float32, mass: Float32, is_static: Int32
+) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        return p[].w.add_sphere(_v(px, py, pz), r, mass, is_static != 0)
+    except e:
+        return Int64(_fail(p, LD_ERR_ARG, String(e)))
+
+
+def _body_err(p: WPtr, b: Int64, e: Error) -> Int:
+    if not p[].w.is_alive(b):
+        return _fail(p, LD_ERR_STALE, String(e))
+    return _fail(p, LD_ERR_ARG, String(e))
+
+
+@export
+def ld_body_remove(h: Optional[Handle], b: Int64) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        p[].w.remove(b)
+        return Int32(LD_OK)
+    except e:
+        return Int32(_body_err(p, b, e))
+
+
+@export
+def ld_body_alive(h: Optional[Handle], b: Int64) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    return Int32(1) if p[].w.is_alive(b) else Int32(0)
+
+
+@export
+def ld_body_set_velocity(
+    h: Optional[Handle], b: Int64, vx: Float32, vy: Float32, vz: Float32, wx: Float32, wy: Float32, wz: Float32
+) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        p[].w.set_velocity(b, _v(vx, vy, vz), _v(wx, wy, wz))
+        return Int32(LD_OK)
+    except e:
+        return Int32(_body_err(p, b, e))
+
+
+@export
+def ld_body_apply_impulse(h: Optional[Handle], b: Int64, jx: Float32, jy: Float32, jz: Float32) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        p[].w.apply_impulse(b, _v(jx, jy, jz))
+        return Int32(LD_OK)
+    except e:
+        return Int32(_body_err(p, b, e))
+
+
+@export
+def ld_body_teleport(
+    h: Optional[Handle], b: Int64, px: Float32, py: Float32, pz: Float32, qx: Float32, qy: Float32, qz: Float32, qw: Float32
+) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        p[].w.teleport(b, _v(px, py, pz), Quat(qx, qy, qz, qw))
+        return Int32(LD_OK)
+    except e:
+        return Int32(_body_err(p, b, e))
+
+
+@export
+def ld_body_get_state(h: Optional[Handle], b: Int64, out13: Optional[F32Ptr]) abi("C") -> Int32:
+    """Output: out13 = position xyz, rotation xyzw, linear velocity xyz, angular velocity xyz."""
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if not out13:
+        return Int32(_fail(p, LD_ERR_ARG, "ld_body_get_state: out is null"))
+    try:
+        var s = p[].w.state(b)
+        for k in range(3):
+            out13.value()[unsafe_offset=k] = s.pos[k]
+            out13.value()[unsafe_offset=7 + k] = s.vel[k]
+            out13.value()[unsafe_offset=10 + k] = s.omega[k]
+        out13.value()[unsafe_offset=3] = s.rot.x
+        out13.value()[unsafe_offset=4] = s.rot.y
+        out13.value()[unsafe_offset=5] = s.rot.z
+        out13.value()[unsafe_offset=6] = s.rot.w
+        return Int32(LD_OK)
+    except e:
+        return Int32(_body_err(p, b, e))
+
+
+@export
+def ld_world_body_count(h: Optional[Handle]) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return Int64(_live_count(p))
+
+
+@export
+def ld_world_get_bodies(h: Optional[Handle], handles: Optional[I64Ptr], poses7: Optional[F32Ptr], cap: Int64) abi("C") -> Int64:
+    """Live bodies in slot order: handles[i] and poses7[7 i .. 7 i + 6] =
+    position xyz, rotation xyzw. Either array may be null."""
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    var n = _live_count(p)
+    if Int(cap) < n:
+        return Int64(_fail(p, LD_ERR_BUFFER, "ld_world_get_bodies: capacity below ld_world_body_count"))
+    ref bset = p[].w.scene.bset
+    var j = 0
+    for i in range(len(bset.bodies)):
+        if bset.is_removed(i):
+            continue
+        if handles:
+            handles.value()[unsafe_offset=j] = pack_body(bset.id_of(i))
+        if poses7:
+            var d = poses7.value()
+            var pos = bset.bodies[i].position()
+            var q = bset.bodies[i].rotation()
+            d[unsafe_offset=7 * j] = pos[0]
+            d[unsafe_offset=7 * j + 1] = pos[1]
+            d[unsafe_offset=7 * j + 2] = pos[2]
+            d[unsafe_offset=7 * j + 3] = q.x
+            d[unsafe_offset=7 * j + 4] = q.y
+            d[unsafe_offset=7 * j + 5] = q.z
+            d[unsafe_offset=7 * j + 6] = q.w
+        j += 1
+    return Int64(n)
+
+
+# ------------------------------------------------------------------ queries
+
+
+@export
+def ld_world_raycast(
+    h: Optional[Handle],
+    ox: Float32, oy: Float32, oz: Float32,
+    dx: Float32, dy: Float32, dz: Float32,
+    max_t: Float32,
+    out_body: Optional[I64Ptr],
+    out_hit7: Optional[F32Ptr],
+) abi("C") -> Int32:
+    """1 = hit (out_body, out_hit7 = t, point xyz, normal xyz), 0 = miss."""
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        var r = p[].w.raycast(_v(ox, oy, oz), _v(dx, dy, dz), max_t)
+        if r.body < 0:
+            return Int32(0)
+        if out_body:
+            out_body.value()[] = r.body
+        if out_hit7:
+            out_hit7.value()[unsafe_offset=0] = r.t
+            for k in range(3):
+                out_hit7.value()[unsafe_offset=1 + k] = r.point[k]
+                out_hit7.value()[unsafe_offset=4 + k] = r.normal[k]
+        return Int32(1)
+    except e:
+        return Int32(_fail(p, LD_ERR_ARG, String(e)))
+
+
+# ------------------------------------------------------- systems and events
+
+
+@export
+def ld_world_add_system(h: Optional[Handle], phase: Int32, f: SystemFn, user: Optional[Handle]) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    if Int(phase) != PHASE_PRE and Int(phase) != PHASE_POST:
+        return Int64(_fail(p, LD_ERR_ARG, "ld_world_add_system: phase must be LD_PHASE_PRE or LD_PHASE_POST"))
+    p[].systems.append(_System(f, user, Int(phase), True))
+    return Int64(len(p[].systems) - 1)
+
+
+@export
+def ld_world_remove_system(h: Optional[Handle], id: Int64) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if id < 0 or Int(id) >= len(p[].systems) or not p[].systems[Int(id)].active:
+        return Int32(_fail(p, LD_ERR_ARG, "ld_world_remove_system: unknown system id"))
+    p[].systems[Int(id)].active = False
+    return Int32(LD_OK)
+
+
+@export
+def ld_world_subscribe_contacts(h: Optional[Handle], kind_mask: Int32, f: ContactFn, user: Optional[Handle]) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    if kind_mask <= 0 or kind_mask > 7:
+        return Int64(_fail(p, LD_ERR_ARG, "ld_world_subscribe_contacts: kind_mask must be a non-empty subset of 1 << LD_EVENT_*"))
+    p[].subs.append(_Sub(f, user, Int(kind_mask), True))
+    return Int64(len(p[].subs) - 1)
+
+
+@export
+def ld_world_unsubscribe(h: Optional[Handle], id: Int64) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if id < 0 or Int(id) >= len(p[].subs) or not p[].subs[Int(id)].active:
+        return Int32(_fail(p, LD_ERR_ARG, "ld_world_unsubscribe: unknown subscription id"))
+    p[].subs[Int(id)].active = False
+    return Int32(LD_OK)
+
+
+def _run_phase(h: Optional[Handle], p: WPtr, phase: Int) -> Int:
+    var i = 0
+    while i < len(p[].systems):
+        var s = p[].systems[i]
+        if s.active and s.phase == phase:
+            var rc = s.f(h, p[].w.dt, Int64(p[].w.tick), s.user)
+            if rc != 0:
+                return _fail(p, LD_ERR_CALLBACK, "system " + String(i) + " returned " + String(rc) + " at tick " + String(p[].w.tick))
+        i += 1
+    return LD_OK
+
+
+def _publish(h: Optional[Handle], p: WPtr) -> Int:
+    var e = 0
+    while e < len(p[].w.tick_events):
+        var ev = p[].w.tick_events[e]
+        var i = 0
+        while i < len(p[].subs):
+            var s = p[].subs[i]
+            if s.active and (s.mask >> Int(ev.kind)) & 1 == 1:
+                p[].ev[0] = ev.tick
+                p[].ev[1] = ev.a
+                p[].ev[2] = ev.b
+                p[].ev[3] = ev.kind
+                p[].ev[4] = ev.feat
+                var rc = s.f(h, p[].ev.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](), s.user)
+                if rc != 0:
+                    return _fail(p, LD_ERR_CALLBACK, "contact subscriber " + String(i) + " returned " + String(rc))
+            i += 1
+        e += 1
+    return LD_OK
+
+
+def _run_ticks(h: Optional[Handle], p: WPtr, n: Int) -> Int:
+    p[].in_step = True
+    for _ in range(n):
+        var rc = _run_phase(h, p, PHASE_PRE)
+        if rc == LD_OK:
+            p[].w.physics_tick()
+            rc = _publish(h, p)
+        if rc == LD_OK:
+            rc = _run_phase(h, p, PHASE_POST)
+        if rc != LD_OK:
+            p[].in_step = False
+            return rc
+    p[].in_step = False
+    return n
+
+
+@export
+def ld_world_step(h: Optional[Handle], frame_dt: Float64) abi("C") -> Int32:
+    """Advance by `frame_dt` seconds of host time; returns the fixed ticks run."""
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if p[].in_step:
+        return Int32(_fail(p, LD_ERR_STATE, "ld_world_step: called from a callback"))
+    try:
+        var n = p[].w.ticks_due(frame_dt)
+        return Int32(_run_ticks(h, p, n))
+    except e:
+        return Int32(_fail(p, LD_ERR_ARG, String(e)))
+
+
+@export
+def ld_world_step_ticks(h: Optional[Handle], n: Int32) abi("C") -> Int32:
+    """Run exactly `n` fixed ticks, bypassing the frame-time accumulator."""
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if p[].in_step:
+        return Int32(_fail(p, LD_ERR_STATE, "ld_world_step_ticks: called from a callback"))
+    if n < 0:
+        return Int32(_fail(p, LD_ERR_ARG, "ld_world_step_ticks: n must be >= 0"))
+    p[].w.frame_events.clear()
+    return Int32(_run_ticks(h, p, Int(n)))
+
+
+@export
+def ld_world_event_count(h: Optional[Handle]) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return Int64(len(p[].w.frame_events))
+
+
+@export
+def ld_world_get_events(h: Optional[Handle], dst: Optional[I64Ptr], cap: Int64) abi("C") -> Int64:
+    """Contact events of the last step call, as ld_contact_event records."""
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    var n = len(p[].w.frame_events)
+    if Int(cap) < n or (n > 0 and not dst):
+        return Int64(_fail(p, LD_ERR_BUFFER, "ld_world_get_events: capacity below ld_world_event_count"))
+    for i in range(n):
+        var e = p[].w.frame_events[i]
+        dst.value()[unsafe_offset=_EVENT_WORDS * i] = e.tick
+        dst.value()[unsafe_offset=_EVENT_WORDS * i + 1] = e.a
+        dst.value()[unsafe_offset=_EVENT_WORDS * i + 2] = e.b
+        dst.value()[unsafe_offset=_EVENT_WORDS * i + 3] = e.kind
+        dst.value()[unsafe_offset=_EVENT_WORDS * i + 4] = e.feat
+    return Int64(n)
+
+
+# ---------------------------------------------------------- save / restore
+
+
+@export
+def ld_world_save_size(h: Optional[Handle]) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return Int64(len(p[].w.save()))
+
+
+@export
+def ld_world_save(h: Optional[Handle], buf: Optional[U8Ptr], cap: Int64) abi("C") -> Int64:
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    var blob = p[].w.save()
+    if Int(cap) < len(blob) or not buf:
+        return Int64(_fail(p, LD_ERR_BUFFER, "ld_world_save: capacity below ld_world_save_size"))
+    var d = buf.value()
+    var src = blob.unsafe_ptr()
+    for i in range(len(blob)):
+        d[unsafe_offset=i] = src[unsafe_offset=i]
+    return Int64(len(blob))
+
+
+@export
+def ld_world_load(h: Optional[Handle], data: Optional[U8Ptr], n: Int64) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if p[].in_step:
+        return Int32(_fail(p, LD_ERR_STATE, "ld_world_load: called from a callback"))
+    if n < 0 or (n > 0 and not data):
+        return Int32(_fail(p, LD_ERR_ARG, "ld_world_load: bad buffer"))
+    var blob = List[UInt8](length=Int(n), fill=0)
+    if n > 0:
+        var src = data.value()
+        var d = blob.unsafe_ptr()
+        for i in range(Int(n)):
+            d[unsafe_offset=i] = src[unsafe_offset=i]
+    try:
+        p[].w.load(blob)
+        return Int32(LD_OK)
+    except e:
+        return Int32(_fail(p, LD_ERR_FORMAT, String(e)))
+
+
+@export
+def ld_world_hash(h: Optional[Handle], dst: Optional[U64Ptr]) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if not dst:
+        return Int32(_fail(p, LD_ERR_ARG, "ld_world_hash: out is null"))
+    dst.value()[] = p[].w.hash()
+    return Int32(LD_OK)
+
+
+# --------------------------------------------------------------- navigation
+
+
+@export
+def ld_nav_bake(verts_xyz: Optional[F32Ptr], nverts: Int64, tris: Optional[I32Ptr], nidx: Int64, cfg7: Optional[F32Ptr], out_nav: Optional[HandlePtr]) abi("C") -> Int32:
+    """Config: cfg7 = cell_size, cell_height, agent_height, agent_radius, max_climb,
+    max_slope_deg, tile_size (null = defaults)."""
+    if not out_nav or nverts <= 0 or nidx <= 0 or not verts_xyz or not tris:
+        return Int32(LD_ERR_ARG)
+    var vs = List[Vec3](capacity=Int(nverts))
+    for i in range(Int(nverts)):
+        vs.append(_v(verts_xyz.value()[unsafe_offset=3 * i], verts_xyz.value()[unsafe_offset=3 * i + 1], verts_xyz.value()[unsafe_offset=3 * i + 2]))
+    var ts = List[Int](capacity=Int(nidx))
+    for i in range(Int(nidx)):
+        ts.append(Int(tris.value()[unsafe_offset=i]))
+    var cfg = NavBakeConfig.default()
+    if cfg7:
+        cfg = NavBakeConfig(cfg7.value()[unsafe_offset=0], cfg7.value()[unsafe_offset=1], cfg7.value()[unsafe_offset=2], cfg7.value()[unsafe_offset=3], cfg7.value()[unsafe_offset=4], cfg7.value()[unsafe_offset=5], Int(cfg7.value()[unsafe_offset=6]))
+    try:
+        var nav = EmbedNav(vs, ts, cfg)
+        var p = alloc[_CNav](Layout[_CNav](count=1)).unsafe_leak()
+        p.unsafe_write(_CNav(nav^))
+        out_nav.value()[] = p.unsafe_bitcast[NoneType]()
+        return Int32(LD_OK)
+    except:
+        return Int32(LD_ERR_ARG)
+
+
+@export
+def ld_nav_destroy(h: Optional[Handle]) abi("C") -> Int32:
+    var o = _nav(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    p[].magic = _DEAD
+    p.unsafe_deinit_pointee()
+    p.unsafe_free()
+    return Int32(LD_OK)
+
+
+@export
+def ld_nav_poly_count(h: Optional[Handle]) abi("C") -> Int64:
+    var o = _nav(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return Int64(p[].nav.poly_count())
+
+
+@export
+def ld_nav_find_path(
+    h: Optional[Handle], sx: Float32, sy: Float32, sz: Float32, gx: Float32, gy: Float32, gz: Float32, out_xyz: Optional[F32Ptr], cap: Int64
+) abi("C") -> Int64:
+    """Corner points start .. goal; 0 = no path."""
+    var o = _nav(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    try:
+        var path = p[].nav.find_path(_v(sx, sy, sz), _v(gx, gy, gz))
+        if not path.found:
+            return 0
+        var n = len(path.points)
+        if Int(cap) < n or not out_xyz:
+            p[].error = "ld_nav_find_path: capacity below the path's point count (" + String(n) + ")"
+            return Int64(LD_ERR_BUFFER)
+        for i in range(n):
+            for k in range(3):
+                out_xyz.value()[unsafe_offset=3 * i + k] = path.points[i][k]
+        return Int64(n)
+    except e:
+        p[].error = String(e)
+        return Int64(LD_ERR_ARG)
+
+
+@export
+def ld_nav_last_error(h: Optional[Handle], buf: Optional[U8Ptr], cap: Int64) abi("C") -> Int64:
+    var o = _nav(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    return _copy_str(p[].error, buf, cap)

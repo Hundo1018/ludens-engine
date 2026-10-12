@@ -43,7 +43,7 @@
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 15 | 1 | 4 | 2 |
-| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 0 | 0 | 6 | 0 |
+| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 1 | 0 | 5 | 0 |
 | [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 8 | 0 | 3 | 0 |
 
 ## 原則與決策
@@ -2048,7 +2048,7 @@
 
 | 編號 | 條目 | 狀態 | Wave | 說明 |
 |---|---|:-:|:-:|---|
-| 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | ⬜ | C | 以 C-ABI 共享庫提供世界建構 / 系統註冊 / 查詢 / 事件訂閱的穩定介面,v0.x 凍結。 |
+| 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | ✅ | C | `embed` 套件 + `build/libludens.so`(`pixi run capi`)+ `embed/ludens.h`:35 個 C 函式涵蓋世界建構、系統註冊(C 回呼)、查詢、事件訂閱、存讀檔、導航;v0.x 凍結清單 `embed/abi_v0.txt` 由測試機械檢查。 |
 | 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | ⬜ | C | Python(PythonModuleBuilder 擴充模組)與 Mojo 原生系統雙腳本;先做 Python 綁定,落地為 17.21。 |
 | 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | ⬜ | C | 計畫在核心 repo 最上層新增 Python 綁定套件(測試以客戶端方式安裝進乾淨環境),之後再接 hot reload、CVar / 設定系統與 live 參數調校;目前尚無實作。 |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | ⬜ | B | 宿主 job system 注入、宿主配置器(分兩層)、非同步步進、單位與座標契約成文 + `UnitScale`、錯誤與執行緒契約 |
@@ -2059,7 +2059,24 @@
 
 #### 12.1 Core embedding 邊界(C-ABI)
 
-> **狀態**:⬜ 未開始(2026-10-09 已決定的剩餘順序第 4 項)。
+> **狀態**:✅ 完成(剩餘順序第 (5) 項)。2026-10-12 交付,設計筆記 `docs/design/12.1-embedding.md`。
+> **進度(2026-10-12)**:
+> - 新套件 `embed`(層 6,與 `oop` 同層互不引用):`embed/world.mojo` `EmbedWorld`(值語意 API:body 為 `slot | generation << 32` 的 `Int64` 把手、姿態為 f32 與 x,y,z,w 四元數、
+>   接觸事件為五個 `Int64`;非法輸入在此 raise 一次)、`embed/navigation.mojo` `EmbedNav`(三角形湯烘焙 + 平滑路徑)、`embed/capi.mojo`(C-ABI 薄殼,
+>   `pixi run capi` 建出 `build/libludens.so`)、`embed/ludens.h`(35 個函式、狀態碼 `LD_ERR_*`、`ld_contact_event`、系統 / 接觸回呼型別)。
+> - 契約:回傳 `>= 0` 成功、`< 0` 為錯誤碼並可取 `ld_world_last_error`;輸出緩衝由宿主擁有,過小回 `LD_ERR_BUFFER` 不寫入;每 tick 為 PRE 系統 → 物理 → 接觸訂閱者 → POST 系統,
+>   回呼非零即停步並回 `LD_ERR_CALLBACK`;回呼可重入同一世界(destroy / load 被拒為 `LD_ERR_STATE`),tick 迴圈在 C 薄殼,回呼期間不持有 Mojo 參照;
+>   一個世界同時只由一個執行緒使用。可空指標以 `Optional[Pointer]` 接(Mojo 1.1 的指標非空;已探針 C 端傳 NULL 為 `None`,測試每次建置都驗)。
+> - 凍結:`embed/abi_v0.txt` 列出所有宣告、typedef 與常數行;`test_capi` 檢查每行仍逐字在標頭內,且 `nm -D` 匯出集合 == 標頭宣告集合。之後的 minor 版只能加。
+> - 測試 `test_capi`(54,integration):建出共享庫、以 `gcc -Werror` 編譯 `tests/capi/host.c` 並執行;C 端以 C 回呼當 PRE / POST 系統、C 訂閱者計接觸,
+>   跑 120 frame(累加器)+ 120 tick;同場景以 Mojo 原生迴圈在 `EmbedWorld` 上跑 —— **世界雜湊相同**,BEGAN / ENDED 數、事件總數、玩家位置、射線、導航路徑點數與長度皆相同;
+>   每個錯誤碼路徑都有一條(slot 重用後的舊把手、NaN、零質量、短緩衝、壞 blob、回呼失敗於第 3 次停在 2 tick、回呼內 destroy)。
+> - 量測(`bench_capi`,20 tick 熱身後計 120 tick;逐 body 取狀態各 1e6 次):同一步進(每 10 個 box 由系統推動)C 宿主 vs 原生,100 / 1000 body 每 tick
+>   0.95 / 13.98 ms vs 0.96 / 14.07 ms(差 1 % 內,兩邊雜湊相同);逐 body 取狀態 C 8.6–8.8 ns vs 原生 11.0–11.5 ns;一次取全部姿態 6.0–7.4 ns / body;
+>   存檔 C 1.23 / 13.65 ms vs 原生 0.89 / 13.72 ms(多一次複製進宿主緩衝),讀檔 4.49 / 46.3 ms vs 4.21 / 44.9 ms。
+>   首版批次取姿態經 `List` 中轉、存讀檔逐位元組解 `Optional`,前者比逐個呼叫慢、存檔比原生慢 3.6×,已改為直接走 slot 與單次解指標。
+> **遺留待辦**:關節 / 其他形狀 / 過濾與材質 / 角色控制器 / AI 的 C 函式(以 minor 版追加);宿主注入派發器、配置器、非同步步進與 `UnitScale` 屬 17.75;
+> 其他平台屬 17.76;Python 綁定屬 17.21。
 > **內容**:定義穩定介面(世界建構、系統註冊、查詢、事件訂閱)的 C-ABI / 值語意契約,核心零腳本依賴;
 > 以 C-ABI 共享庫提供給宿主,邊界宣告 **v0.x 凍結**。前面各項(17.14 / 17.15 / 17.16)的資料導向 API 由此包出。
 > **交付(實作時)**:腳本層 vs 原生系統同場景 **parity**(腳本不改變模擬結果)。
@@ -2459,7 +2476,7 @@
 | 11.1 | [Noise 家族](ROADMAP_HISTORY.md#111-noise-家族---2026-07-22) | 動畫與程序化 | ✅ |
 | 11.2 | [狀態機(FSM / HSM)](ROADMAP_HISTORY.md#112-狀態機fsm--hsm--2026-07-22) | 動畫與程序化 | ✅ |
 | 11.3 | [動畫 runtime(clip / blend / 狀態機驅動)](ROADMAP_HISTORY.md#113-動畫-runtimeclip--blend--狀態機驅動--完成2026-08-11) | 動畫與程序化 | ✅ |
-| 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | 嵌入、腳本與平台 | ⬜ |
+| 12.1 | [Core embedding 邊界(C-ABI)](#121-core-embedding-邊界c-abi) | 嵌入、腳本與平台 | ✅ |
 | 12.2 | [Mojo / Python 雙腳本](#122-mojo--python-雙腳本) | 嵌入、腳本與平台 | ⬜ |
 | 13.1 | [反向動力學(精確 τ = ID(q, q̇, q̈))](ROADMAP_HISTORY.md#131-反向動力學精確-τ--idq-q-q--已完成) | 縮座標關節體與致動 | ✅ |
 | 13.2 | [縮座標 ↔ 接觸耦合(關節體能碰到世界)](ROADMAP_HISTORY.md#132-縮座標--接觸耦合關節體能碰到世界--已完成) | 縮座標關節體與致動 | ✅ |

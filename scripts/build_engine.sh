@@ -32,5 +32,6 @@ pc physics
 pc ai
 pc gameplay
 pc oop
+pc embed
 
 echo "build: all packages precompiled into build/"

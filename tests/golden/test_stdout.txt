@@ -449,6 +449,8 @@ build: all packages precompiled into build/
 [PASS] body_removal - 14 / 14 checks
 --- tests/test_broadphase.mojo ---
 [PASS] broadphase - 4 / 4 checks
+--- tests/test_capi.mojo ---
+[PASS] capi - 54 / 54 checks
 --- tests/test_ccd6.mojo ---
   bullet: max x = -0.06523498892784119 final x = -4.051424503326416 final vx = -4.261233
   rest height with speculative margin: 0.24971091747283936
