@@ -126,7 +126,7 @@ struct InfluenceMap(Movable):
                 self.v[base + c] = nxt[c]
 
     def combine(mut self, out_layer: Int, a: Int, wa: Real, b: Int, wb: Real):
-        """out = wa * a + wb * b (e.g. tension = a + b, control = a - b)."""
+        """Out = wa * a + wb * b (e.g. tension = a + b, control = a - b)."""
         var n = self.nx * self.nz
         for c in range(n):
             self.v[out_layer * n + c] = wa * self.v[a * n + c] + wb * self.v[b * n + c]
