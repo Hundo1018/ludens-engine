@@ -2121,7 +2121,7 @@
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | 不排 | B | 規劃在 `CommandBuffer`(4.4)與 17.11 `TypeSchema` 之上建交易式 undo / redo 層(begin/commit/abort、反向操作記錄、物理場景 inverse op),以 `UndoLog` 差分 vs `SnapshotUndo` 全快照為 seam;目前只有零件,交易與反向操作層未做。 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | 🔶 | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ⬜ | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
-| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ⬜ | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
+| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | 🔶 | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
 
 ### 已完成條目的遺留待辦
@@ -2337,6 +2337,19 @@
 > 幀時間預算(`SimBudget`)仍屬 17.31 / 17.85;17.83 是 CI 層的效能回歸治理(基準線與門檻),本條是執行期資源;宿主配置器的注入點屬 17.75。
 
 #### 17.80 觀測 — Wave B(工具;執行期追蹤開關、物理擷取檔與回看)
+
+> **狀態**:🔶 部分完成(2026-10-13:(a)執行期開關、(b)環形模式與 `TRACE_DROPPED`、(d)counter 軌、(e)擷取檔(無 delta 編碼)、(f)隨機讀取與重模擬驗證 ✅;
+> (b)span 名 interned id、(c)多執行緒 / GPU 軌、(e)delta 編碼與只記接觸變化、(f)驅動 `DrawQueue` 回放、(g)C-ABI 出口未做)。
+> **進度註(2026-10-13)**:`diag/trace.mojo`:`TraceBuffer.enabled`(`-D LUDENS_TRACE` 編入時的執行期開關;關閉時 span 只記深度,開關切在 span 中間也不會讓巢狀錯位)、
+> `ring`(滿了覆寫最舊者)、`sample(name, value)` 與 Chrome 匯出的 `C` 事件(solver 每步記 `contact_manifolds` / `bodies`)、`take_dropped()`;`ContactScene6.step` 步末把新丟棄數加進
+> `Counters` 的 `TRACE_DROPPED`(原本無人遞增)。`physics/capture.mojo`:`Capture.record`(每步:body 位姿 / 速度 / 睡眠 / island,接觸的法向 / 點 / 深度 / 累積衝量;
+> 每 `key_every` 幀一個 `scene_to_bytes` 關鍵幀;`set_region` 只記中心在區域內的 body 與碰到它們的接觸)、`to_bytes`(引擎不寫檔,交給宿主)、`CaptureReader.frame(k)`
+> 隨機讀取、`verify(reader, start, frames, dt, gravity, cfg)` 從 ≤ start 的關鍵幀重模擬並回報第一個逐位不符的幀。
+> 量測:`tests/test_trace_runtime.mojo` 以子程序跑 `-D LUDENS_TRACE` 的 `tests/probes/trace_on_probe.mojo`(6/6:5 步 35 個 span、關閉後 5 步仍 35;span 中切換不錯位;
+> 4 格環形 10 個 span 後保留 s6–s9;匯出有 `C` 事件;8 格緩衝 10 步丟 74,`TRACE_DROPPED` = 74)。`tests/test_capture.mojo` 9/9:120 幀每幀與重跑的即時狀態逐位相同(body、island、接觸);
+> 從幀 45 驗 60 幀無差異,竄改幀 70 的一個位元時回報 70;區域擷取只留堆疊的 3 個 body 與 3 個接觸(600 vs 808 bytes)。
+> bench `bench_capture`:N = 64 / 1024 時每步 2246 / 36898 µs,記錄 41 / 362 µs(約 1–2 %),每幀 12388 / 196708 bytes(約 192 bytes / body,無 delta),
+> 關鍵幀 30556 / 483676 bytes,解碼一幀 49 / 432 µs,約十分之一地面的區域擷取每幀 792 / 17688 bytes。
 > **緣起**:17.10 只做到「編譯期開關 + Chrome trace 匯出」,其進度註自列待辦「需 runtime 開關」(ROADMAP §17.10);編輯器邊界表也把「Profiler 面板」的 runtime 開關與擷取檔
 > 掛在本條(ROADMAP「(II) 圖形化編輯器依賴的核心功能」)。嵌入場景下宿主需要的是:隨時打開 / 關掉追蹤、事後看一段模擬發生了什麼。
 > **現況**:
@@ -3114,7 +3127,7 @@
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
-| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |

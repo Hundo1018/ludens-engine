@@ -92,7 +92,7 @@ from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
 from diag.counters import (
     Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED, TIER_FALLBACK,
-    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED,
+    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED, TRACE_DROPPED,
 )
 from diag.log import LogRing, log
 from diag.level import Level, DEBUG_DRAW_ON
@@ -2264,6 +2264,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self._step_impl(dt, gravity, cfg)
         if self.bset.any_props:
             self._props_post()
+        # ROADMAP 17.80: spans the trace could not keep go to the shared counters
+        var tdrop = self.trace.take_dropped()
+        if tdrop > 0:
+            self.counters.incr(TRACE_DROPPED, Int64(tdrop))
 
     def _step_impl(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme).
@@ -2334,6 +2338,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             cfg.reuse_still_pairs,
         )
         self.trace.end()
+        # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
+        self.trace.sample("contact_manifolds", len(pairs))
+        self.trace.sample("bodies", len(self.bset.bodies))
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         # graph coloring (colored=True): greedy smallest-free-color over the
         # DYNAMIC-body adjacency (a shared static must not chain colors, or

@@ -1844,6 +1844,17 @@ push/pop) is a fraction of a percent of a 20,000-op phase, which is the "a
 few % or less" bar this table exists to check.
 
 @bench benchmarks/bench_diag.mojo
+
+## Physics capture (17.80)
+
+`physics.capture.Capture.record` appends one frame per step (every body's
+pose, velocities, sleep flag and island; every contact's normal, points,
+depths and impulses) and a full snapshot every `key_every` frames;
+`CaptureReader.frame` decodes any frame without simulating. Frames are not
+delta-encoded yet, so size grows with the body count; a region keeps only
+the bodies inside it.
+
+@bench benchmarks/bench_capture.mojo
 ## Splines — parametric curves and rotation-minimising frames (17.36)
 
 `geometry/spline.mojo` unifies generalized Catmull-Rom (uniform / centripetal

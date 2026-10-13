@@ -60,42 +60,116 @@ struct SpanStat(Copyable, Movable):
     var max_ns: Int
 
 
+@fieldwise_init
+struct CounterSample(Copyable, Movable):
+    """One value of a named counter at a time (ROADMAP 17.80): exported as a
+    Chrome `C` event, i.e. a counter track in Perfetto."""
+
+    var name: String
+    var t_ns: Int
+    var value: Int
+
+
 struct TraceBuffer(Movable):
     """Fixed-capacity buffer of finished spans, plus an open-span stack for
     nesting. `tid` tags every event (for multi-thread Chrome-trace tracks);
-    defaults to 0 for a single-threaded caller."""
+    defaults to 0 for a single-threaded caller.
+
+    ROADMAP 17.80: with `-D LUDENS_TRACE` the buffer can also be switched off
+    and on at run time (`enabled`; one branch per span when off), keep the
+    newest spans instead of the oldest when full (`ring`), and hold counter
+    samples (`sample`). Spans opened while disabled are tracked by depth
+    only, so toggling between `begin` and `end` never unbalances nesting."""
 
     var events: List[SpanEvent]
     var capacity: Int
     var dropped: Int
     var _open: List[SpanEvent]
+    var _open_depth: List[Int]
+    var _depth: Int
     var tid: Int
+    var enabled: Bool
+    var ring: Bool
+    var _head: Int  # ring mode: index of the oldest event once full
+    var samples: List[CounterSample]
+    var _reported: Int  # `dropped` already handed out by `take_dropped`
 
     def __init__(out self, capacity: Int, tid: Int = 0):
         self.events = List[SpanEvent](capacity=capacity)
         self.capacity = capacity
         self.dropped = 0
         self._open = List[SpanEvent]()
+        self._open_depth = List[Int]()
+        self._depth = 0
         self.tid = tid
+        self.enabled = True
+        self.ring = False
+        self._head = 0
+        self.samples = List[CounterSample]()
+        self._reported = 0
 
     def begin(mut self, name: String):
         """Push an open span. No-op unless `-D LUDENS_TRACE`."""
         comptime if TRACE_ON:
+            self._depth += 1
+            if not self.enabled:
+                return
             self._open.append(SpanEvent(name, Int(perf_counter_ns()), 0, self.tid))
+            self._open_depth.append(self._depth)
 
     def end(mut self):
         """Close the most recently opened span (LIFO). No-op unless
         `-D LUDENS_TRACE`; also a no-op (not an error) if nothing is open, so
         a stray `end()` on an off build never mismatches."""
         comptime if TRACE_ON:
-            if len(self._open) == 0:
+            if self._depth == 0:
                 return
+            var d = self._depth
+            self._depth -= 1
+            if len(self._open) == 0 or self._open_depth[len(self._open_depth) - 1] != d:
+                return  # this level was opened while disabled
+            _ = self._open_depth.pop()
             var ev = self._open.pop()
             ev.t_end_ns = Int(perf_counter_ns())
-            if len(self.events) < self.capacity:
-                self.events.append(ev^)
+            self._push(ev^)
+
+    def _push(mut self, var ev: SpanEvent):
+        if len(self.events) < self.capacity:
+            self.events.append(ev^)
+        elif self.ring and self.capacity > 0:
+            self.events[self._head] = ev^
+            self._head = (self._head + 1) % self.capacity
+            self.dropped += 1
+        else:
+            self.dropped += 1
+
+    def sample(mut self, name: String, value: Int):
+        """Record a counter value now (17.80). No-op unless `-D LUDENS_TRACE`
+        and `enabled`; bounded by `capacity` like spans (drop-newest)."""
+        comptime if TRACE_ON:
+            if not self.enabled:
+                return
+            if len(self.samples) < self.capacity:
+                self.samples.append(CounterSample(name, Int(perf_counter_ns()), value))
             else:
                 self.dropped += 1
+
+    def take_dropped(mut self) -> Int:
+        """Drops since the last call -- what a caller adds to its shared
+        `Counters` under `TRACE_DROPPED`."""
+        var d = self.dropped - self._reported
+        self._reported = self.dropped
+        return d
+
+    def ordered(self) -> List[Int]:
+        """Indices of `events` oldest first (differs from storage order
+        only in ring mode after wrapping)."""
+        var out = List[Int](capacity=len(self.events))
+        var n = len(self.events)
+        var start = self._head if (self.ring and n == self.capacity) else 0
+        for k in range(n):
+            out.append((start + k) % n)
+        return out^
 
     def scoped[origin: MutOrigin, //](
         ref[origin] self, name: String
@@ -107,7 +181,12 @@ struct TraceBuffer(Movable):
     def clear(mut self):
         self.events.clear()
         self._open.clear()
+        self._open_depth.clear()
+        self._depth = 0
+        self._head = 0
+        self.samples.clear()
         self.dropped = 0
+        self._reported = 0
 
     def stats(self) -> List[SpanStat]:
         """Per-name count/total/max over `events`. O(events * distinct names)
@@ -135,7 +214,9 @@ struct TraceBuffer(Movable):
         microseconds) -- load in `chrome://tracing` or Perfetto."""
         var out = String("[")
         var first = True
-        for ref e in self.events:
+        var order = self.ordered()
+        for k in order:
+            ref e = self.events[k]
             if not first:
                 out += ","
             first = False
@@ -148,6 +229,12 @@ struct TraceBuffer(Movable):
             out += ',"pid":0'
             out += ',"tid":' + String(e.tid)
             out += "}"
+        for ref c in self.samples:
+            if not first:
+                out += ","
+            first = False
+            out += '{"name":"' + c.name + '","ph":"C","ts":' + String(c.t_ns // 1000)
+            out += ',"pid":0,"args":{"value":' + String(c.value) + "}}"
         out += "]"
         return out^
 
