@@ -636,7 +636,15 @@
 > **邊界**:候選配對只重用現有 `BroadPhase`,不擁有增量維護 —— `update_moved`、awake list、per-island 品質屬 17.85;GPU CCD 屬 17.17;`ccd_advance` 掃描本身的多執行緒化屬 17.54(本條只負責移除 `PARALLEL_FALLBACK_SERIAL` 退路);軟體 / 流體本體的連續碰撞不含(僅含軟體粒子對剛體 hull / mesh 的點掃);單步旋轉超過 π 的子步切分不含。
 
 #### 17.52 形狀種類 — Wave B(承接 13.8 的剩餘部分)
-> **狀態**:🔶 進行中(2026-10-13:圓柱 ✅、凸包接觸點分散選取修正 ✅;SDF solver 形狀、取樣式 SDF 介面、橢球、support-mapping 凸形入口未做)。
+> **狀態**:🔶 進行中(2026-10-13:圓柱 ✅、凸包接觸點分散選取修正 ✅、SDF 作為 solver 形狀(格點場)✅;取樣式 SDF 與 `Sdf3` 共用 trait、SDF 對 SDF、橢球、support-mapping 凸形入口未做)。
+> **進度註(2026-10-13,SDF 形狀)**:`SHAPE_SDF = 6`(`collision/collider_set.mojo`),`ContactScene6.add_sdf(b, SdfGrid)`(世界座標,同 `add_trimesh`)。
+> 接觸 `contact_gen.try_sdf_pair`:取凸側樣本點(球心;膠囊軸上 5 點;盒 26 點 = 8 角 + 12 邊中點 + 6 面心;hull 頂點),
+> 距離 < 半徑 + margin 者為候選,`hull.spread4` 選至多 4 點,法向 = 深度加權梯度平均。查詢:`point_distance`(三線性距離 + 梯度)、
+> `_ray_one`(sphere tracing,步長 0.9 × 距離)、`shape_distance` / `shape_cast`(取樣點 + 保守推進)、`closest_points`(同 mesh)。
+> 軟體粒子:`soft_particle_contact` SDF 分支。存檔:`write_state` / `read_state` 側表(res、origin、cell、values;res 上限 512)。CCD:跳過(同 hull / mesh,屬 17.46)。
+> 量測(`tests/test_sdf_shape.mojo`,12/12):球 r 0.5 靜止 y 0.49972454;盒 half 0.25 在 13³ 與 49³ 格點皆 4 接觸點,y 0.24972449 / 0.24972433,
+> 對解析盒地板 0.24970722(差 1.7e-5);20 盒落入 SDF 碗 5 s 後最大速度 0.0;射線 t 4.99995(期望 5);存檔還原後逐位相同;
+> 8 m/s 球最低 y 0.2997(不穿透);橫躺膠囊 y 0.29988545。另含 `tests/test_capi.mojo` 在 macOS 改用 `nm -g -U`(17.76 移植性)。
 > **現況**:
 > - solver 的形狀種類只有六種(`collision/collider_set.mojo:37-42`:box / sphere / capsule / hull / trimesh / heightfield);
 >   `pair_manifold`(`collider_set.mojo:382`)對前四種窮舉,未知種類走 `abort`(`collider_set.mojo:484`)。

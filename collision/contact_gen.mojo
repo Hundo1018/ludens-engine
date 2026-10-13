@@ -23,11 +23,11 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, dot, length
 from geometry.gjk import ConvexPoly
 from geometry.aabb import AABB
-from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_SPHERE, SHAPE_CAPSULE, SPEC_BASE
+from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_BOX, SHAPE_HULL, SHAPE_SDF, SPEC_BASE
 from .broadphase import BroadPhase, BoxProxy, Pair
 from .manifold import ContactManifold, _seg_seg_closest
 from .trimesh import closest_point_on_triangle
-from .hull import hull_manifold
+from .hull import hull_manifold, spread4
 
 
 @fieldwise_init
@@ -350,6 +350,94 @@ def try_mesh_pair(
         out.append(RawContact(a, b, t, m))
 
 
+def _sdf_samples(colliders: ColliderSet, i: Int, pose: Pose3) -> Tuple[List[Vec3], Real]:
+    """World sample points (and the radius around each) at which a convex
+    collider meets an SDF (ROADMAP 17.52): a sphere's centre; five points
+    along a capsule's segment; a box's 8 corners, 12 edge midpoints and 6
+    face centres; a hull's vertices. Empty for static mesh kinds."""
+    var k = colliders.shape[i]
+    var out = List[Vec3]()
+    var h = colliders.half[i]
+    if k == SHAPE_SPHERE:
+        out.append(pose.position)
+        return (out^, h[0])
+    if k == SHAPE_CAPSULE:
+        for s in range(5):
+            var t = Real(s) / 4 * 2 - 1
+            out.append(pose.position + pose.axes[1] * (h[1] * t))
+        return (out^, h[0])
+    if k == SHAPE_BOX:
+        for x in range(3):
+            for y in range(3):
+                for z in range(3):
+                    if x == 1 and y == 1 and z == 1:
+                        continue
+                    var nz = Int(x != 1) + Int(y != 1) + Int(z != 1)
+                    if nz < 1:
+                        continue
+                    var l = Vec3(Real(x - 1) * h[0], Real(y - 1) * h[1], Real(z - 1) * h[2], 0)
+                    out.append(pose.position + pose.axes[0] * l[0] + pose.axes[1] * l[1] + pose.axes[2] * l[2])
+        return (out^, Real(0))
+    if k == SHAPE_HULL:
+        ref hs = colliders.hulls[colliders.hull_id[i]]
+        for v in range(hs.nv()):
+            var l = hs.vert(v)
+            out.append(pose.position + pose.axes[0] * l[0] + pose.axes[1] * l[1] + pose.axes[2] * l[2])
+        return (out^, Real(0))
+    return (out^, Real(0))
+
+
+def try_sdf_pair(
+    colliders: ColliderSet, i: Int, j: Int, pose_i: Pose3, pose_j: Pose3,
+    margin: Real, mut out: List[RawContact],
+):
+    """Convex collider vs static SDF (ROADMAP 17.52): every sample point of
+    the convex side (`_sdf_samples`) closer to the grid's surface than its
+    radius + `margin` is a candidate (depth = radius - distance, positive
+    when penetrating); up to four are kept with the same spread rule as the
+    hull path (`hull.spread4`), and the manifold normal is the depth-weighted
+    mean of their grid gradients. So the patch follows the field: a box
+    resting on a flat SDF gets four corner contacts whatever the grid's
+    resolution. Two SDFs, or an SDF and a mesh, never pair (both static)."""
+    var si = i if colliders.shape[i] == SHAPE_SDF else j
+    var di = j if si == i else i
+    if colliders.shape[di] >= SHAPE_TRIMESH:
+        return
+    ref g = colliders.sdfs[colliders.mesh_id[si]]
+    var smp = _sdf_samples(colliders, di, pose_j if di == j else pose_i)
+    var r = smp[1]
+    var cand = List[Vec3]()
+    var cdep = List[Real]()
+    var nsum = Vec3(0, 0, 0, 0)
+    for k in range(len(smp[0])):
+        var p = smp[0][k]
+        var d = g.distance(p)
+        if d >= r + margin:
+            continue
+        var gr = g.gradient(p)
+        var gl = sqrt(dot(gr, gr))
+        if gl < 1e-12:
+            continue
+        var n = gr / gl  # out of the SDF, toward the convex body
+        var depth = r - d
+        cand.append(p - n * (r - depth * 0.5))  # midway between the two surfaces
+        cdep.append(depth)
+        nsum = nsum + n * max(depth + margin, Real(1e-6))
+    if len(cand) == 0:
+        return
+    var nl = sqrt(dot(nsum, nsum))
+    if nl < 1e-12:
+        return
+    var n_out = nsum / nl
+    # manifold normal points from a to b: toward the SDF when a is the convex side
+    var n_ab = n_out if si == i else -n_out
+    var pick = spread4(cand, cdep, n_out)
+    var m = ContactManifold[3].hit_along(n_ab)
+    for k in range(len(pick)):
+        m.add(cand[pick[k]], cdep[pick[k]])
+    out.append(RawContact(i, j, 0, m))
+
+
 def try_pair(
     colliders: ColliderSet, i: Int, j: Int,
     pose_i: Pose3, pose_j: Pose3, vel_i: Vec3, vel_j: Vec3, spec_dt: Real,
@@ -374,6 +462,13 @@ def try_pair(
     var margin = speculative_margin(vel_i, vel_j, spec_dt, margin_base)
     var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
     var is_sensor_pair = colliders.is_sensor(i) or colliders.is_sensor(j)
+
+    if colliders.shape[i] == SHAPE_SDF or colliders.shape[j] == SHAPE_SDF:
+        if is_sensor_pair:
+            try_sdf_pair(colliders, i, j, pose_i, pose_j, 0, sensors)
+        else:
+            try_sdf_pair(colliders, i, j, pose_i, pose_j, margin, out)
+        return
 
     if colliders.shape[i] >= SHAPE_TRIMESH or colliders.shape[j] >= SHAPE_TRIMESH:
         if is_sensor_pair:

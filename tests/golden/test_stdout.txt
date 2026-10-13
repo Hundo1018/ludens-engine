@@ -741,6 +741,14 @@ build: all packages precompiled into build/
 [PASS] scheduler_parity - 51 / 51 checks
 --- tests/test_schema.mojo ---
 [PASS] schema - 22 / 22 checks
+--- tests/test_sdf_shape.mojo ---
+  sphere on the SDF plane: y 0.49972454
+  box on 13^3 grid: y 0.24972449  contacts 4  | 49^3: y 0.24972433  contacts 4
+  same box on an analytic box floor: y 0.24970722
+  20 boxes in an SDF bowl after 5 s: max speed 0.0  lowest centre above the surface 0.17202166
+  ray down onto the SDF plane from y = 5: t 4.99995
+  8 m/s sphere: lowest y 0.29972798  capsule lying: y 0.29988545
+[PASS] sdf_shape - 12 / 12 checks
 --- tests/test_serialize.mojo ---
   blob bytes: 20663
 [PASS] serialize - 8 / 8 checks

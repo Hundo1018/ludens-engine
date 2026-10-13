@@ -226,12 +226,17 @@ def main() raises:
     s.eqi(missing, 0, "every frozen declaration still in ludens.h verbatim")
     var re = Python.import_module("re")
     var declared = bi.set(re.findall("\\b(ld_[a-z_0-9]+)\\(", header))
-    var syms = _sh(sp, Python.list("nm", "-D", "--defined-only", lib))
+    # ELF: the dynamic symbol table; Mach-O (macOS) has none by that name --
+    # `nm -g -U` lists defined globals there, with a leading underscore
+    var darwin = String(Python.import_module("sys").platform) == "darwin"
+    var syms = _sh(sp, Python.list("nm", "-g", "-U", lib) if darwin else Python.list("nm", "-D", "--defined-only", lib))
     var exported = bi.set()
     for line in syms.split("\n"):
         var parts = String(line).split(" ")
         if len(parts) == 3 and String(parts[1]) == "T":
-            _ = exported.add(String(parts[2]))
+            var raw = String(parts[2])
+            var name = String(raw[byte=1:]) if darwin and raw.startswith("_") else raw
+            _ = exported.add(name)
     var extra = bi.sorted(exported - declared)
     var undeclared = bi.sorted(declared - exported)
     s.eqi(Int(py=len(extra)), 0, "library exports nothing beyond the header " + String(extra))

@@ -445,7 +445,7 @@ def _incident_contact(
         m.depths[i] = dq
 
 
-def _spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
+def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
     """Indices of at most 4 contact points (ROADMAP 17.52). Up to 4: all, in
     order. More (a clipped face with many vertices, e.g. a tessellated
     cylinder's cap): the deepest, the farthest from it, the farthest from
@@ -633,7 +633,7 @@ def hull_manifold(
             continue  # above the reference face: not in contact
         cand.append(p)
         cdep.append(sep if sep > -margin else -margin)
-    var pick = _spread4(cand, cdep, n)
+    var pick = spread4(cand, cdep, n)
     var cnt = len(pick)
     for k in range(cnt):
         m.points[k] = cand[pick[k]]
