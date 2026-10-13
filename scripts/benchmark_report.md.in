@@ -880,6 +880,18 @@ restored only by Neo-Hookean, and StVK's restoring stress at 2 % length is
 corotational rows pay the 12 Newton iterations of the polar decomposition.
 
 @bench benchmarks/bench_fem_material.mojo
+## Physics — heat conduction (17.61)
+
+`physics/thermal.mojo` adds a temperature field on two discretisations: a
+finite-difference grid and the tetrahedra of a `FemBody` (linear elements,
+lumped capacity). On a 1D bar with a hot end both stay within 0.03 K of the
+erf solution after 10 s and within 0.02 K of each other (`test_thermal`);
+`expand` rescales the FEM rest shapes, and a heated free bar lengthens by
+alpha_L dT L to 0.0001 %. The table prices one explicit step per node at the
+same 1 mm resolution; the stable dt column says how many steps a second of
+heat flow costs on each.
+
+@bench benchmarks/bench_thermal.mojo
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this

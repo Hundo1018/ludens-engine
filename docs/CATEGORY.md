@@ -65,6 +65,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | LBM 固體邊界:靜止 half-way bounce-back vs Ladd 移動壁面(17.59) | fluid/lbm.mojo | 壁速為 0 時 Ladd 項為 0,退化為靜止 bounce-back(恆等元) | `test_lbm_moving`(壁速 0 時與靜止格子逐位相同) | `bench_fsi` |
 | 水面 `FlatWater` / `GerstnerWater` / `ShallowWaterGrid`(`WaterSurface` trait,17.60) | physics/water.mojo | 同一「(x, z, t) ↦ 高度」查詢;Gerstner 振幅全為 0 時退化為平面(恆等元),陡度 0 的單波為解析正弦 | `test_water`(振幅 0 與平面逐位相同;單波誤差 0) | `bench_water` |
 | 連續體狀態來源:即時求解 vs `CachePlayer`(點快取播放,17.63) | physics/sim_cache.mojo | 同一 `ContinuumSolver` 契約的兩個實作;錄製幀上兩者差 ≤ 量化誤差上限(err = 0 時逐位相同) | `test_sim_cache` | `bench_sim_cache` |
+| 熱傳導離散:有限差分格網 vs 線性四面體(17.61) | physics/thermal.mojo | 同一熱方程 dT/dt = α∇²T 的兩個離散;在 1D 半無限棒的 erfc 閉式解上 parity | `test_thermal`(兩者對 erf 0.014 / 0.025 K,互差 0.016 K) | `bench_thermal` |
 | 動畫轉場 淡入(兩次取樣 + 混合)vs 慣性化(一次取樣 + 衰減殘差)(17.64) | procedural/anim_state.mojo、procedural/inertialize.mojo | 同一「來源姿態 → 目標 clip」轉場的兩個實作:轉場結束後兩者逐位等於目標 clip 的取樣;殘差為 0 時目標姿態不變 | `test_anim_runtime` | `bench_anim_runtime`(轉場佔比 0 / 50 / 100 %) |
 | 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
 | 時間軸求值 隨機 seek(二分)vs 順序游標(17.68) | procedural/sequence.mojo | 同一「t → 軌道值」純函式的兩種段落定位:段索引相同、算術相同,故逐位相同;事件同經 `EventTrack` | `test_camera_seq` | `bench_sequence` |
