@@ -1953,6 +1953,21 @@ lookups). fBm is ~octaves× its base, Worley pays the 27-cell search.
 Contract (seeding, range, determinism) in `test_noise`.
 
 @bench benchmarks/bench_noise.mojo
+## Procedural — scatter, Delaunay, terrain (17.69)
+
+The noise functions finally have consumers. `procedural/scatter.mojo`
+(Poisson-disk, dart throwing, jittered grid; hashed randomness, so a seed
+reproduces the points bit for bit), `procedural/delaunay.mojo` (Bowyer-Watson
+on the exact `orient2d` / `incircle`: cocircular lattices triangulate
+correctly) and `procedural/terrain_gen.mojo` (fBm / ridged / domain-warped
+heights as a pure function of world position, so tiles agree on their seams
+bit for bit; thermal erosion). `test_pcg`: Poisson minimum distance 2.00002
+at r = 2; Delaunay of 400 points gives 784 = 2n - 2 - h triangles; a box
+comes to rest on a generated `HeightField`. The Delaunay rows grow per point
+with n: the cavity search is linear in the triangles (a point-location walk
+is the known next step).
+
+@bench benchmarks/bench_pcg.mojo
 ## `diag` — observability layer (Phase 17.9 / 17.10 / 17.32-17.34)
 
 `diag` is layer 0 (`docs/ARCHITECTURE.md` §1): zero engine dependencies, so

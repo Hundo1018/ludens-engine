@@ -2,10 +2,7 @@
 # Format: path  # reason. An entry whose file now exists is reported as stale.
 
 gameplay/animator.mojo  # planned by 17.64 (not built yet)
-procedural/scatter.mojo  # planned by 17.69 (not built yet)
-procedural/terrain_gen.mojo  # planned by 17.69 (not built yet)
 procedural/wfc.mojo  # planned by 17.69 (not built yet)
-procedural/delaunay.mojo  # planned by 17.69 (not built yet)
 gameplay/tracked.mojo  # planned by 17.74 (not built yet)
 gameplay/hitch.mojo  # planned by 17.74 (not built yet)
 scheduler/fsm.mojo  # historical: a misplaced path, the FSM is procedural/fsm.mojo (noted in place)

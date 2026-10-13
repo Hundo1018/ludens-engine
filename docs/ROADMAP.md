@@ -1805,7 +1805,7 @@
 | 17.36 | [樣條 / 曲線(路徑)](ROADMAP_HISTORY.md#1736-樣條--曲線路徑--wave-a) | ✅ | A | `geometry/spline.mojo` 提供維度泛型的 Catmull-Rom(comptime alpha:uniform / centripetal / chordal)與分段三次 Bezier;Catmull-Rom 段會精確轉成 `CubicBezier`,所以弧長表、`closest_point` 與 RMF motor 標架只需實作一次。有三個測試檔共 577 項檢查、`bench_spline` 與範例 15。 |
 | 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 🔶 | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 🔶 | C | N 影響蒙皮、綁定資料、Morph targets / blend shapes、修正形狀(pose-space deformation)、縮放 / 擠壓伸展通道、蒙皮 → 模擬耦合 |
-| 17.69 | [PCG](#1769-pcg--wave-c) | ⬜ | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
+| 17.69 | [PCG](#1769-pcg--wave-c) | 🔶 | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
 
 ### 已完成條目的遺留待辦
 
@@ -1879,6 +1879,15 @@
 > **邊界**:繪製、GPU 蒙皮 shader、網格 / rig 的製作與匯入屬宿主 —— 宿主接手點是「調色盤 + morph 權重緩衝」;權重繪製 / rig 工具屬 DCC。
 
 #### 17.69 PCG — Wave C
+> **進度註(2026-10-13)**:`procedural/scatter.mojo`(`poisson_disk` Bridson、`dart_throwing`、`jittered_grid`、`thin`、`min_distance`;亂數取自 `noise._hash`,
+> 不需 RNG 下沉)、`procedural/delaunay.mojo`(Bowyer–Watson + 精確 `orient2d` / `incircle`、重複點略過、`is_delaunay`)、`procedural/terrain_gen.mojo`
+> (`TerrainParams`、`terrain_height` 為世界座標的純函式:fBm / ridged / domain warp;`height_tile` 產 `HeightField` 頂點陣列;`thermal_erosion` 質量守恆;`max_slope`)。
+> 量測(`tests/test_pcg.mojo` 13/13):Poisson 100×100、r = 2:1614 點、最小距 2.00002;dart 5000 次 1186 點;抖動格最小 1.036;同 seed 逐位相同;
+> 400 點 Delaunay 784 三角形 = 2n − 2 − h(h = 14);正 12 邊形 + 中心 12 個、6×6 格點 50 個(全共圓)皆 Delaunay;共線 0、重複略過;相鄰圖塊邊逐位相同;
+> 侵蝕 400 次最大坡度 2.92 → 0.80000097、總高度 288.16944 → 288.16949;箱子落在生成的 `HeightField` 上靜止。
+> `bench_pcg`:Poisson 5.3 µs / 點、dart 1.5 µs、抖動格 16 ns;Delaunay 250 / 500 / 1000 點每點 12.7 / 21.6 / 43.6 µs(空腔搜尋線性 → 整體 O(n²));
+> 地形取樣 116 ns(fBm 5 層)/ 257 ns(warp);侵蝕 84 ns / 格·次。
+> **未做**:WFC、BSP / 迷宮 / L-system、等值面抽取(marching cubes)、水力侵蝕、Delaunay 點定位走訪、分治 Delaunay parity、圖塊平行、依坡度散佈、`WorldPartition` 接線。
 > **現況**:只有**雜訊原語且無人使用**。`procedural/noise.mojo:72` `value3`、`:102` `perlin3`、`:133` `perlin2`、`:151` `worley3`、`:181` `fbm3`、`:198` `fbm2`,皆為 `(座標, seed)` 的純函式(整數格點雜湊 `:19`,無 RNG 狀態),可決定論重現。grep `fbm2|fbm3|perlin|worley` 全樹只命中 `procedural/noise.mojo`、`tests/test_noise.mojo`、`benchmarks/bench_noise.mojo`——**沒有任何生成器 / 地形 / 引擎路徑呼叫它**(孤島,雖有測試與 bench)。生成演算法:grep `WFC|wave.?function|poisson.?disk|blue.?noise|L.?system|maze|dungeon|erosion|Delaunay|marching.?cubes|isosurface` 於 `geometry collision procedural spatial numerics ecs scheduler gameplay physics fluid examples experiments tests benchmarks` 零命中;唯一的 Voronoi 是 3D **凸體切割**(`geometry/fracture_cut.mojo:6,169`,破碎用,非 2D 圖 / 非 Delaunay)。可接的下游:`collision/trimesh.mojo:215` `HeightField`(建構吃 `List[Real]` 高度,`:288` `set_height`、`:295` `deform`、`:321` `bounds_blocks`,17.30)與 `physics/solver6.mojo:355` `add_heightfield`;穩健幾何 `geometry/predicates.mojo:175` `orient2d`、`:292` `incircle` 已有(Delaunay 的前提)。層級限制:`procedural` 層 2 不能 import `scheduler.rng`(層 3,`scripts/arch_layers.toml:1-14`;`scheduler/rng.mojo:79` `Pcg32`),故新演算法應像 noise 一樣吃整數 seed + 雜湊,或把 `Rng` 下沉(需改 `arch_layers.toml`,是一個要決定的設計點);輸出 `HeightField` 需 `collision`(層 3),所以 `procedural` 只產 flat 陣列,由呼叫端建場。
 > **缺口**:
 > - **點分佈**:Poisson-disk(Bridson 2007)/ 密度圖加權(例:1 km² 內 1e5 棵樹、最小間距 r、依坡度過濾)。
@@ -3288,7 +3297,7 @@
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
-| 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | ⬜ |
+| 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | 🔶 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |

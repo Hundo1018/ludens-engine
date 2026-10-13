@@ -88,3 +88,6 @@ gameplay.phys_character  # [api] dynamic character body stepped by host gameplay
 gameplay.balance  # [api] balance quantities for host / controller code (17.66)
 gameplay.watercraft  # [api] exact hull buoyancy element (17.74)
 gameplay.aircraft  # [api] wing element (17.74)
+procedural.scatter  # [api] point distributions called by host / tools (17.69)
+procedural.delaunay  # [api] Delaunay triangulation for region layouts (17.69)
+procedural.terrain_gen  # [api] height tiles fed to add_heightfield by the host (17.69)
