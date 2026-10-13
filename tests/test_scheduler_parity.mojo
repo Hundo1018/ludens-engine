@@ -3,7 +3,9 @@
 (serial dispatch) and the entity-actor scheduler (parallel dispatch) must all
 produce the identical final world state on the same deterministic workload — and
 they must do so on more than one storage backend, proving scheduler-swap is
-orthogonal to backend-swap.
+orthogonal to backend-swap. The actor schedulers also run under a host
+`Dispatch` (serial, reverse, work stealing, a C-ABI host callback; ROADMAP
+17.75) with the same result.
 
 Workload: N entities, each with Position(x=id), Velocity(dx=1), Health(100).
 Per tick: every entity integrates `pos += vel`; every even-id entity deals 10
@@ -25,6 +27,7 @@ from scheduler.entity_actor import EntityActorScheduler, EntityHandler
 from scheduler.system_actor import SystemActorScheduler, ActorSystem
 from scheduler.policy import Serial, Parallel
 from scheduler.message import MessageType, Envelope
+from scheduler.dispatch import Dispatch, Opaque, TaskFn
 
 comptime N = 12
 comptime FRAMES = 3
@@ -225,6 +228,57 @@ def run_sched_scenario[S: Scheduler]() -> List[Int]:
     return out^
 
 
+def host_reverse(ctx: Optional[Opaque], n: Int64, task: TaskFn, data: Opaque) abi("C"):
+    """A stand-in host job system (C ABI): runs every item, last to first."""
+    var i = Int(n) - 1
+    while i >= 0:
+        task(data, Int64(i))
+        i -= 1
+
+
+def _summary[B: StorageBackend](w: World[B]) -> List[Int]:
+    var out = List[Int]()
+    out.append(w.entity_count())
+    var pall = w.query1[Position]()
+    var sum_x = 0
+    for i in range(len(pall)):
+        sum_x += w.get[Position](pall[i]).x
+    out.append(sum_x)
+    var hall = w.query1[Health]()
+    var sum_hp = 0
+    for i in range(len(hall)):
+        sum_hp += w.get[Health](hall[i]).hp
+    out.append(sum_hp)
+    out.append(len(pall))
+    out.append(len(hall))
+    return out^
+
+
+def _seed[B: StorageBackend](mut w: World[B]):
+    for i in range(N):
+        var e = w.spawn()
+        w.set(e, Position(i, 0))
+        w.set(e, Velocity(1, 0))
+        w.set(e, Health(100))
+
+
+def run_hosted[B: StorageBackend](d: Dispatch, entity_actor: Bool) -> List[Int]:
+    """ROADMAP 17.75: the actor schedulers under a host `Dispatch`."""
+    var w = World[B]()
+    _seed(w)
+    if entity_actor:
+        var ea = EntityActorScheduler[B, Serial, SpreadHandler]()
+        ea.host = d
+        for _ in range(FRAMES):
+            ea.tick(w)
+    else:
+        var sa = SystemActorScheduler[B, Serial, EmitSystem, ApplySystem]()
+        sa.host = d
+        for _ in range(FRAMES):
+            sa.tick(w)
+    return _summary(w)
+
+
 def _compare(mut s: Suite, name: String, base: List[Int], other: List[Int]):
     var labels = List[String]()
     labels.append("entity_count")
@@ -247,6 +301,11 @@ def _run_for_backend[B: StorageBackend](mut s: Suite, tag: String):
     _compare(s, tag + " entity-actor parallel", seq, ea_par)
     _compare(s, tag + " system-actor serial", seq, sa_ser)
     _compare(s, tag + " system-actor parallel", seq, sa_par)
+    var hosts: List[Dispatch] = [Dispatch.serial(), Dispatch.reverse(), Dispatch.work_stealing(), Dispatch.from_host(host_reverse, None)]
+    var names: List[String] = ["serial", "reverse", "work stealing", "host C callback"]
+    for k in range(len(hosts)):
+        _compare(s, tag + " entity-actor hosted " + names[k], seq, run_hosted[B](hosts[k], True))
+        _compare(s, tag + " system-actor hosted " + names[k], seq, run_hosted[B](hosts[k], False))
 
 
 def main() raises:

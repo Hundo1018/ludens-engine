@@ -1834,11 +1834,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var cidx = cache_index(self.cache)
         var pairs: List[ContactConstraint]
         if fan:
-            pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch)
+            pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch, margin_base / SPEC_BASE)
         else:
             pairs = List[ContactConstraint]()
             for c in range(len(raws)):
-                pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
+                pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm, margin_base / SPEC_BASE))
         apply_rules(self.bset, self.rules, pairs)
         self.trace.end()
         return pairs^

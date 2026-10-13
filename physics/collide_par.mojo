@@ -142,6 +142,7 @@ struct _PrepTask[B: Body6](Task):
     var raws: Pointer[List[RawContact], MutUntrackedOrigin]
     var out: Pointer[List[ContactConstraint], MutUntrackedOrigin]
     var warm: Bool
+    var match_scale: Real
 
     def __init__(
         out self,
@@ -152,6 +153,7 @@ struct _PrepTask[B: Body6](Task):
         mut raws: List[RawContact],
         mut out: List[ContactConstraint],
         warm: Bool,
+        match_scale: Real,
     ):
         self.bset = Pointer(to=bset).unsafe_origin_cast[MutUntrackedOrigin]()
         self.col = Pointer(to=col).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -160,9 +162,10 @@ struct _PrepTask[B: Body6](Task):
         self.raws = Pointer(to=raws).unsafe_origin_cast[MutUntrackedOrigin]()
         self.out = Pointer(to=out).unsafe_origin_cast[MutUntrackedOrigin]()
         self.warm = warm
+        self.match_scale = match_scale
 
     def run(self, c: Int):
-        self.out[][c] = make_contact(self.bset[], self.col[], self.cache[], self.cidx[], self.raws[][c], self.warm)
+        self.out[][c] = make_contact(self.bset[], self.col[], self.cache[], self.cidx[], self.raws[][c], self.warm, self.match_scale)
 
 
 def prep_parallel[B: Body6](
@@ -174,12 +177,13 @@ def prep_parallel[B: Body6](
     warm: Bool,
     workers: Int,
     dispatch: Dispatch,
+    match_scale: Real = 1,
 ) -> List[ContactConstraint]:
     """`make_contact` for every raw contact, each into its own slot (the
     same list the serial loop builds). Nothing passed in is written."""
     var out = List[ContactConstraint](capacity=len(raws))
     for c in range(len(raws)):
         out.append(make_sensor_contact(raws[c]))
-    var task = _PrepTask[B](bset, colliders, cache, cidx, raws, out, warm)
+    var task = _PrepTask[B](bset, colliders, cache, cidx, raws, out, warm, match_scale)
     dispatch_for(dispatch, task, len(raws), workers)
     return out^

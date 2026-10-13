@@ -2748,7 +2748,7 @@
 > - 原現況:Phase 12 ⏸ gated on 核心 API 凍結;本項「保持 gated」,交付寫「gated —— 使用者確認架構後才動」。已由 2026-10-09 決定取代。
 
 #### 17.75 嵌入契約 — Wave B(平台方向 C 前提,與 12.1 同期)
-> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;2026-10-13:job graph 與 work-stealing 派發、暫存層宿主區塊、非同步步進、`UnitScale`、執行緒 / 錯誤 / 單位契約成文 ✅;剩 actor 排程器的靜態 `DispatchPolicy`、box / capsule manifold 的尺度殘差,見進度)。
+> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;2026-10-13:job graph 與 work-stealing 派發、暫存層宿主區塊、非同步步進、`UnitScale`、執行緒 / 錯誤 / 單位契約成文 ✅;actor 排程器宿主派發 ✅;剩 box / capsule 的尺度殘差(現 ≤ 3.1e-5)來源未定位,見進度)。
 > **進度(派發器,2026-10-12)**:`scheduler/dispatch.mojo`:`Task` trait(`run(i)`)+ `Dispatch` 值(`parallel` 預設 = `max.algorithm.parallelize` /
 > `serial` / `reverse` / `from_host(fn, ctx)`)+ `dispatch_for`;宿主形式經 C ABI:`host(ctx, n, task, data)`,`task` 是每個 Task 型別一個的 thin C 函式
 > (`_task_trampoline[T]`,先以閉包嘗試 —— 對閉包型別泛型的函式會變成 capturing、不能當 C 函式指標,故改為 struct Task)。`SolverConfig.dispatch` 選擇派發器;
@@ -2772,6 +2772,13 @@
 >   s = 2^4 的偏差 0.235 → 5.7e-4。`test_unit_scale` 12/12:球在 2^-7…2^10 每個尺度逐位相同;盒塔與膠囊在 5e-3 內(2^7 最大 1.1e-3);
 >   對照組(不套 `UnitScale`)偏差 0.249。**未解**:盒 / 膠囊對地的 manifold 對精確縮放的輸入不是逐位等變(膠囊 step 0 深度 0.2816667 vs 0.28166664;
 >   盒塔 step 1 的法向衝量 0.0304 vs 0.0364),已排除 `manifold.mojo:347` 與 `clip.mojo:99` 的 1e-6 門檻,來源未定位。
+> - **actor 排程器的宿主派發(2026-10-13)**:`EntityActorScheduler` / `SystemActorScheduler` 新增 `host: Optional[Dispatch]`(設定時取代靜態 `DispatchPolicy`),
+>   以 `_WakeTask` / `_DeliverTask` / `_SystemTask` 經 `dispatch_for` 執行。`test_scheduler_parity` 147/147:兩種排程器 × 兩種 backend 在 serial / reverse / work stealing /
+>   C-ABI 宿主回呼下皆 == 循序排程器。途中重現 `_LevelTask` 的生命週期陷阱:任務的 untracked 指標不算使用,`inboxes` 在建構任務後即被結束(讀到垃圾 hp、
+>   system actor 崩潰),以派發後的 `_ = len(...)` 延長。
+> - **尺度殘差(2026-10-13 重量)**:現況盒塔 / 膠囊 300 步 |pos/s − pos_1| 在 2^-7…2^10 為 1.2e-7 … 3.1e-5(先前記錄 1.1e-3)。暖啟動配對半徑原為絕對 (5 cm)²,
+>   改為乘 `margin_base / SPEC_BASE`(`UnitScale` 會縮放;尺度 1 逐位不變);把 `spread4` 的 1e-5 與盒面 1e-6 門檻改為相對值試驗後殘差不降 → 非來源,已還原。
+>   2 的冪縮放下浮點運算本應逐位等變,殘差來源仍未定位(剩餘的絕對 epsilon 尚未逐一排除)。
 > - **慣例釘死**:`test_conventions` 8/8:右手系(X × Y = +Z)、+90° 繞 +Y 把 +X 轉到 −Z、`Quat` 欄位 x, y, z, w(w 為純量)、`UnitScale(100)` 只縮放長度類旋鈕。
 > **緣起**:2026-10-09 平台方向拍板為 C(被宿主引擎嵌入的模擬函式庫)。嵌入者(Godot / Unity / Unreal)
 > 已有自己的 job system、配置器、frame graph 與單位約定;引擎若自起執行緒、自管記憶體、同步獨佔一個

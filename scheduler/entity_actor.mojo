@@ -23,6 +23,7 @@ from ecs.component import ComponentType
 from ecs.entity import Entity
 from .scheduler import Scheduler
 from .policy import DispatchPolicy
+from .dispatch import Dispatch, Task, dispatch_for
 from .message import (
     MessageType,
     Envelope,
@@ -91,6 +92,40 @@ def _route[M: MessageType](
     return delivered
 
 
+struct _WakeTask[Bk: StorageBackend, H: EntityHandler](Task):
+    """Stage 1 for a host `Dispatch` (ROADMAP 17.75): actor i touches only its
+    own entity and outbox slot."""
+
+    var world: Pointer[World[Self.Bk], MutUntrackedOrigin]
+    var actors: Pointer[List[Entity], MutUntrackedOrigin]
+    var outboxes: Pointer[List[List[Envelope[Self.H.M]]], MutUntrackedOrigin]
+
+    def __init__(out self, mut world: World[Self.Bk], mut actors: List[Entity], mut outboxes: List[List[Envelope[Self.H.M]]]):
+        self.world = Pointer(to=world).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.actors = Pointer(to=actors).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.outboxes = Pointer(to=outboxes).unsafe_origin_cast[MutUntrackedOrigin]()
+
+    def run(self, i: Int):
+        Self.H.update[Self.Bk](self.world[], self.actors[][i], self.outboxes[][i])
+
+
+struct _DeliverTask[Bk: StorageBackend, H: EntityHandler](Task):
+    var world: Pointer[World[Self.Bk], MutUntrackedOrigin]
+    var actors: Pointer[List[Entity], MutUntrackedOrigin]
+    var inboxes: Pointer[List[List[Self.H.M]], MutUntrackedOrigin]
+    var next_out: Pointer[List[List[Envelope[Self.H.M]]], MutUntrackedOrigin]
+
+    def __init__(out self, mut world: World[Self.Bk], mut actors: List[Entity], mut inboxes: List[List[Self.H.M]], mut next_out: List[List[Envelope[Self.H.M]]]):
+        self.world = Pointer(to=world).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.actors = Pointer(to=actors).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.inboxes = Pointer(to=inboxes).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.next_out = Pointer(to=next_out).unsafe_origin_cast[MutUntrackedOrigin]()
+
+    def run(self, i: Int):
+        if len(self.inboxes[][i]) > 0:
+            Self.H.receive[Self.Bk](self.world[], self.actors[][i], self.inboxes[][i], self.next_out[][i])
+
+
 struct EntityActorScheduler[
     Bk: StorageBackend, D: DispatchPolicy, H: EntityHandler
 ](Scheduler):
@@ -106,8 +141,13 @@ struct EntityActorScheduler[
     var truncated: Bool  # the last tick hit `max_rounds` with mail still queued
     var dropped: Int  # messages discarded by `mailbox_cap`, cumulative
     var delivered: Int  # messages delivered, cumulative
+    # ROADMAP 17.75: a host dispatcher overriding the static policy `D`
+    # (None: use `D`). The per-actor work stays index-disjoint, so any
+    # dispatcher gives the serial result.
+    var host: Optional[Dispatch]
 
     def __init__(out self):
+        self.host = None
         self.max_rounds = 0
         self.mailbox_cap = 0
         self.rounds_used = 0
@@ -143,7 +183,16 @@ struct EntityActorScheduler[
         def wake(i: Int) {mut world, imm actors, mut outboxes}:
             Self.H.update[Self.B](world, actors[i], outboxes[i])
 
-        Self.D.run(wake, n)
+        if self.host:
+            var wt = _WakeTask[Self.B, Self.H](world, actors, outboxes)
+            dispatch_for(self.host.value(), wt, n)
+            # the task's pointers are untracked: without these uses Mojo may
+            # end the lists' lifetime right after building the task (the
+            # `_LevelTask` lesson, measured again here as garbage hp)
+            _ = len(actors)
+            _ = len(outboxes)
+        else:
+            Self.D.run(wake, n)
 
         var inboxes = empty_inboxes[M](n)
         self.delivered += _route[M](
@@ -161,7 +210,14 @@ struct EntityActorScheduler[
                         world, actors[i], inboxes[i], next_out[i]
                     )
 
-            Self.D.run(deliver, n)
+            if self.host:
+                var dt = _DeliverTask[Self.B, Self.H](world, actors, inboxes, next_out)
+                dispatch_for(self.host.value(), dt, n)
+                _ = len(actors)
+                _ = len(inboxes)
+                _ = len(next_out)
+            else:
+                Self.D.run(deliver, n)
 
             var next_in = empty_inboxes[M](n)
             self.delivered += _route[M](

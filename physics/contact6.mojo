@@ -240,6 +240,7 @@ def make_contact[B: Body6](
     cidx: Dict[Int, Int],
     rc: RawContact,
     warm: Bool,
+    match_scale: Real = 1,
 ) -> ContactConstraint:
     """Wrap raw contact geometry (`collision.contact_gen.RawContact`)
     into a solved `ContactConstraint`: body-frame anchors and approach-speed prep
@@ -335,7 +336,7 @@ def make_contact[B: Body6](
                 # friction -- a 3-box stack built up that torsion until it
                 # kicked (1.24 N sideways on the top box, ARM runner).
                 # Distance in body `a`'s frame (a sliding box's corners stay
-                # put there), and only within 5 cm. A point with no cached
+                # put there), and only within 5 cm (times `match_scale`). A point with no cached
                 # point that close keeps the old rule -- the cached point of
                 # the same index, if not taken: points that moved further
                 # (a box sliding over small triangles, a bullet in the step
@@ -347,7 +348,10 @@ def make_contact[B: Body6](
                 var src = Array[Int, 4](fill=-1)
                 for k in range(rc.m.count):
                     var best = -1
-                    var bd = Real(2.5e-3)
+                    # (5 cm)^2, scaled with the world's length unit
+                    # (`match_scale` = margin_base / SPEC_BASE, so
+                    # `UnitScale` scales it; ROADMAP 17.75)
+                    var bd = Real(2.5e-3) * match_scale * match_scale
                     for q in range(old.m.count):
                         if used[q]:
                             continue
