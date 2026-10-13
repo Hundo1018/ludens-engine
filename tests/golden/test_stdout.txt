@@ -177,6 +177,12 @@ build: all packages precompiled into build/
 [PASS] spline_frames - 126 / 126 checks
 --- tests/test_spline_parity.mojo ---
 [PASS] spline_parity - 253 / 253 checks
+--- tests/test_trace_runtime.mojo ---
+  probe: spans after 5 traced steps 35  after 5 more with enabled = False 35
+  probe:   ring of 4 after 10 spans: oldest s6  newest s9  dropped 6
+  probe:   8-slot trace, 10 steps: dropped 74  TRACE_DROPPED counter 74
+  probe: [PASS] trace_on_probe - 6 / 6 checks
+[PASS] trace_runtime - 1 / 1 checks
 --- tests/test_tree.mojo ---
   Y-tree ABA vs dense worst rel err: 2.089270997983122e-07
   hanging Y max |qdd|: 0.0
@@ -214,6 +220,12 @@ build: all packages precompiled into build/
   w=0.25 blend z — linear 0.28284955  geodesic 0.3193088  constant-speed exact 0.3193088
   q vs -q half-blend, worst deviation from identity: 0.0
 [PASS] anim - 34 / 34 checks
+--- tests/test_anim_runtime.mojo ---
+  footstep in 10 s: dt 1/60 10  dt 0.3 10  one 10 s jump 10
+  sync: walk 0.25 -> run 0.15   walk 0.75 -> run 0.45000002
+  state sequence: 0 1 2 3 0
+  inertialized switch: largest position jump 0.003391862 (one tick of motion)
+[PASS] anim_runtime - 14 / 14 checks
 --- tests/test_archetype_backend.mojo ---
 [PASS] archetype_backend - 17 / 17 checks
 --- tests/test_backend_parity.mojo ---
@@ -487,6 +499,11 @@ build: all packages precompiled into build/
 [PASS] broadphase - 4 / 4 checks
 --- tests/test_capi.mojo ---
 [PASS] capi - 54 / 54 checks
+--- tests/test_capture.mojo ---
+  120 frames, 4 keyframes: 103656 bytes ( 854 per frame incl. keyframes )
+  tampered frame 70: verify reports 70
+  region capture: bodies 3  contacts 3  frame bytes 600 vs 808
+[PASS] capture - 9 / 9 checks
 --- tests/test_ccd6.mojo ---
   bullet: max x = -0.06523498892784119 final x = -4.051424503326416 final vx = -4.261233
   rest height with speculative margin: 0.24971099197864532
@@ -523,6 +540,15 @@ build: all packages precompiled into build/
 [PASS] chain_props - 10 / 10 checks
 --- tests/test_character.mojo ---
 [PASS] character - 21 / 21 checks
+--- tests/test_cloth_mesh.mojo ---
+  10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
+  hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
+  clamped strip, free-end sag: soft bending 0.20924097  stiff 0.1567828
+  sheet dropped on a 0.6 m box: lowest vertex over the box 0.31  inside 0
+  flag mean z after 2 s: wind 0 0.0  4 m/s 0.25916725  8 m/s 0.4284611
+  vertex attached to a body moving 1 m/s: x after 1 s 0.4999994  body x 0.4999994
+  torn edges: break force 0.5 N 238  default 0
+[PASS] cloth_mesh - 10 / 10 checks
 --- tests/test_collide_par.mojo ---
   1024-box pile: contacts 1024
   heightfield scene: contacts 762
@@ -558,6 +584,11 @@ build: all packages precompiled into build/
   conveyor: crate vx 2.0
   friction override: mu=0 3.0  default 0.5499963  mu=1 -0.00012491946
 [PASS] contact_rules - 9 / 9 checks
+--- tests/test_continuum.mojo ---
+  FEM: NaN node -> nonfinite 1  CONTINUUM_NAN 1  pinned inv_m 0.0
+  MPM: nonfinite 1  escaped 1  particles 65 -> 63
+  MPM control: one NaN particle, plain advance -> nonfinite 64 of 64
+[PASS] continuum - 11 / 11 checks
 --- tests/test_conventions.mojo ---
 [PASS] conventions - 8 / 8 checks
 --- tests/test_cylinder.mojo ---
@@ -726,6 +757,17 @@ build: all packages precompiled into build/
 [PASS] mesh_round - 12 / 12 checks
 --- tests/test_motor_transform.mojo ---
 [PASS] motor_transform - 33 / 33 checks
+--- tests/test_movement.mojo ---
+  3 s at a 3 m/s wish: speed direct / accel / quake 3.0 3.0 3.0   distance 9.000016 8.800015 8.943516
+  jump pressed 3 / 12 ticks after leaving the ledge: jumped True False
+  buffer: lands at tick 17  press 4 ticks before -> jumped True   10 before -> False
+  jump apex held / released after 3 ticks: 2.2274995 1.411222
+  double jump: second True  third False  jumps used 2
+  walked into a pool: swam True  mode now 2
+  bobbing at 50 % +- 6 % submerged: mode changes with hysteresis 0  without 23
+  knockback 5 m/s along z while walking 2 m/s along x: z moved 1.6236097  walk speed 2.0
+  on a platform turning 1 rad/s for 1 s: heading 0.98333305
+[PASS] movement - 13 / 13 checks
 --- tests/test_nav_world.mojo ---
   nav_world: samples 109 worst |dy| 0.125
 [PASS] nav_world - 6 / 6 checks
@@ -733,6 +775,11 @@ build: all packages precompiled into build/
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
   netcode: snapshot 5032 bytes full, 1344 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
+--- tests/test_np_reuse.mojo ---
+  tiered stacks (200 boxes): candidates copied over 120 steps 16358
+  sleeping stacks + filter change at step 150: copied after the change 2848
+  heightfield raised under resting boxes at step 120: box at x 0, y 0.29994217
+[PASS] np_reuse - 8 / 8 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
   poisson n 64  iters 32  residual 5.1880166e-17  worst error 0.0
@@ -777,6 +824,13 @@ build: all packages precompiled into build/
 [PASS] ragdoll - 14 / 14 checks
 --- tests/test_replay.mojo ---
 [PASS] replay - 8 / 8 checks
+--- tests/test_resources.mojo ---
+  bytes per body 329  predicted for 5000 more 1645000  measured 1645000
+  report: bodies 1488000 B, colliders 486000 B, shapes 0 B, contacts 0 B, joints 0 B, soft 0 B, total 1974000 B
+  one 2-triangle mesh: shapes 0 -> 314 bytes
+  over the cap: check_room: 13 bodies would exceed max_bodies 12
+  10 boxes on a floor, cap 3: cache 3  dropped over 60 steps 515
+[PASS] resources - 8 / 8 checks
 --- tests/test_restitution.mojo ---
   e=0.8 first apex: 0.5816680192947388 (analytic 0.64)
   e=0.4 first apex: 0.14359593391418457 (analytic 0.16)

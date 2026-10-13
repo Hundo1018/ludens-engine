@@ -647,6 +647,23 @@ fading player samples two clips and blends them instead of sampling one.
 | player cross-fading | 256 | bone-frame | 243.78 | 4.10 | 14.98 |
 
 
+
+## Animation transitions: fade vs inertialization (17.64)
+
+`procedural.anim_state.AnimGraph` runs a transition one of two ways: fade
+(sample both clips, blend) or inertialization (sample the new clip only,
+add the pose offset recorded at the switch, decaying). Both end exactly on
+the new clip (`test_anim_runtime`). The sweep is over the share of
+characters inside a transition, since that is where the two differ.
+
+### Animation transitions (17.64): fade vs inertialization, 100 characters x 32 bones
+
+| in transition | fade ns / character | inertial ns / character | fade ns / bone | inertial ns / bone |
+|---:|---:|---:|---:|---:|
+| 0 % | 3522 | 3612 | 110 | 112 |
+| 50 % | 6137 | 5723 | 191 | 178 |
+| 100 % | 10265 | 6690 | 320 | 209 |
+
 ## Physics — cloth self-collision
 
 Cloth that does not collide with itself can be a flag and cannot be a garment.
@@ -1639,6 +1656,24 @@ fluid that was wrong:
 | pbf it=6 rho/rest=1.00 | 1728 | particle-step | 19290.86 | 0.05 | 4000.15 |
 
 
+
+## Continuum stepping contract (17.55)
+
+FEM, MPM, PBF and LBM (through `physics.continuum.LbmContinuum`) now share
+one `ContinuumSolver` interface. `step_checked` adds the failure policy: a
+health scan with quarantine before and after each step, counted in
+`CONTINUUM_NAN` / `CONTINUUM_ESCAPED`. The table is its cost against a plain
+`advance` on the same solver.
+
+### Continuum stepping contract (17.55): failure-policy cost
+
+| solver | items | advance us | step_checked us |
+|---|---:|---:|---:|
+| FEM beam (nodes) | 275 | 1395 | 1478 |
+| MPM (particles) | 1000 | 3865 | 3372 |
+| PBF (particles) | 1000 | 26998 | 23158 |
+| LBM 16^3 (cells), one lattice step per advance | 4096 | 1655 | 1683 |
+
 ## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)
 
 Vertex block descent (`physics/vbd_cloth.mojo`, arXiv:2403.06321): per-vertex
@@ -1739,6 +1774,23 @@ regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
 | xpbd it=40 shape=65% of converged | 1024 | step | 3132168.20 | 0.00 | 187.93 |
 | vbd  it=40 shape=77% of converged | 1024 | step | 3466662.17 | 0.00 | 208.00 |
 
+
+
+## Mesh cloth (17.56)
+
+`physics.cloth.MeshCloth` runs XPBD on any triangle mesh (stretch per edge,
+cross-edge bending, area-weighted masses), collides with the scene's
+colliders through the world queries, and takes wind drag per triangle. The
+cost per vertex-substep stays flat as the sheet grows (the scene here is a
+single box; more colliders mean more candidates per query).
+
+### Mesh cloth (17.56): cost per step
+
+| cells | vertices | free us | box collision us | collision + wind us | ns per vertex-substep (collision) |
+|---:|---:|---:|---:|---:|---:|
+| 16 x 16 | 289 | 2124 | 1910 | 1631 | 826 |
+| 32 x 32 | 1089 | 5513 | 8627 | 10514 | 990 |
+| 100 x 100 | 10201 | 65204 | 60079 | 72223 | 736 |
 
 ## Differentiable simulation — gradient cost & Field abstraction
 
@@ -3639,6 +3691,23 @@ few % or less" bar this table exists to check.
 | untraced baseline | 40000000 | op | 1.80 | 555.64 | 71.99 |
 
 
+
+## Physics capture (17.80)
+
+`physics.capture.Capture.record` appends one frame per step (every body's
+pose, velocities, sleep flag and island; every contact's normal, points,
+depths and impulses) and a full snapshot every `key_every` frames;
+`CaptureReader.frame` decodes any frame without simulating. Frames are not
+delta-encoded yet, so size grows with the body count; a region keeps only
+the bodies inside it.
+
+### Physics capture (17.80)
+
+| N | step us | record us | frame bytes | keyframe bytes | decode us | region frame bytes |
+|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 1970 | 32 | 12388 | 30556 | 24 | 792 |
+| 1024 | 34988 | 373 | 196708 | 483676 | 474 | 17688 |
+
 ## Splines — parametric curves and rotation-minimising frames (17.36)
 
 `geometry/spline.mojo` unifies generalized Catmull-Rom (uniform / centripetal
@@ -4220,6 +4289,23 @@ then growing with the obstacle count through the queries' linear prefilter.
 
 
 
+## Movement modes (17.67)
+
+`gameplay.movement.Mover` adds modes (walk / fall / swim / fly), jump feel
+and external velocity on top of the controller, with three velocity models
+(direct, acceleration, Quake-style). The model only changes the horizontal
+integration, so the cost is the controller's sweeps either way.
+
+### Movement modes (17.67): one update
+
+| model | mode | ns per update |
+|---|---|---:|
+| direct | walk | 1022 |
+| acceleration | walk | 959 |
+| quake | walk | 1061 |
+| acceleration | swim | 1873 |
+
+
 ## Raycast vehicles (17.4)
 
 One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a
@@ -4489,18 +4575,26 @@ not move is the next step for this item.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| untiered | 1000 | step | 28276382.00 | 0.00 | 1131.06 |
-| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +35 mm) | 1000 | step | 7485193.40 | 0.00 | 299.41 |
-| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +35 mm) | 1000 | step | 5748492.28 | 0.00 | 229.94 |
-| RoundRobin (all tier 2) (125 islands solved / step, penetration +35 mm) | 1000 | step | 5220433.70 | 0.00 | 208.82 |
-| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +35 mm) | 1000 | step | 5312316.53 | 0.00 | 212.49 |
-| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 28458192.80 | 0.00 | 1138.33 |
-| untiered | 10000 | step | 342644847.00 | 0.00 | 13705.79 |
-| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 152668406.55 | 0.00 | 6106.74 |
-| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 144170013.35 | 0.00 | 5766.80 |
-| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 143132595.13 | 0.00 | 5725.30 |
-| BudgetTiers (50 % of untiered) (1276 islands solved / step) | 10000 | step | 141600032.50 | 0.00 | 5664.00 |
-| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 330139497.65 | 0.00 | 13205.58 |
+| untiered | 1000 | step | 34783538.00 | 0.00 | 1391.34 |
+| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +1 mm) | 1000 | step | 8856387.85 | 0.00 | 354.26 |
+| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +1 mm) | 1000 | step | 6821606.35 | 0.00 | 272.86 |
+| RoundRobin (all tier 2) (125 islands solved / step, penetration +1 mm) | 1000 | step | 6931707.18 | 0.00 | 277.27 |
+| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +4 mm) | 1000 | step | 6310958.35 | 0.00 | 252.44 |
+| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 36289411.38 | 0.00 | 1451.58 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs (151 islands solved / step, penetration +1 mm) | 1000 | step | 7724656.85 | 0.00 | 308.99 |
+| RoundRobin + reuse_still_pairs (125 islands solved / step, penetration +1 mm) | 1000 | step | 6978877.48 | 0.00 | 279.16 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 6785813.03 | 0.00 | 271.43 |
+| DistanceTiers 8 / 20 m, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 6977198.65 | 0.00 | 279.09 |
+| untiered | 10000 | step | 401514792.00 | 0.00 | 16060.59 |
+| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 177215983.58 | 0.00 | 7088.64 |
+| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 180981886.00 | 0.00 | 7239.28 |
+| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 174026224.80 | 0.00 | 6961.05 |
+| BudgetTiers (50 % of untiered) (1269 islands solved / step) | 10000 | step | 193529363.20 | 0.00 | 7741.17 |
+| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 372046622.65 | 0.00 | 14881.86 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs (1276 islands solved / step) | 10000 | step | 183395130.95 | 0.00 | 7335.81 |
+| RoundRobin + reuse_still_pairs (1250 islands solved / step) | 10000 | step | 153808078.85 | 0.00 | 6152.32 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (1276 islands solved / step) | 10000 | step | 50684097.78 | 0.00 | 2027.36 |
+| DistanceTiers 8 / 20 m, DBVH broadphase (1276 islands solved / step) | 10000 | step | 65640357.60 | 0.00 | 2625.61 |
 
 
 
