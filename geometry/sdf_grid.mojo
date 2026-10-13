@@ -23,6 +23,7 @@ flat `List[Int]` stride 3, CCW seen from outside.
 
 from std.math import sqrt, atan2, floor
 from .vec import Real, Vec3, dot, cross, length
+from .distance_field import DistanceField3
 
 comptime _PI = 3.14159265358979323846
 
@@ -87,7 +88,7 @@ def winding_number(verts: List[Real], idx: List[Int], p: Vec3) -> Float64:
     return w / (4 * _PI)
 
 
-struct SdfGrid(Movable):
+struct SdfGrid(Movable, DistanceField3):
     var res: Int  # nodes per axis
     var origin: Vec3
     var cell: Real
@@ -100,6 +101,18 @@ struct SdfGrid(Movable):
         self.values = List[Real](capacity=res * res * res)
         for _ in range(res * res * res):
             self.values.append(0)
+
+    @staticmethod
+    def from_field[F: DistanceField3](f: F, res: Int, origin: Vec3, cell: Real) -> Self:
+        """Sample any `DistanceField3` (an analytic `Sdf3`, another grid) at
+        the `res`^3 nodes from `origin` with spacing `cell` (ROADMAP 17.52):
+        the way an analytic or CSG field becomes a solver shape."""
+        var g = Self(res, origin, cell)
+        for k in range(res):
+            for j in range(res):
+                for i in range(res):
+                    g.values[(k * res + j) * res + i] = f.distance(g.node(i, j, k))
+        return g^
 
     def at(self, i: Int, j: Int, k: Int) -> Real:
         return self.values[(k * self.res + j) * self.res + i]

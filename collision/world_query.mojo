@@ -42,6 +42,7 @@ from geometry.quat import Quat
 from geometry.gjk_distance import ConvexDistance, convex_distance, support_distance
 from geometry.gjk import ConvexPoly
 from geometry.epa import epa3
+from geometry.distance_field import sphere_trace
 from geometry.support import SupportCapsule
 from .manifold import Axes3
 from .collider_set import (
@@ -679,17 +680,13 @@ def _ray_one(
         var none = List[Hit]()
         return _ray_mesh(cs, i, o, d, max_t, backfaces, none, False)
     if k == SHAPE_SDF:
-        # sphere tracing on the grid (17.52); the trilinear distance is not
-        # exactly 1-Lipschitz, so steps are taken at 0.9 of it
-        var t = Real(0)
-        for it in range(_MAX_ITERS * 4):
-            var pr = point_distance(cs, i, pose, o + d * t)
-            if pr.dist <= _SKIN:
-                return Hit(True, i, t, o + d * t, pr.normal, it == 0 and pr.dist < 0)
-            t += max(pr.dist * 0.9, _SKIN)
-            if t > max_t:
-                break
-        return Hit.miss()
+        # the shared sphere tracer (17.52, `geometry.distance_field`); the
+        # trilinear grid is not exactly 1-Lipschitz, so its 0.9 step scale
+        var tr = sphere_trace(cs.sdfs[cs.mesh_id[i]], o, d, max_t, _SKIN, 0.9, _MAX_ITERS * 4)
+        if not tr.hit:
+            return Hit.miss()
+        var pr = point_distance(cs, i, pose, o + d * tr.t)
+        return Hit(True, i, tr.t, o + d * tr.t, pr.normal, tr.inside)
     # CAPSULE: conservative advancement on this one collider
     var t = Real(0)
     for it in range(_MAX_ITERS):

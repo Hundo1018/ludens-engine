@@ -454,6 +454,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | `Support3`:點雲 `ConvexPoly[3]` vs 解析 support(`SupportEllipsoid` / `SupportCylinder` / `SupportCapsule` / `SupportBox`),共用 GJK 距離(`support_distance`)與 EPA(`epa3`) | geometry/gjk.mojo、geometry/support.mojo、geometry/gjk_distance.mojo、geometry/epa.mojo | 凸集由 support 函數 h(d) 唯一決定;同一凸集的兩個表示給出同一距離 / 穿透函數。點雲是取樣近似,解析 support 是精確表示:圓柱 16 邊形的距離誤差 r(1 − cos(π/16)) 由解析表示消去 | `test_support3`(200 對隨機點雲:`support_distance` == `convex_distance` 至 1e-5;等軸橢球與球 EPA 深度一致);`test_ellipsoid`(等軸橢球靜止高度 == 球 0.49972457,滾動 2.3941412 == 5/7 g sin θ) | `bench_shapes`(每 body-step:球 / 橢球 / 圓柱 / 盒 / SDF;點到圓柱距離:解析 vs 16 邊形) |
 
+### 2.28 距離場表示:解析 vs 取樣(Phase 17.52,2026-10-13)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `DistanceField3`:解析 `Sdf3`(基元 + CSG)vs 取樣 `SdfGrid`(三線性格點);`sphere_trace`、`SdfGrid.from_field` 對兩者共用 | geometry/distance_field.mojo、geometry/sdf3.mojo、geometry/sdf_grid.mojo、collision/world_query.mojo | 同一距離函數的兩個表示;取樣是解析的離散化(誤差 ≤ 一格),節點上相等 | `test_distance_field`(射線 t 兩者 1e-3 內;節點值 `from_field(Sdf3.plane)` == 手填,靜止高度逐位相同) | `bench_shapes`(盒在 SDF 上每 body-step) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

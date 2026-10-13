@@ -534,7 +534,7 @@
 | 17.30 | [地形(HeightField)執行期變形](ROADMAP_HISTORY.md#1730-地形heightfield執行期變形--wave-b) | ✅ | B | HeightField 支援 set_height / deform(圓盤挖填)與 16×16 區塊 min/max 摘要增量重算 bounds,ColliderSet / ContactScene6.deform_heightfield 更新 AABB 並喚醒受影響的睡眠體,1024² 地形每次編輯 11.7 µs vs 全表重掃 2.87 ms。 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 🔶 | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿 |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | ⬜ | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
-| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 🔶 | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
+| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ✅ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 🔶 | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | ⬜ | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
 
@@ -642,7 +642,14 @@
 > **邊界**:候選配對只重用現有 `BroadPhase`,不擁有增量維護 —— `update_moved`、awake list、per-island 品質屬 17.85;GPU CCD 屬 17.17;`ccd_advance` 掃描本身的多執行緒化屬 17.54(本條只負責移除 `PARALLEL_FALLBACK_SERIAL` 退路);軟體 / 流體本體的連續碰撞不含(僅含軟體粒子對剛體 hull / mesh 的點掃);單步旋轉超過 π 的子步切分不含。
 
 #### 17.52 形狀種類 — Wave B(承接 13.8 的剩餘部分)
-> **狀態**:🔶 進行中(2026-10-13:圓柱 ✅、凸包接觸點分散選取修正 ✅、SDF 作為 solver 形狀(格點場)✅、橢球 ✅、support-mapping 凸形入口 ✅;取樣式 SDF 與 `Sdf3` 共用 trait、SDF 對 SDF、圓柱改走解析 support(現仍是 16 邊形 hull)未做)。
+> **狀態**:✅ 完成(2026-10-13:圓柱、凸包接觸點分散選取、SDF 作為 solver 形狀(格點場)、橢球、support-mapping 凸形入口、`Sdf3` 與格點場共用的 `DistanceField3`)。
+> 不做 / 移出:SDF 對 SDF —— solver 的 SDF 只能是靜態,兩個靜態體不成對,無分派可做;動態 SDF 剛體屬 17.44(複合 / 凹體)。
+> 圓柱端面仍是 16 邊形 hull(側面接觸已由膠囊流形精確、點到圓柱查詢由 `SupportCylinder` 精確,端面多點接觸片需要多邊形);
+> 端面改走解析 support 須先有 support-mapping 的多點接觸片生成,留作 17.50(接觸模型變體)的子題。
+> **進度註(2026-10-13,共用距離場介面)**:`trait DistanceField3`(`geometry/distance_field.mojo`:`distance`、`gradient`),`Sdf3` 與 `SdfGrid` 皆實作;
+> `sphere_trace[F]` 共用(世界查詢 SDF 射線改呼叫它),`SdfGrid.from_field[F]` 把任一場(解析、CSG)取樣成 solver 用的格點。
+> 量測(`tests/test_distance_field.mojo` 8/8):單位球從 5 m 外,解析 t 4.0(1 步)、41³ 格點 t 3.999996(9 步);300 點格點對解析最大差 0.0061(格距 0.1);
+> 盒減球 CSG 的腔壁 t 0.6(解析)/ 0.599994(61³ 格點);`from_field(Sdf3.plane)` 與手填格點節點值逐位相同、盒靜止高度逐位相同 0.24972449。
 > **進度註(2026-10-13,橢球 + support mapping)**:`trait Support3`(`geometry/gjk.mojo`:`support_point(d)`、`center_point()`),`ConvexPoly[3]` 與
 > `geometry/support.mojo` 的 `SupportEllipsoid` / `SupportCylinder` / `SupportCapsule` / `SupportBox` 皆實作;`epa3`(原 `_epa3[dim]`,現對任兩個 `Support3`)
 > 與 `support_distance`(GJK 距離,與點雲 `convex_distance` 共用驅動;單純形改固定四格,每次迭代不再配置,`support_distance` 橢球對盒 16 µs → 1.4 µs;
@@ -2995,7 +3002,7 @@
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | 🔶 |
-| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
+| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
 | 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | ⬜ |
