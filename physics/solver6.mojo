@@ -1504,8 +1504,29 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     spec_dt, raws, sraws, margin_base,
                 )
         else:
+            # The same fat AABBs the broadphase path tests, so brute and
+            # broadphase now see the same pairs. They are not a strict
+            # superset of every speculative manifold: a rotated box inflated
+            # along its own axes reaches up to sqrt(3) x the margin past its
+            # box, and a hull pair can report a speculative contact 9 cm
+            # apart -- such far pairs used to reach the narrowphase only on
+            # this path (test_fracture's brick piles counted one island
+            # less). Without the cull every pair reached the narrowphase:
+            # 64 cylinders on a floor made 2080 hull tests per step (18 ms)
+            # for 64 real contacts.
+            var fat = List[AABB[3]](capacity=n)
+            for i in range(n):
+                fat.append(self.colliders.fat_aabb(i, self._pose(i), self.bset.bodies[i].linear_velocity(), spec_dt, margin_base))
             for i in range(n):
                 for j in range(i + 1, n):
+                    if not fat[i].overlaps(fat[j]):
+                        # still an enumerated candidate: NARROWPHASE_PAIRS
+                        # counts what the brute loop examines (test_work_counters)
+                        if self.bset.is_dynamic(i) or self.bset.is_dynamic(j):
+                            if not (self.bset.is_removed(i) or self.bset.is_removed(j)):
+                                if not (has_weld and (i * n + j) in weld_keys):
+                                    self.counters.incr(NARROWPHASE_PAIRS)
+                        continue
                     # ROADMAP 17.0i: a removed body's collider row is stale
                     # (see the broadphase branch's matching comment above).
                     if self.bset.is_removed(i) or self.bset.is_removed(j):

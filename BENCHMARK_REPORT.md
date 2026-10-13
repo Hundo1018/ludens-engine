@@ -4059,26 +4059,26 @@ mapping removes.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sphere (analytic) | 64 | body-step | 11637.63 | 0.09 | 44.69 |
-| ellipsoid 0.5 x 3 (GJK/EPA) | 64 | body-step | 45134.36 | 0.02 | 173.32 |
-| ellipsoid (0.6, 0.5, 0.4) | 64 | body-step | 41419.50 | 0.02 | 159.05 |
-| cylinder 16 segments | 64 | body-step | 442404.31 | 0.00 | 1698.83 |
-| box on box floor | 64 | body-step | 29689.47 | 0.03 | 114.01 |
-| box on SDF plane (25^3) | 64 | body-step | 35907.87 | 0.03 | 137.89 |
-| sphere (analytic) | 256 | body-step | 13849.33 | 0.07 | 212.73 |
-| ellipsoid 0.5 x 3 (GJK/EPA) | 256 | body-step | 80896.56 | 0.01 | 1242.57 |
-| ellipsoid (0.6, 0.5, 0.4) | 256 | body-step | 91795.64 | 0.01 | 1409.98 |
-| cylinder 16 segments | 256 | body-step | 1374684.64 | 0.00 | 21115.16 |
-| box on box floor | 256 | body-step | 46642.31 | 0.02 | 716.43 |
-| box on SDF plane (25^3) | 256 | body-step | 40006.80 | 0.02 | 614.50 |
+| sphere (analytic) | 64 | body-step | 6534.76 | 0.15 | 25.09 |
+| ellipsoid 0.5 x 3 (GJK/EPA) | 64 | body-step | 29826.81 | 0.03 | 114.53 |
+| ellipsoid (0.6, 0.5, 0.4) | 64 | body-step | 27989.08 | 0.04 | 107.48 |
+| cylinder 16 segments | 64 | body-step | 37622.61 | 0.03 | 144.47 |
+| box on box floor | 64 | body-step | 23615.80 | 0.04 | 90.68 |
+| box on SDF plane (25^3) | 64 | body-step | 30918.17 | 0.03 | 118.73 |
+| sphere (analytic) | 256 | body-step | 5943.35 | 0.17 | 91.29 |
+| ellipsoid 0.5 x 3 (GJK/EPA) | 256 | body-step | 27470.31 | 0.04 | 421.94 |
+| ellipsoid (0.6, 0.5, 0.4) | 256 | body-step | 25089.61 | 0.04 | 385.38 |
+| cylinder 16 segments | 256 | body-step | 39419.19 | 0.03 | 605.48 |
+| box on box floor | 256 | body-step | 27000.10 | 0.04 | 414.72 |
+| box on SDF plane (25^3) | 256 | body-step | 32549.15 | 0.03 | 499.95 |
 
 
 ### Point-to-cylinder distance (17.52): analytic support vs 16-gon hull
 
 | shape | ns / query | error at 11.25 deg |
 |---|---:|---:|
-| SupportCylinder | 669 | 0.0 |
-| 16-gon ConvexPoly | 453 | 0.01921463 |
+| SupportCylinder | 689 | 0.0 |
+| 16-gon ConvexPoly | 487 | 0.01921463 |
 
 
 ## Character controller (17.1)
