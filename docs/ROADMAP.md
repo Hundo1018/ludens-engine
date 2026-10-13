@@ -3128,7 +3128,7 @@
 >   1e6 元素的 `List` 與刻意洩漏的 64 個 4 KiB 區塊都不改變 valgrind 的堆積統計(兩者皆 499 allocs),乾淨報告不構成證據,故不加 memcheck 閘門。
 
 #### 17.83 效能治理 — Wave A(工程)
-> **狀態**:🔶 部分完成(2026-10-13:機器可讀輸出、比較工具、確定性計數器閘門、斜率閘門、影格預算表、報告治理、bisect 判定器、交錯 A/B harness ✅;夜間牆鐘閘門需固定主機,cachegrind 指令數探針未做)。
+> **狀態**:🔶 部分完成(2026-10-13:機器可讀輸出、比較工具、確定性計數器閘門、斜率閘門、影格預算表、報告治理、bisect 判定器、交錯 A/B harness ✅;cachegrind 指令數探針 ✅;夜間牆鐘閘門需固定主機)。
 > **現況**:
 > - 基準規模:`benchmarks/bench_*.mojo` 共 79 支,皆已登記於 `scripts/benchmark_report.md.in`(79 條 `@bench`;逐一核對無缺漏),報告 `BENCHMARK_REPORT.md` 4026 行。
 > - 量測方法:`harness/bench.mojo:25-37` 的 `measure` = 暖機後取 `reps` 次的**最小**牆鐘時間;檔頭建議用 `taskset` 釘核。報告自述「絕對數字與機器相關,讀相對欄位」(BENCHMARK_REPORT 開頭說明)。
@@ -3182,8 +3182,10 @@
 >   vehicle / fracture 列缺漏在 2026-10-12 的重產中已補上);進 CI。
 > - **交錯 A/B harness**:`harness.bench.measure_ab(a, b)` 在同一行程內交錯執行兩個變體(輪流先後),回傳各自最小值與每輪 b/a 比值的範圍,
 >   `resolved()` 只在每輪都同向時為真;`test_bench_ab`(5/5):植入的 2 倍工作量量得比值在 [1.5, 2.5] 且每輪皆較慢,A 對 A 比值在 [0.8, 1.25]。
-> - **待辦**:夜間牆鐘閘門需要固定主機(託管 runner 的指紋每次不同,`compare` / `budgets` 會拒絕);cachegrind 指令數探針(memcheck 已證實看不見
->   Mojo 堆積,17.82 進度,cachegrind 的指令計數是否穩定待量);每步配置次數屬 17.79 的 `AllocStats`。
+> - **cachegrind 指令數探針 ✅(2026-10-13)**:`scripts/icount.py`(`pixi run icount`)編譯 `benchmarks/probes/icount_probe.mojo`(40 箱、60 步)於
+>   `valgrind --tool=cachegrind --cache-sim=no` 下跑 3 次:414,534,889 / 414,167,479 / 414,545,207 指令,相對散佈 9.1e-4(牆鐘同機跨行程約 ±15 %);
+>   `--selftest` 以 `-D STEPS=66` 注入 +10 % 工作量:+9.37 %,為散佈的 103 倍 → 可作不受主機負載影響的回歸閘門。
+> - **待辦**:夜間牆鐘閘門需要固定主機(託管 runner 的指紋每次不同,`compare` / `budgets` 會拒絕)—— 需基礎設施,本環境無法提供;每步配置次數屬 17.79 的 `AllocStats`。
 
 ---
 

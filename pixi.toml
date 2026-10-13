@@ -56,6 +56,8 @@ wasm-probe = { cmd = "python3 scripts/wasm_probe.py", depends-on = ["build"] }
 changelog = "python3 scripts/changelog.py"
 # Build twice and compare build/*.mojoc checksums (scripts/repro_probe.py; ROADMAP 17.81).
 repro-probe = "python3 scripts/repro_probe.py"
+# Instruction count of a fixed workload under cachegrind (scripts/icount.py; ROADMAP 17.83).
+icount = "python3 scripts/icount.py"
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.
