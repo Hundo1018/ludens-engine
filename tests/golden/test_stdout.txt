@@ -492,6 +492,16 @@ build: all packages precompiled into build/
   swept bullet: max x = -0.15143099427223206 final vx = -2.389892
   rest height with TOI stage: 0.24971099197864532
 [PASS] ccd6 - 20 / 20 checks
+--- tests/test_ccd_shapes.mojo ---
+   hull bullet at 60 m/s: max x with CCD -0.124988936  without 10.816081
+   ellipsoid bullet at 60 m/s: max x with CCD -0.12500001  without -0.12500001
+   compound bullet at 60 m/s: max x with CCD -0.12519695  without -0.114292554
+  box bullet at a one-quad trimesh wall: max x -0.10970028
+  spinning plank (36 rad/s) at a post: max |w| without CCD 253.33833  with CCD 36.0
+  hull sliding at 8 m/s (mu 0) with CCD: vx after 1 s 8.0  x -1.9999795
+  hull bullet at 1e4 m/s: max x -0.5282442
+  two hull bullets head-on: final x -0.1884368 0.1884368
+[PASS] ccd_shapes - 10 / 10 checks
 --- tests/test_chain_contact.mojo ---
   worst relative |J - dFK/dq|: 0.00023919344
   J for a point on branch A: 0.38165587 0.38165587 0.0
@@ -511,6 +521,10 @@ build: all packages precompiled into build/
 [PASS] chain_props - 10 / 10 checks
 --- tests/test_character.mojo ---
 [PASS] character - 21 / 21 checks
+--- tests/test_collide_par.mojo ---
+  1024-box pile: contacts 1024
+  heightfield scene: contacts 762
+[PASS] collide_par - 15 / 15 checks
 --- tests/test_colored.mojo ---
   colored vs serial GS worst position delta: 0.0006251335144042969
   pyramid top y: 2.746126174926758 expected settled: 2.75
@@ -525,6 +539,18 @@ build: all packages precompiled into build/
   L queries: ray down onto the upright t 2.1  ray along -x t 2.5  distance from (0.2, 1, 0) 0.50990194
   1000-sphere compound after 1 s: y 0.49998984  speed 2.674459e-06
 [PASS] compound - 18 / 18 checks
+--- tests/test_contact_model.mojo ---
+  30 deg slope, mu 0.3, 1 s: analytic 1.1769427  pyramid 45 deg analytic 0.6496251
+    elliptic: along axis 1.1818461  diagonal 1.1983167    pyramid: along axis 1.1818477  diagonal 0.65232855
+  ball r 0.5 at 2 m/s, rolling resistance 0.05: stops after 2.8529625 m (analytic 2.8571427 )  without: 9.999933 m in 5 s
+  ball spinning at 10 rad/s, spin resistance 0.05: omega after 1 s 5.1000214 (analytic 5.1 )  without: 10.0
+  25 deg slope, mu_k 0.3: with mu_s 0.6 moved 0.00012386264  without 2.9603653   started at 1 m/s: 1.7416315 (kinetic analytic 1.7385571 )
+  resting box, pyramid vs elliptic: worst position gap 3.0791727e-07
+  rule friction 0.05 over mu_s 0.9 on 25 deg: moved 1.8565261
+  box dropped 0.5 m: peak penetration default 0.00028774142  soft pad (3 Hz) 0.013180047
+  1 kg box under a ceiling: drop in 2 s with adhesion 20 N 0.0  5 N 19.065327
+  mu 0: slide 2.4602058    mu 1e3 elliptic: slide 0.00014603457
+[PASS] contact_model - 22 / 22 checks
 --- tests/test_contact_rules.mojo ---
   one-way: highest 3.548625  rest 2.2997062
   conveyor: crate vx 2.0
@@ -695,7 +721,7 @@ build: all packages precompiled into build/
 [PASS] nav_world - 6 / 6 checks
 --- tests/test_netcode.mojo ---
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
-  netcode: snapshot 5024 bytes full, 1342 bytes per frame to all clients (delta), frames 249
+  netcode: snapshot 5032 bytes full, 1344 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
@@ -785,7 +811,7 @@ build: all packages precompiled into build/
   8 m/s sphere: lowest y 0.29972798  capsule lying: y 0.2998896
 [PASS] sdf_shape - 12 / 12 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20664
+  blob bytes: 20666
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.2499791  bp y 0.2499791
@@ -796,7 +822,7 @@ build: all packages precompiled into build/
   F4b off-centre trimesh: bottom y 0.049999997  max speed 0.00068361027
   F4c sensor passthrough: final x 5.8333344
   F4c filtered wall: final x 5.8333344
-  F4c mesh bbox: final y 0.09895793
+  F4c mesh bbox: final y 0.10024891
   extreme degenerate triangle: brute y 0.24978706  bp y 0.24978706
   extreme edge-seam rest: y 0.24991782  speed 0.0
 [PASS] shape_dispatch - 22 / 22 checks

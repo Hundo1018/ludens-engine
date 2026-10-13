@@ -3049,6 +3049,28 @@ each a plausible place for the O(n) claim to quietly stop holding.
 
 
 (rebuild with -D LUDENS_TRACE to see the nan_scan share breakdown)
+
+### Parallel narrowphase and contact prep (17.54)
+
+`SolverConfig.parallel_collision` runs `try_pair` over fixed chunks of the
+candidate list and `make_contact` per raw contact through `cfg.dispatch`,
+joining the results in candidate order, so a parallel step is bit-identical
+to a serial one (`test_collide_par`). It pays where the narrowphase is
+expensive (bodies on a heightfield test a few dozen triangles each) and not
+on box piles, where the narrowphase is ~3 % of the step and the serial BVH
+broadphase is a larger share. Below 256 candidate pairs it stays serial.
+
+#### Workers sweep (us per step)
+
+| scene | N | contacts | serial us | par w1 | par w2 | par w4 |
+|---|---:|---:|---:|---:|---:|---:|
+| box piles | 64 | 64 | 1965 | 1921 | 2217 | 1891 |
+| box piles | 1024 | 1024 | 37822 | 38999 | 32698 | 32709 |
+| box piles | 4096 | 4096 | 161041 | 148029 | 154985 | 163664 |
+| hulls/spheres/boxes on a heightfield | 64 | 138 | 3513 | 3407 | 3293 | 3536 |
+| hulls/spheres/boxes on a heightfield | 1024 | 2558 | 48876 | 47796 | 44127 | 42522 |
+| hulls/spheres/boxes on a heightfield | 4096 | 13676 | 400643 | 389768 | 328543 | 308423 |
+
 ## Physics — kinematic motion type (ROADMAP 17.24): cost of the path
 
 `MOTION_KINEMATIC` is a third instance of the same "advance this body's pose"
@@ -4120,6 +4142,27 @@ distance, with candidates from a BVH over swept boxes.
 | 16 | resting (control) | 252 | 202 |
 | 128 | bullets at 60 m/s | 17569 | 14475 |
 | 128 | resting (control) | 1722 | 1748 |
+
+
+## Contact model variants (17.50)
+
+Pyramid vs elliptic friction cone, and the elliptic cone with static
+friction and rolling / spin resistance on every body. On the slope
+diagonal the pyramid caps friction at sqrt(2) mu N, so its cubes slide
+about half as far (analytic 0.650 m vs 1.177 m in 1 s); the elliptic runs
+match the analytic slide on any direction. Timings compare different
+motions (the elliptic cubes travel further), so they are an upper bound on
+the cone's own cost; the rolling / spin branch adds two small angular solves
+per pair.
+
+### Contact model variants (17.50): cost per step
+
+| N | scene | pyramid us | elliptic us | elliptic + static + rolling/spin us | slide / roll (m): pyramid, elliptic, full |
+|---:|---|---:|---:|---:|---|
+| 16 | cubes on a 30 deg slope (diagonal) | 707 | 465 | 498 | 0.6523273 , 1.1983185 , 1.1778343 |
+| 16 | balls rolling at 2 m/s | 103 | 123 | 225 | 1.9999834 , 1.9999834 , 1.8594146 |
+| 256 | cubes on a 30 deg slope (diagonal) | 7539 | 8410 | 7465 | 0.6523283 , 1.1983187 , 1.1778314 |
+| 256 | balls rolling at 2 m/s | 1931 | 1597 | 3046 | 1.9999833 , 1.9999833 , 1.8594117 |
 
 
 ## Character controller (17.1)
