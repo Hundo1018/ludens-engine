@@ -2354,6 +2354,19 @@ with the fleet because every wheel query scans every collider (one per car
 plus the road), the same linear prefilter as the world queries above.
 
 @bench benchmarks/bench_vehicle.mojo
+## Gameplay — vehicle force elements (17.74)
+
+`gameplay/force_element.mojo` makes a vehicle a set of elements that each
+turn the body's state into forces: `Thruster`, `aircraft.Wing` (CL / CD with
+a stall blend) and `watercraft.HullBuoyancy`, which cuts the convex hull by
+the water plane (`polytope_split`) for the exact submerged volume and
+centroid. `test_force_elements`: the cut equals the closed-form box volume
+(0.6 vs 0.6 m^3); a 0.6 m hull with a keel rights itself from 150 degrees
+and a tall hull (GM < 0) falls onto its side; pre-stall lift matches
+q A 2 pi alpha to 1e-4. The first table is the price of exactness against
+the sampled integration of 17.28 (with each method's volume error).
+
+@bench benchmarks/bench_force_elements.mojo
 
 ## Pose interpolation (17.7)
 
