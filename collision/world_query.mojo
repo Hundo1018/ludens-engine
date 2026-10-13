@@ -939,9 +939,9 @@ def shape_distance(
         var cloud = ConvexPoly[3]()
         for q in range(len(pts)):
             cloud.add(pts[q])
-        var best = _kid_distance(cs, cloud, r, cs.kid(i, 0), cs.kid_pose(i, 0, pose))
+        var best = kid_distance(cs, cloud, r, cs.kid(i, 0), cs.kid_pose(i, 0, pose))
         for c in range(1, cs.kid_count(i)):
-            var dd = _kid_distance(cs, cloud, r, cs.kid(i, c), cs.kid_pose(i, c, pose))
+            var dd = kid_distance(cs, cloud, r, cs.kid(i, c), cs.kid_pose(i, c, pose))
             if dd.dist < best.dist:
                 best = dd
         return (best, -1)
@@ -1002,7 +1002,7 @@ def closest_points(
         var best = ConvexDistance(Real(1e30), poses[i].position, poses[j].position, Vec3(0, 1, 0, 0), False)
         for a in range(cs.kid_count(i)):
             for b in range(cs.kid_count(j)):
-                var dd = _desc_distance(cs, cs.kid(i, a), cs.kid_pose(i, a, poses[i]), cs.kid(j, b), cs.kid_pose(j, b, poses[j]))
+                var dd = desc_distance(cs, cs.kid(i, a), cs.kid_pose(i, a, poses[i]), cs.kid(j, b), cs.kid_pose(j, b, poses[j]))
                 if dd.dist < best.dist:
                     best = dd
         return best
@@ -1168,7 +1168,7 @@ def ray_cast_indexed(
 # ------------------------------------------------------------ compound children (17.44)
 
 
-def _kid_distance[A: Support3](cs: ColliderSet, a: A, ra: Real, d: ShapeDesc, pose: Pose3) -> ConvexDistance:
+def kid_distance[A: Support3](cs: ColliderSet, a: A, ra: Real, d: ShapeDesc, pose: Pose3) -> ConvexDistance:
     """Distance from support shape `a` (+ radius `ra`) to convex child `d`
     at `pose`, exact through the child's support mapping."""
     if d.kind == SHAPE_BOX:
@@ -1182,14 +1182,14 @@ def _kid_distance[A: Support3](cs: ColliderSet, a: A, ra: Real, d: ShapeDesc, po
     return support_distance(a, ra, cs.hull_world_d(d, pose), 0)
 
 
-def _desc_distance(cs: ColliderSet, da: ShapeDesc, pa: Pose3, db: ShapeDesc, pb: Pose3) -> ConvexDistance:
+def desc_distance(cs: ColliderSet, da: ShapeDesc, pa: Pose3, db: ShapeDesc, pb: Pose3) -> ConvexDistance:
     """Distance between two convex shapes given as descriptors."""
     if da.kind == SHAPE_BOX:
-        return _kid_distance(cs, SupportBox(pa.position, pa.axes[0], pa.axes[1], pa.axes[2], da.half), 0, db, pb)
+        return kid_distance(cs, SupportBox(pa.position, pa.axes[0], pa.axes[1], pa.axes[2], da.half), 0, db, pb)
     if da.kind == SHAPE_SPHERE:
-        return _kid_distance(cs, SupportCapsule(pa.position, pa.axes[1], 0, 0), da.half[0], db, pb)
+        return kid_distance(cs, SupportCapsule(pa.position, pa.axes[1], 0, 0), da.half[0], db, pb)
     if da.kind == SHAPE_CAPSULE:
-        return _kid_distance(cs, SupportCapsule(pa.position, pa.axes[1], 0, da.half[1]), da.half[0], db, pb)
+        return kid_distance(cs, SupportCapsule(pa.position, pa.axes[1], 0, da.half[1]), da.half[0], db, pb)
     if da.kind == SHAPE_ELLIPSOID:
-        return _kid_distance(cs, cs.support_ellipsoid_d(da, pa), 0, db, pb)
-    return _kid_distance(cs, cs.hull_world_d(da, pa), 0, db, pb)
+        return kid_distance(cs, cs.support_ellipsoid_d(da, pa), 0, db, pb)
+    return kid_distance(cs, cs.hull_world_d(da, pa), 0, db, pb)

@@ -4102,6 +4102,26 @@ drift apart by the weld error.
 | 64 | welded | 2890 | 1.7634648e-08 | 9.4521056e-08 |
 
 
+## CCD shape coverage (17.46)
+
+Hull bullets at 60 m/s (1 m per step, 20x the wall's thickness) against a
+thin wall, and the same hulls at rest as a control. Box / sphere / capsule
+pairs keep the closed-form swept box; pairs with a hull, ellipsoid,
+compound or static mesh use conservative advancement on the exact convex
+distance, with candidates from a BVH over swept boxes.
+
+### CCD shape coverage (17.46): hull bullets vs a thin wall
+
+| N | scene | CCD off (us/step) | CCD on (us/step) |
+|---:|---|---:|---:|
+| 1 | bullets at 60 m/s | 7 | 35 |
+| 1 | resting (control) | 13 | 14 |
+| 16 | bullets at 60 m/s | 702 | 774 |
+| 16 | resting (control) | 252 | 202 |
+| 128 | bullets at 60 m/s | 17569 | 14475 |
+| 128 | resting (control) | 1722 | 1748 |
+
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

@@ -2075,6 +2075,16 @@ drift apart by the weld error.
 
 @bench benchmarks/bench_compound.mojo
 
+## CCD shape coverage (17.46)
+
+Hull bullets at 60 m/s (1 m per step, 20x the wall's thickness) against a
+thin wall, and the same hulls at rest as a control. Box / sphere / capsule
+pairs keep the closed-form swept box; pairs with a hull, ellipsoid,
+compound or static mesh use conservative advancement on the exact convex
+distance, with candidates from a BVH over swept boxes.
+
+@bench benchmarks/bench_ccd_shapes.mojo
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

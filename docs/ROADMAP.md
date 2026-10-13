@@ -554,7 +554,7 @@
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | ✅ | A | `collision/world_query.mojo` 對真實 collider 幾何提供有號距離、ray / sphere / capsule cast、overlap、capsule penetration、batched raycast 與 QueryFilter,`test_world_query` 30/30、`bench_world_query` 已量測。 |
 | 17.30 | [地形(HeightField)執行期變形](ROADMAP_HISTORY.md#1730-地形heightfield執行期變形--wave-b) | ✅ | B | HeightField 支援 set_height / deform(圓盤挖填)與 16×16 區塊 min/max 摘要增量重算 bounds,ColliderSet / ContactScene6.deform_heightfield 更新 AABB 並喚醒受影響的睡眠體,1024² 地形每次編輯 11.7 µs vs 全表重掃 2.87 ms。 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 🔶 | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿 |
-| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | ⬜ | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
+| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 🔶 | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ✅ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 🔶 | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | ⬜ | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
@@ -642,6 +642,19 @@
 > - **待辦**:SDF 烘焙改用 BVH 最近三角形查詢(目前 res³ × T);heightfield 的 active edges(格點相鄰關係可直接推出);kinematic 移動網格(目前位姿只在加入時套用一次)。
 
 #### 17.46 CCD 形狀覆蓋 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:通用凸對凸 TOI(保守推進)、hull / 橢球 / 複合 / 靜態網格覆蓋、角向上界、swept-box BVH 配對 ✅;
+> 逐 body 旗標、island 平行相容(仍退回串行)、軟體粒子對 hull / mesh 的射線掃、SDF 的 TOI 未做)。
+> **進度註(2026-10-13)**:`physics/ccd6.mojo`:盒 / 球 / 膠囊兩兩之間仍走閉式 swept box(慢速路徑與既有輸出逐位相同,`test_ccd6` golden 不變);
+> 任一方為 hull / 橢球 / 複合 / trimesh / heightfield 時走 `ca_fraction`:Mirtich 保守推進,距離取子形狀對的精確凸距離(`world_query.desc_distance` /
+> `kid_distance`,網格取掃掠盒內的候選三角形),每步前進 距離 / (沿分離法向的接近速度 + |ω_i| r_i + |ω_j| r_j);起點即接觸時以兩見證點的實際法向速度判斷,
+> 靜止 / 滑動 / 分離不夾(以無號的 |ω| r 判斷曾把轉離柱子的木板凍住)。配對:以每個 body 的掃掠盒(起點盒 ∪ 終點盒,加旋轉半徑)建 BVH,取代 O(n²)。
+> 量測(`tests/test_ccd_shapes.mojo` 10/10):60 m/s(每步 1 m,牆厚 20 倍)hull 子彈有 CCD 停在 x −0.125、無 CCD 穿到 10.8;橢球 / 複合子彈停在 −0.125
+> (無 CCD 亦被其投機接觸攔下);盒對單一四邊形 trimesh 牆停在 −0.11;雙臂複合木板以 36 rad/s 轉向細柱,有 CCD 最大 |ω| 36.0、無 CCD 升到 253
+> (見下方發現);8 m/s 滑動 hull(μ 0)vx 保持 8.0;慢速 hull 落地 CCD 開關逐位相同;1e4 m/s 停在 −0.53;兩顆對撞子彈不互穿。
+> bench `bench_ccd_shapes`(µs/步):hull 子彈 N = 1 / 16 / 128 關 7 / 841 / 17681、開 40 / 947 / 12524;靜止控制組 25 / 219 / 1699 對 16 / 226 / 2096
+> (靜止體仍有微小速度而建 BVH,N = 128 多 23 %;待以位移門檻跳過)。
+> **發現(屬 17.19)**:細長板以 36 rad/s 旋轉撞細柱、不開 CCD 時角速度升到 253 rad/s —— 單一盒板亦同(非複合專屬),是深穿透以偏置速度解出時注入能量。
 
 > **現況**:CCD 是全域開關 `SolverConfig.ccd`(`physics/solver_config.mojo:57`),開啟才跑第二階段 `ccd_advance`(`physics/solver6.mojo:1333-1334`);第一階段的 speculative margin 在 `step` 中恆開(`physics/solver6.mojo:1233` 以 `dt` 當 `spec_dt`,`collision/contact_gen.mojo:72-77`)。
 > `ccd_advance` 只做盒對盒的 swept-SAT:任一方是 hull / trimesh / heightfield 就整對略過(`physics/ccd6.mojo:55-57,75-77`,檔頭 `:33-45` 自述);球與膠囊以保守盒掃,「只會過早夾、不會錯夾」(`:33-37`);旋轉被忽略,只做線性掃掠(`collision/toi.mojo:18-20`);配對迴圈是 i 對全部 j 的 O(n²)(`physics/ccd6.mojo:61`)。
@@ -3018,7 +3031,7 @@
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | ECS、排程、執行期與診斷 | 不排 |
 | 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
-| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
+| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
