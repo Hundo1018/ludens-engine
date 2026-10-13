@@ -58,6 +58,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 接觸摩擦錐 金字塔(逐軸夾)vs 橢圓(切向向量夾於圓盤);靜 / 動摩擦;滾動 / 扭轉阻力(17.50) | physics/contact6.mojo(`solve_contact`、`_solve_rolling`)、physics/solver_config.mojo(`friction_cone`) | 同一 Coulomb 錐的兩種多面 / 圓近似:未達上限時兩者走相同步驟;μ = 0 時逐位相同;沿切向基底軸滑動時上限相同(差 < 1 mm),45° 時金字塔上限為 √2 μN;滾動 / 扭轉係數 0 時不進該分支(預設場景逐位不變) | `test_contact_model` | `bench_contact_model` |
 | 碰撞管線執行 串行 vs 分塊 fan-out(narrowphase、make_contact;經 `Dispatch`,17.54) | physics/collide_par.mojo、physics/solver6.mojo(`_collect_pairs`) | 同一候選序列上的映射:分塊結果依塊序串接、prep 逐槽寫入,順序與串行相同,故對任何 workers 數與派發器逐位相同 | `test_collide_par` | `bench_collide_par` |
 | ECS 查詢過濾 `select`(with / without / any)於六後端的原生實作;變更偵測 pull(`changed` / `added`,寫入日誌)(17.77) | ecs/storage.mojo(`Filter`、`check_pack`)、六個 backend 的 `select`、ecs/world.mojo | 同一實體集合謂詞在不同儲存上的求值:排序後的實體集合與逐個 `has` 的暴力過濾相等,六後端彼此相等;日誌路徑與全掃描回退結果相同 | `test_ecs_query`、`test_ecs_pack_guard` | `bench_ecs_query` |
+| 窄相 重算 vs 複製(兩端未動的候選對沿用上次輸出,`reuse_still_pairs`,17.85) | physics/solver6.mojo(`_narrow_reuse`)、collision/collider_set.mojo(`epoch`) | 純函數的記憶化:輸入(碰撞器 epoch、兩端位姿與線速度、`spec_dt`、裕度)逐位相同則輸出相同,依候選順序串接,故逐位相同 | `test_np_reuse` | `bench_tiers`(`+ reuse_still_pairs` 列) |
 | 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |

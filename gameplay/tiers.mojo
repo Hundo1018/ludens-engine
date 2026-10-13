@@ -31,10 +31,11 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from physics.rigid6 import Body6
 from physics.solver6 import ContactScene6
+from collision.broadphase import BroadPhase
 
 
 trait TierPolicy(Movable, Deinitable):
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         """Tier per body slot (len == number of slots)."""
         ...
 
@@ -74,7 +75,7 @@ struct DistanceTiers(TierPolicy, Copyable):
             return prev
         return t
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         var n = len(scene.bset.bodies)
         while len(self.last) < n:
             self.last.append(-1)
@@ -101,7 +102,7 @@ struct CausalReach(TierPolicy, Copyable):
         self.depths = depths^
         self.reached = 0
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         var n = len(scene.bset.bodies)
         # adjacency from last step's contacts and the joints (CSR)
         var deg = List[Int](length=n + 1, fill=0)
@@ -168,7 +169,7 @@ struct RoundRobin(TierPolicy, Copyable):
     def __init__(out self, tier: Int = 1):
         self.tier = tier
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         return List[Int](length=len(scene.bset.bodies), fill=self.tier)
 
 
@@ -201,5 +202,5 @@ struct BudgetTiers(TierPolicy, Copyable):
         for i in range(len(self.base)):
             self.inner.radii[i] = self.base[i] * self.scale
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         return self.inner.assign(scene, observers, step)

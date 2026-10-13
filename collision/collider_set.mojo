@@ -202,6 +202,10 @@ struct ColliderSet(Movable, Deinitable):
 
     var shape: List[Int]
     var half: List[Vec3]  # box half-extents (conservative for every kind)
+    # ROADMAP 17.85: bumped by every mutating method, so a cached narrowphase
+    # result is only reused while the shapes it was computed from are the
+    # same. Code that writes the public fields directly must bump it too.
+    var epoch: Int
     # Convex hulls, indexed by `hull_id[i]` (-1 when body i is not a hull). A
     # side table rather than a field on every body: hulls are rare and carry
     # a vertex list, so paying for one on every sphere would be wasteful.
@@ -243,6 +247,7 @@ struct ColliderSet(Movable, Deinitable):
 
     def __init__(out self):
         self.shape = List[Int]()
+        self.epoch = 0
         self.half = List[Vec3]()
         self.hulls = List[HullShape]()
         self.hull_id = List[Int]()
@@ -274,6 +279,7 @@ struct ColliderSet(Movable, Deinitable):
         row in place. Every field list is written by every branch below, the
         same "one method, every list grows/overwrites together" discipline
         `physics.body_set.BodySet.push` uses for the body side."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var i = at
         if i < 0 or i == len(self.shape):
             i = len(self.shape)
@@ -320,6 +326,7 @@ struct ColliderSet(Movable, Deinitable):
         same binade as `top`, e.g. `thickness` a power of two no larger than
         about half of `|top|`. Otherwise the answer is off by an ulp of
         `top`, which no contact tolerance cares about."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var i = self.add(Vec3(extent, thickness, extent, 0))
         var axes = Axes3(fill=Vec3(0, 0, 0, 0))
         axes[0] = Vec3(1, 0, 0, 0)
@@ -328,11 +335,13 @@ struct ColliderSet(Movable, Deinitable):
         return (i, Pose3(Vec3(0, top - thickness, 0, 0), axes^))
 
     def add_sphere(mut self, r: Real, at: Int = -1) -> Int:
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var i = self.add(Vec3(r, r, r, 0), at)
         self.shape[i] = SHAPE_SPHERE
         return i
 
     def add_capsule(mut self, r: Real, half_len: Real, at: Int = -1) -> Int:
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         # `half` stores (r, half_len, r) -- readers take half[1] as the
         # segment half length; `fat_aabb` adds the cap radius to the box
         var i = self.add(Vec3(r, half_len, r, 0), at)
@@ -343,6 +352,7 @@ struct ColliderSet(Movable, Deinitable):
         """Solid ellipsoid with semi-axes `radii` along the body's local
         x, y, z (ROADMAP 17.52). `half` = radii, so the AABB paths see its
         bounding box."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var i = self.add(radii, at)
         self.shape[i] = SHAPE_ELLIPSOID
         return i
@@ -380,6 +390,7 @@ struct ColliderSet(Movable, Deinitable):
         final body-frame poses (`ContactScene6.add_compound` moves them to
         the centre of mass and principal axes first). `half` = the box
         around every child's own box in the body frame."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var lo = Vec3(1e30, 1e30, 1e30, 0)
         var hi = Vec3(-1e30, -1e30, -1e30, 0)
         var first = len(self.kid_desc)
@@ -501,6 +512,7 @@ struct ColliderSet(Movable, Deinitable):
         so every AABB-based path (broadphase fattening, sleeping, islands)
         keeps working unchanged and conservatively -- a hull is never
         smaller than the box the rest of the engine already reasons about."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var h = Vec3(0, 0, 0, 0)
         for vi in range(len(verts) // 3):
             comptime for k in range(3):
@@ -524,6 +536,7 @@ struct ColliderSet(Movable, Deinitable):
         mesh's own world-space bounds, computed once here, and `fat_aabb`
         returns it (grown by the usual speculative margin) instead of
         centring a box on the body's position (17.0f / F3)."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var m = TriMesh(verts, indices)
         if len(active) > 0:
             m.set_active_edges(active)
@@ -541,6 +554,7 @@ struct ColliderSet(Movable, Deinitable):
     ) raises -> Int:
         """Static heightfield -- see `add_trimesh`; the same world-space
         `world_aabb` treatment (body pose ignored) applies here too."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var f = HeightField(heights, nx, nz, cell, ox, oz)
         var bb = f.bounds()
         var i = self.add(bb.half_extents(), at)
@@ -554,6 +568,7 @@ struct ColliderSet(Movable, Deinitable):
         """Static signed distance grid (ROADMAP 17.52), world coordinates like
         `add_trimesh` (the owning body's pose is ignored). Contacts sample
         the other shape against the grid (`contact_gen.try_sdf_pair`)."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         var span = grid.cell * Real(max(grid.res - 1, 0))
         var bb = AABB[3](grid.origin, grid.origin + Vec3(span, span, span, 0))
         var i = self.add(bb.half_extents(), at)
@@ -571,6 +586,7 @@ struct ColliderSet(Movable, Deinitable):
         BVH, normals and per-block bounds come out exactly as if it had been
         added at the new coordinates; `world_aabb` follows. Box, sphere,
         capsule and hull shapes are body-relative and need nothing."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         for i in range(len(self.shape)):
             var k = self.shape[i]
             if k == SHAPE_TRIMESH:
@@ -603,6 +619,7 @@ struct ColliderSet(Movable, Deinitable):
         world AABB and conservative half extents -- from the field's block
         summary (`incremental`) or by rescanning every height; the two give
         the same box. Returns the number of corners edited."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         if self.shape[i] != SHAPE_HEIGHTFIELD:
             raise Error("ColliderSet.deform_heightfield: collider is not a heightfield")
         var k = self.mesh_id[i]
@@ -618,12 +635,14 @@ struct ColliderSet(Movable, Deinitable):
         Symmetric by construction: both directions must agree, so "players do
         not hit players" is one bit cleared, not a rule that has to be
         repeated on every other body."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         self.category[i] = category
         self.mask[i] = mask
 
     def set_sensor(mut self, i: Int, on: Bool):
         """A sensor overlaps but never pushes: it reports contact events and
         is skipped by every solve pass. Trigger volumes are the point."""
+        self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         self.sensor[i] = on
 
     # --------------------------------------------------------- predicates

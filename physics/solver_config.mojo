@@ -88,6 +88,11 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # ROADMAP 17.54: fan the narrowphase and contact prep out through
     # `dispatch` (`workers` caps the width); bit-identical to False.
     var parallel_collision: Bool
+    # ROADMAP 17.85: copy last collection's narrowphase output for pairs
+    # whose two bodies have not moved (bit for bit); same result, skips the
+    # work for frozen / sleeping / un-stepped bodies. Code that edits
+    # `ColliderSet` fields directly must bump `colliders.epoch`.
+    var reuse_still_pairs: Bool
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -110,6 +115,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.impulse_estimator = IMPULSE_SUBSTEP_SUM
         self.friction_cone = FRICTION_PYRAMID
         self.parallel_collision = False
+        self.reuse_still_pairs = False
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes

@@ -41,6 +41,8 @@ struct _NarrowTask(Task):
     var cj: Pointer[List[Int], MutUntrackedOrigin]
     var outs: Pointer[List[List[RawContact]], MutUntrackedOrigin]
     var souts: Pointer[List[List[RawContact]], MutUntrackedOrigin]
+    var counts: Pointer[List[Int], MutUntrackedOrigin]
+    var scounts: Pointer[List[Int], MutUntrackedOrigin]
     var chunk: Int
     var spec_dt: Real
     var margin_base: Real
@@ -54,6 +56,8 @@ struct _NarrowTask(Task):
         mut cj: List[Int],
         mut outs: List[List[RawContact]],
         mut souts: List[List[RawContact]],
+        mut counts: List[Int],
+        mut scounts: List[Int],
         chunk: Int,
         spec_dt: Real,
         margin_base: Real,
@@ -65,6 +69,8 @@ struct _NarrowTask(Task):
         self.cj = Pointer(to=cj).unsafe_origin_cast[MutUntrackedOrigin]()
         self.outs = Pointer(to=outs).unsafe_origin_cast[MutUntrackedOrigin]()
         self.souts = Pointer(to=souts).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.counts = Pointer(to=counts).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.scounts = Pointer(to=scounts).unsafe_origin_cast[MutUntrackedOrigin]()
         self.chunk = chunk
         self.spec_dt = spec_dt
         self.margin_base = margin_base
@@ -77,10 +83,14 @@ struct _NarrowTask(Task):
         for c in range(lo, hi):
             var i = self.ci[][c]
             var j = self.cj[][c]
+            var n0 = len(o)
+            var s0 = len(so)
             try_pair(
                 self.col[], i, j, self.poses[][i], self.poses[][j],
                 self.vels[][i], self.vels[][j], self.spec_dt, o, so, self.margin_base,
             )
+            self.counts[][c] = len(o) - n0
+            self.scounts[][c] = len(so) - s0
         self.outs[][k] = o^
         self.souts[][k] = so^
 
@@ -95,12 +105,16 @@ def narrow_parallel(
     margin_base: Real,
     mut raws: List[RawContact],
     mut sraws: List[RawContact],
+    mut counts: List[Int],
+    mut scounts: List[Int],
     workers: Int,
     dispatch: Dispatch,
 ):
     """`try_pair` over candidates (ci[c], cj[c]) in chunks, appended to
     `raws` / `sraws` in candidate order (bit-identical to the serial loop).
-    `colliders`, `poses` and `vels` are only read."""
+    `counts[c]` / `scounts[c]` (pre-sized to the candidate count) receive
+    how many contacts candidate c produced. `colliders`, `poses` and `vels`
+    are only read."""
     var n = len(ci)
     if n == 0:
         return
@@ -111,7 +125,7 @@ def narrow_parallel(
     for _ in range(nchunk):
         outs.append(List[RawContact]())
         souts.append(List[RawContact]())
-    var task = _NarrowTask(colliders, poses, vels, ci, cj, outs, souts, chunk, spec_dt, margin_base)
+    var task = _NarrowTask(colliders, poses, vels, ci, cj, outs, souts, counts, scounts, chunk, spec_dt, margin_base)
     dispatch_for(dispatch, task, nchunk, workers)
     for k in range(nchunk):
         for c in range(len(outs[k])):

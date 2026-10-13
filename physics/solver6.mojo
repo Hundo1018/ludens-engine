@@ -214,6 +214,23 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
     var max_push: Real  # this step's SolverConfig.max_push_speed, for the island path (17.75)
+    # ROADMAP 17.85 narrowphase reuse (`_narrow_reuse`): last collection's
+    # candidates (key i * n + j -> index), their output ranges, the outputs,
+    # and the inputs they were computed from. `np_reused` = candidates copied
+    # in the last collection.
+    var _np_keys: Dict[Int, Int]
+    var _np_lo: List[Int]
+    var _np_cnt: List[Int]
+    var _np_slo: List[Int]
+    var _np_scnt: List[Int]
+    var _np_raws: List[RawContact]
+    var _np_sraws: List[RawContact]
+    var _np_pose: List[Pose3]
+    var _np_vel: List[Vec3]
+    var _np_epoch: Int
+    var _np_spec: Real
+    var _np_margin: Real
+    var np_reused: Int
     var impulse_estimator: Int  # this step's SolverConfig.impulse_estimator (17.49)
     # ROADMAP 17.49: per joint, this step's summed linear / angular impulse
     # and the time it covers (`joint_reaction`).
@@ -280,6 +297,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.colliders = ColliderSet()
         self.counters = Counters()
         self.max_push = 4
+        self._np_keys = Dict[Int, Int]()
+        self._np_lo = List[Int]()
+        self._np_cnt = List[Int]()
+        self._np_slo = List[Int]()
+        self._np_scnt = List[Int]()
+        self._np_raws = List[RawContact]()
+        self._np_sraws = List[RawContact]()
+        self._np_pose = List[Pose3]()
+        self._np_vel = List[Vec3]()
+        self._np_epoch = -1
+        self._np_spec = -1
+        self._np_margin = -1
+        self.np_reused = 0
         self.impulse_estimator = IMPULSE_SUBSTEP_SUM
         self.jsum_f = List[Vec3]()
         self.jsum_t = List[Vec3]()
@@ -1512,9 +1542,84 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             edges.append(self.drives[c].b)
         return edges^
 
+    def _narrow_reuse(
+        mut self, ci: List[Int], cj: List[Int], n: Int, spec_dt: Real, margin_base: Real,
+        mut raws: List[RawContact], mut sraws: List[RawContact],
+    ):
+        """ROADMAP 17.85: the narrowphase with `SolverConfig.reuse_still_pairs`.
+        `try_pair` is a function of the colliders, both poses and linear
+        velocities, `spec_dt` and the margin only, so a candidate whose two
+        bodies are bit-for-bit where they were at the previous collection
+        (same velocities, same `colliders.epoch`, same `spec_dt` / margin)
+        gets last time's output copied instead of recomputed: frozen or
+        sleeping islands, and every body a tier plan did not step. The output
+        is the one the plain loop would build, in candidate order."""
+        var poses = List[Pose3](capacity=n)
+        var vels = List[Vec3](capacity=n)
+        for i in range(n):
+            poses.append(self._pose(i))
+            vels.append(self.bset.bodies[i].linear_velocity())
+        var valid = (
+            self._np_epoch == self.colliders.epoch and self._np_spec == spec_dt
+            and self._np_margin == margin_base and len(self._np_pose) == n
+        )
+        var still = List[Bool](capacity=n)
+        for i in range(n):
+            var st = valid
+            if st:
+                var p = poses[i].position
+                var q = self._np_pose[i].position
+                st = p == q and vels[i] == self._np_vel[i]
+                if st:
+                    for k in range(3):
+                        if poses[i].axes[k] != self._np_pose[i].axes[k]:
+                            st = False
+            still.append(st)
+        var nlo = List[Int](capacity=len(ci))
+        var ncnt = List[Int](capacity=len(ci))
+        var nslo = List[Int](capacity=len(ci))
+        var nscnt = List[Int](capacity=len(ci))
+        var keys = Dict[Int, Int]()
+        var reused = 0
+        for c in range(len(ci)):
+            var i = ci[c]
+            var j = cj[c]
+            var a = len(raws)
+            var sa = len(sraws)
+            var k = -1
+            if still[i] and still[j]:
+                k = self._np_keys.get(i * n + j, -1)
+            if k >= 0:
+                for q in range(self._np_lo[k], self._np_lo[k] + self._np_cnt[k]):
+                    raws.append(self._np_raws[q].copy())
+                for q in range(self._np_slo[k], self._np_slo[k] + self._np_scnt[k]):
+                    sraws.append(self._np_sraws[q].copy())
+                reused += 1
+            else:
+                try_pair(self.colliders, i, j, poses[i], poses[j], vels[i], vels[j], spec_dt, raws, sraws, margin_base)
+            keys[i * n + j] = c
+            nlo.append(a)
+            ncnt.append(len(raws) - a)
+            nslo.append(sa)
+            nscnt.append(len(sraws) - sa)
+        self._np_keys = keys^
+        self._np_lo = nlo^
+        self._np_cnt = ncnt^
+        self._np_slo = nslo^
+        self._np_scnt = nscnt^
+        self._np_raws = raws.copy()
+        self._np_sraws = sraws.copy()
+        self._np_pose = poses^
+        self._np_vel = vels^
+        self._np_epoch = self.colliders.epoch
+        self._np_spec = spec_dt
+        self._np_margin = margin_base
+        self.np_reused = reused
+
     def _collect_pairs(
         mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False, margin_base: Real = SPEC_BASE,
         par: Bool = False, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel(),
+        reuse: Bool = False,
     ) -> List[ContactConstraint]:
         """Manifolds at the current poses (ROTATED box-box manifold — tilted
         geometry produces restoring contacts). With `warm`, impulses are
@@ -1664,13 +1769,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.trace.end()
         self.trace.begin("narrowphase")
         var fan = par and len(ci) >= NARROW_PAR_MIN
-        if fan:
+        if fan and not reuse:
             var poses = List[Pose3](capacity=n)
             var vels = List[Vec3](capacity=n)
             for i in range(n):
                 poses.append(self._pose(i))
                 vels.append(self.bset.bodies[i].linear_velocity())
-            narrow_parallel(self.colliders, poses, vels, ci, cj, spec_dt, margin_base, raws, sraws, workers, dispatch)
+            var cnt = List[Int](length=len(ci), fill=0)
+            var scnt = List[Int](length=len(ci), fill=0)
+            narrow_parallel(self.colliders, poses, vels, ci, cj, spec_dt, margin_base, raws, sraws, cnt, scnt, workers, dispatch)
+        elif reuse:
+            self._narrow_reuse(ci, cj, n, spec_dt, margin_base, raws, sraws)
         else:
             for c in range(len(ci)):
                 var i = ci[c]
@@ -2221,7 +2330,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # function; the spec's phase list treats them as one unit here.
         self.trace.begin("collect_pairs")
         var pairs = self._collect_pairs(
-            True, dt, broadphase, cfg.margin_base, cfg.parallel_collision, workers, cfg.dispatch
+            True, dt, broadphase, cfg.margin_base, cfg.parallel_collision, workers, cfg.dispatch,
+            cfg.reuse_still_pairs,
         )
         self.trace.end()
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))

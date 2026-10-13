@@ -2388,7 +2388,14 @@
 > - 順帶修掉 island 路徑的兩個平方項:`_solve_island` 每島掃全部 body(O(bodies × islands))與 pair 分島的 O(pairs × islands) 過濾 —— 改成線性分割(`_island_partition`)後,1e4 body 的全 0 計畫從 885 ms / 步降到 322 ms(與不分級 333 ms 持平),既有 island 平行路徑同樣受益,結果逐位不變(`test_islands_par`)。
 > - 測試:`test_tiers`(26)、`test_tiers_parity`(11)、`test_system_tiers`(7,1800 個 awake body,觀察者斜穿世界:3430 次 tier 變動,位置跳變最大 7 mm、速度跳變 ≤ 一個粗步重力、穿透比全品質多 4.3 cm、每步解的 body 627 vs 1800)。
 > - 量測(`bench_tiers`,awake 兩箱堆疊,觀察者在角落):n = 1e3 不分級 28 ms / 步 → DistanceTiers 7.3、CausalReach 5.5、RoundRobin 5.0、BudgetTiers 5.0 ms(粗 tier 穿透 +35 mm);n = 1e4 333 ms → 138–145 ms。1e4 時剩下的約 70 ms 是收集 pair(寬相 + 窄相)的全量成本,tier 還沒碰到它。
-> **剩餘**:ECS `Tier[N]` tag(待 17.77 的延遲 remove 與元件型別上限)、睡眠 bookkeeping 的 awake list、`BroadPhase.update_moved` 與「兩端都沒動的 pair 跳過窄相」(1e4 時的主要剩餘成本)、軟體 / LBM / 粒子的 per-object period、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
+> **進度(2026-10-13)**:「兩端都沒動的 pair 跳過窄相」—— `SolverConfig.reuse_still_pairs`(預設關):`try_pair` 只依賴碰撞器、兩端位姿與線速度、`spec_dt` 與裕度,
+> 所以兩端位姿與速度與上次收集逐位相同(且 `ColliderSet.epoch` —— 每個改動碰撞器的方法都會遞增 —— 與 `spec_dt` / 裕度不變)的候選對直接複製上次的窄相輸出,
+> 依候選順序串接,輸出與一般路徑相同(`ContactScene6._narrow_reuse`)。`tests/test_np_reuse.mojo` 8/8 皆與一般路徑逐位相同:DistanceTiers 下 200 箱的分級堆疊
+> (120 步複製 16358 個候選對);睡著的堆疊中途改 filter 並開 `parallel_collision`;中途抬高 heightfield 0.1 m(箱被抬到 y 0.2999);無物體;全部在落(不複製);中途移除 body。
+> 量測(`bench_tiers`,n = 1e4,兩次執行):BVH 後端時 reuse 的差在執行間雜訊內(DistanceTiers 163 / 196 ms vs 加 reuse 166 / 211 ms);
+> 換成持久 `DbvhBroadPhase`(只重插移動者)後 DistanceTiers 為 56 / 58 ms(約 3 倍),再加 reuse 52 / 54 ms(兩次皆省約 7 %)。
+> 也就是 1e4 時的剩餘成本主要是每步全建的 BVH,而不是窄相。為此 `TierPolicy.assign` 改為對 broadphase 泛型(原本只接受預設 BVH 的場景)。
+> **剩餘**:ECS `Tier[N]` tag(17.77 的延遲 remove 與型別上限已交付,可做)、睡眠 bookkeeping 的 awake list、`BroadPhase.update_moved`(DBVH 已是增量;BVH 後端是否值得加增量更新待定)、軟體 / LBM / 粒子的 per-object period、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
 > **緣起**:2026-10-10 使用者提問 —— 世界中實體數遠大於玩家能產生因果交互的實體數時,
 > 引擎能否以適當的時間 / 空間解析度維護 simulation state,且分級(LOD)模組本身可替換。
 > 設計筆記:`docs/design/17.85-tiered-simulation.md`。
