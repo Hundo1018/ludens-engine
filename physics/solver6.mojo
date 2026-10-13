@@ -38,7 +38,7 @@ narrowphase is axis-aligned, geometrically unconstrained. Restitution is still
 deferred (e = 0 scenes).
 """
 
-from std.math import sqrt, isfinite
+from std.math import sqrt, isfinite, sin, cos
 from std.os import abort
 from std.collections import Dict
 from scheduler.dispatch import Dispatch, Task, dispatch_for
@@ -494,6 +494,28 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         debug_assert(
             ci == id.index(), "ContactScene6.add_hull: body/collider index desync"
         )
+        return id
+
+    def add_cylinder(
+        mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool, segments: Int = 16
+    ) -> BodyId:
+        """A cylinder about local Y (ROADMAP 17.52). Its geometry is a
+        `segments`-gon prism (end caps, queries); lying on a box its side
+        contact is the exact capsule manifold with the round anchors of
+        17.19, so it rolls as a cylinder. `segments` is clamped to [3, 16]:
+        `HullShape` keeps at most 16 vertices per face and 30 faces, and a
+        32-gon cap truncated to half its rim stood on one side and tipped
+        over. Pair with `Inertia3.cylinder`."""
+        var n = min(max(segments, 3), 16)
+        var v = List[Real](capacity=6 * n)
+        for k in range(n):
+            var a = Real(6.283185307179586) * Real(k) / Real(n)
+            for sgn in range(2):
+                v.append(r * cos(a))
+                v.append(half_len if sgn == 1 else -half_len)
+                v.append(r * sin(a))
+        var id = self.add_hull(b^, v^, is_static)
+        self.colliders.hulls[self.colliders.hull_id[id.index()]].round_r = r
         return id
 
     def add_trimesh(

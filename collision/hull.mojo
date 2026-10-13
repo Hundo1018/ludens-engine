@@ -91,6 +91,12 @@ struct HullShape(Movable, Deinitable):
     # that keeps every face flat and reproduces the dedicated box path exactly;
     # for any other hull it bends the faces (see `hull_manifold`).
     var box_like: Bool
+    # ROADMAP 17.52: > 0 marks a tessellated cylinder of this radius about
+    # local Y (half length = the hull's half extent in y). Its side contacts
+    # use the capsule treatment (`ColliderSet.pair_manifold`, the round
+    # anchors of `physics.contact6.round_core`), so it rolls like a cylinder
+    # rather than like the polygon it is tessellated as.
+    var round_r: Real
 
     def __init__(out self, verts: List[Real]):
         """`verts` is FLAT: x, y, z per vertex. Not `List[Vec3]` — see above."""
@@ -100,6 +106,7 @@ struct HullShape(Movable, Deinitable):
         self.f = List[Real](capacity=96)
         self.fo = List[Real](capacity=32)
         self.box_like = False
+        self.round_r = 0
         self._build_faces()
         self._prune_interior()
         self._detect_box()
@@ -438,6 +445,60 @@ def _incident_contact(
         m.depths[i] = dq
 
 
+def _spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
+    """Indices of at most 4 contact points (ROADMAP 17.52). Up to 4: all, in
+    order. More (a clipped face with many vertices, e.g. a tessellated
+    cylinder's cap): the deepest, the farthest from it, the farthest from
+    the line through those two, then the largest triangle on the other side
+    of that line -- a spread patch. Keeping the first four in polygon order
+    put all four on one arc of a 32-gon and the cylinder tipped over."""
+    var out = List[Int]()
+    var c = len(pts)
+    if c <= 4:
+        for i in range(c):
+            out.append(i)
+        return out^
+    var i0 = 0
+    for i in range(1, c):
+        if dep[i] > dep[i0]:
+            i0 = i
+    var i1 = -1
+    var best = Real(-1)
+    for i in range(c):
+        var d = pts[i] - pts[i0]
+        var l2 = dot(d, d)
+        if l2 > best:
+            best = l2
+            i1 = i
+    var e = pts[i1] - pts[i0]
+    var i2 = -1
+    var s2 = Real(0)
+    best = Real(-1)
+    for i in range(c):
+        var a = dot(cross(e, pts[i] - pts[i0]), n)
+        if abs(a) > best:
+            best = abs(a)
+            i2 = i
+            s2 = a
+    var i3 = -1
+    best = Real(-1)
+    for i in range(c):
+        if i == i0 or i == i1 or i == i2:
+            continue
+        var a = dot(cross(e, pts[i] - pts[i0]), n)
+        var score = -a if s2 >= 0 else a  # other side of the i0-i1 line
+        if score > best:
+            best = score
+            i3 = i
+    out.append(i0)
+    out.append(i1)
+    if i2 != i0 and i2 != i1:
+        out.append(i2)
+    if i3 >= 0:
+        out.append(i3)
+    return out^
+
+
 def hull_manifold(
     a_in: ConvexPoly[3], b_in: ConvexPoly[3],
     faces_a: List[Real], faces_b: List[Real],
@@ -563,17 +624,20 @@ def hull_manifold(
         return m
 
     var plane_d = dot(_at(fa, 0), n)
-    var cnt = 0
+    var cand = List[Vec3]()
+    var cdep = List[Real]()
     for i in range(len(clipped) // 3):
-        if cnt >= ContactManifold[3].MAX:
-            break
         var p = _at(clipped, i)
         var sep = plane_d - dot(p, n)
         if sep < -(_FACE_EPS + margin):
             continue  # above the reference face: not in contact
-        m.points[cnt] = p
-        m.depths[cnt] = sep if sep > -margin else -margin
-        cnt += 1
+        cand.append(p)
+        cdep.append(sep if sep > -margin else -margin)
+    var pick = _spread4(cand, cdep, n)
+    var cnt = len(pick)
+    for k in range(cnt):
+        m.points[k] = cand[pick[k]]
+        m.depths[k] = cdep[pick[k]]
     if cnt == 0:
         if not overlapping:
             _incident_contact(m, fb if axis_from_a else fa, n, ref_level, axis_from_a)

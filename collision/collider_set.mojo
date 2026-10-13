@@ -325,6 +325,12 @@ struct ColliderSet(Movable, Deinitable):
 
     # ------------------------------------------------------- mesh midphase
 
+    def round_radius(self, i: Int) -> Real:
+        """Cylinder radius of hull collider `i` (ROADMAP 17.52), else 0."""
+        if self.shape[i] == SHAPE_HULL:
+            return self.hulls[self.hull_id[i]].round_r
+        return 0
+
     def mesh_ray_candidates(self, i: Int, o: Vec3, d: Vec3, max_t: Real, mut out: List[Int]):
         """Triangles of static collider `i` along a ray segment (ROADMAP
         17.53): BVH descent for a trimesh, a grid DDA for a heightfield."""
@@ -522,6 +528,19 @@ struct ColliderSet(Movable, Deinitable):
             if spec > 0:
                 for kk in range(m.count):
                     m.depths[kk] += spec
+            # ROADMAP 17.52: a cylinder lying on a box touches it along its
+            # curved side -- the capsule manifold of the same axis and radius
+            # is exact there (the polygon hull would roll like a polygon).
+            # Only when the hull normal is across the axis (|n . axis| < 0.5):
+            # an end cap on the box stays on the hull path.
+            if ka == SHAPE_BOX and self.round_radius(b) > 0 and m.hit:
+                if abs(dot(m.normal, pb.axes[1])) < 0.5:
+                    m = capsule_box_manifold(
+                        pb.position, pb.axes[1],
+                        self.half[b][1], self.round_radius(b) + mr,
+                        pa.position, pa.axes, self.half[a] + infl,
+                    )
+                    m.normal = -m.normal
         elif ka == SHAPE_CAPSULE and kb == SHAPE_CAPSULE:
             m = capsule_capsule_manifold(
                 pa.position, pa.axes[1], self.half[a][1], self.half[a][0] + mr,

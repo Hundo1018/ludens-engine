@@ -142,12 +142,23 @@ def cache_index(cache: List[ContactConstraint]) -> Dict[Int, Int]:
 
 
 def round_core[B: Body6](
-    bset: BodySet[B], colliders: ColliderSet, i: Int, p: Vec3
+    bset: BodySet[B], colliders: ColliderSet, i: Int, p: Vec3, n: Vec3 = Vec3(0, 0, 0, 0)
 ) -> Optional[Vec3]:
     """Body-frame core point of a round collider nearest to world point
     `p` -- the sphere's centre, or the clamped point on a capsule's local-y
-    segment -- or None for any other shape (ROADMAP 17.19)."""
+    segment -- or None for any other shape (ROADMAP 17.19). A cylinder
+    (17.52) counts as round when the contact normal `n` is across its axis
+    (a side contact), not on its flat end caps."""
     var k = colliders.shape[i]
+    var rr = colliders.round_radius(i)
+    if rr > 0:
+        var o = bset.bodies[i].act(Vec3(0, 0, 0, 0))
+        var axis = bset.bodies[i].act(Vec3(0, 1, 0, 0)) - o
+        if abs(dot(n, axis)) >= 0.5:
+            return None
+        var hl = colliders.half[i][1]
+        var y = bset.bodies[i].to_local(p)[1]
+        return Vec3(0, min(max(y, -hl), hl), 0, 0)
     if k == SHAPE_SPHERE:
         return Vec3(0, 0, 0, 0)
     if k == SHAPE_CAPSULE:
@@ -202,8 +213,8 @@ def make_contact[B: Body6](
     )
     for k in range(rc.m.count):
         var p = rc.m.points[k]
-        var ca = round_core(bset, colliders, rc.a, p)
-        var cb = round_core(bset, colliders, rc.b, p)
+        var ca = round_core(bset, colliders, rc.a, p, rc.m.normal)
+        var cb = round_core(bset, colliders, rc.b, p, rc.m.normal)
         # A round side's lever arm must reach its real surface: the
         # narrowphase puts e.g. a sphere-on-box point on the margin-inflated
         # face, half a speculative margin inside the ball, and friction
