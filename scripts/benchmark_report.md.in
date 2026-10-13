@@ -936,6 +936,16 @@ regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
 1.130), so they do discretise the same material and the comparison is fair.
 
 @bench benchmarks/bench_vbd_cloth.mojo
+
+## Mesh cloth (17.56)
+
+`physics.cloth.MeshCloth` runs XPBD on any triangle mesh (stretch per edge,
+cross-edge bending, area-weighted masses), collides with the scene's
+colliders through the world queries, and takes wind drag per triangle. The
+cost per vertex-substep stays flat as the sheet grows (the scene here is a
+single box; more colliders mean more candidates per query).
+
+@bench benchmarks/bench_cloth_mesh.mojo
 ## Differentiable simulation — gradient cost & Field abstraction
 
 The `Field` seam (`RealF`/`DualReal`/`DualBatch`/`RevReal` tape, gradient
