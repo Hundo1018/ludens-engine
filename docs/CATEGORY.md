@@ -62,6 +62,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 連續體求解器 FEM / MPM / PBF / LBM 轉接器,同一 `ContinuumSolver` 契約(17.55) | physics/continuum.mojo | 同一「推進 dt + 健康檢查 + 隔離 + 狀態讀寫」介面的四個實作;泛型驅動對四者相同,狀態寫出 → 讀入 → 續跑逐位相同 | `test_continuum` | `bench_continuum` |
 | 動畫轉場 淡入(兩次取樣 + 混合)vs 慣性化(一次取樣 + 衰減殘差)(17.64) | procedural/anim_state.mojo、procedural/inertialize.mojo | 同一「來源姿態 → 目標 clip」轉場的兩個實作:轉場結束後兩者逐位等於目標 clip 的取樣;殘差為 0 時目標姿態不變 | `test_anim_runtime` | `bench_anim_runtime`(轉場佔比 0 / 50 / 100 %) |
 | 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
+| 時間軸求值 隨機 seek(二分)vs 順序游標(17.68) | procedural/sequence.mojo | 同一「t → 軌道值」純函式的兩種段落定位:段索引相同、算術相同,故逐位相同;事件同經 `EventTrack` | `test_camera_seq` | `bench_sequence` |
 | 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |

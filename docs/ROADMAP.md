@@ -1836,7 +1836,7 @@
 | 17.28 | [浮力 / 水體積](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b) | ✅ | B | WaterVolume + apply_buoyancy 以 ρ g V_sub 施於浮心並加隱式線性 / 角阻尼,浸沒體積有球解析、盒取樣積分與軸對齊盒閉式解,取樣 vs 閉式為 seam parity。 |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | ⬜ | C | 平衡控制、物理驅動移動、動態角色本體、模式狀態機、抓取 / 攜帶、ragdoll 質量與限制 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 🔶 | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
-| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | ⬜ | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
+| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 🔶 | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | ⬜ | B | 受擊 / 攻擊體積、近戰掃掠、hitscan 與穿透 / 跳彈、彈道投射物、爆炸、受擊反應 |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | ⬜ | C | 履帶車、水上載具、飛行器、懸浮 / 推進器陣列、機車 / 自行車、通用服務 |
 
@@ -1927,6 +1927,16 @@
 > **邊界**:輸入映射 / 手把死區屬宿主;依模式選動畫由宿主(或 17.64 參數)處理;攝影機行為屬 17.68;音效屬宿主。
 
 #### 17.68 攝影機 / 序列 — Wave B(headless 資料 / 邏輯)
+> **狀態**:🔶 部分完成(2026-10-13:鏡頭資料、參考投影、視錐測試、臨界阻尼彈簧、trauma 震動、吊臂鏡頭、鏡頭混合與優先序、序列(純量 / Vec3 / 四元數 / 事件軌,seek 與游標兩種求值)✅;
+> 軌道車 / 多目標取景 rig、motor 空間彈簧變體、動畫 clip 軌、序列驅動 kinematic 剛體與事件進 `Channel` 未做)。
+> **進度註(2026-10-13)**:`procedural/camera_math.mojo`:`CameraPose`、`look_rotation`(看正上 / 正下時改用 +z 當 up,不退化)、`perspective` / `ortho`(OpenGL 慣例)、`Frustum`(六個朝內平面,球 / AABB 測試)、
+> `spring_damp`(精確解,與步長無關)/ `spring_damp_quat`、`Shake`(trauma² × 種子 Perlin)。`procedural/sequence.mojo`:`Sequence`(依時間的純函式,二分找段)與 `SeqCursor`(從上一段走,事件經 17.64 `EventTrack`)。
+> `gameplay/camera_rig.mojo`:`SpringArm`(球掃,拉近立即、放長用彈簧)、`CameraBrain`(優先序最高者勝,換鏡時以緩動混合位置 / 方向 / fov)。
+> **發現**:Mojo 1.1 編譯器在「迴圈內對 struct 欄位賦值,且同一迴圈對該 struct 呼叫泛型 mut 方法」時卡住(`bench_sequence` 的 `arm.yaw = ...` 與 17.67 的 `mh.cc.position = ...` 皆 5 分鐘以上無結果),改成方法(`SpringArm.aim`)後 10 s 編譯完成。
+> 量測(`tests/test_camera_seq.mojo` 14/14):`look_rotation` 各方向(含兩極)誤差 1.7e-7;視錐與參考投影裁切在 2000 個隨機點上全部一致(218 個在內;初版四個側面法向全部朝外,此測試抓到);
+> 彈簧兩步 0.05 與一步 0.1 一致;游標以不等步長(含負步)播放 400 次,與隨機 seek 逐位相同;事件正向各一次、倒拖反序各一次;牆在 2 m 處時吊臂停在 z 1.78(加半徑不入牆),牆移除後 39 幀放長到 4.95 m;
+> 目標在牆內時臂長 0;優先序切換混合半途 x 5.0、fov 0.75,結束時逐位等於目標鏡頭;零 trauma 不震、同種子重現、trauma 1 s 內歸零。
+> bench `bench_sequence`(64 軌 / 幀,ns):每軌 8 / 128 / 2048 個 key 時 seek 2394 / 2697 / 7104、游標 2391 / 2449 / 5307;吊臂 空場景 21、一面牆 175 ns / 次。
 > **現況**:攝影機與序列**完全不存在**。grep `[Cc]amera|[Ff]rustum|perspective|view_matrix|\bfov\b|\bFOV\b|orbit|shake|Timeline|Sequencer|[Cc]utscene` 全樹 `.mojo`(排除 build/.pixi/worktrees)零命中。可重用的積木:twist-free 樣條標架 `geometry/spline.mojo:454` `build_rmf_frames`、`:485` `frame_at_distance`(軌道 / 吊臂鏡頭,範例 `examples/15_spline_rmf.mojo`);緩動與 motor geodesic 補間 `procedural/tween.mojo:63-94,220`;球掃 `collision/world_query.mojo:418` `sphere_cast`(+ `QueryFilter` `:59` 類別遮罩,`physics/solver6.mojo:655` 包裝)可做鏡頭防穿牆;`gameplay/interpolation.mojo:87` `MotorGeodesic` 與 `gameplay/runtime.mojo:135` `render_pose` 給 tick→繪製的插值;`scheduler/events.mojo` 事件通道;`scheduler/timers.mojo` 決定論計時;`procedural/noise.mojo:102-212` 種子雜訊可做鏡頭震動;`procedural/ik.mojo:174` `look_at` 是**IK 錐角限制旋轉,不是視圖矩陣**。`geometry/mat.mojo` 無投影矩陣(上述 grep 含 `perspective` 零命中)。
 > **缺口**:
 > - **鏡頭資料與 rig**:`CameraPose`(motor + 鏡頭參數 fov / near / far / 寬高比)純資料;rig 邏輯:跟隨 / 軌道(orbit)/ 吊臂(spring arm,球掃拉近防穿牆)/ 第一人稱 / 軌道車(樣條 RMF)/ 多目標取景 / 鎖定目標;臨界阻尼彈簧平滑(motor 空間)。
@@ -3165,7 +3175,7 @@
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | ⬜ |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
-| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
+| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | ⬜ |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | ⬜ |

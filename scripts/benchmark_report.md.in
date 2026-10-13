@@ -2184,6 +2184,15 @@ integration, so the cost is the controller's sweeps either way.
 
 @bench benchmarks/bench_movement.mojo
 
+## Sequences and camera rig (17.68)
+
+A `procedural.sequence.Sequence` is evaluated as a pure function of time
+(binary search per track); a `SeqCursor` walks from the last segment for
+playback. Both give the same values bit for bit; the cursor only pays off
+when tracks have many keys. The spring arm's cost is one sphere cast.
+
+@bench benchmarks/bench_sequence.mojo
+
 ## Raycast vehicles (17.4)
 
 One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a
