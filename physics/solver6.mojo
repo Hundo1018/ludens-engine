@@ -206,6 +206,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var kin_mesh: List[Int]
     var kin_local: List[List[Real]]
     var kin_at: List[Pose6]  # pose the mesh was last placed at
+    # ROADMAP 17.53: friction per surface material id (-1 = not set); a
+    # mesh / heightfield triangle's id comes from `colliders.material`
+    var material_mu: List[Real]
     var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
     # +inf = unbreakable) and the joints released by the last step.
@@ -294,6 +297,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.kin_mesh = List[Int]()
         self.kin_local = List[List[Real]]()
         self.kin_at = List[Pose6]()
+        self.material_mu = List[Real]()
         self.drives = List[AngularDrive]()
         self.break_force = List[Real]()
         self.break_torque = List[Real]()
@@ -863,6 +867,43 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             raise Error("ContactScene6.set_adhesion: force must be >= 0")
         self.bset.adhesion[i] = force
         self.bset.any_contact_model = True
+
+    def set_triangle_materials(mut self, id: BodyId, ids: List[Int]) raises:
+        """ROADMAP 17.53: per-triangle surface material ids (0 .. 65535) of a
+        mesh or heightfield body, one per triangle in the order the mesh was
+        given (heightfield: `HeightField.tri`); empty clears. Query hits
+        report them (`hit_material`), vehicle wheels take their grip from
+        them (`surface_friction`). The contact solver still uses the body's
+        friction (per-triangle contact friction is not wired)."""
+        var i = self._check_id(id, "set_triangle_materials")
+        self.colliders.set_materials(i, ids)
+
+    def set_material_friction(mut self, material: Int, mu: Real) raises:
+        """Friction of surface material `material` (`surface_friction`)."""
+        if material < 0 or material > 65535:
+            raise Error("ContactScene6.set_material_friction: material id must be in 0 .. 65535")
+        if not (mu >= 0):
+            raise Error("ContactScene6.set_material_friction: mu must be >= 0")
+        while len(self.material_mu) <= material:
+            self.material_mu.append(-1)
+        self.material_mu[material] = mu
+
+    def hit_material(self, h: Hit) -> Int:
+        """Surface material id of a query hit: the triangle's id on a mesh /
+        heightfield with material ids, else -1."""
+        if not h.hit:
+            return -1
+        return self.colliders.material(h.body, h.feat)
+
+    def surface_friction(self, body: Int, material: Int, fallback: Real) -> Real:
+        """Friction of a surface: material `material`'s when it is set
+        (`set_material_friction`), else body `body`'s own
+        (`BodySet.eff_friction`, `fallback` when that is unset too)."""
+        if material >= 0 and material < len(self.material_mu) and self.material_mu[material] >= 0:
+            return self.material_mu[material]
+        if body < 0 or body >= len(self.bset.bodies):
+            return fallback
+        return self.bset.eff_friction(body, fallback)
 
     def set_friction_combine(mut self, i: Int, mode: Int):
         """Same pair-priority rule as `set_restitution_combine`, for
@@ -3157,6 +3198,49 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wf(sc.bset.contact_hertz[i])
             out.wf(sc.bset.contact_zeta[i])
             out.wf(sc.bset.adhesion[i])
+    # format 5: 17.45 kinematic meshes (body-frame vertices and the pose
+    # last placed at), heightfield active-edge angles, 17.53 per-triangle
+    # materials and the material friction table.
+    out.wi(len(sc.kin_mesh))
+    for k in range(len(sc.kin_mesh)):
+        out.wi(sc.kin_mesh[k])
+        out.wi(len(sc.kin_local[k]))
+        for v in range(len(sc.kin_local[k])):
+            out.wf(sc.kin_local[k][v])
+        out.wv(sc.kin_at[k].pos)
+        out.wf(sc.kin_at[k].rot.x)
+        out.wf(sc.kin_at[k].rot.y)
+        out.wf(sc.kin_at[k].rot.z)
+        out.wf(sc.kin_at[k].rot.w)
+    var surf = List[Int]()
+    for i in range(len(sc.bset.bodies)):
+        var kk = sc.colliders.shape[i]
+        if kk == SHAPE_HEIGHTFIELD:
+            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
+            if hf.active_cos != 2 or len(hf.material) > 0:
+                surf.append(i)
+        elif kk == SHAPE_TRIMESH:
+            if len(sc.colliders.meshes[sc.colliders.mesh_id[i]].material) > 0:
+                surf.append(i)
+    out.wi(len(surf))
+    for k in range(len(surf)):
+        var i = surf[k]
+        out.wi(i)
+        if sc.colliders.shape[i] == SHAPE_HEIGHTFIELD:
+            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
+            out.wf(hf.active_cos)
+            out.wi(len(hf.material))
+            for t in range(len(hf.material)):
+                out.wi(Int(hf.material[t]))
+        else:
+            ref ms = sc.colliders.meshes[sc.colliders.mesh_id[i]]
+            out.wf(2)
+            out.wi(len(ms.material))
+            for t in range(len(ms.material)):
+                out.wi(Int(ms.material[t]))
+    out.wi(len(sc.material_mu))
+    for m in range(len(sc.material_mu)):
+        out.wf(sc.material_mu[m])
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -3565,3 +3649,50 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             sc.bset.contact_hertz[i] = r.rf()
             sc.bset.contact_zeta[i] = r.rf()
             sc.bset.adhesion[i] = r.rf()
+    var nkm = r.ri()
+    if nkm < 0 or nkm > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (kinematic mesh count)")
+    sc.kin_mesh = List[Int]()
+    sc.kin_local = List[List[Real]]()
+    sc.kin_at = List[Pose6]()
+    for _ in range(nkm):
+        var bi = r.ri()
+        if bi < 0 or bi >= len(sc.bset.bodies) or sc.colliders.shape[bi] != SHAPE_TRIMESH:
+            raise Error("physics.serialize: corrupt snapshot (kinematic mesh on a non-mesh body)")
+        var nl = r.ri()
+        if nl != len(sc.colliders.meshes[sc.colliders.mesh_id[bi]].v):
+            raise Error("physics.serialize: corrupt snapshot (kinematic mesh vertex count)")
+        var loc = List[Real](capacity=nl)
+        for _ in range(nl):
+            loc.append(r.rf())
+        var kp = r.rv()
+        var qx = r.rf()
+        var qy = r.rf()
+        var qz = r.rf()
+        var qw = r.rf()
+        sc.kin_mesh.append(bi)
+        sc.kin_local.append(loc^)
+        sc.kin_at.append(Pose6(kp, Quat(qx, qy, qz, qw)))
+    var nsf = r.ri()
+    if nsf < 0 or nsf > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (surface count)")
+    for _ in range(nsf):
+        var bi = r.ri()
+        if bi < 0 or bi >= len(sc.bset.bodies) or (sc.colliders.shape[bi] != SHAPE_TRIMESH and sc.colliders.shape[bi] != SHAPE_HEIGHTFIELD):
+            raise Error("physics.serialize: corrupt snapshot (surface data on a non-mesh body)")
+        var acos = r.rf()
+        var nm = r.ri()
+        if nm < 0 or nm > 1 << 26:
+            raise Error("physics.serialize: corrupt snapshot (material count)")
+        var ids = List[Int](capacity=nm)
+        for _ in range(nm):
+            ids.append(r.ri())
+        if sc.colliders.shape[bi] == SHAPE_HEIGHTFIELD:
+            sc.colliders.fields[sc.colliders.mesh_id[bi]].active_cos = acos
+        sc.colliders.set_materials(bi, ids)
+    var nmu = r.ri()
+    if nmu < 0 or nmu > 65536:
+        raise Error("physics.serialize: corrupt snapshot (material table size)")
+    sc.material_mu = List[Real](capacity=nmu)
+    for _ in range(nmu):
+        sc.material_mu.append(r.rf())

@@ -21,8 +21,12 @@ step,
 Conventions. Chassis local axes: forward +X, up +Y, right +Z. Positive steer
 turns toward +Z. Wheel `omega` is positive when the wheel rolls forward. Ground
 friction is relative to the solver default 0.5: the tire's `mu` applies on a
-0.5 surface, scales linearly with the surface body's own friction, and a
-surface of friction 0 gives no grip at all.
+0.5 surface, scales linearly with the surface's friction, and a surface of
+friction 0 gives no grip at all. The surface's friction is the material
+friction of the triangle under the tire when its mesh / heightfield carries
+material ids and the scene has a friction for that id
+(`ContactScene6.set_material_friction`, ROADMAP 17.53: one terrain mesh with
+asphalt and grass), else the ground body's own friction.
 
 Why impulses applied before `step`: the solver owns integration, gravity and
 contacts, and applying the vehicle's forces as impulses at the contact points
@@ -252,11 +256,12 @@ struct WheelState(Copyable, ImplicitlyCopyable, Movable):
     var point: Vec3
     var normal: Vec3
     var ground: Int  # body index under the wheel, -1 airborne
+    var material: Int  # surface material id under the tire (17.53), -1 none
 
     @staticmethod
     def fresh(hub: Real) -> Self:
         return Self(
-            False, hub, 0, 0, 0, 0, 0, 0, 0, 0, 0, _ZERO, _UP, -1
+            False, hub, 0, 0, 0, 0, 0, 0, 0, 0, 0, _ZERO, _UP, -1, -1
         )
 
 
@@ -355,6 +360,7 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
             out.wv(ws.point)
             out.wv(ws.normal)
             out.wi(ws.ground)
+            out.wi(ws.material)
 
     def read_state[Rd: StateReader](mut self, mut r: Rd) raises:
         """Overwrite this vehicle's dynamic state; raises if the snapshot
@@ -382,9 +388,10 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
             var point = r.rv()
             var normal = r.rv()
             var ground = r.ri()
+            var material = r.ri()
             self.wheels[w] = WheelState(
                 grounded, hub, omega, spin, steer, fz, fx, fy, kappa, tan_alpha,
-                drive_torque, point, normal, ground,
+                drive_torque, point, normal, ground, material,
             )
 
     def grounded_count(self) -> Int:
@@ -596,10 +603,12 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
                 self.wheels[w].point = h.point
                 self.wheels[w].normal = h.normal
                 self.wheels[w].ground = h.body
+                self.wheels[w].material = sc.colliders.material(h.body, h.feat)
                 g += 1
             else:
                 self.wheels[w].hub = self.cfg.susp.length
                 self.wheels[w].ground = -1
+                self.wheels[w].material = -1
                 self.wheels[w].fz = 0
                 self.wheels[w].fx = 0
                 self.wheels[w].fy = 0
@@ -698,7 +707,7 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
                     var gmu = _REF_MU
                     if ws.ground >= 0:
                         gv = sc.bset.bodies[ws.ground].velocity_at(ws.point)
-                        gmu = sc.bset.eff_friction(ws.ground, _REF_MU)
+                        gmu = sc.surface_friction(ws.ground, ws.material, _REF_MU)
                     var vrel = sc.bset.bodies[ci].velocity_at(ws.point) - gv
                     # Slip is taken at the velocity the solver will give the
                     # contact after gravity acts this step; otherwise a car

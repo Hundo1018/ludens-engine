@@ -557,6 +557,7 @@ struct ColliderSet(Movable, Deinitable):
         var act = self.meshes[mi].active.copy()
         var m = TriMesh(world_verts, self.meshes[mi].idx)
         m.set_active_edges(act)
+        m.material = self.meshes[mi].material.copy()
         self.world_aabb[i] = m.bounds()
         self.meshes[mi] = m^
 
@@ -708,6 +709,29 @@ struct ColliderSet(Movable, Deinitable):
         if self.shape[i] == SHAPE_TRIMESH:
             return self.meshes[self.mesh_id[i]].active[t]
         return self.fields[self.mesh_id[i]].active(t)
+
+    def set_materials(mut self, i: Int, ids: List[Int]) raises:
+        """Per-triangle surface material ids of mesh / heightfield collider
+        `i` (ROADMAP 17.53); raises for any other kind."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            self.meshes[self.mesh_id[i]].set_materials(ids)
+        elif self.shape[i] == SHAPE_HEIGHTFIELD:
+            self.fields[self.mesh_id[i]].set_materials(ids)
+        else:
+            raise Error("ColliderSet.set_materials: collider is not a mesh or heightfield")
+
+    def material(self, i: Int, t: Int) -> Int:
+        """Surface material id of triangle `t` of collider `i`; -1 when none
+        is set, `t` is out of range, or `i` is not a mesh / heightfield."""
+        if i < 0 or i >= len(self.shape) or t < 0:
+            return -1
+        if self.shape[i] == SHAPE_TRIMESH:
+            ref m = self.meshes[self.mesh_id[i]].material
+            return Int(m[t]) if t < len(m) else -1
+        if self.shape[i] == SHAPE_HEIGHTFIELD:
+            ref m = self.fields[self.mesh_id[i]].material
+            return Int(m[t]) if t < len(m) else -1
+        return -1
 
     def mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
         if self.shape[i] == SHAPE_TRIMESH:

@@ -30,7 +30,7 @@ road underneath it.
 """
 
 from geometry.vec import Real, Vec3, dot
-from collision.collider_set import ColliderSet, Pose3
+from collision.collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_HEIGHTFIELD
 from collision.world_query import (
     QueryFilter,
     ray_cast,
@@ -53,10 +53,21 @@ struct WheelHit(Copyable, ImplicitlyCopyable, Movable):
     var hub: Real
     var point: Vec3
     var normal: Vec3
+    var feat: Int  # triangle under the tire on a mesh / heightfield, else -1 (17.53)
 
     @staticmethod
     def miss() -> Self:
-        return Self(False, -1, 0, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0))
+        return Self(False, -1, 0, Vec3(0, 0, 0, 0), Vec3(0, 1, 0, 0), -1)
+
+
+def _feat_at(cs: ColliderSet, poses: List[Pose3], body: Int, p: Vec3, n: Vec3, f: QueryFilter) -> Int:
+    """The triangle of mesh / heightfield `body` under surface point `p`
+    (normal `n`): a 10 cm ray back through the surface. Swept wheels get no
+    triangle from their cast; the ray recovers it for the material lookup."""
+    if body < 0 or (cs.shape[body] != SHAPE_TRIMESH and cs.shape[body] != SHAPE_HEIGHTFIELD):
+        return -1
+    var r = ray_cast(cs, poses, p + n * 0.05, -n, 0.1, f)
+    return r.feat if r.hit and r.body == body else -1
 
 
 trait WheelCast(Copyable, Movable, Deinitable):
@@ -108,7 +119,7 @@ struct RayWheel(WheelCast):
         # the swept-sphere answer on a plane, and the tangent point (not the
         # point under the mount) is where the tire force acts.
         var centre = mount + down * hub
-        return WheelHit(True, h.body, hub, centre - h.normal * radius, h.normal)
+        return WheelHit(True, h.body, hub, centre - h.normal * radius, h.normal, h.feat)
 
 
 struct SphereWheel(WheelCast):
@@ -132,7 +143,7 @@ struct SphereWheel(WheelCast):
             return WheelHit.miss()
         if h.start_solid and dot(h.normal, -down) < _SUPPORT_COS:
             return RayWheel().cast(cs, poses, mount, down, axle, reach, radius, half_width, f)
-        return WheelHit(True, h.body, h.t, h.point, h.normal)
+        return WheelHit(True, h.body, h.t, h.point, h.normal, _feat_at(cs, poses, h.body, h.point, h.normal, f))
 
 
 struct CapsuleWheel(WheelCast):
@@ -161,4 +172,5 @@ struct CapsuleWheel(WheelCast):
         # The capsule touches somewhere along the axle; the tire force acts on the
         # wheel's centre plane, under the hub.
         var centre = mount + down * h.t
-        return WheelHit(True, h.body, h.t, centre - h.normal * radius, h.normal)
+        var touch = centre - h.normal * radius
+        return WheelHit(True, h.body, h.t, touch, h.normal, _feat_at(cs, poses, h.body, touch, h.normal, f))

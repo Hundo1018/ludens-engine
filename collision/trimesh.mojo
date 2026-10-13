@@ -101,6 +101,20 @@ def closest_point_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3:
     return a + ab * v2 + ac * w3
 
 
+def _material_ids(ids: List[Int], ntri: Int, who: String) raises -> List[UInt16]:
+    var out = List[UInt16]()
+    if len(ids) == 0:
+        return out^
+    if len(ids) != ntri:
+        raise Error(who + ": one material id per triangle expected")
+    out.reserve(ntri)
+    for t in range(ntri):
+        if ids[t] < 0 or ids[t] > 65535:
+            raise Error(who + ": material id must be in 0 .. 65535")
+        out.append(UInt16(ids[t]))
+    return out^
+
+
 struct TriMesh(Movable, Deinitable):
     """A static triangle soup with a BVH midphase.
 
@@ -124,6 +138,9 @@ struct TriMesh(Movable, Deinitable):
     # computes real flags, and `contact_gen.try_mesh_pair` then stops flat
     # seams between coplanar triangles from producing edge normals.
     var active: List[UInt8]
+    # ROADMAP 17.53: per-triangle surface material id (empty = none set;
+    # `ColliderSet.material` then reports -1)
+    var material: List[UInt16]
     var bvh: BVH[3]
 
     def __init__(out self, verts: List[Real], indices: List[Int]) raises:
@@ -150,6 +167,7 @@ struct TriMesh(Movable, Deinitable):
         self.active = List[UInt8](capacity=nt)
         for _ in range(nt):
             self.active.append(7)
+        self.material = List[UInt16]()
         self.bvh = BVH[3]()  # before any self method call: all fields must be live
         var boxes = List[AABB[3]](capacity=nt)
         var proxies = List[Int](capacity=nt)
@@ -179,6 +197,11 @@ struct TriMesh(Movable, Deinitable):
             raise Error("TriMesh.set_active_edges: one flag byte per triangle expected")
         for t in range(len(flags)):
             self.active[t] = flags[t] & 7
+
+    def set_materials(mut self, ids: List[Int]) raises:
+        """Per-triangle surface material ids (ROADMAP 17.53), 0..65535; an
+        empty list clears them."""
+        self.material = _material_ids(ids, self.ntri(), "TriMesh.set_materials")
 
     def _vert(self, i: Int) -> Vec3:
         return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2], 0)
@@ -264,6 +287,7 @@ struct HeightField(Movable, Deinitable):
     # ROADMAP 17.45: cosine of the crease angle above which an edge is active;
     # 2 (the default) = every edge active, the old behaviour bit for bit.
     var active_cos: Real
+    var material: List[UInt16]  # ROADMAP 17.53: per triangle; empty = none
 
     def __init__(
         out self, heights: List[Real], nx: Int, nz: Int,
@@ -290,6 +314,7 @@ struct HeightField(Movable, Deinitable):
         self.nbx = (nx + _HB - 1) // _HB
         self.nbz = (nz + _HB - 1) // _HB
         self.active_cos = 2
+        self.material = List[UInt16]()
         self.bmin = List[Real](length=self.nbx * self.nbz, fill=0)
         self.bmax = List[Real](length=self.nbx * self.nbz, fill=0)
         for bz in range(self.nbz):
@@ -366,6 +391,11 @@ struct HeightField(Movable, Deinitable):
         if self.nx < 2 or self.nz < 2:
             return 0
         return (self.nx - 1) * (self.nz - 1) * 2
+
+    def set_materials(mut self, ids: List[Int]) raises:
+        """Per-triangle surface material ids (ROADMAP 17.53; triangle t as in
+        `tri(t)`: cell (t // 2) row-major, two per cell); empty clears."""
+        self.material = _material_ids(ids, self.ntri(), "HeightField.set_materials")
 
     def _corner(self, ix: Int, iz: Int) -> Vec3:
         var cx = min(max(ix, 0), self.nx - 1)
