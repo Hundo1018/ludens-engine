@@ -70,6 +70,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 角色本體後端:kinematic `Mover` vs `DynamicCharacter`(17.66) | gameplay/movement.mojo、gameplay/phys_character.mojo | 平地同輸入下穩態速度與煞停距離一致;外力響應(衝量、對腳下物體的反作用)只有動態後端有 | `test_phys_character`(煞停 0.58333 vs 0.583333 m) | `bench_phys_character` |
 | 浸沒體積:取樣積分 vs `polytope` 精確切割(17.74,延伸 17.28) | gameplay/watercraft.mojo、physics/fields.mojo | 同一「物體在水面下的體積與形心」;軸對齊盒上精確切割 = 閉式解,取樣誤差隨層數收斂 | `test_force_elements`(0.6 vs 0.6 m³) | `bench_force_elements` |
 | 點分佈取樣器:Poisson-disk / dart throwing / 抖動格(17.69) | procedural/scatter.mojo | 宣稱最小間距者皆滿足之(Poisson / dart ≥ r、抖動 0.25 ≥ 0.5 格);同 seed 逐位相同 | `test_pcg` | `bench_pcg` |
+| 屬性求值:全量重算 / 增量和 / 髒快取(17.70) | gameplay/rules.mojo | 同一「目前值」;定點整數使加總精確可交換,任意序列後三者相同 | `test_rules`(20000 步、4002 次讀取全同) | `bench_rules` |
 | 動畫轉場 淡入(兩次取樣 + 混合)vs 慣性化(一次取樣 + 衰減殘差)(17.64) | procedural/anim_state.mojo、procedural/inertialize.mojo | 同一「來源姿態 → 目標 clip」轉場的兩個實作:轉場結束後兩者逐位等於目標 clip 的取樣;殘差為 0 時目標姿態不變 | `test_anim_runtime` | `bench_anim_runtime`(轉場佔比 0 / 50 / 100 %) |
 | 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
 | 時間軸求值 隨機 seek(二分)vs 順序游標(17.68) | procedural/sequence.mojo | 同一「t → 軌道值」純函式的兩種段落定位:段索引相同、算術相同,故逐位相同;事件同經 `EventTrack` | `test_camera_seq` | `bench_sequence` |

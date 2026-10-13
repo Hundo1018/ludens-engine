@@ -2355,6 +2355,20 @@ one misses those the chord of the arc passes inside. Projectiles cast one
 segment ray each per step.
 
 @bench benchmarks/bench_combat.mojo
+## Gameplay — rules framework (17.70)
+
+`gameplay/rules.mojo`: attributes with modifier stacks in fixed point
+(1/1000 units in integers, so sums commute exactly), hierarchical tags as
+bitsets, effects (instant / duration / infinite / periodic, refresh or
+count stacking, granted tags, immunity), a damage pipeline (resistance,
+shield, health, one death report) and byte serialisation. `test_rules`: the
+three evaluators agree on all 4002 reads of a seeded 20000-step sequence;
+an actor saved mid-effect continues to the same bytes. Rows: cost per
+attribute read. The incremental evaluator keeps running sums but still
+scans the modifier list for overrides on every read, which is why it gains
+less than the dirty cache.
+
+@bench benchmarks/bench_rules.mojo
 
 ## Raycast vehicles (17.4)
 

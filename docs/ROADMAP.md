@@ -2109,7 +2109,7 @@
 | 17.14 | [導航](#1714-導航) | ✅ | C | 新套件 `nav`(layer 3):navmesh bake(體素 → 緊湊場 → 侵蝕 → tile 矩形)、尋路 seam(多邊形 A* + funnel / 格 A* / 流場 / HPA*)、off-mesh link、動態障礙增量挖洞、crowd 與避讓 seam(ORCA / 取樣 RVO / 社會力)、3D 體積導航(稀疏體素八叉樹 A* vs 稠密體素 A*)。 |
 | 17.15 | [AI 框架](#1715-ai-框架) | ✅ | C | 新套件 `ai`(layer 4):blackboard、behavior tree(迭代 tick)、utility AI、GOAP / HTN、決策 seam(BT / FSM / utility / GOAP)、感知(視錐 + 宿主視線批次、聽覺、記憶)、EQS、轉向 / 群聚 / 隊形、smart objects、影響力圖與隊伍戰爭迷霧。 |
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | ✅ | C | `gameplay/netcode.mojo`:`NetSim` 契約、預測策略 seam(`LockstepPeer` / `RollbackPeer` / `SnapshotServer` + `SnapshotClient`)、位元組訊息(冗餘輸入 + ack、XOR + RLE 差分快照)、雜湊交換失步偵測、輸入驗證、延遲補償(`PoseRing` + `rewind_ray_cast`);傳輸層交宿主。 |
-| 17.70 | [規則框架](#1770-規則框架--wave-c) | ⬜ | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
+| 17.70 | [規則框架](#1770-規則框架--wave-c) | 🔶 | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | ⬜ | C | 流程狀態堆疊、全域旗標 / 黑板、任務 / 目標圖、對話 / 敘事狀態、關卡切換協定、檢查點 / 重生 |
 | 17.73 | [營運邊界](#1773-營運邊界--wave-c) | ⬜ | C | 對外 outbox、遙測分流、成就 / 統計計數、本地化鍵、入站資料決定論、黑盒記錄器 |
 
@@ -2202,6 +2202,14 @@
 > **歷史**:原標「部分 gated」—— 傳輸層 / 線路格式綁定平台整合(同 13.9 / 17.12);原缺口列有「lockstep 傳輸層」與「跨平台決定論(不同編譯器 / 架構 —— 目前只保證同工具鏈,16 章鎖版本是半個答案)」。2026-10-09 決定後兩者改為交宿主 / 不做。
 
 #### 17.70 規則框架 — Wave C
+> **進度註(2026-10-13)**:`gameplay/rules.mojo`:`Attributes`(定點 1/1000 整數、加 / 乘(千分比和)/ 覆寫(最高優先序)、夾限、三種求值器
+> `EVAL_FULL` / `EVAL_INCREMENTAL` / `EVAL_DIRTY`)、`TagRegistry`(階層名稱駐留、父 tag 位元一併設定、≤ 64 個)、`EffectDef` / `Rules`(瞬發 / 持續 / 無限 / 週期,
+> `STACK_REFRESH` / `STACK_COUNT`,授予 tag、免疫 tag 擋下,冷卻 = 授予自身擋 tag 的效果)、傷害管線(抗性 → 護盾 → 生命、死亡回報一次)、`actor_to_bytes` / `actor_from_bytes`
+> (效果實例與到期 tick 一併入位元組,解決計時器不入快照)。量測(`tests/test_rules.mojo` 15/15):+20 % buff 5.000 → 6.000、於 tick 300 恰好結束;
+> 火焰 DoT 10 / 30 tick × 300 tick 恰扣 100;冷卻期間拒絕、到期後可用;STACK_COUNT 上限 3、STACK_REFRESH 延長到期 +100;三求值器在 20000 步種子序列的 4002 次讀取全同;
+> 效果進行中存檔 → 還原 → 400 tick 後位元組相同;25 % 抗性 + 30 護盾使 100 傷害扣 45;同 tick 兩次致命一個死亡;重複移除回 False;零持續至下一 tick。
+> `bench_rules`(1000 角色 × 4 屬性、每 tick 10 % 變動):每次讀取 K = 4 / 16 / 64:全量 87 / 148 / 888 ns、增量 48 / 92 / 576 ns(仍掃覆寫)、髒快取 17 / 29 / 137 ns。
+> **未做**:技能(消耗 / 取消 / 目標)、資料驅動表(17.11 反射)、17.71 命中 → 傷害接線、`Runtime` / ECS 元件化、覆寫的增量索引、`oop` 對照、1e6 修飾器量測。
 > **現況**:引擎內**沒有**。grep `GameplayEffect|GameplayTag|AttributeSet|cooldown|[Ss]tatus.?effect|\bbuffs?\b|\b[Mm]odifier` 於 `gameplay ecs scheduler physics procedural` 只命中 `scheduler/timers.mojo:20` 一則註解(「冷卻、短延遲」是計時器的常見用途);health / damage 只存在於 benchmark / 測試 / 範例的玩具 fixture(`benchmarks/bench_scheduler.mojo:49-61`、`tests/test_scheduler_parity.mojo:49-63` 的 `Health` / `Damage` / `DamageCmd`,`examples/19_reactive_commands.mojo:28` 的 `Health` + `Poisoned`),引擎套件(排除 `tests benchmarks examples`)grep `health|Health|damage|Damage` 僅命中文件字串(`scheduler/scheduler.mojo:9,11`、`physics/solver6.mojo:593` 的爆炸示例、`ecs/hierarchy.mojo:5`)與無關的 `collision/hull.mojo:57`。可用積木:決定論計時器 `scheduler/timers.mojo:1-50`(`TimerHeap` / `TimerWheel`,觸發序 = `(due_tick, 排程序號)`);事件通道 `scheduler/events.mojo:1-40`;反射 `ecs/schema.mojo:47` `TypeSchema`;存檔 `gameplay/save.mojo:70-196` 按欄位名讀寫;回放雜湊 `gameplay/replay.mojo:86`;ECS 元件 `ComponentType`(`comptime ID`,見 `bench_scheduler.mojo:49-52`);關係 `ecs/relations.mojo:55` `RelationStore`。**注意**:`Runtime` 的 `timers`(`gameplay/runtime.mojo:85`)與 `SimState`(`gameplay/replay.mojo:38-49`)都不含計時器狀態——grep `TimerHeap|TimerWheel` 於 `physics gameplay` 只命中 `runtime.mojo`,計時器不入快照,效果持續時間若靠它就無法存檔 / 回放。比較基準:`oop/engine.mojo`(層 6,OOP 對照引擎)。
 > **缺口**:
 > - **屬性集**:基礎值 + 修飾器堆疊(加 / 乘 / 覆寫、優先序、來源 handle)→ 衍生當前值;夾限;meta 屬性(傷害 → 生命)。
@@ -3298,7 +3306,7 @@
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | 🔶 |
-| 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
+| 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.73 | [營運邊界](#1773-營運邊界--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
