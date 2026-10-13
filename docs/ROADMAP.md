@@ -2120,7 +2120,7 @@
 | 17.40 | [存檔系統(相對於決定論快照)](ROADMAP_HISTORY.md#1740-存檔系統相對於決定論快照--wave-b) | ✅ | B | `gameplay/save.mojo` 建在 17.11 schema 上,提供 `SaveWriter` / `SaveReader`:具名區段,按欄位名載入,處理新增、刪除、改型的欄位並以 `ReadReport` 回報;`save_bodies` / `load_bodies` 只存動態體的姿態與速度;`test_save` 11/11 驗證存檔涵蓋的欄位與 6.10 快照逐位相同;`bench_save` 的存檔大小為 74 KB,快照為 932 KB。 |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | 不排 | B | 規劃在 `CommandBuffer`(4.4)與 17.11 `TypeSchema` 之上建交易式 undo / redo 層(begin/commit/abort、反向操作記錄、物理場景 inverse op),以 `UndoLog` 差分 vs `SnapshotUndo` 全快照為 seam;目前只有零件,交易與反向操作層未做。 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | 🔶 | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
-| 17.79 | [資源治理](#1779-資源治理--wave-b) | ⬜ | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
+| 17.79 | [資源治理](#1779-資源治理--wave-b) | 🔶 | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | 🔶 | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
 
@@ -2293,6 +2293,14 @@
 > 場景 / prefab(17.12)、runtime 定義的元件型別(17.78)、undo 歷史(17.43)不在本條。
 
 #### 17.79 資源治理 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:記憶體記帳、body / joint 上限檢查、接觸數上限 ✅;預留 / 穩態零配置量測、`BodySet` 尾端墓碑裁切、快取 / GPU 緩衝收縮、
+> `Runtime` 接 `SimBudget`、ECS 儲存的記帳未做)。
+> **進度註(2026-10-13)**:`physics/resources.mojo`:`resource_report(scene)` 回傳 bodies / colliders / shapes(hull、mesh 含 BVH 節點、heightfield、SDF)/ contacts / joints / soft
+> 的使用中位元組(`len × size_of`,不含 broadphase 自身結構,所以是下界);`bytes_per_body` 給「再加 n 個 body 要多少」;`Limits(max_bodies, max_joints)` +
+> `check_room(scene, limits, bodies, joints)` 在公開邊界 raise(只算存活 body,移除的槽不算);`SolverConfig.max_contacts` 在熱路徑丟最新的 manifold 並計入新計數器
+> `CONTACT_DROPPED`。量測(`tests/test_resources.mojo` 8/8):每 body 329 bytes,預測再加 5000 個箱子 1645000 bytes,實測 1645000;一個 2 三角形網格 +314 bytes;
+> 上限 12 時 10 + 2 通過、10 + 3 raise、移除 1 個後 9 + 3 通過;地面 10 箱、上限 3 時快取留 3 個、60 步丟 515 個、狀態有限;無上限時不丟。
 > **緣起**:被嵌入的函式庫必須能回答「你用了多少記憶體、最多會用多少、超限時怎麼辦」。現況每個容器各自為政:有的有上限、有的無上限成長,沒有統一的用量讀數,
 > 「穩態不配置」也無從驗證。
 > **現況**:
@@ -3126,7 +3134,7 @@
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | 🔶 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |
-| 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |

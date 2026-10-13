@@ -92,7 +92,7 @@ from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
 from diag.counters import (
     Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED, TIER_FALLBACK,
-    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED, TRACE_DROPPED,
+    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED, TRACE_DROPPED, CONTACT_DROPPED,
 )
 from diag.log import LogRing, log
 from diag.level import Level, DEBUG_DRAW_ON
@@ -2337,6 +2337,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             True, dt, broadphase, cfg.margin_base, cfg.parallel_collision, workers, cfg.dispatch,
             cfg.reuse_still_pairs,
         )
+        if cfg.max_contacts > 0 and len(pairs) > cfg.max_contacts:
+            self.counters.incr(CONTACT_DROPPED, Int64(len(pairs) - cfg.max_contacts))
+            while len(pairs) > cfg.max_contacts:
+                _ = pairs.pop()
         self.trace.end()
         # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
         self.trace.sample("contact_manifolds", len(pairs))

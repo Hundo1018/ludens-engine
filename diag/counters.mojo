@@ -97,7 +97,11 @@ comptime VELOCITY_CLAMPED: Int = 19
 """A body's linear or angular speed exceeded its `ContactScene6
 .set_max_velocity` cap at step end and was clamped (ROADMAP 17.48)."""
 
-comptime COUNT: Int = 20
+comptime CONTACT_DROPPED: Int = 20
+"""`ContactScene6` produced more contact manifolds than
+`SolverConfig.max_contacts` (ROADMAP 17.79) and dropped the newest."""
+
+comptime COUNT: Int = 21
 
 
 def _name(id: Int) -> String:
@@ -141,6 +145,8 @@ def _name(id: Int) -> String:
         return "contact_points"
     elif id == VELOCITY_CLAMPED:
         return "velocity_clamped"
+    elif id == CONTACT_DROPPED:
+        return "contact_dropped"
     else:
         return "counter_" + String(id)
 

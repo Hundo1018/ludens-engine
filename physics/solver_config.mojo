@@ -93,6 +93,9 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # work for frozen / sleeping / un-stepped bodies. Code that edits
     # `ColliderSet` fields directly must bump `colliders.epoch`.
     var reuse_still_pairs: Bool
+    # ROADMAP 17.79: most contact manifolds a step keeps (0 = no cap); the
+    # newest over it are dropped and counted (`CONTACT_DROPPED`).
+    var max_contacts: Int
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -116,6 +119,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.friction_cone = FRICTION_PYRAMID
         self.parallel_collision = False
         self.reuse_still_pairs = False
+        self.max_contacts = 0
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes
