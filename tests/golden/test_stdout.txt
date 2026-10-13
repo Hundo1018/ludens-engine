@@ -443,11 +443,11 @@ build: all packages precompiled into build/
 --- tests/test_world.mojo ---
 [PASS] world - 15 / 15 checks
 --- tests/test_active_edges.mojo ---
-  speed 2  n 80  vx without flags -0.26332426  with 2.00001  max|vy| with 0.0006168003
-  speed 2  n 400  vx without flags 0.029833449  with 2.0000055  max|vy| with 7.63011e-05
-  speed 8  n 80  vx without flags 0.6204607  with 7.9999356  max|vy| with 0.0007323535
-  speed 8  n 400  vx without flags 0.02115471  with 8.0  max|vy| with 0.00016709682
-  wall at x = 10: final x 9.728695  vx -0.057479333
+  speed 2  n 80  vx without flags -0.25505287  with 1.9999173  max|vy| with 0.0027228545
+  speed 2  n 400  vx without flags 0.029833414  with 2.0000055  max|vy| with 7.63011e-05
+  speed 8  n 80  vx without flags 0.6261717  with 8.000155  max|vy| with 0.001263891
+  speed 8  n 400  vx without flags 0.034363363  with 8.0  max|vy| with 0.00016709682
+  wall at x = 10: final x 9.711691  vx -0.07792106
 [PASS] active_edges - 12 / 12 checks
 --- tests/test_actor.mojo ---
   actor 0 after one tick — sum 136  count 16  first 1  rounds 1
@@ -516,6 +516,11 @@ build: all packages precompiled into build/
 [PASS] contact_rules - 9 / 9 checks
 --- tests/test_conventions.mojo ---
 [PASS] conventions - 8 / 8 checks
+--- tests/test_cylinder.mojo ---
+  rolling down 20 deg: 8 segments 2.234532  16 segments 2.2345238  analytic 2/3 g sin 2.2345319
+  standing r 0.3 hl 0.7 on a 16-gon base: y 0.6998978  axis y 1.0
+  lying on the floor: y 0.2994825
+[PASS] cylinder - 7 / 7 checks
 --- tests/test_diffsolver.mojo ---
   batch vs scalar worst lane difference: 0.0
 [PASS] diffsolver - 26 / 26 checks
@@ -548,14 +553,14 @@ build: all packages precompiled into build/
 [PASS] filter_events - 21 / 21 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
-  shot: broke 121 bonds, thrown through 36 , left in line 0 , live bonds 22 of 143 , ball z -2.3896081
-  bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 23 , on crate 27 , on ledge 17 , lowest centre 0.16574130952358246 , soft top moved -0.04999268054962158 , crate sag 0.011480957269668579 , max speed 0.017683830112218857
-  shards: 72 fragments, asleep 47 of 48 on rigid bodies, islands 18 , on crate 7 , on ledge 4 , lowest centre 0.0354248471558094 , soft top moved -0.049281418323516846 , crate sag 0.004768773913383484 , max speed 0.1920706182718277
+  shot: broke 101 bonds, thrown through 37 , left in line 0 , live bonds 42 of 143 , ball z -1.5461911
+  bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 14 , on crate 27 , on ledge 27 , lowest centre 0.16572077572345734 , soft top moved -0.050605952739715576 , crate sag 0.01124449074268341 , max speed 0.037378497421741486
+  shards: 72 fragments, asleep 48 of 48 on rigid bodies, islands 19 , on crate 20 , on ledge 13 , lowest centre 0.03295710310339928 , soft top moved -0.12353050708770752 , crate sag 0.010670825839042664 , max speed 0.04083404690027237
   L chain: parts 2 fragments 36 volume 1.2 parts volume 1.2
   L chain: bonds within parts 104 across parts 23
   voronoi: 1000 cells, volume 8.000000000000004 of 8.0
   one cut: 1000 pieces, volume error 3.241851231905457e-14
-  snapshot: bonds broken after restore 16 vs 16 , live 13 vs 13
+  snapshot: bonds broken after restore 8 vs 8 , live 21 vs 21
 [PASS] fracture - 79 / 79 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
@@ -596,7 +601,7 @@ build: all packages precompiled into build/
   impact 5 m/s: substep sum 5.163334  last substep x 4 0.16333334  momentum change 5.1633334
   sleeping box: asleep True  stay events 1  their impulse 0.0
   bouncing ball: began impulse 11.5633335  ended peak 11.5633335
-  box on the centre vertex of a 4-triangle mesh: 4 triangle events, impulses sum 0.16333303  m g dt 0.16333334
+  box on the centre vertex of a 4-triangle mesh: 4 triangle events, impulses sum 0.16333327  m g dt 0.16333334
 [PASS] impact_report - 23 / 23 checks
 --- tests/test_islands_par.mojo ---
   islands: 6
@@ -811,11 +816,11 @@ build: all packages precompiled into build/
 --- tests/test_timers_integration.mojo ---
 [PASS] timers_integration - 9 / 9 checks
 --- tests/test_trimesh.mojo ---
-  flat mesh rest y 0.24987872  box-floor reference 0.24971099  speed 0.0
-  ramp: y 0.16519353  above surface 0.26647222  speed 0.0
+  flat mesh rest y 0.24986489  box-floor reference 0.24971099  speed 0.0
+  ramp: y 0.16495845  above surface 0.2662811  speed 0.0
   bowl rest y — heightfield 0.28355342  triangle soup 0.28354868
   on mesh — box 0.24970087  sphere 0.24986403  hull 0.24970086
-  round trip — original 0.24987872  loaded 0.24987872
+  round trip — original 0.24986489  loaded 0.24986489
   empty mesh, crate after 1s: -4.3204203
   zero-area mesh, crate after 1s: -4.3204203
   heightfield candidates — outside 0.0  straddling 2.0

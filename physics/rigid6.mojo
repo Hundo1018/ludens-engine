@@ -80,6 +80,20 @@ struct Inertia3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
         )
         return Self(mass, ixz, iy, ixz)
 
+    @staticmethod
+    def cylinder(mass: Real, r: Real, hl: Real) -> Self:
+        """Solid cylinder, axis = local Y, radius r, half length hl
+        (ROADMAP 17.52)."""
+        var iy = mass * r * r / 2
+        var ixz = mass * (3 * r * r + 4 * hl * hl) / 12
+        return Self(mass, ixz, iy, ixz)
+
+    @staticmethod
+    def ellipsoid(mass: Real, a: Real, b: Real, c: Real) -> Self:
+        """Solid ellipsoid with semi-axes a, b, c along local x, y, z
+        (ROADMAP 17.52)."""
+        return Self(mass, mass * (b * b + c * c) / 5, mass * (a * a + c * c) / 5, mass * (a * a + b * b) / 5)
+
     def apply(self, w: Vec3) -> Vec3:
         """Body-frame angular momentum L = I ω."""
         return Vec3(w[0] * self.ix, w[1] * self.iy, w[2] * self.iz, 0)
