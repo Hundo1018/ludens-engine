@@ -2548,6 +2548,11 @@
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
 > **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,跨目標容差表、浮點位元因子探針、降級矩陣未做)。
+> **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
+> (同參數的純函數兩次呼叫被合併 → 每個閉包自帶呼叫計數)、`test_python_binding`(`build_wheel.py` 靠 `ldd` 與 ELF RUNPATH,非 Linux 改為明確拒絕,
+> 測試檢查該訊息;wheel tag 改隨建置機器 `linux_<machine>`,aarch64 不再標成 x86_64)。ubuntu-24.04-arm:`test_fracture` 碎片堆 48 塊中 6 塊入睡、
+> 末速 2.39 m/s(x86 48/48、0.09);x86 上以投放位置抖動 0 – 3e-4 m × 目標 CPU x86-64 / x86-64-v3 / znver3 / sapphirerapids 共 12 組全部 48/48 入睡,
+> 未能重現 —— 差異來自 ARM codegen 而非初值敏感,待 ARM 機器上逐步比對。
 > **緣起**:被嵌入的函式庫要在宿主所在的平台上跑;目前引擎只在單一 Linux x86-64 + NVIDIA 環境被驗證過,
 > 「可攜」是未知而非已知。LICENSE 與發行管線(17.81)和本條共同構成方向 C 的前提。
 > **現況**:

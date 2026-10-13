@@ -84,8 +84,17 @@ def main() raises:
     var work = tmp + "/work"
     _ = os.makedirs(work)
 
-    # 1. wheel
+    # 1. wheel (Linux only: on another OS the builder must say so, ROADMAP 17.76)
     var r = sp.run(Python.list("python3", "python/build_wheel.py", "--out", tmp + "/dist"), capture_output=True, text=True)
+    var plat = String(Python.import_module("sys").platform)
+    if not plat.startswith("linux"):
+        s.check(
+            Int(py=r.returncode) != 0 and "Linux only" in String(r.stderr),
+            "build_wheel.py refuses on " + plat + " with a message",
+        )
+        _ = shutil.rmtree(tmp)
+        s.finish()
+        return
     s.check(Int(py=r.returncode) == 0, "build_wheel.py succeeds")
     if Int(py=r.returncode) != 0:
         print(String(r.stderr))
