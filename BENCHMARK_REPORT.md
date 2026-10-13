@@ -1878,6 +1878,28 @@ dt, which is why the test compares two.
 | filtered    kp=8000 peak|q|=0.30 | 1 | run | 1.00 | 1000.00 | 0.00 |
 
 
+## Physics — implicit joint properties (ROADMAP 17.51)
+
+`Chain.step_implicit` folds per-joint damping, spring, armature and
+Coulomb friction into the step: the same CRBA factorisation as `step`, plus
+one matrix-vector product and diagonal terms. Measured 2026-10-13 the two
+are within run-to-run noise of each other at N = 8, 32 and 64. What the
+implicit form buys is shown in `test_chain_props`: a joint spring of
+stiffness 1e5 at dt = 1/60 (omega dt = 10.3) diverges to infinity as an
+explicit PD torque and decays from 0.1 rad as the implicit field.
+
+### Chain joint properties (17.51): step vs step_implicit
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| step (explicit) | 8 | step | 5651.46 | 0.18 | 0.68 |
+| step_implicit, all properties | 8 | step | 8058.78 | 0.12 | 0.97 |
+| step (explicit) | 32 | step | 53299.74 | 0.02 | 6.40 |
+| step_implicit, all properties | 32 | step | 56891.53 | 0.02 | 6.83 |
+| step (explicit) | 64 | step | 360747.63 | 0.00 | 43.29 |
+| step_implicit, all properties | 64 | step | 303414.76 | 0.00 | 36.41 |
+
+
 ## Physics — robot sensors (what the controller is allowed to see)
 
 A sensor here is DERIVED from the state the solver already produced rather

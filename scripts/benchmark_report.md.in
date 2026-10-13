@@ -1010,6 +1010,17 @@ trajectory instead of a different one. That error is invisible at any single
 dt, which is why the test compares two.
 
 @bench benchmarks/bench_actuator.mojo
+## Physics — implicit joint properties (ROADMAP 17.51)
+
+`Chain.step_implicit` folds per-joint damping, spring, armature and
+Coulomb friction into the step: the same CRBA factorisation as `step`, plus
+one matrix-vector product and diagonal terms. Measured 2026-10-13 the two
+are within run-to-run noise of each other at N = 8, 32 and 64. What the
+implicit form buys is shown in `test_chain_props`: a joint spring of
+stiffness 1e5 at dt = 1/60 (omega dt = 10.3) diverges to infinity as an
+explicit PD torque and decays from 0.1 rad as the implicit field.
+
+@bench benchmarks/bench_chain_props.mojo
 ## Physics — robot sensors (what the controller is allowed to see)
 
 A sensor here is DERIVED from the state the solver already produced rather

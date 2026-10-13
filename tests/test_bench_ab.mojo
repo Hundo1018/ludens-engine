@@ -8,13 +8,15 @@
      [0.5, 2] on the ratio of minima and "not resolved" (every round on one
      side) both failed on the macos-14 runner, and one of seven local runs
      exited non-zero with "not resolved" in place. The label carries the
-     measured numbers, printed only on failure.
+     measured numbers, printed only on failure (that is how the macos-14
+     failures turned out to be 0 ns / 0 ns: the constant-count loop had been
+     folded away; the count is now a runtime value).
   3. Extreme: one round; zero-cost bodies do not divide by zero.
 """
 
 from std.benchmark import keep
 from harness.runner import Suite
-from harness.bench import measure_ab
+from harness.bench import measure_ab, now
 
 
 @no_inline
@@ -28,11 +30,16 @@ def _spin(n: Int) -> Int:
 def main() raises:
     var s = Suite("bench_ab")
 
-    def base():
-        keep(_spin(200000))
+    # the loop count is a runtime value: with a literal count the macos-14
+    # toolchain folded `_spin` away and timed nothing (0 ns / 0 ns). ~4 ms per
+    # run, so one scheduler stall cannot flip a round of the planted 2x.
+    var n0 = 2000000 + now() % 2
 
-    def double():
-        keep(_spin(400000))
+    def base() {imm n0}:
+        keep(_spin(n0))
+
+    def double() {imm n0}:
+        keep(_spin(2 * n0))
 
     def nothing():
         pass

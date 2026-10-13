@@ -494,6 +494,14 @@ build: all packages precompiled into build/
 [PASS] chain_contact - 7 / 7 checks
 --- tests/test_chain_ground.mojo ---
 [PASS] chain_ground - 14 / 14 checks
+--- tests/test_chain_props.mojo ---
+  stiffness 1e5 at dt 1/60: explicit max |q| inf  implicit max |q| 0.0009273254  implicit final 0.0
+  armature 0.5: period 2.4748912  analytic 2.4745066
+  damping 0.52: speed after 1 s 0.13982147  backward Euler 0.13982168  e^-2 0.13533528
+  spring 50 vs gravity: settles at -0.09753423  root of k q = -m g l cos q -0.09753424
+  friction 0.26 N m from 2 rad/s: stopped at 2.016667 s  (I w / f = 2)
+  all properties zero: step vs step_implicit worst |dq| 7.793307e-06
+[PASS] chain_props - 10 / 10 checks
 --- tests/test_character.mojo ---
 [PASS] character - 21 / 21 checks
 --- tests/test_colored.mojo ---
