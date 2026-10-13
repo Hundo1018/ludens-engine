@@ -66,8 +66,22 @@ jobs:
         with:
           locked: true
           cache: true
-      - name: gate (no golden yet on this platform -> GOLDEN missing is expected)
-        run: pixi run gate
+      # First run on a platform: no golden to compare against yet, so record
+      # one (the suite must still pass) and print it between markers; it is
+      # read back from the job log and committed as
+      # tests/golden/test_stdout.<os>-<arch>.txt. Later runs compare.
+      - name: gate (records and prints the platform golden on first run)
+        run: |
+          plat="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+          golden="tests/golden/test_stdout.$plat.txt"
+          if [ -f "$golden" ]; then
+            pixi run gate
+          else
+            pixi run gate -- --update-golden
+            echo "----- BEGIN GOLDEN $golden -----"
+            cat "$golden"
+            echo "----- END GOLDEN $golden -----"
+          fi
       - name: upload gate log
         if: always()
         uses: actions/upload-artifact@v4

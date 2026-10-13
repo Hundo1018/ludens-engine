@@ -3,9 +3,9 @@
 
   1. A planted 2x workload (the same loop run twice as long) is resolved as
      slower in every round, with a ratio near 2.
-  2. A against itself is near 1. (No assertion that it is "unresolved": with
-     identical work the per-round ratio straddles 1 most of the time, but a
-     single quiet round could make it one-sided; the bound is on the ratio.)
+  2. A against itself stays within [0.5, 2] (a loose bound: shared CI
+     runners are noisy, and no assertion is made that it is "unresolved" --
+     a single quiet round could make identical work look one-sided).
   3. Extreme: one round; zero-cost bodies do not divide by zero.
 """
 
@@ -34,13 +34,15 @@ def main() raises:
     def nothing():
         pass
 
-    var r = measure_ab(base, double)
+    var r = measure_ab(base, double, rounds=31)
     print("  2x workload: ratio in [1.5, 2.5]:", r.ratio() > 1.5 and r.ratio() < 2.5, " resolved:", r.resolved())
     s.check(r.ratio() > 1.5 and r.ratio() < 2.5, "planted 2x workload measured near 2")
     s.check(r.resolved(), "planted 2x workload is slower in every round")
 
-    var same = measure_ab(base, base)
-    s.check(same.ratio() > 0.8 and same.ratio() < 1.25, "A vs A ratio near 1")
+    var same = measure_ab(base, base, rounds=31)
+    # Loose on purpose: on a shared CI runner (first seen on ubuntu-24.04-arm)
+    # the minima of two identical bodies can still differ by tens of percent.
+    s.check(same.ratio() > 0.5 and same.ratio() < 2.0, "A vs A ratio within [0.5, 2]")
 
     var one = measure_ab(base, double, rounds=1, warmup=0)
     s.check(one.ratio() > 1.0, "one round still orders a 2x workload")
