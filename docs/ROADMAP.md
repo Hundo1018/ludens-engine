@@ -685,8 +685,9 @@
 > 射線 t 4.5 / 4.0(解析);點距 1.5、內點 −0.09997;10:1 圓盤 y 0.0997。點到 r = 1 圓柱:解析誤差 0,16 邊形 hull 0.0192 = r(1 − cos(π/16))。
 > 成本(`bench_shapes`,64 / 256 體,每 body-step):球 6–7 µs、橢球 25–30 µs、16 段圓柱 38–39 µs、盒在盒上 24–27 µs、盒在 SDF 上 31–33 µs。
 > 圓柱原量到 0.43–1.25 ms 且隨 N 上升:`step_soft` 預設不走 broadphase,暴力迴圈把每一對都交給窄相(64 圓柱 + 地板每步 2080 次 hull 測試),
-> 盒對盒在 SAT 內很快就拒絕、hull 對卻跑完 GJK。暴力迴圈現先以 broadphase 用的同一組 fat AABB 篩(保守超集,接觸逐位不變;
-> `NARROWPHASE_PAIRS` 仍計列舉的候選對),64 圓柱每步 18 ms → 2.4 ms。
+> 盒對盒在 SAT 內很快就拒絕、hull 對卻跑完 GJK。暴力迴圈現先以 broadphase 用的同一組 fat AABB 篩(兩條路徑看到相同的配對;
+> 此盒並非所有投機接觸的嚴格超集 —— 旋轉盒沿自身軸膨脹最多超出 √3 倍 margin、hull 對可回報相距 9 cm 的投機接觸,這些遠對過去只在暴力路徑進窄相,
+> 現兩路徑皆不見;`test_fracture` 磚堆 island 17 → 16;`NARROWPHASE_PAIRS` 仍計列舉的候選對),64 圓柱每步 18 ms → 2.4 ms。
 > **進度註(2026-10-13,SDF 形狀)**:`SHAPE_SDF = 6`(`collision/collider_set.mojo`),`ContactScene6.add_sdf(b, SdfGrid)`(世界座標,同 `add_trimesh`)。
 > 接觸 `contact_gen.try_sdf_pair`:取凸側樣本點(球心;膠囊軸上 5 點;盒 26 點 = 8 角 + 12 邊中點 + 6 面心;hull 頂點),
 > 距離 < 半徑 + margin 者為候選,`hull.spread4` 選至多 4 點,法向 = 深度加權梯度平均。查詢:`point_distance`(三線性距離 + 梯度)、
