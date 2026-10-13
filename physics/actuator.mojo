@@ -89,23 +89,108 @@ struct Actuator(Copyable, ImplicitlyCopyable, Movable):
         return self.f_max > self.f_min
 
 
+@fieldwise_init
+struct HillParams(Copyable, ImplicitlyCopyable, Movable):
+    """Hill-type force curves for a `DYN_MUSCLE` actuator (ROADMAP 17.57).
+
+    Muscle-tendon length is linear in the joint angle through a constant
+    moment arm, l_mt = l_mt0 - arm * q (a positive arm: the muscle shortens
+    as q grows, and its pull drives q up); the tendon is rigid, so fiber
+    length l = l_mt - tendon_slack and its velocity v = -arm * qd. Forces,
+    normalised by f_peak (Thelen 2003 shapes):
+
+      force-length   fl(l~) = exp(-(l~ - 1)^2 / width),   l~ = l / l_opt
+      force-velocity v~ = v / (vmax * l_opt); shortening (v~ < 0):
+                     (1 + v~) / (1 - v~ / 0.25), 0 below v~ = -1;
+                     lengthening: 1 + 0.8 v~ / (v~ + 0.18) (-> 1.8)
+      passive        fp(l~) = (exp(4 (l~ - 1) / e0) - 1) / (exp(4) - 1)
+                     for l~ > 1, else 0
+
+    F = f_peak (a fl fv + fp). Each curve has its own switch; with all three
+    off, fl = fv = 1 and fp = 0 exactly and the actuator is bit-identical
+    to the plain `Actuator.muscle` (`test_muscle_hill`)."""
+
+    var use_fl: Bool
+    var use_fv: Bool
+    var use_fp: Bool
+    var arm: Real
+    var l_mt0: Real
+    var tendon_slack: Real
+    var l_opt: Real
+    var width: Real
+    var vmax: Real  # optimal fiber lengths per second
+    var e0: Real  # passive strain at f_peak
+
+    @staticmethod
+    def identity() -> Self:
+        return Self(False, False, False, 0, 1, 0, 1, 0.45, 10, 0.6)
+
+    @staticmethod
+    def thelen(arm: Real, l_opt: Real, tendon_slack: Real, l_mt0: Real, vmax: Real = 10) -> Self:
+        return Self(True, True, True, arm, l_mt0, tendon_slack, l_opt, 0.45, vmax, 0.6)
+
+    def fiber_length(self, q: Real) -> Real:
+        return self.l_mt0 - self.arm * q - self.tendon_slack
+
+    def fl(self, q: Real) -> Real:
+        if not self.use_fl:
+            return 1
+        var x = self.fiber_length(q) / self.l_opt - 1
+        return Real(exp(-Float64(x * x / self.width)))
+
+    def fv(self, qd: Real) -> Real:
+        if not self.use_fv:
+            return 1
+        var v = -self.arm * qd / (self.vmax * self.l_opt)
+        if v <= -1:
+            return 0
+        if v < 0:
+            return (1 + v) / (1 - v / 0.25)
+        return 1 + 0.8 * v / (v + 0.18)
+
+    def fp(self, q: Real) -> Real:
+        if not self.use_fp:
+            return 0
+        var x = self.fiber_length(q) / self.l_opt - 1
+        if x <= 0:
+            return 0
+        return Real((exp(Float64(4 * x / self.e0)) - 1) / (exp(4.0) - 1))
+
+
 struct ActuatorBank(Movable):
     """Actuators plus their internal state, applied to a joint torque vector."""
 
     var acts: List[Actuator]
     var ctrl: List[Real]  # commanded signal per actuator
     var state: List[Real]  # internal state (filter output / muscle activation)
+    var hill: List[HillParams]  # per actuator; identity unless `add_hill`
 
     def __init__(out self):
         self.acts = List[Actuator]()
         self.ctrl = List[Real]()
         self.state = List[Real]()
+        self.hill = List[HillParams]()
 
     def add(mut self, a: Actuator) -> Int:
         self.acts.append(a)
         self.ctrl.append(0)
         self.state.append(0)
+        self.hill.append(HillParams.identity())
         return len(self.acts) - 1
+
+    def add_hill(mut self, a: Actuator, h: HillParams) -> Int:
+        """A `DYN_MUSCLE` actuator with Hill curves (17.57)."""
+        # one-sided still, but no f_peak cap: lengthening (up to 1.8) and the
+        # passive term legitimately exceed it
+        var i = self.add(a.clamped(0, 1e30))
+        self.hill[i] = h
+        return i
+
+    def muscle_force(self, i: Int, q: Real, qd: Real) -> Real:
+        """Current force of actuator `i` if it is a muscle (before gear)."""
+        var a = self.acts[i]
+        var h = self.hill[i]
+        return a.gain_ctrl * self.state[i] * h.fl(q) * h.fv(qd) + a.gain_ctrl * h.fp(q)
 
     def count(self) -> Int:
         return len(self.acts)
@@ -154,6 +239,9 @@ struct ActuatorBank(Movable):
                 + a.gain_qd * qd[j]
                 + a.bias
             )
+            if a.dyn == DYN_MUSCLE:
+                ref h = self.hill[i]
+                f = f * h.fl(q[j]) * h.fv(qd[j]) + a.gain_ctrl * h.fp(q[j])
             if a.has_clamp():
                 if f < a.f_min:
                     f = a.f_min

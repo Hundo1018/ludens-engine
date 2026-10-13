@@ -1370,6 +1370,18 @@ cost independent of terrain size, where a full rescan grows with it.
 
 @bench benchmarks/bench_fields.mojo
 @bench benchmarks/bench_rope.mojo
+## Physics — hair strands and Hill muscles (17.57)
+
+`physics/strand.mojo` simulates strands by Follow-The-Leader (Müller 2012)
+with a straight-rest bending pull: segment lengths stay at rest to 1e-6
+without colliders (`test_strand`), a ponytail swings 39 cm after a 90-degree
+head turn and settles within 2.3 mm. The first table is the cost per particle
+per step, without colliders and with a head sphere plus two shoulder capsules.
+The second prices the Hill curves added to `Actuator.muscle`
+(`HillParams`: force-length, force-velocity, passive); with all three
+switched off the muscle is bit-identical to the plain one (`test_muscle_hill`).
+
+@bench benchmarks/bench_hair_muscle.mojo
 ## Physics — joint kinds, limits and motors (ROADMAP 17.47)
 
 A 64-link chain hanging under gravity with one sideways push, joined by one
