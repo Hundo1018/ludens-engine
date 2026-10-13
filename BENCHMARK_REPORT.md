@@ -2447,6 +2447,29 @@ cost independent of terrain size, where a full rescan grows with it.
 | XPBD rope, collision on (8 substeps x 4 iters) | 64 | frame | 107307.17 | 0.01 | 3.22 |
 
 
+## Physics — joint kinds, limits and motors (ROADMAP 17.47)
+
+A 64-link chain hanging under gravity with one sideways push, joined by one
+kind throughout. A ball chain runs no ext pass at all (`any_ext` stays
+False, the pre-17.47 path); the limited kinds pay for the ext rows on every
+joint, measured 2026-10-13 at +34 to +54 % per step at iters 4 and +65 to
++85 % at iters 8 -- the slider adds two linear and three angular equality
+rows to its travel limit, the cone-twist a swing row to its twist limit.
+
+### Joint kinds (17.47): 64-link hanging chain, step cost
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| ball (no ext pass), iters 4 | 64 | step | 669815.43 | 0.00 | 40.19 |
+| hinge + limit, iters 4 | 64 | step | 1374399.12 | 0.00 | 82.46 |
+| cone-twist + cone + twist, iters 4 | 64 | step | 1309463.50 | 0.00 | 78.57 |
+| slider + travel, iters 4 | 64 | step | 1735056.17 | 0.00 | 104.10 |
+| ball (no ext pass), iters 8 | 64 | step | 1348317.28 | 0.00 | 80.90 |
+| hinge + limit, iters 8 | 64 | step | 2128790.33 | 0.00 | 127.73 |
+| cone-twist + cone + twist, iters 8 | 64 | step | 1919487.22 | 0.00 | 115.17 |
+| slider + travel, iters 8 | 64 | step | 2069074.22 | 0.00 | 124.14 |
+
+
 ### Crater edit + bounds refresh: block summary vs full rescan
 
 | variant | N | op | ns/op | Mops/s | total ms |

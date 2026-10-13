@@ -123,6 +123,7 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | 縮座標接觸(point-Jacobian `J H⁻¹ Jᵀ`)vs 極大座標接觸 | physics/chain.mojo(`point_jacobian`／`resolve_contacts`) | 同一接觸不動點在兩種座標下;落地高度一致 | `test_chain_contact` | `bench_chain_contact` |
 | 浮動基座 vs 六個偽關節;複合慣量 vs 單位加速度 兩種 H 組裝 | physics/floating.mojo(`mass_matrix`／`_mass_matrix_units`) | 6-DOF 根的兩個表示 + 質量矩陣兩獨立推導互為 parity | `test_floating` | `bench_floating` |
 | 關節運動子空間 revolute vs prismatic + 關節極限 | physics/chain.mojo(`revolute`／`prismatic`／`resolve_limits`) | 同一 link 態射的運動子空間變體;極限為投影 | `test_joints_lib`、`test_joints6` | `bench_chain`(jt 表) |
+| 關節限制 / 馬達 / 彈簧的座標變體:極大座標 `Joint6` + `JointExt`(hinge / slider / cone-twist / rope 的單邊不等式、速度 / 位置馬達、軟彈簧)vs 縮座標 `Chain.resolve_limits` + 致動器(17.47) | physics/joint_ext.mojo、physics/joints6.mojo、physics/solver6.mojo(`ext_sweep` 在兩個子步迴圈) | 同一「關節座標 q 上的限制 + 驅動」在兩種座標下的實作;ext 全為預設值時 pass 不執行(`any_ext`),與 17.47 之前逐位相同 | `test_joints_ext`(停止角 / 馬達穩態 / 彈簧週期對解析值;快照往返逐位)、`test_ragdoll`(限制膝);兩座標的停止角 parity 尚未接 | `bench_joints_ext`(64 節鏈,四種關節 × iters 4 / 8) |
 
 **統一約束、致動、腱、感測**
 

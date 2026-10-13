@@ -47,7 +47,7 @@
 | 子系統 | 範圍 | ✅ | 🔶 | ⬜ | ⏸ / 不排 |
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
-| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 18 | 2 | 3 | 0 |
+| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 18 | 3 | 2 | 0 |
 | [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 3 | 3 | 0 |
 | [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 9 | 1 | 1 | 0 |
 | [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
@@ -251,7 +251,7 @@
 | 17.29 | [通用可斷裂關節](ROADMAP_HISTORY.md#1729-通用可斷裂關節--wave-b) | ✅ | B | ContactScene6.set_joint_break(j, force, torque) 對所有 Joint6 種類提供力 / 力矩閾值,有閾值時每子步取峰值負載(joints6.sample_loads)、步末 check_breaks 轉為 JOINT_BROKEN,斷裂事件經 scheduler.events.Channel 送達。 |
 | 17.31 | [物理 LOD / 模擬預算調度](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b) | ✅ | B | ContactScene6.freeze / unfreeze 以暫時切成 STATIC 並保留速度實作凍結,physics/lod.mojo 提供 DistanceLOD(距離 + 遲滯)與 SimBudget(依量測步進時間調 iters 再調 substeps),全場 LOD + 天花板預算與原解算器逐位相同。 |
 | 17.44 | [複合形狀](#1744-複合形狀--wave-b) | ⬜ | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
-| 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | ⬜ | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
+| 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 🔶 | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | ⬜ | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
@@ -354,6 +354,7 @@
 
 #### 17.47 關節庫補完(最大座標) — Wave B(承 9.1)
 
+> **狀態**:🔶 部分完成(2026-10-13:hinge / slider / rope / cone-twist 限制、速度 / 位置馬達、軟彈簧、`collide_connected`、快照、ragdoll 接線 ✅;與縮座標的 parity 測試、universal / 6 軸 / 滑輪 / 齒輪、受限關節的斷裂負載(ext 衝量未計入 17.29 峰值)未做)。
 > **現況**:`Joint6` 的種類只有 `JOINT_BALL / DISTANCE / HINGE / BROKEN / WELD`(`physics/joints6.mojo:14-18`),全是等式約束,檔頭自述「no cone clamp」(`:23-26`);hinge = ball + 兩軸對齊(`:171-214`),weld = ball + 三軸角鎖(`:215-248`)。grep `limit|motor|spring|slider|prismatic|cone|twist|swing|stiff`(`physics/joints6.mojo`、`physics/solver6.mojo`)只命中檔頭字樣與 `AngularDrive` 的文件,沒有對應欄位。
 > `AngularDrive`(`physics/joints6.mojo:278-298`)是姿態驅動:把 b 相對 a 的姿態拉向 `target`,自帶 hertz / zeta,累積衝量夾 `max_torque·h`,沿世界三軸各自求解(`:326-369`)—— 位置伺服,不是速度馬達,也沒有關節軸向的角度參照。distance 關節是雙向的,沒有鬆弛(ROADMAP §17.41 17.41 待辦)。
 > 周邊契約:斷裂(17.29)靠 `acc` / `acc_ang` 的子步峰值,`sample_loads` + `check_breaks`(`physics/joints6.mojo:372-407`),新關節種類必須定義 `acc` 的語意;快照逐關節寫 kind / a / b / la / lb / rest / axis / acc(`physics/solver6.mojo:1494-1506`),新欄位要升 `_VERSION`(`physics/serialize.mojo:38`);`remove_body` 已檢查 joints / drives 引用(`physics/solver6.mojo:425-436`)。
@@ -373,6 +374,23 @@
 > **交付**:接真路徑 —— `ContactScene6.add_joint` 進 `step`,並接上 `gameplay/ragdoll.mojo`。普通:hinge 擋停解析角、速度馬達達設定角速度、彈簧頻率對解析 √(k/m)/2π、slider 行程端點、cone-twist 錐外投影;**能量不注入**(限制 + 馬達關閉時總能量不增)。整合:ragdoll 肩髖膝肘接新關節,落地不穿插、不反折;車門(hinge 限制 + 彈簧);17.29 斷裂對受限關節仍成立;快照往返逐位相同;broadphase 兩 seam 與 island 睡眠一致;`collide_connected = false` 時相連骨不互撞。極端:lo = hi(鎖死)、lo > hi(raise)、範圍 ≥ 2π、馬達 `max_force = 0`(須與無馬達逐位相同)、質量比 1:1e4 的馬達、軸為零向量(raise)、兩端為同一 body(raise)、錨點相距很遠。
 > **相依**:9.2(浮動基座 ragdoll)、17.2(`AngularDrive` / `Ragdoll`)、17.29(斷裂)、17.5(weld)、17.51(縮座標對照)、17.19。
 > **邊界**:縮座標多自由度屬 17.51;GPU 上的關節屬 17.17;致動器 / 腱(13.3 / 13.4)屬縮座標側;繩 / 纜線屬 17.41;動畫目標與 IK 屬 17.2 / 17.3。與 17.85 無重疊。
+
+> **進度(2026-10-13)**:
+> - **`physics/joint_ext.mojo`**:每個關節一筆 `JointExt`(與 `joints` 平行;`Joint6` 欄位與既有快照欄位不變):關節座標 q(hinge 轉角、slider 行程、
+>   rope 長度、cone-twist 的 twist 角;0 = 建立時的姿態)上的上下限(單邊不等式,未達時為 speculative、穿越時軟偏置,同接觸的 Box2D v3 作法)、
+>   cone-twist 的擺錐、速度 / 位置馬達(累積衝量夾 `max_force · h`)、軟彈簧(hertz / zeta)、`collide`。新種類 `JOINT_SLIDER`(兩條垂直線性列 + 三條角鎖)、
+>   `JOINT_CONE_TWIST`(球關節 + 擺錐 / twist)、`JOINT_ROPE`(只限 [0, max])。`ext_sweep` / `warm_start_ext` 在 serial 與 island 兩個子步迴圈都接上,
+>   `any_ext` 為假時不執行(全套 golden 既有段落不變)。`collide_connected = False` 併入既有的 weld 配對排除。
+> - **API**:`set_joint_limits / clear_joint_limits / set_cone_limit / set_joint_motor / set_joint_spring / set_collide_connected / joint_coordinate / reset_joint_ext`;
+>   `Ragdoll.limit_hinge / limit_cone` 與建構參數 `collide_connected`。快照 format 4 加 ext 區塊。
+> - **測試** `test_joints_ext` 18/18:1 m 桿落到 −0.5 rad 限位停在 −0.5014;速度馬達 3.0 rad/s;扭矩上限 0.1 N·m 一秒後 ω = 0.29999977(解析 cap / I · t = 0.3);
+>   slider 上 2 Hz 無阻尼彈簧週期 0.5006 s;垂直 slider 行程 [−1, 0] 停在 −1.0003、側向 0、不轉;cone-twist 由 60° 拉回 30° 錐內(最大 30.10°)、
+>   twist 限 ±0.2 時最大 0.19999754;2 m 繩拉緊於 y = 2.99973、上拋 4 m/s 峰值 3.8076(自由落體 3.8163,差為離散步長);重疊相連箱 collide False 不動、
+>   True 推開 0.098;受限加馬達的 hinge 快照還原後逐位相同;非法輸入 raise;零扭矩馬達不施力。`test_ragdoll`:無力腿的膝改為限 ±0.2 rad 的 hinge,
+>   最大 0.2037 rad,同腿球關節膝擺到 1.52 rad。
+> - **bench** `bench_joints_ext`(已入報告範本):64 節鏈,球關節(無 ext pass)0.89 / 1.20 ms(iters 4 / 8),hinge + 限 1.37 / 1.97、cone-twist 1.20 / 2.21、
+>   slider 1.36 / 2.13 ms。`docs/CATEGORY.md` 加一列 seam。
+> - **待辦**:與縮座標 `Chain.resolve_limits` 的停止角 / 馬達穩態 parity;universal / 6 軸 / 滑輪 / 齒輪;ext 列的衝量計入 17.29 斷裂峰值;GPU 側屬 17.17。
 
 #### 17.48 剛體參數 API — Wave A
 
@@ -2910,7 +2928,7 @@
 | 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
-| 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | ⬜ |
+| 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ⬜ |

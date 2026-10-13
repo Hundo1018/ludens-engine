@@ -1276,6 +1276,16 @@ cost independent of terrain size, where a full rescan grows with it.
 
 @bench benchmarks/bench_fields.mojo
 @bench benchmarks/bench_rope.mojo
+## Physics — joint kinds, limits and motors (ROADMAP 17.47)
+
+A 64-link chain hanging under gravity with one sideways push, joined by one
+kind throughout. A ball chain runs no ext pass at all (`any_ext` stays
+False, the pre-17.47 path); the limited kinds pay for the ext rows on every
+joint, measured 2026-10-13 at +34 to +54 % per step at iters 4 and +65 to
++85 % at iters 8 -- the slider adds two linear and three angular equality
+rows to its travel limit, the cone-twist a swing row to its twist limit.
+
+@bench benchmarks/bench_joints_ext.mojo
 @bench benchmarks/bench_terrain_deform.mojo
 ## Physics — LOD, budget and deterministic replay (17.31 / 17.39)
 

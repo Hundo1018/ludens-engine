@@ -129,6 +129,18 @@ from .joints6 import (
     warm_start_drives,
     drive_sweep,
     joint_island,
+    JOINT_SLIDER,
+    JOINT_CONE_TWIST,
+    JOINT_ROPE,
+)
+from .joint_ext import (
+    JointExt,
+    MOTOR_NONE,
+    MOTOR_VELOCITY,
+    MOTOR_POSITION,
+    ext_sweep,
+    warm_start_ext,
+    joint_coordinate,
 )
 from .islands import (
     island_count as count_islands,
@@ -178,6 +190,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     # see `physics/body_set.mojo`.
     var cache: List[ContactConstraint]  # last frame's pairs (cross-frame warm starting)
     var joints: List[Joint6]
+    # ROADMAP 17.47: per joint, limits / motor / spring / references /
+    # collide flag (`physics.joint_ext`); `any_ext` gates the extra pass.
+    var jext: List[JointExt]
+    var any_ext: Bool
     var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
     # +inf = unbreakable) and the joints released by the last step.
@@ -244,6 +260,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset = BodySet[Self.B]()
         self.cache = List[ContactConstraint]()
         self.joints = List[Joint6]()
+        self.jext = List[JointExt]()
+        self.any_ext = False
         self.drives = List[AngularDrive]()
         self.break_force = List[Real]()
         self.break_torque = List[Real]()
@@ -332,7 +350,43 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.break_torque.append(Real.MAX)
         self.peak_force.append(0)
         self.peak_torque.append(0)
+        self._ensure_ext()
         return len(self.joints) - 1
+
+    def _local_dir(self, i: Int, w: Vec3) -> Vec3:
+        var p = self.bset.bodies[i].position()
+        return self.bset.bodies[i].to_local(p + w) - self.bset.bodies[i].to_local(p)
+
+    def _new_ext(self, jt: Joint6) -> JointExt:
+        """Ext for a newly added joint: the zero-angle references are taken
+        from the current poses (a hinge's angle is 0 where it was made), a
+        slider records the relative rotation it holds, a rope its limit."""
+        var ex = JointExt.default()
+        var axa = self.bset.bodies[jt.a].act(jt.axis_a) - self.bset.bodies[jt.a].act(Vec3(0, 0, 0, 0))
+        var ref_w = tangent_basis(axa)[0]
+        ex.ref_a = self._local_dir(jt.a, ref_w)
+        ex.ref_b = self._local_dir(jt.b, ref_w)
+        if jt.kind == JOINT_SLIDER:
+            ex.ref_rel = self.bset.bodies[jt.a].rotation().conjugate() * self.bset.bodies[jt.b].rotation()
+        if jt.kind == JOINT_ROPE:
+            ex.lim_on = True
+            ex.lo = 0
+            ex.hi = jt.rest
+        if jt.kind == JOINT_WELD:
+            ex.collide = False
+        return ex
+
+    def _ensure_ext(mut self):
+        """Keep `jext` as long as `joints` (joints added by any path) and
+        `any_ext` current."""
+        while len(self.jext) < len(self.joints):
+            self.jext.append(self._new_ext(self.joints[len(self.jext)]))
+        var any = False
+        for c in range(len(self.joints)):
+            var k = self.joints[c].kind
+            if k == JOINT_SLIDER or k == JOINT_ROPE or self.jext[c].active():
+                any = True
+        self.any_ext = any
 
     def set_joint_break(mut self, j: Int, force: Real, torque: Real) raises:
         """Joint `j` releases once its constraint force exceeds `force` (N)
@@ -734,6 +788,94 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.can_sleep[i] = on
         if not on:
             wake_island(self.bset, i)
+
+    # ------------------------------------------------ joint limits / motors (17.47)
+
+    def _ext_index(mut self, j: Int, what: String) raises -> Int:
+        if j < 0 or j >= len(self.joints):
+            raise Error("ContactScene6." + what + ": joint index out of range")
+        self._ensure_ext()
+        return j
+
+    def reset_joint_ext(mut self, j: Int) raises:
+        """Rebuild joint `j`'s ext from the current poses (after changing the
+        joint's kind or axes in place): references re-zeroed, limits / motor
+        / spring cleared, collide flag kept."""
+        var c = self._ext_index(j, "reset_joint_ext")
+        var keep = self.jext[c].collide
+        self.jext[c] = self._new_ext(self.joints[c])
+        self.jext[c].collide = keep
+        self._ensure_ext()
+
+    def set_joint_limits(mut self, j: Int, lo: Real, hi: Real) raises:
+        """Limit the joint coordinate to [lo, hi]: hinge / cone-twist twist
+        angle (rad, 0 where the joint was made), slider travel (m from a's
+        anchor along the axis), rope length (m)."""
+        var c = self._ext_index(j, "set_joint_limits")
+        if not (lo <= hi):
+            raise Error("ContactScene6.set_joint_limits: need lo <= hi")
+        self.jext[c].lim_on = True
+        self.jext[c].lo = lo
+        self.jext[c].hi = hi
+        self._ensure_ext()
+
+    def clear_joint_limits(mut self, j: Int) raises:
+        var c = self._ext_index(j, "clear_joint_limits")
+        self.jext[c].lim_on = False
+        self.jext[c].acc_lo = 0
+        self.jext[c].acc_hi = 0
+        self._ensure_ext()
+
+    def set_cone_limit(mut self, j: Int, angle: Real) raises:
+        """Swing cone of a cone-twist joint: the angle between the two twist
+        axes stays <= `angle` (rad; < 0 removes it)."""
+        var c = self._ext_index(j, "set_cone_limit")
+        if self.joints[c].kind != JOINT_CONE_TWIST:
+            raise Error("ContactScene6.set_cone_limit: not a cone-twist joint")
+        self.jext[c].cone = angle
+        self._ensure_ext()
+
+    def set_joint_motor(
+        mut self, j: Int, mode: Int, target: Real, max_force: Real,
+        hertz: Real = 5, zeta: Real = 1,
+    ) raises:
+        """Motor along the joint coordinate. MOTOR_VELOCITY drives its rate to
+        `target` (rad/s or m/s); MOTOR_POSITION pulls it toward `target` like
+        a spring of `hertz` / `zeta`. Either is capped at `max_force` (N m or
+        N). MOTOR_NONE switches it off."""
+        var c = self._ext_index(j, "set_joint_motor")
+        if mode != MOTOR_NONE and mode != MOTOR_VELOCITY and mode != MOTOR_POSITION:
+            raise Error("ContactScene6.set_joint_motor: unknown mode")
+        if not (max_force >= 0):
+            raise Error("ContactScene6.set_joint_motor: max_force must be >= 0")
+        self.jext[c].motor = mode
+        self.jext[c].target = target
+        self.jext[c].max_force = max_force
+        self.jext[c].m_hertz = hertz
+        self.jext[c].m_zeta = zeta
+        self.jext[c].acc_motor = 0
+        self._ensure_ext()
+
+    def set_joint_spring(mut self, j: Int, hertz: Real, zeta: Real, rest: Real) raises:
+        """Spring-damper on the joint coordinate toward `rest` (soft
+        constraint: natural frequency `hertz`, damping ratio `zeta`;
+        hertz <= 0 removes it)."""
+        var c = self._ext_index(j, "set_joint_spring")
+        self.jext[c].s_hertz = hertz
+        self.jext[c].s_zeta = zeta
+        self.jext[c].s_rest = rest
+        self.jext[c].acc_spring = 0
+        self._ensure_ext()
+
+    def set_collide_connected(mut self, j: Int, on: Bool) raises:
+        """Whether the two bodies of joint `j` collide with each other."""
+        var c = self._ext_index(j, "set_collide_connected")
+        self.jext[c].collide = on
+
+    def joint_coordinate(mut self, j: Int) raises -> Real:
+        """The joint's current coordinate (see `set_joint_limits`)."""
+        var c = self._ext_index(j, "joint_coordinate")
+        return joint_coordinate(self.bset, self.joints[c], self.jext[c])
 
     # ------------------------------------------------ force reporting (17.49)
 
@@ -1238,9 +1380,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # with each other (a fracture bond is a rigid seam, not two touching
         # solids); the pair collides normally the step after the weld breaks.
         # Built only when a weld exists, so scenes without one are untouched.
+        # ROADMAP 17.47: likewise any joint whose ext says collide = False.
         var weld_keys = Dict[Int, Bool]()
         for c in range(len(self.joints)):
-            if self.joints[c].kind == JOINT_WELD:
+            if self.joints[c].kind == JOINT_BROKEN:
+                continue
+            if self.joints[c].kind == JOINT_WELD or (c < len(self.jext) and not self.jext[c].collide):
                 var wa = min(self.joints[c].a, self.joints[c].b)
                 var wb = max(self.joints[c].a, self.joints[c].b)
                 weld_keys[wa * n + wb] = True
@@ -1448,9 +1593,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.bset.bodies[i].integrate_force(h, f, Vec3(0, 0, 0, 0))
             warm_start_contacts(self.bset, pairs, plo, phi)
             warm_start_joints(self.bset, self.joints, label)
+            if self.any_ext:
+                warm_start_ext(self.bset, self.joints, self.jext, label)
             joint_sweep(
                 self.bset, self.joints, h, bias_rate, mass_scale, impulse_scale, True, iters, label
             )
+            if self.any_ext:
+                ext_sweep(self.bset, self.joints, self.jext, h, bias_rate, mass_scale, impulse_scale, True, iters, label)
             soft_sweep(
                 self.bset, pairs, plo, phi, h, bias_rate, mass_scale,
                 impulse_scale, True, iters, mu, self.max_push,
@@ -1466,6 +1615,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         self._apply_locks(i)
                     self.bset.bodies[i].integrate_pose(h)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, label)
+            if self.any_ext:
+                ext_sweep(self.bset, self.joints, self.jext, h, bias_rate, 1, 0, False, 2, label)
             soft_sweep(self.bset, pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
             self._report_substep(pairs, plo, phi, label, sub, substeps, h)
         restitution_pass(self.bset, pairs, plo, phi, 4, rest_threshold)
@@ -1962,11 +2113,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # -impulseScale·acc decay is the matching counter-term.
             warm_start_contacts(self.bset, pairs, 0, len(pairs))
             warm_start_joints(self.bset, self.joints, -2)
+            if self.any_ext:
+                warm_start_ext(self.bset, self.joints, self.jext, -2)
             if len(self.drives) > 0:
                 warm_start_drives(self.bset, self.drives)
             joint_sweep(
                 self.bset, self.joints, h, bias_rate, mass_scale, impulse_scale, True, iters, -2
             )
+            if self.any_ext:
+                ext_sweep(self.bset, self.joints, self.jext, h, bias_rate, mass_scale, impulse_scale, True, iters, -2)
             if len(self.drives) > 0:
                 drive_sweep(self.bset, self.drives, h, iters)
             if colored:
@@ -1992,6 +2147,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             softbody_pass(self.softs, self.bset, self.colliders, h, gravity, iters, ccd)
             # relax: remove the bias energy (velocity-only, no bias)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, -2)
+            if self.any_ext:
+                ext_sweep(self.bset, self.joints, self.jext, h, bias_rate, 1, 0, False, 2, -2)
             if colored:
                 sweep_colored(
                     self.bset, pairs, clo, chi, h, bias_rate, 1, 0, False, 2, mu,
@@ -2502,6 +2659,34 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
     out.wi(len(sc._prev_peak))
     for k in range(len(sc._prev_peak)):
         out.wf(sc._prev_peak[k])
+    # 17.47: joint exts (count 0 when no joint has one yet).
+    out.wi(len(sc.jext))
+    for c in range(len(sc.jext)):
+        var ex = sc.jext[c]
+        out.wi(1 if ex.lim_on else 0)
+        out.wf(ex.lo)
+        out.wf(ex.hi)
+        out.wf(ex.cone)
+        out.wi(ex.motor)
+        out.wf(ex.target)
+        out.wf(ex.max_force)
+        out.wf(ex.m_hertz)
+        out.wf(ex.m_zeta)
+        out.wf(ex.s_hertz)
+        out.wf(ex.s_zeta)
+        out.wf(ex.s_rest)
+        out.wv(ex.ref_a)
+        out.wv(ex.ref_b)
+        out.wf(ex.ref_rel.x)
+        out.wf(ex.ref_rel.y)
+        out.wf(ex.ref_rel.z)
+        out.wf(ex.ref_rel.w)
+        out.wi(1 if ex.collide else 0)
+        out.wf(ex.acc_lo)
+        out.wf(ex.acc_hi)
+        out.wf(ex.acc_motor)
+        out.wf(ex.acc_spring)
+        out.wf(ex.acc_cone)
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -2821,3 +3006,37 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
     sc._prev_peak = List[Real](capacity=npk)
     for _ in range(npk):
         sc._prev_peak.append(r.rf())
+    var nx = r.ri()
+    if nx < 0 or nx > len(sc.joints):
+        raise Error("physics.serialize: corrupt snapshot (joint ext count)")
+    sc.jext = List[JointExt]()
+    for _ in range(nx):
+        var lim_on = r.ri() == 1
+        var lo = r.rf()
+        var hi = r.rf()
+        var cone = r.rf()
+        var motor = r.ri()
+        var target = r.rf()
+        var max_force = r.rf()
+        var mh = r.rf()
+        var mz = r.rf()
+        var sh = r.rf()
+        var sz = r.rf()
+        var sr = r.rf()
+        var ra = r.rv()
+        var rb = r.rv()
+        var qx = r.rf()
+        var qy = r.rf()
+        var qz = r.rf()
+        var qw = r.rf()
+        var collide = r.ri() == 1
+        var a_lo = r.rf()
+        var a_hi = r.rf()
+        var a_m = r.rf()
+        var a_s = r.rf()
+        var a_c = r.rf()
+        sc.jext.append(JointExt(
+            lim_on, lo, hi, cone, motor, target, max_force, mh, mz, sh, sz, sr,
+            ra, rb, Quat(qx, qy, qz, qw), collide, a_lo, a_hi, a_m, a_s, a_c,
+        ))
+    sc._ensure_ext()

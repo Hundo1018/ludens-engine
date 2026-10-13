@@ -16,6 +16,10 @@ comptime JOINT_DISTANCE = 1
 comptime JOINT_HINGE = 2
 comptime JOINT_BROKEN = 3  # ROADMAP 17.29: overloaded and released; solved by nothing
 comptime JOINT_WELD = 4  # ROADMAP 17.5: ball + full 3-axis angular lock (rigid bond)
+# ROADMAP 17.47 (solved in `physics.joint_ext`, which `joint_sweep` defers to):
+comptime JOINT_SLIDER = 5  # prismatic: free along axis_a, all else locked
+comptime JOINT_CONE_TWIST = 6  # ball + swing cone and twist range (axis_a / axis_b)
+comptime JOINT_ROPE = 7  # anchor distance within the ext's [lo, hi] only
 
 
 @fieldwise_init
@@ -67,6 +71,35 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
             JOINT_WELD, a, b, la, lb, ref_rel.w,
             Vec3(ref_rel.x, ref_rel.y, ref_rel.z, 0), Vec3(0, 0, 1, 0),
             Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+        )
+
+    @staticmethod
+    def slider(a: Int, b: Int, la: Vec3, lb: Vec3, axis_a: Vec3) -> Self:
+        """Prismatic (17.47): b moves along `axis_a` (a's body frame) through
+        a's anchor; the other two translations and all rotation are locked.
+        `ContactScene6.add_joint` records the relative rotation to hold."""
+        return Self(
+            JOINT_SLIDER, a, b, la, lb, 0,
+            axis_a, axis_a, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+        )
+
+    @staticmethod
+    def cone_twist(a: Int, b: Int, la: Vec3, lb: Vec3, axis_a: Vec3, axis_b: Vec3) -> Self:
+        """Ball joint whose twist axes (`axis_a` in a's frame, `axis_b` in
+        b's) carry the swing cone and twist range set on the joint's ext
+        (17.47; a shoulder or hip)."""
+        return Self(
+            JOINT_CONE_TWIST, a, b, la, lb, 0,
+            axis_a, axis_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+        )
+
+    @staticmethod
+    def rope(a: Int, b: Int, la: Vec3, lb: Vec3, max_len: Real) -> Self:
+        """Anchors at most `max_len` apart and free closer in (17.47; the
+        limit is set on the joint's ext by `add_joint`)."""
+        return Self(
+            JOINT_ROPE, a, b, la, lb, max_len,
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
         )
 
     def ref_rotation(self) -> Quat:
@@ -140,8 +173,8 @@ def joint_sweep[B: Body6](
     for _ in range(iters):
         for c in range(len(joints)):
             var jt = joints[c]
-            if jt.kind == JOINT_BROKEN:
-                continue
+            if jt.kind == JOINT_BROKEN or jt.kind == JOINT_SLIDER or jt.kind == JOINT_ROPE:
+                continue  # sliders and ropes: `physics.joint_ext.ext_sweep`
             if bset.impulse_inert(jt.a) and bset.impulse_inert(jt.b):
                 continue
             if island_filter != -2 and joint_island(bset, jt) != island_filter:
@@ -264,11 +297,11 @@ def warm_start_joints[B: Body6](
         var pwb = bset.bodies[jt.b].act(jt.lb)
         if bset.is_dynamic(jt.a):
             bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
-            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD:
+            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER:
                 bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
         if bset.is_dynamic(jt.b):
             bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
-            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD:
+            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER:
                 bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
 
 
