@@ -770,6 +770,60 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         debug_assert(mu >= 0, "ContactScene6.set_friction: mu must be >= 0")
         self.bset.friction[i] = mu
 
+    def set_static_friction(mut self, i: Int, mu_s: Real) raises:
+        """ROADMAP 17.50: body `i`'s static friction coefficient, used by
+        its contact points that are not sliding at prep (tangential speed
+        below 1 cm/s); sliding points use the kinetic `set_friction` value.
+        Pairs combine it with the same rule as the kinetic one."""
+        self._check_body_index(i, "set_static_friction")
+        if not (mu_s >= 0):
+            raise Error("ContactScene6.set_static_friction: mu_s must be >= 0")
+        self.bset.static_friction[i] = mu_s
+        self.bset.any_contact_model = True
+
+    def set_rolling_resistance(mut self, i: Int, c: Real) raises:
+        """ROADMAP 17.50: rolling resistance of body `i` in metres -- a
+        contact caps the opposing torque about the tangent plane at
+        `c · N` (N the pair's normal force; the pair uses the larger `c`).
+        A ball of radius r rolling on a flat floor then decelerates at
+        5·c·g / (7·r)."""
+        self._check_body_index(i, "set_rolling_resistance")
+        if not (c >= 0):
+            raise Error("ContactScene6.set_rolling_resistance: c must be >= 0")
+        self.bset.rolling[i] = c
+        self.bset.any_contact_model = True
+
+    def set_spinning_resistance(mut self, i: Int, c: Real) raises:
+        """ROADMAP 17.50: spin (torsional) resistance of body `i` in
+        metres: torque about the contact normal capped at `c · N`."""
+        self._check_body_index(i, "set_spinning_resistance")
+        if not (c >= 0):
+            raise Error("ContactScene6.set_spinning_resistance: c must be >= 0")
+        self.bset.spinning[i] = c
+        self.bset.any_contact_model = True
+
+    def set_contact_softness(mut self, i: Int, hertz: Real, zeta: Real) raises:
+        """ROADMAP 17.50: contact stiffness of body `i` (soft-constraint
+        `hertz` > 0 and damping ratio `zeta` >= 0, as `SolverConfig`). A
+        pair uses the side with the lower hertz; a body never set uses the
+        step's `cfg.hertz` / `cfg.zeta`."""
+        self._check_body_index(i, "set_contact_softness")
+        if not (hertz > 0) or not (zeta >= 0):
+            raise Error("ContactScene6.set_contact_softness: hertz must be > 0 and zeta >= 0")
+        self.bset.contact_hertz[i] = hertz
+        self.bset.contact_zeta[i] = zeta
+        self.bset.any_contact_model = True
+
+    def set_adhesion(mut self, i: Int, force: Real) raises:
+        """ROADMAP 17.50: body `i`'s contacts may pull as well as push, up to
+        `force` newtons per pair (spread over its points), while the
+        surfaces are within 1 cm. The pair uses the larger value."""
+        self._check_body_index(i, "set_adhesion")
+        if not (force >= 0):
+            raise Error("ContactScene6.set_adhesion: force must be >= 0")
+        self.bset.adhesion[i] = force
+        self.bset.any_contact_model = True
+
     def set_friction_combine(mut self, i: Int, mode: Int):
         """Same pair-priority rule as `set_restitution_combine`, for
         friction. Default `COMBINE_AVERAGE` reproduces today's single
@@ -2106,6 +2160,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         with a value that would otherwise divide out to `inf`/`NaN` below."""
         self.max_push = cfg.max_push_speed
         self.impulse_estimator = cfg.impulse_estimator
+        self.bset.cone = cfg.friction_cone
         self._reset_joint_sums()
         debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
         debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
@@ -2841,6 +2896,17 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wf(ex.acc_motor)
         out.wf(ex.acc_spring)
         out.wf(ex.acc_cone)
+    # 17.50: contact-model fields (static friction, rolling, spinning,
+    # softness, adhesion).
+    out.wi(1 if sc.bset.any_contact_model else 0)
+    if sc.bset.any_contact_model:
+        for i in range(len(sc.bset.bodies)):
+            out.wf(sc.bset.static_friction[i])
+            out.wf(sc.bset.rolling[i])
+            out.wf(sc.bset.spinning[i])
+            out.wf(sc.bset.contact_hertz[i])
+            out.wf(sc.bset.contact_zeta[i])
+            out.wf(sc.bset.adhesion[i])
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -3088,6 +3154,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Vec3(0, 0, 0, 0), Real(-1),
             Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
             Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            Vec3(0, 0, 0, 0), Real(0), 0,
         )
         for p in range(4):
             pr.m.points[p] = r.rv()
@@ -3239,3 +3306,12 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             ra, rb, Quat(qx, qy, qz, qw), collide, a_lo, a_hi, a_m, a_s, a_c,
         ))
     sc._ensure_ext()
+    sc.bset.any_contact_model = r.ri() == 1
+    if sc.bset.any_contact_model:
+        for i in range(len(sc.bset.bodies)):
+            sc.bset.static_friction[i] = r.rf()
+            sc.bset.rolling[i] = r.rf()
+            sc.bset.spinning[i] = r.rf()
+            sc.bset.contact_hertz[i] = r.rf()
+            sc.bset.contact_zeta[i] = r.rf()
+            sc.bset.adhesion[i] = r.rf()

@@ -2085,6 +2085,19 @@ distance, with candidates from a BVH over swept boxes.
 
 @bench benchmarks/bench_ccd_shapes.mojo
 
+## Contact model variants (17.50)
+
+Pyramid vs elliptic friction cone, and the elliptic cone with static
+friction and rolling / spin resistance on every body. On the slope
+diagonal the pyramid caps friction at sqrt(2) mu N, so its cubes slide
+about half as far (analytic 0.650 m vs 1.177 m in 1 s); the elliptic runs
+match the analytic slide on any direction. Timings compare different
+motions (the elliptic cubes travel further), so they are an upper bound on
+the cone's own cost; the rolling / spin branch adds two small angular solves
+per pair.
+
+@bench benchmarks/bench_contact_model.mojo
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

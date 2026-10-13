@@ -254,7 +254,7 @@
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 🔶 | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
-| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | ⬜ | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
+| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 🔶 | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
 
 ### 已完成條目的遺留待辦
 
@@ -515,6 +515,22 @@
 > - **未做**:payload 帶雙方材質 / 圖層(呼叫端可用 body 索引自查);`FractureSet` 以 payload 決定斷裂;1e5 接觸的回報開銷;GPU 路徑(第 7 層)。
 
 #### 17.50 接觸模型變體 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:橢圓摩擦錐 seam、靜 / 動摩擦、滾動 / 扭轉阻力、逐 body 接觸柔度、黏附 ✅;塊求解 / TGS 變體、逐材質柔度表、GPU 對齊(第 7 層)未做)。
+> **進度註(2026-10-13)**:`SolverConfig.friction_cone`(`FRICTION_PYRAMID` 預設 / `FRICTION_ELLIPTIC`):橢圓錐兩軸先不夾,再把 (t1, t2) 投影到半徑 μλₙ 的圓盤;
+> 上限為 0 時仍走金字塔(μ = 0 兩錐逐位相同)。`ContactScene6.set_static_friction` / `set_rolling_resistance` / `set_spinning_resistance`(負值或索引越界 raise):
+> 靜摩擦以 prep 時切向速度 < 1 cm/s 的點(`ContactConstraint.stick` 位元)取 μs,與 μk 用同一組合規則;滾動 / 扭轉阻力(單位 m,取兩 body 較大者)
+> 為相對角速度上的角衝量,扭轉夾 `c·Σλₙ`、滾動在切平面夾於圓盤,每子步以 warm start 帶入。任一新欄位被設才開 `BodySet.any_contact_model`,
+> `set_contact_softness(i, hertz, zeta)`:一對取 hertz 較低一側的 hertz / zeta,以與 `step` 相同的公式算軟係數(設成 cfg 值時逐位相同);
+> `set_adhesion(i, force)`:兩面相距 1 cm 內時法向衝量可為負,下限 force·h / 點數(一對取較大者),負衝量不給摩擦。
+> 預設場景不進新分支;快照帶新的逐 body 欄位(有旗標才寫);GPU 求解器拒絕新模式與橢圓錐。
+> 量測(`tests/test_contact_model.mojo` 22/22):30° 斜坡 μ 0.3、1 s,解析 1.177 m:橢圓沿軸 1.182 / 對角 1.198,金字塔沿軸 1.182 / 對角 0.652
+> (解析 √2 μN 上限 0.650);半徑 0.5 球 2 m/s、滾動阻力 0.05 停在 2.853 m(解析 7rv₀²/(10cg) = 2.857),無阻力 5 s 走 10.000 m;
+> 自旋 10 rad/s、扭轉阻力 0.05,1 s 後 5.100 rad/s(解析 5.1);25° 斜坡 μk 0.3:μs 0.6 時 2 s 移動 0.12 mm,無 μs 滑 2.96 m,以 1 m/s 起滑 1 s 走 1.742 m
+> (動摩擦解析 1.739);靜置箱兩錐差 3.1e-7 m(非逐位相同:仍有點的摩擦觸到上限);`ContactRule` 摩擦覆寫同時取代 μs;快照往返後續跑逐位相同;
+> μ = 1e3 橢圓錐 1 s 移動 0.15 mm;0.5 m 落下的箱子峰值穿透 預設地面 0.29 mm、3 Hz 軟墊 13.2 mm,柔度設為 cfg 值逐位相同;
+> 天花板下 1 kg 箱子(重 9.8 N)黏附 20 N 時 2 s 位移 0、5 N 時落下。bench `bench_contact_model`(µs/步,N = 16 / 256):斜坡方塊 金字塔 369 / 6304、橢圓 400 / 7518、橢圓 + 靜摩擦 + 滾動 / 扭轉 508 / 8581;
+> 滾動球 93 / 2394、92 / 2405、140 / 2898(方塊各變體的運動不同,橢圓的方塊滑得較遠,所以差值是錐本身成本的上界)。
 
 > **現況**:`ContactScene6` 只有一種接觸模型:Box2D v3 軟接觸 —— 全域 `hertz` / `zeta`(`physics/solver_config.mojo:53-55`,所有接觸同剛度)+ 逐點 Gauss-Seidel,切向兩個衝量各自夾 `μ·λₙ`(`physics/contact6.mojo:394-430`,逐軸夾在 `:426`),即**金字塔摩擦錐**,上限依賴 `tangent_basis(n)` 的任意基底(`geometry/vec.mojo:161-173`)。
 > 摩擦只有單一 μ(`combine` 後的 `pair_mu`,`physics/contact6.mojo:337`),沒有靜 / 動摩擦之分;grep `rolling|torsion|spin.?fric|elliptic|\bcone\b|adhesion|cohesion|stiction|static_fric|kinetic`(`physics/contact6.mojo`、`solver6.mojo`、`gpu_contact.mojo`、`material.mojo`、`solver_config.mojo`)**零命中** —— 沒有滾動 / 扭轉摩擦、黏附、橢圓錐。(`gameplay/vehicle.mojo:166` 的 `rolling_resistance` 是輪胎模型的 Crr·Fz·R 輪軸力矩,不是通用接觸屬性。)反而有**假的**滾動阻力:17.19 發現(ROADMAP §17.19)球進入純滾動後持續減速並下沉約 7 mm,根因是 body-frame 接觸錨點隨球旋轉,摩擦取在偏離真實接觸點的位置 —— 尚未修。恢復係數是後置 pass、門檻全域(`physics/contact6.mojo:444-504`、`physics/solver_config.mojo:49`);位置修正的最大推出速度是常數 −4 m/s(`physics/contact6.mojo:380`)。
@@ -3036,7 +3052,7 @@
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
-| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
+| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | 🔶 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |

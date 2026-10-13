@@ -29,6 +29,10 @@ comptime IMPULSE_LAST_SUBSTEP = 1
 """Step impulse = the last substep's accumulated impulse x substeps (free to
 read; equal to the sum at steady state, low after an impact the earlier
 substeps absorbed -- `test_impact_report` measures both)."""
+comptime FRICTION_PYRAMID = 0
+"""Friction cone (ROADMAP 17.50): each tangent axis clamped to mu·N on its own."""
+comptime FRICTION_ELLIPTIC = 1
+"""Friction cone: the tangent impulse vector clamped to a disk of radius mu·N."""
 
 
 @fieldwise_init
@@ -77,6 +81,10 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # ROADMAP 17.49: how the reported step impulse is estimated (a seam:
     # IMPULSE_SUBSTEP_SUM exact, IMPULSE_LAST_SUBSTEP the free shortcut).
     var impulse_estimator: Int
+    # ROADMAP 17.50: the contact friction cone (a seam: FRICTION_PYRAMID,
+    # each tangent axis clamped to mu·N on its own; FRICTION_ELLIPTIC, the
+    # tangent impulse vector clamped to a disk of radius mu·N).
+    var friction_cone: Int
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -97,6 +105,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.workers = 0
         self.dispatch = Dispatch.parallel()
         self.impulse_estimator = IMPULSE_SUBSTEP_SUM
+        self.friction_cone = FRICTION_PYRAMID
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes
@@ -130,6 +139,8 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
             raise Error("SolverConfig.validated: zeta must be >= 0")
         if self.impulse_estimator != IMPULSE_SUBSTEP_SUM and self.impulse_estimator != IMPULSE_LAST_SUBSTEP:
             raise Error("SolverConfig.validated: unknown impulse_estimator")
+        if self.friction_cone != FRICTION_PYRAMID and self.friction_cone != FRICTION_ELLIPTIC:
+            raise Error("SolverConfig.validated: unknown friction_cone")
         return self
 
 

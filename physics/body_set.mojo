@@ -135,6 +135,22 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     # only for pairs touching a flagged body (PhysX eNOTIFY_* per actor).
     var report: List[Bool]
     var any_report: Bool
+    # ROADMAP 17.50 contact model: per-body static friction (< 0 = same as
+    # the kinetic `friction`), rolling and spin resistance (m: the torque
+    # cap per unit normal force), and the scene's friction cone (0 pyramid,
+    # 1 elliptic, set from SolverConfig each step). `any_contact_model` is
+    # False until one of them is used, and the solver reads none of them
+    # then, so a default scene is bit-identical to before.
+    var static_friction: List[Real]
+    var rolling: List[Real]
+    var spinning: List[Real]
+    # per-body contact softness (hertz <= 0: the step's cfg.hertz / zeta)
+    # and adhesion (N: the pull a touching contact may hold)
+    var contact_hertz: List[Real]
+    var contact_zeta: List[Real]
+    var adhesion: List[Real]
+    var cone: Int
+    var any_contact_model: Bool
     var free: List[Int]
 
     def __init__(out self):
@@ -166,6 +182,14 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.any_props = False
         self.report = List[Bool]()
         self.any_report = False
+        self.static_friction = List[Real]()
+        self.rolling = List[Real]()
+        self.spinning = List[Real]()
+        self.contact_hertz = List[Real]()
+        self.contact_zeta = List[Real]()
+        self.adhesion = List[Real]()
+        self.cone = 0
+        self.any_contact_model = False
         self.free = List[Int]()
 
     def __len__(self) -> Int:
@@ -215,6 +239,12 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.sleep_lin[slot] = -1
             self.sleep_ang[slot] = -1
             self.report[slot] = False
+            self.static_friction[slot] = -1
+            self.rolling[slot] = 0
+            self.spinning[slot] = 0
+            self.contact_hertz[slot] = 0
+            self.contact_zeta[slot] = 0
+            self.adhesion[slot] = 0
             return BodyId(slot, self.generation[slot])
         var slot = len(self.bodies)
         self.bodies.append(b^)
@@ -241,6 +271,12 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.sleep_lin.append(-1)
         self.sleep_ang.append(-1)
         self.report.append(False)
+        self.static_friction.append(-1)
+        self.rolling.append(0)
+        self.spinning.append(0)
+        self.contact_hertz.append(0)
+        self.contact_zeta.append(0)
+        self.adhesion.append(0)
         self.generation.append(0)
         return BodyId(slot, 0)
 
@@ -304,6 +340,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         substitution that makes the unset case bit-identical to today's
         single shared `mu` (`combine`'s docstring has the exact identity)."""
         return self.friction[i] if self.friction[i] >= 0 else default_mu
+
+    def eff_static(self, i: Int, default_mu: Real) -> Real:
+        """Body `i`'s static friction (17.50), or its kinetic one."""
+        return self.static_friction[i] if self.static_friction[i] >= 0 else self.eff_friction(i, default_mu)
 
     def id_of(self, i: Int) -> BodyId:
         """The current `BodyId` for live slot `i` -- for a caller that only
