@@ -334,6 +334,18 @@ the new clip (`test_anim_runtime`). The sweep is over the share of
 characters inside a transition, since that is where the two differ.
 
 @bench benchmarks/bench_anim_runtime.mojo
+## Animation — K-influence skinning and morph targets (17.65)
+
+`skin_motor_k` / `skin_lbs_k` take K (index, weight) pairs per vertex; K = 2
+equals the existing `skin_motor` bit for bit (both call one non-inlined
+per-vertex function: inlined separately, the same expression rounded
+differently in 41 of 500 vertices). `bind_palette` gives the world x
+inverse-bind buffer a host shader consumes; `MorphSet` stores sparse
+deltas, applied before skinning. Under a 0..170-degree twist across four
+bones DLB keeps a vertex at radius 0.2 from the axis, LBS pulls it to 0.097
+(`test_skin_k`). Rows: ns per vertex.
+
+@bench benchmarks/bench_skin_k.mojo
 ## Physics — cloth self-collision
 
 Cloth that does not collide with itself can be a flag and cannot be a garment.

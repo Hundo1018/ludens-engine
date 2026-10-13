@@ -1804,7 +1804,7 @@
 | 17.35 | [計時器 / 補間 / 緩動曲線](ROADMAP_HISTORY.md#1735-計時器--補間--緩動曲線--wave-a) | ✅ | A | `scheduler/timers.mojo` 提供 `TimerQueue` seam(`TimerHeap` 與 `TimerWheel`,以 due_tick 加排程序號決定觸發順序),`procedural/tween.mojo` 提供 31 條 Penner 緩動曲線,以及對 Real / Vec3 做 lerp、對 Motor2 / Motor3 走 galie geodesic 的 `Tween`;附 parity 測試、整合測試、兩個 bench,並列在 CATEGORY §2.3。 |
 | 17.36 | [樣條 / 曲線(路徑)](ROADMAP_HISTORY.md#1736-樣條--曲線路徑--wave-a) | ✅ | A | `geometry/spline.mojo` 提供維度泛型的 Catmull-Rom(comptime alpha:uniform / centripetal / chordal)與分段三次 Bezier;Catmull-Rom 段會精確轉成 `CubicBezier`,所以弧長表、`closest_point` 與 RMF motor 標架只需實作一次。有三個測試檔共 577 項檢查、`bench_spline` 與範例 15。 |
 | 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 🔶 | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
-| 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | ⬜ | C | N 影響蒙皮、綁定資料、Morph targets / blend shapes、修正形狀(pose-space deformation)、縮放 / 擠壓伸展通道、蒙皮 → 模擬耦合 |
+| 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 🔶 | C | N 影響蒙皮、綁定資料、Morph targets / blend shapes、修正形狀(pose-space deformation)、縮放 / 擠壓伸展通道、蒙皮 → 模擬耦合 |
 | 17.69 | [PCG](#1769-pcg--wave-c) | ⬜ | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
 
 ### 已完成條目的遺留待辦
@@ -1853,6 +1853,14 @@
 > **邊界**:骨架 / clip 的匯入與 DCC 製作屬宿主(17.12 決定跟 glTF / USD 走,引擎只收 flat arrays);GPU 蒙皮與繪製屬宿主;動畫圖編輯器 UI 屬編輯器;腳步音效 / VFX 由宿主訂閱事件;距離分級的更新頻率歸 17.85,不在此重複。
 
 #### 17.65 形變資料 — Wave C(headless 資料 / 邏輯)
+> **進度註(2026-10-13)**:`geometry/skinning.mojo`:`blend_k`(K 骨 DLB,各骨對第一骨取半球、全 0 權重 → 恆等)、`skin_motor_k` / `skin_lbs_k`
+> (SoA `idx[v*K+j]` / `w[v*K+j]`,邊界一次驗證索引與長度並 raise;LBS 權重重正規化)、`bind_palette`(世界 × 逆綁定)、`inverse_bind`;K = 2 與 `skin_motor`
+> 共用一個 `@no_inline` 的逐頂點函式 —— 分別內聯時同一式子在 500 頂點中有 41 個末位不同(最大 3.1e-7),共用後逐位相同,`test_skinning` / `test_anim` 輸出不變。
+> `geometry/morph.mojo` `MorphSet`(稀疏 delta、`from_shape`、權重不夾制、先 morph 後蒙皮)。量測(`tests/test_skin_k.mojo` 13/13):K = 1 等於該骨;
+> 全骨同一運動時 DLB / LBS 誤差 4.9e-7;綁定姿態調色盤誤差 6e-8、全骨上抬 1 m 誤差 2.5e-7;4 骨 0..170° 扭轉:DLB 半徑 0.2(不變)、LBS 0.097;
+> q 與 −q 相同;NaN 骨只污染自己的頂點。`bench_skin_k`(4096 頂點、與 gate 同時執行):DLB K = 2 / 4 / 8:66 / 103 / 96 ns,LBS 18 / 31 / 60 ns;
+> morph 每頂點 3.8 ns(60 個中 6 個啟用)。
+> **未做**:in-between 形狀、法線 delta、修正形狀(RBF)、逐骨縮放通道、蒙皮 → 布料 / 柔體釘點、由權重擬合碰撞膠囊、宿主 golden 向量、`Animator` 調色盤接線。
 > **現況**:`geometry/skinning.mojo:39-68` 只有**每頂點 2 個影響**:`blend2` 做兩個 motor 的 DLB,`skin_motor(bones, rest, idx_a, idx_b, w_a, out)` 以 `w_b = 1 − w_a` 取權重;`:71-89` `skin_lbs`(Mat4 LBS)為對照基準。成本 DLB ≈ 40 vs LBS ≈ 9.5 ns/頂點(檔頭 `:11-16` 自註)。motor 是剛體運動、無縮放(`ecs/motor_transform.mojo:9-12`)。**形變資料全缺**:grep `\bmorph|[Bb]lend.?[Ss]hape|MorphTarget|pose.?space|corrective` 全樹(`.mojo`,排除 build/.pixi/worktrees)零命中;grep `inverse.?bind|bind.?pose` 零命中。`skin_motor` / `skin_lbs` 只被測試 / 範例 / bench 呼叫(`tests/test_skinning.mojo:77`、`tests/test_anim.mojo:159`、`benchmarks/bench_ga.mojo:141`、`examples/07_motor_skinning.mojo:66`、`examples/24_locomotion_graph.mojo:124`),引擎套件只借用 `blend2` 做姿態混合(`procedural/anim.mojo:39,205`),沒有任何套件消費蒙皮後的頂點:柔體 / 布料(`physics/softbody.mojo`、`physics/vbd_cloth.mojo`)不能把頂點釘在蒙皮骨上,17.2 的 ragdoll 碰撞體是每骨一個手給的盒(`gameplay/ragdoll.mojo:37-68`)。引擎無渲染層,故本條的存在理由是**模擬端與宿主 GPU 之間的資料契約**,不是繪製。
 > **缺口**:
 > - **N 影響蒙皮**:每頂點 4 / 8 個 (索引, 權重),SoA 佈局,重新正規化,K=2 時逐位退化為現有 `skin_motor`(例:肩部 4 骨影響)。
@@ -3260,7 +3268,7 @@
 | 17.62 | [GPU / 可微連續體](#1762-gpu--可微連續體--wave-cgpu--可微) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.63 | [輸出 / 快取](#1763-輸出--快取--wave-c資產管線提供者) | 軟體、布料、連續體與流體 | 🔶 |
 | 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | 🔶 |
-| 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | ⬜ |
+| 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | 🔶 |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | 🔶 |

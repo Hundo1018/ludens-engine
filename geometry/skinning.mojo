@@ -64,8 +64,16 @@ def skin_motor(
 ):
     """Per-vertex DLB + one sandwich (w_b = 1 − w_a)."""
     for i in range(len(rest)):
-        var m = blend2(bones[idx_a[i]], bones[idx_b[i]], w_a[i], 1 - w_a[i])
-        out[i] = m.apply_point(rest[i])
+        out[i] = _skin2(bones[idx_a[i]], bones[idx_b[i]], w_a[i], 1 - w_a[i], rest[i])
+
+
+@no_inline
+def _skin2(a: Motor3, b: Motor3, wa: Real, wb: Real, p: Vec3) -> Vec3:
+    """One vertex of 2-bone DLB. Not inlined on purpose: `skin_motor` and
+    `skin_motor_k` (K = 2) both call it, so they share one compiled body
+    and round identically. Inlined into each caller, the same expression
+    rounded differently in 41 of 500 vertices (up to 3e-7, `test_skin_k`)."""
+    return blend2(a, b, wa, wb).apply_point(p)
 
 
 def skin_lbs(
@@ -87,3 +95,122 @@ def skin_lbs(
         comptime for k in range(16):
             m.m[k] = wa * ma.m[k] + wb * mb.m[k]
         out[i] = transform_point4(m, rest[i])
+
+
+# ---------------------------------------------------------------- K influences
+# ROADMAP 17.65. Per vertex K (index, weight) pairs, SoA: `idx[v * K + j]`,
+# `w[v * K + j]`. Indices and lengths are validated once, at the call
+# boundary (`raise`); the vertex loop does not raise.
+
+
+def _check_k(bones: Int, verts: Int, idx: List[Int], w: List[Real], k: Int, out_len: Int) raises:
+    if k < 1:
+        raise Error("skinning: K must be >= 1")
+    if len(idx) != verts * k or len(w) != verts * k or out_len < verts:
+        raise Error("skinning: idx / w must hold K entries per vertex and out one per vertex")
+    for i in idx:
+        if i < 0 or i >= bones:
+            raise Error("skinning: bone index " + String(i) + " out of range")
+
+
+@always_inline
+def _hemi(a: Motor3, b: Motor3) -> Real:
+    var d = a.s * b.s + a.b12 * b.b12 + a.b13 * b.b13 + a.b23 * b.b23
+    return Real(-1) if d < 0 else Real(1)
+
+
+def blend_k(bones: List[Motor3], idx: List[Int], w: List[Real], base: Int, k: Int) -> Motor3:
+    """DLB of K bones (`idx[base:base+k]`, weights `w[base:base+k]`), each
+    hemisphere-aligned to the first. Weights need not sum to 1 (the result is
+    renormalised); all-zero weights give the identity (bind pose). K = 2 is
+    `blend2`."""
+    var a = bones[idx[base]]
+    var wa = w[base]
+    if k == 1:
+        if wa == 0:
+            return Motor3.identity()
+        return a.normalized() if wa != 1 else a
+    var b = bones[idx[base + 1]]
+    if k == 2:
+        if wa == 0 and w[base + 1] == 0:
+            return Motor3.identity()
+        return blend2(a, b, wa, w[base + 1])
+    var sb = w[base + 1] * _hemi(a, b)
+    var s = wa * a.s + sb * b.s
+    var b12 = wa * a.b12 + sb * b.b12
+    var b13 = wa * a.b13 + sb * b.b13
+    var b23 = wa * a.b23 + sb * b.b23
+    var b10 = wa * a.b10 + sb * b.b10
+    var b20 = wa * a.b20 + sb * b.b20
+    var b30 = wa * a.b30 + sb * b.b30
+    var pss = wa * a.pss + sb * b.pss
+    for j in range(2, k):
+        var c = bones[idx[base + j]]
+        var sc = w[base + j] * _hemi(a, c)
+        s += sc * c.s
+        b12 += sc * c.b12
+        b13 += sc * c.b13
+        b23 += sc * c.b23
+        b10 += sc * c.b10
+        b20 += sc * c.b20
+        b30 += sc * c.b30
+        pss += sc * c.pss
+    var m = Motor3(s, b12, b13, b23, b10, b20, b30, pss)
+    if m.norm_sq() == 0:
+        return Motor3.identity()
+    return m.normalized()
+
+
+def skin_motor_k(bones: List[Motor3], rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, mut out: List[Vec3]) raises:
+    """Per-vertex K-bone DLB + one sandwich. With K = 2 and weights
+    (w_a, 1 - w_a) it equals `skin_motor` bit for bit (`test_skin_k`)."""
+    _check_k(len(bones), len(rest), idx, w, k, len(out))
+    if k == 2:
+        for v in range(len(rest)):
+            if w[2 * v] == 0 and w[2 * v + 1] == 0:
+                out[v] = rest[v]
+            else:
+                out[v] = _skin2(bones[idx[2 * v]], bones[idx[2 * v + 1]], w[2 * v], w[2 * v + 1], rest[v])
+        return
+    for v in range(len(rest)):
+        out[v] = blend_k(bones, idx, w, v * k, k).apply_point(rest[v])
+
+
+def skin_lbs_k(mats: List[Mat4], rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, mut out: List[Vec3]) raises:
+    """K-bone linear blend skinning; weights renormalised to sum 1 (all zero:
+    the rest position)."""
+    _check_k(len(mats), len(rest), idx, w, k, len(out))
+    for v in range(len(rest)):
+        var sw = Real(0)
+        for j in range(k):
+            sw += w[v * k + j]
+        if sw == 0:
+            out[v] = rest[v]
+            continue
+        var m = Mat4()  # zero-initialised
+        for j in range(k):
+            var wj = w[v * k + j] / sw
+            var mj = mats[idx[v * k + j]]
+            comptime for e in range(16):
+                m.m[e] += wj * mj.m[e]
+        out[v] = transform_point4(m, rest[v])
+
+
+def bind_palette(world: List[Motor3], inverse_bind: List[Motor3]) raises -> List[Motor3]:
+    """Skinning palette: world bone motor x inverse bind motor per bone, the
+    buffer a host shader consumes. At the bind pose every entry is the
+    identity motion."""
+    if len(world) != len(inverse_bind):
+        raise Error("bind_palette: one inverse bind motor per bone")
+    var out = List[Motor3](capacity=len(world))
+    for i in range(len(world)):
+        out.append(world[i] * inverse_bind[i])
+    return out^
+
+
+def inverse_bind(bind_pose: List[Motor3]) -> List[Motor3]:
+    """Inverse bind motors of a bind pose (the reverse of each unit motor)."""
+    var out = List[Motor3](capacity=len(bind_pose))
+    for m in bind_pose:
+        out.append(m.reverse())
+    return out^

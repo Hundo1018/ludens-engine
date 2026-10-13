@@ -2,7 +2,6 @@
 # Format: path  # reason. An entry whose file now exists is reported as stale.
 
 gameplay/animator.mojo  # planned by 17.64 (not built yet)
-geometry/morph.mojo  # planned by 17.65 (not built yet)
 procedural/scatter.mojo  # planned by 17.69 (not built yet)
 procedural/terrain_gen.mojo  # planned by 17.69 (not built yet)
 procedural/wfc.mojo  # planned by 17.69 (not built yet)
