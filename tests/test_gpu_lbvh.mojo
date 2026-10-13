@@ -90,78 +90,78 @@ def main() raises:
     comptime if not has_accelerator():
         s.skip_device("no accelerator on this host")
         s.finish()
-        return
-    s.begin_device()
+    else:
+        s.begin_device()
 
-    var ctx = DeviceContext()
-    var rng = SplitMix64.seeded(53)
+        var ctx = DeviceContext()
+        var rng = SplitMix64.seeded(53)
 
-    # --- ordinary cloud ---
-    var items = _scene(rng, N, 50.0)
-    var order = List[Int]()
-    gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(items), order)
-    s.check(_sorted_set(order), "device order is a permutation of all N leaves")
+        # --- ordinary cloud ---
+        var items = _scene(rng, N, 50.0)
+        var order = List[Int]()
+        gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(items), order)
+        s.check(_sorted_set(order), "device order is a permutation of all N leaves")
 
-    # codes must be non-decreasing along the device order
-    var cmin = (items[0].box.min + items[0].box.max) * 0.5
-    var cmax = cmin
-    for i in range(1, N):
-        var c = (items[i].box.min + items[i].box.max) * 0.5
-        for a in range(3):
-            if c[a] < cmin[a]:
-                cmin[a] = c[a]
-            if c[a] > cmax[a]:
-                cmax[a] = c[a]
+        # codes must be non-decreasing along the device order
+        var cmin = (items[0].box.min + items[0].box.max) * 0.5
+        var cmax = cmin
+        for i in range(1, N):
+            var c = (items[i].box.min + items[i].box.max) * 0.5
+            for a in range(3):
+                if c[a] < cmin[a]:
+                    cmin[a] = c[a]
+                if c[a] > cmax[a]:
+                    cmax[a] = c[a]
 
-    var monotone = True
-    for i in range(1, len(order)):
-        if _code_of(items, cmin, cmax, order[i - 1]) > _code_of(items, cmin, cmax, order[i]):
-            monotone = False
-    s.check(monotone, "device order is sorted by Morton code")
+        var monotone = True
+        for i in range(1, len(order)):
+            if _code_of(items, cmin, cmax, order[i - 1]) > _code_of(items, cmin, cmax, order[i]):
+                monotone = False
+        s.check(monotone, "device order is sorted by Morton code")
 
-    # --- a tree built from the device order answers queries identically ---
-    var boxes = List[AABB[3]]()
-    var prox = List[Int]()
-    for i in range(len(order)):
-        boxes.append(items[order[i]].box)
-        prox.append(items[order[i]].proxy)
-    var gtree = BVH[3]()
-    gtree.build_boxes(boxes, prox, False, True)
+        # --- a tree built from the device order answers queries identically ---
+        var boxes = List[AABB[3]]()
+        var prox = List[Int]()
+        for i in range(len(order)):
+            boxes.append(items[order[i]].box)
+            prox.append(items[order[i]].proxy)
+        var gtree = BVH[3]()
+        gtree.build_boxes(boxes, prox, False, True)
 
-    var cboxes = List[AABB[3]]()
-    var cprox = List[Int]()
-    for i in range(N):
-        cboxes.append(items[i].box)
-        cprox.append(items[i].proxy)
-    var ctree = BVH[3]()
-    ctree.build_boxes(cboxes, cprox, False, True)
+        var cboxes = List[AABB[3]]()
+        var cprox = List[Int]()
+        for i in range(N):
+            cboxes.append(items[i].box)
+            cprox.append(items[i].proxy)
+        var ctree = BVH[3]()
+        ctree.build_boxes(cboxes, cprox, False, True)
 
-    var same = True
-    for _ in range(40):
-        var c = Vec3(
-            Real(rng.next_f32()) * 50,
-            Real(rng.next_f32()) * 50,
-            Real(rng.next_f32()) * 50,
-            0,
-        )
-        var q = AABB[3](c - Vec3(4, 4, 4, 0), c + Vec3(4, 4, 4, 0))
-        var ga = List[Int]()
-        var ca = List[Int]()
-        gtree.query_region(q, ga)
-        ctree.query_region(q, ca)
-        if len(ga) != len(ca):
-            same = False
-    s.check(same, "tree from the device order matches the CPU LBVH's answers")
+        var same = True
+        for _ in range(40):
+            var c = Vec3(
+                Real(rng.next_f32()) * 50,
+                Real(rng.next_f32()) * 50,
+                Real(rng.next_f32()) * 50,
+                0,
+            )
+            var q = AABB[3](c - Vec3(4, 4, 4, 0), c + Vec3(4, 4, 4, 0))
+            var ga = List[Int]()
+            var ca = List[Int]()
+            gtree.query_region(q, ga)
+            ctree.query_region(q, ca)
+            if len(ga) != len(ca):
+                same = False
+        s.check(same, "tree from the device order matches the CPU LBVH's answers")
 
-    # --- duplicate codes: everything in one cell ---
-    var dup = List[BoxProxy[3]]()
-    for i in range(N):
-        dup.append(
-            BoxProxy[3](i, AABB[3](Vec3(1, 1, 1, 0) - Vec3(0.4, 0.4, 0.4, 0),
-                                    Vec3(1, 1, 1, 0) + Vec3(0.4, 0.4, 0.4, 0)))
-        )
-    var dorder = List[Int]()
-    gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(dup), dorder)
-    s.check(_sorted_set(dorder), "all-identical codes: still a full permutation")
+        # --- duplicate codes: everything in one cell ---
+        var dup = List[BoxProxy[3]]()
+        for i in range(N):
+            dup.append(
+                BoxProxy[3](i, AABB[3](Vec3(1, 1, 1, 0) - Vec3(0.4, 0.4, 0.4, 0),
+                                        Vec3(1, 1, 1, 0) + Vec3(0.4, 0.4, 0.4, 0)))
+            )
+        var dorder = List[Int]()
+        gpu_morton_order_ctx[N, NPAD](ctx, _boxes_of(dup), dorder)
+        s.check(_sorted_set(dorder), "all-identical codes: still a full permutation")
 
-    s.finish()
+        s.finish()

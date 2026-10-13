@@ -35,8 +35,15 @@ from physics.rigid6 import QuatBody6
 from physics.solver6 import ContactScene6, write_state, read_state
 from physics.state_io import StateWriter, StateReader
 
-comptime _VERSION = 3
-"""3 since ROADMAP 17.85 / 17.16: the stream ends with the tier phase clock
+comptime _VERSION = 4
+"""4 since ROADMAP 17.48: after the island labels, per body the 17.29
+gravity override, the 17.31 frozen motion type, the 17.48 parameters
+(damping, gravity scale, locks, speed caps, accumulated force / torque,
+sleep thresholds), each triangle mesh's 17.45 active-edge flags, the 17.29
+joint break thresholds, the 17.2 angular drives and the 17.49 contact-report
+flags and event peaks and the 17.47 joint exts, each block behind a
+presence flag or count (a scene using none of them adds nine tokens).
+3 since ROADMAP 17.85 / 17.16: the stream ends with the tier phase clock
 (`step_index`), the tier table, the per-body tier plan and the island
 labels. 2 since ROADMAP
 17.0g-2: each body's fixed-size fields grew by
@@ -134,7 +141,7 @@ def scene_from_string(data: String) raises -> ContactScene6[QuatBody6]:
     return sc^
 
 
-struct _BinWriter(StateWriter, Movable, Deinitable):
+struct BinWriter(StateWriter, Movable, Deinitable):
     """Fixed-width binary `StateWriter` (ROADMAP 17.16): ints as 8 bytes,
     floats as their 4-byte f32 bit pattern, little-endian. Fixed widths keep
     every field at the same offset from one snapshot to the next while the
@@ -162,7 +169,7 @@ struct _BinWriter(StateWriter, Movable, Deinitable):
         self.wf(v[2])
 
 
-struct _BinReader(StateReader, Movable, Deinitable):
+struct BinReader(StateReader, Movable, Deinitable):
     var d: List[UInt8]
     var at: Int
 
@@ -197,14 +204,14 @@ struct _BinReader(StateReader, Movable, Deinitable):
 
 def scene_to_bytes(sc: ContactScene6[QuatBody6]) -> List[UInt8]:
     """Exact binary snapshot (same fields and guarantees as `scene_to_string`)."""
-    var w = _BinWriter()
+    var w = BinWriter()
     w.wi(_VERSION)
     write_state(sc, w)
     return w.b.copy()
 
 
 def scene_from_bytes(var data: List[UInt8]) raises -> ContactScene6[QuatBody6]:
-    var r = _BinReader(data^)
+    var r = BinReader(data^)
     if r.ri() != _VERSION:
         raise Error("scene format version mismatch")
     var sc = ContactScene6[QuatBody6]()

@@ -76,8 +76,8 @@ def sim_tick(mut st: SimState, inp: InputFrame, dt: Real, gravity: Vec3) raises:
             if st.scene.bset.is_dynamic(i):
                 var a = st.rng.next_f32() * 6.2831853
                 var dir = Vec3(Real(a) - 3, 2, Real(st.rng.next_f32()) - 0.5, 0)
-                st.scene.wake(st.scene.bset.id_of(i))
-                st.scene.bset.bodies[i].apply_impulse(dir, st.scene.bset.bodies[i].position())
+                var id = st.scene.bset.id_of(i)
+                st.scene.apply_impulse(id, dir, st.scene.pose(id).pos)
                 break
     st.scene.step_soft(dt, gravity)
     st.tick += 1

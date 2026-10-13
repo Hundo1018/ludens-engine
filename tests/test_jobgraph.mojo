@@ -19,6 +19,7 @@ EXTREME     no systems at all, one system, every system conflicting with every
 """
 
 from harness.runner import Suite
+from scheduler.dispatch import Dispatch, Opaque, TaskFn
 from ecs.world import World
 from ecs.storage import StorageBackend
 from ecs.sparse_backend import SparseSetBackend
@@ -238,12 +239,23 @@ def run_seq[B: StorageBackend]() -> Int:
     return _digest(w)
 
 
-def run_graph[B: StorageBackend](parallel: Bool, workers: Int) -> Int:
+def host_reverse(ctx: Optional[Opaque], n: Int64, task: TaskFn, data: Opaque) abi("C"):
+    """A stand-in host job system: runs every item, last to first."""
+    var i = Int(n) - 1
+    while i >= 0:
+        task(data, Int64(i))
+        i -= 1
+
+
+def run_graph[B: StorageBackend](
+    parallel: Bool, workers: Int, dispatch: Dispatch = Dispatch.parallel()
+) -> Int:
     var w = World[B]()
     _seed(w)
     var s = JobGraphScheduler[B, Integrate, Drag, Decay, Award]()
     s.parallel = parallel
     s.workers = workers
+    s.dispatch = dispatch
     for _ in range(FRAMES):
         s.tick(w)
     return _digest(w)
@@ -289,6 +301,11 @@ def main() raises:
     s.eqi(gph_sparse, seq_sparse, "the derived schedule == registration order")
     s.eqi(par_sparse, seq_sparse, "and it is unchanged when the levels fan out")
     s.eqi(par1_sparse, seq_sparse, "and unchanged at one worker")
+    # ROADMAP 17.75: a level's systems through any dispatcher
+    s.eqi(run_graph[SPARSE](True, 0, Dispatch.serial()), seq_sparse, "levels dispatched serially == sequential")
+    s.eqi(run_graph[SPARSE](True, 0, Dispatch.reverse()), seq_sparse, "levels dispatched in reverse == sequential")
+    s.eqi(run_graph[SPARSE](True, 4, Dispatch.work_stealing()), seq_sparse, "levels on the work-stealing pool == sequential")
+    s.eqi(run_graph[SPARSE](True, 0, Dispatch.from_host(host_reverse, None)), seq_sparse, "levels through a host C callback == sequential")
 
     var seq_arch = run_seq[ARCH]()
     var gph_arch = run_graph[ARCH](False, 0)

@@ -10,6 +10,7 @@ value saying who runs them:
 | `DISPATCH_PARALLEL` (default) | `max.algorithm.parallelize` on the runtime's pool |
 | `DISPATCH_SERIAL` | the calling thread, in order |
 | `DISPATCH_REVERSE` | the calling thread, last to first (a test of order independence) |
+| `DISPATCH_WORK_STEALING` | `scheduler.workstealing.ws_parallel_for`: static split, idle workers steal the rest |
 | `DISPATCH_HOST` | a host function `host(ctx, n, task, data)` -- e.g. Godot's WorkerThreadPool or a Unity job -- which must call `task(data, i)` once for every i in [0, n) before returning, from any threads, in any order |
 
 Contract for every fan-out site: items write disjoint state, so the result
@@ -23,7 +24,9 @@ which stays alive on the caller's stack for the duration of the call.
 """
 
 from std.memory import alloc, Layout
+from std.sys import num_physical_cores
 from max.algorithm import parallelize
+from .workstealing import ws_parallel_for
 
 comptime Opaque = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 # void task(void* data, int64_t i)
@@ -35,6 +38,7 @@ comptime DISPATCH_PARALLEL = 0
 comptime DISPATCH_SERIAL = 1
 comptime DISPATCH_REVERSE = 2
 comptime DISPATCH_HOST = 3
+comptime DISPATCH_WORK_STEALING = 4
 
 
 trait Task:
@@ -58,6 +62,10 @@ struct Dispatch(Copyable, ImplicitlyCopyable, Movable):
     @staticmethod
     def reverse() -> Self:
         return Self(DISPATCH_REVERSE, None, None)
+
+    @staticmethod
+    def work_stealing() -> Self:
+        return Self(DISPATCH_WORK_STEALING, None, None)
 
     @staticmethod
     def from_host(host: HostParallelFor, ctx: Optional[Opaque]) -> Self:
@@ -84,6 +92,11 @@ def dispatch_for[T: Task](d: Dispatch, mut task: T, n: Int, workers: Int = 0):
     elif d.kind == DISPATCH_HOST and d.host:
         var p = Pointer(to=task)
         d.host.value()(d.ctx, Int64(n), _task_trampoline[T], p.unsafe_bitcast[NoneType]().unsafe_origin_cast[MutUntrackedOrigin]())
+    elif d.kind == DISPATCH_WORK_STEALING:
+        def steal_work(i: Int) {imm task}:
+            task.run(i)
+
+        ws_parallel_for(steal_work, n, workers if workers > 0 else num_physical_cores())
     else:
         def work(i: Int) {imm task}:
             task.run(i)

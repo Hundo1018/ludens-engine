@@ -12,6 +12,8 @@ and shin -- in a `ContactScene6`, driven by an animation pose.
                the shin off its pose and the drives pull it back; the
                get-up blend is the animation exactly at weight 0 and the
                ragdoll exactly at weight 1.
+  limits (17.47) a limp leg whose knee is a hinge limited to +-0.2 rad keeps
+               it there; the same leg with its ball knee swings past 0.4.
   extreme      a very stiff drive (1000 Hz) stays finite and on target;
                add_drive out of range raises; removing a driven body raises.
 """
@@ -200,4 +202,33 @@ def main() raises:
         raised = True
     s.check(raised, "removing a driven body raises")
 
+    # ---- ROADMAP 17.47: a limited knee on a limp leg ------------------------
+    var kc = ContactScene6[QuatBody6]()
+    var kn = ContactScene6[QuatBody6]()
+    var free_leg = _leg(kn, _local(30, -40, 0), 400)
+    var knee_leg = _leg(kc, _local(30, -40, 0), 400)
+    free_leg.set_strength(kn, 0)
+    knee_leg.set_strength(kc, 0)
+    knee_leg.limit_hinge(kc, 2, Vec3(1, 0, 0, 0), -0.2, 0.2)
+    var kj = knee_leg.joint[2]
+    var free_j = free_leg.joint[2]
+    kn.reset_joint_ext(free_j)  # same zero reference, no limit
+    kn.joints[free_j].kind = 2  # read the knee angle as a hinge would
+    kn.joints[free_j].axis_a = kc.joints[kj].axis_a
+    kn.joints[free_j].axis_b = kc.joints[kj].axis_b
+    kn.reset_joint_ext(free_j)
+    kn.joints[free_j].kind = 0  # but solve it as the ball joint it is
+    var worst_lim = Real(0)
+    var worst_free = Real(0)
+    var still = _local(30, -40, 0)
+    var still_w = to_world(still, _parents())
+    for _ in range(120):
+        knee_leg.follow(kc, still_w, DT)
+        free_leg.follow(kn, still_w, DT)
+        kc.step_soft(DT, g)
+        kn.step_soft(DT, g)
+        worst_lim = max(worst_lim, abs(kc.joint_coordinate(kj)))
+        worst_free = max(worst_free, abs(kn.joint_coordinate(free_j)))
+    print("  limp leg, knee limited to +-0.2 rad: worst knee angle", worst_lim, " unlimited ball knee", worst_free)
+    s.check(worst_lim < 0.25 and worst_free > 0.4, "a hinge-limited knee stays within +-0.2 rad where the free knee swings past 0.4")
     s.finish()

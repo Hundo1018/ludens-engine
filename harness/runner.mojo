@@ -20,9 +20,29 @@ their output carries a `[device]` tag, which the golden gate drops, so the
 recorded golden is the same on hosts with and without an accelerator. Print
 device-only measurements as `"  [device] ..."`; mark the skipped half with
 `s.skip_device(reason)`.
+
+Randomised tests take their seed from `fuzz_seed(default)`: the default
+normally, `LUDENS_SEED` when set, so `pixi run fuzz` can sweep a seed range
+over the same checks and print the seed that broke one (ROADMAP 17.82).
 """
 
+from std.os import getenv
+
 comptime DEVICE_TAG = "[device]"
+
+
+def fuzz_seed(default: UInt64) -> UInt64:
+    """`default`, or the value of `LUDENS_SEED` when that is set to an
+    integer. An override is printed so a failing run names its seed."""
+    var v = getenv("LUDENS_SEED")
+    if v == "":
+        return default
+    try:
+        var seed = UInt64(atol(v))
+        print("  [seed] LUDENS_SEED =", seed)
+        return seed
+    except:
+        return default
 
 
 struct Suite(Movable):

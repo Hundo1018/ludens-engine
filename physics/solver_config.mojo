@@ -23,6 +23,14 @@ from collision.collider_set import SPEC_BASE
 from scheduler.dispatch import Dispatch
 
 
+comptime IMPULSE_SUBSTEP_SUM = 0
+"""Step impulse = the sum of every substep's accumulated impulse (exact)."""
+comptime IMPULSE_LAST_SUBSTEP = 1
+"""Step impulse = the last substep's accumulated impulse x substeps (free to
+read; equal to the sum at steady state, low after an impact the earlier
+substeps absorbed -- `test_impact_report` measures both)."""
+
+
 @fieldwise_init
 struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     """Every `step_soft` tuning knob plus the sleep/restitution thresholds
@@ -49,6 +57,11 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # engages (`_restitution_pass`'s old comptime `REST_THRESH`).
     var restitution_threshold: Real
 
+    # Cap on the soft push-out speed (m/s) when resolving penetration
+    # (`contact6.solve_contact`'s bias clamp, a literal -4 before ROADMAP
+    # 17.75 found it with the unit-scale similarity test).
+    var max_push_speed: Real
+
     # `step_soft`'s old keyword arguments; defaults unchanged.
     var substeps: Int
     var iters: Int
@@ -61,6 +74,9 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     var broadphase: Bool
     var workers: Int
     var dispatch: Dispatch  # who runs the parallel fan-outs (ROADMAP 17.75)
+    # ROADMAP 17.49: how the reported step impulse is estimated (a seam:
+    # IMPULSE_SUBSTEP_SUM exact, IMPULSE_LAST_SUBSTEP the free shortcut).
+    var impulse_estimator: Int
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -68,6 +84,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.ang_sleep_tol = 0.05
         self.sleep_time = 0.5
         self.restitution_threshold = 1.0
+        self.max_push_speed = 4
         self.substeps = 4
         self.iters = 4
         self.hertz = 30
@@ -79,6 +96,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.broadphase = False
         self.workers = 0
         self.dispatch = Dispatch.parallel()
+        self.impulse_estimator = IMPULSE_SUBSTEP_SUM
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes
@@ -110,4 +128,32 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
             raise Error("SolverConfig.validated: hertz must be > 0")
         if self.zeta < 0:
             raise Error("SolverConfig.validated: zeta must be >= 0")
+        if self.impulse_estimator != IMPULSE_SUBSTEP_SUM and self.impulse_estimator != IMPULSE_LAST_SUBSTEP:
+            raise Error("SolverConfig.validated: unknown impulse_estimator")
         return self
+
+
+@fieldwise_init
+struct UnitScale(Copyable, ImplicitlyCopyable, Movable):
+    """How many host length units make one meter (ROADMAP 17.75): 1 for an
+    engine working in meters, 100 for Unreal's centimetres, 0.01 for a host
+    that counts in hundreds of meters. The core works in whatever unit its
+    inputs use -- positions, extents, velocities, gravity -- and only the
+    solver's ABSOLUTE length tolerances need telling: `apply` returns a copy
+    of a `SolverConfig` with every length-dimensioned knob multiplied by
+    `per_meter` (speculative margin in m, linear sleep threshold and
+    restitution threshold and push-out speed cap in m/s). Angular thresholds (rad/s), times (s) and
+    the dimensionless soft-constraint knobs are unit-free and unchanged.
+    `test_unit_scale` checks the claim by similarity: a scene with every
+    length multiplied by 2^k, stepped with `UnitScale(2^k)`, must follow the
+    original trajectory times 2^k."""
+
+    var per_meter: Real
+
+    def apply(self, cfg: SolverConfig) -> SolverConfig:
+        var c = cfg
+        c.margin_base = cfg.margin_base * self.per_meter
+        c.lin_sleep_tol = cfg.lin_sleep_tol * self.per_meter
+        c.restitution_threshold = cfg.restitution_threshold * self.per_meter
+        c.max_push_speed = cfg.max_push_speed * self.per_meter
+        return c

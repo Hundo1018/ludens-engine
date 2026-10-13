@@ -144,6 +144,17 @@ indistinguishable. The midphase choice starts to matter at terrain sizes where
 the brute column has already become unusable.
 
 @bench benchmarks/bench_trimesh.mojo
+## Collision — mesh baking and mesh SDFs (17.45)
+
+A collision mesh is baked once at load: vertex weld, repair, quadric
+simplification and active-edge flags (`geometry.mesh_bake`). The flags are what
+stop ghost collisions: in `test_active_edges` a frictionless box sliding over a
+floor cut into 400 quads comes to a stop without them (0.03 m/s left of 2) and
+keeps 2.0000055 m/s with them. The second table prices the mesh SDF: one
+trilinear sample against a scan of every triangle; the grid's bake is the cost
+paid up front (brute force over triangles here).
+
+@bench benchmarks/bench_mesh_bake.mojo
 ## Collision — filtering and contact events
 
 Layers, masks, sensors (`set_filter` / `set_sensor`) and the began/stay/ended
@@ -999,6 +1010,17 @@ trajectory instead of a different one. That error is invisible at any single
 dt, which is why the test compares two.
 
 @bench benchmarks/bench_actuator.mojo
+## Physics — implicit joint properties (ROADMAP 17.51)
+
+`Chain.step_implicit` folds per-joint damping, spring, armature and
+Coulomb friction into the step: the same CRBA factorisation as `step`, plus
+one matrix-vector product and diagonal terms. Measured 2026-10-13 the two
+are within run-to-run noise of each other at N = 8, 32 and 64. What the
+implicit form buys is shown in `test_chain_props`: a joint spring of
+stiffness 1e5 at dt = 1/60 (omega dt = 10.3) diverges to infinity as an
+explicit PD torque and decays from 0.1 rad as the implicit field.
+
+@bench benchmarks/bench_chain_props.mojo
 ## Physics — robot sensors (what the controller is allowed to see)
 
 A sensor here is DERIVED from the state the solver already produced rather
@@ -1265,6 +1287,16 @@ cost independent of terrain size, where a full rescan grows with it.
 
 @bench benchmarks/bench_fields.mojo
 @bench benchmarks/bench_rope.mojo
+## Physics — joint kinds, limits and motors (ROADMAP 17.47)
+
+A 64-link chain hanging under gravity with one sideways push, joined by one
+kind throughout. A ball chain runs no ext pass at all (`any_ext` stays
+False, the pre-17.47 path); the limited kinds pay for the ext rows on every
+joint, measured 2026-10-13 at +34 to +54 % per step at iters 4 and +65 to
++85 % at iters 8 -- the slider adds two linear and three angular equality
+rows to its travel limit, the cone-twist a swing row to its twist limit.
+
+@bench benchmarks/bench_joints_ext.mojo
 @bench benchmarks/bench_terrain_deform.mojo
 ## Physics — LOD, budget and deterministic replay (17.31 / 17.39)
 
@@ -1561,6 +1593,35 @@ N=1024, not a mode-dependent cost. The claim holds: `combine` is a 4-way
 doesn't move the needle at solver scale.
 
 @bench benchmarks/bench_materials.mojo
+## Physics — per-body parameters (ROADMAP 17.48)
+
+N free-falling spheres (no contacts), 20 steps. `default` never calls a 17.48
+setter (`any_props` False: the pre/post passes are skipped and the step is
+bit-identical to before, which the golden gate checks); the other rows turn
+the passes on for every body. Measured 2026-10-13: every variant within
+±5 % of `default` at N = 1000 and 10000, i.e. inside run-to-run noise --
+the step is broadphase and integration, the two O(N) passes are not visible.
+The first version of `add_force` woke the island through `wake_island`,
+an O(N) scan per call, so a force on every body every step was O(N²): 2.0x
+the step at N = 10000 (4106 vs 2073 ms). It now resets the sleep timer
+directly when the body is awake (islands sleep together) and only scans for
+a sleeping body; the same row measured 2308 vs 2371 ms after the change.
+
+@bench benchmarks/bench_rigid_params.mojo
+## Physics — step-impulse report (ROADMAP 17.49)
+
+The contact events' impulse payload, `contacts_of`, `net_contact_force` and
+`joint_reaction` read per-step impulse totals the solver accumulates after
+every substep (`IMPULSE_SUBSTEP_SUM`, default) or after the last one, scaled
+by the substep count (`IMPULSE_LAST_SUBSTEP`). The accumulation always runs.
+Measured 2026-10-13 on N resting boxes: the rows below differ by less than
+the run-to-run spread, and the interleaved A/B at N = 1024 puts the three
+extra accumulation passes of the sum estimator at a ratio of 1.003, not
+resolved (per-round 0.92 - 1.12). `test_impact_report` shows why the sum is
+the default: on a 5 m/s impact it reads 5.1633 N s (m v + m g dt exactly),
+the last-substep estimate 0.1633.
+
+@bench benchmarks/bench_impact_report.mojo
 ## Collision — BVH build heuristic (median-split vs binned SAH)
 
 `test_sah` proves the two builds answer every query identically. Binned SAH
@@ -1976,6 +2037,22 @@ body's pose and scanning world AABBs), which is the step the persistent
 broadphase is meant to take over.
 
 @bench benchmarks/bench_world_query.mojo
+## Collision — query prefilter, batches, ray traversal (ROADMAP 17.53)
+
+`QueryIndex` is the frame's poses plus a BVH over every collider's world box,
+built once and shared by many queries; its candidate lists are sorted by
+collider index, so `ray_cast_indexed` returns exactly what the linear scan
+does (`test_query_ext`: 400 / 400 rays bit-identical). Measured 2026-10-13
+with the build counted in its row: 3.6x faster at N = 16, 18x at N = 4096
+(93.6 vs 5.2 us per ray). The batch rows show the limit of the parallel
+dispatch here: the index build (3.4 ms for 4096 colliders) is serial, and
+the remaining ~2 us per ray did not get faster on this 4-core container
+even with 64-ray items, so the batch is serial-equivalent at this size.
+Mesh rays now descend the triangle BVH and heightfield rays walk the grid
+(DDA): a 1 km diagonal ray over a 1024 x 1024 field tests 88 triangles,
+where the segment's bounding box held 1,457,456.
+
+@bench benchmarks/bench_query_ext.mojo
 
 ## Character controller (17.1)
 

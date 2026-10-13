@@ -39,6 +39,7 @@ from collision.collider_set import Pose3
 from physics.rigid6 import Body6, Pose6, Inertia3, QuatBody6
 from physics.body_set import BodyId
 from physics.solver6 import ContactScene6
+from physics.state_io import StateWriter, StateReader
 from diag.counters import VEHICLE_FORCE_DROPPED
 from .vehicle_tire import TireModel, solve_axis
 from .vehicle_wheel import WheelCast, RayWheel, WheelHit
@@ -324,6 +325,68 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
     def is_flipped[B: Body6](self, sc: ContactScene6[B]) -> Bool:
         return self.up_dot(sc) < 0.3
 
+    # ------------------------------------------------------------ snapshot
+
+    def write_state[Wr: StateWriter](self, mut out: Wr):
+        """Dynamic state beside a scene snapshot (ROADMAP 17.48, the 17.4
+        leftover): gear, shift timer, steering, engine rpm and every wheel's
+        spin / suspension / tire state. The config and the wheel cast are
+        construction data: restore into a vehicle attached with the same
+        ones (`read_state`)."""
+        out.wi(self.gear)
+        out.wf(self.shift_timer)
+        out.wf(self.steer_angle)
+        out.wf(self.rpm)
+        out.wi(self.grounded)
+        out.wi(len(self.wheels))
+        for w in range(len(self.wheels)):
+            var ws = self.wheels[w]
+            out.wi(1 if ws.grounded else 0)
+            out.wf(ws.hub)
+            out.wf(ws.omega)
+            out.wf(ws.spin)
+            out.wf(ws.steer)
+            out.wf(ws.fz)
+            out.wf(ws.fx)
+            out.wf(ws.fy)
+            out.wf(ws.kappa)
+            out.wf(ws.tan_alpha)
+            out.wf(ws.drive_torque)
+            out.wv(ws.point)
+            out.wv(ws.normal)
+            out.wi(ws.ground)
+
+    def read_state[Rd: StateReader](mut self, mut r: Rd) raises:
+        """Overwrite this vehicle's dynamic state; raises if the snapshot
+        has a different wheel count (it was taken of another vehicle)."""
+        self.gear = r.ri()
+        self.shift_timer = r.rf()
+        self.steer_angle = r.rf()
+        self.rpm = r.rf()
+        self.grounded = r.ri()
+        var n = r.ri()
+        if n != len(self.wheels):
+            raise Error("Vehicle.read_state: snapshot wheel count differs from this vehicle's")
+        for w in range(n):
+            var grounded = r.ri() == 1
+            var hub = r.rf()
+            var omega = r.rf()
+            var spin = r.rf()
+            var steer = r.rf()
+            var fz = r.rf()
+            var fx = r.rf()
+            var fy = r.rf()
+            var kappa = r.rf()
+            var tan_alpha = r.rf()
+            var drive_torque = r.rf()
+            var point = r.rv()
+            var normal = r.rv()
+            var ground = r.ri()
+            self.wheels[w] = WheelState(
+                grounded, hub, omega, spin, steer, fz, fx, fy, kappa, tan_alpha,
+                drive_torque, point, normal, ground,
+            )
+
     def grounded_count(self) -> Int:
         return self.grounded
 
@@ -510,7 +573,10 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
             var vm = length(v - self.cfg.aero.wind) * self.cfg.mass
             if jm > vm and jm > _EPS and self.cfg.aero.cl == 0:
                 ja = ja * (vm / jm)
-            sc.bset.bodies[ci].apply_impulse(ja, pos)
+            try:  # ci is the live chassis slot: id_of cannot be stale
+                sc.apply_impulse(sc.bset.id_of(ci), ja, pos, wake=False)
+            except:
+                pass
         else:
             sc.counters.incr(VEHICLE_FORCE_DROPPED)
 
@@ -716,16 +782,19 @@ struct Vehicle[W: WheelCast = RayWheel](Movable):
             sum_j = sum_j + jn + jt
             sum_l = sum_l + cross(ws.point - pos, jn) + cross(p_t - pos, jt)
             if ws.ground >= 0 and sc.bset.is_dynamic(ws.ground):
-                sc.bset.bodies[ws.ground].apply_impulse(-jn, ws.point)
-                sc.bset.bodies[ws.ground].apply_impulse(-jt, p_t)
-                if sc.bset.sleeping[ws.ground]:
-                    try:
-                        sc.wake(sc.bset.id_of(ws.ground))
-                    except:
-                        pass
+                var gid = sc.bset.id_of(ws.ground)
+                var asleep = sc.bset.sleeping[ws.ground]
+                try:
+                    sc.apply_impulse(gid, -jn, ws.point, wake=False)
+                    sc.apply_impulse(gid, -jt, p_t, wake=asleep)
+                except:
+                    pass
         if _finite(sum_j) and _finite(sum_l):
-            sc.bset.bodies[ci].apply_impulse(sum_j, pos)
-            sc.bset.bodies[ci].apply_angular_impulse(sum_l)
+            try:
+                sc.apply_impulse(sc.bset.id_of(ci), sum_j, pos, wake=False)
+                sc.apply_angular_impulse(sc.bset.id_of(ci), sum_l, wake=False)
+            except:
+                pass
         else:
             sc.counters.incr(VEHICLE_FORCE_DROPPED)
 

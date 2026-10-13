@@ -42,6 +42,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | `NarrowPhase`(boolean,含 CGA 代數路徑) | collision/narrowphase.mojo | 同一謂詞的解析 vs 代數實作 | `test_narrowphase` 系列、`test_cga_narrowphase`、`test_cga_plane` | `bench_collision` |
 | `ManifoldNarrowPhase`(AABB/SAT/OBB/GJK/hull) | collision/manifold.mojo、hull.mojo | 接觸謂詞的富化(點集+深度),normal/depth 與 boolean 路徑一致 | `test_manifold`、`test_hull` | `bench_manifold` |
 | `SceneQuery`(brute/bvh/grid/tree) | collision/queries.mojo | 同一查詢謂詞的加速結構 | `test_queries` | `bench_queries` |
+| 真實幾何查詢的候選預篩:線性掃描(`_candidates`)vs `QueryIndex`(碰撞器世界盒 BVH,一次建置多次查詢);網格射線候選:線段 AABB vs BVH 下降 / heightfield 格線 DDA;批次:serial vs 平行派發(17.53) | collision/world_query.mojo、collision/trimesh.mojo(`ray_candidates`)、spatial/bvh.mojo(`ray_leaves`)、physics/solver6.mojo(`ray_cast_batch`) | 同一「最近命中」函數的不同候選集合:候選集只要包含真正命中者,答案就相同;候選依碰撞器索引排序,等 `t` 的平手規則也相同,故逐位相同 | `test_query_ext`(400 條射線 × 300 碰撞器:indexed == linear 逐位;300 條射線:BVH / DDA 找到與逐三角形暴力相同的三角形;平行批次 == serial 逐位) | `bench_query_ext`(N = 16–4096 線性 vs index 含建置;批次 serial vs 平行;1 km 斜射線的候選數) |
 | solver6 pair 收集 brute O(n²) vs `BroadPhase` 全 seam(17.0e:`ContactScene6[B,BP]`,collider 註冊表移至 `collision/collider_set.mojo`) | physics/solver6.mojo(`_collect_pairs`)、collision/contact_gen.mojo(`collect_bp_pairs`) | 同一接觸對集合的加速枚舉,現貫穿真正會跑的 `BroadPhase` trait(brute/BVH/DBVH/SAP/hashgrid/octree);fat-AABB 保守超集 + 逐對正規化排序 → 命中集相等、同序 → 逐位一致,與後端無關 | `test_solver_broadphase`、`test_solver_bp_seam`(6 後端 × 6 案例矩陣,含極端案例) | `bench_solver_scale`(N=64…4096 全後端矩陣 + SAP/hashgrid 20:1 尺寸展延列) |
 | BVH 建樹啟發式 median vs binned SAH | spatial/bvh.mojo(`build(sah=)`) | 同一加速結構的建構品質變體;查詢結果集/最近命中相等,SAH 樹更緊 | `test_sah` | `bench_sah` |
 | `Rng` | scheduler/rng.mojo | 種子單子(state monad)的可交換實作 | `test_rng` | `bench_rng` |
@@ -122,6 +123,8 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | 縮座標接觸(point-Jacobian `J H⁻¹ Jᵀ`)vs 極大座標接觸 | physics/chain.mojo(`point_jacobian`／`resolve_contacts`) | 同一接觸不動點在兩種座標下;落地高度一致 | `test_chain_contact` | `bench_chain_contact` |
 | 浮動基座 vs 六個偽關節;複合慣量 vs 單位加速度 兩種 H 組裝 | physics/floating.mojo(`mass_matrix`／`_mass_matrix_units`) | 6-DOF 根的兩個表示 + 質量矩陣兩獨立推導互為 parity | `test_floating` | `bench_floating` |
 | 關節運動子空間 revolute vs prismatic + 關節極限 | physics/chain.mojo(`revolute`／`prismatic`／`resolve_limits`) | 同一 link 態射的運動子空間變體;極限為投影 | `test_joints_lib`、`test_joints6` | `bench_chain`(jt 表) |
+| 縮座標關節的彈簧 / 阻尼:顯式 `Actuator` PD 力矩 + `Chain.step` vs 隱式欄位 + `Chain.step_implicit`(17.51) | physics/chain.mojo、physics/actuator.mojo | 同一「線性彈簧 - 阻尼」的兩種時間離散:顯式在 ω dt > 2 時發散,後向 Euler 對任意剛度皆穩定(只在對角加正項);性質全為 0 時兩者為同一半隱式步(容差 1e-4) | `test_chain_props`(剛度 1e5 @ 1/60:顯式 inf、隱式衰減;阻尼每步因子 I / (I + b dt);armature 週期;彈簧平衡角;摩擦停止時間) | `bench_chain_props`(N = 8 / 32 / 64) |
+| 關節限制 / 馬達 / 彈簧的座標變體:極大座標 `Joint6` + `JointExt`(hinge / slider / cone-twist / rope 的單邊不等式、速度 / 位置馬達、軟彈簧)vs 縮座標 `Chain.resolve_limits` + 致動器(17.47) | physics/joint_ext.mojo、physics/joints6.mojo、physics/solver6.mojo(`ext_sweep` 在兩個子步迴圈) | 同一「關節座標 q 上的限制 + 驅動」在兩種座標下的實作;ext 全為預設值時 pass 不執行(`any_ext`),與 17.47 之前逐位相同 | `test_joints_ext`(停止角 / 馬達穩態 / 彈簧週期對解析值;快照往返逐位)、`test_ragdoll`(限制膝);兩座標的停止角 parity 尚未接 | `bench_joints_ext`(64 節鏈,四種關節 × iters 4 / 8) |
 
 **統一約束、致動、腱、感測**
 
@@ -147,6 +150,9 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 |---|---|---|---|---|
 | 精確幾何謂詞 vs 裸浮點符號(orient2d/3d、incircle、insphere) | geometry/predicates.mojo(`*` vs `*_naive`) | 同一符號謂詞的精確與近似實作;退化輸入下符號一致 | `test_predicates` | `bench_predicates` |
 | 靜態關卡中相:brute vs BVH;`TriMesh` vs `HeightField` | collision/trimesh.mojo | 同一靜態幾何查詢的加速結構 + 兩種關卡表示;靜置高度一致 | `test_trimesh` | `bench_trimesh` |
+| 網格接觸 active-edge 修正 on / off(17.45) | collision/contact_gen.mojo(`_fix_inactive_edge_normal`、`_round_on_flat_seam`) | 同一網格接觸的兩種法向選擇;無內部邊(全 active)時逐位相同 | `test_active_edges` | `bench_mesh_bake` |
+| 球 / 膠囊對網格:解析三角形 manifold vs 盒近似(17.45) | collision/contact_gen.mojo(`sphere_triangle_manifold`、`capsule_triangle_manifold`) | 三角面中心靜置高度相等(皆為 r);滾動 / 邊緣行為為能力差,以解析加速度記錄 | `test_mesh_round` | `bench_trimesh` |
+| 距離表示:`SdfGrid` 取樣 vs 精確三角形距離(17.45) | geometry/sdf_grid.mojo | 同一 signed distance 的格點近似;差 ≤ 一個格對角線 | `test_sdf_grid` | `bench_mesh_bake` |
 | 3D SDF 迭代接觸 vs 解析 sphere/box 對(+ CSG 無解析對照) | geometry/sdf3.mojo(`sdf_contact`、`OP_SUBTRACT`) | 同一接觸謂詞的隱式場實作;解析對照存在處 parity | `test_sdf3` | `bench_sdf3` |
 | DCGA `Cl(4,1)⊗Cl(4,1)` 統一四次 incidence vs 手寫 plane/sphere/torus | geometry/dcga.mojo | 「簽名 ↦ 代數」函子在張量積代數上的值;成本恆定不分曲面(統一性),1.6–1.9× | `test_dcga` | `bench_dcga` |
 
@@ -344,6 +350,7 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 接觸是否生效 / 如何作用:靜態過濾(`set_filter`)vs 動態規則(`ContactRule`) | physics/contact6.mojo、physics/solver6.mojo | 同一「接觸謂詞」的兩層;不匹配任何接觸的規則(與零速輸送帶)是恆等 | `test_contact_rules`(不匹配規則 == 無規則逐位) | `bench_contact_rules`(無規則 / 全匹配 / 8 條不匹配) |
 | 關節負載估計:最後子步 vs 逐子步峰值 | physics/joints6.mojo(`sample_loads`、`check_breaks`) | 同一負載量的兩個取樣;穩態一致(m·g),衝擊時只有峰值取樣看得到 | `test_joint_break`(懸掛質量 = m·g;扭轉 hinge 只在峰值取樣下斷) | `bench_contact_rules`(有 / 無閾值) |
+| 接觸 / 關節的整步衝量估計:`IMPULSE_LAST_SUBSTEP`(末子步 × 子步數)vs `IMPULSE_SUBSTEP_SUM`(逐子步加總)(`SolverConfig.impulse_estimator`) | physics/contact6.mojo(`accumulate_step_impulse`)、physics/solver6.mojo(`_report_substep`、`_emit_events`、`contacts_of`、`joint_reaction`)、physics/solver_config.mojo | 同一「整步衝量」量的兩個估計;穩態時兩者是同一個數(每子步衝量相同),衝擊時末子步看不到已被前面子步吸收的部分 | `test_impact_report`(靜置疊塔兩估計都讀 3 m g;5 m/s 落球:加總 5.1633 = m v + m g dt,末子步 0.1633;serial == island 平行逐位) | `bench_impact_report`(N = 256 / 1024 靜置接觸;交錯 A/B 比 1.003,未分辨) |
 
 ### 2.13 力場、浮力、繩索、地形變形(Phase 17.27 / 17.28 / 17.41 / 17.30,2026-09-29)
 

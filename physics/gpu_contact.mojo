@@ -37,7 +37,7 @@ from layout import TileTensor, TensorLayout, row_major
 from geometry.vec import Real, Vec3, WorldType, dot, tangent_basis
 from geometry.quat import Quat
 from .rigid6 import QuatBody6, Inertia3
-from .contact6 import ContactConstraint
+from .contact6 import ContactConstraint, anchor_world
 from .material import combine
 from .solver_config import SolverConfig
 from .solver6 import ContactScene6
@@ -408,8 +408,14 @@ struct GpuContactSolver(Movable):
                 _put3(t, o + _N, pr.m.normal)
                 for p in range(4):
                     _st(t, o + _DEP + p, pr.m.depths[p] if p < pr.m.count else Real(0))
-                    _put3(t, o + _RA + 3 * p, pr.ra[p])
-                    _put3(t, o + _RB + 3 * p, pr.rb[p])
+                    # ROADMAP 17.19: the device kernel still uses plain
+                    # body-frame anchors; fold the round-shape offset in at
+                    # the frame-start pose (the CPU's fixed-offset scheme on
+                    # the GPU is deferred with the rest of the GPU work).
+                    _put3(t, o + _RA + 3 * p, sc.bset.bodies[pr.a].to_local(
+                        anchor_world(sc.bset, pr.a, pr.ra[p], pr.oa[p])))
+                    _put3(t, o + _RB + 3 * p, sc.bset.bodies[pr.b].to_local(
+                        anchor_world(sc.bset, pr.b, pr.rb[p], pr.ob[p])))
                     _st(t, o + _ACC + p, pr.acc[p])
                     _st(t, o + _AT1 + p, pr.acc_t1[p])
                     _st(t, o + _AT2 + p, pr.acc_t2[p])

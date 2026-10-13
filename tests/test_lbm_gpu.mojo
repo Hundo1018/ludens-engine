@@ -37,50 +37,50 @@ def main() raises:
     comptime if not has_accelerator():
         s.skip_device("no accelerator on this host")
         s.finish()
-        return
-    s.begin_device()
-    var ctx = DeviceContext()
+    else:
+        s.begin_device()
+        var ctx = DeviceContext()
 
-    var cpu = _tunnel()
-    var host = _tunnel()
-    var gpu = LbmGpu(ctx, host)
-    for _ in range(200):
-        cpu.step()
-    gpu.step(ctx, 200)
-    gpu.download(host)
-    var w = _worst(cpu, host)
-    print("  [device] tunnel + sphere, 200 steps: worst |f_cpu - f_gpu|", w)
-    s.check(w < 1e-5, "GPU distributions == CPU to float32 noise")
-    s.check(abs(cpu.total_mass() - host.total_mass()) / cpu.total_mass() < 1e-5, "mass agrees")
+        var cpu = _tunnel()
+        var host = _tunnel()
+        var gpu = LbmGpu(ctx, host)
+        for _ in range(200):
+            cpu.step()
+        gpu.step(ctx, 200)
+        gpu.download(host)
+        var w = _worst(cpu, host)
+        print("  [device] tunnel + sphere, 200 steps: worst |f_cpu - f_gpu|", w)
+        s.check(w < 1e-5, "GPU distributions == CPU to float32 noise")
+        s.check(abs(cpu.total_mass() - host.total_mass()) / cpu.total_mass() < 1e-5, "mass agrees")
 
-    var pc = Lbm(8, 16, 8, Real(0.05), BC_PERIODIC)
-    pc.init_uniform(1.0, 0, 0, 0)
-    pc.force_x = 1e-5
-    pc.set_solid_box(Vec3(0, 0, 0, 0), Vec3(7, 0, 7, 0))
-    pc.set_solid_box(Vec3(0, 15, 0, 0), Vec3(7, 15, 7, 0))
-    var ph = Lbm(8, 16, 8, Real(0.05), BC_PERIODIC)
-    ph.init_uniform(1.0, 0, 0, 0)
-    ph.force_x = 1e-5
-    ph.set_solid_box(Vec3(0, 0, 0, 0), Vec3(7, 0, 7, 0))
-    ph.set_solid_box(Vec3(0, 15, 0, 0), Vec3(7, 15, 7, 0))
-    var pg = LbmGpu(ctx, ph)
-    for _ in range(300):
-        pc.step()
-    pg.step(ctx, 300)
-    pg.download(ph)
-    var prof = Real(0)
-    for y in range(1, 15):
-        var c = pc.idx(4, y, 4)
-        prof = max(prof, abs(pc.velocity(c)[0] - ph.velocity(c)[0]))
-    print("  [device] body-force channel: worst velocity difference", prof)
-    s.check(prof < 1e-6, "channel velocity profile matches")
+        var pc = Lbm(8, 16, 8, Real(0.05), BC_PERIODIC)
+        pc.init_uniform(1.0, 0, 0, 0)
+        pc.force_x = 1e-5
+        pc.set_solid_box(Vec3(0, 0, 0, 0), Vec3(7, 0, 7, 0))
+        pc.set_solid_box(Vec3(0, 15, 0, 0), Vec3(7, 15, 7, 0))
+        var ph = Lbm(8, 16, 8, Real(0.05), BC_PERIODIC)
+        ph.init_uniform(1.0, 0, 0, 0)
+        ph.force_x = 1e-5
+        ph.set_solid_box(Vec3(0, 0, 0, 0), Vec3(7, 0, 7, 0))
+        ph.set_solid_box(Vec3(0, 15, 0, 0), Vec3(7, 15, 7, 0))
+        var pg = LbmGpu(ctx, ph)
+        for _ in range(300):
+            pc.step()
+        pg.step(ctx, 300)
+        pg.download(ph)
+        var prof = Real(0)
+        for y in range(1, 15):
+            var c = pc.idx(4, y, 4)
+            prof = max(prof, abs(pc.velocity(c)[0] - ph.velocity(c)[0]))
+        print("  [device] body-force channel: worst velocity difference", prof)
+        s.check(prof < 1e-6, "channel velocity profile matches")
 
-    var les = _tunnel()
-    les.smagorinsky = 0.1
-    var refused = False
-    try:
-        _ = LbmGpu(ctx, les)
-    except:
-        refused = True
-    s.check(refused, "LES grid refused")
-    s.finish()
+        var les = _tunnel()
+        les.smagorinsky = 0.1
+        var refused = False
+        try:
+            _ = LbmGpu(ctx, les)
+        except:
+            refused = True
+        s.check(refused, "LES grid refused")
+        s.finish()

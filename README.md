@@ -46,7 +46,7 @@ through precompiled packages.
 
 ```sh
 pixi run build       # precompile all engine packages
-pixi run test        # arch gate + 160 self-checking test programs, unit → component → integration → system
+pixi run test        # arch gate + every tests/test_*.mojo program, unit → component → integration → system
 pixi run test-all    # same, plus the stress tier
 pixi run gate        # full suite + summary + compare with tests/golden/test_stdout.txt
 pixi run arch -- check   # layer / cycle / private-name gate (see docs/ARCHITECTURE.md)
@@ -113,3 +113,11 @@ Every claim above is backed by a test or a benchmark row — when in doubt, read
 [docs/ROADMAP.md](docs/ROADMAP.md) (current status by subsystem) and
 [docs/ROADMAP_HISTORY.md](docs/ROADMAP_HISTORY.md): each phase section records what was built,
 the gate it passed, and the numbers it produced.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT), at your option. Unless you state otherwise, any
+contribution you submit for inclusion is dual licensed the same way, without
+additional terms. Binary artifacts (`libludens.so`, the Python wheel) bundle
+Mojo / MAX runtime components under Modular's own license — see [NOTICE](NOTICE).

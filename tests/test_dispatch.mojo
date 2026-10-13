@@ -5,7 +5,7 @@ change the result.
 A scene of 40 separate two-box stacks (40 islands), stepped 120 ticks with
 `cfg.parallel = True` (island fan-out) and again with `cfg.colored = True`
 (same-colour pair fan-out), under each dispatcher: the runtime pool,
-serial, reversed order, and a host function called through the C ABI that
+serial, reversed order, the work-stealing pool, and a host function called through the C ABI that
 runs the items last to first. Every run's exact snapshot
 (`scene_to_bytes`) must be equal: island runs to the island path dispatched
 serially (the island schedule itself differs from the global sweep), colour
@@ -56,9 +56,10 @@ def main() raises:
     names.append("serial")
     names.append("reverse")
     names.append("host (C ABI, reversed)")
+    names.append("work stealing")
     for mode in range(2):
         var island_ref = List[UInt8]()
-        for k in [1, 0, 2, 3]:
+        for k in [1, 0, 2, 3, 4]:
             var cfg = SolverConfig()
             cfg.broadphase = True
             if mode == 0:
@@ -72,8 +73,10 @@ def main() raises:
                 cfg.dispatch = Dispatch.serial()
             elif k == 2:
                 cfg.dispatch = Dispatch.reverse()
-            else:
+            elif k == 3:
                 cfg.dispatch = Dispatch.from_host(host_reverse, None)
+            else:
+                cfg.dispatch = Dispatch.work_stealing()
             var got = run(cfg)
             if mode == 0 and k == 1:
                 island_ref = got.copy()

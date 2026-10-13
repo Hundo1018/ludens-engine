@@ -1,0 +1,120 @@
+# ROADMAP 17.81: the local gate (`pixi run gate`) on every PR and push to main,
+# plus a nightly run of everything `pixi run test` leaves out.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 18 * * *"  # 02:17 Asia/Taipei
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history: changelog and archindex read git
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          locked: true
+          cache: true
+      - name: gate tool selftest (golden, archindex)
+        run: pixi run gate -- --selftest
+      - name: doc references (README, CLAUDE, ROADMAP, ARCHITECTURE)
+        run: pixi run doclint
+      - name: unwired modules (scripts/orphans_allow.txt)
+        run: pixi run orphans
+      - name: benchmark template / files / report consistency
+        run: pixi run perf -- governance
+      - name: gate (build, arch-check, unit..system, golden compare)
+        run: pixi run gate
+      - name: wasm leaf-kernel probe (tools/wasm)
+        run: pixi run wasm-probe
+      - name: upload gate log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-log
+          path: build/agent_gate.log
+
+  # ROADMAP 17.76: the same gate on linux-aarch64 and osx-arm64. A probe
+  # until each platform has its own golden (tests/golden/test_stdout.<os>-<arch>.txt):
+  # failures are reported, not blocking.
+  portability:
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, macos-14]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          locked: true
+          cache: true
+      # First run on a platform: no golden to compare against yet, so record
+      # one (the suite must still pass) and print it between markers; it is
+      # read back from the job log and committed as
+      # tests/golden/test_stdout.<os>-<arch>.txt. Later runs compare.
+      - name: gate (records and prints the platform golden on first run)
+        run: |
+          plat="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+          golden="tests/golden/test_stdout.$plat.txt"
+          # on failure, show which test failed (the uploaded log is not
+          # readable from the job page)
+          show() { tail -120 build/agent_gate.log; exit 1; }
+          if [ -f "$golden" ]; then
+            pixi run gate || show
+          else
+            pixi run gate -- --update-golden || show
+            echo "----- BEGIN GOLDEN $golden -----"
+            cat "$golden"
+            echo "----- END GOLDEN $golden -----"
+          fi
+      - name: upload gate log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-log-${{ matrix.os }}
+          path: build/agent_gate.log
+
+  nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history: changelog and archindex read git
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          locked: true
+          cache: true
+      - run: pixi run test-stress
+      - run: pixi run examples
+      - run: pixi run experiments
+      - run: pixi run spikes
+      # Smoke only: the numbers are compared by 17.83, not here.
+      - run: pixi run benchmark
+      - name: upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-logs
+          path: |
+            build/*.log
+            BENCHMARK_REPORT.md

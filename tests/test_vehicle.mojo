@@ -33,6 +33,7 @@ from gameplay.vehicle import (
     spawn_chassis,
 )
 from gameplay.vehicle_wheel import RayWheel, SphereWheel, CapsuleWheel
+from physics.serialize import scene_to_bytes, scene_from_bytes, BinWriter, BinReader
 from gameplay.vehicle_drive import DIFF_OPEN, DIFF_LSD
 
 comptime DT: Real = 1.0 / 60.0
@@ -581,6 +582,33 @@ def main() raises:
     except:
         raised = True
     s.check(raised, "attach: a static body is not a chassis")
+
+    # ---- snapshot (ROADMAP 17.48, the 17.4 leftover) ----
+    var ss = _road()
+    var sv = _car(ss, VehicleConfig(), Vec3(0, 0.9, 0, 0))
+    _settle(sv, ss)
+    var sdrive = VehicleInput(0.7, 0, 0.2, 0)
+    _run(sv, ss, sdrive, 60)
+    var svw = BinWriter()
+    sv.write_state(svw)
+    var ss2 = scene_from_bytes(scene_to_bytes(ss))
+    var sv2 = Vehicle[RayWheel].attach(ss2, sv.chassis, VehicleConfig(), RayWheel())
+    var svd = BinReader(svw.b.copy())
+    sv2.read_state(svd)
+    _run(sv, ss, sdrive, 60)
+    _run(sv2, ss2, sdrive, 60)
+    var spa = _pos(sv, ss)
+    var spb = _pos(sv2, ss2)
+    print("  snapshot mid-turn: chassis", spa[0], spa[2], " restored", spb[0], spb[2], " gear", sv.gear, sv2.gear)
+    s.check(spa[0] == spb[0] and spa[1] == spb[1] and spa[2] == spb[2] and sv.rpm == sv2.rpm and sv.gear == sv2.gear,
+            "snapshot: scene + vehicle state restored mid-turn, next 60 steps bit-identical")
+    var sshort = BinReader(List[UInt8]())
+    raised = False
+    try:
+        sv2.read_state(sshort)
+    except:
+        raised = True
+    s.check(raised, "snapshot: truncated vehicle state raises")
 
     s.finish()
 

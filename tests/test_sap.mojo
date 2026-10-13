@@ -13,7 +13,7 @@ the worst case for the coherence assumption.
 being correct.
 """
 
-from harness.runner import Suite
+from harness.runner import Suite, fuzz_seed
 from scheduler.rng import SplitMix64, Rng
 from geometry.vec import Real, Vec2, Vec3
 from geometry.aabb import AABB
@@ -64,7 +64,7 @@ def _scene2(mut rng: SplitMix64, n: Int, extent: Real, h: Real) -> List[BoxProxy
 
 def main() raises:
     var s = Suite("sap")
-    var rng = SplitMix64.seeded(11)
+    var rng = SplitMix64.seeded(fuzz_seed(11))
 
     # 1. static scenes at several densities
     var static_ok = True

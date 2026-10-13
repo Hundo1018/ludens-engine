@@ -191,7 +191,8 @@ struct ColliderSet(Movable, Deinitable):
         return i
 
     def add_capsule(mut self, r: Real, half_len: Real, at: Int = -1) -> Int:
-        # conservative box for any AABB-ish uses: r sideways, r+hl tall
+        # `half` stores (r, half_len, r) -- readers take half[1] as the
+        # segment half length; `fat_aabb` adds the cap radius to the box
         var i = self.add(Vec3(r, half_len, r, 0), at)
         self.shape[i] = SHAPE_CAPSULE
         return i
@@ -216,7 +217,8 @@ struct ColliderSet(Movable, Deinitable):
         return i
 
     def add_trimesh(
-        mut self, verts: List[Real], indices: List[Int], at: Int = -1
+        mut self, verts: List[Real], indices: List[Int], at: Int = -1,
+        active: List[UInt8] = List[UInt8](),
     ) raises -> Int:
         """Static triangle soup. `verts` is flat (x, y, z per vertex) in
         WORLD space, `indices` three per triangle. Always static (see
@@ -227,6 +229,8 @@ struct ColliderSet(Movable, Deinitable):
         returns it (grown by the usual speculative margin) instead of
         centring a box on the body's position (17.0f / F3)."""
         var m = TriMesh(verts, indices)
+        if len(active) > 0:
+            m.set_active_edges(active)
         var bb = m.bounds()
         var i = self.add(bb.half_extents(), at)
         self.shape[i] = SHAPE_TRIMESH
@@ -321,6 +325,14 @@ struct ColliderSet(Movable, Deinitable):
 
     # ------------------------------------------------------- mesh midphase
 
+    def mesh_ray_candidates(self, i: Int, o: Vec3, d: Vec3, max_t: Real, mut out: List[Int]):
+        """Triangles of static collider `i` along a ray segment (ROADMAP
+        17.53): BVH descent for a trimesh, a grid DDA for a heightfield."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            self.meshes[self.mesh_id[i]].ray_candidates(o, d, max_t, out)
+        else:
+            self.fields[self.mesh_id[i]].ray_candidates(o, d, max_t, out)
+
     def mesh_candidates(self, i: Int, box: AABB[3], mut out: List[Int]):
         """Triangles of static collider `i` that could touch `box`. The two
         static kinds answer this differently -- BVH descent vs cell
@@ -335,6 +347,13 @@ struct ColliderSet(Movable, Deinitable):
         if self.shape[i] == SHAPE_TRIMESH:
             return self.meshes[self.mesh_id[i]].tri(t)
         return self.fields[self.mesh_id[i]].tri(t)
+
+    def mesh_active(self, i: Int, t: Int) -> UInt8:
+        """Active-edge flags of triangle `t` (ROADMAP 17.45); a heightfield
+        reports every edge active (unchanged behaviour)."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            return self.meshes[self.mesh_id[i]].active[t]
+        return 7
 
     def mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
         if self.shape[i] == SHAPE_TRIMESH:
@@ -519,9 +538,11 @@ struct ColliderSet(Movable, Deinitable):
             m.normal = -m.normal
         return m
 
-    def fat_aabb(self, i: Int, pose: Pose3, vel: Vec3, spec_dt: Real) -> AABB[3]:
+    def fat_aabb(
+        self, i: Int, pose: Pose3, vel: Vec3, spec_dt: Real, margin_base: Real = SPEC_BASE
+    ) -> AABB[3]:
         """World AABB of collider `i`'s oriented box (`half`, conservative for
-        sphere/capsule too), grown by r_i = SPEC_BASE/2 + |v_i|*spec_dt.
+        sphere/capsule too), grown by r_i = margin_base/2 + |v_i|*spec_dt.
         Chosen so r_i + r_j == the pair speculative margin exactly, hence
         fat-AABB overlap is a conservative superset of any inflated-OBB
         overlap (the broadphase parity guarantee).
@@ -536,13 +557,18 @@ struct ColliderSet(Movable, Deinitable):
         if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
             var r0 = Real(0)
             if spec_dt > 0:
-                r0 = SPEC_BASE * 0.5 + sqrt(dot(vel, vel)) * spec_dt
+                r0 = margin_base * 0.5 + sqrt(dot(vel, vel)) * spec_dt
             var bb = self.world_aabb[i]
             return AABB[3](
                 bb.min - Vec3(r0, r0, r0, 0), bb.max + Vec3(r0, r0, r0, 0)
             )
         ref ax = pose.axes
         var h = self.half[i]
+        if k == SHAPE_CAPSULE:
+            # `half` is (r, half_len, r): the segment's box. The end caps
+            # reach r further along the axis (ROADMAP 17.53 found a ray
+            # hitting a cap outside this box).
+            h[1] += h[0]
         var wh = Vec3(0, 0, 0, 0)
         comptime for k in range(3):
             wh[k] = (
@@ -552,7 +578,7 @@ struct ColliderSet(Movable, Deinitable):
             )
         var r = Real(0)
         if spec_dt > 0:
-            r = SPEC_BASE * 0.5 + sqrt(dot(vel, vel)) * spec_dt
+            r = margin_base * 0.5 + sqrt(dot(vel, vel)) * spec_dt
         return AABB[3].from_center(pose.position, wh + Vec3(r, r, r, 0))
 
     def soft_particle_contact(

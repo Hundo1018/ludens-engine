@@ -208,8 +208,11 @@ struct DiffContact[F: SolverField](Copyable, ImplicitlyCopyable, Movable):
     var n: V3[Self.F]
     var t1: V3[Self.F]
     var t2: V3[Self.F]
-    var ra: V3[Self.F]  # anchor, a's body frame
-    var rb: V3[Self.F]  # anchor, b's body frame (world point for a plane)
+    # Anchors as world-frame offsets from the sphere centres (ROADMAP 17.19:
+    # a sphere's contact does not turn with it; `contact6.ContactConstraint`
+    # documents the same scheme). For a plane `rb` is the world point.
+    var ra: V3[Self.F]
+    var rb: V3[Self.F]
     var depth: Self.F
     var on: Self.F  # 1 = in contact (incl. speculative margin), 0 = absent
     var acc: Self.F
@@ -301,8 +304,9 @@ struct SphereWorld[F: SolverField](Movable):
                 var dist = np.dot(A.pos) - Self.F.const(pl.offset)
                 depth = A.radius - dist
                 n = V3[Self.F].zero() - np
-                # closest point on the margin/2-inflated face (sphere_box)
-                point = A.pos - np * (dist - margin * half)
+                # the sphere's own surface point (ROADMAP 17.19: the lever
+                # arm must reach the ball's surface, `contact6.make_contact`)
+                point = A.pos - np * A.radius
                 ct.rb = point
             else:
                 ref Bb = self.bodies[ct.b]
@@ -318,12 +322,12 @@ struct SphereWorld[F: SolverField](Movable):
                 var rsum = A.radius + Bb.radius + margin
                 depth = A.radius + Bb.radius - dist
                 point = A.pos + n * (ra_i - (rsum - dist) * half)
-                ct.rb = Bb.to_local(point)
+                ct.rb = point - Bb.pos
             ct.n = n
             var tb = tangent_basis_f(n)
             ct.t1 = tb[0]
             ct.t2 = tb[1]
-            ct.ra = A.to_local(point)
+            ct.ra = point - A.pos
             ct.depth = depth
             ct.on = (depth + margin).positive()
             ct.acc = ct.acc * ct.on
@@ -336,7 +340,7 @@ struct SphereWorld[F: SolverField](Movable):
     def _anchor_b(self, ct: DiffContact[Self.F]) -> V3[Self.F]:
         if ct.b < 0:
             return ct.rb
-        return self.bodies[ct.b].act(ct.rb)
+        return self.bodies[ct.b].pos + ct.rb
 
     def _vel_b(self, ct: DiffContact[Self.F], p: V3[Self.F]) -> V3[Self.F]:
         if ct.b < 0:
@@ -358,7 +362,7 @@ struct SphereWorld[F: SolverField](Movable):
         for c in range(len(self.contacts)):
             var ct = self.contacts[c]
             var j = ct.n * ct.acc + ct.t1 * ct.acc_t1 + ct.t2 * ct.acc_t2
-            var pa = self.bodies[ct.a].act(ct.ra)
+            var pa = self.bodies[ct.a].pos + ct.ra
             var pb = self._anchor_b(ct)
             self._push(ct, j, pa, pb)
 
@@ -376,7 +380,7 @@ struct SphereWorld[F: SolverField](Movable):
         var one = Self.F.const(1)
         var zero = Self.F.zero()
         var n = ct.n
-        var pwa = self.bodies[ct.a].act(ct.ra)
+        var pwa = self.bodies[ct.a].pos + ct.ra
         var pwb = self._anchor_b(ct)
         var d = ct.depth - (pwb - pwa).dot(n)
         var va = self.bodies[ct.a].velocity_at(pwa)

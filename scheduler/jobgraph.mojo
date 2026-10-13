@@ -29,7 +29,7 @@ once, next to the system, instead of being implied by a list order somewhere
 else.
 """
 
-from max.algorithm import parallelize
+from .dispatch import Dispatch, Task, dispatch_for
 from ecs.world import World
 from ecs.storage import StorageBackend
 from .scheduler import Scheduler, System
@@ -72,10 +72,14 @@ struct JobGraphScheduler[Bk: StorageBackend, *Systems: DeclaredSystem](
     var hi: List[Int]
     var parallel: Bool
     var workers: Int
+    # ROADMAP 17.75: who runs a level's systems when `parallel` is set --
+    # the runtime pool by default, or a host's job system.
+    var dispatch: Dispatch
 
     def __init__(out self):
         self.parallel = False
         self.workers = 0
+        self.dispatch = Dispatch.parallel()
         self.level = List[Int]()
         self.order = List[Int]()
         self.lo = List[Int]()
@@ -134,7 +138,7 @@ struct JobGraphScheduler[Bk: StorageBackend, *Systems: DeclaredSystem](
         for lv in range(len(self.lo)):
             if self.parallel and self.width(lv) > 1:
                 _run_level[Self.B, *Self.Systems](
-                    world, self.order, self.lo[lv], self.hi[lv], self.workers
+                    world, self.order, self.lo[lv], self.hi[lv], self.workers, self.dispatch
                 )
             else:
                 for k in range(self.lo[lv], self.hi[lv]):
@@ -156,22 +160,38 @@ def _run_one[
             Sys.apply[B](world)
 
 
+struct _LevelTask[B: StorageBackend, *Systems: DeclaredSystem](Task):
+    """One system of a level per item (ROADMAP 17.75): the level's systems
+    share no written component, so any dispatcher, order or thread count
+    gives the same world."""
+
+    var world: Pointer[World[Self.B], MutUntrackedOrigin]
+    var order: Pointer[List[Int], MutUntrackedOrigin]
+    var lo: Int
+
+    def __init__(out self, mut world: World[Self.B], mut order: List[Int], lo: Int):
+        self.world = Pointer(to=world).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.order = Pointer(to=order).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.lo = lo
+
+    def run(self, k: Int):
+        _run_one[Self.B, *Self.Systems](self.world[], self.order[][self.lo + k])
+
+
 def _run_level[
     B: StorageBackend, *Systems: DeclaredSystem
 ](
-    mut world: World[B], order: List[Int], lo: Int, hi: Int, workers: Int
+    mut world: World[B], order: List[Int], lo: Int, hi: Int, workers: Int,
+    dispatch: Dispatch = Dispatch.parallel(),
 ):
-    """Fan out one level. A free function so the closure captures `world` as an
-    ordinary argument, following the precedent in `_solve_islands_parallel`.
+    """Fan out one level through `dispatch`.
 
     Safety here is structural, not incidental: everything in a level was placed
     there because it conflicts with nothing else in it, so no two of these
     systems write the same component."""
-
-    def level_work(k: Int) {mut world, imm order, imm lo}:
-        _run_one[B, *Systems](world, order[lo + k])
-
-    if workers > 0:
-        parallelize(level_work, hi - lo, workers)
-    else:
-        parallelize(level_work, hi - lo)
+    var ord = order.copy()
+    var task = _LevelTask[B, *Systems](world, ord, lo)
+    dispatch_for(dispatch, task, hi - lo, workers)
+    # The task holds an untracked pointer to `ord`; without this use Mojo
+    # would end `ord`'s lifetime right after building the task.
+    _ = ord^

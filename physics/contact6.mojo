@@ -19,6 +19,7 @@ from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
 from collision.contact_events import pack_key
+from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE
 from .rigid6 import Body6
 from .body_set import BodySet
 from .material import combine
@@ -47,6 +48,16 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # produces a restoring torque (frozen depths cannot — towers slowly tip).
     var ra: Array[Vec3, 4]
     var rb: Array[Vec3, 4]
+    # ROADMAP 17.19: round shapes (sphere, capsule). For them `ra` / `rb` is
+    # the closest point on the shape's CORE (sphere centre, capsule segment)
+    # in the body frame, and `oa` / `ob` the world-frame offset from that core
+    # point to the contact point, which does NOT turn with the body. A rolling
+    # ball's contact stays under its centre; with a body-frame anchor the
+    # point rotated forward each substep, friction acted ahead of the true
+    # contact and braked the roll, and the anchor's lift sank the ball. Zero
+    # for every other shape, where the anchor is the body-frame point as before.
+    var oa: Array[Vec3, 4]
+    var ob: Array[Vec3, 4]
     # Restitution (Box2D v3 scheme): the approach speed captured at prep time
     # drives a dedicated post-substep pass toward v_target = -e·vn0. Neither
     # field is warm-start-inherited — both are per-frame.
@@ -59,6 +70,13 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # (< 0 = none).
     var vsurf: Vec3
     var mu_override: Real
+    # ROADMAP 17.49 report: this step's normal impulse per point (restitution
+    # included), the summed friction impulse vector, and the time they cover.
+    # Built by `accumulate_step_impulse` / `add_restitution_impulse`, never
+    # inherited from the cache.
+    var jn: Array[Real, 4]
+    var jf: Vec3
+    var span: Real
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -72,10 +90,15 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.acc_t2 = copy.acc_t2.copy()
         self.ra = copy.ra.copy()
         self.rb = copy.rb.copy()
+        self.oa = copy.oa.copy()
+        self.ob = copy.ob.copy()
         self.vn0 = copy.vn0.copy()
         self.racc = copy.racc.copy()
         self.vsurf = copy.vsurf
         self.mu_override = copy.mu_override
+        self.jn = copy.jn.copy()
+        self.jf = copy.jf
+        self.span = copy.span
 
 
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
@@ -94,10 +117,15 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Array[Real, 4](fill=0),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Real, 4](fill=0),
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(-1),
+        Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
     )
 
 
@@ -113,8 +141,34 @@ def cache_index(cache: List[ContactConstraint]) -> Dict[Int, Int]:
     return idx^
 
 
+def round_core[B: Body6](
+    bset: BodySet[B], colliders: ColliderSet, i: Int, p: Vec3
+) -> Optional[Vec3]:
+    """Body-frame core point of a round collider nearest to world point
+    `p` -- the sphere's centre, or the clamped point on a capsule's local-y
+    segment -- or None for any other shape (ROADMAP 17.19)."""
+    var k = colliders.shape[i]
+    if k == SHAPE_SPHERE:
+        return Vec3(0, 0, 0, 0)
+    if k == SHAPE_CAPSULE:
+        var hl = colliders.half[i][1]
+        var y = bset.bodies[i].to_local(p)[1]
+        return Vec3(0, min(max(y, -hl), hl), 0, 0)
+    return None
+
+
+def anchor_world[B: Body6](
+    bset: BodySet[B], i: Int, r: Vec3, o: Vec3
+) -> Vec3:
+    """World position of a contact anchor: body-frame point `r` under the
+    current pose, plus the world-frame round-shape offset `o` (zero for
+    non-round shapes, so this is `act(r)` exactly)."""
+    return bset.bodies[i].act(r) + o
+
+
 def make_contact[B: Body6](
     bset: BodySet[B],
+    colliders: ColliderSet,
     cache: List[ContactConstraint],
     cidx: Dict[Int, Int],
     rc: RawContact,
@@ -136,20 +190,51 @@ def make_contact[B: Body6](
         Array[Real, 4](fill=0),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
+        Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
         Array[Real, 4](fill=0),
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(-1),
+        Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
     )
     for k in range(rc.m.count):
-        pr.ra[k] = bset.bodies[rc.a].to_local(rc.m.points[k])
-        pr.rb[k] = bset.bodies[rc.b].to_local(rc.m.points[k])
+        var p = rc.m.points[k]
+        var ca = round_core(bset, colliders, rc.a, p)
+        var cb = round_core(bset, colliders, rc.b, p)
+        # A round side's lever arm must reach its real surface: the
+        # narrowphase puts e.g. a sphere-on-box point on the margin-inflated
+        # face, half a speculative margin inside the ball, and friction
+        # there makes a ball roll at omega * (r - margin/2) == v. Slide the
+        # point along the normal (both anchors together, so separation is
+        # unchanged) to the round surface, or midway between two of them.
+        if ca or cb:
+            var n = rc.m.normal
+            var target = Real(0)
+            if ca:
+                target = dot(bset.bodies[rc.a].act(ca.value()), n) + colliders.half[rc.a][0]
+            if cb:
+                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - colliders.half[rc.b][0]
+                target = (target + sb) * 0.5 if ca else sb
+            p = p + n * (target - dot(p, n))
+        if ca:
+            pr.ra[k] = ca.value()
+            pr.oa[k] = p - bset.bodies[rc.a].act(ca.value())
+        else:
+            pr.ra[k] = bset.bodies[rc.a].to_local(p)
+        if cb:
+            pr.rb[k] = cb.value()
+            pr.ob[k] = p - bset.bodies[rc.b].act(cb.value())
+        else:
+            pr.rb[k] = bset.bodies[rc.b].to_local(p)
         var va0 = Vec3(0, 0, 0, 0)
         var vb0 = Vec3(0, 0, 0, 0)
         if not bset.is_static(rc.a):
-            va0 = bset.bodies[rc.a].velocity_at(rc.m.points[k])
+            va0 = bset.bodies[rc.a].velocity_at(p)
         if not bset.is_static(rc.b):
-            vb0 = bset.bodies[rc.b].velocity_at(rc.m.points[k])
+            vb0 = bset.bodies[rc.b].velocity_at(p)
         pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
     if warm:
         # Start at the first entry with this key (`cache_index`); the scan
@@ -168,6 +253,39 @@ def make_contact[B: Body6](
                 pr.acc_t2 = old.acc_t2.copy()
                 break
     return pr^
+
+
+def accumulate_step_impulse[B: Body6](
+    bset: BodySet[B], mut pairs: List[ContactConstraint], lo: Int, hi: Int, scale: Real, h: Real
+):
+    """After a substep's relax sweep: each point's `acc` is exactly the
+    normal impulse that substep applied (the warm start applied the old
+    `acc`, the sweeps applied the increments), likewise `acc_t1 / acc_t2`
+    for friction. Add them (times `scale`) to the step totals. A pair the
+    solver skipped (both sides impulse-inert: static or asleep) applied
+    nothing -- its `acc` is only kept for the next warm start -- so it adds
+    nothing."""
+    for c in range(lo, hi):
+        ref pr = pairs[c]
+        if bset.impulse_inert(pr.a) and bset.impulse_inert(pr.b):
+            continue
+        var tb = tangent_basis(pr.m.normal)
+        for k in range(pr.m.count):
+            pr.jn[k] += pr.acc[k] * scale
+            pr.jf = pr.jf + (tb[0] * pr.acc_t1[k] + tb[1] * pr.acc_t2[k]) * scale
+        pr.span += h * scale
+
+
+def add_restitution_impulse[B: Body6](
+    bset: BodySet[B], mut pairs: List[ContactConstraint], lo: Int, hi: Int
+):
+    """Fold the restitution pass's normal impulses into the step totals."""
+    for c in range(lo, hi):
+        ref pr = pairs[c]
+        if bset.impulse_inert(pr.a) and bset.impulse_inert(pr.b):
+            continue
+        for k in range(pr.m.count):
+            pr.jn[k] += pr.racc[k]
 
 
 def warm_start_contacts[B: Body6](
@@ -189,11 +307,11 @@ def warm_start_contacts[B: Body6](
             )
             if bset.is_dynamic(pr.a):
                 bset.bodies[pr.a].apply_impulse(
-                    -j, bset.bodies[pr.a].act(pr.ra[k])
+                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
                 )
             if bset.is_dynamic(pr.b):
                 bset.bodies[pr.b].apply_impulse(
-                    j, bset.bodies[pr.b].act(pr.rb[k])
+                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
                 )
 
 
@@ -262,15 +380,17 @@ def soft_sweep[B: Body6](
     use_bias: Bool,
     iters: Int,
     mu: Real,
+    max_push: Real = 4,
 ):
-    """Gauss-Seidel sweeps with Solver2D soft coefficients. Separation is
+    """Gauss-Seidel sweeps with Solver2D soft coefficients. `max_push` caps
+    the soft push-out speed (m/s, `SolverConfig.max_push_speed`). Separation is
     re-derived per point from the CURRENT poses via body-frame anchors, so
     rotation shows up as differential depth (restoring torque)."""
     for _ in range(iters):
         for c in range(lo, hi):
             solve_contact(bset,
                 pairs, c, h, bias_rate, mass_scale, impulse_scale,
-                use_bias, mu,
+                use_bias, mu, max_push,
             )
 
 
@@ -289,6 +409,7 @@ def sweep_colored[B: Body6](
     par: Bool,
     workers: Int = 0,
     dispatch: Dispatch = Dispatch.parallel(),
+    max_push: Real = 4,
 ):
     """Graph-colored sweeps: pairs in one color share no DYNAMIC body
     (statics are excluded from adjacency and never written), so a color
@@ -300,13 +421,13 @@ def sweep_colored[B: Body6](
             if par and chi[col] - clo[col] >= 8:
                 solve_color_parallel(
                     bset, pairs, clo[col], chi[col], h, bias_rate,
-                    mass_scale, impulse_scale, use_bias, mu, workers, dispatch,
+                    mass_scale, impulse_scale, use_bias, mu, workers, dispatch, max_push,
                 )
             else:
                 for c in range(clo[col], chi[col]):
                     solve_contact(bset,
                         pairs, c, h, bias_rate, mass_scale,
-                        impulse_scale, use_bias, mu,
+                        impulse_scale, use_bias, mu, max_push,
                     )
 
 
@@ -320,6 +441,7 @@ def solve_contact[B: Body6](
     impulse_scale: Real,
     use_bias: Bool,
     mu: Real,
+    max_push: Real = 4,
 ):
     """One pair's normal + friction solve (the body of `_soft_sweep`,
     extracted so the colored sweep can schedule it per pair)."""
@@ -345,8 +467,8 @@ def solve_contact[B: Body6](
         pair_mu = pr.mu_override
     var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
     for k in range(pr.m.count):
-        var pwa = bset.bodies[pr.a].act(pr.ra[k])
-        var pwb = bset.bodies[pr.b].act(pr.rb[k])
+        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
+        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
         # anchors coincided at prep with depth d0; separation since
         # then is the anchor drift along the normal
         var d = pr.m.depths[k] - dot(pwb - pwa, n)
@@ -378,7 +500,7 @@ def solve_contact[B: Body6](
         if d < 0:
             bias = -d / h  # speculative: match approach speed
         elif use_bias:
-            bias = max(-bias_rate * d, Real(-4))
+            bias = max(-bias_rate * d, -max_push)
             ms = mass_scale
             isc = impulse_scale
         var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
@@ -472,8 +594,8 @@ def restitution_pass[B: Body6](
             for k in range(pr.m.count):
                 if pr.vn0[k] >= -threshold:
                     continue
-                var pwa = bset.bodies[pr.a].act(pr.ra[k])
-                var pwb = bset.bodies[pr.b].act(pr.rb[k])
+                var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
+                var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
                 var va = Vec3(0, 0, 0, 0)
                 var ka = Real(0)
                 if bset.moves(pr.a):
@@ -519,10 +641,12 @@ struct _ColorTask[B: Body6](Task):
     var impulse_scale: Real
     var use_bias: Bool
     var mu: Real
+    var max_push: Real
 
     def __init__(
         out self, mut bset: BodySet[Self.B], mut pairs2: List[ContactConstraint], lo: Int,
         h: Real, bias_rate: Real, mass_scale: Real, impulse_scale: Real, use_bias: Bool, mu: Real,
+        max_push: Real,
     ):
         self.bset = Pointer(to=bset).unsafe_origin_cast[MutUntrackedOrigin]()
         self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -533,11 +657,12 @@ struct _ColorTask[B: Body6](Task):
         self.impulse_scale = impulse_scale
         self.use_bias = use_bias
         self.mu = mu
+        self.max_push = max_push
 
     def run(self, k: Int):
         solve_contact(
             self.bset[], self.pairs2[], self.lo + k, self.h, self.bias_rate, self.mass_scale,
-            self.impulse_scale, self.use_bias, self.mu,
+            self.impulse_scale, self.use_bias, self.mu, self.max_push,
         )
 
 
@@ -554,12 +679,13 @@ def solve_color_parallel[B: Body6](
     mu: Real,
     workers: Int = 0,
     dispatch: Dispatch = Dispatch.parallel(),
+    max_push: Real = 4,
 ):
     """Solve one color's pairs as `_ColorTask` items run by `dispatch`
     (ROADMAP 17.75). Same-color pairs share no dynamic body, so the writes
     are disjoint and the result is bit-identical to solving the color
     serially, whoever runs the items."""
-    var task = _ColorTask[B](bset, pairs2, lo, h, bias_rate, mass_scale, impulse_scale, use_bias, mu)
+    var task = _ColorTask[B](bset, pairs2, lo, h, bias_rate, mass_scale, impulse_scale, use_bias, mu, max_push)
     dispatch_for(dispatch, task, hi - lo, workers)
 
 

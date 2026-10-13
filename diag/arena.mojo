@@ -58,22 +58,42 @@ def _align_up(x: Int, a: Int) -> Int:
 
 
 struct FrameArena(Movable):
-    """One `capacity`-byte allocation, bump-allocated by `alloc[T]`, reset by
+    """One `capacity`-byte block, bump-allocated by `alloc[T]`, reset by
     `reset()`. Not parameterized on a single element type: one arena instance
     can carve out spans of different `T`s across a frame (debug-draw scratch,
     batched-query scratch, ...), which is the point of a byte-granular arena
-    over a `List[T]`-per-purpose scheme."""
+    over a `List[T]`-per-purpose scheme.
+
+    The block is either the arena's own allocation (`FrameArena(capacity)`)
+    or memory the host supplies (`FrameArena.from_block(block)`, ROADMAP 17.75):
+    an embedding engine with its own frame allocator hands the arena a region
+    and keeps ownership of it -- the arena never frees a host block, and the
+    host must keep it alive while the arena is in use."""
 
     var _alloc: Allocation[UInt8]
+    var _block: Span[UInt8, MutUntrackedOrigin]
     var capacity: Int
     var offset: Int
     var overflow_count: Int
 
     def __init__(out self, capacity: Int):
-        self._alloc = alloc(Layout[UInt8](count=capacity))
+        self._alloc = alloc(Layout[UInt8](count=max(capacity, 1)))
+        self._block = Span[UInt8, MutUntrackedOrigin](
+            unsafe_ptr=self._alloc.unsafe_ptr().unsafe_origin_cast[MutUntrackedOrigin](),
+            length=capacity,
+        )
         self.capacity = capacity
         self.offset = 0
         self.overflow_count = 0
+
+    @staticmethod
+    def from_block(block: Span[UInt8, MutUntrackedOrigin]) -> Self:
+        """An arena over host memory: `block` is used as-is, never freed by
+        the arena. Only a one-byte placeholder is allocated of its own."""
+        var a = Self(0)
+        a._block = block
+        a.capacity = len(block)
+        return a^
 
     def __deinit__(deinit self):
         dealloc(self._alloc^)
@@ -89,7 +109,9 @@ struct FrameArena(Movable):
         """Carve `n` uninitialized, `align_of[T]()`-aligned elements of `T` out
         of the arena's remaining space. Raises (and counts
         `overflow_count`) if `n` elements do not fit in what's left before the
-        next `reset()`."""
+        next `reset()`. Alignment is relative to the block's start, which is
+        at least 16-byte aligned for the arena's own allocation; a host block
+        must be aligned for the widest `T` it will serve."""
         var need = n * size_of[T]()
         var start = _align_up(self.offset, align_of[T]())
         if n < 0 or start + need > self.capacity:
@@ -104,7 +126,7 @@ struct FrameArena(Movable):
                 + ")"
             )
         self.offset = start + need
-        var p = self._alloc.unsafe_ptr().unsafe_offset(start).unsafe_bitcast[
+        var p = self._block.unsafe_ptr().unsafe_offset(start).unsafe_bitcast[
             T
         ]().unsafe_origin_cast[MutUntrackedOrigin]()
         return Span[T, MutUntrackedOrigin](unsafe_ptr=p, length=n)

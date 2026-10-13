@@ -86,4 +86,27 @@ def main() raises:
             parity_ok = False
     s.check(parity_ok, "parity: arena-filled and List-filled content agree")
 
+    # --- host block (ROADMAP 17.75): the arena carves the host's memory and
+    #     leaves it alone on destruction ---
+    var host = List[UInt8](capacity=64)
+    for _ in range(64):
+        host.append(0xAB)
+    var block = Span[UInt8, MutUntrackedOrigin](
+        unsafe_ptr=host.unsafe_ptr().unsafe_origin_cast[MutUntrackedOrigin](), length=64
+    )
+    var hosted = FrameArena.from_block(block)
+    s.eqi(hosted.capacity, 64, "host block: capacity is the block length")
+    var hv = hosted.alloc[Int32](4)
+    for i in range(4):
+        hv[i] = Int32(100 + i)
+    s.check(Int(host[0]) == 100 and Int(host[4]) == 101, "host block: writes land in the host's memory")
+    var hraised = False
+    try:
+        _ = hosted.alloc[Int64](7)  # 16 used + 56 > 64
+    except:
+        hraised = True
+    s.check(hraised and hosted.overflow_count == 1, "host block: overflow raises and counts, as for an owned arena")
+    _ = hosted^
+    s.check(Int(host[0]) == 100 and len(host) == 64, "host block: still intact after the arena is gone (not freed by it)")
+
     s.finish()

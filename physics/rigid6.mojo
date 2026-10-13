@@ -152,6 +152,9 @@ trait Body6(Copyable, Movable, Deinitable):
     # field called `inertia`, and a struct cannot have a field and a method
     # share one name.
     def get_inertia(self) -> Inertia3: ...
+    # ROADMAP 17.48: replace mass / principal inertia (`ContactScene6
+    # .set_mass` / `set_inertia`); velocities and pose untouched.
+    def set_inertia(mut self, i: Inertia3): ...
 
 
 @fieldwise_init
@@ -265,6 +268,9 @@ struct QuatBody6(
 
     def get_inertia(self) -> Inertia3:
         return self.inertia
+
+    def set_inertia(mut self, i: Inertia3):
+        self.inertia = i
 
 
 @fieldwise_init
@@ -381,6 +387,9 @@ struct ScrewBody6(
 
     def get_inertia(self) -> Inertia3:
         return self.inertia
+
+    def set_inertia(mut self, i: Inertia3):
+        self.inertia = i
 
     def rotation(self) -> Quat:
         return self._rotation()

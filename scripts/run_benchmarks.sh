@@ -23,7 +23,21 @@ TEMPLATE=scripts/benchmark_report.md.in
 # The separate GPU hang (multiple DeviceContexts per process) was fixed the
 # same day via shared-context drivers (*_run_ctx). This retry is now just a
 # thin SAFETY NET against residual teardown flakiness, not a known-bug workaround.
+# Every bench's output is cached in build/bench_out/<file>.md. With
+# ONLY="bench_a.mojo bench_b.mojo" only those are run; the others come from
+# the cache of an earlier full run (a missing cache entry is run anyway), so
+# adding one bench section does not cost a full regeneration.
+CACHE=build/bench_out
+mkdir -p "$CACHE"
+ONLY="${ONLY:-}"
+
 run_bench() {
+    local name
+    name=$(basename "$1")
+    if [ -n "$ONLY" ] && [[ " $ONLY " != *" $name "* ]] && [ -f "$CACHE/$name.md" ]; then
+        cat "$CACHE/$name.md"
+        return 0
+    fi
     # stdout goes to a temp FILE, not the report pipe, so a crashed attempt
     # never leaves partial output in the report.
     local tmp
@@ -31,6 +45,7 @@ run_bench() {
     for _ in 1 2; do
         if mojo run -I build "$1" > "$tmp" 2>/dev/null; then
             cat "$tmp"
+            cp "$tmp" "$CACHE/$name.md"
             rm -f "$tmp"
             return 0
         fi

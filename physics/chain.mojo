@@ -25,6 +25,7 @@ from geometry.vec import Real, Vec3, dot, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
 from numerics.dense import solve_dense
+from .state_io import StateWriter, StateReader
 from collision.collider_set import ColliderSet, Pose3
 from collision.world_query import QueryFilter, nearest_surface
 
@@ -189,6 +190,15 @@ struct Chain(Movable, Deinitable):
     var _base_v: Vec3  # linear velocity of the root frame origin
     var _base_wa: Vec3  # angular acceleration
     var _base_va: Vec3  # linear acceleration, BEFORE the gravity shift
+    # ROADMAP 17.51 joint properties, one per joint, all 0 by default (then
+    # `step_implicit` reduces to a plain semi-implicit step): viscous damping
+    # (N m s / rad), spring stiffness toward `rest`, armature (rotor inertia
+    # added to the joint's diagonal), Coulomb friction (N m).
+    var damping: List[Real]
+    var stiffness: List[Real]
+    var rest: List[Real]
+    var armature: List[Real]
+    var friction: List[Real]
 
     def __init__(out self):
         self.links = List[ChainLink]()
@@ -199,6 +209,35 @@ struct Chain(Movable, Deinitable):
         self._base_v = Vec3(0, 0, 0, 0)
         self._base_wa = Vec3(0, 0, 0, 0)
         self._base_va = Vec3(0, 0, 0, 0)
+        self.damping = List[Real]()
+        self.stiffness = List[Real]()
+        self.rest = List[Real]()
+        self.armature = List[Real]()
+        self.friction = List[Real]()
+
+    def _push_props(mut self):
+        self.damping.append(0)
+        self.stiffness.append(0)
+        self.rest.append(0)
+        self.armature.append(0)
+        self.friction.append(0)
+
+    def set_joint_props(
+        mut self, i: Int, damping: Real = 0, stiffness: Real = 0, rest: Real = 0,
+        armature: Real = 0, friction: Real = 0,
+    ) raises:
+        """Joint `i`'s damping, spring (stiffness toward `rest`), armature and
+        Coulomb friction (ROADMAP 17.51); all must be >= 0 (rest any value).
+        Used by `step_implicit`."""
+        if i < 0 or i >= len(self.links):
+            raise Error("Chain.set_joint_props: joint index out of range")
+        if not (damping >= 0 and stiffness >= 0 and armature >= 0 and friction >= 0):
+            raise Error("Chain.set_joint_props: damping, stiffness, armature, friction must be >= 0")
+        self.damping[i] = damping
+        self.stiffness[i] = stiffness
+        self.rest[i] = rest
+        self.armature[i] = armature
+        self.friction[i] = friction
 
     def set_base_motion(
         mut self, w: Vec3, v: Vec3, wa: Vec3 = Vec3(0, 0, 0, 0),
@@ -223,6 +262,7 @@ struct Chain(Movable, Deinitable):
         self.q.append(0)
         self.qd.append(0)
         self.parent.append(len(self.links) - 2)
+        self._push_props()
 
     def add_link_to(mut self, p: Int, link: ChainLink) raises -> Int:
         """Attach under link `p` (or -1 for a new root); returns the index."""
@@ -232,6 +272,7 @@ struct Chain(Movable, Deinitable):
         self.q.append(0)
         self.qd.append(0)
         self.parent.append(p)
+        self._push_props()
         return len(self.links) - 1
 
     def fk(self) -> List[Motor3]:
@@ -878,6 +919,53 @@ struct Chain(Movable, Deinitable):
             self.qd[i] += qdd[i] * dt
             self.q[i] += self.qd[i] * dt
 
+    def step_implicit(mut self, dt: Real, tau: List[Real], gravity: Vec3) raises:
+        """One step with the joint properties treated implicitly (17.51).
+
+        With M = H + diag(armature), B = diag(damping) and
+        K = diag(stiffness), backward Euler on the linear terms gives
+
+            (M + dt B + dt^2 K) qd' = M qd + dt (tau - C(q, qd) - K (q - rest))
+
+        then q' = q + dt qd'. The dt-scaled terms only ever ADD to the
+        diagonal, so the system stays positive definite however stiff the
+        spring or heavy the damping -- an explicit PD torque of the same
+        stiffness diverges once dt exceeds about 2 / omega
+        (`test_chain_props`). Coulomb friction then removes up to
+        `friction * dt` of each joint's momentum against its motion, using
+        the joint's diagonal effective mass (it stops the joint rather than
+        reversing it)."""
+        var n = len(self.links)
+        var zero = List[Real]()
+        for _ in range(n):
+            zero.append(0)
+        var c = self._rnea(zero, gravity)
+        var h = self.mass_matrix()
+        for i in range(n):
+            h[i * n + i] += self.armature[i]
+        var rhs = List[Real]()
+        for i in range(n):
+            var mq = Real(0)
+            for j in range(n):
+                mq += h[i * n + j] * self.qd[j]
+            rhs.append(mq + dt * (tau[i] - c[i] - self.stiffness[i] * (self.q[i] - self.rest[i])))
+        for i in range(n):
+            h[i * n + i] += dt * self.damping[i] + dt * dt * self.stiffness[i]
+        var diag = List[Real]()
+        for i in range(n):
+            diag.append(h[i * n + i])
+        var qd = solve_dense(h^, rhs^, n)
+        for i in range(n):
+            var f = self.friction[i]
+            if f > 0:
+                var dv = f * dt / diag[i]
+                if abs(qd[i]) <= dv:
+                    qd[i] = 0
+                else:
+                    qd[i] -= dv if qd[i] > 0 else -dv
+            self.qd[i] = qd[i]
+            self.q[i] += qd[i] * dt
+
     def dynamics_aba(
         self, tau: List[Real], gravity: Vec3
     ) raises -> List[Real]:
@@ -1147,3 +1235,65 @@ struct _ABI(Copyable, ImplicitlyCopyable, Movable):
             _matvec(self.a, w) + _matvec(self.b, v),
             _tmatvec(self.b, w) + _matvec(self.d, v),
         )
+
+
+# ------------------------------------------------------------ snapshot (17.51)
+
+
+def write_chain[W: StateWriter](ch: Chain, mut out: W):
+    """Everything `Chain` steps from: links, tree, joint state, root motion,
+    joint properties (ROADMAP 17.51; `read_chain` restores it exactly)."""
+    out.wi(len(ch.links))
+    for i in range(len(ch.links)):
+        var l = ch.links[i]
+        out.wv(l.axis)
+        out.wv(l.pivot)
+        out.wv(l.com)
+        out.wf(l.mass)
+        out.wv(l.i_diag)
+        out.wi(l.kind)
+        out.wf(l.lo)
+        out.wf(l.hi)
+        out.wi(ch.parent[i])
+        out.wf(ch.q[i])
+        out.wf(ch.qd[i])
+        out.wf(ch.damping[i])
+        out.wf(ch.stiffness[i])
+        out.wf(ch.rest[i])
+        out.wf(ch.armature[i])
+        out.wf(ch.friction[i])
+    out.wv(ch._base_w)
+    out.wv(ch._base_v)
+    out.wv(ch._base_wa)
+    out.wv(ch._base_va)
+
+
+def read_chain[R: StateReader](mut r: R) raises -> Chain:
+    var ch = Chain()
+    var n = r.ri()
+    if n < 0:
+        raise Error("physics.chain: corrupt snapshot (negative link count)")
+    for _ in range(n):
+        var axis = r.rv()
+        var pivot = r.rv()
+        var com = r.rv()
+        var mass = r.rf()
+        var idiag = r.rv()
+        var kind = r.ri()
+        var lo = r.rf()
+        var hi = r.rf()
+        var p = r.ri()
+        var i = ch.add_link_to(p, ChainLink(axis, pivot, com, mass, idiag, kind, lo, hi))
+        ch.q[i] = r.rf()
+        ch.qd[i] = r.rf()
+        ch.damping[i] = r.rf()
+        ch.stiffness[i] = r.rf()
+        ch.rest[i] = r.rf()
+        ch.armature[i] = r.rf()
+        ch.friction[i] = r.rf()
+    var bw = r.rv()
+    var bv = r.rv()
+    var bwa = r.rv()
+    var bva = r.rv()
+    ch.set_base_motion(bw, bv, bwa, bva)
+    return ch^

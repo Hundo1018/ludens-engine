@@ -69,39 +69,39 @@ def main() raises:
     comptime if not has_accelerator():
         s.skip_device("no accelerator on this host")
         s.finish()
-        return
-    s.begin_device()
+    else:
+        s.begin_device()
 
-    var ctx = DeviceContext()
-    var rng = SplitMix64.seeded(77)
+        var ctx = DeviceContext()
+        var rng = SplitMix64.seeded(77)
 
-    # sparse scene: few overlaps
-    var sparse = _scene(rng, 512, 40.0, 0.6)
-    var bf = BruteForce[3]()
-    bf.rebuild(sparse)
-    var want = List[Pair]()
-    bf.pairs(want)
-    var got = List[Pair]()
-    var ok = gpu_pairs_ctx[512, 1 << 16](ctx, sparse, got)
-    s.check(ok, "sparse scene: no capacity overflow")
-    print("  [device] sparse pairs cpu=", len(want), " gpu=", len(got))
-    s.check(_same(want, got), "sparse scene: GPU pair set == brute force")
+        # sparse scene: few overlaps
+        var sparse = _scene(rng, 512, 40.0, 0.6)
+        var bf = BruteForce[3]()
+        bf.rebuild(sparse)
+        var want = List[Pair]()
+        bf.pairs(want)
+        var got = List[Pair]()
+        var ok = gpu_pairs_ctx[512, 1 << 16](ctx, sparse, got)
+        s.check(ok, "sparse scene: no capacity overflow")
+        print("  [device] sparse pairs cpu=", len(want), " gpu=", len(got))
+        s.check(_same(want, got), "sparse scene: GPU pair set == brute force")
 
-    # dense scene: many overlaps, exercises the atomic cursor hard
-    var dense = _scene(rng, 512, 10.0, 0.9)
-    var bf2 = BruteForce[3]()
-    bf2.rebuild(dense)
-    var want2 = List[Pair]()
-    bf2.pairs(want2)
-    var got2 = List[Pair]()
-    var ok2 = gpu_pairs_ctx[512, 1 << 18](ctx, dense, got2)
-    s.check(ok2, "dense scene: no capacity overflow")
-    print("  [device] dense pairs cpu=", len(want2), " gpu=", len(got2))
-    s.check(_same(want2, got2), "dense scene: GPU pair set == brute force")
+        # dense scene: many overlaps, exercises the atomic cursor hard
+        var dense = _scene(rng, 512, 10.0, 0.9)
+        var bf2 = BruteForce[3]()
+        bf2.rebuild(dense)
+        var want2 = List[Pair]()
+        bf2.pairs(want2)
+        var got2 = List[Pair]()
+        var ok2 = gpu_pairs_ctx[512, 1 << 18](ctx, dense, got2)
+        s.check(ok2, "dense scene: no capacity overflow")
+        print("  [device] dense pairs cpu=", len(want2), " gpu=", len(got2))
+        s.check(_same(want2, got2), "dense scene: GPU pair set == brute force")
 
-    # capacity guard: a deliberately tiny buffer must REPORT failure
-    var got3 = List[Pair]()
-    var ok3 = gpu_pairs_ctx[512, 8](ctx, dense, got3)
-    s.check(not ok3, "undersized buffer reports overflow instead of truncating silently")
+        # capacity guard: a deliberately tiny buffer must REPORT failure
+        var got3 = List[Pair]()
+        var ok3 = gpu_pairs_ctx[512, 8](ctx, dense, got3)
+        s.check(not ok3, "undersized buffer reports overflow instead of truncating silently")
 
-    s.finish()
+        s.finish()

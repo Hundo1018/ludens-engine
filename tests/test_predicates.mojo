@@ -21,7 +21,7 @@ EXTREME     exactly collinear and exactly coplanar input, points differing by
             orientation predicate must satisfy for EVERY input.
 """
 
-from harness.runner import Suite
+from harness.runner import Suite, fuzz_seed
 from geometry.vec import Real, Vec2, Vec3
 from geometry.quickhull import convex_hull_2d
 from geometry.predicates import (
@@ -51,7 +51,7 @@ def _is_convex_ccw(verts: List[Vec2]) -> Bool:
 
 def main() raises:
     var s = Suite("predicates")
-    var rng = SplitMix64.seeded(0x9E37)
+    var rng = SplitMix64.seeded(fuzz_seed(0x9E37))
 
     # ---- ORDINARY ----
     s.eqi(orient2d(Vec2(0, 0), Vec2(1, 0), Vec2(0, 1)), 1, "orient2d ccw")
