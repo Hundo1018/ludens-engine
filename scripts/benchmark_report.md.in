@@ -429,6 +429,24 @@ step 600. That is the advantage regime stated as a measurement: the model costs
 divergence where it is.
 
 @bench benchmarks/bench_lbm.mojo
+## Fluids — LBM moving solids and rigid coupling (17.59)
+
+`Lbm` now carries moving solids by Ladd's bounce-back: the reflected
+population carries the wall's momentum, and momentum exchange gives each
+moving sphere its force and torque. `test_lbm_moving`: Couette flow within
+0.003 % of the lid speed, a translating sphere's drag 3 % from
+Stokes-Hasimoto, a spinning sphere's torque 4 % from the rotlet.
+`physics/fsi.mojo` `LbmCoupler` ties a sphere to a `ContactScene6` body, two
+ways, one lattice step per physics step: a 1500 kg/m^3 sphere settles at
+0.997 of the Stokes-Hasimoto terminal velocity (`test_fsi`); at density
+ratio 0.5 the explicit coupling diverges (added mass).
+
+The first table is the lattice cost per cell with static against moving
+solids; moving spheres re-flag their cells every step (`move_sphere` scans
+the lattice for the cells a sphere owns, O(cells) per sphere). The second
+is one coupled step.
+
+@bench benchmarks/bench_fsi.mojo
 ## Collision — scene queries (raycast + overlap)
 
 The `SceneQuery` seam: brute / bvh / grid / tree answering identical ray and
