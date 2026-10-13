@@ -1013,6 +1013,21 @@ cost per vertex-substep stays flat as the sheet grows (the scene here is a
 single box; more colliders mean more candidates per query).
 
 @bench benchmarks/bench_cloth_mesh.mojo
+## Physics — point caches (17.63)
+
+`physics/sim_cache.mojo` records per-frame point arrays (cloth, strands,
+particles) with an error bound: coordinates are quantised to 2 err,
+keyframes store zig-zag varints, delta frames store the integer change, so
+there is no drift. Frames with non-finite values and err = 0 are stored raw.
+`test_sim_cache`: a 256-point cloth over 240 frames at err = 1 mm is 26.8 %
+of raw f32 and every frame is within 1 mm; `CachePlayer` stands in for the
+live cloth under `step_checked`. The size floor is one byte per coordinate,
+hence the flat bytes-per-point column across error bounds (bit packing
+would go below it). The seek table is the trade-off the ROADMAP item asks
+to measure: decoding frame 200 from the cache against restoring the
+snapshot at frame 192 and re-simulating.
+
+@bench benchmarks/bench_sim_cache.mojo
 ## Differentiable simulation — gradient cost & Field abstraction
 
 The `Field` seam (`RealF`/`DualReal`/`DualBatch`/`RevReal` tape, gradient
