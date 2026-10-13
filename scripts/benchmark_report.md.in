@@ -1387,6 +1387,20 @@ local: re-deriving the vertical bounds from a block summary keeps an edit's
 cost independent of terrain size, where a full rescan grows with it.
 
 @bench benchmarks/bench_fields.mojo
+## Physics — water surfaces (17.60)
+
+`physics/water.mojo` puts the water height behind a `WaterSurface` trait:
+flat, Gerstner (closed form in t, so any time can be queried without
+stepping) and a shallow-water ripple grid. `float_body` samples a box at n^3
+points against whichever surface it is given. `test_water`: zero-amplitude
+Gerstner equals flat bit for bit; a box on a 40 m swell heaves with the
+wave's period to 0.05 % (5.067 s vs 5.064 s); a ripple on 1 m of water
+reaches 5 m in 1.55 s against 5 / sqrt(g H) = 1.60 s. The flat query is a
+constant the compiler folds, hence 0 ns. The Gerstner cost is the 4
+fixed-point iterations of the inverse map plus one final evaluation, each
+over every wave.
+
+@bench benchmarks/bench_water.mojo
 @bench benchmarks/bench_rope.mojo
 ## Physics — hair strands and Hill muscles (17.57)
 

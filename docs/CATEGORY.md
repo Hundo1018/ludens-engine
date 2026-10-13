@@ -63,6 +63,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | FEM 本構 `Corotational` / `StableNeoHookean` / `StVK`(`Material` trait,17.58) | physics/fem_material.mojo | 同一「F ↦ P」介面的三個應力律;小應變(線性化)與剛體旋轉下三者一致,大壓縮 / 反轉處分歧(量給出);`Corotational` 經 seam 與 `FemBody.elastic_forces` 逐位相同 | `test_fem_material` | `bench_fem_material` |
 | 肌肉:`Actuator.muscle` vs Hill 曲線(`HillParams`,17.57) | physics/actuator.mojo | 曲線皆關閉時 fl = fv = 1、fp = 0 精確成立,Hill 變體退化為原肌肉(恆等元);開啟時是同一啟動動力學上的乘性修飾 | `test_muscle_hill`(2 s 軌跡逐位相同) | `bench_hair_muscle` |
 | LBM 固體邊界:靜止 half-way bounce-back vs Ladd 移動壁面(17.59) | fluid/lbm.mojo | 壁速為 0 時 Ladd 項為 0,退化為靜止 bounce-back(恆等元) | `test_lbm_moving`(壁速 0 時與靜止格子逐位相同) | `bench_fsi` |
+| 水面 `FlatWater` / `GerstnerWater` / `ShallowWaterGrid`(`WaterSurface` trait,17.60) | physics/water.mojo | 同一「(x, z, t) ↦ 高度」查詢;Gerstner 振幅全為 0 時退化為平面(恆等元),陡度 0 的單波為解析正弦 | `test_water`(振幅 0 與平面逐位相同;單波誤差 0) | `bench_water` |
 | 動畫轉場 淡入(兩次取樣 + 混合)vs 慣性化(一次取樣 + 衰減殘差)(17.64) | procedural/anim_state.mojo、procedural/inertialize.mojo | 同一「來源姿態 → 目標 clip」轉場的兩個實作:轉場結束後兩者逐位等於目標 clip 的取樣;殘差為 0 時目標姿態不變 | `test_anim_runtime` | `bench_anim_runtime`(轉場佔比 0 / 50 / 100 %) |
 | 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
 | 時間軸求值 隨機 seek(二分)vs 順序游標(17.68) | procedural/sequence.mojo | 同一「t → 軌道值」純函式的兩種段落定位:段索引相同、算術相同,故逐位相同;事件同經 `EventTrack` | `test_camera_seq` | `bench_sequence` |
