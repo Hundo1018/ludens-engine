@@ -654,7 +654,8 @@
 > (見下方發現);8 m/s 滑動 hull(μ 0)vx 保持 8.0;慢速 hull 落地 CCD 開關逐位相同;1e4 m/s 停在 −0.53;兩顆對撞子彈不互穿。
 > bench `bench_ccd_shapes`(µs/步):hull 子彈 N = 1 / 16 / 128 關 7 / 841 / 17681、開 40 / 947 / 12524;靜止控制組 25 / 219 / 1699 對 16 / 226 / 2096
 > (靜止體仍有微小速度而建 BVH,N = 128 多 23 %;待以位移門檻跳過)。
-> **發現(屬 17.19)**:細長板以 36 rad/s 旋轉撞細柱、不開 CCD 時角速度升到 253 rad/s —— 單一盒板亦同(非複合專屬),是深穿透以偏置速度解出時注入能量。
+> **發現**:細長板以 36 rad/s 旋轉撞細柱、不開 CCD 時角速度升到 253 rad/s(單一盒板亦同,非複合專屬)。推出速度有上限(`max_push_speed` 4 m/s),
+> 不是無界的偏置;是旋轉穿隧的後果 —— 板掃過柱的中面後接觸法向翻轉,每一步都把它往前推,4 m/s 上限的推力乘上長力臂累積成轉速。CCD 開時不發生(上表)。
 
 > **現況**:CCD 是全域開關 `SolverConfig.ccd`(`physics/solver_config.mojo:57`),開啟才跑第二階段 `ccd_advance`(`physics/solver6.mojo:1333-1334`);第一階段的 speculative margin 在 `step` 中恆開(`physics/solver6.mojo:1233` 以 `dt` 當 `spec_dt`,`collision/contact_gen.mojo:72-77`)。
 > `ccd_advance` 只做盒對盒的 swept-SAT:任一方是 hull / trimesh / heightfield 就整對略過(`physics/ccd6.mojo:55-57,75-77`,檔頭 `:33-45` 自述);球與膠囊以保守盒掃,「只會過早夾、不會錯夾」(`:33-37`);旋轉被忽略,只做線性掃掠(`collision/toi.mojo:18-20`);配對迴圈是 i 對全部 j 的 O(n²)(`physics/ccd6.mojo:61`)。
