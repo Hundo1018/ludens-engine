@@ -326,6 +326,12 @@ build: all packages precompiled into build/
   dt = 1/8000: 7.890925e-06 1.34422935e-05
   linear momentum vs impulse m*g*t: 7.7067954e-05
 [PASS] floating - 14 / 14 checks
+--- tests/test_flow.mojo ---
+  quest: completion order 0 1  rats 2 / 5
+  300 objectives, 5000 events: linear completed 300  indexed 300  same order True
+  inventory: 25 of item 0 (stack 10) leaves 0 ; 3 of item 1 (stack 1) leaves 2
+  100000 draws: shares 70.011 25.002 4.987 % (70 / 25 / 5), weight 0: 0  item 1 counts 2 .. 4
+[PASS] flow - 14 / 14 checks
 --- tests/test_gmv_ad.mojo ---
 [PASS] gmv_ad - 266 / 266 checks
 --- tests/test_gpu_broadphase.mojo ---
@@ -880,6 +886,11 @@ build: all packages precompiled into build/
 [PASS] numerics_deep - 13 / 13 checks
 --- tests/test_oop_engine.mojo ---
 [PASS] oop_engine - 4 / 4 checks
+--- tests/test_ops.mojo ---
+  sampling 1 in 4 over 10000 records: kept 2496
+  telemetry on: records 12300   scene identical to telemetry off: True
+  black box: 19585 bytes (snapshot 19228 , inputs 50 )  replay to tick 150 identical: True
+[PASS] ops - 11 / 11 checks
 --- tests/test_pcg.mojo ---
   Poisson-disk 100 x 100, r = 2: 1614 points, min distance 2.000021  other seed 1596 points
   dart throwing (5000 tries): 1186 points, min 2.0002503   jittered grid: 2500 points, min 1.0362004

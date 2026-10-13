@@ -4017,6 +4017,37 @@ the bodies inside it.
 | 64 | 1970 | 32 | 12388 | 30556 | 24 | 792 |
 | 1024 | 34988 | 373 | 196708 | 483676 | 474 | 17688 |
 
+## Operations boundary — outbox, achievements, black box (17.73)
+
+`diag/outbox.mojo` is the one way operations data leaves the simulation: a
+bounded queue of typed numeric records, written during a tick and drained by
+the host after it, with drop-newest + `OUTBOX_DROPPED`, deterministic
+sampling and rollback deduplication. `gameplay/achievements.mojo` (unlock
+once, state in flags), `gameplay/loc_keys.mojo` (stable FNV key ids, missing
+key report) and `gameplay/blackbox.mojo` (log + counters + snapshot + input
+tail in one checksummed blob) sit on top. `test_ops`: a scene with telemetry
+on is bit-identical to one with it off; a black box restored in a clean
+scene replays to the failing tick bit for bit. The second table is the
+overhead per step; the first version re-grew the drained list from empty
+every tick and cost 16 % of the step (2.8 us per record).
+
+### Outbox push (17.73)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| push | 200000 | record | 65.02 | 15.38 | 13.00 |
+| push, sample 1 in 4 | 200000 | record | 7.32 | 136.64 | 1.46 |
+| push into a full outbox (dropped) | 200000 | record | 0.61 | 1628.20 | 0.12 |
+
+
+### Telemetry overhead on a 40-box scene, 300 steps (17.73)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| telemetry off | 41 | step | 695748.83 | 0.00 | 208.72 |
+| telemetry on (41 records + drain per step) | 41 | step | 617186.50 | 0.00 | 185.16 |
+
+
 ## Splines — parametric curves and rotation-minimising frames (17.36)
 
 `geometry/spline.mojo` unifies generalized Catmull-Rom (uniform / centripetal
@@ -4707,6 +4738,31 @@ less than the dirty cache.
 | full K=64, 10 % changed per tick | 1000 | read | 783.82 | 1.28 | 62.71 |
 | incremental K=64, 10 % changed per tick | 1000 | read | 580.04 | 1.72 | 46.40 |
 | dirty K=64, 10 % changed per tick | 1000 | read | 188.09 | 5.32 | 15.05 |
+
+
+## Gameplay — flow, objectives, inventory (17.72)
+
+`gameplay/flow.mojo` (state stack deciding what ticks; typed world flags
+with change events and by-name serialisation), `gameplay/objectives.mojo`
+(event-driven objectives with prerequisites; cycles refused at `add`) and
+`gameplay/inventory.mojo` (stacked slots; seeded weighted loot).
+`test_flow`: linear and indexed dispatch complete the same 300 objectives
+in the same order over 5000 events; 100000 loot draws land at
+70.011 / 25.002 / 4.987 % for weights 70 / 25 / 5. Rows: cost per event.
+The first version snapshotted every objective's activeness per event
+(O(N)), which capped the index at 2x; snapshotting only the listeners
+gives the ratio below.
+
+### Objective dispatch, 64 event types, 2000 events (17.72)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| linear N=100 | 100 | event | 422.80 | 2.37 | 0.85 |
+| indexed N=100 | 100 | event | 176.15 | 5.68 | 0.35 |
+| linear N=1000 | 1000 | event | 2937.18 | 0.34 | 5.87 |
+| indexed N=1000 | 1000 | event | 263.45 | 3.80 | 0.53 |
+| linear N=10000 | 10000 | event | 20472.56 | 0.05 | 40.95 |
+| indexed N=10000 | 10000 | event | 3272.77 | 0.31 | 6.55 |
 
 
 
