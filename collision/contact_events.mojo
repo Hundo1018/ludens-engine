@@ -10,12 +10,13 @@ touching the impulse solver, and what will let 17.13 queries watch overlaps
 without depending on physics at all.
 """
 
+from geometry.vec import Real, Vec3
+
 comptime EV_BEGAN = 0
 comptime EV_STAY = 1
 comptime EV_ENDED = 2
 
 
-@fieldwise_init
 struct ContactEvent(Copyable, ImplicitlyCopyable, Movable):
     """One transition in the contact set. `kind` is `EV_BEGAN` / `EV_STAY` /
     `EV_ENDED`.
@@ -29,6 +30,28 @@ struct ContactEvent(Copyable, ImplicitlyCopyable, Movable):
     var b: Int
     var feat: Int
     var kind: Int
+    # ROADMAP 17.49 payload, filled by the solver that owns the contact
+    # (`physics.solver6.ContactScene6._emit_events`); zero for sensors and
+    # for an ENDED event's current-step fields.
+    var impulse: Real  # normal impulse this step (N s), restitution included
+    var force: Real  # impulse / the time it covers (N)
+    var point: Vec3  # contact point carrying the largest share of `impulse`
+    var normal: Vec3  # from a to b
+    var approach: Real  # normal approach speed at contact prep (m/s, >= 0)
+    var peak: Real  # largest per-step `impulse` since the contact began
+
+    def __init__(out self, a: Int, b: Int, feat: Int, kind: Int):
+        """A key-only event; the payload starts at zero."""
+        self.a = a
+        self.b = b
+        self.feat = feat
+        self.kind = kind
+        self.impulse = 0
+        self.force = 0
+        self.point = Vec3(0, 0, 0, 0)
+        self.normal = Vec3(0, 0, 0, 0)
+        self.approach = 0
+        self.peak = 0
 
 
 def pack_key(a: Int, b: Int, feat: Int) -> Int:
@@ -65,3 +88,13 @@ def diff_events(cur: List[Int], prev: List[Int], mut out: List[ContactEvent]):
             out.append(_unpack_event(cur[i], EV_STAY))
             i += 1
             j += 1
+
+
+def impacts(events: List[ContactEvent], min_impulse: Real) -> List[ContactEvent]:
+    """The BEGAN events whose impulse exceeds `min_impulse` (ROADMAP 17.49):
+    the hits worth a sound or a damage rule, without a stateful filter."""
+    var out = List[ContactEvent]()
+    for i in range(len(events)):
+        if events[i].kind == EV_BEGAN and events[i].impulse > min_impulse:
+            out.append(events[i])
+    return out^

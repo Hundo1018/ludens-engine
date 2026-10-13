@@ -40,8 +40,9 @@ comptime _VERSION = 4
 gravity override, the 17.31 frozen motion type, the 17.48 parameters
 (damping, gravity scale, locks, speed caps, accumulated force / torque,
 sleep thresholds), each triangle mesh's 17.45 active-edge flags, the 17.29
-joint break thresholds and the 17.2 angular drives, each block behind a
-presence flag or count (a scene using none of them adds six tokens).
+joint break thresholds, the 17.2 angular drives and the 17.49 contact-report
+flags and event peaks, each block behind a presence flag or count (a scene
+using none of them adds eight tokens).
 3 since ROADMAP 17.85 / 17.16: the stream ends with the tier phase clock
 (`step_index`), the tier table, the per-body tier plan and the island
 labels. 2 since ROADMAP

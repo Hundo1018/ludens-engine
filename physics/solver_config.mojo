@@ -23,6 +23,14 @@ from collision.collider_set import SPEC_BASE
 from scheduler.dispatch import Dispatch
 
 
+comptime IMPULSE_SUBSTEP_SUM = 0
+"""Step impulse = the sum of every substep's accumulated impulse (exact)."""
+comptime IMPULSE_LAST_SUBSTEP = 1
+"""Step impulse = the last substep's accumulated impulse x substeps (free to
+read; equal to the sum at steady state, low after an impact the earlier
+substeps absorbed -- `test_impact_report` measures both)."""
+
+
 @fieldwise_init
 struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     """Every `step_soft` tuning knob plus the sleep/restitution thresholds
@@ -66,6 +74,9 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     var broadphase: Bool
     var workers: Int
     var dispatch: Dispatch  # who runs the parallel fan-outs (ROADMAP 17.75)
+    # ROADMAP 17.49: how the reported step impulse is estimated (a seam:
+    # IMPULSE_SUBSTEP_SUM exact, IMPULSE_LAST_SUBSTEP the free shortcut).
+    var impulse_estimator: Int
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -85,6 +96,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.broadphase = False
         self.workers = 0
         self.dispatch = Dispatch.parallel()
+        self.impulse_estimator = IMPULSE_SUBSTEP_SUM
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes
@@ -116,6 +128,8 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
             raise Error("SolverConfig.validated: hertz must be > 0")
         if self.zeta < 0:
             raise Error("SolverConfig.validated: zeta must be >= 0")
+        if self.impulse_estimator != IMPULSE_SUBSTEP_SUM and self.impulse_estimator != IMPULSE_LAST_SUBSTEP:
+            raise Error("SolverConfig.validated: unknown impulse_estimator")
         return self
 
 

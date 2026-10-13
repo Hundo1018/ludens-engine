@@ -74,10 +74,13 @@ jobs:
         run: |
           plat="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
           golden="tests/golden/test_stdout.$plat.txt"
+          # on failure, show which test failed (the uploaded log is not
+          # readable from the job page)
+          show() { tail -120 build/agent_gate.log; exit 1; }
           if [ -f "$golden" ]; then
-            pixi run gate
+            pixi run gate || show
           else
-            pixi run gate -- --update-golden
+            pixi run gate -- --update-golden || show
             echo "----- BEGIN GOLDEN $golden -----"
             cat "$golden"
             echo "----- END GOLDEN $golden -----"

@@ -47,7 +47,7 @@
 | 子系統 | 範圍 | ✅ | 🔶 | ⬜ | ⏸ / 不排 |
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
-| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 17 | 2 | 4 | 0 |
+| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 18 | 2 | 3 | 0 |
 | [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 2 | 4 | 0 |
 | [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 9 | 1 | 1 | 0 |
 | [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
@@ -253,7 +253,7 @@
 | 17.44 | [複合形狀](#1744-複合形狀--wave-b) | ⬜ | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | ⬜ | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
-| 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ⬜ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
+| 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | ⬜ | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
 
 ### 已完成條目的遺留待辦
@@ -431,6 +431,7 @@
 
 #### 17.49 力回報 / 衝擊事件 — Wave A
 
+> **狀態**:✅ 完成(2026-10-13)。GPU 解算器路徑不產生 payload(第 7 層);以 payload 驅動 `FractureSet` 斷裂門檻未接。
 > **現況**:`ContactEvent` 只有 `(a, b, feat, kind)`(`collision/contact_events.mojo:19-31`):知道誰碰誰、began / stay / ended,沒有衝量、接觸點、法向、相對速度。`_emit_events` 對鍵排序後做差分(`physics/solver6.mojo:905-927`),`Runtime` 再轉進 `Channel`(`gameplay/runtime.mojo:84`)。
 > 求解器內有資料但沒有出口:`ContactConstraint` 帶逐點累積法向 / 摩擦衝量 `acc / acc_t1 / acc_t2`、接近速度 `vn0`、恢復衝量 `racc`(`physics/contact6.mojo:41-54`),步末存進 `self.cache`(`physics/solver6.mojo:1368`)只為下一幀 warm start。`cache` 是公開欄位(`physics/solver6.mojo:139`),測試會直接讀它的接觸集合(如 `tests/test_sleep_api.mojo:80`),所以末子步的逐點衝量技術上讀得到,但那是 warm-start 內部狀態、沒有語意契約,不算 API。`acc` 是**單一子步**的累積量 —— 每個子步先 warm start 再被 `isc·acc` 項衰減(`physics/contact6.mojo:383`),不是整步總和;恢復衝量 `racc` 另計。
 > 關節:`Joint6.acc / acc_ang` 在子步內累積,17.29 為斷裂**改取子步峰值**(`sample_loads`,`physics/joints6.mojo:372-383`),而且只在設了門檻(`any_break`)時才取樣,沒有公開讀取;17.29 進度已量到「只看最後一個子步會漏掉衝擊」(ROADMAP §17.29)。grep `contact_impulse|impulse_of|joint_force|joint_load|total_impulse|net_force|contact_force|reaction_force|body_contacts|contacts_of`(`physics collision gameplay`)命中的全是 "touching" 之類的字面,**零個**真實 API。
@@ -447,6 +448,26 @@
 > **交付**:接真路徑 —— `ContactScene6.events` → `Runtime` → `Channel` 讀者端收到 payload。普通:盒落地 began 衝量 ≈ (1 + e)·m·v(解析);疊塔最底盒 stay 法向力 = 上方總重;關節懸掛 2 kg 的 `joint_reaction` = 19.6 N(沿用 17.29 / 17.41 的算例)。整合:門檻過濾後只剩強撞擊;與 `FractureSet.poll`(17.5)並用,破碎門檻取自 payload;睡眠體不報、sensor 不報力;兩條 broadphase seam 與 island 平行 / colored 路徑的 payload 逐位相同。極端:零衝量的恰好接觸、單步內建立又結束的接觸、mesh 多三角形(每個 feat 一筆)、body 被 remove 後的事件、衝量 NaN 隔離、1e5 接觸的報告開銷、門檻 0 與 ∞。
 > **相依**:17.38(事件匯流排)、17.29(關節峰值)、17.9(debug-draw 可畫力箭頭)、17.5(破碎門檻的消費者)、17.80(擷取檔含 payload)。
 > **邊界**:事件傳輸、訂閱、雙緩衝屬 17.38(已交付);聲音 / 特效 / 傷害規則屬宿主或 17.70 / 17.71;縮座標側力回報走 13.6 感測器,本條不重做;分級 tick(17.85)下事件的週期語意不在此條。
+
+> **進度(2026-10-13)**:
+> - **整步衝量估計器(seam)**:`SolverConfig.impulse_estimator` = `IMPULSE_SUBSTEP_SUM`(預設)/ `IMPULSE_LAST_SUBSTEP`。每個子步 relax 後,
+>   各點的 `acc` 正是該子步施加的法向衝量(warm start 施加舊 `acc`、sweep 施加增量),`contact6.accumulate_step_impulse` 把它與摩擦衝量向量
+>   加進 `ContactConstraint.jn / jf / span`,restitution 的 `racc` 另加;兩方都 impulse-inert(靜態或睡眠)的對不計 —— 求解器沒碰它,
+>   它的 `acc` 只是留給下一步 warm start(第一版漏了這點,睡著的箱子仍回報 m g dt)。serial、colored、island 平行、分級四條路徑共用
+>   `_report_substep`;關節同法累加 `jsum_f / jsum_t / jspan`。
+> - **事件 payload**(`collision.contact_events.ContactEvent`):`impulse`、`force`(= impulse / 涵蓋時間)、最大衝量點 `point`、`normal`、
+>   接近速度 `approach`(prep 時的 −vn0)、`peak`(自 began 起的最大單步衝量,ended 帶出)。`impacts(events, J)` 是無狀態的 began 門檻過濾。
+>   `set_contact_reporting(id, on)`:有任一 body 被標記時只回報牽涉標記 body 的對。`Runtime` 的事件通道原樣帶出 payload。
+> - **查詢**:`contacts_of(id)`(對方、點、指向對方的法向、法向衝量、作用於自身的衝量與力)、`net_contact_force(id)`、`joint_reaction(j)`
+>   (不需設斷裂門檻)。快照 format 4 加回報旗標與事件峰值(還原後的事件流與峰值延續);逐步輸出(`jn` 等)不入快照,還原後第一步前讀到 0。
+> - **測試** `test_impact_report` 23/23:1 kg 球以 5 m/s 落地,began 衝量 5.163334(解析 m v + m g dt = 5.1633334),e = 0.5 時 7.663334(7.6633334),
+>   接近速度 5.0;三層疊塔 stay 力 29.401 / 19.601 / 9.8005(3 / 2 / 1 m g);頂箱 `net_contact_force` = 9.8005 向上;懸掛 2 kg 的 `joint_reaction` = 19.6;
+>   靜置時末子步估計 29.414 vs 加總 29.401,5 m/s 衝擊時末子步 × 4 = 0.1633(衝擊完全看不到)vs 加總 5.1633;`impacts(J = 2)` 只留 8 m/s 那一下;
+>   island 平行 vs serial、BVH vs brute broadphase 的 payload 逐位相同;回報旗標、sensor 零衝量、睡眠體零衝量;彈跳球 ended 帶峰值 11.563;
+>   箱子壓在 4 三角形網格中心頂點,4 個逐三角形事件衝量和 0.16333303(m g dt = 0.16333334)。`test_runtime_params` 經 `Runtime` 通道讀到 4.163334。
+> - **bench** `bench_impact_report`(已入報告範本):N = 256 / 1024 靜置接觸,各列差異小於重跑雜訊;N = 1024 交錯 A/B 加總 vs 末子步比 1.003
+>   (每輪 0.92–1.12,未分辨)—— 預設開啟加總的成本量不出來。`docs/CATEGORY.md` 加一列 seam。
+> - **未做**:payload 帶雙方材質 / 圖層(呼叫端可用 body 索引自查);`FractureSet` 以 payload 決定斷裂;1e5 接觸的回報開銷;GPU 路徑(第 7 層)。
 
 #### 17.50 接觸模型變體 — Wave B
 
@@ -2862,7 +2883,7 @@
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | ⬜ |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
-| 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ⬜ |
+| 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | ⬜ |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |

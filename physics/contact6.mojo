@@ -70,6 +70,13 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # (< 0 = none).
     var vsurf: Vec3
     var mu_override: Real
+    # ROADMAP 17.49 report: this step's normal impulse per point (restitution
+    # included), the summed friction impulse vector, and the time they cover.
+    # Built by `accumulate_step_impulse` / `add_restitution_impulse`, never
+    # inherited from the cache.
+    var jn: Array[Real, 4]
+    var jf: Vec3
+    var span: Real
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -89,6 +96,9 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.racc = copy.racc.copy()
         self.vsurf = copy.vsurf
         self.mu_override = copy.mu_override
+        self.jn = copy.jn.copy()
+        self.jf = copy.jf
+        self.span = copy.span
 
 
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
@@ -113,6 +123,9 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(-1),
+        Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
     )
 
 
@@ -183,6 +196,9 @@ def make_contact[B: Body6](
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(-1),
+        Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
     )
     for k in range(rc.m.count):
         var p = rc.m.points[k]
@@ -237,6 +253,39 @@ def make_contact[B: Body6](
                 pr.acc_t2 = old.acc_t2.copy()
                 break
     return pr^
+
+
+def accumulate_step_impulse[B: Body6](
+    bset: BodySet[B], mut pairs: List[ContactConstraint], lo: Int, hi: Int, scale: Real, h: Real
+):
+    """After a substep's relax sweep: each point's `acc` is exactly the
+    normal impulse that substep applied (the warm start applied the old
+    `acc`, the sweeps applied the increments), likewise `acc_t1 / acc_t2`
+    for friction. Add them (times `scale`) to the step totals. A pair the
+    solver skipped (both sides impulse-inert: static or asleep) applied
+    nothing -- its `acc` is only kept for the next warm start -- so it adds
+    nothing."""
+    for c in range(lo, hi):
+        ref pr = pairs[c]
+        if bset.impulse_inert(pr.a) and bset.impulse_inert(pr.b):
+            continue
+        var tb = tangent_basis(pr.m.normal)
+        for k in range(pr.m.count):
+            pr.jn[k] += pr.acc[k] * scale
+            pr.jf = pr.jf + (tb[0] * pr.acc_t1[k] + tb[1] * pr.acc_t2[k]) * scale
+        pr.span += h * scale
+
+
+def add_restitution_impulse[B: Body6](
+    bset: BodySet[B], mut pairs: List[ContactConstraint], lo: Int, hi: Int
+):
+    """Fold the restitution pass's normal impulses into the step totals."""
+    for c in range(lo, hi):
+        ref pr = pairs[c]
+        if bset.impulse_inert(pr.a) and bset.impulse_inert(pr.b):
+            continue
+        for k in range(pr.m.count):
+            pr.jn[k] += pr.racc[k]
 
 
 def warm_start_contacts[B: Body6](

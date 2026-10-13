@@ -131,6 +131,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var sleep_lin: List[Real]  # per-body sleep thresholds, < 0 = use SolverConfig's
     var sleep_ang: List[Real]
     var any_props: Bool
+    # ROADMAP 17.49: once any body is flagged, contact events are reported
+    # only for pairs touching a flagged body (PhysX eNOTIFY_* per actor).
+    var report: List[Bool]
+    var any_report: Bool
     var free: List[Int]
 
     def __init__(out self):
@@ -160,6 +164,8 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.sleep_lin = List[Real]()
         self.sleep_ang = List[Real]()
         self.any_props = False
+        self.report = List[Bool]()
+        self.any_report = False
         self.free = List[Int]()
 
     def __len__(self) -> Int:
@@ -208,6 +214,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.torque[slot] = Vec3(0, 0, 0, 0)
             self.sleep_lin[slot] = -1
             self.sleep_ang[slot] = -1
+            self.report[slot] = False
             return BodyId(slot, self.generation[slot])
         var slot = len(self.bodies)
         self.bodies.append(b^)
@@ -233,6 +240,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.torque.append(Vec3(0, 0, 0, 0))
         self.sleep_lin.append(-1)
         self.sleep_ang.append(-1)
+        self.report.append(False)
         self.generation.append(0)
         return BodyId(slot, 0)
 

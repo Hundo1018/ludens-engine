@@ -347,6 +347,7 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 接觸是否生效 / 如何作用:靜態過濾(`set_filter`)vs 動態規則(`ContactRule`) | physics/contact6.mojo、physics/solver6.mojo | 同一「接觸謂詞」的兩層;不匹配任何接觸的規則(與零速輸送帶)是恆等 | `test_contact_rules`(不匹配規則 == 無規則逐位) | `bench_contact_rules`(無規則 / 全匹配 / 8 條不匹配) |
 | 關節負載估計:最後子步 vs 逐子步峰值 | physics/joints6.mojo(`sample_loads`、`check_breaks`) | 同一負載量的兩個取樣;穩態一致(m·g),衝擊時只有峰值取樣看得到 | `test_joint_break`(懸掛質量 = m·g;扭轉 hinge 只在峰值取樣下斷) | `bench_contact_rules`(有 / 無閾值) |
+| 接觸 / 關節的整步衝量估計:`IMPULSE_LAST_SUBSTEP`(末子步 × 子步數)vs `IMPULSE_SUBSTEP_SUM`(逐子步加總)(`SolverConfig.impulse_estimator`) | physics/contact6.mojo(`accumulate_step_impulse`)、physics/solver6.mojo(`_report_substep`、`_emit_events`、`contacts_of`、`joint_reaction`)、physics/solver_config.mojo | 同一「整步衝量」量的兩個估計;穩態時兩者是同一個數(每子步衝量相同),衝擊時末子步看不到已被前面子步吸收的部分 | `test_impact_report`(靜置疊塔兩估計都讀 3 m g;5 m/s 落球:加總 5.1633 = m v + m g dt,末子步 0.1633;serial == island 平行逐位) | `bench_impact_report`(N = 256 / 1024 靜置接觸;交錯 A/B 比 1.003,未分辨) |
 
 ### 2.13 力場、浮力、繩索、地形變形(Phase 17.27 / 17.28 / 17.41 / 17.30,2026-09-29)
 

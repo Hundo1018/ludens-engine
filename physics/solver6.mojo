@@ -70,7 +70,7 @@ from collision.collider_set import (
     SHAPE_HEIGHTFIELD,
 )
 from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
-from collision.contact_events import ContactEvent, pack_key, diff_events
+from collision.contact_events import ContactEvent, pack_key, diff_events, EV_STAY, EV_ENDED
 from collision.broadphase import BroadPhase, Pair
 from collision.bp_bvh import BVHBroadPhase
 from collision.toi import swept_box_toi
@@ -86,7 +86,7 @@ from diag.trace import TraceBuffer
 from diag.draw import DrawQueue
 from .rigid6 import Body6, QuatBody6, Inertia3, Pose6
 from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC, MOTION_KINEMATIC
-from .solver_config import SolverConfig
+from .solver_config import SolverConfig, IMPULSE_SUBSTEP_SUM, IMPULSE_LAST_SUBSTEP
 from .state_io import StateWriter, StateReader
 from .softbody import SoftBody, SP, SEdge
 from .contact6 import (
@@ -100,6 +100,8 @@ from .contact6 import (
     soft_sweep,
     sweep_colored,
     restitution_pass,
+    accumulate_step_impulse,
+    add_restitution_impulse,
     ContactRule,
     apply_rules,
 )
@@ -117,6 +119,7 @@ from .joints6 import (
     AngularDrive,
     warm_start_drives,
     drive_sweep,
+    joint_island,
 )
 from .islands import (
     island_count as count_islands,
@@ -143,6 +146,21 @@ comptime FORCE_MODE_VELOCITY_CHANGE = 2  # m/s, now (mass-independent)
 comptime FORCE_MODE_ACCELERATION = 3  # m/s^2, over the next step (mass-independent)
 
 
+@fieldwise_init
+struct ContactReport(Copyable, ImplicitlyCopyable, Movable):
+    """One contact of a body, from that body's side (ROADMAP 17.49,
+    `ContactScene6.contacts_of`). Impulses are this step's totals; `force`
+    is the impulse over the time it covers."""
+
+    var other: Int  # the other body's slot
+    var feat: Int  # triangle index for mesh contacts, 0 otherwise
+    var point: Vec3  # contact point carrying the largest normal impulse
+    var normal: Vec3  # from this body toward the other
+    var normal_impulse: Real  # >= 0 (N s)
+    var impulse: Vec3  # on this body: normal + friction (N s)
+    var force: Vec3  # impulse / step time (N)
+
+
 struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
@@ -165,6 +183,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
     var max_push: Real  # this step's SolverConfig.max_push_speed, for the island path (17.75)
+    var impulse_estimator: Int  # this step's SolverConfig.impulse_estimator (17.49)
+    # ROADMAP 17.49: per joint, this step's summed linear / angular impulse
+    # and the time it covers (`joint_reaction`).
+    var jsum_f: List[Vec3]
+    var jsum_t: List[Vec3]
+    var jspan: List[Real]
     # ROADMAP 17.0h: `diag` wired into the production solver path.
     # `trace`/`log` are solver-owned, mirroring `counters` above (a caller
     # reads `sc.trace`/`sc.log` directly, the same shape as `sc.counters`);
@@ -192,6 +216,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var events_on: Bool
     var events: List[ContactEvent]
     var _prev_keys: List[Int]
+    var _prev_peak: List[Real]  # 17.49: peak impulse per `_prev_keys` entry
     # ROADMAP 17.85: tiered simulation. A tier table (per tier: iters,
     # substeps, period; period 0 = never solved) and a tier per body slot
     # (missing entries = tier 0). Empty table = untiered (the existing path).
@@ -222,6 +247,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.colliders = ColliderSet()
         self.counters = Counters()
         self.max_push = 4
+        self.impulse_estimator = IMPULSE_SUBSTEP_SUM
+        self.jsum_f = List[Vec3]()
+        self.jsum_t = List[Vec3]()
+        self.jspan = List[Real]()
         self.trace = TraceBuffer(capacity=512)
         self.log = LogRing[256]()
         self.draw = DrawQueue[WorldType](capacity=1024)
@@ -230,6 +259,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.events_on = False
         self.events = List[ContactEvent]()
         self._prev_keys = List[Int]()
+        self._prev_peak = List[Real]()
         self.tier_iters = List[Int]()
         self.tier_substeps = List[Int]()
         self.tier_period = List[Int]()
@@ -695,6 +725,63 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.can_sleep[i] = on
         if not on:
             wake_island(self.bset, i)
+
+    # ------------------------------------------------ force reporting (17.49)
+
+    def set_contact_reporting(mut self, id: BodyId, on: Bool) raises:
+        """Report contact events only for flagged bodies' pairs once any body
+        is flagged (with none flagged, every pair is reported, as before)."""
+        var i = self._check_id(id, "set_contact_reporting")
+        self.bset.report[i] = on
+        var any = False
+        for k in range(len(self.bset.report)):
+            if self.bset.report[k]:
+                any = True
+        self.bset.any_report = any
+
+    def contacts_of(self, id: BodyId) raises -> List[ContactReport]:
+        """This step's contacts of body `id` with their impulses (from the
+        pairs the step solved; empty before the first step)."""
+        var i = self._check_id(id, "contacts_of")
+        var out = List[ContactReport]()
+        for c in range(len(self.cache)):
+            ref pr = self.cache[c]
+            if pr.a != i and pr.b != i:
+                continue
+            var jn = Real(0)
+            var best = -1
+            for q in range(pr.m.count):
+                jn += pr.jn[q]
+                if best < 0 or pr.jn[q] > pr.jn[best]:
+                    best = q
+            var on_b = pr.m.normal * jn + pr.jf
+            var sgn = Real(1) if pr.b == i else Real(-1)
+            var imp = on_b * sgn
+            var f = imp / pr.span if pr.span > 0 else Vec3(0, 0, 0, 0)
+            var p = pr.m.points[best] if best >= 0 else self.bset.bodies[i].position()
+            out.append(ContactReport(
+                pr.b if pr.a == i else pr.a, pr.feat, p, pr.m.normal * (-sgn), jn, imp, f,
+            ))
+        return out^
+
+    def net_contact_force(self, id: BodyId) raises -> Vec3:
+        """Sum of this step's contact forces on body `id` (normal and
+        friction): a crate resting on a scale reads m g upward."""
+        var reps = self.contacts_of(id)
+        var f = Vec3(0, 0, 0, 0)
+        for r in range(len(reps)):
+            f = f + reps[r].force
+        return f
+
+    def joint_reaction(self, j: Int) raises -> Tuple[Vec3, Vec3]:
+        """(force, torque) joint `j` applied to its body `b` this step,
+        averaged over the step (no break threshold needed); a broken joint
+        reads zero."""
+        if j < 0 or j >= len(self.joints):
+            raise Error("ContactScene6.joint_reaction: joint index out of range")
+        if j >= len(self.jspan) or self.jspan[j] <= 0:
+            return (Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
+        return (self.jsum_f[j] / self.jspan[j], self.jsum_t[j] / self.jspan[j])
 
     # ------------------------------------------------ per-body parameters (17.48)
 
@@ -1230,6 +1317,40 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if not self.bset.is_static(i):
                 self.bset.bodies[i].integrate_pose(dt)
 
+    def _reset_joint_sums(mut self):
+        var n = len(self.joints)
+        self.jsum_f = List[Vec3](capacity=n)
+        self.jsum_t = List[Vec3](capacity=n)
+        self.jspan = List[Real](capacity=n)
+        for _ in range(n):
+            self.jsum_f.append(Vec3(0, 0, 0, 0))
+            self.jsum_t.append(Vec3(0, 0, 0, 0))
+            self.jspan.append(0)
+
+    def _report_substep(
+        mut self, mut pairs: List[ContactConstraint], lo: Int, hi: Int, label: Int,
+        sub: Int, substeps: Int, h: Real,
+    ):
+        """ROADMAP 17.49: fold this substep's contact and joint impulses into
+        the step totals -- every substep (IMPULSE_SUBSTEP_SUM) or only the
+        last one, scaled by `substeps` (IMPULSE_LAST_SUBSTEP). `label` limits
+        the joints to one island (-2 = all), as `joint_sweep` does."""
+        var scale = Real(1)
+        if self.impulse_estimator == IMPULSE_LAST_SUBSTEP:
+            if sub != substeps - 1:
+                return
+            scale = Real(substeps)
+        accumulate_step_impulse(self.bset, pairs, lo, hi, scale, h)
+        for c in range(len(self.joints)):
+            ref jt = self.joints[c]
+            if jt.kind == JOINT_BROKEN:
+                continue
+            if label != -2 and joint_island(self.bset, jt) != label:
+                continue
+            self.jsum_f[c] = self.jsum_f[c] + jt.acc * scale
+            self.jsum_t[c] = self.jsum_t[c] + jt.acc_ang * scale
+            self.jspan[c] += h * scale
+
     def _solve_island(
         mut self,
         mut pairs: List[ContactConstraint],
@@ -1256,7 +1377,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         range replaced a scan of every body per island (O(bodies x islands),
         885 ms / step at 1e4 bodies in `bench_tiers`); per-body updates are
         independent, so visiting only the members changes nothing else."""
-        for _ in range(substeps):
+        for sub in range(substeps):
             # gravity: DYNAMIC members of this island only. A kinematic body
             # gets its OWN singleton island (`_refresh_islands`'s docstring),
             # so it reaches this loop too, with `is_dynamic == False` --
@@ -1287,7 +1408,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     self.bset.bodies[i].integrate_pose(h)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, label)
             soft_sweep(self.bset, pairs, plo, phi, h, bias_rate, 1, 0, False, 2, mu)
+            self._report_substep(pairs, plo, phi, label, sub, substeps, h)
         restitution_pass(self.bset, pairs, plo, phi, 4, rest_threshold)
+        add_restitution_impulse(self.bset, pairs, plo, phi)
 
     def _emit_events(mut self, pairs: List[ContactConstraint]):
         """Diff this step's contact set against last step's: began / stay /
@@ -1304,13 +1427,57 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         whole reason sensors exist."""
         self.events = List[ContactEvent]()
         var cur = List[Int](capacity=len(pairs) + len(self.sensor_pairs))
+        var at = Dict[Int, Int]()  # key -> pair index (contacts only)
+        var filt = self.bset.any_report
         for c in range(len(pairs)):
-            cur.append(pack_key(pairs[c].a, pairs[c].b, pairs[c].feat))
+            if filt and not (self.bset.report[pairs[c].a] or self.bset.report[pairs[c].b]):
+                continue
+            var k = pack_key(pairs[c].a, pairs[c].b, pairs[c].feat)
+            cur.append(k)
+            at[k] = c
         for c in range(len(self.sensor_pairs)):
             ref sp = self.sensor_pairs[c]
+            if filt and not (self.bset.report[sp.a] or self.bset.report[sp.b]):
+                continue
             cur.append(pack_key(sp.a, sp.b, sp.feat))
         sort(cur)
         diff_events(cur, self._prev_keys, self.events)
+        # ROADMAP 17.49 payload. `diff_events` emits in key order, so the
+        # previous peaks are looked up by key; the new peaks follow `cur`.
+        var prev_peak = Dict[Int, Real]()
+        for i in range(len(self._prev_keys)):
+            if i < len(self._prev_peak):
+                prev_peak[self._prev_keys[i]] = self._prev_peak[i]
+        var peak_of = Dict[Int, Real]()
+        for e in range(len(self.events)):
+            ref ev = self.events[e]
+            var k = pack_key(ev.a, ev.b, ev.feat)
+            var before = prev_peak.get(k, Real(0))
+            if ev.kind == EV_ENDED:
+                ev.peak = before
+                continue
+            var c = at.get(k, -1)
+            if c >= 0:
+                ref pr = pairs[c]
+                var total = Real(0)
+                var best = -1
+                var approach = Real(0)
+                for q in range(pr.m.count):
+                    total += pr.jn[q]
+                    if best < 0 or pr.jn[q] > pr.jn[best]:
+                        best = q
+                    approach = max(approach, -pr.vn0[q])
+                ev.impulse = total
+                ev.force = total / pr.span if pr.span > 0 else Real(0)
+                if best >= 0:
+                    ev.point = pr.m.points[best]
+                ev.normal = pr.m.normal
+                ev.approach = approach
+            ev.peak = max(before, ev.impulse) if ev.kind == EV_STAY else ev.impulse
+            peak_of[k] = ev.peak
+        self._prev_peak = List[Real](capacity=len(cur))
+        for i in range(len(cur)):
+            self._prev_peak.append(peak_of.get(cur[i], Real(0)))
         self._prev_keys = cur^
 
     def _quarantine_nonfinite(mut self):
@@ -1602,6 +1769,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         `-D ASSERT=all` (every test run) if a config or `dt` slipped through
         with a value that would otherwise divide out to `inf`/`NaN` below."""
         self.max_push = cfg.max_push_speed
+        self.impulse_estimator = cfg.impulse_estimator
+        self._reset_joint_sums()
         debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
         debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
         debug_assert(cfg.hertz > 0, "ContactScene6.step: cfg.hertz must be > 0")
@@ -1721,7 +1890,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # soft pass -> relax, repeated `substeps` times) -- only the tracing
         # granularity changes, not the algorithm.
         self.trace.begin("solve")
-        for _ in range(substeps):
+        for sub in range(substeps):
             # gravity: dynamic + awake only. `not _inactive(i)` alone would
             # also admit a kinematic body (never static, never sleeping) --
             # ROADMAP 17.24 says gravity must NOT reach it, so this gate is
@@ -1775,8 +1944,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 )
             if self.any_break:
                 sample_loads(self.joints, h, self.peak_force, self.peak_torque)
+            self._report_substep(pairs, 0, len(pairs), -2, sub, substeps, h)
         self.trace.end()
         restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)
+        add_restitution_impulse(self.bset, pairs, 0, len(pairs))
         self.trace.begin("sleep")
         update_sleep(self.bset, dt, cfg)
         self.trace.end()
@@ -2225,6 +2396,15 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wf(dr.zeta)
         out.wf(dr.max_torque)
         out.wv(dr.acc)
+    # 17.49: contact-report flags and the event stream's per-key peaks
+    # (aligned with `_prev_keys`, written above).
+    out.wi(1 if sc.bset.any_report else 0)
+    if sc.bset.any_report:
+        for i in range(len(sc.bset.bodies)):
+            out.wi(1 if sc.bset.report[i] else 0)
+    out.wi(len(sc._prev_peak))
+    for k in range(len(sc._prev_peak)):
+        out.wf(sc._prev_peak[k])
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -2426,6 +2606,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Array[Vec3, 4](fill=Vec3(0, 0, 0, 0)),
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
             Vec3(0, 0, 0, 0), Real(-1),
+            Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
         )
         for p in range(4):
             pr.m.points[p] = r.rv()
@@ -2533,3 +2714,13 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         if da < 0 or da >= len(sc.bset.bodies) or db < 0 or db >= len(sc.bset.bodies):
             raise Error("physics.serialize: corrupt snapshot (drive body index out of range)")
         sc.drives.append(AngularDrive(da, db, Quat(qx, qy, qz, qw), hz, zt, mt, acc))
+    sc.bset.any_report = r.ri() == 1
+    if sc.bset.any_report:
+        for i in range(len(sc.bset.bodies)):
+            sc.bset.report[i] = r.ri() == 1
+    var npk = r.ri()
+    if npk < 0 or npk > len(sc._prev_keys):
+        raise Error("physics.serialize: corrupt snapshot (event peak count)")
+    sc._prev_peak = List[Real](capacity=npk)
+    for _ in range(npk):
+        sc._prev_peak.append(r.rf())

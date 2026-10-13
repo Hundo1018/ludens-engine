@@ -1587,6 +1587,20 @@ directly when the body is awake (islands sleep together) and only scans for
 a sleeping body; the same row measured 2308 vs 2371 ms after the change.
 
 @bench benchmarks/bench_rigid_params.mojo
+## Physics — step-impulse report (ROADMAP 17.49)
+
+The contact events' impulse payload, `contacts_of`, `net_contact_force` and
+`joint_reaction` read per-step impulse totals the solver accumulates after
+every substep (`IMPULSE_SUBSTEP_SUM`, default) or after the last one, scaled
+by the substep count (`IMPULSE_LAST_SUBSTEP`). The accumulation always runs.
+Measured 2026-10-13 on N resting boxes: the rows below differ by less than
+the run-to-run spread, and the interleaved A/B at N = 1024 puts the three
+extra accumulation passes of the sum estimator at a ratio of 1.003, not
+resolved (per-round 0.92 - 1.12). `test_impact_report` shows why the sum is
+the default: on a 5 m/s impact it reads 5.1633 N s (m v + m g dt exactly),
+the last-substep estimate 0.1633.
+
+@bench benchmarks/bench_impact_report.mojo
 ## Collision — BVH build heuristic (median-split vs binned SAH)
 
 `test_sah` proves the two builds answer every query identically. Binned SAH

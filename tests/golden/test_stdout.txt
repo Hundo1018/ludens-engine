@@ -573,6 +573,18 @@ build: all packages precompiled into build/
 [PASS] hull_irregular - 13 / 13 checks
 --- tests/test_ik.mojo ---
 [PASS] ik - 27 / 27 checks
+--- tests/test_impact_report.mojo ---
+  drop e = 0.0 : began impulse 5.163334  want (1+e) m v + m g dt = 5.1633334  approach 5.0  v 5.0
+  drop e = 0.5 : began impulse 7.663334  want (1+e) m v + m g dt = 7.6633334  approach 5.0  v 5.0
+  stack stay forces: floor-1 29.401089  1-2 19.601011  2-3 9.8005085
+  top box net contact force -0.0014276423 9.800508 -0.00013632546
+  hanging 2 kg: joint reaction on the box 0.0 19.6 0.0
+  at rest, last-substep estimate floor-1 29.41355  vs sum 29.401089
+  impact 5 m/s: substep sum 5.163334  last substep x 4 0.16333334  momentum change 5.1633334
+  sleeping box: asleep True  stay events 1  their impulse 0.0
+  bouncing ball: began impulse 11.5633335  ended peak 11.5633335
+  box on the centre vertex of a 4-triangle mesh: 4 triangle events, impulses sum 0.16333303  m g dt 0.16333334
+[PASS] impact_report - 23 / 23 checks
 --- tests/test_islands_par.mojo ---
   islands: 6
 [PASS] islands_par - 6 / 6 checks
@@ -618,7 +630,7 @@ build: all packages precompiled into build/
 [PASS] nav_world - 6 / 6 checks
 --- tests/test_netcode.mojo ---
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
-  netcode: snapshot 5000 bytes full, 1586 bytes per frame to all clients (delta), frames 249
+  netcode: snapshot 5016 bytes full, 1591 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
@@ -688,7 +700,7 @@ build: all packages precompiled into build/
 --- tests/test_schema.mojo ---
 [PASS] schema - 22 / 22 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20565
+  blob bytes: 20569
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.24997935  bp y 0.24997935
@@ -809,7 +821,8 @@ build: all packages precompiled into build/
 [PASS] async_step - 11 / 11 checks
 --- tests/test_runtime_params.mojo ---
   floater vy 0.0  pushed vx 1.0
-[PASS] runtime_params - 4 / 4 checks
+  runtime channel: began impulse 4.163334
+[PASS] runtime_params - 5 / 5 checks
 --- tests/test_system_determinism.mojo ---
 [PASS] system_determinism - 4 / 4 checks
 --- tests/test_system_render.mojo ---
