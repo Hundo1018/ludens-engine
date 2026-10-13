@@ -826,6 +826,42 @@ iteration-safety of a command buffer against writing components directly.
 | setbuffer record+apply | 65536 | write | 80.74 | 12.39 | 5.29 |
 
 
+
+## ECS filters and change detection (17.77)
+
+`World.select(Filter().with_[A]().without[B]())` is evaluated by each
+backend natively: the archetype backend tests the filter once per signature,
+the bitset backend with word-level AND-NOT, the sparse-set / reactive
+backends walk the smallest `with_` store and probe the rest, the naive and
+chunked backends scan every id. The comparison column is the pre-17.77 path
+(`query1` then `has` on every match, which `Pool.active_query*` used).
+`changed[C]` reads a per-component write log covering the last `window`
+ticks (8 by default), so it costs O(writes); the comparison is a scan of
+every entity for a hand-kept dirty field.
+
+### ECS filters and change detection (17.77), N = 20000
+
+| backend | disabled | matches | select without (us) | query + has (us) | changed | changed[C] (us) | scan dirty flag (us) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| sparse-set | 1 % | 19800 | 189 | 187 | 200 | 14 | 269 |
+| sparse-set | 50 % | 10000 | 154 | 194 | 200 | 16 | 251 |
+| sparse-set | 99 % | 200 | 108 | 209 | 200 | 14 | 259 |
+| archetype | 1 % | 19800 | 168 | 322 | 200 | 15 | 358 |
+| archetype | 50 % | 10000 | 76 | 281 | 200 | 15 | 383 |
+| archetype | 99 % | 200 | 2 | 334 | 200 | 17 | 367 |
+| bitset | 1 % | 19800 | 65 | 143 | 200 | 10 | 151 |
+| bitset | 50 % | 10000 | 37 | 148 | 200 | 10 | 142 |
+| bitset | 99 % | 200 | 4 | 177 | 200 | 10 | 143 |
+| reactive | 1 % | 19800 | 187 | 210 | 200 | 14 | 260 |
+| reactive | 50 % | 10000 | 149 | 210 | 200 | 15 | 249 |
+| reactive | 99 % | 200 | 116 | 211 | 200 | 14 | 284 |
+| naive | 1 % | 19800 | 225 | 168 | 200 | 11 | 169 |
+| naive | 50 % | 10000 | 163 | 170 | 200 | 10 | 173 |
+| naive | 99 % | 200 | 121 | 168 | 200 | 9 | 167 |
+| chunked | 1 % | 19800 | 315 | 356 | 200 | 13 | 366 |
+| chunked | 50 % | 10000 | 263 | 396 | 200 | 13 | 381 |
+| chunked | 99 % | 200 | 236 | 385 | 200 | 14 | 386 |
+
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
 
 The same integrate + damage-event workload driven through the swappable
