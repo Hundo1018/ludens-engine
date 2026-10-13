@@ -10,13 +10,30 @@ One toolchain quirk shapes the data structures here:
 Perpendicular search directions use the triple product tprod(a,b,c)=b*(a.c)-c*(a.b).
 """
 
-from .vec import WorldType, Real, dot, PadW, cross
+from .vec import WorldType, Real, Vec3, dot, PadW, cross
 
 
 comptime _Vec[dim: Int] = SIMD[WorldType, PadW[dim]]
 
 
-struct ConvexPoly[dim: Int](Copyable, Movable):
+trait Support3:
+    """A 3D convex shape given by its support mapping (ROADMAP 17.52).
+
+    `support_point(d)` is a point of the shape farthest along `d` (any one
+    when several tie); `center_point()` is any interior point (EPA orients
+    its normal from A's centre to B's). Point clouds (`ConvexPoly[3]`) and
+    analytic shapes (`geometry.support`: ellipsoid, cylinder, box) both
+    implement it, and `geometry.epa.epa3` / `geometry.gjk_distance.
+    support_distance` run on either -- no sampling of round shapes."""
+
+    def support_point(self, d: Vec3) -> Vec3:
+        ...
+
+    def center_point(self) -> Vec3:
+        ...
+
+
+struct ConvexPoly[dim: Int](Copyable, Movable, Support3):
     """Convex shape as a point cloud (its convex hull is what matters).
 
     Build with `add()`.
@@ -42,6 +59,31 @@ struct ConvexPoly[dim: Int](Copyable, Movable):
                 best_d = d
                 best = self.points[i]
         return best
+
+    def support_point(self, d: Vec3) -> Vec3:
+        """`Support3` (3D only: other dims never reach a 3D query)."""
+        comptime if Self.dim == 3:
+            return rebind[Vec3](self.support(rebind[_Vec[Self.dim]](d)))
+        else:
+            var dd = _Vec[Self.dim](0)
+            comptime for k in range(Self.dim):
+                dd[k] = d[k]
+            var r = self.support(dd)
+            var o = Vec3(0, 0, 0, 0)
+            comptime for k in range(Self.dim):
+                o[k] = r[k]
+            return o
+
+    def center_point(self) -> Vec3:
+        """`Support3`: the vertex average."""
+        var c = _Vec[Self.dim](0)
+        for i in range(len(self.points)):
+            c += self.points[i]
+        c = c / Real(len(self.points))
+        var o = Vec3(0, 0, 0, 0)
+        comptime for k in range(min(Self.dim, 3)):
+            o[k] = c[k]
+        return o
 
 
 @fieldwise_init

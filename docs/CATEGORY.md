@@ -54,7 +54,14 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 剛體變換表示 motor/DQ/mat4/quat | geometry/motor.mojo、dualquat.mojo、mat.mojo、quat.mojo | SE(3) 表示函子(§3) | `test_motor_parity` | `bench_ga` |
 | 蒙皮 DLB vs LBS | geometry/skinning.mojo | 表示函子在蒙皮插值上的作用 | `test_skinning` | `bench_ga`(skin rows) |
 | `Field`(RealF/DualReal/DualBatch/RevReal tape / comptime 生成伴隨)+ `GMV` vs 特化 | geometry/field.mojo、gmv.mojo、physics/adjoint.mojo | 對偶數函子(切叢提升)+ 伴隨函子(反向掃,執行期 tape 與編譯期展開兩實作);係數環參數化 | `test_diffsim`、`test_gmv_ad`、`test_adjoint`、`test_laws` | `bench_diffsim` |
-| CCD 階段 speculative vs swept/TOI | physics/solver6.mojo、collision/toi.mojo | 同一「不穿隧」謂詞的一階(裕度)與二階(掃掠)保證;慢速路徑逐位一致 | `test_ccd6` | `bench_ccd` |
+| CCD 階段 speculative vs swept/TOI;TOI 求解:盒專用 swept-SAT(閉式)vs 保守推進(GJK 距離,任意凸 / 網格,17.46) | physics/solver6.mojo、collision/toi.mojo、physics/ccd6.mojo | 同一「不穿隧」謂詞的一階(裕度)與二階(掃掠)保證;慢速路徑逐位一致;保守推進的 TOI 恆 ≤ 精確值 | `test_ccd6`、`test_ccd_shapes` | `bench_ccd`、`bench_ccd_shapes` |
+| 接觸摩擦錐 金字塔(逐軸夾)vs 橢圓(切向向量夾於圓盤);靜 / 動摩擦;滾動 / 扭轉阻力(17.50) | physics/contact6.mojo(`solve_contact`、`_solve_rolling`)、physics/solver_config.mojo(`friction_cone`) | 同一 Coulomb 錐的兩種多面 / 圓近似:未達上限時兩者走相同步驟;μ = 0 時逐位相同;沿切向基底軸滑動時上限相同(差 < 1 mm),45° 時金字塔上限為 √2 μN;滾動 / 扭轉係數 0 時不進該分支(預設場景逐位不變) | `test_contact_model` | `bench_contact_model` |
+| 碰撞管線執行 串行 vs 分塊 fan-out(narrowphase、make_contact;經 `Dispatch`,17.54) | physics/collide_par.mojo、physics/solver6.mojo(`_collect_pairs`) | 同一候選序列上的映射:分塊結果依塊序串接、prep 逐槽寫入,順序與串行相同,故對任何 workers 數與派發器逐位相同 | `test_collide_par` | `bench_collide_par` |
+| ECS 查詢過濾 `select`(with / without / any)於六後端的原生實作;變更偵測 pull(`changed` / `added`,寫入日誌)(17.77) | ecs/storage.mojo(`Filter`、`check_pack`)、六個 backend 的 `select`、ecs/world.mojo | 同一實體集合謂詞在不同儲存上的求值:排序後的實體集合與逐個 `has` 的暴力過濾相等,六後端彼此相等;日誌路徑與全掃描回退結果相同 | `test_ecs_query`、`test_ecs_pack_guard` | `bench_ecs_query` |
+| 窄相 重算 vs 複製(兩端未動的候選對沿用上次輸出,`reuse_still_pairs`,17.85) | physics/solver6.mojo(`_narrow_reuse`)、collision/collider_set.mojo(`epoch`) | 純函數的記憶化:輸入(碰撞器 epoch、兩端位姿與線速度、`spec_dt`、裕度)逐位相同則輸出相同,依候選順序串接,故逐位相同 | `test_np_reuse` | `bench_tiers`(`+ reuse_still_pairs` 列) |
+| 連續體求解器 FEM / MPM / PBF / LBM 轉接器,同一 `ContinuumSolver` 契約(17.55) | physics/continuum.mojo | 同一「推進 dt + 健康檢查 + 隔離 + 狀態讀寫」介面的四個實作;泛型驅動對四者相同,狀態寫出 → 讀入 → 續跑逐位相同 | `test_continuum` | `bench_continuum` |
+| 動畫轉場 淡入(兩次取樣 + 混合)vs 慣性化(一次取樣 + 衰減殘差)(17.64) | procedural/anim_state.mojo、procedural/inertialize.mojo | 同一「來源姿態 → 目標 clip」轉場的兩個實作:轉場結束後兩者逐位等於目標 clip 的取樣;殘差為 0 時目標姿態不變 | `test_anim_runtime` | `bench_anim_runtime`(轉場佔比 0 / 50 / 100 %) |
+| 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
 | 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |
@@ -447,6 +454,24 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 | Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
 |---|---|---|---|---|
 | 派發器:`parallelize` / 串行 / 反序 / 宿主 C 回呼(`Dispatch`,`dispatch_for`) | scheduler/dispatch.mojo、physics/solver6.mojo、physics/contact6.mojo、physics/diffsolver.mojo | 各 fan-out 的項寫不相交狀態,故結果是項集合上的函數、與執行順序與執行緒無關;定律是四種派發的快照位元組相同 | `test_dispatch`(island 與同色 fan-out,四種派發) | 尚無(待補每步派發開銷列) |
+
+### 2.27 凸形表示:點雲 vs support mapping(Phase 17.52,2026-10-13)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `Support3`:點雲 `ConvexPoly[3]` vs 解析 support(`SupportEllipsoid` / `SupportCylinder` / `SupportCapsule` / `SupportBox`),共用 GJK 距離(`support_distance`)與 EPA(`epa3`) | geometry/gjk.mojo、geometry/support.mojo、geometry/gjk_distance.mojo、geometry/epa.mojo | 凸集由 support 函數 h(d) 唯一決定;同一凸集的兩個表示給出同一距離 / 穿透函數。點雲是取樣近似,解析 support 是精確表示:圓柱 16 邊形的距離誤差 r(1 − cos(π/16)) 由解析表示消去 | `test_support3`(200 對隨機點雲:`support_distance` == `convex_distance` 至 1e-5;等軸橢球與球 EPA 深度一致);`test_ellipsoid`(等軸橢球靜止高度 == 球 0.49972457,滾動 2.3941412 == 5/7 g sin θ) | `bench_shapes`(每 body-step:球 / 橢球 / 圓柱 / 盒 / SDF;點到圓柱距離:解析 vs 16 邊形) |
+
+### 2.28 距離場表示:解析 vs 取樣(Phase 17.52,2026-10-13)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `DistanceField3`:解析 `Sdf3`(基元 + CSG)vs 取樣 `SdfGrid`(三線性格點);`sphere_trace`、`SdfGrid.from_field` 對兩者共用 | geometry/distance_field.mojo、geometry/sdf3.mojo、geometry/sdf_grid.mojo、collision/world_query.mojo | 同一距離函數的兩個表示;取樣是解析的離散化(誤差 ≤ 一格),節點上相等 | `test_distance_field`(射線 t 兩者 1e-3 內;節點值 `from_field(Sdf3.plane)` == 手填,靜止高度逐位相同) | `bench_shapes`(盒在 SDF 上每 body-step) |
+
+### 2.29 多部件剛體:單 body 複合 vs 焊接多 body(Phase 17.44,2026-10-13)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| (a) `add_compound`(一個 body、N 個凸子形狀)vs (b) N 個 body + `JOINT_WELD`(17.5)vs (c) 單一子形狀退化為一般形狀 | collision/collider_set.mojo(`CompoundSpec`、`kid_*`、`shape_pair`)、collision/contact_gen.mojo(`try_compound_pair`)、physics/mass_props.mojo、physics/solver6.mojo | 同一剛性物體的三個表示;(a)(c) 是同一接觸分派(`ShapeDesc` 對 `ShapeDesc`)在子形狀上的展開,(a) 與 (b) 只差焊接殘差 | `test_compound`(單一子形狀 == 一般盒逐位;兩半盒對整盒在穿透 slop 內;brute == BVH 逐位;質量 / 質心 / 主慣量對手算張量) | `bench_compound`(N = 2–64:複合 44–1881 µs/步,焊接 77–2616 µs/步) |
 
 ## 3. SE(3) 的三個表示函子(GA 層)
 

@@ -33,7 +33,7 @@ produce absurdly long pages.
 from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
-from .storage import StorageBackend
+from .storage import StorageBackend, Filter, resolve_filter, check_pack
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -122,6 +122,7 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
     var gens: List[Int]
 
     def __init__(out self):
+        check_pack[*Self.CTs]()
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
@@ -250,6 +251,29 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
     # --- queries ---
     def _gen_of(self, id: Int) -> Int:
         return self.gens[id] if id < len(self.gens) else 0
+
+    def _has_slot(self, s: Int, id: Int) -> Bool:
+        comptime for i in range(Self.N):
+            if i == s:
+                return Bool(self._col[Self.CTs[i]]()[].get(id))
+        return False
+
+    def select(self, f: Filter) -> List[Entity]:
+        """17.77: one pass over every id (this backend has no index)."""
+        var m = resolve_filter[*Self.CTs](f)
+        var out = List[Entity]()
+        if m.impossible:
+            return out^
+        for id in range(len(self.live)):
+            if not self.live[id]:
+                continue
+            var mask = 0
+            for s in range(Self.N):
+                if self._has_slot(s, id):
+                    mask |= 1 << s
+            if m.accepts(mask):
+                out.append(Entity(id, self._gen_of(id)))
+        return out^
 
     def matching1[A: ComponentType](self) -> List[Entity]:
         var out = List[Entity]()

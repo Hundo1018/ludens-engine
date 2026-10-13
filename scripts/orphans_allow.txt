@@ -9,7 +9,6 @@
 # --- no importer at all
 embed.capi  # [entry] compiled alone by `pixi run capi` into build/libludens.so (12.1)
 ecs.query  # [doc] intentionally empty: documents where queries live (World.query1/2/3)
-geometry.mat3  # [gap] Mat3x3 was meant to replace fem/mpm/chain 3x3 helpers; that migration was reverted for compile time (17.0c step 7, physics/fem.mojo det3 docstring) and nothing, not even a test, uses it now
 
 # --- seam variants
 collision.bp_dbvh  # [seam] BroadPhase backend (test_dbvh, test_solver_bp)
@@ -61,13 +60,15 @@ geometry.sdf3  # [api] 3D signed distance fields (test_sdf3)
 nav.volume  # [api] volume navigation (test_nav_volume)
 physics.actuator  # [api] chain actuators (test_actuator)
 physics.constraints  # [api] unified constraint rows, 13.5 (test_constraints)
-physics.fields  # [api] force fields (test_fields)
 physics.fracture  # [api] fracture sets, 17.5 (test_fracture)
 physics.lod  # [api] SimBudget / physics LOD, 17.31 (test_lod)
 physics.rope  # [api] ropes and cables, 17.41 (test_rope)
 physics.sensors  # [api] robot sensors, 13.6 (test_sensors)
 physics.tendon  # [api] tendons, 13.4 (test_tendon)
 procedural.noise  # [api] noise (test_noise)
-procedural.tween  # [api] tweens (test_tween)
 geometry.mesh_bake  # [api] load-time collision-mesh baking (weld / repair / simplify / active edges), 17.45 (test_mesh_bake)
-geometry.sdf_grid  # [api] mesh -> signed distance grid, 17.45 (test_sdf_grid)
+gameplay.movement  # [api] movement modes over the character controller; a host's player code drives it (17.67)
+physics.capture  # [api] physics capture / read-back / verify; the host stores the bytes (17.80)
+physics.cloth  # [api] mesh cloth; the host steps it beside the scene (17.56)
+physics.resources  # [api] resource report and limits a host queries (17.79)
+procedural.anim_state  # [api] animator state graph a host or gameplay code ticks (17.64)

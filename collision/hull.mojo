@@ -35,7 +35,7 @@ from std.math import sqrt
 from geometry.vec import WorldType, Real, Vec3, dot, length, normalize, cross
 from geometry.gjk import ConvexPoly, gjk_query
 from geometry.epa import Witness, epa_witness3
-from .manifold import ContactManifold
+from .manifold import ContactManifold, spread4
 
 comptime _FACE_EPS: Real = 1e-3  # support-face membership tolerance
 comptime _MAX_FACE = 16  # vertices kept per support face
@@ -443,60 +443,6 @@ def _incident_contact(
         var dq = (ref_level - dot(q, n)) if ref_is_a else (dot(q, n) - ref_level)
         m.points[i] = q
         m.depths[i] = dq
-
-
-def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
-    """Indices of at most 4 contact points (ROADMAP 17.52). Up to 4: all, in
-    order. More (a clipped face with many vertices, e.g. a tessellated
-    cylinder's cap): the deepest, the farthest from it, the farthest from
-    the line through those two, then the largest triangle on the other side
-    of that line -- a spread patch. Keeping the first four in polygon order
-    put all four on one arc of a 32-gon and the cylinder tipped over."""
-    var out = List[Int]()
-    var c = len(pts)
-    if c <= 4:
-        for i in range(c):
-            out.append(i)
-        return out^
-    var i0 = 0
-    for i in range(1, c):
-        if dep[i] > dep[i0]:
-            i0 = i
-    var i1 = -1
-    var best = Real(-1)
-    for i in range(c):
-        var d = pts[i] - pts[i0]
-        var l2 = dot(d, d)
-        if l2 > best:
-            best = l2
-            i1 = i
-    var e = pts[i1] - pts[i0]
-    var i2 = -1
-    var s2 = Real(0)
-    best = Real(-1)
-    for i in range(c):
-        var a = dot(cross(e, pts[i] - pts[i0]), n)
-        if abs(a) > best:
-            best = abs(a)
-            i2 = i
-            s2 = a
-    var i3 = -1
-    best = Real(-1)
-    for i in range(c):
-        if i == i0 or i == i1 or i == i2:
-            continue
-        var a = dot(cross(e, pts[i] - pts[i0]), n)
-        var score = -a if s2 >= 0 else a  # other side of the i0-i1 line
-        if score > best:
-            best = score
-            i3 = i
-    out.append(i0)
-    out.append(i1)
-    if i2 != i0 and i2 != i1:
-        out.append(i2)
-    if i3 >= 0:
-        out.append(i3)
-    return out^
 
 
 def hull_manifold(

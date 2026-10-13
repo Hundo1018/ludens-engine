@@ -78,8 +78,11 @@ from collision.collider_set import (
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
     SHAPE_SDF,
+    SHAPE_ELLIPSOID,
 )
 from geometry.sdf_grid import SdfGrid
+from collision.collider_set import CompoundSpec, ShapeDesc, SHAPE_COMPOUND, COMPOUND_MAX_CHILDREN
+from .mass_props import compound_mass
 from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
 from collision.contact_events import ContactEvent, pack_key, diff_events, EV_STAY, EV_ENDED
 from collision.broadphase import BroadPhase, Pair
@@ -89,7 +92,7 @@ from collision.hull import HullShape
 from collision.trimesh import TriMesh, HeightField
 from diag.counters import (
     Counters, PARALLEL_FALLBACK_SERIAL, COLOR_OVERFLOW, NAN_QUARANTINED, TIER_FALLBACK,
-    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED,
+    NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED, TRACE_DROPPED, CONTACT_DROPPED,
 )
 from diag.log import LogRing, log
 from diag.level import Level, DEBUG_DRAW_ON
@@ -152,6 +155,7 @@ from .islands import (
     wake_island,
 )
 from .ccd6 import ccd_advance
+from .collide_par import narrow_parallel, prep_parallel, NARROW_PAR_MIN
 from .soft_couple import softbody_pass
 
 
@@ -210,6 +214,23 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var colliders: ColliderSet  # shape kinds, hull/mesh tables, filters (F1)
     var counters: Counters  # diag counters (F23: parallel fallback to serial)
     var max_push: Real  # this step's SolverConfig.max_push_speed, for the island path (17.75)
+    # ROADMAP 17.85 narrowphase reuse (`_narrow_reuse`): last collection's
+    # candidates (key i * n + j -> index), their output ranges, the outputs,
+    # and the inputs they were computed from. `np_reused` = candidates copied
+    # in the last collection.
+    var _np_keys: Dict[Int, Int]
+    var _np_lo: List[Int]
+    var _np_cnt: List[Int]
+    var _np_slo: List[Int]
+    var _np_scnt: List[Int]
+    var _np_raws: List[RawContact]
+    var _np_sraws: List[RawContact]
+    var _np_pose: List[Pose3]
+    var _np_vel: List[Vec3]
+    var _np_epoch: Int
+    var _np_spec: Real
+    var _np_margin: Real
+    var np_reused: Int
     var impulse_estimator: Int  # this step's SolverConfig.impulse_estimator (17.49)
     # ROADMAP 17.49: per joint, this step's summed linear / angular impulse
     # and the time it covers (`joint_reaction`).
@@ -276,6 +297,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.colliders = ColliderSet()
         self.counters = Counters()
         self.max_push = 4
+        self._np_keys = Dict[Int, Int]()
+        self._np_lo = List[Int]()
+        self._np_cnt = List[Int]()
+        self._np_slo = List[Int]()
+        self._np_scnt = List[Int]()
+        self._np_raws = List[RawContact]()
+        self._np_sraws = List[RawContact]()
+        self._np_pose = List[Pose3]()
+        self._np_vel = List[Vec3]()
+        self._np_epoch = -1
+        self._np_spec = -1
+        self._np_margin = -1
+        self.np_reused = 0
         self.impulse_estimator = IMPULSE_SUBSTEP_SUM
         self.jsum_f = List[Vec3]()
         self.jsum_t = List[Vec3]()
@@ -473,6 +507,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         )
         return id
 
+    def add_ellipsoid(mut self, var b: Self.B, radii: Vec3, is_static: Bool) -> BodyId:
+        """Solid ellipsoid, semi-axes `radii` along the body's local x, y, z
+        (ROADMAP 17.52; inertia `Inertia3.ellipsoid`). Contacts use its exact
+        support mapping: one point per pair (GJK distance, EPA on overlap)."""
+        self._debug_assert_dynamic_inertia(b, is_static)
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_ellipsoid(radii, id.index())
+        debug_assert(ci == id.index(), "ContactScene6.add_ellipsoid: body/collider index desync")
+        return id
+
     def add_capsule(
         mut self, var b: Self.B, r: Real, half_len: Real, is_static: Bool
     ) -> BodyId:
@@ -496,6 +540,61 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         debug_assert(
             ci == id.index(), "ContactScene6.add_hull: body/collider index desync"
         )
+        return id
+
+    def add_compound(
+        mut self, var b: Self.B, spec: CompoundSpec, density: Real, is_static: Bool
+    ) raises -> BodyId:
+        """One body made of several convex children (ROADMAP 17.44). `b`'s
+        pose is the frame `spec`'s child poses are given in; its inertia is
+        replaced. The children's mass properties at `density` give the
+        centre of mass and principal axes (`physics.mass_props`); the body
+        origin moves to that centre and its axes onto that frame, and the
+        children are re-expressed there, so the world placement of every
+        child is unchanged and `Inertia3`'s diagonal is exact.
+
+        Raises: no children, more than 1024, density <= 0, a non-unit child
+        rotation (|q| off by > 1e-4), or a child with a non-positive size."""
+        var n = len(spec)
+        if n == 0 or n > COMPOUND_MAX_CHILDREN:
+            raise Error("ContactScene6.add_compound: 1 to 1024 children")
+        if not (density > 0 and density < Real(1e30)):
+            raise Error("ContactScene6.add_compound: density must be finite and > 0")
+        for k in range(n):
+            if abs(spec.rot[k].norm() - 1) > Real(1e-4):
+                raise Error("ContactScene6.add_compound: child " + String(k) + " rotation is not a unit quaternion")
+            var h = spec.half[k]
+            var kind = spec.kind[k]
+            var bad = h[0] <= 0
+            if kind == SHAPE_BOX or kind == SHAPE_ELLIPSOID:
+                bad = bad or h[1] <= 0 or h[2] <= 0
+            elif kind == SHAPE_CAPSULE:
+                bad = bad or h[1] < 0
+            elif kind == SHAPE_HULL:
+                bad = spec.hcount[k] < 12
+            if bad:
+                raise Error("ContactScene6.add_compound: child " + String(k) + " has no volume")
+        var mp = compound_mass(spec, density)
+        if not (mp.mass > 0):
+            raise Error("ContactScene6.add_compound: children have no volume")
+        var qp = mp.frame
+        var qpc = qp.conjugate()
+        var moved = CompoundSpec()
+        for k in range(n):
+            var lp = qpc.rotate(spec.pos[k] - mp.com)
+            var lq = qpc * spec.rot[k]
+            var kind = spec.kind[k]
+            if kind == SHAPE_HULL:
+                moved.hull(spec.child_verts(k), lp, lq)
+            else:
+                moved._push(kind, spec.half[k], lp, lq)
+        var q0 = b.rotation()
+        b.set_pose(Pose6(b.position() + q0.rotate(mp.com), q0 * qp))
+        if not is_static:
+            b.set_inertia(Inertia3(mp.mass, mp.moments[0], mp.moments[1], mp.moments[2]))
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_compound(moved, id.index())
+        debug_assert(ci == id.index(), "ContactScene6.add_compound: body/collider index desync")
         return id
 
     def add_sdf(mut self, var b: Self.B, var grid: SdfGrid) -> BodyId:
@@ -701,6 +800,60 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self._check_body_index(i, "set_friction")
         debug_assert(mu >= 0, "ContactScene6.set_friction: mu must be >= 0")
         self.bset.friction[i] = mu
+
+    def set_static_friction(mut self, i: Int, mu_s: Real) raises:
+        """ROADMAP 17.50: body `i`'s static friction coefficient, used by
+        its contact points that are not sliding at prep (tangential speed
+        below 1 cm/s); sliding points use the kinetic `set_friction` value.
+        Pairs combine it with the same rule as the kinetic one."""
+        self._check_body_index(i, "set_static_friction")
+        if not (mu_s >= 0):
+            raise Error("ContactScene6.set_static_friction: mu_s must be >= 0")
+        self.bset.static_friction[i] = mu_s
+        self.bset.any_contact_model = True
+
+    def set_rolling_resistance(mut self, i: Int, c: Real) raises:
+        """ROADMAP 17.50: rolling resistance of body `i` in metres -- a
+        contact caps the opposing torque about the tangent plane at
+        `c · N` (N the pair's normal force; the pair uses the larger `c`).
+        A ball of radius r rolling on a flat floor then decelerates at
+        5·c·g / (7·r)."""
+        self._check_body_index(i, "set_rolling_resistance")
+        if not (c >= 0):
+            raise Error("ContactScene6.set_rolling_resistance: c must be >= 0")
+        self.bset.rolling[i] = c
+        self.bset.any_contact_model = True
+
+    def set_spinning_resistance(mut self, i: Int, c: Real) raises:
+        """ROADMAP 17.50: spin (torsional) resistance of body `i` in
+        metres: torque about the contact normal capped at `c · N`."""
+        self._check_body_index(i, "set_spinning_resistance")
+        if not (c >= 0):
+            raise Error("ContactScene6.set_spinning_resistance: c must be >= 0")
+        self.bset.spinning[i] = c
+        self.bset.any_contact_model = True
+
+    def set_contact_softness(mut self, i: Int, hertz: Real, zeta: Real) raises:
+        """ROADMAP 17.50: contact stiffness of body `i` (soft-constraint
+        `hertz` > 0 and damping ratio `zeta` >= 0, as `SolverConfig`). A
+        pair uses the side with the lower hertz; a body never set uses the
+        step's `cfg.hertz` / `cfg.zeta`."""
+        self._check_body_index(i, "set_contact_softness")
+        if not (hertz > 0) or not (zeta >= 0):
+            raise Error("ContactScene6.set_contact_softness: hertz must be > 0 and zeta >= 0")
+        self.bset.contact_hertz[i] = hertz
+        self.bset.contact_zeta[i] = zeta
+        self.bset.any_contact_model = True
+
+    def set_adhesion(mut self, i: Int, force: Real) raises:
+        """ROADMAP 17.50: body `i`'s contacts may pull as well as push, up to
+        `force` newtons per pair (spread over its points), while the
+        surfaces are within 1 cm. The pair uses the larger value."""
+        self._check_body_index(i, "set_adhesion")
+        if not (force >= 0):
+            raise Error("ContactScene6.set_adhesion: force must be >= 0")
+        self.bset.adhesion[i] = force
+        self.bset.any_contact_model = True
 
     def set_friction_combine(mut self, i: Int, mode: Int):
         """Same pair-priority rule as `set_restitution_combine`, for
@@ -1052,7 +1205,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def set_mass_from_density(mut self, id: BodyId, density: Real) raises:
         """Mass and inertia from the body's collider and a density (kg/m^3):
-        box, sphere and capsule (the `Inertia3` formulas); other shapes raise."""
+        box, sphere, capsule and ellipsoid (the `Inertia3` formulas); other
+        shapes raise."""
         var i = self._check_id(id, "set_mass_from_density")
         if not (density > 0 and density < Real(1e30)):
             raise Error("ContactScene6.set_mass_from_density: density must be finite and > 0")
@@ -1069,8 +1223,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var hl = h[1]
             var vol = Real(3.14159265358979) * r * r * (2 * hl) + Real(4.18879020478639) * r * r * r
             inertia = Inertia3.capsule(density * vol, r, hl)
+        elif k == SHAPE_ELLIPSOID:
+            inertia = Inertia3.ellipsoid(density * Real(4.18879020478639) * h[0] * h[1] * h[2], h[0], h[1], h[2])
         else:
-            raise Error("ContactScene6.set_mass_from_density: only box, sphere and capsule colliders")
+            raise Error("ContactScene6.set_mass_from_density: only box, sphere, capsule and ellipsoid colliders")
         self.bset.bodies[i].set_inertia(inertia)
 
     def _touch(mut self, i: Int):
@@ -1386,8 +1542,84 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             edges.append(self.drives[c].b)
         return edges^
 
+    def _narrow_reuse(
+        mut self, ci: List[Int], cj: List[Int], n: Int, spec_dt: Real, margin_base: Real,
+        mut raws: List[RawContact], mut sraws: List[RawContact],
+    ):
+        """ROADMAP 17.85: the narrowphase with `SolverConfig.reuse_still_pairs`.
+        `try_pair` is a function of the colliders, both poses and linear
+        velocities, `spec_dt` and the margin only, so a candidate whose two
+        bodies are bit-for-bit where they were at the previous collection
+        (same velocities, same `colliders.epoch`, same `spec_dt` / margin)
+        gets last time's output copied instead of recomputed: frozen or
+        sleeping islands, and every body a tier plan did not step. The output
+        is the one the plain loop would build, in candidate order."""
+        var poses = List[Pose3](capacity=n)
+        var vels = List[Vec3](capacity=n)
+        for i in range(n):
+            poses.append(self._pose(i))
+            vels.append(self.bset.bodies[i].linear_velocity())
+        var valid = (
+            self._np_epoch == self.colliders.epoch and self._np_spec == spec_dt
+            and self._np_margin == margin_base and len(self._np_pose) == n
+        )
+        var still = List[Bool](capacity=n)
+        for i in range(n):
+            var st = valid
+            if st:
+                var p = poses[i].position
+                var q = self._np_pose[i].position
+                st = p == q and vels[i] == self._np_vel[i]
+                if st:
+                    for k in range(3):
+                        if poses[i].axes[k] != self._np_pose[i].axes[k]:
+                            st = False
+            still.append(st)
+        var nlo = List[Int](capacity=len(ci))
+        var ncnt = List[Int](capacity=len(ci))
+        var nslo = List[Int](capacity=len(ci))
+        var nscnt = List[Int](capacity=len(ci))
+        var keys = Dict[Int, Int]()
+        var reused = 0
+        for c in range(len(ci)):
+            var i = ci[c]
+            var j = cj[c]
+            var a = len(raws)
+            var sa = len(sraws)
+            var k = -1
+            if still[i] and still[j]:
+                k = self._np_keys.get(i * n + j, -1)
+            if k >= 0:
+                for q in range(self._np_lo[k], self._np_lo[k] + self._np_cnt[k]):
+                    raws.append(self._np_raws[q].copy())
+                for q in range(self._np_slo[k], self._np_slo[k] + self._np_scnt[k]):
+                    sraws.append(self._np_sraws[q].copy())
+                reused += 1
+            else:
+                try_pair(self.colliders, i, j, poses[i], poses[j], vels[i], vels[j], spec_dt, raws, sraws, margin_base)
+            keys[i * n + j] = c
+            nlo.append(a)
+            ncnt.append(len(raws) - a)
+            nslo.append(sa)
+            nscnt.append(len(sraws) - sa)
+        self._np_keys = keys^
+        self._np_lo = nlo^
+        self._np_cnt = ncnt^
+        self._np_slo = nslo^
+        self._np_scnt = nscnt^
+        self._np_raws = raws.copy()
+        self._np_sraws = sraws.copy()
+        self._np_pose = poses^
+        self._np_vel = vels^
+        self._np_epoch = self.colliders.epoch
+        self._np_spec = spec_dt
+        self._np_margin = margin_base
+        self.np_reused = reused
+
     def _collect_pairs(
-        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False, margin_base: Real = SPEC_BASE
+        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False, margin_base: Real = SPEC_BASE,
+        par: Bool = False, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel(),
+        reuse: Bool = False,
     ) -> List[ContactConstraint]:
         """Manifolds at the current poses (ROTATED box-box manifold — tilted
         geometry produces restoring contacts). With `warm`, impulses are
@@ -1406,9 +1638,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         touched, on what manifold) comes from `collision.contact_gen.try_pair`
         over `self.colliders`; this method's own job is wrapping that
         geometry with the warm-start match and body-frame anchors that need
-        `Body6` (`_make_cpair`)."""
+        `Body6` (`_make_cpair`).
+
+        ROADMAP 17.54: candidates are enumerated first (span "broadphase"),
+        then run through the narrowphase ("narrowphase") and wrapped
+        ("contact_prep"). With `par` and at least `NARROW_PAR_MIN`
+        candidates the last two fan out through `dispatch`
+        (`physics.collide_par`), keeping the candidate order, so the result
+        is bit-identical to `par=False`."""
         var raws = List[RawContact]()
         var sraws = List[RawContact]()
+        var ci = List[Int]()
+        var cj = List[Int]()
+        self.trace.begin("broadphase")
         var n = len(self.bset.bodies)
         # ROADMAP 17.5: two bodies held together by a live weld do not collide
         # with each other (a fracture bond is a rigid seam, not two touching
@@ -1483,15 +1725,32 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 if has_weld and (min(i, j) * n + max(i, j)) in weld_keys:
                     continue
                 self.counters.incr(NARROWPHASE_PAIRS)
-                try_pair(
-                    self.colliders, i, j, self._pose(i), self._pose(j),
-                    self.bset.bodies[i].linear_velocity(),
-                    self.bset.bodies[j].linear_velocity(),
-                    spec_dt, raws, sraws, margin_base,
-                )
+                ci.append(i)
+                cj.append(j)
         else:
+            # The same fat AABBs the broadphase path tests, so brute and
+            # broadphase now see the same pairs. They are not a strict
+            # superset of every speculative manifold: a rotated box inflated
+            # along its own axes reaches up to sqrt(3) x the margin past its
+            # box, and a hull pair can report a speculative contact 9 cm
+            # apart -- such far pairs used to reach the narrowphase only on
+            # this path (test_fracture's brick piles counted one island
+            # less). Without the cull every pair reached the narrowphase:
+            # 64 cylinders on a floor made 2080 hull tests per step (18 ms)
+            # for 64 real contacts.
+            var fat = List[AABB[3]](capacity=n)
+            for i in range(n):
+                fat.append(self.colliders.fat_aabb(i, self._pose(i), self.bset.bodies[i].linear_velocity(), spec_dt, margin_base))
             for i in range(n):
                 for j in range(i + 1, n):
+                    if not fat[i].overlaps(fat[j]):
+                        # still an enumerated candidate: NARROWPHASE_PAIRS
+                        # counts what the brute loop examines (test_work_counters)
+                        if self.bset.is_dynamic(i) or self.bset.is_dynamic(j):
+                            if not (self.bset.is_removed(i) or self.bset.is_removed(j)):
+                                if not (has_weld and (i * n + j) in weld_keys):
+                                    self.counters.incr(NARROWPHASE_PAIRS)
+                        continue
                     # ROADMAP 17.0i: a removed body's collider row is stale
                     # (see the broadphase branch's matching comment above).
                     if self.bset.is_removed(i) or self.bset.is_removed(j):
@@ -1505,23 +1764,50 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     if not self.bset.is_dynamic(i) and not self.bset.is_dynamic(j):
                         continue
                     self.counters.incr(NARROWPHASE_PAIRS)
-                    try_pair(
-                        self.colliders, i, j, self._pose(i), self._pose(j),
-                        self.bset.bodies[i].linear_velocity(),
-                        self.bset.bodies[j].linear_velocity(),
-                        spec_dt, raws, sraws, margin_base,
-                    )
+                    ci.append(i)
+                    cj.append(j)
+        self.trace.end()
+        self.trace.begin("narrowphase")
+        var fan = par and len(ci) >= NARROW_PAR_MIN
+        if fan and not reuse:
+            var poses = List[Pose3](capacity=n)
+            var vels = List[Vec3](capacity=n)
+            for i in range(n):
+                poses.append(self._pose(i))
+                vels.append(self.bset.bodies[i].linear_velocity())
+            var cnt = List[Int](length=len(ci), fill=0)
+            var scnt = List[Int](length=len(ci), fill=0)
+            narrow_parallel(self.colliders, poses, vels, ci, cj, spec_dt, margin_base, raws, sraws, cnt, scnt, workers, dispatch)
+        elif reuse:
+            self._narrow_reuse(ci, cj, n, spec_dt, margin_base, raws, sraws)
+        else:
+            for c in range(len(ci)):
+                var i = ci[c]
+                var j = cj[c]
+                try_pair(
+                    self.colliders, i, j, self._pose(i), self._pose(j),
+                    self.bset.bodies[i].linear_velocity(),
+                    self.bset.bodies[j].linear_velocity(),
+                    spec_dt, raws, sraws, margin_base,
+                )
+        self.trace.end()
+        self.trace.begin("contact_prep")
         self.sensor_pairs = List[ContactConstraint]()  # rebuilt with the solved pairs
         for c in range(len(sraws)):
             self.sensor_pairs.append(make_sensor_contact(sraws[c]))
         self.counters.incr(CONTACT_MANIFOLDS, Int64(len(raws)))
         for c in range(len(raws)):
             self.counters.incr(CONTACT_POINTS, Int64(raws[c].m.count))
-        var pairs = List[ContactConstraint]()
         var cidx = cache_index(self.cache)
-        for c in range(len(raws)):
-            pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
+        var pairs: List[ContactConstraint]
+        if fan:
+            pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch)
+        else:
+            pairs = List[ContactConstraint]()
+            for c in range(len(raws)):
+                pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
         apply_rules(self.bset, self.rules, pairs)
+        self.trace.end()
         return pairs^
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):
@@ -1978,6 +2264,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self._step_impl(dt, gravity, cfg)
         if self.bset.any_props:
             self._props_post()
+        # ROADMAP 17.80: spans the trace could not keep go to the shared counters
+        var tdrop = self.trace.take_dropped()
+        if tdrop > 0:
+            self.counters.incr(TRACE_DROPPED, Int64(tdrop))
 
     def _step_impl(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme).
@@ -2014,6 +2304,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         with a value that would otherwise divide out to `inf`/`NaN` below."""
         self.max_push = cfg.max_push_speed
         self.impulse_estimator = cfg.impulse_estimator
+        self.bset.cone = cfg.friction_cone
         self._reset_joint_sums()
         debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
         debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
@@ -2042,8 +2333,18 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # a separate "narrowphase" span at without restructuring that
         # function; the spec's phase list treats them as one unit here.
         self.trace.begin("collect_pairs")
-        var pairs = self._collect_pairs(True, dt, broadphase, cfg.margin_base)
+        var pairs = self._collect_pairs(
+            True, dt, broadphase, cfg.margin_base, cfg.parallel_collision, workers, cfg.dispatch,
+            cfg.reuse_still_pairs,
+        )
+        if cfg.max_contacts > 0 and len(pairs) > cfg.max_contacts:
+            self.counters.incr(CONTACT_DROPPED, Int64(len(pairs) - cfg.max_contacts))
+            while len(pairs) > cfg.max_contacts:
+                _ = pairs.pop()
         self.trace.end()
+        # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
+        self.trace.sample("contact_manifolds", len(pairs))
+        self.trace.sample("bodies", len(self.bset.bodies))
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         # graph coloring (colored=True): greedy smallest-free-color over the
         # DYNAMIC-body adjacency (a shared static must not chain colors, or
@@ -2549,6 +2850,27 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wf(sg.cell)
             for k in range(len(sg.values)):
                 out.wf(sg.values[k])
+        elif sc.colliders.shape[i] == SHAPE_COMPOUND:
+            # 17.44: every child (kind, size, local pose, hull vertices)
+            var cid = sc.colliders.mesh_id[i]
+            var f0 = sc.colliders.comp_first[cid]
+            var nk = sc.colliders.comp_n[cid]
+            out.wi(nk)
+            for k in range(nk):
+                var d = sc.colliders.kid_desc[f0 + k]
+                var q = sc.colliders.kid_rot[f0 + k]
+                out.wi(d.kind)
+                out.wv(d.half)
+                out.wv(sc.colliders.kid_pos[f0 + k])
+                out.wf(q.x)
+                out.wf(q.y)
+                out.wf(q.z)
+                out.wf(q.w)
+                if d.kind == SHAPE_HULL:
+                    ref kh = sc.colliders.hulls[d.hid]
+                    out.wi(len(kh.v))
+                    for v in range(len(kh.v)):
+                        out.wf(kh.v[v])
     out.wi(len(sc.joints))
     for j in range(len(sc.joints)):
         var jt = sc.joints[j]
@@ -2728,6 +3050,17 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wf(ex.acc_motor)
         out.wf(ex.acc_spring)
         out.wf(ex.acc_cone)
+    # 17.50: contact-model fields (static friction, rolling, spinning,
+    # softness, adhesion).
+    out.wi(1 if sc.bset.any_contact_model else 0)
+    if sc.bset.any_contact_model:
+        for i in range(len(sc.bset.bodies)):
+            out.wf(sc.bset.static_friction[i])
+            out.wf(sc.bset.rolling[i])
+            out.wf(sc.bset.spinning[i])
+            out.wf(sc.bset.contact_hertz[i])
+            out.wf(sc.bset.contact_zeta[i])
+            out.wf(sc.bset.adhesion[i])
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -2870,6 +3203,37 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             sc.colliders.mesh_id[bi] = len(sc.colliders.sdfs)
             sc.colliders.world_aabb[bi] = AABB[3](org, org + Vec3(span, span, span, 0))
             sc.colliders.sdfs.append(grid^)
+        elif kind == SHAPE_COMPOUND:
+            var nk = r.ri()
+            if nk < 1 or nk > COMPOUND_MAX_CHILDREN:
+                raise Error("physics.serialize: corrupt snapshot (compound child count)")
+            var f0 = len(sc.colliders.kid_desc)
+            for _ in range(nk):
+                var ck = r.ri()
+                if ck != SHAPE_BOX and ck != SHAPE_SPHERE and ck != SHAPE_CAPSULE and ck != SHAPE_HULL and ck != SHAPE_ELLIPSOID:
+                    raise Error("physics.serialize: corrupt snapshot (compound child kind)")
+                var ch = r.rv()
+                var cp = r.rv()
+                var qx = r.rf()
+                var qy = r.rf()
+                var qz = r.rf()
+                var qw = r.rf()
+                var hid = -1
+                if ck == SHAPE_HULL:
+                    var nv = r.ri()
+                    if nv < 0:
+                        raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
+                    var hv = List[Real](capacity=nv)
+                    for _ in range(nv):
+                        hv.append(r.rf())
+                    hid = len(sc.colliders.hulls)
+                    sc.colliders.hulls.append(HullShape(hv))
+                sc.colliders.kid_desc.append(ShapeDesc(ck, ch, hid))
+                sc.colliders.kid_pos.append(cp)
+                sc.colliders.kid_rot.append(Quat(qx, qy, qz, qw))
+            sc.colliders.mesh_id[bi] = len(sc.colliders.comp_first)
+            sc.colliders.comp_first.append(f0)
+            sc.colliders.comp_n.append(nk)
     var nj = r.ri()
     if nj < 0:
         raise Error("physics.serialize: corrupt snapshot (negative joint count)")
@@ -2943,6 +3307,8 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
             Vec3(0, 0, 0, 0), Real(-1),
             Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
+            Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            Vec3(0, 0, 0, 0), Real(0), 0,
         )
         for p in range(4):
             pr.m.points[p] = r.rv()
@@ -3094,3 +3460,12 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             ra, rb, Quat(qx, qy, qz, qw), collide, a_lo, a_hi, a_m, a_s, a_c,
         ))
     sc._ensure_ext()
+    sc.bset.any_contact_model = r.ri() == 1
+    if sc.bset.any_contact_model:
+        for i in range(len(sc.bset.bodies)):
+            sc.bset.static_friction[i] = r.rf()
+            sc.bset.rolling[i] = r.rf()
+            sc.bset.spinning[i] = r.rf()
+            sc.bset.contact_hertz[i] = r.rf()
+            sc.bset.contact_zeta[i] = r.rf()
+            sc.bset.adhesion[i] = r.rf()

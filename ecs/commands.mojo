@@ -73,15 +73,29 @@ struct _SetRec[C: ComponentType](Copyable, ImplicitlyCopyable, Movable):
     var v: Self.C
 
 
+comptime _OP_DESPAWN = -1000000
+comptime _OP_SPAWN = -2000000
+
+
 struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
-    """Deferred component writes for a world with component pack `CTs`.
-    Values are held in per-type queues (type-erased heap slots); `order`
-    remembers which queue each recorded write went to, so `apply` replays the
-    exact interleaving of the original `set` calls."""
+    """Deferred structural changes for a world with component pack `CTs`:
+    `set`, and (ROADMAP 17.77) `remove[C]`, `despawn` and `spawn`, replayed
+    by `apply` in exact recording order. Values are held in per-type queues
+    (type-erased heap slots); `order` remembers which queue / operation each
+    record went to.
+
+    `spawn` returns a placeholder `Entity` (negative id) usable in later
+    `set` / `remove` / `despawn` calls of the same buffer; `apply` creates the
+    real entity at that point in the order and returns the real handles in
+    spawn order. Records for entities dead by then are dropped."""
 
     comptime N: Int = len(Self.CTs)
     var slots: List[Slot]  # slot i -> heap List[_SetRec[CTs[i]]]
-    var order: List[Int]  # recording order: slot index per write
+    # recording order: slot index per write; -(slot + 1) per remove;
+    # _OP_DESPAWN / _OP_SPAWN
+    var order: List[Int]
+    var targets: List[Entity]  # entity per remove / despawn record, in order
+    var n_spawn: Int
 
     def __init__(out self):
         self.slots = List[Slot](capacity=Self.N)
@@ -91,6 +105,8 @@ struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
             p.unsafe_write(List[_SetRec[T]]())
             self.slots.append(p.unsafe_bitcast[NoneType]())
         self.order = List[Int]()
+        self.targets = List[Entity]()
+        self.n_spawn = 0
 
     def __deinit__(deinit self):
         comptime for i in range(Self.N):
@@ -112,28 +128,68 @@ struct SetBuffer[*CTs: ComponentType](Movable, Deinitable):
         q[].append(_SetRec[C](e, v^))
         self.order.append(si)
 
+    def remove[C: ComponentType](mut self, e: Entity):
+        self.order.append(-(Self._slot_of[C]() + 1))
+        self.targets.append(e)
+
+    def despawn(mut self, e: Entity):
+        self.order.append(_OP_DESPAWN)
+        self.targets.append(e)
+
+    def spawn(mut self) -> Entity:
+        """A placeholder for an entity `apply` will create (17.77)."""
+        self.order.append(_OP_SPAWN)
+        self.n_spawn += 1
+        return Entity(-self.n_spawn, -1)
+
     def pending(self) -> Int:
         return len(self.order)
 
-    def apply[B: StorageBackend](mut self, mut w: World[B]):
-        """Replay every deferred write in recording order at the sync point.
-        Writes to entities that died in the meantime are dropped. Queues
+    def apply[B: StorageBackend](mut self, mut w: World[B]) -> List[Entity]:
+        """Replay every deferred record in recording order at the sync
+        point; returns the entities created by `spawn`, in spawn order.
+        Records for entities that died in the meantime are dropped. Queues
         reset afterwards."""
         var cursors = List[Int]()
         for _ in range(Self.N):
             cursors.append(0)
+        var spawned = List[Entity]()
+        var tcur = 0
         for k in range(len(self.order)):
             var s = self.order[k]
+            if s == _OP_SPAWN:
+                spawned.append(w.spawn())
+                continue
+            if s < 0:
+                var e = self.targets[tcur]
+                tcur += 1
+                if e.id < 0:
+                    e = spawned[-e.id - 1]
+                if not w.is_alive(e):
+                    continue
+                if s == _OP_DESPAWN:
+                    w.despawn(e)
+                else:
+                    comptime for i in range(Self.N):
+                        if i == -s - 1:
+                            w.remove[Self.CTs[i]](e)
+                continue
             comptime for i in range(Self.N):
                 if i == s:
                     comptime T = Self.CTs[i]
                     var q = self.slots[i].unsafe_bitcast[List[_SetRec[T]]]()
                     var rec = q[][cursors[i]]
                     cursors[i] += 1
-                    if w.is_alive(rec.e):
-                        w.set(rec.e, rec.v)
+                    var e = rec.e
+                    if e.id < 0:
+                        e = spawned[-e.id - 1]
+                    if w.is_alive(e):
+                        w.set(e, rec.v)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
             var q = self.slots[i].unsafe_bitcast[List[_SetRec[T]]]()
             q[] = List[_SetRec[T]]()
         self.order = List[Int]()
+        self.targets = List[Entity]()
+        self.n_spawn = 0
+        return spawned^

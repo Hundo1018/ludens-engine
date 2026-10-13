@@ -21,6 +21,7 @@ exercise a CSG shape for exactly that reason.
 
 from std.math import sqrt
 from geometry.vec import Real, Vec3, length, dot, normalize
+from geometry.distance_field import DistanceField3
 
 comptime KIND_SPHERE = 0
 comptime KIND_BOX = 1
@@ -34,7 +35,7 @@ comptime OP_SUBTRACT = 3
 
 
 @fieldwise_init
-struct Sdf3(Copyable, ImplicitlyCopyable, Movable):
+struct Sdf3(Copyable, ImplicitlyCopyable, Movable, DistanceField3):
     """One primitive, optionally combined with a second by a CSG operator.
 
     Deliberately two-deep rather than a general tree: a tree needs heap

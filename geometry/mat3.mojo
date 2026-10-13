@@ -110,3 +110,57 @@ struct Mat3x3(Copyable, ImplicitlyCopyable, Movable, Deinitable):
             - self.m[1] * (self.m[3] * self.m[8] - self.m[5] * self.m[6])
             + self.m[2] * (self.m[3] * self.m[7] - self.m[4] * self.m[6])
         )
+
+
+def sym_eigen3(a: Mat3x3) -> Tuple[Vec3, Mat3x3]:
+    """Eigenvalues and eigenvectors of a SYMMETRIC 3x3 matrix by cyclic
+    Jacobi rotations in Float64 (ROADMAP 17.44: rotating an inertia tensor
+    to its principal axes). Returns (lambda, V) with `a = V diag(lambda) V^T`,
+    V's columns orthonormal and right-handed (det +1). A diagonal input
+    comes back unchanged with V = identity, exactly."""
+    var m = Array[Float64, 9](fill=0)
+    var v = Array[Float64, 9](fill=0)
+    for k in range(9):
+        m[k] = Float64(a.m[k])
+    v[0] = 1
+    v[4] = 1
+    v[8] = 1
+    for _ in range(32):
+        var off = m[1] * m[1] + m[2] * m[2] + m[5] * m[5]
+        if off < 1e-30:
+            break
+        for pq in range(3):
+            var p = 0 if pq < 2 else 1
+            var q = pq + 1 if pq < 2 else 2
+            var apq = m[p * 3 + q]
+            if abs(apq) < 1e-300:
+                continue
+            var app = m[p * 3 + p]
+            var aqq = m[q * 3 + q]
+            var theta = (aqq - app) / (2 * apq)
+            var t = (Float64(1) if theta >= 0 else Float64(-1)) / (abs(theta) + (theta * theta + 1) ** 0.5)
+            var c = 1 / (t * t + 1) ** 0.5
+            var s = t * c
+            for k in range(3):  # m <- J^T m J, columns then rows
+                var mkp = m[k * 3 + p]
+                var mkq = m[k * 3 + q]
+                m[k * 3 + p] = c * mkp - s * mkq
+                m[k * 3 + q] = s * mkp + c * mkq
+            for k in range(3):
+                var mpk = m[p * 3 + k]
+                var mqk = m[q * 3 + k]
+                m[p * 3 + k] = c * mpk - s * mqk
+                m[q * 3 + k] = s * mpk + c * mqk
+            for k in range(3):
+                var vkp = v[k * 3 + p]
+                var vkq = v[k * 3 + q]
+                v[k * 3 + p] = c * vkp - s * vkq
+                v[k * 3 + q] = s * vkp + c * vkq
+    var lam = Vec3(Real(m[0]), Real(m[4]), Real(m[8]), 0)
+    var vm = Mat3x3()
+    for k in range(9):
+        vm.m[k] = Real(v[k])
+    if vm.det() < 0:  # keep a rotation: flip the third axis
+        for k in range(3):
+            vm.m[k * 3 + 2] = -vm.m[k * 3 + 2]
+    return (lam, vm^)

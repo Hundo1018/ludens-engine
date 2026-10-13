@@ -7,6 +7,10 @@ quality every 2nd step, 2 = 2 iterations / 2 substeps every 4th step (both
 catch up the skipped time). Policies: untiered, DistanceTiers (8 / 20 m),
 CausalReach (seed 8 m, depth 0 / 2), RoundRobin (everything tier 2),
 BudgetTiers (DistanceTiers whose radii follow a 50 %-of-untiered budget).
+The DBVH row runs the same scene on the persistent `DbvhBroadPhase` (only
+moved proxies are re-inserted) instead of the default per-step BVH build.
+The `+ reuse_still_pairs` rows copy last collection's narrowphase output
+for pairs whose bodies did not move (bit-identical, `test_np_reuse`).
 Labels: islands solved per step and, for n = 1e3 (run beside an untiered
 copy), the deepest penetration beyond the untiered run's.
 
@@ -19,6 +23,9 @@ from harness.bench import BenchTable, now
 from geometry.vec import Real, Vec3
 from physics.rigid6 import Body6, Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
+from collision.broadphase import BroadPhase
+from collision.bp_bvh import BVHBroadPhase
+from collision.bp_dbvh import DbvhBroadPhase
 from physics.solver_config import SolverConfig
 from gameplay.tiers import TierPolicy, DistanceTiers, CausalReach, RoundRobin, BudgetTiers
 
@@ -32,9 +39,9 @@ def _v(x: Real, y: Real, z: Real) -> Vec3:
     return Vec3(x, y, z, 0)
 
 
-def build(n: Int, tiered: Bool) raises -> ContactScene6[QuatBody6]:
+def build[BP: BroadPhase = BVHBroadPhase[3]](n: Int, tiered: Bool) raises -> ContactScene6[QuatBody6, BP]:
     var side = Int(sqrt(Float64(n // 2))) + 1
-    var sc = ContactScene6[QuatBody6]()
+    var sc = ContactScene6[QuatBody6, BP]()
     var L = Real(side) * 2
     _ = sc.add(QuatBody6.at_rest(_v(L / 2, -0.5, L / 2), Inertia3.box(1, L, 0.5, L)), _v(L / 2 + 1, 0.5, L / 2 + 1), True)
     var made = 0
@@ -68,7 +75,7 @@ def build(n: Int, tiered: Bool) raises -> ContactScene6[QuatBody6]:
     return sc^
 
 
-def deepest(sc: ContactScene6[QuatBody6]) -> Real:
+def deepest[BP: BroadPhase](sc: ContactScene6[QuatBody6, BP]) -> Real:
     var d = Real(0)
     for c in sc.cache:
         for p in range(c.m.count):
@@ -76,11 +83,12 @@ def deepest(sc: ContactScene6[QuatBody6]) -> Real:
     return d
 
 
-def _run[P: TierPolicy](mut t: BenchTable, var pol: P, name: String, n: Int, budget_ns: Int) raises:
-    var sc = build(n, True)
+def _run[P: TierPolicy, BP: BroadPhase = BVHBroadPhase[3]](mut t: BenchTable, var pol: P, name: String, n: Int, budget_ns: Int, reuse: Bool = False) raises:
+    var sc = build[BP](n, True)
     var full = build(n, False)
     var cfg = SolverConfig()
     cfg.broadphase = True
+    cfg.reuse_still_pairs = reuse
     var obs = List[Vec3]()
     obs.append(_v(0, 1, 0))
     var ns = 0
@@ -109,7 +117,7 @@ struct Untiered(TierPolicy):
     def __init__(out self):
         pass
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         return List[Int](length=len(scene.bset.bodies), fill=0)
 
 
@@ -126,7 +134,7 @@ struct Budgeted(TierPolicy):
         self.inner = BudgetTiers(r^, target_ns, 1.5, 0.8)
         self.t0 = 0
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         var t = now()
         if self.t0 > 0:
             self.inner.measured(t - self.t0)
@@ -159,4 +167,17 @@ def main() raises:
         _run(t, RoundRobin(2), "RoundRobin (all tier 2)", n, 0)
         _run(t, Budgeted(full_ns // 2), "BudgetTiers (50 % of untiered)", n, full_ns // 2)
         _run(t, Untiered(), "all tier 0 (parity anchor)", n, 0)
+        var r2 = List[Real]()
+        r2.append(8)
+        r2.append(20)
+        _run(t, DistanceTiers(r2^, 1.5), "DistanceTiers 8 / 20 m + reuse_still_pairs", n, 0, True)
+        _run(t, RoundRobin(2), "RoundRobin + reuse_still_pairs", n, 0, True)
+        var r3 = List[Real]()
+        r3.append(8)
+        r3.append(20)
+        _run[DistanceTiers, DbvhBroadPhase[3]](t, DistanceTiers(r3^, 1.5), "DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase", n, 0, True)
+        var r4 = List[Real]()
+        r4.append(8)
+        r4.append(20)
+        _run[DistanceTiers, DbvhBroadPhase[3]](t, DistanceTiers(r4^, 1.5), "DistanceTiers 8 / 20 m, DBVH broadphase", n, 0, False)
     t.print_report()

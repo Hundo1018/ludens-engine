@@ -18,8 +18,8 @@ Each dim-specific helper is only ever instantiated at its own `dim` (guarded by
 realloc hazard, see gjk.mojo). Normals are oriented from `a` toward `b`.
 """
 
-from .vec import WorldType, Real, Vec2, dot, normalize, length, PadW, cross
-from .gjk import ConvexPoly, Simplex, gjk_query
+from .vec import WorldType, Real, Vec2, Vec3, dot, normalize, length, PadW, cross
+from .gjk import ConvexPoly, Simplex, Support3, gjk_query
 
 
 @fieldwise_init
@@ -138,8 +138,11 @@ def gjk_collide[dim: Int](
     comptime if dim == 2:
         return _epa2[dim](a, b, q.simplex)
     else:
-        var w = _epa3[dim](a, b)
-        return EpaResult[dim](True, w.normal, w.depth)
+        var w = epa3(a, b)
+        var n = SIMD[WorldType, PadW[dim]](0)
+        comptime for k in range(min(dim, 3)):
+            n[k] = w.normal[k]
+        return EpaResult[dim](True, n, w.depth)
 
 
 # --- 3D EPA with witness points ---------------------------------------------
@@ -165,18 +168,18 @@ struct Witness[dim: Int](Copyable, ImplicitlyCopyable, Movable):
 
 
 @fieldwise_init
-struct _WVert[dim: Int](Copyable, ImplicitlyCopyable, Movable):
-    var v: SIMD[WorldType, PadW[Self.dim]]  # CSO point (= sa - sb)
-    var sa: SIMD[WorldType, PadW[Self.dim]]  # support of A
-    var sb: SIMD[WorldType, PadW[Self.dim]]  # support of B
+struct _WVert(Copyable, ImplicitlyCopyable, Movable):
+    var v: Vec3  # CSO point (= sa - sb)
+    var sa: Vec3  # support of A
+    var sb: Vec3  # support of B
 
 
 @fieldwise_init
-struct _Face[dim: Int](Copyable, ImplicitlyCopyable, Movable):
+struct _Face(Copyable, ImplicitlyCopyable, Movable):
     var i0: Int
     var i1: Int
     var i2: Int
-    var n: SIMD[WorldType, PadW[Self.dim]]  # outward unit normal
+    var n: Vec3  # outward unit normal
     var d: Real  # signed distance from the origin along n
 
 
@@ -186,32 +189,26 @@ struct _Edge(Copyable, ImplicitlyCopyable, Movable):
     var b: Int
 
 
-def _wsupport[dim: Int](
-    a: ConvexPoly[dim], b: ConvexPoly[dim], dir: SIMD[WorldType, PadW[dim]]
-) -> _WVert[dim]:
-    var sa = a.support(dir)
-    var sb = b.support(-dir)
-    return _WVert[dim](sa - sb, sa, sb)
+def _wsupport[A: Support3, B: Support3](a: A, b: B, dir: Vec3) -> _WVert:
+    var sa = a.support_point(dir)
+    var sb = b.support_point(-dir)
+    return _WVert(sa - sb, sa, sb)
 
 
-def _mk_face[dim: Int](
-    verts: List[_WVert[dim]],
-    i0: Int,
-    i1: Int,
-    i2: Int,
-    interior: SIMD[WorldType, PadW[dim]],
-) -> _Face[dim]:
+def _mk_face(
+    verts: List[_WVert], i0: Int, i1: Int, i2: Int, interior: Vec3
+) -> _Face:
     """Face oriented away from `interior`; degenerate faces get d = 1e30 so
     they are never selected as closest."""
     var v0 = verts[i0].v
-    var n = cross[dim](verts[i1].v - v0, verts[i2].v - v0)
+    var n = cross[3](verts[i1].v - v0, verts[i2].v - v0)
     var ln = length(n)
     if ln < Real(1e-12):
-        return _Face[dim](i0, i1, i2, SIMD[WorldType, PadW[dim]](0), Real(1e30))
+        return _Face(i0, i1, i2, Vec3(0, 0, 0, 0), Real(1e30))
     n = n / ln
     if dot(n, v0 - interior) < 0:
-        return _Face[dim](i0, i2, i1, -n, dot(-n, v0))
-    return _Face[dim](i0, i1, i2, n, dot(n, v0))
+        return _Face(i0, i2, i1, -n, dot(-n, v0))
+    return _Face(i0, i1, i2, n, dot(n, v0))
 
 
 def _add_edge(mut edges: List[_Edge], a: Int, b: Int):
@@ -227,72 +224,66 @@ def _add_edge(mut edges: List[_Edge], a: Int, b: Int):
     edges.append(_Edge(a, b))
 
 
-def _touch_fallback[dim: Int](
-    a: ConvexPoly[dim], b: ConvexPoly[dim]
-) -> Witness[dim]:
+def _touch_fallback[A: Support3, B: Support3](a: A, b: B) -> Witness[3]:
     """Flat CSO (shapes barely touching): centroid-direction contact."""
-    var n = _centroid[dim](b) - _centroid[dim](a)
+    var n = b.center_point() - a.center_point()
     if dot(n, n) < Real(1e-12):
-        n = SIMD[WorldType, PadW[dim]](0)
-        n[0] = 1
+        n = Vec3(1, 0, 0, 0)
     n = normalize(n)
-    return Witness[dim](True, n, Real(1e-4), a.support(n), b.support(-n))
+    return Witness[3](True, n, Real(1e-4), a.support_point(n), b.support_point(-n))
 
 
-def _seed_tetra[dim: Int](
-    a: ConvexPoly[dim], b: ConvexPoly[dim], mut verts: List[_WVert[dim]]
-) -> Bool:
+def _seed_tetra[A: Support3, B: Support3](a: A, b: B, mut verts: List[_WVert]) -> Bool:
     """Build a non-degenerate seed tetrahedron on the CSO hull from supports."""
-    var d0 = SIMD[WorldType, PadW[dim]](0)
-    d0[0] = 1
-    verts.append(_wsupport[dim](a, b, d0))
+    var d0 = Vec3(1, 0, 0, 0)
+    verts.append(_wsupport(a, b, d0))
     var d1 = -verts[0].v
     if dot(d1, d1) < Real(1e-12):
         d1 = -d0
-    verts.append(_wsupport[dim](a, b, normalize(d1)))
+    verts.append(_wsupport(a, b, normalize(d1)))
     var ab = verts[1].v - verts[0].v
     var ao = -verts[0].v
     # Perpendicular to the segment, toward the origin.
     var d2 = ao * dot(ab, ab) - ab * dot(ab, ao)
     if dot(d2, d2) < Real(1e-12):
-        var ax = SIMD[WorldType, PadW[dim]](0)
-        ax[0] = 1
-        d2 = cross[dim](ab, ax)
+        var ax = Vec3(1, 0, 0, 0)
+        d2 = cross[3](ab, ax)
         if dot(d2, d2) < Real(1e-12):
             ax[0] = 0
             ax[1] = 1
-            d2 = cross[dim](ab, ax)
-    verts.append(_wsupport[dim](a, b, normalize(d2)))
-    var n = cross[dim](
+            d2 = cross[3](ab, ax)
+    verts.append(_wsupport(a, b, normalize(d2)))
+    var n = cross[3](
         verts[1].v - verts[0].v, verts[2].v - verts[0].v
     )
     if dot(n, n) < Real(1e-12):
         return False  # collinear: flat CSO
     if dot(n, -verts[0].v) < 0:
         n = -n
-    verts.append(_wsupport[dim](a, b, normalize(n)))
+    verts.append(_wsupport(a, b, normalize(n)))
     if abs(dot(verts[3].v - verts[0].v, n)) < Real(1e-9):
         # Apex landed on the base plane: try the other side.
-        verts[3] = _wsupport[dim](a, b, -normalize(n))
+        verts[3] = _wsupport(a, b, -normalize(n))
         if abs(dot(verts[3].v - verts[0].v, n)) < Real(1e-9):
             return False  # planar CSO: touching contact
     return True
 
 
-def _epa3[dim: Int](a: ConvexPoly[dim], b: ConvexPoly[dim]) -> Witness[dim]:
-    """3D EPA over a triangle-faced polytope. Only instantiated at dim == 3;
-    callers must have confirmed the GJK hit."""
-    var verts = List[_WVert[dim]]()
-    if not _seed_tetra[dim](a, b, verts):
-        return _touch_fallback[dim](a, b)
+def epa3[A: Support3, B: Support3](a: A, b: B) -> Witness[3]:
+    """3D EPA over a triangle-faced polytope, on any two `Support3` shapes
+    (point clouds or analytic, ROADMAP 17.52). Callers must have confirmed
+    the overlap (GJK)."""
+    var verts = List[_WVert]()
+    if not _seed_tetra(a, b, verts):
+        return _touch_fallback(a, b)
     var interior = (
         verts[0].v + verts[1].v + verts[2].v + verts[3].v
     ) * Real(0.25)
-    var faces = List[_Face[dim]]()
-    faces.append(_mk_face[dim](verts, 0, 1, 2, interior))
-    faces.append(_mk_face[dim](verts, 0, 1, 3, interior))
-    faces.append(_mk_face[dim](verts, 0, 2, 3, interior))
-    faces.append(_mk_face[dim](verts, 1, 2, 3, interior))
+    var faces = List[_Face]()
+    faces.append(_mk_face(verts, 0, 1, 2, interior))
+    faces.append(_mk_face(verts, 0, 1, 3, interior))
+    faces.append(_mk_face(verts, 0, 2, 3, interior))
+    faces.append(_mk_face(verts, 1, 2, 3, interior))
 
     var best = 0
     for _ in range(64):
@@ -303,11 +294,11 @@ def _epa3[dim: Int](a: ConvexPoly[dim], b: ConvexPoly[dim]) -> Witness[dim]:
                 best_d = faces[i].d
                 best = i
         if best_d >= Real(1e29):
-            return _touch_fallback[dim](a, b)  # every face degenerate
-        var w = _wsupport[dim](a, b, faces[best].n)
+            return _touch_fallback(a, b)  # every face degenerate
+        var w = _wsupport(a, b, faces[best].n)
         if dot(w.v, faces[best].n) - best_d < Real(1e-4):
             break  # support no longer expands past the closest face
-        var kept = List[_Face[dim]]()
+        var kept = List[_Face]()
         var edges = List[_Edge]()
         for i in range(len(faces)):
             if dot(faces[i].n, w.v) - faces[i].d > 0:
@@ -322,7 +313,7 @@ def _epa3[dim: Int](a: ConvexPoly[dim], b: ConvexPoly[dim]) -> Witness[dim]:
         verts.append(w)
         for e in range(len(edges)):
             kept.append(
-                _mk_face[dim](verts, edges[e].a, edges[e].b, wi, interior)
+                _mk_face(verts, edges[e].a, edges[e].b, wi, interior)
             )
         faces = kept^
 
@@ -353,13 +344,13 @@ def _epa3[dim: Int](a: ConvexPoly[dim], b: ConvexPoly[dim]) -> Witness[dim]:
     var depth = f.d if f.d > 0 else Real(0)
     # Orient from a -> b, matching the 2D path.
     var n = f.n
-    if dot(_centroid[dim](b) - _centroid[dim](a), n) < 0:
+    if dot(b.center_point() - a.center_point(), n) < 0:
         n = -n
-    return Witness[dim](True, n, depth, pa, pb)
+    return Witness[3](True, n, depth, pa, pb)
 
 
 def epa_witness3(a: ConvexPoly[3], b: ConvexPoly[3]) -> Witness[3]:
     """GJK boolean + 3D EPA witness contact (miss when the shapes are apart)."""
     if not gjk_query[3](a, b).hit:
         return Witness[3].miss()
-    return _epa3[3](a, b)
+    return epa3(a, b)

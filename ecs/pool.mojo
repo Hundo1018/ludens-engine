@@ -59,6 +59,11 @@ per-backend cost shape. Game code that wants pool-aware queries goes through
 which is a documented, known limitation of building this on top of a trait
 with no exclusion filter (not a bug in `Pool`).
 
+ROADMAP 17.77 added the exclusion filter (`StorageBackend.select` with
+`Filter.without`), evaluated natively by each backend; `active_query*` now go
+through it instead of filtering every match with `has`. A raw `World.query*`
+still sees disabled entities.
+
 Toggling `Disabled[DID]` is itself one component add/remove, so it is not
 literally free on `ArchetypeBackend` (which relocates a row on any component
 add/remove) -- but it is ONE component's relocation on a graph-cached edge
@@ -92,7 +97,7 @@ stale-`World`-handle fix above it in this same package.
 
 from .entity import Entity
 from .component import ComponentType
-from .storage import StorageBackend
+from .storage import StorageBackend, Filter
 from .world import World
 from .sparse_set import SparseSet
 from diag.counters import Counters, POOL_GROWN, POOL_EXHAUSTED
@@ -261,31 +266,16 @@ struct Pool[B: StorageBackend, DID: Int](Movable, Deinitable):
         world.set(h.entity, Disabled[Self.DID]())
         self.free_slots.append(slot)
 
-    # --- pool-aware queries: World.query* filtered by Disabled[DID] ---
+    # --- pool-aware queries: World.select with Without[Disabled[DID]] (17.77) ---
     def active_query1[A: ComponentType](self, world: World[Self.B]) -> List[Entity]:
-        var out = List[Entity]()
-        var raw = world.query1[A]()
-        for i in range(len(raw)):
-            if not world.has[Disabled[Self.DID]](raw[i]):
-                out.append(raw[i])
-        return out^
+        return world.select(Filter().with_[A]().without[Disabled[Self.DID]]())
 
     def active_query2[
         A: ComponentType, B2: ComponentType
     ](self, world: World[Self.B]) -> List[Entity]:
-        var out = List[Entity]()
-        var raw = world.query2[A, B2]()
-        for i in range(len(raw)):
-            if not world.has[Disabled[Self.DID]](raw[i]):
-                out.append(raw[i])
-        return out^
+        return world.select(Filter().with_[A]().with_[B2]().without[Disabled[Self.DID]]())
 
     def active_query3[
         A: ComponentType, B2: ComponentType, C: ComponentType
     ](self, world: World[Self.B]) -> List[Entity]:
-        var out = List[Entity]()
-        var raw = world.query3[A, B2, C]()
-        for i in range(len(raw)):
-            if not world.has[Disabled[Self.DID]](raw[i]):
-                out.append(raw[i])
-        return out^
+        return world.select(Filter().with_[A]().with_[B2]().with_[C]().without[Disabled[Self.DID]]())

@@ -250,11 +250,11 @@
 | 17.26 | [接觸修改 / 單向平台](ROADMAP_HISTORY.md#1726-接觸修改--單向平台--wave-b) | ✅ | B | physics/contact6.mojo 用資料驅動的 ContactRule(不是 callback)提供 RULE_ONE_WAY 單向平台、RULE_CONVEYOR 輸送帶表面速度與 RULE_FRICTION 逐接觸摩擦覆寫,由 ContactScene6.add_contact_rule 註冊,並有 seam parity 測試(規則不匹配時與無規則逐位相同)。 |
 | 17.29 | [通用可斷裂關節](ROADMAP_HISTORY.md#1729-通用可斷裂關節--wave-b) | ✅ | B | ContactScene6.set_joint_break(j, force, torque) 對所有 Joint6 種類提供力 / 力矩閾值,有閾值時每子步取峰值負載(joints6.sample_loads)、步末 check_breaks 轉為 JOINT_BROKEN,斷裂事件經 scheduler.events.Channel 送達。 |
 | 17.31 | [物理 LOD / 模擬預算調度](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b) | ✅ | B | ContactScene6.freeze / unfreeze 以暫時切成 STATIC 並保留速度實作凍結,physics/lod.mojo 提供 DistanceLOD(距離 + 遲滯)與 SimBudget(依量測步進時間調 iters 再調 substeps),全場 LOD + 天花板預算與原解算器逐位相同。 |
-| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | ⬜ | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
+| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 🔶 | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 🔶 | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
-| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | ⬜ | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
+| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 🔶 | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
 
 ### 已完成條目的遺留待辦
 
@@ -300,7 +300,13 @@
 
 #### 17.19 生產級 solver 硬化
 
-> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;壓力測試案例尚未處理)
+> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試案例尚未處理)
+> **進度註(2026-10-13,靜止堆疊踢動)**:ARM runner 上 `test_impact_report` 的 3 箱堆疊頂箱側向接觸力 1.24 N(x86 單步 0.0014 N)。
+> 追查(x86 600 步探針):堆疊靜止後側向擾動累積,第 180 步踢動 2.05 N、ω 0.02。兩個原因:
+> (1)暖啟動以索引對應接觸點,`box_box_manifold` 同四角每步順序不同,摩擦衝量交給錯的角 → 改為同 pair 內以 body a 局部錨點最近者對應(限 5 cm 內),沒有近點的沿用同索引舊點(`physics/contact6.mojo` `make_contact`;世界座標最近點強配曾讓 8 m/s 滑過 80 格網格的盒子在接縫彈起 |vy| 0.023,`test_active_edges` 上限 0.01;遠點改冷啟動則讓子彈撞牆反彈由 2.39 升到 3.52 m/s,`test_ccd6` 上限 3);
+> (2)盒對盒 8 個裁切點深度相差 1e-7,「取最深 4 點」可能留兩點在同一角、漏掉另一角;改用 `spread4`(由 `collision/hull.mojo` 移到 `collision/manifold.mojo`),
+> 且深度在最大值 1e-5 內時從離質心最遠的點起算(近平行的入射邊可在邊中段被裁切,從那點起算會漏角)。
+> 量測:3 箱 60 s 最大 |ω| 0.11 → 5.8e-6;步 120–600 頂箱最大側向力 2.61 N → 5.8e-5 N;10 箱 30 s 頂箱水平漂移 3 mm。`test_impact_report` 新增 8 s 靜止檢查(24/24)。
 > **現況**:穩定堆疊只驗到 6 箱塔(`tests/test_softstep6.mojo`);大 island / 高質量比 / 接觸密集堆疊未系統測試(17.17 的 `tests/test_gpu_contact.mojo` 有 10:1 質量比與 400 箱場,但那是 GPU/CPU parity,不是穩定性壓力測試)。
 > **缺口**:高質量比(1:1000)、長鏈受載、單 island 數千體、接觸密集堆疊(碎石 / 骨牌)、warm-start 接觸點 feature-ID 穩定性、contact reduction。
 > **對照組**:Jolt(Horizon FW 實戰)、Box2D v3 Soft Step、TGS Soft、AVBD 堆疊 demo。
@@ -333,6 +339,27 @@
 > - 量測(2026-09-29,`bench_gpu_contact`,F22 修正前):寬相開啟後,N=4096 箱每幀 CPU 收集 + 簿記(不含求解)達 82 ms,N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,因此排為本項第一個工作(已由上面的 F22 第一批處理)。
 
 #### 17.44 複合形狀 — Wave B
+
+> **狀態**:🔶 大部分完成(2026-10-13:一 body 多凸子形狀、質量性質聚合 + 主軸、配對 / 網格 / SDF 分派、查詢、軟體粒子、快照、槽位 ✅;
+> 17.5 `FractureSet` 零件選走複合、球 / 膠囊 / 橢球子形狀的滾動錨點(現以 body 固定錨點,滾動會被摩擦拖慢,見 17.19)未做;CCD 跳過複合(屬 17.46))。
+> **進度註(2026-10-13)**:
+> - **分派重構**:`ShapeDesc`(kind、`half`、hull 列)取代以 collider 索引讀形狀;`pair_manifold` → `shape_pair(ShapeDesc, Pose3, ShapeDesc, Pose3)`,
+>   `as_hull` / `hull_faces` / `ellipsoid_pair` 等皆有 `_d` 版;網格與 SDF 配對拆成逐形狀函式(`_mesh_pair_kid`、`_sdf_pair_kid`)。既有 golden 各段不變。
+> - **資料**:`SHAPE_COMPOUND = 8`;`CompoundSpec`(box / sphere / capsule / ellipsoid / hull 子形狀 + 局部位姿)、`ColliderSet.kid_desc / kid_pos / kid_rot`,
+>   `half` 為子形狀包圍盒的聯集;子形狀上限 1024。`ContactScene6.add_compound(b, spec, density, is_static)`。
+> - **質量**:`physics/mass_props.mojo`:各子形狀質量 / 質心 / 張量(hull 以面扇形四面體積分),轉到父框(R I Rᵀ)、平行軸移到總質心、求和,
+>   `geometry.mat3.sym_eigen3`(Jacobi)取主軸;body 原點移到質心、軸對齊主軸,子形狀重新表示(世界位置不變)。
+> - **配對**:複合對凸形 = 子形狀對迴圈,先以子盒(各長半個 margin)剔除,再走 `shape_pair`;feat = 1 + 子 i × 1024 + 子 j。
+>   對網格:逐子形狀 `_mesh_pair_kid`,feat = 子 << 16 | 三角形(三角形 < 2¹⁶);對 SDF:逐子形狀,feat = 1 + 子。
+> - **查詢 / 軟體**:`ColliderSet.kid_probe`(子形狀的 support,GJK 外、EPA 內)、`compound_probe`(取最近子);`point_distance`、射線(聯集距離的 sphere tracing)、
+>   `shape_distance` / `shape_cast` / `closest_points`(子形狀對)、`soft_particle_contact`。
+> - **快照**:每個子形狀的 kind / 尺寸 / 局部位姿 / hull 頂點。
+> - 量測(`tests/test_compound.mojo` 18/18):盒 + 球的總質量 73.51033(手算 73.510322)、質心 (0.22792937, 0.13675761)(手算 0.22792936, 0.13675762)、
+>   主慣量 1.3993801 / 9.605963 / 10.202511 對手算張量(含積 −2.735)特徵值 1.3993802 / 9.605963 / 10.202511;L 形靜置最低角 y −0.00017;
+>   單一子形狀與一般盒 120 步逐位相同;兩半盒 y 0.24985 對整盒 0.24959(8 對 4 個軟接觸點,皆在穿透 slop 0.005 內);4 個 L 堆疊 brute == BVH 逐位;
+>   快照還原逐位相同;移除後槽位重用無殘留;射線 t 2.1 / 2.5、點距 0.5099(皆解析值);1000 球子形狀可建且靜止。
+> - bench `bench_compound`(N 個立方體排成的棒):複合 44 / 96 / 469 / 1881 µs/步,焊接 77 / 163 / 689 / 2616 µs/步(N = 2 / 4 / 16 / 64),
+>   焊接兩端相對漂移 1.8e-8 – 2.5e-8 m、複合為 0。
 
 > **現況**:`ColliderSet` 的一個 collider 就是一個形狀,且 collider `i` ≡ body `i`(`collision/collider_set.mojo:13-14,75-107`);形狀種類只有 6 種(`:37-42`),`half` 是單一盒、hull 是單一頂點表(`:78-81`)。沒有「一個 body 掛多個形狀」的欄位,也沒有形狀相對 body 的局部位姿:盒 / 球 / 膠囊固定在 body 原點,hull 只能把偏移烤進頂點。grep `compound|child.?shape|sub.?shape|multi.?shape|shape_offset|local_pose|local_offset`(`physics collision gameplay geometry`)只命中 `geometry/polytope.mojo:373` 的英文動詞 compound,零命中於真實功能。
 > 質量性質寫死「body 原點 = 質心、慣量 = 主軸對角」:`Inertia3` 只有 mass + 三個主軸矩(`physics/rigid6.mojo:45-52`),`Body6` 只有讀取 `get_inertia`(`:154`),沒有質心偏移,也沒有完整張量。`Polytope.inertia_diag` 自述「products of inertia are dropped: TODO rotate to the principal frame」(`geometry/polytope.mojo:168-173`);grep `eigen`(`geometry numerics physics`)零命中,沒有 3×3 對稱特徵分解。
@@ -489,6 +516,22 @@
 
 #### 17.50 接觸模型變體 — Wave B
 
+> **狀態**:🔶 部分完成(2026-10-13:橢圓摩擦錐 seam、靜 / 動摩擦、滾動 / 扭轉阻力、逐 body 接觸柔度、黏附 ✅;塊求解 / TGS 變體、逐材質柔度表、GPU 對齊(第 7 層)未做)。
+> **進度註(2026-10-13)**:`SolverConfig.friction_cone`(`FRICTION_PYRAMID` 預設 / `FRICTION_ELLIPTIC`):橢圓錐兩軸先不夾,再把 (t1, t2) 投影到半徑 μλₙ 的圓盤;
+> 上限為 0 時仍走金字塔(μ = 0 兩錐逐位相同)。`ContactScene6.set_static_friction` / `set_rolling_resistance` / `set_spinning_resistance`(負值或索引越界 raise):
+> 靜摩擦以 prep 時切向速度 < 1 cm/s 的點(`ContactConstraint.stick` 位元)取 μs,與 μk 用同一組合規則;滾動 / 扭轉阻力(單位 m,取兩 body 較大者)
+> 為相對角速度上的角衝量,扭轉夾 `c·Σλₙ`、滾動在切平面夾於圓盤,每子步以 warm start 帶入。任一新欄位被設才開 `BodySet.any_contact_model`,
+> `set_contact_softness(i, hertz, zeta)`:一對取 hertz 較低一側的 hertz / zeta,以與 `step` 相同的公式算軟係數(設成 cfg 值時逐位相同);
+> `set_adhesion(i, force)`:兩面相距 1 cm 內時法向衝量可為負,下限 force·h / 點數(一對取較大者),負衝量不給摩擦。
+> 預設場景不進新分支;快照帶新的逐 body 欄位(有旗標才寫);GPU 求解器拒絕新模式與橢圓錐。
+> 量測(`tests/test_contact_model.mojo` 22/22):30° 斜坡 μ 0.3、1 s,解析 1.177 m:橢圓沿軸 1.182 / 對角 1.198,金字塔沿軸 1.182 / 對角 0.652
+> (解析 √2 μN 上限 0.650);半徑 0.5 球 2 m/s、滾動阻力 0.05 停在 2.853 m(解析 7rv₀²/(10cg) = 2.857),無阻力 5 s 走 10.000 m;
+> 自旋 10 rad/s、扭轉阻力 0.05,1 s 後 5.100 rad/s(解析 5.1);25° 斜坡 μk 0.3:μs 0.6 時 2 s 移動 0.12 mm,無 μs 滑 2.96 m,以 1 m/s 起滑 1 s 走 1.742 m
+> (動摩擦解析 1.739);靜置箱兩錐差 3.1e-7 m(非逐位相同:仍有點的摩擦觸到上限);`ContactRule` 摩擦覆寫同時取代 μs;快照往返後續跑逐位相同;
+> μ = 1e3 橢圓錐 1 s 移動 0.15 mm;0.5 m 落下的箱子峰值穿透 預設地面 0.29 mm、3 Hz 軟墊 13.2 mm,柔度設為 cfg 值逐位相同;
+> 天花板下 1 kg 箱子(重 9.8 N)黏附 20 N 時 2 s 位移 0、5 N 時落下。bench `bench_contact_model`(µs/步,N = 16 / 256):斜坡方塊 金字塔 369 / 6304、橢圓 400 / 7518、橢圓 + 靜摩擦 + 滾動 / 扭轉 508 / 8581;
+> 滾動球 93 / 2394、92 / 2405、140 / 2898(方塊各變體的運動不同,橢圓的方塊滑得較遠,所以差值是錐本身成本的上界)。
+
 > **現況**:`ContactScene6` 只有一種接觸模型:Box2D v3 軟接觸 —— 全域 `hertz` / `zeta`(`physics/solver_config.mojo:53-55`,所有接觸同剛度)+ 逐點 Gauss-Seidel,切向兩個衝量各自夾 `μ·λₙ`(`physics/contact6.mojo:394-430`,逐軸夾在 `:426`),即**金字塔摩擦錐**,上限依賴 `tangent_basis(n)` 的任意基底(`geometry/vec.mojo:161-173`)。
 > 摩擦只有單一 μ(`combine` 後的 `pair_mu`,`physics/contact6.mojo:337`),沒有靜 / 動摩擦之分;grep `rolling|torsion|spin.?fric|elliptic|\bcone\b|adhesion|cohesion|stiction|static_fric|kinetic`(`physics/contact6.mojo`、`solver6.mojo`、`gpu_contact.mojo`、`material.mojo`、`solver_config.mojo`)**零命中** —— 沒有滾動 / 扭轉摩擦、黏附、橢圓錐。(`gameplay/vehicle.mojo:166` 的 `rolling_resistance` 是輪胎模型的 Crr·Fz·R 輪軸力矩,不是通用接觸屬性。)反而有**假的**滾動阻力:17.19 發現(ROADMAP §17.19)球進入純滾動後持續減速並下沉約 7 mm,根因是 body-frame 接觸錨點隨球旋轉,摩擦取在偏離真實接觸點的位置 —— 尚未修。恢復係數是後置 pass、門檻全域(`physics/contact6.mojo:444-504`、`physics/solver_config.mojo:49`);位置修正的最大推出速度是常數 −4 m/s(`physics/contact6.mojo:380`)。
 > 橢圓錐只存在於縮座標:`ConstraintSet` 的 `CONE_PYRAMIDAL / CONE_ELLIPTIC`(`physics/constraints.mojo:44-45,191-225`),`bench_constraints` 量過(`docs/CATEGORY.md:130`:等工作量下打平,是能力差而非速度差);但該檔 `solve` 只有 PGS(`physics/constraints.mojo:124-174`),13.5 設計寫的 CG / Newton 在該檔零命中(grep `newton|conjugate|\bcg\b`)。
@@ -527,10 +570,10 @@
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | ✅ | A | `collision/world_query.mojo` 對真實 collider 幾何提供有號距離、ray / sphere / capsule cast、overlap、capsule penetration、batched raycast 與 QueryFilter,`test_world_query` 30/30、`bench_world_query` 已量測。 |
 | 17.30 | [地形(HeightField)執行期變形](ROADMAP_HISTORY.md#1730-地形heightfield執行期變形--wave-b) | ✅ | B | HeightField 支援 set_height / deform(圓盤挖填)與 16×16 區塊 min/max 摘要增量重算 bounds,ColliderSet / ContactScene6.deform_heightfield 更新 AABB 並喚醒受影響的睡眠體,1024² 地形每次編輯 11.7 µs vs 全表重掃 2.87 ms。 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 🔶 | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿 |
-| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | ⬜ | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
-| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 🔶 | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
+| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 🔶 | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
+| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ✅ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 🔶 | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
-| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | ⬜ | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
+| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 🔶 | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
 
 ### 已完成條目的遺留待辦
 
@@ -616,6 +659,20 @@
 
 #### 17.46 CCD 形狀覆蓋 — Wave B
 
+> **狀態**:🔶 部分完成(2026-10-13:通用凸對凸 TOI(保守推進)、hull / 橢球 / 複合 / 靜態網格覆蓋、角向上界、swept-box BVH 配對 ✅;
+> 逐 body 旗標、island 平行相容(仍退回串行)、軟體粒子對 hull / mesh 的射線掃、SDF 的 TOI 未做)。
+> **進度註(2026-10-13)**:`physics/ccd6.mojo`:盒 / 球 / 膠囊兩兩之間仍走閉式 swept box(慢速路徑與既有輸出逐位相同,`test_ccd6` golden 不變);
+> 任一方為 hull / 橢球 / 複合 / trimesh / heightfield 時走 `ca_fraction`:Mirtich 保守推進,距離取子形狀對的精確凸距離(`world_query.desc_distance` /
+> `kid_distance`,網格取掃掠盒內的候選三角形),每步前進 距離 / (沿分離法向的接近速度 + |ω_i| r_i + |ω_j| r_j);起點即接觸時以兩見證點的實際法向速度判斷,
+> 靜止 / 滑動 / 分離不夾(以無號的 |ω| r 判斷曾把轉離柱子的木板凍住)。配對:以每個 body 的掃掠盒(起點盒 ∪ 終點盒,加旋轉半徑)建 BVH,取代 O(n²)。
+> 量測(`tests/test_ccd_shapes.mojo` 10/10):60 m/s(每步 1 m,牆厚 20 倍)hull 子彈有 CCD 停在 x −0.125、無 CCD 穿到 10.8;橢球 / 複合子彈停在 −0.125
+> (無 CCD 亦被其投機接觸攔下);盒對單一四邊形 trimesh 牆停在 −0.11;雙臂複合木板以 36 rad/s 轉向細柱,有 CCD 最大 |ω| 36.0、無 CCD 升到 253
+> (見下方發現);8 m/s 滑動 hull(μ 0)vx 保持 8.0;慢速 hull 落地 CCD 開關逐位相同;1e4 m/s 停在 −0.53;兩顆對撞子彈不互穿。
+> bench `bench_ccd_shapes`(µs/步):hull 子彈 N = 1 / 16 / 128 關 7 / 841 / 17681、開 40 / 947 / 12524;靜止控制組 25 / 219 / 1699 對 16 / 226 / 2096
+> (靜止體仍有微小速度而建 BVH,N = 128 多 23 %;待以位移門檻跳過)。
+> **發現**:細長板以 36 rad/s 旋轉撞細柱、不開 CCD 時角速度升到 253 rad/s(單一盒板亦同,非複合專屬)。推出速度有上限(`max_push_speed` 4 m/s),
+> 不是無界的偏置;是旋轉穿隧的後果 —— 板掃過柱的中面後接觸法向翻轉,每一步都把它往前推,4 m/s 上限的推力乘上長力臂累積成轉速。CCD 開時不發生(上表)。
+
 > **現況**:CCD 是全域開關 `SolverConfig.ccd`(`physics/solver_config.mojo:57`),開啟才跑第二階段 `ccd_advance`(`physics/solver6.mojo:1333-1334`);第一階段的 speculative margin 在 `step` 中恆開(`physics/solver6.mojo:1233` 以 `dt` 當 `spec_dt`,`collision/contact_gen.mojo:72-77`)。
 > `ccd_advance` 只做盒對盒的 swept-SAT:任一方是 hull / trimesh / heightfield 就整對略過(`physics/ccd6.mojo:55-57,75-77`,檔頭 `:33-45` 自述);球與膠囊以保守盒掃,「只會過早夾、不會錯夾」(`:33-37`);旋轉被忽略,只做線性掃掠(`collision/toi.mojo:18-20`);配對迴圈是 i 對全部 j 的 O(n²)(`physics/ccd6.mojo:61`)。
 > 不相容與缺漏:`cfg.parallel` 遇 ccd 退回串行並計 `PARALLEL_FALLBACK_SERIAL`(`physics/solver6.mojo:1244-1251`);GPU 剛體 solver 拒絕 `cfg.ccd`(`physics/gpu_contact.mojo:347`);軟體粒子對 hull / mesh / heightfield 沒有 ccd 掃(`physics/soft_couple.mojo:121-127`);沒有逐 body 旗標,grep `is_bullet|ccd_flag|ccd_enabled|motion_quality|angular.?ccd` 零命中。
@@ -636,7 +693,31 @@
 > **邊界**:候選配對只重用現有 `BroadPhase`,不擁有增量維護 —— `update_moved`、awake list、per-island 品質屬 17.85;GPU CCD 屬 17.17;`ccd_advance` 掃描本身的多執行緒化屬 17.54(本條只負責移除 `PARALLEL_FALLBACK_SERIAL` 退路);軟體 / 流體本體的連續碰撞不含(僅含軟體粒子對剛體 hull / mesh 的點掃);單步旋轉超過 π 的子步切分不含。
 
 #### 17.52 形狀種類 — Wave B(承接 13.8 的剩餘部分)
-> **狀態**:🔶 進行中(2026-10-13:圓柱 ✅、凸包接觸點分散選取修正 ✅、SDF 作為 solver 形狀(格點場)✅;取樣式 SDF 與 `Sdf3` 共用 trait、SDF 對 SDF、橢球、support-mapping 凸形入口未做)。
+> **狀態**:✅ 完成(2026-10-13:圓柱、凸包接觸點分散選取、SDF 作為 solver 形狀(格點場)、橢球、support-mapping 凸形入口、`Sdf3` 與格點場共用的 `DistanceField3`)。
+> 不做 / 移出:SDF 對 SDF —— solver 的 SDF 只能是靜態,兩個靜態體不成對,無分派可做;動態 SDF 剛體屬 17.44(複合 / 凹體)。
+> 圓柱端面仍是 16 邊形 hull(側面接觸已由膠囊流形精確、點到圓柱查詢由 `SupportCylinder` 精確,端面多點接觸片需要多邊形);
+> 端面改走解析 support 須先有 support-mapping 的多點接觸片生成,留作 17.50(接觸模型變體)的子題。
+> **進度註(2026-10-13,共用距離場介面)**:`trait DistanceField3`(`geometry/distance_field.mojo`:`distance`、`gradient`),`Sdf3` 與 `SdfGrid` 皆實作;
+> `sphere_trace[F]` 共用(世界查詢 SDF 射線改呼叫它),`SdfGrid.from_field[F]` 把任一場(解析、CSG)取樣成 solver 用的格點。
+> 量測(`tests/test_distance_field.mojo` 8/8):單位球從 5 m 外,解析 t 4.0(1 步)、41³ 格點 t 3.999996(9 步);300 點格點對解析最大差 0.0061(格距 0.1);
+> 盒減球 CSG 的腔壁 t 0.6(解析)/ 0.599994(61³ 格點);`from_field(Sdf3.plane)` 與手填格點節點值逐位相同、盒靜止高度逐位相同 0.24972449。
+> **進度註(2026-10-13,橢球 + support mapping)**:`trait Support3`(`geometry/gjk.mojo`:`support_point(d)`、`center_point()`),`ConvexPoly[3]` 與
+> `geometry/support.mojo` 的 `SupportEllipsoid` / `SupportCylinder` / `SupportCapsule` / `SupportBox` 皆實作;`epa3`(原 `_epa3[dim]`,現對任兩個 `Support3`)
+> 與 `support_distance`(GJK 距離,與點雲 `convex_distance` 共用驅動;單純形改固定四格,每次迭代不再配置,`support_distance` 橢球對盒 16 µs → 1.4 µs;
+> 解析形停止準則相對 1e-6 + 絕對 0.1 µm,點雲維持 1e-10 不變)。`SHAPE_ELLIPSOID = 7`、`ContactScene6.add_ellipsoid(b, radii)`、
+> `Inertia3.ellipsoid`、`set_mass_from_density` 支援;接觸 `collider_set.support_manifold`(GJK 距離 < margin → 投機點;重疊 → EPA)一點,
+> 對 box / sphere / capsule / hull / 圓柱(解析 `SupportCylinder`)/ 橢球;對 trimesh 逐三角形;對 SDF 以梯度方向 support 點兩次細化。
+> 接觸錨點:橢球側每個 substep 以目前姿態取法向 support 點(`contact6.anchor_world` 的 `e` / `toward`),固定世界偏移(球的做法)讓搖擺橢球
+> 4 s 內能量 +2.6 %(60 Hz),改後 −0.3 %。查詢:`point_distance`(GJK / EPA)、`_ray_one`(縮放空間的單位球解析解)、`shape_distance` / `shape_cast`。
+> 軟體粒子:`soft_particle_contact` 橢球分支。CCD:以 `half` 盒近似(同球,屬 17.46)。
+> 量測(`tests/test_ellipsoid.mojo` 17/17、`tests/test_support3.mojo` 11/11):等軸橢球靜止 y 0.4997246 對球 0.49972457;斜面滾動 1 s 2.3941412 對球 2.3941434、
+> 5/7 g sin θ 2.3941412;(1, 0.5, 0.7) 躺 y 0.4997246;長橢球 45° 釋放(角阻尼 2)躺平軸·上 0.0033;無阻尼搖擺中心最高 0.4301 < 釋放 0.4305;
+> 射線 t 4.5 / 4.0(解析);點距 1.5、內點 −0.09997;10:1 圓盤 y 0.0997。點到 r = 1 圓柱:解析誤差 0,16 邊形 hull 0.0192 = r(1 − cos(π/16))。
+> 成本(`bench_shapes`,64 / 256 體,每 body-step):球 6–7 µs、橢球 25–30 µs、16 段圓柱 38–39 µs、盒在盒上 24–27 µs、盒在 SDF 上 31–33 µs。
+> 圓柱原量到 0.43–1.25 ms 且隨 N 上升:`step_soft` 預設不走 broadphase,暴力迴圈把每一對都交給窄相(64 圓柱 + 地板每步 2080 次 hull 測試),
+> 盒對盒在 SAT 內很快就拒絕、hull 對卻跑完 GJK。暴力迴圈現先以 broadphase 用的同一組 fat AABB 篩(兩條路徑看到相同的配對;
+> 此盒並非所有投機接觸的嚴格超集 —— 旋轉盒沿自身軸膨脹最多超出 √3 倍 margin、hull 對可回報相距 9 cm 的投機接觸,這些遠對過去只在暴力路徑進窄相,
+> 現兩路徑皆不見;`test_fracture` 磚堆 island 17 → 16;`NARROWPHASE_PAIRS` 仍計列舉的候選對),64 圓柱每步 18 ms → 2.4 ms。
 > **進度註(2026-10-13,SDF 形狀)**:`SHAPE_SDF = 6`(`collision/collider_set.mojo`),`ContactScene6.add_sdf(b, SdfGrid)`(世界座標,同 `add_trimesh`)。
 > 接觸 `contact_gen.try_sdf_pair`:取凸側樣本點(球心;膠囊軸上 5 點;盒 26 點 = 8 角 + 12 邊中點 + 6 面心;hull 頂點),
 > 距離 < 半徑 + margin 者為候選,`hull.spread4` 選至多 4 點,法向 = 深度加權梯度平均。查詢:`point_distance`(三線性距離 + 梯度)、
@@ -791,6 +872,17 @@
 >   命中材質 id(接 17.23,目前可由 `body` 自查);GPU 批次對真實形狀(第 7 層);CGA 圓形基元閉式最近點的假說。
 
 #### 17.54 CPU 碰撞管線 — Wave B(多執行緒)
+
+> **狀態**:🔶 部分完成(2026-10-13:trace 拆段、narrowphase 平行、make_contact 平行、注入式 fan-out(沿用 17.75 `Dispatch`)✅;broadphase 平行(BVH 建構 / fat AABB / 排序)、CCD 掃描平行、N = 1e5 量測未做)。
+> **進度註(2026-10-13)**:`_collect_pairs` 先列舉候選對(span `broadphase`),再跑 `try_pair`(`narrowphase`)與 `make_contact` + `apply_rules`(`contact_prep`)。
+> `SolverConfig.parallel_collision`(預設關)時,候選對 ≥ `NARROW_PAR_MIN`(256)就經 `cfg.dispatch` 分塊:narrowphase 每塊寫私有緩衝、依塊序串接;
+> prep 每個 raw 接觸寫自己的槽(`physics/collide_par.mojo`)。候選順序不變,輸出與串行逐位相同:`tests/test_collide_par.mojo` 15/15
+> (1024 箱堆;箱堆 + island 平行 + 著色 + CCD + BVH;heightfield 上 300 個 hull / 球 / 箱;六個 broadphase 後端;serial / reverse 派發;0 / 1 個物體、全 static、40 箱疊同點 780 對配 64 workers)。
+> 量測(`bench_collide_par`,本容器 4 核,BVH broadphase,µs/步):拆段(串行,`-D LUDENS_TRACE`)—— 箱堆 N = 4096:broadphase 20658、narrowphase 4551、prep 2606、solve 114430;
+> heightfield 混合形狀 N = 4096:broadphase 22947、narrowphase 125955、prep 29601、solve 190568。整步(三次執行):heightfield N = 4096 串行 → 4 workers
+> 372 → 273、431 → 310、401 → 308 ms(−23 % 至 −27 %);箱堆 N = 4096 三次的串行 158 / 167 / 161 ms 與各 workers 列互有高低(±10 %,即本容器的執行間雜訊;
+> narrowphase 只佔 3 %);N = 64 不分派(門檻前 64 對以 4 workers 反而慢 0.6 ms,故門檻 256)。
+> 下一個熱點是串行的 broadphase(箱堆 N = 4096 佔 13 %,大於 narrowphase)。
 > **現況**:
 > - `collision/` 整個套件**沒有任何 CPU 平行**:grep -c `parallelize`(`collision/*.mojo`)全部為 0(零命中)。GPU 端另有 `collision/bp_gpu.mojo` 與 `collision/gpu_raycast.mojo`(kernel,屬 17.17 / 17.53 範圍)。
 > - 引擎現有的 CPU 平行都在求解端:island 展開(`physics/solver6.mojo:1393-1407`,`island_work` 閉包與 `parallelize`)、同色接觸對(`physics/contact6.mojo:526-536`)、
@@ -943,8 +1035,8 @@
 | 15.2 | [布料自碰撞](ROADMAP_HISTORY.md#152-布料自碰撞---完成2026-08-11) | ✅ |  | 以均勻雜湊做 broadphase 的頂點-頂點厚度排斥,排除拓撲鄰居,XPBD 與 VBD 兩個布料解算器都接上;堆疊布的 gap 從 0.00034 回到 0.06,有 12 checks 測試與 bench_self_collide。 |
 | 17.41 | [繩索 / 纜線約束](ROADMAP_HISTORY.md#1741-繩索--纜線約束--wave-b) | ✅ | B | `physics/rope.mojo` 的 `Rope` 是 XPBD 1D 鏈,兩端可釘在世界點或剛體局部點,會被碰撞器推出,張力超限時斷裂;載重由 `tie()` 加上的距離關節承擔。`test_rope` 12/12 量到的下垂與懸鏈線解析解相差在 0.2% 內;`bench_rope` 顯示比同長剛體鏈快約 5–6×。 |
 | 17.42 | [LBM 風洞收尾(Phase 14 遺留併入)](ROADMAP_HISTORY.md#1742-lbm-風洞收尾phase-14-遺留併入--wave-b) | ✅ | B | D3Q19 LBM 已有 GPU kernel(`fluid/lbm_gpu.mojo` `LbmGpu`,1.77M 格 55.6 MLUPS,約 CPU 17×)、Bouzidi 插值 bounce-back(`Lbm.interp` + `link_q`)、控制面動量通量測力(`Lbm.momentum_flux_force`,與動量交換相差 ≤1.5%),以及 SPH Akinci 邊界粒子對照組(`physics/sph.mojo` `BoundaryParticles` / `sph_step_boundary`),各附 parity 測試。 |
-| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | ⬜ | B | `ContinuumSolver` 契約、登記與排序、統一失敗政策、快照參與、耦合埠(coupling port)、單位與時間慣例 |
-| 17.56 | [布料](#1756-布料--wave-b) | ⬜ | B | 任意三角網格布料、剪切 + 彎曲 + 拉伸上限、與場景碰撞、空氣動力、撕裂、網格自碰撞 |
+| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 🔶 | B | `ContinuumSolver` 契約、登記與排序、統一失敗政策、快照參與、耦合埠(coupling port)、單位與時間慣例 |
+| 17.56 | [布料](#1756-布料--wave-b) | 🔶 | B | 任意三角網格布料、剪切 + 彎曲 + 拉伸上限、與場景碰撞、空氣動力、撕裂、網格自碰撞 |
 | 17.57 | [毛髮 / 肌肉](#1757-毛髮--肌肉--wave-c) | ⬜ | C | 毛髮 / 毛皮股線、股線 – 場景碰撞、引導髮 + 插值、Hill 型肌肉完整曲線、體積肌肉、可微肌肉控制 |
 | 17.58 | [體積軟體](#1758-體積軟體--wave-c) | ⬜ | C | FEM 進場景、本構模型庫、四面體網格化、塑性 / 黏彈、MPM 邊界、求解器變體 |
 | 17.59 | [流固耦合](#1759-流固耦合--wave-c) | ⬜ | C | 粒子流體 ↔ 剛體雙向、PBF 雙向、LBM ↔ 移動剛體、MPM ↔ 剛體、強耦合穩定性、柔性體 ↔ 流體 |
@@ -992,6 +1084,18 @@
 >   接觸的 O(n) 傳播;閉環 Jacobian;CG / Newton;`FloatingChain` 快照;與最大座標 17.47 的停止角 parity。
 
 #### 17.55 連續體步進契約 — Wave B(連續體前置)
+
+> **狀態**:🔶 部分完成(2026-10-13:`ContinuumSolver` 契約、統一失敗政策、快照參與、LBM 單位換算 ✅;場景 / `Runtime` 內的登記與排序、耦合埠、
+> `softbody_pass` / 布料 / 繩的契約化未做)。
+> **進度註(2026-10-13)**:`physics/continuum.mojo`:`trait ContinuumSolver`(`advance(dt, gravity)`、`health()` → 非有限 / 越界 / 未收斂、`quarantine()`、
+> `write_state` / `read_state` 經 `state_io`),實作 `FemContinuum`、`MpmContinuum`、`PbfContinuum`、`LbmContinuum`(住 `physics`,因 `fluid` 不得 import `physics`;
+> 一個格子步 = `dt_lattice` 秒,`advance(dt)` 跑放得下的格子步並帶餘數)。`step_checked` 在 `advance` 前後各做一次健康檢查與隔離並計入新計數器
+> `CONTINUUM_NAN` / `CONTINUUM_ESCAPED`;隔離政策:FEM 釘住非有限節點(位置取同一四面體的有限節點)、MPM 移除非有限與模板出格的粒子(原本在 P2G / G2P 被永久跳過且不計數)、
+> PBF 移除非有限粒子、LBM 把非有限的格點重設為靜止平衡。
+> 量測(`tests/test_continuum.mojo` 11/11):四個求解器經同一個泛型驅動,狀態寫出 → 讀入新實例 → 再跑 40 步,寫出的位元組相同;注入 NaN 的 FEM 節點 / MPM、PBF 粒子 / LBM 格點
+> 被計數、隔離,之後 60 步維持有限;網格外的 MPM 粒子計入 `CONTINUUM_ESCAPED` 並移除;**發現**:只在步後檢查不夠 —— 一個 NaN 的 MPM 粒子經 P2G 在一步內汙染全部 64 個粒子
+> (對照檢查),所以步前也檢查;步內自己產生的 NaN 仍可能在該步擴散。LBM 60 次 1/60 s(1 ms / 格子步)跑 999 個格子步(浮點累加)。
+> bench `bench_continuum`(µs / 步,advance vs `step_checked`):FEM 275 節點 1223 vs 1289、MPM 1000 粒子 2941 vs 3246、PBF 1000 粒子 23377 vs 25726、LBM 16³ 1662 vs 1768(約 5–10 %)。
 
 > **現況**:連續體求解器今天有**七種互不相容的步進形狀**,沒有任何共同介面(`trait` 全表於 `physics/`、
 > `fluid/`、`numerics/` 內只有 `SpinIntegrator`、`LinearOperator` 等與連續體無關者;`grep "^trait "` 後無
@@ -1058,6 +1162,17 @@
 > `arch_layers.toml` / `docs/ARCHITECTURE.md` §1 同一 commit。
 
 #### 17.56 布料 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:任意三角網格布料、面積質量、釘點 / 附著剛體、與場景碰撞(含摩擦)、逐三角形風阻、撕裂、`ContinuumSolver` 契約 ✅;
+> 雙面角彎曲、各向異性與拉伸上限、雙向衝量回饋、網格自碰撞、圖著色平行、GPU 路徑(第 7 層)未做)。
+> **進度註(2026-10-13)**:`physics/cloth.mojo` `MeshCloth`:每條網格邊一個 XPBD 距離約束、每條內部邊一個跨邊彎曲約束(兩個對頂點的距離,獨立柔度 —— 不是雙面角模型)、
+> 頂點質量 = 三角形面積 × 面密度 / 3、`pin` / `attach`(頂點每子步跟隨剛體上的點)、`step(scene, dt, gravity)` 經 `collision.world_query` 對所有碰撞器做球形推出與摩擦
+> (單向,每步只算一次位姿)、風阻 `drag · 面積 · (w·n) n`、邊力 |λ|/h² 超過 `break_force` 即撕裂(連同跨它的彎曲約束)、`advance` / 健康檢查 / 隔離 / 狀態讀寫(17.55 契約)。
+> 每次迭代先投影彎曲、再投影拉伸 —— 相反順序時,硬的彎曲設定反而讓布被拉長、垂得更多(實測:軟 / 硬彎曲的條帶垂度 0.763 / 0.873 m)。
+> 量測(`tests/test_cloth_mesh.mojo` 10/10):1 m² × 0.2 kg/m² 質量 0.2;12 三角形扇形 24 條邊、12 個彎曲約束;兩角懸掛 2 s 最低 y 0.253、最大邊應變 0.96 %;
+> 0.3 m 夾持條帶自由端垂度 軟彎曲 0.209 / 硬彎曲 0.157 m(跨邊模型的彎曲效果有限);落在 0.6 m 箱上無頂點進入箱內(最低 0.31);重力下的旗幟平均 z:無風 0、4 m/s 0.259、8 m/s 0.428;
+> 附著於 1 m/s 運動學 body 的頂點 1 s 後與 body 同位(差 < 1e-5);break force 0.5 N 時斷 238 條邊、預設 0 條;狀態往返續跑逐位相同;壞網格 raise。
+> bench `bench_cloth_mesh`(8 子步 × 4 迭代):289 / 1089 / 10201 頂點時有箱碰撞每步 1346 / 5329 / 54401 µs,每頂點子步約 600 ns(隨規模持平)。
 
 > **現況**:引擎的「布料」是**基準測試 / parity 原型**,不是可用的布料系統。
 > `physics/gpu_cloth.mojo`(XPBD,gather 式 Jacobi,`:1-16`)與 `physics/vbd_cloth.mojo`(VBD,棋盤 2 著色
@@ -1620,7 +1735,7 @@
 | 17.6 | [動畫圖深度](ROADMAP_HISTORY.md#176-動畫圖深度--wave-b) | ✅ | B | `procedural/anim_graph.mojo` 提供 Pose、BlendSpace1D/2D、層 + 骨骼遮罩、加法動畫(motor 商)、root motion、retarget、暴力 MotionDB，有 `test_anim_graph` 29/29、`bench_anim_graph`,並接進範例 24。 |
 | 17.35 | [計時器 / 補間 / 緩動曲線](ROADMAP_HISTORY.md#1735-計時器--補間--緩動曲線--wave-a) | ✅ | A | `scheduler/timers.mojo` 提供 `TimerQueue` seam(`TimerHeap` 與 `TimerWheel`,以 due_tick 加排程序號決定觸發順序),`procedural/tween.mojo` 提供 31 條 Penner 緩動曲線,以及對 Real / Vec3 做 lerp、對 Motor2 / Motor3 走 galie geodesic 的 `Tween`;附 parity 測試、整合測試、兩個 bench,並列在 CATEGORY §2.3。 |
 | 17.36 | [樣條 / 曲線(路徑)](ROADMAP_HISTORY.md#1736-樣條--曲線路徑--wave-a) | ✅ | A | `geometry/spline.mojo` 提供維度泛型的 Catmull-Rom(comptime alpha:uniform / centripetal / chordal)與分段三次 Bezier;Catmull-Rom 段會精確轉成 `CubicBezier`,所以弧長表、`closest_point` 與 RMF motor 標架只需實作一次。有三個測試檔共 577 項檢查、`bench_spline` 與範例 15。 |
-| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | ⬜ | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
+| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 🔶 | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | ⬜ | C | N 影響蒙皮、綁定資料、Morph targets / blend shapes、修正形狀(pose-space deformation)、縮放 / 擠壓伸展通道、蒙皮 → 模擬耦合 |
 | 17.69 | [PCG](#1769-pcg--wave-c) | ⬜ | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
 
@@ -1642,6 +1757,15 @@
 ### 待辦與部分完成條目
 
 #### 17.64 動畫執行期 — Wave B
+> **狀態**:🔶 部分完成(2026-10-13:Animator 狀態圖、clip 事件與同步標記、慣性化轉場(seam)、預配置緩衝、值型別快照 ✅;`gameplay` 的 `Animator` 元件 / 系統與 `Runtime`
+> 組裝(root motion、事件進 `Channel`、`SimState`)、clip 壓縮變體、motor 空間 geodesic 殘差未做)。
+> **進度註(2026-10-13)**:`procedural/anim_events.mojo` `EventTrack.fire(t0, t1, length, loop)`:半開區間 [t0, t1) 的「每次經過恰一次」(迴圈內每圈一次、非迴圈末端事件一次、倒放用 (t1, t0]);
+> `marker_phase` / `sync_time` 依同步標記對齊不同長度的 clip。`procedural/inertialize.mojo` `Inertializer`:切換時記錄每骨位移與旋轉殘差,以五次多項式衰減(兩端斜率 0),結束後不再套用(逐位等於目標)。
+> `procedural/anim_state.mojo` `AnimGraph`:float / bool / trigger 參數(trigger 被用到即清除)、條件轉場(任意來源、exit time、時長、`tween` 緩動、可否打斷)、`TRANS_FADE` / `TRANS_INERTIAL`、
+> 事件只由目前狀態的 clip 觸發、所有姿態緩衝在建構時配置;是值型別,複製即快照。
+> 量測(`tests/test_anim_runtime.mojo` 14/14):0.31 s 的腳步事件在 10 s 內,tick 1/60 s、0.3 s 或一次跳 10 s 都恰 10 次,速率 2 時 20 次,倒放經過 1 次;邊界事件只發一次;
+> walk 0.25 / 0.75 對到 run 0.15 / 0.45;參數驅動 idle → walk → run → jump(trigger,不可打斷)→ idle(exit time);兩種轉場結束後都逐位等於目標 clip;慣性化切換那一 tick 位置跳 3.4 mm
+> (一個 tick 的行走位移);轉場中複製的圖續跑逐位相同。bench `bench_anim_runtime`(100 角色 × 32 骨,ns / 角色):轉場佔比 0 % 淡入 4187 / 慣性化 3725、50 % 7227 / 6326、100 % 12132 / 6478。
 > **現況**:積木齊、**組裝層缺**。`procedural/anim.mojo:46` `AnimClip`(等間隔取樣)與 `:117` `sample`;`:243-322` `AnimPlayer` 只做「一個 clip 淡入另一個」,`evaluate` 在淡入期間每次呼叫配置 4 個 `List`(`:294-322`;非淡入時取樣後即 return)。圖節點(`procedural/anim_graph.mojo:122` `BlendSpace1D`、`:174` `BlendSpace2D`、`:243` `layer`、`:258-278` additive、`:284` `root_motion`、`:326` `retarget`、`:346` `MotionDB`、`:405` `to_world`)是**自由函式或只存參數 / 特徵的資料 struct**(`BlendSpace1D/2D`、`MotionDB` 無播放狀態)——沒有「圖」這個物件,呼叫端每幀手寫整條管線(`examples/24_locomotion_graph.mojo:94-133` 一個 240 幀迴圈裡手接 `fsm.fire` → `sample_phase` → `layer` → `root_motion` → `skin_motor` → `foot_plant` → `two_bone`)。`procedural/fsm.mojo:18` `StateMachine` 只吃整數事件(`:96` `fire(event: Int)`),沒有參數條件、退出時間、逐轉場的混合時長 / 曲線。**沒有 Animator**:grep `AnimPlayer|anim_graph|procedural\.` 於 `gameplay/ ecs/ scheduler/ collision/ physics/` 只命中 `gameplay/ragdoll.mojo:23,34`(吃 `Pose`);`gameplay/runtime.mojo`(`:70-101`)grep `CharacterController|Vehicle|Ragdoll|AnimPlayer` 零命中,動畫狀態不在 `Runtime`、不在 `gameplay/replay.mojo:38-49` `SimState`(場景 + 控制器 + RNG),所以動畫驅動的位移 / 碰撞體不可重播、不入快照。clip 事件:grep `notify|AnimEvent|anim_event|sync.?group|inertial` 於 `procedural gameplay geometry ecs scheduler` 與 anim 測試零命中;匯入 / 壓縮:grep `gltf|quantiz|keyframe_reduce` 同範圍零命中;蒙皮調色盤:grep `inverse.?bind|bind.?pose` 零命中(`geometry/skinning.mojo:57-68` `skin_motor` 吃已算好的 bone motor 與兩個骨索引)。層級限制:`procedural` 是層 2(`scripts/arch_layers.toml:1-14`、`docs/ARCHITECTURE.md:20`),不能 import `scheduler`(層 3)或 `ecs`(同層),故 `Animator` 元件與系統只能落在 `gameplay`(層 5),`procedural` 端只產純資料。
 > **缺口**:
 > - **Animator 狀態圖**:參數塊(float / bool / trigger)+ 帶條件的轉場(`speed > 0.1`、退出時間、可打斷規則)+ 逐轉場混合時長與緩動(重用 `procedural/tween.mojo:63-94` 的 31 條曲線),把 `StateMachine` / `BlendSpace*` / `layer` 組成一個可每 tick 求值的物件(例:idle→run 0.15 s cubic-out,跳躍可打斷)。
@@ -1711,7 +1835,7 @@
 | 17.27 | [力場 / 區域效果](ROADMAP_HISTORY.md#1727-力場--區域效果--wave-b) | ✅ | B | physics/fields.mojo 提供 ForceField(重力區 / 徑向 / 風 / 阻尼)與 apply_fields:重力區以逐 body 重力覆寫 BodySet.grav 實作,風速可取自 WindGrid(三線性),並以常數網格 == 常數風逐位作為 seam parity。 |
 | 17.28 | [浮力 / 水體積](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b) | ✅ | B | WaterVolume + apply_buoyancy 以 ρ g V_sub 施於浮心並加隱式線性 / 角阻尼,浸沒體積有球解析、盒取樣積分與軸對齊盒閉式解,取樣 vs 閉式為 seam parity。 |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | ⬜ | C | 平衡控制、物理驅動移動、動態角色本體、模式狀態機、抓取 / 攜帶、ragdoll 質量與限制 |
-| 17.67 | [移動模式](#1767-移動模式--wave-b) | ⬜ | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
+| 17.67 | [移動模式](#1767-移動模式--wave-b) | 🔶 | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | ⬜ | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | ⬜ | B | 受擊 / 攻擊體積、近戰掃掠、hitscan 與穿透 / 跳彈、彈道投射物、爆炸、受擊反應 |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | ⬜ | C | 履帶車、水上載具、飛行器、懸浮 / 推進器陣列、機車 / 自行車、通用服務 |
@@ -1773,6 +1897,16 @@
 > **邊界**:強化學習式步態(使用者已排除 RL)不在此;人形 rig 的製作屬 DCC / 宿主;死亡動畫的藝術選擇屬內容。
 
 #### 17.67 移動模式 — Wave B
+> **狀態**:🔶 部分完成(2026-10-13:模式機(走 / 落 / 游 / 飛)、三種速度整合模型、跳躍手感、外部速度累加器、平台朝向繼承 ✅;任意向上軸(需改 `character.mojo` 的 `_UP`)、
+> 攀爬 / 翻越、Driving 模式、形狀泛化、`replay` 快照接線未做)。
+> **進度註(2026-10-13)**:`gameplay/movement.mojo` `Mover` 包住 `CharacterController`:`MODE_WALK / FALL / SWIM / FLY`(游泳以膠囊高度在 `WaterVolume` 水面下的比例判定,進 0.6、出 0.4 的遲滯;
+> 水中重力乘 `1 − buoyancy`、垂直 wish 驅動並以 `water_drag` 阻尼;飛行無重力);`MODEL_DIRECT`(原行為)/ `MODEL_ACCEL`(趨近 wish,無 wish 時煞車,空中乘 `air_control`)/
+> `MODEL_QUAKE`(PM_Friction + PM_Accelerate);以 tick 計的 coyote time、跳躍緩衝、放開即減半的可變跳高、`max_jumps`(空中跳需新的按壓);`add_velocity` 外部速度逐 tick 疊加並指數衰減;
+> 站在旋轉平台上時 `heading` 隨平台角速度轉。值型別,複製即快照。**發現**:測試中直接寫 `mh.cc.position` / `mh.cc.velocity` 讓 Mojo 1.1 編譯器卡住(5 分鐘無結果,二分確認),改用 `teleport` 方法即正常(36 s)。
+> 量測(`tests/test_movement.mojo` 13/13):3 m/s wish 3 s 後三種模型速度皆 3.0,距離 9.000 / 8.800 / 8.944 m;離開平台 3 tick 後按跳會跳、12 tick 不會;落地前 4 tick 按跳於落地時起跳、10 tick 前則否;
+> 按住 / 3 tick 後放開的跳躍頂點 2.227 / 1.411 m;二段跳可、三段不可;走進水池轉游泳;以波浪把身體維持在 50 % ± 6 % 入水時,遲滯下模式切換 0 次、無遲滯 23 次;
+> 行走 2 m/s 時受 5 m/s 側向擊退,1 s 內側移 1.62 m 且行走速度仍 2.0;1 rad/s 旋轉平台上 1 s 後朝向 0.983 rad;複製 + 場景快照續跑逐位相同;`dt = 0` 不動、NaN wish 視為無輸入。
+> bench `bench_movement`(16 角色,ns / 次):直設 1111、加速度式 974、Quake 式 968、游泳 1767。
 > **現況**:控制器只有**一個模式(走 / 空中二態)**。`gameplay/character.mojo:257` `update(sc, walk, jump_speed, dt, gravity)`:`walk` 是期望水平**速度**,`:278-279` 直接設 `velocity = (walk.x, vy, walk.z)`——沒有加速度 / 摩擦 / 空中操控模型,也使任何外部速度被覆寫(見 17.66)。向上軸寫死:`:40` `_UP = (0,1,0)`、`:278` 只讀 `gravity[1]`,所以 17.27 的重力區(`physics/fields.mojo:1-28` 檔頭自述「牆上可走」的 GRAVITY 區)對控制器無效。形狀只有直立膠囊(`:61-90`),可蹲(`:100` `set_half_height`)。平台只以腳點線速度帶動位置(`update` 內 `velocity_at(foot) * dt`,旋轉平台的切向速度含在內),控制器**沒有朝向狀態**(欄位只有 `cfg / position / velocity / on_ground / ground_normal / ground_body / hit_ceiling / pushed`,`:61-76`),平台旋轉不帶動朝向。水體存在(`physics/fields.mojo:20-28` `WaterVolume`)但控制器不查詢。grep `[Ss]wim|[Cc]limb|[Ll]adder|[Ll]edge|mantle|wall.?run|coyote|jump_buffer|MovementMode` 於 `gameplay procedural` 只命中 `character.mojo:173` 一則註解(「斜坡不會把人抬起」),其餘零命中。輸入契約窄:`gameplay/replay.mojo:31-36` `InputFrame` = `(tick, move, jump, buttons)`。單向平台規則尚未套用於控制器(17.26 待辦,ROADMAP §17.26)。
 > **缺口**:
 > - **模式機**:Walking / Falling / Swimming / Flying / Climbing(梯、攀緣)/ Sliding / Gliding / Driving(上下車)——每模式自有速度整合、重力倍率、碰撞形狀;用 `procedural/fsm.mojo` 階層狀態機表達(例:膠囊浸水比例 > 0.6 且 `WaterVolume` 命中 → 進游泳,帶遲滯避免水面抖動)。
@@ -2027,9 +2161,9 @@
 | 17.39 | [輸入錄製 / 決定論回放(QA・ghost,非網路)](ROADMAP_HISTORY.md#1739-輸入錄製--決定論回放qaghost非網路--wave-b) | ✅ | B | `gameplay/replay.mojo` 提供 `SimState` / `Recorder`(錄製輸入、定期存快照、每 tick 存 FNV-1a 狀態雜湊)以及 `replay_from_start` / `seek` / `first_divergence` / `ghost`;`test_replay` 8/8 驗證 seek 與全程重跑逐位相同;`bench_replay` 在快照間隔 10 時尋位只要 0.10 ms,全程重跑則是 32.6 ms。 |
 | 17.40 | [存檔系統(相對於決定論快照)](ROADMAP_HISTORY.md#1740-存檔系統相對於決定論快照--wave-b) | ✅ | B | `gameplay/save.mojo` 建在 17.11 schema 上,提供 `SaveWriter` / `SaveReader`:具名區段,按欄位名載入,處理新增、刪除、改型的欄位並以 `ReadReport` 回報;`save_bodies` / `load_bodies` 只存動態體的姿態與速度;`test_save` 11/11 驗證存檔涵蓋的欄位與 6.10 快照逐位相同;`bench_save` 的存檔大小為 74 KB,快照為 932 KB。 |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | 不排 | B | 規劃在 `CommandBuffer`(4.4)與 17.11 `TypeSchema` 之上建交易式 undo / redo 層(begin/commit/abort、反向操作記錄、物理場景 inverse op),以 `UndoLog` 差分 vs `SnapshotUndo` 全快照為 seam;目前只有零件,交易與反向操作層未做。 |
-| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ⬜ | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
-| 17.79 | [資源治理](#1779-資源治理--wave-b) | ⬜ | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
-| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ⬜ | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
+| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | 🔶 | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
+| 17.79 | [資源治理](#1779-資源治理--wave-b) | 🔶 | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
+| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | 🔶 | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
 
 ### 已完成條目的遺留待辦
@@ -2135,6 +2269,20 @@
 > **決定**:2026-10-09 修訂(Wave C 暫停點,平台方向 = C 嵌入式模擬函式庫)列為不排。
 
 #### 17.77 ECS 表達力 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:過濾器 with / without / any(六後端原生)、N 元查詢(`Filter` 任意個 `with_`)、pull 變更偵測、資源、延遲 remove / despawn / spawn、
+> 型別規模防護 ✅;`for_each3+` 零配置迭代、有狀態系統與 `Runtime` 使用者系統註冊(經 `JobGraphScheduler`)未做)。
+> **進度註(2026-10-13)**:`ecs/storage.mojo`:`Filter().with_[A]().without[B]().any[C]()`(以元件 ID 記錄;pack 外的 `with_` 型別使結果為空,`without` / `any` 則忽略),
+> `StorageBackend.select` 由六後端各自原生實作 —— archetype 每個簽名測一次 mask、bitset 字級 AND / AND-NOT / OR、sparse-set / reactive 走最小的 `with_` 集合再探測、
+> naive / chunked 逐 id 掃。`check_pack` 在每個後端建構時 comptime 檢查 ID 重複與 > 63 型別(`test_ecs_pack_guard` 以子程序編譯三個生成程式:對照組可建、
+> 重複 ID 與 64 型別皆編譯失敗並帶訊息)。`World`:`select`;`track_changes(window)` / `advance_tick` / `changed[C](since)` / `added[C](since)` / `mark_changed`
+> (逐元件寫入日誌保留最近 window 個 tick,較舊的 `since` 退回全掃描;despawn 清除該 id 的紀錄,id 重用不誤報;`for_each2` 的就地寫入不被追蹤);
+> `set_resource[T]` / `resource[T]`(一個保留實體上的元件,flecs 的 singleton 作法)。`SetBuffer` 成為單一錄製序緩衝:`set` / `remove[C]` / `despawn` / `spawn`
+> (佔位 `Entity` 可在同一緩衝內被後續紀錄引用,`apply` 回傳實體)。`Pool.active_query*` 改走 `without[Disabled]`。
+> 量測(`tests/test_ecs_query.mojo` 24/24):n = 40 / 130 的建構腳本(含 despawn、id 重用、remove)後,七個過濾器在六後端上與逐個 `has` 的暴力結果相等且彼此相等;
+> `changed` / `added` 只回本 tick 的寫入;9 型別、300 個不同 archetype 簽名的查詢正確(舊註解寫的 256 只是初始容量)。
+> bench `bench_ecs_query`(N = 20000,µs):`select` without vs `query1` + `has` —— disabled 佔 99 % 時 archetype 3 vs 385、bitset 5 vs 209、sparse-set 111 vs 277;
+> 佔 1 % 時 sparse-set 208 vs 175、naive 218 vs 196(較慢:逐槽 comptime 分派探測);`changed[C]`(1 % 被寫)9–25 vs 手工 dirty 欄位全掃描 171–492。
 > **緣起**:ECS 的儲存後端已有六種(archetype / sparse-set / bitset / reactive / chunked / naive),但**查詢語言**停在「AND 交集 + 固定元數」,
 > 宿主嵌入與 gameplay 都會碰到同一批缺口。
 > **現況**:
@@ -2187,6 +2335,14 @@
 > 場景 / prefab(17.12)、runtime 定義的元件型別(17.78)、undo 歷史(17.43)不在本條。
 
 #### 17.79 資源治理 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:記憶體記帳、body / joint 上限檢查、接觸數上限 ✅;預留 / 穩態零配置量測、`BodySet` 尾端墓碑裁切、快取 / GPU 緩衝收縮、
+> `Runtime` 接 `SimBudget`、ECS 儲存的記帳未做)。
+> **進度註(2026-10-13)**:`physics/resources.mojo`:`resource_report(scene)` 回傳 bodies / colliders / shapes(hull、mesh 含 BVH 節點、heightfield、SDF)/ contacts / joints / soft
+> 的使用中位元組(`len × size_of`,不含 broadphase 自身結構,所以是下界);`bytes_per_body` 給「再加 n 個 body 要多少」;`Limits(max_bodies, max_joints)` +
+> `check_room(scene, limits, bodies, joints)` 在公開邊界 raise(只算存活 body,移除的槽不算);`SolverConfig.max_contacts` 在熱路徑丟最新的 manifold 並計入新計數器
+> `CONTACT_DROPPED`。量測(`tests/test_resources.mojo` 8/8):每 body 329 bytes,預測再加 5000 個箱子 1645000 bytes,實測 1645000;一個 2 三角形網格 +314 bytes;
+> 上限 12 時 10 + 2 通過、10 + 3 raise、移除 1 個後 9 + 3 通過;地面 10 箱、上限 3 時快取留 3 個、60 步丟 515 個、狀態有限;無上限時不丟。
 > **緣起**:被嵌入的函式庫必須能回答「你用了多少記憶體、最多會用多少、超限時怎麼辦」。現況每個容器各自為政:有的有上限、有的無上限成長,沒有統一的用量讀數,
 > 「穩態不配置」也無從驗證。
 > **現況**:
@@ -2231,6 +2387,19 @@
 > 幀時間預算(`SimBudget`)仍屬 17.31 / 17.85;17.83 是 CI 層的效能回歸治理(基準線與門檻),本條是執行期資源;宿主配置器的注入點屬 17.75。
 
 #### 17.80 觀測 — Wave B(工具;執行期追蹤開關、物理擷取檔與回看)
+
+> **狀態**:🔶 部分完成(2026-10-13:(a)執行期開關、(b)環形模式與 `TRACE_DROPPED`、(d)counter 軌、(e)擷取檔(無 delta 編碼)、(f)隨機讀取與重模擬驗證 ✅;
+> (b)span 名 interned id、(c)多執行緒 / GPU 軌、(e)delta 編碼與只記接觸變化、(f)驅動 `DrawQueue` 回放、(g)C-ABI 出口未做)。
+> **進度註(2026-10-13)**:`diag/trace.mojo`:`TraceBuffer.enabled`(`-D LUDENS_TRACE` 編入時的執行期開關;關閉時 span 只記深度,開關切在 span 中間也不會讓巢狀錯位)、
+> `ring`(滿了覆寫最舊者)、`sample(name, value)` 與 Chrome 匯出的 `C` 事件(solver 每步記 `contact_manifolds` / `bodies`)、`take_dropped()`;`ContactScene6.step` 步末把新丟棄數加進
+> `Counters` 的 `TRACE_DROPPED`(原本無人遞增)。`physics/capture.mojo`:`Capture.record`(每步:body 位姿 / 速度 / 睡眠 / island,接觸的法向 / 點 / 深度 / 累積衝量;
+> 每 `key_every` 幀一個 `scene_to_bytes` 關鍵幀;`set_region` 只記中心在區域內的 body 與碰到它們的接觸)、`to_bytes`(引擎不寫檔,交給宿主)、`CaptureReader.frame(k)`
+> 隨機讀取、`verify(reader, start, frames, dt, gravity, cfg)` 從 ≤ start 的關鍵幀重模擬並回報第一個逐位不符的幀。
+> 量測:`tests/test_trace_runtime.mojo` 以子程序跑 `-D LUDENS_TRACE` 的 `tests/probes/trace_on_probe.mojo`(6/6:5 步 35 個 span、關閉後 5 步仍 35;span 中切換不錯位;
+> 4 格環形 10 個 span 後保留 s6–s9;匯出有 `C` 事件;8 格緩衝 10 步丟 74,`TRACE_DROPPED` = 74)。`tests/test_capture.mojo` 9/9:120 幀每幀與重跑的即時狀態逐位相同(body、island、接觸);
+> 從幀 45 驗 60 幀無差異,竄改幀 70 的一個位元時回報 70;區域擷取只留堆疊的 3 個 body 與 3 個接觸(600 vs 808 bytes)。
+> bench `bench_capture`:N = 64 / 1024 時每步 2246 / 36898 µs,記錄 41 / 362 µs(約 1–2 %),每幀 12388 / 196708 bytes(約 192 bytes / body,無 delta),
+> 關鍵幀 30556 / 483676 bytes,解碼一幀 49 / 432 µs,約十分之一地面的區域擷取每幀 792 / 17688 bytes。
 > **緣起**:17.10 只做到「編譯期開關 + Chrome trace 匯出」,其進度註自列待辦「需 runtime 開關」(ROADMAP §17.10);編輯器邊界表也把「Profiler 面板」的 runtime 開關與擷取檔
 > 掛在本條(ROADMAP「(II) 圖形化編輯器依賴的核心功能」)。嵌入場景下宿主需要的是:隨時打開 / 關掉追蹤、事後看一段模擬發生了什麼。
 > **現況**:
@@ -2282,7 +2451,14 @@
 > - 順帶修掉 island 路徑的兩個平方項:`_solve_island` 每島掃全部 body(O(bodies × islands))與 pair 分島的 O(pairs × islands) 過濾 —— 改成線性分割(`_island_partition`)後,1e4 body 的全 0 計畫從 885 ms / 步降到 322 ms(與不分級 333 ms 持平),既有 island 平行路徑同樣受益,結果逐位不變(`test_islands_par`)。
 > - 測試:`test_tiers`(26)、`test_tiers_parity`(11)、`test_system_tiers`(7,1800 個 awake body,觀察者斜穿世界:3430 次 tier 變動,位置跳變最大 7 mm、速度跳變 ≤ 一個粗步重力、穿透比全品質多 4.3 cm、每步解的 body 627 vs 1800)。
 > - 量測(`bench_tiers`,awake 兩箱堆疊,觀察者在角落):n = 1e3 不分級 28 ms / 步 → DistanceTiers 7.3、CausalReach 5.5、RoundRobin 5.0、BudgetTiers 5.0 ms(粗 tier 穿透 +35 mm);n = 1e4 333 ms → 138–145 ms。1e4 時剩下的約 70 ms 是收集 pair(寬相 + 窄相)的全量成本,tier 還沒碰到它。
-> **剩餘**:ECS `Tier[N]` tag(待 17.77 的延遲 remove 與元件型別上限)、睡眠 bookkeeping 的 awake list、`BroadPhase.update_moved` 與「兩端都沒動的 pair 跳過窄相」(1e4 時的主要剩餘成本)、軟體 / LBM / 粒子的 per-object period、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
+> **進度(2026-10-13)**:「兩端都沒動的 pair 跳過窄相」—— `SolverConfig.reuse_still_pairs`(預設關):`try_pair` 只依賴碰撞器、兩端位姿與線速度、`spec_dt` 與裕度,
+> 所以兩端位姿與速度與上次收集逐位相同(且 `ColliderSet.epoch` —— 每個改動碰撞器的方法都會遞增 —— 與 `spec_dt` / 裕度不變)的候選對直接複製上次的窄相輸出,
+> 依候選順序串接,輸出與一般路徑相同(`ContactScene6._narrow_reuse`)。`tests/test_np_reuse.mojo` 8/8 皆與一般路徑逐位相同:DistanceTiers 下 200 箱的分級堆疊
+> (120 步複製 16358 個候選對);睡著的堆疊中途改 filter 並開 `parallel_collision`;中途抬高 heightfield 0.1 m(箱被抬到 y 0.2999);無物體;全部在落(不複製);中途移除 body。
+> 量測(`bench_tiers`,n = 1e4,兩次執行):BVH 後端時 reuse 的差在執行間雜訊內(DistanceTiers 163 / 196 ms vs 加 reuse 166 / 211 ms);
+> 換成持久 `DbvhBroadPhase`(只重插移動者)後 DistanceTiers 為 56 / 58 ms(約 3 倍),再加 reuse 52 / 54 ms(兩次皆省約 7 %)。
+> 也就是 1e4 時的剩餘成本主要是每步全建的 BVH,而不是窄相。為此 `TierPolicy.assign` 改為對 broadphase 泛型(原本只接受預設 BVH 的場景)。
+> **剩餘**:ECS `Tier[N]` tag(17.77 的延遲 remove 與型別上限已交付,可做)、睡眠 bookkeeping 的 awake list、`BroadPhase.update_moved`(DBVH 已是增量;BVH 後端是否值得加增量更新待定)、軟體 / LBM / 粒子的 per-object period、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
 > **緣起**:2026-10-10 使用者提問 —— 世界中實體數遠大於玩家能產生因果交互的實體數時,
 > 引擎能否以適當的時間 / 空間解析度維護 simulation state,且分級(LOD)模組本身可替換。
 > 設計筆記:`docs/design/17.85-tiered-simulation.md`。
@@ -2528,6 +2704,11 @@
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
 > **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,跨目標容差表、浮點位元因子探針、降級矩陣未做)。
+> **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
+> (同參數的純函數兩次呼叫被合併 → 每個閉包自帶呼叫計數)、`test_python_binding`(`build_wheel.py` 靠 `ldd` 與 ELF RUNPATH,非 Linux 改為明確拒絕,
+> 測試檢查該訊息;wheel tag 改隨建置機器 `linux_<machine>`,aarch64 不再標成 x86_64)。ubuntu-24.04-arm:`test_fracture` 碎片堆 48 塊中 6 塊入睡、
+> 末速 2.39 m/s(x86 48/48、0.09);x86 上以投放位置抖動 0 – 3e-4 m × 目標 CPU x86-64 / x86-64-v3 / znver3 / sapphirerapids 共 12 組全部 48/48 入睡,
+> 未能重現 —— 差異來自 ARM codegen 而非初值敏感,待 ARM 機器上逐步比對。
 > **緣起**:被嵌入的函式庫要在宿主所在的平台上跑;目前引擎只在單一 Linux x86-64 + NVIDIA 環境被驗證過,
 > 「可攜」是未知而非已知。LICENSE 與發行管線(17.81)和本條共同構成方向 C 的前提。
 > **現況**:
@@ -2960,19 +3141,19 @@
 | 17.41 | [繩索 / 纜線約束](ROADMAP_HISTORY.md#1741-繩索--纜線約束--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.42 | [LBM 風洞收尾(Phase 14 遺留併入)](ROADMAP_HISTORY.md#1742-lbm-風洞收尾phase-14-遺留併入--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | ECS、排程、執行期與診斷 | 不排 |
-| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
+| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
-| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
+| 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
-| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
+| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | 🔶 |
-| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
+| 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
-| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
-| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | ⬜ |
-| 17.56 | [布料](#1756-布料--wave-b) | 軟體、布料、連續體與流體 | ⬜ |
+| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
+| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | 🔶 |
+| 17.56 | [布料](#1756-布料--wave-b) | 軟體、布料、連續體與流體 | 🔶 |
 | 17.57 | [毛髮 / 肌肉](#1757-毛髮--肌肉--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.58 | [體積軟體](#1758-體積軟體--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.59 | [流固耦合](#1759-流固耦合--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
@@ -2980,10 +3161,10 @@
 | 17.61 | [多物理](#1761-多物理--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.62 | [GPU / 可微連續體](#1762-gpu--可微連續體--wave-cgpu--可微) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.63 | [輸出 / 快取](#1763-輸出--快取--wave-c資產管線提供者) | 軟體、布料、連續體與流體 | ⬜ |
-| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | ⬜ |
+| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | 🔶 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | ⬜ |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
-| 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
+| 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | ⬜ |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
@@ -2993,10 +3174,10 @@
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | 🔶 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | 🔶 |
-| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |
-| 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
-| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
+| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |

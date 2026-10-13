@@ -305,6 +305,16 @@ The player rows show what a cross-fade costs: 3.4x a single clip, because a
 fading player samples two clips and blends them instead of sampling one.
 
 @bench benchmarks/bench_anim.mojo
+
+## Animation transitions: fade vs inertialization (17.64)
+
+`procedural.anim_state.AnimGraph` runs a transition one of two ways: fade
+(sample both clips, blend) or inertialization (sample the new clip only,
+add the pose offset recorded at the switch, decaying). Both end exactly on
+the new clip (`test_anim_runtime`). The sweep is over the share of
+characters inside a transition, since that is where the two differ.
+
+@bench benchmarks/bench_anim_runtime.mojo
 ## Physics — cloth self-collision
 
 Cloth that does not collide with itself can be a flag and cannot be a garment.
@@ -415,6 +425,20 @@ snapshot-diff poll, priced per detected event. The deferred `SetBuffer`
 iteration-safety of a command buffer against writing components directly.
 
 @bench benchmarks/bench_ecs_events.mojo
+
+## ECS filters and change detection (17.77)
+
+`World.select(Filter().with_[A]().without[B]())` is evaluated by each
+backend natively: the archetype backend tests the filter once per signature,
+the bitset backend with word-level AND-NOT, the sparse-set / reactive
+backends walk the smallest `with_` store and probe the rest, the naive and
+chunked backends scan every id. The comparison column is the pre-17.77 path
+(`query1` then `has` on every match, which `Pool.active_query*` used).
+`changed[C]` reads a per-component write log covering the last `window`
+ticks (8 by default), so it costs O(writes); the comparison is a scan of
+every entity for a hand-kept dirty field.
+
+@bench benchmarks/bench_ecs_query.mojo
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
 
 The same integrate + damage-event workload driven through the swappable
@@ -868,6 +892,16 @@ fluid that was wrong:
   count rather than at one.
 
 @bench benchmarks/bench_pbf.mojo
+
+## Continuum stepping contract (17.55)
+
+FEM, MPM, PBF and LBM (through `physics.continuum.LbmContinuum`) now share
+one `ContinuumSolver` interface. `step_checked` adds the failure policy: a
+health scan with quarantine before and after each step, counted in
+`CONTINUUM_NAN` / `CONTINUUM_ESCAPED`. The table is its cost against a plain
+`advance` on the same solver.
+
+@bench benchmarks/bench_continuum.mojo
 ## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)
 
 Vertex block descent (`physics/vbd_cloth.mojo`, arXiv:2403.06321): per-vertex
@@ -912,6 +946,16 @@ regime at all. Worth noting the two converge to nearly the same sag (1.136 vs
 1.130), so they do discretise the same material and the comparison is fair.
 
 @bench benchmarks/bench_vbd_cloth.mojo
+
+## Mesh cloth (17.56)
+
+`physics.cloth.MeshCloth` runs XPBD on any triangle mesh (stretch per edge,
+cross-edge bending, area-weighted masses), collides with the scene's
+colliders through the world queries, and takes wind drag per triangle. The
+cost per vertex-substep stays flat as the sheet grows (the scene here is a
+single box; more colliders mean more candidates per query).
+
+@bench benchmarks/bench_cloth_mesh.mojo
 ## Differentiable simulation — gradient cost & Field abstraction
 
 The `Field` seam (`RealF`/`DualReal`/`DualBatch`/`RevReal` tape, gradient
@@ -1523,6 +1567,18 @@ spread, where SAP's single sweep axis and a hash grid's fixed cell size are
 each a plausible place for the O(n) claim to quietly stop holding.
 
 @bench benchmarks/bench_solver_scale.mojo
+
+### Parallel narrowphase and contact prep (17.54)
+
+`SolverConfig.parallel_collision` runs `try_pair` over fixed chunks of the
+candidate list and `make_contact` per raw contact through `cfg.dispatch`,
+joining the results in candidate order, so a parallel step is bit-identical
+to a serial one (`test_collide_par`). It pays where the narrowphase is
+expensive (bodies on a heightfield test a few dozen triangles each) and not
+on box piles, where the narrowphase is ~3 % of the step and the serial BVH
+broadphase is a larger share. Below 256 candidate pairs it stays serial.
+
+@bench benchmarks/bench_collide_par.mojo
 ## Physics — kinematic motion type (ROADMAP 17.24): cost of the path
 
 `MOTION_KINEMATIC` is a third instance of the same "advance this body's pose"
@@ -1818,6 +1874,17 @@ push/pop) is a fraction of a percent of a 20,000-op phase, which is the "a
 few % or less" bar this table exists to check.
 
 @bench benchmarks/bench_diag.mojo
+
+## Physics capture (17.80)
+
+`physics.capture.Capture.record` appends one frame per step (every body's
+pose, velocities, sleep flag and island; every contact's normal, points,
+depths and impulses) and a full snapshot every `key_every` frames;
+`CaptureReader.frame` decodes any frame without simulating. Frames are not
+delta-encoded yet, so size grows with the body count; a region keeps only
+the bodies inside it.
+
+@bench benchmarks/bench_capture.mojo
 ## Splines — parametric curves and rotation-minimising frames (17.36)
 
 `geometry/spline.mojo` unifies generalized Catmull-Rom (uniform / centripetal
@@ -2054,6 +2121,50 @@ where the segment's bounding box held 1,457,456.
 
 @bench benchmarks/bench_query_ext.mojo
 
+## Shape kinds (17.52)
+
+Cost per resting body-step of the shape kinds added in 17.52 against the
+analytic sphere and box. Ellipsoids meet every other shape through GJK
+distance and EPA on their exact support mapping (one contact point per
+pair); a cylinder is a 16-segment hull whose side contact against a box is
+the capsule manifold; a box on an SDF samples 26 points against the grid.
+The second table is the error a sampled hull carries and the support
+mapping removes.
+
+@bench benchmarks/bench_shapes.mojo
+
+## Compound shapes (17.44)
+
+One body with N box children against N box bodies held together by
+N - 1 weld joints (the 17.5 route for multi-part rigid objects). The
+compound has no joint rows and no joint residual; the welded bar's ends
+drift apart by the weld error.
+
+@bench benchmarks/bench_compound.mojo
+
+## CCD shape coverage (17.46)
+
+Hull bullets at 60 m/s (1 m per step, 20x the wall's thickness) against a
+thin wall, and the same hulls at rest as a control. Box / sphere / capsule
+pairs keep the closed-form swept box; pairs with a hull, ellipsoid,
+compound or static mesh use conservative advancement on the exact convex
+distance, with candidates from a BVH over swept boxes.
+
+@bench benchmarks/bench_ccd_shapes.mojo
+
+## Contact model variants (17.50)
+
+Pyramid vs elliptic friction cone, and the elliptic cone with static
+friction and rolling / spin resistance on every body. On the slope
+diagonal the pyramid caps friction at sqrt(2) mu N, so its cubes slide
+about half as far (analytic 0.650 m vs 1.177 m in 1 s); the elliptic runs
+match the analytic slide on any direction. Timings compare different
+motions (the elliptic cubes travel further), so they are an upper bound on
+the cone's own cost; the rolling / spin branch adds two small angular solves
+per pair.
+
+@bench benchmarks/bench_contact_model.mojo
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for
@@ -2063,6 +2174,15 @@ Its cost therefore follows theirs: a few microseconds on an empty floor,
 then growing with the obstacle count through the queries' linear prefilter.
 
 @bench benchmarks/bench_character.mojo
+
+## Movement modes (17.67)
+
+`gameplay.movement.Mover` adds modes (walk / fall / swim / fly), jump feel
+and external velocity on top of the controller, with three velocity models
+(direct, acceleration, Quake-style). The model only changes the horizontal
+integration, so the cost is the controller's sweeps either way.
+
+@bench benchmarks/bench_movement.mojo
 
 ## Raycast vehicles (17.4)
 

@@ -39,7 +39,7 @@ from geometry.quat import Quat
 from .rigid6 import QuatBody6, Inertia3
 from .contact6 import ContactConstraint, anchor_world
 from .material import combine
-from .solver_config import SolverConfig
+from .solver_config import SolverConfig, FRICTION_PYRAMID
 from .solver6 import ContactScene6
 
 comptime dtype = WorldType
@@ -346,6 +346,8 @@ struct GpuContactSolver(Movable):
         equivalent to `sc.step(dt, gravity, cfg)` with `cfg.colored=True`."""
         if len(sc.joints) > 0 or len(sc.drives) > 0 or len(sc.softs) > 0 or cfg.ccd or sc.bset.any_grav:
             raise Error("GpuContactSolver: joints, drives, soft bodies, CCD and gravity zones are not supported")
+        if sc.bset.any_contact_model or cfg.friction_cone != FRICTION_PYRAMID:
+            raise Error("GpuContactSolver: static, rolling and spin friction, per-body softness, adhesion and the elliptic cone are not supported (17.50)")
         var h = dt / Real(cfg.substeps)
         var omega = Real(6.283185307179586) * cfg.hertz
         var cc = h * omega * (2 * cfg.zeta + h * omega)
@@ -413,9 +415,9 @@ struct GpuContactSolver(Movable):
                     # the frame-start pose (the CPU's fixed-offset scheme on
                     # the GPU is deferred with the rest of the GPU work).
                     _put3(t, o + _RA + 3 * p, sc.bset.bodies[pr.a].to_local(
-                        anchor_world(sc.bset, pr.a, pr.ra[p], pr.oa[p])))
+                        anchor_world(sc.bset, pr.a, pr.ra[p], pr.oa[p], pr.ea, pr.m.normal)))
                     _put3(t, o + _RB + 3 * p, sc.bset.bodies[pr.b].to_local(
-                        anchor_world(sc.bset, pr.b, pr.rb[p], pr.ob[p])))
+                        anchor_world(sc.bset, pr.b, pr.rb[p], pr.ob[p], pr.eb, -pr.m.normal)))
                     _st(t, o + _ACC + p, pr.acc[p])
                     _st(t, o + _AT1 + p, pr.acc_t1[p])
                     _st(t, o + _AT2 + p, pr.acc_t2[p])

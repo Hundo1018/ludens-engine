@@ -16,7 +16,7 @@ from std.bit import count_trailing_zeros
 from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
-from .storage import StorageBackend
+from .storage import StorageBackend, Filter, resolve_filter, check_pack
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -43,6 +43,7 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
     var n_live: Int
 
     def __init__(out self):
+        check_pack[*Self.CTs]()
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
@@ -162,6 +163,27 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
             var _id = base + Int(count_trailing_zeros(b))
             out.append(Entity(_id, self.gens[_id] if _id < len(self.gens) else 0))
             b &= b - 1
+
+    def select(self, f: Filter) -> List[Entity]:
+        """17.77: word-level AND / AND-NOT / OR over the presence bitsets."""
+        var m = resolve_filter[*Self.CTs](f)
+        var out = List[Entity]()
+        if m.impossible:
+            return out^
+        for w in range(len(self.live_mask)):
+            var bits = self.live_mask[w]
+            var anyw = UInt64(0)
+            for s in range(Self.N):
+                if (m.with_bits >> s) & 1 == 1:
+                    bits &= self.masks[s][w]
+                if (m.without_bits >> s) & 1 == 1:
+                    bits &= ~self.masks[s][w]
+                if (m.any_bits >> s) & 1 == 1:
+                    anyw |= self.masks[s][w]
+            if m.any_bits != 0:
+                bits &= anyw
+            self._emit(bits, w * 64, out)
+        return out^
 
     def matching1[A: ComponentType](self) -> List[Entity]:
         var out = List[Entity]()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the `ludens` wheel (ROADMAP 17.21).
 
-    pixi run wheel                      # -> build/dist/ludens-<ver>-py3-none-linux_x86_64.whl
+    pixi run wheel                      # -> build/dist/ludens-<ver>-py3-none-linux_<machine>.whl
     python3 python/build_wheel.py --out DIR [--lib PATH]
 
 Steps:
@@ -16,8 +16,13 @@ Steps:
    machine's toolchain directory) to `$ORIGIN`, in place. No patchelf needed:
    the new string is shorter, so it is written over the old one and padded
    with NULs.
-4. Write a py3-none-linux_x86_64 wheel (zip + METADATA / WHEEL / RECORD).
-   The package is pure ctypes, so the wheel works with any CPython 3.8+.
+4. Write a py3-none-linux_<machine> wheel (x86_64 or aarch64, the build
+   machine's; zip + METADATA / WHEEL / RECORD). The package is pure ctypes,
+   so the wheel works with any CPython 3.8+.
+
+Linux only: steps 2 and 3 are ELF / `ldd` work. On another OS (macOS) it
+exits with a message naming that, instead of failing inside `ldd`
+(ROADMAP 17.76).
 
 The wheel carries LICENSE-MIT, LICENSE-APACHE and NOTICE in its dist-info;
 NOTICE records the terms the bundled Mojo / MAX runtime is redistributed
@@ -26,6 +31,7 @@ under (ROADMAP 17.81).
 
 import argparse
 import base64
+import platform
 import hashlib
 import os
 import re
@@ -108,7 +114,12 @@ def record_line(arc, payload):
     return "%s,sha256=%s,%d" % (arc, digest, len(payload))
 
 
+LINUX_ONLY = "build_wheel: Linux only (ldd + ELF RUNPATH rewrite); no wheel for "
+
+
 def build(out_dir, prebuilt=None):
+    if not sys.platform.startswith("linux"):
+        raise SystemExit(LINUX_ONLY + sys.platform)
     version = read_version()
     stage = tempfile.mkdtemp(prefix="ludens_wheel_")
     pkg = os.path.join(stage, "ludens")
@@ -133,9 +144,10 @@ def build(out_dir, prebuilt=None):
         "Requires-Python: >=3.8\n"
         "License: MIT OR Apache-2.0\n" % version
     )
-    wheel_meta = "Wheel-Version: 1.0\nGenerator: ludens build_wheel.py\nRoot-Is-Purelib: false\nTag: py3-none-linux_x86_64\n"
+    tag = "py3-none-linux_" + platform.machine()
+    wheel_meta = "Wheel-Version: 1.0\nGenerator: ludens build_wheel.py\nRoot-Is-Purelib: false\nTag: %s\n" % tag
     os.makedirs(out_dir, exist_ok=True)
-    whl = os.path.join(out_dir, "ludens-%s-py3-none-linux_x86_64.whl" % version)
+    whl = os.path.join(out_dir, "ludens-%s-%s.whl" % (version, tag))
     records = []
     with zipfile.ZipFile(whl, "w", zipfile.ZIP_DEFLATED) as z:
         for name in sorted(os.listdir(pkg)):

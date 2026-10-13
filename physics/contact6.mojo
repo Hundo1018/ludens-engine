@@ -19,13 +19,19 @@ from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
 from collision.contact_events import pack_key
-from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE
+from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_ELLIPSOID
 from .rigid6 import Body6
 from .body_set import BodySet
 from .material import combine
 
 comptime _BETA: Real = 0.2  # Baumgarte position-correction gain
 comptime _SLOP: Real = 0.005  # allowed penetration
+# ROADMAP 17.50: a contact point whose tangential speed at prep is below
+# this grips with the static coefficient (m/s). Prep runs before the frame's
+# gravity is integrated, so a resting point reads ~0 here.
+comptime _STICK_V: Real = 0.01
+# Adhesion (17.50) holds a point whose separation is within this gap (m).
+comptime _ADH_GAP: Real = 0.01
 
 
 @fieldwise_init
@@ -77,6 +83,21 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     var jn: Array[Real, 4]
     var jf: Vec3
     var span: Real
+    # ROADMAP 17.52: semi-axes of side a / b when it is an ellipsoid (zero
+    # otherwise). Its anchor is then re-taken every substep as its support
+    # point along the normal under the current orientation: on a rocking
+    # ellipsoid the contact slides over the surface, and the sphere's fixed
+    # world offset pumped energy in (+2.6 % in 4 s at 60 Hz).
+    var ea: Vec3
+    var eb: Vec3
+    # ROADMAP 17.50, read only when `bset.any_contact_model`: the pair's
+    # accumulated rolling (tangential) and spin (normal) angular impulses,
+    # warm-started each substep like the friction accumulators but never
+    # inherited across frames, and a bit per point set at prep when its
+    # tangential speed is below `_STICK_V` (static friction applies then).
+    var roll_acc: Vec3
+    var spin_acc: Real
+    var stick: Int
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -99,6 +120,11 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.jn = copy.jn.copy()
         self.jf = copy.jf
         self.span = copy.span
+        self.ea = copy.ea
+        self.eb = copy.eb
+        self.roll_acc = copy.roll_acc
+        self.spin_acc = copy.spin_acc
+        self.stick = copy.stick
 
 
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
@@ -126,6 +152,11 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(0),
+        Vec3(0, 0, 0, 0),
+        Vec3(0, 0, 0, 0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
+        0,
     )
 
 
@@ -159,7 +190,7 @@ def round_core[B: Body6](
         var hl = colliders.half[i][1]
         var y = bset.bodies[i].to_local(p)[1]
         return Vec3(0, min(max(y, -hl), hl), 0, 0)
-    if k == SHAPE_SPHERE:
+    if k == SHAPE_SPHERE or k == SHAPE_ELLIPSOID:
         return Vec3(0, 0, 0, 0)
     if k == SHAPE_CAPSULE:
         var hl = colliders.half[i][1]
@@ -168,12 +199,37 @@ def round_core[B: Body6](
     return None
 
 
+def round_reach[B: Body6](
+    bset: BodySet[B], colliders: ColliderSet, i: Int, n: Vec3
+) -> Real:
+    """How far round collider `i`'s surface lies from its core point along
+    unit world direction `n`: the radius, or for an ellipsoid (17.52) its
+    support function |diag(radii) R^T n|."""
+    if colliders.shape[i] == SHAPE_ELLIPSOID:
+        var o = bset.bodies[i].act(Vec3(0, 0, 0, 0))
+        var ln = bset.bodies[i].to_local(o + n)
+        var h = colliders.half[i]
+        return sqrt((h[0] * ln[0]) ** 2 + (h[1] * ln[1]) ** 2 + (h[2] * ln[2]) ** 2)
+    var rr = colliders.round_radius(i)
+    return rr if rr > 0 else colliders.half[i][0]
+
+
 def anchor_world[B: Body6](
-    bset: BodySet[B], i: Int, r: Vec3, o: Vec3
+    bset: BodySet[B], i: Int, r: Vec3, o: Vec3,
+    e: Vec3 = Vec3(0, 0, 0, 0), toward: Vec3 = Vec3(0, 0, 0, 0),
 ) -> Vec3:
     """World position of a contact anchor: body-frame point `r` under the
     current pose, plus the world-frame round-shape offset `o` (zero for
-    non-round shapes, so this is `act(r)` exactly)."""
+    non-round shapes, so this is `act(r)` exactly). An ellipsoid side (its
+    semi-axes `e` nonzero) anchors at its current support point along unit
+    `toward` instead (17.52)."""
+    if e[0] > 0:
+        var c = bset.bodies[i].act(Vec3(0, 0, 0, 0))
+        var ln = bset.bodies[i].to_local(c + toward)
+        var q = Vec3(e[0] * e[0] * ln[0], e[1] * e[1] * ln[1], e[2] * e[2] * ln[2], 0)
+        var l = sqrt((e[0] * ln[0]) ** 2 + (e[1] * ln[1]) ** 2 + (e[2] * ln[2]) ** 2)
+        if l > Real(1e-12):
+            return bset.bodies[i].act(q / l)
     return bset.bodies[i].act(r) + o
 
 
@@ -210,7 +266,16 @@ def make_contact[B: Body6](
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(0),
+        Vec3(0, 0, 0, 0),
+        Vec3(0, 0, 0, 0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
+        0,
     )
+    if colliders.shape[rc.a] == SHAPE_ELLIPSOID:
+        pr.ea = colliders.half[rc.a]
+    if colliders.shape[rc.b] == SHAPE_ELLIPSOID:
+        pr.eb = colliders.half[rc.b]
     for k in range(rc.m.count):
         var p = rc.m.points[k]
         var ca = round_core(bset, colliders, rc.a, p, rc.m.normal)
@@ -225,9 +290,9 @@ def make_contact[B: Body6](
             var n = rc.m.normal
             var target = Real(0)
             if ca:
-                target = dot(bset.bodies[rc.a].act(ca.value()), n) + colliders.half[rc.a][0]
+                target = dot(bset.bodies[rc.a].act(ca.value()), n) + round_reach(bset, colliders, rc.a, n)
             if cb:
-                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - colliders.half[rc.b][0]
+                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - round_reach(bset, colliders, rc.b, n)
                 target = (target + sb) * 0.5 if ca else sb
             p = p + n * (target - dot(p, n))
         if ca:
@@ -247,6 +312,10 @@ def make_contact[B: Body6](
         if not bset.is_static(rc.b):
             vb0 = bset.bodies[rc.b].velocity_at(p)
         pr.vn0[k] = dot(vb0 - va0, rc.m.normal)
+        if bset.any_contact_model:
+            var vt0 = (vb0 - va0) - rc.m.normal * pr.vn0[k]
+            if dot(vt0, vt0) < _STICK_V * _STICK_V:
+                pr.stick |= 1 << k
     if warm:
         # Start at the first entry with this key (`cache_index`); the scan
         # from there keeps the old first-match rule exactly, count included.
@@ -259,9 +328,46 @@ def make_contact[B: Body6](
                 and old.feat == rc.feat
                 and old.m.count == rc.m.count
             ):
-                pr.acc = old.acc.copy()
-                pr.acc_t1 = old.acc_t1.copy()
-                pr.acc_t2 = old.acc_t2.copy()
+                # Match each point to the nearest unused cached point, not
+                # by index: `box_box_manifold` returns the same four corners
+                # of a resting box in a different order from step to step,
+                # and index matching handed every corner another corner's
+                # friction -- a 3-box stack built up that torsion until it
+                # kicked (1.24 N sideways on the top box, ARM runner).
+                # Distance in body `a`'s frame (a sliding box's corners stay
+                # put there), and only within 5 cm. A point with no cached
+                # point that close keeps the old rule -- the cached point of
+                # the same index, if not taken: points that moved further
+                # (a box sliding over small triangles, a bullet in the step
+                # after its impact) have no reliable partner either way, and
+                # forcing the nearest one kicked the sliding box up at the
+                # seams (|vy| 0.023) while starting cold raised the bullet's
+                # rebound from 2.4 to 3.5 m/s.
+                var used = Array[Bool, 4](fill=False)
+                var src = Array[Int, 4](fill=-1)
+                for k in range(rc.m.count):
+                    var best = -1
+                    var bd = Real(2.5e-3)
+                    for q in range(old.m.count):
+                        if used[q]:
+                            continue
+                        var dv = old.ra[q] - pr.ra[k]
+                        var d2 = dot(dv, dv)
+                        if d2 <= bd:
+                            bd = d2
+                            best = q
+                    if best >= 0:
+                        used[best] = True
+                        src[k] = best
+                for k in range(rc.m.count):
+                    if src[k] < 0 and not used[k]:
+                        used[k] = True
+                        src[k] = k
+                for k in range(rc.m.count):
+                    if src[k] >= 0:
+                        pr.acc[k] = old.acc[src[k]]
+                        pr.acc_t1[k] = old.acc_t1[src[k]]
+                        pr.acc_t2[k] = old.acc_t2[src[k]]
                 break
     return pr^
 
@@ -318,12 +424,18 @@ def warm_start_contacts[B: Body6](
             )
             if bset.is_dynamic(pr.a):
                 bset.bodies[pr.a].apply_impulse(
-                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
+                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
                 )
             if bset.is_dynamic(pr.b):
                 bset.bodies[pr.b].apply_impulse(
-                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
+                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
                 )
+        if bset.any_contact_model:
+            var l = pr.roll_acc + n * pr.spin_acc
+            if bset.is_dynamic(pr.a):
+                bset.bodies[pr.a].apply_angular_impulse(-l)
+            if bset.is_dynamic(pr.b):
+                bset.bodies[pr.b].apply_angular_impulse(l)
 
 
 def solve_point[B: Body6](
@@ -474,12 +586,43 @@ def solve_contact[B: Body6](
         bset.friction_combine[pr.a],
         bset.friction_combine[pr.b],
     )
+    var model = bset.any_contact_model
+    var pair_ms = pair_mu
+    if model:
+        pair_ms = combine(
+            bset.eff_static(pr.a, mu),
+            bset.eff_static(pr.b, mu),
+            bset.friction_combine[pr.a],
+            bset.friction_combine[pr.b],
+        )
     if pr.mu_override >= 0:
         pair_mu = pr.mu_override
+        pair_ms = pr.mu_override
+    var ell = bset.cone == 1
+    # ROADMAP 17.50 per-body contact softness: the softer side's (lower
+    # hertz) hertz / zeta replace the step's for this pair; the same
+    # formulas as `ContactScene6.step`, so equal values are bit-identical.
+    var p_bias = bias_rate
+    var p_ms = mass_scale
+    var p_isc = impulse_scale
+    var adh = Real(0)
+    if model:
+        var ha = bset.contact_hertz[pr.a]
+        var hb = bset.contact_hertz[pr.b]
+        if ha > 0 or hb > 0:
+            var use_a = ha > 0 and (hb <= 0 or ha <= hb)
+            var hz = ha if use_a else hb
+            var zt = bset.contact_zeta[pr.a] if use_a else bset.contact_zeta[pr.b]
+            var om = Real(6.283185307179586) * hz
+            var cc = h * om * (2 * zt + h * om)
+            p_bias = om / (2 * zt + h * om)
+            p_ms = cc / (1 + cc)
+            p_isc = 1 / (1 + cc)
+        adh = max(bset.adhesion[pr.a], bset.adhesion[pr.b]) * h / Real(max(pr.m.count, 1))
     var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
     for k in range(pr.m.count):
-        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
-        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
+        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
+        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
         # anchors coincided at prep with depth d0; separation since
         # then is the anchor drift along the normal
         var d = pr.m.depths[k] - dot(pwb - pwa, n)
@@ -511,11 +654,14 @@ def solve_contact[B: Body6](
         if d < 0:
             bias = -d / h  # speculative: match approach speed
         elif use_bias:
-            bias = max(-bias_rate * d, -max_push)
-            ms = mass_scale
-            isc = impulse_scale
+            bias = max(-p_bias * d, -max_push)
+            ms = p_ms
+            isc = p_isc
         var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
-        var new_acc = max(pr.acc[k] + raw, 0)
+        var lo = Real(0)
+        if adh > 0 and d > -_ADH_GAP:
+            lo = -adh
+        var new_acc = max(pr.acc[k] + raw, lo)
         var dl = new_acc - pr.acc[k]
         pr.acc[k] = new_acc
         if dl != 0:
@@ -526,7 +672,15 @@ def solve_contact[B: Body6](
                 bset.bodies[pr.b].apply_impulse(j, pwb)
         # Coulomb friction: tangent impulses clamped to pair_mu * lambda_n.
         var tb = tangent_basis(n)
-        var cap = pair_mu * pr.acc[k]
+        # an adhesive point's normal impulse may be negative; it gives no grip
+        var lam = pr.acc[k] if pr.acc[k] > 0 else Real(0)
+        var cap = pair_mu * lam
+        if model and (pr.stick >> k) & 1 == 1:
+            cap = pair_ms * lam
+        # ROADMAP 17.50 elliptic cone: solve both axes unclamped, then
+        # project the pair onto the disk |(t1, t2)| <= cap. Below the cap
+        # it takes the pyramid's exact steps; cap 0 stays on the pyramid.
+        var disk = ell and cap > 0
         for ti in range(2):
             var t = tb[0] if ti == 0 else tb[1]
             var vat = Vec3(0, 0, 0, 0)
@@ -557,7 +711,9 @@ def solve_contact[B: Body6](
                 vt += dot(pr.vsurf, t)
             var acc_t = pr.acc_t1[k] if ti == 0 else pr.acc_t2[k]
             var new_t = acc_t - vt / dent
-            if new_t > cap:
+            if disk:
+                pass
+            elif new_t > cap:
                 new_t = cap
             elif new_t < -cap:
                 new_t = -cap
@@ -572,7 +728,84 @@ def solve_contact[B: Body6](
                     bset.bodies[pr.a].apply_impulse(-jt, pwa)
                 if bset.is_dynamic(pr.b):
                     bset.bodies[pr.b].apply_impulse(jt, pwb)
+        if disk:
+            var t1 = pr.acc_t1[k]
+            var t2 = pr.acc_t2[k]
+            var m2 = t1 * t1 + t2 * t2
+            if m2 > cap * cap:
+                var sc = cap / sqrt(m2)
+                pr.acc_t1[k] = t1 * sc
+                pr.acc_t2[k] = t2 * sc
+                var jt = tb[0] * (t1 * sc - t1) + tb[1] * (t2 * sc - t2)
+                if bset.is_dynamic(pr.a):
+                    bset.bodies[pr.a].apply_impulse(-jt, pwa)
+                if bset.is_dynamic(pr.b):
+                    bset.bodies[pr.b].apply_impulse(jt, pwb)
+    if model:
+        _solve_rolling(bset, pr, n)
     pairs[c] = pr
+
+
+def _solve_rolling[B: Body6](mut bset: BodySet[B], mut pr: ContactConstraint, n: Vec3):
+    """ROADMAP 17.50 rolling and spin resistance: angular impulses on the
+    pair's relative angular velocity, its normal part capped at
+    `spinning · Σλn` and its tangential part (a disk) at `rolling · Σλn`
+    (both coefficients in metres, the larger of the two bodies')."""
+    var cr = max(bset.rolling[pr.a], bset.rolling[pr.b])
+    var cs = max(bset.spinning[pr.a], bset.spinning[pr.b])
+    if cr <= 0 and cs <= 0:
+        return
+    var lam = Real(0)
+    for k in range(pr.m.count):
+        lam += max(pr.acc[k], 0)
+    if cs > 0:
+        var kk = Real(0)
+        if bset.is_dynamic(pr.a):
+            kk += bset.bodies[pr.a].angular_only_factor(n)
+        if bset.is_dynamic(pr.b):
+            kk += bset.bodies[pr.b].angular_only_factor(n)
+        if kk > 0:
+            var w = dot(_omega(bset, pr.b) - _omega(bset, pr.a), n)
+            var cap = cs * lam
+            var na = min(max(pr.spin_acc - w / kk, -cap), cap)
+            var dl = na - pr.spin_acc
+            pr.spin_acc = na
+            if dl != 0:
+                if bset.is_dynamic(pr.a):
+                    bset.bodies[pr.a].apply_angular_impulse(n * -dl)
+                if bset.is_dynamic(pr.b):
+                    bset.bodies[pr.b].apply_angular_impulse(n * dl)
+    if cr > 0:
+        var tb = tangent_basis(n)
+        var wr = _omega(bset, pr.b) - _omega(bset, pr.a)
+        var nr = Vec3(0, 0, 0, 0)
+        for ti in range(2):
+            var t = tb[0] if ti == 0 else tb[1]
+            var kk = Real(0)
+            if bset.is_dynamic(pr.a):
+                kk += bset.bodies[pr.a].angular_only_factor(t)
+            if bset.is_dynamic(pr.b):
+                kk += bset.bodies[pr.b].angular_only_factor(t)
+            var cur = dot(pr.roll_acc, t)
+            if kk > 0:
+                cur -= dot(wr, t) / kk
+            nr = nr + t * cur
+        var cap = cr * lam
+        var m2 = dot(nr, nr)
+        if m2 > cap * cap:
+            nr = nr * (cap / sqrt(m2)) if m2 > 0 else nr
+        var dl = nr - pr.roll_acc
+        pr.roll_acc = nr
+        if bset.is_dynamic(pr.a):
+            bset.bodies[pr.a].apply_angular_impulse(-dl)
+        if bset.is_dynamic(pr.b):
+            bset.bodies[pr.b].apply_angular_impulse(dl)
+
+
+def _omega[B: Body6](bset: BodySet[B], i: Int) -> Vec3:
+    if bset.moves(i):
+        return bset.bodies[i].omega_world()
+    return Vec3(0, 0, 0, 0)
 
 
 def restitution_pass[B: Body6](
@@ -605,8 +838,8 @@ def restitution_pass[B: Body6](
             for k in range(pr.m.count):
                 if pr.vn0[k] >= -threshold:
                     continue
-                var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
-                var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
+                var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
+                var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
                 var va = Vec3(0, 0, 0, 0)
                 var ka = Real(0)
                 if bset.moves(pr.a):

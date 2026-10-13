@@ -148,7 +148,7 @@ struct AllZero(TierPolicy):
     def __init__(out self):
         pass
 
-    def assign[Body: Body6](mut self, scene: ContactScene6[Body], observers: List[Vec3], step: Int) -> List[Int]:
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         return List[Int](length=len(scene.bset.bodies), fill=0)
 
 

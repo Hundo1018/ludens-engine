@@ -97,7 +97,21 @@ comptime VELOCITY_CLAMPED: Int = 19
 """A body's linear or angular speed exceeded its `ContactScene6
 .set_max_velocity` cap at step end and was clamped (ROADMAP 17.48)."""
 
-comptime COUNT: Int = 20
+comptime CONTACT_DROPPED: Int = 20
+"""`ContactScene6` produced more contact manifolds than
+`SolverConfig.max_contacts` (ROADMAP 17.79) and dropped the newest."""
+
+comptime CONTINUUM_NAN: Int = 21
+"""`physics.continuum.step_checked` found non-finite items in a continuum
+solver (FEM node, MPM / PBF particle, LBM cell) and quarantined them
+(ROADMAP 17.55)."""
+
+comptime CONTINUUM_ESCAPED: Int = 22
+"""`physics.continuum.step_checked` found MPM particles whose stencil left
+the grid and removed them (ROADMAP 17.55); before, they were skipped by
+P2G / G2P forever without a count."""
+
+comptime COUNT: Int = 23
 
 
 def _name(id: Int) -> String:
@@ -141,6 +155,12 @@ def _name(id: Int) -> String:
         return "contact_points"
     elif id == VELOCITY_CLAMPED:
         return "velocity_clamped"
+    elif id == CONTACT_DROPPED:
+        return "contact_dropped"
+    elif id == CONTINUUM_NAN:
+        return "continuum_nan"
+    elif id == CONTINUUM_ESCAPED:
+        return "continuum_escaped"
     else:
         return "counter_" + String(id)
 

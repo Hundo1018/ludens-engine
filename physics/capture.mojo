@@ -1,0 +1,316 @@
+"""Physics capture: record what a scene did, read it back without
+simulating, and check a recording against a re-simulation (ROADMAP 17.80).
+
+`Capture.record(scene)` is called after each step. A frame holds, for every
+recorded body slot, position, orientation, linear and angular velocity,
+sleep flag and island label, and for every contact pair the normal, points,
+depths and accumulated normal impulses. Every `key_every`-th frame also
+stores a full `scene_to_bytes` snapshot (keyframe). An optional region
+(`set_region`) records only bodies whose centre is inside it, and the
+contacts touching them -- a 1e5-body world does not need every body.
+
+`Capture.to_bytes()` is the file image; the engine does no file I/O, the
+host writes it. `CaptureReader` parses it, returns any frame by index
+(`frame(k)`, no simulation), and `verify` restores the keyframe at or
+before frame k, steps forward with the caller's `dt` / gravity / config and
+returns the first frame whose recorded bodies differ bit for bit (or -1):
+a recording can be checked, not just trusted.
+
+Layout (all integers 8 bytes little-endian, floats f32 bit patterns, as
+`physics.serialize.BinWriter`): magic, version, key_every, frame count,
+then per frame its byte length and bytes, then keyframe count and per
+keyframe its frame index, byte length and bytes.
+"""
+
+from geometry.vec import Real, Vec3
+from geometry.aabb import AABB
+from physics.rigid6 import QuatBody6
+from physics.solver6 import ContactScene6
+from physics.solver_config import SolverConfig
+from physics.serialize import BinWriter, BinReader, scene_to_bytes, scene_from_bytes
+
+comptime CAPTURE_MAGIC = 0x5041434C  # "LCAP" little-endian
+comptime CAPTURE_VERSION = 1
+
+
+struct CaptureFrame(Movable):
+    """One recorded step. Body arrays are parallel (index k = body slot
+    `slot[k]`); contact arrays are parallel per pair, with `npts[p]` points
+    for pair p stored consecutively in `point` / `depth` / `impulse`."""
+
+    var step_index: Int
+    var slot: List[Int]
+    var pos: List[Vec3]
+    var rot: List[Real]  # x, y, z, w per body
+    var vel: List[Vec3]
+    var omega: List[Vec3]
+    var sleeping: List[Bool]
+    var island: List[Int]
+    var ca: List[Int]
+    var cb: List[Int]
+    var normal: List[Vec3]
+    var npts: List[Int]
+    var point: List[Vec3]
+    var depth: List[Real]
+    var impulse: List[Real]
+
+    def __init__(out self):
+        self.step_index = 0
+        self.slot = List[Int]()
+        self.pos = List[Vec3]()
+        self.rot = List[Real]()
+        self.vel = List[Vec3]()
+        self.omega = List[Vec3]()
+        self.sleeping = List[Bool]()
+        self.island = List[Int]()
+        self.ca = List[Int]()
+        self.cb = List[Int]()
+        self.normal = List[Vec3]()
+        self.npts = List[Int]()
+        self.point = List[Vec3]()
+        self.depth = List[Real]()
+        self.impulse = List[Real]()
+
+    def body_index(self, slot: Int) -> Int:
+        """Position of body `slot` in this frame's arrays, or -1."""
+        for k in range(len(self.slot)):
+            if self.slot[k] == slot:
+                return k
+        return -1
+
+
+struct Capture(Movable):
+    var key_every: Int
+    var frames: List[List[UInt8]]
+    var key_frame: List[Int]
+    var keys: List[List[UInt8]]
+    var has_region: Bool
+    var region: AABB[3]
+
+    def __init__(out self, key_every: Int = 60) raises:
+        if key_every < 1:
+            raise Error("Capture: key_every must be >= 1")
+        self.key_every = key_every
+        self.frames = List[List[UInt8]]()
+        self.key_frame = List[Int]()
+        self.keys = List[List[UInt8]]()
+        self.has_region = False
+        self.region = AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
+
+    def set_region(mut self, box: AABB[3]):
+        """Record only bodies whose centre is inside `box` (and contacts
+        touching them). Keyframes still hold the whole scene."""
+        self.has_region = True
+        self.region = box
+
+    def _inside(self, p: Vec3) -> Bool:
+        return not self.has_region or self.region.contains_point(p)
+
+    def record(mut self, sc: ContactScene6[QuatBody6]):
+        """Append the scene's current state as the next frame."""
+        var w = BinWriter()
+        w.wi(sc.step_index)
+        var n = len(sc.bset.bodies)
+        var keep = List[Bool](capacity=n)
+        var count = 0
+        for i in range(n):
+            var k = not sc.bset.is_removed(i) and self._inside(sc.bset.bodies[i].pos)
+            keep.append(k)
+            if k:
+                count += 1
+        w.wi(count)
+        for i in range(n):
+            if not keep[i]:
+                continue
+            ref b = sc.bset.bodies[i]
+            w.wi(i)
+            w.wv(b.pos)
+            w.wf(b.q.x)
+            w.wf(b.q.y)
+            w.wf(b.q.z)
+            w.wf(b.q.w)
+            w.wv(b.vel)
+            w.wv(b.omega)
+            w.wi(1 if sc.bset.sleeping[i] else 0)
+            w.wi(sc.bset.island[i])
+        var nc = 0
+        for c in range(len(sc.cache)):
+            if keep[sc.cache[c].a] or keep[sc.cache[c].b]:
+                nc += 1
+        w.wi(nc)
+        for c in range(len(sc.cache)):
+            ref pr = sc.cache[c]
+            if not (keep[pr.a] or keep[pr.b]):
+                continue
+            w.wi(pr.a)
+            w.wi(pr.b)
+            w.wv(pr.m.normal)
+            w.wi(pr.m.count)
+            for k in range(pr.m.count):
+                w.wv(pr.m.points[k])
+                w.wf(pr.m.depths[k])
+                w.wf(pr.acc[k])
+        if len(self.frames) % self.key_every == 0:
+            self.key_frame.append(len(self.frames))
+            self.keys.append(scene_to_bytes(sc))
+        self.frames.append(w.b.copy())
+
+    def frame_count(self) -> Int:
+        return len(self.frames)
+
+    def byte_size(self) -> Int:
+        var t = 0
+        for f in self.frames:
+            t += len(f)
+        for k in self.keys:
+            t += len(k)
+        return t
+
+    def to_bytes(self) -> List[UInt8]:
+        var w = BinWriter()
+        w.wi(CAPTURE_MAGIC)
+        w.wi(CAPTURE_VERSION)
+        w.wi(self.key_every)
+        w.wi(len(self.frames))
+        for f in self.frames:
+            w.wi(len(f))
+            for x in f:
+                w.b.append(x)
+        w.wi(len(self.keys))
+        for k in range(len(self.keys)):
+            w.wi(self.key_frame[k])
+            w.wi(len(self.keys[k]))
+            for x in self.keys[k]:
+                w.b.append(x)
+        return w.b.copy()
+
+
+def _rd(d: List[UInt8], at: Int) raises -> Int:
+    if at + 8 > len(d):
+        raise Error("CaptureReader: truncated capture")
+    var u = UInt64(0)
+    for k in range(8):
+        u |= UInt64(d[at + k]) << UInt64(8 * k)
+    return Int(u)
+
+
+struct CaptureReader(Movable):
+    var key_every: Int
+    var frames: List[List[UInt8]]
+    var key_frame: List[Int]
+    var keys: List[List[UInt8]]
+
+    def __init__(out self, data: List[UInt8]) raises:
+        if _rd(data, 0) != CAPTURE_MAGIC:
+            raise Error("CaptureReader: not a capture (bad magic)")
+        if _rd(data, 8) != CAPTURE_VERSION:
+            raise Error("CaptureReader: unsupported capture version")
+        self.key_every = _rd(data, 16)
+        var nf = _rd(data, 24)
+        var at = 32
+        if nf < 0:
+            raise Error("CaptureReader: corrupt frame count")
+        self.frames = List[List[UInt8]](capacity=nf)
+        for _ in range(nf):
+            var ln = _rd(data, at)
+            at += 8
+            if ln < 0 or at + ln > len(data):
+                raise Error("CaptureReader: truncated frame")
+            var f = List[UInt8](capacity=ln)
+            for q in range(at, at + ln):
+                f.append(data[q])
+            self.frames.append(f^)
+            at += ln
+        var nk = _rd(data, at)
+        at += 8
+        if nk < 0:
+            raise Error("CaptureReader: corrupt keyframe count")
+        self.key_frame = List[Int]()
+        self.keys = List[List[UInt8]]()
+        for _ in range(nk):
+            self.key_frame.append(_rd(data, at))
+            var ln = _rd(data, at + 8)
+            at += 16
+            if ln < 0 or at + ln > len(data):
+                raise Error("CaptureReader: truncated keyframe")
+            var kb = List[UInt8](capacity=ln)
+            for q in range(at, at + ln):
+                kb.append(data[q])
+            self.keys.append(kb^)
+            at += ln
+
+    def frame_count(self) -> Int:
+        return len(self.frames)
+
+    def frame(self, k: Int) raises -> CaptureFrame:
+        """Frame `k`, decoded -- random access, no simulation."""
+        if k < 0 or k >= len(self.frames):
+            raise Error("CaptureReader.frame: index out of range")
+        var r = BinReader(self.frames[k].copy())
+        var f = CaptureFrame()
+        f.step_index = r.ri()
+        var n = r.ri()
+        for _ in range(n):
+            f.slot.append(r.ri())
+            f.pos.append(r.rv())
+            for _ in range(4):
+                f.rot.append(r.rf())
+            f.vel.append(r.rv())
+            f.omega.append(r.rv())
+            f.sleeping.append(r.ri() == 1)
+            f.island.append(r.ri())
+        var nc = r.ri()
+        for _ in range(nc):
+            f.ca.append(r.ri())
+            f.cb.append(r.ri())
+            f.normal.append(r.rv())
+            var m = r.ri()
+            f.npts.append(m)
+            for _ in range(m):
+                f.point.append(r.rv())
+                f.depth.append(r.rf())
+                f.impulse.append(r.rf())
+        return f^
+
+    def keyframe_at_or_before(self, k: Int) -> Int:
+        """Index into `keys` of the last keyframe at frame <= k, or -1."""
+        var best = -1
+        for q in range(len(self.key_frame)):
+            if self.key_frame[q] <= k:
+                best = q
+        return best
+
+
+def _same_bodies(f: CaptureFrame, sc: ContactScene6[QuatBody6]) -> Bool:
+    for k in range(len(f.slot)):
+        var i = f.slot[k]
+        if i >= len(sc.bset.bodies):
+            return False
+        ref b = sc.bset.bodies[i]
+        if (
+            b.pos != f.pos[k] or b.vel != f.vel[k] or b.omega != f.omega[k]
+            or b.q.x != f.rot[4 * k] or b.q.y != f.rot[4 * k + 1]
+            or b.q.z != f.rot[4 * k + 2] or b.q.w != f.rot[4 * k + 3]
+            or sc.bset.sleeping[i] != f.sleeping[k]
+        ):
+            return False
+    return True
+
+
+def verify(rd: CaptureReader, start: Int, frames: Int, dt: Real, gravity: Vec3, cfg: SolverConfig) raises -> Int:
+    """Restore the keyframe at or before frame `start`, step forward with
+    `dt` / `gravity` / `cfg` (the recording's own) through frame
+    `start + frames - 1`, and return the first frame whose recorded bodies
+    differ bit for bit from the simulation, or -1 if all match."""
+    var kq = rd.keyframe_at_or_before(start)
+    if kq < 0:
+        raise Error("capture.verify: no keyframe at or before the start frame")
+    var sc = scene_from_bytes(rd.keys[kq].copy())
+    var k = rd.key_frame[kq]
+    var last = min(start + frames, rd.frame_count())
+    while k + 1 < last:
+        sc.step(dt, gravity, cfg)
+        k += 1
+        if k >= start and not _same_bodies(rd.frame(k), sc):
+            return k
+    return -1

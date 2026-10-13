@@ -61,7 +61,7 @@ def main() raises:
         for e in es:
             if w.has[Poisoned](e):
                 buf.set(e, Health(w.get[Health](e).hp - w.get[Poisoned](e).dmg))
-        buf.apply(w)
+        _ = buf.apply(w)
 
         # polling: compare every entity with last tick
         var polled = List[Int]()
