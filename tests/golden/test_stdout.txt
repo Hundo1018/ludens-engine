@@ -413,6 +413,13 @@ build: all packages precompiled into build/
 --- tests/test_sph_boundary.mojo ---
   after 1 s: centre of mass, clamped 0.0029529782  boundary particles 0.02483603
 [PASS] sph_boundary - 6 / 6 checks
+--- tests/test_support3.mojo ---
+  ellipsoid support, 500 directions: worst |f - 1| 3.5762787e-07  worst 1 - n.d 1.7881393e-07
+  point 3 from the axis, 11.25 deg: SupportCylinder 2.0  16-gon hull 2.0192146  r(1 - cos(pi/16)) 0.01921475
+  200 random cloud pairs: worst |convex_distance - support_distance| 0.0
+  overlapping spheres: EPA depth (capsule hl 0) 0.18013954  (equal-axis ellipsoids) 0.18013953  analytic 0.18019617
+  ellipsoid (b 0.5) at y 0.45 on a box top: depth 0.049999997  normal y -1.0
+[PASS] support3 - 11 / 11 checks
 --- tests/test_system_soa.mojo ---
 [PASS] system_soa - 3 / 3 checks
 --- tests/test_tendon.mojo ---
@@ -526,6 +533,18 @@ build: all packages precompiled into build/
 [PASS] diffsolver - 26 / 26 checks
 --- tests/test_dispatch.mojo ---
 [PASS] dispatch - 10 / 10 checks
+--- tests/test_ellipsoid.mojo ---
+  equal radii 0.5 on a box floor: y 0.4997246  sphere r 0.5: y 0.49972457
+  radii (1, 0.5, 0.7) lying: y 0.4997246
+  prolate (1, 0.4, 0.4) from 45 deg, angular damping 2: y 0.39973497  long axis . up 0.0033022028
+  undamped rocking from 10 deg: release y 0.43049866  centre y range 0.3992699 .. 0.43011492
+  rolling down 20 deg after 1 s: ellipsoid 2.3941412  sphere 2.3941434  5/7 g sin 2.3941412
+  stack: lower y 0.5027993  upper y 1.294768  (0.5 and 1.3)
+  on a trimesh floor: y 0.49972367  on an SDF plane: y 0.49972457
+  ray down t 4.5  ray along x t 4.0  distance from (0, 2, 0) 1.5000011  from (0.9, 0, 0) -0.099973984
+  density 2: mass 2.9321532  2 * 4/3 pi a b c 2.9321532
+  disc (1, 0.1, 1): y 0.09972428
+[PASS] ellipsoid - 17 / 17 checks
 --- tests/test_error_wiring.mojo ---
 [PASS] error_wiring - 38 / 38 checks
 --- tests/test_events_contacts.mojo ---
