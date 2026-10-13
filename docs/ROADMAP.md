@@ -621,7 +621,7 @@
 
 #### 17.45 網格碰撞品質 — Wave A(資產前處理)
 
-> **狀態**:🔶 部分完成(2026-10-13:烘焙管線、active edges、球 / 膠囊解析三角形 manifold、mesh → SDF、網格本地位姿 ✅;BVH 加速的 SDF 烘焙、可移動(kinematic)網格、heightfield 的 active edges 未做)。
+> **狀態**:🔶 部分完成(2026-10-13:烘焙管線、active edges、球 / 膠囊解析三角形 manifold、mesh → SDF、網格本地位姿 ✅;BVH 加速的 SDF 烘焙 ✅;可移動(kinematic)網格、heightfield 的 active edges 未做)。
 > **現況**:網格接觸是靜態、單面、逐三角形獨立的:`TriMesh` 依繞序單面(`collision/trimesh.mojo:103-115`);`try_mesh_pair` 對每個候選三角形各跑一次 `hull_manifold`,各出一個 `RawContact`(`collision/contact_gen.mojo:124-138`);頂點是世界座標、body 位姿被忽略(`collision/collider_set.mojo:82-85,225`);永遠靜態(`physics/solver6.mojo:337-353`)。建構只驗索引範圍與 3 的倍數(`collision/trimesh.mojo:122-134`),零面積三角形以空法向略過(`:179-193`)。
 > 烘焙與內部邊:grep `weld.?vert|simplif|decimat|\bqem\b|ghost|internal.?edge|active.?edge|clean_mesh|mesh_repair|hole.?fill|winding`(`collision geometry physics`)只命中繞序註解與 `Polytope.simplified`(凸多面體共線點清理,`geometry/polytope.mojo:368`),**沒有**頂點焊接、網格修復、簡化、內部邊 / ghost collision 處理。
 > 球與膠囊對網格走盒近似:`try_mesh_pair` 以 `as_hull` 取本體(`collision/contact_gen.mojo:122`),其非 hull 分支把球換成邊長 2(r + margin)的盒、把膠囊換成包圍盒(`collision/collider_set.mojo:369-374`,docstring `:345-349` 自述「only APPROXIMATED」)。grep `sphere_tri|capsule_tri|sphere_mesh|tri_sphere` 零命中,沒有解析的球 / 膠囊對三角形 manifold。(以上為讀碼推論,未執行;滾球在斜面網格上的行為是否等同立方體,交付時以解析加速度實測。)查詢側則是精確的:`world_query` 用 `closest_point_on_triangle`(`collision/trimesh.mojo:60`)。
@@ -660,7 +660,11 @@
 >   兩顆球各靜置於 0.4997 / 1.4997。
 > - **bench** `bench_mesh_bake`(已入報告範本):8192 三角形 weld 7.5 ms、repair 7.3 ms、active edges 3.6 ms、simplify 21.1 ms;SDF 取樣 31.9 ns / 次 vs 掃描 512 三角形 16159 ns;
 >   16³ 烘焙 181 ms(暴力)。`docs/CATEGORY.md` 加三列 seam。
-> - **待辦**:SDF 烘焙改用 BVH 最近三角形查詢(目前 res³ × T);heightfield 的 active edges(格點相鄰關係可直接推出);kinematic 移動網格(目前位姿只在加入時套用一次)。
+> - **SDF 烘焙 BVH ✅(2026-10-13)**:`geometry/sdf_grid.mojo` `bake_sdf_grid_bvh`:中位切分三角形 BVH 求最近三角形(與暴力法同一最小值);
+>   封閉網格(先以逐位相同座標焊接頂點 —— 逐三角形建的網格共用頂點是重複的)以面 / 邊 / 頂點的角度加權偽法向量(Bærentzen & Aanæs 2005)定號,
+>   開放網格與面上的點退回 winding number。`test_sdf_grid` 11/11:封閉 512 三角形球、開放 256 三角形半球、128 三角形球在 res 20 每個節點與暴力烘焙逐位相同;
+>   `bench_mesh_bake`:res 8 / 16:22.2 → 2.25 ms、154 → 10.0 ms(15.5×)。首版只用面法向量、未焊接,加速只有 1.3×(多數節點落到 winding 退路),已量。
+> - **待辦**:heightfield 的 active edges(格點相鄰關係可直接推出);kinematic 移動網格(目前位姿只在加入時套用一次)。
 
 #### 17.46 CCD 形狀覆蓋 — Wave B
 

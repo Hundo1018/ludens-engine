@@ -24,6 +24,7 @@ flat `List[Int]` stride 3, CCW seen from outside.
 from std.math import sqrt, atan2, floor
 from .vec import Real, Vec3, dot, cross, length
 from .distance_field import DistanceField3
+from std.collections import Dict
 
 comptime _PI = 3.14159265358979323846
 
@@ -215,4 +216,293 @@ def bake_sdf_grid(verts: List[Real], idx: List[Int], res: Int, pad: Real) -> Sdf
                     best = 0
                 var inside = nt > 0 and winding_number(verts, idx, p) > 0.5
                 g.values[(k * res + j) * res + i] = -best if inside else best
+    return g^
+
+
+# ---------------------------------------------------------------- BVH bake
+# ROADMAP 17.45: `bake_sdf_grid` scans every triangle per node (res^3 x T)
+# and sums every triangle's solid angle for the sign. `bake_sdf_grid_bvh`
+# finds the nearest triangle through a median-split BVH (exact: the same
+# minimum over the same triangles, in any order), and on a closed mesh takes
+# the sign from the angle-weighted pseudonormal of the face, edge or vertex
+# holding the closest point; on open meshes (and points on the surface) it
+# falls back to the winding number. Same values as the brute bake
+# (`test_sdf_bake`).
+
+
+struct _TriBvh(Movable):
+    var lo: List[Vec3]
+    var hi: List[Vec3]
+    var left: List[Int]  # child index, or -1 for a leaf
+    var right: List[Int]
+    var first: List[Int]  # leaf: range into `order`
+    var count: List[Int]
+    var order: List[Int]
+
+    def __init__(out self, verts: List[Real], idx: List[Int]):
+        self.lo = List[Vec3]()
+        self.hi = List[Vec3]()
+        self.left = List[Int]()
+        self.right = List[Int]()
+        self.first = List[Int]()
+        self.count = List[Int]()
+        var nt = len(idx) // 3
+        self.order = List[Int](capacity=nt)
+        var cen = List[Vec3](capacity=nt)
+        for t in range(nt):
+            self.order.append(t)
+            cen.append((_v(verts, idx[3 * t]) + _v(verts, idx[3 * t + 1]) + _v(verts, idx[3 * t + 2])) / 3)
+        if nt > 0:
+            _ = self._build(verts, idx, cen, 0, nt)
+
+    def _build(mut self, verts: List[Real], idx: List[Int], cen: List[Vec3], a: Int, b: Int) -> Int:
+        var node = len(self.lo)
+        var lo = _v(verts, idx[3 * self.order[a]])
+        var hi = lo
+        for k in range(a, b):
+            var t = self.order[k]
+            for c in range(3):
+                var p = _v(verts, idx[3 * t + c])
+                for ax in range(3):
+                    lo[ax] = min(lo[ax], p[ax])
+                    hi[ax] = max(hi[ax], p[ax])
+        self.lo.append(lo)
+        self.hi.append(hi)
+        self.left.append(-1)
+        self.right.append(-1)
+        self.first.append(a)
+        self.count.append(b - a)
+        if b - a <= 4:
+            return node
+        var ext = hi - lo
+        var ax = 0
+        if ext[1] > ext[ax]:
+            ax = 1
+        if ext[2] > ext[ax]:
+            ax = 2
+        # insertion-free median: sort the range by centroid on the axis
+        var keys = List[Real](capacity=b - a)
+        for k in range(a, b):
+            keys.append(cen[self.order[k]][ax])
+        for i in range(1, b - a):
+            var j = i
+            while j > 0 and keys[j] < keys[j - 1]:
+                var tk = keys[j]
+                keys[j] = keys[j - 1]
+                keys[j - 1] = tk
+                var to = self.order[a + j]
+                self.order[a + j] = self.order[a + j - 1]
+                self.order[a + j - 1] = to
+                j -= 1
+        var mid = (a + b) // 2
+        var l = self._build(verts, idx, cen, a, mid)
+        var r = self._build(verts, idx, cen, mid, b)
+        self.left[node] = l
+        self.right[node] = r
+        return node
+
+    def _box_d2(self, n: Int, p: Vec3) -> Real:
+        var d2 = Real(0)
+        for ax in range(3):
+            var v = max(self.lo[n][ax] - p[ax], max(Real(0), p[ax] - self.hi[n][ax]))
+            d2 += v * v
+        return d2
+
+    def nearest(self, verts: List[Real], idx: List[Int], p: Vec3) -> Tuple[Real, Int, Vec3]:
+        """(distance, triangle, closest point)."""
+        var best = Real(1e30)
+        var best2 = Real(1e60)
+        var bt = -1
+        var bq = p
+        if len(self.lo) == 0:
+            return (best, bt, bq)
+        var stack: List[Int] = [0]
+        while len(stack) > 0:
+            var n = stack.pop()
+            if self._box_d2(n, p) > best2:
+                continue
+            if self.left[n] < 0:
+                for k in range(self.first[n], self.first[n] + self.count[n]):
+                    var t = self.order[k]
+                    var q = closest_on_triangle(p, _v(verts, idx[3 * t]), _v(verts, idx[3 * t + 1]), _v(verts, idx[3 * t + 2]))
+                    var d = length(q - p)
+                    if d < best or (d == best and t < bt):
+                        best = d
+                        best2 = d * d
+                        bt = t
+                        bq = q
+                continue
+            var l = self.left[n]
+            var r = self.right[n]
+            # visit the nearer child first (pushed last)
+            if self._box_d2(l, p) < self._box_d2(r, p):
+                stack.append(r)
+                stack.append(l)
+            else:
+                stack.append(l)
+                stack.append(r)
+        return (best, bt, bq)
+
+
+struct _Pseudo(Movable):
+    """Angle-weighted pseudonormals (Baerentzen and Aanaes 2005): for a
+    closed, consistently oriented mesh, sign(dot(p - q, N)) with N the
+    pseudonormal of the feature (face, edge or vertex) holding the closest
+    point q is the inside / outside sign, exactly."""
+
+    var face: List[Vec3]
+    var vert: List[Vec3]
+    var edge: Dict[Int, Int]  # a * nv + b (a < b) -> slot in `enorm`
+    var enorm: List[Vec3]
+    var nv: Int
+
+    def __init__(out self, verts: List[Real], idx: List[Int]):
+        self.nv = len(verts) // 3
+        self.face = List[Vec3]()
+        self.vert = List[Vec3](length=self.nv, fill=Vec3(0, 0, 0, 0))
+        self.edge = Dict[Int, Int]()
+        self.enorm = List[Vec3]()
+        for t in range(len(idx) // 3):
+            var ids: List[Int] = [idx[3 * t], idx[3 * t + 1], idx[3 * t + 2]]
+            var a = _v(verts, ids[0])
+            var b = _v(verts, ids[1])
+            var c = _v(verts, ids[2])
+            var n = cross(b - a, c - a)
+            var ln = length(n)
+            var fnrm = n / ln if ln > 0 else Vec3(0, 0, 0, 0)
+            self.face.append(fnrm)
+            var ps: List[Vec3] = [a, b, c]
+            for k in range(3):
+                var e1 = ps[(k + 1) % 3] - ps[k]
+                var e2 = ps[(k + 2) % 3] - ps[k]
+                var l1 = length(e1)
+                var l2 = length(e2)
+                if l1 > 0 and l2 > 0:
+                    var ang = atan2(length(cross(e1, e2)), dot(e1, e2))
+                    self.vert[ids[k]] = self.vert[ids[k]] + fnrm * ang
+                var u = ids[k]
+                var w = ids[(k + 1) % 3]
+                var key = min(u, w) * self.nv + max(u, w)
+                var slot = self.edge.get(key, -1)
+                if slot < 0:
+                    self.edge[key] = len(self.enorm)
+                    self.enorm.append(fnrm)
+                else:
+                    self.enorm[slot] = self.enorm[slot] + fnrm
+
+    def sign(self, verts: List[Real], idx: List[Int], t: Int, p: Vec3, q: Vec3) -> Int:
+        """-1 inside, +1 outside, 0 undecided (p on the surface)."""
+        var ids: List[Int] = [idx[3 * t], idx[3 * t + 1], idx[3 * t + 2]]
+        var a = _v(verts, ids[0])
+        var b = _v(verts, ids[1])
+        var c = _v(verts, ids[2])
+        var n = cross(b - a, c - a)
+        var area2 = dot(n, n)
+        if area2 <= 0:
+            return 0
+        var w = Array[Real, 3](fill=0)
+        w[0] = dot(cross(b - q, c - q), n) / area2
+        w[1] = dot(cross(c - q, a - q), n) / area2
+        w[2] = 1 - w[0] - w[1]
+        comptime EPS = Real(1e-5)
+        var zeros = 0
+        for k in range(3):
+            if w[k] < EPS:
+                zeros += 1
+        var pn: Vec3
+        if zeros == 0:
+            pn = self.face[t]
+        elif zeros == 1:
+            # on the edge opposite the vertex whose weight vanished
+            var k0 = 0
+            for k in range(3):
+                if w[k] < EPS:
+                    k0 = k
+            var u = ids[(k0 + 1) % 3]
+            var v2 = ids[(k0 + 2) % 3]
+            pn = self.enorm[self.edge.get(min(u, v2) * self.nv + max(u, v2), 0)]
+        else:
+            var kv = 0
+            for k in range(3):
+                if w[k] >= EPS:
+                    kv = k
+            pn = self.vert[ids[kv]]
+        var s = dot(p - q, pn)
+        if s == 0:
+            return 0
+        return -1 if s < 0 else 1
+
+
+def _weld_exact(verts: List[Real], idx: List[Int]) -> List[Int]:
+    """Indices with bit-identical vertex positions merged (meshes built per
+    triangle repeat their shared vertices; closedness and the pseudonormals
+    need the shared ones to be one vertex)."""
+    var nv = len(verts) // 3
+    var canon = List[Int](length=nv, fill=-1)
+    var seen = Dict[Int, Int]()  # hashed position -> first vertex with it
+    for i in range(nv):
+        var h = 1469598103934665603
+        for a in range(3):
+            var x = verts[3 * i + a]
+            var bits = Int(Pointer(to=x).unsafe_bitcast[UInt32]()[])
+            h = (h ^ bits) * 1099511628211
+        var j = seen.get(h, -1)
+        if j >= 0 and verts[3 * j] == verts[3 * i] and verts[3 * j + 1] == verts[3 * i + 1] and verts[3 * j + 2] == verts[3 * i + 2]:
+            canon[i] = j
+        else:
+            if j < 0:
+                seen[h] = i
+            canon[i] = i
+    var out = List[Int](capacity=len(idx))
+    for i in idx:
+        out.append(canon[i])
+    return out^
+
+
+def _is_closed(idx: List[Int]) -> Bool:
+    """Every directed edge has its reverse in another triangle (a closed,
+    consistently oriented mesh). An open mesh (a hemisphere) has a
+    fractional winding number, where the face normal is not the sign."""
+    var edges = Dict[Int, Int]()
+    var nt = len(idx) // 3
+    var nv = 0
+    for i in idx:
+        nv = max(nv, i + 1)
+    for t in range(nt):
+        for e in range(3):
+            var a = idx[3 * t + e]
+            var b = idx[3 * t + (e + 1) % 3]
+            var key = a * nv + b
+            edges[key] = edges.get(key, 0) + 1
+    for t in range(nt):
+        for e in range(3):
+            var a = idx[3 * t + e]
+            var b = idx[3 * t + (e + 1) % 3]
+            if edges.get(b * nv + a, 0) != 1 or edges.get(a * nv + b, 0) != 1:
+                return False
+    return True
+
+
+def bake_sdf_grid_bvh(verts: List[Real], idx: List[Int], res: Int, pad: Real) -> SdfGrid:
+    """`bake_sdf_grid` through a triangle BVH (same grid, same values)."""
+    var g = bake_sdf_grid(verts, List[Int](), res, pad)  # bounds and node layout only
+    var nt = len(idx) // 3
+    if nt == 0:
+        return g^
+    var bvh = _TriBvh(verts, idx)
+    var welded = _weld_exact(verts, idx)
+    var closed = _is_closed(welded)
+    var pseudo = _Pseudo(verts, welded)
+    for k in range(res):
+        for j in range(res):
+            for i in range(res):
+                var p = g.node(i, j, k)
+                var near = bvh.nearest(verts, idx, p)
+                var sgn = pseudo.sign(verts, welded, near[1], p, near[2]) if closed else 0
+                var inside: Bool
+                if sgn != 0:
+                    inside = sgn < 0
+                else:
+                    inside = winding_number(verts, idx, p) > 0.5
+                g.values[(k * res + j) * res + i] = -near[0] if inside else near[0]
     return g^
