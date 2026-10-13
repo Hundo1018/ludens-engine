@@ -2175,6 +2175,15 @@ then growing with the obstacle count through the queries' linear prefilter.
 
 @bench benchmarks/bench_character.mojo
 
+## Movement modes (17.67)
+
+`gameplay.movement.Mover` adds modes (walk / fall / swim / fly), jump feel
+and external velocity on top of the controller, with three velocity models
+(direct, acceleration, Quake-style). The model only changes the horizontal
+integration, so the cost is the controller's sweeps either way.
+
+@bench benchmarks/bench_movement.mojo
+
 ## Raycast vehicles (17.4)
 
 One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a

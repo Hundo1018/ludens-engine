@@ -1835,7 +1835,7 @@
 | 17.27 | [力場 / 區域效果](ROADMAP_HISTORY.md#1727-力場--區域效果--wave-b) | ✅ | B | physics/fields.mojo 提供 ForceField(重力區 / 徑向 / 風 / 阻尼)與 apply_fields:重力區以逐 body 重力覆寫 BodySet.grav 實作,風速可取自 WindGrid(三線性),並以常數網格 == 常數風逐位作為 seam parity。 |
 | 17.28 | [浮力 / 水體積](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b) | ✅ | B | WaterVolume + apply_buoyancy 以 ρ g V_sub 施於浮心並加隱式線性 / 角阻尼,浸沒體積有球解析、盒取樣積分與軸對齊盒閉式解,取樣 vs 閉式為 seam parity。 |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | ⬜ | C | 平衡控制、物理驅動移動、動態角色本體、模式狀態機、抓取 / 攜帶、ragdoll 質量與限制 |
-| 17.67 | [移動模式](#1767-移動模式--wave-b) | ⬜ | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
+| 17.67 | [移動模式](#1767-移動模式--wave-b) | 🔶 | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | ⬜ | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | ⬜ | B | 受擊 / 攻擊體積、近戰掃掠、hitscan 與穿透 / 跳彈、彈道投射物、爆炸、受擊反應 |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | ⬜ | C | 履帶車、水上載具、飛行器、懸浮 / 推進器陣列、機車 / 自行車、通用服務 |
@@ -1897,6 +1897,16 @@
 > **邊界**:強化學習式步態(使用者已排除 RL)不在此;人形 rig 的製作屬 DCC / 宿主;死亡動畫的藝術選擇屬內容。
 
 #### 17.67 移動模式 — Wave B
+> **狀態**:🔶 部分完成(2026-10-13:模式機(走 / 落 / 游 / 飛)、三種速度整合模型、跳躍手感、外部速度累加器、平台朝向繼承 ✅;任意向上軸(需改 `character.mojo` 的 `_UP`)、
+> 攀爬 / 翻越、Driving 模式、形狀泛化、`replay` 快照接線未做)。
+> **進度註(2026-10-13)**:`gameplay/movement.mojo` `Mover` 包住 `CharacterController`:`MODE_WALK / FALL / SWIM / FLY`(游泳以膠囊高度在 `WaterVolume` 水面下的比例判定,進 0.6、出 0.4 的遲滯;
+> 水中重力乘 `1 − buoyancy`、垂直 wish 驅動並以 `water_drag` 阻尼;飛行無重力);`MODEL_DIRECT`(原行為)/ `MODEL_ACCEL`(趨近 wish,無 wish 時煞車,空中乘 `air_control`)/
+> `MODEL_QUAKE`(PM_Friction + PM_Accelerate);以 tick 計的 coyote time、跳躍緩衝、放開即減半的可變跳高、`max_jumps`(空中跳需新的按壓);`add_velocity` 外部速度逐 tick 疊加並指數衰減;
+> 站在旋轉平台上時 `heading` 隨平台角速度轉。值型別,複製即快照。**發現**:測試中直接寫 `mh.cc.position` / `mh.cc.velocity` 讓 Mojo 1.1 編譯器卡住(5 分鐘無結果,二分確認),改用 `teleport` 方法即正常(36 s)。
+> 量測(`tests/test_movement.mojo` 13/13):3 m/s wish 3 s 後三種模型速度皆 3.0,距離 9.000 / 8.800 / 8.944 m;離開平台 3 tick 後按跳會跳、12 tick 不會;落地前 4 tick 按跳於落地時起跳、10 tick 前則否;
+> 按住 / 3 tick 後放開的跳躍頂點 2.227 / 1.411 m;二段跳可、三段不可;走進水池轉游泳;以波浪把身體維持在 50 % ± 6 % 入水時,遲滯下模式切換 0 次、無遲滯 23 次;
+> 行走 2 m/s 時受 5 m/s 側向擊退,1 s 內側移 1.62 m 且行走速度仍 2.0;1 rad/s 旋轉平台上 1 s 後朝向 0.983 rad;複製 + 場景快照續跑逐位相同;`dt = 0` 不動、NaN wish 視為無輸入。
+> bench `bench_movement`(16 角色,ns / 次):直設 1111、加速度式 974、Quake 式 968、游泳 1767。
 > **現況**:控制器只有**一個模式(走 / 空中二態)**。`gameplay/character.mojo:257` `update(sc, walk, jump_speed, dt, gravity)`:`walk` 是期望水平**速度**,`:278-279` 直接設 `velocity = (walk.x, vy, walk.z)`——沒有加速度 / 摩擦 / 空中操控模型,也使任何外部速度被覆寫(見 17.66)。向上軸寫死:`:40` `_UP = (0,1,0)`、`:278` 只讀 `gravity[1]`,所以 17.27 的重力區(`physics/fields.mojo:1-28` 檔頭自述「牆上可走」的 GRAVITY 區)對控制器無效。形狀只有直立膠囊(`:61-90`),可蹲(`:100` `set_half_height`)。平台只以腳點線速度帶動位置(`update` 內 `velocity_at(foot) * dt`,旋轉平台的切向速度含在內),控制器**沒有朝向狀態**(欄位只有 `cfg / position / velocity / on_ground / ground_normal / ground_body / hit_ceiling / pushed`,`:61-76`),平台旋轉不帶動朝向。水體存在(`physics/fields.mojo:20-28` `WaterVolume`)但控制器不查詢。grep `[Ss]wim|[Cc]limb|[Ll]adder|[Ll]edge|mantle|wall.?run|coyote|jump_buffer|MovementMode` 於 `gameplay procedural` 只命中 `character.mojo:173` 一則註解(「斜坡不會把人抬起」),其餘零命中。輸入契約窄:`gameplay/replay.mojo:31-36` `InputFrame` = `(tick, move, jump, buttons)`。單向平台規則尚未套用於控制器(17.26 待辦,ROADMAP §17.26)。
 > **缺口**:
 > - **模式機**:Walking / Falling / Swimming / Flying / Climbing(梯、攀緣)/ Sliding / Gliding / Driving(上下車)——每模式自有速度整合、重力倍率、碰撞形狀;用 `procedural/fsm.mojo` 階層狀態機表達(例:膠囊浸水比例 > 0.6 且 `WaterVolume` 命中 → 進游泳,帶遲滯避免水面抖動)。
@@ -3154,7 +3164,7 @@
 | 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | 🔶 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | ⬜ |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
-| 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
+| 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | ⬜ |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
