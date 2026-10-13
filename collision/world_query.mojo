@@ -50,6 +50,7 @@ from .collider_set import (
     SHAPE_HULL,
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
+    SHAPE_SDF,
 )
 from .trimesh import closest_point_on_triangle
 from spatial.bvh import BVH
@@ -275,6 +276,13 @@ def point_distance(
                 best_n = n
         var cp = lp - best_n * best
         return Probe(best, _world(pose, cp), _world_dir(pose, best_n))
+    if k == SHAPE_SDF:  # ROADMAP 17.52: the grid's own trilinear distance
+        ref g = cs.sdfs[cs.mesh_id[i]]
+        var d = g.distance(p)
+        var gr = g.gradient(p)
+        var gl = length(gr)
+        var n = gr / gl if gl > _EPS else Vec3(0, 1, 0, 0)
+        return Probe(d, p - n * d, n)
     # TRIMESH / HEIGHTFIELD: unsigned distance to the nearest candidate
     # triangle within `search` (static level geometry: vertices are world).
     var r = min(search, Real(1e6))
@@ -637,6 +645,18 @@ def _ray_one(
     if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
         var none = List[Hit]()
         return _ray_mesh(cs, i, o, d, max_t, backfaces, none, False)
+    if k == SHAPE_SDF:
+        # sphere tracing on the grid (17.52); the trilinear distance is not
+        # exactly 1-Lipschitz, so steps are taken at 0.9 of it
+        var t = Real(0)
+        for it in range(_MAX_ITERS * 4):
+            var pr = point_distance(cs, i, pose, o + d * t)
+            if pr.dist <= _SKIN:
+                return Hit(True, i, t, o + d * t, pr.normal, it == 0 and pr.dist < 0)
+            t += max(pr.dist * 0.9, _SKIN)
+            if t > max_t:
+                break
+        return Hit.miss()
     # CAPSULE: conservative advancement on this one collider
     var t = Real(0)
     for it in range(_MAX_ITERS):
@@ -867,6 +887,16 @@ def shape_distance(
     nearest candidate triangle within `search` for meshes (then also the
     triangle index; -1 otherwise)."""
     var k = cs.shape[i]
+    if k == SHAPE_SDF:
+        # the query's core points against the grid: a lower bound for a
+        # sphere / capsule core, the vertex distance for a box or hull
+        var best = ConvexDistance(Real(1e30), pts[0], pts[0], Vec3(0, 1, 0, 0), False)
+        for q in range(len(pts)):
+            var pr = point_distance(cs, i, pose, pts[q])
+            var dd = pr.dist - r
+            if dd < best.dist:
+                best = ConvexDistance(dd, pts[q] - pr.normal * r, pr.point, -pr.normal, dd <= 0)
+        return (best, -1)
     if k != SHAPE_TRIMESH and k != SHAPE_HEIGHTFIELD:
         var c = _collider_core(cs, i, pose)
         return (convex_distance(pts, r, c[0], c[1]), -1)
@@ -894,9 +924,9 @@ def closest_points(
     (GJK); one side a mesh uses its nearest candidate triangle within
     `search`. Two meshes are not supported: distance 1e30."""
     var ki = cs.shape[i]
-    if ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD:
+    if ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD or ki == SHAPE_SDF:
         var kj = cs.shape[j]
-        if kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD:
+        if kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD or kj == SHAPE_SDF:
             return ConvexDistance(Real(1e30), poses[i].position, poses[j].position, Vec3(0, 1, 0, 0), False)
         var rev = closest_points(cs, poses, j, i, search)
         return ConvexDistance(rev.dist, rev.pb, rev.pa, -rev.normal, rev.overlap)
@@ -975,6 +1005,21 @@ def shape_cast(
                 var r = _cast_convex(core[0], core[1], _tri_core(cs, i, tris[c]), 0, u, best.t)
                 if r[0] >= 0 and (r[0] < best.t or not best.hit):
                     best = Hit(True, i, r[0], r[1].pb, -r[1].normal, r[0] == 0, tris[c])
+        elif k == SHAPE_SDF:
+            # not convex: conservative advancement by the sampled distance
+            var t = Real(0)
+            for it in range(_MAX_ITERS):
+                var mv = core[0].copy()
+                for q in range(len(mv)):
+                    mv[q] = core[0][q] + u * t
+                var dd = shape_distance(cs, i, poses[i], mv, core[1])[0]
+                if dd.dist <= _SKIN:
+                    if t < best.t or not best.hit:
+                        best = Hit(True, i, t, dd.pb, -dd.normal, it == 0)
+                    break
+                t += dd.dist
+                if t > best.t:
+                    break
         else:
             var cc = _collider_core(cs, i, poses[i])
             var r = _cast_convex(core[0], core[1], cc[0], cc[1], u, best.t)

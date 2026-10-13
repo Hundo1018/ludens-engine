@@ -13,6 +13,7 @@ from collision.collider_set import (
     SHAPE_HULL,
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
+    SHAPE_SDF,
 )
 from .rigid6 import Body6
 from .body_set import BodySet
@@ -113,6 +114,7 @@ def softbody_pass[B: Body6](
                     kind == SHAPE_HULL
                     or kind == SHAPE_TRIMESH
                     or kind == SHAPE_HEIGHTFIELD
+                    or kind == SHAPE_SDF
                 ):
                     # Point-vs-shape closest point through the collider
                     # registry (17.0f / F4b): a hull's SAT over its own

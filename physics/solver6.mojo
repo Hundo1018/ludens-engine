@@ -77,7 +77,9 @@ from collision.collider_set import (
     SHAPE_HULL,
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
+    SHAPE_SDF,
 )
+from geometry.sdf_grid import SdfGrid
 from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
 from collision.contact_events import ContactEvent, pack_key, diff_events, EV_STAY, EV_ENDED
 from collision.broadphase import BroadPhase, Pair
@@ -494,6 +496,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         debug_assert(
             ci == id.index(), "ContactScene6.add_hull: body/collider index desync"
         )
+        return id
+
+    def add_sdf(mut self, var b: Self.B, var grid: SdfGrid) -> BodyId:
+        """A static signed distance grid (ROADMAP 17.52) in world
+        coordinates, like `add_trimesh` (the body's pose is ignored). Boxes,
+        spheres, capsules and hulls meet it through a multi-point manifold
+        sampled from their own shape (`contact_gen.try_sdf_pair`)."""
+        var id = self._push_body(b^, True)
+        var ci = self.colliders.add_sdf(grid^, id.index())
+        debug_assert(ci == id.index(), "ContactScene6.add_sdf: body/collider index desync")
         return id
 
     def add_cylinder(
@@ -2530,6 +2542,13 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wi(len(hf.h))
             for k in range(len(hf.h)):
                 out.wf(hf.h[k])
+        elif sc.colliders.shape[i] == SHAPE_SDF:
+            ref sg = sc.colliders.sdfs[sc.colliders.mesh_id[i]]
+            out.wi(sg.res)
+            out.wv(sg.origin)
+            out.wf(sg.cell)
+            for k in range(len(sg.values)):
+                out.wf(sg.values[k])
     out.wi(len(sc.joints))
     for j in range(len(sc.joints)):
         var jt = sc.joints[j]
@@ -2838,6 +2857,19 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             var hfld = HeightField(hh, nx, nz, cell, ox, oz)
             sc.colliders.world_aabb[bi] = hfld.bounds()
             sc.colliders.fields.append(hfld^)
+        elif kind == SHAPE_SDF:
+            var res = r.ri()
+            if res < 1 or res > 512:
+                raise Error("physics.serialize: corrupt snapshot (sdf resolution)")
+            var org = r.rv()
+            var cl = r.rf()
+            var grid = SdfGrid(res, org, cl)
+            for k in range(res * res * res):
+                grid.values[k] = r.rf()
+            var span = cl * Real(res - 1)
+            sc.colliders.mesh_id[bi] = len(sc.colliders.sdfs)
+            sc.colliders.world_aabb[bi] = AABB[3](org, org + Vec3(span, span, span, 0))
+            sc.colliders.sdfs.append(grid^)
     var nj = r.ri()
     if nj < 0:
         raise Error("physics.serialize: corrupt snapshot (negative joint count)")

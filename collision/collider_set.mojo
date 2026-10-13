@@ -19,6 +19,7 @@ from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
 from geometry.gjk import ConvexPoly
 from .hull import HullShape, hull_manifold
+from geometry.sdf_grid import SdfGrid
 from .trimesh import TriMesh, HeightField, closest_point_on_triangle
 from .manifold import (
     ContactManifold,
@@ -40,6 +41,11 @@ comptime SHAPE_CAPSULE = 2
 comptime SHAPE_HULL = 3
 comptime SHAPE_TRIMESH = 4
 comptime SHAPE_HEIGHTFIELD = 5
+# ROADMAP 17.52: a static signed distance grid (`geometry.sdf_grid.SdfGrid`,
+# world coordinates like the meshes). Routed by `contact_gen.try_pair` to
+# `try_sdf_pair` before the mesh path; the `>= SHAPE_TRIMESH` checks there
+# see it only after that branch.
+comptime SHAPE_SDF = 6
 
 # Speculative-contact margin base (audit F19): the ONE definition -- both
 # `fat_aabb` below and `collision.contact_gen`'s per-pair margin import this
@@ -86,6 +92,7 @@ struct ColliderSet(Movable, Deinitable):
     var meshes: List[TriMesh]
     var fields: List[HeightField]
     var mesh_id: List[Int]
+    var sdfs: List[SdfGrid]  # SHAPE_SDF payloads, indexed by mesh_id (17.52)
     # World AABB of collider `i`, valid only for SHAPE_TRIMESH/SHAPE_HEIGHTFIELD
     # (zero otherwise). Computed once at `add_trimesh`/`add_heightfield` time
     # from the mesh's own (already world-space) vertices, so `fat_aabb` never
@@ -113,6 +120,7 @@ struct ColliderSet(Movable, Deinitable):
         self.meshes = List[TriMesh]()
         self.fields = List[HeightField]()
         self.mesh_id = List[Int]()
+        self.sdfs = List[SdfGrid]()
         self.world_aabb = List[AABB[3]]()
         self.category = List[UInt32]()
         self.mask = List[UInt32]()
@@ -254,6 +262,19 @@ struct ColliderSet(Movable, Deinitable):
         self.fields.append(f^)
         return i
 
+    def add_sdf(mut self, var grid: SdfGrid, at: Int = -1) -> Int:
+        """Static signed distance grid (ROADMAP 17.52), world coordinates like
+        `add_trimesh` (the owning body's pose is ignored). Contacts sample
+        the other shape against the grid (`contact_gen.try_sdf_pair`)."""
+        var span = grid.cell * Real(max(grid.res - 1, 0))
+        var bb = AABB[3](grid.origin, grid.origin + Vec3(span, span, span, 0))
+        var i = self.add(bb.half_extents(), at)
+        self.shape[i] = SHAPE_SDF
+        self.mesh_id[i] = len(self.sdfs)
+        self.world_aabb[i] = bb
+        self.sdfs.append(grid^)
+        return i
+
     def shift_static(mut self, d: Vec3) raises:
         """Origin rebasing (ROADMAP 17.8): move every WORLD-space static shape
         by `-d` -- triangle meshes and heightfields store world coordinates
@@ -281,6 +302,10 @@ struct ColliderSet(Movable, Deinitable):
                     h[j] -= d[1]
                 self.fields[fi] = HeightField(h, f.nx, f.nz, f.cell, f.ox - d[0], f.oz - d[2])
                 self.world_aabb[i] = self.fields[fi].bounds()
+            elif k == SHAPE_SDF:
+                var si = self.mesh_id[i]
+                self.sdfs[si].origin = self.sdfs[si].origin - d
+                self.world_aabb[i] = AABB[3](self.world_aabb[i].min - d, self.world_aabb[i].max - d)
 
     def deform_heightfield(
         mut self, i: Int, cx: Real, cz: Real, radius: Real, delta: Real,
@@ -573,7 +598,7 @@ struct ColliderSet(Movable, Deinitable):
         same r_i so the parity guarantee above still holds even though a
         static mesh never moves (17.0f / F3)."""
         var k = self.shape[i]
-        if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
+        if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD or k == SHAPE_SDF:
             var r0 = Real(0)
             if spec_dt > 0:
                 r0 = margin_base * 0.5 + sqrt(dot(vel, vel)) * spec_dt
@@ -653,6 +678,15 @@ struct ColliderSet(Movable, Deinitable):
                 pose.position + ax[0] * lp2[0] + ax[1] * lp2[1] + ax[2] * lp2[2]
             )
             return (True, target, wn)
+        if k == SHAPE_SDF:
+            ref g = self.sdfs[self.mesh_id[i]]
+            var dd = g.distance(p)
+            if dd >= r:
+                return (False, p, Vec3(0, 1, 0, 0))
+            var gn = g.gradient(p)
+            var gl = sqrt(dot(gn, gn))
+            var nn = gn / gl if gl > 1e-12 else Vec3(0, 1, 0, 0)
+            return (True, p + nn * (r - dd), nn)
         if k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD:
             var wide = Vec3(r, r, r, 0)
             var box = AABB[3](p - wide, p + wide)
