@@ -1399,6 +1399,39 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 kept.append(self.cache[c])
         self.cache = kept^
 
+    def teleport_many(mut self, ids: List[BodyId], poses: List[Pose6]) raises:
+        """ROADMAP 17.78: `teleport` for many bodies with one pass over the
+        bodies (island wake-up) and one over the warm-start cache, instead
+        of one of each per body. The resulting state is the same as calling
+        `teleport` for each in order. Validates every id first; raises
+        before moving anything."""
+        if len(ids) != len(poses):
+            raise Error("ContactScene6.teleport_many: ids and poses differ in length")
+        for id in ids:
+            if not self.bset.is_valid(id):
+                raise Error("ContactScene6.teleport_many: invalid BodyId")
+        var n = len(self.bset.bodies)
+        var moved = List[Bool](length=n, fill=False)
+        var wake_lbl = Dict[Int, Bool]()
+        for k in range(len(ids)):
+            var i = ids[k].index()
+            self.bset.bodies[i].set_pose(poses[k].copy())
+            self.bset.sleeping[i] = False
+            self.bset.sleep_timer[i] = 0
+            moved[i] = True
+            if self.bset.is_dynamic(i):
+                wake_lbl[self.bset.island[i]] = True
+        if len(wake_lbl) > 0:
+            for j in range(n):
+                if self.bset.sleeping[j] and self.bset.island[j] in wake_lbl:
+                    self.bset.sleeping[j] = False
+                    self.bset.sleep_timer[j] = 0
+        var kept = List[ContactConstraint]()
+        for c in range(len(self.cache)):
+            if not moved[self.cache[c].a] and not moved[self.cache[c].b]:
+                kept.append(self.cache[c])
+        self.cache = kept^
+
     def shift_origin(mut self, d: Vec3) raises:
         """Origin rebasing (ROADMAP 17.8): the world origin moves to `d`, so
         every world-space quantity becomes `p - d`. That is every body's

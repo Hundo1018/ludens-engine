@@ -439,6 +439,14 @@ ticks (8 by default), so it costs O(writes); the comparison is a scan of
 every entity for a hand-kept dirty field.
 
 @bench benchmarks/bench_ecs_query.mojo
+
+## Host-defined components (17.78)
+
+`ecs.host_components.HostComponents` stores components a host registers at
+run time (name, size) as dense byte rows, beside the compile-time ones. The
+comparison is the same f64 written, read and queried both ways.
+
+@bench benchmarks/bench_host_components.mojo
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
 
 The same integrate + damage-event workload driven through the swappable

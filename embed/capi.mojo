@@ -41,6 +41,7 @@ from embed.world import (
     PHASE_POST,
 )
 from embed.navigation import EmbedNav
+from diag.counters import COUNT as COUNTER_COUNT, counter_name
 
 comptime Handle = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 comptime F32Ptr = Pointer[Float32, MutAnyOrigin]
@@ -746,3 +747,65 @@ def ld_nav_last_error(h: Optional[Handle], buf: Optional[U8Ptr], cap: Int64) abi
         return Int64(LD_ERR_HANDLE)
     var p = o.value()
     return _copy_str(p[].error, buf, cap)
+
+
+# ---------------------------------------------------------------- ABI 0.2 (17.78)
+
+
+@export
+def ld_world_set_poses(h: Optional[Handle], handles: Optional[I64Ptr], poses7: Optional[F32Ptr], n: Int64) abi("C") -> Int64:
+    """Write the poses of `n` bodies in one call (handles[i], poses7[7 i ..
+    7 i + 6] = position xyz, rotation xyzw); the result equals `n` calls of
+    `ld_body_teleport`. Every entry is validated first: on a stale handle
+    (LD_ERR_STALE) or a non-finite / zero quaternion pose (LD_ERR_ARG)
+    nothing is moved. Returns n."""
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    if n < 0 or (n > 0 and (not handles or not poses7)):
+        return Int64(_fail(p, LD_ERR_ARG, "ld_world_set_poses: null array or negative count"))
+    var hs = List[Int64](capacity=Int(n))
+    var ps = List[Vec3](capacity=Int(n))
+    var rs = List[Quat](capacity=Int(n))
+    if n == 0:
+        return 0
+    var d = poses7.value()
+    for i in range(Int(n)):
+        hs.append(handles.value()[unsafe_offset=i])
+        ps.append(_v(d[unsafe_offset=7 * i], d[unsafe_offset=7 * i + 1], d[unsafe_offset=7 * i + 2]))
+        rs.append(Quat(Real(d[unsafe_offset=7 * i + 3]), Real(d[unsafe_offset=7 * i + 4]), Real(d[unsafe_offset=7 * i + 5]), Real(d[unsafe_offset=7 * i + 6])))
+    try:
+        p[].w.teleport_many(hs, ps, rs)
+    except e:
+        return Int64(_fail(p, LD_ERR_ARG if "finite" in String(e) or "quaternion" in String(e) else LD_ERR_STALE, String(e)))
+    return n
+
+
+@export
+def ld_counter_count() abi("C") -> Int64:
+    """Number of diagnostic counters (ids 0 .. count - 1)."""
+    return Int64(COUNTER_COUNT)
+
+
+@export
+def ld_counter_name(id: Int32, buf: Optional[U8Ptr], cap: Int64) abi("C") -> Int64:
+    """Name of counter `id` into buf (NUL-terminated); returns its length,
+    or LD_ERR_ARG for an unknown id."""
+    if id < 0 or Int(id) >= COUNTER_COUNT:
+        return Int64(LD_ERR_ARG)
+    return _copy_str(counter_name(Int(id)), buf, cap)
+
+
+@export
+def ld_world_get_counters(h: Optional[Handle], values: Optional[I64Ptr], cap: Int64) abi("C") -> Int64:
+    """All counters of the world's scene, indexed by id; returns the count."""
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    if Int(cap) < COUNTER_COUNT or not values:
+        return Int64(_fail(p, LD_ERR_BUFFER, "ld_world_get_counters: capacity below ld_counter_count"))
+    for i in range(COUNTER_COUNT):
+        values.value()[unsafe_offset=i] = p[].w.scene.counters.get(i)
+    return Int64(COUNTER_COUNT)

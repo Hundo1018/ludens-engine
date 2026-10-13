@@ -2539,7 +2539,7 @@
 | 17.21 | [腳本層(Phase 12 落地)](#1721-腳本層phase-12-落地) | ✅ | C | `python/ludens`(ctypes 包 C-ABI)+ `python/build_wheel.py`(wheel 內含函式庫與 Mojo runtime);乾淨 venv 安裝測試;Python 系統 / 接觸訂閱、CVar(tick 邊界套用)、hot reload(保留狀態、失敗保留舊版)。 |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 🔶 | B | 宿主 job system 注入、宿主配置器(分兩層)、非同步步進、單位與座標契約成文 + `UnitScale`、錯誤與執行緒契約 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 🔶 | B | 目標矩陣 + 實測、每目標一份 golden + 跨目標容差表、浮點位元因子清單、降級矩陣、wasm 核心切分的機器檢查 |
-| 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | ⬜ | C | per-host 適配層、批量 SoA 交換、POD 事件緩衝、宿主定義元件、綁定產生、多實例與執行緒 |
+| 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 🔶 | C | per-host 適配層、批量 SoA 交換、POD 事件緩衝、宿主定義元件、綁定產生、多實例與執行緒 |
 
 ### 待辦與部分完成條目
 
@@ -2796,6 +2796,15 @@
 >   降級矩陣(`workers = 1`、無 GPU、SIMD 寬度 1)各一個等價測試;aarch64 與 x86-64 的 `write_state` 位元組逐項比對。
 
 #### 17.78 宿主整合 / 綁定 — Wave C
+> **狀態**:🔶 部分完成(2026-10-13:批量姿態寫入、診斷計數器經 C 讀出、宿主定義元件、跨語言的逐物件 vs 批量量測 ✅;per-host 適配層(Godot / Unity)、
+> 綁定產生、多實例與執行緒契約、宿主元件進查詢語言 / 快照未做)。批量讀(`ld_world_get_bodies`)與 POD 事件緩衝(`ld_world_get_events`)在 12.1 已存在。
+> **進度註(2026-10-13)**:C-ABI 0.2(`embed/ludens.h`、`embed/abi_v0.txt` 只追加):`ld_world_set_poses`(先驗證全部,失敗則一個都不動)、`ld_counter_count` / `ld_counter_name` /
+> `ld_world_get_counters`;Python 綁定 `World.set_poses` / `set_poses_from` / `counters()`。`ContactScene6.teleport_many`:對 body 一次喚醒 pass、對暖啟動快取一次過濾,
+> 結果與逐一 `teleport` 相同(原本每次 teleport 各掃一次快取與全部 body,1e4 個 body 的批量寫入 217 ms / 幀,改後 0.73 ms)。`ecs/host_components.mojo` `HostComponents`:
+> 執行期以 (名稱, 位元組數) 註冊、每元件稠密 byte 列、世代檢查、`set_f64` / `get_f64`、`matching_all`、`to_bytes` / `from_bytes`。
+> 量測:`tests/test_host_bulk.mojo` 7/7(20 個 body 的 `teleport_many` 與 20 次 `teleport` 狀態相同且之後 60 步逐位相同;同一腳本下宿主 `Health` 與編譯期 `Health` 的實體集合與值相同;
+> 回收 id 的舊 handle 讀為不存在);`test_python_binding` 14/14(client 加 3 項)。`python/bench_bulk.py`(Python ctypes,µs / 幀):N = 100 / 1000 / 10000 時
+> 讀 逐物件 81 / 840 / 9620、批量 2 / 8 / 78;寫 逐物件 258 / 4830 / 354126、批量 11 / 64 / 730。`bench_host_components`(ns / 實體,N = 1e5):寫 編譯期 29 / blob 275、讀 7 / 145、查詢 19 / 3。
 > **緣起**:12.1 定義 C-ABI 邊界、17.21 先做 Python 綁定;本條是**在那之上**讓真實宿主(Godot / Unity / Unreal)用得順的部分 —— 批量資料交換、宿主對映、
 > 宿主定義的元件、綁定產生。平台方向 C 下引擎沒有渲染也沒有編輯器,宿主整合的品質就是產品品質。
 > **現況**:
@@ -3196,7 +3205,7 @@
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | 🔶 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | 🔶 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
-| 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |
+| 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | 🔶 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |

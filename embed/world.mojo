@@ -33,7 +33,7 @@ from collision.world_query import QueryFilter
 from collision.contact_events import ContactEvent
 
 comptime ABI_MAJOR = 0
-comptime ABI_MINOR = 1
+comptime ABI_MINOR = 2
 
 # Status codes (negative = error). Frozen for v0.x: values never change.
 comptime LD_OK = 0
@@ -216,6 +216,23 @@ struct EmbedWorld(Movable):
             raise Error("teleport: quaternion must be non-zero")
         var s = 1 / n2 ** 0.5
         self.scene.teleport(self._id(h), Pose6(pos, Quat(rot.x * s, rot.y * s, rot.z * s, rot.w * s)))
+
+    def teleport_many(mut self, hs: List[Int64], pos: List[Vec3], rot: List[Quat]) raises:
+        """`teleport` for many bodies at once (ROADMAP 17.78): every input
+        is validated first, then one `ContactScene6.teleport_many`."""
+        var ids = List[BodyId]()
+        var poses = List[Pose6]()
+        for k in range(len(hs)):
+            var r = rot[k]
+            if not _finite3(pos[k]) or not (isfinite(r.x) and isfinite(r.y) and isfinite(r.z) and isfinite(r.w)):
+                raise Error("teleport_many: pose must be finite")
+            var n2 = r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w
+            if n2 < 1e-12:
+                raise Error("teleport_many: quaternion must be non-zero")
+            var s = 1 / n2 ** 0.5
+            ids.append(self._id(hs[k]))
+            poses.append(Pose6(pos[k], Quat(r.x * s, r.y * s, r.z * s, r.w * s)))
+        self.scene.teleport_many(ids, poses)
 
     def state(self, h: Int64) raises -> BodyState:
         var i = self._id(h).index()

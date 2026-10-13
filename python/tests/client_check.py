@@ -43,7 +43,7 @@ def raises(exc_type, fn):
 # ---------------------------------------------------------------- isolation
 check(not os.path.realpath(ludens.__file__).startswith(FORBIDDEN), "ludens imported from the venv, not the repo: " + ludens.__file__)
 check(os.path.dirname(ludens.library_path) == os.path.dirname(ludens.__file__), "libludens.so loaded from the installed package")
-check(ludens.abi_version() == (0, 1), "abi_version == (0, 1)")
+check(ludens.abi_version() == (0, 2), "abi_version == (0, 2)")
 
 
 # ------------------------------------------------- parity scenario (test_capi)
@@ -102,6 +102,13 @@ with ludens.World(1.0 / 60.0, (0, -9.8, 0)) as w:
 
     buf = (ctypes.c_float * (7 * 13))()
     check(w.poses_into(buf) == 13 and tuple(buf[7 * 12 : 7 * 12 + 3]) == st.pos, "poses_into fills a caller buffer")
+    # ABI 0.2: bulk pose write, counters
+    moved = [(float(i), 5.0, 0.0, 0.0, 0.0, 0.0, 1.0) for i in range(len(bodies))]
+    check(w.set_poses(bodies, moved) == len(bodies), "set_poses writes every pose in one call")
+    _, back = w.bodies()
+    check(all(abs(back[i][0] - float(i)) < 1e-6 and abs(back[i][1] - 5.0) < 1e-6 for i in range(len(back))), "set_poses round-trips through get_bodies")
+    cn = w.counters()
+    check(isinstance(cn, dict) and "nan_quarantined" in cn and all(v >= 0 for v in cn.values()), "counters() names every counter")
 
     # save / load replay
     blob = w.save()

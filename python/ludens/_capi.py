@@ -22,7 +22,7 @@ from ctypes import (
 )
 
 ABI_MAJOR = 0
-ABI_MINOR = 1
+ABI_MINOR = 2
 
 LD_OK = 0
 LD_ERR_HANDLE = -1
@@ -93,6 +93,11 @@ PROTOTYPES = {
     "ld_nav_poly_count": (c_int64, [_W]),
     "ld_nav_find_path": (c_int64, [_W, _F, _F, _F, _F, _F, _F, POINTER(c_float), c_int64]),
     "ld_nav_last_error": (c_int64, [_W, c_char_p, c_int64]),
+    # ABI 0.2 (17.78)
+    "ld_world_set_poses": (c_int64, [_W, POINTER(c_int64), POINTER(c_float), c_int64]),
+    "ld_counter_count": (c_int64, []),
+    "ld_counter_name": (c_int64, [c_int32, c_char_p, c_int64]),
+    "ld_world_get_counters": (c_int64, [_W, POINTER(c_int64), c_int64]),
 }
 
 

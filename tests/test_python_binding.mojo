@@ -138,7 +138,7 @@ def main() raises:
     if Int(py=r.returncode) != 0 and failed == 0:
         print(String(r.stderr))
     s.eqi(failed, 0, "client checks: " + String(ok) + " passed in the installed environment")
-    s.check(ok >= 40, "client ran the full check list (" + String(ok) + ")")
+    s.check(ok >= 43, "client ran the full check list (" + String(ok) + ")")
     s.eqi(Int(py=r.returncode), 0, "client_check.py exit status")
 
     # 4. parity with the native run

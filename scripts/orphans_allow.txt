@@ -76,3 +76,4 @@ procedural.sequence  # [api] timeline tracks a host or gameplay code evaluates (
 gameplay.combat  # [api] hurtboxes, swings, hitscan, hit-stop for host gameplay code (17.71)
 gameplay.projectile  # [api] projectile pool stepped by host gameplay code (17.71)
 gameplay.explosion  # [api] explosions triggered by host gameplay code (17.71)
+ecs.host_components  # [api] run-time registered components for hosts (17.78)

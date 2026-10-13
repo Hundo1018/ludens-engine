@@ -64,6 +64,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
 | 時間軸求值 隨機 seek(二分)vs 順序游標(17.68) | procedural/sequence.mojo | 同一「t → 軌道值」純函式的兩種段落定位:段索引相同、算術相同,故逐位相同;事件同經 `EventTrack` | `test_camera_seq` | `bench_sequence` |
 | 近戰命中偵測 每 tick 離散 vs 端點線性掃掠 vs 弧線掃掠(17.71) | gameplay/combat.mojo | 同一「刀身這一 tick 碰到誰」的三種近似:每 tick 位移小於目標厚度時命中集合相同(慢揮三者皆 1 次);高速下差異寫成行為斷言(72 m/s:離散 0、線性 0、弧線 1) | `test_combat` | `bench_combat`(命中率與成本 vs 角速度) |
+| 宿主交換 逐物件 getter / teleport vs 批量 SoA(`ld_world_get_bodies` / `ld_world_set_poses`);元件 編譯期 `ComponentType` vs 宿主定義 blob(17.78) | embed/capi.mojo、physics/solver6.mojo(`teleport_many`)、ecs/host_components.mojo | 同一姿態交換 / 同一元件讀寫腳本的兩條路徑:取回的姿態逐位相同、批量寫入後狀態與逐一 teleport 逐位相同;blob 與編譯期元件的實體集合與值相同 | `test_host_bulk`、`test_python_binding` | `python/bench_bulk.py`、`bench_host_components` |
 | 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |

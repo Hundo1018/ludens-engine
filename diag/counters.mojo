@@ -114,6 +114,12 @@ P2G / G2P forever without a count."""
 comptime COUNT: Int = 23
 
 
+def counter_name(id: Int) -> String:
+    """Public name of counter `id` (what `dump` prints), for hosts reading
+    counters across the C boundary (ROADMAP 17.78)."""
+    return _name(id)
+
+
 def _name(id: Int) -> String:
     if id == NAN_QUARANTINED:
         return "nan_quarantined"
