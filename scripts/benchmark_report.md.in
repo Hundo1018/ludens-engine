@@ -1523,6 +1523,18 @@ spread, where SAP's single sweep axis and a hash grid's fixed cell size are
 each a plausible place for the O(n) claim to quietly stop holding.
 
 @bench benchmarks/bench_solver_scale.mojo
+
+### Parallel narrowphase and contact prep (17.54)
+
+`SolverConfig.parallel_collision` runs `try_pair` over fixed chunks of the
+candidate list and `make_contact` per raw contact through `cfg.dispatch`,
+joining the results in candidate order, so a parallel step is bit-identical
+to a serial one (`test_collide_par`). It pays where the narrowphase is
+expensive (bodies on a heightfield test a few dozen triangles each) and not
+on box piles, where the narrowphase is ~3 % of the step and the serial BVH
+broadphase is a larger share. Below 256 candidate pairs it stays serial.
+
+@bench benchmarks/bench_collide_par.mojo
 ## Physics — kinematic motion type (ROADMAP 17.24): cost of the path
 
 `MOTION_KINEMATIC` is a third instance of the same "advance this body's pose"

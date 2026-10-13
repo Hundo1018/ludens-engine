@@ -155,6 +155,7 @@ from .islands import (
     wake_island,
 )
 from .ccd6 import ccd_advance
+from .collide_par import narrow_parallel, prep_parallel, NARROW_PAR_MIN
 from .soft_couple import softbody_pass
 
 
@@ -1512,7 +1513,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         return edges^
 
     def _collect_pairs(
-        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False, margin_base: Real = SPEC_BASE
+        mut self, warm: Bool, spec_dt: Real, use_bp: Bool = False, margin_base: Real = SPEC_BASE,
+        par: Bool = False, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel(),
     ) -> List[ContactConstraint]:
         """Manifolds at the current poses (ROTATED box-box manifold — tilted
         geometry produces restoring contacts). With `warm`, impulses are
@@ -1531,9 +1533,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         touched, on what manifold) comes from `collision.contact_gen.try_pair`
         over `self.colliders`; this method's own job is wrapping that
         geometry with the warm-start match and body-frame anchors that need
-        `Body6` (`_make_cpair`)."""
+        `Body6` (`_make_cpair`).
+
+        ROADMAP 17.54: candidates are enumerated first (span "broadphase"),
+        then run through the narrowphase ("narrowphase") and wrapped
+        ("contact_prep"). With `par` and at least `NARROW_PAR_MIN`
+        candidates the last two fan out through `dispatch`
+        (`physics.collide_par`), keeping the candidate order, so the result
+        is bit-identical to `par=False`."""
         var raws = List[RawContact]()
         var sraws = List[RawContact]()
+        var ci = List[Int]()
+        var cj = List[Int]()
+        self.trace.begin("broadphase")
         var n = len(self.bset.bodies)
         # ROADMAP 17.5: two bodies held together by a live weld do not collide
         # with each other (a fracture bond is a rigid seam, not two touching
@@ -1608,12 +1620,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 if has_weld and (min(i, j) * n + max(i, j)) in weld_keys:
                     continue
                 self.counters.incr(NARROWPHASE_PAIRS)
-                try_pair(
-                    self.colliders, i, j, self._pose(i), self._pose(j),
-                    self.bset.bodies[i].linear_velocity(),
-                    self.bset.bodies[j].linear_velocity(),
-                    spec_dt, raws, sraws, margin_base,
-                )
+                ci.append(i)
+                cj.append(j)
         else:
             # The same fat AABBs the broadphase path tests, so brute and
             # broadphase now see the same pairs. They are not a strict
@@ -1651,23 +1659,46 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     if not self.bset.is_dynamic(i) and not self.bset.is_dynamic(j):
                         continue
                     self.counters.incr(NARROWPHASE_PAIRS)
-                    try_pair(
-                        self.colliders, i, j, self._pose(i), self._pose(j),
-                        self.bset.bodies[i].linear_velocity(),
-                        self.bset.bodies[j].linear_velocity(),
-                        spec_dt, raws, sraws, margin_base,
-                    )
+                    ci.append(i)
+                    cj.append(j)
+        self.trace.end()
+        self.trace.begin("narrowphase")
+        var fan = par and len(ci) >= NARROW_PAR_MIN
+        if fan:
+            var poses = List[Pose3](capacity=n)
+            var vels = List[Vec3](capacity=n)
+            for i in range(n):
+                poses.append(self._pose(i))
+                vels.append(self.bset.bodies[i].linear_velocity())
+            narrow_parallel(self.colliders, poses, vels, ci, cj, spec_dt, margin_base, raws, sraws, workers, dispatch)
+        else:
+            for c in range(len(ci)):
+                var i = ci[c]
+                var j = cj[c]
+                try_pair(
+                    self.colliders, i, j, self._pose(i), self._pose(j),
+                    self.bset.bodies[i].linear_velocity(),
+                    self.bset.bodies[j].linear_velocity(),
+                    spec_dt, raws, sraws, margin_base,
+                )
+        self.trace.end()
+        self.trace.begin("contact_prep")
         self.sensor_pairs = List[ContactConstraint]()  # rebuilt with the solved pairs
         for c in range(len(sraws)):
             self.sensor_pairs.append(make_sensor_contact(sraws[c]))
         self.counters.incr(CONTACT_MANIFOLDS, Int64(len(raws)))
         for c in range(len(raws)):
             self.counters.incr(CONTACT_POINTS, Int64(raws[c].m.count))
-        var pairs = List[ContactConstraint]()
         var cidx = cache_index(self.cache)
-        for c in range(len(raws)):
-            pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
+        var pairs: List[ContactConstraint]
+        if fan:
+            pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch)
+        else:
+            pairs = List[ContactConstraint]()
+            for c in range(len(raws)):
+                pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
         apply_rules(self.bset, self.rules, pairs)
+        self.trace.end()
         return pairs^
 
     def step(mut self, dt: Real, gravity: Vec3, iters: Int = 8):
@@ -2189,7 +2220,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # a separate "narrowphase" span at without restructuring that
         # function; the spec's phase list treats them as one unit here.
         self.trace.begin("collect_pairs")
-        var pairs = self._collect_pairs(True, dt, broadphase, cfg.margin_base)
+        var pairs = self._collect_pairs(
+            True, dt, broadphase, cfg.margin_base, cfg.parallel_collision, workers, cfg.dispatch
+        )
         self.trace.end()
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         # graph coloring (colored=True): greedy smallest-free-color over the

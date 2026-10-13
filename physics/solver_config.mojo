@@ -85,6 +85,9 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # each tangent axis clamped to mu·N on its own; FRICTION_ELLIPTIC, the
     # tangent impulse vector clamped to a disk of radius mu·N).
     var friction_cone: Int
+    # ROADMAP 17.54: fan the narrowphase and contact prep out through
+    # `dispatch` (`workers` caps the width); bit-identical to False.
+    var parallel_collision: Bool
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -106,6 +109,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.dispatch = Dispatch.parallel()
         self.impulse_estimator = IMPULSE_SUBSTEP_SUM
         self.friction_cone = FRICTION_PYRAMID
+        self.parallel_collision = False
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes

@@ -573,7 +573,7 @@
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 🔶 | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ✅ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 🔶 | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
-| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | ⬜ | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
+| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 🔶 | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
 
 ### 已完成條目的遺留待辦
 
@@ -872,6 +872,17 @@
 >   命中材質 id(接 17.23,目前可由 `body` 自查);GPU 批次對真實形狀(第 7 層);CGA 圓形基元閉式最近點的假說。
 
 #### 17.54 CPU 碰撞管線 — Wave B(多執行緒)
+
+> **狀態**:🔶 部分完成(2026-10-13:trace 拆段、narrowphase 平行、make_contact 平行、注入式 fan-out(沿用 17.75 `Dispatch`)✅;broadphase 平行(BVH 建構 / fat AABB / 排序)、CCD 掃描平行、N = 1e5 量測未做)。
+> **進度註(2026-10-13)**:`_collect_pairs` 先列舉候選對(span `broadphase`),再跑 `try_pair`(`narrowphase`)與 `make_contact` + `apply_rules`(`contact_prep`)。
+> `SolverConfig.parallel_collision`(預設關)時,候選對 ≥ `NARROW_PAR_MIN`(256)就經 `cfg.dispatch` 分塊:narrowphase 每塊寫私有緩衝、依塊序串接;
+> prep 每個 raw 接觸寫自己的槽(`physics/collide_par.mojo`)。候選順序不變,輸出與串行逐位相同:`tests/test_collide_par.mojo` 15/15
+> (1024 箱堆;箱堆 + island 平行 + 著色 + CCD + BVH;heightfield 上 300 個 hull / 球 / 箱;六個 broadphase 後端;serial / reverse 派發;0 / 1 個物體、全 static、40 箱疊同點 780 對配 64 workers)。
+> 量測(`bench_collide_par`,本容器 4 核,BVH broadphase,µs/步):拆段(串行,`-D LUDENS_TRACE`)—— 箱堆 N = 4096:broadphase 20658、narrowphase 4551、prep 2606、solve 114430;
+> heightfield 混合形狀 N = 4096:broadphase 22947、narrowphase 125955、prep 29601、solve 190568。整步(三次執行):heightfield N = 4096 串行 → 4 workers
+> 372 → 273、431 → 310、401 → 308 ms(−23 % 至 −27 %);箱堆 N = 4096 三次的串行 158 / 167 / 161 ms 與各 workers 列互有高低(±10 %,即本容器的執行間雜訊;
+> narrowphase 只佔 3 %);N = 64 不分派(門檻前 64 對以 4 workers 反而慢 0.6 ms,故門檻 256)。
+> 下一個熱點是串行的 broadphase(箱堆 N = 4096 佔 13 %,大於 narrowphase)。
 > **現況**:
 > - `collision/` 整個套件**沒有任何 CPU 平行**:grep -c `parallelize`(`collision/*.mojo`)全部為 0(零命中)。GPU 端另有 `collision/bp_gpu.mojo` 與 `collision/gpu_raycast.mojo`(kernel,屬 17.17 / 17.53 範圍)。
 > - 引擎現有的 CPU 平行都在求解端:island 展開(`physics/solver6.mojo:1393-1407`,`island_work` 閉包與 `parallelize`)、同色接觸對(`physics/contact6.mojo:526-536`)、
@@ -3056,7 +3067,7 @@
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | 🔶 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
-| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
+| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.56 | [布料](#1756-布料--wave-b) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.57 | [毛髮 / 肌肉](#1757-毛髮--肌肉--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
