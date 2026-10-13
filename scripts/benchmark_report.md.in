@@ -2022,6 +2022,21 @@ delta-encoded yet, so size grows with the body count; a region keeps only
 the bodies inside it.
 
 @bench benchmarks/bench_capture.mojo
+## Operations boundary — outbox, achievements, black box (17.73)
+
+`diag/outbox.mojo` is the one way operations data leaves the simulation: a
+bounded queue of typed numeric records, written during a tick and drained by
+the host after it, with drop-newest + `OUTBOX_DROPPED`, deterministic
+sampling and rollback deduplication. `gameplay/achievements.mojo` (unlock
+once, state in flags), `gameplay/loc_keys.mojo` (stable FNV key ids, missing
+key report) and `gameplay/blackbox.mojo` (log + counters + snapshot + input
+tail in one checksummed blob) sit on top. `test_ops`: a scene with telemetry
+on is bit-identical to one with it off; a black box restored in a clean
+scene replays to the failing tick bit for bit. The second table is the
+overhead per step; the first version re-grew the drained list from empty
+every tick and cost 16 % of the step (2.8 us per record).
+
+@bench benchmarks/bench_ops.mojo
 ## Splines — parametric curves and rotation-minimising frames (17.36)
 
 `geometry/spline.mojo` unifies generalized Catmull-Rom (uniform / centripetal

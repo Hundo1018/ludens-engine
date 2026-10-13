@@ -2111,7 +2111,7 @@
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | ✅ | C | `gameplay/netcode.mojo`:`NetSim` 契約、預測策略 seam(`LockstepPeer` / `RollbackPeer` / `SnapshotServer` + `SnapshotClient`)、位元組訊息(冗餘輸入 + ack、XOR + RLE 差分快照)、雜湊交換失步偵測、輸入驗證、延遲補償(`PoseRing` + `rewind_ray_cast`);傳輸層交宿主。 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | 🔶 | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | 🔶 | C | 流程狀態堆疊、全域旗標 / 黑板、任務 / 目標圖、對話 / 敘事狀態、關卡切換協定、檢查點 / 重生 |
-| 17.73 | [營運邊界](#1773-營運邊界--wave-c) | ⬜ | C | 對外 outbox、遙測分流、成就 / 統計計數、本地化鍵、入站資料決定論、黑盒記錄器 |
+| 17.73 | [營運邊界](#1773-營運邊界--wave-c) | 🔶 | C | 對外 outbox、遙測分流、成就 / 統計計數、本地化鍵、入站資料決定論、黑盒記錄器 |
 
 ### 待辦與部分完成條目
 
@@ -2254,6 +2254,13 @@
 > **邊界**:選單 / HUD / 對話文字繪製、音訊、資產載入與串流 I/O、場景編輯與格式(17.12 屬宿主)、平台存檔槽與雲端(17.73)、過場內容(17.68)屬宿主或其他條目。
 
 #### 17.73 營運邊界 — Wave C
+> **進度註(2026-10-13)**:`diag/outbox.mojo` `Outbox`(型別化數值記錄 (kind, tick, key, a, b),無字串 → 構造上無 PII;滿則丟最新並計數,新計數器 `OUTBOX_DROPPED`(23,COUNT = 24);
+> `sample_every` 以雜湊決定論抽樣;`drain` 記住已送達 tick,回滾重模擬時不重送,`rewind` 丟棄未送達的後續記錄)、`gameplay/achievements.mojo`(事件計數謂詞、恰解鎖一次、
+> 進度存 17.72 `Flags`、解鎖寫 outbox)、`gameplay/loc_keys.mojo`(FNV-1a 32 穩定鍵 id、碰撞 raise、`missing`)、`gameplay/blackbox.mojo`(log + 全部計數器 + 快照 + 輸入尾段,
+> 魔數 / 版本 / FNV 校驗)。量測(`tests/test_ops.mojo` 11/11):40 箱場景 300 步遙測開 / 關逐位相同;10 次擊殺於第 10 次恰解鎖一次;1/4 抽樣 10000 筆留 2496 且兩次相同;
+> 回滾後已送達 tick 被拒、`rewind` 正確;黑盒 19585 bytes,於乾淨場景還原 tick 100 快照並重放 50 個輸入到 tick 150:逐位相同;損壞 / 截斷 / 版本錯 raise。
+> `bench_ops`:push 80 ns、抽樣 5.5 ns、滿時 0.6 ns;遙測開 / 關每步 725 / 768 µs(雜訊內;首版 `drain` 每 tick 從空重長串列,開時多 16 %、每筆 2.8 µs,已改預配容量)。
+> **未做**:`Runtime` tick 末排空與計數轉送、`HostServices` 服務項登記(17.75)、遠端設定 / 資格以輸入幀注入、黑盒接 17.33 不變式失敗與 17.80 擷取格式、C-ABI 取 outbox。
 > **現況**:引擎端**只有診斷設施,沒有營運介面**。`diag/log.mojo:44-97` `LogRing`(分級 + 分類、drop-newest,引擎不 `print`)、`diag/counters.mojo:79,117`(`COUNT = 15` 個計數器;有 `get` / `dump`(`:129,135`),但無給宿主的匯出契約)、`diag/trace.mojo:63` `TraceBuffer`(Chrome trace 匯出);存檔給 bytes、無檔案 I/O(ROADMAP §17.40 17.40 待辦);回放錄製在記憶體(ROADMAP §17.39 17.39 待辦)。營運類能力:grep `telemetry|achievement|locali[sz]|analytics|leaderboard|entitlement|crash.?report`(不分大小寫)於全樹 `.mojo` 零命中。已定的邊界決定:17.16「傳輸層 / 線路格式交宿主」(ROADMAP §17.16)、「反作弊的帳號 / 封禁 / 用戶端防護屬宿主與線上服務」(ROADMAP §17.16)、hot config / CVar 併入 17.21(ROADMAP §17.23–17.41 增補「拒絕(5)」)、平台方向 C = 被宿主嵌入的函式庫。
 > **缺口**:本條定義**引擎對營運服務的接口與資料契約**,而非實作營運服務:
 > - **對外 outbox**:模擬在 tick 內只寫入有界佇列(drop-newest + 計數,同 `LogRing` / `DrawQueue`),tick 末由宿主取走;**模擬步內絕不呼叫宿主**,以保決定論。遙測是型別化數值欄位(構造上無 PII 字串)。
@@ -3316,7 +3323,7 @@
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
-| 17.73 | [營運邊界](#1773-營運邊界--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
+| 17.73 | [營運邊界](#1773-營運邊界--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | 🔶 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | 🔶 |
