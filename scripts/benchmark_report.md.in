@@ -2193,6 +2193,17 @@ when tracks have many keys. The spring arm's cost is one sphere cast.
 
 @bench benchmarks/bench_sequence.mojo
 
+## Combat: melee detection and projectiles (17.71)
+
+Three ways to find what a swinging blade touched in one tick: the new pose
+only (discrete), the blade's end points on straight lines (linear), the
+blade along the real arc (arc). Below a target's thickness per tick they
+agree; above it the discrete test misses most thin targets and the linear
+one misses those the chord of the arc passes inside. Projectiles cast one
+segment ray each per step.
+
+@bench benchmarks/bench_combat.mojo
+
 ## Raycast vehicles (17.4)
 
 One `Vehicle.update` per car per step: four wheel casts (the seam: one ray, a
