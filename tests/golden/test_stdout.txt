@@ -497,6 +497,15 @@ build: all packages precompiled into build/
 [PASS] body_removal - 14 / 14 checks
 --- tests/test_broadphase.mojo ---
 [PASS] broadphase - 4 / 4 checks
+--- tests/test_camera_seq.mojo ---
+  look_rotation: worst forward error 1.6858739e-07
+  frustum vs perspective clip on 2000 points: 2000 agree, 218 inside
+  spring: two steps of 0.05 0.45767546  one of 0.1 0.45767546
+  events forward 2 ( 1 2 )  backward 2 ( 2 1 )
+  arm behind a wall 2 m away: camera z 1.78  arm 1.78
+  wall gone: arm after one frame 1.814494  reaches 4.95 m after 39 frames
+  brain: halfway x 5.0  fov 0.75   end x 10.0
+[PASS] camera_seq - 14 / 14 checks
 --- tests/test_capi.mojo ---
 [PASS] capi - 54 / 54 checks
 --- tests/test_capture.mojo ---
@@ -558,6 +567,13 @@ build: all packages precompiled into build/
   pyramid top y: 2.746126174926758 expected settled: 2.75
   colored iters=8: sleeping 21 of 21
 [PASS] colored - 6 / 6 checks
+--- tests/test_combat.mojo ---
+  2 cm shield at 0.6 rad: slow swing hits (discrete, linear, arc) 1 1 1   fast (72 m/s tip) 0 0 1
+  hitscan: head ray -> box 1 t 3.85   torso ray -> box 0 t 4.799998
+  linear drag landing x: closed form 32.09159  stepped 32.09144
+  pool of 100, 150 spawns: live 100  dropped 50
+  explosion: exposure open / walled / half 1.0 -1.0 0.22222222   open crate vx 11.993687  half-hidden |w| 13.191245  was asleep True
+[PASS] combat - 16 / 16 checks
 --- tests/test_compound.mojo ---
   box + sphere: mass 73.51033 want 73.51032163829112  com 0.22792937 0.13675761 want 0.22792936346530543 0.13675761807918324
   principal moments 1.3993801 9.605963 10.202511  hand sum 1.3993802 9.605963 10.202511  product of inertia -2.7351523
@@ -673,6 +689,10 @@ build: all packages precompiled into build/
 [PASS] gpu_lbvh - 0 / 0 checks
 --- tests/test_gpu_raycast.mojo ---
 [PASS] gpu_raycast - 0 / 0 checks
+--- tests/test_host_bulk.mojo ---
+  20 bodies teleported ( 40 were asleep): batch == sequential right after True  and for 60 steps True
+  Health on 88 entities: compile-time vs host component agree True
+[PASS] host_bulk - 7 / 7 checks
 --- tests/test_hull.mojo ---
   face-face: hit 1.0  count 4.0  |n.y| 1.0  depth 0.19999999
   box-box reference: |n.y| 1.0  depth 0.19999999
@@ -792,6 +812,23 @@ build: all packages precompiled into build/
   uniform diagonal — cg 64  pcg 64
   diagonal spanning 1e6 — cg 195 conv True  | pcg 84 conv True
 [PASS] numerics - 36 / 36 checks
+--- tests/test_numerics_deep.mojo ---
+  rosenbrock: correct gradient best error 7.938265176100371e-11 at h 1e-06   sign bug 1.0389610389677382
+    h 0.01  error 0.000222634508349989
+    h 0.001  error 2.2263449477545893e-06
+    h 0.0001  error 2.2263495256799294e-08
+    h 1e-05  error 2.304085761598683e-10
+    h 1e-06  error 7.938265176100371e-11
+    h 1e-07  error 6.786174837901238e-10
+  diffsim landing x, 6 controls: reverse vs forward 1.7881393432617188e-07   reverse vs central difference 1.0132789611816406e-05 at h 0.01
+  |x| at 1e-4: crossings per step 1 1 0 0 0 0  best error 0.0
+  convection-diffusion n=200 (non-symmetric): bicgstab converged True true residual 5.005554e-07 iters 181 error 4.5299530029296875e-06   cg converged False iters 800 error 139.15306091308594
+  bicgstab + jacobi iters 172
+  convection-dominated c=4, no reaction: bicgstab converged False true residual 895137800.0 error 6254104065.75
+  poisson n=64: cg iters 32 True 5.1880166e-17  bicgstab iters 38 True 1.7500639e-05  max |dx| 6.103515625e-05
+  cond_1 Hilbert(5) 942644.7983135923  Hilbert(6) 28124505.36682887
+  Hilbert(5): residual before 1.6079752060475306e-08 after 3 rounds 5.0453121883467255e-17   error vs f64 solve: plain 0.00037598609924316406 refined 0.0
+[PASS] numerics_deep - 13 / 13 checks
 --- tests/test_oop_engine.mojo ---
 [PASS] oop_engine - 4 / 4 checks
 --- tests/test_pipeline.mojo ---

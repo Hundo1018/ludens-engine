@@ -603,6 +603,58 @@ comparison: not a faster step, an available one.
 | stiff E=2e5 dt=1/60 implicit cg/step=31 | 63 | step | 1893927.29 | 0.00 | 227.27 |
 
 
+## Numerics deepening — BiCGStab, dense refinement, gradcheck (17.84)
+
+`cg` / `pcg` assume a symmetric positive definite operator. The first table
+solves an upwind convection-diffusion system, which is not symmetric:
+BiCGStab converges and its error against the known answer is in the row; CG
+runs its whole budget and its error is the reason it is labelled the wrong
+solver. The diagonal is constant, so Jacobi is only a rescaling, yet at
+n=1024 the Jacobi run diverges where the plain one converges: BiCGStab's
+convergence on this non-normal matrix is irregular (GMRES, which is
+monotone, is not in the package yet). BiCGStab reports the TRUE residual of the returned f32 answer, not
+its recursive estimate (on a convection-only variant the recursion met 1e-6
+with an answer off by 6e9, `test_numerics_deep`).
+
+The second table is the price of accuracy in the small dense solve: three
+rounds of mixed-precision refinement (residual in f64, correction by the same
+f32 elimination) and the exact 1-norm condition number. The third is one
+shared `gradcheck` call: 6 controls x 6 step sizes x 2 rollouts.
+
+### Non-symmetric solve: BiCGStab vs CG (convection-diffusion, 17.84)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| bicgstab iters=215 converged=True err=2.4795532e-05 | 256 | solve | 7257398.50 | 0.00 | 145.15 |
+| bicgstab+jacobi iters=236 converged=True err=2.360344e-05 | 256 | solve | 7790547.25 | 0.00 | 155.81 |
+| cg (wrong solver) iters=1024 converged=False err=167.53519 | 256 | solve | 9102293.05 | 0.00 | 182.05 |
+| bicgstab iters=111 converged=True err=4.297495e-05 | 1024 | solve | 10612514.00 | 0.00 | 53.06 |
+| bicgstab+jacobi iters=1136 converged=False err=410476270000000.0 | 1024 | solve | 112089444.00 | 0.00 | 560.45 |
+| cg (wrong solver) iters=4096 converged=False err=613.858 | 1024 | solve | 165420291.60 | 0.00 | 827.10 |
+| bicgstab iters=71 converged=True err=9.286404e-05 | 4096 | solve | 23876852.00 | 0.00 | 47.75 |
+| bicgstab+jacobi iters=70 converged=True err=0.000106334686 | 4096 | solve | 23932567.00 | 0.00 | 47.87 |
+| cg (wrong solver) iters=16384 converged=False err=2595.2134 | 4096 | solve | 2572323156.50 | 0.00 | 5144.65 |
+
+
+### Dense solve: f32 elimination, mixed-precision refinement, condition number (17.84)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| solve_dense (f32) | 8 | solve | 844.00 | 1.18 | 1.69 |
+| solve_dense_refined 3 rounds, residual 7.0762377e-17 | 8 | solve | 10995.92 | 0.09 | 21.99 |
+| condition_1 = 2.2033484 | 8 | estimate | 7032.70 | 0.14 | 14.07 |
+| solve_dense (f32) | 32 | solve | 54824.70 | 0.02 | 10.96 |
+| solve_dense_refined 3 rounds, residual 3.6115193e-16 | 32 | solve | 143060.87 | 0.01 | 28.61 |
+| condition_1 = 2.0691018 | 32 | estimate | 125622.41 | 0.01 | 25.12 |
+
+
+### gradcheck: diffsim landing x, 6 controls x 6 steps (17.84)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| gradcheck best error 1.013279e-05 | 6 | check | 41894.92 | 0.02 | 2.09 |
+
+
 ## Animation — clips, blending and cross-fade
 
 The skinning maths existed; the runtime around it did not. `procedural/anim.mojo`
@@ -878,6 +930,22 @@ every entity for a hand-kept dirty field.
 | chunked | 1 % | 19800 | 315 | 356 | 200 | 13 | 366 |
 | chunked | 50 % | 10000 | 263 | 396 | 200 | 13 | 381 |
 | chunked | 99 % | 200 | 236 | 385 | 200 | 14 | 386 |
+
+
+## Host-defined components (17.78)
+
+`ecs.host_components.HostComponents` stores components a host registers at
+run time (name, size) as dense byte rows, beside the compile-time ones. The
+comparison is the same f64 written, read and queried both ways.
+
+### Host-defined vs compile-time components (17.78)
+
+| N | kind | write ns | read ns | query ns per entity |
+|---:|---|---:|---:|---:|
+| 1000 | compile-time | 22 | 5 | 22 |
+| 1000 | host blob | 245 | 30 | 18 |
+| 100000 | compile-time | 28 | 7 | 15 |
+| 100000 | host blob | 280 | 163 | 2 |
 
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
 
@@ -4304,6 +4372,51 @@ integration, so the cost is the controller's sweeps either way.
 | acceleration | walk | 959 |
 | quake | walk | 1061 |
 | acceleration | swim | 1873 |
+
+
+## Sequences and camera rig (17.68)
+
+A `procedural.sequence.Sequence` is evaluated as a pure function of time
+(binary search per track); a `SeqCursor` walks from the last segment for
+playback. Both give the same values bit for bit; the cursor only pays off
+when tracks have many keys. The spring arm's cost is one sphere cast.
+
+### Sequences and camera rig (17.68)
+
+| keys per track | seek ns / frame | cursor ns / frame |
+|---:|---:|---:|
+| 8 | 2513 | 2402 |
+| 128 | 2846 | 2524 |
+| 2048 | 8936 | 5980 |
+
+| spring arm scene | ns / update |
+|---|---:|
+| empty | 19 |
+| one wall | 216 |
+
+
+## Combat: melee detection and projectiles (17.71)
+
+Three ways to find what a swinging blade touched in one tick: the new pose
+only (discrete), the blade's end points on straight lines (linear), the
+blade along the real arc (arc). Below a target's thickness per tick they
+agree; above it the discrete test misses most thin targets and the linear
+one misses those the chord of the arc passes inside. Projectiles cast one
+segment ray each per step.
+
+### Combat (17.71): melee detection vs swing speed
+
+| rad / tick | tip speed m/s | discrete hit % | linear hit % | arc hit % | discrete ns | linear ns | arc ns |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 | 3 | 98 | 100 | 100 | 67 | 127 | 306 |
+| 0.3 | 18 | 26 | 100 | 100 | 87 | 623 | 1485 |
+| 0.6 | 36 | 14 | 97 | 100 | 108 | 856 | 2987 |
+| 1.2 | 72 | 5 | 87 | 100 | 99 | 1401 | 5259 |
+
+| projectiles | us per step |
+|---:|---:|
+| 1000 | 165 |
+| 10000 | 1612 |
 
 
 ## Raycast vehicles (17.4)
