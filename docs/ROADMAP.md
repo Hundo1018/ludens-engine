@@ -2992,7 +2992,7 @@
 | 16.3 | [Vec3 重構(width-3 SIMD 被禁)](ROADMAP_HISTORY.md#163-vec3-重構width-3-simd-被禁--完成2026-08-12分支-mojo-stable) | ✅ |  | `Vec3` 改為 lane 3 恆為 0 的 `SIMD[WorldType, 4]`,維度泛型容器用 `PadW`,同時完成 API 搬遷、`InlineArray` 複製、棄用清理,並拆掉 `SkinVert`、`_Pt`、`_LV`、`_Half` 包裝;`AABB.symmetric()` 會把 pad lane 設為 0。 |
 | 17.0 | [架構前置(Wave A 之前必做;2026-09-27 架構審計)](ROADMAP_HISTORY.md#170-架構前置wave-a-之前必做2026-09-27-架構審計) | ✅ | A | 架構閘門(archindex check)、測試 tier、分層修正(diag 在第 0 層,bvh / gpu_lbvh 在 spatial)、collider_set / contact_gen 移到 collision、BodySet、錯誤政策、gameplay/runtime.mojo 都已落地;solver6 拆成 contact6 / joints6 / islands / ccd6 / soft_couple;舊 2D 物理路徑已刪除。 |
 | 17.22 | [範例覆蓋補完](ROADMAP_HISTORY.md#1722-範例覆蓋補完--wave-a文件) | ✅ | A | examples/ 新增 17_spin_integrators、18_cloth_xpbd_vbd、19_reactive_commands、21_runtime_character,讓 README / CATEGORY §2 列出的 seam swap 都有可跑的範例,且每支都印出兩條路徑的對照數字。 |
-| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 🔶 | A | CI 工作流、golden 跨機決定論探針、授權、發行管線、衛生、工具鏈升版金絲雀 |
+| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | ✅ | A | CI 工作流、golden 跨機決定論探針、授權、發行管線、衛生、工具鏈升版金絲雀 |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | ✅ | A | 格式 / 靜態檢查決策、孤島 / 接線報告、路線圖 / 文件引用 linter、執行緒 / 記憶體檢查、種子掃描 fuzz、穩定性 / 決定論重跑 |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 🔶 | A | 基準結果的機器可讀輸出、比較工具、確定性閘門、牆鐘閘門、漸近斜率閘門、影格預算表 |
 
@@ -3005,7 +3005,7 @@
 ### 待辦與部分完成條目
 
 #### 17.81 CI / 授權 / 發行 — Wave A(工程,先於其他各項)
-> **狀態**:🔶 部分完成(2026-10-13:CI / 發行工作流、授權、衛生、跨機 golden 探針 ✅;GitHub 上的首次 CI 結果、可重現性探針、工具鏈升版金絲雀未做)。
+> **狀態**:✅ 完成(2026-10-13:CI / 發行工作流、授權、衛生、跨機 golden 探針、首次 CI 實績、可重現性探針;選配的工具鏈升版金絲雀未做)。
 > **現況**:
 > - **沒有 CI**:`.github/` 目錄不存在(`ls .github` 失敗);`git ls-files` 中 `\.github|\.ya?ml$` 零命中。`origin` 是 GitHub(`git@github.com:Hundo1018/ludens-engine.git`),
 >   且已有 PR 合併(`git log --merges` 見 `Merge pull request #10 / #11`),但沒有任何自動檢查掛在 PR 上。
@@ -3067,8 +3067,11 @@
 >   須保留其標示;Mojo 為 Apache-2.0 with LLVM exceptions。結論寫入 `NOTICE`,wheel 的 dist-info 帶 `LICENSE-MIT` / `LICENSE-APACHE` / `NOTICE`。
 > - **衛生**:`CONTRIBUTING.md`、`SECURITY.md`(私下回報)、`CHANGELOG.md` 由 `scripts/changelog.py` 產生(`pixi run changelog`;淺 clone 拒絕執行)、
 >   README 測試數不再手寫、移除殘留 `glfw`(`pixi lock` 只刪 glfw 與 xorg-libxinerama 兩項)。
-> - **待辦**:PR 上首次 CI 的實際結果(runner 上的 golden 是否在 skylake 釘選下逐字相同);可重現性探針(同 commit 建兩次比 `.mojoc` 校驗和);
->   工具鏈升版金絲雀(選配)。
+> - **CI 實績(2026-10-13)**:PR #30 / #31 的 `gate` job(linux-x86_64 runner,skylake 釘選)與本機 golden 逐字相同而通過;portability 的
+>   linux-aarch64 抓到一個本機抓不到的錯 —— `test_trace_runtime` 以固定 `--target-cpu skylake` 啟動子行程(`unknown target CPU`),已改為與
+>   `run_tests.sh` 同規則(`39f5b64`)。
+> - **可重現性探針 ✅**:`scripts/repro_probe.py`(`pixi run repro-probe`,`--selftest` 3/3):同 commit 連建兩次,16 個 `build/*.mojoc` 的 SHA-256 全數相同(2 m 43 s)。
+> - 選配未做:工具鏈升版金絲雀。
 
 #### 17.82 品質工具 — Wave A(工程)
 > **狀態**:✅ 完成(2026-10-13;格式化與執行緒 / 記憶體檢查的探針結論為「目前不可閘門」,理由見進度)。
@@ -3336,7 +3339,7 @@
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | 🔶 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | 🔶 |
-| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |
+| 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | 🔶 |
