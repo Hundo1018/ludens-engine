@@ -111,6 +111,12 @@ build: all packages precompiled into build/
   with LES — mass 27380.002 -> 27379.793  mean drag 0.35420045
   Cs=5 (absurd) — u 0.0038264073  nu_t 0.031069377
 [PASS] lbm_les - 15 / 15 checks
+--- tests/test_lbm_moving.mojo ---
+  Couette H=16, lid 0.05: max |u - U (y - 1/2) / H| = 1.2591481e-06 ( 0.0025182962 % of U )
+  translating sphere R=4: mean fluid velocity 0.0020448503  drag -0.047959168  Stokes-Hasimoto at U - u_mean -0.04948413  ratio 0.9691828  side force 8.135102e-09 -7.9111196e-08
+  spinning sphere: torque -0.5363823  rotlet -8 pi mu R^3 w -0.5147186  ratio 1.0420885
+  sphere jumping 0.3 cells/step for 40 steps: mass 13712.001 -> 13614.35  last force -5.8822236
+[PASS] lbm_moving - 6 / 6 checks
 --- tests/test_lbvh.mojo ---
   Sigma-area  median: 213042.88  sah: 187398.86  lbvh: 201227.88
   avg leaf depth  median: 9.293333  sah: 9.39  lbvh: 9.565
@@ -356,6 +362,13 @@ build: all packages precompiled into build/
 [PASS] mat - 34 / 34 checks
 --- tests/test_motor_parity.mojo ---
 [PASS] motor_parity - 285 / 285 checks
+--- tests/test_muscle_hill.mojo ---
+  identity curves vs plain muscle after 2 s: q 0.40190706 0.40190706
+  force-length peak at q 0.5 (fiber = l_opt at 0.5)  fl at +30 % 0.81873095
+  force-velocity: half vmax 0.16666667  vmax 0.0  fast lengthening 1.7971304
+  passive: at l_opt 0.0  shortened 0.0  +60 % 0.9999983   torque at q=-1 with no activation 3.9999928
+  hill flexor at activation 0.5: q 1.6815168  arm * F 4.869989  m g r sin q 4.869996  qd -5.032647e-06
+[PASS] muscle_hill - 9 / 9 checks
 --- tests/test_naive_backend.mojo ---
 [PASS] naive_backend - 11 / 11 checks
 --- tests/test_narrow_batch.mojo ---
@@ -657,6 +670,14 @@ build: all packages precompiled into build/
   restoring force at the stretched end: -2.2435906
   cantilever tip y: -0.08829661   volume 0.024000002 -> 0.023990544
 [PASS] fem - 9 / 9 checks
+--- tests/test_fem_material.mojo ---
+  small strain: |P_nh - P_co| / |P_co| 0.0007675469   |P_stvk - P_co| / |P_co| 0.0020990176
+  rigid rotation 63 deg: |P| corotational 0.0  neo-hookean 0.0001075651  stvk 1.197283e-05
+  cantilever L=1.2: tip sag 0.00619518  Euler-Bernoulli 0.008573043  ratio 0.7226349
+  beam E=1e5 settled tip: corotational 0.05234989  neo-hookean 0.052327227
+  inverted tet (det F = -0.2) released: det F after 2 s  neo-hookean 1.0242903  stvk -0.97505754  corotational -1.0161943
+  uniaxial to 2 %: stvk restoring 34.986 (peak 673.554 )  neo-hookean 3430.0 (at 50 %: 1750.0 )
+[PASS] fem_material - 10 / 10 checks
 --- tests/test_fields.mojo ---
 [PASS] fields - 16 / 16 checks
 --- tests/test_filter_events.mojo ---
@@ -679,6 +700,12 @@ build: all packages precompiled into build/
   one cut: 1000 pieces, volume error 3.241851231905457e-14
   snapshot: bonds broken after restore 9 vs 9 , live 20 vs 20
 [PASS] fracture - 79 / 79 checks
+--- tests/test_fsi.mojo ---
+  settling sphere: velocity -0.0027307766  mean fluid 3.9075276e-05  relative -0.0027698518  Stokes-Hasimoto -0.0027770284  ratio 0.9974157  max spin 5.617738e-06
+  sphere over a static plate (top at x = 7 mm): centre x 9.970106 mm  velocity -1.2732926e-11
+  density ratio 1.0 : launched at -0.05 m/s, after 0.3 s v = -0.00047233634  max |v| 0.02113429  finite True
+  density ratio 0.5 : launched at -0.05 m/s, after 0.3 s v = -11945.902  max |v| 19731.816  finite True
+[PASS] fsi - 5 / 5 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
 --- tests/test_gpu_artic.mojo ---
@@ -934,6 +961,10 @@ build: all packages precompiled into build/
   capsule rest y: 0.19965341687202454 axis up-component: -1.4781952e-05
   sphere-on-box: y 0.7993004322052002 x -1.8990112948813476e-05
 [PASS] shapes6 - 10 / 10 checks
+--- tests/test_sim_cache.mojo ---
+  cloth 256 points x 240 frames: cache 197494 bytes vs raw 737280 ( 26.78683810763889 % )  max error 0.0009999983
+  CachePlayer through step_checked: max error vs live 0.0009999983  frame 239
+[PASS] sim_cache - 10 / 10 checks
 --- tests/test_sleep6.mojo ---
   fell asleep at frame 35
 [PASS] sleep6 - 13 / 13 checks
@@ -975,12 +1006,26 @@ build: all packages precompiled into build/
   brute cache pairs: 16  bp cache pairs: 16
   fast faller y: 0.24971114099025726
 [PASS] solver_broadphase - 4 / 4 checks
+--- tests/test_strand.mojo ---
+  free strand after 5 s: tip -0.0005815197 1.2500007 0.0  max stretch 9.536743e-07
+  tip drop after 1 s: bend 0 0.70216  bend 0.5 0.08278608
+  head turn 90 deg in 0.2 s: tip swing peak 0.39419982  after 3 s 0.0023195043
+  32 strands draped over a 10 cm head: deepest particle -1.8393621e-08  max stretch 0.0177629
+  wind 5 m/s: tip x 0.05837603
+  100 m root jump: with teleport, shape differs from an unmoved twin by 2.3146258e-06   without: tip v 11838.264
+[PASS] strand - 12 / 12 checks
 --- tests/test_system_tiers.mojo ---
   system_tiers: tier changes 3430 max dp 0.006805539 max dv 0.32666668 pen gap 0.0044184644 bodies solved per step full 1800 tiered 627
 [PASS] system_tiers - 7 / 7 checks
 --- tests/test_terrain_deform.mojo ---
   crate after the crater: -0.7460463  edited corners 45
 [PASS] terrain_deform - 11 / 11 checks
+--- tests/test_thermal.mojo ---
+  grid bar after 10 s: max |T - erf solution| 0.014007568 K   T at 10 mm 347.95932 (exact 347.95 )
+  tet bar ( 300 tets, dt 0.007499992 ): max |T - erf| 0.025177002 K   max |T_tet - T_grid| 0.016357422 K
+  heated bar: length change 0.011999987  alpha_L dT L 0.012000001
+  insulated: grid heat drift 1.4482918431202307e-07  tet heat drift 1.1988794328399166e-06
+[PASS] thermal - 7 / 7 checks
 --- tests/test_tiers.mojo ---
 [PASS] tiers - 26 / 26 checks
 --- tests/test_timers_integration.mojo ---
@@ -1013,6 +1058,14 @@ build: all packages precompiled into build/
 [PASS] vehicle_aero - 25 / 25 checks
 --- tests/test_vehicle_wheel.mojo ---
 [PASS] vehicle_wheel - 133 / 133 checks
+--- tests/test_water.mojo ---
+  single wave Q=0: max |height - A cos(kx - wt)| 0.0   omega 1.7546399 (sqrt(g k) = 1.7546399 )
+  steepness 0.8: inverse-map error 8.940697e-07   crest height 0.5
+  box density 500 on flat water: centre y 0.061612617  (waterline 0)
+  box on a 40 m swell, A = 0.5: heave 1.0763072 (2A = 1)  period 5.0665894 (wave 5.064154 )
+  ripple: peak at 5 m after 1.5529035 s, 5 / sqrt(gH) = 1.5971913  energy 0.34651673 -> 0.18622804
+  energy after 400 steps: damped 0.019981787  undamped 0.7386395
+[PASS] water - 10 / 10 checks
 --- tests/test_weld.mojo ---
   weld drift 0.009460454  ball drift 1.2818166  weld tilt 0.0022981346
   landed pair: gap 0.4998334 heights 0.24970834 0.24971326

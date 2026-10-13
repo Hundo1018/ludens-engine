@@ -852,6 +852,40 @@ divergence where it is.
 | Re~1600 tunnel, smagorinsky=0.17: ran 600 steps to completion | 27648 | cell-step | 788.65 | 1.27 | 13082.68 |
 
 
+## Fluids — LBM moving solids and rigid coupling (17.59)
+
+`Lbm` now carries moving solids by Ladd's bounce-back: the reflected
+population carries the wall's momentum, and momentum exchange gives each
+moving sphere its force and torque. `test_lbm_moving`: Couette flow within
+0.003 % of the lid speed, a translating sphere's drag 3 % from
+Stokes-Hasimoto, a spinning sphere's torque 4 % from the rotlet.
+`physics/fsi.mojo` `LbmCoupler` ties a sphere to a `ContactScene6` body, two
+ways, one lattice step per physics step: a 1500 kg/m^3 sphere settles at
+0.997 of the Stokes-Hasimoto terminal velocity (`test_fsi`); at density
+ratio 0.5 the explicit coupling diverges (added mass).
+
+The first table is the lattice cost per cell with static against moving
+solids; moving spheres re-flag their cells every step (`move_sphere` scans
+the lattice for the cells a sphere owns, O(cells) per sphere). The second
+is one coupled step.
+
+### LBM with moving solids (17.59), 32^3
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| no solid | 32768 | cell-step | 343.68 | 2.91 | 675.71 |
+| 1 static sphere | 32768 | cell-step | 407.10 | 2.46 | 800.40 |
+| 1 moving sphere (Ladd) | 32768 | cell-step | 365.16 | 2.74 | 717.93 |
+| 8 moving spheres (Ladd) | 32768 | cell-step | 356.53 | 2.80 | 700.96 |
+
+
+### LbmCoupler.step: lattice + ContactScene6, one sphere (17.59)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| coupled step (32^3 lattice, 1 sphere) | 1 | step | 11928284.77 | 0.00 | 715.70 |
+
+
 ## Collision — scene queries (raycast + overlap)
 
 The `SceneQuery` seam: brute / bvh / grid / tree answering identical ray and
@@ -1629,6 +1663,46 @@ costs.
 | linear (R=I) 12x6x6 rot-err=83.64 | 2160 | tet | 175.17 | 5.71 | 0.38 |
 
 
+## Physics — FEM constitutive models (17.58)
+
+`physics/fem_material.mojo` puts the stress law behind a compile-time trait:
+corotational (the existing law), stable Neo-Hookean (Smith 2018, without the
+log term) and StVK. `test_fem_material` shows they agree within 0.21 % at
+strain 1e-3, are all stress-free under a 63-degree rotation, and differ
+where they should: an element pushed through itself (det F = -0.2) is
+restored only by Neo-Hookean, and StVK's restoring stress at 2 % length is
+5 % of its peak. The table is the cost of one force pass per element; the
+corotational rows pay the 12 Newton iterations of the polar decomposition.
+
+### FEM constitutive models: elastic force pass (17.58)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| FemBody.elastic_forces (built-in corotational) | 960 | tet | 1540.28 | 0.65 | 295.73 |
+| corotational | 960 | tet | 1495.53 | 0.67 | 287.14 |
+| stable neo-hookean | 960 | tet | 153.90 | 6.50 | 29.55 |
+| stvk | 960 | tet | 206.10 | 4.85 | 39.57 |
+
+
+## Physics — heat conduction (17.61)
+
+`physics/thermal.mojo` adds a temperature field on two discretisations: a
+finite-difference grid and the tetrahedra of a `FemBody` (linear elements,
+lumped capacity). On a 1D bar with a hot end both stay within 0.03 K of the
+erf solution after 10 s and within 0.02 K of each other (`test_thermal`);
+`expand` rescales the FEM rest shapes, and a heated free bar lengthens by
+alpha_L dT L to 0.0001 %. The table prices one explicit step per node at the
+same 1 mm resolution; the stable dt column says how many steps a second of
+heat flow costs on each.
+
+### Heat conduction: grid vs tets, 60 x 4 x 4 mm at 1 mm (17.61)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| grid 7-point, max dt 0.01666667 s | 1525 | node-step | 9.67 | 103.42 | 2.95 |
+| tets (4800), max dt 0.008333324 s | 1525 | node-step | 244.95 | 4.08 | 74.71 |
+
+
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this
@@ -1859,6 +1933,42 @@ single box; more colliders mean more candidates per query).
 | 16 x 16 | 289 | 2124 | 1910 | 1631 | 826 |
 | 32 x 32 | 1089 | 5513 | 8627 | 10514 | 990 |
 | 100 x 100 | 10201 | 65204 | 60079 | 72223 | 736 |
+
+## Physics — point caches (17.63)
+
+`physics/sim_cache.mojo` records per-frame point arrays (cloth, strands,
+particles) with an error bound: coordinates are quantised to 2 err,
+keyframes store zig-zag varints, delta frames store the integer change, so
+there is no drift. Frames with non-finite values and err = 0 are stored raw.
+`test_sim_cache`: a 256-point cloth over 240 frames at err = 1 mm is 26.8 %
+of raw f32 and every frame is within 1 mm; `CachePlayer` stands in for the
+live cloth under `step_checked`. The size floor is one byte per coordinate,
+hence the flat bytes-per-point column across error bounds (bit packing
+would go below it). The seek table is the trade-off the ROADMAP item asks
+to measure: decoding frame 200 from the cache against restoring the
+snapshot at frame 192 and re-simulating.
+
+### Point cache: size and throughput, 256-point cloth x 240 frames (17.63)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| err 0.01 m: 3.052246 bytes/point-frame (raw 12), encode | 61440 | point-frame | 32.35 | 30.91 | 1.99 |
+| err 0.01 m: 3.052246 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 108.54 | 9.21 | 6.67 |
+| err 0.001 m: 3.2144206 bytes/point-frame (raw 12), encode | 61440 | point-frame | 26.15 | 38.23 | 1.61 |
+| err 0.001 m: 3.2144206 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 101.65 | 9.84 | 6.25 |
+| err 0.0001 m: 3.8009276 bytes/point-frame (raw 12), encode | 61440 | point-frame | 25.47 | 39.26 | 1.56 |
+| err 0.0001 m: 3.8009276 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 109.40 | 9.14 | 6.72 |
+| err 0.0 m: 12.051302 bytes/point-frame (raw 12), encode | 61440 | point-frame | 62.37 | 16.03 | 3.83 |
+| err 0.0 m: 12.051302 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 21.66 | 46.17 | 1.33 |
+
+
+### Seek to frame 200: cache vs snapshot + recompute (17.63)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| cache decode (keyframe 192 + 8 deltas) | 1 | seek | 29255.86 | 0.03 | 5.85 |
+| snapshot 192 + recompute 9 frames | 1 | seek | 10053784.25 | 0.00 | 201.08 |
+
 
 ## Differentiable simulation — gradient cost & Field abstraction
 
@@ -2611,6 +2721,37 @@ cost independent of terrain size, where a full rescan grows with it.
 | buoyancy, boxes (16^3 samples) | 1024 | frame | 26460081.56 | 0.00 | 1323.00 |
 
 
+## Physics — water surfaces (17.60)
+
+`physics/water.mojo` puts the water height behind a `WaterSurface` trait:
+flat, Gerstner (closed form in t, so any time can be queried without
+stepping) and a shallow-water ripple grid. `float_body` samples a box at n^3
+points against whichever surface it is given. `test_water`: zero-amplitude
+Gerstner equals flat bit for bit; a box on a 40 m swell heaves with the
+wave's period to 0.05 % (5.067 s vs 5.064 s); a ripple on 1 m of water
+reaches 5 m in 1.55 s against 5 / sqrt(g H) = 1.60 s. The flat query is a
+constant the compiler folds, hence 0 ns. The Gerstner cost is the 4
+fixed-point iterations of the inverse map plus one final evaluation, each
+over every wave.
+
+### Water surface height queries (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| flat | 200000 | query | 0.00 | 3636363.64 | 0.00 |
+| gerstner 4 waves, Q = 0 | 200000 | query | 378.18 | 2.64 | 75.64 |
+| gerstner 4 waves, Q = 0.6 | 200000 | query | 332.72 | 3.01 | 66.54 |
+| shallow-water grid 128^2 (sample) | 200000 | query | 9.47 | 105.56 | 1.89 |
+
+
+### Shallow-water step and float_body (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| ShallowWaterGrid.step 128^2 | 16384 | cell-step | 10.17 | 98.30 | 16.67 |
+| float_body 4^3 samples on the 4-wave sea | 1 | body | 34992.06 | 0.03 | 69.98 |
+
+
 ### Rope per frame: XPBD rope vs distance-joint link chain; rope collision on/off
 
 | variant | N | op | ns/op | Mops/s | total ms |
@@ -2623,6 +2764,33 @@ cost independent of terrain size, where a full rescan grows with it.
 | distance-joint link chain (8 x 8) | 256 | frame | 3607189.60 | 0.00 | 108.22 |
 | XPBD rope, collision on (8 substeps x 4 iters) | 16 | frame | 26851.33 | 0.04 | 0.81 |
 | XPBD rope, collision on (8 substeps x 4 iters) | 64 | frame | 107307.17 | 0.01 | 3.22 |
+
+
+## Physics — hair strands and Hill muscles (17.57)
+
+`physics/strand.mojo` simulates strands by Follow-The-Leader (Müller 2012)
+with a straight-rest bending pull: segment lengths stay at rest to 1e-6
+without colliders (`test_strand`), a ponytail swings 39 cm after a 90-degree
+head turn and settles within 2.3 mm. The first table is the cost per particle
+per step, without colliders and with a head sphere plus two shoulder capsules.
+The second prices the Hill curves added to `Actuator.muscle`
+(`HillParams`: force-length, force-velocity, passive); with all three
+switched off the muscle is bit-identical to the plain one (`test_muscle_hill`).
+
+### Hair strands: Follow-The-Leader with bending (17.57)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| strands 1000 x 16 | 16000 | particle-step | 37.40 | 26.73 | 35.91 |
+| strands 1000 x 16 + sphere + 2 capsules | 16000 | particle-step | 43.72 | 22.87 | 41.97 |
+
+
+### Muscle: plain activation vs Hill curves (17.57)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| plain Actuator.muscle | 64 | actuator | 23.49 | 42.56 | 30.07 |
+| hill curves (fl, fv, fp) | 64 | actuator | 43.50 | 22.99 | 55.68 |
 
 
 ## Physics — joint kinds, limits and motors (ROADMAP 17.47)
