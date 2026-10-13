@@ -716,6 +716,37 @@ characters inside a transition, since that is where the two differ.
 | 50 % | 6137 | 5723 | 191 | 178 |
 | 100 % | 10265 | 6690 | 320 | 209 |
 
+## Animation — K-influence skinning and morph targets (17.65)
+
+`skin_motor_k` / `skin_lbs_k` take K (index, weight) pairs per vertex; K = 2
+equals the existing `skin_motor` bit for bit (both call one non-inlined
+per-vertex function: inlined separately, the same expression rounded
+differently in 41 of 500 vertices). `bind_palette` gives the world x
+inverse-bind buffer a host shader consumes; `MorphSet` stores sparse
+deltas, applied before skinning. Under a 0..170-degree twist across four
+bones DLB keeps a vertex at radius 0.2 from the axis, LBS pulls it to 0.097
+(`test_skin_k`). Rows: ns per vertex.
+
+### K-influence skinning, 4096 vertices, 32 bones (17.65)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| skin_motor (2 bones, existing) | 4096 | vertex | 62.57 | 15.98 | 5.13 |
+| DLB K=2 | 4096 | vertex | 58.97 | 16.96 | 4.83 |
+| LBS K=2 | 4096 | vertex | 17.72 | 56.43 | 1.45 |
+| DLB K=4 | 4096 | vertex | 80.45 | 12.43 | 6.59 |
+| LBS K=4 | 4096 | vertex | 37.71 | 26.52 | 3.09 |
+| DLB K=8 | 4096 | vertex | 97.30 | 10.28 | 7.97 |
+| LBS K=8 | 4096 | vertex | 52.25 | 19.14 | 4.28 |
+
+
+### Morph targets: 6 of 60 active, 5 % of vertices each (17.65)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| apply (copy base + 6 x 205 deltas) | 4096 | vertex | 3.75 | 266.40 | 3.08 |
+
+
 ## Physics — cloth self-collision
 
 Cloth that does not collide with itself can be a flag and cannot be a garment.
@@ -3843,6 +3874,48 @@ Contract (seeding, range, determinism) in `test_noise`.
 | fbm3 (5 oct) | 65536 | sample | 173.74 | 5.76 | 11.39 |
 
 
+## Procedural — scatter, Delaunay, terrain (17.69)
+
+The noise functions finally have consumers. `procedural/scatter.mojo`
+(Poisson-disk, dart throwing, jittered grid; hashed randomness, so a seed
+reproduces the points bit for bit), `procedural/delaunay.mojo` (Bowyer-Watson
+on the exact `orient2d` / `incircle`: cocircular lattices triangulate
+correctly) and `procedural/terrain_gen.mojo` (fBm / ridged / domain-warped
+heights as a pure function of world position, so tiles agree on their seams
+bit for bit; thermal erosion). `test_pcg`: Poisson minimum distance 2.00002
+at r = 2; Delaunay of 400 points gives 784 = 2n - 2 - h triangles; a box
+comes to rest on a generated `HeightField`. The Delaunay rows grow per point
+with n: the cavity search is linear in the triangles (a point-location walk
+is the known next step).
+
+### Point distributions, 100 x 100, r = 2 (17.69)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| poisson_disk (1602 points) | 1602 | point | 5267.00 | 0.19 | 8.44 |
+| dart_throwing 5000 tries (1186 points) | 1186 | point | 1575.94 | 0.63 | 1.87 |
+| jittered_grid (2500 points) | 2500 | point | 23.89 | 41.87 | 0.06 |
+
+
+### Delaunay (Bowyer-Watson, exact predicates) (17.69)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| delaunay n=250 | 250 | point | 13666.92 | 0.07 | 3.42 |
+| delaunay n=500 | 500 | point | 22259.80 | 0.04 | 11.13 |
+| delaunay n=1000 | 1000 | point | 43273.11 | 0.02 | 43.27 |
+
+
+### Terrain samples and erosion (17.69)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| fbm 5 octaves | 20000 | sample | 101.40 | 9.86 | 2.03 |
+| ridged | 20000 | sample | 102.04 | 9.80 | 2.04 |
+| domain-warped (+2 x 3 octaves) | 20000 | sample | 219.54 | 4.56 | 4.39 |
+| thermal_erosion 65^2, 50 passes | 4225 | cell-pass | 88.90 | 11.25 | 18.78 |
+
+
 ## `diag` — observability layer (Phase 17.9 / 17.10 / 17.32-17.34)
 
 `diag` is layer 0 (`docs/ARCHITECTURE.md` §1): zero engine dependencies, so
@@ -4541,6 +4614,28 @@ integration, so the cost is the controller's sweeps either way.
 | quake | walk | 1061 |
 | acceleration | swim | 1873 |
 
+## Gameplay — dynamic character body (17.66)
+
+`gameplay/phys_character.mojo` `DynamicCharacter` is a capsule inside the
+solver held at a ride height by a ground spring-damper along a ray, steered
+by a capped horizontal force. On flat ground it stops in the same distance
+as the kinematic `Mover` (0.58333 m both, `test_phys_character`); unlike it,
+an impulse moves it by J / m and its ground spring loads the body it stands
+on. One finding on the way: the solver applies accumulated force once per
+step and gravity every substep, so a resting body's end-of-step velocity
+reads -0.061 m/s; damping that reading held the capsule 6.5 mm high, so the
+damper uses the height change per tick. `gameplay/balance.mojo` has the
+centre of mass, support polygon, capture point and margin. Rows: cost per
+character per tick.
+
+### Character backends, 64 walkers (17.66)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| kinematic Mover.update | 64 | character-tick | 1953.93 | 0.51 | 15.01 |
+| DynamicCharacter.update + step_soft share | 64 | character-tick | 2682.01 | 0.37 | 20.60 |
+
+
 
 ## Sequences and camera rig (17.68)
 
@@ -4586,6 +4681,34 @@ segment ray each per step.
 | 1000 | 165 |
 | 10000 | 1612 |
 
+## Gameplay — rules framework (17.70)
+
+`gameplay/rules.mojo`: attributes with modifier stacks in fixed point
+(1/1000 units in integers, so sums commute exactly), hierarchical tags as
+bitsets, effects (instant / duration / infinite / periodic, refresh or
+count stacking, granted tags, immunity), a damage pipeline (resistance,
+shield, health, one death report) and byte serialisation. `test_rules`: the
+three evaluators agree on all 4002 reads of a seeded 20000-step sequence;
+an actor saved mid-effect continues to the same bytes. Rows: cost per
+attribute read. The incremental evaluator keeps running sums but still
+scans the modifier list for overrides on every read, which is why it gains
+less than the dirty cache.
+
+### Attribute evaluators: 1000 actors x 4 attributes, 20 ticks (17.70)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| full K=4, 10 % changed per tick | 1000 | read | 37.73 | 26.51 | 3.02 |
+| incremental K=4, 10 % changed per tick | 1000 | read | 26.71 | 37.43 | 2.14 |
+| dirty K=4, 10 % changed per tick | 1000 | read | 15.73 | 63.56 | 1.26 |
+| full K=16, 10 % changed per tick | 1000 | read | 136.30 | 7.34 | 10.90 |
+| incremental K=16, 10 % changed per tick | 1000 | read | 92.41 | 10.82 | 7.39 |
+| dirty K=16, 10 % changed per tick | 1000 | read | 32.98 | 30.33 | 2.64 |
+| full K=64, 10 % changed per tick | 1000 | read | 783.82 | 1.28 | 62.71 |
+| incremental K=64, 10 % changed per tick | 1000 | read | 580.04 | 1.72 | 46.40 |
+| dirty K=64, 10 % changed per tick | 1000 | read | 188.09 | 5.32 | 15.05 |
+
+
 
 ## Raycast vehicles (17.4)
 
@@ -4615,6 +4738,36 @@ plus the road), the same linear prefilter as the world queries above.
 | ray | 128 | vehicle-step | 21039.29 | 0.05 | 323.16 |
 | sphere sweep | 128 | vehicle-step | 22450.52 | 0.04 | 344.84 |
 | capsule sweep | 128 | vehicle-step | 25972.96 | 0.04 | 398.94 |
+
+
+## Gameplay — vehicle force elements (17.74)
+
+`gameplay/force_element.mojo` makes a vehicle a set of elements that each
+turn the body's state into forces: `Thruster`, `aircraft.Wing` (CL / CD with
+a stall blend) and `watercraft.HullBuoyancy`, which cuts the convex hull by
+the water plane (`polytope_split`) for the exact submerged volume and
+centroid. `test_force_elements`: the cut equals the closed-form box volume
+(0.6 vs 0.6 m^3); a 0.6 m hull with a keel rights itself from 150 degrees
+and a tall hull (GM < 0) falls onto its side; pre-stall lift matches
+q A 2 pi alpha to 1e-4. The first table is the price of exactness against
+the sampled integration of 17.28 (with each method's volume error).
+
+### Submerged volume of a box hull: polytope cut vs sampling (17.74)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| polytope cut, error 0.0 | 1 | query | 15920.18 | 0.06 | 31.84 |
+| sampled 4^3, error 0.22000003 | 1 | query | 328.61 | 3.04 | 0.16 |
+| sampled 8^3, error 0.029999971 | 1 | query | 2364.02 | 0.42 | 1.18 |
+| sampled 16^3, error 0.029999971 | 1 | query | 18831.49 | 0.05 | 9.42 |
+
+
+### Wing and thruster elements per apply (17.74)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| Wing.apply | 1 | apply | 158.12 | 6.32 | 0.32 |
+| Thruster.apply | 1 | apply | 74.83 | 13.36 | 0.15 |
 
 
 

@@ -156,6 +156,13 @@ build: all packages precompiled into build/
 [PASS] polytope - 44 / 44 checks
 --- tests/test_quad_tree.mojo ---
 [PASS] quad_tree - 7 / 7 checks
+--- tests/test_rules.mojo ---
+  +20 % buff: speed 6000 -> back to base at tick 300
+  DoT 10 / 30 ticks for 300: health 100  burning while active True  after 0
+  STACK_COUNT x5: stacks 3  armor 6   STACK_REFRESH expiry 1000 -> 1100
+  evaluators over 20000 seeded ops ( 4002 reads, 1957 modifiers left): agree True
+  100 fire damage, 25 % resist, 30 shield: health lost 45  shield left 0
+[PASS] rules - 15 / 15 checks
 --- tests/test_sah.mojo ---
   Σ node area  median: 214061.859375  SAH: 122503.546875  ratio: 0.5722810557316267
   avg leaf depth  median: 7.71999979019165  SAH: 8.904999732971191
@@ -428,6 +435,12 @@ build: all packages precompiled into build/
 [PASS] sensors - 15 / 15 checks
 --- tests/test_simd_generic.mojo ---
 [PASS] simd_generic - 2 / 2 checks
+--- tests/test_skin_k.mojo ---
+  K = 2 vs skin_motor: differing vertices 0  max diff 0.0
+  K = 4, one rigid motion on all bones: max |DLB or LBS - motion| 4.915125e-07
+  palette: bind pose max |skinned - rest| 5.9604645e-08   all bones lifted 1 m: max error 2.4575624e-07
+  4 bones twisted 0..170 deg: radius from the axis (rest 0.2): DLB 0.2  LBS 0.096739165
+[PASS] skin_k - 13 / 13 checks
 --- tests/test_skinning.mojo ---
 [PASS] skinning - 19 / 19 checks
 --- tests/test_sparse_large.mojo ---
@@ -689,6 +702,15 @@ build: all packages precompiled into build/
   mesh events — contacts in the last step 2.0  began total 2.0
   zero mask, crate after 2s: -19.04086
 [PASS] filter_events - 21 / 21 checks
+--- tests/test_force_elements.mojo ---
+  box hull density 500 after 10 s: centre y 0.0030862144 (waterline 0, draft 0.25)
+  submerged volume: polytope cut 0.6  closed form 0.6  centroid y -0.075 -0.075
+  keeled hull (GM > 0 upright, < 0 inverted) from 150 deg: up.y 1.0    tall hull (GM < 0) from 3 deg: up.y 1.1920929e-06
+  wing 2 m^2 at 5 deg, 20 m/s: lift 268.6727  q A 2 pi alpha 268.6726  drag 17.165817
+  CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.66020864 0.65953505  30 deg 0.8624042
+  half-throttle 100 N on 10 kg for 1 s: v 5.0
+  boat with a 2 kN propeller on a 0.3 m swell, 10 s: x 32.359886  heave 0.9160427
+[PASS] force_elements - 12 / 12 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
   shot: broke 101 bonds, thrown through 36 , left in line 0 , live bonds 42 of 143 , ball z -2.375662
@@ -858,6 +880,21 @@ build: all packages precompiled into build/
 [PASS] numerics_deep - 13 / 13 checks
 --- tests/test_oop_engine.mojo ---
 [PASS] oop_engine - 4 / 4 checks
+--- tests/test_pcg.mojo ---
+  Poisson-disk 100 x 100, r = 2: 1614 points, min distance 2.000021  other seed 1596 points
+  dart throwing (5000 tries): 1186 points, min 2.0002503   jittered grid: 2500 points, min 1.0362004
+  Delaunay of 400 Poisson points: 784 triangles, hull 14  2n - 2 - h = 784
+  12-gon + centre: 12 triangles; 6 x 6 lattice: 50 triangles (2n - 2 - h = 50)
+  thermal erosion (talus 0.8): max slope 2.9228673 -> 0.80000097   total height 288.16943557187915 -> 288.16948809241876
+  box on the generated heightfield: y 0.72038096  terrain under it 0.28237286  speed 0.0
+[PASS] pcg - 13 / 13 checks
+--- tests/test_phys_character.mojo ---
+  settled centre y 1.0 (ride 1.0)  vy -0.06124757  on ground True
+  wish 5 m/s: speed 5.0   stop distance dynamic 0.58333206  Mover 0.583333  v^2/2a 0.5833333
+  100 N s impulse: dv 1.25  J / m 1.25
+  box under the character after 0.1 s: y -1.4450185  alone -0.051041674
+  support polygon 4 vertices, signed area 0.040000003  margin at centre 0.1  capture point x 0.31943828
+[PASS] phys_character - 12 / 12 checks
 --- tests/test_pipeline.mojo ---
 [PASS] pipeline - 5 / 5 checks
 --- tests/test_pool.mojo ---
