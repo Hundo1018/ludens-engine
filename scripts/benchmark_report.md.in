@@ -882,6 +882,16 @@ fluid that was wrong:
   count rather than at one.
 
 @bench benchmarks/bench_pbf.mojo
+
+## Continuum stepping contract (17.55)
+
+FEM, MPM, PBF and LBM (through `physics.continuum.LbmContinuum`) now share
+one `ContinuumSolver` interface. `step_checked` adds the failure policy: a
+health scan with quarantine before and after each step, counted in
+`CONTINUUM_NAN` / `CONTINUUM_ESCAPED`. The table is its cost against a plain
+`advance` on the same solver.
+
+@bench benchmarks/bench_continuum.mojo
 ## Physics — cloth solver seam (XPBD vs VBD, cost at a quality level)
 
 Vertex block descent (`physics/vbd_cloth.mojo`, arXiv:2403.06321): per-vertex

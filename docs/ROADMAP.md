@@ -1035,7 +1035,7 @@
 | 15.2 | [布料自碰撞](ROADMAP_HISTORY.md#152-布料自碰撞---完成2026-08-11) | ✅ |  | 以均勻雜湊做 broadphase 的頂點-頂點厚度排斥,排除拓撲鄰居,XPBD 與 VBD 兩個布料解算器都接上;堆疊布的 gap 從 0.00034 回到 0.06,有 12 checks 測試與 bench_self_collide。 |
 | 17.41 | [繩索 / 纜線約束](ROADMAP_HISTORY.md#1741-繩索--纜線約束--wave-b) | ✅ | B | `physics/rope.mojo` 的 `Rope` 是 XPBD 1D 鏈,兩端可釘在世界點或剛體局部點,會被碰撞器推出,張力超限時斷裂;載重由 `tie()` 加上的距離關節承擔。`test_rope` 12/12 量到的下垂與懸鏈線解析解相差在 0.2% 內;`bench_rope` 顯示比同長剛體鏈快約 5–6×。 |
 | 17.42 | [LBM 風洞收尾(Phase 14 遺留併入)](ROADMAP_HISTORY.md#1742-lbm-風洞收尾phase-14-遺留併入--wave-b) | ✅ | B | D3Q19 LBM 已有 GPU kernel(`fluid/lbm_gpu.mojo` `LbmGpu`,1.77M 格 55.6 MLUPS,約 CPU 17×)、Bouzidi 插值 bounce-back(`Lbm.interp` + `link_q`)、控制面動量通量測力(`Lbm.momentum_flux_force`,與動量交換相差 ≤1.5%),以及 SPH Akinci 邊界粒子對照組(`physics/sph.mojo` `BoundaryParticles` / `sph_step_boundary`),各附 parity 測試。 |
-| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | ⬜ | B | `ContinuumSolver` 契約、登記與排序、統一失敗政策、快照參與、耦合埠(coupling port)、單位與時間慣例 |
+| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 🔶 | B | `ContinuumSolver` 契約、登記與排序、統一失敗政策、快照參與、耦合埠(coupling port)、單位與時間慣例 |
 | 17.56 | [布料](#1756-布料--wave-b) | ⬜ | B | 任意三角網格布料、剪切 + 彎曲 + 拉伸上限、與場景碰撞、空氣動力、撕裂、網格自碰撞 |
 | 17.57 | [毛髮 / 肌肉](#1757-毛髮--肌肉--wave-c) | ⬜ | C | 毛髮 / 毛皮股線、股線 – 場景碰撞、引導髮 + 插值、Hill 型肌肉完整曲線、體積肌肉、可微肌肉控制 |
 | 17.58 | [體積軟體](#1758-體積軟體--wave-c) | ⬜ | C | FEM 進場景、本構模型庫、四面體網格化、塑性 / 黏彈、MPM 邊界、求解器變體 |
@@ -1084,6 +1084,18 @@
 >   接觸的 O(n) 傳播;閉環 Jacobian;CG / Newton;`FloatingChain` 快照;與最大座標 17.47 的停止角 parity。
 
 #### 17.55 連續體步進契約 — Wave B(連續體前置)
+
+> **狀態**:🔶 部分完成(2026-10-13:`ContinuumSolver` 契約、統一失敗政策、快照參與、LBM 單位換算 ✅;場景 / `Runtime` 內的登記與排序、耦合埠、
+> `softbody_pass` / 布料 / 繩的契約化未做)。
+> **進度註(2026-10-13)**:`physics/continuum.mojo`:`trait ContinuumSolver`(`advance(dt, gravity)`、`health()` → 非有限 / 越界 / 未收斂、`quarantine()`、
+> `write_state` / `read_state` 經 `state_io`),實作 `FemContinuum`、`MpmContinuum`、`PbfContinuum`、`LbmContinuum`(住 `physics`,因 `fluid` 不得 import `physics`;
+> 一個格子步 = `dt_lattice` 秒,`advance(dt)` 跑放得下的格子步並帶餘數)。`step_checked` 在 `advance` 前後各做一次健康檢查與隔離並計入新計數器
+> `CONTINUUM_NAN` / `CONTINUUM_ESCAPED`;隔離政策:FEM 釘住非有限節點(位置取同一四面體的有限節點)、MPM 移除非有限與模板出格的粒子(原本在 P2G / G2P 被永久跳過且不計數)、
+> PBF 移除非有限粒子、LBM 把非有限的格點重設為靜止平衡。
+> 量測(`tests/test_continuum.mojo` 11/11):四個求解器經同一個泛型驅動,狀態寫出 → 讀入新實例 → 再跑 40 步,寫出的位元組相同;注入 NaN 的 FEM 節點 / MPM、PBF 粒子 / LBM 格點
+> 被計數、隔離,之後 60 步維持有限;網格外的 MPM 粒子計入 `CONTINUUM_ESCAPED` 並移除;**發現**:只在步後檢查不夠 —— 一個 NaN 的 MPM 粒子經 P2G 在一步內汙染全部 64 個粒子
+> (對照檢查),所以步前也檢查;步內自己產生的 NaN 仍可能在該步擴散。LBM 60 次 1/60 s(1 ms / 格子步)跑 999 個格子步(浮點累加)。
+> bench `bench_continuum`(µs / 步,advance vs `step_checked`):FEM 275 節點 1223 vs 1289、MPM 1000 粒子 2941 vs 3246、PBF 1000 粒子 23377 vs 25726、LBM 16³ 1662 vs 1768(約 5–10 %)。
 
 > **現況**:連續體求解器今天有**七種互不相容的步進形狀**,沒有任何共同介面(`trait` 全表於 `physics/`、
 > `fluid/`、`numerics/` 內只有 `SpinIntegrator`、`LinearOperator` 等與連續體無關者;`grep "^trait "` 後無
@@ -3110,7 +3122,7 @@
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
-| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | ⬜ |
+| 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | 🔶 |
 | 17.56 | [布料](#1756-布料--wave-b) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.57 | [毛髮 / 肌肉](#1757-毛髮--肌肉--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.58 | [體積軟體](#1758-體積軟體--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
