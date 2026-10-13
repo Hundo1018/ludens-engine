@@ -30,6 +30,7 @@ pixi run benchmark         # 重跑所有 bench,重新產生 BENCHMARK_REPORT.md
 ONLY="bench_x.mojo" pixi run benchmark   # 只重跑列出的 bench,其餘取 build/bench_out/ 快取(需先有一次完整執行)
 pixi run repro-probe       # 同 commit 連建兩次,比對 build/*.mojoc 校驗和(17.81)
 pixi run icount            # cachegrind 指令數(固定工作量,散佈約 1e-3;--selftest 注入 +10 %)
+pixi run fp-probe          # 哪些目標 / 優化因子改變模擬位元(只有 FMA 有無與 -O0;17.76)
 pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.mojo;凍結清單 embed/abi_v0.txt)
 pixi run build-f64         # 以 f64 世界純量建全部套件到 build64/(scripts/build_f64.sh,約 1 分鐘;17.8)
 pixi run wheel             # 建 Python wheel build/dist/ludens-*.whl(python/;ctypes 包 C-ABI,內含 Mojo runtime)

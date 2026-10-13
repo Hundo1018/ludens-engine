@@ -2859,7 +2859,7 @@
 > tick 週期與逐 island 品質屬 17.85(`TieredScheduler`),本條只提供它可掛的派發器。
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
-> **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,跨目標容差表、浮點位元因子探針、降級矩陣未做)。
+> **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣未做)。
 > **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
 > (同參數的純函數兩次呼叫被合併 → 每個閉包自帶呼叫計數)、`test_python_binding`(`build_wheel.py` 靠 `ldd` 與 ELF RUNPATH,非 Linux 改為明確拒絕,
 > 測試檢查該訊息;wheel tag 改隨建置機器 `linux_<machine>`,aarch64 不再標成 x86_64)。ubuntu-24.04-arm:`test_fracture` 碎片堆 48 塊中 6 塊入睡、
@@ -2927,6 +2927,10 @@
 > - **wasm leaf kernel 探針** `scripts/wasm_probe.py`(selftest 4/4、`pixi run wasm-probe`、CI):對 `tools/wasm/kernel_*.mojo` 每個 `@export` 函式
 >   產 LLVM IR,從該函式沿呼叫圖列出所有只有 declare 的外部符號。`geometry.vec` 的 dot / cross 與 `collision.manifold` 的球-盒查詢:0 個(可出 wasm);
 >   配置 `List` 的對照組需要 `KGEN_CompilerRT_AlignedFree`(要 Mojo runtime)。在 1.1.0 上重驗了 2026-07-24 的 PoC 結論。
+> - **浮點位元因子探針 ✅(2026-10-13)**:`scripts/fp_probe.py`(`pixi run fp-probe`)以 7 種變體編譯 `benchmarks/probes/fp_probe.mojo`(40 箱堆 / 滾動球 / 6 箱塔各 300 步)
+>   比較狀態雜湊與最大漂移(參考 skylake 預設優化):`-O1` / `-O2` / haswell(AVX2 + FMA)/ skylake-avx512 / 本機 CPU 皆逐位相同;**改變位元的只有 FMA 有無與 -O0**:
+>   x86-64 基線(無 FMA)漂移 6.65e-3 / 1.07e-6 / 3.05e-7、`-O0` 7.20e-3 / 9.55e-7 / 1.43e-6(堆 / 球 / 塔;混沌堆疊放大到 mm 級,單體與塔在 1e-6)。
+>   → SIMD 寬度與一般優化等級不影響結果,FMA 縮併是跨目標差異的來源;ARM(皆有 FMA,但縮併由編譯器決定)的差異屬同類,容差表以此為基準。
 > - **待辦**:ARM / macOS golden 記錄並轉為阻擋式檢查;跨目標容差表(3 場景 × 300 步);FMA / SIMD 寬度 / libm / 優化等級的位元探針;
 >   降級矩陣(`workers = 1`、無 GPU、SIMD 寬度 1)各一個等價測試;aarch64 與 x86-64 的 `write_state` 位元組逐項比對。
 
