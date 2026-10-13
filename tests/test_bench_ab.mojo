@@ -31,13 +31,14 @@ def main() raises:
     var s = Suite("bench_ab")
 
     # the loop count is a runtime value: with a literal count the macos-14
-    # toolchain folded `_spin` away and timed nothing (0 ns / 0 ns). ~4 ms per
-    # run, so one scheduler stall cannot flip a round of the planted 2x.
+    # toolchain folded `_spin` away and timed nothing (0 ns / 0 ns). ~20 ms
+    # per run: at ~4 ms one scheduler stall on a shared macos-14 runner made
+    # a base run slower than its 2x partner in 1 of 31 rounds.
     # A per-closure call counter feeds the count too: `measure_ab(base, base)` timed
     # 0 ns / 0 ns on macos-14 -- two identical calls of the pure `_spin`
     # were computed once, outside the timed region. With the counter no two
     # calls share an argument (at most one extra iteration).
-    var n0 = 2000000 + now() % 2
+    var n0 = 10000000 + now() % 2
     var ca = 0
     var cb = 0
     var cd = 0
