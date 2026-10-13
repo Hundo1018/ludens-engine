@@ -691,10 +691,11 @@ struct ColliderSet(Movable, Deinitable):
 
     def mesh_active(self, i: Int, t: Int) -> UInt8:
         """Active-edge flags of triangle `t` (ROADMAP 17.45); a heightfield
-        reports every edge active (unchanged behaviour)."""
+        computes them from its grid once `set_active_angle` is called
+        (every edge active by default, the old behaviour)."""
         if self.shape[i] == SHAPE_TRIMESH:
             return self.meshes[self.mesh_id[i]].active[t]
-        return 7
+        return self.fields[self.mesh_id[i]].active(t)
 
     def mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
         if self.shape[i] == SHAPE_TRIMESH:
