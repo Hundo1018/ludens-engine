@@ -25,9 +25,9 @@ from geometry.gjk import ConvexPoly
 from geometry.aabb import AABB
 from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_BOX, SHAPE_HULL, SHAPE_SDF, SPEC_BASE
 from .broadphase import BroadPhase, BoxProxy, Pair
-from .manifold import ContactManifold, _seg_seg_closest
+from .manifold import ContactManifold, _seg_seg_closest, spread4
 from .trimesh import closest_point_on_triangle
-from .hull import hull_manifold, spread4
+from .hull import hull_manifold
 
 
 @fieldwise_init

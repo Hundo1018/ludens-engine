@@ -285,6 +285,81 @@ def _clip_poly_plane(
     return (out^, n_out)
 
 
+def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
+    """Indices of at most 4 contact points (ROADMAP 17.52). Up to 4: all, in
+    order. More (a clipped face with many vertices, e.g. a tessellated
+    cylinder's cap, or two boxes face to face with a slight yaw): the
+    deepest (of near-equal depths, the one farthest from the centroid),
+    the farthest from it, the farthest from the line through
+    those two, then the largest triangle on the other side of that line --
+    a spread patch. Keeping the first four in polygon order put all four on
+    one arc of a 32-gon and the cylinder tipped over; keeping the four
+    deepest of a box pair's 8 clipped points (depths equal to 1e-7) could
+    keep two points at one corner and none at another, and a resting
+    3-box stack kicked."""
+    var out = List[Int]()
+    var c = len(pts)
+    if c <= 4:
+        for i in range(c):
+            out.append(i)
+        return out^
+    # the deepest point -- or, among points within 1e-5 of the deepest (a
+    # flat contact, depths equal to round-off), the one farthest from the
+    # centroid: an incident edge nearly parallel to a clip plane crosses it
+    # anywhere along its length, and starting from that mid-edge point left
+    # a corner of a resting box unsupported
+    var dmax = dep[0]
+    var cen = pts[0]
+    for i in range(1, c):
+        dmax = max(dmax, dep[i])
+        cen = cen + pts[i]
+    cen = cen / Real(c)
+    var i0 = -1
+    var far = Real(-1)
+    for i in range(c):
+        if dep[i] >= dmax - Real(1e-5):
+            var dv = pts[i] - cen
+            var f2 = dot(dv, dv)
+            if f2 > far:
+                far = f2
+                i0 = i
+    var i1 = -1
+    var best = Real(-1)
+    for i in range(c):
+        var d = pts[i] - pts[i0]
+        var l2 = dot(d, d)
+        if l2 > best:
+            best = l2
+            i1 = i
+    var e = pts[i1] - pts[i0]
+    var i2 = -1
+    var s2 = Real(0)
+    best = Real(-1)
+    for i in range(c):
+        var a = dot(cross(e, pts[i] - pts[i0]), n)
+        if abs(a) > best:
+            best = abs(a)
+            i2 = i
+            s2 = a
+    var i3 = -1
+    best = Real(-1)
+    for i in range(c):
+        if i == i0 or i == i1 or i == i2:
+            continue
+        var a = dot(cross(e, pts[i] - pts[i0]), n)
+        var score = -a if s2 >= 0 else a  # other side of the i0-i1 line
+        if score > best:
+            best = score
+            i3 = i
+    out.append(i0)
+    out.append(i1)
+    if i2 != i0 and i2 != i1:
+        out.append(i2)
+    if i3 >= 0:
+        out.append(i3)
+    return out^
+
+
 def _face_manifold(
     rc: Vec3,
     rax: Axes3,
@@ -338,21 +413,30 @@ def _face_manifold(
     # keep points behind the reference face; depth = distance behind
     var face_off = dot(nf, rc + rax[j] * (rh[j] * sign))
     var m = ContactManifold[3].hit_along(n_out)
-    # collect up to the 4 deepest
-    var depths = Array[Real, 8](fill=-1)
+    # the points behind the face (depth > 1e-6), then a spread four of them
+    var cand = List[Vec3]()
+    var cdep = List[Real]()
     for i in range(count):
-        depths[i] = face_off - dot(nf, pts[i])  # >0 means behind the face
-    for _ in range(4):
-        var bi = -1
-        var bd = Real(1e-6)
-        for i in range(count):
-            if depths[i] > bd:
-                bd = depths[i]
-                bi = i
-        if bi < 0:
-            break
-        m.add(pts[bi], depths[bi])
-        depths[bi] = -1
+        var dd = face_off - dot(nf, pts[i])  # >0 means behind the face
+        if dd > Real(1e-6):
+            cand.append(pts[i])
+            cdep.append(dd)
+    var pick = spread4(cand, cdep, nf)
+    if len(cand) <= 4:
+        # unchanged order for up to four: deepest first, as before
+        pick = List[Int]()
+        var used = Array[Bool, 8](fill=False)
+        for _ in range(len(cand)):
+            var bi = -1
+            var bd = Real(-1)
+            for i in range(len(cand)):
+                if not used[i] and cdep[i] > bd:
+                    bd = cdep[i]
+                    bi = i
+            used[bi] = True
+            pick.append(bi)
+    for k in range(len(pick)):
+        m.add(cand[pick[k]], cdep[pick[k]])
     if m.count == 0:
         return ContactManifold[3].miss()
     return m

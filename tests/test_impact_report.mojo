@@ -7,7 +7,7 @@
        for e = 0 and e = 0.5; its approach speed is v;
      - a 3-box stack (1 kg each) at rest: the STAY force under the bottom box
        is 3 m g, between the bottom two 2 m g; `net_contact_force` of the top
-       box is m g upward;
+       box is m g upward, and stays so for 8 s (sideways < 0.01 N);
      - a 2 kg box hanging on a distance joint: `joint_reaction` = 19.6 N up,
        with no break threshold set.
   2. Integration:
@@ -113,6 +113,22 @@ def main() raises:
     var net = st.net_contact_force(top)
     print("  top box net contact force", net[0], net[1], net[2])
     s.check(abs(net[1] - mg) < 0.01 * mg and abs(net[0]) < 0.01 and abs(net[2]) < 0.01, "net_contact_force(top) = m g up (sideways friction residue < 0.01 N)")
+    # warm start matches points by position, not index: before, the box
+    # manifold's per-step corner order handed friction to the wrong corner
+    # and the stack kicked every few seconds (2.05 N sideways at step 180)
+    var worst_side = Real(0)
+    var worst_w = Real(0)
+    var cfg0 = _cfg(IMPULSE_SUBSTEP_SUM)
+    var ld = _stack(IMPULSE_SUBSTEP_SUM)
+    for _ in range(480):
+        ld.step(DT, G, cfg0)
+        var nf = ld.net_contact_force(ld.bset.id_of(3))
+        worst_side = max(worst_side, max(abs(nf[0]), abs(nf[2])))
+        for b in range(1, 4):
+            var w = ld.bset.bodies[b].omega
+            worst_w = max(worst_w, max(abs(w[0]), max(abs(w[1]), abs(w[2]))))
+    print("  stack, steps 120-600: worst sideways force on the top box", worst_side, " worst |omega|", worst_w)
+    s.check(worst_side < 0.01 and worst_w < 1e-3, "resting stack stays quiet for 8 s (no warm-start kicks)")
     var reps = st.contacts_of(st.bset.id_of(2))
     s.eqi(len(reps), 2, "contacts_of(middle box): two contacts")
 

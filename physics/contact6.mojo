@@ -259,9 +259,28 @@ def make_contact[B: Body6](
                 and old.feat == rc.feat
                 and old.m.count == rc.m.count
             ):
-                pr.acc = old.acc.copy()
-                pr.acc_t1 = old.acc_t1.copy()
-                pr.acc_t2 = old.acc_t2.copy()
+                # Match each point to the nearest unused cached point, not
+                # by index: `box_box_manifold` returns the same four corners
+                # of a resting box in a different order from step to step,
+                # and index matching handed every corner another corner's
+                # friction -- a 3-box stack built up that torsion until it
+                # kicked (1.24 N sideways on the top box, ARM runner).
+                var used = Array[Bool, 4](fill=False)
+                for k in range(rc.m.count):
+                    var best = -1
+                    var bd = Real(1e30)
+                    for q in range(old.m.count):
+                        if used[q]:
+                            continue
+                        var dv = old.m.points[q] - rc.m.points[k]
+                        var d2 = dot(dv, dv)
+                        if d2 < bd:
+                            bd = d2
+                            best = q
+                    used[best] = True
+                    pr.acc[k] = old.acc[best]
+                    pr.acc_t1[k] = old.acc_t1[best]
+                    pr.acc_t2[k] = old.acc_t2[best]
                 break
     return pr^
 
