@@ -147,6 +147,9 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 |---|---|---|---|---|
 | 精確幾何謂詞 vs 裸浮點符號(orient2d/3d、incircle、insphere) | geometry/predicates.mojo(`*` vs `*_naive`) | 同一符號謂詞的精確與近似實作;退化輸入下符號一致 | `test_predicates` | `bench_predicates` |
 | 靜態關卡中相:brute vs BVH;`TriMesh` vs `HeightField` | collision/trimesh.mojo | 同一靜態幾何查詢的加速結構 + 兩種關卡表示;靜置高度一致 | `test_trimesh` | `bench_trimesh` |
+| 網格接觸 active-edge 修正 on / off(17.45) | collision/contact_gen.mojo(`_fix_inactive_edge_normal`、`_round_on_flat_seam`) | 同一網格接觸的兩種法向選擇;無內部邊(全 active)時逐位相同 | `test_active_edges` | `bench_mesh_bake` |
+| 球 / 膠囊對網格:解析三角形 manifold vs 盒近似(17.45) | collision/contact_gen.mojo(`sphere_triangle_manifold`、`capsule_triangle_manifold`) | 三角面中心靜置高度相等(皆為 r);滾動 / 邊緣行為為能力差,以解析加速度記錄 | `test_mesh_round` | `bench_trimesh` |
+| 距離表示:`SdfGrid` 取樣 vs 精確三角形距離(17.45) | geometry/sdf_grid.mojo | 同一 signed distance 的格點近似;差 ≤ 一個格對角線 | `test_sdf_grid` | `bench_mesh_bake` |
 | 3D SDF 迭代接觸 vs 解析 sphere/box 對(+ CSG 無解析對照) | geometry/sdf3.mojo(`sdf_contact`、`OP_SUBTRACT`) | 同一接觸謂詞的隱式場實作;解析對照存在處 parity | `test_sdf3` | `bench_sdf3` |
 | DCGA `Cl(4,1)⊗Cl(4,1)` 統一四次 incidence vs 手寫 plane/sphere/torus | geometry/dcga.mojo | 「簽名 ↦ 代數」函子在張量積代數上的值;成本恆定不分曲面(統一性),1.6–1.9× | `test_dcga` | `bench_dcga` |
 

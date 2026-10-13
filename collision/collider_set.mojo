@@ -216,7 +216,8 @@ struct ColliderSet(Movable, Deinitable):
         return i
 
     def add_trimesh(
-        mut self, verts: List[Real], indices: List[Int], at: Int = -1
+        mut self, verts: List[Real], indices: List[Int], at: Int = -1,
+        active: List[UInt8] = List[UInt8](),
     ) raises -> Int:
         """Static triangle soup. `verts` is flat (x, y, z per vertex) in
         WORLD space, `indices` three per triangle. Always static (see
@@ -227,6 +228,8 @@ struct ColliderSet(Movable, Deinitable):
         returns it (grown by the usual speculative margin) instead of
         centring a box on the body's position (17.0f / F3)."""
         var m = TriMesh(verts, indices)
+        if len(active) > 0:
+            m.set_active_edges(active)
         var bb = m.bounds()
         var i = self.add(bb.half_extents(), at)
         self.shape[i] = SHAPE_TRIMESH
@@ -335,6 +338,13 @@ struct ColliderSet(Movable, Deinitable):
         if self.shape[i] == SHAPE_TRIMESH:
             return self.meshes[self.mesh_id[i]].tri(t)
         return self.fields[self.mesh_id[i]].tri(t)
+
+    def mesh_active(self, i: Int, t: Int) -> UInt8:
+        """Active-edge flags of triangle `t` (ROADMAP 17.45); a heightfield
+        reports every edge active (unchanged behaviour)."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            return self.meshes[self.mesh_id[i]].active[t]
+        return 7
 
     def mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
         if self.shape[i] == SHAPE_TRIMESH:

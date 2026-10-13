@@ -111,9 +111,7 @@ struct Ragdoll(Movable):
                 sc.drives[self.drive[b]].max_torque = self.max_torque * s
 
     def hit(mut self, mut sc: ContactScene6[QuatBody6], bone: Int, impulse: Vec3, at: Vec3) raises:
-        var i = self.ids[bone].index()
-        sc.wake(self.ids[bone])
-        sc.bset.bodies[i].apply_impulse(impulse, at)
+        sc.apply_impulse(self.ids[bone], impulse, at)
 
     def physics_pose(self, sc: ContactScene6[QuatBody6]) -> Pose:
         var out = Pose(len(self.ids))

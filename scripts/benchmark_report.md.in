@@ -144,6 +144,17 @@ indistinguishable. The midphase choice starts to matter at terrain sizes where
 the brute column has already become unusable.
 
 @bench benchmarks/bench_trimesh.mojo
+## Collision — mesh baking and mesh SDFs (17.45)
+
+A collision mesh is baked once at load: vertex weld, repair, quadric
+simplification and active-edge flags (`geometry.mesh_bake`). The flags are what
+stop ghost collisions: in `test_active_edges` a frictionless box sliding over a
+floor cut into 400 quads comes to a stop without them (0.03 m/s left of 2) and
+keeps 2.0000055 m/s with them. The second table prices the mesh SDF: one
+trilinear sample against a scan of every triangle; the grid's bake is the cost
+paid up front (brute force over triangles here).
+
+@bench benchmarks/bench_mesh_bake.mojo
 ## Collision — filtering and contact events
 
 Layers, masks, sensors (`set_filter` / `set_sensor`) and the began/stay/ended
@@ -1561,6 +1572,21 @@ N=1024, not a mode-dependent cost. The claim holds: `combine` is a 4-way
 doesn't move the needle at solver scale.
 
 @bench benchmarks/bench_materials.mojo
+## Physics — per-body parameters (ROADMAP 17.48)
+
+N free-falling spheres (no contacts), 20 steps. `default` never calls a 17.48
+setter (`any_props` False: the pre/post passes are skipped and the step is
+bit-identical to before, which the golden gate checks); the other rows turn
+the passes on for every body. Measured 2026-10-13: every variant within
+±5 % of `default` at N = 1000 and 10000, i.e. inside run-to-run noise --
+the step is broadphase and integration, the two O(N) passes are not visible.
+The first version of `add_force` woke the island through `wake_island`,
+an O(N) scan per call, so a force on every body every step was O(N²): 2.0x
+the step at N = 10000 (4106 vs 2073 ms). It now resets the sleep timer
+directly when the body is awake (islands sleep together) and only scans for
+a sleeping body; the same row measured 2308 vs 2371 ms after the change.
+
+@bench benchmarks/bench_rigid_params.mojo
 ## Collision — BVH build heuristic (median-split vs binned SAH)
 
 `test_sah` proves the two builds answer every query identically. Binned SAH

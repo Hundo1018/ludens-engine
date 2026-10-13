@@ -110,6 +110,9 @@ build: all packages precompiled into build/
   Sigma-area  median: 213042.88  sah: 187398.86  lbvh: 201227.88
   avg leaf depth  median: 9.293333  sah: 9.39  lbvh: 9.565
 [PASS] lbvh - 7 / 7 checks
+--- tests/test_mesh_bake.mojo ---
+  bumpy: largest original-vertex distance to the baked surface 0.02160775661468506
+[PASS] mesh_bake - 24 / 24 checks
 --- tests/test_mpm.mojo ---
   particles: 240
   elastic  height 0.6363874  spread 0.20055819
@@ -154,6 +157,11 @@ build: all packages precompiled into build/
   worst |grad| - 1: 1.1920929e-07
   sphere-pair: hit agreement 115 / 115  worst depth error 1.1920929e-07
 [PASS] sdf3 - 11 / 11 checks
+--- tests/test_sdf_grid.mojo ---
+  24^3 grid, cell 0.13043478  diagonal 0.22591966
+  worst |sdf - exact mesh distance| 0.012123287  worst |sdf - (|p| - 1)| 0.023916542
+  open hemisphere winding at its centre 0.5000000328977863
+[PASS] sdf_grid - 10 / 10 checks
 --- tests/test_shape.mojo ---
 [PASS] shape - 7 / 7 checks
 --- tests/test_sparse_set.mojo ---
@@ -429,6 +437,13 @@ build: all packages precompiled into build/
 [PASS] vehicle_drive - 62 / 62 checks
 --- tests/test_world.mojo ---
 [PASS] world - 15 / 15 checks
+--- tests/test_active_edges.mojo ---
+  speed 2  n 80  vx without flags -0.26332426  with 2.00001  max|vy| with 0.0006168003
+  speed 2  n 400  vx without flags 0.029833449  with 2.0000055  max|vy| with 7.63011e-05
+  speed 8  n 80  vx without flags 0.6204607  with 7.9999356  max|vy| with 0.0007323535
+  speed 8  n 400  vx without flags 0.02115471  with 8.0  max|vy| with 0.00016709682
+  wall at x = 10: final x 9.728695  vx -0.057479333
+[PASS] active_edges - 12 / 12 checks
 --- tests/test_actor.mojo ---
   actor 0 after one tick — sum 136  count 16  first 1  rounds 1
   digests — serial -12878234859523303  parallel -12878234859523303
@@ -527,7 +542,8 @@ build: all packages precompiled into build/
   L chain: bonds within parts 104 across parts 23
   voronoi: 1000 cells, volume 8.000000000000004 of 8.0
   one cut: 1000 pieces, volume error 3.241851231905457e-14
-[PASS] fracture - 75 / 75 checks
+  snapshot: bonds broken after restore 16 vs 16 , live 13 vs 13
+[PASS] fracture - 79 / 79 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
 --- tests/test_gpu_artic.mojo ---
@@ -587,6 +603,14 @@ build: all packages precompiled into build/
 --- tests/test_materials.mojo ---
   slide distances -- multiply: 3.803211212158203  min: 3.753986358642578  average: 1.9125360250473022  max: 1.01210355758667
 [PASS] materials - 15 / 15 checks
+--- tests/test_mesh_round.mojo ---
+  slope: speed after 1 s 2.3941434  analytic 2.3941412  normal offset -6.24877e-05
+  ball on a triangle's middle: y 0.499728
+  capsule on 400-quad floor: y 0.29999265  axis y-component 1.7881393e-07
+  ball rolling across 400 quads: vx 2.999958  max|vy| 0.00024032548
+  control, no flags: vx 1.9417315
+  instanced tiles: ball heights 0.49972802 1.4997282
+[PASS] mesh_round - 12 / 12 checks
 --- tests/test_motor_transform.mojo ---
 [PASS] motor_transform - 33 / 33 checks
 --- tests/test_nav_world.mojo ---
@@ -594,7 +618,7 @@ build: all packages precompiled into build/
 [PASS] nav_world - 6 / 6 checks
 --- tests/test_netcode.mojo ---
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
-  netcode: snapshot 4952 bytes full, 1574 bytes per frame to all clients (delta), frames 249
+  netcode: snapshot 5000 bytes full, 1586 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
@@ -636,6 +660,15 @@ build: all packages precompiled into build/
 [PASS] restitution - 7 / 7 checks
 --- tests/test_rigid6.mojo ---
 [PASS] rigid6 - 15 / 15 checks
+--- tests/test_rigid_params.mojo ---
+  damping c = 2: v after 1 s 1.3982166  discrete 1.3982142  continuous 1.3533528
+  gravity scale 0 / 2 / 1: vy 0.0 -9.799998 -4.899999
+  density 1000: box 1000.0  sphere 523.5988  capsule 452.3894
+  60 N for 1/60 s: 1.0  impulse 1: 1.0  accel 60 on 5 kg: 1.0000001
+  2.5D locked box after 2 s: pos 1.184269 0.34833792 0.0
+  capped fall: max speed 3.0  clamps counted 42
+  QuatBody6 vs ScrewBody6 with damping / locks / scale / force: worst position gap 0.0017216035  control without parameters 0.0036942335
+[PASS] rigid_params - 32 / 32 checks
 --- tests/test_rolling_sphere.mojo ---
   sphere v0=3 mu=0.5: vx(1.5 s) = 2.1428554  vx(4 s) = 2.1428554  omega*r(4 s) = 2.1428554  y(4 s) = 0.49972457
   capsule: vx = 2.033897  want 2.0338984  omega*r = 2.033897  y = 0.29965422
@@ -655,7 +688,7 @@ build: all packages precompiled into build/
 --- tests/test_schema.mojo ---
 [PASS] schema - 22 / 22 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20553
+  blob bytes: 20565
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.24997935  bp y 0.24997935
@@ -732,7 +765,7 @@ build: all packages precompiled into build/
   flat mesh rest y 0.24987872  box-floor reference 0.24971099  speed 0.0
   ramp: y 0.16519353  above surface 0.26647222  speed 0.0
   bowl rest y — heightfield 0.28355342  triangle soup 0.28354868
-  on mesh — box 0.24970087  sphere 0.2497651  hull 0.24970086
+  on mesh — box 0.24970087  sphere 0.24986403  hull 0.24970086
   round trip — original 0.24987872  loaded 0.24987872
   empty mesh, crate after 1s: -4.3204203
   zero-area mesh, crate after 1s: -4.3204203
@@ -748,7 +781,8 @@ build: all packages precompiled into build/
   s = 2^7 without UnitScale: worst |pos/s - pos_1| = 0.24893683195114136
 [PASS] unit_scale - 12 / 12 checks
 --- tests/test_vehicle.mojo ---
-[PASS] vehicle - 88 / 88 checks
+  snapshot mid-turn: chassis 9.454932 1.925639  restored 9.454932 1.925639  gear 1 1
+[PASS] vehicle - 90 / 90 checks
 --- tests/test_vehicle_aero.mojo ---
   LBM Cd: boxy 6.2032742  streamlined 5.634494  frontal cells 66 66
   top speed: boxy 51.099136  streamlined 53.499096
@@ -773,6 +807,9 @@ build: all packages precompiled into build/
 [PASS] world_query - 30 / 30 checks
 --- tests/test_async_step.mojo ---
 [PASS] async_step - 11 / 11 checks
+--- tests/test_runtime_params.mojo ---
+  floater vy 0.0  pushed vx 1.0
+[PASS] runtime_params - 4 / 4 checks
 --- tests/test_system_determinism.mojo ---
 [PASS] system_determinism - 4 / 4 checks
 --- tests/test_system_render.mojo ---

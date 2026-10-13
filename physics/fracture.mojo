@@ -45,6 +45,7 @@ from .solver6 import ContactScene6
 from .solver_config import SolverConfig
 from .joints6 import Joint6, JOINT_BROKEN, JOINT_WELD
 from .body_set import BodyId
+from .state_io import StateWriter, StateReader, f64_bits, f64_from_bits
 
 comptime EVENT_BOND_BROKEN = 0
 comptime EVENT_EVICTED = 1
@@ -626,3 +627,111 @@ struct FractureSet(Movable):
         if first < 0:
             return 1
         return len(self.shape) - first
+
+
+# ---------------------------------------------------------------- snapshot
+# ROADMAP 17.48 (the 17.5 leftover): a `FractureSet` beside a scene snapshot.
+# The fragment bodies and bond welds live in the scene (`write_state`); this
+# carries the bookkeeping that maps them back to fragments and bonds. Float64
+# fields travel as exact bit patterns (`f64_bits`).
+
+
+def write_fracture[W: StateWriter](fs: FractureSet, mut out: W):
+    out.wf(fs.density)
+    out.wi(fs.max_free)
+    out.wi(len(fs.shape))
+    for f in range(len(fs.shape)):
+        ref p = fs.shape[f]
+        out.wi(len(p.v))
+        for k in range(len(p.v)):
+            out.wi(f64_bits(p.v[k]))
+        out.wi(len(p.t))
+        for k in range(len(p.t)):
+            out.wi(p.t[k])
+        out.wi(len(p.tag))
+        for k in range(len(p.tag)):
+            out.wi(p.tag[k])
+        out.wi(fs.body[f])
+        out.wi(fs.bid[f].slot)
+        out.wi(Int(fs.bid[f].gen))
+        out.wi(f64_bits(fs.vol[f]))
+        out.wi(1 if fs.alive[f] else 0)
+        out.wi(fs.nbond[f])
+        out.wi(fs.seed[f])
+        out.wi(fs.part[f])
+    out.wi(len(fs.bond_a))
+    for b in range(len(fs.bond_a)):
+        out.wi(fs.bond_a[b])
+        out.wi(fs.bond_b[b])
+        out.wi(fs.bond_body_a[b])
+        out.wi(fs.bond_body_b[b])
+        out.wi(fs.bond_joint[b])
+        out.wi(f64_bits(fs.bond_area[b]))
+        out.wi(1 if fs.bond_live[b] else 0)
+    out.wi(len(fs.events))
+    for e in range(len(fs.events)):
+        out.wi(fs.events[e].kind)
+        out.wi(fs.events[e].bond)
+        out.wi(fs.events[e].frag_a)
+        out.wi(fs.events[e].frag_b)
+
+
+def read_fracture[R: StateReader](mut r: R) raises -> FractureSet:
+    """The `write_fracture` counterpart; counts are validated, a negative
+    one means a truncated or corrupt snapshot and raises."""
+    var density = r.rf()
+    var max_free = r.ri()
+    var fs = FractureSet(density, max_free)
+    var nf = r.ri()
+    if nf < 0:
+        raise Error("physics.fracture: corrupt snapshot (negative fragment count)")
+    for _ in range(nf):
+        var nv = r.ri()
+        if nv < 0:
+            raise Error("physics.fracture: corrupt snapshot (negative vertex count)")
+        var v = List[Float64](capacity=nv)
+        for _ in range(nv):
+            v.append(f64_from_bits(r.ri()))
+        var nt = r.ri()
+        if nt < 0:
+            raise Error("physics.fracture: corrupt snapshot (negative triangle count)")
+        var t = List[Int](capacity=nt)
+        for _ in range(nt):
+            t.append(r.ri())
+        var ng = r.ri()
+        if ng < 0:
+            raise Error("physics.fracture: corrupt snapshot (negative tag count)")
+        var tag = List[Int](capacity=ng)
+        for _ in range(ng):
+            tag.append(r.ri())
+        fs.shape.append(Polytope(v^, t^, tag^))
+        fs.body.append(r.ri())
+        var slot = r.ri()
+        var gen = UInt32(r.ri())
+        fs.bid.append(BodyId(slot, gen))
+        fs.vol.append(f64_from_bits(r.ri()))
+        fs.alive.append(r.ri() == 1)
+        fs.nbond.append(r.ri())
+        fs.seed.append(r.ri())
+        fs.part.append(r.ri())
+    var nb = r.ri()
+    if nb < 0:
+        raise Error("physics.fracture: corrupt snapshot (negative bond count)")
+    for _ in range(nb):
+        fs.bond_a.append(r.ri())
+        fs.bond_b.append(r.ri())
+        fs.bond_body_a.append(r.ri())
+        fs.bond_body_b.append(r.ri())
+        fs.bond_joint.append(r.ri())
+        fs.bond_area.append(f64_from_bits(r.ri()))
+        fs.bond_live.append(r.ri() == 1)
+    var ne = r.ri()
+    if ne < 0:
+        raise Error("physics.fracture: corrupt snapshot (negative event count)")
+    for _ in range(ne):
+        var kind = r.ri()
+        var bond = r.ri()
+        var fa = r.ri()
+        var fb = r.ri()
+        fs.events.append(FractureEvent(kind, bond, fa, fb))
+    return fs^

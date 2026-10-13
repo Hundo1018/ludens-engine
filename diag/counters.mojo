@@ -93,7 +93,11 @@ comptime CONTACT_MANIFOLDS: Int = 17
 comptime CONTACT_POINTS: Int = 18
 """Contact points across those manifolds."""
 
-comptime COUNT: Int = 19
+comptime VELOCITY_CLAMPED: Int = 19
+"""A body's linear or angular speed exceeded its `ContactScene6
+.set_max_velocity` cap at step end and was clamped (ROADMAP 17.48)."""
+
+comptime COUNT: Int = 20
 
 
 def _name(id: Int) -> String:
@@ -135,6 +139,8 @@ def _name(id: Int) -> String:
         return "contact_manifolds"
     elif id == CONTACT_POINTS:
         return "contact_points"
+    elif id == VELOCITY_CLAMPED:
+        return "velocity_clamped"
     else:
         return "counter_" + String(id)
 

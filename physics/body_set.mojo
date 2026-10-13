@@ -117,6 +117,20 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     # the motion type it had (-1 = not frozen). Its velocity fields are
     # untouched while frozen, so unfreezing resumes exactly where it was.
     var frozen_motion: List[Int]
+    # ROADMAP 17.48 per-body parameters. Every default is the old behaviour,
+    # and the solver only reads them when `any_props` is set, so a scene that
+    # never calls a 17.48 setter takes exactly the old path (golden identity).
+    var lin_damping: List[Real]  # 1/s, implicit v *= 1 / (1 + c dt) per step
+    var ang_damping: List[Real]
+    var gravity_scale: List[Real]  # multiplies whichever gravity the body feels
+    var locks: List[Int]  # bits 0..2 linear x/y/z, bits 3..5 angular x/y/z (world axes)
+    var max_lin: List[Real]  # m/s cap, <= 0 = none
+    var max_ang: List[Real]  # rad/s cap, <= 0 = none
+    var force: List[Vec3]  # accumulated this step (N), consumed and cleared by the next step
+    var torque: List[Vec3]  # accumulated this step (N m)
+    var sleep_lin: List[Real]  # per-body sleep thresholds, < 0 = use SolverConfig's
+    var sleep_ang: List[Real]
+    var any_props: Bool
     var free: List[Int]
 
     def __init__(out self):
@@ -135,6 +149,17 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.grav = List[Vec3]()
         self.any_grav = False
         self.frozen_motion = List[Int]()
+        self.lin_damping = List[Real]()
+        self.ang_damping = List[Real]()
+        self.gravity_scale = List[Real]()
+        self.locks = List[Int]()
+        self.max_lin = List[Real]()
+        self.max_ang = List[Real]()
+        self.force = List[Vec3]()
+        self.torque = List[Vec3]()
+        self.sleep_lin = List[Real]()
+        self.sleep_ang = List[Real]()
+        self.any_props = False
         self.free = List[Int]()
 
     def __len__(self) -> Int:
@@ -173,6 +198,16 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.grav_on[slot] = False
             self.grav[slot] = Vec3(0, 0, 0, 0)
             self.frozen_motion[slot] = -1
+            self.lin_damping[slot] = 0
+            self.ang_damping[slot] = 0
+            self.gravity_scale[slot] = 1
+            self.locks[slot] = 0
+            self.max_lin[slot] = 0
+            self.max_ang[slot] = 0
+            self.force[slot] = Vec3(0, 0, 0, 0)
+            self.torque[slot] = Vec3(0, 0, 0, 0)
+            self.sleep_lin[slot] = -1
+            self.sleep_ang[slot] = -1
             return BodyId(slot, self.generation[slot])
         var slot = len(self.bodies)
         self.bodies.append(b^)
@@ -188,6 +223,16 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.grav_on.append(False)
         self.grav.append(Vec3(0, 0, 0, 0))
         self.frozen_motion.append(-1)
+        self.lin_damping.append(0)
+        self.ang_damping.append(0)
+        self.gravity_scale.append(1)
+        self.locks.append(0)
+        self.max_lin.append(0)
+        self.max_ang.append(0)
+        self.force.append(Vec3(0, 0, 0, 0))
+        self.torque.append(Vec3(0, 0, 0, 0))
+        self.sleep_lin.append(-1)
+        self.sleep_ang.append(-1)
         self.generation.append(0)
         return BodyId(slot, 0)
 
@@ -298,6 +343,9 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
 
     def gravity_for(self, i: Int, g: Vec3) -> Vec3:
         """The gravity body `i` feels: its override, or the step's `g`."""
+        var out = g
         if self.any_grav and self.grav_on[i]:
-            return self.grav[i]
-        return g
+            out = self.grav[i]
+        if self.any_props:
+            out = out * self.gravity_scale[i]
+        return out

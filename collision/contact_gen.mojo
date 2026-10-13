@@ -20,11 +20,13 @@ controller can call it without ever importing physics.
 """
 
 from std.math import sqrt
-from geometry.vec import Real, Vec3, dot
+from geometry.vec import Real, Vec3, dot, length
+from geometry.gjk import ConvexPoly
 from geometry.aabb import AABB
-from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SPEC_BASE
+from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_SPHERE, SHAPE_CAPSULE, SPEC_BASE
 from .broadphase import BroadPhase, BoxProxy, Pair
-from .manifold import ContactManifold
+from .manifold import ContactManifold, _seg_seg_closest
+from .trimesh import closest_point_on_triangle
 from .hull import hull_manifold
 
 
@@ -80,6 +82,175 @@ def speculative_margin(
     return base + (sqrt(dot(vel_a, vel_a)) + sqrt(dot(vel_b, vel_b))) * spec_dt
 
 
+def _near_segment(p: Vec3, a: Vec3, b: Vec3, tol: Real) -> Bool:
+    var ab = b - a
+    var l2 = dot(ab, ab)
+    var t = Real(0)
+    if l2 > 0:
+        t = min(max(dot(p - a, ab) / l2, 0), 1)
+    var d = p - (a + ab * t)
+    return dot(d, d) <= tol * tol
+
+
+def _fix_inactive_edge_normal(
+    mut m: ContactManifold[3], tri: ConvexPoly[3], face_n: Vec3, act: UInt8
+):
+    """Ghost-collision guard (ROADMAP 17.45, Jolt's active edges / Bullet's
+    internal-edge utility): a body sliding over a flat seam between two
+    coplanar triangles can be given the seam's EDGE normal (the hull
+    narrowphase sees the triangle alone and does not know its neighbour
+    continues the plane), which kicks the body upward and stops it. When the
+    manifold normal is not the face normal and none of its points lies on an
+    ACTIVE edge (a real crease or a boundary) of this triangle, the face
+    normal replaces it and each depth becomes its component along the face
+    normal."""
+    var want = -face_n  # manifold normals point body -> mesh
+    var c = dot(m.normal, want)
+    if c >= Real(0.9999):
+        return
+    var v0 = tri.points[0]
+    var v1 = tri.points[1]
+    var v2 = tri.points[2]
+    var scale = max(length(v1 - v0), max(length(v2 - v1), length(v0 - v2)))
+    var tol = scale * Real(0.02)
+    for k in range(m.count):
+        var p = m.points[k]
+        if (act & 1) and _near_segment(p, v0, v1, tol):
+            return
+        if (act & 2) and _near_segment(p, v1, v2, tol):
+            return
+        if (act & 4) and _near_segment(p, v2, v0, tol):
+            return
+    m.normal = want
+    var proj = max(c, Real(0))
+    for k in range(m.count):
+        m.depths[k] = m.depths[k] * proj
+
+
+def sphere_triangle_manifold(
+    c: Vec3, r: Real, margin: Real, v0: Vec3, v1: Vec3, v2: Vec3, face_n: Vec3
+) -> ContactManifold[3]:
+    """Analytic sphere vs one mesh triangle (ROADMAP 17.45): the closest point
+    on the triangle, normal from the centre toward it (body -> mesh), depth
+    r - distance (negative within `margin`: speculative). Single-sided like
+    the rest of the mesh: a centre behind the triangle's plane is a miss."""
+    if dot(c - v0, face_n) < 0:
+        return ContactManifold[3].miss()
+    var q = closest_point_on_triangle(c, v0, v1, v2)
+    var dv = q - c
+    var d2 = dot(dv, dv)
+    var reach = r + margin
+    if d2 > reach * reach:
+        return ContactManifold[3].miss()
+    var d = sqrt(d2)
+    var n = dv / d if d > 1e-9 else -face_n
+    var m = ContactManifold[3].hit_along(n)
+    m.add(q, r - d)
+    return m
+
+
+def capsule_triangle_manifold(
+    p0: Vec3, p1: Vec3, r: Real, margin: Real, v0: Vec3, v1: Vec3, v2: Vec3, face_n: Vec3
+) -> ContactManifold[3]:
+    """Analytic capsule (segment p0-p1, radius r) vs one mesh triangle: up to
+    two points -- the segment's endpoints when they reach the triangle (a
+    capsule lying on a face rests on both), otherwise the closest segment /
+    triangle pair (segment vs each edge, or the segment piercing the face).
+    One normal for the manifold, from the deepest pair."""
+    var reach = r + margin
+    var ss = List[Vec3]()
+    var qs = List[Vec3]()
+    var ds = List[Real]()
+    for e in range(2):
+        var p = p0 if e == 0 else p1
+        if dot(p - v0, face_n) < 0:
+            continue
+        var q = closest_point_on_triangle(p, v0, v1, v2)
+        var dd = length(q - p)
+        if dd <= reach:
+            ss.append(p)
+            qs.append(q)
+            ds.append(dd)
+    if len(ss) < 2:
+        # the segment's own closest approach: vs the three edges, and the
+        # point where it pierces the face (distance 0) if it does
+        var best_s = p0
+        var best_q = p0
+        var best_d = Real(1e30)
+        for k in range(3):
+            var ea = v0 if k == 0 else (v1 if k == 1 else v2)
+            var eb = v1 if k == 0 else (v2 if k == 1 else v0)
+            var pr = _seg_seg_closest(p0, p1, ea, eb)
+            var dd = length(pr[1] - pr[0])
+            if dd < best_d:
+                best_d = dd
+                best_s = pr[0]
+                best_q = pr[1]
+        var s0 = dot(p0 - v0, face_n)
+        var s1 = dot(p1 - v0, face_n)
+        if s0 * s1 < 0:
+            var x = p0 + (p1 - p0) * (s0 / (s0 - s1))
+            var on = closest_point_on_triangle(x, v0, v1, v2)
+            if length(on - x) < 1e-6:
+                best_s = x
+                best_q = x
+                best_d = 0
+        if best_d <= reach and dot(best_s - v0, face_n) >= -r:
+            var dup = False
+            for k in range(len(ss)):
+                if length(ss[k] - best_s) < r * 0.2:
+                    dup = True
+            if not dup:
+                ss.append(best_s)
+                qs.append(best_q)
+                ds.append(best_d)
+    if len(ss) == 0:
+        return ContactManifold[3].miss()
+    var deep = 0
+    for k in range(len(ds)):
+        if ds[k] < ds[deep]:
+            deep = k
+    var dv = qs[deep] - ss[deep]
+    var n = dv / ds[deep] if ds[deep] > 1e-9 else -face_n
+    var m = ContactManifold[3].hit_along(n)
+    m.add(qs[deep], r - ds[deep])
+    for k in range(len(ss)):
+        if k != deep and m.count < 2:
+            m.add(qs[k], r - ds[k])
+    return m
+
+
+def _round_on_flat_seam(
+    mut m: ContactManifold[3], tri: ConvexPoly[3], face_n: Vec3, act: UInt8, c: Vec3, r: Real
+):
+    """A sphere whose closest point on this triangle is an INACTIVE edge or
+    vertex (a flat seam to a coplanar neighbour) gets the face normal and its
+    height above the plane instead of the tilted centre-to-edge normal. With
+    the tilted normal, the neighbour ahead of a rolling ball becomes a
+    speculative contact the ball approaches along a forward-down direction,
+    and the solver brakes it there (measured: a ball rolling at 3 m/s over a
+    400-quad floor lost 1 m/s and hopped at 0.56 m/s)."""
+    var want = -face_n
+    if dot(m.normal, want) >= Real(0.9999):
+        return
+    var v0 = tri.points[0]
+    var v1 = tri.points[1]
+    var v2 = tri.points[2]
+    var scale = max(length(v1 - v0), max(length(v2 - v1), length(v0 - v2)))
+    var tol = scale * Real(0.02)
+    var p = m.points[0]
+    if (act & 1) and _near_segment(p, v0, v1, tol):
+        return
+    if (act & 2) and _near_segment(p, v1, v2, tol):
+        return
+    if (act & 4) and _near_segment(p, v2, v0, tol):
+        return
+    var h = dot(c - v0, face_n)
+    m.normal = want
+    m.points[0] = c - face_n * h
+    m.depths[0] = r - h
+
+
 def try_mesh_pair(
     colliders: ColliderSet, i: Int, j: Int,
     pose_i: Pose3, pose_j: Pose3, margin: Real, mut out: List[RawContact],
@@ -117,6 +288,40 @@ def try_mesh_pair(
     if len(tris) == 0:
         return
 
+    # ROADMAP 17.45: spheres and capsules meet triangles analytically (they
+    # used to go through `as_hull` as a box, so a ball sat on a slope like a
+    # cube instead of rolling down it).
+    var ka = colliders.shape[a]
+    if ka == SHAPE_SPHERE or ka == SHAPE_CAPSULE:
+        var r = colliders.half[a][0]
+        var hl = colliders.half[a][1]
+        var axis = pa.axes[1]
+        for c in range(len(tris)):
+            var t = tris[c]
+            var tf = colliders.mesh_tri_faces(b, t)
+            if len(tf) < 3:
+                continue
+            var tri = colliders.mesh_tri(b, t)
+            var fnrm = Vec3(tf[0], tf[1], tf[2], 0)
+            var m: ContactManifold[3]
+            if ka == SHAPE_SPHERE:
+                m = sphere_triangle_manifold(pa.position, r, margin, tri.points[0], tri.points[1], tri.points[2], fnrm)
+            else:
+                m = capsule_triangle_manifold(
+                    pa.position - axis * hl, pa.position + axis * hl, r, margin,
+                    tri.points[0], tri.points[1], tri.points[2], fnrm,
+                )
+            if not m.hit:
+                continue
+            var act = colliders.mesh_active(b, t)
+            if act != 7:
+                if ka == SHAPE_SPHERE:
+                    _round_on_flat_seam(m, tri, fnrm, act, pa.position, r)
+                else:
+                    _fix_inactive_edge_normal(m, tri, fnrm, act)
+            out.append(RawContact(a, b, t, m))
+        return
+
     # a HULL body is not inflated (see `hull_manifold`): the whole margin goes
     # to the narrowphase as its speculative distance instead
     var a_is_hull = colliders.hull_is_bent_by_inflation(a)
@@ -129,9 +334,13 @@ def try_mesh_pair(
         var tf = colliders.mesh_tri_faces(b, t)
         if len(tf) < 3:
             continue  # degenerate triangle: no normal, no contact
-        var m = hull_manifold(poly_a, colliders.mesh_tri(b, t), faces_a, tf, spec)
+        var tri = colliders.mesh_tri(b, t)
+        var m = hull_manifold(poly_a, tri, faces_a, tf, spec)
         if not m.hit:
             continue
+        var act = colliders.mesh_active(b, t)
+        if act != 7:
+            _fix_inactive_edge_normal(m, tri, Vec3(tf[0], tf[1], tf[2], 0), act)
         if spec > 0:
             for k in range(m.count):
                 m.depths[k] += spec

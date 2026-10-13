@@ -131,9 +131,8 @@ struct CharacterController(Copyable, Movable):
         var rel = dot(self.velocity, d) - dot(sc.bset.bodies[h.body].velocity_at(h.point), d)
         if rel <= 0:
             return
-        sc.bset.bodies[h.body].apply_impulse(d * (rel * self.cfg.push_strength / im), h.point)
         try:
-            sc.wake(sc.bset.id_of(h.body))
+            sc.apply_impulse(sc.bset.id_of(h.body), d * (rel * self.cfg.push_strength / im), h.point)
         except:
             pass
         self.pushed += 1

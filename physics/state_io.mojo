@@ -42,3 +42,13 @@ trait StateReader:
 
     def rv(mut self) raises -> Vec3:
         ...
+
+
+def f64_bits(x: Float64) -> Int:
+    """A Float64 as one `StateWriter.wi` token (exact; `wf` is f32)."""
+    return Int(x.to_bits())
+
+
+def f64_from_bits(i: Int) -> Float64:
+    var u = UInt64(i)
+    return Pointer(to=u).unsafe_bitcast[Float64]()[]

@@ -45,7 +45,7 @@ from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from physics.rigid6 import Body6, Pose6
 from physics.body_set import BodyId
-from physics.solver6 import ContactScene6
+from physics.solver6 import ContactScene6, FORCE_MODE_FORCE
 from physics.solver_config import SolverConfig
 from scheduler.gameloop import FixedLoop
 from scheduler.events import Channel
@@ -175,6 +175,58 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         var i = r.id.index()
         self.scene.teleport(r.id, Pose6(p, self.scene.bset.bodies[i].rotation()))
         self.history.mark_teleport(i)
+
+    # ---- per-body parameters (ROADMAP 17.48): thin forwards by entity ----
+
+    def body_of(self, e: Entity) -> BodyId:
+        """`e`'s scene body. Setters below refuse while a step is in flight."""
+        return self.world.get[RigidBodyRef](e).id
+
+    def _edit(mut self, e: Entity) raises -> BodyId:
+        if self.in_flight:
+            raise Error("Runtime: scene changed while a step is in flight (begin_advance without finish)")
+        return self.body_of(e)
+
+    def add_force(mut self, e: Entity, f: Vec3, mode: Int = FORCE_MODE_FORCE) raises:
+        self.scene.add_force(self._edit(e), f, mode)
+
+    def add_force_at(mut self, e: Entity, f: Vec3, at: Vec3, mode: Int = FORCE_MODE_FORCE) raises:
+        self.scene.add_force_at(self._edit(e), f, at, mode)
+
+    def add_torque(mut self, e: Entity, t: Vec3) raises:
+        self.scene.add_torque(self._edit(e), t)
+
+    def apply_impulse(mut self, e: Entity, j: Vec3, at: Vec3) raises:
+        self.scene.apply_impulse(self._edit(e), j, at)
+
+    def set_damping(mut self, e: Entity, linear: Real, angular: Real) raises:
+        self.scene.set_damping(self._edit(e), linear, angular)
+
+    def set_gravity_scale(mut self, e: Entity, scale: Real) raises:
+        self.scene.set_gravity_scale(self._edit(e), scale)
+
+    def set_axis_locks(
+        mut self, e: Entity, lx: Bool, ly: Bool, lz: Bool, ax: Bool, ay: Bool, az: Bool
+    ) raises:
+        self.scene.set_axis_locks(self._edit(e), lx, ly, lz, ax, ay, az)
+
+    def set_max_velocity(mut self, e: Entity, linear: Real, angular: Real) raises:
+        self.scene.set_max_velocity(self._edit(e), linear, angular)
+
+    def set_sleep_thresholds(mut self, e: Entity, linear: Real, angular: Real) raises:
+        self.scene.set_sleep_thresholds(self._edit(e), linear, angular)
+
+    def set_mass(mut self, e: Entity, mass: Real) raises:
+        self.scene.set_mass(self._edit(e), mass)
+
+    def set_mass_from_density(mut self, e: Entity, density: Real) raises:
+        self.scene.set_mass_from_density(self._edit(e), density)
+
+    def velocity(self, e: Entity) raises -> Vec3:
+        return self.scene.velocity(self.body_of(e))
+
+    def angular_velocity(self, e: Entity) raises -> Vec3:
+        return self.scene.angular_velocity(self.body_of(e))
 
     def despawn(mut self, e: Entity) raises:
         """Remove both halves: the scene body (`ContactScene6.remove_body`,

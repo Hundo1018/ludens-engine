@@ -143,9 +143,16 @@ def update_sleep[B: Body6](mut bset: BodySet[B], dt: Real, cfg: SolverConfig):
             continue
         var v = bset.bodies[i].linear_velocity()
         var w = bset.bodies[i].omega_world()
+        var lt = cfg.lin_sleep_tol
+        var at = cfg.ang_sleep_tol
+        if bset.any_props:  # ROADMAP 17.48 per-body thresholds
+            if bset.sleep_lin[i] >= 0:
+                lt = bset.sleep_lin[i]
+            if bset.sleep_ang[i] >= 0:
+                at = bset.sleep_ang[i]
         if (
-            dot(v, v) < cfg.lin_sleep_tol * cfg.lin_sleep_tol
-            and dot(w, w) < cfg.ang_sleep_tol * cfg.ang_sleep_tol
+            dot(v, v) < lt * lt
+            and dot(w, w) < at * at
         ):
             bset.sleep_timer[i] += dt
         else:

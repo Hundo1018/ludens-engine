@@ -44,7 +44,8 @@ from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from physics.softbody import SoftBody
 from physics.joints6 import JOINT_BROKEN
-from physics.fracture import FractureSet, EVENT_BOND_BROKEN, debris_config
+from physics.fracture import FractureSet, EVENT_BOND_BROKEN, debris_config, write_fracture, read_fracture
+from physics.serialize import scene_to_bytes, scene_from_bytes, BinWriter, BinReader
 from diag.counters import FRAGMENT_EVICTED
 from scheduler.events import Channel
 
@@ -532,6 +533,62 @@ def case_thousand(mut s: Suite) raises:
     s.check(cube_ok, "the 1000-piece pile steps without NaN")
 
 
+def case_snapshot(mut s: Suite) raises:
+    """ROADMAP 17.48 (the 17.5 / 17.29 leftovers): a bonded wall saved after
+    settling (scene incl. weld break thresholds + FractureSet), restored, and
+    shot in both copies: same bonds break, same poses, bit for bit."""
+    var sc = ContactScene6[QuatBody6]()
+    var ground = sc.add(
+        QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 30, 1, 30)), Vec3(30, 1, 30, 0), True,
+    )
+    var wall = Polytope.box(0, 1.0, 0, 1.0, 1.0, 0.15)
+    var seeds = scatter_seeds(wall.bounds(), 12, 7, 0.0, 1.0, -0.15, 0.5)
+    var fs = FragmentSet(List[Polytope](), List[Int](), List[Int]())
+    voronoi_fracture(wall, seeds, 0, 1e-5, fs)
+    var set = FractureSet(2000, 0)
+    var first = set.spawn(sc, fs, ZERO, Quat.identity(), ZERO, ZERO)
+    _ = set.bond_neighbors(sc, first, 5e4)
+    _ = set.anchor(sc, first, ground, ZERO, Quat.identity(), 0.0, -1.0, 0.0, 0.0, 1e-6, 5e4)
+    for _ in range(30):
+        sc.step_soft(DT, G)
+        _ = set.poll(sc)
+    var w = BinWriter()
+    write_fracture(set, w)
+    var sc2 = scene_from_bytes(scene_to_bytes(sc))
+    var rd = BinReader(w.b.copy())
+    var set2 = read_fracture(rd)
+    var w2 = BinWriter()
+    write_fracture(set2, w2)
+    var same_blob = len(w.b) == len(w2.b)
+    for k in range(min(len(w.b), len(w2.b))):
+        if w.b[k] != w2.b[k]:
+            same_blob = False
+    s.check(same_blob and set2.fragments() == set.fragments(), "fracture snapshot: re-written state is byte-identical")
+    s.check(sc2.any_break and sc2.break_force[set.bond_joint[0]] == sc.break_force[set.bond_joint[0]], "weld break thresholds survive the scene snapshot")
+    for k in range(2):
+        var shot = QuatBody6(Vec3(0, 1.0, -3, 0), Quat.identity(), Vec3(0, 0, 40, 0), ZERO, Inertia3.sphere(100, 0.3))
+        if k == 0:
+            _ = sc.add_sphere(shot^, 0.3, False)
+        else:
+            _ = sc2.add_sphere(shot^, 0.3, False)
+    var b1 = 0
+    var b2 = 0
+    for _ in range(120):
+        sc.step_soft(DT, G)
+        sc2.step_soft(DT, G)
+        b1 += set.poll(sc)
+        b2 += set2.poll(sc2)
+    var same = True
+    for i in range(set.fragments()):
+        var p1 = sc.bset.bodies[set.body[i]].pos
+        var p2 = sc2.bset.bodies[set2.body[i]].pos
+        if p1[0] != p2[0] or p1[1] != p2[1] or p1[2] != p2[2]:
+            same = False
+    print("  snapshot: bonds broken after restore", b1, "vs", b2, ", live", set.live_bonds(), "vs", set2.live_bonds())
+    s.check(b1 > 0 and b1 == b2 and set.live_bonds() == set2.live_bonds(), "restored wall breaks the same bonds")
+    s.check(same, "restored wall: every fragment pose bit-identical after 2 s")
+
+
 def main() raises:
     var s = Suite("fracture")
     case_wall(s)
@@ -542,4 +599,5 @@ def main() raises:
     case_budget(s)
     case_single(s)
     case_thousand(s)
+    case_snapshot(s)
     s.finish()

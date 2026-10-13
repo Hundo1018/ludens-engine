@@ -117,6 +117,12 @@ struct TriMesh(Movable, Deinitable):
     var v: List[Real]  # vertices, stride 3
     var idx: List[Int]  # 3 vertex indices per triangle
     var nrm: List[Real]  # one outward normal per triangle, stride 3
+    # ROADMAP 17.45: per triangle, bit k set = edge (v_k, v_{k+1}) is ACTIVE
+    # (a crease or a boundary). Every edge is active by default, which keeps
+    # contact generation exactly as before; `geometry.mesh_bake.active_edges`
+    # computes real flags, and `contact_gen.try_mesh_pair` then stops flat
+    # seams between coplanar triangles from producing edge normals.
+    var active: List[UInt8]
     var bvh: BVH[3]
 
     def __init__(out self, verts: List[Real], indices: List[Int]) raises:
@@ -140,6 +146,9 @@ struct TriMesh(Movable, Deinitable):
             self.idx.append(indices[i])
         var nt = len(self.idx) // 3
         self.nrm = List[Real](capacity=3 * nt)
+        self.active = List[UInt8](capacity=nt)
+        for _ in range(nt):
+            self.active.append(7)
         self.bvh = BVH[3]()  # before any self method call: all fields must be live
         var boxes = List[AABB[3]](capacity=nt)
         var proxies = List[Int](capacity=nt)
@@ -162,6 +171,13 @@ struct TriMesh(Movable, Deinitable):
             # SAH: a level is built once and queried every step of every frame,
             # so build time is the cheap side of the trade by a wide margin.
             self.bvh.build_boxes(boxes, proxies, sah=True)
+
+    def set_active_edges(mut self, flags: List[UInt8]) raises:
+        """Install per-triangle active-edge flags (see the field)."""
+        if len(flags) != self.ntri():
+            raise Error("TriMesh.set_active_edges: one flag byte per triangle expected")
+        for t in range(len(flags)):
+            self.active[t] = flags[t] & 7
 
     def _vert(self, i: Int) -> Vec3:
         return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2], 0)

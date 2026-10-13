@@ -206,8 +206,7 @@ struct EmbedWorld(Movable):
         var i = id.index()
         if not self.scene.bset.is_dynamic(i):
             raise Error("apply_impulse: body is not dynamic")
-        self.scene.wake(id)
-        self.scene.bset.bodies[i].apply_impulse(j, self.scene.bset.bodies[i].position())
+        self.scene.apply_impulse(id, j, self.scene.pose(id).pos)
 
     def teleport(mut self, h: Int64, pos: Vec3, rot: Quat) raises:
         if not _finite3(pos) or not (isfinite(rot.x) and isfinite(rot.y) and isfinite(rot.z) and isfinite(rot.w)):
