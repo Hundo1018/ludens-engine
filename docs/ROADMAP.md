@@ -1735,7 +1735,7 @@
 | 17.6 | [動畫圖深度](ROADMAP_HISTORY.md#176-動畫圖深度--wave-b) | ✅ | B | `procedural/anim_graph.mojo` 提供 Pose、BlendSpace1D/2D、層 + 骨骼遮罩、加法動畫(motor 商)、root motion、retarget、暴力 MotionDB，有 `test_anim_graph` 29/29、`bench_anim_graph`,並接進範例 24。 |
 | 17.35 | [計時器 / 補間 / 緩動曲線](ROADMAP_HISTORY.md#1735-計時器--補間--緩動曲線--wave-a) | ✅ | A | `scheduler/timers.mojo` 提供 `TimerQueue` seam(`TimerHeap` 與 `TimerWheel`,以 due_tick 加排程序號決定觸發順序),`procedural/tween.mojo` 提供 31 條 Penner 緩動曲線,以及對 Real / Vec3 做 lerp、對 Motor2 / Motor3 走 galie geodesic 的 `Tween`;附 parity 測試、整合測試、兩個 bench,並列在 CATEGORY §2.3。 |
 | 17.36 | [樣條 / 曲線(路徑)](ROADMAP_HISTORY.md#1736-樣條--曲線路徑--wave-a) | ✅ | A | `geometry/spline.mojo` 提供維度泛型的 Catmull-Rom(comptime alpha:uniform / centripetal / chordal)與分段三次 Bezier;Catmull-Rom 段會精確轉成 `CubicBezier`,所以弧長表、`closest_point` 與 RMF motor 標架只需實作一次。有三個測試檔共 577 項檢查、`bench_spline` 與範例 15。 |
-| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | ⬜ | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
+| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 🔶 | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | ⬜ | C | N 影響蒙皮、綁定資料、Morph targets / blend shapes、修正形狀(pose-space deformation)、縮放 / 擠壓伸展通道、蒙皮 → 模擬耦合 |
 | 17.69 | [PCG](#1769-pcg--wave-c) | ⬜ | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
 
@@ -1757,6 +1757,15 @@
 ### 待辦與部分完成條目
 
 #### 17.64 動畫執行期 — Wave B
+> **狀態**:🔶 部分完成(2026-10-13:Animator 狀態圖、clip 事件與同步標記、慣性化轉場(seam)、預配置緩衝、值型別快照 ✅;`gameplay` 的 `Animator` 元件 / 系統與 `Runtime`
+> 組裝(root motion、事件進 `Channel`、`SimState`)、clip 壓縮變體、motor 空間 geodesic 殘差未做)。
+> **進度註(2026-10-13)**:`procedural/anim_events.mojo` `EventTrack.fire(t0, t1, length, loop)`:半開區間 [t0, t1) 的「每次經過恰一次」(迴圈內每圈一次、非迴圈末端事件一次、倒放用 (t1, t0]);
+> `marker_phase` / `sync_time` 依同步標記對齊不同長度的 clip。`procedural/inertialize.mojo` `Inertializer`:切換時記錄每骨位移與旋轉殘差,以五次多項式衰減(兩端斜率 0),結束後不再套用(逐位等於目標)。
+> `procedural/anim_state.mojo` `AnimGraph`:float / bool / trigger 參數(trigger 被用到即清除)、條件轉場(任意來源、exit time、時長、`tween` 緩動、可否打斷)、`TRANS_FADE` / `TRANS_INERTIAL`、
+> 事件只由目前狀態的 clip 觸發、所有姿態緩衝在建構時配置;是值型別,複製即快照。
+> 量測(`tests/test_anim_runtime.mojo` 14/14):0.31 s 的腳步事件在 10 s 內,tick 1/60 s、0.3 s 或一次跳 10 s 都恰 10 次,速率 2 時 20 次,倒放經過 1 次;邊界事件只發一次;
+> walk 0.25 / 0.75 對到 run 0.15 / 0.45;參數驅動 idle → walk → run → jump(trigger,不可打斷)→ idle(exit time);兩種轉場結束後都逐位等於目標 clip;慣性化切換那一 tick 位置跳 3.4 mm
+> (一個 tick 的行走位移);轉場中複製的圖續跑逐位相同。bench `bench_anim_runtime`(100 角色 × 32 骨,ns / 角色):轉場佔比 0 % 淡入 4187 / 慣性化 3725、50 % 7227 / 6326、100 % 12132 / 6478。
 > **現況**:積木齊、**組裝層缺**。`procedural/anim.mojo:46` `AnimClip`(等間隔取樣)與 `:117` `sample`;`:243-322` `AnimPlayer` 只做「一個 clip 淡入另一個」,`evaluate` 在淡入期間每次呼叫配置 4 個 `List`(`:294-322`;非淡入時取樣後即 return)。圖節點(`procedural/anim_graph.mojo:122` `BlendSpace1D`、`:174` `BlendSpace2D`、`:243` `layer`、`:258-278` additive、`:284` `root_motion`、`:326` `retarget`、`:346` `MotionDB`、`:405` `to_world`)是**自由函式或只存參數 / 特徵的資料 struct**(`BlendSpace1D/2D`、`MotionDB` 無播放狀態)——沒有「圖」這個物件,呼叫端每幀手寫整條管線(`examples/24_locomotion_graph.mojo:94-133` 一個 240 幀迴圈裡手接 `fsm.fire` → `sample_phase` → `layer` → `root_motion` → `skin_motor` → `foot_plant` → `two_bone`)。`procedural/fsm.mojo:18` `StateMachine` 只吃整數事件(`:96` `fire(event: Int)`),沒有參數條件、退出時間、逐轉場的混合時長 / 曲線。**沒有 Animator**:grep `AnimPlayer|anim_graph|procedural\.` 於 `gameplay/ ecs/ scheduler/ collision/ physics/` 只命中 `gameplay/ragdoll.mojo:23,34`(吃 `Pose`);`gameplay/runtime.mojo`(`:70-101`)grep `CharacterController|Vehicle|Ragdoll|AnimPlayer` 零命中,動畫狀態不在 `Runtime`、不在 `gameplay/replay.mojo:38-49` `SimState`(場景 + 控制器 + RNG),所以動畫驅動的位移 / 碰撞體不可重播、不入快照。clip 事件:grep `notify|AnimEvent|anim_event|sync.?group|inertial` 於 `procedural gameplay geometry ecs scheduler` 與 anim 測試零命中;匯入 / 壓縮:grep `gltf|quantiz|keyframe_reduce` 同範圍零命中;蒙皮調色盤:grep `inverse.?bind|bind.?pose` 零命中(`geometry/skinning.mojo:57-68` `skin_motor` 吃已算好的 bone motor 與兩個骨索引)。層級限制:`procedural` 是層 2(`scripts/arch_layers.toml:1-14`、`docs/ARCHITECTURE.md:20`),不能 import `scheduler`(層 3)或 `ecs`(同層),故 `Animator` 元件與系統只能落在 `gameplay`(層 5),`procedural` 端只產純資料。
 > **缺口**:
 > - **Animator 狀態圖**:參數塊(float / bool / trigger)+ 帶條件的轉場(`speed > 0.1`、退出時間、可打斷規則)+ 逐轉場混合時長與緩動(重用 `procedural/tween.mojo:63-94` 的 31 條曲線),把 `StateMachine` / `BlendSpace*` / `layer` 組成一個可每 tick 求值的物件(例:idle→run 0.15 s cubic-out,跳躍可打斷)。
@@ -3142,7 +3151,7 @@
 | 17.61 | [多物理](#1761-多物理--wave-c) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.62 | [GPU / 可微連續體](#1762-gpu--可微連續體--wave-cgpu--可微) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.63 | [輸出 / 快取](#1763-輸出--快取--wave-c資產管線提供者) | 軟體、布料、連續體與流體 | ⬜ |
-| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | ⬜ |
+| 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | 🔶 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | ⬜ |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | ⬜ |

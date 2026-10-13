@@ -305,6 +305,16 @@ The player rows show what a cross-fade costs: 3.4x a single clip, because a
 fading player samples two clips and blends them instead of sampling one.
 
 @bench benchmarks/bench_anim.mojo
+
+## Animation transitions: fade vs inertialization (17.64)
+
+`procedural.anim_state.AnimGraph` runs a transition one of two ways: fade
+(sample both clips, blend) or inertialization (sample the new clip only,
+add the pose offset recorded at the switch, decaying). Both end exactly on
+the new clip (`test_anim_runtime`). The sweep is over the share of
+characters inside a transition, since that is where the two differ.
+
+@bench benchmarks/bench_anim_runtime.mojo
 ## Physics — cloth self-collision
 
 Cloth that does not collide with itself can be a flag and cannot be a garment.

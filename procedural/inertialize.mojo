@@ -1,0 +1,91 @@
+"""Inertialized transitions (ROADMAP 17.64; Bollinger, GDC 2018).
+
+A cross-fade samples both the outgoing and the incoming clip for the whole
+transition and blends them. Inertialization samples only the incoming one:
+at the switch it stores the difference between the pose being shown and the
+new clip's pose (a translation offset and a rotation offset per bone), and
+then adds that difference back, decaying it to zero over `duration`:
+
+    pos = target_pos + offset_p * k(u),   rot = slerp(1, offset_q, k(u)) * target_rot
+
+with u = elapsed / duration and k(u) = 1 - (10 u^3 - 15 u^4 + 6 u^5) (a quintic
+with zero slope at both ends). At u = 0 the output is the old pose (to
+rounding); from u >= 1 on it is the target pose exactly (the offset is not
+applied at all).
+"""
+
+from geometry.vec import Real, Vec3
+from geometry.quat import Quat, slerp
+
+
+def _decay(u: Real) -> Real:
+    if u <= 0:
+        return 1
+    if u >= 1:
+        return 0
+    return 1 - u * u * u * (10 - 15 * u + 6 * u * u)
+
+
+struct Inertializer(Copyable, Movable):
+    var bones: Int
+    var off_p: List[Real]  # 3 per bone
+    var off_q: List[Real]  # 4 per bone (x, y, z, w)
+    var elapsed: Real
+    var duration: Real
+    var active: Bool
+
+    def __init__(out self, bones: Int):
+        self.bones = bones
+        self.off_p = List[Real](length=3 * bones, fill=0)
+        self.off_q = List[Real](length=4 * bones, fill=0)
+        self.elapsed = 0
+        self.duration = 0
+        self.active = False
+
+    def start(mut self, src_pos: List[Real], src_rot: List[Real], dst_pos: List[Real], dst_rot: List[Real], duration: Real):
+        """Record the offset from the pose being shown (src) to the new
+        target's pose (dst) at the switch."""
+        if duration <= 0:
+            self.active = False
+            return
+        for b in range(self.bones):
+            for k in range(3):
+                self.off_p[3 * b + k] = src_pos[3 * b + k] - dst_pos[3 * b + k]
+            var qs = Quat(src_rot[4 * b], src_rot[4 * b + 1], src_rot[4 * b + 2], src_rot[4 * b + 3])
+            var qd = Quat(dst_rot[4 * b], dst_rot[4 * b + 1], dst_rot[4 * b + 2], dst_rot[4 * b + 3])
+            var off = (qs * qd.conjugate()).normalized()
+            if off.w < 0:  # shortest way round
+                off = Quat(-off.x, -off.y, -off.z, -off.w)
+            self.off_q[4 * b] = off.x
+            self.off_q[4 * b + 1] = off.y
+            self.off_q[4 * b + 2] = off.z
+            self.off_q[4 * b + 3] = off.w
+        self.elapsed = 0
+        self.duration = duration
+        self.active = True
+
+    def advance(mut self, dt: Real):
+        if self.active:
+            self.elapsed += dt
+            if self.elapsed >= self.duration:
+                self.active = False
+
+    def apply(self, mut pos: List[Real], mut rot: List[Real]):
+        """Add the decayed offset to the target pose in place (no-op once
+        the transition is over)."""
+        if not self.active:
+            return
+        var k = _decay(self.elapsed / self.duration)
+        if k <= 0:
+            return
+        var one = Quat(0, 0, 0, 1)
+        for b in range(self.bones):
+            for c in range(3):
+                pos[3 * b + c] += self.off_p[3 * b + c] * k
+            var off = Quat(self.off_q[4 * b], self.off_q[4 * b + 1], self.off_q[4 * b + 2], self.off_q[4 * b + 3])
+            var q = Quat(rot[4 * b], rot[4 * b + 1], rot[4 * b + 2], rot[4 * b + 3])
+            var r = (slerp(one, off, k) * q).normalized()
+            rot[4 * b] = r.x
+            rot[4 * b + 1] = r.y
+            rot[4 * b + 2] = r.z
+            rot[4 * b + 3] = r.w
