@@ -78,6 +78,7 @@ from collision.collider_set import (
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
     SHAPE_SDF,
+    SHAPE_ELLIPSOID,
 )
 from geometry.sdf_grid import SdfGrid
 from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
@@ -471,6 +472,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             ci == id.index(),
             "ContactScene6.add_sphere: body/collider index desync",
         )
+        return id
+
+    def add_ellipsoid(mut self, var b: Self.B, radii: Vec3, is_static: Bool) -> BodyId:
+        """Solid ellipsoid, semi-axes `radii` along the body's local x, y, z
+        (ROADMAP 17.52; inertia `Inertia3.ellipsoid`). Contacts use its exact
+        support mapping: one point per pair (GJK distance, EPA on overlap)."""
+        self._debug_assert_dynamic_inertia(b, is_static)
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_ellipsoid(radii, id.index())
+        debug_assert(ci == id.index(), "ContactScene6.add_ellipsoid: body/collider index desync")
         return id
 
     def add_capsule(
@@ -1052,7 +1063,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def set_mass_from_density(mut self, id: BodyId, density: Real) raises:
         """Mass and inertia from the body's collider and a density (kg/m^3):
-        box, sphere and capsule (the `Inertia3` formulas); other shapes raise."""
+        box, sphere, capsule and ellipsoid (the `Inertia3` formulas); other
+        shapes raise."""
         var i = self._check_id(id, "set_mass_from_density")
         if not (density > 0 and density < Real(1e30)):
             raise Error("ContactScene6.set_mass_from_density: density must be finite and > 0")
@@ -1069,8 +1081,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var hl = h[1]
             var vol = Real(3.14159265358979) * r * r * (2 * hl) + Real(4.18879020478639) * r * r * r
             inertia = Inertia3.capsule(density * vol, r, hl)
+        elif k == SHAPE_ELLIPSOID:
+            inertia = Inertia3.ellipsoid(density * Real(4.18879020478639) * h[0] * h[1] * h[2], h[0], h[1], h[2])
         else:
-            raise Error("ContactScene6.set_mass_from_density: only box, sphere and capsule colliders")
+            raise Error("ContactScene6.set_mass_from_density: only box, sphere, capsule and ellipsoid colliders")
         self.bset.bodies[i].set_inertia(inertia)
 
     def _touch(mut self, i: Int):
@@ -2943,6 +2957,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Array[Real, 4](fill=0), Array[Real, 4](fill=0),
             Vec3(0, 0, 0, 0), Real(-1),
             Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
+            Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
         )
         for p in range(4):
             pr.m.points[p] = r.rv()

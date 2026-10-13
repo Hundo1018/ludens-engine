@@ -413,9 +413,9 @@ struct GpuContactSolver(Movable):
                     # the frame-start pose (the CPU's fixed-offset scheme on
                     # the GPU is deferred with the rest of the GPU work).
                     _put3(t, o + _RA + 3 * p, sc.bset.bodies[pr.a].to_local(
-                        anchor_world(sc.bset, pr.a, pr.ra[p], pr.oa[p])))
+                        anchor_world(sc.bset, pr.a, pr.ra[p], pr.oa[p], pr.ea, pr.m.normal)))
                     _put3(t, o + _RB + 3 * p, sc.bset.bodies[pr.b].to_local(
-                        anchor_world(sc.bset, pr.b, pr.rb[p], pr.ob[p])))
+                        anchor_world(sc.bset, pr.b, pr.rb[p], pr.ob[p], pr.eb, -pr.m.normal)))
                     _st(t, o + _ACC + p, pr.acc[p])
                     _st(t, o + _AT1 + p, pr.acc_t1[p])
                     _st(t, o + _AT2 + p, pr.acc_t2[p])

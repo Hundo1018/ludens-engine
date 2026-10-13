@@ -448,6 +448,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | 派發器:`parallelize` / 串行 / 反序 / 宿主 C 回呼(`Dispatch`,`dispatch_for`) | scheduler/dispatch.mojo、physics/solver6.mojo、physics/contact6.mojo、physics/diffsolver.mojo | 各 fan-out 的項寫不相交狀態,故結果是項集合上的函數、與執行順序與執行緒無關;定律是四種派發的快照位元組相同 | `test_dispatch`(island 與同色 fan-out,四種派發) | 尚無(待補每步派發開銷列) |
 
+### 2.27 凸形表示:點雲 vs support mapping(Phase 17.52,2026-10-13)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| `Support3`:點雲 `ConvexPoly[3]` vs 解析 support(`SupportEllipsoid` / `SupportCylinder` / `SupportCapsule` / `SupportBox`),共用 GJK 距離(`support_distance`)與 EPA(`epa3`) | geometry/gjk.mojo、geometry/support.mojo、geometry/gjk_distance.mojo、geometry/epa.mojo | 凸集由 support 函數 h(d) 唯一決定;同一凸集的兩個表示給出同一距離 / 穿透函數。點雲是取樣近似,解析 support 是精確表示:圓柱 16 邊形的距離誤差 r(1 − cos(π/16)) 由解析表示消去 | `test_support3`(200 對隨機點雲:`support_distance` == `convex_distance` 至 1e-5;等軸橢球與球 EPA 深度一致);`test_ellipsoid`(等軸橢球靜止高度 == 球 0.49972457,滾動 2.3941412 == 5/7 g sin θ) | `bench_shapes`(每 body-step:球 / 橢球 / 圓柱 / 盒 / SDF;點到圓柱距離:解析 vs 16 邊形) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

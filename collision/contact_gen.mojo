@@ -23,11 +23,20 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, dot, length
 from geometry.gjk import ConvexPoly
 from geometry.aabb import AABB
-from .collider_set import ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_BOX, SHAPE_HULL, SHAPE_SDF, SPEC_BASE
+from .collider_set import (
+    ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_HEIGHTFIELD, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_BOX, SHAPE_HULL,
+    SHAPE_SDF, SHAPE_ELLIPSOID, SPEC_BASE, support_manifold,
+)
 from .broadphase import BroadPhase, BoxProxy, Pair
 from .manifold import ContactManifold, _seg_seg_closest, spread4
 from .trimesh import closest_point_on_triangle
 from .hull import hull_manifold
+
+
+@always_inline
+def _is_mesh(k: Int) -> Bool:
+    """Static triangle geometry (the `try_mesh_pair` kinds)."""
+    return k == SHAPE_TRIMESH or k == SHAPE_HEIGHTFIELD
 
 
 @fieldwise_init
@@ -265,12 +274,12 @@ def try_mesh_pair(
     var a = i  # the dynamic body
     var b = j  # the static mesh
     var pa = pose_i.copy()
-    if colliders.shape[i] >= SHAPE_TRIMESH:
+    if _is_mesh(colliders.shape[i]):
         a = j
         b = i
         pa = pose_j.copy()
-    if colliders.shape[a] >= SHAPE_TRIMESH:
-        return  # mesh vs mesh: two static bodies, nothing to resolve
+    if _is_mesh(colliders.shape[a]) or colliders.shape[a] == SHAPE_SDF:
+        return  # mesh vs mesh / SDF: two static bodies, nothing to resolve
 
     # The speculative margin is split half-and-half between the two shapes
     # everywhere else, and the full margin is subtracted from the depth
@@ -288,10 +297,31 @@ def try_mesh_pair(
     if len(tris) == 0:
         return
 
+    # ROADMAP 17.52: an ellipsoid meets each triangle through its exact
+    # support mapping (one point per triangle, like the sphere)
+    var ka = colliders.shape[a]
+    if ka == SHAPE_ELLIPSOID:
+        var se = colliders.support_ellipsoid(a, pa)
+        for c in range(len(tris)):
+            var t = tris[c]
+            var tf = colliders.mesh_tri_faces(b, t)
+            if len(tf) < 3:
+                continue
+            var tri = colliders.mesh_tri(b, t)
+            var m = support_manifold(se, tri, margin)
+            if not m.hit:
+                continue
+            for k in range(m.count):
+                m.depths[k] -= margin
+            var act = colliders.mesh_active(b, t)
+            if act != 7:
+                _fix_inactive_edge_normal(m, tri, Vec3(tf[0], tf[1], tf[2], 0), act)
+            out.append(RawContact(a, b, t, m))
+        return
+
     # ROADMAP 17.45: spheres and capsules meet triangles analytically (they
     # used to go through `as_hull` as a box, so a ball sat on a slope like a
     # cube instead of rolling down it).
-    var ka = colliders.shape[a]
     if ka == SHAPE_SPHERE or ka == SHAPE_CAPSULE:
         var r = colliders.half[a][0]
         var hl = colliders.half[a][1]
@@ -401,16 +431,32 @@ def try_sdf_pair(
     resolution. Two SDFs, or an SDF and a mesh, never pair (both static)."""
     var si = i if colliders.shape[i] == SHAPE_SDF else j
     var di = j if si == i else i
-    if colliders.shape[di] >= SHAPE_TRIMESH:
+    var dk = colliders.shape[di]
+    if _is_mesh(dk) or dk == SHAPE_SDF:
         return
     ref g = colliders.sdfs[colliders.mesh_id[si]]
-    var smp = _sdf_samples(colliders, di, pose_j if di == j else pose_i)
+    var dpose = pose_j.copy() if di == j else pose_i.copy()
+    var smp = _sdf_samples(colliders, di, dpose)
+    var pts = smp[0].copy()
+    if dk == SHAPE_ELLIPSOID:
+        # one point: the ellipsoid's support against the field gradient,
+        # refined once at the point it lands on (17.52)
+        var se = colliders.support_ellipsoid(di, dpose)
+        var gc = g.gradient(dpose.position)
+        var gl0 = sqrt(dot(gc, gc))
+        var n0 = gc / gl0 if gl0 > 1e-12 else Vec3(0, 1, 0, 0)
+        var q = se.support_point(-n0)
+        var gq = g.gradient(q)
+        var gl1 = sqrt(dot(gq, gq))
+        if gl1 > 1e-12:
+            q = se.support_point(-(gq / gl1))
+        pts.append(q)
     var r = smp[1]
     var cand = List[Vec3]()
     var cdep = List[Real]()
     var nsum = Vec3(0, 0, 0, 0)
-    for k in range(len(smp[0])):
-        var p = smp[0][k]
+    for k in range(len(pts)):
+        var p = pts[k]
         var d = g.distance(p)
         if d >= r + margin:
             continue
@@ -470,7 +516,7 @@ def try_pair(
             try_sdf_pair(colliders, i, j, pose_i, pose_j, margin, out)
         return
 
-    if colliders.shape[i] >= SHAPE_TRIMESH or colliders.shape[j] >= SHAPE_TRIMESH:
+    if _is_mesh(colliders.shape[i]) or _is_mesh(colliders.shape[j]):
         if is_sensor_pair:
             # No speculative margin, same reasoning as the non-mesh sensor
             # branch below: a trigger fires on actual overlap, not early.

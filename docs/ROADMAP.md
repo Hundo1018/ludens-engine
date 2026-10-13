@@ -642,7 +642,21 @@
 > **邊界**:候選配對只重用現有 `BroadPhase`,不擁有增量維護 —— `update_moved`、awake list、per-island 品質屬 17.85;GPU CCD 屬 17.17;`ccd_advance` 掃描本身的多執行緒化屬 17.54(本條只負責移除 `PARALLEL_FALLBACK_SERIAL` 退路);軟體 / 流體本體的連續碰撞不含(僅含軟體粒子對剛體 hull / mesh 的點掃);單步旋轉超過 π 的子步切分不含。
 
 #### 17.52 形狀種類 — Wave B(承接 13.8 的剩餘部分)
-> **狀態**:🔶 進行中(2026-10-13:圓柱 ✅、凸包接觸點分散選取修正 ✅、SDF 作為 solver 形狀(格點場)✅;取樣式 SDF 與 `Sdf3` 共用 trait、SDF 對 SDF、橢球、support-mapping 凸形入口未做)。
+> **狀態**:🔶 進行中(2026-10-13:圓柱 ✅、凸包接觸點分散選取修正 ✅、SDF 作為 solver 形狀(格點場)✅、橢球 ✅、support-mapping 凸形入口 ✅;取樣式 SDF 與 `Sdf3` 共用 trait、SDF 對 SDF、圓柱改走解析 support(現仍是 16 邊形 hull)未做)。
+> **進度註(2026-10-13,橢球 + support mapping)**:`trait Support3`(`geometry/gjk.mojo`:`support_point(d)`、`center_point()`),`ConvexPoly[3]` 與
+> `geometry/support.mojo` 的 `SupportEllipsoid` / `SupportCylinder` / `SupportCapsule` / `SupportBox` 皆實作;`epa3`(原 `_epa3[dim]`,現對任兩個 `Support3`)
+> 與 `support_distance`(GJK 距離,與點雲 `convex_distance` 共用驅動;單純形改固定四格,每次迭代不再配置,`support_distance` 橢球對盒 16 µs → 1.4 µs;
+> 解析形停止準則相對 1e-6 + 絕對 0.1 µm,點雲維持 1e-10 不變)。`SHAPE_ELLIPSOID = 7`、`ContactScene6.add_ellipsoid(b, radii)`、
+> `Inertia3.ellipsoid`、`set_mass_from_density` 支援;接觸 `collider_set.support_manifold`(GJK 距離 < margin → 投機點;重疊 → EPA)一點,
+> 對 box / sphere / capsule / hull / 圓柱(解析 `SupportCylinder`)/ 橢球;對 trimesh 逐三角形;對 SDF 以梯度方向 support 點兩次細化。
+> 接觸錨點:橢球側每個 substep 以目前姿態取法向 support 點(`contact6.anchor_world` 的 `e` / `toward`),固定世界偏移(球的做法)讓搖擺橢球
+> 4 s 內能量 +2.6 %(60 Hz),改後 −0.3 %。查詢:`point_distance`(GJK / EPA)、`_ray_one`(縮放空間的單位球解析解)、`shape_distance` / `shape_cast`。
+> 軟體粒子:`soft_particle_contact` 橢球分支。CCD:以 `half` 盒近似(同球,屬 17.46)。
+> 量測(`tests/test_ellipsoid.mojo` 17/17、`tests/test_support3.mojo` 11/11):等軸橢球靜止 y 0.4997246 對球 0.49972457;斜面滾動 1 s 2.3941412 對球 2.3941434、
+> 5/7 g sin θ 2.3941412;(1, 0.5, 0.7) 躺 y 0.4997246;長橢球 45° 釋放(角阻尼 2)躺平軸·上 0.0033;無阻尼搖擺中心最高 0.4301 < 釋放 0.4305;
+> 射線 t 4.5 / 4.0(解析);點距 1.5、內點 −0.09997;10:1 圓盤 y 0.0997。點到 r = 1 圓柱:解析誤差 0,16 邊形 hull 0.0192 = r(1 − cos(π/16))。
+> 成本(`bench_shapes`,64 / 256 體,每 body-step,本機雜訊約 2×):球 7–13 µs、橢球 43–86 µs、16 段圓柱 0.43–1.25 ms(hull 路徑,待改解析 support)、
+> 盒在盒上 24–35 µs、盒在 SDF 上 32–44 µs。
 > **進度註(2026-10-13,SDF 形狀)**:`SHAPE_SDF = 6`(`collision/collider_set.mojo`),`ContactScene6.add_sdf(b, SdfGrid)`(世界座標,同 `add_trimesh`)。
 > 接觸 `contact_gen.try_sdf_pair`:取凸側樣本點(球心;膠囊軸上 5 點;盒 26 點 = 8 角 + 12 邊中點 + 6 面心;hull 頂點),
 > 距離 < 半徑 + margin 者為候選,`hull.spread4` 選至多 4 點,法向 = 深度加權梯度平均。查詢:`point_distance`(三線性距離 + 梯度)、

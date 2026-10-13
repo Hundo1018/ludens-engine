@@ -4045,6 +4045,42 @@ where the segment's bounding box held 1,457,456.
 |---:|---:|---:|---:|
 | 1457456 | 88 | 43564 | 1376.8608 |
 
+## Shape kinds (17.52)
+
+Cost per resting body-step of the shape kinds added in 17.52 against the
+analytic sphere and box. Ellipsoids meet every other shape through GJK
+distance and EPA on their exact support mapping (one contact point per
+pair); a cylinder is a 16-segment hull whose side contact against a box is
+the capsule manifold; a box on an SDF samples 26 points against the grid.
+The second table is the error a sampled hull carries and the support
+mapping removes.
+
+### Shape kinds (17.52): resting bodies, ns per body-step
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| sphere (analytic) | 64 | body-step | 11637.63 | 0.09 | 44.69 |
+| ellipsoid 0.5 x 3 (GJK/EPA) | 64 | body-step | 45134.36 | 0.02 | 173.32 |
+| ellipsoid (0.6, 0.5, 0.4) | 64 | body-step | 41419.50 | 0.02 | 159.05 |
+| cylinder 16 segments | 64 | body-step | 442404.31 | 0.00 | 1698.83 |
+| box on box floor | 64 | body-step | 29689.47 | 0.03 | 114.01 |
+| box on SDF plane (25^3) | 64 | body-step | 35907.87 | 0.03 | 137.89 |
+| sphere (analytic) | 256 | body-step | 13849.33 | 0.07 | 212.73 |
+| ellipsoid 0.5 x 3 (GJK/EPA) | 256 | body-step | 80896.56 | 0.01 | 1242.57 |
+| ellipsoid (0.6, 0.5, 0.4) | 256 | body-step | 91795.64 | 0.01 | 1409.98 |
+| cylinder 16 segments | 256 | body-step | 1374684.64 | 0.00 | 21115.16 |
+| box on box floor | 256 | body-step | 46642.31 | 0.02 | 716.43 |
+| box on SDF plane (25^3) | 256 | body-step | 40006.80 | 0.02 | 614.50 |
+
+
+### Point-to-cylinder distance (17.52): analytic support vs 16-gon hull
+
+| shape | ns / query | error at 11.25 deg |
+|---|---:|---:|
+| SupportCylinder | 669 | 0.0 |
+| 16-gon ConvexPoly | 453 | 0.01921463 |
+
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

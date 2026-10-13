@@ -17,7 +17,10 @@ from std.math import sqrt
 from std.os import abort
 from geometry.vec import Real, Vec3, dot
 from geometry.aabb import AABB
-from geometry.gjk import ConvexPoly
+from geometry.gjk import ConvexPoly, Support3
+from geometry.gjk_distance import support_distance
+from geometry.epa import epa3
+from geometry.support import SupportEllipsoid, SupportCylinder, SupportCapsule, SupportBox
 from .hull import HullShape, hull_manifold
 from geometry.sdf_grid import SdfGrid
 from .trimesh import TriMesh, HeightField, closest_point_on_triangle
@@ -46,6 +49,31 @@ comptime SHAPE_HEIGHTFIELD = 5
 # `try_sdf_pair` before the mesh path; the `>= SHAPE_TRIMESH` checks there
 # see it only after that branch.
 comptime SHAPE_SDF = 6
+# ROADMAP 17.52: a solid ellipsoid, radii in `half` along the body axes.
+# Contacts and queries go through its exact support mapping
+# (`geometry.support.SupportEllipsoid`, GJK distance + EPA): one point per
+# pair, routed in `pair_manifold` before the kind-ordered branches, and in
+# `contact_gen` before the `>= SHAPE_TRIMESH` checks.
+comptime SHAPE_ELLIPSOID = 7
+
+
+def support_manifold[A: Support3, B: Support3](a: A, b: B, margin: Real) -> ContactManifold[3]:
+    """One-point contact between two `Support3` shapes (ROADMAP 17.52):
+    apart by less than `margin` -> a speculative point midway between the
+    GJK witnesses, depth `margin - distance`; overlapping -> EPA's witnesses,
+    depth `penetration + margin` (the caller subtracts the margin, as for
+    every other pair). Normal from `a` to `b`."""
+    var d = support_distance(a, 0, b, 0)
+    if d.dist > margin:
+        return ContactManifold[3].miss()
+    if d.dist > 0:
+        var m = ContactManifold[3].hit_along(d.normal)
+        m.add((d.pa + d.pb) * 0.5, margin - d.dist)
+        return m
+    var w = epa3(a, b)
+    var m = ContactManifold[3].hit_along(w.normal)
+    m.add((w.point_a + w.point_b) * 0.5, w.depth + margin)
+    return m
 
 # Speculative-contact margin base (audit F19): the ONE definition -- both
 # `fat_aabb` below and `collision.contact_gen`'s per-pair margin import this
@@ -204,6 +232,36 @@ struct ColliderSet(Movable, Deinitable):
         var i = self.add(Vec3(r, half_len, r, 0), at)
         self.shape[i] = SHAPE_CAPSULE
         return i
+
+    def add_ellipsoid(mut self, radii: Vec3, at: Int = -1) -> Int:
+        """Solid ellipsoid with semi-axes `radii` along the body's local
+        x, y, z (ROADMAP 17.52). `half` = radii, so the AABB paths see its
+        bounding box."""
+        var i = self.add(radii, at)
+        self.shape[i] = SHAPE_ELLIPSOID
+        return i
+
+    def support_ellipsoid(self, i: Int, pose: Pose3) -> SupportEllipsoid:
+        """World support mapping of ellipsoid collider `i`."""
+        return SupportEllipsoid(pose.position, pose.axes[0], pose.axes[1], pose.axes[2], self.half[i])
+
+    def ellipsoid_pair(self, e: Int, pe: Pose3, o: Int, po: Pose3, margin: Real) -> ContactManifold[3]:
+        """Ellipsoid `e` against convex collider `o` (box, sphere, capsule,
+        hull -- a cylinder hull by its exact support -- or another
+        ellipsoid), normal from `e` to `o`; see `support_manifold`."""
+        var se = self.support_ellipsoid(e, pe)
+        var k = self.shape[o]
+        if k == SHAPE_ELLIPSOID:
+            return support_manifold(se, self.support_ellipsoid(o, po), margin)
+        if k == SHAPE_BOX:
+            return support_manifold(se, SupportBox(po.position, po.axes[0], po.axes[1], po.axes[2], self.half[o]), margin)
+        if k == SHAPE_SPHERE:
+            return support_manifold(se, SupportCapsule(po.position, po.axes[1], self.half[o][0], 0), margin)
+        if k == SHAPE_CAPSULE:
+            return support_manifold(se, SupportCapsule(po.position, po.axes[1], self.half[o][0], self.half[o][1]), margin)
+        if self.round_radius(o) > 0:
+            return support_manifold(se, SupportCylinder(po.position, po.axes[1], self.round_radius(o), self.half[o][1]), margin)
+        return support_manifold(se, self.hull_world(o, po), margin)
 
     def add_hull(mut self, var verts: List[Real], at: Int = -1) -> Int:
         """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
@@ -489,7 +547,12 @@ struct ColliderSet(Movable, Deinitable):
         var ka = self.shape[a]
         var kb = self.shape[b]
         var m: ContactManifold[3]
-        if ka == SHAPE_BOX and kb == SHAPE_BOX:
+        if kb == SHAPE_ELLIPSOID:
+            # ROADMAP 17.52: the largest kind, so always `b` here; computed
+            # from the ellipsoid's side (exact shapes, the whole margin)
+            m = self.ellipsoid_pair(b, pb, a, pa, mr * 2)
+            m.normal = -m.normal
+        elif ka == SHAPE_BOX and kb == SHAPE_BOX:
             m = box_box_manifold(
                 pa.position, pa.axes, self.half[a] + infl,
                 pb.position, pb.axes, self.half[b] + infl,
@@ -651,8 +714,23 @@ struct ColliderSet(Movable, Deinitable):
         reuses the identical candidate/tri/tri_faces calls the rigid mesh
         path uses -- then closest-point-on-triangle over the candidates,
         nearest one wins. Degenerate (zero-area) triangles are skipped, the
-        same rule `try_mesh_pair` uses."""
+        same rule `try_mesh_pair` uses.
+
+        ELLIPSOID (17.52): GJK distance from the particle centre to the
+        exact support mapping; EPA when the centre is inside."""
         var k = self.shape[i]
+        if k == SHAPE_ELLIPSOID:
+            var se = self.support_ellipsoid(i, pose)
+            var pt = SupportCapsule(p, Vec3(0, 1, 0, 0), 0, 0)
+            var d = support_distance(pt, 0, se, 0)
+            if d.dist >= r:
+                return (False, p, Vec3(0, 1, 0, 0))
+            if d.dist > 0:
+                var n_out = -d.normal
+                return (True, d.pb + n_out * r, n_out)
+            var w = epa3(pt, se)
+            var n_in = -w.normal
+            return (True, w.point_b + n_in * r, n_in)
         if k == SHAPE_HULL:
             ref hs = self.hulls[self.hull_id[i]]
             var nf = hs.nf()

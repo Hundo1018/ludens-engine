@@ -2054,6 +2054,18 @@ where the segment's bounding box held 1,457,456.
 
 @bench benchmarks/bench_query_ext.mojo
 
+## Shape kinds (17.52)
+
+Cost per resting body-step of the shape kinds added in 17.52 against the
+analytic sphere and box. Ellipsoids meet every other shape through GJK
+distance and EPA on their exact support mapping (one contact point per
+pair); a cylinder is a 16-segment hull whose side contact against a box is
+the capsule manifold; a box on an SDF samples 26 points against the grid.
+The second table is the error a sampled hull carries and the support
+mapping removes.
+
+@bench benchmarks/bench_shapes.mojo
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

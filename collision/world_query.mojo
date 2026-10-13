@@ -39,7 +39,10 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, dot, cross, length
 from geometry.aabb import AABB
 from geometry.quat import Quat
-from geometry.gjk_distance import ConvexDistance, convex_distance
+from geometry.gjk_distance import ConvexDistance, convex_distance, support_distance
+from geometry.gjk import ConvexPoly
+from geometry.epa import epa3
+from geometry.support import SupportCapsule
 from .manifold import Axes3
 from .collider_set import (
     ColliderSet,
@@ -51,6 +54,7 @@ from .collider_set import (
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
     SHAPE_SDF,
+    SHAPE_ELLIPSOID,
 )
 from .trimesh import closest_point_on_triangle
 from spatial.bvh import BVH
@@ -276,6 +280,14 @@ def point_distance(
                 best_n = n
         var cp = lp - best_n * best
         return Probe(best, _world(pose, cp), _world_dir(pose, best_n))
+    if k == SHAPE_ELLIPSOID:  # ROADMAP 17.52: GJK on the exact support; EPA inside
+        var se = cs.support_ellipsoid(i, pose)
+        var pt = SupportCapsule(p, Vec3(0, 1, 0, 0), 0, 0)
+        var dd = support_distance(pt, 0, se, 0)
+        if dd.dist > 0:
+            return Probe(dd.dist, dd.pb, -dd.normal)
+        var w = epa3(pt, se)
+        return Probe(-w.depth, w.point_b, -w.normal)
     if k == SHAPE_SDF:  # ROADMAP 17.52: the grid's own trilinear distance
         ref g = cs.sdfs[cs.mesh_id[i]]
         var d = g.distance(p)
@@ -603,6 +615,27 @@ def _ray_one(
             return Hit.miss()
         var p = o + d * t
         return Hit(True, i, t, p, _unit_or_up(p - pose.position), cq <= 0)
+    if k == SHAPE_ELLIPSOID:
+        # ROADMAP 17.52: the unit-sphere test in the frame scaled by 1/radii
+        var h = cs.half[i]
+        var lo = _local(pose, o)
+        var ld = Vec3(dot(d, pose.axes[0]), dot(d, pose.axes[1]), dot(d, pose.axes[2]), 0)
+        var m = Vec3(lo[0] / h[0], lo[1] / h[1], lo[2] / h[2], 0)
+        var sd = Vec3(ld[0] / h[0], ld[1] / h[1], ld[2] / h[2], 0)
+        var aq = dot(sd, sd)
+        var bq = dot(m, sd)
+        var cq = dot(m, m) - 1
+        if cq > 0 and bq > 0:
+            return Hit.miss()
+        var disc = bq * bq - aq * cq
+        if disc < 0 or aq <= 0:
+            return Hit.miss()
+        var t = max(Real(0), (-bq - sqrt(disc)) / aq)
+        if t > max_t:
+            return Hit.miss()
+        var lp = lo + ld * t
+        var gn = Vec3(lp[0] / (h[0] * h[0]), lp[1] / (h[1] * h[1]), lp[2] / (h[2] * h[2]), 0)
+        return Hit(True, i, t, o + d * t, _world_dir(pose, _unit_or_up(gn)), cq <= 0)
     if k == SHAPE_BOX:
         var lo = _local(pose, o)
         var ld = Vec3(dot(d, pose.axes[0]), dot(d, pose.axes[1]), dot(d, pose.axes[2]), 0)
@@ -887,6 +920,11 @@ def shape_distance(
     nearest candidate triangle within `search` for meshes (then also the
     triangle index; -1 otherwise)."""
     var k = cs.shape[i]
+    if k == SHAPE_ELLIPSOID:  # ROADMAP 17.52: exact, through its support mapping
+        var cloud = ConvexPoly[3]()
+        for q in range(len(pts)):
+            cloud.add(pts[q])
+        return (support_distance(cloud, r, cs.support_ellipsoid(i, pose), 0), -1)
     if k == SHAPE_SDF:
         # the query's core points against the grid: a lower bound for a
         # sphere / capsule core, the vertex distance for a box or hull
@@ -927,6 +965,15 @@ def closest_points(
     if ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD or ki == SHAPE_SDF:
         var kj = cs.shape[j]
         if kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD or kj == SHAPE_SDF:
+            return ConvexDistance(Real(1e30), poses[i].position, poses[j].position, Vec3(0, 1, 0, 0), False)
+        var rev = closest_points(cs, poses, j, i, search)
+        return ConvexDistance(rev.dist, rev.pb, rev.pa, -rev.normal, rev.overlap)
+    if ki == SHAPE_ELLIPSOID:
+        var kj = cs.shape[j]
+        if kj == SHAPE_ELLIPSOID:
+            return support_distance(cs.support_ellipsoid(i, poses[i]), 0, cs.support_ellipsoid(j, poses[j]), 0)
+        if kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD or kj == SHAPE_SDF:
+            # not supported (17.52): no core cloud for the ellipsoid side
             return ConvexDistance(Real(1e30), poses[i].position, poses[j].position, Vec3(0, 1, 0, 0), False)
         var rev = closest_points(cs, poses, j, i, search)
         return ConvexDistance(rev.dist, rev.pb, rev.pa, -rev.normal, rev.overlap)
@@ -1005,8 +1052,9 @@ def shape_cast(
                 var r = _cast_convex(core[0], core[1], _tri_core(cs, i, tris[c]), 0, u, best.t)
                 if r[0] >= 0 and (r[0] < best.t or not best.hit):
                     best = Hit(True, i, r[0], r[1].pb, -r[1].normal, r[0] == 0, tris[c])
-        elif k == SHAPE_SDF:
-            # not convex: conservative advancement by the sampled distance
+        elif k == SHAPE_SDF or k == SHAPE_ELLIPSOID:
+            # SDF: not convex; ellipsoid: no core cloud (17.52) --
+            # conservative advancement by the distance
             var t = Real(0)
             for it in range(_MAX_ITERS):
                 var mv = core[0].copy()

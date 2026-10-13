@@ -19,7 +19,7 @@ from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
 from collision.contact_events import pack_key
-from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE
+from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_ELLIPSOID
 from .rigid6 import Body6
 from .body_set import BodySet
 from .material import combine
@@ -77,6 +77,13 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     var jn: Array[Real, 4]
     var jf: Vec3
     var span: Real
+    # ROADMAP 17.52: semi-axes of side a / b when it is an ellipsoid (zero
+    # otherwise). Its anchor is then re-taken every substep as its support
+    # point along the normal under the current orientation: on a rocking
+    # ellipsoid the contact slides over the surface, and the sphere's fixed
+    # world offset pumped energy in (+2.6 % in 4 s at 60 Hz).
+    var ea: Vec3
+    var eb: Vec3
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -99,6 +106,8 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.jn = copy.jn.copy()
         self.jf = copy.jf
         self.span = copy.span
+        self.ea = copy.ea
+        self.eb = copy.eb
 
 
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
@@ -126,6 +135,8 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(0),
+        Vec3(0, 0, 0, 0),
+        Vec3(0, 0, 0, 0),
     )
 
 
@@ -159,7 +170,7 @@ def round_core[B: Body6](
         var hl = colliders.half[i][1]
         var y = bset.bodies[i].to_local(p)[1]
         return Vec3(0, min(max(y, -hl), hl), 0, 0)
-    if k == SHAPE_SPHERE:
+    if k == SHAPE_SPHERE or k == SHAPE_ELLIPSOID:
         return Vec3(0, 0, 0, 0)
     if k == SHAPE_CAPSULE:
         var hl = colliders.half[i][1]
@@ -168,12 +179,37 @@ def round_core[B: Body6](
     return None
 
 
+def round_reach[B: Body6](
+    bset: BodySet[B], colliders: ColliderSet, i: Int, n: Vec3
+) -> Real:
+    """How far round collider `i`'s surface lies from its core point along
+    unit world direction `n`: the radius, or for an ellipsoid (17.52) its
+    support function |diag(radii) R^T n|."""
+    if colliders.shape[i] == SHAPE_ELLIPSOID:
+        var o = bset.bodies[i].act(Vec3(0, 0, 0, 0))
+        var ln = bset.bodies[i].to_local(o + n)
+        var h = colliders.half[i]
+        return sqrt((h[0] * ln[0]) ** 2 + (h[1] * ln[1]) ** 2 + (h[2] * ln[2]) ** 2)
+    var rr = colliders.round_radius(i)
+    return rr if rr > 0 else colliders.half[i][0]
+
+
 def anchor_world[B: Body6](
-    bset: BodySet[B], i: Int, r: Vec3, o: Vec3
+    bset: BodySet[B], i: Int, r: Vec3, o: Vec3,
+    e: Vec3 = Vec3(0, 0, 0, 0), toward: Vec3 = Vec3(0, 0, 0, 0),
 ) -> Vec3:
     """World position of a contact anchor: body-frame point `r` under the
     current pose, plus the world-frame round-shape offset `o` (zero for
-    non-round shapes, so this is `act(r)` exactly)."""
+    non-round shapes, so this is `act(r)` exactly). An ellipsoid side (its
+    semi-axes `e` nonzero) anchors at its current support point along unit
+    `toward` instead (17.52)."""
+    if e[0] > 0:
+        var c = bset.bodies[i].act(Vec3(0, 0, 0, 0))
+        var ln = bset.bodies[i].to_local(c + toward)
+        var q = Vec3(e[0] * e[0] * ln[0], e[1] * e[1] * ln[1], e[2] * e[2] * ln[2], 0)
+        var l = sqrt((e[0] * ln[0]) ** 2 + (e[1] * ln[1]) ** 2 + (e[2] * ln[2]) ** 2)
+        if l > Real(1e-12):
+            return bset.bodies[i].act(q / l)
     return bset.bodies[i].act(r) + o
 
 
@@ -210,7 +246,13 @@ def make_contact[B: Body6](
         Array[Real, 4](fill=0),
         Vec3(0, 0, 0, 0),
         Real(0),
+        Vec3(0, 0, 0, 0),
+        Vec3(0, 0, 0, 0),
     )
+    if colliders.shape[rc.a] == SHAPE_ELLIPSOID:
+        pr.ea = colliders.half[rc.a]
+    if colliders.shape[rc.b] == SHAPE_ELLIPSOID:
+        pr.eb = colliders.half[rc.b]
     for k in range(rc.m.count):
         var p = rc.m.points[k]
         var ca = round_core(bset, colliders, rc.a, p, rc.m.normal)
@@ -225,9 +267,9 @@ def make_contact[B: Body6](
             var n = rc.m.normal
             var target = Real(0)
             if ca:
-                target = dot(bset.bodies[rc.a].act(ca.value()), n) + colliders.half[rc.a][0]
+                target = dot(bset.bodies[rc.a].act(ca.value()), n) + round_reach(bset, colliders, rc.a, n)
             if cb:
-                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - colliders.half[rc.b][0]
+                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - round_reach(bset, colliders, rc.b, n)
                 target = (target + sb) * 0.5 if ca else sb
             p = p + n * (target - dot(p, n))
         if ca:
@@ -355,11 +397,11 @@ def warm_start_contacts[B: Body6](
             )
             if bset.is_dynamic(pr.a):
                 bset.bodies[pr.a].apply_impulse(
-                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
+                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
                 )
             if bset.is_dynamic(pr.b):
                 bset.bodies[pr.b].apply_impulse(
-                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
+                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
                 )
 
 
@@ -515,8 +557,8 @@ def solve_contact[B: Body6](
         pair_mu = pr.mu_override
     var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
     for k in range(pr.m.count):
-        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
-        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
+        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
+        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
         # anchors coincided at prep with depth d0; separation since
         # then is the anchor drift along the normal
         var d = pr.m.depths[k] - dot(pwb - pwa, n)
@@ -642,8 +684,8 @@ def restitution_pass[B: Body6](
             for k in range(pr.m.count):
                 if pr.vn0[k] >= -threshold:
                     continue
-                var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k])
-                var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k])
+                var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
+                var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
                 var va = Vec3(0, 0, 0, 0)
                 var ka = Real(0)
                 if bset.moves(pr.a):
