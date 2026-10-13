@@ -850,6 +850,18 @@ method that works under motion and one that does not, and 5.6x is what it
 costs.
 
 @bench benchmarks/bench_fem.mojo
+## Physics — FEM constitutive models (17.58)
+
+`physics/fem_material.mojo` puts the stress law behind a compile-time trait:
+corotational (the existing law), stable Neo-Hookean (Smith 2018, without the
+log term) and StVK. `test_fem_material` shows they agree within 0.21 % at
+strain 1e-3, are all stress-free under a 63-degree rotation, and differ
+where they should: an element pushed through itself (det F = -0.2) is
+restored only by Neo-Hookean, and StVK's restoring stress at 2 % length is
+5 % of its peak. The table is the cost of one force pass per element; the
+corotational rows pay the 12 Newton iterations of the polar decomposition.
+
+@bench benchmarks/bench_fem_material.mojo
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this
