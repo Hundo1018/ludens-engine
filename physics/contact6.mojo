@@ -266,28 +266,39 @@ def make_contact[B: Body6](
                 # friction -- a 3-box stack built up that torsion until it
                 # kicked (1.24 N sideways on the top box, ARM runner).
                 # Distance in body `a`'s frame (a sliding box's corners stay
-                # put there) and only within 5 cm: a box sliding at 8 m/s
-                # over small triangles gets new clipped points every step,
-                # and forcing them onto old ones kicked it up (|vy| 0.023);
-                # those start cold. Without a match a point starts at zero.
+                # put there), and only within 5 cm. A point with no cached
+                # point that close keeps the old rule -- the cached point of
+                # the same index, if not taken: points that moved further
+                # (a box sliding over small triangles, a bullet in the step
+                # after its impact) have no reliable partner either way, and
+                # forcing the nearest one kicked the sliding box up at the
+                # seams (|vy| 0.023) while starting cold raised the bullet's
+                # rebound from 2.4 to 3.5 m/s.
                 var used = Array[Bool, 4](fill=False)
+                var src = Array[Int, 4](fill=-1)
                 for k in range(rc.m.count):
                     var best = -1
-                    var bd = Real(1e30)
+                    var bd = Real(2.5e-3)
                     for q in range(old.m.count):
                         if used[q]:
                             continue
                         var dv = old.ra[q] - pr.ra[k]
                         var d2 = dot(dv, dv)
-                        if d2 < bd:
+                        if d2 <= bd:
                             bd = d2
                             best = q
-                    if bd > Real(2.5e-3):
-                        continue
-                    used[best] = True
-                    pr.acc[k] = old.acc[best]
-                    pr.acc_t1[k] = old.acc_t1[best]
-                    pr.acc_t2[k] = old.acc_t2[best]
+                    if best >= 0:
+                        used[best] = True
+                        src[k] = best
+                for k in range(rc.m.count):
+                    if src[k] < 0 and not used[k]:
+                        used[k] = True
+                        src[k] = k
+                for k in range(rc.m.count):
+                    if src[k] >= 0:
+                        pr.acc[k] = old.acc[src[k]]
+                        pr.acc_t1[k] = old.acc_t1[src[k]]
+                        pr.acc_t2[k] = old.acc_t2[src[k]]
                 break
     return pr^
 
