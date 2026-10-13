@@ -33,13 +33,26 @@ def main() raises:
     # the loop count is a runtime value: with a literal count the macos-14
     # toolchain folded `_spin` away and timed nothing (0 ns / 0 ns). ~4 ms per
     # run, so one scheduler stall cannot flip a round of the planted 2x.
+    # A per-closure call counter feeds the count too: `measure_ab(base, base)` timed
+    # 0 ns / 0 ns on macos-14 -- two identical calls of the pure `_spin`
+    # were computed once, outside the timed region. With the counter no two
+    # calls share an argument (at most one extra iteration).
     var n0 = 2000000 + now() % 2
+    var ca = 0
+    var cb = 0
+    var cd = 0
 
-    def base() {imm n0}:
-        keep(_spin(n0))
+    def base() {mut ca, imm n0}:
+        ca += 1
+        keep(_spin(n0 + ca % 2))
 
-    def double() {imm n0}:
-        keep(_spin(2 * n0))
+    def base2() {mut cb, imm n0}:
+        cb += 1
+        keep(_spin(n0 + cb % 2))
+
+    def double() {mut cd, imm n0}:
+        cd += 1
+        keep(_spin(2 * n0 + cd % 2))
 
     def nothing():
         pass
@@ -49,7 +62,7 @@ def main() raises:
     s.check(r.ratio() > 1.5 and r.ratio() < 2.5, "planted 2x workload measured near 2")
     s.check(r.resolved(), "planted 2x workload is slower in every round")
 
-    var same = measure_ab(base, base, rounds=31)
+    var same = measure_ab(base, base2, rounds=31)
     # the label carries the numbers so a failure on another machine shows
     # them (a passing check prints no label, so the golden is unaffected)
     s.check(
