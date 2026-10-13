@@ -62,6 +62,7 @@ from collision.world_query import (
     ray_cast_indexed as wq_ray_cast_indexed,
     shape_cast as wq_shape_cast,
     overlap_shape as wq_overlap_shape,
+    shape_penetrations as wq_shape_penetrations,
     closest_points as wq_closest_points,
     QueryShape,
     QueryIndex,
@@ -200,12 +201,12 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     # collide flag (`physics.joint_ext`); `any_ext` gates the extra pass.
     var jext: List[JointExt]
     var any_ext: Bool
-    var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     # ROADMAP 17.45: kinematic triangle meshes -- body index and the mesh's
     # vertices in that body's frame; re-placed at the body pose every step
     var kin_mesh: List[Int]
     var kin_local: List[List[Real]]
     var kin_at: List[Pose6]  # pose the mesh was last placed at
+    var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
     # +inf = unbreakable) and the joints released by the last step.
     var break_force: List[Real]
@@ -290,10 +291,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.joints = List[Joint6]()
         self.jext = List[JointExt]()
         self.any_ext = False
-        self.drives = List[AngularDrive]()
         self.kin_mesh = List[Int]()
         self.kin_local = List[List[Real]]()
         self.kin_at = List[Pose6]()
+        self.drives = List[AngularDrive]()
         self.break_force = List[Real]()
         self.break_torque = List[Real]()
         self.broken_joints = List[Int]()
@@ -886,7 +887,6 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.sleeping[i] = False
         self.bset.sleep_timer[i] = 0
         self.bset.island[i] = -1  # recomputed by the next `_refresh_islands`
-
         # ROADMAP 17.45: a triangle mesh moves with its body from now on --
         # remember its vertices in the body frame (once)
         if self.colliders.shape[i] == SHAPE_TRIMESH:
@@ -928,6 +928,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 w.append(p[1])
                 w.append(p[2])
             self.colliders.move_trimesh(i, w)
+
     def set_velocity(mut self, id: BodyId, v: Vec3, w: Vec3) raises:
         """Directly set body `id`'s linear/angular velocity (world frame) --
         the primitive a constant-speed kinematic platform drives itself
@@ -1573,6 +1574,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def overlap_shape(self, shape: QueryShape, pose: Pose3, f: QueryFilter) -> List[Int]:
         return wq_overlap_shape(self.colliders, self.query_poses(), shape, pose, f)
+
+    def shape_penetrations(self, shape: QueryShape, pose: Pose3, f: QueryFilter) -> List[Penetration]:
+        return wq_shape_penetrations(self.colliders, self.query_poses(), shape, pose, f)
 
     def closest_points(self, a: BodyId, b: BodyId, search: Real = 1e30) raises -> ConvexDistance:
         """Separation distance and closest points of two bodies' colliders
@@ -2343,23 +2347,23 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         (`bset.any_props`) pay for either pass."""
         if self.bset.any_props:
             self._props_pre(dt)
-        self._step_impl(dt, gravity, cfg)
-        if self.bset.any_props:
-            self._props_post()
-        # ROADMAP 17.80: spans the trace could not keep go to the shared counters
         if len(self.kin_mesh) > 0:
             try:
                 self._refresh_kinematic_meshes()
             except:
                 pass  # rebuilding a mesh that was valid at add cannot raise
-        var tdrop = self.trace.take_dropped()
-        if tdrop > 0:
-            self.counters.incr(TRACE_DROPPED, Int64(tdrop))
+        self._step_impl(dt, gravity, cfg)
+        if self.bset.any_props:
+            self._props_post()
         if len(self.kin_mesh) > 0:
             try:
                 self._refresh_kinematic_meshes()
             except:
                 pass
+        # ROADMAP 17.80: spans the trace could not keep go to the shared counters
+        var tdrop = self.trace.take_dropped()
+        if tdrop > 0:
+            self.counters.incr(TRACE_DROPPED, Int64(tdrop))
 
     def _step_impl(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme).

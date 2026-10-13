@@ -29,11 +29,21 @@ interaction; the other half (a body shoving the character) is step 4.
 
 The capsule is vertical: centre `position`, segment half-length `half_height`,
 radius `radius`; its bottom is `position.y - half_height - radius`.
+
+Box option (ROADMAP 17.53): `CharacterController(p, cfg, box_rounding=r)`
+with r >= 0 sweeps an axis-aligned box of half extents (radius,
+half_height + radius, radius) instead -- the same footprint and height,
+with a flat bottom that stands level on a ledge up to its edge (a capsule's
+round bottom rests on the edge and sinks below the ledge top) -- through
+`shape_cast` / `shape_penetrations`.
+Its edges are rounded by r so an overlap up to r deep has a push-out
+direction; the default -1 keeps the capsule.
 """
 
 from std.math import sqrt, cos
 from geometry.vec import Real, Vec3, dot, length
-from collision.world_query import QueryFilter, Hit
+from geometry.quat import Quat
+from collision.world_query import QueryFilter, Hit, QueryShape, Penetration, pose3_of
 from physics.rigid6 import Body6
 from physics.solver6 import ContactScene6
 
@@ -67,9 +77,11 @@ struct CharacterController(Copyable, Movable):
     var ground_body: Int
     var hit_ceiling: Bool
     var pushed: Int  # dynamic bodies pushed during the last update
+    var box_rounding: Real  # < 0: capsule; >= 0: rounded box (17.53)
 
-    def __init__(out self, position: Vec3, cfg: CharacterConfig = CharacterConfig.default()):
+    def __init__(out self, position: Vec3, cfg: CharacterConfig = CharacterConfig.default(), box_rounding: Real = -1):
         self.cfg = cfg
+        self.box_rounding = box_rounding
         self.position = position
         self.velocity = Vec3(0, 0, 0, 0)
         self.on_ground = False
@@ -93,7 +105,22 @@ struct CharacterController(Copyable, Movable):
     def _walkable(self, n: Vec3) -> Bool:
         return n[1] >= self.cfg.max_slope_cos
 
+    def is_box(self) -> Bool:
+        return self.box_rounding >= 0
+
+    def _box(self, half_height: Real, shrink: Real) -> QueryShape:
+        var r = self.cfg.radius - shrink
+        return QueryShape.rounded_box(Vec3(r, half_height + r, r, 0), self.box_rounding)
+
+    def _penetrations[B: Body6](self, sc: ContactScene6[B], at: Vec3, half_height: Real, shrink: Real) -> List[Penetration]:
+        if self.is_box():
+            return sc.shape_penetrations(self._box(half_height, shrink), pose3_of(at, Quat.identity()), self._filter())
+        var s = Vec3(0, half_height, 0, 0)
+        return sc.capsule_penetrations(at - s, at + s, self.cfg.radius - shrink, self._filter())
+
     def _cast[B: Body6](self, sc: ContactScene6[B], at: Vec3, d: Vec3, dist: Real) -> Hit:
+        if self.is_box():
+            return sc.shape_cast(self._box(self.cfg.half_height, 0), pose3_of(at, Quat.identity()), d, dist, self._filter())
         var s = self._seg(at)
         return sc.capsule_cast(s[0], s[1], self.cfg.radius, d, dist, self._filter())
 
@@ -104,8 +131,7 @@ struct CharacterController(Copyable, Movable):
         var foot_y = self.position[1] - self.cfg.half_height - self.cfg.radius
         var c = Vec3(self.position[0], foot_y + h + self.cfg.radius, self.position[2], 0)
         if h > self.cfg.half_height:
-            var s = Vec3(0, h, 0, 0)
-            if len(sc.capsule_penetrations(c - s, c + s, self.cfg.radius - self.cfg.skin, self._filter())) > 0:
+            if len(self._penetrations(sc, c, h, self.cfg.skin)) > 0:
                 return False
         self.cfg.half_height = h
         self.position = c
@@ -204,8 +230,7 @@ struct CharacterController(Copyable, Movable):
 
     def _depenetrate[B: Body6](mut self, sc: ContactScene6[B]):
         for _ in range(4):
-            var s = self._seg(self.position)
-            var pens = sc.capsule_penetrations(s[0], s[1], self.cfg.radius, self._filter())
+            var pens = self._penetrations(sc, self.position, self.cfg.half_height, 0)
             if len(pens) == 0:
                 return
             var push = Vec3(0, 0, 0, 0)

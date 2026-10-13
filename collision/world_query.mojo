@@ -844,15 +844,24 @@ struct QueryShape(Copyable, Movable):
     var kind: Int
     var half: Vec3  # box half extents; sphere / capsule: (r, half length, r)
     var verts: List[Vec3]  # hull vertices (local)
+    var rounding: Real  # box only: corner / edge radius (0 = sharp)
 
-    def __init__(out self, kind: Int, half: Vec3, var verts: List[Vec3]):
+    def __init__(out self, kind: Int, half: Vec3, var verts: List[Vec3], rounding: Real = 0):
         self.kind = kind
         self.half = half
         self.verts = verts^
+        self.rounding = rounding
 
     @staticmethod
     def box(half: Vec3) -> Self:
         return Self(SHAPE_BOX, half, List[Vec3]())
+
+    @staticmethod
+    def rounded_box(half: Vec3, r: Real) -> Self:
+        """A box of the same outer half extents with edges and corners
+        rounded by `r`: its core is the box shrunk by `r`, so overlaps up to
+        `r` deep still have a defined push-out direction (`shape_penetrations`)."""
+        return Self(SHAPE_BOX, half, List[Vec3](), max(Real(0), min(r, min(half[0], min(half[1], half[2])))))
 
     @staticmethod
     def sphere(r: Real) -> Self:
@@ -877,12 +886,14 @@ struct QueryShape(Copyable, Movable):
             pts.append(pose.position + pose.axes[1] * self.half[1])
             return (pts^, self.half[0])
         if self.kind == SHAPE_BOX:
+            var rr = self.rounding
+            var h = Vec3(self.half[0] - rr, self.half[1] - rr, self.half[2] - rr, 0)
             for c in range(8):
-                var lx = self.half[0] if (c & 1) else -self.half[0]
-                var ly = self.half[1] if (c & 2) else -self.half[1]
-                var lz = self.half[2] if (c & 4) else -self.half[2]
+                var lx = h[0] if (c & 1) else -h[0]
+                var ly = h[1] if (c & 2) else -h[1]
+                var lz = h[2] if (c & 4) else -h[2]
                 pts.append(_world(pose, Vec3(lx, ly, lz, 0)))
-            return (pts^, Real(0))
+            return (pts^, rr)
         for v in range(len(self.verts)):
             pts.append(_world(pose, self.verts[v]))
         return (pts^, Real(0))
@@ -1028,6 +1039,26 @@ def overlap_shape(
     for i in _candidates(cs, poses, _cloud_box(core[0], core[1] + _SKIN), f):
         if shape_distance(cs, i, poses[i], core[0], core[1], core[1] + _SKIN)[0].dist <= 0:
             out.append(i)
+    return out^
+
+
+def shape_penetrations(
+    cs: ColliderSet, poses: List[Pose3], shape: QueryShape, pose: Pose3, f: QueryFilter
+) -> List[Penetration]:
+    """Every collider the convex `shape` at `pose` overlaps, with the push-out
+    direction and depth (17.53; the shape analogue of
+    `capsule_penetrations`). Depth is measured from the shape's CORE, so it
+    is defined up to the core radius: a sphere's or capsule's radius, a
+    `QueryShape.rounded_box`'s rounding. Past that the cores overlap and
+    the entry has the full radius as depth and an undefined (+y) normal; a
+    sharp box (rounding 0) or hull then reports depth 0 -- use a rounded
+    box when the push-out matters (a character controller does)."""
+    var core = shape.core(pose)
+    var out = List[Penetration]()
+    for i in _candidates(cs, poses, _cloud_box(core[0], core[1] + _SKIN), f):
+        var dd = shape_distance(cs, i, poses[i], core[0], core[1], core[1] + _SKIN)[0]
+        if dd.dist < 0 or (dd.overlap and core[1] == 0):
+            out.append(Penetration(i, -dd.normal, -dd.dist, dd.pb))
     return out^
 
 
