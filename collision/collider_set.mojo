@@ -191,7 +191,8 @@ struct ColliderSet(Movable, Deinitable):
         return i
 
     def add_capsule(mut self, r: Real, half_len: Real, at: Int = -1) -> Int:
-        # conservative box for any AABB-ish uses: r sideways, r+hl tall
+        # `half` stores (r, half_len, r) -- readers take half[1] as the
+        # segment half length; `fat_aabb` adds the cap radius to the box
         var i = self.add(Vec3(r, half_len, r, 0), at)
         self.shape[i] = SHAPE_CAPSULE
         return i
@@ -323,6 +324,14 @@ struct ColliderSet(Movable, Deinitable):
         return self.sensor[i]
 
     # ------------------------------------------------------- mesh midphase
+
+    def mesh_ray_candidates(self, i: Int, o: Vec3, d: Vec3, max_t: Real, mut out: List[Int]):
+        """Triangles of static collider `i` along a ray segment (ROADMAP
+        17.53): BVH descent for a trimesh, a grid DDA for a heightfield."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            self.meshes[self.mesh_id[i]].ray_candidates(o, d, max_t, out)
+        else:
+            self.fields[self.mesh_id[i]].ray_candidates(o, d, max_t, out)
 
     def mesh_candidates(self, i: Int, box: AABB[3], mut out: List[Int]):
         """Triangles of static collider `i` that could touch `box`. The two
@@ -555,6 +564,11 @@ struct ColliderSet(Movable, Deinitable):
             )
         ref ax = pose.axes
         var h = self.half[i]
+        if k == SHAPE_CAPSULE:
+            # `half` is (r, half_len, r): the segment's box. The end caps
+            # reach r further along the axis (ROADMAP 17.53 found a ray
+            # hitting a cap outside this box).
+            h[1] += h[0]
         var wh = Vec3(0, 0, 0, 0)
         comptime for k in range(3):
             wh[k] = (

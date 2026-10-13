@@ -48,7 +48,7 @@
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
 | [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 18 | 2 | 3 | 0 |
-| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 2 | 4 | 0 |
+| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 3 | 3 | 0 |
 | [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 9 | 1 | 1 | 0 |
 | [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
 | [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 5 | 1 | 1 | 1 |
@@ -511,7 +511,7 @@
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 🔶 | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿 |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | ⬜ | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ⬜ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
-| 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | ⬜ | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
+| 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 🔶 | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | ⬜ | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
 
 ### 已完成條目的遺留待辦
@@ -678,6 +678,7 @@
 > 複合 / 多形狀剛體屬 17.44;GPU 端新種類(`physics/gpu_contact.mojo`)不在本條。
 
 #### 17.53 查詢擴充 — Wave A(承接 17.13 的待辦)
+> **狀態**:🔶 部分完成(2026-10-13:凸形掃掠 / 重疊、距離與最近點對、all-hits / any-hit、命中三角形與重心座標、單面選項、mesh BVH / heightfield DDA 射線遍歷、持久預篩 `QueryIndex`、批次派發 ✅;角色盒形選項、載具輪材質、批次平行的實際加速、GPU 批次對真實形狀(第 7 層)未做)。
 > **現況**:
 > - 查詢有**兩套互不相通**的層。`collision/queries.mojo` 的 `SceneQuery`(`:28-32`:`rebuild` / `raycast` / `overlap`)有四個索引後端
 >   (brute `:101`、BVH `:127`、grid `:155`、tree `:183`),只打 `BoxProxy` 的 AABB、`raycast` 只回最近一筆;
@@ -724,6 +725,31 @@
 > **相依**:17.13(已交付)、17.52(新種類進查詢)、17.54(批次平行用同一個可注入的 fan-out)、17.45(mesh BVH 品質)、17.23 材質(材質 id)、17.46(共用掃掠機件)。
 > **邊界**:導航網格 / AI 視線與 EQS 屬 17.14 / 17.15(它們消費本條);渲染拾取與可見性剔除不在本 repo(無渲染層);通用「查詢結果快取」已被排除(ROADMAP §17.23–17.41 增補「拒絕(5)」);
 > 軟體 / 流體粒子對查詢的覆蓋屬各自條目;broadphase 本身的增量更新(`update_moved`)屬 17.85,本條只消費持久寬相做查詢預篩。
+
+> **進度(2026-10-13)**:
+> - **距離 / 最近點對** `geometry/gjk_distance.mojo`:GJK 距離形式(單純形最近點 + 重心權重,Float64 計算),形狀 = 核心點雲 + 半徑
+>   (球、膠囊、盒、hull、三角形同一入口)。`test_gjk_distance` 15/15:兩單位立方體相距 3 → 1.0、見證點在相對面;球離角 1.2320508(解析同);
+>   斜交膠囊 1.5;300 組隨機點雲每組以「見證點相距 dist(上界)+ 過見證點的兩平面分開兩雲(下界)」證明,最大偏差 2.4e-7。
+>   第一版兩個錯:原點落在四面體內時權重數少一個(越界)、捨入時退回舊 v 但單純形已前進(見證點不一致);以每步前快照修正。
+> - **查詢**(`collision/world_query.mojo`,經 `ContactScene6` 包裝):`QueryShape`(box / sphere / capsule / hull)的 `shape_cast`
+>   (逐候選 Newton 步進:平移下凸集距離是 t 的凸函數,d + d'·Δt 不會越過根;停在半個 skin 外,法向才有定義)、`overlap_shape`、
+>   `closest_points`、`ray_cast_all`(依 t / body / 三角形全序、上限)、`ray_cast_any`;`Hit` 加 `feat`(三角形索引)與 `bary`;
+>   `QueryFilter.one_sided()` 跳過從背面命中的三角形。
+> - **射線遍歷**:mesh 以三角形 BVH 下降(`BVH.ray_leaves`),heightfield 以格線 DDA(`HeightField.ray_candidates`,高度範圍外的格略過),
+>   取代線段 AABB 候選。1 km 斜射線越過 1024×1024 地形:候選 88 vs 1,457,456。
+> - **持久預篩** `QueryIndex`(一幀的姿態 + 碰撞器世界盒 BVH,候選依索引排序)與 `ray_cast_batch`(一次建 index、64 條一組派發)。
+>   `SceneQuery` 的去留:保留為 broadphase 代理層的查詢 seam(既有 parity 測試),真實幾何查詢走 `QueryIndex`,兩者不接。
+> - **順帶修正**:`ColliderSet.fat_aabb` 對膠囊不保守 —— `half` 是 (r, hl, r),盒子停在線段端點、少了端蓋半徑;index 查詢有一條射線打中端蓋卻不在盒內
+>   而漏掉(線性掃描靠射線 AABB 較寬才沒露出)。broadphase 用同一個盒,膠囊端蓋接觸同樣可能漏候選;修正後全套 golden 見提交。
+> - **測試** `test_query_ext` 19/19:0.5 m 盒沿 +x 掃向 hull 階面 t = 2.75(解析 3 − 0.25)、法向 −x;轉 0.3 rad 的盒落到階頂 t = 1.45(解析);
+>   三面牆 all-hits t = 2 / 5 / 9、上限 2 留前兩個;mesh 命中的重心座標重建命中點;單面濾掉背面;300 條射線 mesh BVH 與 heightfield DDA 都找到與逐三角形
+>   暴力相同的三角形(t 差在 1e-5 內:測試自己的 Moller-Trumbore 與套件分開編譯,末位捨入不同);兩球最近點 3.5;`overlap_shape` 恰為兩個盒;
+>   400 條射線 × 300 碰撞器 indexed == linear 逐位;平行批次 == serial 逐位;起點接觸 start_solid、零長度掃掠、無物可撞皆正確。
+> - **bench** `bench_query_ext`(已入報告範本):1024 條射線,線性 vs index(含建置)N = 16 / 256 / 1024 / 4096:783 / 6477 / 24816 / 93625 ns vs
+>   216 / 726 / 1759 / 5227 ns;批次 N = 4096 serial 5.65 ms vs 平行 5.64 ms(其中 index 建置 3.4 ms 為序列,其餘每條約 2 µs 在 4 核容器上平行沒有變快)。
+>   `scripts/run_benchmarks.sh` 加 bench 輸出快取與 `ONLY=` 模式(新增一節不必 26 分鐘全跑)。
+> - **待辦**:角色控制器的盒形選項(`_slide` / `_try_step` 改走 `shape_cast`);載具輪取表面材質;批次平行的實際加速(先量 dispatch 每項成本);
+>   命中材質 id(接 17.23,目前可由 `body` 自查);GPU 批次對真實形狀(第 7 層);CGA 圓形基元閉式最近點的假說。
 
 #### 17.54 CPU 碰撞管線 — Wave B(多執行緒)
 > **現況**:
@@ -2504,7 +2530,10 @@
 > - **per-platform golden**:`agent_gate.sh` 在 linux-x86_64 以外讀 `tests/golden/test_stdout.<os>-<arch>.txt`;CI `portability` 工作
 >   (ubuntu-24.04-arm、macos-14)在該檔不存在時以 `--update-golden` 跑全套並把 golden 印在 log 的標記之間,讀回後提交。
 >   首跑:兩個平台的 build 與 arch-check 都過;測試在 `test_bench_ab` 的 A-vs-A 比值斷言([0.8, 1.25])失敗,
->   兩邊都改 31 輪、A-vs-A 放寬到 [0.5, 2];其餘結果待下一輪。
+>   兩邊都改 31 輪、A-vs-A 放寬到 [0.5, 2]。
+>   第二輪(2c7fb1a):macOS 在 [0.5, 2] 仍失敗(Apple silicon 的效能 / 效率核心讓同一工作的最小時間不穩),改為斷言「A 對 A 不被判定為不同」(31 輪交替順序兩邊都有);
+>   ARM 的 unit / component 全過,`test_fracture` 的碎片堆睡眠比例 5 / 48(x86 47 / 48;磚塊 51 / 54 vs 54 / 54),島數 14 vs 18 ——
+>   與「堆在箱上的碎片碰到軟體上的碎片、軟體永不睡而整島不睡」一致,是混沌堆疊的排列差,不是求解器錯誤;本機無 ARM 無法重現,列入跨目標容差表待辦。
 > - **wasm leaf kernel 探針** `scripts/wasm_probe.py`(selftest 4/4、`pixi run wasm-probe`、CI):對 `tools/wasm/kernel_*.mojo` 每個 `@export` 函式
 >   產 LLVM IR,從該函式沿呼叫圖列出所有只有 declare 的外部符號。`geometry.vec` 的 dot / cross 與 `collision.manifold` 的球-盒查詢:0 個(可出 wasm);
 >   配置 `List` 的對照組需要 `KGEN_CompilerRT_AlignedFree`(要 Mojo runtime)。在 1.1.0 上重驗了 2026-07-24 的 PoC 結論。
@@ -2887,7 +2916,7 @@
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | ⬜ |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
-| 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
+| 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
 | 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | ⬜ |
 | 17.56 | [布料](#1756-布料--wave-b) | 軟體、布料、連續體與流體 | ⬜ |

@@ -406,6 +406,23 @@ struct BVH[dim: Int](Copyable, Movable):
         self._raycast(n.left, ray, best, best_t)
         self._raycast(n.right, ray, best, best_t)
 
+    def ray_leaves(self, ray: Ray[Self.dim], mut out: List[Int]):
+        """Every leaf whose box the ray segment [0, max_t] enters, descending
+        only nodes it enters (ROADMAP 17.53: a long diagonal ray over a mesh
+        visits the boxes along it, not every box inside its bounding box)."""
+        if self.root >= 0:
+            self._ray_leaves(self.root, ray, out)
+
+    def _ray_leaves(self, node: Int, ray: Ray[Self.dim], mut out: List[Int]):
+        var n = self.nodes[node]
+        if not ray_aabb(ray, n.box).hit:
+            return
+        if n.is_leaf():
+            out.append(n.proxy)
+            return
+        self._ray_leaves(n.left, ray, out)
+        self._ray_leaves(n.right, ray, out)
+
     def query_region(self, box: AABB[Self.dim], mut out: List[Int]):
         if self.root < 0:
             return

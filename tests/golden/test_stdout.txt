@@ -60,6 +60,11 @@ build: all packages precompiled into build/
 [PASS] ga_core - 137 / 137 checks
 --- tests/test_gjk.mojo ---
 [PASS] gjk - 9 / 9 checks
+--- tests/test_gjk_distance.mojo ---
+  cubes 3 apart: 1.0  pa.x 1.0  pb.x 2.0  normal 1.0 1.3877788e-16 2.7755576e-17
+  sphere off the corner: 1.2320508  want 1.2320508
+  300 random clouds: GJK above the vertex-pair bound by at most 2.3841858e-07  witness gap error 4.7683716e-07
+[PASS] gjk_distance - 15 / 15 checks
 --- tests/test_gpu_cloth.mojo ---
   max horizontal neighbour distance: 0.05000007152337331
 [PASS] gpu_cloth - 4 / 4 checks
@@ -654,6 +659,17 @@ build: all packages precompiled into build/
 [PASS] python_binding - 14 / 14 checks
 --- tests/test_queries.mojo ---
 [PASS] queries - 28 / 28 checks
+--- tests/test_query_ext.mojo ---
+  box swept +x into the step face: t 2.74995  normal -1.0 -1.1087174e-12 5.0238754e-12
+  turned box dropped onto the step top: t 1.4499501
+  ray through three walls: hits 3  t 1.9999999 5.0 9.0
+  mesh BVH traversal vs brute force: 300 / 300 rays agree
+  heightfield DDA vs brute force: 300 / 300 rays agree
+  two spheres: distance 3.5  witnesses 0.3 0.4  / 2.4 3.2
+  box over the mesh: distance 3.5 1.5472828  ray below the box centre 1.67
+  BVH prefilter vs linear scan: 400 / 400 rays identical
+  batch of 400: 62 hits; parallel == serial True
+[PASS] query_ext - 19 / 19 checks
 --- tests/test_ragdoll.mojo ---
   driven: worst joint error (deg) 3.7802036
   driven at 20 Hz: worst joint error (deg) 0.7252338

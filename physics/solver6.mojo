@@ -57,7 +57,16 @@ from collision.world_query import (
     overlap_sphere as wq_overlap_sphere,
     capsule_penetrations as wq_capsule_penetrations,
     point_distance as wq_point_distance,
+    ray_cast_all as wq_ray_cast_all,
+    ray_cast_any as wq_ray_cast_any,
+    ray_cast_indexed as wq_ray_cast_indexed,
+    shape_cast as wq_shape_cast,
+    overlap_shape as wq_overlap_shape,
+    closest_points as wq_closest_points,
+    QueryShape,
+    QueryIndex,
 )
+from geometry.gjk_distance import ConvexDistance
 from collision.collider_set import (
     SPEC_BASE,
     ColliderSet,
@@ -1133,6 +1142,56 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def closest_point(self, i: Int, p: Vec3) -> Probe:
         return wq_point_distance(self.colliders, i, self._pose(i), p)
 
+    # 17.53 -- multi-hit rays, convex shape queries, persistent prefilter.
+
+    def ray_cast_all(
+        self, origin: Vec3, dir: Vec3, max_t: Real, f: QueryFilter, max_hits: Int = 64
+    ) -> List[Hit]:
+        return wq_ray_cast_all(self.colliders, self.query_poses(), origin, dir, max_t, f, max_hits)
+
+    def ray_cast_any(self, origin: Vec3, dir: Vec3, max_t: Real, f: QueryFilter) -> Bool:
+        return wq_ray_cast_any(self.colliders, self.query_poses(), origin, dir, max_t, f)
+
+    def shape_cast(
+        self, shape: QueryShape, pose: Pose3, dir: Vec3, max_t: Real, f: QueryFilter
+    ) -> Hit:
+        return wq_shape_cast(self.colliders, self.query_poses(), shape, pose, dir, max_t, f)
+
+    def overlap_shape(self, shape: QueryShape, pose: Pose3, f: QueryFilter) -> List[Int]:
+        return wq_overlap_shape(self.colliders, self.query_poses(), shape, pose, f)
+
+    def closest_points(self, a: BodyId, b: BodyId, search: Real = 1e30) raises -> ConvexDistance:
+        """Separation distance and closest points of two bodies' colliders
+        (`collision.world_query.closest_points`)."""
+        var i = self._check_id(a, "closest_points")
+        var j = self._check_id(b, "closest_points")
+        return wq_closest_points(self.colliders, self.query_poses(), i, j, search)
+
+    def query_index(self) -> QueryIndex:
+        """This step's poses plus a BVH over the colliders, for many queries
+        in one frame (rebuild after bodies move)."""
+        return QueryIndex(self.colliders, self.query_poses())
+
+    def ray_cast_batch(
+        self,
+        origins: List[Vec3],
+        dirs: List[Vec3],
+        max_t: Real,
+        f: QueryFilter,
+        dispatch: Dispatch = Dispatch.serial(),
+        workers: Int = 0,
+    ) -> List[Hit]:
+        """Many rays against one index built for the batch; each ray is an
+        independent item, so any `dispatch` gives the same list."""
+        var idx = self.query_index()
+        var out = List[Hit](capacity=len(origins))
+        for _ in range(len(origins)):
+            out.append(Hit.miss())
+        var task = _RayTask(self.colliders, idx, origins, dirs, out, max_t, f)
+        dispatch_for(dispatch, task, (len(origins) + _RAY_CHUNK - 1) // _RAY_CHUNK, workers)
+        _ = idx^
+        return out^
+
     def _constraint_edges(self, pairs: List[ContactConstraint]) -> List[Int]:
         """The flat `(a, b)` edge list `islands.refresh_islands` takes:
         this step's contacts first, then the joints -- the order the island
@@ -2078,6 +2137,44 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 cfg.default_friction, members, mcnt[o], mcnt[o + 1], cfg.restitution_threshold,
             )
         return pairs2^
+
+
+comptime _RAY_CHUNK = 64
+
+
+struct _RayTask(Task):
+    """A chunk of rays per item, each written to its own slot of `out`
+    (17.53)."""
+
+    var cs: Pointer[ColliderSet, ImmUntrackedOrigin]
+    var idx: Pointer[QueryIndex, ImmUntrackedOrigin]
+    var origins: Pointer[List[Vec3], ImmUntrackedOrigin]
+    var dirs: Pointer[List[Vec3], ImmUntrackedOrigin]
+    var out: Pointer[List[Hit], MutUntrackedOrigin]
+    var max_t: Real
+    var f: QueryFilter
+
+    def __init__(
+        out self, cs: ColliderSet, idx: QueryIndex, origins: List[Vec3], dirs: List[Vec3],
+        mut out: List[Hit], max_t: Real, f: QueryFilter,
+    ):
+        self.cs = Pointer(to=cs).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.idx = Pointer(to=idx).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.origins = Pointer(to=origins).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.dirs = Pointer(to=dirs).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.out = Pointer(to=out).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.max_t = max_t
+        self.f = f
+
+    def run(self, c: Int):
+        # one item = a chunk of _RAY_CHUNK rays: a single ray is ~2 us of
+        # work, less than handing it to a worker costs
+        var lo = c * _RAY_CHUNK
+        var hi = min(lo + _RAY_CHUNK, len(self.origins[]))
+        for i in range(lo, hi):
+            self.out[][i] = wq_ray_cast_indexed(
+                self.cs[], self.idx[], self.origins[][i], self.dirs[][i], self.max_t, self.f
+            )
 
 
 struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):

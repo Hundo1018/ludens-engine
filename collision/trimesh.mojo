@@ -34,6 +34,7 @@ from std.math import sqrt, floor
 from geometry.vec import Real, Vec3, dot, length, normalize
 from geometry.aabb import AABB
 from spatial.bvh import BVH
+from geometry.ray import Ray
 from geometry.gjk import ConvexPoly
 
 
@@ -210,6 +211,10 @@ struct TriMesh(Movable, Deinitable):
 
     def candidates(self, box: AABB[3], mut out: List[Int]):
         self.bvh.query_region(box, out)
+
+    def ray_candidates(self, o: Vec3, d: Vec3, max_t: Real, mut out: List[Int]):
+        """Triangles whose BVH boxes the ray segment enters (ROADMAP 17.53)."""
+        self.bvh.ray_leaves(Ray[3](o, d, max_t), out)
 
     def bounds(self) -> AABB[3]:
         var n = len(self.v) // 3
@@ -418,6 +423,73 @@ struct HeightField(Movable, Deinitable):
         f.append(n[1])
         f.append(n[2])
         return f^
+
+    def ray_candidates(self, o: Vec3, d: Vec3, max_t: Real, mut out: List[Int]):
+        """Triangles of the cells the ray's x/z projection crosses, in order
+        (ROADMAP 17.53: a grid DDA, Amanatides-Woo 1987). A cell is skipped
+        when the ray's height over it stays above the cell's highest corner
+        or below its lowest."""
+        if self.nx < 2 or self.nz < 2:
+            return
+        var x_hi = self.ox + Real(self.nx - 1) * self.cell
+        var z_hi = self.oz + Real(self.nz - 1) * self.cell
+        # clip the segment to the grid's x / z slab
+        var t0 = Real(0)
+        var t1 = max_t
+        for kk in range(2):
+            var k = 2 * kk  # x, then z
+            var lo = self.ox if k == 0 else self.oz
+            var hi = x_hi if k == 0 else z_hi
+            if abs(d[k]) < 1e-12:
+                if o[k] < lo or o[k] > hi:
+                    return
+                continue
+            var ta = (lo - o[k]) / d[k]
+            var tb = (hi - o[k]) / d[k]
+            if ta > tb:
+                var tmp = ta
+                ta = tb
+                tb = tmp
+            t0 = max(t0, ta)
+            t1 = min(t1, tb)
+        if t0 > t1:
+            return
+        var px = o[0] + d[0] * t0
+        var pz = o[2] + d[2] * t0
+        var ix = min(max(Int(floor(Float64((px - self.ox) / self.cell))), 0), self.nx - 2)
+        var iz = min(max(Int(floor(Float64((pz - self.oz) / self.cell))), 0), self.nz - 2)
+        var sx = 1 if d[0] > 0 else -1
+        var sz = 1 if d[2] > 0 else -1
+        var big = Real(1e30)
+        var tdx = self.cell / abs(d[0]) if abs(d[0]) > 1e-12 else big
+        var tdz = self.cell / abs(d[2]) if abs(d[2]) > 1e-12 else big
+        var nxb = self.ox + Real(ix + (1 if sx > 0 else 0)) * self.cell
+        var nzb = self.oz + Real(iz + (1 if sz > 0 else 0)) * self.cell
+        var tmx = (nxb - o[0]) / d[0] if abs(d[0]) > 1e-12 else big
+        var tmz = (nzb - o[2]) / d[2] if abs(d[2]) > 1e-12 else big
+        var per_row = (self.nx - 1) * 2
+        var t = t0
+        while True:
+            var t_exit = min(min(tmx, tmz), t1)
+            var y_a = o[1] + d[1] * t
+            var y_b = o[1] + d[1] * t_exit
+            var c_lo = min(min(self.height_at(ix, iz), self.height_at(ix + 1, iz)), min(self.height_at(ix, iz + 1), self.height_at(ix + 1, iz + 1)))
+            var c_hi = max(max(self.height_at(ix, iz), self.height_at(ix + 1, iz)), max(self.height_at(ix, iz + 1), self.height_at(ix + 1, iz + 1)))
+            if not (min(y_a, y_b) > c_hi + 1e-4 or max(y_a, y_b) < c_lo - 1e-4):
+                out.append(iz * per_row + 2 * ix)
+                out.append(iz * per_row + 2 * ix + 1)
+            if t_exit >= t1:
+                return
+            if tmx < tmz:
+                ix += sx
+                t = tmx
+                tmx += tdx
+            else:
+                iz += sz
+                t = tmz
+                tmz += tdz
+            if ix < 0 or ix > self.nx - 2 or iz < 0 or iz > self.nz - 2:
+                return
 
     def candidates(self, box: AABB[3], mut out: List[Int]):
         """Cells overlapping the query box, as triangle indices. No tree: the

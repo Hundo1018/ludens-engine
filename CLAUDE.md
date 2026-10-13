@@ -27,6 +27,7 @@ pixi run gate              # 變更的總閘門:整套測試 + 摘要 + 與 test
 pixi run gate -- --update-golden   # 接受本次輸出為新 golden
 pixi run gate -- --selftest        # 測試閘門工具本身(golden、archindex)
 pixi run benchmark         # 重跑所有 bench,重新產生 BENCHMARK_REPORT.md
+ONLY="bench_x.mojo" pixi run benchmark   # 只重跑列出的 bench,其餘取 build/bench_out/ 快取(需先有一次完整執行)
 pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.mojo;凍結清單 embed/abi_v0.txt)
 pixi run build-f64         # 以 f64 世界純量建全部套件到 build64/(scripts/build_f64.sh,約 1 分鐘;17.8)
 pixi run wheel             # 建 Python wheel build/dist/ludens-*.whl(python/;ctypes 包 C-ABI,內含 Mojo runtime)
