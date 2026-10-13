@@ -516,6 +516,15 @@ build: all packages precompiled into build/
   pyramid top y: 2.746126174926758 expected settled: 2.75
   colored iters=8: sleeping 21 of 21
 [PASS] colored - 6 / 6 checks
+--- tests/test_compound.mojo ---
+  box + sphere: mass 73.51033 want 73.51032163829112  com 0.22792937 0.13675761 want 0.22792936346530543 0.13675761807918324
+  principal moments 1.3993801 9.605963 10.202511  hand sum 1.3993802 9.605963 10.202511  product of inertia -2.7351523
+  L after 4 s: lowest corner y -0.00017431378  speed 1.8519152e-07
+  single child vs plain box after 2 s: y 0.19964485 0.19964485
+  two halves y 0.24984786  whole box y 0.24958685
+  L queries: ray down onto the upright t 2.1  ray along -x t 2.5  distance from (0.2, 1, 0) 0.50990194
+  1000-sphere compound after 1 s: y 0.49998984  speed 2.674459e-06
+[PASS] compound - 18 / 18 checks
 --- tests/test_contact_rules.mojo ---
   one-way: highest 3.548625  rest 2.2997062
   conveyor: crate vx 2.0
@@ -533,6 +542,12 @@ build: all packages precompiled into build/
 [PASS] diffsolver - 26 / 26 checks
 --- tests/test_dispatch.mojo ---
 [PASS] dispatch - 10 / 10 checks
+--- tests/test_distance_field.mojo ---
+  unit sphere from 5 m: analytic t 4.0 ( 1 steps )  41^3 grid t 3.999996 ( 9 steps )
+  300 points: worst |grid - analytic| 0.0061154366  cell 0.1
+  box minus sphere, from the cavity centre: analytic t 0.6  grid t 0.599994
+  box on the plane SDF: hand-filled y 0.24972449  from_field(Sdf3.plane) y 0.24972449
+[PASS] distance_field - 8 / 8 checks
 --- tests/test_ellipsoid.mojo ---
   equal radii 0.5 on a box floor: y 0.4997246  sphere r 0.5: y 0.49972457
   radii (1, 0.5, 0.7) lying: y 0.4997246
@@ -573,7 +588,7 @@ build: all packages precompiled into build/
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
   shot: broke 101 bonds, thrown through 36 , left in line 0 , live bonds 42 of 143 , ball z -2.375662
-  bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 19 , on crate 27 , on ledge 24 , lowest centre 0.1660517454147339 , soft top moved -0.04928112030029297 , crate sag 0.011111095547676086 , max speed 0.0
+  bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 16 , on crate 27 , on ledge 24 , lowest centre 0.16602705419063568 , soft top moved -0.04955017566680908 , crate sag 0.011111095547676086 , max speed 0.0016872405540198088
   shards: 72 fragments, asleep 48 of 48 on rigid bodies, islands 19 , on crate 20 , on ledge 12 , lowest centre 0.025111492723226547 , soft top moved -0.11496871709823608 , crate sag 0.010717988014221191 , max speed 0.09138830006122589
   L chain: parts 2 fragments 36 volume 1.2 parts volume 1.2
   L chain: bonds within parts 104 across parts 23
@@ -680,7 +695,7 @@ build: all packages precompiled into build/
 [PASS] nav_world - 6 / 6 checks
 --- tests/test_netcode.mojo ---
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
-  netcode: snapshot 5024 bytes full, 1321 bytes per frame to all clients (delta), frames 249
+  netcode: snapshot 5024 bytes full, 1342 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
 --- tests/test_numerics.mojo ---
   poisson n 8  iters 4  residual 6.3596014e-17  worst error 0.0
@@ -741,7 +756,7 @@ build: all packages precompiled into build/
   60 N for 1/60 s: 1.0  impulse 1: 1.0  accel 60 on 5 kg: 1.0000001
   2.5D locked box after 2 s: pos 1.1842696 0.3483379 0.0
   capped fall: max speed 3.0  clamps counted 42
-  QuatBody6 vs ScrewBody6 with damping / locks / scale / force: worst position gap 0.0017216035  control without parameters 0.0036809563
+  QuatBody6 vs ScrewBody6 with damping / locks / scale / force: worst position gap 0.0017216035  control without parameters 0.0009907689
 [PASS] rigid_params - 32 / 32 checks
 --- tests/test_rolling_sphere.mojo ---
   sphere v0=3 mu=0.5: vx(1.5 s) = 2.1428554  vx(4 s) = 2.1428554  omega*r(4 s) = 2.1428554  y(4 s) = 0.49972457
@@ -807,7 +822,7 @@ build: all packages precompiled into build/
 --- tests/test_softccd.mojo ---
   no-ccd max particle x: 9.205573081970215
   ccd max particle x: -0.9510564804077148
-  plate ccd: min bottom 0.40471795201301575 cube top 0.6543258428573608
+  plate ccd: min bottom 0.31601983308792114 cube top 0.650081992149353
   plate no-ccd: min bottom -0.09624940156936646
 [PASS] softccd - 6 / 6 checks
 --- tests/test_softcouple.mojo ---
