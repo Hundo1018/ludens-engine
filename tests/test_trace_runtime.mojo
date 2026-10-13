@@ -16,10 +16,21 @@ from harness.runner import Suite
 def main() raises:
     var s = Suite("trace_runtime")
     var sp = Python.import_module("subprocess")
-    var r = sp.run(
-        Python.list("mojo", "run", "--target-cpu", "skylake", "-D", "LUDENS_TRACE", "-D", "ASSERT=all", "-I", "build", "tests/probes/trace_on_probe.mojo"),
-        capture_output=True, text=True,
-    )
+    var os = Python.import_module("os")
+    var platform = Python.import_module("platform")
+    # the same CPU choice as scripts/run_tests.sh: LUDENS_TARGET_CPU if set,
+    # skylake on x86-64, the host CPU elsewhere (a fixed "skylake" failed on
+    # the linux-aarch64 runner: unknown target CPU)
+    var args = Python.list("mojo", "run")
+    var cpu = String(os.environ.get("LUDENS_TARGET_CPU", ""))
+    if cpu == "" and String(platform.machine()) == "x86_64":
+        cpu = "skylake"
+    if cpu != "":
+        _ = args.append("--target-cpu")
+        _ = args.append(cpu)
+    for a in ["-D", "LUDENS_TRACE", "-D", "ASSERT=all", "-I", "build", "tests/probes/trace_on_probe.mojo"]:
+        _ = args.append(a)
+    var r = sp.run(args, capture_output=True, text=True)
     # indented so the probe's own "[PASS]" line is not read as a suite result
     for line in String(r.stdout).strip().split("\n"):
         print("  probe:", line)
