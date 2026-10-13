@@ -2110,7 +2110,7 @@
 | 17.15 | [AI 框架](#1715-ai-框架) | ✅ | C | 新套件 `ai`(layer 4):blackboard、behavior tree(迭代 tick)、utility AI、GOAP / HTN、決策 seam(BT / FSM / utility / GOAP)、感知(視錐 + 宿主視線批次、聽覺、記憶)、EQS、轉向 / 群聚 / 隊形、smart objects、影響力圖與隊伍戰爭迷霧。 |
 | 17.16 | [網路 / rollback](#1716-網路--rollback) | ✅ | C | `gameplay/netcode.mojo`:`NetSim` 契約、預測策略 seam(`LockstepPeer` / `RollbackPeer` / `SnapshotServer` + `SnapshotClient`)、位元組訊息(冗餘輸入 + ack、XOR + RLE 差分快照)、雜湊交換失步偵測、輸入驗證、延遲補償(`PoseRing` + `rewind_ray_cast`);傳輸層交宿主。 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | 🔶 | C | 屬性集、Gameplay tags、效果、技能、傷害管線、資料驅動 |
-| 17.72 | [流程服務](#1772-流程服務--wave-c) | ⬜ | C | 流程狀態堆疊、全域旗標 / 黑板、任務 / 目標圖、對話 / 敘事狀態、關卡切換協定、檢查點 / 重生 |
+| 17.72 | [流程服務](#1772-流程服務--wave-c) | 🔶 | C | 流程狀態堆疊、全域旗標 / 黑板、任務 / 目標圖、對話 / 敘事狀態、關卡切換協定、檢查點 / 重生 |
 | 17.73 | [營運邊界](#1773-營運邊界--wave-c) | ⬜ | C | 對外 outbox、遙測分流、成就 / 統計計數、本地化鍵、入站資料決定論、黑盒記錄器 |
 
 ### 待辦與部分完成條目
@@ -2228,6 +2228,13 @@
 > **邊界**:血條等 UI、VFX / SFX 播放(以事件交宿主)、平衡數值與內容屬設計;背包 / 戰利品 / 任務屬 17.72;網路複製屬 17.16。
 
 #### 17.72 流程服務 — Wave C
+> **進度註(2026-10-13)**:`gameplay/flow.mojo`(`FlowStack`:push / pop、頂端狀態以 `TICK_SIM` / `TICK_TIMERS` / `TICK_EVENTS` 遮罩決定誰 tick;`Flags`:
+> INT / BOOL / FX 型別旗標、僅實際變更進 `changed`、按名稱 `to_bytes` / `load`,型別改變 raise)、`gameplay/objectives.mojo`(`ObjectiveLog`:事件型別計數目標、
+> 前提、選用、`DISPATCH_LINEAR` / `DISPATCH_INDEXED`;前提只能指向較早目標 → 循環在 `add` 時 raise;解鎖於同一事件者從下一事件起算)、`gameplay/inventory.mojo`
+> (`Inventory` 堆疊上限、溢出回傳;`LootTable` 權重 + `Pcg32` 種子)。量測(`tests/test_flow.mojo` 14/14):暫停 / 選單堆疊依序;任務依事件序完成、鎖定時事件不計;
+> 線性與索引派發 300 目標 × 5000 事件完成序相同;10 萬次掉落 70.011 / 25.002 / 4.987 %(權重 70 / 25 / 5)、權重 0 未出現;檢查點(旗標位元組 + 目標 / 背包複本)死亡後還原相同。
+> `bench_flow`:每事件 N = 100 / 1000 / 10000:線性 434 / 3115 / 26267 ns、索引 197 / 588 / 4784 ns(首版每事件快照全部目標的活躍狀態,索引只快 2×;改為只快照聆聽者)。
+> **未做**:`checkpoint.mojo`(與 17.40 存檔 / 6.10 快照的正式接線、RNG 狀態)、對話圖、關卡切換協定、世界分區事件、`Recorder` 含流程狀態、旗標事件 → 目標的接線。
 > **現況**:只有零件,沒有流程。`gameplay/runtime.mojo:70-101` `Runtime` 擁有 world、scene、固定步迴圈、事件通道、計時器,但**沒有遊戲狀態 / 關卡 / 暫停概念**;時間縮放與暫停被路線圖明列為「由呼叫端縮放或跳過 `frame_dt` 即可」(ROADMAP §17.23–17.41 增補「拒絕(5)」,`scheduler/gameloop.mojo:31-45` `advance(…, frame_dt)`)。grep `[Qq]uest|[Dd]ialogue|[Oo]bjective|[Cc]heckpoint|[Ii]nventory|\bloot|GameState|ScreenStack|LevelStream|[Cc]utscene|Timeline|\bpause` 於全樹 `.mojo` 命中的 `checkpoint` 僅是自動微分的檢查點(`physics/diffsim.mojo:97`、`physics/adjoint.mojo:94`、`benchmarks/bench_diffsim.mojo:142`),`inventory` / `quests` 只是存檔測試的區段名 fixture(`tests/test_save.mojo:73,127`),其餘為無關的英文字串,引擎套件內遊戲層面零命中。全域旗標 / 黑板:grep `resource|singleton|blackboard` 於 `ecs scheduler gameplay` 零命中(17.15 只在計畫中提 blackboard,ROADMAP §17.15)。已有的可組裝件:階層狀態機 `procedural/fsm.mojo:18`(history、事件冒泡,無堆疊 / push-pop)、事件 `scheduler/events.mojo:1-40`、計時器 `scheduler/timers.mojo:1-50`、存檔 `gameplay/save.mojo:70-196`(具名區段、按欄位名升版)、回放 / 快照 `gameplay/replay.mojo:101-158`(`Recorder`、`seek`)、反射 `ecs/schema.mojo:47`。17.12 場景格式「跟宿主走、本輪不做」(ROADMAP §17.12)。
 > **缺口**:
 > - **流程狀態堆疊**:Boot → Menu → Loading → Playing → Paused → GameOver,可 push / pop(暫停疊在遊玩上),各狀態宣告哪些子系統 tick(模擬 / 計時器 / 事件)——把「呼叫端跳過 `frame_dt`」正式化。
@@ -3308,7 +3315,7 @@
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | 🔶 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
-| 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
+| 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.73 | [營運邊界](#1773-營運邊界--wave-c) | gameplay 服務、AI、導航與網路 | ⬜ |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | 🔶 |

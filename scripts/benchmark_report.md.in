@@ -2369,6 +2369,20 @@ scans the modifier list for overrides on every read, which is why it gains
 less than the dirty cache.
 
 @bench benchmarks/bench_rules.mojo
+## Gameplay — flow, objectives, inventory (17.72)
+
+`gameplay/flow.mojo` (state stack deciding what ticks; typed world flags
+with change events and by-name serialisation), `gameplay/objectives.mojo`
+(event-driven objectives with prerequisites; cycles refused at `add`) and
+`gameplay/inventory.mojo` (stacked slots; seeded weighted loot).
+`test_flow`: linear and indexed dispatch complete the same 300 objectives
+in the same order over 5000 events; 100000 loot draws land at
+70.011 / 25.002 / 4.987 % for weights 70 / 25 / 5. Rows: cost per event.
+The first version snapshotted every objective's activeness per event
+(O(N)), which capped the index at 2x; snapshotting only the listeners
+gives the ratio below.
+
+@bench benchmarks/bench_flow.mojo
 
 ## Raycast vehicles (17.4)
 
