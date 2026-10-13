@@ -135,7 +135,7 @@ def bench_setbuffer(mut table: BenchTable):
     var t2 = now()
     for k in range(WRITES):
         buf.set(idsb[k % N], Position(k, -k))
-    buf.apply(wb)
+    _ = buf.apply(wb)
     var t3 = now()
     keep(wb.get[Position](idsb[0]).x)
     table.add("setbuffer record+apply", WRITES, "write", t3 - t2, WRITES)

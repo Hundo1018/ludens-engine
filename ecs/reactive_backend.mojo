@@ -28,7 +28,7 @@ from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
-from .storage import StorageBackend
+from .storage import StorageBackend, Filter, SlotMask, resolve_filter, check_pack
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -85,6 +85,7 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
     var observers: type_of(alloc[List[_Observer]](Layout[List[_Observer]](count=1)).unsafe_leak())  # push subscriptions
 
     def __init__(out self):
+        check_pack[*Self.CTs]()
         self.slots = List[Slot](capacity=Self.N)
         comptime for i in range(Self.N):
             comptime T = Self.CTs[i]
@@ -261,6 +262,59 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
             self._emit(EV_REMOVE, Self._slot_of[C](), e.id)
 
     # --- queries: read cached groups ---
+    def _has_slot(self, s: Int, id: Int) -> Bool:
+        comptime for i in range(Self.N):
+            if i == s:
+                return self._store[Self.CTs[i]]()[].contains(id)
+        return False
+
+    def _len_slot(self, s: Int) -> Int:
+        comptime for i in range(Self.N):
+            if i == s:
+                return self._store[Self.CTs[i]]()[].dense_len()
+        return 0
+
+    def _key_slot(self, s: Int, k: Int) -> Int:
+        comptime for i in range(Self.N):
+            if i == s:
+                return self._store[Self.CTs[i]]()[].key_at(k)
+        return -1
+
+    def _passes(self, m: SlotMask, id: Int, skip: Int) -> Bool:
+        var anyhit = m.any_bits == 0
+        for s in range(Self.N):
+            var bit = 1 << s
+            if s != skip and (m.with_bits & bit) != 0 and not self._has_slot(s, id):
+                return False
+            if (m.without_bits & bit) != 0 and self._has_slot(s, id):
+                return False
+            if not anyhit and (m.any_bits & bit) != 0 and self._has_slot(s, id):
+                anyhit = True
+        return anyhit
+
+    def select(self, f: Filter) -> List[Entity]:
+        """17.77: walk the smallest `with_` store and probe the rest (every
+        live entity when there is no `with_` type)."""
+        var m = resolve_filter[*Self.CTs](f)
+        var out = List[Entity]()
+        if m.impossible:
+            return out^
+        var best = -1
+        for s in range(Self.N):
+            if (m.with_bits >> s) & 1 == 1 and (best < 0 or self._len_slot(s) < self._len_slot(best)):
+                best = s
+        if best >= 0:
+            for k in range(self._len_slot(best)):
+                var id = self._key_slot(best, k)
+                if self._passes(m, id, best):
+                    out.append(Entity(id, self.alive.get(id)))
+        else:
+            for k in range(len(self.alive)):
+                var id = self.alive.key_at(k)
+                if self._passes(m, id, -1):
+                    out.append(Entity(id, self.alive.get(id)))
+        return out^
+
     def matching1[A: ComponentType](self) -> List[Entity]:
         return self._collect(self._group_for(1 << Self._slot_of[A]()))
 

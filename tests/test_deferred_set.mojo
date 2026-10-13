@@ -47,7 +47,7 @@ def main() raises:
         buf.set(ef[i], Velocity(i * 2, -i))
         buf.set(ef[i], Position(i * 10, i))
     s.eqi(buf.pending(), 16, "sixteen writes recorded")
-    buf.apply(wf)
+    _ = buf.apply(wf)
     s.eqi(buf.pending(), 0, "buffer reset after apply")
     var all_eq = True
     for i in range(8):
@@ -67,7 +67,7 @@ def main() raises:
     b2.set(e2, Position(1, 1))
     b2.set(e2, Velocity(9, 9))
     b2.set(e2, Position(2, 2))  # must land AFTER Position(1,1)
-    b2.apply(w2)
+    _ = b2.apply(w2)
     s.eqi(Int(w2.get[Position](e2).x), 2, "recording order replayed exactly")
 
     # 3. Deferred write while iterating: mutate-during-query via the buffer
@@ -81,7 +81,7 @@ def main() raises:
         b3.set(hits[i], Position(100 + i, 0))  # deferred: safe mid-iteration
         var again = w3.query1[Position]()  # world unchanged during recording
         s.eqi(len(again), 4, "world untouched while recording " + String(i))
-    b3.apply(w3)
+    _ = b3.apply(w3)
     var moved = 0
     var after = w3.query1[Position]()
     for i in range(len(after)):
@@ -98,7 +98,7 @@ def main() raises:
     b4.set(e4, Position(7, 7))
     b4.set(e5, Position(8, 8))
     w4.despawn(e4)
-    b4.apply(w4)
+    _ = b4.apply(w4)
     s.check(not w4.is_alive(e4), "despawned stays dead")
     s.eqi(Int(w4.get[Position](e5).x), 8, "surviving write landed")
     s.eqi(w4.entity_count(), 1, "no resurrection")
@@ -109,7 +109,7 @@ def main() raises:
     var e6 = w5.spawn1(Position(0, 0))
     b5.set(e6, Position(3, 4))
     b5.set(e6, Velocity(5, 6))
-    b5.apply(w5)
+    _ = b5.apply(w5)
     s.check(
         Int(w5.get[Position](e6).x) == Int(w2.get[Position](e2).x) + 1,
         "deterministic final state (3 == 2+1 sanity)",

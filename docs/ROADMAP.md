@@ -2119,7 +2119,7 @@
 | 17.39 | [輸入錄製 / 決定論回放(QA・ghost,非網路)](ROADMAP_HISTORY.md#1739-輸入錄製--決定論回放qaghost非網路--wave-b) | ✅ | B | `gameplay/replay.mojo` 提供 `SimState` / `Recorder`(錄製輸入、定期存快照、每 tick 存 FNV-1a 狀態雜湊)以及 `replay_from_start` / `seek` / `first_divergence` / `ghost`;`test_replay` 8/8 驗證 seek 與全程重跑逐位相同;`bench_replay` 在快照間隔 10 時尋位只要 0.10 ms,全程重跑則是 32.6 ms。 |
 | 17.40 | [存檔系統(相對於決定論快照)](ROADMAP_HISTORY.md#1740-存檔系統相對於決定論快照--wave-b) | ✅ | B | `gameplay/save.mojo` 建在 17.11 schema 上,提供 `SaveWriter` / `SaveReader`:具名區段,按欄位名載入,處理新增、刪除、改型的欄位並以 `ReadReport` 回報;`save_bodies` / `load_bodies` 只存動態體的姿態與速度;`test_save` 11/11 驗證存檔涵蓋的欄位與 6.10 快照逐位相同;`bench_save` 的存檔大小為 74 KB,快照為 932 KB。 |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | 不排 | B | 規劃在 `CommandBuffer`(4.4)與 17.11 `TypeSchema` 之上建交易式 undo / redo 層(begin/commit/abort、反向操作記錄、物理場景 inverse op),以 `UndoLog` 差分 vs `SnapshotUndo` 全快照為 seam;目前只有零件,交易與反向操作層未做。 |
-| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ⬜ | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
+| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | 🔶 | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ⬜ | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ⬜ | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
@@ -2227,6 +2227,20 @@
 > **決定**:2026-10-09 修訂(Wave C 暫停點,平台方向 = C 嵌入式模擬函式庫)列為不排。
 
 #### 17.77 ECS 表達力 — Wave B
+
+> **狀態**:🔶 部分完成(2026-10-13:過濾器 with / without / any(六後端原生)、N 元查詢(`Filter` 任意個 `with_`)、pull 變更偵測、資源、延遲 remove / despawn / spawn、
+> 型別規模防護 ✅;`for_each3+` 零配置迭代、有狀態系統與 `Runtime` 使用者系統註冊(經 `JobGraphScheduler`)未做)。
+> **進度註(2026-10-13)**:`ecs/storage.mojo`:`Filter().with_[A]().without[B]().any[C]()`(以元件 ID 記錄;pack 外的 `with_` 型別使結果為空,`without` / `any` 則忽略),
+> `StorageBackend.select` 由六後端各自原生實作 —— archetype 每個簽名測一次 mask、bitset 字級 AND / AND-NOT / OR、sparse-set / reactive 走最小的 `with_` 集合再探測、
+> naive / chunked 逐 id 掃。`check_pack` 在每個後端建構時 comptime 檢查 ID 重複與 > 63 型別(`test_ecs_pack_guard` 以子程序編譯三個生成程式:對照組可建、
+> 重複 ID 與 64 型別皆編譯失敗並帶訊息)。`World`:`select`;`track_changes(window)` / `advance_tick` / `changed[C](since)` / `added[C](since)` / `mark_changed`
+> (逐元件寫入日誌保留最近 window 個 tick,較舊的 `since` 退回全掃描;despawn 清除該 id 的紀錄,id 重用不誤報;`for_each2` 的就地寫入不被追蹤);
+> `set_resource[T]` / `resource[T]`(一個保留實體上的元件,flecs 的 singleton 作法)。`SetBuffer` 成為單一錄製序緩衝:`set` / `remove[C]` / `despawn` / `spawn`
+> (佔位 `Entity` 可在同一緩衝內被後續紀錄引用,`apply` 回傳實體)。`Pool.active_query*` 改走 `without[Disabled]`。
+> 量測(`tests/test_ecs_query.mojo` 24/24):n = 40 / 130 的建構腳本(含 despawn、id 重用、remove)後,七個過濾器在六後端上與逐個 `has` 的暴力結果相等且彼此相等;
+> `changed` / `added` 只回本 tick 的寫入;9 型別、300 個不同 archetype 簽名的查詢正確(舊註解寫的 256 只是初始容量)。
+> bench `bench_ecs_query`(N = 20000,µs):`select` without vs `query1` + `has` —— disabled 佔 99 % 時 archetype 3 vs 385、bitset 5 vs 209、sparse-set 111 vs 277;
+> 佔 1 % 時 sparse-set 208 vs 175、naive 218 vs 196(較慢:逐槽 comptime 分派探測);`changed[C]`(1 % 被寫)9–25 vs 手工 dirty 欄位全掃描 171–492。
 > **緣起**:ECS 的儲存後端已有六種(archetype / sparse-set / bitset / reactive / chunked / naive),但**查詢語言**停在「AND 交集 + 固定元數」,
 > 宿主嵌入與 gameplay 都會碰到同一批缺口。
 > **現況**:
@@ -3090,7 +3104,7 @@
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
 | 17.75 | [嵌入契約](#1775-嵌入契約--wave-b平台方向-c-前提與-121-同期) | 嵌入、腳本與平台 | 🔶 |
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | 🔶 |
-| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
+| 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | ⬜ |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | ⬜ |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | ⬜ |

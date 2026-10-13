@@ -37,9 +37,9 @@ from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
-from .storage import StorageBackend, Record
+from .storage import StorageBackend, Record, Filter, resolve_filter, check_pack
 
-comptime MAX_ARCH = 256  # supports up to 8 component types (2^8 signatures)
+comptime MAX_ARCH = 256  # initial archetype-table capacity; it grows past this (test_ecs_query: 300 signatures)
 # The count-taking `alloc` overload is deprecated in favour of a Layout-based
 # one that returns a LINEAR `Allocation[T]` -- it must be consumed with
 # `dealloc(a^)` or leaked deliberately, so a forgotten free becomes a compile
@@ -157,6 +157,7 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
     var _gen: List[Int]  # per-id generation; bumped on despawn (grows on demand)
 
     def __init__(out self):
+        check_pack[*Self.CTs]()
         self.archetypes = List[Archetype[*Self.CTs]](capacity=MAX_ARCH)
         self.arch_mask_index = List[Int](capacity=MAX_ARCH)
         self.entity_index = SparseSet[Record]()
@@ -333,6 +334,17 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
                 for r in range(len(self.archetypes[k].entities)):
                     var id = self.archetypes[k].entities[r]
                     out.append(Entity(id, self.alive.get(id)))
+
+    def select(self, f: Filter) -> List[Entity]:
+        """17.77: the filter is tested once per archetype signature."""
+        var m = resolve_filter[*Self.CTs](f)
+        var out = List[Entity]()
+        for k in range(len(self.archetypes)):
+            if m.accepts(self.archetypes[k].mask):
+                for r in range(len(self.archetypes[k].entities)):
+                    var id = self.archetypes[k].entities[r]
+                    out.append(Entity(id, self.alive.get(id)))
+        return out^
 
     def matching1[A: ComponentType](self) -> List[Entity]:
         var out = List[Entity]()

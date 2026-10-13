@@ -415,6 +415,20 @@ snapshot-diff poll, priced per detected event. The deferred `SetBuffer`
 iteration-safety of a command buffer against writing components directly.
 
 @bench benchmarks/bench_ecs_events.mojo
+
+## ECS filters and change detection (17.77)
+
+`World.select(Filter().with_[A]().without[B]())` is evaluated by each
+backend natively: the archetype backend tests the filter once per signature,
+the bitset backend with word-level AND-NOT, the sparse-set / reactive
+backends walk the smallest `with_` store and probe the rest, the naive and
+chunked backends scan every id. The comparison column is the pre-17.77 path
+(`query1` then `has` on every match, which `Pool.active_query*` used).
+`changed[C]` reads a per-component write log covering the last `window`
+ticks (8 by default), so it costs O(writes); the comparison is a scan of
+every entity for a hand-kept dirty field.
+
+@bench benchmarks/bench_ecs_query.mojo
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
 
 The same integrate + damage-event workload driven through the swappable
