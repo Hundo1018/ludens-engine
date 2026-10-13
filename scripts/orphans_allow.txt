@@ -85,3 +85,5 @@ physics.water  # [api] water surfaces and float_body called by host gameplay cod
 physics.sim_cache  # [api] point caches written / played by the host or tools (17.63)
 physics.thermal  # [api] temperature fields stepped by the host (17.61)
 geometry.morph  # [api] morph targets applied by the host before skinning (17.65)
+gameplay.phys_character  # [api] dynamic character body stepped by host gameplay code (17.66)
+gameplay.balance  # [api] balance quantities for host / controller code (17.66)

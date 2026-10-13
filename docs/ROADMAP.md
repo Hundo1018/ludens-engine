@@ -1910,7 +1910,7 @@
 | 17.7 | [固定步 ↔ 繪製率解耦的狀態插值](ROADMAP_HISTORY.md#177-固定步--繪製率解耦的狀態插值--wave-a) | ✅ | A | `gameplay/interpolation.mojo` 提供每 body 前一 / 當前 tick 姿態環 `PoseHistory`(含 `mark_teleport`)與插值子 seam `LerpNlerp` / `DqNlerp` / `MotorGeodesic`,`Runtime.render_pose` 依 `loop.alpha` 取繪製姿態,經 test_interpolation 21/21、test_system_render 5/5 與 bench_interpolation 驗證。 |
 | 17.27 | [力場 / 區域效果](ROADMAP_HISTORY.md#1727-力場--區域效果--wave-b) | ✅ | B | physics/fields.mojo 提供 ForceField(重力區 / 徑向 / 風 / 阻尼)與 apply_fields:重力區以逐 body 重力覆寫 BodySet.grav 實作,風速可取自 WindGrid(三線性),並以常數網格 == 常數風逐位作為 seam parity。 |
 | 17.28 | [浮力 / 水體積](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b) | ✅ | B | WaterVolume + apply_buoyancy 以 ρ g V_sub 施於浮心並加隱式線性 / 角阻尼,浸沒體積有球解析、盒取樣積分與軸對齊盒閉式解,取樣 vs 閉式為 seam parity。 |
-| 17.66 | [物理角色](#1766-物理角色--wave-c) | ⬜ | C | 平衡控制、物理驅動移動、動態角色本體、模式狀態機、抓取 / 攜帶、ragdoll 質量與限制 |
+| 17.66 | [物理角色](#1766-物理角色--wave-c) | 🔶 | C | 平衡控制、物理驅動移動、動態角色本體、模式狀態機、抓取 / 攜帶、ragdoll 質量與限制 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 🔶 | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 🔶 | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 🔶 | B | 受擊 / 攻擊體積、近戰掃掠、hitscan 與穿透 / 跳彈、彈道投射物、爆炸、受擊反應 |
@@ -1955,6 +1955,13 @@
 ### 待辦與部分完成條目
 
 #### 17.66 物理角色 — Wave C
+> **進度註(2026-10-13)**:`gameplay/phys_character.mojo` `DynamicCharacter`(進 solver 的膠囊:旋轉鎖、摩擦 0、睡眠關;向下射線的接地彈簧阻尼含重力補償,
+> 反作用力施於腳下動態物體;水平力朝 wish 速度、上限 `max_accel`、空中 `air_control`)與 `gameplay/balance.mojo`(質心 / 速度、支撐多邊形(單調鏈凸包)、
+> capture point、邊界距離、`is_balanced`)。發現:solver 把累積力在步首一次施加、重力逐子步施加,靜止物體步末速度讀數為 −0.061 m/s(4 子步、1/60 s),
+> 以它阻尼使膠囊高 6.5 mm;改用每 tick 高度差後落在 1.0000001。量測(`tests/test_phys_character.mojo` 12/12):5 m/s 穩態 5.0;煞停 0.58333 m,
+> `Mover`(MODEL_ACCEL)0.583333,離散解 v²/2a − v dt/2 = 0.58333;100 N·s 衝量 dv = 1.25 = J/m;懸停於 10 kg 箱上時箱 0.1 s 內被壓下(−3.02 m vs 單獨 −0.05);
+> 質心、支撐多邊形(4 頂點、逆時針)、中心邊距 0.1、capture point x = √(h/g) 皆對解析值。`bench_phys_character`(64 個):kinematic 1.89 µs、動態 2.62 µs / 角色·tick。
+> **未做**:平衡回饋力矩與踏步復原、PD 追蹤 + 根部輔助、ragdoll 模式機(活動 / 踉蹌 / 軟癱 / 起身)、抓取 / 攜帶、ragdoll 質量比例與限制、狀態序列化。
 > **現況**:兩端各有,中間沒接。17.1 是 kinematic 膠囊(`gameplay/character.mojo:61` `CharacterController`),**不進 solver**;17.2 是主動布娃娃(`gameplay/ragdoll.mojo:37` `Ragdoll`:每骨一個盒、父子球關節、`AngularDrive`(`physics/joints6.mojo:279`)追動畫目標,`:108` `set_strength` 0=軟癱、`:113` `hit`、`:127` `blend_world` 做起身混合)。**沒有的**:平衡 / 支撐判斷——grep `center_of_mass|zmp|support.?polygon|capture.?point|centroidal|footstep` 全樹 `.mojo` 零命中;ragdoll 質量是每骨統一預設 5 kg 的盒(`gameplay/ragdoll.mojo:53` `mass: Real = 5`);ragdoll 用的最大座標關節無角度限制(縮座標 `Chain` 有 joint-limit 列,`physics/constraints.mojo:1-14`,但 ragdoll 不走 chain;17.2 待辦「膝單向」,ROADMAP §17.2;關節庫缺口歸 17.47);起身無姿態匹配 / 地面對齊(同待辦)。控制器**無法被外力推動**:`character.mojo:279` 每次 `update` 把水平速度整個覆寫為 `walk`,knockback 不可能殘留。動態(進 solver 的)角色本體不存在。縮座標模型可作控制器端的分析模型:`physics/chain.mojo:321` `rnea_root`、`:404` `inverse_dynamics`、`:416` `mass_matrix`、`:610` `point_jacobian` 已有,但與 ragdoll 的最大座標關節是兩套,沒有橋。`Runtime` 不擁有角色 / ragdoll(`gameplay/runtime.mojo` grep 零命中,見 17.64)。
 > **缺口**:
 > - **平衡控制**:質心(COM)與支撐多邊形,踝 / 髖回饋力矩,被推後踏步復原(例:1.8 m ragdoll 受 100 N·s 水平衝量仍站穩或踏一步)。
@@ -3269,7 +3276,7 @@
 | 17.63 | [輸出 / 快取](#1763-輸出--快取--wave-c資產管線提供者) | 軟體、布料、連續體與流體 | 🔶 |
 | 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | 動畫與程序化 | 🔶 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | 🔶 |
-| 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | ⬜ |
+| 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | ⬜ |

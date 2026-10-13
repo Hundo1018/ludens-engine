@@ -2305,6 +2305,21 @@ and external velocity on top of the controller, with three velocity models
 integration, so the cost is the controller's sweeps either way.
 
 @bench benchmarks/bench_movement.mojo
+## Gameplay — dynamic character body (17.66)
+
+`gameplay/phys_character.mojo` `DynamicCharacter` is a capsule inside the
+solver held at a ride height by a ground spring-damper along a ray, steered
+by a capped horizontal force. On flat ground it stops in the same distance
+as the kinematic `Mover` (0.58333 m both, `test_phys_character`); unlike it,
+an impulse moves it by J / m and its ground spring loads the body it stands
+on. One finding on the way: the solver applies accumulated force once per
+step and gravity every substep, so a resting body's end-of-step velocity
+reads -0.061 m/s; damping that reading held the capsule 6.5 mm high, so the
+damper uses the height change per tick. `gameplay/balance.mojo` has the
+centre of mass, support polygon, capture point and margin. Rows: cost per
+character per tick.
+
+@bench benchmarks/bench_phys_character.mojo
 
 ## Sequences and camera rig (17.68)
 
