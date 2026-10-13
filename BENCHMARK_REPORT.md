@@ -4081,6 +4081,27 @@ mapping removes.
 | 16-gon ConvexPoly | 487 | 0.01921463 |
 
 
+## Compound shapes (17.44)
+
+One body with N box children against N box bodies held together by
+N - 1 weld joints (the 17.5 route for multi-part rigid objects). The
+compound has no joint rows and no joint residual; the welded bar's ends
+drift apart by the weld error.
+
+### Compound vs welded bodies (17.44): a bar of N cubes on a floor
+
+| N | build | step us | end-to-end drift (m) | max speed (m/s) |
+|---:|---|---:|---:|---:|
+| 2 | compound | 43 | 0.0 | 2.386514e-09 |
+| 2 | welded | 58 | 7.107019e-09 | 7.0060466e-08 |
+| 4 | compound | 82 | 0.0 | 6.3363526e-10 |
+| 4 | welded | 155 | 1.3833642e-08 | 9.115874e-08 |
+| 16 | compound | 349 | 0.0 | 4.447136e-09 |
+| 16 | welded | 563 | 2.4627184e-08 | 9.3346436e-08 |
+| 64 | compound | 1510 | 0.0 | 8.068018e-07 |
+| 64 | welded | 2890 | 1.7634648e-08 | 9.4521056e-08 |
+
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

@@ -10,6 +10,7 @@ from collision.collider_set import (
     SHAPE_TRIMESH,
     SHAPE_HEIGHTFIELD,
     SHAPE_SDF,
+    SHAPE_COMPOUND,
 )
 from collision.toi import swept_box_toi
 from .rigid6 import Body6
@@ -54,7 +55,7 @@ def ccd_advance[B: Body6](
         if bset.inactive(i):
             continue
         var ki = colliders.shape[i]
-        if ki == SHAPE_HULL or ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD or ki == SHAPE_SDF:
+        if ki == SHAPE_HULL or ki == SHAPE_TRIMESH or ki == SHAPE_HEIGHTFIELD or ki == SHAPE_SDF or ki == SHAPE_COMPOUND:
             continue  # no exact box TOI for this kind (see docstring)
         var vi = bset.bodies[i].linear_velocity()
         if dot(vi, vi) * h * h < 1e-12:
@@ -74,7 +75,7 @@ def ccd_advance[B: Body6](
                 # otherwise never exists (spec: "no contact, no NaN").
                 continue
             var kj = colliders.shape[j]
-            if kj == SHAPE_HULL or kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD or kj == SHAPE_SDF:
+            if kj == SHAPE_HULL or kj == SHAPE_TRIMESH or kj == SHAPE_HEIGHTFIELD or kj == SHAPE_SDF or kj == SHAPE_COMPOUND:
                 continue
             var vj = Vec3(0, 0, 0, 0)
             if not bset.inactive(j):

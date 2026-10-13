@@ -16,6 +16,7 @@ body `i`) and delegates its `add*`/`set_filter`/`set_sensor` API to it.
 from std.math import sqrt
 from std.os import abort
 from geometry.vec import Real, Vec3, dot
+from geometry.quat import Quat
 from geometry.aabb import AABB
 from geometry.gjk import ConvexPoly, Support3
 from geometry.gjk_distance import support_distance
@@ -55,6 +56,24 @@ comptime SHAPE_SDF = 6
 # pair, routed in `pair_manifold` before the kind-ordered branches, and in
 # `contact_gen` before the `>= SHAPE_TRIMESH` checks.
 comptime SHAPE_ELLIPSOID = 7
+# ROADMAP 17.44: one body, several convex child shapes (box / sphere /
+# capsule / hull / ellipsoid), each at a local pose in the body frame. The
+# children live in the `kid_*` tables (rows `comp_first .. + comp_n` of
+# compound `mesh_id[i]`); `half` is the conservative box around all of them.
+# Pairs expand to child pairs (`contact_gen.try_compound_pair`), keyed by
+# feat = 1 + child_a * 1024 + child_b.
+comptime SHAPE_COMPOUND = 8
+comptime COMPOUND_MAX_CHILDREN = 1024
+
+
+def _probe[A: Support3, B: Support3](pt: A, shape: B) -> Tuple[Real, Vec3, Vec3]:
+    """Point `pt` (a zero-radius support) against convex `shape`: (signed
+    distance, surface point, outward normal)."""
+    var d = support_distance(pt, 0, shape, 0)
+    if d.dist > 0:
+        return (d.dist, d.pb, -d.normal)
+    var w = epa3(pt, shape)
+    return (-w.depth, w.point_b, -w.normal)
 
 
 def support_manifold[A: Support3, B: Support3](a: A, b: B, margin: Real) -> ContactManifold[3]:
@@ -102,6 +121,81 @@ struct Pose3(Copyable, Movable):
         self.axes = copy.axes.copy()
 
 
+struct CompoundSpec(Movable, Sized):
+    """Children of a compound body (ROADMAP 17.44), each a convex shape at a
+    local pose: the builder `ContactScene6.add_compound` takes. Hull children
+    keep their local vertices (flat, stride 3) in `hverts`, child k's from
+    `hfirst[k]` (`hcount[k]` reals)."""
+
+    var kind: List[Int]
+    var half: List[Vec3]
+    var pos: List[Vec3]
+    var rot: List[Quat]
+    var hverts: List[Real]
+    var hfirst: List[Int]
+    var hcount: List[Int]
+
+    def __init__(out self):
+        self.kind = List[Int]()
+        self.half = List[Vec3]()
+        self.pos = List[Vec3]()
+        self.rot = List[Quat]()
+        self.hverts = List[Real]()
+        self.hfirst = List[Int]()
+        self.hcount = List[Int]()
+
+    def __len__(self) -> Int:
+        return len(self.kind)
+
+    def _push(mut self, kind: Int, half: Vec3, pos: Vec3, rot: Quat):
+        self.kind.append(kind)
+        self.half.append(half)
+        self.pos.append(pos)
+        self.rot.append(rot)
+        self.hfirst.append(len(self.hverts))
+        self.hcount.append(0)
+
+    def box(mut self, half: Vec3, pos: Vec3, rot: Quat = Quat.identity()):
+        self._push(SHAPE_BOX, half, pos, rot)
+
+    def sphere(mut self, r: Real, pos: Vec3):
+        self._push(SHAPE_SPHERE, Vec3(r, r, r, 0), pos, Quat.identity())
+
+    def capsule(mut self, r: Real, half_len: Real, pos: Vec3, rot: Quat = Quat.identity()):
+        self._push(SHAPE_CAPSULE, Vec3(r, half_len, r, 0), pos, rot)
+
+    def ellipsoid(mut self, radii: Vec3, pos: Vec3, rot: Quat = Quat.identity()):
+        self._push(SHAPE_ELLIPSOID, radii, pos, rot)
+
+    def hull(mut self, verts: List[Real], pos: Vec3, rot: Quat = Quat.identity()):
+        """Local vertices (flat, stride 3) of a convex hull child."""
+        var h = Vec3(0, 0, 0, 0)
+        for k in range(len(verts) // 3):
+            h = Vec3(max(h[0], abs(verts[3 * k])), max(h[1], abs(verts[3 * k + 1])), max(h[2], abs(verts[3 * k + 2])), 0)
+        self._push(SHAPE_HULL, h, pos, rot)
+        self.hcount[len(self.hcount) - 1] = len(verts)
+        for k in range(len(verts)):
+            self.hverts.append(verts[k])
+
+    def child_verts(self, k: Int) -> List[Real]:
+        var out = List[Real](capacity=self.hcount[k])
+        for n in range(self.hcount[k]):
+            out.append(self.hverts[self.hfirst[k] + n])
+        return out^
+
+
+@fieldwise_init
+struct ShapeDesc(Copyable, ImplicitlyCopyable, Movable):
+    """One convex shape as the pair dispatch sees it (ROADMAP 17.44): kind,
+    `half` (the kind's parameters), and its row in `ColliderSet.hulls`
+    (-1 when not a hull). A collider's own shape is `ColliderSet.desc(i)`;
+    a compound's child is another `ShapeDesc` with its own local pose."""
+
+    var kind: Int
+    var half: Vec3
+    var hid: Int
+
+
 struct ColliderSet(Movable, Deinitable):
     """Per-collider shape data, indexed the same as the owning `ContactScene6`
     indexes its bodies (collider `i` <-> body `i`)."""
@@ -121,6 +215,13 @@ struct ColliderSet(Movable, Deinitable):
     var fields: List[HeightField]
     var mesh_id: List[Int]
     var sdfs: List[SdfGrid]  # SHAPE_SDF payloads, indexed by mesh_id (17.52)
+    # SHAPE_COMPOUND children (17.44): compound c owns kid rows
+    # comp_first[c] .. + comp_n[c]; c = mesh_id[i].
+    var kid_desc: List[ShapeDesc]
+    var kid_pos: List[Vec3]
+    var kid_rot: List[Quat]
+    var comp_first: List[Int]
+    var comp_n: List[Int]
     # World AABB of collider `i`, valid only for SHAPE_TRIMESH/SHAPE_HEIGHTFIELD
     # (zero otherwise). Computed once at `add_trimesh`/`add_heightfield` time
     # from the mesh's own (already world-space) vertices, so `fat_aabb` never
@@ -149,6 +250,11 @@ struct ColliderSet(Movable, Deinitable):
         self.fields = List[HeightField]()
         self.mesh_id = List[Int]()
         self.sdfs = List[SdfGrid]()
+        self.kid_desc = List[ShapeDesc]()
+        self.kid_pos = List[Vec3]()
+        self.kid_rot = List[Quat]()
+        self.comp_first = List[Int]()
+        self.comp_n = List[Int]()
         self.world_aabb = List[AABB[3]]()
         self.category = List[UInt32]()
         self.mask = List[UInt32]()
@@ -242,26 +348,150 @@ struct ColliderSet(Movable, Deinitable):
         return i
 
     def support_ellipsoid(self, i: Int, pose: Pose3) -> SupportEllipsoid:
+        return self.support_ellipsoid_d(self.desc(i), pose)
+
+    def support_ellipsoid_d(self, d: ShapeDesc, pose: Pose3) -> SupportEllipsoid:
         """World support mapping of ellipsoid collider `i`."""
-        return SupportEllipsoid(pose.position, pose.axes[0], pose.axes[1], pose.axes[2], self.half[i])
+        return SupportEllipsoid(pose.position, pose.axes[0], pose.axes[1], pose.axes[2], d.half)
 
     def ellipsoid_pair(self, e: Int, pe: Pose3, o: Int, po: Pose3, margin: Real) -> ContactManifold[3]:
+        return self.ellipsoid_pair_d(self.desc(e), pe, self.desc(o), po, margin)
+
+    def ellipsoid_pair_d(self, e: ShapeDesc, pe: Pose3, o: ShapeDesc, po: Pose3, margin: Real) -> ContactManifold[3]:
         """Ellipsoid `e` against convex collider `o` (box, sphere, capsule,
         hull -- a cylinder hull by its exact support -- or another
         ellipsoid), normal from `e` to `o`; see `support_manifold`."""
-        var se = self.support_ellipsoid(e, pe)
-        var k = self.shape[o]
+        var se = self.support_ellipsoid_d(e, pe)
+        var k = o.kind
         if k == SHAPE_ELLIPSOID:
-            return support_manifold(se, self.support_ellipsoid(o, po), margin)
+            return support_manifold(se, self.support_ellipsoid_d(o, po), margin)
         if k == SHAPE_BOX:
-            return support_manifold(se, SupportBox(po.position, po.axes[0], po.axes[1], po.axes[2], self.half[o]), margin)
+            return support_manifold(se, SupportBox(po.position, po.axes[0], po.axes[1], po.axes[2], o.half), margin)
         if k == SHAPE_SPHERE:
-            return support_manifold(se, SupportCapsule(po.position, po.axes[1], self.half[o][0], 0), margin)
+            return support_manifold(se, SupportCapsule(po.position, po.axes[1], o.half[0], 0), margin)
         if k == SHAPE_CAPSULE:
-            return support_manifold(se, SupportCapsule(po.position, po.axes[1], self.half[o][0], self.half[o][1]), margin)
-        if self.round_radius(o) > 0:
-            return support_manifold(se, SupportCylinder(po.position, po.axes[1], self.round_radius(o), self.half[o][1]), margin)
-        return support_manifold(se, self.hull_world(o, po), margin)
+            return support_manifold(se, SupportCapsule(po.position, po.axes[1], o.half[0], o.half[1]), margin)
+        if self.round_radius_d(o) > 0:
+            return support_manifold(se, SupportCylinder(po.position, po.axes[1], self.round_radius_d(o), o.half[1]), margin)
+        return support_manifold(se, self.hull_world_d(o, po), margin)
+
+    def add_compound(mut self, spec: CompoundSpec, at: Int = -1) -> Int:
+        """Compound collider (ROADMAP 17.44) from children already at their
+        final body-frame poses (`ContactScene6.add_compound` moves them to
+        the centre of mass and principal axes first). `half` = the box
+        around every child's own box in the body frame."""
+        var lo = Vec3(1e30, 1e30, 1e30, 0)
+        var hi = Vec3(-1e30, -1e30, -1e30, 0)
+        var first = len(self.kid_desc)
+        for k in range(len(spec)):
+            var kind = spec.kind[k]
+            var hid = -1
+            if kind == SHAPE_HULL:
+                hid = len(self.hulls)
+                self.hulls.append(HullShape(spec.child_verts(k)))
+            var d = ShapeDesc(kind, spec.half[k], hid)
+            self.kid_desc.append(d)
+            self.kid_pos.append(spec.pos[k])
+            self.kid_rot.append(spec.rot[k])
+            var e = self._child_extent(d, spec.rot[k])
+            lo = Vec3(min(lo[0], spec.pos[k][0] - e[0]), min(lo[1], spec.pos[k][1] - e[1]), min(lo[2], spec.pos[k][2] - e[2]), 0)
+            hi = Vec3(max(hi[0], spec.pos[k][0] + e[0]), max(hi[1], spec.pos[k][1] + e[1]), max(hi[2], spec.pos[k][2] + e[2]), 0)
+        var half = Vec3(max(abs(lo[0]), abs(hi[0])), max(abs(lo[1]), abs(hi[1])), max(abs(lo[2]), abs(hi[2])), 0)
+        var i = self.add(half, at)
+        self.shape[i] = SHAPE_COMPOUND
+        self.mesh_id[i] = len(self.comp_first)
+        self.comp_first.append(first)
+        self.comp_n.append(len(spec))
+        return i
+
+    def _child_extent(self, d: ShapeDesc, rot: Quat) -> Vec3:
+        """Half extents, in the parent frame, of child `d` turned by `rot`."""
+        var h = d.half
+        if d.kind == SHAPE_CAPSULE:
+            h[1] += h[0]
+        if d.kind == SHAPE_SPHERE:
+            return h
+        if d.kind == SHAPE_HULL:
+            ref hs = self.hulls[d.hid]
+            var e = Vec3(0, 0, 0, 0)
+            for v in range(hs.nv()):
+                var w = rot.rotate(hs.vert(v))
+                e = Vec3(max(e[0], abs(w[0])), max(e[1], abs(w[1])), max(e[2], abs(w[2])), 0)
+            return e
+        var c0 = rot.rotate(Vec3(1, 0, 0, 0))
+        var c1 = rot.rotate(Vec3(0, 1, 0, 0))
+        var c2 = rot.rotate(Vec3(0, 0, 1, 0))
+        var e = Vec3(0, 0, 0, 0)
+        comptime for r in range(3):
+            e[r] = abs(c0[r]) * h[0] + abs(c1[r]) * h[1] + abs(c2[r]) * h[2]
+        return e
+
+    def kid_count(self, i: Int) -> Int:
+        """Children of collider `i`: its compound's count, else 1 (itself)."""
+        if self.shape[i] == SHAPE_COMPOUND:
+            return self.comp_n[self.mesh_id[i]]
+        return 1
+
+    def kid(self, i: Int, k: Int) -> ShapeDesc:
+        if self.shape[i] == SHAPE_COMPOUND:
+            return self.kid_desc[self.comp_first[self.mesh_id[i]] + k]
+        return self.desc(i)
+
+    def kid_pose(self, i: Int, k: Int, pose: Pose3) -> Pose3:
+        """World pose of child `k` of collider `i` (its own pose when `i` is
+        not a compound)."""
+        if self.shape[i] != SHAPE_COMPOUND:
+            return pose.copy()
+        var r = self.comp_first[self.mesh_id[i]] + k
+        ref ax = pose.axes
+        var lp = self.kid_pos[r]
+        var q = self.kid_rot[r]
+        var out = pose.copy()
+        out.position = pose.position + ax[0] * lp[0] + ax[1] * lp[1] + ax[2] * lp[2]
+        comptime for c in range(3):
+            var e = Vec3(0, 0, 0, 0)
+            e[c] = 1
+            var l = q.rotate(e)
+            out.axes[c] = ax[0] * l[0] + ax[1] * l[1] + ax[2] * l[2]
+        return out^
+
+    def kid_box(self, d: ShapeDesc, pose: Pose3, grow: Real) -> AABB[3]:
+        """World AABB of a child shape at `pose`, grown by `grow`."""
+        var h = d.half
+        if d.kind == SHAPE_CAPSULE:
+            h[1] += h[0]
+        ref ax = pose.axes
+        var wh = Vec3(0, 0, 0, 0)
+        comptime for k in range(3):
+            wh[k] = abs(ax[0][k]) * h[0] + abs(ax[1][k]) * h[1] + abs(ax[2][k]) * h[2]
+        return AABB[3].from_center(pose.position, wh + Vec3(grow, grow, grow, 0))
+
+    def kid_probe(self, d: ShapeDesc, pose: Pose3, p: Vec3) -> Tuple[Real, Vec3, Vec3]:
+        """(signed distance, closest surface point, outward normal) from
+        world point `p` to convex shape `d` at `pose`, exact for every
+        convex kind through its support mapping (GJK outside, EPA inside):
+        the per-child probe of compound queries and soft particles (17.44)."""
+        var pt = SupportCapsule(p, Vec3(0, 1, 0, 0), 0, 0)
+        if d.kind == SHAPE_BOX:
+            return _probe(pt, SupportBox(pose.position, pose.axes[0], pose.axes[1], pose.axes[2], d.half))
+        if d.kind == SHAPE_SPHERE:
+            return _probe(pt, SupportCapsule(pose.position, pose.axes[1], d.half[0], 0))
+        if d.kind == SHAPE_CAPSULE:
+            return _probe(pt, SupportCapsule(pose.position, pose.axes[1], d.half[0], d.half[1]))
+        if d.kind == SHAPE_ELLIPSOID:
+            return _probe(pt, self.support_ellipsoid_d(d, pose))
+        return _probe(pt, self.hull_world_d(d, pose))
+
+    def compound_probe(self, i: Int, pose: Pose3, p: Vec3) -> Tuple[Real, Vec3, Vec3]:
+        """`kid_probe` minimised over the children of compound `i`: the
+        signed distance of the union (exact outside; inside, the deepest
+        child's depth)."""
+        var best = self.kid_probe(self.kid(i, 0), self.kid_pose(i, 0, pose), p)
+        for k in range(1, self.kid_count(i)):
+            var r = self.kid_probe(self.kid(i, k), self.kid_pose(i, k, pose), p)
+            if r[0] < best[0]:
+                best = r
+        return best
 
     def add_hull(mut self, var verts: List[Real], at: Int = -1) -> Int:
         """A convex body given by its LOCAL-frame vertices, FLAT (x, y, z per
@@ -409,9 +639,12 @@ struct ColliderSet(Movable, Deinitable):
     # ------------------------------------------------------- mesh midphase
 
     def round_radius(self, i: Int) -> Real:
+        return self.round_radius_d(self.desc(i))
+
+    def round_radius_d(self, d: ShapeDesc) -> Real:
         """Cylinder radius of hull collider `i` (ROADMAP 17.52), else 0."""
-        if self.shape[i] == SHAPE_HULL:
-            return self.hulls[self.hull_id[i]].round_r
+        if d.kind == SHAPE_HULL:
+            return self.hulls[d.hid].round_r
         return 0
 
     def mesh_ray_candidates(self, i: Int, o: Vec3, d: Vec3, max_t: Real, mut out: List[Int]):
@@ -452,30 +685,39 @@ struct ColliderSet(Movable, Deinitable):
     # ------------------------------------------------------- hull dispatch
 
     def hull_world(self, i: Int, pose: Pose3) -> ConvexPoly[3]:
+        return self.hull_world_d(self.desc(i), pose)
+
+    def hull_world_d(self, d: ShapeDesc, pose: Pose3) -> ConvexPoly[3]:
         """The real hull geometry (no shape substitution, no inflation) --
         for 17.13 scene queries that want the exact collider, not the
         contact-margin-inflated approximation `as_hull` builds."""
-        return self.hulls[self.hull_id[i]].world(
+        return self.hulls[d.hid].world(
             pose.position, pose.axes[0], pose.axes[1], pose.axes[2]
         )
 
     def hull_faces(self, i: Int, pose: Pose3, infl: Vec3, mr: Real) -> List[Real]:
+        return self.hull_faces_d(self.desc(i), pose, infl, mr)
+
+    def hull_faces_d(self, d: ShapeDesc, pose: Pose3, infl: Vec3, mr: Real) -> List[Real]:
         """World-frame face normals for collider `i` under the same shape
         substitution `as_hull` makes. Needed because EPA's normal is only as
         good as its polytope, and the contact patch depends on snapping it to
         a real face (see `collision/hull.mojo`)."""
         ref ax = pose.axes
-        var k = self.shape[i]
+        var k = d.kind
         if k == SHAPE_HULL:
-            return self.hulls[self.hull_id[i]].world_normals(ax[0], ax[1], ax[2])
-        var hs = self.half[i] + infl
+            return self.hulls[d.hid].world_normals(ax[0], ax[1], ax[2])
+        var hs = d.half + infl
         if k == SHAPE_SPHERE:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][0] + mr, self.half[i][0] + mr, 0)
+            hs = Vec3(d.half[0] + mr, d.half[0] + mr, d.half[0] + mr, 0)
         elif k == SHAPE_CAPSULE:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
+            hs = Vec3(d.half[0] + mr, d.half[1] + d.half[0] + mr, d.half[0] + mr, 0)
         return HullShape.box(hs).world_normals(ax[0], ax[1], ax[2])
 
     def as_hull(self, i: Int, pose: Pose3, infl: Vec3, mr: Real) -> ConvexPoly[3]:
+        return self.as_hull_d(self.desc(i), pose, infl, mr)
+
+    def as_hull_d(self, d: ShapeDesc, pose: Pose3, infl: Vec3, mr: Real) -> ConvexPoly[3]:
         """Any supported shape as a convex point cloud, so the hull path can
         meet box/sphere/capsule without a separate routine per pairing.
 
@@ -484,15 +726,15 @@ struct ColliderSet(Movable, Deinitable):
         and this is used solely for hull-vs-* pairs, where an approximation
         of the round side is still better than no contact at all."""
         ref ax = pose.axes
-        var k = self.shape[i]
+        var k = d.kind
         if k == SHAPE_HULL:
             # Inflate the hull the same way the box path inflates its boxes,
             # by pushing each vertex out along its own octant. For a box hull
             # this reproduces `half + infl` exactly; for a general hull it is
             # the same conservative widening.
             var p = ConvexPoly[3]()
-            for vi in range(self.hulls[self.hull_id[i]].nv()):
-                var v = self.hulls[self.hull_id[i]].vert(vi)
+            for vi in range(self.hulls[d.hid].nv()):
+                var v = self.hulls[d.hid].vert(vi)
                 var o = Vec3(
                     infl[0] if v[0] >= 0 else -infl[0],
                     infl[1] if v[1] >= 0 else -infl[1],
@@ -502,21 +744,34 @@ struct ColliderSet(Movable, Deinitable):
                 var w = v + o
                 p.add(pose.position + ax[0] * w[0] + ax[1] * w[1] + ax[2] * w[2])
             return p^
-        var hs = self.half[i] + infl
+        var hs = d.half + infl
         if k == SHAPE_SPHERE:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][0] + mr, self.half[i][0] + mr, 0)
+            hs = Vec3(d.half[0] + mr, d.half[0] + mr, d.half[0] + mr, 0)
         elif k == SHAPE_CAPSULE:
-            hs = Vec3(self.half[i][0] + mr, self.half[i][1] + self.half[i][0] + mr, self.half[i][0] + mr, 0)
+            hs = Vec3(d.half[0] + mr, d.half[1] + d.half[0] + mr, d.half[0] + mr, 0)
         return HullShape.box(hs).world(pose.position, ax[0], ax[1], ax[2])
 
     def hull_is_bent_by_inflation(self, i: Int) -> Bool:
+        return self.hull_is_bent_by_inflation_d(self.desc(i))
+
+    def hull_is_bent_by_inflation_d(self, d: ShapeDesc) -> Bool:
         """True for a HULL collider that is not a centred box: octant inflation
         would bend its faces, so the speculative margin goes to
         `hull_manifold` instead (see there)."""
-        return self.shape[i] == SHAPE_HULL and not self.hulls[self.hull_id[i]].box_like
+        return d.kind == SHAPE_HULL and not self.hulls[d.hid].box_like
+
+    def desc(self, i: Int) -> ShapeDesc:
+        """Collider `i`'s own shape as the pair dispatch sees it."""
+        return ShapeDesc(self.shape[i], self.half[i], self.hull_id[i])
 
     def pair_manifold(
         self, i: Int, j: Int, pose_i: Pose3, pose_j: Pose3, mr: Real, infl: Vec3
+    ) -> ContactManifold[3]:
+        """`shape_pair` on colliders `i` and `j`'s own shapes."""
+        return self.shape_pair(self.desc(i), pose_i, self.desc(j), pose_j, mr, infl)
+
+    def shape_pair(
+        self, di: ShapeDesc, pose_i: Pose3, dj: ShapeDesc, pose_j: Pose3, mr: Real, infl: Vec3
     ) -> ContactManifold[3]:
         """Shape-pair dispatch (kinds normalised so a-kind <= b-kind; the
         manifold normal is flipped back when the pair had to be swapped).
@@ -533,55 +788,55 @@ struct ColliderSet(Movable, Deinitable):
         that point is a broken invariant upstream (a caller that let a mesh
         kind through), not a case this function can make sense of, so it
         aborts rather than guessing (docs/ARCHITECTURE.md error policy S2)."""
-        var a = i
-        var b = j
+        var da = di
+        var db = dj
         var pa = pose_i.copy()
         var pb = pose_j.copy()
         var flip = False
-        if self.shape[a] > self.shape[b]:
-            a = j
-            b = i
+        if da.kind > db.kind:
+            da = dj
+            db = di
             pa = pose_j.copy()
             pb = pose_i.copy()
             flip = True
-        var ka = self.shape[a]
-        var kb = self.shape[b]
+        var ka = da.kind
+        var kb = db.kind
         var m: ContactManifold[3]
         if kb == SHAPE_ELLIPSOID:
             # ROADMAP 17.52: the largest kind, so always `b` here; computed
             # from the ellipsoid's side (exact shapes, the whole margin)
-            m = self.ellipsoid_pair(b, pb, a, pa, mr * 2)
+            m = self.ellipsoid_pair_d(db, pb, da, pa, mr * 2)
             m.normal = -m.normal
         elif ka == SHAPE_BOX and kb == SHAPE_BOX:
             m = box_box_manifold(
-                pa.position, pa.axes, self.half[a] + infl,
-                pb.position, pb.axes, self.half[b] + infl,
+                pa.position, pa.axes, da.half + infl,
+                pb.position, pb.axes, db.half + infl,
             )
         elif ka == SHAPE_BOX and kb == SHAPE_SPHERE:
             # sphere_box normal is sphere->box == b->a: flip once more
             m = sphere_box_manifold(
-                pb.position, self.half[b][0] + mr,
-                pa.position, pa.axes, self.half[a] + infl,
+                pb.position, db.half[0] + mr,
+                pa.position, pa.axes, da.half + infl,
             )
             m.normal = -m.normal
         elif ka == SHAPE_BOX and kb == SHAPE_CAPSULE:
             m = capsule_box_manifold(
                 pb.position, pb.axes[1],
-                self.half[b][1], self.half[b][0] + mr,
-                pa.position, pa.axes, self.half[a] + infl,
+                db.half[1], db.half[0] + mr,
+                pa.position, pa.axes, da.half + infl,
             )
             m.normal = -m.normal
         elif ka == SHAPE_SPHERE and kb == SHAPE_SPHERE:
             m = sphere_sphere_manifold(
-                pa.position, self.half[a][0] + mr,
-                pb.position, self.half[b][0] + mr,
+                pa.position, da.half[0] + mr,
+                pb.position, db.half[0] + mr,
             )
         elif ka == SHAPE_SPHERE and kb == SHAPE_CAPSULE:
             # capsule_sphere normal is capsule->sphere == b->a
             m = capsule_sphere_manifold(
                 pb.position, pb.axes[1],
-                self.half[b][1], self.half[b][0] + mr,
-                pa.position, self.half[a][0] + mr,
+                db.half[1], db.half[0] + mr,
+                pa.position, da.half[0] + mr,
             )
             m.normal = -m.normal
         elif kb == SHAPE_HULL:
@@ -600,17 +855,17 @@ struct ColliderSet(Movable, Deinitable):
             var ma = mr
             var ib = infl
             var mb = mr
-            if self.hull_is_bent_by_inflation(a):
+            if self.hull_is_bent_by_inflation_d(da):
                 ia = zero
                 ma = Real(0)
                 spec += infl[0]
-            if self.hull_is_bent_by_inflation(b):
+            if self.hull_is_bent_by_inflation_d(db):
                 ib = zero
                 mb = Real(0)
                 spec += infl[0]
             m = hull_manifold(
-                self.as_hull(a, pa, ia, ma), self.as_hull(b, pb, ib, mb),
-                self.hull_faces(a, pa, ia, ma), self.hull_faces(b, pb, ib, mb),
+                self.as_hull_d(da, pa, ia, ma), self.as_hull_d(db, pb, ib, mb),
+                self.hull_faces_d(da, pa, ia, ma), self.hull_faces_d(db, pb, ib, mb),
                 spec,
             )
             if spec > 0:
@@ -621,18 +876,18 @@ struct ColliderSet(Movable, Deinitable):
             # is exact there (the polygon hull would roll like a polygon).
             # Only when the hull normal is across the axis (|n . axis| < 0.5):
             # an end cap on the box stays on the hull path.
-            if ka == SHAPE_BOX and self.round_radius(b) > 0 and m.hit:
+            if ka == SHAPE_BOX and self.round_radius_d(db) > 0 and m.hit:
                 if abs(dot(m.normal, pb.axes[1])) < 0.5:
                     m = capsule_box_manifold(
                         pb.position, pb.axes[1],
-                        self.half[b][1], self.round_radius(b) + mr,
-                        pa.position, pa.axes, self.half[a] + infl,
+                        db.half[1], self.round_radius_d(db) + mr,
+                        pa.position, pa.axes, da.half + infl,
                     )
                     m.normal = -m.normal
         elif ka == SHAPE_CAPSULE and kb == SHAPE_CAPSULE:
             m = capsule_capsule_manifold(
-                pa.position, pa.axes[1], self.half[a][1], self.half[a][0] + mr,
-                pb.position, pb.axes[1], self.half[b][1], self.half[b][0] + mr,
+                pa.position, pa.axes[1], da.half[1], da.half[0] + mr,
+                pb.position, pb.axes[1], db.half[1], db.half[0] + mr,
             )
         else:
             abort(
@@ -719,6 +974,11 @@ struct ColliderSet(Movable, Deinitable):
         ELLIPSOID (17.52): GJK distance from the particle centre to the
         exact support mapping; EPA when the centre is inside."""
         var k = self.shape[i]
+        if k == SHAPE_COMPOUND:  # 17.44: nearest child, exact per child
+            var pr = self.compound_probe(i, pose, p)
+            if pr[0] >= r:
+                return (False, p, Vec3(0, 1, 0, 0))
+            return (True, pr[1] + pr[2] * r, pr[2])
         if k == SHAPE_ELLIPSOID:
             var se = self.support_ellipsoid(i, pose)
             var pt = SupportCapsule(p, Vec3(0, 1, 0, 0), 0, 0)

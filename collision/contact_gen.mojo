@@ -25,7 +25,7 @@ from geometry.gjk import ConvexPoly
 from geometry.aabb import AABB
 from .collider_set import (
     ColliderSet, Pose3, SHAPE_TRIMESH, SHAPE_HEIGHTFIELD, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_BOX, SHAPE_HULL,
-    SHAPE_SDF, SHAPE_ELLIPSOID, SPEC_BASE, support_manifold,
+    SHAPE_SDF, SHAPE_ELLIPSOID, SHAPE_COMPOUND, SPEC_BASE, support_manifold, ShapeDesc,
 )
 from .broadphase import BroadPhase, BoxProxy, Pair
 from .manifold import ContactManifold, _seg_seg_closest, spread4
@@ -280,6 +280,21 @@ def try_mesh_pair(
         pa = pose_j.copy()
     if _is_mesh(colliders.shape[a]) or colliders.shape[a] == SHAPE_SDF:
         return  # mesh vs mesh / SDF: two static bodies, nothing to resolve
+    if colliders.shape[a] == SHAPE_COMPOUND:
+        # 17.44: each child meets the triangles on its own; the child index
+        # rides in feat's high bits (triangle index < 2^16 then)
+        for k in range(colliders.kid_count(a)):
+            _mesh_pair_kid(colliders, a, colliders.kid(a, k), colliders.kid_pose(a, k, pa), b, margin, k << 16, out)
+        return
+    _mesh_pair_kid(colliders, a, colliders.desc(a), pa, b, margin, 0, out)
+
+
+def _mesh_pair_kid(
+    colliders: ColliderSet, a: Int, da: ShapeDesc, pa: Pose3, b: Int,
+    margin: Real, feat_hi: Int, mut out: List[RawContact],
+):
+    """`try_mesh_pair` for one convex shape `da` at `pa` (a body's own shape,
+    or one child of a compound body `a`) against static mesh `b`."""
 
     # The speculative margin is split half-and-half between the two shapes
     # everywhere else, and the full margin is subtracted from the depth
@@ -289,7 +304,7 @@ def try_mesh_pair(
     var mr = margin
     var wide = Vec3(margin, margin, margin, 0)
 
-    var box = colliders.fat_aabb(a, pa, Vec3(0, 0, 0, 0), 0)
+    var box = colliders.kid_box(da, pa, 0)
     var lo = box.min - wide
     var hi = box.max + wide
     var tris = List[Int]()
@@ -299,9 +314,9 @@ def try_mesh_pair(
 
     # ROADMAP 17.52: an ellipsoid meets each triangle through its exact
     # support mapping (one point per triangle, like the sphere)
-    var ka = colliders.shape[a]
+    var ka = da.kind
     if ka == SHAPE_ELLIPSOID:
-        var se = colliders.support_ellipsoid(a, pa)
+        var se = colliders.support_ellipsoid_d(da, pa)
         for c in range(len(tris)):
             var t = tris[c]
             var tf = colliders.mesh_tri_faces(b, t)
@@ -316,15 +331,15 @@ def try_mesh_pair(
             var act = colliders.mesh_active(b, t)
             if act != 7:
                 _fix_inactive_edge_normal(m, tri, Vec3(tf[0], tf[1], tf[2], 0), act)
-            out.append(RawContact(a, b, t, m))
+            out.append(RawContact(a, b, feat_hi + t, m))
         return
 
     # ROADMAP 17.45: spheres and capsules meet triangles analytically (they
     # used to go through `as_hull` as a box, so a ball sat on a slope like a
     # cube instead of rolling down it).
     if ka == SHAPE_SPHERE or ka == SHAPE_CAPSULE:
-        var r = colliders.half[a][0]
-        var hl = colliders.half[a][1]
+        var r = da.half[0]
+        var hl = da.half[1]
         var axis = pa.axes[1]
         for c in range(len(tris)):
             var t = tris[c]
@@ -349,16 +364,16 @@ def try_mesh_pair(
                     _round_on_flat_seam(m, tri, fnrm, act, pa.position, r)
                 else:
                     _fix_inactive_edge_normal(m, tri, fnrm, act)
-            out.append(RawContact(a, b, t, m))
+            out.append(RawContact(a, b, feat_hi + t, m))
         return
 
     # a HULL body is not inflated (see `hull_manifold`): the whole margin goes
     # to the narrowphase as its speculative distance instead
-    var a_is_hull = colliders.hull_is_bent_by_inflation(a)
+    var a_is_hull = colliders.hull_is_bent_by_inflation_d(da)
     var zero = Vec3(0, 0, 0, 0)
     var spec = margin if a_is_hull else Real(0)
-    var poly_a = colliders.as_hull(a, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
-    var faces_a = colliders.hull_faces(a, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
+    var poly_a = colliders.as_hull_d(da, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
+    var faces_a = colliders.hull_faces_d(da, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
     for c in range(len(tris)):
         var t = tris[c]
         var tf = colliders.mesh_tri_faces(b, t)
@@ -377,17 +392,17 @@ def try_mesh_pair(
         if margin > 0:
             for k in range(m.count):
                 m.depths[k] -= margin
-        out.append(RawContact(a, b, t, m))
+        out.append(RawContact(a, b, feat_hi + t, m))
 
 
-def _sdf_samples(colliders: ColliderSet, i: Int, pose: Pose3) -> Tuple[List[Vec3], Real]:
+def _sdf_samples(colliders: ColliderSet, d: ShapeDesc, pose: Pose3) -> Tuple[List[Vec3], Real]:
     """World sample points (and the radius around each) at which a convex
     collider meets an SDF (ROADMAP 17.52): a sphere's centre; five points
     along a capsule's segment; a box's 8 corners, 12 edge midpoints and 6
     face centres; a hull's vertices. Empty for static mesh kinds."""
-    var k = colliders.shape[i]
+    var k = d.kind
     var out = List[Vec3]()
-    var h = colliders.half[i]
+    var h = d.half
     if k == SHAPE_SPHERE:
         out.append(pose.position)
         return (out^, h[0])
@@ -409,7 +424,7 @@ def _sdf_samples(colliders: ColliderSet, i: Int, pose: Pose3) -> Tuple[List[Vec3
                     out.append(pose.position + pose.axes[0] * l[0] + pose.axes[1] * l[1] + pose.axes[2] * l[2])
         return (out^, Real(0))
     if k == SHAPE_HULL:
-        ref hs = colliders.hulls[colliders.hull_id[i]]
+        ref hs = colliders.hulls[d.hid]
         for v in range(hs.nv()):
             var l = hs.vert(v)
             out.append(pose.position + pose.axes[0] * l[0] + pose.axes[1] * l[1] + pose.axes[2] * l[2])
@@ -434,14 +449,28 @@ def try_sdf_pair(
     var dk = colliders.shape[di]
     if _is_mesh(dk) or dk == SHAPE_SDF:
         return
-    ref g = colliders.sdfs[colliders.mesh_id[si]]
     var dpose = pose_j.copy() if di == j else pose_i.copy()
-    var smp = _sdf_samples(colliders, di, dpose)
+    if dk == SHAPE_COMPOUND:
+        for k in range(colliders.kid_count(di)):
+            _sdf_pair_kid(colliders, i, j, si, colliders.kid(di, k), colliders.kid_pose(di, k, dpose), margin, 1 + k, out)
+        return
+    _sdf_pair_kid(colliders, i, j, si, colliders.desc(di), dpose, margin, 0, out)
+
+
+def _sdf_pair_kid(
+    colliders: ColliderSet, i: Int, j: Int, si: Int, dd: ShapeDesc, dpose: Pose3,
+    margin: Real, feat: Int, mut out: List[RawContact],
+):
+    """`try_sdf_pair` for one convex shape `dd` at `dpose` (a body's own
+    shape or a compound child) against SDF collider `si`."""
+    ref g = colliders.sdfs[colliders.mesh_id[si]]
+    var dk = dd.kind
+    var smp = _sdf_samples(colliders, dd, dpose)
     var pts = smp[0].copy()
     if dk == SHAPE_ELLIPSOID:
         # one point: the ellipsoid's support against the field gradient,
         # refined once at the point it lands on (17.52)
-        var se = colliders.support_ellipsoid(di, dpose)
+        var se = colliders.support_ellipsoid_d(dd, dpose)
         var gc = g.gradient(dpose.position)
         var gl0 = sqrt(dot(gc, gc))
         var n0 = gc / gl0 if gl0 > 1e-12 else Vec3(0, 1, 0, 0)
@@ -481,7 +510,38 @@ def try_sdf_pair(
     var m = ContactManifold[3].hit_along(n_ab)
     for k in range(len(pick)):
         m.add(cand[pick[k]], cdep[pick[k]])
-    out.append(RawContact(i, j, 0, m))
+    out.append(RawContact(i, j, feat, m))
+
+
+def try_compound_pair(
+    colliders: ColliderSet, i: Int, j: Int, pose_i: Pose3, pose_j: Pose3,
+    margin: Real, mut out: List[RawContact],
+):
+    """A compound (ROADMAP 17.44) against a convex collider or another
+    compound: every child pair whose child boxes (each grown by half the
+    margin) overlap goes through `shape_pair`, the same dispatch a plain
+    pair takes, with the same margin handling as `try_pair`. One manifold
+    per touching child pair, feat = 1 + child_i * 1024 + child_j (a plain
+    side counts as its own single child 0)."""
+    var infl = Vec3(margin * 0.5, margin * 0.5, margin * 0.5, 0)
+    var ni = colliders.kid_count(i)
+    var nj = colliders.kid_count(j)
+    for a in range(ni):
+        var da = colliders.kid(i, a)
+        var pa = colliders.kid_pose(i, a, pose_i)
+        var ba = colliders.kid_box(da, pa, margin * 0.5)
+        for b in range(nj):
+            var db = colliders.kid(j, b)
+            var pb = colliders.kid_pose(j, b, pose_j)
+            if not ba.overlaps(colliders.kid_box(db, pb, margin * 0.5)):
+                continue
+            var m = colliders.shape_pair(da, pa, db, pb, margin * 0.5, infl)
+            if not m.hit:
+                continue
+            if margin > 0:
+                for k in range(m.count):
+                    m.depths[k] -= margin
+            out.append(RawContact(i, j, 1 + a * 1024 + b, m))
 
 
 def try_pair(
@@ -523,6 +583,13 @@ def try_pair(
             try_mesh_pair(colliders, i, j, pose_i, pose_j, 0, sensors)
         else:
             try_mesh_pair(colliders, i, j, pose_i, pose_j, margin, out)
+        return
+
+    if colliders.shape[i] == SHAPE_COMPOUND or colliders.shape[j] == SHAPE_COMPOUND:
+        if is_sensor_pair:
+            try_compound_pair(colliders, i, j, pose_i, pose_j, 0, sensors)
+        else:
+            try_compound_pair(colliders, i, j, pose_i, pose_j, margin, out)
         return
 
     if is_sensor_pair:

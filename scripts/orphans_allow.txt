@@ -9,7 +9,6 @@
 # --- no importer at all
 embed.capi  # [entry] compiled alone by `pixi run capi` into build/libludens.so (12.1)
 ecs.query  # [doc] intentionally empty: documents where queries live (World.query1/2/3)
-geometry.mat3  # [gap] Mat3x3 was meant to replace fem/mpm/chain 3x3 helpers; that migration was reverted for compile time (17.0c step 7, physics/fem.mojo det3 docstring) and nothing, not even a test, uses it now
 
 # --- seam variants
 collision.bp_dbvh  # [seam] BroadPhase backend (test_dbvh, test_solver_bp)

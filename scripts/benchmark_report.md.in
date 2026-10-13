@@ -2066,6 +2066,15 @@ mapping removes.
 
 @bench benchmarks/bench_shapes.mojo
 
+## Compound shapes (17.44)
+
+One body with N box children against N box bodies held together by
+N - 1 weld joints (the 17.5 route for multi-part rigid objects). The
+compound has no joint rows and no joint residual; the welded bar's ends
+drift apart by the weld error.
+
+@bench benchmarks/bench_compound.mojo
+
 ## Character controller (17.1)
 
 One `update` of the kinematic capsule controller: a few capsule sweeps for

@@ -460,6 +460,12 @@ O(island size) 或常數(最後一段倍率略高於線性,讀作單次呼叫量
 |---|---|---|---|---|
 | `DistanceField3`:解析 `Sdf3`(基元 + CSG)vs 取樣 `SdfGrid`(三線性格點);`sphere_trace`、`SdfGrid.from_field` 對兩者共用 | geometry/distance_field.mojo、geometry/sdf3.mojo、geometry/sdf_grid.mojo、collision/world_query.mojo | 同一距離函數的兩個表示;取樣是解析的離散化(誤差 ≤ 一格),節點上相等 | `test_distance_field`(射線 t 兩者 1e-3 內;節點值 `from_field(Sdf3.plane)` == 手填,靜止高度逐位相同) | `bench_shapes`(盒在 SDF 上每 body-step) |
 
+### 2.29 多部件剛體:單 body 複合 vs 焊接多 body(Phase 17.44,2026-10-13)
+
+| Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
+|---|---|---|---|---|
+| (a) `add_compound`(一個 body、N 個凸子形狀)vs (b) N 個 body + `JOINT_WELD`(17.5)vs (c) 單一子形狀退化為一般形狀 | collision/collider_set.mojo(`CompoundSpec`、`kid_*`、`shape_pair`)、collision/contact_gen.mojo(`try_compound_pair`)、physics/mass_props.mojo、physics/solver6.mojo | 同一剛性物體的三個表示;(a)(c) 是同一接觸分派(`ShapeDesc` 對 `ShapeDesc`)在子形狀上的展開,(a) 與 (b) 只差焊接殘差 | `test_compound`(單一子形狀 == 一般盒逐位;兩半盒對整盒在穿透 slop 內;brute == BVH 逐位;質量 / 質心 / 主慣量對手算張量) | `bench_compound`(N = 2–64:複合 44–1881 µs/步,焊接 77–2616 µs/步) |
+
 ## 3. SE(3) 的三個表示函子(GA 層)
 
 剛體運動群 SE(3) 是單對象範疇(群 = 只有一個對象的 groupoid)。三個「表示」

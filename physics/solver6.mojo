@@ -81,6 +81,8 @@ from collision.collider_set import (
     SHAPE_ELLIPSOID,
 )
 from geometry.sdf_grid import SdfGrid
+from collision.collider_set import CompoundSpec, ShapeDesc, SHAPE_COMPOUND, COMPOUND_MAX_CHILDREN
+from .mass_props import compound_mass
 from collision.contact_gen import RawContact, collect_bp_pairs, try_pair
 from collision.contact_events import ContactEvent, pack_key, diff_events, EV_STAY, EV_ENDED
 from collision.broadphase import BroadPhase, Pair
@@ -507,6 +509,61 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         debug_assert(
             ci == id.index(), "ContactScene6.add_hull: body/collider index desync"
         )
+        return id
+
+    def add_compound(
+        mut self, var b: Self.B, spec: CompoundSpec, density: Real, is_static: Bool
+    ) raises -> BodyId:
+        """One body made of several convex children (ROADMAP 17.44). `b`'s
+        pose is the frame `spec`'s child poses are given in; its inertia is
+        replaced. The children's mass properties at `density` give the
+        centre of mass and principal axes (`physics.mass_props`); the body
+        origin moves to that centre and its axes onto that frame, and the
+        children are re-expressed there, so the world placement of every
+        child is unchanged and `Inertia3`'s diagonal is exact.
+
+        Raises: no children, more than 1024, density <= 0, a non-unit child
+        rotation (|q| off by > 1e-4), or a child with a non-positive size."""
+        var n = len(spec)
+        if n == 0 or n > COMPOUND_MAX_CHILDREN:
+            raise Error("ContactScene6.add_compound: 1 to 1024 children")
+        if not (density > 0 and density < Real(1e30)):
+            raise Error("ContactScene6.add_compound: density must be finite and > 0")
+        for k in range(n):
+            if abs(spec.rot[k].norm() - 1) > Real(1e-4):
+                raise Error("ContactScene6.add_compound: child " + String(k) + " rotation is not a unit quaternion")
+            var h = spec.half[k]
+            var kind = spec.kind[k]
+            var bad = h[0] <= 0
+            if kind == SHAPE_BOX or kind == SHAPE_ELLIPSOID:
+                bad = bad or h[1] <= 0 or h[2] <= 0
+            elif kind == SHAPE_CAPSULE:
+                bad = bad or h[1] < 0
+            elif kind == SHAPE_HULL:
+                bad = spec.hcount[k] < 12
+            if bad:
+                raise Error("ContactScene6.add_compound: child " + String(k) + " has no volume")
+        var mp = compound_mass(spec, density)
+        if not (mp.mass > 0):
+            raise Error("ContactScene6.add_compound: children have no volume")
+        var qp = mp.frame
+        var qpc = qp.conjugate()
+        var moved = CompoundSpec()
+        for k in range(n):
+            var lp = qpc.rotate(spec.pos[k] - mp.com)
+            var lq = qpc * spec.rot[k]
+            var kind = spec.kind[k]
+            if kind == SHAPE_HULL:
+                moved.hull(spec.child_verts(k), lp, lq)
+            else:
+                moved._push(kind, spec.half[k], lp, lq)
+        var q0 = b.rotation()
+        b.set_pose(Pose6(b.position() + q0.rotate(mp.com), q0 * qp))
+        if not is_static:
+            b.set_inertia(Inertia3(mp.mass, mp.moments[0], mp.moments[1], mp.moments[2]))
+        var id = self._push_body(b^, is_static)
+        var ci = self.colliders.add_compound(moved, id.index())
+        debug_assert(ci == id.index(), "ContactScene6.add_compound: body/collider index desync")
         return id
 
     def add_sdf(mut self, var b: Self.B, var grid: SdfGrid) -> BodyId:
@@ -2584,6 +2641,27 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wf(sg.cell)
             for k in range(len(sg.values)):
                 out.wf(sg.values[k])
+        elif sc.colliders.shape[i] == SHAPE_COMPOUND:
+            # 17.44: every child (kind, size, local pose, hull vertices)
+            var cid = sc.colliders.mesh_id[i]
+            var f0 = sc.colliders.comp_first[cid]
+            var nk = sc.colliders.comp_n[cid]
+            out.wi(nk)
+            for k in range(nk):
+                var d = sc.colliders.kid_desc[f0 + k]
+                var q = sc.colliders.kid_rot[f0 + k]
+                out.wi(d.kind)
+                out.wv(d.half)
+                out.wv(sc.colliders.kid_pos[f0 + k])
+                out.wf(q.x)
+                out.wf(q.y)
+                out.wf(q.z)
+                out.wf(q.w)
+                if d.kind == SHAPE_HULL:
+                    ref kh = sc.colliders.hulls[d.hid]
+                    out.wi(len(kh.v))
+                    for v in range(len(kh.v)):
+                        out.wf(kh.v[v])
     out.wi(len(sc.joints))
     for j in range(len(sc.joints)):
         var jt = sc.joints[j]
@@ -2905,6 +2983,37 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             sc.colliders.mesh_id[bi] = len(sc.colliders.sdfs)
             sc.colliders.world_aabb[bi] = AABB[3](org, org + Vec3(span, span, span, 0))
             sc.colliders.sdfs.append(grid^)
+        elif kind == SHAPE_COMPOUND:
+            var nk = r.ri()
+            if nk < 1 or nk > COMPOUND_MAX_CHILDREN:
+                raise Error("physics.serialize: corrupt snapshot (compound child count)")
+            var f0 = len(sc.colliders.kid_desc)
+            for _ in range(nk):
+                var ck = r.ri()
+                if ck != SHAPE_BOX and ck != SHAPE_SPHERE and ck != SHAPE_CAPSULE and ck != SHAPE_HULL and ck != SHAPE_ELLIPSOID:
+                    raise Error("physics.serialize: corrupt snapshot (compound child kind)")
+                var ch = r.rv()
+                var cp = r.rv()
+                var qx = r.rf()
+                var qy = r.rf()
+                var qz = r.rf()
+                var qw = r.rf()
+                var hid = -1
+                if ck == SHAPE_HULL:
+                    var nv = r.ri()
+                    if nv < 0:
+                        raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
+                    var hv = List[Real](capacity=nv)
+                    for _ in range(nv):
+                        hv.append(r.rf())
+                    hid = len(sc.colliders.hulls)
+                    sc.colliders.hulls.append(HullShape(hv))
+                sc.colliders.kid_desc.append(ShapeDesc(ck, ch, hid))
+                sc.colliders.kid_pos.append(cp)
+                sc.colliders.kid_rot.append(Quat(qx, qy, qz, qw))
+            sc.colliders.mesh_id[bi] = len(sc.colliders.comp_first)
+            sc.colliders.comp_first.append(f0)
+            sc.colliders.comp_n.append(nk)
     var nj = r.ri()
     if nj < 0:
         raise Error("physics.serialize: corrupt snapshot (negative joint count)")

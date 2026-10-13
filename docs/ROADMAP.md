@@ -250,7 +250,7 @@
 | 17.26 | [接觸修改 / 單向平台](ROADMAP_HISTORY.md#1726-接觸修改--單向平台--wave-b) | ✅ | B | physics/contact6.mojo 用資料驅動的 ContactRule(不是 callback)提供 RULE_ONE_WAY 單向平台、RULE_CONVEYOR 輸送帶表面速度與 RULE_FRICTION 逐接觸摩擦覆寫,由 ContactScene6.add_contact_rule 註冊,並有 seam parity 測試(規則不匹配時與無規則逐位相同)。 |
 | 17.29 | [通用可斷裂關節](ROADMAP_HISTORY.md#1729-通用可斷裂關節--wave-b) | ✅ | B | ContactScene6.set_joint_break(j, force, torque) 對所有 Joint6 種類提供力 / 力矩閾值,有閾值時每子步取峰值負載(joints6.sample_loads)、步末 check_breaks 轉為 JOINT_BROKEN,斷裂事件經 scheduler.events.Channel 送達。 |
 | 17.31 | [物理 LOD / 模擬預算調度](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b) | ✅ | B | ContactScene6.freeze / unfreeze 以暫時切成 STATIC 並保留速度實作凍結,physics/lod.mojo 提供 DistanceLOD(距離 + 遲滯)與 SimBudget(依量測步進時間調 iters 再調 substeps),全場 LOD + 天花板預算與原解算器逐位相同。 |
-| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | ⬜ | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
+| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 🔶 | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 🔶 | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
@@ -339,6 +339,27 @@
 > - 量測(2026-09-29,`bench_gpu_contact`,F22 修正前):寬相開啟後,N=4096 箱每幀 CPU 收集 + 簿記(不含求解)達 82 ms,N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,因此排為本項第一個工作(已由上面的 F22 第一批處理)。
 
 #### 17.44 複合形狀 — Wave B
+
+> **狀態**:🔶 大部分完成(2026-10-13:一 body 多凸子形狀、質量性質聚合 + 主軸、配對 / 網格 / SDF 分派、查詢、軟體粒子、快照、槽位 ✅;
+> 17.5 `FractureSet` 零件選走複合、球 / 膠囊 / 橢球子形狀的滾動錨點(現以 body 固定錨點,滾動會被摩擦拖慢,見 17.19)未做;CCD 跳過複合(屬 17.46))。
+> **進度註(2026-10-13)**:
+> - **分派重構**:`ShapeDesc`(kind、`half`、hull 列)取代以 collider 索引讀形狀;`pair_manifold` → `shape_pair(ShapeDesc, Pose3, ShapeDesc, Pose3)`,
+>   `as_hull` / `hull_faces` / `ellipsoid_pair` 等皆有 `_d` 版;網格與 SDF 配對拆成逐形狀函式(`_mesh_pair_kid`、`_sdf_pair_kid`)。既有 golden 各段不變。
+> - **資料**:`SHAPE_COMPOUND = 8`;`CompoundSpec`(box / sphere / capsule / ellipsoid / hull 子形狀 + 局部位姿)、`ColliderSet.kid_desc / kid_pos / kid_rot`,
+>   `half` 為子形狀包圍盒的聯集;子形狀上限 1024。`ContactScene6.add_compound(b, spec, density, is_static)`。
+> - **質量**:`physics/mass_props.mojo`:各子形狀質量 / 質心 / 張量(hull 以面扇形四面體積分),轉到父框(R I Rᵀ)、平行軸移到總質心、求和,
+>   `geometry.mat3.sym_eigen3`(Jacobi)取主軸;body 原點移到質心、軸對齊主軸,子形狀重新表示(世界位置不變)。
+> - **配對**:複合對凸形 = 子形狀對迴圈,先以子盒(各長半個 margin)剔除,再走 `shape_pair`;feat = 1 + 子 i × 1024 + 子 j。
+>   對網格:逐子形狀 `_mesh_pair_kid`,feat = 子 << 16 | 三角形(三角形 < 2¹⁶);對 SDF:逐子形狀,feat = 1 + 子。
+> - **查詢 / 軟體**:`ColliderSet.kid_probe`(子形狀的 support,GJK 外、EPA 內)、`compound_probe`(取最近子);`point_distance`、射線(聯集距離的 sphere tracing)、
+>   `shape_distance` / `shape_cast` / `closest_points`(子形狀對)、`soft_particle_contact`。
+> - **快照**:每個子形狀的 kind / 尺寸 / 局部位姿 / hull 頂點。
+> - 量測(`tests/test_compound.mojo` 18/18):盒 + 球的總質量 73.51033(手算 73.510322)、質心 (0.22792937, 0.13675761)(手算 0.22792936, 0.13675762)、
+>   主慣量 1.3993801 / 9.605963 / 10.202511 對手算張量(含積 −2.735)特徵值 1.3993802 / 9.605963 / 10.202511;L 形靜置最低角 y −0.00017;
+>   單一子形狀與一般盒 120 步逐位相同;兩半盒 y 0.24985 對整盒 0.24959(8 對 4 個軟接觸點,皆在穿透 slop 0.005 內);4 個 L 堆疊 brute == BVH 逐位;
+>   快照還原逐位相同;移除後槽位重用無殘留;射線 t 2.1 / 2.5、點距 0.5099(皆解析值);1000 球子形狀可建且靜止。
+> - bench `bench_compound`(N 個立方體排成的棒):複合 44 / 96 / 469 / 1881 µs/步,焊接 77 / 163 / 689 / 2616 µs/步(N = 2 / 4 / 16 / 64),
+>   焊接兩端相對漂移 1.8e-8 – 2.5e-8 m、複合為 0。
 
 > **現況**:`ColliderSet` 的一個 collider 就是一個形狀,且 collider `i` ≡ body `i`(`collision/collider_set.mojo:13-14,75-107`);形狀種類只有 6 種(`:37-42`),`half` 是單一盒、hull 是單一頂點表(`:78-81`)。沒有「一個 body 掛多個形狀」的欄位,也沒有形狀相對 body 的局部位姿:盒 / 球 / 膠囊固定在 body 原點,hull 只能把偏移烤進頂點。grep `compound|child.?shape|sub.?shape|multi.?shape|shape_offset|local_pose|local_offset`(`physics collision gameplay geometry`)只命中 `geometry/polytope.mojo:373` 的英文動詞 compound,零命中於真實功能。
 > 質量性質寫死「body 原點 = 質心、慣量 = 主軸對角」:`Inertia3` 只有 mass + 三個主軸矩(`physics/rigid6.mojo:45-52`),`Body6` 只有讀取 `get_inertia`(`:154`),沒有質心偏移,也沒有完整張量。`Polytope.inertia_diag` 自述「products of inertia are dropped: TODO rotate to the principal frame」(`geometry/polytope.mojo:168-173`);grep `eigen`(`geometry numerics physics`)零命中,沒有 3×3 對稱特徵分解。
@@ -2994,7 +3015,7 @@
 | 17.41 | [繩索 / 纜線約束](ROADMAP_HISTORY.md#1741-繩索--纜線約束--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.42 | [LBM 風洞收尾(Phase 14 遺留併入)](ROADMAP_HISTORY.md#1742-lbm-風洞收尾phase-14-遺留併入--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | ECS、排程、執行期與診斷 | 不排 |
-| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | ⬜ |
+| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | ⬜ |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | 🔶 |
