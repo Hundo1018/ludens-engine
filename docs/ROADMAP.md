@@ -1554,7 +1554,7 @@
 | 15.3 | [comptime 自動伴隨式生成](ROADMAP_HISTORY.md#153-comptime-自動伴隨式生成---完成2026-08-11) | ✅ |  | 步驟以小型線性直線程式描述,用 comptime for 在編譯期展開前向與伴隨,8.48 ns,比 runtime tape 快 5.9×,有 27 checks 測試與 bench_diffsim 一列。 |
 | 17.18 | [批次多世界步進(13.9 落地)](ROADMAP_HISTORY.md#1718-批次多世界步進139-落地--wave-b) | ✅ | B | `BatchReal[W]` 讓 17.20 的 `SphereWorld` 每個 SIMD lane 跑一個世界,`step_worlds_parallel[W]` 再把批次分到各核,N ≥ 64 時約 7.4×(lane)/ 22×(lane × 核)於純量循序。 |
 | 17.20 | [剛體 solver 可微化收尾(13.7)](ROADMAP_HISTORY.md#1720-剛體-solver-可微化收尾137--wave-b) | ✅ | B | `SolverField` 係數環加上 `physics/diffsolver.mojo` 的 `SphereWorld[F]`(動態球 + 靜態平面)以與 `ContactScene6` 相同的每幀演算法提供可微接觸 / 摩擦步進,四種係數環梯度一致,並有 μ 系統識別範例。 |
-| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | ⬜ | C | 共用 gradcheck、精度與可重現性政策、求解器多樣性、AD 深度、接觸梯度的平滑變體 |
+| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 🔶 | C | 共用 gradcheck、精度與可重現性政策、求解器多樣性、AD 深度、接觸梯度的平滑變體 |
 
 ### 已完成條目的遺留待辦
 
@@ -1607,6 +1607,20 @@
 > **相依**:平台整合方向拍板。
 
 #### 17.84 數值 / 可微深化 — Wave C
+> **進度註(2026-10-13)**:三塊先行。(1)`harness/gradcheck.mojo`:`GradProblem` trait(`dim` / `value` / `gradient` / `schedule`)+ `gradcheck(p, x, steps)`
+> 回傳每個步長的誤差(max |fd − g| / max(1, max |g|))、每個步長因分支改變而略過的分量數與最佳步長;`max_rel_diff` 比兩個解析梯度(前向 vs 反向)。
+> (2)`numerics/bicgstab.mojo`:`bicgstab[Op: LinearOperator]`(Float64 遞迴、可選 Jacobi),`residual` 回報**真殘差**而非遞迴估計,
+> 真殘差高於 max(tol, 1.2e-4) 即不算收斂。(3)`numerics/dense.mojo`:`condition_1`(Float64 LU 的精確 1-範數條件數)與 `solve_dense_refined`
+> (f32 消去 + Float64 殘差 + Float64 累加的混合精度迭代改良)。
+> 量測(`tests/test_numerics_deep.mojo` 13/13):Rosenbrock 正確梯度最佳誤差 7.9e-11(h=1e-6),一個分量變號 1.04;diffsim 落點 x 對 6 個控制量,
+> 反向 vs 前向(`DualReal`)1.8e-7、反向 vs 中央差分 1.0e-5(f32 primal,h=1e-2);|x| 在 1e-4 處 h=1e-2、1e-3 各 1 個分量跨折點被計數略過。
+> 迎風對流擴散 n=200(列 (−2, 3.1, −1)):BiCGStab 181 次、誤差 4.5e-6;CG 800 次不收斂、誤差 139。c=4 無反應項時 BiCGStab 遞迴殘差達 1e-6、
+> 真殘差 9e8、誤差 6e9 —— 加真殘差檢查前會回報收斂,現在回報不收斂。Hilbert 條件數 9.43e5 / 2.81e7(公開值 9.44e5 / 2.91e7;項先捨入到 f32);
+> Hilbert(5) 改良 3 輪殘差 1.6e-8 → 5e-17、對 Float64 解的誤差 3.8e-4 → 0。`bench_numerics_deep`:BiCGStab n=256 / 1024 / 4096 為 215 / 111 / 71 次;
+> **n=1024 加 Jacobi 時發散**(1136 次不收斂、誤差 4e14,同矩陣不加則收斂)—— 非正規矩陣上 BiCGStab 收斂不規則,GMRES 尚缺;
+> 稠密 n=32:f32 解 29 µs、改良 3 輪 123 µs、條件數 104 µs;一次 gradcheck(6 控制 × 6 步長)33 µs。
+> **未做**:四個既有可微測試改用 gradcheck、排程雜湊接到 diffrigid / diffsim 的分支位元、精度 / 縮併政策文件與旗標漂移測試、稀疏 Cholesky / IC0 / 多重網格 /
+> MINRES / GMRES / 平行 SpMV、AD 深度(批次 × 反向、檢查點、Hessian-vector、隱式微分)、`SolverField.positive` 平滑變體。
 > **現況**:
 > - **線性代數**(`numerics/`):CSR 矩陣與三元組組裝(`numerics/sparse.mojo:54`、`from_triplets` `:89`)、matrix-free 的 `LinearOperator`(**僅限對稱正定**,`:35-43`)、
 >   `cg` / `pcg`(只有 Jacobi 預條件,`numerics/cg.mojo:61,73`)、`jacobi_solve`(`:175`)、稠密高斯消去含部分選主元(`numerics/dense.mojo:84,97`)。
@@ -3211,5 +3225,5 @@
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
-| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | ⬜ |
+| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | 🔶 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | 🔶 |

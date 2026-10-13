@@ -77,3 +77,4 @@ gameplay.combat  # [api] hurtboxes, swings, hitscan, hit-stop for host gameplay 
 gameplay.projectile  # [api] projectile pool stepped by host gameplay code (17.71)
 gameplay.explosion  # [api] explosions triggered by host gameplay code (17.71)
 ecs.host_components  # [api] run-time registered components for hosts (17.78)
+numerics.bicgstab  # [api] non-symmetric Krylov solve; consumers are 17.58 / 17.59 (17.84)

@@ -280,6 +280,25 @@ row is marked DIVERGED — it is a cost with no result attached, and that is the
 comparison: not a faster step, an available one.
 
 @bench benchmarks/bench_numerics.mojo
+## Numerics deepening — BiCGStab, dense refinement, gradcheck (17.84)
+
+`cg` / `pcg` assume a symmetric positive definite operator. The first table
+solves an upwind convection-diffusion system, which is not symmetric:
+BiCGStab converges and its error against the known answer is in the row; CG
+runs its whole budget and its error is the reason it is labelled the wrong
+solver. The diagonal is constant, so Jacobi is only a rescaling, yet at
+n=1024 the Jacobi run diverges where the plain one converges: BiCGStab's
+convergence on this non-normal matrix is irregular (GMRES, which is
+monotone, is not in the package yet). BiCGStab reports the TRUE residual of the returned f32 answer, not
+its recursive estimate (on a convection-only variant the recursion met 1e-6
+with an answer off by 6e9, `test_numerics_deep`).
+
+The second table is the price of accuracy in the small dense solve: three
+rounds of mixed-precision refinement (residual in f64, correction by the same
+f32 elimination) and the exact 1-norm condition number. The third is one
+shared `gradcheck` call: 6 controls x 6 step sizes x 2 rollouts.
+
+@bench benchmarks/bench_numerics_deep.mojo
 ## Animation — clips, blending and cross-fade
 
 The skinning maths existed; the runtime around it did not. `procedural/anim.mojo`
