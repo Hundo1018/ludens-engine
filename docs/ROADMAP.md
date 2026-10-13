@@ -817,7 +817,7 @@
 > - **橢球**:以 hull 細分超過 30 面上限,接觸幾何會被截斷,故本輪不提供 `add_ellipsoid`(只給慣量),待 support-mapping 接觸入口。
 
 #### 17.53 查詢擴充 — Wave A(承接 17.13 的待辦)
-> **狀態**:🔶 部分完成(2026-10-13:凸形掃掠 / 重疊、距離與最近點對、all-hits / any-hit、命中三角形與重心座標、單面選項、mesh BVH / heightfield DDA 射線遍歷、持久預篩 `QueryIndex`、批次派發、角色盒形選項 ✅;載具輪材質、批次平行的實際加速、GPU 批次對真實形狀(第 7 層)未做)。
+> **狀態**:🔶 部分完成(2026-10-13:凸形掃掠 / 重疊、距離與最近點對、all-hits / any-hit、命中三角形與重心座標、單面選項、mesh BVH / heightfield DDA 射線遍歷、持久預篩 `QueryIndex`、批次派發、角色盒形選項、命中 / 載具輪表面材質 ✅;批次平行的實際加速、GPU 批次對真實形狀(第 7 層)未做)。
 > **現況**:
 > - 查詢有**兩套互不相通**的層。`collision/queries.mojo` 的 `SceneQuery`(`:28-32`:`rebuild` / `raycast` / `overlap`)有四個索引後端
 >   (brute `:101`、BVH `:127`、grid `:155`、tree `:183`),只打 `BoxProxy` 的 AABB、`raycast` 只回最近一筆;
@@ -892,8 +892,15 @@
 >   `test_character` 21/21 不動)。`test_character_box` 10/10:地面底部 0.01005(skin)、1 s 走 1.9999994 m、牆前停在面 2.98995(牆 3)、0.25 m 台階上去
 >   (底 0.26005)、0.5 m 擋住;中心超出崖邊 0.2 m:盒子底部 1.01005 平穩站住,同半徑膠囊以圓底卡在邊上、底部 0.93365(解析 1 − 0.0764 + skin = 0.93361);
 >   陷入地面 0.04 一次更新推出;1.5 m 天花板下站到 1.8 m 拒絕、1.4 m 允許;r = 0 尖角盒照常行走。`test_query_ext` 20/20 加 `shape_penetrations` 一條。
-> - **待辦**:載具輪取表面材質;批次平行的實際加速(先量 dispatch 每項成本);
->   命中材質 id(接 17.23,目前可由 `body` 自查);GPU 批次對真實形狀(第 7 層);CGA 圓形基元閉式最近點的假說。
+> - **表面材質 ✅(2026-10-13)**:`TriMesh` / `HeightField` 帶逐三角形材質 id(`ContactScene6.set_triangle_materials`,0..65535,空 = 無);
+>   `hit_material(hit)` 由命中三角形回報、非網格回 −1;場景材質摩擦表 `set_material_friction(id, mu)`,`surface_friction(body, material, fallback)`
+>   先查材質、未設時退回 body 摩擦。載具輪:`WheelHit.feat`(射線直接帶;球 / 膠囊輪以接觸點反向 10 cm 射線取回三角形),`WheelState.material`
+>   每輪回報腳下材質,輪胎抓地取 `surface_friction`。`test_surface_material` 8/8:同一條路網格,柏油段(材質摩擦 0.5)15 m/s 煞停 13.6419325 m
+>   = body 摩擦 0.5 的盒路 13.6419325;冰段(0.05)150.08862 m vs 盒路 0.05 的 150.08842;heightfield 第 3 格回報材質 8。
+>   接觸求解器仍用 body 摩擦(逐三角形接觸摩擦未接,歸 17.23)。
+> - **快照 format 5**:同時補上 17.45 的兩個缺口 —— kinematic 網格(body 座標頂點、上次放置位姿)與 heightfield 的 active-edge 角度原本不在快照裡,
+>   還原後平台網格不再跟隨 body。現在連同材質與材質摩擦表寫入;`test_surface_material` 中途存讀的移動平台場景與不中斷的執行逐位相同。
+> - **待辦**:批次平行的實際加速(先量 dispatch 每項成本);GPU 批次對真實形狀(第 7 層);CGA 圓形基元閉式最近點的假說。
 
 #### 17.54 CPU 碰撞管線 — Wave B(多執行緒)
 
