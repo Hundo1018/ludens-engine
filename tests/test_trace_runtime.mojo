@@ -20,7 +20,9 @@ def main() raises:
         Python.list("mojo", "run", "--target-cpu", "skylake", "-D", "LUDENS_TRACE", "-D", "ASSERT=all", "-I", "build", "tests/probes/trace_on_probe.mojo"),
         capture_output=True, text=True,
     )
-    print(String(r.stdout).strip())
+    # indented so the probe's own "[PASS]" line is not read as a suite result
+    for line in String(r.stdout).strip().split("\n"):
+        print("  probe:", line)
     if Int(py=r.returncode) != 0:
         print(String(r.stderr))
     s.check(Int(py=r.returncode) == 0, "the -D LUDENS_TRACE probe passes")
