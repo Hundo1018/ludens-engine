@@ -284,6 +284,26 @@ def _basis(n: Vec3) -> Tuple[Vec3, Vec3]:
     return (t1, t2)
 
 
+def _best_normal(faces: List[Real], n: Vec3) -> Vec3:
+    """The unit face normal in `faces` (flat, stride 3) closest to `n`; `n`
+    itself when there are none."""
+    var nf = len(faces) // 3
+    if nf == 0:
+        return n
+    var bi = 0
+    var bd = dot(_at(faces, 0), n)
+    for i in range(1, nf):
+        var d = dot(_at(faces, i), n)
+        if d > bd:
+            bd = d
+            bi = i
+    var f = _at(faces, bi)
+    var fl = length(f)
+    if fl < 1e-9:
+        return n
+    return f / fl
+
+
 def _face_by_normal(p: ConvexPoly[3], faces: List[Real], n: Vec3) -> List[Real]:
     """Vertices of the face whose normal is closest to `n`, flat.
 
@@ -569,12 +589,26 @@ def hull_manifold(
         m.depths[0] = w.depth
         return m
 
-    var plane_d = dot(_at(fa, 0), n)
+    # The clipped points lie on b's face; each one's depth is its distance to
+    # a's face plane. Along `n` that is `plane_d - dot(p, n)` only when `n` IS
+    # a's face normal. When the axis came from b (a tilted box on a mesh
+    # triangle), measure along a's own face normal `fna` and convert to `n`:
+    # one level for every point (the old formula) hid the tilt, and a box
+    # resting across two triangles tipped off the one it was leaving with
+    # every contact there reading "separated" (ROADMAP 17.45).
+    var fna = n
+    if not axis_from_a:
+        fna = _best_normal(faces_a, n)
+    var cosn = dot(n, fna)
+    if cosn < Real(0.5):
+        fna = n
+        cosn = 1
+    var plane_d = dot(_at(fa, 0), fna)
     var cand = List[Vec3]()
     var cdep = List[Real]()
     for i in range(len(clipped) // 3):
         var p = _at(clipped, i)
-        var sep = plane_d - dot(p, n)
+        var sep = plane_d - dot(p, n) if axis_from_a else (plane_d - dot(p, fna)) / cosn
         if sep < -(_FACE_EPS + margin):
             continue  # above the reference face: not in contact
         cand.append(p)

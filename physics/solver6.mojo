@@ -201,6 +201,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var jext: List[JointExt]
     var any_ext: Bool
     var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
+    # ROADMAP 17.45: kinematic triangle meshes -- body index and the mesh's
+    # vertices in that body's frame; re-placed at the body pose every step
+    var kin_mesh: List[Int]
+    var kin_local: List[List[Real]]
+    var kin_at: List[Pose6]  # pose the mesh was last placed at
     # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
     # +inf = unbreakable) and the joints released by the last step.
     var break_force: List[Real]
@@ -286,6 +291,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.jext = List[JointExt]()
         self.any_ext = False
         self.drives = List[AngularDrive]()
+        self.kin_mesh = List[Int]()
+        self.kin_local = List[List[Real]]()
+        self.kin_at = List[Pose6]()
         self.break_force = List[Real]()
         self.break_torque = List[Real]()
         self.broken_joints = List[Int]()
@@ -879,6 +887,47 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.sleep_timer[i] = 0
         self.bset.island[i] = -1  # recomputed by the next `_refresh_islands`
 
+        # ROADMAP 17.45: a triangle mesh moves with its body from now on --
+        # remember its vertices in the body frame (once)
+        if self.colliders.shape[i] == SHAPE_TRIMESH:
+            for k in self.kin_mesh:
+                if k == i:
+                    return
+            ref m = self.colliders.meshes[self.colliders.mesh_id[i]]
+            var loc = List[Real](capacity=len(m.v))
+            for vtx in range(len(m.v) // 3):
+                var l = self.bset.bodies[i].to_local(Vec3(m.v[3 * vtx], m.v[3 * vtx + 1], m.v[3 * vtx + 2], 0))
+                loc.append(l[0])
+                loc.append(l[1])
+                loc.append(l[2])
+            self.kin_mesh.append(i)
+            self.kin_local.append(loc^)
+            self.kin_at.append(Pose6(self.bset.bodies[i].position(), self.bset.bodies[i].rotation()))
+
+    def _refresh_kinematic_meshes(mut self) raises:
+        """Re-place each kinematic mesh at its body's current pose (vertices,
+        BVH, world AABB; active-edge flags kept). Runs before a step (a pose
+        set between steps) and after it (so scene queries between steps see
+        the mesh where its body is); a mesh whose body has not moved since it
+        was last placed is skipped. O(triangles) per moved mesh: meant for
+        platforms and doors, not for a level."""
+        for k in range(len(self.kin_mesh)):
+            var i = self.kin_mesh[k]
+            if not self.bset.is_kinematic(i):
+                continue
+            var pos = self.bset.bodies[i].position()
+            var rot = self.bset.bodies[i].rotation()
+            ref at = self.kin_at[k]
+            if pos[0] == at.pos[0] and pos[1] == at.pos[1] and pos[2] == at.pos[2] and rot.x == at.rot.x and rot.y == at.rot.y and rot.z == at.rot.z and rot.w == at.rot.w:
+                continue
+            self.kin_at[k] = Pose6(pos, rot)
+            var w = List[Real](capacity=len(self.kin_local[k]))
+            for vtx in range(len(self.kin_local[k]) // 3):
+                var p = self.bset.bodies[i].act(Vec3(self.kin_local[k][3 * vtx], self.kin_local[k][3 * vtx + 1], self.kin_local[k][3 * vtx + 2], 0))
+                w.append(p[0])
+                w.append(p[1])
+                w.append(p[2])
+            self.colliders.move_trimesh(i, w)
     def set_velocity(mut self, id: BodyId, v: Vec3, w: Vec3) raises:
         """Directly set body `id`'s linear/angular velocity (world frame) --
         the primitive a constant-speed kinematic platform drives itself
@@ -2298,9 +2347,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if self.bset.any_props:
             self._props_post()
         # ROADMAP 17.80: spans the trace could not keep go to the shared counters
+        if len(self.kin_mesh) > 0:
+            try:
+                self._refresh_kinematic_meshes()
+            except:
+                pass  # rebuilding a mesh that was valid at add cannot raise
         var tdrop = self.trace.take_dropped()
         if tdrop > 0:
             self.counters.incr(TRACE_DROPPED, Int64(tdrop))
+        if len(self.kin_mesh) > 0:
+            try:
+                self._refresh_kinematic_meshes()
+            except:
+                pass
 
     def _step_impl(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """Sub-stepped soft-constraint step (Box2D v3 "Soft Step" scheme).

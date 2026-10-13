@@ -548,6 +548,18 @@ struct ColliderSet(Movable, Deinitable):
         self.meshes.append(m^)
         return i
 
+    def move_trimesh(mut self, i: Int, world_verts: List[Real]) raises:
+        """Replace mesh collider `i`'s vertices (same triangles, same
+        active-edge flags) and its world AABB: a kinematic mesh re-placed
+        at its body's pose (ROADMAP 17.45)."""
+        self.epoch += 1
+        var mi = self.mesh_id[i]
+        var act = self.meshes[mi].active.copy()
+        var m = TriMesh(world_verts, self.meshes[mi].idx)
+        m.set_active_edges(act)
+        self.world_aabb[i] = m.bounds()
+        self.meshes[mi] = m^
+
     def add_heightfield(
         mut self, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0, at: Int = -1,
