@@ -574,7 +574,7 @@
 | 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | 🔶 |  | geometry/sdf3.mojo 有 3D SDF 場與 SDF 對 SDF 接觸,collision/narrowphase.mojo 有 2D 的 SDFNarrowPhase,但兩者都沒有接進 solver6(collider_set 沒有 SDF 形狀種類);橢球與圓柱沒有任何形狀程式碼;交付物 test_sdf_narrowphase 不存在。 |
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | ✅ | A | `collision/world_query.mojo` 對真實 collider 幾何提供有號距離、ray / sphere / capsule cast、overlap、capsule penetration、batched raycast 與 QueryFilter,`test_world_query` 30/30、`bench_world_query` 已量測。 |
 | 17.30 | [地形(HeightField)執行期變形](ROADMAP_HISTORY.md#1730-地形heightfield執行期變形--wave-b) | ✅ | B | HeightField 支援 set_height / deform(圓盤挖填)與 16×16 區塊 min/max 摘要增量重算 bounds,ColliderSet / ContactScene6.deform_heightfield 更新 AABB 並喚醒受影響的睡眠體,1024² 地形每次編輯 11.7 µs vs 全表重掃 2.87 ms。 |
-| 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 🔶 | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿 |
+| 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | ✅ | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿、kinematic 網格 |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 🔶 | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ✅ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 🔶 | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
@@ -621,7 +621,7 @@
 
 #### 17.45 網格碰撞品質 — Wave A(資產前處理)
 
-> **狀態**:🔶 部分完成(2026-10-13:烘焙管線、active edges、球 / 膠囊解析三角形 manifold、mesh → SDF、網格本地位姿 ✅;BVH 加速的 SDF 烘焙、heightfield active edges ✅;可移動(kinematic)網格未做)。
+> **狀態**:✅ 完成(2026-10-13:烘焙管線、active edges、球 / 膠囊解析三角形 manifold、mesh → SDF、網格本地位姿、BVH 加速的 SDF 烘焙、heightfield active edges、kinematic 移動網格)。
 > **現況**:網格接觸是靜態、單面、逐三角形獨立的:`TriMesh` 依繞序單面(`collision/trimesh.mojo:103-115`);`try_mesh_pair` 對每個候選三角形各跑一次 `hull_manifold`,各出一個 `RawContact`(`collision/contact_gen.mojo:124-138`);頂點是世界座標、body 位姿被忽略(`collision/collider_set.mojo:82-85,225`);永遠靜態(`physics/solver6.mojo:337-353`)。建構只驗索引範圍與 3 的倍數(`collision/trimesh.mojo:122-134`),零面積三角形以空法向略過(`:179-193`)。
 > 烘焙與內部邊:grep `weld.?vert|simplif|decimat|\bqem\b|ghost|internal.?edge|active.?edge|clean_mesh|mesh_repair|hole.?fill|winding`(`collision geometry physics`)只命中繞序註解與 `Polytope.simplified`(凸多面體共線點清理,`geometry/polytope.mojo:368`),**沒有**頂點焊接、網格修復、簡化、內部邊 / ghost collision 處理。
 > 球與膠囊對網格走盒近似:`try_mesh_pair` 以 `as_hull` 取本體(`collision/contact_gen.mojo:122`),其非 hull 分支把球換成邊長 2(r + margin)的盒、把膠囊換成包圍盒(`collision/collider_set.mojo:369-374`,docstring `:345-349` 自述「only APPROXIMATED」)。grep `sphere_tri|capsule_tri|sphere_mesh|tri_sphere` 零命中,沒有解析的球 / 膠囊對三角形 manifold。(以上為讀碼推論,未執行;滾球在斜面網格上的行為是否等同立方體,交付時以解析加速度實測。)查詢側則是精確的:`world_query` 用 `closest_point_on_triangle`(`collision/trimesh.mojo:60`)。
@@ -667,7 +667,14 @@
 > - **heightfield active edges ✅(2026-10-13)**:`HeightField.set_active_angle(angle)` 啟用後,`active(t)` 由格點推出三角形的鄰接(同格或相鄰格共用兩個角點)、
 >   比較兩面法向,依目前高度即時算(`deform` 後仍正確);預設全 active,行為逐位不變。`test_active_edges` 15/15:0.5 m 格、8 m/s 無摩擦箱:無旗標 vx 0.086、
 >   |vy| 最大 2.83(箱被接縫絆停);有旗標 7.99994、|vy| 5.2e-4;z 向 0.1 坡的格網上橫越 4 m/s → 3.997(坡上共面接縫不作用)。
-> - **待辦**:kinematic 移動網格(目前位姿只在加入時套用一次)。
+> - **kinematic 移動網格 ✅(2026-10-13)**:`set_kinematic` 用在三角網格 body 上時記下其頂點的 body 座標;`step` 前後各把網格重放到 body 目前位姿
+>   (`ColliderSet.move_trimesh`:頂點、BVH、world AABB 重建,active-edge 旗標保留),body 沒動的網格跳過。`test_kinematic_mesh` 6/6:8×8 格 4 m 平台以 1 m/s
+>   上升 2 s,網格頂點 y 2.999998 = body、箱底間隙 −2.5e-5;平台以 1 m/s 橫移 1.5 s,箱子靠摩擦 vx 1.0000001;120 次重放後旗標不變;靜態網格不動;
+>   teleport 後網格跟著走。成本 O(三角形) / 移動網格 / 步,給平台與門,不給整個關卡。
+> - **`hull_manifold` 深度修正(collision,2026-10-13)**:做上面那條時量到 —— 箱子靜置在 8×8 格上、跨兩格(x = −0.05)會在約 70 步後從左側格子翻下並漂走
+>   (2 s 後 x −0.07、y 1.2476;x = 0 與 x > 0 正常),靜態網格同樣發生,與 kinematic 無關。原因:SAT 軸來自 b(三角形)時,裁切點在三角形上、
+>   深度卻用 a 的面「第一個頂點沿 n 的高度」當參考平面,所有點同一深度,箱子微傾時看不到自己哪一側在下沉,左側四個 manifold 全讀成分離。
+>   改為沿 a 自己的面法向量量點到面距離再換算到 n;軸來自 a 時公式不變。9 個偏移 x = −0.2 … 0.2 靜置 2 s 最大漂移 3.7e-5。
 
 #### 17.46 CCD 形狀覆蓋 — Wave B
 
@@ -810,7 +817,7 @@
 > - **橢球**:以 hull 細分超過 30 面上限,接觸幾何會被截斷,故本輪不提供 `add_ellipsoid`(只給慣量),待 support-mapping 接觸入口。
 
 #### 17.53 查詢擴充 — Wave A(承接 17.13 的待辦)
-> **狀態**:🔶 部分完成(2026-10-13:凸形掃掠 / 重疊、距離與最近點對、all-hits / any-hit、命中三角形與重心座標、單面選項、mesh BVH / heightfield DDA 射線遍歷、持久預篩 `QueryIndex`、批次派發 ✅;角色盒形選項、載具輪材質、批次平行的實際加速、GPU 批次對真實形狀(第 7 層)未做)。
+> **狀態**:🔶 部分完成(2026-10-13:凸形掃掠 / 重疊、距離與最近點對、all-hits / any-hit、命中三角形與重心座標、單面選項、mesh BVH / heightfield DDA 射線遍歷、持久預篩 `QueryIndex`、批次派發、角色盒形選項 ✅;載具輪材質、批次平行的實際加速、GPU 批次對真實形狀(第 7 層)未做)。
 > **現況**:
 > - 查詢有**兩套互不相通**的層。`collision/queries.mojo` 的 `SceneQuery`(`:28-32`:`rebuild` / `raycast` / `overlap`)有四個索引後端
 >   (brute `:101`、BVH `:127`、grid `:155`、tree `:183`),只打 `BoxProxy` 的 AABB、`raycast` 只回最近一筆;
@@ -880,7 +887,12 @@
 > - **bench** `bench_query_ext`(已入報告範本):1024 條射線,線性 vs index(含建置)N = 16 / 256 / 1024 / 4096:783 / 6477 / 24816 / 93625 ns vs
 >   216 / 726 / 1759 / 5227 ns;批次 N = 4096 serial 5.65 ms vs 平行 5.64 ms(其中 index 建置 3.4 ms 為序列,其餘每條約 2 µs 在 4 核容器上平行沒有變快)。
 >   `scripts/run_benchmarks.sh` 加 bench 輸出快取與 `ONLY=` 模式(新增一節不必 26 分鐘全跑)。
-> - **待辦**:角色控制器的盒形選項(`_slide` / `_try_step` 改走 `shape_cast`);載具輪取表面材質;批次平行的實際加速(先量 dispatch 每項成本);
+> - **盒形角色 ✅(2026-10-13)**:`CharacterController(p, cfg, box_rounding=r)`(r ≥ 0)改掃軸對齊圓角盒(半邊長 (radius, half_height + radius, radius)),
+>   `_cast` 走 `shape_cast`、推出與起身檢查走新的 `shape_penetrations`(`QueryShape.rounded_box`:核心是縮 r 的盒,深度在 r 內有推出方向;膠囊預設不變,
+>   `test_character` 21/21 不動)。`test_character_box` 10/10:地面底部 0.01005(skin)、1 s 走 1.9999994 m、牆前停在面 2.98995(牆 3)、0.25 m 台階上去
+>   (底 0.26005)、0.5 m 擋住;中心超出崖邊 0.2 m:盒子底部 1.01005 平穩站住,同半徑膠囊以圓底卡在邊上、底部 0.93365(解析 1 − 0.0764 + skin = 0.93361);
+>   陷入地面 0.04 一次更新推出;1.5 m 天花板下站到 1.8 m 拒絕、1.4 m 允許;r = 0 尖角盒照常行走。`test_query_ext` 20/20 加 `shape_penetrations` 一條。
+> - **待辦**:載具輪取表面材質;批次平行的實際加速(先量 dispatch 每項成本);
 >   命中材質 id(接 17.23,目前可由 `body` 自查);GPU 批次對真實形狀(第 7 層);CGA 圓形基元閉式最近點的假說。
 
 #### 17.54 CPU 碰撞管線 — Wave B(多執行緒)
@@ -3323,7 +3335,7 @@
 | 17.42 | [LBM 風洞收尾(Phase 14 遺留併入)](ROADMAP_HISTORY.md#1742-lbm-風洞收尾phase-14-遺留併入--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | ECS、排程、執行期與診斷 | 不排 |
 | 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
-| 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
+| 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | 🔶 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
