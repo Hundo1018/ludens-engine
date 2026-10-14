@@ -301,6 +301,46 @@ def ext_sweep[B: Body6](
             ext[c] = ex
 
 
+def ext_impulse[B: Body6](bset: BodySet[B], jt: Joint6, ex: JointExt) -> Tuple[Vec3, Vec3]:
+    """(linear, angular) impulse the ext rows (limits, motor, spring, cone)
+    accumulated this substep on body b -- what `Joint6.acc` / `acc_ang`
+    hold for the joint's own rows (ROADMAP 17.47 / 17.29: break checks and
+    `joint_reaction` count both)."""
+    var lin = Vec3(0, 0, 0, 0)
+    var ang = Vec3(0, 0, 0, 0)
+    if not ex.active():
+        return (lin, ang)
+    var net = ex.acc_lo - ex.acc_hi + ex.acc_motor + ex.acc_spring
+    if net != 0:
+        var r = _coord(bset, jt, ex)[1]
+        if r.angular:
+            ang = r.n * net
+        else:
+            lin = r.n * net
+    if jt.kind == JOINT_CONE_TWIST and ex.cone >= 0 and ex.acc_cone != 0:
+        ang = ang - _swing(bset, jt)[1].n * ex.acc_cone
+    return (lin, ang)
+
+
+def sample_ext_loads[B: Body6](
+    bset: BodySet[B], joints: List[Joint6], ext: List[JointExt], h: Real,
+    mut peak_force: List[Real], mut peak_torque: List[Real],
+):
+    """`joints6.sample_loads` with the ext rows' impulses added to the
+    joint's own: a hinge held at its limit, a motor at its torque cap or a
+    slider stopped at its travel end loads the joint through these rows
+    only, which the break check used to miss."""
+    for c in range(min(len(joints), len(ext))):
+        ref jt = joints[c]
+        if jt.kind == JOINT_BROKEN or not ext[c].active():
+            continue
+        var e = ext_impulse(bset, jt, ext[c])
+        var f = jt.acc + e[0]
+        var t = jt.acc_ang + e[1]
+        peak_force[c] = max(peak_force[c], sqrt(dot(f, f)) / h)
+        peak_torque[c] = max(peak_torque[c], sqrt(dot(t, t)) / h)
+
+
 def warm_start_ext[B: Body6](
     mut bset: BodySet[B], joints: List[Joint6], ext: List[JointExt], island_filter: Int
 ):

@@ -16,6 +16,12 @@
                `scheduler.events.Channel` (17.38) and read back.
   extreme      thresholds <= 0 and an out-of-range joint raise; a torque threshold alone breaks
                a hinge twisted by a big angular impulse.
+  ext rows     (17.47) a 1 kg, 1 m bar held at its hinge's -0.5 rad limit by
+               gravity loads the limit row with m g 0.5 cos 0.5 = 4.30 N m,
+               which the joint's own rows never see: a 3 N m torque
+               threshold breaks it, 6 N m holds, and `joint_reaction`
+               reads the 4.30. A slider stopped at its travel end by a
+               20 N push breaks at a 10 N force threshold.
 """
 
 from harness.runner import Suite
@@ -149,4 +155,49 @@ def main() raises:
         tw.step_soft(DT, G)
     s.check(tw.joints[jt].kind == JOINT_BROKEN, "torque threshold alone breaks a twisted hinge")
 
+    # ---- ext rows count toward the break load (17.47) ----
+    var held = _limit_bar(6)
+    var broke = _limit_bar(3)
+    print("  bar on its hinge limit: torque threshold 6 ->", "broken" if held[0] else "holds", "; 3 ->", "broken" if broke[0] else "holds", "; reaction torque", held[1], "(analytic", 9.8 * 0.5 * cos(Real(0.5)), ")")
+    s.check(not held[0] and broke[0], "a hinge held at its limit breaks on the limit row's torque (3 N m breaks, 6 holds)")
+    s.check(abs(held[1] - 9.8 * 0.5 * cos(Real(0.5))) < 0.1, "joint_reaction includes the limit row: 4.30 N m")
+    var sl = ContactScene6[QuatBody6]()
+    _ = sl.add(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1)), Vec3(0.1, 0.1, 0.1, 0), True)
+    var bob = sl.add(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1)), Vec3(0.1, 0.1, 0.1, 0), False)
+    sl.set_can_sleep(bob, False)
+    var sj = sl.add_joint(Joint6.slider(0, 1, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(1, 0, 0, 0)))
+    sl.set_collide_connected(sj, False)
+    sl.set_joint_limits(sj, -0.2, 0.2)
+    sl.set_joint_break(sj, 10, 1e6)
+    var sbroken = False
+    for _ in range(120):
+        sl.apply_impulse(bob, Vec3(20 * DT, 0, 0, 0), sl.pose(bob).pos)
+        sl.step_soft(DT, Vec3(0, 0, 0, 0))
+        if sl.joints[sj].kind == JOINT_BROKEN:
+            sbroken = True
+            break
+    s.check(sbroken, "a slider pushed with 20 N against its travel end breaks at a 10 N threshold")
     s.finish()
+
+
+def _limit_bar(threshold: Real) raises -> Tuple[Bool, Real]:
+    var sc = ContactScene6[QuatBody6]()
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1)), Vec3(0.05, 0.05, 0.05, 0), True)
+    var bar = sc.add(QuatBody6.at_rest(Vec3(0.5, 0, 0, 0), Inertia3.box(1, 0.5, 0.05, 0.05)), Vec3(0.5, 0.05, 0.05, 0), False)
+    sc.set_can_sleep(bar, False)
+    var hj = sc.add_joint(Joint6.hinge(0, 1, Vec3(0, 0, 0, 0), Vec3(-0.5, 0, 0, 0), Vec3(0, 0, 1, 0)))
+    sc.set_collide_connected(hj, False)
+    sc.set_joint_limits(hj, -0.5, 0.5)
+    # settle on the limit first (the swing down overshoots), then arm the threshold
+    for _ in range(240):
+        sc.step_soft(DT, G)
+    sc.set_joint_break(hj, 1e6, threshold)
+    var broken = False
+    var tq = Real(0)
+    for _ in range(60):
+        sc.step_soft(DT, G)
+        if sc.joints[hj].kind == JOINT_BROKEN:
+            broken = True
+            break
+        tq = length(sc.joint_reaction(hj)[1])
+    return (broken, tq)

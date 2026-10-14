@@ -146,6 +146,8 @@ from .joint_ext import (
     MOTOR_POSITION,
     ext_sweep,
     warm_start_ext,
+    ext_impulse,
+    sample_ext_loads,
     joint_coordinate,
 )
 from .islands import (
@@ -2019,6 +2021,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 continue
             self.jsum_f[c] = self.jsum_f[c] + jt.acc * scale
             self.jsum_t[c] = self.jsum_t[c] + jt.acc_ang * scale
+            if self.any_ext and c < len(self.jext) and self.jext[c].active():
+                var e = ext_impulse(self.bset, jt, self.jext[c])
+                self.jsum_f[c] = self.jsum_f[c] + e[0] * scale
+                self.jsum_t[c] = self.jsum_t[c] + e[1] * scale
             self.jspan[c] += h * scale
 
     def _solve_island(
@@ -2651,6 +2657,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 )
             if self.any_break:
                 sample_loads(self.joints, h, self.peak_force, self.peak_torque)
+                if self.any_ext:
+                    sample_ext_loads(self.bset, self.joints, self.jext, h, self.peak_force, self.peak_torque)
             self._report_substep(pairs, 0, len(pairs), -2, sub, substeps, h)
         self.trace.end()
         restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)
