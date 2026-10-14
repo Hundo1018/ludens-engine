@@ -428,6 +428,22 @@ struct Chain(Movable, Deinitable):
         var b = self.add_link_to(a, ChainLink.prismatic(vn, z0, z0, 0, z0))
         return self.add_link_to(b, ChainLink.revolute(cross(un, vn), z0, com, mass, i_diag))
 
+    def add_free(
+        mut self, p: Int, pivot: Vec3, com: Vec3, mass: Real, i_diag: Vec3
+    ) raises -> Int:
+        """A free (6-DOF) joint under link `p` (17.51): translation along the
+        parent's x / y / z (three massless prismatic links) and a ball
+        (`add_ball`) for the rotation. Returns the body's index; its DOFs
+        are the origin's velocity in the parent frame, then the body
+        angular velocity."""
+        if not (mass > 0):
+            raise Error("Chain.add_free: mass must be > 0")
+        var z0 = Vec3(0, 0, 0, 0)
+        var a = self.add_link_to(p, ChainLink.prismatic(Vec3(1, 0, 0, 0), pivot, z0, 0, z0))
+        var b = self.add_link_to(a, ChainLink.prismatic(Vec3(0, 1, 0, 0), z0, z0, 0, z0))
+        var c = self.add_link_to(b, ChainLink.prismatic(Vec3(0, 0, 1, 0), z0, z0, 0, z0))
+        return self.add_ball(c, z0, com, mass, i_diag)
+
     def ball_orientation(self, body: Int) -> Quat:
         """Parent -> body rotation of the ball whose body link is `body`."""
         var h = body - 2
