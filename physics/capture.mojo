@@ -37,6 +37,9 @@ from physics.rigid6 import QuatBody6
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
 from physics.serialize import BinWriter, BinReader, scene_to_bytes, scene_from_bytes
+from physics.contact6 import island_color
+from diag.draw import DrawQueue
+from geometry.vec import WorldType
 
 comptime CAPTURE_MAGIC = 0x5041434C  # "LCAP" little-endian
 comptime CAPTURE_VERSION = 2
@@ -515,3 +518,29 @@ def verify(rd: CaptureReader, start: Int, frames: Int, dt: Real, gravity: Vec3, 
         if k >= start and not _same_bodies(rd.frame(k), sc):
             return k
     return -1
+
+
+def draw_frame(f: CaptureFrame, mut q: DrawQueue[WorldType], arrow: Real = 0.15, life: Int = 0):
+    """Replay a recorded frame as debug-draw commands (ROADMAP 17.80): a
+    point per recorded body (grey when asleep, else its island's colour)
+    and, as the scene's own debug draw does, an arrow per contact point
+    from the point along the normal (`arrow` long) in the pair's island
+    colour. The pair's island is its first side's recorded label, or the
+    second's when the first is static (-1); for a kinematic first side
+    this differs from the live draw, which takes the dynamic side."""
+    for k in range(len(f.slot)):
+        var c = SIMD[DType.float32, 4](0.5, 0.5, 0.5, 1) if f.sleeping[k] else island_color(f.island[k])
+        q.point(f.pos[k], c, life)
+    var p = 0
+    for c in range(len(f.ca)):
+        var ia = f.body_index(f.ca[c])
+        var ib = f.body_index(f.cb[c])
+        var lbl = -1
+        if ia >= 0 and f.island[ia] >= 0:
+            lbl = f.island[ia]
+        elif ib >= 0:
+            lbl = f.island[ib]
+        var col = island_color(lbl)
+        for _ in range(f.npts[c]):
+            q.arrow(f.point[p], f.point[p] + f.normal[c] * arrow, col, life)
+            p += 1

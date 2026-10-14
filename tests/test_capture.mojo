@@ -11,6 +11,8 @@
      the bodies inside and the contacts touching them, and is smaller.
      Version 2 (delta) frames decode to exactly the version 1 (full) frames
      of the same run, and are smaller once the stack sleeps.
+     `draw_frame` of frame 100 gives the live scene's contact arrows
+     (same points, normals and island colours) and a point per body.
   3. Extreme: bad magic, a truncated file and `key_every` 0 raise; an empty
      scene records frames with no bodies; `verify` before any keyframe raises.
 """
@@ -21,7 +23,10 @@ from geometry.aabb import AABB
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
-from physics.capture import Capture, CaptureReader, CaptureFrame, verify
+from physics.capture import Capture, CaptureReader, CaptureFrame, verify, draw_frame
+from physics.contact6 import contact_island, island_color
+from diag.draw import DrawQueue, Kind
+from geometry.vec import WorldType
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -83,6 +88,35 @@ def main() raises:
     var f119 = rd.frame(119)
     var f3 = rd.frame(3)
     s.check(f119.step_index == sc2.step_index and f3.step_index == f119.step_index - 116, "frames read in any order (step index 119 then 3)")
+
+    # ---- debug-draw replay ---------------------------------------------------------------
+    # frame 100 drawn from the file vs the live scene at that step
+    var sd = _scene()
+    for _ in range(101):
+        sd.step(DT, G, cfg)
+    var q = DrawQueue[WorldType](4096)
+    draw_frame(rd.frame(100), q)
+    var npts = 0
+    var draw_ok = True
+    var at_cmd = len(sd.bset.bodies)
+    for c in range(len(sd.cache)):
+        ref pr = sd.cache[c]
+        var col = island_color(contact_island(sd.bset, pr))
+        for k in range(pr.m.count):
+            npts += 1
+            if at_cmd >= len(q.commands):
+                draw_ok = False
+                break
+            ref cmd = q.commands[at_cmd]
+            if cmd.kind != Kind.ARROW or cmd.p0 != pr.m.points[k] or cmd.p1 != pr.m.points[k] + pr.m.normal * 0.15 or cmd.color != col:
+                draw_ok = False
+            at_cmd += 1
+    var points = 0
+    for cmd in q.commands:
+        if cmd.kind == Kind.POINT:
+            points += 1
+    print("  draw_frame(100):", len(q.commands), "commands =", points, "body points +", npts, "contact arrows")
+    s.check(draw_ok and points == len(sd.bset.bodies) and len(q.commands) == points + npts, "a drawn frame has the live scene's contact arrows (point, normal, island colour) and one point per body")
 
     # ---- verify ------------------------------------------------------------------
     s.check(verify(rd, 45, 60, DT, G, cfg) == -1, "verify from frame 45 over 60 frames: no divergence")

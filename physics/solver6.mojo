@@ -105,6 +105,7 @@ from .solver_config import SolverConfig, IMPULSE_SUBSTEP_SUM, IMPULSE_LAST_SUBST
 from .state_io import StateWriter, StateReader
 from .softbody import SoftBody, SP, SEdge
 from .contact6 import (
+    island_color,
     ContactConstraint,
     contact_island,
     make_contact,
@@ -2353,20 +2354,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var island = contact_island(self.bset, pr)
             # a small deterministic palette keyed by island label, wrapping
             # at 6 -- debug-draw is for a human to look at, not a contract.
-            var lbl = island % 6 if island >= 0 else 5
-            var color: SIMD[DType.float32, 4]
-            if lbl == 0:
-                color = SIMD[DType.float32, 4](1, 0, 0, 1)
-            elif lbl == 1:
-                color = SIMD[DType.float32, 4](0, 1, 0, 1)
-            elif lbl == 2:
-                color = SIMD[DType.float32, 4](0, 0, 1, 1)
-            elif lbl == 3:
-                color = SIMD[DType.float32, 4](1, 1, 0, 1)
-            elif lbl == 4:
-                color = SIMD[DType.float32, 4](0, 1, 1, 1)
-            else:
-                color = SIMD[DType.float32, 4](1, 1, 1, 1)
+            var color = island_color(island)
             for k in range(pr.m.count):
                 var p0 = pr.m.points[k]
                 var p1 = p0 + pr.m.normal * scale

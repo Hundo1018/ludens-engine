@@ -139,6 +139,24 @@ def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
     return bset.island[pr.a] if bset.is_dynamic(pr.a) else bset.island[pr.b]
 
 
+def island_color(label: Int) -> SIMD[DType.float32, 4]:
+    """Debug-draw colour of an island label: a 6-colour palette keyed by
+    label mod 6 (white for -1). Shared by the scene's debug draw and
+    `physics.capture.draw_frame`."""
+    var lbl = label % 6 if label >= 0 else 5
+    if lbl == 0:
+        return SIMD[DType.float32, 4](1, 0, 0, 1)
+    elif lbl == 1:
+        return SIMD[DType.float32, 4](0, 1, 0, 1)
+    elif lbl == 2:
+        return SIMD[DType.float32, 4](0, 0, 1, 1)
+    elif lbl == 3:
+        return SIMD[DType.float32, 4](1, 1, 0, 1)
+    elif lbl == 4:
+        return SIMD[DType.float32, 4](0, 1, 1, 1)
+    return SIMD[DType.float32, 4](1, 1, 1, 1)
+
+
 def make_sensor_contact(rc: RawContact) -> ContactConstraint:
     """Wrap a sensor overlap: all-zero accumulators/anchors, matching the
     original inline construction exactly -- a sensor never receives an
