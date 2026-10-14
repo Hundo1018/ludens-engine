@@ -20,6 +20,15 @@ Layout (all integers 8 bytes little-endian, floats f32 bit patterns, as
 `physics.serialize.BinWriter`): magic, version, key_every, frame count,
 then per frame its byte length and bytes, then keyframe count and per
 keyframe its frame index, byte length and bytes.
+
+Version 2 (default, `Capture(delta=True)`) stores a frame as a delta: the
+body records whose bytes changed since the previous frame and the body
+slots no longer recorded; for contacts, while the (a, b, feat) sequence
+is the previous frame's, the changed records by position, else the whole
+list. Keyframe frames are full and
+reset the base, so `frame(k)` decodes from the last keyframe at or before
+k forward. A resting or sleeping body costs nothing after its first frame.
+`delta=False` writes version 1 (every frame full); both read back the same.
 """
 
 from geometry.vec import Real, Vec3
@@ -30,7 +39,8 @@ from physics.solver_config import SolverConfig
 from physics.serialize import BinWriter, BinReader, scene_to_bytes, scene_from_bytes
 
 comptime CAPTURE_MAGIC = 0x5041434C  # "LCAP" little-endian
-comptime CAPTURE_VERSION = 1
+comptime CAPTURE_VERSION = 2
+comptime _BODY_BYTES = 76  # slot, pos, quat, vel, omega, sleep, island
 
 
 struct CaptureFrame(Movable):
@@ -48,6 +58,7 @@ struct CaptureFrame(Movable):
     var island: List[Int]
     var ca: List[Int]
     var cb: List[Int]
+    var feat: List[Int]  # version 2 only (0 when read from version 1)
     var normal: List[Vec3]
     var npts: List[Int]
     var point: List[Vec3]
@@ -65,6 +76,7 @@ struct CaptureFrame(Movable):
         self.island = List[Int]()
         self.ca = List[Int]()
         self.cb = List[Int]()
+        self.feat = List[Int]()
         self.normal = List[Vec3]()
         self.npts = List[Int]()
         self.point = List[Vec3]()
@@ -86,11 +98,19 @@ struct Capture(Movable):
     var keys: List[List[UInt8]]
     var has_region: Bool
     var region: AABB[3]
+    var delta: Bool
+    var _prev_body: List[List[UInt8]]  # by slot; empty = not recorded
+    var _prev_con: List[List[UInt8]]  # in cache order
+    var _prev_key: List[Int]  # a, b, feat per contact
 
-    def __init__(out self, key_every: Int = 60) raises:
+    def __init__(out self, key_every: Int = 60, delta: Bool = True) raises:
         if key_every < 1:
             raise Error("Capture: key_every must be >= 1")
         self.key_every = key_every
+        self.delta = delta
+        self._prev_body = List[List[UInt8]]()
+        self._prev_con = List[List[UInt8]]()
+        self._prev_key = List[Int]()
         self.frames = List[List[UInt8]]()
         self.key_frame = List[Int]()
         self.keys = List[List[UInt8]]()
@@ -108,6 +128,9 @@ struct Capture(Movable):
 
     def record(mut self, sc: ContactScene6[QuatBody6]):
         """Append the scene's current state as the next frame."""
+        if self.delta:
+            self._record_delta(sc)
+            return
         var w = BinWriter()
         w.wi(sc.step_index)
         var n = len(sc.bset.bodies)
@@ -155,6 +178,100 @@ struct Capture(Movable):
             self.keys.append(scene_to_bytes(sc))
         self.frames.append(w.b.copy())
 
+    def _record_delta(mut self, sc: ContactScene6[QuatBody6]):
+        var full = len(self.frames) % self.key_every == 0
+        var n = len(sc.bset.bodies)
+        var w = BinWriter()
+        w.wi(sc.step_index)
+        w.wi(1 if full else 0)
+        var keep = List[Bool](capacity=n)
+        for i in range(n):
+            keep.append(not sc.bset.is_removed(i) and self._inside(sc.bset.bodies[i].pos))
+        while len(self._prev_body) < n:
+            self._prev_body.append(List[UInt8]())
+        # bodies: changed records, then slots no longer recorded
+        var changed = BinWriter()
+        var nch = 0
+        var gone = List[Int]()
+        var r = BinWriter()  # scratch, reused per body
+        for i in range(len(self._prev_body)):
+            if i >= n or not keep[i]:
+                if len(self._prev_body[i]) > 0:
+                    if not full:
+                        gone.append(i)
+                    self._prev_body[i] = List[UInt8]()
+                continue
+            ref b = sc.bset.bodies[i]
+            r.b.clear()
+            r.wi(i)
+            r.wv(b.pos)
+            r.wf(b.q.x)
+            r.wf(b.q.y)
+            r.wf(b.q.z)
+            r.wf(b.q.w)
+            r.wv(b.vel)
+            r.wv(b.omega)
+            r.wi(1 if sc.bset.sleeping[i] else 0)
+            r.wi(sc.bset.island[i])
+            if full or self._prev_body[i] != r.b:
+                for x in r.b:
+                    changed.b.append(x)
+                nch += 1
+                self._prev_body[i] = r.b.copy()
+        w.wi(nch)
+        for x in changed.b:
+            w.b.append(x)
+        w.wi(len(gone))
+        for i in gone:
+            w.wi(i)
+        # contacts: positional diff while the (a, b, feat) order holds,
+        # else the whole list
+        var keys = List[Int]()
+        var recs = List[List[UInt8]]()
+        for c in range(len(sc.cache)):
+            ref pr = sc.cache[c]
+            if not (keep[pr.a] or keep[pr.b]):
+                continue
+            keys.append(pr.a)
+            keys.append(pr.b)
+            keys.append(pr.feat)
+            var r = BinWriter()
+            r.wi(pr.a)
+            r.wi(pr.b)
+            r.wi(pr.feat)
+            r.wv(pr.m.normal)
+            r.wi(pr.m.count)
+            for k in range(pr.m.count):
+                r.wv(pr.m.points[k])
+                r.wf(pr.m.depths[k])
+                r.wf(pr.acc[k])
+            recs.append(r.b.copy())
+        var whole = full or keys != self._prev_key
+        w.wi(1 if whole else 0)
+        if whole:
+            w.wi(len(recs))
+            for ref rec in recs:
+                for x in rec:
+                    w.b.append(x)
+        else:
+            var cw = BinWriter()
+            var ncc = 0
+            for c in range(len(recs)):
+                if recs[c] != self._prev_con[c]:
+                    cw.wi(c)
+                    for x in recs[c]:
+                        cw.b.append(x)
+                    ncc += 1
+            w.wi(ncc)
+            for x in cw.b:
+                w.b.append(x)
+        if full:
+            self.key_frame.append(len(self.frames))
+            self.keys.append(scene_to_bytes(sc))
+        self.frames.append(w.b.copy())
+        self._prev_con = recs^
+        self._prev_key = keys^
+
     def frame_count(self) -> Int:
         return len(self.frames)
 
@@ -169,7 +286,7 @@ struct Capture(Movable):
     def to_bytes(self) -> List[UInt8]:
         var w = BinWriter()
         w.wi(CAPTURE_MAGIC)
-        w.wi(CAPTURE_VERSION)
+        w.wi(CAPTURE_VERSION if self.delta else 1)
         w.wi(self.key_every)
         w.wi(len(self.frames))
         for f in self.frames:
@@ -195,6 +312,7 @@ def _rd(d: List[UInt8], at: Int) raises -> Int:
 
 
 struct CaptureReader(Movable):
+    var version: Int
     var key_every: Int
     var frames: List[List[UInt8]]
     var key_frame: List[Int]
@@ -203,7 +321,8 @@ struct CaptureReader(Movable):
     def __init__(out self, data: List[UInt8]) raises:
         if _rd(data, 0) != CAPTURE_MAGIC:
             raise Error("CaptureReader: not a capture (bad magic)")
-        if _rd(data, 8) != CAPTURE_VERSION:
+        self.version = _rd(data, 8)
+        if self.version != 1 and self.version != CAPTURE_VERSION:
             raise Error("CaptureReader: unsupported capture version")
         self.key_every = _rd(data, 16)
         var nf = _rd(data, 24)
@@ -246,6 +365,8 @@ struct CaptureReader(Movable):
         """Frame `k`, decoded -- random access, no simulation."""
         if k < 0 or k >= len(self.frames):
             raise Error("CaptureReader.frame: index out of range")
+        if self.version >= 2:
+            return self._frame_delta(k)
         var r = BinReader(self.frames[k].copy())
         var f = CaptureFrame()
         f.step_index = r.ri()
@@ -263,6 +384,86 @@ struct CaptureReader(Movable):
         for _ in range(nc):
             f.ca.append(r.ri())
             f.cb.append(r.ri())
+            f.feat.append(0)
+            f.normal.append(r.rv())
+            var m = r.ri()
+            f.npts.append(m)
+            for _ in range(m):
+                f.point.append(r.rv())
+                f.depth.append(r.rf())
+                f.impulse.append(r.rf())
+        return f^
+
+    def _frame_delta(self, k: Int) raises -> CaptureFrame:
+        """Apply frames from the last full one at or before k up to k."""
+        var base = (k // self.key_every) * self.key_every
+        var bodies = List[List[UInt8]]()
+        var cons = List[List[UInt8]]()
+        var step = 0
+        for q in range(base, k + 1):
+            var r = BinReader(self.frames[q].copy())
+            step = r.ri()
+            if r.ri() == 1:
+                bodies = List[List[UInt8]]()
+            var nb = r.ri()
+            for _ in range(nb):
+                var at = r.at
+                var slot = r.ri()
+                r.at = at + _BODY_BYTES
+                if r.at > len(r.d) or slot < 0:
+                    raise Error("CaptureReader: truncated body record")
+                while len(bodies) <= slot:
+                    bodies.append(List[UInt8]())
+                bodies[slot] = List[UInt8](r.d[at : r.at])
+            var ng = r.ri()
+            for _ in range(ng):
+                var slot = r.ri()
+                if slot >= 0 and slot < len(bodies):
+                    bodies[slot] = List[UInt8]()
+            var whole = r.ri() == 1
+            var nc = r.ri()
+            if whole:
+                cons = List[List[UInt8]](capacity=nc)
+            for _ in range(nc):
+                var c = -1
+                if not whole:
+                    c = r.ri()
+                var at = r.at
+                _ = r.ri()
+                _ = r.ri()
+                _ = r.ri()
+                _ = r.rv()
+                var m = r.ri()
+                for _ in range(m):
+                    _ = r.rv()
+                    _ = r.rf()
+                    _ = r.rf()
+                var rec = List[UInt8](r.d[at : r.at])
+                if whole:
+                    cons.append(rec^)
+                elif c >= 0 and c < len(cons):
+                    cons[c] = rec^
+                else:
+                    raise Error("CaptureReader: contact index out of range")
+        var f = CaptureFrame()
+        f.step_index = step
+        for ref rec in bodies:
+            if len(rec) == 0:
+                continue
+            var r = BinReader(rec.copy())
+            f.slot.append(r.ri())
+            f.pos.append(r.rv())
+            for _ in range(4):
+                f.rot.append(r.rf())
+            f.vel.append(r.rv())
+            f.omega.append(r.rv())
+            f.sleeping.append(r.ri() == 1)
+            f.island.append(r.ri())
+        for ref rec in cons:
+            var r = BinReader(rec.copy())
+            f.ca.append(r.ri())
+            f.cb.append(r.ri())
+            f.feat.append(r.ri())
             f.normal.append(r.rv())
             var m = r.ri()
             f.npts.append(m)

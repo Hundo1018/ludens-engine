@@ -9,6 +9,8 @@
      the keyframe at 30 and finds no difference; flipping one recorded
      coordinate in frame 70 makes it report 70; a region capture keeps only
      the bodies inside and the contacts touching them, and is smaller.
+     Version 2 (delta) frames decode to exactly the version 1 (full) frames
+     of the same run, and are smaller once the stack sleeps.
   3. Extreme: bad magic, a truncated file and `key_every` 0 raise; an empty
      scene records frames with no bodies; `verify` before any keyframe raises.
 """
@@ -84,14 +86,44 @@ def main() raises:
 
     # ---- verify ------------------------------------------------------------------
     s.check(verify(rd, 45, 60, DT, G, cfg) == -1, "verify from frame 45 over 60 frames: no divergence")
-    # flip one coordinate of frame 70's first body (offset: step 8 + count 8 + slot 8 = 24)
+    # flip one coordinate of frame 70's first changed body (version 2
+    # offset: step 8 + full flag 8 + changed count 8 + slot 8 = 32)
     var tampered = cap.frames[70].copy()
-    tampered[24] ^= 1
+    tampered[32] ^= 1
     cap.frames[70] = tampered^
     var rd2 = CaptureReader(cap.to_bytes())
     var at = verify(rd2, 45, 60, DT, G, cfg)
     print("  tampered frame 70: verify reports", at)
     s.check(at == 70, "a flipped bit in frame 70 is found at 70")
+
+    # ---- delta (version 2) vs full frames (version 1) ---------------------------------
+    var s1 = _scene()
+    var c1 = Capture(30, False)
+    var s3 = _scene()
+    var c3 = Capture(30)
+    for _ in range(240):
+        s1.step(DT, G, cfg)
+        c1.record(s1)
+        s3.step(DT, G, cfg)
+        c3.record(s3)
+    var r1 = CaptureReader(c1.to_bytes())
+    var r3 = CaptureReader(c3.to_bytes())
+    var same = r1.version == 1 and r3.version == 2
+    for k in range(240):
+        var a = r1.frame(k)
+        var b = r3.frame(k)
+        if a.slot != b.slot or a.pos != b.pos or a.rot != b.rot or a.vel != b.vel or a.sleeping != b.sleeping or a.island != b.island:
+            same = False
+        if a.ca != b.ca or a.cb != b.cb or a.normal != b.normal or a.npts != b.npts or a.point != b.point or a.depth != b.depth or a.impulse != b.impulse:
+            same = False
+    var fb1 = 0
+    var fb3 = 0
+    for k in range(180, 240):
+        fb1 += len(c1.frames[k])
+        fb3 += len(c3.frames[k])
+    print("  240 frames: version 1", c1.byte_size(), "bytes, version 2 (delta)", c3.byte_size(), "; frames 180-239 (stack asleep):", fb1, "vs", fb3, "bytes")
+    s.check(same, "delta frames decode to the full frames, every field, all 240")
+    s.check(fb3 * 3 < fb1, "with the stack asleep the delta frames are under a third of the full ones (the ball still rolls)")
 
     # ---- region ----------------------------------------------------------------------
     var sr = _scene()
