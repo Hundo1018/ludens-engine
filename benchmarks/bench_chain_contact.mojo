@@ -14,7 +14,9 @@ from soft joints. The maximal path in `solver6` pays for those instead.
 Rows separate the dynamics step from the contact pass so the contact overhead
 is readable on its own rather than buried in the total. Two contact rows per
 size (17.51): a dense O(n^3) solve per impulse, and H Cholesky-factored once
-per pass with O(n^2) triangular solves per impulse.
+per pass with O(n^2) triangular solves per impulse; and the
+articulated-body response, O(n) per impulse with no mass matrix (the dense
+row is skipped at n = 64).
 """
 
 from std.benchmark import keep
@@ -79,7 +81,7 @@ def _row(mut t: BenchTable, n: Int, with_contact: Bool, factor: Bool = True) rai
     t.add(name, n, "step", best, STEPS)
 
 
-def _row_flat(mut t: BenchTable, n: Int, factor: Bool) raises:
+def _row_flat(mut t: BenchTable, n: Int, factor: Bool, aba: Bool = False) raises:
     """The chain laid out horizontally along +x (its root pivot is at
     y = -1) on a floor 1 cm below it: every tip rests on it, so every
     iteration applies an impulse per link."""
@@ -102,12 +104,17 @@ def _row_flat(mut t: BenchTable, n: Int, factor: Bool) raises:
         var t0 = Int(perf_counter_ns())
         for _ in range(FLAT_STEPS):
             c.step(DT, zero, G)
-            _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, factor)
+            _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, factor, 0, aba)
         var dt = Int(perf_counter_ns()) - t0
         keep(c.q[0])
         if dt < best:
             best = dt
-    t.add("all tips on the floor: H factored once per pass" if factor else "all tips on the floor: dense solve per impulse", n, "step", best, FLAT_STEPS)
+    var name = "all tips on the floor: dense solve per impulse"
+    if aba:
+        name = "all tips on the floor: articulated-body response per impulse, O(n)"
+    elif factor:
+        name = "all tips on the floor: H factored once per pass"
+    t.add(name, n, "step", best, FLAT_STEPS)
 
 
 def main() raises:
@@ -120,9 +127,11 @@ def main() raises:
         _row(t, NL, True, False)
         _row(t, NL, True, True)
     t.print_report()
-    var tf = BenchTable("Reduced-coordinate contact, every link touching (17.51): dense solve per impulse vs one Cholesky factor per pass")
-    comptime for ni in range(4):
-        comptime NL = 4 if ni == 0 else (8 if ni == 1 else (16 if ni == 2 else 32))
-        _row_flat(tf, NL, False)
+    var tf = BenchTable("Reduced-coordinate contact, every link touching (17.51): dense solve per impulse vs one Cholesky factor per pass vs ABA response")
+    comptime for ni in range(5):
+        comptime NL = 4 if ni == 0 else (8 if ni == 1 else (16 if ni == 2 else (32 if ni == 3 else 64)))
+        if NL <= 32:
+            _row_flat(tf, NL, False)
         _row_flat(tf, NL, True)
+        _row_flat(tf, NL, True, True)
     tf.print_report()

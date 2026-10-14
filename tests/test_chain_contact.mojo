@@ -235,6 +235,21 @@ def main() raises:
         _ = cb.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, False)
         for i in range(8):
             dq = max(dq, abs(ca.q[i] - cb.q[i]))
+    # and the O(n) articulated-body response on the same flat chain
+    var cc = _chain(8)
+    var cd = _chain(8)
+    cc.q[0] = 1.5707963
+    cd.q[0] = 1.5707963
+    var dq_aba = Real(0)
+    for _ in range(120):
+        cc.step(DT, z8, G)
+        cd.step(DT, z8, G)
+        _ = cc.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, True, 0, True)
+        _ = cd.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, True)
+        for i in range(8):
+            dq_aba = max(dq_aba, abs(cc.q[i] - cd.q[i]))
+    print("  ABA (O(n)) vs factored contact response, 8 links on the floor, 120 steps: max |dq|", dq_aba)
+    s.check(dq_aba < 1e-3, "the articulated-body contact response gives the factored solve's motion")
     print("  factored vs dense contact solve (2 links swinging 1200 steps, 8 links lying on the floor 120 steps): max |dq|", dq)
     s.check(dq < 1e-3, "factoring H once per pass gives the dense solve's motion (max |dq| < 1e-3)")
 

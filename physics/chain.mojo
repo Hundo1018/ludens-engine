@@ -997,9 +997,48 @@ struct Chain(Movable, Deinitable):
             self.qd[k] += hinv_jt[k] * lam
         return lam
 
-    def _impulse(
-        mut self, h: List[Real], l: List[Real], chol: Bool, i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    def hinv_aba(mut self, tau: List[Real]) raises -> List[Real]:
+        """H^-1 tau in O(n) (17.51): with the joint rates and the root
+        motion zeroed and no gravity the bias term vanishes, so the
+        articulated-body algorithm's acceleration IS H^-1 tau -- no mass
+        matrix, no factorisation. State is restored before returning."""
+        var saved = self.qd.copy()
+        var bw = self._base_w
+        var bv = self._base_v
+        var bwa = self._base_wa
+        var bva = self._base_va
+        for k in range(len(self.qd)):
+            self.qd[k] = 0
+        var z = Vec3(0, 0, 0, 0)
+        self.set_base_motion(z, z, z, z)
+        var out = self.dynamics_aba(tau, z)
+        self.qd = saved^
+        self.set_base_motion(bw, bv, bwa, bva)
+        return out^
+
+    def apply_impulse_aba(
+        mut self, i: Int, local: Vec3, dir: Vec3, target_dv: Real
     ) raises -> Real:
+        """`apply_impulse` with H^-1 J^T from `hinv_aba` (O(n))."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, dir)
+        var hinv_jt = self.hinv_aba(j)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+        if w < 1e-12:
+            return 0
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * lam
+        return lam
+
+    def _impulse(
+        mut self, h: List[Real], l: List[Real], chol: Bool, i: Int, local: Vec3, dir: Vec3, target_dv: Real,
+        aba: Bool = False,
+    ) raises -> Real:
+        if aba:
+            return self.apply_impulse_aba(i, local, dir, target_dv)
         if chol:
             return self.apply_impulse_chol(l, i, local, dir, target_dv)
         return self.apply_impulse_with(h, i, local, dir, target_dv)
@@ -1059,6 +1098,7 @@ struct Chain(Movable, Deinitable):
         iters: Int = 8,
         factor: Bool = True,
         mu: Real = 0,
+        aba: Bool = False,
     ) raises -> Int:
         """Sequential-impulse contact against a `collision.ColliderSet`, SPLIT
         into velocity and position.
@@ -1066,6 +1106,10 @@ struct Chain(Movable, Deinitable):
         `factor` (17.51): H is Cholesky-factored once per pass and every
         impulse reuses the factor (O(n^2) each); False keeps the dense
         elimination per impulse (O(n^3) each) -- the parity reference.
+
+        `aba` (17.51): every H^-1 J^T comes from the articulated-body
+        algorithm (`hinv_aba`, O(n) each) and no mass matrix is formed;
+        friction rows still use the factored H.
 
         `mu` (17.51): Coulomb friction. Each touching contact accumulates its
         normal impulse over the velocity iterations; two tangent rows then
@@ -1109,8 +1153,9 @@ struct Chain(Movable, Deinitable):
 
         # H is a function of q alone, so it is computed ONCE per pass rather
         # than per contact per iteration
-        var h1 = self.mass_matrix()
-        var f1 = cholesky(h1, n) if factor else (List[Real](), False)
+        var need_h = not aba or mu > 0
+        var h1 = self.mass_matrix() if need_h else List[Real]()
+        var f1 = cholesky(h1, n) if factor and need_h else (List[Real](), False)
         var acc_n = List[Real](length=len(contacts), fill=0)
         var acc_t1 = List[Real](length=len(contacts), fill=0)
         var acc_t2 = List[Real](length=len(contacts), fill=0)
@@ -1125,7 +1170,7 @@ struct Chain(Movable, Deinitable):
                 var vn = self.point_velocity(i, locals[c], hit[1].normal)
                 if vn < 0:
                     acc_n[c] += self._impulse(
-                        h1, f1[0], f1[1], i, locals[c], hit[1].normal, -(1 + restitution) * vn
+                        h1, f1[0], f1[1], i, locals[c], hit[1].normal, -(1 + restitution) * vn, aba
                     )
                 if mu > 0 and acc_n[c] > 0:
                     var tb = tangent_basis(hit[1].normal)
@@ -1134,8 +1179,8 @@ struct Chain(Movable, Deinitable):
 
         # --- pass 2: positional repair on a pseudo-velocity ----------------
         var saved = self.qd.copy()
-        var h2 = self.mass_matrix()
-        var f2 = cholesky(h2, n) if factor else (List[Real](), False)
+        var h2 = self.mass_matrix() if not aba else List[Real]()
+        var f2 = cholesky(h2, n) if factor and not aba else (List[Real](), False)
         for k in range(n):
             self.qd[k] = 0
         for _ in range(iters):
@@ -1152,7 +1197,7 @@ struct Chain(Movable, Deinitable):
                 var want = pen / dt - vn
                 if want <= 0:
                     continue
-                _ = self._impulse(h2, f2[0], f2[1], i, locals[c], hit[1].normal, want)
+                _ = self._impulse(h2, f2[0], f2[1], i, locals[c], hit[1].normal, want, aba)
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
