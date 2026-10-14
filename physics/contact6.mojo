@@ -98,6 +98,10 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     var roll_acc: Vec3
     var spin_acc: Real
     var stick: Int
+    # ROADMAP 17.50: contact softness from the touched mesh triangle's
+    # material (`ContactScene6.set_material_softness`); hertz 0 = none.
+    var soft_hz: Real
+    var soft_zeta: Real
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -125,6 +129,8 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.roll_acc = copy.roll_acc
         self.spin_acc = copy.spin_acc
         self.stick = copy.stick
+        self.soft_hz = copy.soft_hz
+        self.soft_zeta = copy.soft_zeta
 
 
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
@@ -157,6 +163,8 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Vec3(0, 0, 0, 0),
         Real(0),
         0,
+        Real(0),
+        Real(0),
     )
 
 
@@ -290,6 +298,8 @@ def make_contact[B: Body6](
         Vec3(0, 0, 0, 0),
         Real(0),
         0,
+        Real(0),
+        Real(0),
     )
     if colliders.shape[rc.a] == SHAPE_ELLIPSOID:
         pr.ea = colliders.half[rc.a]
@@ -653,6 +663,14 @@ def solve_contact[B: Body6](
             p_ms = cc / (1 + cc)
             p_isc = 1 / (1 + cc)
         adh = max(bset.adhesion[pr.a], bset.adhesion[pr.b]) * h / Real(max(pr.m.count, 1))
+    if pr.soft_hz > 0:
+        # 17.50: the touched triangle's material softness wins over the
+        # bodies' (same formulas as `ContactScene6.step`)
+        var om = Real(6.283185307179586) * pr.soft_hz
+        var cc = h * om * (2 * pr.soft_zeta + h * om)
+        p_bias = om / (2 * pr.soft_zeta + h * om)
+        p_ms = cc / (1 + cc)
+        p_isc = 1 / (1 + cc)
     var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
     for k in range(pr.m.count):
         var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)

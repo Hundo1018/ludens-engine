@@ -216,6 +216,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     # ROADMAP 17.53: friction per surface material id (-1 = not set); a
     # mesh / heightfield triangle's id comes from `colliders.material`
     var material_mu: List[Real]
+    var material_hz: List[Real]  # 17.50: contact hertz per material (<= 0 = not set)
+    var material_zeta: List[Real]
     var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
     # +inf = unbreakable) and the joints released by the last step.
@@ -305,6 +307,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.kin_local = List[List[Real]]()
         self.kin_at = List[Pose6]()
         self.material_mu = List[Real]()
+        self.material_hz = List[Real]()
+        self.material_zeta = List[Real]()
         self.drives = List[AngularDrive]()
         self.break_force = List[Real]()
         self.break_torque = List[Real]()
@@ -897,6 +901,47 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         while len(self.material_mu) <= material:
             self.material_mu.append(-1)
         self.material_mu[material] = mu
+
+    def set_material_softness(mut self, material: Int, hertz: Real, zeta: Real) raises:
+        """ROADMAP 17.50: contact stiffness of surface material `material`
+        (soft-constraint hertz > 0, damping ratio zeta >= 0, as
+        `SolverConfig`): a contact on a mesh / heightfield triangle of that
+        material uses it instead of the bodies' or the step's. With a
+        material friction set (`set_material_friction`) the triangle's
+        friction also replaces the pair's (a `ContactRule` override still
+        wins)."""
+        if material < 0 or material > 65535:
+            raise Error("ContactScene6.set_material_softness: material id must be in 0 .. 65535")
+        if not (hertz > 0) or not (zeta >= 0):
+            raise Error("ContactScene6.set_material_softness: hertz must be > 0 and zeta >= 0")
+        while len(self.material_hz) <= material:
+            self.material_hz.append(-1)
+            self.material_zeta.append(0)
+        self.material_hz[material] = hertz
+        self.material_zeta[material] = zeta
+
+    def _apply_materials(self, mut pairs: List[ContactConstraint]):
+        """17.50: a contact on a mesh / heightfield triangle with a material
+        takes that material's friction (as an override) and softness."""
+        for c in range(len(pairs)):
+            ref pr = pairs[c]
+            var mesh = -1
+            var ka = self.colliders.shape[pr.a]
+            var kb = self.colliders.shape[pr.b]
+            if kb == SHAPE_TRIMESH or kb == SHAPE_HEIGHTFIELD:
+                mesh = pr.b
+            elif ka == SHAPE_TRIMESH or ka == SHAPE_HEIGHTFIELD:
+                mesh = pr.a
+            if mesh < 0:
+                continue
+            var m = self.colliders.material(mesh, pr.feat & 0xFFFF)
+            if m < 0:
+                continue
+            if m < len(self.material_mu) and self.material_mu[m] >= 0:
+                pr.mu_override = self.material_mu[m]
+            if m < len(self.material_hz) and self.material_hz[m] > 0:
+                pr.soft_hz = self.material_hz[m]
+                pr.soft_zeta = self.material_zeta[m]
 
     def hit_material(self, h: Hit) -> Int:
         """Surface material id of a query hit: the triangle's id on a mesh /
@@ -2010,6 +2055,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             pairs = List[ContactConstraint]()
             for c in range(len(raws)):
                 pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm, margin_base / SPEC_BASE))
+        if len(self.material_mu) > 0 or len(self.material_hz) > 0:
+            self._apply_materials(pairs)
         apply_rules(self.bset, self.rules, pairs)
         self.trace.end()
         return pairs^
@@ -3346,6 +3393,10 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
     out.wi(len(sc.material_mu))
     for m in range(len(sc.material_mu)):
         out.wf(sc.material_mu[m])
+    out.wi(len(sc.material_hz))
+    for m in range(len(sc.material_hz)):
+        out.wf(sc.material_hz[m])
+        out.wf(sc.material_zeta[m])
     # 17.46 per-body CCD modes (non-default only)
     var nccd = 0
     for i in range(len(sc.bset.bodies)):
@@ -3604,7 +3655,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Vec3(0, 0, 0, 0), Real(-1),
             Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
             Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
-            Vec3(0, 0, 0, 0), Real(0), 0,
+            Vec3(0, 0, 0, 0), Real(0), 0, Real(0), Real(0),
         )
         for p in range(4):
             pr.m.points[p] = r.rv()
@@ -3820,6 +3871,14 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
     sc.material_mu = List[Real](capacity=nmu)
     for _ in range(nmu):
         sc.material_mu.append(r.rf())
+    var nhz = r.ri()
+    if nhz < 0 or nhz > 65536:
+        raise Error("physics.serialize: corrupt snapshot (material softness table size)")
+    sc.material_hz = List[Real](capacity=nhz)
+    sc.material_zeta = List[Real](capacity=nhz)
+    for _ in range(nhz):
+        sc.material_hz.append(r.rf())
+        sc.material_zeta.append(r.rf())
     var nccd = r.ri()
     if nccd < 0 or nccd > len(sc.bset.bodies):
         raise Error("physics.serialize: corrupt snapshot (ccd mode count)")
