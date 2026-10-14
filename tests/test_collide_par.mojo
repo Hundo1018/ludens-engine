@@ -12,8 +12,13 @@ parallel path really runs, except the extremes that test the cut-off.
   1. Ordinary: a 1024-box pile (columns of 1-4 boxes), workers 4.
   2. Integration: the same pile with island-parallel solve, colouring,
      CCD and the BVH broadphase all on; a heightfield terrain under hulls,
-     spheres and boxes (uneven per-pair cost); every broadphase backend;
+     spheres and boxes (uneven per-pair cost); every broadphase backend
+     (its candidate list from the parallel query equals the serial one on
+     1500 scattered boxes, and a 1090-body pile -- above `BP_PAR_MIN` --
+     steps the same);
      the serial and reversed dispatchers (any execution order).
+     200 CCD bullets at 40 m/s (above `CCD_PAR_MIN` fast movers) with the
+     parallel, serial and reversed dispatchers.
   3. Extreme: 0 and 1 bodies, only statics, 40 boxes stacked on one point
      (780 candidate pairs in 49 chunks) run with 64 workers.
 """
@@ -23,6 +28,7 @@ from geometry.vec import Real, Vec3
 from scheduler.dispatch import Dispatch
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
+from physics.body_set import BodyId
 from physics.solver_config import SolverConfig
 from collision.broadphase import BroadPhase, BruteForce
 from collision.bp_bvh import BVHBroadPhase
@@ -30,6 +36,10 @@ from collision.bp_dbvh import DbvhBroadPhase
 from collision.bp_sap import SapBroadPhase
 from collision.bp_hashgrid import SpatialHashBroadPhase
 from collision.bp_tree import OctreeBroadPhase
+from collision.broadphase import Pair
+from collision.contact_gen import collect_bp_pairs
+from geometry.aabb import AABB
+from physics.collide_par import pairs_parallel, BP_PAR_MIN
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -102,6 +112,20 @@ def _terrain[BP: BroadPhase](mut sc: ContactScene6[QuatBody6, BP]) raises:
             _ = sc.add(QuatBody6.at_rest(p, Inertia3.box(1, 0.2, 0.2, 0.2)), Vec3(0.2, 0.2, 0.2, 0), False)
 
 
+def _shots(mut sc: ContactScene6[QuatBody6]) raises:
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, -0.01, 0, 0), Inertia3.box(1, 20, 0.01, 20)), Vec3(20, 0.01, 20, 0), True)
+    for k in range(200):
+        var p = Vec3(Real(k % 20) * 0.9 - 9, 1.0 + Real(k // 20) * 0.3, Real((k * 7) % 20) * 0.9 - 9, 0)
+        var id: BodyId
+        if k % 3 == 0:
+            id = sc.add_hull(QuatBody6.at_rest(p, Inertia3.box(1, 0.1, 0.1, 0.1)), _cube(0.1), False)
+        elif k % 3 == 1:
+            id = sc.add_sphere(QuatBody6.at_rest(p, Inertia3.sphere(1, 0.1)), 0.1, False)
+        else:
+            id = sc.add(QuatBody6.at_rest(p, Inertia3.box(1, 0.1, 0.1, 0.1)), Vec3(0.1, 0.1, 0.1, 0), False)
+        sc.set_velocity(id, Vec3(0, -40, 0, 0), Vec3(0, 0, 0, 0))
+
+
 def _cfg(par: Bool, workers: Int = 4) -> SolverConfig:
     var c = SolverConfig()
     c.parallel_collision = par
@@ -119,16 +143,53 @@ def _run_pair[BP: BroadPhase](mut a: ContactScene6[QuatBody6, BP], mut b: Contac
     return ok
 
 
+def _boxes(n: Int) -> List[AABB[3]]:
+    """n boxes of size 0.3-1.0 scattered in a 12 m cube (LCG), some coincident."""
+    var out = List[AABB[3]]()
+    var r = 12345
+    for k in range(n):
+        var v = List[Real]()
+        for _ in range(4):
+            r = (r * 1103515245 + 12345) % 2147483648
+            v.append(Real(r % 10000) / 10000)
+        var c = Vec3(v[0] * 12, v[1] * 12, v[2] * 12, 0) if k % 50 != 0 else Vec3(6, 6, 6, 0)
+        var h = 0.15 + 0.35 * v[3]
+        out.append(AABB[3](c - Vec3(h, h, h, 0), c + Vec3(h, h, h, 0)))
+    return out^
+
+
 def _backend[BP: BroadPhase](name: String, mut s: Suite) raises:
+    # the candidate list itself: parallel query == serial `collect_bp_pairs`
+    var b3 = _boxes(1500)
+    var boxes = List[AABB[BP.dim]]()
+    for k in range(len(b3)):
+        boxes.append(rebind[AABB[BP.dim]](b3[k]))
+    var st = List[Bool]()
+    for k in range(1500):
+        st.append(k % 7 == 0)
+    var p1 = List[Pair]()
+    var p2 = List[Pair]()
+    var bp1 = BP()
+    var bp2 = BP()
+    collect_bp_pairs[BP](bp1, boxes, st, p1)
+    pairs_parallel[BP](bp2, boxes, st, p2, 4, Dispatch.parallel())
+    var same = len(p1) == len(p2)
+    if same:
+        for c in range(len(p1)):
+            if p1[c].a != p2[c].a or p1[c].b != p2[c].b:
+                same = False
+    print("  " + name + ": 1500 boxes, candidate pairs serial", len(p1), " parallel", len(p2))
+    s.check(same and len(p1) > 1000, name + " broadphase: parallel candidate list == serial (same pairs, same order)")
+    # a whole scene above the cut-off (33 x 33 + floor = 1090 bodies)
     var a = ContactScene6[QuatBody6, BP]()
     var b = ContactScene6[QuatBody6, BP]()
-    _pile(a, 18)
-    _pile(b, 18)
+    _pile(a, 33)
+    _pile(b, 33)
     var ca = _cfg(False)
     ca.broadphase = True
     var cb = _cfg(True)
     cb.broadphase = True
-    s.check(_run_pair(a, b, ca, cb, 20), name + " broadphase: parallel == serial")
+    s.check(len(a.bset.bodies) >= BP_PAR_MIN and _run_pair(a, b, ca, cb, 10), name + " broadphase, 1090 bodies: parallel == serial")
 
 
 def main() raises:
@@ -160,6 +221,31 @@ def main() raises:
     _terrain(t2)
     s.check(_run_pair(t1, t2, _cfg(False), _cfg(True), 60), "heightfield + 300 hulls / spheres / boxes: parallel == serial")
     print("  heightfield scene: contacts", len(t1.cache))
+
+    # CCD: 200 bullets (boxes, spheres, hulls) at 40 m/s onto a 2 cm plate:
+    # the fast movers' clamp fractions run through the dispatcher
+    var bullets = List[Real]()
+    for dk in range(3):
+        var u = ContactScene6[QuatBody6]()
+        var w = ContactScene6[QuatBody6]()
+        _shots(u)
+        _shots(w)
+        var cu = _cfg(False)
+        cu.ccd = True
+        var cw = _cfg(True)
+        cw.ccd = True
+        if dk == 1:
+            cw.dispatch = Dispatch.serial()
+        elif dk == 2:
+            cw.dispatch = Dispatch.reverse()
+        s.check(_run_pair(u, w, cu, cw, 20), "200 CCD bullets through the dispatcher == serial (dispatch " + String(dk) + ")")
+        if dk == 0:
+            var lo = Real(9)
+            for i in range(1, len(u.bset.bodies)):
+                lo = min(lo, u.bset.bodies[i].pos[1])
+            bullets.append(lo)
+    print("  200 bullets at 40 m/s onto a 2 cm plate: lowest body y", bullets[0], "(plate top 0)")
+    s.check(bullets[0] > -0.05, "no bullet tunnels the plate")
 
     _backend[BruteForce[3]]("brute", s)
     _backend[BVHBroadPhase[3]]("BVH", s)

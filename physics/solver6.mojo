@@ -163,7 +163,7 @@ from .islands import (
     wake_island,
 )
 from .ccd6 import ccd_advance, ccd_advance_island, CCD_AUTO, CCD_OFF, CCD_BULLET
-from .collide_par import narrow_parallel, prep_parallel, NARROW_PAR_MIN
+from .collide_par import narrow_parallel, prep_parallel, pairs_parallel, NARROW_PAR_MIN, BP_PAR_MIN
 from .soft_couple import softbody_pass
 
 
@@ -1956,7 +1956,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # call sites across tests/benchmarks) `raises` for a path that
             # should never actually raise.
             try:
-                collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs)
+                if par and n >= BP_PAR_MIN:
+                    pairs_parallel[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, workers, dispatch)
+                else:
+                    collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs)
             except e:
                 abort("BroadPhase raised inside ContactScene6: " + String(e))
             for c in range(len(bp_pairs)):
@@ -2742,7 +2745,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     impulse_scale, True, iters, mu, cfg.max_push_speed,
                 )
             if ccd:
-                ccd_advance(self.bset, self.colliders, h, cfg.ccd)
+                ccd_advance(self.bset, self.colliders, h, cfg.ccd, cfg.parallel_collision, cfg.workers, cfg.dispatch)
             else:
                 for i in range(len(self.bset.bodies)):
                     if not self.bset.inactive(i):

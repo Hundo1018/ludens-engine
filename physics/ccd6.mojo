@@ -25,6 +25,10 @@ from spatial.bvh import BVH
 from collision.toi import swept_box_toi
 from .rigid6 import Body6
 from .body_set import BodySet
+from scheduler.dispatch import Dispatch, Task, dispatch_for
+
+comptime CCD_PAR_MIN = 64
+"""Fewest fast movers for which `ccd_advance` fans out (ROADMAP 17.54)."""
 
 
 comptime _CA_TOL: Real = 0.005  # stop conservative advancement this far from contact
@@ -179,7 +183,8 @@ def ca_fraction[B: Body6](bset: BodySet[B], cs: ColliderSet, i: Int, j: Int, h: 
 
 
 def ccd_advance[B: Body6](
-    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool = True
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool = True,
+    par: Bool = False, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel(),
 ):
     """Swept/TOI pose advance (second-stage CCD, Jolt LinearCast
     direction): a body whose relative travel this substep could jump the
@@ -207,12 +212,16 @@ def ccd_advance[B: Body6](
     Per-body modes (17.46, `BodySet.ccd_mode`): CCD_OFF bodies are never
     clamped; CCD_BULLET bodies are swept even when `all_bodies` is False
     (the step's cfg.ccd off) and against every candidate, without the
-    "cannot jump the thinnest feature" shortcut."""
+    "cannot jump the thinnest feature" shortcut.
+
+    `par` (ROADMAP 17.54, `SolverConfig.parallel_collision`): with at least
+    `CCD_PAR_MIN` fast movers their clamp fractions are computed through
+    `dispatch`, bit-identical to the serial loop."""
     var n = len(bset.bodies)
     var all = List[Int](capacity=n)
     for i in range(n):
         all.append(i)
-    _ccd_core(bset, colliders, h, all_bodies, all, all)
+    _ccd_core(bset, colliders, h, all_bodies, all, all, par, workers, dispatch)
 
 
 def ccd_advance_island[B: Body6](
@@ -240,6 +249,7 @@ def ccd_advance_island[B: Body6](
 def _ccd_core[B: Body6](
     mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool,
     movers: List[Int], pool: List[Int],
+    par: Bool = False, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel(),
 ):
     """The body of `ccd_advance`: clamp fractions for `movers` against the
     candidates in `pool` (ascending), then advance the movers' poses."""
@@ -276,59 +286,22 @@ def _ccd_core[B: Body6](
             ids.append(j)
         var bvh = BVH[3]()
         bvh.build_boxes(boxes, ids)
+        var fl = List[Int]()
         for i in movers:
-            if not fast[i]:
-                continue
-            var ki = colliders.shape[i]
-            var bullet = bset.ccd_mode[i] == CCD_BULLET
-            var vi = bset.bodies[i].linear_velocity()
-            var cand = List[Int]()
-            bvh.query_region(boxes[box_of[i]], cand)
-            for c in range(len(cand)):
-                var j = cand[c]
-                if j == i:
-                    continue
-                if not colliders.should_collide(i, j):
-                    continue
-                if colliders.is_sensor(i) or colliders.is_sensor(j):
-                    continue
-                if not bset.is_dynamic(i) and not bset.is_dynamic(j):
-                    # ROADMAP 17.24: static-kinematic and kinematic-kinematic
-                    # pairs produce no DISCRETE contact either (`_collect_pairs`)
-                    # -- CCD must agree.
-                    continue
-                var kj = colliders.shape[j]
-                var vj = Vec3(0, 0, 0, 0)
-                if not bset.inactive(j):
-                    vj = bset.bodies[j].linear_velocity()
-                var rel = (vi - vj) * h
-                var ha = colliders.half[i]
-                var hb = colliders.half[j]
-                var thin = min(ha[0], min(ha[1], ha[2]))
-                if not _is_static_mesh(kj):
-                    thin = min(thin, min(hb[0], min(hb[1], hb[2])))
-                if _is_box_like(ki) and _is_box_like(kj):
-                    if not bullet and dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
-                        continue  # cannot jump the pair's thinnest feature
-                    var r = swept_box_toi(
-                        bset.bodies[j].position(),
-                        bset.axes(j),
-                        hb,
-                        bset.bodies[i].position(),
-                        bset.axes(i),
-                        ha,
-                        rel,
-                    )
-                    if r.hit and r.t < frac[i]:
-                        frac[i] = r.t
-                else:
-                    # linear travel or the tip's turn this substep
-                    var spin = length(bset.bodies[i].omega_world()) * length(ha) * h
-                    if not bullet and dot(rel, rel) + spin * spin <= (thin * 0.5) * (thin * 0.5):
-                        continue
-                    var f = ca_fraction(bset, colliders, i, j, h)
-                    if f < frac[i]:
-                        frac[i] = f
+            if fast[i]:
+                fl.append(i)
+        if par and len(fl) >= CCD_PAR_MIN:
+            var task = _FracTask[B](bset, colliders, bvh, boxes, box_of, fl, frac, h)
+            dispatch_for(dispatch, task, len(fl), workers)
+        else:
+            for i in fl:
+                frac[i] = _mover_frac(bset, colliders, h, bvh, boxes, box_of, i)
+        # the task reads these through untracked pointers: keep them alive
+        # past `dispatch_for` (their last tracked use is before it)
+        _ = fl^
+        _ = boxes^
+        _ = box_of^
+        _ = bvh^
     for i in movers:
         if bset.inactive(i):
             continue
@@ -336,3 +309,95 @@ def _ccd_core[B: Body6](
         if f < 1:
             f = max(f - Real(0.01), 0)
         bset.bodies[i].integrate_pose(h * f)
+
+
+def _mover_frac[B: Body6](
+    bset: BodySet[B], colliders: ColliderSet, h: Real, bvh: BVH[3],
+    boxes: List[AABB[3]], box_of: List[Int], i: Int,
+) -> Real:
+    """Clamp fraction of fast mover `i` against its swept-box candidates
+    (reads only; the serial loop and `_FracTask` both call it)."""
+    var best = Real(1)
+    var ki = colliders.shape[i]
+    var bullet = bset.ccd_mode[i] == CCD_BULLET
+    var vi = bset.bodies[i].linear_velocity()
+    var cand = List[Int]()
+    bvh.query_region(boxes[box_of[i]], cand)
+    for c in range(len(cand)):
+        var j = cand[c]
+        if j == i:
+            continue
+        if not colliders.should_collide(i, j):
+            continue
+        if colliders.is_sensor(i) or colliders.is_sensor(j):
+            continue
+        if not bset.is_dynamic(i) and not bset.is_dynamic(j):
+            # ROADMAP 17.24: static-kinematic and kinematic-kinematic
+            # pairs produce no DISCRETE contact either (`_collect_pairs`)
+            # -- CCD must agree.
+            continue
+        var kj = colliders.shape[j]
+        var vj = Vec3(0, 0, 0, 0)
+        if not bset.inactive(j):
+            vj = bset.bodies[j].linear_velocity()
+        var rel = (vi - vj) * h
+        var ha = colliders.half[i]
+        var hb = colliders.half[j]
+        var thin = min(ha[0], min(ha[1], ha[2]))
+        if not _is_static_mesh(kj):
+            thin = min(thin, min(hb[0], min(hb[1], hb[2])))
+        if _is_box_like(ki) and _is_box_like(kj):
+            if not bullet and dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
+                continue  # cannot jump the pair's thinnest feature
+            var r = swept_box_toi(
+                bset.bodies[j].position(),
+                bset.axes(j),
+                hb,
+                bset.bodies[i].position(),
+                bset.axes(i),
+                ha,
+                rel,
+            )
+            if r.hit and r.t < best:
+                best = r.t
+        else:
+            # linear travel or the tip's turn this substep
+            var spin = length(bset.bodies[i].omega_world()) * length(ha) * h
+            if not bullet and dot(rel, rel) + spin * spin <= (thin * 0.5) * (thin * 0.5):
+                continue
+            var f = ca_fraction(bset, colliders, i, j, h)
+            if f < best:
+                best = f
+    return best
+
+
+struct _FracTask[B: Body6](Task):
+    """ROADMAP 17.54: one fast mover's clamp fraction per item; each item
+    writes only its own `frac` slot, so any schedule gives the serial
+    result bit for bit."""
+
+    var bset: Pointer[BodySet[Self.B], MutUntrackedOrigin]
+    var col: Pointer[ColliderSet, ImmUntrackedOrigin]
+    var bvh: Pointer[BVH[3], ImmUntrackedOrigin]
+    var boxes: Pointer[List[AABB[3]], ImmUntrackedOrigin]
+    var box_of: Pointer[List[Int], ImmUntrackedOrigin]
+    var fl: Pointer[List[Int], ImmUntrackedOrigin]
+    var frac: Pointer[List[Real], MutUntrackedOrigin]
+    var h: Real
+
+    def __init__(
+        out self, mut bset: BodySet[Self.B], col: ColliderSet, bvh: BVH[3], boxes: List[AABB[3]],
+        box_of: List[Int], fl: List[Int], mut frac: List[Real], h: Real,
+    ):
+        self.bset = Pointer(to=bset).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.col = Pointer(to=col).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.bvh = Pointer(to=bvh).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.boxes = Pointer(to=boxes).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.box_of = Pointer(to=box_of).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.fl = Pointer(to=fl).unsafe_origin_cast[ImmUntrackedOrigin]()
+        self.frac = Pointer(to=frac).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.h = h
+
+    def run(self, k: Int):
+        var i = self.fl[][k]
+        self.frac[][i] = _mover_frac(self.bset[], self.col[], self.h, self.bvh[], self.boxes[], self.box_of[], i)
