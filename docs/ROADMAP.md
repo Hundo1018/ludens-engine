@@ -680,7 +680,7 @@
 >   `bench_mesh_bake`:res 8 / 16:22.2 → 2.25 ms、154 → 10.0 ms(15.5×)。首版只用面法向量、未焊接,加速只有 1.3×(多數節點落到 winding 退路),已量。
 > - **heightfield active edges ✅(2026-10-13)**:`HeightField.set_active_angle(angle)` 啟用後,`active(t)` 由格點推出三角形的鄰接(同格或相鄰格共用兩個角點)、
 >   比較兩面法向,依目前高度即時算(`deform` 後仍正確);預設全 active,行為逐位不變。`test_active_edges` 15/15:0.5 m 格、8 m/s 無摩擦箱:無旗標 vx 0.086、
->   |vy| 最大 2.83(箱被接縫絆停);有旗標 7.99994、|vy| 5.2e-4;z 向 0.1 坡的格網上橫越 4 m/s → 3.997(坡上共面接縫不作用)。
+>   |vy| 最大 2.83(箱被接縫絆停;2026-10-14 `hull_manifold` 深度修正後為 0.79 / 2.83,仍被絆住);有旗標 7.99994、|vy| 5.2e-4;z 向 0.1 坡的格網上橫越 4 m/s → 3.997(坡上共面接縫不作用)。
 > - **kinematic 移動網格 ✅(2026-10-13)**:`set_kinematic` 用在三角網格 body 上時記下其頂點的 body 座標;`step` 前後各把網格重放到 body 目前位姿
 >   (`ColliderSet.move_trimesh`:頂點、BVH、world AABB 重建,active-edge 旗標保留),body 沒動的網格跳過。`test_kinematic_mesh` 6/6:8×8 格 4 m 平台以 1 m/s
 >   上升 2 s,網格頂點 y 2.999998 = body、箱底間隙 −2.5e-5;平台以 1 m/s 橫移 1.5 s,箱子靠摩擦 vx 1.0000001;120 次重放後旗標不變;靜態網格不動;
@@ -1037,7 +1037,7 @@
 > **歷史**:原「現況」:只有接觸 + ball/hinge 兩種關節,沒有關節極限、沒有乾摩擦、沒有 equality 約束,而且各自用不同機制處理;設計寫的 PGS 是當時的 `_solve_point`。
 
 #### 17.51 縮座標完整化 — Wave B(承 9.1)
-> **狀態**:🔶 部分完成(2026-10-13:關節屬性(阻尼 / 彈簧 / armature / 乾摩擦)的隱式步、`Chain` 快照 ✅;多自由度關節、多 DOF 限制、接觸補完與剛體耦合、接觸效率、閉環、CG / Newton、`FloatingChain` 快照未做)。
+> **狀態**:🔶 部分完成(2026-10-14:關節屬性(阻尼 / 彈簧 / armature / 乾摩擦)的隱式步、`Chain` / `FloatingChain` 快照、接觸摩擦、H 分解重用、閉環、直接 / CG 解、與最大座標 parity ✅;多自由度關節、多 DOF 限制、link 形狀接觸與剛體耦合、O(n) 接觸傳播未做)。
 
 > **現況**:縮座標關節只有 `JOINT_REVOLUTE / JOINT_PRISMATIC`(`physics/chain.mojo:96-97`),每個 link 恰一個純量自由度與單一軸(`ChainLink`,`physics/chain.mojo:101-110`);限制 `lo / hi` 由衝量式 `resolve_limits` 處理(`physics/chain.mojo:130-140,785-848`)。grep `spherical|ball|universal|planar|free.?joint|multi.?dof|armature|damping|spring`(`physics/chain.mojo`、`physics/floating.mojo`)零命中:沒有球 / 萬向 / 平面 / 多自由度關節,也沒有關節阻尼、彈簧、armature。彈簧 / 伺服靠 `Actuator` 提供 τ(`physics/actuator.mojo:1-40`;其仿射式 `gain_q·q + gain_qd·q̇` 已能表達 PD 彈簧 - 阻尼,但為顯式 τ,非隱式處理),乾摩擦只能手組 `ConstraintSet` 的 `CON_FRICTION_LOSS` 列(`physics/constraints.mojo:100`),不是 link 屬性。9.1 狀態校正已把「縮座標沒有球關節 / 多自由度」記為剩餘(ROADMAP §9.1)。
 > 與世界的耦合只有「link 上的材質點 ↔ 靜態 `ColliderSet`」:`resolve_contacts` 經 `nearest_surface` 找最近碰撞器(`physics/chain.mojo:694-783`),只有法向衝量、沒有摩擦(`physics/chain.mojo` grep `friction|mu` 零命中)、接觸是 link 上的點而非 link 形狀,也與動態 `ContactScene6` 剛體**完全不耦合**:全樹僅 `sensors / tendon / constraints / floating` 引用 `Chain`,`gameplay/` 與 `solver6` 零引用(grep `physics.chain|FloatingChain`)。ROADMAP「Phase 17 建議順序」 另記 F12 待辦「mesh / heightfield 接觸只有觸碰無深度」。
@@ -1125,8 +1125,23 @@
 >   −0.09753423(k q = −m g l cos q 的根 −0.09753424);乾摩擦 0.26 N·m 由 2 rad/s 在 2.017 s 停住(I ω / f = 2)並保持;三節鏈快照還原後 60 步逐位相同;
 >   性質全 0 時 `step_implicit` 與 `step` 差 7.8e-6。
 > - **bench** `bench_chain_props`(已入報告範本):N = 8 / 32 / 64,兩種步在雜訊內(8.4 vs 9.5、65.8 vs 56.9、297 vs 304 µs)。`docs/CATEGORY.md` 加一列 seam。
-> - **待辦**:球 / 萬向 / 平面 / 自由多 DOF 關節(S 推廣為 6×k、SO(3) 積分)與其 swing-twist 限制;link 形狀接觸、自碰撞、摩擦、與 `ContactScene6` 雙向耦合;
->   接觸的 O(n) 傳播;閉環 Jacobian;CG / Newton;`FloatingChain` 快照;與最大座標 17.47 的停止角 parity。
+> - **FloatingChain 快照 ✅(2026-10-14)**:`write_floating / read_floating`(`write_chain` + 底座位姿、body 座標速度、慣量、pin / 組裝開關);
+>   `test_floating` 15/15:50 步後存讀再走 100 步逐位相同。
+> - **接觸效率 ✅(2026-10-14)**:`resolve_contacts` 原本每個衝量做一次 O(n³) 稠密消去;`numerics.dense` 加 `cholesky / cholesky_solve`,每個 pass 分解 H 一次、
+>   每衝量兩次 O(n²) 三角解(`factor=False` 保留稠密路徑作 parity)。n = 32:`solve_dense` 31.7 µs vs `cholesky_solve` 2.3 µs、分解一次 13.5 µs。
+>   `bench_chain_contact` 新表(每節都躺在地上):稠密 vs 分解 0.367 / 0.282 ms(n 8)、2.11 / 1.15(16)、18.9 / 4.24(32);原本擺動的列接觸少,不變。
+>   首版 bench 場景把地板放在 y = −0.01,但根節點在 y = −1,整條鏈在地板下、沒有接觸,量不出差別 —— 已量、已改。
+> - **接觸摩擦 ✅(2026-10-14)**:`resolve_contacts(..., mu)`:每個接觸在速度迭代中累積法向衝量,兩條切向列把滑動停下、總量限在 mu 倍內;mu = 0(預設)跳過。
+>   1 kg 方塊(prismatic y + x)以 3 m/s 在地上滑:mu 0.5 滑 0.9237 m 停(解析 v² / (2 mu g) = 0.9174)、mu 0 一秒滑 3.000007 m。`test_chain_contact` 10/10
+>   (分解 vs 稠密動作差 ≤ 1.8e-6)。
+> - **閉環與直接解 ✅(2026-10-14)**:`LoopClosure`(link a 的點對 link b 的點或世界點)+ `resolve_loops`:每個閉環三條等式列,Jacobian 由 `point_jacobian`
+>   自動組;速度解後以偽速度做位置投影。`ConstraintSet` 加 `residual`、`solve_active_set`(活躍列的稠密精確解,限制 / 接觸列進出活躍集;沒有座標能動的列
+>   —— 平面鏈閉環的 z 列 —— 排除,遇冗餘列造成奇異才加相對對角位移)與 `solve_cg`(無矩陣 CG,等式列)。`test_loops` 6/6:平行四連桿 2 rad/s 轉 2 s,
+>   閉環誤差 6.6e-7、連桿保持平行 9.1e-6、曲柄 1.94 .. 2.015 rad/s;1:100 交替的 10 節閉環鏈受破環扭轉:殘差 PGS 20 1.5e-4、PGS 100 4.1e-6、
+>   直接 5.0e-6、CG 1.5e-6 —— 三條列 PGS 收斂得了,本條例子預期的 100 倍差距在這個系統上沒出現;同一閉環加兩次仍閉合。
+> - **與最大座標 parity**:見 17.47(`test_joint_parity`)。
+> - **待辦**:球 / 萬向 / 平面 / 自由多 DOF 關節(S 推廣為 6×k、SO(3) 積分)與其 swing-twist 限制;link 形狀接觸、自碰撞、與 `ContactScene6` 雙向耦合;
+>   接觸的 O(n) 傳播(ABA 型)。
 
 #### 17.55 連續體步進契約 — Wave B(連續體前置)
 
