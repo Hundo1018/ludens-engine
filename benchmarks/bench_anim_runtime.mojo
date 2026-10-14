@@ -20,6 +20,7 @@ from procedural.anim_events import EventTrack
 from procedural.anim_state import AnimGraph, AnimTransition, Cond, COND_GT, TRANS_FADE, TRANS_INERTIAL
 from procedural.tween import EASE_LINEAR
 from procedural.anim_compress import reduce_clip, clip_bytes
+from procedural.inertialize import Inertializer, INERT_MOTOR
 
 comptime BONES = 32
 comptime CHARS = 100
@@ -34,11 +35,13 @@ def _clip(phase: Real) raises -> AnimClip:
     return c^
 
 
-def _ns(mode: Int, share: Int, clips: List[AnimClip]) raises -> Int:
+def _ns(mode: Int, share: Int, clips: List[AnimClip], motor: Bool = False) raises -> Int:
     var tracks = List[EventTrack]()
     var gs = List[AnimGraph]()
-    for k in range(CHARS):
+    for _ in range(CHARS):
         var g = AnimGraph(BONES, mode)
+        if motor:
+            g.inert = Inertializer(BONES, INERT_MOTOR)
         var a = g.add_state(0)
         var b = g.add_state(1)
         var go = g.add_float(0)
@@ -64,12 +67,13 @@ def main() raises:
     clips.append(_clip(0))
     clips.append(_clip(0.5))
     print("### Animation transitions (17.64): fade vs inertialization, 100 characters x 32 bones\n")
-    print("| in transition | fade ns / character | inertial ns / character | fade ns / bone | inertial ns / bone |")
-    print("|---:|---:|---:|---:|---:|")
+    print("| in transition | fade ns / character | inertial ns / character | fade ns / bone | inertial ns / bone | inertial, motor space ns / bone |")
+    print("|---:|---:|---:|---:|---:|---:|")
     for share in [0, 50, 100]:
         var f = _ns(TRANS_FADE, share, clips)
         var i = _ns(TRANS_INERTIAL, share, clips)
-        print("|", share, "% |", f, "|", i, "|", f // BONES, "|", i // BONES, "|")
+        var mi = _ns(TRANS_INERTIAL, share, clips, True)
+        print("|", share, "% |", f, "|", i, "|", f // BONES, "|", i // BONES, "|", mi // BONES, "|")
     print("")
     print("### Clip storage: uniform vs key-reduced (17.64)\n")
     print("| clip | keys | bytes | ns per sample |")
