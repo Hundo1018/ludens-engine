@@ -143,6 +143,7 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | 關節鏈:縮座標 CRBA+RNEA vs O(n) ABA vs 極大座標 solver6 | physics/chain.mojo(`step`／`step_aba`) | SE(3)ⁿ 動力學的三個實作;同初態下關節角一致 | `test_chain`、`test_aba` | `bench_chain` |
 | 反向動力學(RNEA 掃)vs 正向動力學(CRBA 稠密解)往返 | physics/chain.mojo(`inverse_dynamics`／`mass_matrix`) | 同一運動方程的兩向;τ→q̈→τ 還原 | `test_inverse_dynamics` | `bench_chain`(idt 表) |
 | 縮座標接觸(point-Jacobian `J H⁻¹ Jᵀ`)vs 極大座標接觸 | physics/chain.mojo(`point_jacobian`／`resolve_contacts`) | 同一接觸不動點在兩種座標下;落地高度一致 | `test_chain_contact` | `bench_chain_contact` |
+| 縮座標鏈對靜態世界(`Chain.resolve_contacts`)vs 對 `ContactScene6` 物體的雙向接觸(`chain_scene.couple_contacts`,17.51) | physics/chain_scene.mojo | 同一接觸列;對靜態物體兩者為同一不動點,對動態物體多出物體側的有效質量與反向衝量(動量守恆) | `test_chain_scene`(靜態箱上兩者落點差 0;擺錘撞箱:給出的衝量 = 箱子動量;5 kg 腿站在 1 kg 箱上壓 49.000023 N) | — |
 | 浮動基座 vs 六個偽關節;複合慣量 vs 單位加速度 兩種 H 組裝 | physics/floating.mojo(`mass_matrix`／`_mass_matrix_units`) | 6-DOF 根的兩個表示 + 質量矩陣兩獨立推導互為 parity | `test_floating` | `bench_floating` |
 | 關節運動子空間 revolute vs prismatic + 關節極限 | physics/chain.mojo(`revolute`／`prismatic`／`resolve_limits`) | 同一 link 態射的運動子空間變體;極限為投影 | `test_joints_lib`、`test_joints6` | `bench_chain`(jt 表) |
 | 縮座標關節的彈簧 / 阻尼:顯式 `Actuator` PD 力矩 + `Chain.step` vs 隱式欄位 + `Chain.step_implicit`(17.51) | physics/chain.mojo、physics/actuator.mojo | 同一「線性彈簧 - 阻尼」的兩種時間離散:顯式在 ω dt > 2 時發散,後向 Euler 對任意剛度皆穩定(只在對角加正項);性質全為 0 時兩者為同一半隱式步(容差 1e-4) | `test_chain_props`(剛度 1e5 @ 1/60:顯式 inf、隱式衰減;阻尼每步因子 I / (I + b dt);armature 週期;彈簧平衡角;摩擦停止時間) | `bench_chain_props`(N = 8 / 32 / 64) |

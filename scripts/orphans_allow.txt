@@ -27,6 +27,7 @@ geometry.gmv  # [seam] AD coefficient multivector (test_gmv_ad, test_diffsim)
 physics.diffrigid  # [seam] differentiable rigid toy, 13.7 (test_diffrigid)
 physics.adjoint  # [seam] hand-written adjoint vs tape (test_adjoint)
 physics.floating  # [seam] floating-base reduced coordinates vs maximal (test_floating)
+physics.chain_scene  # [seam] reduced-coordinate chain <-> ContactScene6 bodies, 17.51 (test_chain_scene)
 oop.engine  # [seam] OOP baseline engine, exists only for the ECS-vs-OOP benchmarks (layer 6 by design)
 
 # --- GPU backends
