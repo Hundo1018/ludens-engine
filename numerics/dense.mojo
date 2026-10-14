@@ -35,6 +35,7 @@ number of the matrix (about `cond * epsilon` relative error in `Real`).
 iterative refinement while cond * 6e-8 < 1 (ROADMAP 17.84).
 """
 
+from std.math import sqrt
 from geometry.vec import Real
 
 
@@ -94,6 +95,44 @@ def solve_dense(var a: List[Real], var b: List[Real], n: Int) -> List[Real]:
     debug_assert(len(b) == n, "solve_dense: rhs is not length n")
     _ = _eliminate(a, b, n)
     return _back_substitute(a, b, n)
+
+
+def cholesky(a: List[Real], n: Int) -> Tuple[List[Real], Bool]:
+    """Lower-triangular L (row-major n x n) with L L^T = a, for a symmetric
+    positive definite `a` (17.51: a mass matrix factored once and reused for
+    every right-hand side). False when a pivot is not positive."""
+    var l = List[Real](length=n * n, fill=0)
+    for i in range(n):
+        for j in range(i + 1):
+            var acc = a[i * n + j]
+            for k in range(j):
+                acc -= l[i * n + k] * l[j * n + k]
+            if i == j:
+                if not (acc > 0):
+                    return (l^, False)
+                l[i * n + i] = sqrt(acc)
+            else:
+                l[i * n + j] = acc / l[j * n + j]
+    return (l^, True)
+
+
+def cholesky_solve(l: List[Real], b: List[Real], n: Int) -> List[Real]:
+    """Solve L L^T x = b: forward then back substitution, O(n^2)."""
+    var y = List[Real](length=n, fill=0)
+    for i in range(n):
+        var acc = b[i]
+        for k in range(i):
+            acc -= l[i * n + k] * y[k]
+        y[i] = acc / l[i * n + i]
+    var x = List[Real](length=n, fill=0)
+    var i = n - 1
+    while i >= 0:
+        var acc = y[i]
+        for k in range(i + 1, n):
+            acc -= l[k * n + i] * x[k]
+        x[i] = acc / l[i * n + i]
+        i -= 1
+    return x^
 
 
 def solve_dense_checked(

@@ -12,7 +12,9 @@ no joint drift to correct, no constraint stabilisation, and no stiffness limit
 from soft joints. The maximal path in `solver6` pays for those instead.
 
 Rows separate the dynamics step from the contact pass so the contact overhead
-is readable on its own rather than buried in the total.
+is readable on its own rather than buried in the total. Two contact rows per
+size (17.51): a dense O(n^3) solve per impulse, and H Cholesky-factored once
+per pass with O(n^2) triangular solves per impulse.
 """
 
 from std.benchmark import keep
@@ -26,6 +28,7 @@ comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 240.0
 comptime STEPS = 200
 comptime REPS = 3
+comptime FLAT_STEPS = 40  # the dense n = 32 rows take ~19 ms a step
 
 
 def _chain(n: Int) -> Chain:
@@ -40,7 +43,7 @@ def _chain(n: Int) -> Chain:
     return c^
 
 
-def _row(mut t: BenchTable, n: Int, with_contact: Bool) raises:
+def _row(mut t: BenchTable, n: Int, with_contact: Bool, factor: Bool = True) raises:
     var pts = List[Int]()
     var locs = List[Vec3]()
     for i in range(n):
@@ -65,21 +68,61 @@ def _row(mut t: BenchTable, n: Int, with_contact: Bool) raises:
         for _ in range(STEPS):
             c.step(DT, zero, G)
             if with_contact:
-                _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT)
+                _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, factor)
         var dt = Int(perf_counter_ns()) - t0
         keep(c.q[0])
         if dt < best:
             best = dt
-    var name = "step + ground contact" if with_contact else "step only"
+    var name = "step only"
+    if with_contact:
+        name = "step + ground contact (H factored once per pass, 17.51)" if factor else "step + ground contact (dense solve per impulse)"
     t.add(name, n, "step", best, STEPS)
+
+
+def _row_flat(mut t: BenchTable, n: Int, factor: Bool) raises:
+    """The chain laid out horizontally along +x (its root pivot is at
+    y = -1) on a floor 1 cm below it: every tip rests on it, so every
+    iteration applies an impulse per link."""
+    var pts = List[Int]()
+    var locs = List[Vec3]()
+    for i in range(n):
+        pts.append(i)
+        locs.append(Vec3(0, -1, 0, 0))
+    var zero = List[Real]()
+    for _ in range(n):
+        zero.append(0)
+    var ground = ColliderSet()
+    var slab = ground.add_ground_slab(-1.01)
+    var poses = List[Pose3]()
+    poses.append(slab[1].copy())
+    var best = Int.MAX
+    for _ in range(REPS):
+        var c = _chain(n)
+        c.q[0] = 1.5707963
+        var t0 = Int(perf_counter_ns())
+        for _ in range(FLAT_STEPS):
+            c.step(DT, zero, G)
+            _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, factor)
+        var dt = Int(perf_counter_ns()) - t0
+        keep(c.q[0])
+        if dt < best:
+            best = dt
+    t.add("all tips on the floor: H factored once per pass" if factor else "all tips on the floor: dense solve per impulse", n, "step", best, FLAT_STEPS)
 
 
 def main() raises:
     var t = BenchTable(
         "Reduced-coordinate contact: dynamics step vs step + contact resolution"
     )
-    comptime for ni in range(4):
-        comptime NL = 2 if ni == 0 else (4 if ni == 1 else (8 if ni == 2 else 16))
+    comptime for ni in range(5):
+        comptime NL = 2 if ni == 0 else (4 if ni == 1 else (8 if ni == 2 else (16 if ni == 3 else 32)))
         _row(t, NL, False)
-        _row(t, NL, True)
+        _row(t, NL, True, False)
+        _row(t, NL, True, True)
     t.print_report()
+    var tf = BenchTable("Reduced-coordinate contact, every link touching (17.51): dense solve per impulse vs one Cholesky factor per pass")
+    comptime for ni in range(4):
+        comptime NL = 4 if ni == 0 else (8 if ni == 1 else (16 if ni == 2 else 32))
+        _row_flat(tf, NL, False)
+        _row_flat(tf, NL, True)
+    tf.print_report()

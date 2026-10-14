@@ -170,4 +170,44 @@ def main() raises:
         "contact never injects energy above the free-swinging bound",
     )
 
+    # ---- 6. factored vs dense contact solve (17.51) ----
+    #      the same 1200 steps with H Cholesky-factored once per pass and with
+    #      a dense elimination per impulse: the same contact fixed point
+    var fa = _chain(2)
+    var fb = _chain(2)
+    fa.q[0] = 1.2
+    fb.q[0] = 1.2
+    var dq = Real(0)
+    for _ in range(1200):
+        fa.step(DT, zero, G)
+        fb.step(DT, zero, G)
+        _ = fa.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, True)
+        _ = fb.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, False)
+        dq = max(dq, max(abs(fa.q[0] - fb.q[0]), abs(fa.q[1] - fb.q[1])))
+    # and an 8-link chain lying on the floor, every tip touching
+    var flat = ColliderSet()
+    var fslab = flat.add_ground_slab(-1.01)
+    var fposes = List[Pose3]()
+    fposes.append(fslab[1].copy())
+    var ca = _chain(8)
+    var cb = _chain(8)
+    ca.q[0] = 1.5707963
+    cb.q[0] = 1.5707963
+    var p8 = List[Int]()
+    var l8 = List[Vec3]()
+    var z8 = List[Real]()
+    for i in range(8):
+        p8.append(i)
+        l8.append(Vec3(0, -1, 0, 0))
+        z8.append(0)
+    for _ in range(120):
+        ca.step(DT, z8, G)
+        cb.step(DT, z8, G)
+        _ = ca.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, True)
+        _ = cb.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, False)
+        for i in range(8):
+            dq = max(dq, abs(ca.q[i] - cb.q[i]))
+    print("  factored vs dense contact solve (2 links swinging 1200 steps, 8 links lying on the floor 120 steps): max |dq|", dq)
+    s.check(dq < 1e-3, "factoring H once per pass gives the dense solve's motion (max |dq| < 1e-3)")
+
     s.finish()

@@ -24,7 +24,7 @@ from std.math import sqrt, cos, sin
 from geometry.vec import Real, Vec3, dot, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
-from numerics.dense import solve_dense
+from numerics.dense import solve_dense, cholesky, cholesky_solve
 from .state_io import StateWriter, StateReader
 from collision.collider_set import ColliderSet, Pose3
 from collision.world_query import QueryFilter, nearest_surface
@@ -716,6 +716,32 @@ struct Chain(Movable, Deinitable):
             self.qd[k] += hinv_jt[k] * lam
         return lam
 
+    def apply_impulse_chol(
+        mut self, l: List[Real], i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    ) raises -> Real:
+        """`apply_impulse_with` from the Cholesky factor of H (17.51): H is
+        factored once per contact pass, each impulse is then two O(n^2)
+        triangular solves instead of an O(n^3) elimination."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, dir)
+        var hinv_jt = cholesky_solve(l, j, n)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+        if w < 1e-12:
+            return 0
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * lam
+        return lam
+
+    def _impulse(
+        mut self, h: List[Real], l: List[Real], chol: Bool, i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    ) raises -> Real:
+        if chol:
+            return self.apply_impulse_chol(l, i, local, dir, target_dv)
+        return self.apply_impulse_with(h, i, local, dir, target_dv)
+
     def apply_impulse(
         mut self, i: Int, local: Vec3, dir: Vec3, target_dv: Real
     ) raises -> Real:
@@ -747,9 +773,14 @@ struct Chain(Movable, Deinitable):
         locals: List[Vec3],
         dt: Real,
         iters: Int = 8,
+        factor: Bool = True,
     ) raises -> Int:
         """Sequential-impulse contact against a `collision.ColliderSet`, SPLIT
         into velocity and position.
+
+        `factor` (17.51): H is Cholesky-factored once per pass and every
+        impulse reuses the factor (O(n^2) each); False keeps the dense
+        elimination per impulse (O(n^3) each) -- the parity reference.
 
         Each contact is a material point (link `contacts[c]`, offset
         `locals[c]` in its frame). Where it touches the world is NOT decided
@@ -789,6 +820,7 @@ struct Chain(Movable, Deinitable):
         # H is a function of q alone, so it is computed ONCE per pass rather
         # than per contact per iteration
         var h1 = self.mass_matrix()
+        var f1 = cholesky(h1, n) if factor else (List[Real](), False)
         # --- pass 1: velocity only (physical impulses) ---------------------
         for _ in range(iters):
             for c in range(len(contacts)):
@@ -800,13 +832,14 @@ struct Chain(Movable, Deinitable):
                 var vn = self.point_velocity(i, locals[c], hit[1].normal)
                 if vn >= 0:
                     continue  # already separating
-                _ = self.apply_impulse_with(
-                    h1, i, locals[c], hit[1].normal, -(1 + restitution) * vn
+                _ = self._impulse(
+                    h1, f1[0], f1[1], i, locals[c], hit[1].normal, -(1 + restitution) * vn
                 )
 
         # --- pass 2: positional repair on a pseudo-velocity ----------------
         var saved = self.qd.copy()
         var h2 = self.mass_matrix()
+        var f2 = cholesky(h2, n) if factor else (List[Real](), False)
         for k in range(n):
             self.qd[k] = 0
         for _ in range(iters):
@@ -823,7 +856,7 @@ struct Chain(Movable, Deinitable):
                 var want = pen / dt - vn
                 if want <= 0:
                     continue
-                _ = self.apply_impulse_with(h2, i, locals[c], hit[1].normal, want)
+                _ = self._impulse(h2, f2[0], f2[1], i, locals[c], hit[1].normal, want)
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
