@@ -6,6 +6,10 @@ characters that are mid-transition.
 clip. A fading character samples two clips and blends them; an
 inertializing one samples one clip and adds a decaying offset. Nanoseconds
 per character tick, and per bone.
+
+Second table: one clip of the same skeleton, uniform keys (`AnimClip`) vs
+key-reduced at 1 mm / 0.5 degree (`reduce_clip`): bytes, keys and ns per
+sample (10000 samples at scattered times).
 """
 
 from std.time import perf_counter_ns
@@ -15,6 +19,7 @@ from procedural.anim import AnimClip
 from procedural.anim_events import EventTrack
 from procedural.anim_state import AnimGraph, AnimTransition, Cond, COND_GT, TRANS_FADE, TRANS_INERTIAL
 from procedural.tween import EASE_LINEAR
+from procedural.anim_compress import reduce_clip, clip_bytes
 
 comptime BONES = 32
 comptime CHARS = 100
@@ -65,4 +70,21 @@ def main() raises:
         var f = _ns(TRANS_FADE, share, clips)
         var i = _ns(TRANS_INERTIAL, share, clips)
         print("|", share, "% |", f, "|", i, "|", f // BONES, "|", i // BONES, "|")
+    print("")
+    print("### Clip storage: uniform vs key-reduced (17.64)\n")
+    print("| clip | keys | bytes | ns per sample |")
+    print("|---|---:|---:|---:|")
+    var c = _clip(0)
+    var r = reduce_clip(c, 1e-3, 0.0087266)
+    var pos = List[Real](length=3 * BONES, fill=0)
+    var rot = List[Real](length=4 * BONES, fill=0)
+    var t0 = Int(perf_counter_ns())
+    for k in range(10000):
+        c.sample(Real(k) * 0.000731, pos, rot)
+    var t1 = Int(perf_counter_ns())
+    for k in range(10000):
+        r.sample(Real(k) * 0.000731, pos, rot)
+    var t2 = Int(perf_counter_ns())
+    print("| uniform |", 2 * BONES * c.frames, "|", clip_bytes(c), "|", (t1 - t0) // 10000, "|")
+    print("| reduced |", r.key_count(), "|", r.bytes(), "|", (t2 - t1) // 10000, "|")
     print("")
