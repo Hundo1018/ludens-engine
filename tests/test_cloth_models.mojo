@@ -12,7 +12,9 @@ anisotropic stretch.
      conserved to 2 %); with `step` the box stays put. A soft sheet hanging from two corners stretches its
      edges by over 20 %; with `set_max_stretch(1.1)` no edge exceeds 10 %.
      A vertical sheet hung from its top row stretches downwards far less
-     when the vertical axis is the stiff one of `set_anisotropy`.
+     when the vertical axis is the stiff one of `set_anisotropy`. Two
+     sheets dropped on a floor stay layered with `set_self_collision`, and
+     interpenetrate without it.
   3. Extreme: an unknown bend model, a stretch ratio below 1 and a zero
      anisotropy axis raise; the default model is the cross-edge one.
 """
@@ -141,6 +143,39 @@ def _strike(two_way: Bool) raises -> Tuple[Real, Real, Real]:
     return (_cloth_momentum(c), sc.velocity(box)[1] * 1, p0)
 
 
+def _two_layers(self_r: Real) raises -> Tuple[Real, Real]:
+    """Two 8 x 8 sheets in one mesh, the upper offset by half a cell,
+    dropped on a static floor: (mean y of upper minus lower, lowest upper
+    vertex minus highest lower vertex) after 1.5 s."""
+    var sc = ContactScene6[QuatBody6]()
+    _ = sc.add(QuatBody6.at_rest(Vec3(0, -0.5, 0, 0), Inertia3.box(1, 5, 0.5, 5)), Vec3(5, 0.5, 5, 0), True)
+    var lo = grid_mesh(8, 8, 1, 1, Vec3(-0.5, 0.1, -0.5, 0))
+    var hi = grid_mesh(8, 8, 1, 1, Vec3(-0.4375, 0.2, -0.4375, 0))
+    var v = lo[0].copy()
+    var t = lo[1].copy()
+    var off = len(lo[0]) // 3
+    for x in hi[0]:
+        v.append(x)
+    for k in hi[1]:
+        t.append(k + off)
+    var c = MeshCloth(v, t, 0.2)
+    if self_r > 0:
+        c.set_self_collision(self_r)
+    for _ in range(90):
+        c.step(sc, DT, G)
+    var ml = Real(0)
+    var mh = Real(0)
+    var top_lo = Real(-1e9)
+    var bot_hi = Real(1e9)
+    for i in range(off):
+        ml += c.x[i][1]
+        top_lo = max(top_lo, c.x[i][1])
+    for i in range(off, len(c.x)):
+        mh += c.x[i][1]
+        bot_hi = min(bot_hi, c.x[i][1])
+    return ((mh - ml) / Real(off), bot_hi - top_lo)
+
+
 def main() raises:
     var s = Suite("cloth_models")
     var cross_d = _scaled_drift(BEND_CROSS_EDGE)
@@ -166,6 +201,11 @@ def main() raises:
     var two = _strike(True)
     print("  0.2 kg sheet at -2 m/s onto a free 1 kg box, 0.5 s: one-way cloth", one[0], "box", one[1], ";  two-way cloth", two[0], "box", two[1], " (initial", two[2], ")")
     s.check(one[1] == 0 and abs(two[0] + two[1] - two[2]) < 0.02 * abs(two[2]) and two[1] < -0.2, "two-way: the box takes the momentum the sheet loses (2 %); one-way: the box does not move")
+
+    var no_self = _two_layers(0)
+    var with_self = _two_layers(0.01)
+    print("  two sheets dropped on a floor, 1.5 s: mean height gap  without self-collision", no_self[0], " with (0.01 m)", with_self[0])
+    s.check(no_self[0] < 0.003 and with_self[0] > 0.008, "self-collision keeps the upper sheet about one radius above the lower (without it both lie on the floor)")
 
     var raised = 0
     var m = grid_mesh(2, 2, 1, 1, ZERO)

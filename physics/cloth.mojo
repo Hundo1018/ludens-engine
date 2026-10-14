@@ -94,6 +94,7 @@ struct MeshCloth(ContinuumSolver):
     var bphi: List[Real]  # rest dihedral angle per bending constraint
     var max_stretch: Real  # edge length cap as a multiple of rest (0 = none)
     var ecomp: List[Real]  # per-edge stretch compliance (empty = uniform)
+    var self_radius: Real  # vertex-triangle self-collision distance (0 = off)
 
     def __init__(
         out self, verts: List[Real], tris: List[Int], density: Real,
@@ -173,6 +174,7 @@ struct MeshCloth(ContinuumSolver):
         self.bend_model = BEND_CROSS_EDGE
         self.max_stretch = 0
         self.ecomp = List[Real]()
+        self.self_radius = 0
         self.bphi = List[Real](capacity=len(self.ba))
         for e in range(len(self.ba)):
             self.bphi.append(self._angle(e))
@@ -208,6 +210,91 @@ struct MeshCloth(ContinuumSolver):
                 self.ecomp.append(across)
             else:
                 self.ecomp.append(shear)
+
+    def set_self_collision(mut self, radius: Real) raises:
+        """Keep every free vertex at least `radius` from every triangle it
+        is not a corner of (0 = off)."""
+        if not (radius >= 0):
+            raise Error("MeshCloth.set_self_collision: radius must be >= 0")
+        self.self_radius = radius
+
+    def _self_collide(mut self) -> Int:
+        """One pass of vertex-triangle separation: triangles binned in a
+        hash grid of cell 2 x max(edge, radius); each vertex near a triangle
+        it is not a corner of is pushed back to `self_radius` on the side
+        it was on at the substep start (from `prev`), the correction split
+        between the vertex and the triangle's corners by inverse mass and
+        barycentric weight. Returns the pairs corrected."""
+        var r = self.self_radius
+        var nt = len(self.tris) // 3
+        var cell = r * 2
+        for e in range(len(self.rest)):
+            cell = max(cell, self.rest[e])
+        var inv = 1 / cell
+        var grid = Dict[Int, List[Int]]()
+        for t in range(nt):
+            var a = self.x[self.tris[3 * t]]
+            var b = self.x[self.tris[3 * t + 1]]
+            var c = self.x[self.tris[3 * t + 2]]
+            var lo0 = Int((min(a[0], min(b[0], c[0])) - r) * inv // 1)
+            var lo1 = Int((min(a[1], min(b[1], c[1])) - r) * inv // 1)
+            var lo2 = Int((min(a[2], min(b[2], c[2])) - r) * inv // 1)
+            var hi0 = Int((max(a[0], max(b[0], c[0])) + r) * inv // 1)
+            var hi1 = Int((max(a[1], max(b[1], c[1])) + r) * inv // 1)
+            var hi2 = Int((max(a[2], max(b[2], c[2])) + r) * inv // 1)
+            for i0 in range(lo0, hi0 + 1):
+                for i1 in range(lo1, hi1 + 1):
+                    for i2 in range(lo2, hi2 + 1):
+                        var key = _cell_key(i0, i1, i2)
+                        if key in grid:
+                            try:
+                                grid[key].append(t)
+                            except:
+                                pass
+                        else:
+                            grid[key] = [t]
+        var fixed = 0
+        for i in range(len(self.x)):
+            if self.w[i] == 0:
+                continue
+            var p = self.x[i]
+            var key = _cell_key(Int(p[0] * inv // 1), Int(p[1] * inv // 1), Int(p[2] * inv // 1))
+            var cand = grid.get(key)
+            if not cand:
+                continue
+            for t in cand.value():
+                var ia = self.tris[3 * t]
+                var ib = self.tris[3 * t + 1]
+                var ic = self.tris[3 * t + 2]
+                if ia == i or ib == i or ic == i:
+                    continue
+                var q = _closest_bary(p, self.x[ia], self.x[ib], self.x[ic])
+                var cp = self.x[ia] * q[0] + self.x[ib] * q[1] + self.x[ic] * q[2]
+                var nn = cross(self.x[ib] - self.x[ia], self.x[ic] - self.x[ia])
+                var ln = _len(nn)
+                if ln < 1e-12:
+                    continue
+                var n = nn / ln
+                var d = dot(p - cp, n)
+                if abs(d) >= r or _len(p - cp) >= r * 1.5:
+                    continue
+                # side from the substep start
+                var side = Real(1) if dot(self.prev[i] - (self.prev[ia] * q[0] + self.prev[ib] * q[1] + self.prev[ic] * q[2]), n) >= 0 else Real(-1)
+                var c = side * d - r  # < 0: too close or crossed
+                if c >= 0:
+                    continue
+                var wsum = self.w[i] + self.w[ia] * q[0] * q[0] + self.w[ib] * q[1] * q[1] + self.w[ic] * q[2] * q[2]
+                if wsum <= 0:
+                    continue
+                var s_ = -c / wsum
+                var dirn = n * side
+                self.x[i] = self.x[i] + dirn * (s_ * self.w[i])
+                self.x[ia] = self.x[ia] - dirn * (s_ * self.w[ia] * q[0])
+                self.x[ib] = self.x[ib] - dirn * (s_ * self.w[ib] * q[1])
+                self.x[ic] = self.x[ic] - dirn * (s_ * self.w[ic] * q[2])
+                p = self.x[i]
+                fixed += 1
+        return fixed
 
     def _angle(self, e: Int) -> Real:
         """Signed bend angle of bending constraint `e` across its edge (0 for
@@ -410,6 +497,8 @@ struct MeshCloth(ContinuumSolver):
                 self.x[self.att_vert[k]] = sc.bset.bodies[self.att_body[k]].act(self.att_local[k])
             self._predict(h, gravity)
             self._constraints(h)
+            if self.self_radius > 0:
+                _ = self._self_collide()
             _ = self._collide(sc, poses)
             self._finish(h)
 
@@ -426,6 +515,8 @@ struct MeshCloth(ContinuumSolver):
                 self.x[self.att_vert[k]] = sc.bset.bodies[self.att_body[k]].act(self.att_local[k])
             self._predict(h, gravity)
             self._constraints(h)
+            if self.self_radius > 0:
+                _ = self._self_collide()
             var hits = self._collide(sc, poses)
             for ref c in hits:
                 if sc.bset.is_dynamic(c.body):
@@ -463,6 +554,8 @@ struct MeshCloth(ContinuumSolver):
         for _ in range(self.substeps):
             self._predict(h, gravity)
             self._constraints(h)
+            if self.self_radius > 0:
+                _ = self._self_collide()
             self._finish(h)
 
     def _ok(self, i: Int) -> Bool:
@@ -519,6 +612,48 @@ struct MeshCloth(ContinuumSolver):
             raise Error("MeshCloth.read_state: edge count differs")
         for e in range(ne):
             self.torn[e] = r.ri() == 1
+
+
+def _cell_key(i: Int, j: Int, k: Int) -> Int:
+    return (i * 73856093) ^ (j * 19349663) ^ (k * 83492791)
+
+
+def _closest_bary(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Tuple[Real, Real, Real]:
+    """Barycentric weights of the point of triangle abc closest to p
+    (Ericson, Real-Time Collision Detection 5.1.5)."""
+    var ab = b - a
+    var ac = c - a
+    var ap = p - a
+    var d1 = dot(ab, ap)
+    var d2 = dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        return (Real(1), Real(0), Real(0))
+    var bp = p - b
+    var d3 = dot(ab, bp)
+    var d4 = dot(ac, bp)
+    if d3 >= 0 and d4 <= d3:
+        return (Real(0), Real(1), Real(0))
+    var vc = d1 * d4 - d3 * d2
+    if vc <= 0 and d1 >= 0 and d3 <= 0:
+        var v = d1 / (d1 - d3)
+        return (1 - v, v, Real(0))
+    var cp = p - c
+    var d5 = dot(ab, cp)
+    var d6 = dot(ac, cp)
+    if d6 >= 0 and d5 <= d6:
+        return (Real(0), Real(0), Real(1))
+    var vb = d5 * d2 - d1 * d6
+    if vb <= 0 and d2 >= 0 and d6 <= 0:
+        var w = d2 / (d2 - d6)
+        return (1 - w, Real(0), w)
+    var va = d3 * d6 - d5 * d4
+    if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
+        var w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        return (Real(0), 1 - w, w)
+    var den = 1 / (va + vb + vc)
+    var v = vb * den
+    var w = vc * den
+    return (1 - v - w, v, w)
 
 
 def grid_mesh(nx: Int, nz: Int, size_x: Real, size_z: Real, origin: Vec3) -> Tuple[List[Real], List[Int]]:
