@@ -99,16 +99,65 @@ struct BVH[dim: Int](Copyable, Movable):
         return axis
 
     def _sort_range(mut self, mut leaves: List[_Leaf[Self.dim]], lo: Int, hi: Int, axis: Int):
-        # Insertion sort the [lo, hi) range by centroid along `axis`. Fine for the
-        # modest leaf counts a teaching engine handles; keeps the build simple.
-        for i in range(lo + 1, hi):
-            var key = leaves[i]
-            var kc = key.box.center()[axis]
-            var j = i - 1
-            while j >= lo and leaves[j].box.center()[axis] > kc:
-                leaves[j + 1] = leaves[j]
-                j -= 1
-            leaves[j + 1] = key
+        """Stable sort of [lo, hi) by centroid along `axis`. Was an insertion
+        sort -- O(n^2) per node, 15.8 ms of a 4097-box rebuild (ROADMAP
+        17.54). This bottom-up merge sort takes the left run on ties, the
+        same stable order the insertion sort produced, so trees (and every
+        query's output order) are unchanged."""
+        var n = hi - lo
+        if n < 2:
+            return
+        if n <= 16:
+            for i in range(lo + 1, hi):
+                var key = leaves[i]
+                var kc = key.box.center()[axis]
+                var j = i - 1
+                while j >= lo and leaves[j].box.center()[axis] > kc:
+                    leaves[j + 1] = leaves[j]
+                    j -= 1
+                leaves[j + 1] = key
+            return
+        var keys = List[Real](capacity=n)
+        var idx = List[Int](capacity=n)
+        for i in range(lo, hi):
+            keys.append(leaves[i].box.center()[axis])
+            idx.append(i - lo)
+        var tmp = List[Int](length=n, fill=0)
+        var width = 1
+        while width < n:
+            var start = 0
+            while start < n:
+                var mid = min(start + width, n)
+                var end = min(start + 2 * width, n)
+                var a = start
+                var b = mid
+                var o = start
+                while a < mid and b < end:
+                    if keys[idx[a]] > keys[idx[b]]:
+                        tmp[o] = idx[b]
+                        b += 1
+                    else:
+                        tmp[o] = idx[a]
+                        a += 1
+                    o += 1
+                while a < mid:
+                    tmp[o] = idx[a]
+                    a += 1
+                    o += 1
+                while b < end:
+                    tmp[o] = idx[b]
+                    b += 1
+                    o += 1
+                start = end
+            var sw = idx^
+            idx = tmp^
+            tmp = sw^
+            width *= 2
+        var src = List[_Leaf[Self.dim]](capacity=n)
+        for i in range(lo, hi):
+            src.append(leaves[i])
+        for k in range(n):
+            leaves[lo + k] = src[idx[k]]
 
     def _sah_split(
         self, mut leaves: List[_Leaf[Self.dim]], lo: Int, hi: Int
