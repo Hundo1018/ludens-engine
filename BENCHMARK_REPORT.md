@@ -380,28 +380,30 @@ paid up front (brute force over triangles here).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| weld (split vertices) | 512 | mesh | 494489.00 | 0.00 | 0.49 |
-| repair | 512 | mesh | 303784.00 | 0.00 | 0.30 |
-| active edges | 512 | mesh | 179332.00 | 0.01 | 0.18 |
-| simplify (QEM, -> budget 0.05) | 512 | mesh | 999206.00 | 0.00 | 1.00 |
-| weld (split vertices) | 2048 | mesh | 1861165.00 | 0.00 | 1.86 |
-| repair | 2048 | mesh | 1009063.00 | 0.00 | 1.01 |
-| active edges | 2048 | mesh | 718985.00 | 0.00 | 0.72 |
-| simplify (QEM, -> budget 0.05) | 2048 | mesh | 4010513.00 | 0.00 | 4.01 |
-| weld (split vertices) | 8192 | mesh | 7470304.00 | 0.00 | 7.47 |
-| repair | 8192 | mesh | 4427213.00 | 0.00 | 4.43 |
-| active edges | 8192 | mesh | 3459496.00 | 0.00 | 3.46 |
-| simplify (QEM, -> budget 0.05) | 8192 | mesh | 17898310.00 | 0.00 | 17.90 |
+| weld (split vertices) | 512 | mesh | 536327.00 | 0.00 | 0.54 |
+| repair | 512 | mesh | 264600.00 | 0.00 | 0.26 |
+| active edges | 512 | mesh | 180405.00 | 0.01 | 0.18 |
+| simplify (QEM, -> budget 0.05) | 512 | mesh | 943291.00 | 0.00 | 0.94 |
+| weld (split vertices) | 2048 | mesh | 1988147.00 | 0.00 | 1.99 |
+| repair | 2048 | mesh | 1008109.00 | 0.00 | 1.01 |
+| active edges | 2048 | mesh | 1073232.00 | 0.00 | 1.07 |
+| simplify (QEM, -> budget 0.05) | 2048 | mesh | 4036189.00 | 0.00 | 4.04 |
+| weld (split vertices) | 8192 | mesh | 8992465.00 | 0.00 | 8.99 |
+| repair | 8192 | mesh | 5991725.00 | 0.00 | 5.99 |
+| active edges | 8192 | mesh | 3472629.00 | 0.00 | 3.47 |
+| simplify (QEM, -> budget 0.05) | 8192 | mesh | 22085391.00 | 0.00 | 22.09 |
 
 
 ### Mesh SDF: bake once, then sample (512-triangle sphere)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sdf bake res^3 | 8 | grid | 20635048.00 | 0.00 | 20.64 |
-| sdf bake res^3 | 16 | grid | 167370895.00 | 0.00 | 167.37 |
-| sample: SdfGrid trilinear | 512 | query | 35.03 | 28.54 | 0.35 |
-| sample: exact scan over triangles | 512 | query | 13717.62 | 0.07 | 13.72 |
+| sdf bake res^3 | 8 | grid | 20911855.00 | 0.00 | 20.91 |
+| sdf bake res^3, BVH nearest triangle (17.45) | 8 | grid | 2200487.00 | 0.00 | 2.20 |
+| sdf bake res^3 | 16 | grid | 172101568.00 | 0.00 | 172.10 |
+| sdf bake res^3, BVH nearest triangle (17.45) | 16 | grid | 10650698.00 | 0.00 | 10.65 |
+| sample: SdfGrid trilinear | 512 | query | 33.65 | 29.72 | 0.34 |
+| sample: exact scan over triangles | 512 | query | 12743.73 | 0.08 | 12.74 |
 
 
 ## Collision — filtering and contact events
@@ -3114,14 +3116,41 @@ the split, and below it after (`test_chain_contact` gates exactly that).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| step only | 2 | step | 1468.60 | 0.68 | 0.29 |
-| step + ground contact | 2 | step | 27465.00 | 0.04 | 5.49 |
-| step only | 4 | step | 2586.11 | 0.39 | 0.52 |
-| step + ground contact | 4 | step | 22830.34 | 0.04 | 4.57 |
-| step only | 8 | step | 5250.40 | 0.19 | 1.05 |
-| step + ground contact | 8 | step | 10040.52 | 0.10 | 2.01 |
-| step only | 16 | step | 13635.11 | 0.07 | 2.73 |
-| step + ground contact | 16 | step | 28644.84 | 0.03 | 5.73 |
+| step only | 2 | step | 3777.01 | 0.26 | 0.76 |
+| step + ground contact (dense solve per impulse) | 2 | step | 77553.88 | 0.01 | 15.51 |
+| step + ground contact (H factored once per pass, 17.51) | 2 | step | 65432.38 | 0.02 | 13.09 |
+| step only | 4 | step | 4890.37 | 0.20 | 0.98 |
+| step + ground contact (dense solve per impulse) | 4 | step | 37938.79 | 0.03 | 7.59 |
+| step + ground contact (H factored once per pass, 17.51) | 4 | step | 49787.16 | 0.02 | 9.96 |
+| step only | 8 | step | 10349.30 | 0.10 | 2.07 |
+| step + ground contact (dense solve per impulse) | 8 | step | 18266.74 | 0.05 | 3.65 |
+| step + ground contact (H factored once per pass, 17.51) | 8 | step | 18950.81 | 0.05 | 3.79 |
+| step only | 16 | step | 33076.06 | 0.03 | 6.62 |
+| step + ground contact (dense solve per impulse) | 16 | step | 58772.96 | 0.02 | 11.75 |
+| step + ground contact (H factored once per pass, 17.51) | 16 | step | 47787.30 | 0.02 | 9.56 |
+| step only | 32 | step | 116283.69 | 0.01 | 23.26 |
+| step + ground contact (dense solve per impulse) | 32 | step | 212900.98 | 0.00 | 42.58 |
+| step + ground contact (H factored once per pass, 17.51) | 32 | step | 124900.04 | 0.01 | 24.98 |
+
+
+### Reduced-coordinate contact, every link touching (17.51): dense solve per impulse vs one Cholesky factor per pass vs ABA response
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| all tips on the floor: dense solve per impulse | 4 | step | 84370.65 | 0.01 | 3.37 |
+| all tips on the floor: H factored once per pass | 4 | step | 74984.88 | 0.01 | 3.00 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 4 | step | 212689.33 | 0.00 | 8.51 |
+| all tips on the floor: dense solve per impulse | 8 | step | 302147.85 | 0.00 | 12.09 |
+| all tips on the floor: H factored once per pass | 8 | step | 244407.20 | 0.00 | 9.78 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 8 | step | 721011.40 | 0.00 | 28.84 |
+| all tips on the floor: dense solve per impulse | 16 | step | 1613580.00 | 0.00 | 64.54 |
+| all tips on the floor: H factored once per pass | 16 | step | 898841.70 | 0.00 | 35.95 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 16 | step | 2552903.58 | 0.00 | 102.12 |
+| all tips on the floor: dense solve per impulse | 32 | step | 14942651.05 | 0.00 | 597.71 |
+| all tips on the floor: H factored once per pass | 32 | step | 3874066.38 | 0.00 | 154.96 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 32 | step | 9151954.00 | 0.00 | 366.08 |
+| all tips on the floor: H factored once per pass | 64 | step | 19528841.77 | 0.00 | 781.15 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 64 | step | 37784074.83 | 0.00 | 1511.36 |
 
 
 ## Physics — articulated chain: reduced (CRBA+RNEA) vs maximal coordinates
@@ -4487,30 +4516,41 @@ where the segment's bounding box held 1,457,456.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| linear scan | 16 | ray | 516.03 | 1.94 | 0.53 |
-| QueryIndex (incl. build) | 16 | ray | 240.52 | 4.16 | 0.25 |
-| linear scan | 256 | ray | 6264.26 | 0.16 | 6.41 |
-| QueryIndex (incl. build) | 256 | ray | 719.47 | 1.39 | 0.74 |
-| linear scan | 1024 | ray | 24628.00 | 0.04 | 25.22 |
-| QueryIndex (incl. build) | 1024 | ray | 1743.30 | 0.57 | 1.79 |
-| linear scan | 4096 | ray | 94616.78 | 0.01 | 96.89 |
-| QueryIndex (incl. build) | 4096 | ray | 5309.88 | 0.19 | 5.44 |
+| linear scan | 16 | ray | 492.62 | 2.03 | 0.50 |
+| QueryIndex (incl. build) | 16 | ray | 227.14 | 4.40 | 0.23 |
+| linear scan | 256 | ray | 6366.90 | 0.16 | 6.52 |
+| QueryIndex (incl. build) | 256 | ray | 652.57 | 1.53 | 0.67 |
+| linear scan | 1024 | ray | 24171.54 | 0.04 | 24.75 |
+| QueryIndex (incl. build) | 1024 | ray | 1270.24 | 0.79 | 1.30 |
+| linear scan | 4096 | ray | 95451.76 | 0.01 | 97.74 |
+| QueryIndex (incl. build) | 4096 | ray | 2932.88 | 0.34 | 3.00 |
 
 
-### ray_cast_batch (17.53): 1024 rays, N = 4096
+### ray_cast_batch (17.53): N = 4096 colliders, median of 7, warm thread pool
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| serial | 4096 | ray | 5673.49 | 0.18 | 5.81 |
-| parallel dispatch | 4096 | ray | 5416.82 | 0.18 | 5.55 |
-| of which: QueryIndex build (once per batch) | 4096 | ray | 3325.37 | 0.30 | 3.41 |
+| 1024 rays, serial (index built per batch) | 4096 | ray | 2444.27 | 0.41 | 2.50 |
+| 1024 rays, parallel (index built per batch) | 4096 | ray | 2376.55 | 0.42 | 2.43 |
+| index build, SAH (old default) | 4096 | ray | 3346.11 | 0.30 | 3.43 |
+| index build, LBVH (default) | 4096 | ray | 826.47 | 1.21 | 0.85 |
+| 16384 rays, prebuilt index, serial | 4096 | ray | 1448.02 | 0.69 | 23.72 |
+| 16384 rays, prebuilt index, parallel | 4096 | ray | 805.67 | 1.24 | 13.20 |
 
 
 ### Heightfield ray traversal (17.53): 1 km diagonal ray, 1024 x 1024 cells
 
 | candidates from segment AABB | candidates from DDA | ray_cast ns (DDA) | hit t |
 |---:|---:|---:|---:|
-| 1457456 | 88 | 43564 | 1376.8608 |
+| 1457456 | 88 | 60484 | 1376.8608 |
+
+### CGA hypothesis (17.53): sphere-sphere surface distance, 4096 random pairs, median of 7
+
+| path | ns / pair | max deviation from euclidean |
+|---|---:|---:|
+| GJK `convex_distance` (query path) | 114.462646484375 | 1.9073486e-06 |
+| CGA dual-sphere inner product | 28.22802734375 | 0.00035512447 |
+| euclidean centre distance | 6.512451171875 | 0 |
 
 ## Shape kinds (17.52)
 
