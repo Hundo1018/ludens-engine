@@ -355,6 +355,69 @@ def case_concave_chain(mut s: Suite) raises:
     s.check(lowest > 0.05, "resting above the floor")
 
 
+def case_concave_compound(mut s: Suite) raises:
+    """17.44: the same L, spawned grouped -- the cells of one seed across the
+    two parts become one compound body instead of two welded hulls."""
+    var m = l_prism(0.4)
+    var g = voxelize(m.v, m.t, 20)
+    var parts = decompose_with(SplitDecomposer(6, 0.03, 10), g)
+    var seeds = scatter_seeds(Polytope.box(1, 1, 0.2, 1, 1, 0.2).bounds(), 30, 5, 0.0, 0.0, 0.0, 0.0)
+    var fs = voronoi_fracture_parts(parts.hulls, seeds, 1e-5)
+    var sc_h = ContactScene6[QuatBody6]()
+    _ = _ground(sc_h)
+    var hulls = FractureSet(1000, 0)
+    var fh = hulls.spawn(sc_h, fs, Vec3(0, 0.6, 0, 0), Quat.identity(), ZERO, ZERO)
+    var cross_h = hulls.bond_overlapping(sc_h, fh, 2e6)
+    var sc = ContactScene6[QuatBody6]()
+    _ = _ground(sc)
+    var set = FractureSet(1000, 0)
+    var first = set.spawn_grouped(sc, fs, Vec3(0, 0.6, 0, 0), Quat.identity(), ZERO, ZERO)
+    var n_comp = 0
+    var mass = Real(0)
+    var mass_h = Real(0)
+    for i in range(set.fragments()):
+        if set.compound[i]:
+            n_comp += 1
+        mass += 1 / sc.bset.bodies[set.body[i]].inv_mass()
+    for i in range(hulls.fragments()):
+        mass_h += 1 / sc_h.bset.bodies[hulls.body[i]].inv_mass()
+    var n_same = set.bond_neighbors(sc, first, 2e6)
+    var n_cross = set.bond_overlapping(sc, first, 2e6)
+    print("  L grouped: cells", fs.count(), "-> bodies", set.fragments(), "(", n_comp, "compounds ) vs", hulls.fragments(), "hull bodies; mass", mass, "vs", mass_h, "; bonds within parts", n_same, "across parts", n_cross, "(hulls:", cross_h, ")")
+    s.check(n_comp > 0 and set.fragments() < hulls.fragments(), "seeds spanning both parts become single compound bodies")
+    s.check(abs(mass / mass_h - 1) < 1e-4, "the same total mass")
+    s.check(n_cross < cross_h, "fewer welds across the seam (a seed's two cells are one body)")
+    for _ in range(300):
+        sc.step_soft(DT, G)
+        _ = set.poll(sc)
+    var asleep = 0
+    var lowest = Float64(1e30)
+    for i in range(set.fragments()):
+        if sc.bset.sleeping[set.body[i]]:
+            asleep += 1
+        lowest = min(lowest, Float64(sc.bset.bodies[set.body[i]].position()[1]))
+    s.eqi(asleep, set.fragments(), "the grouped concave slab comes to rest asleep")
+    s.eqi(sc.island_count(), 1, "grouped: one island")
+    s.check(lowest > 0.05, "grouped: resting above the floor")
+    var w = BinWriter()
+    write_fracture(set, w)
+    var rd = BinReader(w.b.copy())
+    var back = read_fracture(rd)
+    var w2 = BinWriter()
+    write_fracture(back, w2)
+    s.check(w.b == w2.b and len(back.kid_shape) == len(set.kid_shape), "grouped fracture state round-trips")
+    var ci = -1
+    for i in range(set.fragments()):
+        if set.compound[i]:
+            ci = i
+    var raised = False
+    try:
+        _ = set.cut_fragment(sc, ci, sc.bset.bodies[set.body[ci]].position(), Vec3(1, 0, 0, 0))
+    except:
+        raised = True
+    s.check(raised, "cutting a compound fragment raises")
+
+
 def case_runtime_cut(mut s: Suite) raises:
     """Cut a bonded fragment: pieces conserve volume, re-anchor the bonds."""
     var sc = ContactScene6[QuatBody6]()
@@ -595,6 +658,7 @@ def main() raises:
     case_threshold(s)
     case_debris(s)
     case_concave_chain(s)
+    case_concave_compound(s)
     case_runtime_cut(s)
     case_budget(s)
     case_single(s)
