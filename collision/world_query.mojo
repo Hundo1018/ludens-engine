@@ -1158,7 +1158,11 @@ struct QueryIndex(Movable):
     var poses: List[Pose3]
     var bvh: BVH[3]
 
-    def __init__(out self, cs: ColliderSet, var poses: List[Pose3]):
+    def __init__(out self, cs: ColliderSet, var poses: List[Pose3], sah: Bool = False, lbvh: Bool = True):
+        """LBVH by default: 4096 colliders build in 1.02 ms vs 3.67 ms with
+        SAH, and 1024 rays cost the same on either tree (1.42 / 1.41 ms,
+        `bench_query_ext`). Results do not depend on the tree: candidates
+        are sorted by collider index."""
         self.poses = poses^
         self.bvh = BVH[3]()
         var boxes = List[AABB[3]](capacity=len(cs.shape))
@@ -1167,7 +1171,7 @@ struct QueryIndex(Movable):
             boxes.append(_world_box(cs, i, self.poses[i]))
             ids.append(i)
         if len(boxes) > 0:
-            self.bvh.build_boxes(boxes, ids, sah=True)
+            self.bvh.build_boxes(boxes, ids, sah=sah, lbvh=lbvh)
 
     def _finish(self, cs: ColliderSet, mut raw: List[Int], f: QueryFilter) -> List[Int]:
         sort(raw)

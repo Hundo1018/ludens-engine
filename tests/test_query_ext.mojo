@@ -23,7 +23,9 @@ batches.
        and rounds differently in the last bits);
      - 400 random rays over 300 random colliders: `ray_cast_indexed` (BVH
        prefilter) == `ray_cast` (linear scan), bit for bit;
-     - `ray_cast_batch` with the parallel dispatcher == serial, bit for bit.
+     - `ray_cast_batch` with the parallel dispatcher == serial, bit for bit;
+       `ray_cast_batch_in` reusing one index for two batches, and an index
+       built with SAH instead of the default LBVH, give the same hits.
   3. Extreme: one-sided filter skips a triangle hit from behind; a shape cast
      starting in contact is `start_solid` at t = 0; zero-length cast; a cast
      with nothing in the way misses; `overlap_shape` finds exactly the boxes
@@ -255,4 +257,15 @@ def main() raises:
             nhit += 1
     print("  batch of 400:", nhit, "hits; parallel == serial", bsame)
     s.check(bsame and nhit > 20, "ray_cast_batch: parallel dispatch == serial, bit for bit")
+    # one index reused for two batches (parallel), and a SAH-built index: same hits
+    var pre = big.query_index()
+    var r1 = big.ray_cast_batch_in(pre, origins, dirs, 60, ALL, Dispatch.parallel())
+    var r2 = big.ray_cast_batch_in(pre, origins, dirs, 60, ALL, Dispatch.parallel())
+    var sah = QueryIndex(big.colliders, big.query_poses(), True, False)
+    var rsame = True
+    for k in range(len(ser)):
+        var c = ray_cast_indexed(big.colliders, sah, origins[k], dirs[k], 60, ALL)
+        if r1[k].t != ser[k].t or r2[k].t != ser[k].t or r1[k].body != ser[k].body or c.t != ser[k].t or c.body != ser[k].body:
+            rsame = False
+    s.check(rsame, "a reused index (two batches) and a SAH-built index give the serial batch's hits, bit for bit")
     s.finish()

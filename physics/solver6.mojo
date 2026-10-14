@@ -1643,12 +1643,31 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         """Many rays against one index built for the batch; each ray is an
         independent item, so any `dispatch` gives the same list."""
         var idx = self.query_index()
+        var out = self.ray_cast_batch_in(idx, origins, dirs, max_t, f, dispatch, workers)
+        _ = idx^
+        return out^
+
+    def ray_cast_batch_in(
+        self,
+        idx: QueryIndex,
+        origins: List[Vec3],
+        dirs: List[Vec3],
+        max_t: Real,
+        f: QueryFilter,
+        dispatch: Dispatch = Dispatch.serial(),
+        workers: Int = 0,
+    ) -> List[Hit]:
+        """`ray_cast_batch` against an index the caller built
+        (`query_index`) and reuses for every batch of the frame: the build
+        is serial and, at 1024 rays over 4096 colliders, costs as much as
+        the rays (`bench_query_ext`)."""
         var out = List[Hit](capacity=len(origins))
         for _ in range(len(origins)):
             out.append(Hit.miss())
         var task = _RayTask(self.colliders, idx, origins, dirs, out, max_t, f)
         dispatch_for(dispatch, task, (len(origins) + _RAY_CHUNK - 1) // _RAY_CHUNK, workers)
-        _ = idx^
+        _ = len(origins)
+        _ = len(dirs)
         return out^
 
     def _constraint_edges(self, pairs: List[ContactConstraint]) -> List[Int]:
