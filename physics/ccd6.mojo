@@ -20,7 +20,7 @@ from collision.collider_set import (
     SHAPE_SDF,
     SHAPE_COMPOUND,
 )
-from collision.world_query import desc_distance, kid_distance
+from collision.world_query import desc_distance, kid_distance, shape_distance, QueryShape
 from spatial.bvh import BVH
 from collision.toi import swept_box_toi
 from .rigid6 import Body6
@@ -76,6 +76,34 @@ def _dist_at[B: Body6](
     var nrm = Vec3(0, 1, 0, 0)
     var wa = pi.position
     var wb = pi.position
+    if cs.shape[j] == SHAPE_SDF:
+        # 17.46: each child's core points (+ radius) sampled in the grid
+        # (`world_query.shape_distance`): exact for a sphere / capsule core,
+        # the vertex distance for a box or hull -- a convex shape meets a
+        # locally flat surface first at a vertex
+        var pj = _pose_at(bset, j, t, h)
+        for a in range(cs.kid_count(i)):
+            var da = cs.kid(i, a)
+            var pa = cs.kid_pose(i, a, pi)
+            var pts = List[Vec3]()
+            var rad = Real(0)
+            if da.kind == SHAPE_HULL:
+                var poly = cs.hull_world_d(da, pa)
+                for v in range(len(poly.points)):
+                    pts.append(poly.points[v])
+            elif da.kind == SHAPE_SPHERE or da.kind == SHAPE_CAPSULE:
+                var core = QueryShape(da.kind, da.half, List[Vec3]()).core(pa)
+                pts = core[0].copy()
+                rad = core[1]
+            else:  # box; an ellipsoid by its box
+                pts = QueryShape.box(da.half).core(pa)[0].copy()
+            var r = shape_distance(cs, j, pj, pts, rad)[0]
+            if r.dist < best:
+                best = r.dist
+                nrm = r.normal
+                wa = r.pa
+                wb = r.pb
+        return (best, nrm, wa, wb)
     if _is_static_mesh(cs.shape[j]):
         for a in range(cs.kid_count(i)):
             var da = cs.kid(i, a)
@@ -169,7 +197,8 @@ def ccd_advance[B: Body6](
     - any pair with a hull, ellipsoid, compound or static mesh uses
       conservative advancement on the exact convex distance (`ca_fraction`,
       angular motion bounded by |w| r).
-    SDF colliders are still skipped. Candidates come from a BVH over every
+    An SDF collider (static) is met through the grid distance of the mover's
+    core points (17.46, `_dist_at`). Candidates come from a BVH over every
     body's swept box (its box at the start and at the end of the substep,
     grown by its rotation radius) instead of the all-pairs loop.
     `should_collide` / sensors are consulted, so a filtered or sensor pair
@@ -269,8 +298,6 @@ def _ccd_core[B: Body6](
                     # -- CCD must agree.
                     continue
                 var kj = colliders.shape[j]
-                if kj == SHAPE_SDF:
-                    continue
                 var vj = Vec3(0, 0, 0, 0)
                 if not bset.inactive(j):
                     vj = bset.bodies[j].linear_velocity()

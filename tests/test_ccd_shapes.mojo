@@ -15,6 +15,10 @@ toward it (60 m/s, 20x the wall's thickness) from x = -2.5.
      clamped); a slow scene is bit-identical with CCD on and off.
   3. Extreme: a bullet starting in contact; 1e4 m/s; two bullets meeting
      head-on stop short of each other.
+  3b. SDF: a hull bullet at 300 m/s stops at a 0.2 m SDF slab with CCD
+     on (now swept through the grid distance) where the speculative SDF
+     contact already stops it without CCD (measured -0.196 / -0.199; no
+     tunnelling control exists for this case).
   4. Island-parallel: 8 bullets at static walls step with CCD inside the
      island-parallel solver (no serial fallback), bit-identical to serial.
   5. Per-body modes: a CCD_BULLET hull stops at the wall with the scene's
@@ -29,6 +33,7 @@ from geometry.quat import Quat
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from collision.collider_set import CompoundSpec
+from geometry.sdf_grid import SdfGrid
 from physics.ccd6 import CCD_AUTO, CCD_OFF, CCD_BULLET
 from diag.counters import PARALLEL_FALLBACK_SERIAL
 from physics.serialize import scene_to_bytes, scene_from_bytes
@@ -71,6 +76,28 @@ def _shoot(kind: Int, ccd: Bool, speed: Real = 60, mode: Int = -1) raises -> Rea
         sc.set_ccd_mode(sc.bset.id_of(1), mode)
     var mx = Real(-1e9)
     for _ in range(60):
+        sc.step_soft(DT, ZERO, ccd=ccd)
+        mx = max(mx, sc.bset.bodies[1].pos[0])
+    return mx
+
+
+def _sdf_shot(ccd: Bool) raises -> Real:
+    """A 0.1 m hull cube at 300 m/s (5 m a step) against a static SDF slab
+    |x| <= 0.1 (grid cell 0.25 with a node on x = 0, so the kink is
+    exact): the largest x its centre reaches."""
+    var sc = ContactScene6[QuatBody6]()
+    var res = 25
+    var g = SdfGrid(res, Vec3(-3, -3, -3, 0), Real(6) / Real(res - 1))
+    for k in range(res):
+        for j in range(res):
+            for i in range(res):
+                g.values[(k * res + j) * res + i] = abs(g.node(i, j, k)[0]) - Real(0.1)
+    _ = sc.add_sdf(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), g^)
+    var b = QuatBody6.at_rest(Vec3(-2.5, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
+    b.vel = Vec3(300, 0, 0, 0)
+    _ = sc.add_hull(b^, _cube_verts(0.1), False)
+    var mx = Real(-1e9)
+    for _ in range(10):
         sc.step_soft(DT, ZERO, ccd=ccd)
         mx = max(mx, sc.bset.bodies[1].pos[0])
     return mx
@@ -190,6 +217,14 @@ def main() raises:
             crossed2 = True
     print("  two hull bullets head-on: final x", hh.pose(li).pos[0], hh.pose(ri).pos[0])
     s.check(not crossed2, "two bullets meeting head-on never pass through each other")
+    # ---- SDF wall (17.46) ----
+    var sdf_on = _sdf_shot(True)
+    var sdf_off = _sdf_shot(False)
+    print("  hull bullet at 300 m/s vs a 0.2 m SDF slab: max x with CCD", sdf_on, " without", sdf_off)
+    # measured: the SDF's speculative contact already catches this bullet
+    # without CCD (-0.199); the CCD path is the backstop and must agree
+    s.check(sdf_on < 0 and abs(sdf_on - sdf_off) < 0.01, "CCD against an SDF wall stops the bullet where the speculative contact does")
+
     # ---- island-parallel CCD (17.46) ----
     var par = _volley(True)
     var ser = _volley(False)
