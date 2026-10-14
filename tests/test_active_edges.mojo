@@ -92,7 +92,7 @@ def _run_field(speed: Real, angle: Real, slope: Bool = False) raises -> Tuple[Re
     var sc = ContactScene6[QuatBody6]()
     var h = List[Real]()
     for iz in range(41):
-        for ix in range(41):
+        for _ in range(41):
             h.append(Real(iz) * 0.05 if slope else Real(0))
     _ = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), h, 41, 41, 0.5, -10, -10)
     if angle >= 0:
