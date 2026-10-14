@@ -24,6 +24,7 @@ comptime JOINT_ROPE = 7  # anchor distance within the ext's [lo, hi] only
 comptime JOINT_UNIVERSAL = 8  # ball + axis_a (in a) stays perpendicular to axis_b (in b)
 comptime JOINT_GEAR = 9  # ratio * (w_a . axis_a) + (w_b . axis_b) = 0, no anchors
 comptime JOINT_PULLEY = 10  # |p_a - g_a| + ratio |p_b - g_b| <= rest, pull only
+comptime JOINT_D6 = 11  # six axes, each free / locked / limited (solved in joint_ext)
 
 
 @fieldwise_init
@@ -143,6 +144,16 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
             ground_a, ground_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), ratio,
         )
 
+    @staticmethod
+    def d6(a: Int, b: Int, la: Vec3, lb: Vec3) -> Self:
+        """Six-axis joint (17.47): every axis of a's frame (3 linear, 3
+        angular) starts LOCKED (a weld); `ContactScene6.set_d6_axis` frees or
+        limits each. `add_joint` records the relative rotation to hold."""
+        return Self(
+            JOINT_D6, a, b, la, lb, 0,
+            Vec3(1, 0, 0, 0), Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
+        )
+
     def ref_rotation(self) -> Quat:
         """The weld's reference relative rotation (see `weld`)."""
         return Quat(self.axis_a[0], self.axis_a[1], self.axis_a[2], self.rest)
@@ -214,8 +225,8 @@ def joint_sweep[B: Body6](
     for _ in range(iters):
         for c in range(len(joints)):
             var jt = joints[c]
-            if jt.kind == JOINT_BROKEN or jt.kind == JOINT_SLIDER or jt.kind == JOINT_ROPE:
-                continue  # sliders and ropes: `physics.joint_ext.ext_sweep`
+            if jt.kind == JOINT_BROKEN or jt.kind == JOINT_SLIDER or jt.kind == JOINT_ROPE or jt.kind == JOINT_D6:
+                continue  # sliders, ropes and D6: `physics.joint_ext.ext_sweep`
             if bset.impulse_inert(jt.a) and bset.impulse_inert(jt.b):
                 continue
             if island_filter != -2 and joint_island(bset, jt) != island_filter:

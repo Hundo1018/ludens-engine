@@ -42,7 +42,8 @@ each mesh / heightfield's surface data (heightfield active-edge angle,
 per-triangle material ids) and the material friction table -- without them
 a restored kinematic platform mesh stopped following its body and a
 heightfield lost its active-edge angle. Each joint also carries its
-`ratio` (17.47 gear / pulley) after its accumulated impulses.
+`ratio` (17.47 gear / pulley) after its accumulated impulses, and each
+joint ext its D6 axis modes, ranges and row impulses after `acc_cone`.
 4 since ROADMAP 17.48: after the island labels, per body the 17.29
 gravity override, the 17.31 frozen motion type, the 17.48 parameters
 (damping, gravity scale, locks, speed caps, accumulated force / torque,

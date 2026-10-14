@@ -138,6 +138,7 @@ from .joints6 import (
     JOINT_SLIDER,
     JOINT_CONE_TWIST,
     JOINT_ROPE,
+    JOINT_D6,
 )
 from .joint_ext import (
     JointExt,
@@ -148,6 +149,10 @@ from .joint_ext import (
     warm_start_ext,
     ext_impulse,
     sample_ext_loads,
+    D6_FREE,
+    D6_LOCKED,
+    D6_LIMITED,
+    D6_ALL_LOCKED,
     joint_coordinate,
 )
 from .islands import (
@@ -417,8 +422,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var ref_w = tangent_basis(axa)[0]
         ex.ref_a = self._local_dir(jt.a, ref_w)
         ex.ref_b = self._local_dir(jt.b, ref_w)
-        if jt.kind == JOINT_SLIDER:
+        if jt.kind == JOINT_SLIDER or jt.kind == JOINT_D6:
             ex.ref_rel = self.bset.bodies[jt.a].rotation().conjugate() * self.bset.bodies[jt.b].rotation()
+        if jt.kind == JOINT_D6:
+            ex.d6_mode = D6_ALL_LOCKED
+            ex.collide = False
         if jt.kind == JOINT_ROPE:
             ex.lim_on = True
             ex.lo = 0
@@ -1104,6 +1112,32 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.jext[c].lim_on = False
         self.jext[c].acc_lo = 0
         self.jext[c].acc_hi = 0
+        self._ensure_ext()
+
+    def set_d6_axis(mut self, j: Int, axis: Int, mode: Int, lo: Real = 0, hi: Real = 0) raises:
+        """ROADMAP 17.47: one axis of a D6 joint -- `axis` 0..2 = translation
+        along a's x / y / z (m), 3..5 = rotation about them (rad, the
+        rotation-vector component); `mode` D6_FREE, D6_LOCKED or
+        D6_LIMITED with lo <= hi."""
+        var c = self._ext_index(j, "set_d6_axis")
+        if self.joints[c].kind != JOINT_D6:
+            raise Error("ContactScene6.set_d6_axis: not a D6 joint")
+        if axis < 0 or axis > 5:
+            raise Error("ContactScene6.set_d6_axis: axis must be 0..5")
+        if mode != D6_FREE and mode != D6_LOCKED and mode != D6_LIMITED:
+            raise Error("ContactScene6.set_d6_axis: unknown mode")
+        if mode == D6_LIMITED and not (lo <= hi):
+            raise Error("ContactScene6.set_d6_axis: need lo <= hi")
+        ref ex = self.jext[c]
+        ex.d6_mode = (ex.d6_mode & ~(3 << (2 * axis))) | (mode << (2 * axis))
+        if axis < 3:
+            ex.d6_lo_lin[axis] = lo
+            ex.d6_hi_lin[axis] = hi
+            ex.d6_acc_lin[axis] = 0
+        else:
+            ex.d6_lo_ang[axis - 3] = lo
+            ex.d6_hi_ang[axis - 3] = hi
+            ex.d6_acc_ang[axis - 3] = 0
         self._ensure_ext()
 
     def set_cone_limit(mut self, j: Int, angle: Real) raises:
@@ -3222,6 +3256,13 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wf(ex.acc_motor)
         out.wf(ex.acc_spring)
         out.wf(ex.acc_cone)
+        out.wi(ex.d6_mode)
+        out.wv(ex.d6_lo_lin)
+        out.wv(ex.d6_hi_lin)
+        out.wv(ex.d6_lo_ang)
+        out.wv(ex.d6_hi_ang)
+        out.wv(ex.d6_acc_lin)
+        out.wv(ex.d6_acc_ang)
     # 17.50: contact-model fields (static friction, rolling, spinning,
     # softness, adhesion).
     out.wi(1 if sc.bset.any_contact_model else 0)
@@ -3671,9 +3712,17 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         var a_m = r.rf()
         var a_s = r.rf()
         var a_c = r.rf()
+        var d6m = r.ri()
+        var d6a = r.rv()
+        var d6b = r.rv()
+        var d6c = r.rv()
+        var d6d = r.rv()
+        var d6e = r.rv()
+        var d6f = r.rv()
         sc.jext.append(JointExt(
             lim_on, lo, hi, cone, motor, target, max_force, mh, mz, sh, sz, sr,
             ra, rb, Quat(qx, qy, qz, qw), collide, a_lo, a_hi, a_m, a_s, a_c,
+            d6m, d6a, d6b, d6c, d6d, d6e, d6f,
         ))
     sc._ensure_ext()
     sc.bset.any_contact_model = r.ri() == 1
