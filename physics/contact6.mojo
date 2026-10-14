@@ -32,6 +32,7 @@ comptime _SLOP: Real = 0.005  # allowed penetration
 comptime _STICK_V: Real = 0.01
 # Adhesion (17.50) holds a point whose separation is within this gap (m).
 comptime _ADH_GAP: Real = 0.01
+comptime _BLOCK_EPS: Real = 1e-4  # 17.50 block solver diagonal regularisation (relative)
 
 
 @fieldwise_init
@@ -672,56 +673,63 @@ def solve_contact[B: Body6](
         p_ms = cc / (1 + cc)
         p_isc = 1 / (1 + cc)
     var conveyor = pr.vsurf[0] != 0 or pr.vsurf[1] != 0 or pr.vsurf[2] != 0
+    # ROADMAP 17.50 block solver: all of a manifold's normal impulses at
+    # once (a small LCP), then friction per point; one point, adhesion or
+    # a singular block stays on the per-point Gauss-Seidel.
+    var blk = bset.block and pr.m.count > 1 and adh == 0
+    if blk:
+        blk = _block_normal(bset, pr, n, h, p_bias, p_ms, use_bias, max_push)
     for k in range(pr.m.count):
         var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
         var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
-        # anchors coincided at prep with depth d0; separation since
-        # then is the anchor drift along the normal
-        var d = pr.m.depths[k] - dot(pwb - pwa, n)
-        var va = Vec3(0, 0, 0, 0)
-        var ka = Real(0)
-        if bset.moves(pr.a):
-            va = bset.bodies[pr.a].velocity_at(pwa)
-        if bset.is_dynamic(pr.a):
-            ka = bset.bodies[pr.a].inv_mass() + bset.bodies[
-                pr.a
-            ].angular_factor(pwa - bset.bodies[pr.a].position(), n)
-        var vb = Vec3(0, 0, 0, 0)
-        var kb = Real(0)
-        if bset.moves(pr.b):
-            vb = bset.bodies[pr.b].velocity_at(pwb)
-        if bset.is_dynamic(pr.b):
-            kb = bset.bodies[pr.b].inv_mass() + bset.bodies[
-                pr.b
-            ].angular_factor(pwb - bset.bodies[pr.b].position(), n)
-        var denom = ka + kb
-        if denom <= 0:
-            continue
-        var vn = dot(vb - va, n)
-        # Box2D sign convention: separation s = -d (negative when
-        # penetrating), bias <= 0 pulls vn upward past zero.
-        var bias = Real(0)
-        var ms = Real(1)
-        var isc = Real(0)
-        if d < 0:
-            bias = -d / h  # speculative: match approach speed
-        elif use_bias:
-            bias = max(-p_bias * d, -max_push)
-            ms = p_ms
-            isc = p_isc
-        var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
-        var lo = Real(0)
-        if adh > 0 and d > -_ADH_GAP:
-            lo = -adh
-        var new_acc = max(pr.acc[k] + raw, lo)
-        var dl = new_acc - pr.acc[k]
-        pr.acc[k] = new_acc
-        if dl != 0:
-            var j = n * dl
+        if not blk:
+            # anchors coincided at prep with depth d0; separation since
+            # then is the anchor drift along the normal
+            var d = pr.m.depths[k] - dot(pwb - pwa, n)
+            var va = Vec3(0, 0, 0, 0)
+            var ka = Real(0)
+            if bset.moves(pr.a):
+                va = bset.bodies[pr.a].velocity_at(pwa)
             if bset.is_dynamic(pr.a):
-                bset.bodies[pr.a].apply_impulse(-j, pwa)
+                ka = bset.bodies[pr.a].inv_mass() + bset.bodies[
+                    pr.a
+                ].angular_factor(pwa - bset.bodies[pr.a].position(), n)
+            var vb = Vec3(0, 0, 0, 0)
+            var kb = Real(0)
+            if bset.moves(pr.b):
+                vb = bset.bodies[pr.b].velocity_at(pwb)
             if bset.is_dynamic(pr.b):
-                bset.bodies[pr.b].apply_impulse(j, pwb)
+                kb = bset.bodies[pr.b].inv_mass() + bset.bodies[
+                    pr.b
+                ].angular_factor(pwb - bset.bodies[pr.b].position(), n)
+            var denom = ka + kb
+            if denom <= 0:
+                continue
+            var vn = dot(vb - va, n)
+            # Box2D sign convention: separation s = -d (negative when
+            # penetrating), bias <= 0 pulls vn upward past zero.
+            var bias = Real(0)
+            var ms = Real(1)
+            var isc = Real(0)
+            if d < 0:
+                bias = -d / h  # speculative: match approach speed
+            elif use_bias:
+                bias = max(-p_bias * d, -max_push)
+                ms = p_ms
+                isc = p_isc
+            var raw = -ms * (vn + bias) / denom - isc * pr.acc[k]
+            var lo = Real(0)
+            if adh > 0 and d > -_ADH_GAP:
+                lo = -adh
+            var new_acc = max(pr.acc[k] + raw, lo)
+            var dl = new_acc - pr.acc[k]
+            pr.acc[k] = new_acc
+            if dl != 0:
+                var j = n * dl
+                if bset.is_dynamic(pr.a):
+                    bset.bodies[pr.a].apply_impulse(-j, pwa)
+                if bset.is_dynamic(pr.b):
+                    bset.bodies[pr.b].apply_impulse(j, pwb)
         # Coulomb friction: tangent impulses clamped to pair_mu * lambda_n.
         var tb = tangent_basis(n)
         # an adhesive point's normal impulse may be negative; it gives no grip
@@ -796,6 +804,173 @@ def solve_contact[B: Body6](
     if model:
         _solve_rolling(bset, pr, n)
     pairs[c] = pr
+
+
+def _block_normal[B: Body6](
+    mut bset: BodySet[B], mut pr: ContactConstraint, n: Vec3, h: Real,
+    p_bias: Real, p_ms: Real, use_bias: Bool, max_push: Real,
+) -> Bool:
+    """ROADMAP 17.50 block solver: the normal impulses of a manifold's
+    points solved together. A_ij = n·(velocity change at point i per unit
+    impulse at point j); the rigid problem x >= 0, w = A x + b >= 0,
+    x·w = 0 (b = vn + bias - A·acc) is solved by enumerating active sets
+    (largest first), and each point keeps ms_k·x_k -- the per-point soft
+    update, which is ms·(acc - (vn + bias) / A_kk), with the full block in
+    place of A_kk. False (nothing applied) when the block is singular or no
+    active set fits; the caller then runs the per-point sweep."""
+    var cnt = pr.m.count
+    var pa = List[Vec3](capacity=cnt)
+    var pb = List[Vec3](capacity=cnt)
+    var ra = List[Vec3](capacity=cnt)
+    var rb = List[Vec3](capacity=cnt)
+    var b = List[Real](length=cnt, fill=0)
+    var ms = List[Real](length=cnt, fill=1)
+    var dyn_a = bset.is_dynamic(pr.a)
+    var dyn_b = bset.is_dynamic(pr.b)
+    var pos_a = bset.bodies[pr.a].position()
+    var pos_b = bset.bodies[pr.b].position()
+    for k in range(cnt):
+        var pwa = anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
+        var pwb = anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
+        pa.append(pwa)
+        pb.append(pwb)
+        ra.append(pwa - pos_a)
+        rb.append(pwb - pos_b)
+        var d = pr.m.depths[k] - dot(pwb - pwa, n)
+        var va = Vec3(0, 0, 0, 0)
+        var vb = Vec3(0, 0, 0, 0)
+        if bset.moves(pr.a):
+            va = bset.bodies[pr.a].velocity_at(pwa)
+        if bset.moves(pr.b):
+            vb = bset.bodies[pr.b].velocity_at(pwb)
+        var bias = Real(0)
+        if d < 0:
+            bias = -d / h
+        elif use_bias:
+            bias = max(-p_bias * d, -max_push)
+            ms[k] = p_ms
+        b[k] = dot(vb - va, n) + bias
+    # A by polarisation: (ri x n)·I^-1 (rj x n) = (f(ri + rj) - f(ri) - f(rj)) / 2
+    var A = List[Real](length=cnt * cnt, fill=0)
+    var im = (bset.bodies[pr.a].inv_mass() if dyn_a else Real(0)) + (bset.bodies[pr.b].inv_mass() if dyn_b else Real(0))
+    var fa = List[Real](length=cnt, fill=0)
+    var fb = List[Real](length=cnt, fill=0)
+    for i in range(cnt):
+        if dyn_a:
+            fa[i] = bset.bodies[pr.a].angular_factor(ra[i], n)
+        if dyn_b:
+            fb[i] = bset.bodies[pr.b].angular_factor(rb[i], n)
+    for i in range(cnt):
+        for j in range(i, cnt):
+            var v = im
+            if i == j:
+                v += fa[i] + fb[i]
+            else:
+                if dyn_a:
+                    v += (bset.bodies[pr.a].angular_factor(ra[i] + ra[j], n) - fa[i] - fa[j]) / 2
+                if dyn_b:
+                    v += (bset.bodies[pr.b].angular_factor(rb[i] + rb[j], n) - fb[i] - fb[j]) / 2
+            A[i * cnt + j] = v
+            A[j * cnt + i] = v
+    # b uses the unregularised A; then eps·I: four coplanar points give a
+    # rank-3 A (three velocity DOFs), and the regularised solve picks the
+    # least-norm split of the load (equal impulses under a uniform load)
+    var tr = Real(0)
+    for i in range(cnt):
+        if not (A[i * cnt + i] > 1e-12):
+            return False
+        for j in range(cnt):
+            b[i] -= A[i * cnt + j] * pr.acc[j]
+        tr += A[i * cnt + i]
+    for i in range(cnt):
+        A[i * cnt + i] += _BLOCK_EPS * tr / Real(cnt)
+    # active sets, largest first (full set = mask 2^cnt - 1)
+    var full = (1 << cnt) - 1
+    var x = List[Real](length=cnt, fill=0)
+    var found = False
+    for size in range(cnt, -1, -1):
+        for mask in range(full, -1, -1):
+            if _popcount(mask) != size:
+                continue
+            if _block_try(A, b, cnt, mask, x):
+                found = True
+                break
+        if found:
+            break
+    if not found:
+        return False
+    for k in range(cnt):
+        var na = ms[k] * x[k]
+        var dl = na - pr.acc[k]
+        pr.acc[k] = na
+        if dl != 0:
+            var j = n * dl
+            if dyn_a:
+                bset.bodies[pr.a].apply_impulse(-j, pa[k])
+            if dyn_b:
+                bset.bodies[pr.b].apply_impulse(j, pb[k])
+    return True
+
+
+def _popcount(m: Int) -> Int:
+    var c = 0
+    var v = m
+    while v > 0:
+        c += v & 1
+        v >>= 1
+    return c
+
+
+def _block_try(A: List[Real], b: List[Real], cnt: Int, mask: Int, mut x: List[Real]) -> Bool:
+    """Solve A_SS x_S = -b_S for the active set `mask` (Gaussian elimination
+    with partial pivoting); True when x_S >= 0 and every inactive point's
+    w = (A x + b) >= 0."""
+    var idx = List[Int]()
+    for k in range(cnt):
+        if (mask >> k) & 1 == 1:
+            idx.append(k)
+    var m = len(idx)
+    var M = List[Real](length=m * (m + 1), fill=0)
+    for r in range(m):
+        for c in range(m):
+            M[r * (m + 1) + c] = A[idx[r] * cnt + idx[c]]
+        M[r * (m + 1) + m] = -b[idx[r]]
+    for col in range(m):
+        var piv = col
+        for r in range(col + 1, m):
+            if abs(M[r * (m + 1) + col]) > abs(M[piv * (m + 1) + col]):
+                piv = r
+        if abs(M[piv * (m + 1) + col]) < 1e-14:
+            return False
+        if piv != col:
+            for c in range(m + 1):
+                var t = M[col * (m + 1) + c]
+                M[col * (m + 1) + c] = M[piv * (m + 1) + c]
+                M[piv * (m + 1) + c] = t
+        for r in range(col + 1, m):
+            var f = M[r * (m + 1) + col] / M[col * (m + 1) + col]
+            for c in range(col, m + 1):
+                M[r * (m + 1) + c] -= f * M[col * (m + 1) + c]
+    var xs = List[Real](length=m, fill=0)
+    for r in range(m - 1, -1, -1):
+        var s = M[r * (m + 1) + m]
+        for c in range(r + 1, m):
+            s -= M[r * (m + 1) + c] * xs[c]
+        xs[r] = s / M[r * (m + 1) + r]
+        if xs[r] < 0:
+            return False
+    for k in range(cnt):
+        x[k] = 0
+    for r in range(m):
+        x[idx[r]] = xs[r]
+    for k in range(cnt):
+        if (mask >> k) & 1 == 0:
+            var w = b[k]
+            for r in range(m):
+                w += A[k * cnt + idx[r]] * xs[r]
+            if w < -1e-9 * (1 + abs(b[k])):
+                return False
+    return True
 
 
 def _solve_rolling[B: Body6](mut bset: BodySet[B], mut pr: ContactConstraint, n: Vec3):

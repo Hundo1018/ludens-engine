@@ -33,6 +33,10 @@ comptime FRICTION_PYRAMID = 0
 """Friction cone (ROADMAP 17.50): each tangent axis clamped to mu·N on its own."""
 comptime FRICTION_ELLIPTIC = 1
 """Friction cone: the tangent impulse vector clamped to a disk of radius mu·N."""
+comptime CONTACT_GS = 0
+"""Contact normals (ROADMAP 17.50): one point at a time (Gauss-Seidel)."""
+comptime CONTACT_BLOCK = 1
+"""Contact normals: a manifold's points solved together (a small LCP)."""
 
 
 @fieldwise_init
@@ -96,6 +100,10 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # ROADMAP 17.79: most contact manifolds a step keeps (0 = no cap); the
     # newest over it are dropped and counted (`CONTACT_DROPPED`).
     var max_contacts: Int
+    # ROADMAP 17.50: how a manifold's normal impulses are solved (a seam:
+    # CONTACT_GS per point, CONTACT_BLOCK all points of a manifold at once;
+    # identical for one-point manifolds).
+    var contact_solver: Int
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -120,6 +128,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.parallel_collision = False
         self.reuse_still_pairs = False
         self.max_contacts = 0
+        self.contact_solver = CONTACT_GS
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes
@@ -155,6 +164,8 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
             raise Error("SolverConfig.validated: unknown impulse_estimator")
         if self.friction_cone != FRICTION_PYRAMID and self.friction_cone != FRICTION_ELLIPTIC:
             raise Error("SolverConfig.validated: unknown friction_cone")
+        if self.contact_solver != CONTACT_GS and self.contact_solver != CONTACT_BLOCK:
+            raise Error("SolverConfig.validated: unknown contact_solver")
         return self
 
 
