@@ -165,6 +165,21 @@ int main(void) {
     printf("zero_mass %lld\n", (long long)ld_body_add_sphere(w, 0, 0, 0, 1, 0, 0));
     printf("bad_phase %lld\n", (long long)ld_world_add_system(w, 9, count_post, NULL));
     printf("null_out %d\n", ld_body_get_state(w, s.player, NULL));
+    /* ABI 0.3: physics capture */
+    printf("capture_bad %d\n", ld_world_capture_begin(w, 0));
+    ld_world_capture_begin(w, 10);
+    ld_world_step_ticks(w, 25);
+    ld_world_capture_end(w);
+    ld_world_step_ticks(w, 5);
+    int64_t csize = ld_world_capture_size(w);
+    uint8_t* cbuf = (uint8_t*)malloc((size_t)csize);
+    int64_t cread = ld_world_capture_read(w, cbuf, csize);
+    int64_t cframes = 0;
+    memcpy(&cframes, cbuf + 24, 8);
+    printf("capture_read_all %d\n", csize > 32 && cread == csize);
+    printf("capture_frames %lld\n", (long long)cframes);
+    printf("capture_small %lld\n", (long long)ld_world_capture_read(w, cbuf, 8));
+    free(cbuf);
     printf("bad_dt %d\n", ld_world_create(0.0, 0, 0, 0, &w) == LD_ERR_ARG);
     int calls = 0;
     int64_t t0 = ld_world_tick(w);

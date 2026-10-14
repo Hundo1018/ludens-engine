@@ -179,6 +179,11 @@ def main() raises:
     s.eqi(Int(get(kv, "zero_mass", 0)), LD_ERR_ARG, "dynamic body with mass 0 -> LD_ERR_ARG")
     s.eqi(Int(get(kv, "bad_phase", 0)), LD_ERR_ARG, "unknown system phase -> LD_ERR_ARG")
     s.eqi(Int(get(kv, "null_out", 0)), LD_ERR_ARG, "NULL output pointer -> LD_ERR_ARG")
+    # ABI 0.3 (17.80): capture of 25 ticks, recording stops at capture_end
+    s.eqi(Int(get(kv, "capture_bad", 0)), LD_ERR_ARG, "capture_begin(0) -> LD_ERR_ARG")
+    s.eqi(Int(get(kv, "capture_read_all", 0)), 1, "capture_read copies capture_size bytes")
+    s.eqi(Int(get(kv, "capture_frames", 0)), 25, "25 ticks captured, none after capture_end")
+    s.eqi(Int(get(kv, "capture_small", 0)), LD_ERR_BUFFER, "capture_read into 8 bytes -> LD_ERR_BUFFER")
     s.eqi(Int(get(kv, "bad_dt", 0)), 1, "create with dt 0 -> LD_ERR_ARG")
     s.eqi(Int(get(kv, "callback_fail", 0)), LD_ERR_CALLBACK, "system returning non-zero -> LD_ERR_CALLBACK")
     s.eqi(Int(get(kv, "callback_fail", 2)), 2, "step stops before the failing tick's physics (2 ticks done)")

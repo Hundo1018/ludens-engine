@@ -665,6 +665,58 @@ def ld_world_hash(h: Optional[Handle], dst: Optional[U64Ptr]) abi("C") -> Int32:
     return Int32(LD_OK)
 
 
+@export
+def ld_world_capture_begin(h: Optional[Handle], key_every: Int32) abi("C") -> Int32:
+    """Start recording a physics capture of every tick (17.80); restarts a
+    running one."""
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    var p = o.value()
+    if key_every < 1:
+        return Int32(_fail(p, LD_ERR_ARG, "ld_world_capture_begin: key_every must be >= 1"))
+    try:
+        p[].w.capture_begin(Int(key_every))
+    except e:
+        return Int32(_fail(p, LD_ERR_ARG, String(e)))
+    return Int32(LD_OK)
+
+
+@export
+def ld_world_capture_end(h: Optional[Handle]) abi("C") -> Int32:
+    var o = _world(h)
+    if not o:
+        return Int32(LD_ERR_HANDLE)
+    o.value()[].w.capture_end()
+    return Int32(LD_OK)
+
+
+@export
+def ld_world_capture_size(h: Optional[Handle]) abi("C") -> Int64:
+    """Bytes of the capture's file image so far."""
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    return Int64(len(o.value()[].w.capture.to_bytes()))
+
+
+@export
+def ld_world_capture_read(h: Optional[Handle], buf: Optional[U8Ptr], cap: Int64) abi("C") -> Int64:
+    """Copy the capture's file image (readable by `physics.capture.CaptureReader`)."""
+    var o = _world(h)
+    if not o:
+        return Int64(LD_ERR_HANDLE)
+    var p = o.value()
+    var blob = p[].w.capture.to_bytes()
+    if Int(cap) < len(blob) or not buf:
+        return Int64(_fail(p, LD_ERR_BUFFER, "ld_world_capture_read: capacity below ld_world_capture_size"))
+    var d = buf.value()
+    var src = blob.unsafe_ptr()
+    for i in range(len(blob)):
+        d[unsafe_offset=i] = src[unsafe_offset=i]
+    return Int64(len(blob))
+
+
 # --------------------------------------------------------------- navigation
 
 

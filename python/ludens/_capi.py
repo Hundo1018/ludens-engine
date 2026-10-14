@@ -22,7 +22,7 @@ from ctypes import (
 )
 
 ABI_MAJOR = 0
-ABI_MINOR = 2
+ABI_MINOR = 3
 
 LD_OK = 0
 LD_ERR_HANDLE = -1
@@ -98,6 +98,11 @@ PROTOTYPES = {
     "ld_counter_count": (c_int64, []),
     "ld_counter_name": (c_int64, [c_int32, c_char_p, c_int64]),
     "ld_world_get_counters": (c_int64, [_W, POINTER(c_int64), c_int64]),
+    # 0.3 (17.80): physics capture
+    "ld_world_capture_begin": (c_int32, [_W, c_int32]),
+    "ld_world_capture_end": (c_int32, [_W]),
+    "ld_world_capture_size": (c_int64, [_W]),
+    "ld_world_capture_read": (c_int64, [_W, POINTER(c_uint8), c_int64]),
 }
 
 

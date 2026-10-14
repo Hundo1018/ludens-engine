@@ -29,11 +29,12 @@ from physics.rigid6 import Inertia3, Pose6, QuatBody6
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
 from physics.serialize import scene_to_bytes, scene_from_bytes
+from physics.capture import Capture
 from collision.world_query import QueryFilter
 from collision.contact_events import ContactEvent
 
 comptime ABI_MAJOR = 0
-comptime ABI_MINOR = 2
+comptime ABI_MINOR = 3
 
 # Status codes (negative = error). Frozen for v0.x: values never change.
 comptime LD_OK = 0
@@ -116,6 +117,9 @@ struct EmbedWorld(Movable):
     var frame_events: List[TickEvent]  # every event of the ticks run by the current / last frame
     var tick_events: List[TickEvent]  # events of the latest tick only
     var error: String
+    # ROADMAP 17.80: a physics capture of the ticks run while `capturing`
+    var capturing: Bool
+    var capture: Capture
 
     def __init__(out self, dt: Float64, gravity: Vec3, max_steps: Int = 8) raises:
         if not (dt > 0) or not isfinite(dt):
@@ -126,6 +130,8 @@ struct EmbedWorld(Movable):
             raise Error("world: max_steps must be >= 1")
         self.scene = ContactScene6[QuatBody6]()
         self.scene.events_on = True
+        self.capturing = False
+        self.capture = Capture(60)
         self.cfg = SolverConfig()
         self.cfg.broadphase = True
         self.gravity = gravity
@@ -295,7 +301,18 @@ struct EmbedWorld(Movable):
             )
             self.tick_events.append(ev)
             self.frame_events.append(ev)
+        if self.capturing:
+            self.capture.record(self.scene)
         self.tick += 1
+
+    def capture_begin(mut self, key_every: Int) raises:
+        """Start a new capture (17.80); the previous one is discarded."""
+        self.capture = Capture(key_every)
+        self.capturing = True
+
+    def capture_end(mut self):
+        """Stop recording; the capture stays readable until the next begin."""
+        self.capturing = False
 
     # -------------------------------------------------------- save / load
 
