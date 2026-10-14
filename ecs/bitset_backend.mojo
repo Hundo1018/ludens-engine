@@ -17,6 +17,7 @@ from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend, Filter, resolve_filter, check_pack
+from std.sys import size_of
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -218,6 +219,18 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
             self._emit(bits, w * 64, out)
         return out^
 
+    def storage_bytes(self) -> Int:
+        """ROADMAP 17.79: bytes this backend holds in use (lengths x element
+        sizes; list capacity slack and allocator overhead not counted, so a
+        lower bound)."""
+        var t = len(self.live_mask) * size_of[UInt64]()
+        t += len(self.free_ids) * size_of[Int]() + len(self.gens) * size_of[Int]()
+        for ref m in self.masks:
+            t += len(m) * size_of[UInt64]()
+        comptime for i in range(Self.N):
+            t += len(self._store[Self.CTs[i]]()[]) * size_of[Optional[Self.CTs[i]]]()
+        return t
+
     def for_each2[
         A: ComponentType,
         B: ComponentType,
@@ -237,3 +250,25 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
                 var a = sta[][id].value()
                 func(a, stb[][id].value())
                 sta[][id] = Optional[A](a)
+
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        var sla = Self._slot_of[A]()
+        var slb = Self._slot_of[B]()
+        var slc = Self._slot_of[C]()
+        var sta = self._store[A]()
+        var stb = self._store[B]()
+        var stc = self._store[C]()
+        for w in range(len(self.live_mask)):
+            var bits = self.masks[sla][w] & self.masks[slb][w] & self.masks[slc][w] & self.live_mask[w]
+            while bits != 0:
+                var id = w * 64 + Int(count_trailing_zeros(bits))
+                bits &= bits - 1
+                var a = sta[][id].value()
+                func(a, stb[][id].value(), stc[][id].value())
+                sta[][id] = Optional[A](a)
+

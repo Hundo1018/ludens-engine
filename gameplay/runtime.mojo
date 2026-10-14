@@ -36,6 +36,7 @@ sync into ECS transforms (`_sync_transforms`, one `for_each2` pass: reads
 allocation, the same zero-allocation path every other ECS system in this
 engine uses)."""
 
+from std.time import perf_counter_ns
 from ecs.world import World
 from ecs.storage import StorageBackend
 from ecs.component import ComponentType
@@ -47,13 +48,15 @@ from physics.rigid6 import Body6, Pose6
 from physics.body_set import BodyId
 from physics.solver6 import ContactScene6, FORCE_MODE_FORCE
 from physics.solver_config import SolverConfig
+from physics.lod import SimBudget
 from scheduler.gameloop import FixedLoop
+from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
 from diag.counters import GAMELOOP_DEBT_DROPPED
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
-from .tiers import TierPolicy
+from .tiers import TierPolicy, Tier
 
 
 @fieldwise_init
@@ -277,6 +280,31 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
             steps += 1
         return self._finish_frame()
 
+    def advance_with[*Systems: DeclaredSystem](
+        mut self, frame_dt: Float64, mut sched: JobGraphScheduler[Self.B, *Systems]
+    ) raises -> Float64:
+        """`advance` plus user systems (ROADMAP 17.77): after each fixed
+        tick's physics step, event publishing and transform sync, `sched`
+        ticks the world once, so a system sees this tick's poses. The order
+        among the systems is `JobGraphScheduler`'s (derived from their
+        declared reads / writes; `sched.parallel` runs a level's systems on
+        workers, bit-identical to serial). Systems are stateless statics;
+        state that must persist between ticks lives in world resources
+        (`World.set_resource` / `resource`), declared in the masks by the
+        resource component's ID like any other component."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_with: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance_with: a begin_advance step is still in flight")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var steps = 0
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            self._tick()
+            sched.tick(self.world)
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
+        return self._finish_frame()
+
     def begin_advance(mut self, frame_dt: Float64) raises -> StepHandle:
         """First half of a non-blocking `advance` (ROADMAP 17.75, PhysX
         `simulate` / `fetchResults` shape): the accumulator work and the
@@ -326,6 +354,27 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.in_flight = False
         return self._finish_frame()
 
+    def advance_budgeted(mut self, frame_dt: Float64, mut budget: SimBudget) raises -> Float64:
+        """`advance` under a step-time budget (ROADMAP 17.79): before each
+        fixed tick `budget` sets `cfg.iters` / `cfg.substeps`, and the
+        tick's measured wall time is fed back (`SimBudget.update`: above
+        110 % of the target it drops an iteration, then a substep; below
+        70 % it restores them). The rest of the tick is `advance`'s."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_budgeted: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance_budgeted: a begin_advance step is still in flight")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var steps = 0
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            budget.apply(self.cfg)
+            var t0 = Int(perf_counter_ns())
+            self._tick()
+            budget.update(Int(perf_counter_ns()) - t0)
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
+        return self._finish_frame()
+
     def advance_tiered[P: TierPolicy](
         mut self, frame_dt: Float64, mut policy: P, observers: List[Vec3]
     ) raises -> Float64:
@@ -345,6 +394,23 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
             self.loop.accumulator -= self.loop.dt
             steps += 1
         return self._finish_frame()
+
+    def sync_tier_tags[NT: Int, BASE: Int](mut self):
+        """ROADMAP 17.85: tag every body entity with `Tier[t, BASE]` for its
+        scene tier t (`scene.tier_of`; tier 0 when no plan covers it) and
+        drop its other `Tier[k, BASE]` tags, k < NT. Call after
+        `advance_tiered`; the backend's pack must hold the NT tag types.
+        An entity whose tier did not change is not written."""
+        var es = self.world.query1[RigidBodyRef]()
+        for e in es:
+            var slot = self.world.get[RigidBodyRef](e).id.index()
+            var t = self.scene.tier_of[slot] if slot < len(self.scene.tier_of) else 0
+            comptime for k in range(NT):
+                if k == t:
+                    if not self.world.has[Tier[k, BASE]](e):
+                        self.world.set(e, Tier[k, BASE]())
+                elif self.world.has[Tier[k, BASE]](e):
+                    self.world.remove[Tier[k, BASE]](e)
 
     def _tick(mut self) raises:
         var fired = List[TimerFire]()

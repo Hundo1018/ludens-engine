@@ -32,6 +32,21 @@ from geometry.vec import Real, Vec3, dot
 from physics.rigid6 import Body6
 from physics.solver6 import ContactScene6
 from collision.broadphase import BroadPhase
+from ecs.component import ComponentType
+
+
+struct Tier[N: Int, BASE: Int](ComponentType):
+    """ECS tag for simulation tier N (ROADMAP 17.85): `Runtime.sync_tier_tags`
+    puts `Tier[t, BASE]` on each body entity in tier t and removes the
+    others, so a system that only wants the near set queries
+    `(Tier[0, BASE], ...)` -- archetype, sparse-set and reactive backends
+    then iterate the tagged set only. The component id is BASE + N, chosen
+    by the caller like any other id (duplicates are a compile error)."""
+
+    comptime ID: Int = Self.BASE + Self.N
+
+    def __init__(out self):
+        pass
 
 
 trait TierPolicy(Movable, Deinitable):

@@ -155,6 +155,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var contact_zeta: List[Real]
     var adhesion: List[Real]
     var cone: Int
+    var block: Bool  # ROADMAP 17.50: CONTACT_BLOCK normal solve
     var any_contact_model: Bool
     var free: List[Int]
 
@@ -196,6 +197,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.contact_zeta = List[Real]()
         self.adhesion = List[Real]()
         self.cone = 0
+        self.block = False
         self.any_contact_model = False
         self.free = List[Int]()
 

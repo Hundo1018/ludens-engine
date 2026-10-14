@@ -29,7 +29,7 @@ extern "C" {
 #endif
 
 #define LD_ABI_MAJOR 0
-#define LD_ABI_MINOR 2
+#define LD_ABI_MINOR 3
 
 #define LD_OK 0
 #define LD_ERR_HANDLE (-1)   /* null or destroyed world / navmesh handle */
@@ -109,6 +109,12 @@ int64_t ld_world_set_poses(ld_world* w, const ld_body* handles, const float* pos
 int64_t ld_counter_count(void);
 int64_t ld_counter_name(int32_t id, char* buf, int64_t cap);
 int64_t ld_world_get_counters(ld_world* w, int64_t* out, int64_t cap);
+
+/* ---- 0.3 (ROADMAP 17.80): physics capture (physics/capture.mojo file image) */
+int32_t ld_world_capture_begin(ld_world* w, int32_t key_every);
+int32_t ld_world_capture_end(ld_world* w);
+int64_t ld_world_capture_size(ld_world* w);
+int64_t ld_world_capture_read(ld_world* w, uint8_t* buf, int64_t cap);
 
 #ifdef __cplusplus
 }

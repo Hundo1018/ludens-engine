@@ -308,6 +308,15 @@ build: all packages precompiled into build/
   reverse motor sandwich: x = 2.6999998 dx/dt = 1.0
   8-param: worst |rev-batch| = 1.1086463928222656e-05 |rev-fd| = 0.00011146068572998047
 [PASS] diffsim - 20 / 20 checks
+--- tests/test_ecs_bytes.mojo ---
+  sparse-set: empty 0  1000 entities 80576 bytes ( 80 per entity )  2000: 161152  ratio 2.0
+  archetype: empty 8  1000 entities 92408 bytes ( 92 per entity )  2000: 184792  ratio 1.9998268398268397
+  bitset: empty 0  1000 entities 48384 bytes ( 48 per entity )  2000: 96768  ratio 2.0
+  reactive: empty 0  1000 entities 80576 bytes ( 80 per entity )  2000: 161152  ratio 2.0
+  naive: empty 0  1000 entities 49000 bytes ( 49 per entity )  2000: 98000  ratio 2.0
+  chunked: empty 0  1000 entities 49960 bytes ( 49 per entity )  2000: 99920  ratio 2.0
+  sparse-set, all 1000 despawned: 80576 -> 40576 bytes
+[PASS] ecs_bytes - 13 / 13 checks
 --- tests/test_ecs_pack_guard.mojo ---
 [PASS] ecs_pack_guard - 3 / 3 checks
 --- tests/test_epa.mojo ---
@@ -551,12 +560,14 @@ build: all packages precompiled into build/
   brain: halfway x 5.0  fov 0.75   end x 10.0
 [PASS] camera_seq - 14 / 14 checks
 --- tests/test_capi.mojo ---
-[PASS] capi - 54 / 54 checks
+[PASS] capi - 58 / 58 checks
 --- tests/test_capture.mojo ---
-  120 frames, 4 keyframes: 103784 bytes ( 856 per frame incl. keyframes )
+  120 frames, 4 keyframes: 61156 bytes ( 500 per frame incl. keyframes )
+  draw_frame(100): 18 commands = 5 body points + 13 contact arrows
   tampered frame 70: verify reports 70
-  region capture: bodies 3  contacts 3  frame bytes 600 vs 808
-[PASS] capture - 9 / 9 checks
+  240 frames: version 1 208816 bytes, version 2 (delta) 95388 ; frames 180-239 (stack asleep): 48480 vs 13096 bytes
+  region capture: bodies 3  contacts 3  frame bytes 48 vs 196
+[PASS] capture - 12 / 12 checks
 --- tests/test_ccd6.mojo ---
   bullet: max x = -0.06523498892784119 final x = -4.051424503326416 final vx = -4.261233
   rest height with speculative margin: 0.24971099197864532
@@ -630,7 +641,14 @@ build: all packages precompiled into build/
 --- tests/test_collide_par.mojo ---
   1024-box pile: contacts 1024
   heightfield scene: contacts 805
-[PASS] collide_par - 15 / 15 checks
+  200 bullets at 40 m/s onto a 2 cm plate: lowest body y 0.08880916 (plate top 0)
+  brute: 1500 boxes, candidate pairs serial 1889  parallel 1889
+  BVH: 1500 boxes, candidate pairs serial 1889  parallel 1889
+  DBVH: 1500 boxes, candidate pairs serial 1889  parallel 1889
+  SAP: 1500 boxes, candidate pairs serial 1889  parallel 1889
+  hash grid: 1500 boxes, candidate pairs serial 72826  parallel 72826
+  octree: 1500 boxes, candidate pairs serial 1889  parallel 1889
+[PASS] collide_par - 25 / 25 checks
 --- tests/test_colored.mojo ---
   colored vs serial GS worst position delta: 0.0006251335144042969
   pyramid top y: 2.746126174926758 expected settled: 2.75
@@ -653,6 +671,15 @@ build: all packages precompiled into build/
   1000-sphere compound after 1 s: y 0.4999899  speed 1.1128814e-06
   rolling at 3 m/s for 2 s on a 20 m floor: sphere body 3.0  two-sphere compound 2.9999974  capsule-child compound 2.9999936 m/s
 [PASS] compound - 19 / 19 checks
+--- tests/test_contact_block.mojo ---
+  sphere, 2 s: GS x 3.17142 y 0.4997246 ;  block x 3.17142 y 0.4997246
+  box at rest, 2 s: GS y 0.4997162 ;  block y 0.49972406
+  resting box, 1 iteration: largest / smallest point impulse GS 1.2910832 ;  block 1.0009478
+  10-box stack, iters 1 , 4 s: top drop GS 0.028374672 m, drift 0.0044818497 ;  block 0.027695656 m, drift 2.978475e-07
+  10-box stack, iters 2 , 4 s: top drop GS 0.028390884 m, drift 0.0016350836 ;  block 0.027659416 m, drift 9.5216444e-07
+  100 kg on 1 kg, iters 1 , 3 s: penetration GS 0.02867639 m;  block 0.027918816
+  100 kg on 1 kg, iters 4 , 3 s: penetration GS 0.028678417 m;  block 0.0279181
+[PASS] contact_block - 8 / 8 checks
 --- tests/test_contact_model.mojo ---
   30 deg slope, mu 0.3, 1 s: analytic 1.1769427  pyramid 45 deg analytic 0.6496251
     elliptic: along axis 1.1818461  diagonal 1.1983167    pyramid: along axis 1.1818477  diagonal 0.65232855
@@ -890,6 +917,10 @@ build: all packages precompiled into build/
   1:100 closed chain, loop-breaking twist: velocity residual PGS 20 0.00015205792  PGS 100 4.0514287e-06  direct 4.95287e-06  CG 1.4807274e-06
   1:100 closed chain under gravity, 1 s: max loop gap PGS(20) 0.00060931  direct 0.0005459994  CG 0.00054793217
 [PASS] loops - 6 / 6 checks
+--- tests/test_material_contact.mojo ---
+  slide from 3 m/s: material-0.05 mesh 9.177364 m, body-0.05 box floor 9.177145 m (v^2/2 mu g = 9.18);  with a 0.5 friction rule 0.91212577 m
+  drop on 3 Hz material triangles: deepest 0.027545959 m;  3 Hz on the mesh body 0.027545959 m;  default 0.00031003356 m
+[PASS] material_contact - 6 / 6 checks
 --- tests/test_materials.mojo ---
   slide distances -- multiply: 3.803211212158203  min: 3.753986358642578  average: 1.9125367403030396  max: 1.0121046304702759
 [PASS] materials - 15 / 15 checks
@@ -925,7 +956,7 @@ build: all packages precompiled into build/
 [PASS] nav_world - 6 / 6 checks
 --- tests/test_netcode.mojo ---
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
-  netcode: snapshot 5064 bytes full, 1352 bytes per frame to all clients (delta), frames 249
+  netcode: snapshot 5072 bytes full, 1355 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
 --- tests/test_np_reuse.mojo ---
   tiered stacks (200 boxes): candidates copied over 120 steps 16358
@@ -966,7 +997,7 @@ build: all packages precompiled into build/
 --- tests/test_ops.mojo ---
   sampling 1 in 4 over 10000 records: kept 2496
   telemetry on: records 12300   scene identical to telemetry off: True
-  black box: 19617 bytes (snapshot 19260 , inputs 50 )  replay to tick 150 identical: True
+  black box: 19625 bytes (snapshot 19268 , inputs 50 )  replay to tick 150 identical: True
 [PASS] ops - 11 / 11 checks
 --- tests/test_pcg.mojo ---
   Poisson-disk 100 x 100, r = 2: 1614 points, min distance 2.000021  other seed 1596 points
@@ -1065,7 +1096,7 @@ build: all packages precompiled into build/
   8 m/s sphere: lowest y 0.29972798  capsule lying: y 0.2998896
 [PASS] sdf_shape - 12 / 12 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20723
+  blob bytes: 20729
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.24998327  bp y 0.24998327
@@ -1096,6 +1127,10 @@ build: all packages precompiled into build/
 [PASS] sleep6 - 13 / 13 checks
 --- tests/test_sleep_api.mojo ---
 [PASS] sleep_api - 20 / 20 checks
+--- tests/test_soft_period.mojo ---
+  lattice on a box, 4 s: lowest particle  period 1 0.03333336  period 4 0.03333336
+  period 4 phase 1: the lattice moved on 15 of the first 60 steps (start y 1.0 )
+[PASS] soft_period - 5 / 5 checks
 --- tests/test_softbody.mojo ---
   drop: bottom 0.04999995231628418 top 0.6493484973907471 height 0.5993485450744629 speed 1.7952606867766008e-05
   stiffness: stiff height 0.5993485450744629 soft height 0.5771285891532898
@@ -1157,7 +1192,7 @@ build: all packages precompiled into build/
   heightfield: ray at cell (1, 1) -> triangle 6  material 8
   braking from 15 m/s: mesh asphalt 13.6419325 m (wheel material 0 ) vs box road mu 0.5 13.6419325 m
                        mesh ice     150.08862 m (wheel material 1 ) vs box road mu 0.05 150.08842 m
-  restored mid-run: mesh vertex 0 x -1.9209576  (uninterrupted -1.9209576 )  box y 1.5498797  same bits True
+  restored mid-run: mesh vertex 0 x -1.9209576  (uninterrupted -1.9209576 )  box y 1.5498761  same bits True
 [PASS] surface_material - 8 / 8 checks
 --- tests/test_system_tiers.mojo ---
   system_tiers: tier changes 3430 max dp 0.006805539 max dv 0.32666668 pen gap 0.0044184644 bodies solved per step full 1800 tiered 627
@@ -1229,15 +1264,28 @@ build: all packages precompiled into build/
 [PASS] world_query - 30 / 30 checks
 --- tests/test_async_step.mojo ---
 [PASS] async_step - 11 / 11 checks
+--- tests/test_runtime_budget.mojo ---
+[PASS] runtime_budget - 4 / 4 checks
 --- tests/test_runtime_params.mojo ---
   floater vy 0.0  pushed vx 1.0
   runtime channel: began impulse 4.163334
 [PASS] runtime_params - 5 / 5 checks
+--- tests/test_runtime_systems.mojo ---
+  levels: Track 0  Count 0  Lowest 1
+  30 frames of 0.2-3 ticks: fixed ticks run 31 (counted 31 )
+  lowest y seen 8.681425  semi-implicit Euler 8.681425
+[PASS] runtime_systems - 6 / 6 checks
 --- tests/test_system_determinism.mojo ---
 [PASS] system_determinism - 4 / 4 checks
 --- tests/test_system_render.mojo ---
 [PASS] system_render - 5 / 5 checks
 --- tests/test_system_stack.mojo ---
 [PASS] system_stack - 9 / 9 checks
+--- tests/test_tier_tags.mojo ---
+  sparse-set: observer at 0: tier-0 tags 4  scene tier-0 bodies 4  ball 0 tier 0 True  ball 29 tier 2 True
+  sparse-set: observer at 60: ball 0 tier 2 True  ball 29 tier 0 True  without Tier[0] 28 of 31
+  archetype: observer at 0: tier-0 tags 4  scene tier-0 bodies 4  ball 0 tier 0 True  ball 29 tier 2 True
+  archetype: observer at 60: ball 0 tier 2 True  ball 29 tier 0 True  without Tier[0] 28 of 31
+[PASS] tier_tags - 8 / 8 checks
 --- tests/test_tiers_parity.mojo ---
 [PASS] tiers_parity - 11 / 11 checks

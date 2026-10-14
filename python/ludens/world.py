@@ -333,6 +333,20 @@ class World:
 
     # -- save / restore
 
+    def capture_begin(self, key_every=60):
+        """Record every following tick into a physics capture (ABI 0.3)."""
+        self._check(C.lib.ld_world_capture_begin(self._h, int(key_every)))
+
+    def capture_end(self):
+        self._check(C.lib.ld_world_capture_end(self._h))
+
+    def capture_bytes(self):
+        """The capture's file image (`physics.capture` format)."""
+        n = self._check(C.lib.ld_world_capture_size(self._h))
+        buf = (c_uint8 * n)()
+        self._check(C.lib.ld_world_capture_read(self._h, buf, n))
+        return bytes(buf)
+
     def save(self):
         n = self._check(C.lib.ld_world_save_size(self._h))
         buf = (c_uint8 * n)()

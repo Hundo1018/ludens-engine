@@ -43,7 +43,7 @@ def raises(exc_type, fn):
 # ---------------------------------------------------------------- isolation
 check(not os.path.realpath(ludens.__file__).startswith(FORBIDDEN), "ludens imported from the venv, not the repo: " + ludens.__file__)
 check(os.path.dirname(ludens.library_path) == os.path.dirname(ludens.__file__), "libludens.so loaded from the installed package")
-check(ludens.abi_version() == (0, 2), "abi_version == (0, 2)")
+check(ludens.abi_version() == (0, 3), "abi_version == (0, 3)")
 
 
 # ------------------------------------------------- parity scenario (test_capi)
@@ -109,6 +109,18 @@ with ludens.World(1.0 / 60.0, (0, -9.8, 0)) as w:
     check(all(abs(back[i][0] - float(i)) < 1e-6 and abs(back[i][1] - 5.0) < 1e-6 for i in range(len(back))), "set_poses round-trips through get_bodies")
     cn = w.counters()
     check(isinstance(cn, dict) and "nan_quarantined" in cn and all(v >= 0 for v in cn.values()), "counters() names every counter")
+
+    # ABI 0.3: physics capture
+    w.capture_begin(30)
+    w.step_ticks(45)
+    w.capture_end()
+    cap = w.capture_bytes()
+    w.step_ticks(5)
+    import struct
+
+    magic, version, key_every, frames = struct.unpack("<4q", cap[:32])
+    check(magic == 0x5041434C and version == 2 and key_every == 30 and frames == 45, "capture_bytes: 45 frames recorded, recording stops at capture_end")
+    check(isinstance(raises(ludens.ArgumentError, lambda: w.capture_begin(0)), ludens.ArgumentError), "capture_begin(0) -> ArgumentError")
 
     # save / load replay
     blob = w.save()

@@ -19,10 +19,13 @@ fan-out costs more than it saves; `bench_collide_par` measures where).
 """
 
 from std.collections import Dict
+from std.os import abort
 from scheduler.dispatch import Dispatch, Task, dispatch_for
 from geometry.vec import Real, Vec3
 from collision.collider_set import ColliderSet, Pose3
 from collision.contact_gen import RawContact, try_pair
+from collision.broadphase import BroadPhase, BoxProxy, Pair
+from geometry.aabb import AABB
 from .rigid6 import Body6
 from .body_set import BodySet
 from .contact6 import ContactConstraint, make_contact, make_sensor_contact
@@ -31,6 +34,9 @@ comptime NARROW_PAR_MIN = 256
 """Fewest candidate pairs for which `_collect_pairs` fans out (64 box
 pairs cost 0.6 ms more with 4 workers than serially, `bench_collide_par`)."""
 comptime _CHUNK_MIN = 16
+comptime BP_PAR_MIN = 1024
+"""Fewest bodies for which `_collect_pairs` queries broadphase candidates in
+parallel (`bench_collide_par`)."""
 
 
 struct _NarrowTask(Task):
@@ -187,3 +193,83 @@ def prep_parallel[B: Body6](
     var task = _PrepTask[B](bset, colliders, cache, cidx, raws, out, warm, match_scale)
     dispatch_for(dispatch, task, len(raws), workers)
     return out^
+
+
+
+struct _BpTask[BP: BroadPhase](Task):
+    var bp: Pointer[Self.BP, MutUntrackedOrigin]
+    var boxes: Pointer[List[AABB[Self.BP.dim]], MutUntrackedOrigin]
+    var statics: Pointer[List[Bool], MutUntrackedOrigin]
+    var outs: Pointer[List[List[Pair]], MutUntrackedOrigin]
+    var chunk: Int
+
+    def __init__(
+        out self,
+        mut bp: Self.BP,
+        mut boxes: List[AABB[Self.BP.dim]],
+        mut statics: List[Bool],
+        mut outs: List[List[Pair]],
+        chunk: Int,
+    ):
+        self.bp = Pointer(to=bp).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.boxes = Pointer(to=boxes).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.statics = Pointer(to=statics).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.outs = Pointer(to=outs).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.chunk = chunk
+
+    def run(self, k: Int):
+        var lo = k * self.chunk
+        var hi = min(lo + self.chunk, len(self.boxes[]))
+        var o = List[Pair]()
+        var cands = List[Int]()
+        for i in range(lo, hi):
+            cands.clear()
+            try:
+                self.bp[].query_region(self.boxes[][i], cands)
+            except e:
+                abort("BroadPhase.query_region raised inside pairs_parallel: " + String(e))
+            sort(cands)
+            var last = -1
+            for c in cands:
+                if c <= i or c == last:
+                    continue
+                last = c
+                if self.statics[][i] and self.statics[][c]:
+                    continue
+                o.append(Pair(i, c))
+        self.outs[][k] = o^
+
+
+def pairs_parallel[BP: BroadPhase](
+    mut bp: BP,
+    mut boxes: List[AABB[BP.dim]],
+    mut statics: List[Bool],
+    mut out: List[Pair],
+    workers: Int,
+    dispatch: Dispatch,
+) raises:
+    """ROADMAP 17.54: `collect_bp_pairs` with the candidate query fanned out.
+    `bp` is rebuilt from `boxes` (proxy = index), then each item's box is
+    queried in chunks; item i keeps the others j > i (deduplicated, sorted),
+    static-static pairs dropped. Chunks hold ascending i, so concatenating
+    them in chunk order is already the canonical (a, b) ascending order --
+    the same list `collect_bp_pairs` builds, for every backend whose
+    `query_region` reports the same overlaps as its `pairs`
+    (`test_collide_par` checks all six)."""
+    var n = len(boxes)
+    var items = List[BoxProxy[BP.dim]](capacity=n)
+    for i in range(n):
+        items.append(BoxProxy[BP.dim](i, boxes[i]))
+    bp.rebuild(items)
+    if n == 0:
+        return
+    var chunk = max(_CHUNK_MIN, n // 256)
+    var nchunk = (n + chunk - 1) // chunk
+    var outs = List[List[Pair]](capacity=nchunk)
+    for _ in range(nchunk):
+        outs.append(List[Pair]())
+    var task = _BpTask[BP](bp, boxes, statics, outs, chunk)
+    dispatch_for(dispatch, task, nchunk, workers)
+    for k in range(nchunk):
+        for c in range(len(outs[k])):
+            out.append(outs[k][c])

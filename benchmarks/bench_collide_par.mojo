@@ -8,7 +8,10 @@ Columns: serial step time, then `parallel_collision` with `workers` 1, 2, 4
 (this container has 4 cores; the host's other work shares them). Every
 parallel run is bit-identical to the serial one (`test_collide_par`).
 Built with `-D LUDENS_TRACE`, it also prints the share of the step spent
-in each `collect_pairs` stage (serial run).
+in each `collect_pairs` stage (serial run). Second table: N = 1e5 box
+piles (4 timed steps; the candidate query runs in parallel above
+`BP_PAR_MIN` bodies) and N = 4096 terrain bodies all falling at 30 m/s with
+CCD on (the fast movers' clamp fractions in parallel).
 """
 
 from std.time import perf_counter_ns
@@ -72,26 +75,31 @@ def _build(mut sc: ContactScene6[QuatBody6], scene: Int, n: Int) raises:
             sc.set_can_sleep(sc.bset.id_of(i), False)
 
 
-def _time(scene: Int, n: Int, par: Bool, workers: Int, split: Bool) raises -> Tuple[Int, Int]:
+def _time(scene: Int, n: Int, par: Bool, workers: Int, split: Bool, steps: Int = 30, ccd: Bool = False) raises -> Tuple[Int, Int]:
     var sc = ContactScene6[QuatBody6]()
     _build(sc, scene, n)
     var cfg = SolverConfig()
     cfg.broadphase = True
     cfg.parallel_collision = par
     cfg.workers = workers
-    for _ in range(30):
+    cfg.ccd = ccd
+    for _ in range(steps):
         sc.step(DT, G, cfg)
+    if ccd:
+        for i in range(len(sc.bset.bodies)):
+            if sc.bset.is_dynamic(i):
+                sc.set_velocity(sc.bset.id_of(i), Vec3(0, -30, 0, 0), Vec3(0, 0, 0, 0))
     sc.trace.clear()
     var t0 = Int(perf_counter_ns())
-    for _ in range(30):
+    for _ in range(steps):
         sc.step(DT, G, cfg)
-    var us = (Int(perf_counter_ns()) - t0) // 30000
+    var us = (Int(perf_counter_ns()) - t0) // (steps * 1000)
     comptime if TRACE_ON:
         if split:
             var st = sc.trace.stats()
             var line = String("    split (us/step):")
             for k in range(len(st)):
-                line += " " + st[k].name + " " + String(st[k].total_ns // 30000)
+                line += " " + st[k].name + " " + String(st[k].total_ns // (steps * 1000))
             print(line)
     return (us, len(sc.cache))
 
@@ -108,4 +116,14 @@ def main() raises:
             var p2 = _time(scene, n, True, 2, False)
             var p4 = _time(scene, n, True, 4, False)
             print("|", names[scene], "|", n, "|", s0[1], "|", s0[0], "|", p1[0], "|", p2[0], "|", p4[0], "|")
+    print("")
+    print("#### Large N and CCD (us per step)\n")
+    print("| case | N | contacts | serial us | par w4 |")
+    print("|---|---:|---:|---:|---:|")
+    var big = _time(0, 100000, False, 0, True, 4)
+    var bigp = _time(0, 100000, True, 4, False, 4)
+    print("| box piles (broadphase query in parallel above 1024 bodies) | 100000 |", big[1], "|", big[0], "|", bigp[0], "|")
+    var cs = _time(1, 4096, False, 0, True, 10, True)
+    var cp = _time(1, 4096, True, 4, False, 10, True)
+    print("| heightfield, every body falling at 30 m/s, CCD on (clamp fractions in parallel) | 4096 |", cs[1], "|", cs[0], "|", cp[0], "|")
     print("")

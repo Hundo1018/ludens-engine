@@ -34,6 +34,7 @@ from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend, Filter, resolve_filter, check_pack
+from std.sys import size_of
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -304,6 +305,17 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
                 out.append(Entity(id, self._gen_of(id)))
         return out^
 
+    def storage_bytes(self) -> Int:
+        """ROADMAP 17.79: bytes this backend holds in use (lengths x element
+        sizes; list capacity slack and allocator overhead not counted, so a
+        lower bound)."""
+        var t = len(self.live) * size_of[Bool]()
+        t += len(self.free_ids) * size_of[Int]() + len(self.gens) * size_of[Int]()
+        comptime for i in range(Self.N):
+            for ref pg in self._col[Self.CTs[i]]()[].pages:
+                t += len(pg) * size_of[Optional[Self.CTs[i]]]()
+        return t
+
     def for_each2[
         A: ComponentType,
         B: ComponentType,
@@ -338,3 +350,40 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
                 var a = oa.value()
                 func(a, ob.value())
                 ca[].pages[pi][off] = Optional[A](a)
+
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        var ca = self._col[A]()
+        var cb = self._col[B]()
+        var cc = self._col[C]()
+        var rows = ca[].rows
+        var n = len(self.live)
+        var npages = len(ca[].pages)
+        for pi in range(npages):
+            var base = pi * rows
+            var hi = rows
+            if base + hi > n:
+                hi = n - base
+            if hi <= 0:
+                break
+            for off in range(hi):
+                var id = base + off
+                if not self.live[id]:
+                    continue
+                var oa = ca[].pages[pi][off]
+                if not oa:
+                    continue
+                var ob = cb[].get(id)
+                if not ob:
+                    continue
+                var oc = cc[].get(id)
+                if not oc:
+                    continue
+                var a = oa.value()
+                func(a, ob.value(), oc.value())
+                ca[].pages[pi][off] = Optional[A](a)
+
