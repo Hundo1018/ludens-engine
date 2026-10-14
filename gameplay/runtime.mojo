@@ -54,7 +54,7 @@ from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
 from diag.counters import GAMELOOP_DEBT_DROPPED
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
-from .tiers import TierPolicy
+from .tiers import TierPolicy, Tier
 
 
 @fieldwise_init
@@ -371,6 +371,23 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
             self.loop.accumulator -= self.loop.dt
             steps += 1
         return self._finish_frame()
+
+    def sync_tier_tags[NT: Int, BASE: Int](mut self):
+        """ROADMAP 17.85: tag every body entity with `Tier[t, BASE]` for its
+        scene tier t (`scene.tier_of`; tier 0 when no plan covers it) and
+        drop its other `Tier[k, BASE]` tags, k < NT. Call after
+        `advance_tiered`; the backend's pack must hold the NT tag types.
+        An entity whose tier did not change is not written."""
+        var es = self.world.query1[RigidBodyRef]()
+        for e in es:
+            var slot = self.world.get[RigidBodyRef](e).id.index()
+            var t = self.scene.tier_of[slot] if slot < len(self.scene.tier_of) else 0
+            comptime for k in range(NT):
+                if k == t:
+                    if not self.world.has[Tier[k, BASE]](e):
+                        self.world.set(e, Tier[k, BASE]())
+                elif self.world.has[Tier[k, BASE]](e):
+                    self.world.remove[Tier[k, BASE]](e)
 
     def _tick(mut self) raises:
         var fired = List[TimerFire]()
