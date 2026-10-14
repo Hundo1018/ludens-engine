@@ -40,8 +40,8 @@ Its edges are rounded by r so an overlap up to r deep has a push-out
 direction; the default -1 keeps the capsule.
 """
 
-from std.math import sqrt, cos
-from geometry.vec import Real, Vec3, dot, length
+from std.math import sqrt, cos, acos
+from geometry.vec import Real, Vec3, dot, length, cross
 from geometry.quat import Quat
 from collision.world_query import QueryFilter, Hit, QueryShape, Penetration, pose3_of
 from physics.rigid6 import Body6
@@ -78,6 +78,8 @@ struct CharacterController(Copyable, Movable):
     var hit_ceiling: Bool
     var pushed: Int  # dynamic bodies pushed during the last update
     var box_rounding: Real  # < 0: capsule; >= 0: rounded box (17.53)
+    var up: Vec3  # unit up axis (17.67); gravity need not point along -y
+    var _orient: Quat  # rotation taking +y to `up` (identity for +y)
 
     def __init__(out self, position: Vec3, cfg: CharacterConfig = CharacterConfig.default(), box_rounding: Real = -1):
         self.cfg = cfg
@@ -89,21 +91,51 @@ struct CharacterController(Copyable, Movable):
         self.ground_body = -1
         self.hit_ceiling = False
         self.pushed = 0
+        self.up = _UP
+        self._orient = Quat.identity()
+
+    def set_up(mut self, up: Vec3) raises:
+        """Use `up` (normalised) as the character's vertical: the capsule or
+        box stands along it, steps, slopes, snapping, jumps and gravity are
+        measured along it (ROADMAP 17.67; planets, wall-walking). +y keeps
+        the results bit for bit."""
+        var l = length(up)
+        if not (l > 0):
+            raise Error("CharacterController.set_up: up must be non-zero")
+        var u = up / l
+        self.up = u
+        var c = u[1]
+        if c > 1 - 1e-7:
+            self._orient = Quat.identity()
+        elif c < -1 + 1e-7:
+            self._orient = Quat.from_axis_angle(Vec3(1, 0, 0, 0), Real(3.141592653589793))
+        else:
+            var ax = cross(_UP, u)
+            self._orient = Quat.from_axis_angle(ax / length(ax), acos(c))
+        self.ground_normal = u
+
+    def _h(self, v: Vec3) -> Vec3:
+        """`v` without its component along `up`."""
+        return v - self.up * dot(v, self.up)
+
+    def _v(self, v: Vec3) -> Real:
+        """Component of `v` along `up`."""
+        return dot(v, self.up)
 
     # ---------------------------------------------------------------- shape
 
     def _seg(self, at: Vec3) -> Tuple[Vec3, Vec3]:
-        var h = Vec3(0, self.cfg.half_height, 0, 0)
+        var h = self.up * self.cfg.half_height
         return (at - h, at + h)
 
     def _filter(self) -> QueryFilter:
         return QueryFilter(self.cfg.mask, -1, False)
 
     def foot(self) -> Vec3:
-        return self.position - Vec3(0, self.cfg.half_height + self.cfg.radius, 0, 0)
+        return self.position - self.up * (self.cfg.half_height + self.cfg.radius)
 
     def _walkable(self, n: Vec3) -> Bool:
-        return n[1] >= self.cfg.max_slope_cos
+        return self._v(n) >= self.cfg.max_slope_cos
 
     def is_box(self) -> Bool:
         return self.box_rounding >= 0
@@ -114,13 +146,13 @@ struct CharacterController(Copyable, Movable):
 
     def _penetrations[B: Body6](self, sc: ContactScene6[B], at: Vec3, half_height: Real, shrink: Real) -> List[Penetration]:
         if self.is_box():
-            return sc.shape_penetrations(self._box(half_height, shrink), pose3_of(at, Quat.identity()), self._filter())
-        var s = Vec3(0, half_height, 0, 0)
+            return sc.shape_penetrations(self._box(half_height, shrink), pose3_of(at, self._orient), self._filter())
+        var s = self.up * half_height
         return sc.capsule_penetrations(at - s, at + s, self.cfg.radius - shrink, self._filter())
 
     def _cast[B: Body6](self, sc: ContactScene6[B], at: Vec3, d: Vec3, dist: Real) -> Hit:
         if self.is_box():
-            return sc.shape_cast(self._box(self.cfg.half_height, 0), pose3_of(at, Quat.identity()), d, dist, self._filter())
+            return sc.shape_cast(self._box(self.cfg.half_height, 0), pose3_of(at, self._orient), d, dist, self._filter())
         var s = self._seg(at)
         return sc.capsule_cast(s[0], s[1], self.cfg.radius, d, dist, self._filter())
 
@@ -128,8 +160,8 @@ struct CharacterController(Copyable, Movable):
         """Crouch / stand: change the capsule height keeping the foot fixed.
         Growing is refused (returns False) when the taller capsule would
         overlap something -- standing up under a low ceiling."""
-        var foot_y = self.position[1] - self.cfg.half_height - self.cfg.radius
-        var c = Vec3(self.position[0], foot_y + h + self.cfg.radius, self.position[2], 0)
+        var foot = self.position - self.up * self.cfg.half_height - self.up * self.cfg.radius
+        var c = foot + self.up * h + self.up * self.cfg.radius
         if h > self.cfg.half_height:
             if len(self._penetrations(sc, c, h, self.cfg.skin)) > 0:
                 return False
@@ -149,7 +181,7 @@ struct CharacterController(Copyable, Movable):
         # direction up to the character's (times push_strength); an impulse
         # proportional to the blocked displacement is too small to beat
         # friction and the box never moves.
-        var d = Vec3(-h.normal[0], 0, -h.normal[2], 0)
+        var d = self._h(-h.normal)
         var dl = length(d)
         if dl < _EPS:
             return
@@ -178,15 +210,15 @@ struct CharacterController(Copyable, Movable):
             self.position += d * travel
             remaining -= d * travel
             var n = h.normal
-            if n[1] < -0.5 and remaining[1] > 0:
+            if self._v(n) < -0.5 and self._v(remaining) > 0:
                 self.hit_ceiling = True
             # a steep wall while grounded and walking: try a step first
             if (
                 allow_step
                 and self.on_ground
                 and not self._walkable(n)
-                and n[1] > -0.5
-                and (remaining[0] * remaining[0] + remaining[2] * remaining[2]) > _EPS
+                and self._v(n) > -0.5
+                and dot(self._h(remaining), self._h(remaining)) > _EPS
             ):
                 if self._try_step(sc, remaining):
                     return
@@ -196,31 +228,31 @@ struct CharacterController(Copyable, Movable):
                 remaining -= n * into
             # never let a steep slope lift the character: it slides, it does
             # not climb (walkable slopes keep their vertical component)
-            if not self._walkable(n) and remaining[1] > 0 and n[1] > 0:
-                remaining[1] = 0
+            if not self._walkable(n) and self._v(remaining) > 0 and self._v(n) > 0:
+                remaining = self._h(remaining)
 
     def _try_step[B: Body6](mut self, sc: ContactScene6[B], remaining: Vec3) -> Bool:
-        var up = self._cast(sc, self.position, _UP, self.cfg.step_height)
+        var up = self._cast(sc, self.position, self.up, self.cfg.step_height)
         var rise = self.cfg.step_height if not up.hit else max(Real(0), up.t - self.cfg.skin)
         if rise < self.cfg.skin:
             return False
-        var raised = self.position + _UP * rise
-        var horiz = Vec3(remaining[0], 0, remaining[2], 0)
+        var raised = self.position + self.up * rise
+        var horiz = self._h(remaining)
         var hl = length(horiz)
         var hd = horiz / hl
         var across = self._cast(sc, raised, hd, hl + self.cfg.skin)
         var moved = raised + hd * (hl if not across.hit else max(Real(0), across.t - self.cfg.skin))
         if across.hit and length(moved - raised) < _EPS:
             return False
-        var down = self._cast(sc, moved, -_UP, rise + self.cfg.snap_distance)
+        var down = self._cast(sc, moved, -self.up, rise + self.cfg.snap_distance)
         if not down.hit:
             return False
-        var landed = moved - _UP * max(Real(0), down.t - self.cfg.skin)
+        var landed = moved - self.up * max(Real(0), down.t - self.cfg.skin)
         # Judge the step by the SUPPORTING SURFACE's height above the current
         # foot, not by how far the capsule rose: a rounded bottom resting on a
         # 0.5 m box's edge has risen less than 0.3 m, but the box is 0.5 m.
         var surf = self._surface(sc, down)
-        var rise_to = surf[1] - self.foot()[1]
+        var rise_to = surf[1] - self._v(self.foot())
         if not self._walkable(surf[0]) or rise_to < self.cfg.skin:
             return False
         if rise_to > self.cfg.step_height + self.cfg.skin:
@@ -245,35 +277,35 @@ struct CharacterController(Copyable, Movable):
         past the edge, AWAY from the capsule axis (where the supporting
         surface continues), finds the top face and its height."""
         if self._walkable(h.normal):
-            return (h.normal, h.point[1])
-        var toward = Vec3(self.position[0] - h.point[0], 0, self.position[2] - h.point[2], 0)
+            return (h.normal, self._v(h.point))
+        var toward = self._h(self.position - h.point)
         var tl = length(toward)
         if tl < _EPS:
-            return (h.normal, h.point[1])
-        var o = h.point - toward * (0.02 / tl) + _UP * 0.05
-        var r = sc.ray_cast(o, -_UP, 0.1, self._filter())
+            return (h.normal, self._v(h.point))
+        var o = h.point - toward * (0.02 / tl) + self.up * 0.05
+        var r = sc.ray_cast(o, -self.up, 0.1, self._filter())
         if r.hit and self._walkable(r.normal):
-            return (r.normal, r.point[1])
-        return (h.normal, h.point[1])
+            return (r.normal, self._v(r.point))
+        return (h.normal, self._v(h.point))
 
     def _probe_ground[B: Body6](mut self, sc: ContactScene6[B], snap: Bool):
-        if self.velocity[1] > _EPS:
+        if self._v(self.velocity) > _EPS:
             # moving up (a jump): never grounded, or the jump is undone
             self.on_ground = False
-            self.ground_normal = _UP
+            self.ground_normal = self.up
             self.ground_body = -1
             return
-        var h = self._cast(sc, self.position, -_UP, self.cfg.snap_distance + self.cfg.skin * 2)
-        var n = self._surface(sc, h)[0] if h.hit else _UP
+        var h = self._cast(sc, self.position, -self.up, self.cfg.snap_distance + self.cfg.skin * 2)
+        var n = self._surface(sc, h)[0] if h.hit else self.up
         if h.hit and self._walkable(n):
             self.on_ground = True
             self.ground_normal = n
             self.ground_body = h.body
             if snap and h.t > self.cfg.skin:
-                self.position -= _UP * (h.t - self.cfg.skin)
+                self.position -= self.up * (h.t - self.cfg.skin)
         else:
             self.on_ground = False
-            self.ground_normal = _UP
+            self.ground_normal = self.up
             self.ground_body = -1
 
     # ---------------------------------------------------------------- update
@@ -291,7 +323,7 @@ struct CharacterController(Copyable, Movable):
         self.hit_ceiling = False
         self.pushed = 0
         var was_grounded = self.on_ground
-        var vy = self.velocity[1]
+        var vy = self._v(self.velocity)
         var jumped = False
         if was_grounded:
             vy = 0
@@ -299,8 +331,8 @@ struct CharacterController(Copyable, Movable):
                 vy = jump_speed
                 jumped = True
         else:
-            vy += gravity[1] * dt
-        self.velocity = Vec3(walk[0], vy, walk[2], 0)
+            vy += self._v(gravity) * dt
+        self.velocity = self._h(walk) + self.up * vy
         var disp = self.velocity * dt
         # ride what we stand on
         if was_grounded and self.ground_body >= 0 and self.ground_body < len(sc.bset.bodies):
@@ -314,10 +346,10 @@ struct CharacterController(Copyable, Movable):
         self._slide(sc, disp, dt, was_grounded)
         self._depenetrate(sc)
         self._probe_ground(sc, was_grounded and not jumped)
-        if self.hit_ceiling and self.velocity[1] > 0:
-            self.velocity[1] = 0
-        if self.on_ground and self.velocity[1] < 0:
-            self.velocity[1] = 0
+        if self.hit_ceiling and self._v(self.velocity) > 0:
+            self.velocity = self._h(self.velocity)
+        if self.on_ground and self._v(self.velocity) < 0:
+            self.velocity = self._h(self.velocity)
 
     def teleport(mut self, p: Vec3):
         self.position = p
