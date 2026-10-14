@@ -31,6 +31,11 @@ comptime _CA_TOL: Real = 0.005  # stop conservative advancement this far from co
 comptime _CA_ITERS = 32
 
 
+comptime CCD_AUTO = 0  # swept when the step's cfg.ccd is on (the default)
+comptime CCD_OFF = 1  # never clamped (still an obstacle for others)
+comptime CCD_BULLET = 2  # always swept, even with cfg.ccd off, every candidate
+
+
 def _is_box_like(k: Int) -> Bool:
     """Kinds the closed-form swept box TOI handles (sphere / capsule by
     their conservative box, as before 17.46)."""
@@ -146,7 +151,7 @@ def ca_fraction[B: Body6](bset: BodySet[B], cs: ColliderSet, i: Int, j: Int, h: 
 
 
 def ccd_advance[B: Body6](
-    mut bset: BodySet[B], colliders: ColliderSet, h: Real
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool = True
 ):
     """Swept/TOI pose advance (second-stage CCD, Jolt LinearCast
     direction): a body whose relative travel this substep could jump the
@@ -168,7 +173,12 @@ def ccd_advance[B: Body6](
     body's swept box (its box at the start and at the end of the substep,
     grown by its rotation radius) instead of the all-pairs loop.
     `should_collide` / sensors are consulted, so a filtered or sensor pair
-    is never clamped (17.0f / F4c)."""
+    is never clamped (17.0f / F4c).
+
+    Per-body modes (17.46, `BodySet.ccd_mode`): CCD_OFF bodies are never
+    clamped; CCD_BULLET bodies are swept even when `all_bodies` is False
+    (the step's cfg.ccd off) and against every candidate, without the
+    "cannot jump the thinnest feature" shortcut."""
     var n = len(bset.bodies)
     var frac = List[Real]()
     var fast = List[Bool]()
@@ -176,7 +186,9 @@ def ccd_advance[B: Body6](
     for i in range(n):
         frac.append(1)
         var f = False
-        if not bset.inactive(i) and colliders.shape[i] != SHAPE_SDF and not _is_static_mesh(colliders.shape[i]):
+        var mode = Int(bset.ccd_mode[i])
+        var wanted = mode == CCD_BULLET or (all_bodies and mode != CCD_OFF)
+        if wanted and not bset.inactive(i) and colliders.shape[i] != SHAPE_SDF and not _is_static_mesh(colliders.shape[i]):
             var vi = bset.bodies[i].linear_velocity()
             var spin = length(bset.bodies[i].omega_world()) * length(colliders.half[i]) * h
             f = dot(vi, vi) * h * h >= 1e-12 or spin * spin >= 1e-12
@@ -203,6 +215,7 @@ def ccd_advance[B: Body6](
             if not fast[i]:
                 continue
             var ki = colliders.shape[i]
+            var bullet = bset.ccd_mode[i] == CCD_BULLET
             var vi = bset.bodies[i].linear_velocity()
             var cand = List[Int]()
             bvh.query_region(boxes[i], cand)
@@ -232,7 +245,7 @@ def ccd_advance[B: Body6](
                 if not _is_static_mesh(kj):
                     thin = min(thin, min(hb[0], min(hb[1], hb[2])))
                 if _is_box_like(ki) and _is_box_like(kj):
-                    if dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
+                    if not bullet and dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
                         continue  # cannot jump the pair's thinnest feature
                     var r = swept_box_toi(
                         bset.bodies[j].position(),
@@ -248,7 +261,7 @@ def ccd_advance[B: Body6](
                 else:
                     # linear travel or the tip's turn this substep
                     var spin = length(bset.bodies[i].omega_world()) * length(ha) * h
-                    if dot(rel, rel) + spin * spin <= (thin * 0.5) * (thin * 0.5):
+                    if not bullet and dot(rel, rel) + spin * spin <= (thin * 0.5) * (thin * 0.5):
                         continue
                     var f = ca_fraction(bset, colliders, i, j, h)
                     if f < frac[i]:

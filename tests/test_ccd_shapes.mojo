@@ -15,6 +15,9 @@ toward it (60 m/s, 20x the wall's thickness) from x = -2.5.
      clamped); a slow scene is bit-identical with CCD on and off.
   3. Extreme: a bullet starting in contact; 1e4 m/s; two bullets meeting
      head-on stop short of each other.
+  4. Per-body modes: a CCD_BULLET hull stops at the wall with the scene's
+     CCD off; a CCD_OFF hull tunnels with it on; the mode is in the
+     snapshot.
 """
 
 from std.math import sqrt
@@ -24,6 +27,8 @@ from geometry.quat import Quat
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from collision.collider_set import CompoundSpec
+from physics.ccd6 import CCD_AUTO, CCD_OFF, CCD_BULLET
+from physics.serialize import scene_to_bytes, scene_from_bytes
 
 comptime DT: Real = 1.0 / 60.0
 comptime ZERO = Vec3(0, 0, 0, 0)
@@ -42,8 +47,9 @@ def _wall(mut sc: ContactScene6[QuatBody6]):
     _ = sc.add(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.025, 2, 2)), Vec3(0.025, 2, 2, 0), True)
 
 
-def _shoot(kind: Int, ccd: Bool, speed: Real = 60) raises -> Real:
-    """Largest x the bullet's centre reaches in 60 steps."""
+def _shoot(kind: Int, ccd: Bool, speed: Real = 60, mode: Int = -1) raises -> Real:
+    """Largest x the bullet's centre reaches in 60 steps (`mode` >= 0: the
+    bullet's per-body CCD mode, 17.46)."""
     var sc = ContactScene6[QuatBody6]()
     _wall(sc)
     var b = QuatBody6.at_rest(Vec3(-2.5, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
@@ -58,6 +64,8 @@ def _shoot(kind: Int, ccd: Bool, speed: Real = 60) raises -> Real:
         sp.sphere(0.08, Vec3(0, 0.15, 0, 0))
         _ = sc.add_compound(b^, sp, 100, False)
         sc.bset.bodies[1].vel = Vec3(speed, 0, 0, 0)
+    if mode >= 0:
+        sc.set_ccd_mode(sc.bset.id_of(1), mode)
     var mx = Real(-1e9)
     for _ in range(60):
         sc.step_soft(DT, ZERO, ccd=ccd)
@@ -161,4 +169,21 @@ def main() raises:
             crossed2 = True
     print("  two hull bullets head-on: final x", hh.pose(li).pos[0], hh.pose(ri).pos[0])
     s.check(not crossed2, "two bullets meeting head-on never pass through each other")
+    # ---- per-body modes (17.46) ----
+    var bullet_only = _shoot(0, False, 60, CCD_BULLET)
+    var off_in_on = _shoot(0, True, 60, CCD_OFF)
+    print("  per-body CCD: BULLET with cfg.ccd off -> max x", bullet_only, "; OFF with cfg.ccd on ->", off_in_on)
+    s.check(bullet_only < 0, "a CCD_BULLET hull stops at the wall with the scene's CCD off")
+    s.check(off_in_on > 0.5, "a CCD_OFF hull tunnels with the scene's CCD on")
+    var ms = ContactScene6[QuatBody6]()
+    _wall(ms)
+    var mb = ms.add_hull(QuatBody6.at_rest(Vec3(-2.5, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1)), _cube_verts(0.1), False)
+    ms.set_ccd_mode(mb, CCD_BULLET)
+    var back = scene_from_bytes(scene_to_bytes(ms))
+    var raised = False
+    try:
+        ms.set_ccd_mode(mb, 7)
+    except:
+        raised = True
+    s.check(back.bset.ccd_mode[1] == CCD_BULLET and back.bset.any_bullet and raised, "the mode survives a snapshot; an unknown mode raises")
     s.finish()

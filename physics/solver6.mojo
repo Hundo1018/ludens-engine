@@ -162,7 +162,7 @@ from .islands import (
     update_sleep,
     wake_island,
 )
-from .ccd6 import ccd_advance
+from .ccd6 import ccd_advance, CCD_AUTO, CCD_OFF, CCD_BULLET
 from .collide_par import narrow_parallel, prep_parallel, NARROW_PAR_MIN
 from .soft_couple import softbody_pass
 
@@ -1192,6 +1192,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         return joint_coordinate(self.bset, self.joints[c], self.jext[c])
 
     # ------------------------------------------------ force reporting (17.49)
+
+    def set_ccd_mode(mut self, id: BodyId, mode: Int) raises:
+        """ROADMAP 17.46: body `id`'s CCD mode -- CCD_AUTO (default: swept
+        when cfg.ccd is on), CCD_OFF (never swept), CCD_BULLET (always swept,
+        even with cfg.ccd off, so a scene can pay for CCD on its
+        projectiles only)."""
+        var i = self._check_id(id, "set_ccd_mode")
+        if mode != CCD_AUTO and mode != CCD_OFF and mode != CCD_BULLET:
+            raise Error("ContactScene6.set_ccd_mode: unknown mode")
+        self.bset.ccd_mode[i] = UInt8(mode)
+        var any = False
+        for k in range(len(self.bset.ccd_mode)):
+            if self.bset.ccd_mode[k] == CCD_BULLET and not self.bset.is_removed(k):
+                any = True
+        self.bset.any_bullet = any
 
     def set_contact_reporting(mut self, id: BodyId, on: Bool) raises:
         """Report contact events only for flagged bodies' pairs once any body
@@ -2519,7 +2534,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var hertz = cfg.hertz
         var zeta = cfg.zeta
         var mu = cfg.default_friction
-        var ccd = cfg.ccd
+        var ccd = cfg.ccd or self.bset.any_bullet
         var parallel = cfg.parallel
         var colored = cfg.colored
         var broadphase = cfg.broadphase
@@ -2673,7 +2688,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     impulse_scale, True, iters, mu, cfg.max_push_speed,
                 )
             if ccd:
-                ccd_advance(self.bset, self.colliders, h)
+                ccd_advance(self.bset, self.colliders, h, cfg.ccd)
             else:
                 for i in range(len(self.bset.bodies)):
                     if not self.bset.inactive(i):
@@ -3317,6 +3332,16 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
     out.wi(len(sc.material_mu))
     for m in range(len(sc.material_mu)):
         out.wf(sc.material_mu[m])
+    # 17.46 per-body CCD modes (non-default only)
+    var nccd = 0
+    for i in range(len(sc.bset.bodies)):
+        if sc.bset.ccd_mode[i] != 0:
+            nccd += 1
+    out.wi(nccd)
+    for i in range(len(sc.bset.bodies)):
+        if sc.bset.ccd_mode[i] != 0:
+            out.wi(i)
+            out.wi(Int(sc.bset.ccd_mode[i]))
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -3781,3 +3806,14 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
     sc.material_mu = List[Real](capacity=nmu)
     for _ in range(nmu):
         sc.material_mu.append(r.rf())
+    var nccd = r.ri()
+    if nccd < 0 or nccd > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (ccd mode count)")
+    for _ in range(nccd):
+        var bi = r.ri()
+        var md = r.ri()
+        if bi < 0 or bi >= len(sc.bset.bodies) or md < 0 or md > 2:
+            raise Error("physics.serialize: corrupt snapshot (ccd mode)")
+        sc.bset.ccd_mode[bi] = UInt8(md)
+        if md == CCD_BULLET:
+            sc.bset.any_bullet = True
