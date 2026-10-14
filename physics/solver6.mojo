@@ -1424,10 +1424,24 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.bodies[i].set_velocity(v, w)
 
     def _props_pre(mut self, dt: Real):
-        """Accumulated forces become this step's impulses; damping."""
+        """Damping, then accumulated forces become this step's impulses.
+
+        Damping first: the force impulse then reaches the solver whole, like
+        gravity (added later, never damped), so a damped body held by a
+        constraint settles where the loads balance. Damping after the force
+        scaled only the force by 1 / (1 + c dt): a 1 m bar on a hinge under
+        2 N m with angular damping 2 settled at 0.4091 rad instead of
+        asin(2 / (m g d)) = 0.4204 (`test_joint_parity`)."""
         for i in range(len(self.bset.bodies)):
             if not self.bset.is_dynamic(i) or self.bset.sleeping[i]:
                 continue
+            var cl = self.bset.lin_damping[i]
+            var ca = self.bset.ang_damping[i]
+            if cl > 0 or ca > 0:
+                self.bset.bodies[i].set_velocity(
+                    self.bset.bodies[i].linear_velocity() / (1 + cl * dt),
+                    self.bset.bodies[i].omega_world() / (1 + ca * dt),
+                )
             var f = self.bset.force[i]
             var t = self.bset.torque[i]
             if f[0] != 0 or f[1] != 0 or f[2] != 0:
@@ -1436,13 +1450,6 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if t[0] != 0 or t[1] != 0 or t[2] != 0:
                 self.bset.bodies[i].apply_angular_impulse(t * dt)
                 self.bset.torque[i] = Vec3(0, 0, 0, 0)
-            var cl = self.bset.lin_damping[i]
-            var ca = self.bset.ang_damping[i]
-            if cl > 0 or ca > 0:
-                self.bset.bodies[i].set_velocity(
-                    self.bset.bodies[i].linear_velocity() / (1 + cl * dt),
-                    self.bset.bodies[i].omega_world() / (1 + ca * dt),
-                )
 
     def _props_post(mut self):
         """Speed caps (counted) and a final lock projection."""
