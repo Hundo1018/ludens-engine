@@ -20,8 +20,8 @@ joint i rotates about `axis` (unit, link frame); the link frame origin sits ON
 the joint; the child pivot is at `pivot` in this link's frame.
 """
 
-from std.math import sqrt, cos, sin
-from geometry.vec import Real, Vec3, dot, cross, tangent_basis
+from std.math import sqrt, cos, sin, atan2
+from geometry.vec import Real, Vec3, dot, cross, tangent_basis, length
 from geometry.quat import Quat
 from geometry.motor import Motor3
 from numerics.dense import solve_dense, cholesky, cholesky_solve
@@ -96,6 +96,22 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
 
 comptime JOINT_REVOLUTE = 0
 comptime JOINT_PRISMATIC = 1
+
+
+@fieldwise_init
+struct BallLimit(Copyable, ImplicitlyCopyable, Movable):
+    """Swing-twist limit of one ball joint (17.51): the body axis `axis`
+    stays within `swing` (rad) of `ref_dir` (a parent-frame direction, the
+    axis where the limit was set; swing < 0 = no cone), and the twist about
+    it relative to `ref_rot` stays in [twist_lo, twist_hi] (lo > hi = no
+    twist limit)."""
+
+    var axis: Vec3
+    var ref_dir: Vec3
+    var ref_rot: Quat
+    var swing: Real
+    var twist_lo: Real
+    var twist_hi: Real
 
 
 @fieldwise_init
@@ -209,6 +225,7 @@ struct Chain(Movable, Deinitable):
     var ball_head: List[Bool]
     var ball_rot: List[Quat]
     var balls: List[Int]
+    var ball_lim: List[BallLimit]  # parallel to `balls`
 
     def __init__(out self):
         self.links = List[ChainLink]()
@@ -227,6 +244,7 @@ struct Chain(Movable, Deinitable):
         self.ball_head = List[Bool]()
         self.ball_rot = List[Quat]()
         self.balls = List[Int]()
+        self.ball_lim = List[BallLimit]()
 
     def _push_props(mut self):
         self.damping.append(0)
@@ -254,7 +272,125 @@ struct Chain(Movable, Deinitable):
         var hz = self.add_link_to(hy, ChainLink.revolute(Vec3(0, 0, 1, 0), z0, com, mass, i_diag))
         self.ball_head[hx] = True
         self.balls.append(hx)
+        self.ball_lim.append(BallLimit(Vec3(0, 1, 0, 0), Vec3(0, 1, 0, 0), Quat.identity(), -1, 1, -1))
         return hz
+
+    def set_ball_limits(
+        mut self, body: Int, axis: Vec3, swing: Real, twist_lo: Real = 1, twist_hi: Real = -1
+    ) raises:
+        """Swing-twist limit on the ball whose body link is `body` (17.51):
+        the body-frame `axis` stays within `swing` rad of where it points
+        now (a cone; swing < 0 removes it), and the twist about it stays in
+        [twist_lo, twist_hi] rad from the current twist (lo > hi: none)."""
+        var k = -1
+        for b in range(len(self.balls)):
+            if self.balls[b] + 2 == body:
+                k = b
+        if k < 0:
+            raise Error("Chain.set_ball_limits: link is not a ball joint's body")
+        var al = length(axis)
+        if not (al > 0):
+            raise Error("Chain.set_ball_limits: axis must be non-zero")
+        if swing > Real(3.14159265):
+            raise Error("Chain.set_ball_limits: swing must be <= pi")
+        var a = axis / al
+        var r = self.ball_orientation(body)
+        self.ball_lim[k] = BallLimit(a, r.rotate(a), r, swing, twist_lo, twist_hi)
+
+    def ball_swing_twist(self, body: Int) raises -> Tuple[Real, Real]:
+        """(swing, twist) of a limited ball's body relative to where its limit
+        was set (rad)."""
+        for b in range(len(self.balls)):
+            if self.balls[b] + 2 == body:
+                return self._swing_twist(b)
+        raise Error("Chain.ball_swing_twist: link is not a ball joint's body")
+
+    def _swing_twist(self, b: Int) -> Tuple[Real, Real]:
+        ref lim = self.ball_lim[b]
+        var r = self.ball_orientation(self.balls[b] + 2)
+        var ra = r.rotate(lim.axis)
+        var c = min(max(dot(ra, lim.ref_dir), Real(-1)), Real(1))
+        var swing = atan2(length(cross(lim.ref_dir, ra)), c)
+        var rel = lim.ref_rot.conjugate() * r
+        var tw = 2 * atan2(dot(Vec3(rel.x, rel.y, rel.z, 0), lim.axis), rel.w)
+        if tw > Real(3.14159265):
+            tw -= Real(6.2831853)
+        elif tw < Real(-3.14159265):
+            tw += Real(6.2831853)
+        return (swing, tw)
+
+    def _ball_rows(self, b: Int) -> Tuple[List[Real], List[Real]]:
+        """Joint-space rows of ball `b`'s swing and twist rates: the swing
+        axis and the twist axis in the body frame, on the ball's DOFs."""
+        var n = len(self.links)
+        ref lim = self.ball_lim[b]
+        var h = self.balls[b]
+        var r = self.ball_orientation(h + 2)
+        var ra = r.rotate(lim.axis)
+        var sw = cross(lim.ref_dir, ra)
+        var sl = length(sw)
+        var nb = r.conjugate().rotate(sw / sl) if sl > 1e-9 else Vec3(0, 0, 0, 0)
+        var js = List[Real](length=n, fill=0)
+        var jt = List[Real](length=n, fill=0)
+        for k in range(3):
+            js[h + k] = nb[k]
+            jt[h + k] = lim.axis[k]
+        return (js^, jt^)
+
+    def _row_impulse(mut self, h: List[Real], j: List[Real], target_dv: Real) raises:
+        var n = len(self.links)
+        var hinv = solve_dense(h.copy(), j.copy(), n)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv[k]
+        if w < 1e-12:
+            return
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv[k] * lam
+
+    def _row_rate(self, j: List[Real]) -> Real:
+        var v = Real(0)
+        for k in range(len(j)):
+            v += j[k] * self.qd[k]
+        return v
+
+    def _ball_limit_pass(mut self, h: List[Real], dt: Real, position: Bool) raises:
+        """One sweep over the limited balls: velocity (stop motion into a
+        violated bound) or position (pseudo-velocity back to the bound)."""
+        for b in range(len(self.balls)):
+            var lim = self.ball_lim[b]  # a copy: the impulses below mutate self
+            var st = self._swing_twist(b)
+            var rows = self._ball_rows(b)
+            if lim.swing >= 0 and st[0] > lim.swing:
+                var rate = self._row_rate(rows[0])
+                if position:
+                    self._row_impulse(h, rows[0], (lim.swing - st[0]) / dt - rate)
+                elif rate > 0:
+                    self._row_impulse(h, rows[0], -rate)
+            if lim.twist_lo <= lim.twist_hi:
+                var rate_t = self._row_rate(rows[1])
+                if st[1] > lim.twist_hi:
+                    if position:
+                        self._row_impulse(h, rows[1], (lim.twist_hi - st[1]) / dt - rate_t)
+                    elif rate_t > 0:
+                        self._row_impulse(h, rows[1], -rate_t)
+                elif st[1] < lim.twist_lo:
+                    if position:
+                        self._row_impulse(h, rows[1], (lim.twist_lo - st[1]) / dt - rate_t)
+                    elif rate_t < 0:
+                        self._row_impulse(h, rows[1], -rate_t)
+
+    def _balls_violated(self) -> Int:
+        var c = 0
+        for b in range(len(self.balls)):
+            ref lim = self.ball_lim[b]
+            var st = self._swing_twist(b)
+            if lim.swing >= 0 and st[0] > lim.swing:
+                c += 1
+            if lim.twist_lo <= lim.twist_hi and (st[1] > lim.twist_hi or st[1] < lim.twist_lo):
+                c += 1
+        return c
 
     def ball_orientation(self, body: Int) -> Quat:
         """Parent -> body rotation of the ball whose body link is `body`."""
@@ -992,6 +1128,8 @@ struct Chain(Movable, Deinitable):
                 continue
             if self.q[k] < l.lo or self.q[k] > l.hi:
                 initial += 1
+        if len(self.balls) > 0:
+            initial += self._balls_violated()
         if initial == 0:
             return 0
 
@@ -1013,6 +1151,8 @@ struct Chain(Movable, Deinitable):
                 if high and self.qd[k] <= 0:
                     continue
                 _ = self._joint_impulse(h1, k, -self.qd[k])
+            if len(self.balls) > 0:
+                self._ball_limit_pass(h1, dt, False)
 
         # --- position pass on a pseudo-velocity, as in resolve_contacts ------
         var saved = self.qd.copy()
@@ -1032,6 +1172,8 @@ struct Chain(Movable, Deinitable):
                 else:
                     continue
                 _ = self._joint_impulse(h2, k, err / dt - self.qd[k])
+            if len(self.balls) > 0:
+                self._ball_limit_pass(h2, dt, True)
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
@@ -1418,13 +1560,24 @@ def write_chain[W: StateWriter](ch: Chain, mut out: W):
     out.wv(ch._base_wa)
     out.wv(ch._base_va)
     out.wi(len(ch.balls))
-    for h in ch.balls:
+    for b in range(len(ch.balls)):
+        var h = ch.balls[b]
         out.wi(h)
         var r = ch.ball_rot[h]
         out.wf(r.x)
         out.wf(r.y)
         out.wf(r.z)
         out.wf(r.w)
+        var lim = ch.ball_lim[b]
+        out.wv(lim.axis)
+        out.wv(lim.ref_dir)
+        out.wf(lim.ref_rot.x)
+        out.wf(lim.ref_rot.y)
+        out.wf(lim.ref_rot.z)
+        out.wf(lim.ref_rot.w)
+        out.wf(lim.swing)
+        out.wf(lim.twist_lo)
+        out.wf(lim.twist_hi)
 
 
 def read_chain[R: StateReader](mut r: R) raises -> Chain:
@@ -1469,4 +1622,14 @@ def read_chain[R: StateReader](mut r: R) raises -> Chain:
         ch.ball_head[h] = True
         ch.ball_rot[h] = Quat(qx, qy, qz, qw)
         ch.balls.append(h)
+        var la = r.rv()
+        var lr = r.rv()
+        var rx = r.rf()
+        var ry = r.rf()
+        var rz = r.rf()
+        var rw = r.rf()
+        var sw = r.rf()
+        var tlo = r.rf()
+        var thi = r.rf()
+        ch.ball_lim.append(BallLimit(la, lr, Quat(rx, ry, rz, rw), sw, tlo, thi))
     return ch^

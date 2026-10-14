@@ -19,6 +19,10 @@ and the Euler-angle singularity is never reached.
      maximal-coordinate `Joint6.ball` in `ContactScene6`, the tip
      trajectories agree within 1 cm over 2 s; a snapshot restored mid-run
      steps bit for bit.
+  2b. Swing-twist limits (`set_ball_limits` + `resolve_limits`): pushed at
+     3 rad/s the rod stops at a 0.5 rad cone; spun about itself at 2 rad/s
+     it stops at a 0.3 rad twist; a zero cone holds the axis while the twist
+     stays free.
   3. Extreme: spinning at 10 rad/s for 5 s (many full turns) the
      quaternion stays unit; mass 0 and a stiffness on a ball DOF raise;
      `ArticBatch` refuses a chain with a ball.
@@ -183,6 +187,39 @@ def main() raises:
     var qa = sc.ball_orientation(2)
     var qb = back.ball_orientation(2)
     s.check(same and qa.x == qb.x and qa.w == qb.w, "a ball chain restored mid-run steps bit for bit")
+
+    # ---- swing-twist limits ------------------------------------------------------------------------------------------
+    var lc = _ball_rod()
+    lc.set_ball_limits(2, Vec3(0, -1, 0, 0), 0.5, -0.3, 0.3)
+    lc.qd[2] = 3  # would swing out ~1.6 rad
+    var smax = Real(0)
+    for _ in range(240):
+        lc.step(DT, zero3, G)
+        _ = lc.resolve_limits(DT)
+        smax = max(smax, lc.ball_swing_twist(2)[0])
+    var tc2 = _ball_rod()
+    tc2.set_ball_limits(2, Vec3(0, -1, 0, 0), -1, -0.3, 0.3)
+    tc2.qd[1] = 2  # twist about the rod
+    var tmax = Real(0)
+    for _ in range(240):
+        tc2.step(DT, zero3, G)
+        _ = tc2.resolve_limits(DT)
+        tmax = max(tmax, abs(tc2.ball_swing_twist(2)[1]))
+    var zc = _ball_rod(Vec3(0.1, 0.15, 0.2, 0))
+    zc.set_ball_limits(2, Vec3(0, -1, 0, 0), 0)
+    zc.qd[0] = 1
+    zc.qd[1] = 2
+    zc.qd[2] = 1
+    var zs = Real(0)
+    for _ in range(240):
+        zc.step(DT, zero3, G)
+        _ = zc.resolve_limits(DT)
+        zs = max(zs, zc.ball_swing_twist(2)[0])
+    var zt = zc.ball_swing_twist(2)[1]
+    print("  limits: cone 0.5 pushed at 3 rad/s -> max swing", smax, "; twist +-0.3 driven at 2 rad/s -> max |twist|", tmax, "; cone 0 -> max swing", zs, " twist after 1 s", zt)
+    s.check(smax < 0.52 and smax > 0.49, "the swing stops at a 0.5 rad cone")
+    s.check(tmax < 0.32 and tmax > 0.29, "the twist stops at 0.3 rad")
+    s.check(zs < 0.02 and abs(zt) > 0.5, "a zero cone holds the axis and leaves the twist free")
 
     # ---- extremes ----------------------------------------------------------------------------------------------------
     var sp = _ball_rod()
