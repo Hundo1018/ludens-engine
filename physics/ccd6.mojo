@@ -180,11 +180,45 @@ def ccd_advance[B: Body6](
     (the step's cfg.ccd off) and against every candidate, without the
     "cannot jump the thinnest feature" shortcut."""
     var n = len(bset.bodies)
-    var frac = List[Real]()
-    var fast = List[Bool]()
-    var any_fast = False
+    var all = List[Int](capacity=n)
     for i in range(n):
-        frac.append(1)
+        all.append(i)
+    _ccd_core(bset, colliders, h, all_bodies, all, all)
+
+
+def ccd_advance_island[B: Body6](
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool,
+    members: List[Int], mlo: Int, mhi: Int,
+):
+    """`ccd_advance` for one island of the island-parallel step (17.46):
+    only the island's members move, and their candidates are the island's
+    members plus the static bodies -- static poses never change during the
+    step, so islands running in parallel read nothing another island
+    writes. A pair from two islands has no contact this step (a speculative
+    contact would have joined the islands), so it is not swept. For a body
+    against static geometry the result is the serial `ccd_advance`'s."""
+    var movers = List[Int](capacity=mhi - mlo)
+    for m in range(mlo, mhi):
+        movers.append(members[m])
+    var pool = movers.copy()
+    for j in range(len(bset.bodies)):
+        if bset.is_static(j) and not bset.is_removed(j):
+            pool.append(j)
+    sort(pool)
+    _ccd_core(bset, colliders, h, all_bodies, movers, pool)
+
+
+def _ccd_core[B: Body6](
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool,
+    movers: List[Int], pool: List[Int],
+):
+    """The body of `ccd_advance`: clamp fractions for `movers` against the
+    candidates in `pool` (ascending), then advance the movers' poses."""
+    var n = len(bset.bodies)
+    var frac = List[Real](length=n, fill=1)
+    var fast = List[Bool](length=n, fill=False)
+    var any_fast = False
+    for i in movers:
         var f = False
         var mode = Int(bset.ccd_mode[i])
         var wanted = mode == CCD_BULLET or (all_bodies and mode != CCD_OFF)
@@ -192,12 +226,13 @@ def ccd_advance[B: Body6](
             var vi = bset.bodies[i].linear_velocity()
             var spin = length(bset.bodies[i].omega_world()) * length(colliders.half[i]) * h
             f = dot(vi, vi) * h * h >= 1e-12 or spin * spin >= 1e-12
-        fast.append(f)
+        fast[i] = f
         any_fast = any_fast or f
     if any_fast:
-        var boxes = List[AABB[3]](capacity=n)
-        var ids = List[Int](capacity=n)
-        for j in range(n):
+        var boxes = List[AABB[3]](capacity=len(pool))
+        var ids = List[Int](capacity=len(pool))
+        var box_of = List[Int](length=n, fill=-1)
+        for j in pool:
             var b0 = colliders.fat_aabb(j, bset.pose3(j), Vec3(0, 0, 0, 0), 0)
             if not bset.inactive(j) and not _is_static_mesh(colliders.shape[j]) and colliders.shape[j] != SHAPE_SDF:
                 var hj = colliders.half[j]
@@ -207,18 +242,19 @@ def ccd_advance[B: Body6](
                 var lo = Vec3(min(b0.min[0], b0.min[0] + d[0]), min(b0.min[1], b0.min[1] + d[1]), min(b0.min[2], b0.min[2] + d[2]), 0)
                 var hi = Vec3(max(b0.max[0], b0.max[0] + d[0]), max(b0.max[1], b0.max[1] + d[1]), max(b0.max[2], b0.max[2] + d[2]), 0)
                 b0 = AABB[3](lo - Vec3(grow, grow, grow, 0), hi + Vec3(grow, grow, grow, 0))
+            box_of[j] = len(boxes)
             boxes.append(b0)
             ids.append(j)
         var bvh = BVH[3]()
         bvh.build_boxes(boxes, ids)
-        for i in range(n):
+        for i in movers:
             if not fast[i]:
                 continue
             var ki = colliders.shape[i]
             var bullet = bset.ccd_mode[i] == CCD_BULLET
             var vi = bset.bodies[i].linear_velocity()
             var cand = List[Int]()
-            bvh.query_region(boxes[i], cand)
+            bvh.query_region(boxes[box_of[i]], cand)
             for c in range(len(cand)):
                 var j = cand[c]
                 if j == i:
@@ -266,7 +302,7 @@ def ccd_advance[B: Body6](
                     var f = ca_fraction(bset, colliders, i, j, h)
                     if f < frac[i]:
                         frac[i] = f
-    for i in range(n):
+    for i in movers:
         if bset.inactive(i):
             continue
         var f = frac[i]

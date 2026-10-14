@@ -162,7 +162,7 @@ from .islands import (
     update_sleep,
     wake_island,
 )
-from .ccd6 import ccd_advance, CCD_AUTO, CCD_OFF, CCD_BULLET
+from .ccd6 import ccd_advance, ccd_advance_island, CCD_AUTO, CCD_OFF, CCD_BULLET
 from .collide_par import narrow_parallel, prep_parallel, NARROW_PAR_MIN
 from .soft_couple import softbody_pass
 
@@ -2101,6 +2101,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         mlo: Int,
         mhi: Int,
         rest_threshold: Real = 1.0,
+        ccd: Bool = False,
+        ccd_all: Bool = False,
     ):
         """The full substep loop restricted to one island: its bodies
         (`members[mlo:mhi]`, ascending slot order), its contiguous pair
@@ -2136,12 +2138,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # exactly `moves(i) and not sleeping[i]` here since `_inactive`
             # is `is_static or sleeping` and this loop never sees a static
             # body's label (`_refresh_islands` never assigns one).
-            for m in range(mlo, mhi):
-                var i = members[m]
-                if not self.bset.inactive(i):
-                    if self.bset.any_props and self.bset.locks[i] != 0:
-                        self._apply_locks(i)
-                    self.bset.bodies[i].integrate_pose(h)
+            if ccd:
+                # 17.46: island-local CCD (members + static candidates)
+                ccd_advance_island(self.bset, self.colliders, h, ccd_all, members, mlo, mhi)
+            else:
+                for m in range(mlo, mhi):
+                    var i = members[m]
+                    if not self.bset.inactive(i):
+                        if self.bset.any_props and self.bset.locks[i] != 0:
+                            self._apply_locks(i)
+                        self.bset.bodies[i].integrate_pose(h)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, label)
             if self.any_ext:
                 ext_sweep(self.bset, self.joints, self.jext, h, bias_rate, 1, 0, False, 2, label)
@@ -2594,13 +2600,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self.cache = pairs2^
             self.step_index += 1
             return
-        if parallel and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0 or self.any_break):
+        if parallel and (colored or len(self.softs) > 0 or len(self.drives) > 0 or self.any_break):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be
             # silent -- count it so a caller relying on the parallel path
             # can notice it never actually ran in parallel.
             self.counters.incr(PARALLEL_FALLBACK_SERIAL)
-        if parallel and not colored and len(self.softs) == 0 and not ccd and len(self.drives) == 0 and not self.any_break:
+        if parallel and not colored and len(self.softs) == 0 and len(self.drives) == 0 and not self.any_break:
             # partition: pairs reordered so each island is a contiguous range
             var labels = List[Int]()
             var first = List[Int]()
@@ -2616,7 +2622,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-                members, mstart, workers, cfg.restitution_threshold, cfg.dispatch,
+                members, mstart, workers, cfg.restitution_threshold, cfg.dispatch, ccd, cfg.ccd,
             )
             self.trace.end()
             self.trace.begin("sleep")
@@ -2908,6 +2914,8 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
     var impulse_scale: Real
     var mu: Real
     var rest_threshold: Real
+    var ccd: Bool
+    var ccd_all: Bool
 
     def __init__(
         out self,
@@ -2920,8 +2928,11 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
         mut mstart: List[Int],
         gravity: Vec3, h: Real, substeps: Int, iters: Int, bias_rate: Real,
         mass_scale: Real, impulse_scale: Real, mu: Real, rest_threshold: Real,
+        ccd: Bool = False, ccd_all: Bool = False,
     ):
         self.scene = Pointer(to=scene).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.ccd = ccd
+        self.ccd_all = ccd_all
         self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
         self.plo = Pointer(to=plo).unsafe_origin_cast[MutUntrackedOrigin]()
         self.phi = Pointer(to=phi).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -2943,6 +2954,7 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
             self.pairs2[], self.plo[][k], self.phi[][k], self.labels[][k], self.gravity, self.h,
             self.substeps, self.iters, self.bias_rate, self.mass_scale, self.impulse_scale, self.mu,
             self.members[], self.mstart[][k], self.mstart[][k + 1], self.rest_threshold,
+            self.ccd, self.ccd_all,
         )
 
 
@@ -2965,6 +2977,8 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     workers: Int = 0,
     rest_threshold: Real = 1.0,
     dispatch: Dispatch = Dispatch.parallel(),
+    ccd: Bool = False,
+    ccd_all: Bool = False,
 ):
     """Worker fan-out for `step(cfg.parallel=True)`: one `_IslandTask` item
     per island, run by `dispatch` (ROADMAP 17.75: the runtime pool, serial,
@@ -2974,7 +2988,7 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     pick the width of the default pool."""
     var task = _IslandTask[BB, PBP](
         scene, pairs2, plo, phi, labels, members, mstart, gravity, h, substeps,
-        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold,
+        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold, ccd, ccd_all,
     )
     dispatch_for(dispatch, task, len(labels), workers)
 
