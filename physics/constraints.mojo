@@ -30,7 +30,7 @@ of travel relative to an arbitrary basis. `bench_constraints` measures that
 anisotropy directly.
 """
 
-from std.math import sqrt
+from std.math import sqrt, isfinite
 from geometry.vec import Real, Vec3, length
 from numerics.dense import solve_dense
 from physics.chain import Chain
@@ -43,6 +43,11 @@ comptime CON_TANGENT = 4
 
 comptime CONE_PYRAMIDAL = 0
 comptime CONE_ELLIPTIC = 1
+
+# ROADMAP 17.51: how `resolve_loops` solves its rows
+comptime SOLVE_PGS = 0
+comptime SOLVE_DIRECT = 1  # `solve_active_set`
+comptime SOLVE_CG = 2  # `solve_cg`
 
 
 @fieldwise_init
@@ -114,6 +119,187 @@ struct ConstraintSet(Movable, Deinitable):
         var b = self.add(jt2, ConRow(CON_TANGENT, 0, 0, normal_row, mu, a))
         self.rows[a] = ConRow(CON_TANGENT, 0, 0, normal_row, mu, b)
         return a
+
+    def residual(self, qd: List[Real]) -> Real:
+        """Largest row violation at `qd`: |J qd - bias| for equalities,
+        how far J qd falls short of `bias` for limits and contact normals
+        (17.51; tangent / friction rows are not counted)."""
+        var worst = Real(0)
+        for r in range(len(self.rows)):
+            var k = self.rows[r].kind
+            var e = self._row_dot(r, qd) - self.rows[r].bias
+            if k == CON_EQUALITY:
+                worst = max(worst, abs(e))
+            elif k == CON_LIMIT or k == CON_CONTACT:
+                worst = max(worst, -e)
+        return worst
+
+    def _minv_jt(self, hmat: List[Real]) -> List[Real]:
+        var m = len(self.rows)
+        var out = List[Real](length=m * self.n, fill=0)
+        for r in range(m):
+            var rhs = List[Real](capacity=self.n)
+            for i in range(self.n):
+                rhs.append(self.jac[r * self.n + i])
+            var col = solve_dense(hmat.copy(), rhs^, self.n)
+            for i in range(self.n):
+                out[r * self.n + i] = col[i]
+        return out^
+
+    def solve_active_set(mut self, var hmat: List[Real], mut qd: List[Real], max_iter: Int = 20) raises -> Int:
+        """Exact solve (17.51, the Newton-type alternative to PGS): with the
+        set of active rows fixed the impulses solve the dense system
+        J_a H^-1 J_a^T f = bias_a - J_a qd exactly; a limit / contact row is
+        then dropped if its impulse pulls and added if it is violated, until
+        nothing changes. Equality, limit and contact rows only (friction
+        cones stay with `solve`). Returns the number of active-set rounds."""
+        var m = len(self.rows)
+        if m == 0:
+            return 0
+        for r in range(m):
+            var k = self.rows[r].kind
+            if k != CON_EQUALITY and k != CON_LIMIT and k != CON_CONTACT:
+                raise Error("ConstraintSet.solve_active_set: equality, limit and contact rows only")
+        var mj = self._minv_jt(hmat)
+        var qd0 = qd.copy()
+        # a row no coordinate can move (J H^-1 J^T = 0: the z row of a loop
+        # closed in a planar chain) is left out -- it would make the system
+        # singular and no impulse can change it anyway
+        var diag = List[Real](length=m, fill=0)
+        var dmax = Real(0)
+        for r in range(m):
+            for i in range(self.n):
+                diag[r] += self.jac[r * self.n + i] * mj[r * self.n + i]
+            dmax = max(dmax, diag[r])
+        var movable = List[Bool](length=m, fill=True)
+        for r in range(m):
+            movable[r] = diag[r] > dmax * Real(1e-9)
+        var active = List[Bool](length=m, fill=False)
+        for r in range(m):
+            active[r] = movable[r] and (self.rows[r].kind == CON_EQUALITY or self._row_dot(r, qd0) < self.rows[r].bias)
+        var rounds = 0
+        for _ in range(max_iter):
+            rounds += 1
+            var idx = List[Int]()
+            for r in range(m):
+                if active[r]:
+                    idx.append(r)
+            var na = len(idx)
+            var f = List[Real](length=m, fill=0)
+            if na > 0:
+                var a = List[Real](length=na * na, fill=0)
+                var b = List[Real](length=na, fill=0)
+                for p in range(na):
+                    var rp = idx[p]
+                    b[p] = self.rows[rp].bias - self._row_dot(rp, qd0)
+                    for q in range(na):
+                        var rq = idx[q]
+                        var acc = Real(0)
+                        for i in range(self.n):
+                            acc += self.jac[rp * self.n + i] * mj[rq * self.n + i]
+                        a[p * na + q] = acc
+                var sol = solve_dense(a.copy(), b.copy(), na)
+                var finite = True
+                for p in range(na):
+                    if not isfinite(sol[p]):
+                        finite = False
+                if not finite:
+                    # redundant rows (a loop closed twice) make the system
+                    # singular: retry with a relative diagonal shift (1e-5
+                    # softening; an absolute 1e-9 still gave NaN in f32).
+                    # Only then -- on a regular system the shift raised the
+                    # residual from 5.5e-6 to 6.2e-4 (`test_loops`).
+                    for p in range(na):
+                        a[p * na + p] += max(a[p * na + p] * Real(1e-5), Real(1e-12))
+                    sol = solve_dense(a^, b^, na)
+                for p in range(na):
+                    f[idx[p]] = sol[p]
+            for i in range(self.n):
+                var v = qd0[i]
+                for r in range(m):
+                    if f[r] != 0:
+                        v += mj[r * self.n + i] * f[r]
+                qd[i] = v
+            # one change per round: the most negative pulling row out, else
+            # the most violated inactive row in
+            var worst_r = -1
+            var worst_v = Real(-1e-9)
+            for r in range(m):
+                if active[r] and self.rows[r].kind != CON_EQUALITY and f[r] < worst_v:
+                    worst_v = f[r]
+                    worst_r = r
+            if worst_r >= 0:
+                active[worst_r] = False
+                continue
+            var add_r = -1
+            var add_v = Real(1e-7)
+            for r in range(m):
+                if not active[r] and movable[r]:
+                    var short = self.rows[r].bias - self._row_dot(r, qd)
+                    if short > add_v:
+                        add_v = short
+                        add_r = r
+            if add_r < 0:
+                for r in range(m):
+                    self.force[r] = f[r]
+                return rounds
+            active[add_r] = True
+        return rounds
+
+    def solve_cg(mut self, var hmat: List[Real], mut qd: List[Real], iters: Int = 50, tol: Real = 1e-10) raises -> Int:
+        """Conjugate gradient on J H^-1 J^T f = bias - J qd (17.51), equality
+        rows only (the operator is symmetric positive semi-definite there).
+        Matrix-free: one J (H^-1 J^T p) product per iteration. Returns the
+        iterations taken."""
+        var m = len(self.rows)
+        if m == 0:
+            return 0
+        for r in range(m):
+            if self.rows[r].kind != CON_EQUALITY:
+                raise Error("ConstraintSet.solve_cg: equality rows only")
+        var mj = self._minv_jt(hmat)
+        var f = List[Real](length=m, fill=0)
+        var res = List[Real](length=m, fill=0)
+        for r in range(m):
+            res[r] = self.rows[r].bias - self._row_dot(r, qd)
+        var p = res.copy()
+        var rr = Real(0)
+        for r in range(m):
+            rr += res[r] * res[r]
+        var it = 0
+        var ap = List[Real](length=m, fill=0)
+        var tmp = List[Real](length=self.n, fill=0)
+        while it < iters and rr > tol * tol:
+            it += 1
+            for i in range(self.n):
+                var v = Real(0)
+                for r in range(m):
+                    v += mj[r * self.n + i] * p[r]
+                tmp[i] = v
+            var pap = Real(0)
+            for r in range(m):
+                ap[r] = self._row_dot(r, tmp)
+                pap += p[r] * ap[r]
+            if pap <= 1e-30:
+                break
+            var alpha = rr / pap
+            var rr2 = Real(0)
+            for r in range(m):
+                f[r] += alpha * p[r]
+                res[r] -= alpha * ap[r]
+                rr2 += res[r] * res[r]
+            var beta = rr2 / rr
+            rr = rr2
+            for r in range(m):
+                p[r] = res[r] + beta * p[r]
+        for i in range(self.n):
+            var v = qd[i]
+            for r in range(m):
+                v += mj[r * self.n + i] * f[r]
+            qd[i] = v
+        for r in range(m):
+            self.force[r] = f[r]
+        return it
 
     def _row_dot(self, r: Int, v: List[Real]) -> Real:
         var s = Real(0)
@@ -223,3 +409,78 @@ struct ConstraintSet(Movable, Deinitable):
                 + minv_jt[r * self.n + i] * d1
                 + minv_jt[b * self.n + i] * d2
             )
+
+
+# ------------------------------------------------------------ loop closures (17.51)
+
+
+@fieldwise_init
+struct LoopClosure(Copyable, ImplicitlyCopyable, Movable):
+    """Closes a kinematic loop: point `la` of link `a` stays on point `lb`
+    of link `b` (both in link frames), or on the world point `lb` when
+    `b < 0` (a four-bar's ground pivot). Three equality rows, Jacobian
+    assembled from `Chain.point_jacobian` -- no hand-written rows."""
+
+    var a: Int
+    var la: Vec3
+    var b: Int
+    var lb: Vec3
+
+
+def _loop_gap(ch: Chain, lp: LoopClosure) -> Vec3:
+    var pa = ch.point_world(lp.a, lp.la)
+    var pb = ch.point_world(lp.b, lp.lb) if lp.b >= 0 else lp.lb
+    return pa - pb
+
+
+def _loop_rows(ch: Chain, loops: List[LoopClosure], bias_scale: Real) raises -> ConstraintSet:
+    var n = len(ch.links)
+    var cs = ConstraintSet(n)
+    for lp in loops:
+        var gap = _loop_gap(ch, lp)
+        for k in range(3):
+            var e = Vec3(0, 0, 0, 0)
+            e[k] = 1
+            var ja = ch.point_jacobian(lp.a, lp.la, e)
+            if lp.b >= 0:
+                var jb = ch.point_jacobian(lp.b, lp.lb, e)
+                for i in range(n):
+                    ja[i] -= jb[i]
+            _ = cs.add_equality(ja, -gap[k] * bias_scale)
+    return cs^
+
+
+def _solve_rows(mut cs: ConstraintSet, var h: List[Real], mut qd: List[Real], mode: Int, iters: Int) raises:
+    if mode == SOLVE_DIRECT:
+        _ = cs.solve_active_set(h^, qd)
+    elif mode == SOLVE_CG:
+        _ = cs.solve_cg(h^, qd, iters)
+    else:
+        cs.solve(h^, qd, iters)
+
+
+def resolve_loops(
+    mut ch: Chain, loops: List[LoopClosure], dt: Real,
+    mode: Int = SOLVE_DIRECT, iters: Int = 20, pos_iters: Int = 2,
+) raises -> Real:
+    """After `Chain.step`: remove the loop-breaking part of q-dot (velocity
+    rows, target 0), then pull q back onto the loop with pseudo-velocity
+    passes (target -gap / dt, integrated into q and discarded), like
+    `Chain.resolve_contacts`. Returns the largest remaining gap (m)."""
+    var n = len(ch.links)
+    if len(loops) == 0:
+        return 0
+    var cv = _loop_rows(ch, loops, 0)
+    _solve_rows(cv, ch.mass_matrix(), ch.qd, mode, iters)
+    for _ in range(pos_iters):
+        var cp = _loop_rows(ch, loops, 1 / dt)
+        var pseudo = List[Real](length=n, fill=0)
+        _solve_rows(cp, ch.mass_matrix(), pseudo, mode, iters)
+        for k in range(n):
+            ch.q[k] += pseudo[k] * dt
+    var worst = Real(0)
+    for lp in loops:
+        var g = length(_loop_gap(ch, lp))
+        if not (g <= worst):  # NaN propagates (max() would drop it)
+            worst = g
+    return worst
