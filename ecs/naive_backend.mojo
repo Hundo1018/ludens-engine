@@ -182,3 +182,19 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
                 var a = sa[][id].value()
                 func(a, sb[][id].value())
                 sa[][id] = Optional[A](a)
+
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        var sc = self._store[C]()
+        for id in range(len(self.live)):
+            if self.live[id] and sa[][id] and sb[][id] and sc[][id]:
+                var a = sa[][id].value()
+                func(a, sb[][id].value(), sc[][id].value())
+                sa[][id] = Optional[A](a)
+

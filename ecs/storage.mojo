@@ -148,3 +148,11 @@ trait StorageBackend(Defaultable, Movable, Deinitable):
         B: ComponentType,
         F: def (mut A, B) -> None,
     ](mut self, func: F): ...
+
+    # ROADMAP 17.77: the same over three components (func(mut a, b, c)).
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F): ...

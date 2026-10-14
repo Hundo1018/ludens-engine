@@ -237,3 +237,25 @@ struct BitsetBackend[*CTs: ComponentType](StorageBackend):
                 var a = sta[][id].value()
                 func(a, stb[][id].value())
                 sta[][id] = Optional[A](a)
+
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        var sla = Self._slot_of[A]()
+        var slb = Self._slot_of[B]()
+        var slc = Self._slot_of[C]()
+        var sta = self._store[A]()
+        var stb = self._store[B]()
+        var stc = self._store[C]()
+        for w in range(len(self.live_mask)):
+            var bits = self.masks[sla][w] & self.masks[slb][w] & self.masks[slc][w] & self.live_mask[w]
+            while bits != 0:
+                var id = w * 64 + Int(count_trailing_zeros(bits))
+                bits &= bits - 1
+                var a = sta[][id].value()
+                func(a, stb[][id].value(), stc[][id].value())
+                sta[][id] = Optional[A](a)
+

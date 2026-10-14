@@ -382,6 +382,22 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
                 for i in range(n):
                     func(pa[unsafe_offset=i], pb[unsafe_offset=i])
 
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        var bits = (1 << Self.slot_of[A]()) | (1 << Self.slot_of[B]()) | (1 << Self.slot_of[C]())
+        for k in range(len(self.archetypes)):
+            if (self.archetypes[k].mask & bits) == bits:
+                var n = len(self.archetypes[k].entities)
+                var pa = self.col[A](k)[].unsafe_ptr()
+                var pb = self.col[B](k)[].unsafe_ptr()
+                var pc = self.col[C](k)[].unsafe_ptr()
+                for i in range(n):
+                    func(pa[unsafe_offset=i], pb[unsafe_offset=i], pc[unsafe_offset=i])
+
     def query2_views[A: ComponentType, B: ComponentType](mut self) -> List[ArchView2[A, B]]:
         """Return zero-copy column views for all archetypes matching A+B.
 

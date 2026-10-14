@@ -355,3 +355,31 @@ struct ReactiveBackend[*CTs: ComponentType](StorageBackend):
                     var a = sa[].get(id)
                     func(a, sb[].value_at(i))
                     sa[].set(id, a)
+
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        # Drive with the smallest of the three dense stores, probe the others;
+        # A is read/run/written-back as in for_each2.
+        var sa = self._store[A]()
+        var sb = self._store[B]()
+        var sc = self._store[C]()
+        var na = sa[].dense_len()
+        var nb = sb[].dense_len()
+        var nc = sc[].dense_len()
+        var drive = 0
+        if nb < na and nb <= nc:
+            drive = 1
+        elif nc < na and nc < nb:
+            drive = 2
+        var cnt = na if drive == 0 else (nb if drive == 1 else nc)
+        for i in range(cnt):
+            var id = sa[].key_at(i) if drive == 0 else (sb[].key_at(i) if drive == 1 else sc[].key_at(i))
+            if sa[].contains(id) and sb[].contains(id) and sc[].contains(id):
+                var a = sa[].get(id)
+                func(a, sb[].get(id), sc[].get(id))
+                sa[].set(id, a)
+

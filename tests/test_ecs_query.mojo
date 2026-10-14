@@ -8,7 +8,8 @@ resources, deferred structural changes.
      the same sorted entity set as a brute-force `has` filter, and the six
      agree; `changed` / `added` report only this tick's writes; a resource
      round-trips; `SetBuffer.remove` / `despawn` / `spawn` replay in
-     recording order.
+     recording order. `for_each3[A, B, C]` updates exactly the entities a
+     has / get / set loop updates, to the same values, on all six.
   2. Integration: `Pool.active_query2` (now `Without[Disabled]`) equals the
      old `query2` + `has` filter; a recycled id is not reported as changed
      before its new owner writes; removal clears `added`.
@@ -186,7 +187,28 @@ def _run[Bk: StorageBackend](n: Int) -> List[List[Int]]:
         if got != want:
             got.append(-999)  # marks a mismatch with the brute filter
         out.append(got^)
+    # 17.77 for_each3: a += b + 7 c on every entity with A, B and C, against
+    # the same update through has / get / set
+    var want = List[Int]()
+    for e in live:
+        if w.has[A](e):
+            var a = w.get[A](e).v
+            if w.has[B](e) and w.has[C](e):
+                a += w.get[B](e).v + 7 * w.get[C](e).v
+            want.append(a)
+    w.for_each3[A, B, C](_bump)
+    var got = List[Int]()
+    for e in live:
+        if w.has[A](e):
+            got.append(w.get[A](e).v)
+    if got != want:
+        got.append(-999)
+    out.append(got^)
     return out^
+
+
+def _bump(mut a: A, b: B, c: C):
+    a.v += b.v + 7 * c.v
 
 
 def _same(a: List[List[Int]], b: List[List[Int]]) -> Bool:

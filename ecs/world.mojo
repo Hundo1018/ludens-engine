@@ -266,3 +266,15 @@ struct World[B: StorageBackend](Movable, Deinitable):
         `List[Entity]`, no per-access lookup. The fast replacement for the
         `query2` + `get`/`set` handle loop; works on every backend."""
         self.backend.for_each2[A, B2](func)
+
+    def for_each3[
+        A: ComponentType,
+        B2: ComponentType,
+        C2: ComponentType,
+        F: def (mut A, B2, C2) -> None,
+    ](mut self, func: F):
+        """ROADMAP 17.77: `for_each2` over three components -- `func(mut a,
+        b, c)` for every entity with A, B and C, no per-frame list; every
+        backend (archetype column-direct, bitset word AND, sparse / reactive
+        driven by the smallest store, chunked page walk, naive scan)."""
+        self.backend.for_each3[A, B2, C2](func)

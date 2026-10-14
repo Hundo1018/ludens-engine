@@ -8,6 +8,9 @@ N = 20000 entities with Position; a share s of them also carry Disabled
   * change: 1 % of entities get a new Position this tick; `changed[Position]`
     vs scanning every Position for a `dirty` field set by hand.
 Times are microseconds per query (median of 7).
+
+Second table: `for_each3[Position, Vel, Mass]` (x += v * m) over N
+entities that all carry the three, vs `query3` then get / set per entity.
 """
 
 from std.time import perf_counter_ns
@@ -35,6 +38,50 @@ struct Position(ComponentType):
 @fieldwise_init
 struct Disabled(ComponentType):
     comptime ID: Int = 1
+
+
+@fieldwise_init
+struct Vel(ComponentType):
+    comptime ID: Int = 2
+    var v: Int
+
+
+@fieldwise_init
+struct Mass(ComponentType):
+    comptime ID: Int = 3
+    var m: Int
+
+
+def _push(mut p: Position, v: Vel, m: Mass):
+    p.x += v.v * m.m
+
+
+def _row3[Bk: StorageBackend](name: String) raises:
+    var w = World[Bk]()
+    var es = List[Entity]()
+    for i in range(N):
+        var e = w.spawn1(Position(i, 0))
+        w.set(e, Vel(i % 5))
+        w.set(e, Mass(1 + i % 3))
+        es.append(e)
+    var tf = List[Int]()
+    var tq = List[Int]()
+    for _ in range(7):
+        var t0 = Int(perf_counter_ns())
+        w.for_each3[Position, Vel, Mass](_push)
+        var t1 = Int(perf_counter_ns())
+        var q = w.query3[Position, Vel, Mass]()
+        for e in q:
+            var p = w.get[Position](e)
+            p.x += w.get[Vel](e).v * w.get[Mass](e).m
+            w.set(e, p)
+        var t2 = Int(perf_counter_ns())
+        tf.append(t1 - t0)
+        tq.append(t2 - t1)
+    var check = 0
+    for e in es:
+        check += w.get[Position](e).x
+    print("|", name, "|", _median(tf^) // 1000, "|", _median(tq^) // 1000, "|", check, "|")
 
 
 def _median(var xs: List[Int]) -> Int:
@@ -108,4 +155,14 @@ def main() raises:
     _row[ReactiveBackend[Position, Disabled]]("reactive")
     _row[NaiveBackend[Position, Disabled]]("naive")
     _row[ChunkedBackend[Position, Disabled]]("chunked")
+    print("")
+    print("### for_each3 vs query3 + get / set (17.77), N = 20000\n")
+    print("| backend | for_each3 (us) | query3 + get/set (us) | checksum |")
+    print("|---|---:|---:|---:|")
+    _row3[SparseSetBackend[Position, Disabled, Vel, Mass]]("sparse-set")
+    _row3[ArchetypeBackend[Position, Disabled, Vel, Mass]]("archetype")
+    _row3[BitsetBackend[Position, Disabled, Vel, Mass]]("bitset")
+    _row3[ReactiveBackend[Position, Disabled, Vel, Mass]]("reactive")
+    _row3[NaiveBackend[Position, Disabled, Vel, Mass]]("naive")
+    _row3[ChunkedBackend[Position, Disabled, Vel, Mass]]("chunked")
     print("")

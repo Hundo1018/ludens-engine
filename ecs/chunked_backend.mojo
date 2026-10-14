@@ -338,3 +338,40 @@ struct ChunkedBackend[*CTs: ComponentType](StorageBackend):
                 var a = oa.value()
                 func(a, ob.value())
                 ca[].pages[pi][off] = Optional[A](a)
+
+    def for_each3[
+        A: ComponentType,
+        B: ComponentType,
+        C: ComponentType,
+        F: def (mut A, B, C) -> None,
+    ](mut self, func: F):
+        var ca = self._col[A]()
+        var cb = self._col[B]()
+        var cc = self._col[C]()
+        var rows = ca[].rows
+        var n = len(self.live)
+        var npages = len(ca[].pages)
+        for pi in range(npages):
+            var base = pi * rows
+            var hi = rows
+            if base + hi > n:
+                hi = n - base
+            if hi <= 0:
+                break
+            for off in range(hi):
+                var id = base + off
+                if not self.live[id]:
+                    continue
+                var oa = ca[].pages[pi][off]
+                if not oa:
+                    continue
+                var ob = cb[].get(id)
+                if not ob:
+                    continue
+                var oc = cc[].get(id)
+                if not oc:
+                    continue
+                var a = oa.value()
+                func(a, ob.value(), oc.value())
+                ca[].pages[pi][off] = Optional[A](a)
+
