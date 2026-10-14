@@ -27,6 +27,8 @@ from .body_set import BodyId
 from .rigid6 import Body6
 from .solver6 import ContactScene6
 from .solver_config import SolverConfig
+from .continuum import LbmContinuum
+from .coupling import CouplingPort
 
 
 struct LbmCoupler(Movable):
@@ -91,3 +93,62 @@ struct LbmCoupler(Movable):
             sc.add_force(self.bodies[j], self.fluid_force(j) - gravity * (self.rho * vol))
             sc.add_torque(self.bodies[j], self.fluid_torque(j))
         sc.step(self.dt, gravity, cfg)
+
+
+struct LbmSpherePort(CouplingPort):
+    """`LbmCoupler`'s exchange as a `CouplingPort` over an `LbmContinuum`
+    (ROADMAP 17.55): `before` moves each coupled sphere's lattice boundary
+    to the body's pose and velocity, `after` applies the fluid's force and
+    torque plus buoyancy. With `couple_step` and dt equal to the lattice
+    step it is `LbmCoupler.step` bit for bit (`test_coupling`)."""
+
+    comptime S = LbmContinuum
+
+    var dx: Real
+    var rho: Real
+    var origin: Vec3
+    var bodies: List[BodyId]
+    var objs: List[Int]
+    var radii: List[Real]
+
+    def __init__(out self, dx: Real, rho: Real, origin: Vec3):
+        self.dx = dx
+        self.rho = rho
+        self.origin = origin
+        self.bodies = List[BodyId]()
+        self.objs = List[Int]()
+        self.radii = List[Real]()
+
+    def _lat(self, p: Vec3) -> Vec3:
+        return (p - self.origin) * (1 / self.dx)
+
+    def add_sphere[B: Body6](mut self, mut sc: ContactScene6[B], mut s: LbmContinuum, id: BodyId, radius: Real) raises -> Int:
+        var dt = s.dt_lattice
+        var pose = sc.pose(id)
+        var v = sc.velocity(id) * (dt / self.dx)
+        var w = sc.angular_velocity(id) * dt
+        var k = s.lbm.add_moving_sphere(self._lat(pose.pos), radius / self.dx, v, w)
+        sc.set_sleep_thresholds(id, 0, 0)
+        self.bodies.append(id)
+        self.objs.append(k)
+        self.radii.append(radius)
+        return len(self.bodies) - 1
+
+    def before[B: Body6](mut self, mut scene: ContactScene6[B], mut s: LbmContinuum, dt: Real, gravity: Vec3) raises:
+        var dtl = s.dt_lattice
+        for j in range(len(self.bodies)):
+            var id = self.bodies[j]
+            var pose = scene.pose(id)
+            var v = scene.velocity(id) * (dtl / self.dx)
+            var w = scene.angular_velocity(id) * dtl
+            s.lbm.move_sphere(self.objs[j], self._lat(pose.pos), v, w)
+
+    def after[B: Body6](mut self, mut scene: ContactScene6[B], mut s: LbmContinuum, dt: Real, gravity: Vec3) raises:
+        var dtl = s.dt_lattice
+        var sf = self.rho * self.dx * self.dx * self.dx * self.dx / (dtl * dtl)
+        var st = self.rho * self.dx * self.dx * self.dx * self.dx * self.dx / (dtl * dtl)
+        for j in range(len(self.bodies)):
+            var r = self.radii[j]
+            var vol = Real(4.0 / 3.0 * pi) * r * r * r
+            scene.add_force(self.bodies[j], s.lbm.obj_f[self.objs[j]] * sf - gravity * (self.rho * vol))
+            scene.add_torque(self.bodies[j], s.lbm.obj_t[self.objs[j]] * st)
