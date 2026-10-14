@@ -250,7 +250,7 @@
 | 17.26 | [接觸修改 / 單向平台](ROADMAP_HISTORY.md#1726-接觸修改--單向平台--wave-b) | ✅ | B | physics/contact6.mojo 用資料驅動的 ContactRule(不是 callback)提供 RULE_ONE_WAY 單向平台、RULE_CONVEYOR 輸送帶表面速度與 RULE_FRICTION 逐接觸摩擦覆寫,由 ContactScene6.add_contact_rule 註冊,並有 seam parity 測試(規則不匹配時與無規則逐位相同)。 |
 | 17.29 | [通用可斷裂關節](ROADMAP_HISTORY.md#1729-通用可斷裂關節--wave-b) | ✅ | B | ContactScene6.set_joint_break(j, force, torque) 對所有 Joint6 種類提供力 / 力矩閾值,有閾值時每子步取峰值負載(joints6.sample_loads)、步末 check_breaks 轉為 JOINT_BROKEN,斷裂事件經 scheduler.events.Channel 送達。 |
 | 17.31 | [物理 LOD / 模擬預算調度](ROADMAP_HISTORY.md#1731-物理-lod--模擬預算調度--wave-b) | ✅ | B | ContactScene6.freeze / unfreeze 以暫時切成 STATIC 並保留速度實作凍結,physics/lod.mojo 提供 DistanceLOD(距離 + 遲滯)與 SimBudget(依量測步進時間調 iters 再調 substeps),全場 LOD + 天花板預算與原解算器逐位相同。 |
-| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 🔶 | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
+| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | ✅ | B | 一 body 多形狀、質量性質聚合、配對分派、廣域 / 中域、快照 / 槽位 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | ✅ | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
@@ -345,8 +345,7 @@
 
 #### 17.44 複合形狀 — Wave B
 
-> **狀態**:🔶 大部分完成(2026-10-13:一 body 多凸子形狀、質量性質聚合 + 主軸、配對 / 網格 / SDF 分派、查詢、軟體粒子、快照、槽位 ✅;
-> 17.5 `FractureSet` 零件選走複合、球 / 膠囊 / 橢球子形狀的滾動錨點(現以 body 固定錨點,滾動會被摩擦拖慢,見 17.19)未做;CCD 跳過複合(屬 17.46))。
+> **狀態**:✅ 完成(2026-10-14:一 body 多凸子形狀、質量性質聚合 + 主軸、配對 / 網格 / SDF 分派、查詢、軟體粒子、快照、槽位、圓形子形狀滾動錨點、`FractureSet` 凹零件走複合;CCD 見 17.46;GPU 屬 17.17)。
 > **進度註(2026-10-13)**:
 > - **分派重構**:`ShapeDesc`(kind、`half`、hull 列)取代以 collider 索引讀形狀;`pair_manifold` → `shape_pair(ShapeDesc, Pose3, ShapeDesc, Pose3)`,
 >   `as_hull` / `hull_faces` / `ellipsoid_pair` 等皆有 `_d` 版;網格與 SDF 配對拆成逐形狀函式(`_mesh_pair_kid`、`_sdf_pair_kid`)。既有 golden 各段不變。
@@ -383,6 +382,16 @@
 > **交付**:接真路徑 —— `ContactScene6.add_compound(...)` 進 `step` / `step_soft`,並讓 17.5 `FractureSet` 的凹體零件可選走複合。普通:L 形體落地靜置高度與質心對解析;複合總質量 / 質心 / 主慣量對盒 + 球的手算值。整合:broadphase 兩條 seam(brute 與 BVH)逐位相同、island / 睡眠、快照往返逐位相同、sensor / 過濾、疊在 17.45 網格地面上。極端:單一子形狀(須與非複合逐位相同)、子形狀完全重合、零體積子形狀(raise)、1000 子形狀、子形狀位姿含非單位四元數(raise)、`remove_body` 後槽位重用不殘留舊子形狀。
 > **相依**:17.5(凸分解與多面體質量性質)、17.24 / 17.25(kinematic 與睡眠規則)、17.13(查詢)、17.46(CCD 對複合展開)、17.52(新形狀種類自動可作子形狀)。
 > **邊界**:子形狀僅限凸基元(box / sphere / capsule / hull);靜態 trimesh / heightfield 不作子形狀(關卡走 17.45)。凹體自動凸分解已由 17.5 交付,本條只接收分解結果。GPU 剛體 solver 的收集階段在 CPU(ROADMAP §17.17),複合在 CPU 展開成 manifold 即可,kernel 不改,交付時以 `test_gpu_contact` 的判準確認;GPU 本身歸 17.17。與 17.85 無重疊。
+
+> **進度(2026-10-14)**:
+> - **圓形子形狀的滾動錨點 ✅**:`make_contact` 由 feat 解出是複合的哪個子形狀接觸(對形狀 1 + a·1024 + b、對網格 k << 16 + 三角形),
+>   `round_core` / `round_reach` 用該子形狀的核心(球心、膠囊軸上的夾點,body 座標)與半徑。3 m/s 滾 2 s:雙球複合 2.0815 → 2.9999974、
+>   膠囊子形狀複合 2.1081 → 2.9999936 m/s(球 body 3.0)。橢球子形狀仍為固定錨點。
+> - **`FractureSet` 凹零件走複合 ✅**:`spawn_grouped` 把同一 Voronoi 種子在凹物體各凸零件中的格子合成一個複合 body(每格一個 hull 子形狀),
+>   取代各自成 hull 再以 `bond_overlapping` 焊接;碎片記錄其格子(kid 表),`bond_neighbors / bond_overlapping / anchor` 逐 kid 走(hull 碎片一個 kid,
+>   行為不變),複合碎片不能再切(raise),快照帶 kid 表。分解後的 L 板(36 格):27 個 body(9 個複合)vs 36 個 hull、質量 1199.9999 vs 1200.0、
+>   跨縫焊接 11 vs 23,靜止入睡、一個 island。`test_fracture` 87/87。
+> - **待辦**:無(CPU)。CCD 覆蓋複合見 17.46;GPU 屬 17.17。
 
 #### 17.47 關節庫補完(最大座標) — Wave B(承 9.1)
 
@@ -3390,7 +3399,7 @@
 | 17.41 | [繩索 / 纜線約束](ROADMAP_HISTORY.md#1741-繩索--纜線約束--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.42 | [LBM 風洞收尾(Phase 14 遺留併入)](ROADMAP_HISTORY.md#1742-lbm-風洞收尾phase-14-遺留併入--wave-b) | 軟體、布料、連續體與流體 | ✅ |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | ECS、排程、執行期與診斷 | 不排 |
-| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
+| 17.44 | [複合形狀](#1744-複合形狀--wave-b) | 剛體動力學、接觸與關節 | ✅ |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | ✅ |
