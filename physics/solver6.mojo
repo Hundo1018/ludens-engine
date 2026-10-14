@@ -3048,6 +3048,7 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wv(jt.axis_b)
         out.wv(jt.acc)
         out.wv(jt.acc_ang)
+        out.wf(jt.ratio)
     out.wi(len(sc.softs))
     for k in range(len(sc.softs)):
         out.wf(sc.softs[k].alpha)
@@ -3455,9 +3456,10 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         var axb = r.rv()
         var acc = r.rv()
         var acca = r.rv()
+        var ratio = r.rf()
         if a < 0 or a >= len(sc.bset.bodies) or b < 0 or b >= len(sc.bset.bodies):
             raise Error("physics.serialize: corrupt snapshot (joint body index out of range)")
-        sc.joints.append(Joint6(kind, a, b, la, lb, rest, axa, axb, acc, acca))
+        sc.joints.append(Joint6(kind, a, b, la, lb, rest, axa, axb, acc, acca, ratio))
         # break thresholds are read after the island labels (format 4)
         sc.break_force.append(Real.MAX)
         sc.break_torque.append(Real.MAX)

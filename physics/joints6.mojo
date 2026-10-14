@@ -20,6 +20,10 @@ comptime JOINT_WELD = 4  # ROADMAP 17.5: ball + full 3-axis angular lock (rigid 
 comptime JOINT_SLIDER = 5  # prismatic: free along axis_a, all else locked
 comptime JOINT_CONE_TWIST = 6  # ball + swing cone and twist range (axis_a / axis_b)
 comptime JOINT_ROPE = 7  # anchor distance within the ext's [lo, hi] only
+# ROADMAP 17.47, second slice:
+comptime JOINT_UNIVERSAL = 8  # ball + axis_a (in a) stays perpendicular to axis_b (in b)
+comptime JOINT_GEAR = 9  # ratio * (w_a . axis_a) + (w_b . axis_b) = 0, no anchors
+comptime JOINT_PULLEY = 10  # |p_a - g_a| + ratio |p_b - g_b| <= rest, pull only
 
 
 @fieldwise_init
@@ -38,26 +42,27 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
     var axis_b: Vec3
     var acc: Vec3  # accumulated linear impulse (distance uses acc[0])
     var acc_ang: Vec3  # accumulated angular impulse (hinge tangents)
+    var ratio: Real  # gear / pulley ratio (17.47); 1 for every other kind
 
     @staticmethod
     def ball(a: Int, b: Int, la: Vec3, lb: Vec3) -> Self:
         return Self(
             JOINT_BALL, a, b, la, lb, 0,
-            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
         )
 
     @staticmethod
     def distance(a: Int, b: Int, la: Vec3, lb: Vec3, rest: Real) -> Self:
         return Self(
             JOINT_DISTANCE, a, b, la, lb, rest,
-            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
         )
 
     @staticmethod
     def hinge(a: Int, b: Int, la: Vec3, lb: Vec3, axis: Vec3) -> Self:
         return Self(
             JOINT_HINGE, a, b, la, lb, 0,
-            axis, axis, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            axis, axis, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
         )
 
     @staticmethod
@@ -70,7 +75,7 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
         return Self(
             JOINT_WELD, a, b, la, lb, ref_rel.w,
             Vec3(ref_rel.x, ref_rel.y, ref_rel.z, 0), Vec3(0, 0, 1, 0),
-            Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
         )
 
     @staticmethod
@@ -80,7 +85,7 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
         `ContactScene6.add_joint` records the relative rotation to hold."""
         return Self(
             JOINT_SLIDER, a, b, la, lb, 0,
-            axis_a, axis_a, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            axis_a, axis_a, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
         )
 
     @staticmethod
@@ -90,7 +95,7 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
         (17.47; a shoulder or hip)."""
         return Self(
             JOINT_CONE_TWIST, a, b, la, lb, 0,
-            axis_a, axis_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            axis_a, axis_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
         )
 
     @staticmethod
@@ -99,7 +104,43 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
         limit is set on the joint's ext by `add_joint`)."""
         return Self(
             JOINT_ROPE, a, b, la, lb, max_len,
-            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
+            Vec3(0, 0, 1, 0), Vec3(0, 0, 1, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
+        )
+
+    @staticmethod
+    def universal(a: Int, b: Int, la: Vec3, lb: Vec3, axis_a: Vec3, axis_b: Vec3) -> Self:
+        """Cardan / Hooke joint (17.47): anchors coincide and `axis_a` (a's
+        frame) stays perpendicular to `axis_b` (b's frame) -- two rotational
+        freedoms, the cross's two shafts. Make it with the axes
+        perpendicular."""
+        return Self(
+            JOINT_UNIVERSAL, a, b, la, lb, 0,
+            axis_a, axis_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1,
+        )
+
+    @staticmethod
+    def gear(a: Int, b: Int, axis_a: Vec3, axis_b: Vec3, ratio: Real) -> Self:
+        """Gear coupling (17.47): ratio * (w_a . axis_a) + (w_b . axis_b) = 0
+        -- b turns `ratio` times as fast as a, the other way for ratio > 0
+        (two meshing spur gears; a negative ratio turns them the same way,
+        a belt). Each body keeps its own hinge to the frame; the gear adds
+        only this velocity row (no position term: tooth backlash is not
+        modelled)."""
+        return Self(
+            JOINT_GEAR, a, b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 0,
+            axis_a, axis_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), ratio,
+        )
+
+    @staticmethod
+    def pulley(a: Int, b: Int, la: Vec3, lb: Vec3, ground_a: Vec3, ground_b: Vec3, length: Real, ratio: Real) -> Self:
+        """Rope over two fixed pulleys at world points `ground_a` /
+        `ground_b` (17.47): |p_a - g_a| + ratio |p_b - g_b| <= length, the
+        rope only pulls. ratio 2 is a block and tackle: b moves half as far
+        and carries twice the tension. The ground points ride in the axis
+        fields."""
+        return Self(
+            JOINT_PULLEY, a, b, la, lb, length,
+            ground_a, ground_b, Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), ratio,
         )
 
     def ref_rotation(self) -> Quat:
@@ -179,6 +220,14 @@ def joint_sweep[B: Body6](
                 continue
             if island_filter != -2 and joint_island(bset, jt) != island_filter:
                 continue
+            if jt.kind == JOINT_GEAR:
+                _gear_row(bset, jt)
+                joints[c] = jt
+                continue
+            if jt.kind == JOINT_PULLEY:
+                _pulley_row(bset, jt, h, bias_rate, ms, isc, use_bias)
+                joints[c] = jt
+                continue
             var pwa = bset.bodies[jt.a].act(jt.la)
             var pwb = bset.bodies[jt.b].act(jt.lb)
             var gap = pwb - pwa
@@ -245,6 +294,8 @@ def joint_sweep[B: Body6](
                             wa = bset.bodies[jt.a].omega_world()
                         if bset.moves(jt.b):
                             wb2 = bset.bodies[jt.b].omega_world()
+                elif jt.kind == JOINT_UNIVERSAL:
+                    _universal_row(bset, jt, bias_rate, ms, isc, use_bias)
                 elif jt.kind == JOINT_WELD:
                     # angular lock about the three world axes. `er` is the
                     # rotation vector by which b leads its reference pose
@@ -282,6 +333,115 @@ def joint_sweep[B: Body6](
             joints[c] = jt
 
 
+@always_inline
+def _wdir[B: Body6](bset: BodySet[B], i: Int, v: Vec3) -> Vec3:
+    return bset.bodies[i].act(v) - bset.bodies[i].act(Vec3(0, 0, 0, 0))
+
+
+def _ang_k[B: Body6](bset: BodySet[B], i: Int, n: Vec3) -> Real:
+    return bset.bodies[i].angular_only_factor(n) if bset.is_dynamic(i) else Real(0)
+
+
+def _omega[B: Body6](bset: BodySet[B], i: Int) -> Vec3:
+    return bset.bodies[i].omega_world() if bset.moves(i) else Vec3(0, 0, 0, 0)
+
+
+def _universal_row[B: Body6](
+    mut bset: BodySet[B], mut jt: Joint6, bias_rate: Real, ms: Real, isc: Real, use_bias: Bool,
+):
+    """C = oa . ob = 0; dC/dt = (w_b - w_a) . (ob x oa)."""
+    var oa = _wdir(bset, jt.a, jt.axis_a)
+    var ob = _wdir(bset, jt.b, jt.axis_b)
+    var t = cross(ob, oa)
+    var tl = sqrt(dot(t, t))
+    if tl < 1e-9:
+        return  # axes parallel: the cross is folded flat, no defined row
+    t = t / tl
+    var den = _ang_k(bset, jt.a, t) + _ang_k(bset, jt.b, t)
+    if den <= 0:
+        return
+    var vr = dot(_omega(bset, jt.b) - _omega(bset, jt.a), t)
+    var bias = bias_rate * dot(oa, ob) / tl if use_bias else Real(0)
+    var acc_t = dot(jt.acc_ang, t)
+    var dl = -ms * (vr + bias) / den - isc * acc_t
+    # keep only the component along this row: the ball rows are linear
+    jt.acc_ang = t * (acc_t + dl)
+    if bset.is_dynamic(jt.a):
+        bset.bodies[jt.a].apply_angular_impulse(t * (-dl))
+    if bset.is_dynamic(jt.b):
+        bset.bodies[jt.b].apply_angular_impulse(t * dl)
+
+
+def _gear_row[B: Body6](mut bset: BodySet[B], mut jt: Joint6):
+    """ratio (w_a . oa) + (w_b . ob) = 0, solved rigidly (a velocity row has
+    no position error to soften). Impulse lambda: ratio oa lambda on a, ob
+    lambda on b; `acc_ang` holds ob lambda (b's torque, for loads)."""
+    var oa = _wdir(bset, jt.a, jt.axis_a)
+    var ob = _wdir(bset, jt.b, jt.axis_b)
+    var r = jt.ratio
+    var den = r * r * _ang_k(bset, jt.a, oa) + _ang_k(bset, jt.b, ob)
+    if den <= 0:
+        return
+    var cdot = r * dot(_omega(bset, jt.a), oa) + dot(_omega(bset, jt.b), ob)
+    var lam = dot(jt.acc_ang, ob)
+    var dl = -cdot / den
+    jt.acc_ang = ob * (lam + dl)
+    if bset.is_dynamic(jt.a):
+        bset.bodies[jt.a].apply_angular_impulse(oa * (r * dl))
+    if bset.is_dynamic(jt.b):
+        bset.bodies[jt.b].apply_angular_impulse(ob * dl)
+
+
+def _pulley_row[B: Body6](
+    mut bset: BodySet[B], mut jt: Joint6, h: Real, bias_rate: Real, ms: Real, isc: Real, use_bias: Bool,
+):
+    """C = |p_a - g_a| + ratio |p_b - g_b| - rest <= 0. Tension lambda >= 0
+    pulls a toward g_a and b toward g_b (times ratio); `acc` holds u_a
+    lambda (the rope tension on a, for loads)."""
+    var pa = bset.bodies[jt.a].act(jt.la)
+    var pb = bset.bodies[jt.b].act(jt.lb)
+    var da = pa - jt.axis_a
+    var db = pb - jt.axis_b
+    var la = sqrt(dot(da, da))
+    var lb = sqrt(dot(db, db))
+    if la < 1e-9 or lb < 1e-9:
+        return
+    var ua = da / la
+    var ub = db / lb
+    var r = jt.ratio
+    var ka = Real(0)
+    var kb = Real(0)
+    if bset.is_dynamic(jt.a):
+        ka = bset.bodies[jt.a].inv_mass() + bset.bodies[jt.a].angular_factor(pa - bset.bodies[jt.a].position(), ua)
+    if bset.is_dynamic(jt.b):
+        kb = bset.bodies[jt.b].inv_mass() + bset.bodies[jt.b].angular_factor(pb - bset.bodies[jt.b].position(), ub)
+    var den = ka + r * r * kb
+    if den <= 0:
+        return
+    var va = bset.bodies[jt.a].velocity_at(pa) if bset.moves(jt.a) else Vec3(0, 0, 0, 0)
+    var vb = bset.bodies[jt.b].velocity_at(pb) if bset.moves(jt.b) else Vec3(0, 0, 0, 0)
+    var cdot = dot(va, ua) + r * dot(vb, ub)
+    var c = la + r * lb - jt.rest
+    var bias = Real(0)
+    var m = Real(1)
+    var i = Real(0)
+    if c < 0:
+        bias = c / h  # slack: may close by at most -c this substep
+    elif use_bias:
+        bias = bias_rate * c
+        m = ms
+        i = isc
+    var lam = sqrt(dot(jt.acc, jt.acc))
+    var dl = m * (cdot + bias) / den - i * lam
+    var nl = max(lam + dl, Real(0))
+    dl = nl - lam
+    jt.acc = ua * nl
+    if bset.is_dynamic(jt.a):
+        bset.bodies[jt.a].apply_impulse(ua * (-dl), pa)
+    if bset.is_dynamic(jt.b):
+        bset.bodies[jt.b].apply_impulse(ub * (-r * dl), pb)
+
+
 def warm_start_joints[B: Body6](
     mut bset: BodySet[B], joints: List[Joint6], island_filter: Int
 ):
@@ -293,15 +453,39 @@ def warm_start_joints[B: Body6](
             continue
         if island_filter != -2 and joint_island(bset, jt) != island_filter:
             continue
+        if jt.kind == JOINT_GEAR:
+            var oa = _wdir(bset, jt.a, jt.axis_a)
+            var ob = _wdir(bset, jt.b, jt.axis_b)
+            var lam = dot(jt.acc_ang, ob)
+            if bset.is_dynamic(jt.a):
+                bset.bodies[jt.a].apply_angular_impulse(oa * (jt.ratio * lam))
+            if bset.is_dynamic(jt.b):
+                bset.bodies[jt.b].apply_angular_impulse(ob * lam)
+            continue
+        if jt.kind == JOINT_PULLEY:
+            var pa = bset.bodies[jt.a].act(jt.la)
+            var pb = bset.bodies[jt.b].act(jt.lb)
+            var da = pa - jt.axis_a
+            var db = pb - jt.axis_b
+            var la = sqrt(dot(da, da))
+            var lb = sqrt(dot(db, db))
+            if la < 1e-9 or lb < 1e-9:
+                continue
+            var lam = sqrt(dot(jt.acc, jt.acc))
+            if bset.is_dynamic(jt.a):
+                bset.bodies[jt.a].apply_impulse(da * (-lam / la), pa)
+            if bset.is_dynamic(jt.b):
+                bset.bodies[jt.b].apply_impulse(db * (-jt.ratio * lam / lb), pb)
+            continue
         var pwa = bset.bodies[jt.a].act(jt.la)
         var pwb = bset.bodies[jt.b].act(jt.lb)
         if bset.is_dynamic(jt.a):
             bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
-            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER:
+            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER or jt.kind == JOINT_UNIVERSAL:
                 bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
         if bset.is_dynamic(jt.b):
             bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
-            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER:
+            if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER or jt.kind == JOINT_UNIVERSAL:
                 bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
 
 
