@@ -21,7 +21,7 @@ the joint; the child pivot is at `pivot` in this link's frame.
 """
 
 from std.math import sqrt, cos, sin
-from geometry.vec import Real, Vec3, dot, cross
+from geometry.vec import Real, Vec3, dot, cross, tangent_basis
 from geometry.quat import Quat
 from geometry.motor import Motor3
 from numerics.dense import solve_dense, cholesky, cholesky_solve
@@ -742,6 +742,28 @@ struct Chain(Movable, Deinitable):
             return self.apply_impulse_chol(l, i, local, dir, target_dv)
         return self.apply_impulse_with(h, i, local, dir, target_dv)
 
+    def _friction(
+        mut self, h: List[Real], l: List[Real], chol: Bool, i: Int, local: Vec3,
+        t: Vec3, cap: Real, mut acc: Real,
+    ) raises:
+        """One tangent row of a Coulomb contact (17.51): the impulse that stops
+        sliding along `t`, with the accumulated total kept in [-cap, cap]."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, t)
+        var hinv_jt = cholesky_solve(l, j, n) if chol else solve_dense(h.copy(), j.copy(), n)
+        var w = Real(0)
+        var vt = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+            vt += j[k] * self.qd[k]
+        if w < 1e-12:
+            return
+        var na = min(max(acc - vt / w, -cap), cap)
+        var dl = na - acc
+        acc = na
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * dl
+
     def apply_impulse(
         mut self, i: Int, local: Vec3, dir: Vec3, target_dv: Real
     ) raises -> Real:
@@ -774,6 +796,7 @@ struct Chain(Movable, Deinitable):
         dt: Real,
         iters: Int = 8,
         factor: Bool = True,
+        mu: Real = 0,
     ) raises -> Int:
         """Sequential-impulse contact against a `collision.ColliderSet`, SPLIT
         into velocity and position.
@@ -781,6 +804,11 @@ struct Chain(Movable, Deinitable):
         `factor` (17.51): H is Cholesky-factored once per pass and every
         impulse reuses the factor (O(n^2) each); False keeps the dense
         elimination per impulse (O(n^3) each) -- the parity reference.
+
+        `mu` (17.51): Coulomb friction. Each touching contact accumulates its
+        normal impulse over the velocity iterations; two tangent rows then
+        stop the sliding with their totals kept within mu times it. 0 (the
+        default) skips them -- the frictionless contact it always was.
 
         Each contact is a material point (link `contacts[c]`, offset
         `locals[c]` in its frame). Where it touches the world is NOT decided
@@ -821,6 +849,9 @@ struct Chain(Movable, Deinitable):
         # than per contact per iteration
         var h1 = self.mass_matrix()
         var f1 = cholesky(h1, n) if factor else (List[Real](), False)
+        var acc_n = List[Real](length=len(contacts), fill=0)
+        var acc_t1 = List[Real](length=len(contacts), fill=0)
+        var acc_t2 = List[Real](length=len(contacts), fill=0)
         # --- pass 1: velocity only (physical impulses) ---------------------
         for _ in range(iters):
             for c in range(len(contacts)):
@@ -830,11 +861,14 @@ struct Chain(Movable, Deinitable):
                 if hit[0] < 0 or hit[1].dist > 0:
                     continue
                 var vn = self.point_velocity(i, locals[c], hit[1].normal)
-                if vn >= 0:
-                    continue  # already separating
-                _ = self._impulse(
-                    h1, f1[0], f1[1], i, locals[c], hit[1].normal, -(1 + restitution) * vn
-                )
+                if vn < 0:
+                    acc_n[c] += self._impulse(
+                        h1, f1[0], f1[1], i, locals[c], hit[1].normal, -(1 + restitution) * vn
+                    )
+                if mu > 0 and acc_n[c] > 0:
+                    var tb = tangent_basis(hit[1].normal)
+                    self._friction(h1, f1[0], f1[1], i, locals[c], tb[0], mu * acc_n[c], acc_t1[c])
+                    self._friction(h1, f1[0], f1[1], i, locals[c], tb[1], mu * acc_n[c], acc_t2[c])
 
         # --- pass 2: positional repair on a pseudo-velocity ----------------
         var saved = self.qd.copy()
