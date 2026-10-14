@@ -105,3 +105,4 @@ def dispatch_for[T: Task](d: Dispatch, mut task: T, n: Int, workers: Int = 0):
             parallelize(work, n, workers)
         else:
             parallelize(work, n)
+

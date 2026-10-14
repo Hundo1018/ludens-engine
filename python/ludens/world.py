@@ -223,6 +223,33 @@ class World:
         cap = len(buf) // 7
         return self._check(C.lib.ld_world_get_bodies(self._h, None, buf, cap))
 
+    def set_poses(self, bodies, poses):
+        """Write many poses in one C call: `bodies` a list of Body (or
+        handles), `poses` matching 7-tuples (position xyz, rotation xyzw)."""
+        n = len(bodies)
+        if len(poses) != n:
+            raise ValueError("set_poses: bodies and poses differ in length")
+        hs = (c_int64 * max(n, 1))(*[int(b.handle) if isinstance(b, Body) else int(b) for b in bodies])
+        ps = (c_float * (7 * max(n, 1)))(*[float(x) for p in poses for x in p])
+        return self._check(C.lib.ld_world_set_poses(self._h, hs, ps, n))
+
+    def set_poses_from(self, handles, buf, n):
+        """Bulk write from caller-owned ctypes arrays (no per-body Python
+        objects): handles c_int64[n], buf c_float[7 n]."""
+        return self._check(C.lib.ld_world_set_poses(self._h, handles, buf, int(n)))
+
+    def counters(self):
+        """{name: value} of the scene's diagnostic counters."""
+        n = C.lib.ld_counter_count()
+        out = (c_int64 * n)()
+        self._check(C.lib.ld_world_get_counters(self._h, out, n))
+        names = []
+        for i in range(n):
+            buf = ctypes.create_string_buffer(64)
+            C.lib.ld_counter_name(i, buf, 64)
+            names.append(buf.value.decode())
+        return dict(zip(names, list(out)))
+
     # -- queries
 
     def raycast(self, origin, direction, max_t=1e30):

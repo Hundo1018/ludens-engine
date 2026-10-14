@@ -65,6 +65,32 @@ def _l_spec() -> CompoundSpec:
     return sp^
 
 
+def _roll(kind: Int) raises -> Real:
+    """Speed after 2 s of rolling from 3 m/s: 0 a sphere body, 1 a compound
+    of two r 0.5 spheres on an axle along z, 2 a compound of one capsule
+    (r 0.5) lying along z."""
+    var sc = ContactScene6[QuatBody6]()
+    var f = sc.add(QuatBody6.at_rest(Vec3(0, -0.5, 0, 0), Inertia3.box(1, 50, 0.5, 50)), Vec3(50, 0.5, 50, 0), True)
+    _ = f
+    var id = sc.add_sphere(_body(Vec3(-5, 0.5, 0, 0)), 0.5, False)
+    if kind == 1:
+        var sp = CompoundSpec()
+        sp.sphere(0.5, Vec3(0, 0, 0.3, 0))
+        sp.sphere(0.5, Vec3(0, 0, -0.3, 0))
+        sc.remove_body(id)
+        id = sc.add_compound(_body(Vec3(-5, 0.5, 0, 0)), sp, 100, False)
+    elif kind == 2:
+        var sp = CompoundSpec()
+        sp.capsule(0.5, 0.4, Vec3(0, 0, 0, 0), Quat.from_axis_angle(Vec3(1, 0, 0, 0), 1.5707963))
+        sc.remove_body(id)
+        id = sc.add_compound(_body(Vec3(-5, 0.5, 0, 0)), sp, 100, False)
+    sc.set_sleep_thresholds(id, 0, 0)
+    sc.set_velocity(id, Vec3(3, 0, 0, 0), Vec3(0, 0, -6, 0))
+    for _ in range(120):
+        sc.step_soft(1.0 / 60.0, Vec3(0, -9.8, 0, 0))
+    return sc.velocity(id)[0]
+
+
 def main() raises:
     var s = Suite("compound")
 
@@ -263,4 +289,10 @@ def main() raises:
     var bv = bs.velocity(bi)
     print("  1000-sphere compound after 1 s: y", bs.pose(bi).pos[1], " speed", sqrt(dot(bv, bv)))
     s.check(sqrt(dot(bv, bv)) < 0.05 and bs.pose(bi).pos[1] > 0.4, "1000 children build and rest")
+    # ---- rolling round children (17.44): anchors follow the rolling surface ----
+    var roll_s = _roll(0)
+    var roll_c = _roll(1)
+    var roll_p = _roll(2)
+    print("  rolling at 3 m/s for 2 s on a 20 m floor: sphere body", roll_s, " two-sphere compound", roll_c, " capsule-child compound", roll_p, "m/s")
+    s.check(abs(roll_c - 3) < 0.03 and abs(roll_p - 3) < 0.03, "compounds with sphere / capsule children roll on without friction drag (within 1 %)")
     s.finish()

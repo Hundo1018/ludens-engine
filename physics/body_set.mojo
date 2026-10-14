@@ -135,6 +135,11 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     # only for pairs touching a flagged body (PhysX eNOTIFY_* per actor).
     var report: List[Bool]
     var any_report: Bool
+    # ROADMAP 17.46: per-body CCD mode (physics.ccd6 CCD_AUTO / CCD_OFF /
+    # CCD_BULLET); `any_bullet` turns the CCD stage on for the flagged
+    # bodies even when the step's cfg.ccd is off
+    var ccd_mode: List[UInt8]
+    var any_bullet: Bool
     # ROADMAP 17.50 contact model: per-body static friction (< 0 = same as
     # the kinetic `friction`), rolling and spin resistance (m: the torque
     # cap per unit normal force), and the scene's friction cone (0 pyramid,
@@ -182,6 +187,8 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.any_props = False
         self.report = List[Bool]()
         self.any_report = False
+        self.ccd_mode = List[UInt8]()
+        self.any_bullet = False
         self.static_friction = List[Real]()
         self.rolling = List[Real]()
         self.spinning = List[Real]()
@@ -239,6 +246,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
             self.sleep_lin[slot] = -1
             self.sleep_ang[slot] = -1
             self.report[slot] = False
+            self.ccd_mode[slot] = 0
             self.static_friction[slot] = -1
             self.rolling[slot] = 0
             self.spinning[slot] = 0
@@ -271,6 +279,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.sleep_lin.append(-1)
         self.sleep_ang.append(-1)
         self.report.append(False)
+        self.ccd_mode.append(0)
         self.static_friction.append(-1)
         self.rolling.append(0)
         self.spinning.append(0)

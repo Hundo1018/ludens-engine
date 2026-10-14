@@ -19,7 +19,7 @@ error ~0.005), baked at 24^3 with 0.5 padding (cell 0.13).
 from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import Real, Vec3, length, normalize, dot
-from geometry.sdf_grid import bake_sdf_grid, winding_number, closest_on_triangle
+from geometry.sdf_grid import bake_sdf_grid, bake_sdf_grid_bvh, winding_number, closest_on_triangle
 from scheduler.rng import SplitMix64
 
 
@@ -117,4 +117,19 @@ def main() raises:
     var w = winding_number(hemi[0], hemi[1], Vec3(0, 0, 0, 0))
     print("  open hemisphere winding at its centre", w)
     s.check(abs(w - 0.5) < 0.02, "open hemisphere: winding number ~0.5 at the centre")
+    # ---- BVH bake == brute bake (ROADMAP 17.45) ----
+    var shapes = List[Int]()
+    var same_all = True
+    for which in range(3):
+        var mesh = _sphere_mesh(3, which == 1)
+        if which == 2:
+            mesh = _sphere_mesh(2)
+        var gb = bake_sdf_grid(mesh[0], mesh[1], 20, 0.5)
+        var gv = bake_sdf_grid_bvh(mesh[0], mesh[1], 20, 0.5)
+        for c in range(len(gb.values)):
+            if gb.values[c] != gv.values[c]:
+                same_all = False
+        shapes.append(len(mesh[1]) // 3)
+    print("  BVH bake vs brute, res 20: closed 512-tri sphere, open 256-tri hemisphere, 128-tri sphere: identical", same_all)
+    s.check(same_all, "BVH bake == brute bake, every node (closed and open meshes)")
     s.finish()

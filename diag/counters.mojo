@@ -111,7 +111,17 @@ comptime CONTINUUM_ESCAPED: Int = 22
 the grid and removed them (ROADMAP 17.55); before, they were skipped by
 P2G / G2P forever without a count."""
 
-comptime COUNT: Int = 23
+comptime OUTBOX_DROPPED: Int = 23
+"""`diag.outbox.Outbox` was full and dropped the newest record (ROADMAP
+17.73): the host drained it too slowly or the capacity is too small."""
+
+comptime COUNT: Int = 24
+
+
+def counter_name(id: Int) -> String:
+    """Public name of counter `id` (what `dump` prints), for hosts reading
+    counters across the C boundary (ROADMAP 17.78)."""
+    return _name(id)
 
 
 def _name(id: Int) -> String:
@@ -161,6 +171,8 @@ def _name(id: Int) -> String:
         return "continuum_nan"
     elif id == CONTINUUM_ESCAPED:
         return "continuum_escaped"
+    elif id == OUTBOX_DROPPED:
+        return "outbox_dropped"
     else:
         return "counter_" + String(id)
 

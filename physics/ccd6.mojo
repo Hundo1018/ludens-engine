@@ -20,7 +20,7 @@ from collision.collider_set import (
     SHAPE_SDF,
     SHAPE_COMPOUND,
 )
-from collision.world_query import desc_distance, kid_distance
+from collision.world_query import desc_distance, kid_distance, shape_distance, QueryShape
 from spatial.bvh import BVH
 from collision.toi import swept_box_toi
 from .rigid6 import Body6
@@ -29,6 +29,11 @@ from .body_set import BodySet
 
 comptime _CA_TOL: Real = 0.005  # stop conservative advancement this far from contact
 comptime _CA_ITERS = 32
+
+
+comptime CCD_AUTO = 0  # swept when the step's cfg.ccd is on (the default)
+comptime CCD_OFF = 1  # never clamped (still an obstacle for others)
+comptime CCD_BULLET = 2  # always swept, even with cfg.ccd off, every candidate
 
 
 def _is_box_like(k: Int) -> Bool:
@@ -71,6 +76,34 @@ def _dist_at[B: Body6](
     var nrm = Vec3(0, 1, 0, 0)
     var wa = pi.position
     var wb = pi.position
+    if cs.shape[j] == SHAPE_SDF:
+        # 17.46: each child's core points (+ radius) sampled in the grid
+        # (`world_query.shape_distance`): exact for a sphere / capsule core,
+        # the vertex distance for a box or hull -- a convex shape meets a
+        # locally flat surface first at a vertex
+        var pj = _pose_at(bset, j, t, h)
+        for a in range(cs.kid_count(i)):
+            var da = cs.kid(i, a)
+            var pa = cs.kid_pose(i, a, pi)
+            var pts = List[Vec3]()
+            var rad = Real(0)
+            if da.kind == SHAPE_HULL:
+                var poly = cs.hull_world_d(da, pa)
+                for v in range(len(poly.points)):
+                    pts.append(poly.points[v])
+            elif da.kind == SHAPE_SPHERE or da.kind == SHAPE_CAPSULE:
+                var core = QueryShape(da.kind, da.half, List[Vec3]()).core(pa)
+                pts = core[0].copy()
+                rad = core[1]
+            else:  # box; an ellipsoid by its box
+                pts = QueryShape.box(da.half).core(pa)[0].copy()
+            var r = shape_distance(cs, j, pj, pts, rad)[0]
+            if r.dist < best:
+                best = r.dist
+                nrm = r.normal
+                wa = r.pa
+                wb = r.pb
+        return (best, nrm, wa, wb)
     if _is_static_mesh(cs.shape[j]):
         for a in range(cs.kid_count(i)):
             var da = cs.kid(i, a)
@@ -146,7 +179,7 @@ def ca_fraction[B: Body6](bset: BodySet[B], cs: ColliderSet, i: Int, j: Int, h: 
 
 
 def ccd_advance[B: Body6](
-    mut bset: BodySet[B], colliders: ColliderSet, h: Real
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool = True
 ):
     """Swept/TOI pose advance (second-stage CCD, Jolt LinearCast
     direction): a body whose relative travel this substep could jump the
@@ -164,28 +197,71 @@ def ccd_advance[B: Body6](
     - any pair with a hull, ellipsoid, compound or static mesh uses
       conservative advancement on the exact convex distance (`ca_fraction`,
       angular motion bounded by |w| r).
-    SDF colliders are still skipped. Candidates come from a BVH over every
+    An SDF collider (static) is met through the grid distance of the mover's
+    core points (17.46, `_dist_at`). Candidates come from a BVH over every
     body's swept box (its box at the start and at the end of the substep,
     grown by its rotation radius) instead of the all-pairs loop.
     `should_collide` / sensors are consulted, so a filtered or sensor pair
-    is never clamped (17.0f / F4c)."""
+    is never clamped (17.0f / F4c).
+
+    Per-body modes (17.46, `BodySet.ccd_mode`): CCD_OFF bodies are never
+    clamped; CCD_BULLET bodies are swept even when `all_bodies` is False
+    (the step's cfg.ccd off) and against every candidate, without the
+    "cannot jump the thinnest feature" shortcut."""
     var n = len(bset.bodies)
-    var frac = List[Real]()
-    var fast = List[Bool]()
-    var any_fast = False
+    var all = List[Int](capacity=n)
     for i in range(n):
-        frac.append(1)
+        all.append(i)
+    _ccd_core(bset, colliders, h, all_bodies, all, all)
+
+
+def ccd_advance_island[B: Body6](
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool,
+    members: List[Int], mlo: Int, mhi: Int,
+):
+    """`ccd_advance` for one island of the island-parallel step (17.46):
+    only the island's members move, and their candidates are the island's
+    members plus the static bodies -- static poses never change during the
+    step, so islands running in parallel read nothing another island
+    writes. A pair from two islands has no contact this step (a speculative
+    contact would have joined the islands), so it is not swept. For a body
+    against static geometry the result is the serial `ccd_advance`'s."""
+    var movers = List[Int](capacity=mhi - mlo)
+    for m in range(mlo, mhi):
+        movers.append(members[m])
+    var pool = movers.copy()
+    for j in range(len(bset.bodies)):
+        if bset.is_static(j) and not bset.is_removed(j):
+            pool.append(j)
+    sort(pool)
+    _ccd_core(bset, colliders, h, all_bodies, movers, pool)
+
+
+def _ccd_core[B: Body6](
+    mut bset: BodySet[B], colliders: ColliderSet, h: Real, all_bodies: Bool,
+    movers: List[Int], pool: List[Int],
+):
+    """The body of `ccd_advance`: clamp fractions for `movers` against the
+    candidates in `pool` (ascending), then advance the movers' poses."""
+    var n = len(bset.bodies)
+    var frac = List[Real](length=n, fill=1)
+    var fast = List[Bool](length=n, fill=False)
+    var any_fast = False
+    for i in movers:
         var f = False
-        if not bset.inactive(i) and colliders.shape[i] != SHAPE_SDF and not _is_static_mesh(colliders.shape[i]):
+        var mode = Int(bset.ccd_mode[i])
+        var wanted = mode == CCD_BULLET or (all_bodies and mode != CCD_OFF)
+        if wanted and not bset.inactive(i) and colliders.shape[i] != SHAPE_SDF and not _is_static_mesh(colliders.shape[i]):
             var vi = bset.bodies[i].linear_velocity()
             var spin = length(bset.bodies[i].omega_world()) * length(colliders.half[i]) * h
             f = dot(vi, vi) * h * h >= 1e-12 or spin * spin >= 1e-12
-        fast.append(f)
+        fast[i] = f
         any_fast = any_fast or f
     if any_fast:
-        var boxes = List[AABB[3]](capacity=n)
-        var ids = List[Int](capacity=n)
-        for j in range(n):
+        var boxes = List[AABB[3]](capacity=len(pool))
+        var ids = List[Int](capacity=len(pool))
+        var box_of = List[Int](length=n, fill=-1)
+        for j in pool:
             var b0 = colliders.fat_aabb(j, bset.pose3(j), Vec3(0, 0, 0, 0), 0)
             if not bset.inactive(j) and not _is_static_mesh(colliders.shape[j]) and colliders.shape[j] != SHAPE_SDF:
                 var hj = colliders.half[j]
@@ -195,17 +271,19 @@ def ccd_advance[B: Body6](
                 var lo = Vec3(min(b0.min[0], b0.min[0] + d[0]), min(b0.min[1], b0.min[1] + d[1]), min(b0.min[2], b0.min[2] + d[2]), 0)
                 var hi = Vec3(max(b0.max[0], b0.max[0] + d[0]), max(b0.max[1], b0.max[1] + d[1]), max(b0.max[2], b0.max[2] + d[2]), 0)
                 b0 = AABB[3](lo - Vec3(grow, grow, grow, 0), hi + Vec3(grow, grow, grow, 0))
+            box_of[j] = len(boxes)
             boxes.append(b0)
             ids.append(j)
         var bvh = BVH[3]()
         bvh.build_boxes(boxes, ids)
-        for i in range(n):
+        for i in movers:
             if not fast[i]:
                 continue
             var ki = colliders.shape[i]
+            var bullet = bset.ccd_mode[i] == CCD_BULLET
             var vi = bset.bodies[i].linear_velocity()
             var cand = List[Int]()
-            bvh.query_region(boxes[i], cand)
+            bvh.query_region(boxes[box_of[i]], cand)
             for c in range(len(cand)):
                 var j = cand[c]
                 if j == i:
@@ -220,8 +298,6 @@ def ccd_advance[B: Body6](
                     # -- CCD must agree.
                     continue
                 var kj = colliders.shape[j]
-                if kj == SHAPE_SDF:
-                    continue
                 var vj = Vec3(0, 0, 0, 0)
                 if not bset.inactive(j):
                     vj = bset.bodies[j].linear_velocity()
@@ -232,7 +308,7 @@ def ccd_advance[B: Body6](
                 if not _is_static_mesh(kj):
                     thin = min(thin, min(hb[0], min(hb[1], hb[2])))
                 if _is_box_like(ki) and _is_box_like(kj):
-                    if dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
+                    if not bullet and dot(rel, rel) <= (thin * 0.5) * (thin * 0.5):
                         continue  # cannot jump the pair's thinnest feature
                     var r = swept_box_toi(
                         bset.bodies[j].position(),
@@ -248,12 +324,12 @@ def ccd_advance[B: Body6](
                 else:
                     # linear travel or the tip's turn this substep
                     var spin = length(bset.bodies[i].omega_world()) * length(ha) * h
-                    if dot(rel, rel) + spin * spin <= (thin * 0.5) * (thin * 0.5):
+                    if not bullet and dot(rel, rel) + spin * spin <= (thin * 0.5) * (thin * 0.5):
                         continue
                     var f = ca_fraction(bset, colliders, i, j, h)
                     if f < frac[i]:
                         frac[i] = f
-    for i in range(n):
+    for i in movers:
         if bset.inactive(i):
             continue
         var f = frac[i]

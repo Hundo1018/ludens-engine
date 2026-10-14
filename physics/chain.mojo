@@ -20,11 +20,11 @@ joint i rotates about `axis` (unit, link frame); the link frame origin sits ON
 the joint; the child pivot is at `pivot` in this link's frame.
 """
 
-from std.math import sqrt, cos, sin
-from geometry.vec import Real, Vec3, dot, cross
+from std.math import sqrt, cos, sin, atan2
+from geometry.vec import Real, Vec3, dot, cross, tangent_basis, length
 from geometry.quat import Quat
 from geometry.motor import Motor3
-from numerics.dense import solve_dense
+from numerics.dense import solve_dense, cholesky, cholesky_solve
 from .state_io import StateWriter, StateReader
 from collision.collider_set import ColliderSet, Pose3
 from collision.world_query import QueryFilter, nearest_surface
@@ -96,6 +96,22 @@ struct SpInertia(Copyable, ImplicitlyCopyable, Movable):
 
 comptime JOINT_REVOLUTE = 0
 comptime JOINT_PRISMATIC = 1
+
+
+@fieldwise_init
+struct BallLimit(Copyable, ImplicitlyCopyable, Movable):
+    """Swing-twist limit of one ball joint (17.51): the body axis `axis`
+    stays within `swing` (rad) of `ref_dir` (a parent-frame direction, the
+    axis where the limit was set; swing < 0 = no cone), and the twist about
+    it relative to `ref_rot` stays in [twist_lo, twist_hi] (lo > hi = no
+    twist limit)."""
+
+    var axis: Vec3
+    var ref_dir: Vec3
+    var ref_rot: Quat
+    var swing: Real
+    var twist_lo: Real
+    var twist_hi: Real
 
 
 @fieldwise_init
@@ -199,6 +215,17 @@ struct Chain(Movable, Deinitable):
     var rest: List[Real]
     var armature: List[Real]
     var friction: List[Real]
+    # ROADMAP 17.51 ball joints: a ball is three revolute DOFs about the
+    # link's own x / y / z on three consecutive links (two massless), and
+    # its accumulated orientation lives in `ball_rot` of the first; after
+    # every integration `fold_balls` moves the three small angles into it,
+    # sets them back to 0 and turns their rates into the body angular
+    # velocity, so the Euler-angle singularity (middle angle +-pi/2) is
+    # never approached. `balls` lists the first link of each.
+    var ball_head: List[Bool]
+    var ball_rot: List[Quat]
+    var balls: List[Int]
+    var ball_lim: List[BallLimit]  # parallel to `balls`
 
     def __init__(out self):
         self.links = List[ChainLink]()
@@ -214,6 +241,10 @@ struct Chain(Movable, Deinitable):
         self.rest = List[Real]()
         self.armature = List[Real]()
         self.friction = List[Real]()
+        self.ball_head = List[Bool]()
+        self.ball_rot = List[Quat]()
+        self.balls = List[Int]()
+        self.ball_lim = List[BallLimit]()
 
     def _push_props(mut self):
         self.damping.append(0)
@@ -221,6 +252,233 @@ struct Chain(Movable, Deinitable):
         self.rest.append(0)
         self.armature.append(0)
         self.friction.append(0)
+        self.ball_head.append(False)
+        self.ball_rot.append(Quat.identity())
+
+    def add_ball(
+        mut self, p: Int, pivot: Vec3, com: Vec3, mass: Real, i_diag: Vec3
+    ) raises -> Int:
+        """A ball (spherical, 3-DOF) joint under link `p` (-1 = root) at
+        `pivot` in the parent frame, carrying a link of `mass`, `com` and
+        principal inertia `i_diag` (17.51). Adds three links (x, y, z
+        rotation; the body is the third) and returns the body's index; its
+        three DOFs are the body angular velocity components about its own
+        axes. Mass must be > 0."""
+        if not (mass > 0):
+            raise Error("Chain.add_ball: mass must be > 0")
+        var z0 = Vec3(0, 0, 0, 0)
+        var hx = self.add_link_to(p, ChainLink.revolute(Vec3(1, 0, 0, 0), pivot, z0, 0, z0))
+        var hy = self.add_link_to(hx, ChainLink.revolute(Vec3(0, 1, 0, 0), z0, z0, 0, z0))
+        var hz = self.add_link_to(hy, ChainLink.revolute(Vec3(0, 0, 1, 0), z0, com, mass, i_diag))
+        self.ball_head[hx] = True
+        self.balls.append(hx)
+        self.ball_lim.append(BallLimit(Vec3(0, 1, 0, 0), Vec3(0, 1, 0, 0), Quat.identity(), -1, 1, -1))
+        return hz
+
+    def set_ball_limits(
+        mut self, body: Int, axis: Vec3, swing: Real, twist_lo: Real = 1, twist_hi: Real = -1
+    ) raises:
+        """Swing-twist limit on the ball whose body link is `body` (17.51):
+        the body-frame `axis` stays within `swing` rad of where it points
+        now (a cone; swing < 0 removes it), and the twist about it stays in
+        [twist_lo, twist_hi] rad from the current twist (lo > hi: none)."""
+        var k = -1
+        for b in range(len(self.balls)):
+            if self.balls[b] + 2 == body:
+                k = b
+        if k < 0:
+            raise Error("Chain.set_ball_limits: link is not a ball joint's body")
+        var al = length(axis)
+        if not (al > 0):
+            raise Error("Chain.set_ball_limits: axis must be non-zero")
+        if swing > Real(3.14159265):
+            raise Error("Chain.set_ball_limits: swing must be <= pi")
+        var a = axis / al
+        var r = self.ball_orientation(body)
+        self.ball_lim[k] = BallLimit(a, r.rotate(a), r, swing, twist_lo, twist_hi)
+
+    def ball_swing_twist(self, body: Int) raises -> Tuple[Real, Real]:
+        """(swing, twist) of a limited ball's body relative to where its limit
+        was set (rad)."""
+        for b in range(len(self.balls)):
+            if self.balls[b] + 2 == body:
+                return self._swing_twist(b)
+        raise Error("Chain.ball_swing_twist: link is not a ball joint's body")
+
+    def _swing_twist(self, b: Int) -> Tuple[Real, Real]:
+        ref lim = self.ball_lim[b]
+        var r = self.ball_orientation(self.balls[b] + 2)
+        var ra = r.rotate(lim.axis)
+        var c = min(max(dot(ra, lim.ref_dir), Real(-1)), Real(1))
+        var swing = atan2(length(cross(lim.ref_dir, ra)), c)
+        var rel = lim.ref_rot.conjugate() * r
+        var tw = 2 * atan2(dot(Vec3(rel.x, rel.y, rel.z, 0), lim.axis), rel.w)
+        if tw > Real(3.14159265):
+            tw -= Real(6.2831853)
+        elif tw < Real(-3.14159265):
+            tw += Real(6.2831853)
+        return (swing, tw)
+
+    def _ball_rows(self, b: Int) -> Tuple[List[Real], List[Real]]:
+        """Joint-space rows of ball `b`'s swing and twist rates: the swing
+        axis and the twist axis in the body frame, on the ball's DOFs."""
+        var n = len(self.links)
+        ref lim = self.ball_lim[b]
+        var h = self.balls[b]
+        var r = self.ball_orientation(h + 2)
+        var ra = r.rotate(lim.axis)
+        var sw = cross(lim.ref_dir, ra)
+        var sl = length(sw)
+        var nb = r.conjugate().rotate(sw / sl) if sl > 1e-9 else Vec3(0, 0, 0, 0)
+        var js = List[Real](length=n, fill=0)
+        var jt = List[Real](length=n, fill=0)
+        for k in range(3):
+            js[h + k] = nb[k]
+            jt[h + k] = lim.axis[k]
+        return (js^, jt^)
+
+    def _row_impulse(mut self, h: List[Real], j: List[Real], target_dv: Real) raises:
+        var n = len(self.links)
+        var hinv = solve_dense(h.copy(), j.copy(), n)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv[k]
+        if w < 1e-12:
+            return
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv[k] * lam
+
+    def _row_rate(self, j: List[Real]) -> Real:
+        var v = Real(0)
+        for k in range(len(j)):
+            v += j[k] * self.qd[k]
+        return v
+
+    def _ball_limit_pass(mut self, h: List[Real], dt: Real, position: Bool) raises:
+        """One sweep over the limited balls: velocity (stop motion into a
+        violated bound) or position (pseudo-velocity back to the bound)."""
+        for b in range(len(self.balls)):
+            var lim = self.ball_lim[b]  # a copy: the impulses below mutate self
+            var st = self._swing_twist(b)
+            var rows = self._ball_rows(b)
+            if lim.swing >= 0 and st[0] > lim.swing:
+                var rate = self._row_rate(rows[0])
+                if position:
+                    self._row_impulse(h, rows[0], (lim.swing - st[0]) / dt - rate)
+                elif rate > 0:
+                    self._row_impulse(h, rows[0], -rate)
+            if lim.twist_lo <= lim.twist_hi:
+                var rate_t = self._row_rate(rows[1])
+                if st[1] > lim.twist_hi:
+                    if position:
+                        self._row_impulse(h, rows[1], (lim.twist_hi - st[1]) / dt - rate_t)
+                    elif rate_t > 0:
+                        self._row_impulse(h, rows[1], -rate_t)
+                elif st[1] < lim.twist_lo:
+                    if position:
+                        self._row_impulse(h, rows[1], (lim.twist_lo - st[1]) / dt - rate_t)
+                    elif rate_t < 0:
+                        self._row_impulse(h, rows[1], -rate_t)
+
+    def _balls_violated(self) -> Int:
+        var c = 0
+        for b in range(len(self.balls)):
+            ref lim = self.ball_lim[b]
+            var st = self._swing_twist(b)
+            if lim.swing >= 0 and st[0] > lim.swing:
+                c += 1
+            if lim.twist_lo <= lim.twist_hi and (st[1] > lim.twist_hi or st[1] < lim.twist_lo):
+                c += 1
+        return c
+
+    def add_universal(
+        mut self, p: Int, pivot: Vec3, axis1: Vec3, axis2: Vec3, com: Vec3,
+        mass: Real, i_diag: Vec3,
+    ) raises -> Int:
+        """A universal (Cardan) joint under link `p` (17.51): rotation about
+        `axis1` (parent frame) then about `axis2` (perpendicular to it) --
+        two revolute links, the first massless. Returns the body's index.
+        Its singular pose (the second angle at +-pi/2, where the first and
+        a body axis would align) is the joint's own: a real cross locks
+        there too."""
+        if not (mass > 0):
+            raise Error("Chain.add_universal: mass must be > 0")
+        if abs(dot(axis1, axis2)) > Real(1e-4) * length(axis1) * length(axis2):
+            raise Error("Chain.add_universal: axes must be perpendicular")
+        var z0 = Vec3(0, 0, 0, 0)
+        var a = self.add_link_to(p, ChainLink.revolute(axis1 / length(axis1), pivot, z0, 0, z0))
+        return self.add_link_to(a, ChainLink.revolute(axis2 / length(axis2), z0, com, mass, i_diag))
+
+    def add_planar(
+        mut self, p: Int, pivot: Vec3, u: Vec3, v: Vec3, com: Vec3, mass: Real,
+        i_diag: Vec3,
+    ) raises -> Int:
+        """A planar joint under link `p` (17.51): translation along `u` and
+        `v` (perpendicular, parent frame) and rotation about u x v -- two
+        massless prismatic links and a revolute. Returns the body's index."""
+        if not (mass > 0):
+            raise Error("Chain.add_planar: mass must be > 0")
+        if abs(dot(u, v)) > Real(1e-4) * length(u) * length(v):
+            raise Error("Chain.add_planar: u and v must be perpendicular")
+        var z0 = Vec3(0, 0, 0, 0)
+        var un = u / length(u)
+        var vn = v / length(v)
+        var a = self.add_link_to(p, ChainLink.prismatic(un, pivot, z0, 0, z0))
+        var b = self.add_link_to(a, ChainLink.prismatic(vn, z0, z0, 0, z0))
+        return self.add_link_to(b, ChainLink.revolute(cross(un, vn), z0, com, mass, i_diag))
+
+    def add_free(
+        mut self, p: Int, pivot: Vec3, com: Vec3, mass: Real, i_diag: Vec3
+    ) raises -> Int:
+        """A free (6-DOF) joint under link `p` (17.51): translation along the
+        parent's x / y / z (three massless prismatic links) and a ball
+        (`add_ball`) for the rotation. Returns the body's index; its DOFs
+        are the origin's velocity in the parent frame, then the body
+        angular velocity."""
+        if not (mass > 0):
+            raise Error("Chain.add_free: mass must be > 0")
+        var z0 = Vec3(0, 0, 0, 0)
+        var a = self.add_link_to(p, ChainLink.prismatic(Vec3(1, 0, 0, 0), pivot, z0, 0, z0))
+        var b = self.add_link_to(a, ChainLink.prismatic(Vec3(0, 1, 0, 0), z0, z0, 0, z0))
+        var c = self.add_link_to(b, ChainLink.prismatic(Vec3(0, 0, 1, 0), z0, z0, 0, z0))
+        return self.add_ball(c, z0, com, mass, i_diag)
+
+    def ball_orientation(self, body: Int) -> Quat:
+        """Parent -> body rotation of the ball whose body link is `body`."""
+        var h = body - 2
+        return (
+            self.ball_rot[h]
+            * Quat.from_axis_angle(self.links[h].axis, self.q[h])
+            * Quat.from_axis_angle(self.links[h + 1].axis, self.q[h + 1])
+            * Quat.from_axis_angle(self.links[h + 2].axis, self.q[h + 2])
+        )
+
+    def fold_balls(mut self):
+        """Move each ball's three small angles into its quaternion and turn
+        their rates into the body angular velocity (body frame): the rates
+        of the x, y, z rotations at angles (a, b, c) give the relative
+        angular velocity Rz^T Ry^T e_x a' + Rz^T e_y b' + e_z c' in the body
+        frame, which are the new three DOFs once the angles are 0. Runs
+        after every integration; a no-op without balls."""
+        for h in self.balls:
+            var rx = Quat.from_axis_angle(Vec3(1, 0, 0, 0), self.q[h])
+            var ry = Quat.from_axis_angle(Vec3(0, 1, 0, 0), self.q[h + 1])
+            var rz = Quat.from_axis_angle(Vec3(0, 0, 1, 0), self.q[h + 2])
+            var r = rx * ry * rz
+            var w0 = (
+                Vec3(1, 0, 0, 0) * self.qd[h]
+                + rx.rotate(Vec3(0, 1, 0, 0)) * self.qd[h + 1]
+                + (rx * ry).rotate(Vec3(0, 0, 1, 0)) * self.qd[h + 2]
+            )
+            var w = r.conjugate().rotate(w0)
+            self.ball_rot[h] = (self.ball_rot[h] * r).normalized()
+            self.q[h] = 0
+            self.q[h + 1] = 0
+            self.q[h + 2] = 0
+            self.qd[h] = w[0]
+            self.qd[h + 1] = w[1]
+            self.qd[h + 2] = w[2]
 
     def set_joint_props(
         mut self, i: Int, damping: Real = 0, stiffness: Real = 0, rest: Real = 0,
@@ -233,6 +491,8 @@ struct Chain(Movable, Deinitable):
             raise Error("Chain.set_joint_props: joint index out of range")
         if not (damping >= 0 and stiffness >= 0 and armature >= 0 and friction >= 0):
             raise Error("Chain.set_joint_props: damping, stiffness, armature, friction must be >= 0")
+        if stiffness > 0 and (self.ball_head[i] or (i >= 1 and self.ball_head[i - 1]) or (i >= 2 and self.ball_head[i - 2])):
+            raise Error("Chain.set_joint_props: a ball joint's DOFs have no fixed rest angle (fold_balls resets them); no stiffness")
         self.damping[i] = damping
         self.stiffness[i] = stiffness
         self.rest[i] = rest
@@ -294,6 +554,8 @@ struct Chain(Movable, Deinitable):
         """Parent -> link rotation. A prismatic joint does not rotate."""
         if self.links[i].kind == JOINT_PRISMATIC:
             return Quat.identity()
+        if self.ball_head[i]:
+            return self.ball_rot[i] * Quat.from_axis_angle(self.links[i].axis, self.q[i])
         return Quat.from_axis_angle(self.links[i].axis, self.q[i])
 
     def _joint_offset(self, i: Int) -> Vec3:
@@ -716,6 +978,93 @@ struct Chain(Movable, Deinitable):
             self.qd[k] += hinv_jt[k] * lam
         return lam
 
+    def apply_impulse_chol(
+        mut self, l: List[Real], i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    ) raises -> Real:
+        """`apply_impulse_with` from the Cholesky factor of H (17.51): H is
+        factored once per contact pass, each impulse is then two O(n^2)
+        triangular solves instead of an O(n^3) elimination."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, dir)
+        var hinv_jt = cholesky_solve(l, j, n)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+        if w < 1e-12:
+            return 0
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * lam
+        return lam
+
+    def hinv_aba(mut self, tau: List[Real]) raises -> List[Real]:
+        """H^-1 tau in O(n) (17.51): with the joint rates and the root
+        motion zeroed and no gravity the bias term vanishes, so the
+        articulated-body algorithm's acceleration IS H^-1 tau -- no mass
+        matrix, no factorisation. State is restored before returning."""
+        var saved = self.qd.copy()
+        var bw = self._base_w
+        var bv = self._base_v
+        var bwa = self._base_wa
+        var bva = self._base_va
+        for k in range(len(self.qd)):
+            self.qd[k] = 0
+        var z = Vec3(0, 0, 0, 0)
+        self.set_base_motion(z, z, z, z)
+        var out = self.dynamics_aba(tau, z)
+        self.qd = saved^
+        self.set_base_motion(bw, bv, bwa, bva)
+        return out^
+
+    def apply_impulse_aba(
+        mut self, i: Int, local: Vec3, dir: Vec3, target_dv: Real
+    ) raises -> Real:
+        """`apply_impulse` with H^-1 J^T from `hinv_aba` (O(n))."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, dir)
+        var hinv_jt = self.hinv_aba(j)
+        var w = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+        if w < 1e-12:
+            return 0
+        var lam = target_dv / w
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * lam
+        return lam
+
+    def _impulse(
+        mut self, h: List[Real], l: List[Real], chol: Bool, i: Int, local: Vec3, dir: Vec3, target_dv: Real,
+        aba: Bool = False,
+    ) raises -> Real:
+        if aba:
+            return self.apply_impulse_aba(i, local, dir, target_dv)
+        if chol:
+            return self.apply_impulse_chol(l, i, local, dir, target_dv)
+        return self.apply_impulse_with(h, i, local, dir, target_dv)
+
+    def _friction(
+        mut self, h: List[Real], l: List[Real], chol: Bool, i: Int, local: Vec3,
+        t: Vec3, cap: Real, mut acc: Real,
+    ) raises:
+        """One tangent row of a Coulomb contact (17.51): the impulse that stops
+        sliding along `t`, with the accumulated total kept in [-cap, cap]."""
+        var n = len(self.links)
+        var j = self.point_jacobian(i, local, t)
+        var hinv_jt = cholesky_solve(l, j, n) if chol else solve_dense(h.copy(), j.copy(), n)
+        var w = Real(0)
+        var vt = Real(0)
+        for k in range(n):
+            w += j[k] * hinv_jt[k]
+            vt += j[k] * self.qd[k]
+        if w < 1e-12:
+            return
+        var na = min(max(acc - vt / w, -cap), cap)
+        var dl = na - acc
+        acc = na
+        for k in range(n):
+            self.qd[k] += hinv_jt[k] * dl
+
     def apply_impulse(
         mut self, i: Int, local: Vec3, dir: Vec3, target_dv: Real
     ) raises -> Real:
@@ -747,9 +1096,25 @@ struct Chain(Movable, Deinitable):
         locals: List[Vec3],
         dt: Real,
         iters: Int = 8,
+        factor: Bool = True,
+        mu: Real = 0,
+        aba: Bool = False,
     ) raises -> Int:
         """Sequential-impulse contact against a `collision.ColliderSet`, SPLIT
         into velocity and position.
+
+        `factor` (17.51): H is Cholesky-factored once per pass and every
+        impulse reuses the factor (O(n^2) each); False keeps the dense
+        elimination per impulse (O(n^3) each) -- the parity reference.
+
+        `aba` (17.51): every H^-1 J^T comes from the articulated-body
+        algorithm (`hinv_aba`, O(n) each) and no mass matrix is formed;
+        friction rows still use the factored H.
+
+        `mu` (17.51): Coulomb friction. Each touching contact accumulates its
+        normal impulse over the velocity iterations; two tangent rows then
+        stop the sliding with their totals kept within mu times it. 0 (the
+        default) skips them -- the frictionless contact it always was.
 
         Each contact is a material point (link `contacts[c]`, offset
         `locals[c]` in its frame). Where it touches the world is NOT decided
@@ -788,7 +1153,12 @@ struct Chain(Movable, Deinitable):
 
         # H is a function of q alone, so it is computed ONCE per pass rather
         # than per contact per iteration
-        var h1 = self.mass_matrix()
+        var need_h = not aba or mu > 0
+        var h1 = self.mass_matrix() if need_h else List[Real]()
+        var f1 = cholesky(h1, n) if factor and need_h else (List[Real](), False)
+        var acc_n = List[Real](length=len(contacts), fill=0)
+        var acc_t1 = List[Real](length=len(contacts), fill=0)
+        var acc_t2 = List[Real](length=len(contacts), fill=0)
         # --- pass 1: velocity only (physical impulses) ---------------------
         for _ in range(iters):
             for c in range(len(contacts)):
@@ -798,15 +1168,19 @@ struct Chain(Movable, Deinitable):
                 if hit[0] < 0 or hit[1].dist > 0:
                     continue
                 var vn = self.point_velocity(i, locals[c], hit[1].normal)
-                if vn >= 0:
-                    continue  # already separating
-                _ = self.apply_impulse_with(
-                    h1, i, locals[c], hit[1].normal, -(1 + restitution) * vn
-                )
+                if vn < 0:
+                    acc_n[c] += self._impulse(
+                        h1, f1[0], f1[1], i, locals[c], hit[1].normal, -(1 + restitution) * vn, aba
+                    )
+                if mu > 0 and acc_n[c] > 0:
+                    var tb = tangent_basis(hit[1].normal)
+                    self._friction(h1, f1[0], f1[1], i, locals[c], tb[0], mu * acc_n[c], acc_t1[c])
+                    self._friction(h1, f1[0], f1[1], i, locals[c], tb[1], mu * acc_n[c], acc_t2[c])
 
         # --- pass 2: positional repair on a pseudo-velocity ----------------
         var saved = self.qd.copy()
-        var h2 = self.mass_matrix()
+        var h2 = self.mass_matrix() if not aba else List[Real]()
+        var f2 = cholesky(h2, n) if factor and not aba else (List[Real](), False)
         for k in range(n):
             self.qd[k] = 0
         for _ in range(iters):
@@ -823,10 +1197,12 @@ struct Chain(Movable, Deinitable):
                 var want = pen / dt - vn
                 if want <= 0:
                     continue
-                _ = self.apply_impulse_with(h2, i, locals[c], hit[1].normal, want)
+                _ = self._impulse(h2, f2[0], f2[1], i, locals[c], hit[1].normal, want, aba)
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
+        if len(self.balls) > 0:
+            self.fold_balls()
         return initial_active
 
     def resolve_limits(mut self, dt: Real, iters: Int = 8) raises -> Int:
@@ -849,6 +1225,8 @@ struct Chain(Movable, Deinitable):
                 continue
             if self.q[k] < l.lo or self.q[k] > l.hi:
                 initial += 1
+        if len(self.balls) > 0:
+            initial += self._balls_violated()
         if initial == 0:
             return 0
 
@@ -870,6 +1248,8 @@ struct Chain(Movable, Deinitable):
                 if high and self.qd[k] <= 0:
                     continue
                 _ = self._joint_impulse(h1, k, -self.qd[k])
+            if len(self.balls) > 0:
+                self._ball_limit_pass(h1, dt, False)
 
         # --- position pass on a pseudo-velocity, as in resolve_contacts ------
         var saved = self.qd.copy()
@@ -889,9 +1269,13 @@ struct Chain(Movable, Deinitable):
                 else:
                     continue
                 _ = self._joint_impulse(h2, k, err / dt - self.qd[k])
+            if len(self.balls) > 0:
+                self._ball_limit_pass(h2, dt, True)
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
+        if len(self.balls) > 0:
+            self.fold_balls()
         return initial
 
     def _joint_impulse(
@@ -918,6 +1302,8 @@ struct Chain(Movable, Deinitable):
         for i in range(len(self.links)):
             self.qd[i] += qdd[i] * dt
             self.q[i] += self.qd[i] * dt
+        if len(self.balls) > 0:
+            self.fold_balls()
 
     def step_implicit(mut self, dt: Real, tau: List[Real], gravity: Vec3) raises:
         """One step with the joint properties treated implicitly (17.51).
@@ -965,6 +1351,8 @@ struct Chain(Movable, Deinitable):
                     qd[i] -= dv if qd[i] > 0 else -dv
             self.qd[i] = qd[i]
             self.q[i] += qd[i] * dt
+        if len(self.balls) > 0:
+            self.fold_balls()
 
     def dynamics_aba(
         self, tau: List[Real], gravity: Vec3
@@ -1089,6 +1477,8 @@ struct Chain(Movable, Deinitable):
         for i in range(len(self.links)):
             self.qd[i] += qdd[i] * dt
             self.q[i] += self.qd[i] * dt
+        if len(self.balls) > 0:
+            self.fold_balls()
 
     def energy(self, gravity: Vec3) raises -> Real:
         """Kinetic (via the velocity recursion) + potential (via motor FK)."""
@@ -1266,6 +1656,25 @@ def write_chain[W: StateWriter](ch: Chain, mut out: W):
     out.wv(ch._base_v)
     out.wv(ch._base_wa)
     out.wv(ch._base_va)
+    out.wi(len(ch.balls))
+    for b in range(len(ch.balls)):
+        var h = ch.balls[b]
+        out.wi(h)
+        var r = ch.ball_rot[h]
+        out.wf(r.x)
+        out.wf(r.y)
+        out.wf(r.z)
+        out.wf(r.w)
+        var lim = ch.ball_lim[b]
+        out.wv(lim.axis)
+        out.wv(lim.ref_dir)
+        out.wf(lim.ref_rot.x)
+        out.wf(lim.ref_rot.y)
+        out.wf(lim.ref_rot.z)
+        out.wf(lim.ref_rot.w)
+        out.wf(lim.swing)
+        out.wf(lim.twist_lo)
+        out.wf(lim.twist_hi)
 
 
 def read_chain[R: StateReader](mut r: R) raises -> Chain:
@@ -1296,4 +1705,28 @@ def read_chain[R: StateReader](mut r: R) raises -> Chain:
     var bwa = r.rv()
     var bva = r.rv()
     ch.set_base_motion(bw, bv, bwa, bva)
+    var nb = r.ri()
+    if nb < 0 or 3 * nb > n:
+        raise Error("physics.chain: corrupt snapshot (ball count)")
+    for _ in range(nb):
+        var h = r.ri()
+        if h < 0 or h + 2 >= n:
+            raise Error("physics.chain: corrupt snapshot (ball link index)")
+        var qx = r.rf()
+        var qy = r.rf()
+        var qz = r.rf()
+        var qw = r.rf()
+        ch.ball_head[h] = True
+        ch.ball_rot[h] = Quat(qx, qy, qz, qw)
+        ch.balls.append(h)
+        var la = r.rv()
+        var lr = r.rv()
+        var rx = r.rf()
+        var ry = r.rf()
+        var rz = r.rf()
+        var rw = r.rf()
+        var sw = r.rf()
+        var tlo = r.rf()
+        var thi = r.rf()
+        ch.ball_lim.append(BallLimit(la, lr, Quat(rx, ry, rz, rw), sw, tlo, thi))
     return ch^

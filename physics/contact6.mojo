@@ -19,7 +19,7 @@ from geometry.vec import Real, Vec3, dot, tangent_basis
 from collision.manifold import ContactManifold
 from collision.contact_gen import RawContact
 from collision.contact_events import pack_key
-from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_ELLIPSOID
+from collision.collider_set import ColliderSet, SHAPE_SPHERE, SHAPE_CAPSULE, SHAPE_ELLIPSOID, SHAPE_COMPOUND, SHAPE_TRIMESH, SHAPE_HEIGHTFIELD, SHAPE_SDF
 from .rigid6 import Body6
 from .body_set import BodySet
 from .material import combine
@@ -173,14 +173,30 @@ def cache_index(cache: List[ContactConstraint]) -> Dict[Int, Int]:
 
 
 def round_core[B: Body6](
-    bset: BodySet[B], colliders: ColliderSet, i: Int, p: Vec3, n: Vec3 = Vec3(0, 0, 0, 0)
+    bset: BodySet[B], colliders: ColliderSet, i: Int, p: Vec3, n: Vec3 = Vec3(0, 0, 0, 0),
+    child: Int = -1,
 ) -> Optional[Vec3]:
     """Body-frame core point of a round collider nearest to world point
     `p` -- the sphere's centre, or the clamped point on a capsule's local-y
     segment -- or None for any other shape (ROADMAP 17.19). A cylinder
     (17.52) counts as round when the contact normal `n` is across its axis
-    (a side contact), not on its flat end caps."""
+    (a side contact), not on its flat end caps. For a compound (17.44)
+    `child` names the child that touched: a sphere child's centre or the
+    clamped point on a capsule child's axis, in the body frame."""
     var k = colliders.shape[i]
+    if k == SHAPE_COMPOUND:
+        if child < 0 or child >= colliders.kid_count(i):
+            return None
+        var d = colliders.kid(i, child)
+        var r = colliders.comp_first[colliders.mesh_id[i]] + child
+        var lp = colliders.kid_pos[r]
+        if d.kind == SHAPE_SPHERE:
+            return lp
+        if d.kind == SHAPE_CAPSULE:
+            var ax = colliders.kid_rot[r].rotate(Vec3(0, 1, 0, 0))
+            var y = dot(bset.bodies[i].to_local(p) - lp, ax)
+            return lp + ax * min(max(y, -d.half[1]), d.half[1])
+        return None
     var rr = colliders.round_radius(i)
     if rr > 0:
         var o = bset.bodies[i].act(Vec3(0, 0, 0, 0))
@@ -200,11 +216,13 @@ def round_core[B: Body6](
 
 
 def round_reach[B: Body6](
-    bset: BodySet[B], colliders: ColliderSet, i: Int, n: Vec3
+    bset: BodySet[B], colliders: ColliderSet, i: Int, n: Vec3, child: Int = -1
 ) -> Real:
     """How far round collider `i`'s surface lies from its core point along
     unit world direction `n`: the radius, or for an ellipsoid (17.52) its
     support function |diag(radii) R^T n|."""
+    if colliders.shape[i] == SHAPE_COMPOUND and child >= 0:
+        return colliders.kid(i, child).half[0]  # sphere / capsule child radius
     if colliders.shape[i] == SHAPE_ELLIPSOID:
         var o = bset.bodies[i].act(Vec3(0, 0, 0, 0))
         var ln = bset.bodies[i].to_local(o + n)
@@ -240,6 +258,7 @@ def make_contact[B: Body6](
     cidx: Dict[Int, Int],
     rc: RawContact,
     warm: Bool,
+    match_scale: Real = 1,
 ) -> ContactConstraint:
     """Wrap raw contact geometry (`collision.contact_gen.RawContact`)
     into a solved `ContactConstraint`: body-frame anchors and approach-speed prep
@@ -276,10 +295,22 @@ def make_contact[B: Body6](
         pr.ea = colliders.half[rc.a]
     if colliders.shape[rc.b] == SHAPE_ELLIPSOID:
         pr.eb = colliders.half[rc.b]
+    # 17.44: which child of a compound made this contact (the feat encodings
+    # of `contact_gen.try_compound_pair` and `try_mesh_pair`)
+    var kid_a = -1
+    var kid_b = -1
+    var sa = colliders.shape[rc.a]
+    var sb0 = colliders.shape[rc.b]
+    if sa == SHAPE_COMPOUND or sb0 == SHAPE_COMPOUND:
+        if sb0 == SHAPE_TRIMESH or sb0 == SHAPE_HEIGHTFIELD:
+            kid_a = rc.feat >> 16
+        elif sa != SHAPE_SDF and sb0 != SHAPE_SDF and rc.feat >= 1:
+            kid_a = (rc.feat - 1) // 1024
+            kid_b = (rc.feat - 1) % 1024
     for k in range(rc.m.count):
         var p = rc.m.points[k]
-        var ca = round_core(bset, colliders, rc.a, p, rc.m.normal)
-        var cb = round_core(bset, colliders, rc.b, p, rc.m.normal)
+        var ca = round_core(bset, colliders, rc.a, p, rc.m.normal, kid_a)
+        var cb = round_core(bset, colliders, rc.b, p, rc.m.normal, kid_b)
         # A round side's lever arm must reach its real surface: the
         # narrowphase puts e.g. a sphere-on-box point on the margin-inflated
         # face, half a speculative margin inside the ball, and friction
@@ -290,9 +321,9 @@ def make_contact[B: Body6](
             var n = rc.m.normal
             var target = Real(0)
             if ca:
-                target = dot(bset.bodies[rc.a].act(ca.value()), n) + round_reach(bset, colliders, rc.a, n)
+                target = dot(bset.bodies[rc.a].act(ca.value()), n) + round_reach(bset, colliders, rc.a, n, kid_a)
             if cb:
-                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - round_reach(bset, colliders, rc.b, n)
+                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - round_reach(bset, colliders, rc.b, n, kid_b)
                 target = (target + sb) * 0.5 if ca else sb
             p = p + n * (target - dot(p, n))
         if ca:
@@ -335,7 +366,7 @@ def make_contact[B: Body6](
                 # friction -- a 3-box stack built up that torsion until it
                 # kicked (1.24 N sideways on the top box, ARM runner).
                 # Distance in body `a`'s frame (a sliding box's corners stay
-                # put there), and only within 5 cm. A point with no cached
+                # put there), and only within 5 cm (times `match_scale`). A point with no cached
                 # point that close keeps the old rule -- the cached point of
                 # the same index, if not taken: points that moved further
                 # (a box sliding over small triangles, a bullet in the step
@@ -347,7 +378,10 @@ def make_contact[B: Body6](
                 var src = Array[Int, 4](fill=-1)
                 for k in range(rc.m.count):
                     var best = -1
-                    var bd = Real(2.5e-3)
+                    # (5 cm)^2, scaled with the world's length unit
+                    # (`match_scale` = margin_base / SPEC_BASE, so
+                    # `UnitScale` scales it; ROADMAP 17.75)
+                    var bd = Real(2.5e-3) * match_scale * match_scale
                     for q in range(old.m.count):
                         if used[q]:
                             continue

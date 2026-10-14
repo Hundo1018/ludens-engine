@@ -60,8 +60,23 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | ECS 查詢過濾 `select`(with / without / any)於六後端的原生實作;變更偵測 pull(`changed` / `added`,寫入日誌)(17.77) | ecs/storage.mojo(`Filter`、`check_pack`)、六個 backend 的 `select`、ecs/world.mojo | 同一實體集合謂詞在不同儲存上的求值:排序後的實體集合與逐個 `has` 的暴力過濾相等,六後端彼此相等;日誌路徑與全掃描回退結果相同 | `test_ecs_query`、`test_ecs_pack_guard` | `bench_ecs_query` |
 | 窄相 重算 vs 複製(兩端未動的候選對沿用上次輸出,`reuse_still_pairs`,17.85) | physics/solver6.mojo(`_narrow_reuse`)、collision/collider_set.mojo(`epoch`) | 純函數的記憶化:輸入(碰撞器 epoch、兩端位姿與線速度、`spec_dt`、裕度)逐位相同則輸出相同,依候選順序串接,故逐位相同 | `test_np_reuse` | `bench_tiers`(`+ reuse_still_pairs` 列) |
 | 連續體求解器 FEM / MPM / PBF / LBM 轉接器,同一 `ContinuumSolver` 契約(17.55) | physics/continuum.mojo | 同一「推進 dt + 健康檢查 + 隔離 + 狀態讀寫」介面的四個實作;泛型驅動對四者相同,狀態寫出 → 讀入 → 續跑逐位相同 | `test_continuum` | `bench_continuum` |
+| FEM 本構 `Corotational` / `StableNeoHookean` / `StVK`(`Material` trait,17.58) | physics/fem_material.mojo | 同一「F ↦ P」介面的三個應力律;小應變(線性化)與剛體旋轉下三者一致,大壓縮 / 反轉處分歧(量給出);`Corotational` 經 seam 與 `FemBody.elastic_forces` 逐位相同 | `test_fem_material` | `bench_fem_material` |
+| 肌肉:`Actuator.muscle` vs Hill 曲線(`HillParams`,17.57) | physics/actuator.mojo | 曲線皆關閉時 fl = fv = 1、fp = 0 精確成立,Hill 變體退化為原肌肉(恆等元);開啟時是同一啟動動力學上的乘性修飾 | `test_muscle_hill`(2 s 軌跡逐位相同) | `bench_hair_muscle` |
+| LBM 固體邊界:靜止 half-way bounce-back vs Ladd 移動壁面(17.59) | fluid/lbm.mojo | 壁速為 0 時 Ladd 項為 0,退化為靜止 bounce-back(恆等元) | `test_lbm_moving`(壁速 0 時與靜止格子逐位相同) | `bench_fsi` |
+| 水面 `FlatWater` / `GerstnerWater` / `ShallowWaterGrid`(`WaterSurface` trait,17.60) | physics/water.mojo | 同一「(x, z, t) ↦ 高度」查詢;Gerstner 振幅全為 0 時退化為平面(恆等元),陡度 0 的單波為解析正弦 | `test_water`(振幅 0 與平面逐位相同;單波誤差 0) | `bench_water` |
+| 連續體狀態來源:即時求解 vs `CachePlayer`(點快取播放,17.63) | physics/sim_cache.mojo | 同一 `ContinuumSolver` 契約的兩個實作;錄製幀上兩者差 ≤ 量化誤差上限(err = 0 時逐位相同) | `test_sim_cache` | `bench_sim_cache` |
+| 熱傳導離散:有限差分格網 vs 線性四面體(17.61) | physics/thermal.mojo | 同一熱方程 dT/dt = α∇²T 的兩個離散;在 1D 半無限棒的 erfc 閉式解上 parity | `test_thermal`(兩者對 erf 0.014 / 0.025 K,互差 0.016 K) | `bench_thermal` |
+| 蒙皮方法 × 影響數:DLB / LBS × K(17.65) | geometry/skinning.mojo | 全骨同一剛體運動時 DLB = LBS = 該運動;K = 2 與 `skin_motor` 逐位相同;K = 1 = 該骨 motor;扭轉體積處分歧(量給出) | `test_skin_k` | `bench_skin_k` |
+| 角色本體後端:kinematic `Mover` vs `DynamicCharacter`(17.66) | gameplay/movement.mojo、gameplay/phys_character.mojo | 平地同輸入下穩態速度與煞停距離一致;外力響應(衝量、對腳下物體的反作用)只有動態後端有 | `test_phys_character`(煞停 0.58333 vs 0.583333 m) | `bench_phys_character` |
+| 浸沒體積:取樣積分 vs `polytope` 精確切割(17.74,延伸 17.28) | gameplay/watercraft.mojo、physics/fields.mojo | 同一「物體在水面下的體積與形心」;軸對齊盒上精確切割 = 閉式解,取樣誤差隨層數收斂 | `test_force_elements`(0.6 vs 0.6 m³) | `bench_force_elements` |
+| 點分佈取樣器:Poisson-disk / dart throwing / 抖動格(17.69) | procedural/scatter.mojo | 宣稱最小間距者皆滿足之(Poisson / dart ≥ r、抖動 0.25 ≥ 0.5 格);同 seed 逐位相同 | `test_pcg` | `bench_pcg` |
+| 屬性求值:全量重算 / 增量和 / 髒快取(17.70) | gameplay/rules.mojo | 同一「目前值」;定點整數使加總精確可交換,任意序列後三者相同 | `test_rules`(20000 步、4002 次讀取全同) | `bench_rules` |
+| 目標條件派發:線性掃描 vs 事件型別倒排索引(17.72) | gameplay/objectives.mojo | 同一事件序列下完成集合與完成序相同 | `test_flow`(300 目標、5000 事件) | `bench_flow` |
 | 動畫轉場 淡入(兩次取樣 + 混合)vs 慣性化(一次取樣 + 衰減殘差)(17.64) | procedural/anim_state.mojo、procedural/inertialize.mojo | 同一「來源姿態 → 目標 clip」轉場的兩個實作:轉場結束後兩者逐位等於目標 clip 的取樣;殘差為 0 時目標姿態不變 | `test_anim_runtime` | `bench_anim_runtime`(轉場佔比 0 / 50 / 100 %) |
 | 角色速度整合 直設 / 加速度式 / Quake 式(17.67) | gameplay/movement.mojo | 同一「期望速度 → 水平速度」映射的三個實作:平地等速直行的穩態速度相同(皆 3 m/s);暫態不同(加速度式 3 s 少走 0.2 m) | `test_movement` | `bench_movement` |
+| 時間軸求值 隨機 seek(二分)vs 順序游標(17.68) | procedural/sequence.mojo | 同一「t → 軌道值」純函式的兩種段落定位:段索引相同、算術相同,故逐位相同;事件同經 `EventTrack` | `test_camera_seq` | `bench_sequence` |
+| 近戰命中偵測 每 tick 離散 vs 端點線性掃掠 vs 弧線掃掠(17.71) | gameplay/combat.mojo | 同一「刀身這一 tick 碰到誰」的三種近似:每 tick 位移小於目標厚度時命中集合相同(慢揮三者皆 1 次);高速下差異寫成行為斷言(72 m/s:離散 0、線性 0、弧線 1) | `test_combat` | `bench_combat`(命中率與成本 vs 角速度) |
+| 宿主交換 逐物件 getter / teleport vs 批量 SoA(`ld_world_get_bodies` / `ld_world_set_poses`);元件 編譯期 `ComponentType` vs 宿主定義 blob(17.78) | embed/capi.mojo、physics/solver6.mojo(`teleport_many`)、ecs/host_components.mojo | 同一姿態交換 / 同一元件讀寫腳本的兩條路徑:取回的姿態逐位相同、批量寫入後狀態與逐一 teleport 逐位相同;blob 與編譯期元件的實體集合與值相同 | `test_host_bulk`、`test_python_binding` | `python/bench_bulk.py`、`bench_host_components` |
 | 變更偵測 push observers vs 輪詢 | ecs/reactive_backend.mojo | 同一成員變化事件流的推/拉實作;重播 ≡ 輪詢結果 | `test_observers` | `bench_ecs_events` |
 | 組件寫入 直接 vs 延遲(SetBuffer) | ecs/commands.mojo | 同一寫入序列的即時與 sync-point 重播;錄製序保序 | `test_deferred_set` | `bench_ecs_events` |
 | 線代 scalar vs SIMD | geometry/mat.mojo | 同一線性映射的 lane 寬度變體 | `test_mat` | `bench_linalg` |
@@ -128,10 +143,11 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | 關節鏈:縮座標 CRBA+RNEA vs O(n) ABA vs 極大座標 solver6 | physics/chain.mojo(`step`／`step_aba`) | SE(3)ⁿ 動力學的三個實作;同初態下關節角一致 | `test_chain`、`test_aba` | `bench_chain` |
 | 反向動力學(RNEA 掃)vs 正向動力學(CRBA 稠密解)往返 | physics/chain.mojo(`inverse_dynamics`／`mass_matrix`) | 同一運動方程的兩向;τ→q̈→τ 還原 | `test_inverse_dynamics` | `bench_chain`(idt 表) |
 | 縮座標接觸(point-Jacobian `J H⁻¹ Jᵀ`)vs 極大座標接觸 | physics/chain.mojo(`point_jacobian`／`resolve_contacts`) | 同一接觸不動點在兩種座標下;落地高度一致 | `test_chain_contact` | `bench_chain_contact` |
+| 縮座標鏈對靜態世界(`Chain.resolve_contacts`)vs 對 `ContactScene6` 物體的雙向接觸(`chain_scene.couple_contacts`,17.51) | physics/chain_scene.mojo | 同一接觸列;對靜態物體兩者為同一不動點,對動態物體多出物體側的有效質量與反向衝量(動量守恆) | `test_chain_scene`(靜態箱上兩者落點差 0;擺錘撞箱:給出的衝量 = 箱子動量;5 kg 腿站在 1 kg 箱上壓 49.000023 N) | — |
 | 浮動基座 vs 六個偽關節;複合慣量 vs 單位加速度 兩種 H 組裝 | physics/floating.mojo(`mass_matrix`／`_mass_matrix_units`) | 6-DOF 根的兩個表示 + 質量矩陣兩獨立推導互為 parity | `test_floating` | `bench_floating` |
 | 關節運動子空間 revolute vs prismatic + 關節極限 | physics/chain.mojo(`revolute`／`prismatic`／`resolve_limits`) | 同一 link 態射的運動子空間變體;極限為投影 | `test_joints_lib`、`test_joints6` | `bench_chain`(jt 表) |
 | 縮座標關節的彈簧 / 阻尼:顯式 `Actuator` PD 力矩 + `Chain.step` vs 隱式欄位 + `Chain.step_implicit`(17.51) | physics/chain.mojo、physics/actuator.mojo | 同一「線性彈簧 - 阻尼」的兩種時間離散:顯式在 ω dt > 2 時發散,後向 Euler 對任意剛度皆穩定(只在對角加正項);性質全為 0 時兩者為同一半隱式步(容差 1e-4) | `test_chain_props`(剛度 1e5 @ 1/60:顯式 inf、隱式衰減;阻尼每步因子 I / (I + b dt);armature 週期;彈簧平衡角;摩擦停止時間) | `bench_chain_props`(N = 8 / 32 / 64) |
-| 關節限制 / 馬達 / 彈簧的座標變體:極大座標 `Joint6` + `JointExt`(hinge / slider / cone-twist / rope 的單邊不等式、速度 / 位置馬達、軟彈簧)vs 縮座標 `Chain.resolve_limits` + 致動器(17.47) | physics/joint_ext.mojo、physics/joints6.mojo、physics/solver6.mojo(`ext_sweep` 在兩個子步迴圈) | 同一「關節座標 q 上的限制 + 驅動」在兩種座標下的實作;ext 全為預設值時 pass 不執行(`any_ext`),與 17.47 之前逐位相同 | `test_joints_ext`(停止角 / 馬達穩態 / 彈簧週期對解析值;快照往返逐位)、`test_ragdoll`(限制膝);兩座標的停止角 parity 尚未接 | `bench_joints_ext`(64 節鏈,四種關節 × iters 4 / 8) |
+| 關節限制 / 馬達 / 彈簧的座標變體:極大座標 `Joint6` + `JointExt`(hinge / slider / cone-twist / rope 的單邊不等式、速度 / 位置馬達、軟彈簧)vs 縮座標 `Chain.resolve_limits` + 致動器(17.47) | physics/joint_ext.mojo、physics/joints6.mojo、physics/solver6.mojo(`ext_sweep` 在兩個子步迴圈) | 同一「關節座標 q 上的限制 + 驅動」在兩種座標下的實作;ext 全為預設值時 pass 不執行(`any_ext`),與 17.47 之前逐位相同 | `test_joints_ext`(停止角 / 馬達穩態 / 彈簧週期對解析值;快照往返逐位)、`test_ragdoll`(限制膝)、`test_joint_parity`(同一根桿:自由擺角度差 ≤ 0.0099 rad、週期相同;力矩平衡角 0.42432 / 0.42044 vs 解析 0.42044;限制停止角 0.49998 / 0.5)、`test_joint_d6`(D6 的特例 == weld / hinge / slider) | `bench_joints_ext`(64 節鏈,四種關節 × iters 4 / 8) |
 
 **統一約束、致動、腱、感測**
 

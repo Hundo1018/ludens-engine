@@ -30,7 +30,7 @@ silently loses its tail elements the moment it crosses a function boundary —
 `collision/hull.mojo` carries the reduced probe.
 """
 
-from std.math import sqrt, floor
+from std.math import sqrt, floor, cos
 from geometry.vec import Real, Vec3, dot, length, normalize
 from geometry.aabb import AABB
 from spatial.bvh import BVH
@@ -101,6 +101,20 @@ def closest_point_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3:
     return a + ab * v2 + ac * w3
 
 
+def _material_ids(ids: List[Int], ntri: Int, who: String) raises -> List[UInt16]:
+    var out = List[UInt16]()
+    if len(ids) == 0:
+        return out^
+    if len(ids) != ntri:
+        raise Error(who + ": one material id per triangle expected")
+    out.reserve(ntri)
+    for t in range(ntri):
+        if ids[t] < 0 or ids[t] > 65535:
+            raise Error(who + ": material id must be in 0 .. 65535")
+        out.append(UInt16(ids[t]))
+    return out^
+
+
 struct TriMesh(Movable, Deinitable):
     """A static triangle soup with a BVH midphase.
 
@@ -124,6 +138,9 @@ struct TriMesh(Movable, Deinitable):
     # computes real flags, and `contact_gen.try_mesh_pair` then stops flat
     # seams between coplanar triangles from producing edge normals.
     var active: List[UInt8]
+    # ROADMAP 17.53: per-triangle surface material id (empty = none set;
+    # `ColliderSet.material` then reports -1)
+    var material: List[UInt16]
     var bvh: BVH[3]
 
     def __init__(out self, verts: List[Real], indices: List[Int]) raises:
@@ -150,6 +167,7 @@ struct TriMesh(Movable, Deinitable):
         self.active = List[UInt8](capacity=nt)
         for _ in range(nt):
             self.active.append(7)
+        self.material = List[UInt16]()
         self.bvh = BVH[3]()  # before any self method call: all fields must be live
         var boxes = List[AABB[3]](capacity=nt)
         var proxies = List[Int](capacity=nt)
@@ -179,6 +197,11 @@ struct TriMesh(Movable, Deinitable):
             raise Error("TriMesh.set_active_edges: one flag byte per triangle expected")
         for t in range(len(flags)):
             self.active[t] = flags[t] & 7
+
+    def set_materials(mut self, ids: List[Int]) raises:
+        """Per-triangle surface material ids (ROADMAP 17.53), 0..65535; an
+        empty list clears them."""
+        self.material = _material_ids(ids, self.ntri(), "TriMesh.set_materials")
 
     def _vert(self, i: Int) -> Vec3:
         return Vec3(self.v[3 * i], self.v[3 * i + 1], self.v[3 * i + 2], 0)
@@ -261,6 +284,10 @@ struct HeightField(Movable, Deinitable):
     var bmax: List[Real]
     var nbx: Int
     var nbz: Int
+    # ROADMAP 17.45: cosine of the crease angle above which an edge is active;
+    # 2 (the default) = every edge active, the old behaviour bit for bit.
+    var active_cos: Real
+    var material: List[UInt16]  # ROADMAP 17.53: per triangle; empty = none
 
     def __init__(
         out self, heights: List[Real], nx: Int, nz: Int,
@@ -286,6 +313,8 @@ struct HeightField(Movable, Deinitable):
         self.oz = oz
         self.nbx = (nx + _HB - 1) // _HB
         self.nbz = (nz + _HB - 1) // _HB
+        self.active_cos = 2
+        self.material = List[UInt16]()
         self.bmin = List[Real](length=self.nbx * self.nbz, fill=0)
         self.bmax = List[Real](length=self.nbx * self.nbz, fill=0)
         for bz in range(self.nbz):
@@ -363,6 +392,11 @@ struct HeightField(Movable, Deinitable):
             return 0
         return (self.nx - 1) * (self.nz - 1) * 2
 
+    def set_materials(mut self, ids: List[Int]) raises:
+        """Per-triangle surface material ids (ROADMAP 17.53; triangle t as in
+        `tri(t)`: cell (t // 2) row-major, two per cell); empty clears."""
+        self.material = _material_ids(ids, self.ntri(), "HeightField.set_materials")
+
     def _corner(self, ix: Int, iz: Int) -> Vec3:
         var cx = min(max(ix, 0), self.nx - 1)
         var cz = min(max(iz, 0), self.nz - 1)
@@ -372,6 +406,77 @@ struct HeightField(Movable, Deinitable):
             self.oz + Real(cz) * self.cell,
             0,
         )
+
+    def _tri_ij(self, t: Int) -> List[Int]:
+        """Grid corners (ix, iz) of triangle t's three vertices, in the order
+        `tri` emits them (flat: x0, z0, x1, z1, x2, z2)."""
+        var per_row = (self.nx - 1) * 2
+        var iz = t // per_row
+        var rem = t - iz * per_row
+        var ix = rem // 2
+        var second = (rem & 1) == 1
+        if ((ix + iz) & 1) == 0:
+            if not second:
+                return [ix, iz, ix, iz + 1, ix + 1, iz + 1]
+            return [ix, iz, ix + 1, iz + 1, ix + 1, iz]
+        if not second:
+            return [ix, iz, ix, iz + 1, ix + 1, iz]
+        return [ix + 1, iz, ix, iz + 1, ix + 1, iz + 1]
+
+    def set_active_angle(mut self, angle: Real):
+        """Edges between triangles whose normals differ by at most `angle`
+        radians become inactive (flat seams stop producing edge normals);
+        computed per query from the current heights, so `deform` keeps them
+        right. A negative angle restores every edge active."""
+        self.active_cos = cos(angle) if angle >= 0 else Real(2)
+
+    def active(self, t: Int) -> UInt8:
+        """Active-edge bits of triangle t (bit k = edge (v_k, v_k+1))."""
+        if self.active_cos > 1:
+            return 7
+        var me = self._tri_ij(t)
+        var n0 = self._tri_n(t)
+        var per_row = (self.nx - 1) * 2
+        var bits = UInt8(0)
+        for k in range(3):
+            var ax = me[2 * k]
+            var az = me[2 * k + 1]
+            var bx = me[2 * ((k + 1) % 3)]
+            var bz = me[2 * ((k + 1) % 3) + 1]
+            # the other triangle with both corners lies in a cell touching
+            # the edge: scan the up to 3 x 3 cells around it
+            var found = -1
+            var cx0 = min(ax, bx) - 1
+            var cz0 = min(az, bz) - 1
+            for zz in range(cz0, cz0 + 3):
+                for xx in range(cx0, cx0 + 3):
+                    if xx < 0 or zz < 0 or xx >= self.nx - 1 or zz >= self.nz - 1:
+                        continue
+                    for half in range(2):
+                        var u = zz * per_row + xx * 2 + half
+                        if u == t:
+                            continue
+                        var o = self._tri_ij(u)
+                        var hit = 0
+                        for m in range(3):
+                            if (o[2 * m] == ax and o[2 * m + 1] == az) or (o[2 * m] == bx and o[2 * m + 1] == bz):
+                                hit += 1
+                        if hit == 2:
+                            found = u
+            var act = True
+            if found >= 0:
+                act = dot(n0, self._tri_n(found)) < self.active_cos
+            if act:
+                bits |= UInt8(1) << UInt8(k)
+        return bits
+
+    def _tri_n(self, t: Int) -> Vec3:
+        var p = self.tri(t)
+        var n = _tri_normal(p.points[0], p.points[1], p.points[2])
+        var l = length(n)
+        if l <= 0:
+            return Vec3(0, 1, 0, 0)
+        return n / l if n[1] >= 0 else n / (-l)
 
     def tri(self, t: Int) -> ConvexPoly[3]:
         """Triangle `t` of the implicit tessellation. Two per cell, in

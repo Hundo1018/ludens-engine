@@ -23,11 +23,14 @@ batches.
        and rounds differently in the last bits);
      - 400 random rays over 300 random colliders: `ray_cast_indexed` (BVH
        prefilter) == `ray_cast` (linear scan), bit for bit;
-     - `ray_cast_batch` with the parallel dispatcher == serial, bit for bit.
+     - `ray_cast_batch` with the parallel dispatcher == serial, bit for bit;
+       `ray_cast_batch_in` reusing one index for two batches, and an index
+       built with SAH instead of the default LBVH, give the same hits.
   3. Extreme: one-sided filter skips a triangle hit from behind; a shape cast
      starting in contact is `start_solid` at t = 0; zero-length cast; a cast
      with nothing in the way misses; `overlap_shape` finds exactly the boxes
-     a query box touches.
+     a query box touches; `shape_penetrations` of a rounded box 0.05 into a
+     face gives that face's normal and 0.05.
 """
 
 from std.math import sqrt
@@ -208,9 +211,13 @@ def main() raises:
     var so = ContactScene6[QuatBody6]()
     var o0 = so.add(_st(Vec3(0, 0, 0, 0)), Vec3(0.5, 0.5, 0.5, 0), True)
     var o1 = so.add(_st(Vec3(1.4, 0, 0, 0)), Vec3(0.5, 0.5, 0.5, 0), True)
-    _ = so.add(_st(Vec3(3, 0, 0, 0)), Vec3(0.5, 0.5, 0.5, 0), True)
+    var o2 = so.add(_st(Vec3(3, 0, 0, 0)), Vec3(0.5, 0.5, 0.5, 0), True)
     var ov = so.overlap_shape(QueryShape.box(Vec3(0.3, 0.3, 0.3, 0)), pose3_of(Vec3(0.7, 0, 0, 0), Quat.identity()), ALL)
     s.check(len(ov) == 2 and ov[0] == o0.index() and ov[1] == o1.index(), "overlap_shape: exactly the two boxes the query box touches")
+    # a rounded box (half 0.3, rounding 0.1) 0.05 into the third box's -x face: push -x by 0.05
+    var pen = so.shape_penetrations(QueryShape.rounded_box(Vec3(0.3, 0.3, 0.3, 0), 0.1), pose3_of(Vec3(2.25, 0, 0, 0), Quat.identity()), ALL)
+    print("  shape_penetrations: rounded box 0.05 into a face ->", len(pen), "entries, normal", pen[0].normal[0], pen[0].normal[1], pen[0].normal[2], " depth", pen[0].depth)
+    s.check(len(pen) == 1 and pen[0].body == o2.index() and abs(pen[0].normal[0] + 1) < 1e-5 and abs(pen[0].depth - 0.05) < 1e-5, "shape_penetrations: rounded box 0.05 into a face -> -x, 0.05")
 
     # ---- prefilter parity and parallel batch ---------------------------
     var big = ContactScene6[QuatBody6]()
@@ -250,4 +257,15 @@ def main() raises:
             nhit += 1
     print("  batch of 400:", nhit, "hits; parallel == serial", bsame)
     s.check(bsame and nhit > 20, "ray_cast_batch: parallel dispatch == serial, bit for bit")
+    # one index reused for two batches (parallel), and a SAH-built index: same hits
+    var pre = big.query_index()
+    var r1 = big.ray_cast_batch_in(pre, origins, dirs, 60, ALL, Dispatch.parallel())
+    var r2 = big.ray_cast_batch_in(pre, origins, dirs, 60, ALL, Dispatch.parallel())
+    var sah = QueryIndex(big.colliders, big.query_poses(), True, False)
+    var rsame = True
+    for k in range(len(ser)):
+        var c = ray_cast_indexed(big.colliders, sah, origins[k], dirs[k], 60, ALL)
+        if r1[k].t != ser[k].t or r2[k].t != ser[k].t or r1[k].body != ser[k].body or c.t != ser[k].t or c.body != ser[k].body:
+            rsame = False
+    s.check(rsame, "a reused index (two batches) and a SAH-built index give the serial batch's hits, bit for bit")
     s.finish()

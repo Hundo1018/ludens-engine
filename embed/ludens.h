@@ -29,7 +29,7 @@ extern "C" {
 #endif
 
 #define LD_ABI_MAJOR 0
-#define LD_ABI_MINOR 1
+#define LD_ABI_MINOR 2
 
 #define LD_OK 0
 #define LD_ERR_HANDLE (-1)   /* null or destroyed world / navmesh handle */
@@ -103,6 +103,12 @@ int32_t ld_nav_destroy(ld_nav* n);
 int64_t ld_nav_poly_count(ld_nav* n);
 int64_t ld_nav_find_path(ld_nav* n, float sx, float sy, float sz, float gx, float gy, float gz, float* out_xyz, int64_t cap);
 int64_t ld_nav_last_error(ld_nav* n, char* buf, int64_t cap);
+
+/* ---- 0.2 (ROADMAP 17.78): bulk pose write, diagnostic counters */
+int64_t ld_world_set_poses(ld_world* w, const ld_body* handles, const float* poses7, int64_t n);
+int64_t ld_counter_count(void);
+int64_t ld_counter_name(int32_t id, char* buf, int64_t cap);
+int64_t ld_world_get_counters(ld_world* w, int64_t* out, int64_t cap);
 
 #ifdef __cplusplus
 }

@@ -62,6 +62,7 @@ from collision.world_query import (
     ray_cast_indexed as wq_ray_cast_indexed,
     shape_cast as wq_shape_cast,
     overlap_shape as wq_overlap_shape,
+    shape_penetrations as wq_shape_penetrations,
     closest_points as wq_closest_points,
     QueryShape,
     QueryIndex,
@@ -137,6 +138,7 @@ from .joints6 import (
     JOINT_SLIDER,
     JOINT_CONE_TWIST,
     JOINT_ROPE,
+    JOINT_D6,
 )
 from .joint_ext import (
     JointExt,
@@ -145,6 +147,12 @@ from .joint_ext import (
     MOTOR_POSITION,
     ext_sweep,
     warm_start_ext,
+    ext_impulse,
+    sample_ext_loads,
+    D6_FREE,
+    D6_LOCKED,
+    D6_LIMITED,
+    D6_ALL_LOCKED,
     joint_coordinate,
 )
 from .islands import (
@@ -154,7 +162,7 @@ from .islands import (
     update_sleep,
     wake_island,
 )
-from .ccd6 import ccd_advance
+from .ccd6 import ccd_advance, ccd_advance_island, CCD_AUTO, CCD_OFF, CCD_BULLET
 from .collide_par import narrow_parallel, prep_parallel, NARROW_PAR_MIN
 from .soft_couple import softbody_pass
 
@@ -200,6 +208,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     # collide flag (`physics.joint_ext`); `any_ext` gates the extra pass.
     var jext: List[JointExt]
     var any_ext: Bool
+    # ROADMAP 17.45: kinematic triangle meshes -- body index and the mesh's
+    # vertices in that body's frame; re-placed at the body pose every step
+    var kin_mesh: List[Int]
+    var kin_local: List[List[Real]]
+    var kin_at: List[Pose6]  # pose the mesh was last placed at
+    # ROADMAP 17.53: friction per surface material id (-1 = not set); a
+    # mesh / heightfield triangle's id comes from `colliders.material`
+    var material_mu: List[Real]
     var drives: List[AngularDrive]  # ROADMAP 17.2: soft angular motors
     # ROADMAP 17.29: per-joint break thresholds (parallel to `joints`,
     # +inf = unbreakable) and the joints released by the last step.
@@ -285,6 +301,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.joints = List[Joint6]()
         self.jext = List[JointExt]()
         self.any_ext = False
+        self.kin_mesh = List[Int]()
+        self.kin_local = List[List[Real]]()
+        self.kin_at = List[Pose6]()
+        self.material_mu = List[Real]()
         self.drives = List[AngularDrive]()
         self.break_force = List[Real]()
         self.break_torque = List[Real]()
@@ -402,8 +422,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var ref_w = tangent_basis(axa)[0]
         ex.ref_a = self._local_dir(jt.a, ref_w)
         ex.ref_b = self._local_dir(jt.b, ref_w)
-        if jt.kind == JOINT_SLIDER:
+        if jt.kind == JOINT_SLIDER or jt.kind == JOINT_D6:
             ex.ref_rel = self.bset.bodies[jt.a].rotation().conjugate() * self.bset.bodies[jt.b].rotation()
+        if jt.kind == JOINT_D6:
+            ex.d6_mode = D6_ALL_LOCKED
+            ex.collide = False
         if jt.kind == JOINT_ROPE:
             ex.lim_on = True
             ex.lo = 0
@@ -855,6 +878,43 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.adhesion[i] = force
         self.bset.any_contact_model = True
 
+    def set_triangle_materials(mut self, id: BodyId, ids: List[Int]) raises:
+        """ROADMAP 17.53: per-triangle surface material ids (0 .. 65535) of a
+        mesh or heightfield body, one per triangle in the order the mesh was
+        given (heightfield: `HeightField.tri`); empty clears. Query hits
+        report them (`hit_material`), vehicle wheels take their grip from
+        them (`surface_friction`). The contact solver still uses the body's
+        friction (per-triangle contact friction is not wired)."""
+        var i = self._check_id(id, "set_triangle_materials")
+        self.colliders.set_materials(i, ids)
+
+    def set_material_friction(mut self, material: Int, mu: Real) raises:
+        """Friction of surface material `material` (`surface_friction`)."""
+        if material < 0 or material > 65535:
+            raise Error("ContactScene6.set_material_friction: material id must be in 0 .. 65535")
+        if not (mu >= 0):
+            raise Error("ContactScene6.set_material_friction: mu must be >= 0")
+        while len(self.material_mu) <= material:
+            self.material_mu.append(-1)
+        self.material_mu[material] = mu
+
+    def hit_material(self, h: Hit) -> Int:
+        """Surface material id of a query hit: the triangle's id on a mesh /
+        heightfield with material ids, else -1."""
+        if not h.hit:
+            return -1
+        return self.colliders.material(h.body, h.feat)
+
+    def surface_friction(self, body: Int, material: Int, fallback: Real) -> Real:
+        """Friction of a surface: material `material`'s when it is set
+        (`set_material_friction`), else body `body`'s own
+        (`BodySet.eff_friction`, `fallback` when that is unset too)."""
+        if material >= 0 and material < len(self.material_mu) and self.material_mu[material] >= 0:
+            return self.material_mu[material]
+        if body < 0 or body >= len(self.bset.bodies):
+            return fallback
+        return self.bset.eff_friction(body, fallback)
+
     def set_friction_combine(mut self, i: Int, mode: Int):
         """Same pair-priority rule as `set_restitution_combine`, for
         friction. Default `COMBINE_AVERAGE` reproduces today's single
@@ -878,6 +938,47 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.sleeping[i] = False
         self.bset.sleep_timer[i] = 0
         self.bset.island[i] = -1  # recomputed by the next `_refresh_islands`
+        # ROADMAP 17.45: a triangle mesh moves with its body from now on --
+        # remember its vertices in the body frame (once)
+        if self.colliders.shape[i] == SHAPE_TRIMESH:
+            for k in self.kin_mesh:
+                if k == i:
+                    return
+            ref m = self.colliders.meshes[self.colliders.mesh_id[i]]
+            var loc = List[Real](capacity=len(m.v))
+            for vtx in range(len(m.v) // 3):
+                var l = self.bset.bodies[i].to_local(Vec3(m.v[3 * vtx], m.v[3 * vtx + 1], m.v[3 * vtx + 2], 0))
+                loc.append(l[0])
+                loc.append(l[1])
+                loc.append(l[2])
+            self.kin_mesh.append(i)
+            self.kin_local.append(loc^)
+            self.kin_at.append(Pose6(self.bset.bodies[i].position(), self.bset.bodies[i].rotation()))
+
+    def _refresh_kinematic_meshes(mut self) raises:
+        """Re-place each kinematic mesh at its body's current pose (vertices,
+        BVH, world AABB; active-edge flags kept). Runs before a step (a pose
+        set between steps) and after it (so scene queries between steps see
+        the mesh where its body is); a mesh whose body has not moved since it
+        was last placed is skipped. O(triangles) per moved mesh: meant for
+        platforms and doors, not for a level."""
+        for k in range(len(self.kin_mesh)):
+            var i = self.kin_mesh[k]
+            if not self.bset.is_kinematic(i):
+                continue
+            var pos = self.bset.bodies[i].position()
+            var rot = self.bset.bodies[i].rotation()
+            ref at = self.kin_at[k]
+            if pos[0] == at.pos[0] and pos[1] == at.pos[1] and pos[2] == at.pos[2] and rot.x == at.rot.x and rot.y == at.rot.y and rot.z == at.rot.z and rot.w == at.rot.w:
+                continue
+            self.kin_at[k] = Pose6(pos, rot)
+            var w = List[Real](capacity=len(self.kin_local[k]))
+            for vtx in range(len(self.kin_local[k]) // 3):
+                var p = self.bset.bodies[i].act(Vec3(self.kin_local[k][3 * vtx], self.kin_local[k][3 * vtx + 1], self.kin_local[k][3 * vtx + 2], 0))
+                w.append(p[0])
+                w.append(p[1])
+                w.append(p[2])
+            self.colliders.move_trimesh(i, w)
 
     def set_velocity(mut self, id: BodyId, v: Vec3, w: Vec3) raises:
         """Directly set body `id`'s linear/angular velocity (world frame) --
@@ -1013,6 +1114,32 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.jext[c].acc_hi = 0
         self._ensure_ext()
 
+    def set_d6_axis(mut self, j: Int, axis: Int, mode: Int, lo: Real = 0, hi: Real = 0) raises:
+        """ROADMAP 17.47: one axis of a D6 joint -- `axis` 0..2 = translation
+        along a's x / y / z (m), 3..5 = rotation about them (rad, the
+        rotation-vector component); `mode` D6_FREE, D6_LOCKED or
+        D6_LIMITED with lo <= hi."""
+        var c = self._ext_index(j, "set_d6_axis")
+        if self.joints[c].kind != JOINT_D6:
+            raise Error("ContactScene6.set_d6_axis: not a D6 joint")
+        if axis < 0 or axis > 5:
+            raise Error("ContactScene6.set_d6_axis: axis must be 0..5")
+        if mode != D6_FREE and mode != D6_LOCKED and mode != D6_LIMITED:
+            raise Error("ContactScene6.set_d6_axis: unknown mode")
+        if mode == D6_LIMITED and not (lo <= hi):
+            raise Error("ContactScene6.set_d6_axis: need lo <= hi")
+        ref ex = self.jext[c]
+        ex.d6_mode = (ex.d6_mode & ~(3 << (2 * axis))) | (mode << (2 * axis))
+        if axis < 3:
+            ex.d6_lo_lin[axis] = lo
+            ex.d6_hi_lin[axis] = hi
+            ex.d6_acc_lin[axis] = 0
+        else:
+            ex.d6_lo_ang[axis - 3] = lo
+            ex.d6_hi_ang[axis - 3] = hi
+            ex.d6_acc_ang[axis - 3] = 0
+        self._ensure_ext()
+
     def set_cone_limit(mut self, j: Int, angle: Real) raises:
         """Swing cone of a cone-twist joint: the angle between the two twist
         axes stays <= `angle` (rad; < 0 removes it)."""
@@ -1065,6 +1192,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         return joint_coordinate(self.bset, self.joints[c], self.jext[c])
 
     # ------------------------------------------------ force reporting (17.49)
+
+    def set_ccd_mode(mut self, id: BodyId, mode: Int) raises:
+        """ROADMAP 17.46: body `id`'s CCD mode -- CCD_AUTO (default: swept
+        when cfg.ccd is on), CCD_OFF (never swept), CCD_BULLET (always swept,
+        even with cfg.ccd off, so a scene can pay for CCD on its
+        projectiles only)."""
+        var i = self._check_id(id, "set_ccd_mode")
+        if mode != CCD_AUTO and mode != CCD_OFF and mode != CCD_BULLET:
+            raise Error("ContactScene6.set_ccd_mode: unknown mode")
+        self.bset.ccd_mode[i] = UInt8(mode)
+        var any = False
+        for k in range(len(self.bset.ccd_mode)):
+            if self.bset.ccd_mode[k] == CCD_BULLET and not self.bset.is_removed(k):
+                any = True
+        self.bset.any_bullet = any
 
     def set_contact_reporting(mut self, id: BodyId, on: Bool) raises:
         """Report contact events only for flagged bodies' pairs once any body
@@ -1331,10 +1473,24 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.bodies[i].set_velocity(v, w)
 
     def _props_pre(mut self, dt: Real):
-        """Accumulated forces become this step's impulses; damping."""
+        """Damping, then accumulated forces become this step's impulses.
+
+        Damping first: the force impulse then reaches the solver whole, like
+        gravity (added later, never damped), so a damped body held by a
+        constraint settles where the loads balance. Damping after the force
+        scaled only the force by 1 / (1 + c dt): a 1 m bar on a hinge under
+        2 N m with angular damping 2 settled at 0.4091 rad instead of
+        asin(2 / (m g d)) = 0.4204 (`test_joint_parity`)."""
         for i in range(len(self.bset.bodies)):
             if not self.bset.is_dynamic(i) or self.bset.sleeping[i]:
                 continue
+            var cl = self.bset.lin_damping[i]
+            var ca = self.bset.ang_damping[i]
+            if cl > 0 or ca > 0:
+                self.bset.bodies[i].set_velocity(
+                    self.bset.bodies[i].linear_velocity() / (1 + cl * dt),
+                    self.bset.bodies[i].omega_world() / (1 + ca * dt),
+                )
             var f = self.bset.force[i]
             var t = self.bset.torque[i]
             if f[0] != 0 or f[1] != 0 or f[2] != 0:
@@ -1343,13 +1499,6 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             if t[0] != 0 or t[1] != 0 or t[2] != 0:
                 self.bset.bodies[i].apply_angular_impulse(t * dt)
                 self.bset.torque[i] = Vec3(0, 0, 0, 0)
-            var cl = self.bset.lin_damping[i]
-            var ca = self.bset.ang_damping[i]
-            if cl > 0 or ca > 0:
-                self.bset.bodies[i].set_velocity(
-                    self.bset.bodies[i].linear_velocity() / (1 + cl * dt),
-                    self.bset.bodies[i].omega_world() / (1 + ca * dt),
-                )
 
     def _props_post(mut self):
         """Speed caps (counted) and a final lock projection."""
@@ -1396,6 +1545,39 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var kept = List[ContactConstraint]()
         for c in range(len(self.cache)):
             if self.cache[c].a != i and self.cache[c].b != i:
+                kept.append(self.cache[c])
+        self.cache = kept^
+
+    def teleport_many(mut self, ids: List[BodyId], poses: List[Pose6]) raises:
+        """ROADMAP 17.78: `teleport` for many bodies with one pass over the
+        bodies (island wake-up) and one over the warm-start cache, instead
+        of one of each per body. The resulting state is the same as calling
+        `teleport` for each in order. Validates every id first; raises
+        before moving anything."""
+        if len(ids) != len(poses):
+            raise Error("ContactScene6.teleport_many: ids and poses differ in length")
+        for id in ids:
+            if not self.bset.is_valid(id):
+                raise Error("ContactScene6.teleport_many: invalid BodyId")
+        var n = len(self.bset.bodies)
+        var moved = List[Bool](length=n, fill=False)
+        var wake_lbl = Dict[Int, Bool]()
+        for k in range(len(ids)):
+            var i = ids[k].index()
+            self.bset.bodies[i].set_pose(poses[k].copy())
+            self.bset.sleeping[i] = False
+            self.bset.sleep_timer[i] = 0
+            moved[i] = True
+            if self.bset.is_dynamic(i):
+                wake_lbl[self.bset.island[i]] = True
+        if len(wake_lbl) > 0:
+            for j in range(n):
+                if self.bset.sleeping[j] and self.bset.island[j] in wake_lbl:
+                    self.bset.sleeping[j] = False
+                    self.bset.sleep_timer[j] = 0
+        var kept = List[ContactConstraint]()
+        for c in range(len(self.cache)):
+            if not moved[self.cache[c].a] and not moved[self.cache[c].b]:
                 kept.append(self.cache[c])
         self.cache = kept^
 
@@ -1492,6 +1674,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def overlap_shape(self, shape: QueryShape, pose: Pose3, f: QueryFilter) -> List[Int]:
         return wq_overlap_shape(self.colliders, self.query_poses(), shape, pose, f)
 
+    def shape_penetrations(self, shape: QueryShape, pose: Pose3, f: QueryFilter) -> List[Penetration]:
+        return wq_shape_penetrations(self.colliders, self.query_poses(), shape, pose, f)
+
     def closest_points(self, a: BodyId, b: BodyId, search: Real = 1e30) raises -> ConvexDistance:
         """Separation distance and closest points of two bodies' colliders
         (`collision.world_query.closest_points`)."""
@@ -1516,12 +1701,31 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         """Many rays against one index built for the batch; each ray is an
         independent item, so any `dispatch` gives the same list."""
         var idx = self.query_index()
+        var out = self.ray_cast_batch_in(idx, origins, dirs, max_t, f, dispatch, workers)
+        _ = idx^
+        return out^
+
+    def ray_cast_batch_in(
+        self,
+        idx: QueryIndex,
+        origins: List[Vec3],
+        dirs: List[Vec3],
+        max_t: Real,
+        f: QueryFilter,
+        dispatch: Dispatch = Dispatch.serial(),
+        workers: Int = 0,
+    ) -> List[Hit]:
+        """`ray_cast_batch` against an index the caller built
+        (`query_index`) and reuses for every batch of the frame: the build
+        is serial and, at 1024 rays over 4096 colliders, costs as much as
+        the rays (`bench_query_ext`)."""
         var out = List[Hit](capacity=len(origins))
         for _ in range(len(origins)):
             out.append(Hit.miss())
         var task = _RayTask(self.colliders, idx, origins, dirs, out, max_t, f)
         dispatch_for(dispatch, task, (len(origins) + _RAY_CHUNK - 1) // _RAY_CHUNK, workers)
-        _ = idx^
+        _ = len(origins)
+        _ = len(dirs)
         return out^
 
     def _constraint_edges(self, pairs: List[ContactConstraint]) -> List[Int]:
@@ -1801,11 +2005,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var cidx = cache_index(self.cache)
         var pairs: List[ContactConstraint]
         if fan:
-            pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch)
+            pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch, margin_base / SPEC_BASE)
         else:
             pairs = List[ContactConstraint]()
             for c in range(len(raws)):
-                pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm))
+                pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm, margin_base / SPEC_BASE))
         apply_rules(self.bset, self.rules, pairs)
         self.trace.end()
         return pairs^
@@ -1873,6 +2077,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 continue
             self.jsum_f[c] = self.jsum_f[c] + jt.acc * scale
             self.jsum_t[c] = self.jsum_t[c] + jt.acc_ang * scale
+            if self.any_ext and c < len(self.jext) and self.jext[c].active():
+                var e = ext_impulse(self.bset, jt, self.jext[c])
+                self.jsum_f[c] = self.jsum_f[c] + e[0] * scale
+                self.jsum_t[c] = self.jsum_t[c] + e[1] * scale
             self.jspan[c] += h * scale
 
     def _solve_island(
@@ -1893,6 +2101,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         mlo: Int,
         mhi: Int,
         rest_threshold: Real = 1.0,
+        ccd: Bool = False,
+        ccd_all: Bool = False,
     ):
         """The full substep loop restricted to one island: its bodies
         (`members[mlo:mhi]`, ascending slot order), its contiguous pair
@@ -1928,12 +2138,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # exactly `moves(i) and not sleeping[i]` here since `_inactive`
             # is `is_static or sleeping` and this loop never sees a static
             # body's label (`_refresh_islands` never assigns one).
-            for m in range(mlo, mhi):
-                var i = members[m]
-                if not self.bset.inactive(i):
-                    if self.bset.any_props and self.bset.locks[i] != 0:
-                        self._apply_locks(i)
-                    self.bset.bodies[i].integrate_pose(h)
+            if ccd:
+                # 17.46: island-local CCD (members + static candidates)
+                ccd_advance_island(self.bset, self.colliders, h, ccd_all, members, mlo, mhi)
+            else:
+                for m in range(mlo, mhi):
+                    var i = members[m]
+                    if not self.bset.inactive(i):
+                        if self.bset.any_props and self.bset.locks[i] != 0:
+                            self._apply_locks(i)
+                        self.bset.bodies[i].integrate_pose(h)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, label)
             if self.any_ext:
                 ext_sweep(self.bset, self.joints, self.jext, h, bias_rate, 1, 0, False, 2, label)
@@ -2261,9 +2475,19 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         (`bset.any_props`) pay for either pass."""
         if self.bset.any_props:
             self._props_pre(dt)
+        if len(self.kin_mesh) > 0:
+            try:
+                self._refresh_kinematic_meshes()
+            except:
+                pass  # rebuilding a mesh that was valid at add cannot raise
         self._step_impl(dt, gravity, cfg)
         if self.bset.any_props:
             self._props_post()
+        if len(self.kin_mesh) > 0:
+            try:
+                self._refresh_kinematic_meshes()
+            except:
+                pass
         # ROADMAP 17.80: spans the trace could not keep go to the shared counters
         var tdrop = self.trace.take_dropped()
         if tdrop > 0:
@@ -2316,7 +2540,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var hertz = cfg.hertz
         var zeta = cfg.zeta
         var mu = cfg.default_friction
-        var ccd = cfg.ccd
+        var ccd = cfg.ccd or self.bset.any_bullet
         var parallel = cfg.parallel
         var colored = cfg.colored
         var broadphase = cfg.broadphase
@@ -2376,13 +2600,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self.cache = pairs2^
             self.step_index += 1
             return
-        if parallel and (colored or len(self.softs) > 0 or ccd or len(self.drives) > 0 or self.any_break):
+        if parallel and (colored or len(self.softs) > 0 or len(self.drives) > 0 or self.any_break):
             # F23: the island-parallel path assumes no soft bodies, no ccd
             # and no colored solving; falling back is correct but used to be
             # silent -- count it so a caller relying on the parallel path
             # can notice it never actually ran in parallel.
             self.counters.incr(PARALLEL_FALLBACK_SERIAL)
-        if parallel and not colored and len(self.softs) == 0 and not ccd and len(self.drives) == 0 and not self.any_break:
+        if parallel and not colored and len(self.softs) == 0 and len(self.drives) == 0 and not self.any_break:
             # partition: pairs reordered so each island is a contiguous range
             var labels = List[Int]()
             var first = List[Int]()
@@ -2398,7 +2622,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             _solve_islands_parallel(
                 self, pairs2, plo, phi, labels, gravity, h,
                 substeps, iters, bias_rate, mass_scale, impulse_scale, mu,
-                members, mstart, workers, cfg.restitution_threshold, cfg.dispatch,
+                members, mstart, workers, cfg.restitution_threshold, cfg.dispatch, ccd, cfg.ccd,
             )
             self.trace.end()
             self.trace.begin("sleep")
@@ -2470,7 +2694,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     impulse_scale, True, iters, mu, cfg.max_push_speed,
                 )
             if ccd:
-                ccd_advance(self.bset, self.colliders, h)
+                ccd_advance(self.bset, self.colliders, h, cfg.ccd)
             else:
                 for i in range(len(self.bset.bodies)):
                     if not self.bset.inactive(i):
@@ -2495,6 +2719,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 )
             if self.any_break:
                 sample_loads(self.joints, h, self.peak_force, self.peak_torque)
+                if self.any_ext:
+                    sample_ext_loads(self.bset, self.joints, self.jext, h, self.peak_force, self.peak_torque)
             self._report_substep(pairs, 0, len(pairs), -2, sub, substeps, h)
         self.trace.end()
         restitution_pass(self.bset, pairs, 0, len(pairs), 4, cfg.restitution_threshold)
@@ -2688,6 +2914,8 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
     var impulse_scale: Real
     var mu: Real
     var rest_threshold: Real
+    var ccd: Bool
+    var ccd_all: Bool
 
     def __init__(
         out self,
@@ -2700,8 +2928,11 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
         mut mstart: List[Int],
         gravity: Vec3, h: Real, substeps: Int, iters: Int, bias_rate: Real,
         mass_scale: Real, impulse_scale: Real, mu: Real, rest_threshold: Real,
+        ccd: Bool = False, ccd_all: Bool = False,
     ):
         self.scene = Pointer(to=scene).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.ccd = ccd
+        self.ccd_all = ccd_all
         self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
         self.plo = Pointer(to=plo).unsafe_origin_cast[MutUntrackedOrigin]()
         self.phi = Pointer(to=phi).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -2723,6 +2954,7 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
             self.pairs2[], self.plo[][k], self.phi[][k], self.labels[][k], self.gravity, self.h,
             self.substeps, self.iters, self.bias_rate, self.mass_scale, self.impulse_scale, self.mu,
             self.members[], self.mstart[][k], self.mstart[][k + 1], self.rest_threshold,
+            self.ccd, self.ccd_all,
         )
 
 
@@ -2745,6 +2977,8 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     workers: Int = 0,
     rest_threshold: Real = 1.0,
     dispatch: Dispatch = Dispatch.parallel(),
+    ccd: Bool = False,
+    ccd_all: Bool = False,
 ):
     """Worker fan-out for `step(cfg.parallel=True)`: one `_IslandTask` item
     per island, run by `dispatch` (ROADMAP 17.75: the runtime pool, serial,
@@ -2754,7 +2988,7 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     pick the width of the default pool."""
     var task = _IslandTask[BB, PBP](
         scene, pairs2, plo, phi, labels, members, mstart, gravity, h, substeps,
-        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold,
+        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold, ccd, ccd_all,
     )
     dispatch_for(dispatch, task, len(labels), workers)
 
@@ -2884,6 +3118,7 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wv(jt.axis_b)
         out.wv(jt.acc)
         out.wv(jt.acc_ang)
+        out.wf(jt.ratio)
     out.wi(len(sc.softs))
     for k in range(len(sc.softs)):
         out.wf(sc.softs[k].alpha)
@@ -3050,6 +3285,13 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wf(ex.acc_motor)
         out.wf(ex.acc_spring)
         out.wf(ex.acc_cone)
+        out.wi(ex.d6_mode)
+        out.wv(ex.d6_lo_lin)
+        out.wv(ex.d6_hi_lin)
+        out.wv(ex.d6_lo_ang)
+        out.wv(ex.d6_hi_ang)
+        out.wv(ex.d6_acc_lin)
+        out.wv(ex.d6_acc_ang)
     # 17.50: contact-model fields (static friction, rolling, spinning,
     # softness, adhesion).
     out.wi(1 if sc.bset.any_contact_model else 0)
@@ -3061,6 +3303,59 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wf(sc.bset.contact_hertz[i])
             out.wf(sc.bset.contact_zeta[i])
             out.wf(sc.bset.adhesion[i])
+    # format 5: 17.45 kinematic meshes (body-frame vertices and the pose
+    # last placed at), heightfield active-edge angles, 17.53 per-triangle
+    # materials and the material friction table.
+    out.wi(len(sc.kin_mesh))
+    for k in range(len(sc.kin_mesh)):
+        out.wi(sc.kin_mesh[k])
+        out.wi(len(sc.kin_local[k]))
+        for v in range(len(sc.kin_local[k])):
+            out.wf(sc.kin_local[k][v])
+        out.wv(sc.kin_at[k].pos)
+        out.wf(sc.kin_at[k].rot.x)
+        out.wf(sc.kin_at[k].rot.y)
+        out.wf(sc.kin_at[k].rot.z)
+        out.wf(sc.kin_at[k].rot.w)
+    var surf = List[Int]()
+    for i in range(len(sc.bset.bodies)):
+        var kk = sc.colliders.shape[i]
+        if kk == SHAPE_HEIGHTFIELD:
+            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
+            if hf.active_cos != 2 or len(hf.material) > 0:
+                surf.append(i)
+        elif kk == SHAPE_TRIMESH:
+            if len(sc.colliders.meshes[sc.colliders.mesh_id[i]].material) > 0:
+                surf.append(i)
+    out.wi(len(surf))
+    for k in range(len(surf)):
+        var i = surf[k]
+        out.wi(i)
+        if sc.colliders.shape[i] == SHAPE_HEIGHTFIELD:
+            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
+            out.wf(hf.active_cos)
+            out.wi(len(hf.material))
+            for t in range(len(hf.material)):
+                out.wi(Int(hf.material[t]))
+        else:
+            ref ms = sc.colliders.meshes[sc.colliders.mesh_id[i]]
+            out.wf(2)
+            out.wi(len(ms.material))
+            for t in range(len(ms.material)):
+                out.wi(Int(ms.material[t]))
+    out.wi(len(sc.material_mu))
+    for m in range(len(sc.material_mu)):
+        out.wf(sc.material_mu[m])
+    # 17.46 per-body CCD modes (non-default only)
+    var nccd = 0
+    for i in range(len(sc.bset.bodies)):
+        if sc.bset.ccd_mode[i] != 0:
+            nccd += 1
+    out.wi(nccd)
+    for i in range(len(sc.bset.bodies)):
+        if sc.bset.ccd_mode[i] != 0:
+            out.wi(i)
+            out.wi(Int(sc.bset.ccd_mode[i]))
 
 
 def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raises:
@@ -3248,9 +3543,10 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         var axb = r.rv()
         var acc = r.rv()
         var acca = r.rv()
+        var ratio = r.rf()
         if a < 0 or a >= len(sc.bset.bodies) or b < 0 or b >= len(sc.bset.bodies):
             raise Error("physics.serialize: corrupt snapshot (joint body index out of range)")
-        sc.joints.append(Joint6(kind, a, b, la, lb, rest, axa, axb, acc, acca))
+        sc.joints.append(Joint6(kind, a, b, la, lb, rest, axa, axb, acc, acca, ratio))
         # break thresholds are read after the island labels (format 4)
         sc.break_force.append(Real.MAX)
         sc.break_torque.append(Real.MAX)
@@ -3455,9 +3751,17 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         var a_m = r.rf()
         var a_s = r.rf()
         var a_c = r.rf()
+        var d6m = r.ri()
+        var d6a = r.rv()
+        var d6b = r.rv()
+        var d6c = r.rv()
+        var d6d = r.rv()
+        var d6e = r.rv()
+        var d6f = r.rv()
         sc.jext.append(JointExt(
             lim_on, lo, hi, cone, motor, target, max_force, mh, mz, sh, sz, sr,
             ra, rb, Quat(qx, qy, qz, qw), collide, a_lo, a_hi, a_m, a_s, a_c,
+            d6m, d6a, d6b, d6c, d6d, d6e, d6f,
         ))
     sc._ensure_ext()
     sc.bset.any_contact_model = r.ri() == 1
@@ -3469,3 +3773,61 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             sc.bset.contact_hertz[i] = r.rf()
             sc.bset.contact_zeta[i] = r.rf()
             sc.bset.adhesion[i] = r.rf()
+    var nkm = r.ri()
+    if nkm < 0 or nkm > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (kinematic mesh count)")
+    sc.kin_mesh = List[Int]()
+    sc.kin_local = List[List[Real]]()
+    sc.kin_at = List[Pose6]()
+    for _ in range(nkm):
+        var bi = r.ri()
+        if bi < 0 or bi >= len(sc.bset.bodies) or sc.colliders.shape[bi] != SHAPE_TRIMESH:
+            raise Error("physics.serialize: corrupt snapshot (kinematic mesh on a non-mesh body)")
+        var nl = r.ri()
+        if nl != len(sc.colliders.meshes[sc.colliders.mesh_id[bi]].v):
+            raise Error("physics.serialize: corrupt snapshot (kinematic mesh vertex count)")
+        var loc = List[Real](capacity=nl)
+        for _ in range(nl):
+            loc.append(r.rf())
+        var kp = r.rv()
+        var qx = r.rf()
+        var qy = r.rf()
+        var qz = r.rf()
+        var qw = r.rf()
+        sc.kin_mesh.append(bi)
+        sc.kin_local.append(loc^)
+        sc.kin_at.append(Pose6(kp, Quat(qx, qy, qz, qw)))
+    var nsf = r.ri()
+    if nsf < 0 or nsf > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (surface count)")
+    for _ in range(nsf):
+        var bi = r.ri()
+        if bi < 0 or bi >= len(sc.bset.bodies) or (sc.colliders.shape[bi] != SHAPE_TRIMESH and sc.colliders.shape[bi] != SHAPE_HEIGHTFIELD):
+            raise Error("physics.serialize: corrupt snapshot (surface data on a non-mesh body)")
+        var acos = r.rf()
+        var nm = r.ri()
+        if nm < 0 or nm > 1 << 26:
+            raise Error("physics.serialize: corrupt snapshot (material count)")
+        var ids = List[Int](capacity=nm)
+        for _ in range(nm):
+            ids.append(r.ri())
+        if sc.colliders.shape[bi] == SHAPE_HEIGHTFIELD:
+            sc.colliders.fields[sc.colliders.mesh_id[bi]].active_cos = acos
+        sc.colliders.set_materials(bi, ids)
+    var nmu = r.ri()
+    if nmu < 0 or nmu > 65536:
+        raise Error("physics.serialize: corrupt snapshot (material table size)")
+    sc.material_mu = List[Real](capacity=nmu)
+    for _ in range(nmu):
+        sc.material_mu.append(r.rf())
+    var nccd = r.ri()
+    if nccd < 0 or nccd > len(sc.bset.bodies):
+        raise Error("physics.serialize: corrupt snapshot (ccd mode count)")
+    for _ in range(nccd):
+        var bi = r.ri()
+        var md = r.ri()
+        if bi < 0 or bi >= len(sc.bset.bodies) or md < 0 or md > 2:
+            raise Error("physics.serialize: corrupt snapshot (ccd mode)")
+        sc.bset.ccd_mode[bi] = UInt8(md)
+        if md == CCD_BULLET:
+            sc.bset.any_bullet = True

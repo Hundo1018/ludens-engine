@@ -36,6 +36,36 @@ def _wall_scene() raises -> ContactScene6[QuatBody6]:
     return sc^
 
 
+def _wall_kind_scene(kind: Int) raises -> ContactScene6[QuatBody6]:
+    """`_wall_scene` with the wall as a hull (kind 0) or a one-quad
+    trimesh (kind 1) instead of a box (17.46)."""
+    var sc = ContactScene6[QuatBody6]()
+    if kind == 0:
+        var v = List[Real]()
+        for c in range(8):
+            v.append(Real(0.01) if c & 1 else Real(-0.01))
+            v.append(Real(2) if c & 2 else Real(-2))
+            v.append(Real(2) if c & 4 else Real(-2))
+        _ = sc.add_hull(QuatBody6.at_rest(Vec3(0, 1, 0, 0), Inertia3.box(1, 0.01, 2, 2)), v^, True)
+    else:
+        var v = List[Real]()
+        for q in [(-1.0, -2.0), (-1.0, 2.0), (3.0, -2.0), (3.0, 2.0)]:
+            v.append(0)
+            v.append(Real(q[0]))
+            v.append(Real(q[1]))
+        var ix: List[Int] = [0, 1, 2, 1, 3, 2]  # faces -x (toward the cube)
+        _ = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), v^, ix^)
+    var sb = SoftBody.box_lattice(
+        Vec3(-1, 1, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
+    )
+    for i in range(len(sb.pts)):
+        var p = sb.pts[i]
+        p.v = Vec3(120, 0, 0, 0)
+        sb.pts[i] = p
+    _ = sc.add_soft(sb^)
+    return sc^
+
+
 def _max_x(sc: ContactScene6[QuatBody6]) -> Float64:
     var mx = Float64(-1e30)
     for i in range(len(sc.softs[0].pts)):
@@ -150,4 +180,15 @@ def main() raises:
             same = False
     s.check(same, "slow scene: ccd on/off bit-identical (zero regression)")
 
+    # 4. 17.46: the same bullet cube against a thin HULL and a one-quad
+    #    TRIMESH wall -- kinds that used to get no sweep
+    var names: List[String] = ["hull", "trimesh"]
+    for k in range(2):
+        var off = _wall_kind_scene(k)
+        var on = _wall_kind_scene(k)
+        for _ in range(5):
+            off.step_soft(DT, G)
+            on.step_soft(DT, G, ccd=True)
+        print("  ", names[k], "wall: max particle x without ccd", _max_x(off), " with ccd", _max_x(on))
+        s.check(_max_x(off) > 0.5 and _max_x(on) < 0.0, "a 120 m/s soft cube tunnels a thin " + names[k] + " wall without ccd and stops at it with ccd")
     s.finish()

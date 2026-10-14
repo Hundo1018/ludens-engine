@@ -31,10 +31,15 @@ neighbour. Without them there is no through-flow and no drag to measure.
 
 from std.math import sqrt
 from geometry.vec import Real, Vec3
+
 from .d3q19 import (
     Q, cx, cy, cz, weight, opposite, equilibrium, tau_from_viscosity,
     viscosity_from_tau, CS2,
 )
+
+def _cross(a: Vec3, b: Vec3) -> Vec3:
+    return Vec3(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0], 0)
+
 
 comptime CELL_FLUID = 0
 comptime CELL_SOLID = 1
@@ -82,6 +87,22 @@ struct Lbm(Movable, Deinitable):
     var sph_c: List[Vec3]
     var sph_r: List[Real]
     var interp: Bool  # Bouzidi linear interpolated bounce-back
+    # ROADMAP 17.59: moving solids (Ladd 1994). Empty until the first
+    # `set_wall_velocity` / `add_moving_sphere`, so a static lattice pays
+    # nothing. Per cell: the solid's velocity and the moving object that owns
+    # it (-1: none, a moving wall without force bookkeeping).
+    var moving: Bool
+    var wux: List[Real]
+    var wuy: List[Real]
+    var wuz: List[Real]
+    var owner: List[Int]
+    var obj_c: List[Vec3]  # moving spheres: centre (lattice units)
+    var obj_r: List[Real]
+    var obj_v: List[Vec3]
+    var obj_w: List[Vec3]
+    var obj_f: List[Vec3]  # force on the object over the last step
+    var obj_t: List[Vec3]  # torque about its centre over the last step
+    var obj_p: List[Vec3]  # pending (un)cover impulse, reported at the next stream
 
     def __init__(
         out self, nx: Int, ny: Int, nz: Int, nu: Real, mode: Int = BC_PERIODIC
@@ -111,6 +132,18 @@ struct Lbm(Movable, Deinitable):
         self.sph_c = List[Vec3]()
         self.sph_r = List[Real]()
         self.interp = False
+        self.moving = False
+        self.wux = List[Real]()
+        self.wuy = List[Real]()
+        self.wuz = List[Real]()
+        self.owner = List[Int]()
+        self.obj_c = List[Vec3]()
+        self.obj_r = List[Real]()
+        self.obj_v = List[Vec3]()
+        self.obj_w = List[Vec3]()
+        self.obj_f = List[Vec3]()
+        self.obj_t = List[Vec3]()
+        self.obj_p = List[Vec3]()
         var n = nx * ny * nz
         self.f = List[Real](capacity=Q * n)
         self.g = List[Real](capacity=Q * n)
@@ -205,6 +238,117 @@ struct Lbm(Movable, Deinitable):
                     var dz = Real(z) - czz
                     if dx * dx + dy * dy + dz * dz <= r * r:
                         self.flag[self.idx(x, y, z)] = CELL_SOLID
+
+    def _enable_moving(mut self):
+        if self.moving:
+            return
+        self.moving = True
+        var n = self.cells()
+        self.wux = List[Real](length=n, fill=0)
+        self.wuy = List[Real](length=n, fill=0)
+        self.wuz = List[Real](length=n, fill=0)
+        self.owner = List[Int](length=n, fill=-1)
+
+    def set_wall_velocity(mut self, lo: Vec3, hi: Vec3, u: Vec3):
+        """Give the solid cells inside [lo, hi] a wall velocity `u` (lattice
+        units): a moving lid or plate. No force bookkeeping."""
+        self._enable_moving()
+        for z in range(self.nz):
+            for y in range(self.ny):
+                for x in range(self.nx):
+                    if Real(x) >= lo[0] and Real(x) <= hi[0] and Real(y) >= lo[1] and Real(y) <= hi[1] and Real(z) >= lo[2] and Real(z) <= hi[2]:
+                        var c = self.idx(x, y, z)
+                        if self.flag[c] == CELL_SOLID:
+                            self.wux[c] = u[0]
+                            self.wuy[c] = u[1]
+                            self.wuz[c] = u[2]
+
+    def add_moving_sphere(mut self, c: Vec3, r: Real, v: Vec3, w: Vec3) -> Int:
+        """A rigid sphere that moves through the lattice (lattice units:
+        cells, cells per step, radians per step). Returns its object id;
+        `obj_f` / `obj_t` hold the fluid's force and torque on it after each
+        `step`. Move it with `move_sphere`."""
+        self._enable_moving()
+        var k = len(self.obj_c)
+        self.obj_c.append(c)
+        self.obj_r.append(r)
+        self.obj_v.append(v)
+        self.obj_w.append(w)
+        self.obj_f.append(Vec3(0, 0, 0, 0))
+        self.obj_t.append(Vec3(0, 0, 0, 0))
+        self.obj_p.append(Vec3(0, 0, 0, 0))
+        self._place(k, True)
+        return k
+
+    def move_sphere(mut self, k: Int, c: Vec3, v: Vec3, w: Vec3):
+        """New centre and velocities for moving sphere `k`. Cells it leaves
+        become fluid at equilibrium with the wall velocity and the mean
+        density of their fluid neighbours; fluid cells it covers become solid,
+        and their momentum goes to the sphere (added to `obj_f` at the next
+        `stream`, Aidun et al. 1998)."""
+        self.obj_c[k] = c
+        self.obj_v[k] = v
+        self.obj_w[k] = w
+        self._place(k, False)
+
+    def _place(mut self, k: Int, first: Bool):
+        var n = self.cells()
+        var c = self.obj_c[k]
+        var r = self.obj_r[k]
+        var cover = Vec3(0, 0, 0, 0)
+        # owned cells that fall outside: uncover
+        for cell in range(n):
+            if self.owner[cell] != k:
+                continue
+            var z = cell // (self.nx * self.ny)
+            var y = (cell // self.nx) % self.ny
+            var x = cell % self.nx
+            var d = Vec3(Real(x), Real(y), Real(z), 0) - c
+            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
+                self.flag[cell] = CELL_FLUID
+                self.owner[cell] = -1
+                var rho = Real(0)
+                var m = 0
+                for i in range(1, Q):
+                    var nxx = self._wrap(x + self.ex[i], self.nx)
+                    var nyy = self._wrap(y + self.ey[i], self.ny)
+                    var nzz = self._wrap(z + self.ez[i], self.nz)
+                    var nb = self.idx(nxx, nyy, nzz)
+                    if self.flag[nb] == CELL_FLUID and self.owner[nb] == -1:
+                        rho += self.density(nb)
+                        m += 1
+                rho = rho / Real(m) if m > 0 else Real(1)
+                var u = self.obj_v[k] + _cross(self.obj_w[k], d)
+                for i in range(Q):
+                    self.f[i * n + cell] = self._feq(i, rho, u[0], u[1], u[2])
+                cover = cover + u * rho  # the fluid gains this momentum from the sphere
+        var x0 = max(Int(c[0] - r) - 1, 0)
+        var x1 = min(Int(c[0] + r) + 2, self.nx)
+        var y0 = max(Int(c[1] - r) - 1, 0)
+        var y1 = min(Int(c[1] + r) + 2, self.ny)
+        var z0 = max(Int(c[2] - r) - 1, 0)
+        var z1 = min(Int(c[2] + r) + 2, self.nz)
+        for z in range(z0, z1):
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    var d = Vec3(Real(x), Real(y), Real(z), 0) - c
+                    if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
+                        continue
+                    var cell = self.idx(x, y, z)
+                    if self.flag[cell] == CELL_FLUID:
+                        if not first:
+                            cover = cover - self.velocity(cell) * self.density(cell)
+                        self.flag[cell] = CELL_SOLID
+                    elif self.owner[cell] != k:
+                        continue  # another solid
+                    self.owner[cell] = k
+                    var u = self.obj_v[k] + _cross(self.obj_w[k], d)
+                    self.wux[cell] = u[0]
+                    self.wuy[cell] = u[1]
+                    self.wuz[cell] = u[2]
+        # momentum handed between fluid and sphere by (un)covering: an impulse
+        # on the sphere, reported with the next step's force
+        self.obj_p[k] = self.obj_p[k] - cover
 
     def solid_count(self) -> Int:
         var n = 0
@@ -379,6 +523,10 @@ struct Lbm(Movable, Deinitable):
         self.fx = 0
         self.fy = 0
         self.fz = 0
+        for k in range(len(self.obj_f)):
+            self.obj_f[k] = self.obj_p[k]
+            self.obj_t[k] = Vec3(0, 0, 0, 0)
+            self.obj_p[k] = Vec3(0, 0, 0, 0)
         for z in range(self.nz):
             for y in range(self.ny):
                 for x in range(self.nx):
@@ -428,6 +576,23 @@ struct Lbm(Movable, Deinitable):
                             self.fx -= Real(self.ex[i]) * (fb + gi)
                             self.fy -= Real(self.ey[i]) * (fb + gi)
                             self.fz -= Real(self.ez[i]) * (fb + gi)
+                        elif self.flag[src] == CELL_SOLID and self.moving and (self.owner[src] >= 0 or self.wux[src] != 0 or self.wuy[src] != 0 or self.wuz[src] != 0):
+                            # Ladd 1994: the reflected population carries
+                            # the wall's momentum, 2 w_i rho0 (c_i . u_w) / cs^2
+                            var back = self.f[self.opp[i] * n + c]
+                            var cu = Real(self.ex[i]) * self.wux[src] + Real(self.ey[i]) * self.wuy[src] + Real(self.ez[i]) * self.wuz[src]
+                            var gi = back + 6 * self.w[i] * cu
+                            self.g[i * n + c] = gi
+                            var df = Vec3(-Real(self.ex[i]) * (back + gi), -Real(self.ey[i]) * (back + gi), -Real(self.ez[i]) * (back + gi), 0)
+                            self.fx += df[0]
+                            self.fy += df[1]
+                            self.fz += df[2]
+                            var k = self.owner[src]
+                            if k >= 0:
+                                self.obj_f[k] = self.obj_f[k] + df
+                                # the link's wall point: half way to the solid cell
+                                var lp = Vec3(Real(x) - 0.5 * Real(self.ex[i]), Real(y) - 0.5 * Real(self.ey[i]), Real(z) - 0.5 * Real(self.ez[i]), 0)
+                                self.obj_t[k] = self.obj_t[k] + _cross(lp - self.obj_c[k], df)
                         elif self.flag[src] == CELL_SOLID:
                             var back = self.f[self.opp[i] * n + c]
                             self.g[i * n + c] = back

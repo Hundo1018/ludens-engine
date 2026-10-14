@@ -34,7 +34,8 @@ from geometry.vec import Real, Vec3, dot, length, cross
 from geometry.quat import Quat
 from geometry.motor import Motor3
 from numerics.dense import solve_dense
-from physics.chain import Chain, ChainLink, SpInertia
+from physics.chain import Chain, ChainLink, SpInertia, write_chain, read_chain
+from physics.state_io import StateWriter, StateReader
 
 
 struct FloatingChain(Movable, Deinitable):
@@ -334,3 +335,45 @@ def _rotate_inertia(q: Quat, d: Vec3) -> List[Vec3]:
 
 def _mul(m: List[Vec3], v: Vec3) -> Vec3:
     return m[0] * v[0] + m[1] * v[1] + m[2] * v[2]
+
+
+def write_floating[W: StateWriter](fc: FloatingChain, mut out: W):
+    """The chain (`write_chain`) and the base: pose, body-frame velocities,
+    inertia and the pin / assembly switches (ROADMAP 17.51;
+    `read_floating` restores it exactly)."""
+    write_chain(fc.chain, out)
+    out.wv(fc.base_pos)
+    out.wf(fc.base_rot.x)
+    out.wf(fc.base_rot.y)
+    out.wf(fc.base_rot.z)
+    out.wf(fc.base_rot.w)
+    out.wv(fc.base_w)
+    out.wv(fc.base_v)
+    out.wf(fc.base_mass)
+    out.wv(fc.base_com)
+    out.wv(fc.base_idiag)
+    out.wi(1 if fc.pinned else 0)
+    out.wi(1 if fc.use_crba else 0)
+
+
+def read_floating[R: StateReader](mut r: R) raises -> FloatingChain:
+    var ch = read_chain(r)
+    var pos = r.rv()
+    var qx = r.rf()
+    var qy = r.rf()
+    var qz = r.rf()
+    var qw = r.rf()
+    var w = r.rv()
+    var v = r.rv()
+    var mass = r.rf()
+    var com = r.rv()
+    var idiag = r.rv()
+    var fc = FloatingChain(mass, com, idiag)
+    fc.chain = ch^
+    fc.base_pos = pos
+    fc.base_rot = Quat(qx, qy, qz, qw)
+    fc.base_w = w
+    fc.base_v = v
+    fc.pinned = r.ri() == 1
+    fc.use_crba = r.ri() == 1
+    return fc^

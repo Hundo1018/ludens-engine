@@ -17,6 +17,7 @@ from collision.collider_set import (
     SHAPE_ELLIPSOID,
     SHAPE_COMPOUND,
 )
+from collision.world_query import ray_collider
 from .rigid6 import Body6
 from .body_set import BodySet
 from .softbody import SoftBody
@@ -124,14 +125,25 @@ def softbody_pass[B: Body6](
                     # registry (17.0f / F4b): a hull's SAT over its own
                     # faces, a mesh's triangle candidates + closest point
                     # on triangle -- see `ColliderSet.soft_particle_contact`.
-                    # These three kinds do not get the `ccd` sweep the
-                    # box/sphere/capsule paths below have; a fast particle
-                    # can still tunnel through one within a substep. That
-                    # is the same conservative scope limit `_ccd_advance`
-                    # documents for rigid bodies against these kinds.
+                    # With `ccd` (17.46) the particle's swept segment is cast
+                    # against the collider first: a particle that crossed a
+                    # thin hull / mesh / heightfield within the substep is
+                    # placed at the first surface hit (radius r outside it),
+                    # which outranks the closest-point pushout (that one
+                    # would push a particle past the midplane out the FAR
+                    # side, the trap the box path below documents).
                     var res = colliders.soft_particle_contact(
                         b, bset.pose3(b), p.x, r
                     )
+                    if ccd:
+                        var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2], 0)
+                        var seg = p.x - pv
+                        var sl = sqrt(dot(seg, seg))
+                        if sl > r:
+                            var hit = ray_collider(colliders, b, bset.pose3(b), pv, seg / sl, sl + r)
+                            if hit.hit and not hit.start_solid and hit.t <= sl + r:
+                                var back = max(hit.t - r, Real(0))
+                                res = (True, pv + seg * (back / sl) + hit.normal * Real(1e-4), hit.normal)
                     if res[0]:
                         var nw3 = res[1]
                         if smu > 0:

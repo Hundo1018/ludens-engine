@@ -27,6 +27,7 @@ from ecs.world import World
 from ecs.storage import StorageBackend
 from .scheduler import Scheduler
 from .policy import DispatchPolicy
+from .dispatch import Dispatch, Task, dispatch_for
 from .message import (
     MessageType,
     Envelope,
@@ -63,6 +64,32 @@ def _route_by_index[M: MessageType](
                 inboxes[env.target].append(env.payload)
 
 
+struct _SystemTask[Bk: StorageBackend, *Systems: ActorSystem](Task):
+    """One system actor per item for a host `Dispatch` (ROADMAP 17.75)."""
+
+    comptime M = Self.Systems[0].M
+    var world: Pointer[World[Self.Bk], MutUntrackedOrigin]
+    var inboxes: Pointer[List[List[Self.M]], MutUntrackedOrigin]
+    var outboxes: Pointer[List[List[Envelope[Self.M]]], MutUntrackedOrigin]
+    var run_all: Bool
+
+    def __init__(out self, mut world: World[Self.Bk], mut inboxes: List[List[Self.M]], mut outboxes: List[List[Envelope[Self.M]]], run_all: Bool):
+        self.world = Pointer(to=world).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.inboxes = Pointer(to=inboxes).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.outboxes = Pointer(to=outboxes).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.run_all = run_all
+
+    def run(self, i: Int):
+        comptime K = len(Self.Systems)
+        comptime for k in range(K):
+            if i == k and (self.run_all or len(self.inboxes[][k]) > 0):
+                var produced = Self.Systems[k].handle[Self.Bk](
+                    self.world[], rebind[List[Self.Systems[k].M]](self.inboxes[][k])
+                )
+                for j in range(len(produced)):
+                    self.outboxes[][k].append(rebind[Envelope[Self.M]](produced[j]))
+
+
 struct SystemActorScheduler[
     Bk: StorageBackend, D: DispatchPolicy, *Systems: ActorSystem
 ](Scheduler):
@@ -70,8 +97,10 @@ struct SystemActorScheduler[
     comptime M = Self.Systems[0].M  # all systems share one message type
     comptime K = len(Self.Systems)  # number of system actors
 
+    var host: Optional[Dispatch]  # ROADMAP 17.75: overrides `D` when set
+
     def __init__(out self):
-        pass
+        self.host = None
 
     def tick(mut self, mut world: World[Self.B]):
         comptime M = Self.M
@@ -95,7 +124,13 @@ struct SystemActorScheduler[
                         for j in range(len(produced)):
                             outboxes[k].append(rebind[Envelope[M]](produced[j]))
 
-            Self.D.run(worker, K)
+            if self.host:
+                var st = _SystemTask[Self.B, *Self.Systems](world, inboxes, outboxes, run_all)
+                dispatch_for(self.host.value(), st, K)
+                _ = len(inboxes)  # keep alive past the untracked-pointer use
+                _ = len(outboxes)
+            else:
+                Self.D.run(worker, K)
 
             var next_in = empty_inboxes[M](K)
             _route_by_index[M](outboxes, next_in)

@@ -49,6 +49,34 @@ def _chain(n: Int) -> Chain:
     return c^
 
 
+def _slide(mu: Real) raises -> Real:
+    """Distance a block on (prismatic y, prismatic x) slides in 1 s from
+    3 m/s along x, resting on a floor."""
+    var c = Chain()
+    c.add_link(ChainLink.prismatic(Vec3(0, 1, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 0.001, Vec3(1e-4, 1e-4, 1e-4, 0)))
+    c.add_link(ChainLink.prismatic(Vec3(1, 0, 0, 0), Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0), 1.0, Vec3(0.1, 0.1, 0.1, 0)))
+    var ground = ColliderSet()
+    var slab = ground.add_ground_slab(-0.5)
+    var poses = List[Pose3]()
+    poses.append(slab[1].copy())
+    var pts = List[Int]()
+    pts.append(1)
+    var locs = List[Vec3]()
+    locs.append(Vec3(0, -0.5, 0, 0))
+    var zero = List[Real]()
+    zero.append(0)
+    zero.append(0)
+    for _ in range(60):  # settle onto the floor
+        c.step(DT, zero, G)
+        _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, True, mu)
+    c.qd[1] = 3
+    var x0 = c.q[1]
+    for _ in range(240):
+        c.step(DT, zero, G)
+        _ = c.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, True, mu)
+    return c.q[1] - x0
+
+
 def main() raises:
     var s = Suite("chain_contact")
 
@@ -169,5 +197,73 @@ def main() raises:
         contact_max <= free_max * 1.05,
         "contact never injects energy above the free-swinging bound",
     )
+
+    # ---- 6. factored vs dense contact solve (17.51) ----
+    #      the same 1200 steps with H Cholesky-factored once per pass and with
+    #      a dense elimination per impulse: the same contact fixed point
+    var fa = _chain(2)
+    var fb = _chain(2)
+    fa.q[0] = 1.2
+    fb.q[0] = 1.2
+    var dq = Real(0)
+    for _ in range(1200):
+        fa.step(DT, zero, G)
+        fb.step(DT, zero, G)
+        _ = fa.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, True)
+        _ = fb.resolve_contacts(ground, poses, 0.0, pts, locs, DT, 8, False)
+        dq = max(dq, max(abs(fa.q[0] - fb.q[0]), abs(fa.q[1] - fb.q[1])))
+    # and an 8-link chain lying on the floor, every tip touching
+    var flat = ColliderSet()
+    var fslab = flat.add_ground_slab(-1.01)
+    var fposes = List[Pose3]()
+    fposes.append(fslab[1].copy())
+    var ca = _chain(8)
+    var cb = _chain(8)
+    ca.q[0] = 1.5707963
+    cb.q[0] = 1.5707963
+    var p8 = List[Int]()
+    var l8 = List[Vec3]()
+    var z8 = List[Real]()
+    for i in range(8):
+        p8.append(i)
+        l8.append(Vec3(0, -1, 0, 0))
+        z8.append(0)
+    for _ in range(120):
+        ca.step(DT, z8, G)
+        cb.step(DT, z8, G)
+        _ = ca.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, True)
+        _ = cb.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, False)
+        for i in range(8):
+            dq = max(dq, abs(ca.q[i] - cb.q[i]))
+    # and the O(n) articulated-body response on the same flat chain
+    var cc = _chain(8)
+    var cd = _chain(8)
+    cc.q[0] = 1.5707963
+    cd.q[0] = 1.5707963
+    var dq_aba = Real(0)
+    for _ in range(120):
+        cc.step(DT, z8, G)
+        cd.step(DT, z8, G)
+        _ = cc.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, True, 0, True)
+        _ = cd.resolve_contacts(flat, fposes, 0.0, p8, l8, DT, 8, True)
+        for i in range(8):
+            dq_aba = max(dq_aba, abs(cc.q[i] - cd.q[i]))
+    print("  ABA (O(n)) vs factored contact response, 8 links on the floor, 120 steps: max |dq|", dq_aba)
+    s.check(dq_aba < 1e-3, "the articulated-body contact response gives the factored solve's motion")
+    print("  factored vs dense contact solve (2 links swinging 1200 steps, 8 links lying on the floor 120 steps): max |dq|", dq)
+    s.check(dq < 1e-3, "factoring H once per pass gives the dense solve's motion (max |dq| < 1e-3)")
+
+    # ---- 7. Coulomb friction (17.51) ----
+    #      a 1 kg block on two prismatic joints (drop along y, slide along x)
+    #      resting on the floor and sliding at 3 m/s: with mu = 0.5 it stops
+    #      in v^2 / (2 mu g') (g' = g (m_y + m_x) / m_x for the 1 g carrier);
+    #      with mu = 0 it keeps sliding
+    var stop = _slide(0.5)
+    var keep = _slide(0)
+    var gp = Real(9.8) * 1.001
+    var want = Real(9) / (2 * 0.5 * gp)
+    print("  block sliding at 3 m/s: mu 0.5 stops after", stop, "m (analytic", want, "); mu 0 after 1 s", keep, "m")
+    s.check(abs(stop / want - 1) < 0.02, "friction stops the sliding block at v^2 / (2 mu g)")
+    s.check(abs(keep - 3) < 0.01, "mu = 0 leaves it sliding at 3 m/s")
 
     s.finish()

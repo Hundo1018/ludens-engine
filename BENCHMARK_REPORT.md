@@ -380,28 +380,30 @@ paid up front (brute force over triangles here).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| weld (split vertices) | 512 | mesh | 494489.00 | 0.00 | 0.49 |
-| repair | 512 | mesh | 303784.00 | 0.00 | 0.30 |
-| active edges | 512 | mesh | 179332.00 | 0.01 | 0.18 |
-| simplify (QEM, -> budget 0.05) | 512 | mesh | 999206.00 | 0.00 | 1.00 |
-| weld (split vertices) | 2048 | mesh | 1861165.00 | 0.00 | 1.86 |
-| repair | 2048 | mesh | 1009063.00 | 0.00 | 1.01 |
-| active edges | 2048 | mesh | 718985.00 | 0.00 | 0.72 |
-| simplify (QEM, -> budget 0.05) | 2048 | mesh | 4010513.00 | 0.00 | 4.01 |
-| weld (split vertices) | 8192 | mesh | 7470304.00 | 0.00 | 7.47 |
-| repair | 8192 | mesh | 4427213.00 | 0.00 | 4.43 |
-| active edges | 8192 | mesh | 3459496.00 | 0.00 | 3.46 |
-| simplify (QEM, -> budget 0.05) | 8192 | mesh | 17898310.00 | 0.00 | 17.90 |
+| weld (split vertices) | 512 | mesh | 536327.00 | 0.00 | 0.54 |
+| repair | 512 | mesh | 264600.00 | 0.00 | 0.26 |
+| active edges | 512 | mesh | 180405.00 | 0.01 | 0.18 |
+| simplify (QEM, -> budget 0.05) | 512 | mesh | 943291.00 | 0.00 | 0.94 |
+| weld (split vertices) | 2048 | mesh | 1988147.00 | 0.00 | 1.99 |
+| repair | 2048 | mesh | 1008109.00 | 0.00 | 1.01 |
+| active edges | 2048 | mesh | 1073232.00 | 0.00 | 1.07 |
+| simplify (QEM, -> budget 0.05) | 2048 | mesh | 4036189.00 | 0.00 | 4.04 |
+| weld (split vertices) | 8192 | mesh | 8992465.00 | 0.00 | 8.99 |
+| repair | 8192 | mesh | 5991725.00 | 0.00 | 5.99 |
+| active edges | 8192 | mesh | 3472629.00 | 0.00 | 3.47 |
+| simplify (QEM, -> budget 0.05) | 8192 | mesh | 22085391.00 | 0.00 | 22.09 |
 
 
 ### Mesh SDF: bake once, then sample (512-triangle sphere)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sdf bake res^3 | 8 | grid | 20635048.00 | 0.00 | 20.64 |
-| sdf bake res^3 | 16 | grid | 167370895.00 | 0.00 | 167.37 |
-| sample: SdfGrid trilinear | 512 | query | 35.03 | 28.54 | 0.35 |
-| sample: exact scan over triangles | 512 | query | 13717.62 | 0.07 | 13.72 |
+| sdf bake res^3 | 8 | grid | 20911855.00 | 0.00 | 20.91 |
+| sdf bake res^3, BVH nearest triangle (17.45) | 8 | grid | 2200487.00 | 0.00 | 2.20 |
+| sdf bake res^3 | 16 | grid | 172101568.00 | 0.00 | 172.10 |
+| sdf bake res^3, BVH nearest triangle (17.45) | 16 | grid | 10650698.00 | 0.00 | 10.65 |
+| sample: SdfGrid trilinear | 512 | query | 33.65 | 29.72 | 0.34 |
+| sample: exact scan over triangles | 512 | query | 12743.73 | 0.08 | 12.74 |
 
 
 ## Collision — filtering and contact events
@@ -603,6 +605,58 @@ comparison: not a faster step, an available one.
 | stiff E=2e5 dt=1/60 implicit cg/step=31 | 63 | step | 1893927.29 | 0.00 | 227.27 |
 
 
+## Numerics deepening — BiCGStab, dense refinement, gradcheck (17.84)
+
+`cg` / `pcg` assume a symmetric positive definite operator. The first table
+solves an upwind convection-diffusion system, which is not symmetric:
+BiCGStab converges and its error against the known answer is in the row; CG
+runs its whole budget and its error is the reason it is labelled the wrong
+solver. The diagonal is constant, so Jacobi is only a rescaling, yet at
+n=1024 the Jacobi run diverges where the plain one converges: BiCGStab's
+convergence on this non-normal matrix is irregular (GMRES, which is
+monotone, is not in the package yet). BiCGStab reports the TRUE residual of the returned f32 answer, not
+its recursive estimate (on a convection-only variant the recursion met 1e-6
+with an answer off by 6e9, `test_numerics_deep`).
+
+The second table is the price of accuracy in the small dense solve: three
+rounds of mixed-precision refinement (residual in f64, correction by the same
+f32 elimination) and the exact 1-norm condition number. The third is one
+shared `gradcheck` call: 6 controls x 6 step sizes x 2 rollouts.
+
+### Non-symmetric solve: BiCGStab vs CG (convection-diffusion, 17.84)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| bicgstab iters=215 converged=True err=2.4795532e-05 | 256 | solve | 7257398.50 | 0.00 | 145.15 |
+| bicgstab+jacobi iters=236 converged=True err=2.360344e-05 | 256 | solve | 7790547.25 | 0.00 | 155.81 |
+| cg (wrong solver) iters=1024 converged=False err=167.53519 | 256 | solve | 9102293.05 | 0.00 | 182.05 |
+| bicgstab iters=111 converged=True err=4.297495e-05 | 1024 | solve | 10612514.00 | 0.00 | 53.06 |
+| bicgstab+jacobi iters=1136 converged=False err=410476270000000.0 | 1024 | solve | 112089444.00 | 0.00 | 560.45 |
+| cg (wrong solver) iters=4096 converged=False err=613.858 | 1024 | solve | 165420291.60 | 0.00 | 827.10 |
+| bicgstab iters=71 converged=True err=9.286404e-05 | 4096 | solve | 23876852.00 | 0.00 | 47.75 |
+| bicgstab+jacobi iters=70 converged=True err=0.000106334686 | 4096 | solve | 23932567.00 | 0.00 | 47.87 |
+| cg (wrong solver) iters=16384 converged=False err=2595.2134 | 4096 | solve | 2572323156.50 | 0.00 | 5144.65 |
+
+
+### Dense solve: f32 elimination, mixed-precision refinement, condition number (17.84)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| solve_dense (f32) | 8 | solve | 844.00 | 1.18 | 1.69 |
+| solve_dense_refined 3 rounds, residual 7.0762377e-17 | 8 | solve | 10995.92 | 0.09 | 21.99 |
+| condition_1 = 2.2033484 | 8 | estimate | 7032.70 | 0.14 | 14.07 |
+| solve_dense (f32) | 32 | solve | 54824.70 | 0.02 | 10.96 |
+| solve_dense_refined 3 rounds, residual 3.6115193e-16 | 32 | solve | 143060.87 | 0.01 | 28.61 |
+| condition_1 = 2.0691018 | 32 | estimate | 125622.41 | 0.01 | 25.12 |
+
+
+### gradcheck: diffsim landing x, 6 controls x 6 steps (17.84)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| gradcheck best error 1.013279e-05 | 6 | check | 41894.92 | 0.02 | 2.09 |
+
+
 ## Animation — clips, blending and cross-fade
 
 The skinning maths existed; the runtime around it did not. `procedural/anim.mojo`
@@ -663,6 +717,37 @@ characters inside a transition, since that is where the two differ.
 | 0 % | 3522 | 3612 | 110 | 112 |
 | 50 % | 6137 | 5723 | 191 | 178 |
 | 100 % | 10265 | 6690 | 320 | 209 |
+
+## Animation — K-influence skinning and morph targets (17.65)
+
+`skin_motor_k` / `skin_lbs_k` take K (index, weight) pairs per vertex; K = 2
+equals the existing `skin_motor` bit for bit (both call one non-inlined
+per-vertex function: inlined separately, the same expression rounded
+differently in 41 of 500 vertices). `bind_palette` gives the world x
+inverse-bind buffer a host shader consumes; `MorphSet` stores sparse
+deltas, applied before skinning. Under a 0..170-degree twist across four
+bones DLB keeps a vertex at radius 0.2 from the axis, LBS pulls it to 0.097
+(`test_skin_k`). Rows: ns per vertex.
+
+### K-influence skinning, 4096 vertices, 32 bones (17.65)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| skin_motor (2 bones, existing) | 4096 | vertex | 62.57 | 15.98 | 5.13 |
+| DLB K=2 | 4096 | vertex | 58.97 | 16.96 | 4.83 |
+| LBS K=2 | 4096 | vertex | 17.72 | 56.43 | 1.45 |
+| DLB K=4 | 4096 | vertex | 80.45 | 12.43 | 6.59 |
+| LBS K=4 | 4096 | vertex | 37.71 | 26.52 | 3.09 |
+| DLB K=8 | 4096 | vertex | 97.30 | 10.28 | 7.97 |
+| LBS K=8 | 4096 | vertex | 52.25 | 19.14 | 4.28 |
+
+
+### Morph targets: 6 of 60 active, 5 % of vertices each (17.65)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| apply (copy base + 6 x 205 deltas) | 4096 | vertex | 3.75 | 266.40 | 3.08 |
+
 
 ## Physics — cloth self-collision
 
@@ -800,6 +885,40 @@ divergence where it is.
 | Re~1600 tunnel, smagorinsky=0.17: ran 600 steps to completion | 27648 | cell-step | 788.65 | 1.27 | 13082.68 |
 
 
+## Fluids — LBM moving solids and rigid coupling (17.59)
+
+`Lbm` now carries moving solids by Ladd's bounce-back: the reflected
+population carries the wall's momentum, and momentum exchange gives each
+moving sphere its force and torque. `test_lbm_moving`: Couette flow within
+0.003 % of the lid speed, a translating sphere's drag 3 % from
+Stokes-Hasimoto, a spinning sphere's torque 4 % from the rotlet.
+`physics/fsi.mojo` `LbmCoupler` ties a sphere to a `ContactScene6` body, two
+ways, one lattice step per physics step: a 1500 kg/m^3 sphere settles at
+0.997 of the Stokes-Hasimoto terminal velocity (`test_fsi`); at density
+ratio 0.5 the explicit coupling diverges (added mass).
+
+The first table is the lattice cost per cell with static against moving
+solids; moving spheres re-flag their cells every step (`move_sphere` scans
+the lattice for the cells a sphere owns, O(cells) per sphere). The second
+is one coupled step.
+
+### LBM with moving solids (17.59), 32^3
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| no solid | 32768 | cell-step | 343.68 | 2.91 | 675.71 |
+| 1 static sphere | 32768 | cell-step | 407.10 | 2.46 | 800.40 |
+| 1 moving sphere (Ladd) | 32768 | cell-step | 365.16 | 2.74 | 717.93 |
+| 8 moving spheres (Ladd) | 32768 | cell-step | 356.53 | 2.80 | 700.96 |
+
+
+### LbmCoupler.step: lattice + ContactScene6, one sphere (17.59)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| coupled step (32^3 lattice, 1 sphere) | 1 | step | 11928284.77 | 0.00 | 715.70 |
+
+
 ## Collision — scene queries (raycast + overlap)
 
 The `SceneQuery` seam: brute / bvh / grid / tree answering identical ray and
@@ -878,6 +997,22 @@ every entity for a hand-kept dirty field.
 | chunked | 1 % | 19800 | 315 | 356 | 200 | 13 | 366 |
 | chunked | 50 % | 10000 | 263 | 396 | 200 | 13 | 381 |
 | chunked | 99 % | 200 | 236 | 385 | 200 | 14 | 386 |
+
+
+## Host-defined components (17.78)
+
+`ecs.host_components.HostComponents` stores components a host registers at
+run time (name, size) as dense byte rows, beside the compile-time ones. The
+comparison is the same f64 written, read and queried both ways.
+
+### Host-defined vs compile-time components (17.78)
+
+| N | kind | write ns | read ns | query ns per entity |
+|---:|---|---:|---:|---:|
+| 1000 | compile-time | 22 | 5 | 22 |
+| 1000 | host blob | 245 | 30 | 18 |
+| 100000 | compile-time | 28 | 7 | 15 |
+| 100000 | host blob | 280 | 163 | 2 |
 
 ## Scheduler strategies — sequential vs actor model, serial vs parallel
 
@@ -1561,6 +1696,46 @@ costs.
 | linear (R=I) 12x6x6 rot-err=83.64 | 2160 | tet | 175.17 | 5.71 | 0.38 |
 
 
+## Physics — FEM constitutive models (17.58)
+
+`physics/fem_material.mojo` puts the stress law behind a compile-time trait:
+corotational (the existing law), stable Neo-Hookean (Smith 2018, without the
+log term) and StVK. `test_fem_material` shows they agree within 0.21 % at
+strain 1e-3, are all stress-free under a 63-degree rotation, and differ
+where they should: an element pushed through itself (det F = -0.2) is
+restored only by Neo-Hookean, and StVK's restoring stress at 2 % length is
+5 % of its peak. The table is the cost of one force pass per element; the
+corotational rows pay the 12 Newton iterations of the polar decomposition.
+
+### FEM constitutive models: elastic force pass (17.58)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| FemBody.elastic_forces (built-in corotational) | 960 | tet | 1540.28 | 0.65 | 295.73 |
+| corotational | 960 | tet | 1495.53 | 0.67 | 287.14 |
+| stable neo-hookean | 960 | tet | 153.90 | 6.50 | 29.55 |
+| stvk | 960 | tet | 206.10 | 4.85 | 39.57 |
+
+
+## Physics — heat conduction (17.61)
+
+`physics/thermal.mojo` adds a temperature field on two discretisations: a
+finite-difference grid and the tetrahedra of a `FemBody` (linear elements,
+lumped capacity). On a 1D bar with a hot end both stay within 0.03 K of the
+erf solution after 10 s and within 0.02 K of each other (`test_thermal`);
+`expand` rescales the FEM rest shapes, and a heated free bar lengthens by
+alpha_L dT L to 0.0001 %. The table prices one explicit step per node at the
+same 1 mm resolution; the stable dt column says how many steps a second of
+heat flow costs on each.
+
+### Heat conduction: grid vs tets, 60 x 4 x 4 mm at 1 mm (17.61)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| grid 7-point, max dt 0.01666667 s | 1525 | node-step | 9.67 | 103.42 | 2.95 |
+| tets (4800), max dt 0.008333324 s | 1525 | node-step | 244.95 | 4.08 | 74.71 |
+
+
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this
@@ -1791,6 +1966,42 @@ single box; more colliders mean more candidates per query).
 | 16 x 16 | 289 | 2124 | 1910 | 1631 | 826 |
 | 32 x 32 | 1089 | 5513 | 8627 | 10514 | 990 |
 | 100 x 100 | 10201 | 65204 | 60079 | 72223 | 736 |
+
+## Physics — point caches (17.63)
+
+`physics/sim_cache.mojo` records per-frame point arrays (cloth, strands,
+particles) with an error bound: coordinates are quantised to 2 err,
+keyframes store zig-zag varints, delta frames store the integer change, so
+there is no drift. Frames with non-finite values and err = 0 are stored raw.
+`test_sim_cache`: a 256-point cloth over 240 frames at err = 1 mm is 26.8 %
+of raw f32 and every frame is within 1 mm; `CachePlayer` stands in for the
+live cloth under `step_checked`. The size floor is one byte per coordinate,
+hence the flat bytes-per-point column across error bounds (bit packing
+would go below it). The seek table is the trade-off the ROADMAP item asks
+to measure: decoding frame 200 from the cache against restoring the
+snapshot at frame 192 and re-simulating.
+
+### Point cache: size and throughput, 256-point cloth x 240 frames (17.63)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| err 0.01 m: 3.052246 bytes/point-frame (raw 12), encode | 61440 | point-frame | 32.35 | 30.91 | 1.99 |
+| err 0.01 m: 3.052246 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 108.54 | 9.21 | 6.67 |
+| err 0.001 m: 3.2144206 bytes/point-frame (raw 12), encode | 61440 | point-frame | 26.15 | 38.23 | 1.61 |
+| err 0.001 m: 3.2144206 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 101.65 | 9.84 | 6.25 |
+| err 0.0001 m: 3.8009276 bytes/point-frame (raw 12), encode | 61440 | point-frame | 25.47 | 39.26 | 1.56 |
+| err 0.0001 m: 3.8009276 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 109.40 | 9.14 | 6.72 |
+| err 0.0 m: 12.051302 bytes/point-frame (raw 12), encode | 61440 | point-frame | 62.37 | 16.03 | 3.83 |
+| err 0.0 m: 12.051302 bytes/point-frame (raw 12), decode (random access) | 61440 | point-frame | 21.66 | 46.17 | 1.33 |
+
+
+### Seek to frame 200: cache vs snapshot + recompute (17.63)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| cache decode (keyframe 192 + 8 deltas) | 1 | seek | 29255.86 | 0.03 | 5.85 |
+| snapshot 192 + recompute 9 frames | 1 | seek | 10053784.25 | 0.00 | 201.08 |
+
 
 ## Differentiable simulation — gradient cost & Field abstraction
 
@@ -2543,6 +2754,37 @@ cost independent of terrain size, where a full rescan grows with it.
 | buoyancy, boxes (16^3 samples) | 1024 | frame | 26460081.56 | 0.00 | 1323.00 |
 
 
+## Physics — water surfaces (17.60)
+
+`physics/water.mojo` puts the water height behind a `WaterSurface` trait:
+flat, Gerstner (closed form in t, so any time can be queried without
+stepping) and a shallow-water ripple grid. `float_body` samples a box at n^3
+points against whichever surface it is given. `test_water`: zero-amplitude
+Gerstner equals flat bit for bit; a box on a 40 m swell heaves with the
+wave's period to 0.05 % (5.067 s vs 5.064 s); a ripple on 1 m of water
+reaches 5 m in 1.55 s against 5 / sqrt(g H) = 1.60 s. The flat query is a
+constant the compiler folds, hence 0 ns. The Gerstner cost is the 4
+fixed-point iterations of the inverse map plus one final evaluation, each
+over every wave.
+
+### Water surface height queries (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| flat | 200000 | query | 0.00 | 3636363.64 | 0.00 |
+| gerstner 4 waves, Q = 0 | 200000 | query | 378.18 | 2.64 | 75.64 |
+| gerstner 4 waves, Q = 0.6 | 200000 | query | 332.72 | 3.01 | 66.54 |
+| shallow-water grid 128^2 (sample) | 200000 | query | 9.47 | 105.56 | 1.89 |
+
+
+### Shallow-water step and float_body (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| ShallowWaterGrid.step 128^2 | 16384 | cell-step | 10.17 | 98.30 | 16.67 |
+| float_body 4^3 samples on the 4-wave sea | 1 | body | 34992.06 | 0.03 | 69.98 |
+
+
 ### Rope per frame: XPBD rope vs distance-joint link chain; rope collision on/off
 
 | variant | N | op | ns/op | Mops/s | total ms |
@@ -2555,6 +2797,33 @@ cost independent of terrain size, where a full rescan grows with it.
 | distance-joint link chain (8 x 8) | 256 | frame | 3607189.60 | 0.00 | 108.22 |
 | XPBD rope, collision on (8 substeps x 4 iters) | 16 | frame | 26851.33 | 0.04 | 0.81 |
 | XPBD rope, collision on (8 substeps x 4 iters) | 64 | frame | 107307.17 | 0.01 | 3.22 |
+
+
+## Physics — hair strands and Hill muscles (17.57)
+
+`physics/strand.mojo` simulates strands by Follow-The-Leader (Müller 2012)
+with a straight-rest bending pull: segment lengths stay at rest to 1e-6
+without colliders (`test_strand`), a ponytail swings 39 cm after a 90-degree
+head turn and settles within 2.3 mm. The first table is the cost per particle
+per step, without colliders and with a head sphere plus two shoulder capsules.
+The second prices the Hill curves added to `Actuator.muscle`
+(`HillParams`: force-length, force-velocity, passive); with all three
+switched off the muscle is bit-identical to the plain one (`test_muscle_hill`).
+
+### Hair strands: Follow-The-Leader with bending (17.57)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| strands 1000 x 16 | 16000 | particle-step | 37.40 | 26.73 | 35.91 |
+| strands 1000 x 16 + sphere + 2 capsules | 16000 | particle-step | 43.72 | 22.87 | 41.97 |
+
+
+### Muscle: plain activation vs Hill curves (17.57)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| plain Actuator.muscle | 64 | actuator | 23.49 | 42.56 | 30.07 |
+| hill curves (fl, fv, fp) | 64 | actuator | 43.50 | 22.99 | 55.68 |
 
 
 ## Physics — joint kinds, limits and motors (ROADMAP 17.47)
@@ -2847,14 +3116,41 @@ the split, and below it after (`test_chain_contact` gates exactly that).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| step only | 2 | step | 1468.60 | 0.68 | 0.29 |
-| step + ground contact | 2 | step | 27465.00 | 0.04 | 5.49 |
-| step only | 4 | step | 2586.11 | 0.39 | 0.52 |
-| step + ground contact | 4 | step | 22830.34 | 0.04 | 4.57 |
-| step only | 8 | step | 5250.40 | 0.19 | 1.05 |
-| step + ground contact | 8 | step | 10040.52 | 0.10 | 2.01 |
-| step only | 16 | step | 13635.11 | 0.07 | 2.73 |
-| step + ground contact | 16 | step | 28644.84 | 0.03 | 5.73 |
+| step only | 2 | step | 3777.01 | 0.26 | 0.76 |
+| step + ground contact (dense solve per impulse) | 2 | step | 77553.88 | 0.01 | 15.51 |
+| step + ground contact (H factored once per pass, 17.51) | 2 | step | 65432.38 | 0.02 | 13.09 |
+| step only | 4 | step | 4890.37 | 0.20 | 0.98 |
+| step + ground contact (dense solve per impulse) | 4 | step | 37938.79 | 0.03 | 7.59 |
+| step + ground contact (H factored once per pass, 17.51) | 4 | step | 49787.16 | 0.02 | 9.96 |
+| step only | 8 | step | 10349.30 | 0.10 | 2.07 |
+| step + ground contact (dense solve per impulse) | 8 | step | 18266.74 | 0.05 | 3.65 |
+| step + ground contact (H factored once per pass, 17.51) | 8 | step | 18950.81 | 0.05 | 3.79 |
+| step only | 16 | step | 33076.06 | 0.03 | 6.62 |
+| step + ground contact (dense solve per impulse) | 16 | step | 58772.96 | 0.02 | 11.75 |
+| step + ground contact (H factored once per pass, 17.51) | 16 | step | 47787.30 | 0.02 | 9.56 |
+| step only | 32 | step | 116283.69 | 0.01 | 23.26 |
+| step + ground contact (dense solve per impulse) | 32 | step | 212900.98 | 0.00 | 42.58 |
+| step + ground contact (H factored once per pass, 17.51) | 32 | step | 124900.04 | 0.01 | 24.98 |
+
+
+### Reduced-coordinate contact, every link touching (17.51): dense solve per impulse vs one Cholesky factor per pass vs ABA response
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| all tips on the floor: dense solve per impulse | 4 | step | 84370.65 | 0.01 | 3.37 |
+| all tips on the floor: H factored once per pass | 4 | step | 74984.88 | 0.01 | 3.00 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 4 | step | 212689.33 | 0.00 | 8.51 |
+| all tips on the floor: dense solve per impulse | 8 | step | 302147.85 | 0.00 | 12.09 |
+| all tips on the floor: H factored once per pass | 8 | step | 244407.20 | 0.00 | 9.78 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 8 | step | 721011.40 | 0.00 | 28.84 |
+| all tips on the floor: dense solve per impulse | 16 | step | 1613580.00 | 0.00 | 64.54 |
+| all tips on the floor: H factored once per pass | 16 | step | 898841.70 | 0.00 | 35.95 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 16 | step | 2552903.58 | 0.00 | 102.12 |
+| all tips on the floor: dense solve per impulse | 32 | step | 14942651.05 | 0.00 | 597.71 |
+| all tips on the floor: H factored once per pass | 32 | step | 3874066.38 | 0.00 | 154.96 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 32 | step | 9151954.00 | 0.00 | 366.08 |
+| all tips on the floor: H factored once per pass | 64 | step | 19528841.77 | 0.00 | 781.15 |
+| all tips on the floor: articulated-body response per impulse, O(n) | 64 | step | 37784074.83 | 0.00 | 1511.36 |
 
 
 ## Physics — articulated chain: reduced (CRBA+RNEA) vs maximal coordinates
@@ -3607,6 +3903,48 @@ Contract (seeding, range, determinism) in `test_noise`.
 | fbm3 (5 oct) | 65536 | sample | 173.74 | 5.76 | 11.39 |
 
 
+## Procedural — scatter, Delaunay, terrain (17.69)
+
+The noise functions finally have consumers. `procedural/scatter.mojo`
+(Poisson-disk, dart throwing, jittered grid; hashed randomness, so a seed
+reproduces the points bit for bit), `procedural/delaunay.mojo` (Bowyer-Watson
+on the exact `orient2d` / `incircle`: cocircular lattices triangulate
+correctly) and `procedural/terrain_gen.mojo` (fBm / ridged / domain-warped
+heights as a pure function of world position, so tiles agree on their seams
+bit for bit; thermal erosion). `test_pcg`: Poisson minimum distance 2.00002
+at r = 2; Delaunay of 400 points gives 784 = 2n - 2 - h triangles; a box
+comes to rest on a generated `HeightField`. The Delaunay rows grow per point
+with n: the cavity search is linear in the triangles (a point-location walk
+is the known next step).
+
+### Point distributions, 100 x 100, r = 2 (17.69)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| poisson_disk (1602 points) | 1602 | point | 5267.00 | 0.19 | 8.44 |
+| dart_throwing 5000 tries (1186 points) | 1186 | point | 1575.94 | 0.63 | 1.87 |
+| jittered_grid (2500 points) | 2500 | point | 23.89 | 41.87 | 0.06 |
+
+
+### Delaunay (Bowyer-Watson, exact predicates) (17.69)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| delaunay n=250 | 250 | point | 13666.92 | 0.07 | 3.42 |
+| delaunay n=500 | 500 | point | 22259.80 | 0.04 | 11.13 |
+| delaunay n=1000 | 1000 | point | 43273.11 | 0.02 | 43.27 |
+
+
+### Terrain samples and erosion (17.69)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| fbm 5 octaves | 20000 | sample | 101.40 | 9.86 | 2.03 |
+| ridged | 20000 | sample | 102.04 | 9.80 | 2.04 |
+| domain-warped (+2 x 3 octaves) | 20000 | sample | 219.54 | 4.56 | 4.39 |
+| thermal_erosion 65^2, 50 passes | 4225 | cell-pass | 88.90 | 11.25 | 18.78 |
+
+
 ## `diag` — observability layer (Phase 17.9 / 17.10 / 17.32-17.34)
 
 `diag` is layer 0 (`docs/ARCHITECTURE.md` §1): zero engine dependencies, so
@@ -3707,6 +4045,37 @@ the bodies inside it.
 |---:|---:|---:|---:|---:|---:|---:|
 | 64 | 1970 | 32 | 12388 | 30556 | 24 | 792 |
 | 1024 | 34988 | 373 | 196708 | 483676 | 474 | 17688 |
+
+## Operations boundary — outbox, achievements, black box (17.73)
+
+`diag/outbox.mojo` is the one way operations data leaves the simulation: a
+bounded queue of typed numeric records, written during a tick and drained by
+the host after it, with drop-newest + `OUTBOX_DROPPED`, deterministic
+sampling and rollback deduplication. `gameplay/achievements.mojo` (unlock
+once, state in flags), `gameplay/loc_keys.mojo` (stable FNV key ids, missing
+key report) and `gameplay/blackbox.mojo` (log + counters + snapshot + input
+tail in one checksummed blob) sit on top. `test_ops`: a scene with telemetry
+on is bit-identical to one with it off; a black box restored in a clean
+scene replays to the failing tick bit for bit. The second table is the
+overhead per step; the first version re-grew the drained list from empty
+every tick and cost 16 % of the step (2.8 us per record).
+
+### Outbox push (17.73)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| push | 200000 | record | 65.02 | 15.38 | 13.00 |
+| push, sample 1 in 4 | 200000 | record | 7.32 | 136.64 | 1.46 |
+| push into a full outbox (dropped) | 200000 | record | 0.61 | 1628.20 | 0.12 |
+
+
+### Telemetry overhead on a 40-box scene, 300 steps (17.73)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| telemetry off | 41 | step | 695748.83 | 0.00 | 208.72 |
+| telemetry on (41 records + drain per step) | 41 | step | 617186.50 | 0.00 | 185.16 |
+
 
 ## Splines — parametric curves and rotation-minimising frames (17.36)
 
@@ -4147,30 +4516,41 @@ where the segment's bounding box held 1,457,456.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| linear scan | 16 | ray | 516.03 | 1.94 | 0.53 |
-| QueryIndex (incl. build) | 16 | ray | 240.52 | 4.16 | 0.25 |
-| linear scan | 256 | ray | 6264.26 | 0.16 | 6.41 |
-| QueryIndex (incl. build) | 256 | ray | 719.47 | 1.39 | 0.74 |
-| linear scan | 1024 | ray | 24628.00 | 0.04 | 25.22 |
-| QueryIndex (incl. build) | 1024 | ray | 1743.30 | 0.57 | 1.79 |
-| linear scan | 4096 | ray | 94616.78 | 0.01 | 96.89 |
-| QueryIndex (incl. build) | 4096 | ray | 5309.88 | 0.19 | 5.44 |
+| linear scan | 16 | ray | 492.62 | 2.03 | 0.50 |
+| QueryIndex (incl. build) | 16 | ray | 227.14 | 4.40 | 0.23 |
+| linear scan | 256 | ray | 6366.90 | 0.16 | 6.52 |
+| QueryIndex (incl. build) | 256 | ray | 652.57 | 1.53 | 0.67 |
+| linear scan | 1024 | ray | 24171.54 | 0.04 | 24.75 |
+| QueryIndex (incl. build) | 1024 | ray | 1270.24 | 0.79 | 1.30 |
+| linear scan | 4096 | ray | 95451.76 | 0.01 | 97.74 |
+| QueryIndex (incl. build) | 4096 | ray | 2932.88 | 0.34 | 3.00 |
 
 
-### ray_cast_batch (17.53): 1024 rays, N = 4096
+### ray_cast_batch (17.53): N = 4096 colliders, median of 7, warm thread pool
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| serial | 4096 | ray | 5673.49 | 0.18 | 5.81 |
-| parallel dispatch | 4096 | ray | 5416.82 | 0.18 | 5.55 |
-| of which: QueryIndex build (once per batch) | 4096 | ray | 3325.37 | 0.30 | 3.41 |
+| 1024 rays, serial (index built per batch) | 4096 | ray | 2444.27 | 0.41 | 2.50 |
+| 1024 rays, parallel (index built per batch) | 4096 | ray | 2376.55 | 0.42 | 2.43 |
+| index build, SAH (old default) | 4096 | ray | 3346.11 | 0.30 | 3.43 |
+| index build, LBVH (default) | 4096 | ray | 826.47 | 1.21 | 0.85 |
+| 16384 rays, prebuilt index, serial | 4096 | ray | 1448.02 | 0.69 | 23.72 |
+| 16384 rays, prebuilt index, parallel | 4096 | ray | 805.67 | 1.24 | 13.20 |
 
 
 ### Heightfield ray traversal (17.53): 1 km diagonal ray, 1024 x 1024 cells
 
 | candidates from segment AABB | candidates from DDA | ray_cast ns (DDA) | hit t |
 |---:|---:|---:|---:|
-| 1457456 | 88 | 43564 | 1376.8608 |
+| 1457456 | 88 | 60484 | 1376.8608 |
+
+### CGA hypothesis (17.53): sphere-sphere surface distance, 4096 random pairs, median of 7
+
+| path | ns / pair | max deviation from euclidean |
+|---|---:|---:|
+| GJK `convex_distance` (query path) | 114.462646484375 | 1.9073486e-06 |
+| CGA dual-sphere inner product | 28.22802734375 | 0.00035512447 |
+| euclidean centre distance | 6.512451171875 | 0 |
 
 ## Shape kinds (17.52)
 
@@ -4305,6 +4685,126 @@ integration, so the cost is the controller's sweeps either way.
 | quake | walk | 1061 |
 | acceleration | swim | 1873 |
 
+## Gameplay — dynamic character body (17.66)
+
+`gameplay/phys_character.mojo` `DynamicCharacter` is a capsule inside the
+solver held at a ride height by a ground spring-damper along a ray, steered
+by a capped horizontal force. On flat ground it stops in the same distance
+as the kinematic `Mover` (0.58333 m both, `test_phys_character`); unlike it,
+an impulse moves it by J / m and its ground spring loads the body it stands
+on. One finding on the way: the solver applies accumulated force once per
+step and gravity every substep, so a resting body's end-of-step velocity
+reads -0.061 m/s; damping that reading held the capsule 6.5 mm high, so the
+damper uses the height change per tick. `gameplay/balance.mojo` has the
+centre of mass, support polygon, capture point and margin. Rows: cost per
+character per tick.
+
+### Character backends, 64 walkers (17.66)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| kinematic Mover.update | 64 | character-tick | 1953.93 | 0.51 | 15.01 |
+| DynamicCharacter.update + step_soft share | 64 | character-tick | 2682.01 | 0.37 | 20.60 |
+
+
+
+## Sequences and camera rig (17.68)
+
+A `procedural.sequence.Sequence` is evaluated as a pure function of time
+(binary search per track); a `SeqCursor` walks from the last segment for
+playback. Both give the same values bit for bit; the cursor only pays off
+when tracks have many keys. The spring arm's cost is one sphere cast.
+
+### Sequences and camera rig (17.68)
+
+| keys per track | seek ns / frame | cursor ns / frame |
+|---:|---:|---:|
+| 8 | 2513 | 2402 |
+| 128 | 2846 | 2524 |
+| 2048 | 8936 | 5980 |
+
+| spring arm scene | ns / update |
+|---|---:|
+| empty | 19 |
+| one wall | 216 |
+
+
+## Combat: melee detection and projectiles (17.71)
+
+Three ways to find what a swinging blade touched in one tick: the new pose
+only (discrete), the blade's end points on straight lines (linear), the
+blade along the real arc (arc). Below a target's thickness per tick they
+agree; above it the discrete test misses most thin targets and the linear
+one misses those the chord of the arc passes inside. Projectiles cast one
+segment ray each per step.
+
+### Combat (17.71): melee detection vs swing speed
+
+| rad / tick | tip speed m/s | discrete hit % | linear hit % | arc hit % | discrete ns | linear ns | arc ns |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 | 3 | 98 | 100 | 100 | 67 | 127 | 306 |
+| 0.3 | 18 | 26 | 100 | 100 | 87 | 623 | 1485 |
+| 0.6 | 36 | 14 | 97 | 100 | 108 | 856 | 2987 |
+| 1.2 | 72 | 5 | 87 | 100 | 99 | 1401 | 5259 |
+
+| projectiles | us per step |
+|---:|---:|
+| 1000 | 165 |
+| 10000 | 1612 |
+
+## Gameplay — rules framework (17.70)
+
+`gameplay/rules.mojo`: attributes with modifier stacks in fixed point
+(1/1000 units in integers, so sums commute exactly), hierarchical tags as
+bitsets, effects (instant / duration / infinite / periodic, refresh or
+count stacking, granted tags, immunity), a damage pipeline (resistance,
+shield, health, one death report) and byte serialisation. `test_rules`: the
+three evaluators agree on all 4002 reads of a seeded 20000-step sequence;
+an actor saved mid-effect continues to the same bytes. Rows: cost per
+attribute read. The incremental evaluator keeps running sums but still
+scans the modifier list for overrides on every read, which is why it gains
+less than the dirty cache.
+
+### Attribute evaluators: 1000 actors x 4 attributes, 20 ticks (17.70)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| full K=4, 10 % changed per tick | 1000 | read | 37.73 | 26.51 | 3.02 |
+| incremental K=4, 10 % changed per tick | 1000 | read | 26.71 | 37.43 | 2.14 |
+| dirty K=4, 10 % changed per tick | 1000 | read | 15.73 | 63.56 | 1.26 |
+| full K=16, 10 % changed per tick | 1000 | read | 136.30 | 7.34 | 10.90 |
+| incremental K=16, 10 % changed per tick | 1000 | read | 92.41 | 10.82 | 7.39 |
+| dirty K=16, 10 % changed per tick | 1000 | read | 32.98 | 30.33 | 2.64 |
+| full K=64, 10 % changed per tick | 1000 | read | 783.82 | 1.28 | 62.71 |
+| incremental K=64, 10 % changed per tick | 1000 | read | 580.04 | 1.72 | 46.40 |
+| dirty K=64, 10 % changed per tick | 1000 | read | 188.09 | 5.32 | 15.05 |
+
+
+## Gameplay — flow, objectives, inventory (17.72)
+
+`gameplay/flow.mojo` (state stack deciding what ticks; typed world flags
+with change events and by-name serialisation), `gameplay/objectives.mojo`
+(event-driven objectives with prerequisites; cycles refused at `add`) and
+`gameplay/inventory.mojo` (stacked slots; seeded weighted loot).
+`test_flow`: linear and indexed dispatch complete the same 300 objectives
+in the same order over 5000 events; 100000 loot draws land at
+70.011 / 25.002 / 4.987 % for weights 70 / 25 / 5. Rows: cost per event.
+The first version snapshotted every objective's activeness per event
+(O(N)), which capped the index at 2x; snapshotting only the listeners
+gives the ratio below.
+
+### Objective dispatch, 64 event types, 2000 events (17.72)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| linear N=100 | 100 | event | 422.80 | 2.37 | 0.85 |
+| indexed N=100 | 100 | event | 176.15 | 5.68 | 0.35 |
+| linear N=1000 | 1000 | event | 2937.18 | 0.34 | 5.87 |
+| indexed N=1000 | 1000 | event | 263.45 | 3.80 | 0.53 |
+| linear N=10000 | 10000 | event | 20472.56 | 0.05 | 40.95 |
+| indexed N=10000 | 10000 | event | 3272.77 | 0.31 | 6.55 |
+
+
 
 ## Raycast vehicles (17.4)
 
@@ -4334,6 +4834,36 @@ plus the road), the same linear prefilter as the world queries above.
 | ray | 128 | vehicle-step | 21039.29 | 0.05 | 323.16 |
 | sphere sweep | 128 | vehicle-step | 22450.52 | 0.04 | 344.84 |
 | capsule sweep | 128 | vehicle-step | 25972.96 | 0.04 | 398.94 |
+
+
+## Gameplay — vehicle force elements (17.74)
+
+`gameplay/force_element.mojo` makes a vehicle a set of elements that each
+turn the body's state into forces: `Thruster`, `aircraft.Wing` (CL / CD with
+a stall blend) and `watercraft.HullBuoyancy`, which cuts the convex hull by
+the water plane (`polytope_split`) for the exact submerged volume and
+centroid. `test_force_elements`: the cut equals the closed-form box volume
+(0.6 vs 0.6 m^3); a 0.6 m hull with a keel rights itself from 150 degrees
+and a tall hull (GM < 0) falls onto its side; pre-stall lift matches
+q A 2 pi alpha to 1e-4. The first table is the price of exactness against
+the sampled integration of 17.28 (with each method's volume error).
+
+### Submerged volume of a box hull: polytope cut vs sampling (17.74)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| polytope cut, error 0.0 | 1 | query | 15920.18 | 0.06 | 31.84 |
+| sampled 4^3, error 0.22000003 | 1 | query | 328.61 | 3.04 | 0.16 |
+| sampled 8^3, error 0.029999971 | 1 | query | 2364.02 | 0.42 | 1.18 |
+| sampled 16^3, error 0.029999971 | 1 | query | 18831.49 | 0.05 | 9.42 |
+
+
+### Wing and thruster elements per apply (17.74)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| Wing.apply | 1 | apply | 158.12 | 6.32 | 0.32 |
+| Thruster.apply | 1 | apply | 74.83 | 13.36 | 0.15 |
 
 
 

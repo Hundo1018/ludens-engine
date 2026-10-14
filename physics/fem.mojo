@@ -159,7 +159,11 @@ struct FemBody(Movable):
             dm.set(k, 1, e2[k])
             dm.set(k, 2, e3[k])
         var det = det3(dm)
-        # Skip degenerate/inverted tets rather than storing an infinite inverse
+        # Skip degenerate tets rather than storing an infinite inverse. A
+        # negatively oriented one is kept with |det|: F = Ds Dm^-1 does not
+        # depend on the vertex order (a permutation of b, c, d permutes the
+        # columns of Ds and Dm alike), so its det F is positive at rest and
+        # turns <= 0 only when the element really inverts (17.58).
         if abs(det) < 1e-12:
             return
         self.tets.append(Tet(a, b, c, d, _inv3(dm), abs(det) / 6.0))
@@ -328,7 +332,15 @@ struct FemBody(Movable):
             fy.append(0)
             fz.append(0)
         self.elastic_forces(fx, fy, fz)
-        for i in range(n):
+        self.integrate(fx, fy, fz, dt, gravity, floor_y)
+
+    def integrate(
+        mut self, fx: List[Real], fy: List[Real], fz: List[Real],
+        dt: Real, gravity: Vec3, floor_y: Real,
+    ):
+        """Symplectic Euler with the given elastic forces (shared by `step`
+        and `fem_material.step_material`)."""
+        for i in range(self.node_count()):
             if self.inv_m[i] == 0:
                 self.vx[i] = 0
                 self.vy[i] = 0

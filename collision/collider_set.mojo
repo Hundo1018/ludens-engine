@@ -548,6 +548,19 @@ struct ColliderSet(Movable, Deinitable):
         self.meshes.append(m^)
         return i
 
+    def move_trimesh(mut self, i: Int, world_verts: List[Real]) raises:
+        """Replace mesh collider `i`'s vertices (same triangles, same
+        active-edge flags) and its world AABB: a kinematic mesh re-placed
+        at its body's pose (ROADMAP 17.45)."""
+        self.epoch += 1
+        var mi = self.mesh_id[i]
+        var act = self.meshes[mi].active.copy()
+        var m = TriMesh(world_verts, self.meshes[mi].idx)
+        m.set_active_edges(act)
+        m.material = self.meshes[mi].material.copy()
+        self.world_aabb[i] = m.bounds()
+        self.meshes[mi] = m^
+
     def add_heightfield(
         mut self, heights: List[Real], nx: Int, nz: Int,
         cell: Real, ox: Real = 0, oz: Real = 0, at: Int = -1,
@@ -691,10 +704,34 @@ struct ColliderSet(Movable, Deinitable):
 
     def mesh_active(self, i: Int, t: Int) -> UInt8:
         """Active-edge flags of triangle `t` (ROADMAP 17.45); a heightfield
-        reports every edge active (unchanged behaviour)."""
+        computes them from its grid once `set_active_angle` is called
+        (every edge active by default, the old behaviour)."""
         if self.shape[i] == SHAPE_TRIMESH:
             return self.meshes[self.mesh_id[i]].active[t]
-        return 7
+        return self.fields[self.mesh_id[i]].active(t)
+
+    def set_materials(mut self, i: Int, ids: List[Int]) raises:
+        """Per-triangle surface material ids of mesh / heightfield collider
+        `i` (ROADMAP 17.53); raises for any other kind."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            self.meshes[self.mesh_id[i]].set_materials(ids)
+        elif self.shape[i] == SHAPE_HEIGHTFIELD:
+            self.fields[self.mesh_id[i]].set_materials(ids)
+        else:
+            raise Error("ColliderSet.set_materials: collider is not a mesh or heightfield")
+
+    def material(self, i: Int, t: Int) -> Int:
+        """Surface material id of triangle `t` of collider `i`; -1 when none
+        is set, `t` is out of range, or `i` is not a mesh / heightfield."""
+        if i < 0 or i >= len(self.shape) or t < 0:
+            return -1
+        if self.shape[i] == SHAPE_TRIMESH:
+            ref m = self.meshes[self.mesh_id[i]].material
+            return Int(m[t]) if t < len(m) else -1
+        if self.shape[i] == SHAPE_HEIGHTFIELD:
+            ref m = self.fields[self.mesh_id[i]].material
+            return Int(m[t]) if t < len(m) else -1
+        return -1
 
     def mesh_tri_faces(self, i: Int, t: Int) -> List[Real]:
         if self.shape[i] == SHAPE_TRIMESH:

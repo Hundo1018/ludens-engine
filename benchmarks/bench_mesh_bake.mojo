@@ -18,7 +18,7 @@ from std.math import sin, sqrt
 from std.benchmark import keep
 from geometry.vec import Real, Vec3, length, normalize
 from geometry.mesh_bake import weld, repair, simplify, active_edges
-from geometry.sdf_grid import bake_sdf_grid, closest_on_triangle
+from geometry.sdf_grid import bake_sdf_grid, bake_sdf_grid_bvh, closest_on_triangle
 from harness.bench import BenchTable, now
 
 
@@ -105,6 +105,11 @@ def main():
         var t1 = now()
         s.add("sdf bake res^3", res, "grid", t1 - t0, 1)
         keep(grid.values[0])
+        var t2 = now()
+        var gridb = bake_sdf_grid_bvh(mv, mi, res, 0.5)
+        var t3 = now()
+        s.add("sdf bake res^3, BVH nearest triangle (17.45)", res, "grid", t3 - t2, 1)
+        keep(gridb.values[0])
     var grid = bake_sdf_grid(mv, mi, 16, 0.5)
     var q = 10000
     var t0 = now()

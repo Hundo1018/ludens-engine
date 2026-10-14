@@ -250,6 +250,8 @@ struct ArticBatch(Movable):
         var n = len(chain.links)
         if n < 1:
             raise Error("ArticBatch: chain has no links")
+        if len(chain.balls) > 0:
+            raise Error("ArticBatch: ball joints (Chain.add_ball) are not supported by the batch kernel")
         self.n = n
         self.count = count
         self.model = List[Real](length=n * MODEL_STRIDE, fill=0)

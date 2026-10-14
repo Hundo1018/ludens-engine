@@ -28,8 +28,9 @@ from std.math import sqrt, sin, cos
 from harness.runner import Suite
 from geometry.vec import Real, Vec3, length
 from geometry.quat import Quat
+from physics.serialize import BinWriter, BinReader
 from physics.chain import Chain, ChainLink
-from physics.floating import FloatingChain
+from physics.floating import FloatingChain, write_floating, read_floating
 
 
 def zeros(n: Int) -> List[Real]:
@@ -244,5 +245,27 @@ def main() raises:
     var rel = length(post[0] - expect) / (length(expect) + 1e-9)
     print("  linear momentum vs impulse m*g*t:", rel)
     s.check(rel < 5e-3, "gravity changes linear momentum by exactly m g t")
+
+    # ---- 7. snapshot (17.51): saved mid-run, restored, steps bit for bit ----
+    var fs = _build(3)
+    fs.base_w = Vec3(0.2, 0.1, -0.3, 0)
+    fs.base_v = Vec3(0.5, 0, 0.1, 0)
+    for i in range(3):
+        fs.chain.q[i] = 0.3 * Real(i + 1)
+    for _ in range(50):
+        fs.step(1.0 / 240.0, zeros(3), g)
+    var wr = BinWriter()
+    write_floating(fs, wr)
+    var rd = BinReader(wr.b.copy())
+    var fr = read_floating(rd)
+    for _ in range(100):
+        fs.step(1.0 / 240.0, zeros(3), g)
+        fr.step(1.0 / 240.0, zeros(3), g)
+    var same = fs.base_pos[0] == fr.base_pos[0] and fs.base_pos[1] == fr.base_pos[1] and fs.base_rot.w == fr.base_rot.w
+    for i in range(3):
+        if fs.chain.q[i] != fr.chain.q[i] or fs.chain.qd[i] != fr.chain.qd[i]:
+            same = False
+    print("  snapshot after 50 steps, then 100 more: base x", fs.base_pos[0], fr.base_pos[0], " same bits", same)
+    s.check(same, "a FloatingChain restored mid-run steps bit for bit")
 
     s.finish()
