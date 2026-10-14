@@ -16,6 +16,7 @@ from std.memory import alloc, Layout
 from .component import ComponentType
 from .entity import Entity
 from .storage import StorageBackend, Filter, resolve_filter, check_pack
+from std.sys import size_of
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -167,6 +168,16 @@ struct NaiveBackend[*CTs: ComponentType](StorageBackend):
             if self.live[id] and sa[][id] and sb[][id] and sc[][id]:
                 out.append(Entity(id, self.gens[id] if id < len(self.gens) else 0))
         return out^
+
+    def storage_bytes(self) -> Int:
+        """ROADMAP 17.79: bytes this backend holds in use (lengths x element
+        sizes; list capacity slack and allocator overhead not counted, so a
+        lower bound)."""
+        var t = len(self.live) * size_of[Bool]()
+        t += len(self.free_ids) * size_of[Int]() + len(self.gens) * size_of[Int]()
+        comptime for i in range(Self.N):
+            t += len(self._store[Self.CTs[i]]()[]) * size_of[Optional[Self.CTs[i]]]()
+        return t
 
     def for_each2[
         A: ComponentType,

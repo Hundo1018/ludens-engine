@@ -38,6 +38,7 @@ from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend, Record, Filter, resolve_filter, check_pack
+from std.sys import size_of
 
 comptime MAX_ARCH = 256  # initial archetype-table capacity; it grows past this (test_ecs_query: 300 signatures)
 # The count-taking `alloc` overload is deprecated in favour of a Layout-based
@@ -365,6 +366,20 @@ struct ArchetypeBackend[*CTs: ComponentType](StorageBackend):
         )
         self._collect(bits, out)
         return out^
+
+    def storage_bytes(self) -> Int:
+        """ROADMAP 17.79: bytes this backend holds in use (lengths x element
+        sizes; list capacity slack and allocator overhead not counted, so a
+        lower bound)."""
+        var t = self.entity_index.bytes() + self.alive.bytes()
+        t += len(self.free_ids) * size_of[Int]() + len(self._gen) * size_of[Int]()
+        t += len(self.arch_mask_index) * size_of[Int]()
+        for k in range(len(self.archetypes)):
+            t += len(self.archetypes[k].entities) * size_of[Int]()
+            comptime for i in range(Self.N):
+                if (self.archetypes[k].mask >> i) & 1 == 1:
+                    t += len(self.col[Self.CTs[i]](k)[]) * size_of[Self.CTs[i]]()
+        return t
 
     def for_each2[
         A: ComponentType,

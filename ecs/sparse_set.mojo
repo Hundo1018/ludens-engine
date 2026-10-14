@@ -10,6 +10,7 @@ Values must be `ImplicitlyCopyable` so they can be read back by value.
 """
 
 from std.collections import List
+from std.sys import size_of
 
 
 @fieldwise_init
@@ -67,6 +68,10 @@ struct SparseSet[T: ImplicitlyCopyable & Deinitable](
             self._sparse.append(-1)
 
     @always_inline
+    def bytes(self) -> Int:
+        """Bytes held in use: sparse index, dense keys and values (17.79)."""
+        return len(self._sparse) * size_of[Int]() + len(self._dense) * size_of[Int]() + len(self._data) * size_of[Self.T]()
+
     def __len__(self) -> Int:
         return len(self._dense)
 

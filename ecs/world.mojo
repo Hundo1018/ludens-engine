@@ -267,6 +267,12 @@ struct World[B: StorageBackend](Movable, Deinitable):
         `query2` + `get`/`set` handle loop; works on every backend."""
         self.backend.for_each2[A, B2](func)
 
+    def storage_bytes(self) -> Int:
+        """ROADMAP 17.79: bytes the storage backend holds in use (lengths x
+        element sizes, a lower bound; the change-tracking journal is not
+        counted)."""
+        return self.backend.storage_bytes()
+
     def for_each3[
         A: ComponentType,
         B2: ComponentType,

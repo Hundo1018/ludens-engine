@@ -16,6 +16,7 @@ from .component import ComponentType
 from .entity import Entity
 from .sparse_set import SparseSet
 from .storage import StorageBackend, Filter, SlotMask, resolve_filter, check_pack
+from std.sys import size_of
 
 comptime Slot = type_of(alloc[NoneType](Layout[NoneType](count=1)).unsafe_leak())
 
@@ -201,6 +202,16 @@ struct SparseSetBackend[*CTs: ComponentType](StorageBackend):
             if self._store[B]()[].contains(id) and self._store[C]()[].contains(id):
                 out.append(self._entity(id))
         return out^
+
+    def storage_bytes(self) -> Int:
+        """ROADMAP 17.79: bytes this backend holds in use (lengths x element
+        sizes; list capacity slack and allocator overhead not counted, so a
+        lower bound)."""
+        var t = self.alive.bytes()
+        t += len(self.free_ids) * size_of[Int]() + len(self.gens) * size_of[Int]()
+        comptime for i in range(Self.N):
+            t += self._store[Self.CTs[i]]()[].bytes()
+        return t
 
     def for_each2[
         A: ComponentType,

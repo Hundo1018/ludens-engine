@@ -140,6 +140,9 @@ trait StorageBackend(Defaultable, Movable, Deinitable):
     # backend returns its own iteration order, as matching1/2/3 do).
     def select(self, f: Filter) -> List[Entity]: ...
 
+    # ROADMAP 17.79: bytes held in use (a lower bound: no capacity slack).
+    def storage_bytes(self) -> Int: ...
+
     # zero-allocation iteration: invoke `func(mut a, b)` for every entity that has
     # both A and B, passing mutable/read refs straight into storage (no per-frame
     # `List[Entity]`, no per-access entity-index lookup). See `World.for_each2`.
