@@ -60,7 +60,7 @@ struct AnimLibrary(Movable):
         return len(self.clips) - 1
 
 
-struct Animators(Movable):
+struct Animators(Copyable, Movable):
     var graphs: List[AnimGraph]
     var pos: List[List[Real]]
     var rot: List[List[Real]]
@@ -85,6 +85,26 @@ struct Animators(Movable):
         self.root.append(root)
         self.last_motion.append(Vec3(0, 0, 0, 0))
         return len(self.graphs) - 1
+
+    def tick_all(mut self, lib: AnimLibrary, dt: Real):
+        """Advance every animator's graph and pose by `dt` without a world
+        (fired events are dropped): the replay `SimState` uses this."""
+        var fired = List[Int]()
+        for k in range(len(self.graphs)):
+            fired.clear()
+            self.graphs[k].tick(dt, lib.clips, lib.tracks, self.pos[k], self.rot[k], fired)
+
+    def hash_into(self, mut h: UInt64) -> UInt64:
+        """FNV-1a over every animator's state index, clock and pose bits."""
+        var x = h
+        for k in range(len(self.graphs)):
+            x = (x ^ UInt64(self.graphs[k].current)) * 0x100000001B3
+            x = (x ^ UInt64(self.graphs[k].time.to_bits())) * 0x100000001B3
+            for v in self.pos[k]:
+                x = (x ^ UInt64(v.to_bits())) * 0x100000001B3
+            for v in self.rot[k]:
+                x = (x ^ UInt64(v.to_bits())) * 0x100000001B3
+        return x
 
 
 def tick_animators[B: StorageBackend, Body: Body6, AID: Int](

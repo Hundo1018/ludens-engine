@@ -11,6 +11,8 @@
      animates and sends events but nothing moves; two animators share the
      library and keep separate clocks (the second at speed 2 fires twice
      as often).
+     The replay `SimState` carries the animators: a snapshot taken in the
+     middle of an inertial transition restores and continues bit for bit.
   3. Extreme: an animator slot out of range raises; a root bone past the
      skeleton raises at `add`.
 """
@@ -29,6 +31,12 @@ from procedural.anim_state import AnimGraph
 from scheduler.events import Channel
 from gameplay.runtime import Runtime, RigidBodyRef
 from gameplay.animator import AnimatorRef, AnimEvent, AnimLibrary, Animators, tick_animators
+from gameplay.replay import SimState, take, restore, checksum
+from gameplay.character import CharacterController
+from physics.solver6 import ContactScene6
+from scheduler.rng import SplitMix64
+from procedural.anim_state import AnimTransition, Cond, COND_GT, TRANS_INERTIAL
+from procedural.tween import EASE_LINEAR
 
 comptime DT: Real = 1.0 / 60.0
 comptime AR = AnimatorRef[3]
@@ -91,6 +99,33 @@ def _run(yaw: Real) raises -> Tuple[Vec3, Int, Int, Real]:
     return (p, len(got), tagged, an.pos[k][0])
 
 
+def _sim() raises -> SimState:
+    var st = SimState(ContactScene6[QuatBody6](), CharacterController(Vec3(0, 0.92, 0, 0)), SplitMix64.seeded(1))
+    var g = AnimGraph(2, TRANS_INERTIAL)
+    var idle = g.add_state(1)
+    var walk = g.add_state(0)
+    var go = g.add_float(0)
+    g.add_transition(AnimTransition(idle, walk, [Cond(COND_GT, go, 0.5)], -1, 0.5, EASE_LINEAR, True))
+    _ = st.anims.add(g^, -1)
+    return st^
+
+
+def _sim_run(lib: AnimLibrary, split: Bool) raises -> UInt64:
+    """120 ticks, the walk triggered at tick 50 (a 0.5 s inertial
+    transition); with `split`, snapshot at tick 60 and continue from the
+    restored copy."""
+    var st = _sim()
+    for t in range(120):
+        if t == 50:
+            st.anims.graphs[0].floats[0] = 1
+        if split and t == 60:
+            var snap = take(st)
+            st = restore(snap)
+        st.anims.tick_all(lib, DT)
+        st.tick += 1
+    return checksum(st)
+
+
 def main() raises:
     var s = Suite("animator")
     var r = _run(0)
@@ -127,6 +162,17 @@ def main() raises:
             nb += 1
     print("  two animators without bodies, 2 s: events speed 1", na, " speed 2", nb)
     s.check(na == 2 and nb == 4 and len(rt.scene.bset.bodies) == 0, "separate clocks; no body, nothing moved")
+
+    var lib2 = _lib()
+    var still = AnimClip(2, 2, 10, True)
+    for f in range(2):
+        still.set_key(f, 0, Vec3(0, 0.9, 0, 0), Quat(0, 0, 0, 1))
+        still.set_key(f, 1, Vec3(0, 0.5, 0, 0), Quat(0, 0, 0, 1))
+    _ = lib2.add(still^, EventTrack())
+    var whole = _sim_run(lib2, False)
+    var split = _sim_run(lib2, True)
+    print("  SimState with an animator, snapshot 10 ticks into a 0.5 s transition: checksum uninterrupted", whole, " restored", split)
+    s.check(whole == split and whole != checksum(_sim()), "animation state snapshots with SimState: restored mid-transition, the run is bit for bit the same")
 
     var raised = 0
     rt.world.set(a, AR(9))

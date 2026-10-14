@@ -25,6 +25,7 @@ from physics.solver6 import ContactScene6
 from physics.serialize import scene_to_string, scene_from_string
 from scheduler.rng import SplitMix64
 from .character import CharacterController
+from .animator import Animators
 
 
 @fieldwise_init
@@ -40,12 +41,14 @@ struct SimState(Movable):
     var ctl: CharacterController
     var rng: SplitMix64
     var tick: Int
+    var anims: Animators  # ROADMAP 17.64: animation state replays and snapshots with the rest
 
     def __init__(out self, var scene: ContactScene6[QuatBody6], var ctl: CharacterController, var rng: SplitMix64):
         self.scene = scene^
         self.ctl = ctl^
         self.rng = rng^
         self.tick = 0
+        self.anims = Animators()
 
 
 @fieldwise_init
@@ -54,15 +57,17 @@ struct Snapshot(Copyable, Movable):
     var scene: String
     var ctl: CharacterController
     var rng_state: UInt64  # the generator is a value: its state is all of it
+    var anims: Animators
 
 
 def take(st: SimState) raises -> Snapshot:
-    return Snapshot(st.tick, scene_to_string(st.scene), st.ctl.copy(), st.rng.state)
+    return Snapshot(st.tick, scene_to_string(st.scene), st.ctl.copy(), st.rng.state, st.anims.copy())
 
 
 def restore(snap: Snapshot) raises -> SimState:
     var st = SimState(scene_from_string(snap.scene), snap.ctl.copy(), SplitMix64(snap.rng_state))
     st.tick = snap.tick
+    st.anims = snap.anims.copy()
     return st^
 
 
@@ -95,7 +100,7 @@ def checksum(st: SimState) -> UInt64:
             h = (h ^ UInt64(v[k].to_bits())) * 0x100000001B3
     for k in range(3):
         h = (h ^ UInt64(st.ctl.position[k].to_bits())) * 0x100000001B3
-    return h
+    return st.anims.hash_into(h)  # no animators: h unchanged
 
 
 struct Recorder(Movable):
