@@ -392,6 +392,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def body_tier(self, i: Int) -> Int:
         return self.tier_of[i] if i < len(self.tier_of) else 0
 
+    def set_soft_period(mut self, s: Int, period: Int, phase: Int = 0) raises:
+        """ROADMAP 17.85: soft body `s` steps every `period` scene steps,
+        each time over period x dt (catch-up), offset by `phase`. Raises
+        for a bad index, period < 1 or phase < 0."""
+        if s < 0 or s >= len(self.softs):
+            raise Error("ContactScene6.set_soft_period: soft body index out of range")
+        if period < 1 or phase < 0:
+            raise Error("ContactScene6.set_soft_period: period must be >= 1 and phase >= 0")
+        self.softs[s].period = period
+        self.softs[s].phase = phase % period
+
     def add_soft(mut self, var sb: SoftBody) -> Int:
         self.softs.append(sb^)
         return len(self.softs) - 1
@@ -2754,7 +2765,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         self.bset.bodies[i].integrate_pose(h)
             # soft bodies: XPBD lattice + particle-vs-body coupling, at the
             # substep's POST-integration poses (rigid impulses land next substep)
-            softbody_pass(self.softs, self.bset, self.colliders, h, gravity, iters, ccd)
+            softbody_pass(self.softs, self.bset, self.colliders, h, gravity, iters, ccd, self.step_index)
             # relax: remove the bias energy (velocity-only, no bias)
             joint_sweep(self.bset, self.joints, h, bias_rate, 1, 0, False, 2, -2)
             if self.any_ext:
@@ -3176,6 +3187,8 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         out.wf(sc.softs[k].radius)
         out.wf(sc.softs[k].damp)
         out.wf(sc.softs[k].mu)
+        out.wi(sc.softs[k].period)
+        out.wi(sc.softs[k].phase)
         out.wi(len(sc.softs[k].pts))
         for p in range(len(sc.softs[k].pts)):
             var pt = sc.softs[k].pts[p]
@@ -3616,6 +3629,10 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         sb.radius = r.rf()
         sb.damp = r.rf()
         sb.mu = r.rf()
+        sb.period = r.ri()
+        sb.phase = r.ri()
+        if sb.period < 1 or sb.phase < 0 or sb.phase >= sb.period:
+            raise Error("physics.serialize: corrupt snapshot (soft-body period)")
         var np = r.ri()
         if np < 0:
             raise Error("physics.serialize: corrupt snapshot (negative particle count)")

@@ -54,6 +54,10 @@ struct SoftBody(Movable, Deinitable):
     var radius: Real  # particle contact radius
     var damp: Real  # velocity retention per substep (1 = lossless)
     var mu: Real  # Coulomb friction vs rigid shapes (0 = frictionless)
+    # ROADMAP 17.85: step every `period` scene steps (with period x the
+    # substep), offset by `phase`; 1 = every step
+    var period: Int
+    var phase: Int
 
     def __init__(out self):
         self.pts = List[SP]()
@@ -62,6 +66,8 @@ struct SoftBody(Movable, Deinitable):
         self.radius = 0.02
         self.damp = 0.999
         self.mu = 0.5
+        self.period = 1
+        self.phase = 0
 
     def shift(mut self, d: Vec3):
         """Origin rebasing (ROADMAP 17.8): every particle moves by `-d`;

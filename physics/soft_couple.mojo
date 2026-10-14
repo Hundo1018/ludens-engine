@@ -51,10 +51,11 @@ def softbody_pass[B: Body6](
     mut softs: List[SoftBody],
     mut bset: BodySet[B],
     colliders: ColliderSet,
-    h: Real,
+    h_step: Real,
     gravity: Vec3,
     iters: Int,
     ccd: Bool,
+    step: Int = 0,
 ):
     """One XPBD substep for every soft body: predict, solve the lattice
     distance constraints, collide particles against every box (pushing
@@ -64,8 +65,16 @@ def softbody_pass[B: Body6](
     swept: its pre-substep-to-current segment (in the box's current local
     frame — first-order relative motion) is slab-tested against the
     inflated box, and a crossing snaps it back to the entry face. Slow
-    paths never trigger the sweep, so ccd=False results are unchanged."""
+    paths never trigger the sweep, so ccd=False results are unchanged.
+
+    ROADMAP 17.85 per-object period: a soft body with `period` p > 1 runs
+    only on scene steps where (step + phase) % p == 0, with p times the
+    substep (catch-up, no simulated time lost); p = 1 is the plain pass."""
     for s in range(len(softs)):
+        var per = softs[s].period
+        if per > 1 and (step + softs[s].phase) % per != 0:
+            continue
+        var h = h_step * Real(per) if per > 1 else h_step
         var np = len(softs[s].pts)
         var alpha_h = softs[s].alpha / (h * h)
         var r = softs[s].radius
