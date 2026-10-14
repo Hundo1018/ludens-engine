@@ -36,6 +36,7 @@ from .rigid6 import Body6
 from .solver6 import ContactScene6
 from .state_io import StateWriter, StateReader
 from .continuum import ContinuumSolver, ContinuumHealth
+from scheduler.dispatch import Dispatch, Task, dispatch_for
 
 
 @fieldwise_init
@@ -95,6 +96,14 @@ struct MeshCloth(ContinuumSolver):
     var max_stretch: Real  # edge length cap as a multiple of rest (0 = none)
     var ecomp: List[Real]  # per-edge stretch compliance (empty = uniform)
     var self_radius: Real  # vertex-triangle self-collision distance (0 = off)
+    # coloured solve: constraints grouped so no two in a group share a
+    # vertex; a group runs through `dispatch` (empty lists = Gauss-Seidel)
+    var col_b: List[Int]  # bending constraint order, grouped by colour
+    var col_b_lo: List[Int]
+    var col_s: List[Int]  # stretch edge order, grouped by colour
+    var col_s_lo: List[Int]
+    var workers: Int
+    var dispatch: Dispatch
 
     def __init__(
         out self, verts: List[Real], tris: List[Int], density: Real,
@@ -175,6 +184,12 @@ struct MeshCloth(ContinuumSolver):
         self.max_stretch = 0
         self.ecomp = List[Real]()
         self.self_radius = 0
+        self.col_b = List[Int]()
+        self.col_b_lo = List[Int]()
+        self.col_s = List[Int]()
+        self.col_s_lo = List[Int]()
+        self.workers = 0
+        self.dispatch = Dispatch.parallel()
         self.bphi = List[Real](capacity=len(self.ba))
         for e in range(len(self.ba)):
             self.bphi.append(self._angle(e))
@@ -210,6 +225,60 @@ struct MeshCloth(ContinuumSolver):
                 self.ecomp.append(across)
             else:
                 self.ecomp.append(shear)
+
+    def set_colored(mut self, on: Bool, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel()) raises:
+        """Coloured solve (ROADMAP 17.56): constraints greedily coloured so
+        that no two of one colour share a vertex; colours run in order, a
+        colour's constraints through `dispatch` (Jacobi within a colour,
+        Gauss-Seidel across colours). Bit-identical for any `workers` and
+        dispatcher, but not to the default sweep (a different order).
+        Colour again after changing the bend model."""
+        self.col_b = List[Int]()
+        self.col_b_lo = List[Int]()
+        self.col_s = List[Int]()
+        self.col_s_lo = List[Int]()
+        self.workers = workers
+        self.dispatch = dispatch
+        if not on:
+            return
+        var nb = len(self.ba)
+        var bverts = List[Int](capacity=4 * nb)
+        for e in range(nb):
+            bverts.append(self.ba[e])
+            bverts.append(self.bb[e])
+            if self.bend_model == BEND_DIHEDRAL:
+                bverts.append(self.ea[self.bedge[e]])
+                bverts.append(self.eb[self.bedge[e]])
+            else:
+                bverts.append(-1)
+                bverts.append(-1)
+        if not _color(bverts, 4, len(self.x), self.col_b, self.col_b_lo):
+            raise Error("MeshCloth.set_colored: more than 64 colours needed")
+        var sverts = List[Int](capacity=4 * len(self.ea))
+        for e in range(len(self.ea)):
+            sverts.append(self.ea[e])
+            sverts.append(self.eb[e])
+            sverts.append(-1)
+            sverts.append(-1)
+        if not _color(sverts, 4, len(self.x), self.col_s, self.col_s_lo):
+            raise Error("MeshCloth.set_colored: more than 64 colours needed")
+
+    def _bend_one(mut self, e: Int, bt: Real):
+        if self.torn[self.bedge[e]]:
+            return
+        if self.bend_model == BEND_DIHEDRAL:
+            var ddl = self._dihedral(e, bt, self.blam[e])
+            self.blam[e] += ddl
+            return
+        var dl = self._dist(self.ba[e], self.bb[e], self.brest[e], bt, self.blam[e])
+        self.blam[e] += dl
+
+    def _stretch_one(mut self, e: Int, h: Real, sa: Real):
+        if self.torn[e]:
+            return
+        var ae = self.ecomp[e] / (h * h) if len(self.ecomp) == len(self.ea) else sa
+        var dl = self._dist(self.ea[e], self.eb[e], self.rest[e], ae, self.lam[e])
+        self.lam[e] += dl
 
     def set_self_collision(mut self, radius: Real) raises:
         """Keep every free vertex at least `radius` from every triangle it
@@ -424,7 +493,15 @@ struct MeshCloth(ContinuumSolver):
             self.blam[e] = 0
         var sa = self.stretch_compliance / (h * h)
         var bt = self.bend_compliance / (h * h)
-        for _ in range(self.iters):
+        if len(self.col_s_lo) > 0:
+            for _ in range(self.iters):
+                for c in range(len(self.col_b_lo) - 1):
+                    var tb = _ColorTask(self, self.col_b_lo[c], self.col_b_lo[c + 1], True, h, bt)
+                    dispatch_for(self.dispatch, tb, tb.chunks(), self.workers)
+                for c in range(len(self.col_s_lo) - 1):
+                    var ts = _ColorTask(self, self.col_s_lo[c], self.col_s_lo[c + 1], False, h, sa)
+                    dispatch_for(self.dispatch, ts, ts.chunks(), self.workers)
+        for _ in range(self.iters if len(self.col_s_lo) == 0 else 0):
             # bending first, stretch last: the stiffer stretch constraints
             # get the final word in each sweep (the other order let a stiff
             # bending setting stretch the cloth)
@@ -612,6 +689,76 @@ struct MeshCloth(ContinuumSolver):
             raise Error("MeshCloth.read_state: edge count differs")
         for e in range(ne):
             self.torn[e] = r.ri() == 1
+
+
+struct _ColorTask(Task):
+    """One colour of cloth constraints, in chunks of 256 (no two share a
+    vertex, so chunks write disjoint vertices and multipliers)."""
+
+    var cloth: Pointer[MeshCloth, MutUntrackedOrigin]
+    var lo: Int
+    var hi: Int
+    var bend: Bool
+    var h: Real
+    var alpha: Real
+
+    def __init__(out self, mut cloth: MeshCloth, lo: Int, hi: Int, bend: Bool, h: Real, alpha: Real):
+        self.cloth = Pointer(to=cloth).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.lo = lo
+        self.hi = hi
+        self.bend = bend
+        self.h = h
+        self.alpha = alpha
+
+    def chunks(self) -> Int:
+        return (self.hi - self.lo + 255) // 256
+
+    def run(self, k: Int):
+        var a = self.lo + 256 * k
+        var b = min(a + 256, self.hi)
+        for q in range(a, b):
+            if self.bend:
+                var e = self.cloth[].col_b[q]
+                self.cloth[]._bend_one(e, self.alpha)
+            else:
+                var e = self.cloth[].col_s[q]
+                self.cloth[]._stretch_one(e, self.h, self.alpha)
+
+
+def _color(verts: List[Int], per: Int, nv: Int, mut order: List[Int], mut lo: List[Int]) -> Bool:
+    """Greedy smallest-free colour per constraint (`per` vertex slots each,
+    -1 = unused); `order` lists constraints grouped by colour, `lo[c]` ..
+    `lo[c + 1]` the range of colour c. False if 64 colours do not suffice."""
+    var n = len(verts) // per
+    var used = List[UInt64](length=nv, fill=0)
+    var color = List[Int](length=n, fill=0)
+    var ncol = 0
+    for c in range(n):
+        var m = UInt64(0)
+        for k in range(per):
+            var v = verts[per * c + k]
+            if v >= 0:
+                m |= used[v]
+        var col = 0
+        while col < 64 and (m >> UInt64(col)) & 1 == 1:
+            col += 1
+        if col == 64:
+            return False
+        color[c] = col
+        ncol = max(ncol, col + 1)
+        for k in range(per):
+            var v = verts[per * c + k]
+            if v >= 0:
+                used[v] |= UInt64(1) << UInt64(col)
+    order.clear()
+    lo.clear()
+    for col in range(ncol):
+        lo.append(len(order))
+        for c in range(n):
+            if color[c] == col:
+                order.append(c)
+    lo.append(len(order))
+    return True
 
 
 def _cell_key(i: Int, j: Int, k: Int) -> Int:

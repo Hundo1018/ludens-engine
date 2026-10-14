@@ -6,7 +6,9 @@ scene), over a static box with collision on (every vertex queries the
 scene each substep), and the same with wind drag on. Microseconds per step
 and nanoseconds per vertex-substep. Second table (box collision on): the
 cross-edge vs dihedral bending seam, with the strain limit, and with
-vertex-triangle self-collision (radius 1 cm).
+vertex-triangle self-collision (radius 1 cm). Third table (no scene): the
+default Gauss-Seidel sweep vs the coloured solve with 1, 2 and 4 workers
+(this container has 4 cores).
 """
 
 from std.time import perf_counter_ns
@@ -28,6 +30,8 @@ def _time(n: Int, collide: Bool, wind: Bool, variant: Int = 0) raises -> Int:
         c.set_max_stretch(1.1)
     elif variant == 3:
         c.set_self_collision(0.01)
+    elif variant >= 10:
+        c.set_colored(True, variant - 10)
     c.pin(0)
     c.pin(n)
     if wind:
@@ -63,5 +67,15 @@ def main() raises:
         var b = _time(n, True, False, 1)
         var c = _time(n, True, False, 2)
         var d = _time(n, True, False, 3)
+        print("|", n, "x", n, "|", a // 1000, "|", b // 1000, "|", c // 1000, "|", d // 1000, "|")
+    print("")
+    print("### Mesh cloth coloured solve (17.56): us per step, no scene\n")
+    print("| cells | sweep | coloured w1 | coloured w2 | coloured w4 |")
+    print("|---:|---:|---:|---:|---:|")
+    for n in [32, 100]:
+        var a = _time(n, False, False, 0)
+        var b = _time(n, False, False, 11)
+        var c = _time(n, False, False, 12)
+        var d = _time(n, False, False, 14)
         print("|", n, "x", n, "|", a // 1000, "|", b // 1000, "|", c // 1000, "|", d // 1000, "|")
     print("")

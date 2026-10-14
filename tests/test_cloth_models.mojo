@@ -15,6 +15,8 @@ anisotropic stretch.
      when the vertical axis is the stiff one of `set_anisotropy`. Two
      sheets dropped on a floor stay layered with `set_self_collision`, and
      interpenetrate without it.
+     The coloured solve gives the same bits with 4 workers, serial and
+     reversed dispatch, and hangs like the default sweep.
   3. Extreme: an unknown bend model, a stretch ratio below 1 and a zero
      anisotropy axis raise; the default model is the cross-edge one.
 """
@@ -25,6 +27,7 @@ from geometry.vec import Real, Vec3, dot
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
+from scheduler.dispatch import Dispatch
 from physics.cloth import MeshCloth, grid_mesh, BEND_CROSS_EDGE, BEND_DIHEDRAL
 
 comptime DT: Real = 1.0 / 60.0
@@ -176,6 +179,25 @@ def _two_layers(self_r: Real) raises -> Tuple[Real, Real]:
     return ((mh - ml) / Real(off), bot_hi - top_lo)
 
 
+def _colored_hang(mode: Int, model: Int) raises -> MeshCloth:
+    """mode 0: default sweep; 1: coloured, serial dispatch; 2: coloured,
+    4 workers; 3: coloured, reversed dispatch."""
+    var m = grid_mesh(16, 16, 1, 1, Vec3(-0.5, 1, -0.5, 0))
+    var c = MeshCloth(m[0], m[1], 0.2)
+    c.set_bend_model(model)
+    c.pin(0)
+    c.pin(16)
+    if mode == 1:
+        c.set_colored(True, 1, Dispatch.serial())
+    elif mode == 2:
+        c.set_colored(True, 4, Dispatch.parallel())
+    elif mode == 3:
+        c.set_colored(True, 4, Dispatch.reverse())
+    for _ in range(90):
+        c.advance(DT, G)
+    return c^
+
+
 def main() raises:
     var s = Suite("cloth_models")
     var cross_d = _scaled_drift(BEND_CROSS_EDGE)
@@ -206,6 +228,24 @@ def main() raises:
     var with_self = _two_layers(0.01)
     print("  two sheets dropped on a floor, 1.5 s: mean height gap  without self-collision", no_self[0], " with (0.01 m)", with_self[0])
     s.check(no_self[0] < 0.003 and with_self[0] > 0.008, "self-collision keeps the upper sheet about one radius above the lower (without it both lie on the floor)")
+
+    for model in [BEND_CROSS_EDGE, BEND_DIHEDRAL]:
+        var g = _colored_hang(0, model)
+        var c1 = _colored_hang(1, model)
+        var c2 = _colored_hang(2, model)
+        var c3 = _colored_hang(3, model)
+        var bits = True
+        for i in range(len(c1.x)):
+            if c1.x[i] != c2.x[i] or c1.x[i] != c3.x[i]:
+                bits = False
+        var lowest_g = Real(9)
+        var lowest_c = Real(9)
+        for i in range(len(g.x)):
+            lowest_g = min(lowest_g, g.x[i][1])
+            lowest_c = min(lowest_c, c1.x[i][1])
+        print("  16 x 16 sheet from two corners, 1.5 s, bend model", model, ": colours bending", len(c1.col_b_lo) - 1, "stretch", len(c1.col_s_lo) - 1, "; lowest y sweep", lowest_g, " coloured", lowest_c, "; edge ratio sweep", _edge_ratio_max(g), " coloured", _edge_ratio_max(c1))
+        s.check(bits, "coloured solve: 4 workers and the reversed dispatcher equal serial, bit for bit (bend model " + String(model) + ")")
+        s.check(abs(lowest_g - lowest_c) < 0.05 and _edge_ratio_max(c1) < 1.1, "coloured solve hangs like the default sweep (5 cm) and holds edges within 10 %")
 
     var raised = 0
     var m = grid_mesh(2, 2, 1, 1, ZERO)
