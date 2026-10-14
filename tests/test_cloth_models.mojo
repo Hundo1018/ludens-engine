@@ -7,7 +7,9 @@ anisotropic stretch.
      pull it back (they are distances), the dihedral ones do not move it
      at all (the angles are unchanged) -- bending independent of stretch.
      A clamped strip sags less with stiff dihedral bending than with soft.
-  2. Integration: a soft sheet hanging from two corners stretches its
+  2. Integration: `step_two_way`: a 0.2 kg sheet at -2 m/s landing on a
+     free 1 kg box (no gravity) hands it the momentum it loses (total
+     conserved to 2 %); with `step` the box stays put. A soft sheet hanging from two corners stretches its
      edges by over 20 %; with `set_max_stretch(1.1)` no edge exceeds 10 %.
      A vertical sheet hung from its top row stretches downwards far less
      when the vertical axis is the stiff one of `set_anisotropy`.
@@ -18,8 +20,9 @@ anisotropic stretch.
 from std.math import sqrt
 from harness.runner import Suite
 from geometry.vec import Real, Vec3, dot
-from physics.rigid6 import QuatBody6
+from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
+from physics.solver_config import SolverConfig
 from physics.cloth import MeshCloth, grid_mesh, BEND_CROSS_EDGE, BEND_DIHEDRAL
 
 comptime DT: Real = 1.0 / 60.0
@@ -108,6 +111,36 @@ def _vertical(axis_stiff_vertical: Bool) raises -> Real:
     return sum / Real(n)
 
 
+def _cloth_momentum(c: MeshCloth) -> Real:
+    var p = Real(0)
+    for i in range(len(c.x)):
+        if c.w[i] > 0:
+            p += c.v[i][1] / c.w[i]
+    return p
+
+
+def _strike(two_way: Bool) raises -> Tuple[Real, Real, Real]:
+    """(cloth momentum y, box momentum y, initial) after a 0.2 kg sheet at
+    -2 m/s lands on a free 1 kg box, no gravity."""
+    var sc = ContactScene6[QuatBody6]()
+    var box = sc.add(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 0.6, 0.1, 0.6)), Vec3(0.6, 0.1, 0.6, 0), False)
+    sc.set_sleep_thresholds(box, 0, 0)
+    var m = grid_mesh(10, 10, 1, 1, Vec3(-0.5, 0.2, -0.5, 0))
+    var c = MeshCloth(m[0], m[1], 0.2)
+    c.friction = 0
+    c.damping = 1  # no velocity loss, so momentum is the whole story
+    for i in range(len(c.v)):
+        c.v[i] = Vec3(0, -2, 0, 0)
+    var p0 = _cloth_momentum(c)
+    for _ in range(30):
+        if two_way:
+            c.step_two_way(sc, DT, ZERO)
+        else:
+            c.step(sc, DT, ZERO)
+        sc.step(DT, ZERO, SolverConfig())
+    return (_cloth_momentum(c), sc.velocity(box)[1] * 1, p0)
+
+
 def main() raises:
     var s = Suite("cloth_models")
     var cross_d = _scaled_drift(BEND_CROSS_EDGE)
@@ -128,6 +161,11 @@ def main() raises:
     var sh = _vertical(False)
     print("  vertical sheet hung 2 s: mean vertical edge ratio  stiff vertical axis", sv, " stiff horizontal axis", sh)
     s.check(sv < 1.01 and sh > sv + 0.02, "anisotropy: the stiff axis carries the weight")
+
+    var one = _strike(False)
+    var two = _strike(True)
+    print("  0.2 kg sheet at -2 m/s onto a free 1 kg box, 0.5 s: one-way cloth", one[0], "box", one[1], ";  two-way cloth", two[0], "box", two[1], " (initial", two[2], ")")
+    s.check(one[1] == 0 and abs(two[0] + two[1] - two[2]) < 0.02 * abs(two[2]) and two[1] < -0.2, "two-way: the box takes the momentum the sheet loses (2 %); one-way: the box does not move")
 
     var raised = 0
     var m = grid_mesh(2, 2, 1, 1, ZERO)

@@ -30,11 +30,22 @@ from std.math import sqrt, isfinite, atan2
 from std.collections import Dict
 from geometry.vec import Real, Vec3, dot, cross
 from collision.world_query import QueryFilter, overlap_sphere, point_distance
+from collision.collider_set import Pose3
 from collision.broadphase import BroadPhase
 from .rigid6 import Body6
 from .solver6 import ContactScene6
 from .state_io import StateWriter, StateReader
 from .continuum import ContinuumSolver, ContinuumHealth
+
+
+@fieldwise_init
+struct ClothHit(Copyable, ImplicitlyCopyable, Movable):
+    """One collision correction of a cloth vertex (`MeshCloth._collide`)."""
+
+    var body: Int
+    var dx: Vec3
+    var mass: Real
+    var at: Vec3
 
 
 comptime BEND_CROSS_EDGE = 0
@@ -399,21 +410,52 @@ struct MeshCloth(ContinuumSolver):
                 self.x[self.att_vert[k]] = sc.bset.bodies[self.att_body[k]].act(self.att_local[k])
             self._predict(h, gravity)
             self._constraints(h)
-            for i in range(len(self.x)):
-                if self.w[i] == 0:
-                    continue
-                var hits = overlap_sphere(sc.colliders, poses, self.x[i], self.thickness, QueryFilter.all())
-                for q in range(len(hits)):
-                    var pr = point_distance(sc.colliders, hits[q], poses[hits[q]], self.x[i])
-                    if pr.dist < self.thickness:
-                        var push = self.thickness - pr.dist
-                        self.x[i] = self.x[i] + pr.normal * push
-                        var dx = self.x[i] - self.prev[i]
-                        var dt_ = dx - pr.normal * dot(dx, pr.normal)
-                        var lt = _len(dt_)
-                        if lt > 0:
-                            self.x[i] = self.x[i] - dt_ * min(Real(1), self.friction * push / lt)
+            _ = self._collide(sc, poses)
             self._finish(h)
+
+    def step_two_way[B: Body6, BP: BroadPhase](mut self, mut sc: ContactScene6[B, BP], dt: Real, gravity: Vec3):
+        """`step`, plus the reaction (ROADMAP 17.56): every collision
+        correction dx of a vertex of mass m against a DYNAMIC body gives
+        that body the impulse -m dx / h at the vertex, so the momentum the
+        cloth gains or loses is the body's loss or gain. Call before the
+        scene's own step."""
+        var h = dt / Real(self.substeps)
+        var poses = sc.query_poses()
+        for _ in range(self.substeps):
+            for k in range(len(self.att_vert)):
+                self.x[self.att_vert[k]] = sc.bset.bodies[self.att_body[k]].act(self.att_local[k])
+            self._predict(h, gravity)
+            self._constraints(h)
+            var hits = self._collide(sc, poses)
+            for ref c in hits:
+                if sc.bset.is_dynamic(c.body):
+                    sc.bset.bodies[c.body].apply_impulse(c.dx * (-c.mass / h), c.at)
+                    sc.bset.sleeping[c.body] = False
+                    sc.bset.sleep_timer[c.body] = 0
+            self._finish(h)
+
+    def _collide[B: Body6, BP: BroadPhase](mut self, sc: ContactScene6[B, BP], poses: List[Pose3]) -> List[ClothHit]:
+        """Push free vertices out of every collider (sphere of radius
+        `thickness`), with Coulomb-style friction on the tangential motion;
+        returns each correction made."""
+        var out = List[ClothHit]()
+        for i in range(len(self.x)):
+            if self.w[i] == 0:
+                continue
+            var hits = overlap_sphere(sc.colliders, poses, self.x[i], self.thickness, QueryFilter.all())
+            for q in range(len(hits)):
+                var pr = point_distance(sc.colliders, hits[q], poses[hits[q]], self.x[i])
+                if pr.dist < self.thickness:
+                    var before = self.x[i]
+                    var push = self.thickness - pr.dist
+                    self.x[i] = self.x[i] + pr.normal * push
+                    var dx = self.x[i] - self.prev[i]
+                    var dt_ = dx - pr.normal * dot(dx, pr.normal)
+                    var lt = _len(dt_)
+                    if lt > 0:
+                        self.x[i] = self.x[i] - dt_ * min(Real(1), self.friction * push / lt)
+                    out.append(ClothHit(hits[q], self.x[i] - before, 1 / self.w[i], self.x[i]))
+        return out^
 
     # ---- ContinuumSolver (17.55) ----------------------------------------------
     def advance(mut self, dt: Real, gravity: Vec3):
