@@ -18,8 +18,10 @@ The solve is sequential Gauss-Seidel — deterministic by construction (gate:
 bit-identical repeat runs in `test_softbody`).
 """
 
-from std.math import sqrt
+from std.math import sqrt, isfinite
 from geometry.vec import Real, Vec3, dot
+from .continuum import ContinuumSolver, ContinuumHealth
+from .state_io import StateWriter, StateReader
 
 comptime _DAMP: Real = 0.999
 
@@ -47,7 +49,7 @@ struct SEdge(Copyable, ImplicitlyCopyable, Movable):
     var lam: Real  # XPBD multiplier (reset each substep)
 
 
-struct SoftBody(Movable, Deinitable):
+struct SoftBody(Movable, Deinitable, ContinuumSolver):
     var pts: List[SP]
     var edges: List[SEdge]
     var alpha: Real  # XPBD compliance (m/N); 0 = hard distance
@@ -74,6 +76,112 @@ struct SoftBody(Movable, Deinitable):
         velocities and rest lengths are translation-invariant."""
         for i in range(len(self.pts)):
             self.pts[i].x -= d
+
+    # ---- substep pieces shared with `soft_couple.softbody_pass` ------------------
+    def predict(mut self, h: Real, gravity: Vec3) -> List[Real]:
+        """Explicit predict; returns the pre-substep positions (x, y, z per
+        particle) for `finish`."""
+        var np = len(self.pts)
+        var prev = List[Real](capacity=np * 3)
+        for i in range(np):
+            var p = self.pts[i]
+            prev.append(p.x[0])
+            prev.append(p.x[1])
+            prev.append(p.x[2])
+            p.v = p.v + gravity * h
+            p.x = p.x + p.v * h
+            self.pts[i] = p
+        for e in range(len(self.edges)):
+            var ed = self.edges[e]
+            ed.lam = 0
+            self.edges[e] = ed
+        return prev^
+
+    def solve_edges(mut self, h: Real, iters: Int):
+        """XPBD Gauss-Seidel over the lattice edges."""
+        var alpha_h = self.alpha / (h * h)
+        for _ in range(iters):
+            for e in range(len(self.edges)):
+                var ed = self.edges[e]
+                var pa = self.pts[ed.a]
+                var pb = self.pts[ed.b]
+                var d = pa.x - pb.x
+                var l = sqrt(max(dot(d, d), Real(1e-12)))
+                var cc = l - ed.rest
+                var wsum = pa.w + pb.w
+                if wsum <= 0:
+                    continue
+                var dl = (-cc - alpha_h * ed.lam) / (wsum + alpha_h)
+                ed.lam += dl
+                var corr = d * (dl / l)
+                pa.x = pa.x + corr * pa.w
+                pb.x = pb.x - corr * pb.w
+                self.pts[ed.a] = pa
+                self.pts[ed.b] = pb
+                self.edges[e] = ed
+
+    def finish(mut self, prev: List[Real], h: Real):
+        """Velocities from positions, damped."""
+        for i in range(len(self.pts)):
+            var p = self.pts[i]
+            var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2], 0)
+            p.v = (p.x - pv) * (self.damp / h)
+            self.pts[i] = p
+
+    # ---- ContinuumSolver (17.55) ----------------------------------------------
+    def advance(mut self, dt: Real, gravity: Vec3):
+        """`softbody_pass` without a scene (no collisions): 4 substeps x 4
+        iterations, the step's defaults; `period` is the scene's business."""
+        var h = dt / Real(4)
+        for _ in range(4):
+            var prev = self.predict(h, gravity)
+            self.solve_edges(h, 4)
+            self.finish(prev, h)
+
+    def _ok(self, i: Int) -> Bool:
+        var p = self.pts[i]
+        return isfinite(p.x[0]) and isfinite(p.x[1]) and isfinite(p.x[2]) and isfinite(p.v[0]) and isfinite(p.v[1]) and isfinite(p.v[2])
+
+    def health(self) -> ContinuumHealth:
+        var bad = 0
+        for i in range(len(self.pts)):
+            if not self._ok(i):
+                bad += 1
+        return ContinuumHealth(bad, 0, 0)
+
+    def quarantine(mut self) -> Int:
+        """Pin a non-finite particle at a finite edge neighbour (the origin
+        if none) with zero velocity and zero inverse mass."""
+        var n = 0
+        for i in range(len(self.pts)):
+            if self._ok(i):
+                continue
+            var at = Vec3(0, 0, 0, 0)
+            for e in range(len(self.edges)):
+                var j = self.edges[e].b if self.edges[e].a == i else (self.edges[e].a if self.edges[e].b == i else -1)
+                if j >= 0 and self._ok(j):
+                    at = self.pts[j].x
+                    break
+            self.pts[i] = SP(at, Vec3(0, 0, 0, 0), 0)
+            n += 1
+        return n
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wi(len(self.pts))
+        for p in self.pts:
+            w.wv(p.x)
+            w.wv(p.v)
+            w.wf(p.w)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var n = r.ri()
+        if n != len(self.pts):
+            raise Error("SoftBody.read_state: particle count differs")
+        for i in range(n):
+            var x = r.rv()
+            var v = r.rv()
+            var w = r.rf()
+            self.pts[i] = SP(x, v, w)
 
     @staticmethod
     def box_lattice(

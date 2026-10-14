@@ -5,7 +5,9 @@
   1. Ordinary: a 3 mm sphere (density 1500) sinking in an LBM lattice for
      150 steps: `couple_step` with `LbmSpherePort` over an `LbmContinuum`
      gives the same sphere state bit for bit as `LbmCoupler.step`.
-  2. Integration: the same scene driven by `Runtime.advance_coupled`
+  2. Integration: `Both[LbmContinuum, Rope]` with `BothPorts` equals the
+     two solvers stepped one after the other, bit for bit; the same scene
+     driven by `Runtime.advance_coupled`
      matches `couple_step` bit for bit (the runtime's tick is the rigid
      step of the same order); `OneWay` steps a second lattice beside the
      scene and leaves the bodies as `advance` does.
@@ -24,7 +26,9 @@ from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
 from physics.fsi import LbmCoupler, LbmSpherePort
 from physics.continuum import LbmContinuum
-from physics.coupling import couple_step, OneWay
+from physics.coupling import couple_step, OneWay, Both, BothPorts
+from physics.continuum import step_checked
+from physics.rope import Rope
 from diag.counters import Counters, CONTINUUM_NAN
 from fluid.lbm import Lbm
 from gameplay.runtime import Runtime, RigidBodyRef
@@ -83,6 +87,32 @@ def main() raises:
             same = False
     print("  150 coupled steps: sphere x LbmCoupler", sa.bset.bodies[0].pos[0], " port", sb.bset.bodies[0].pos[0], " vx", sb.bset.bodies[0].vel[0])
     s.check(same and sb.bset.bodies[0].pos[0] < 10.5e-3, "LbmSpherePort + couple_step == LbmCoupler.step, bit for bit (the sphere sinks)")
+
+    # ---- two solvers registered by composition -------------------------------------------------------
+    var sm = ContactScene6[QuatBody6]()
+    _ = sm.add_sphere(_body(), R, False)
+    var both = Both[LbmContinuum, Rope](LbmContinuum(_lbm(), DT), Rope(Vec3(0, 0.02, 0, 0), Vec3(0.02, 0.02, 0, 0), 10, 0.01))
+    var lp = LbmSpherePort(DX, RHO, Vec3(0, 0, 0, 0))
+    _ = lp.add_sphere(sm, both.a, sm.bset.id_of(0), R)
+    var bp = BothPorts[LbmSpherePort, OneWay[Rope]](lp^, OneWay[Rope]())
+    var sn = ContactScene6[QuatBody6]()
+    _ = sn.add_sphere(_body(), R, False)
+    var la = LbmContinuum(_lbm(), DT)
+    var ro2 = Rope(Vec3(0, 0.02, 0, 0), Vec3(0.02, 0.02, 0, 0), 10, 0.01)
+    var lp2 = LbmSpherePort(DX, RHO, Vec3(0, 0, 0, 0))
+    _ = lp2.add_sphere(sn, la, sn.bset.id_of(0), R)
+    var bsame = True
+    for _ in range(40):
+        _ = couple_step(sm, bp, both, DT, G, cfg, counters)
+        lp2.before(sn, la, DT, G)
+        _ = step_checked(la, DT, G, counters)
+        _ = step_checked(ro2, DT, G, counters)
+        lp2.after(sn, la, DT, G)
+        sn.step(DT, G, cfg)
+        if not _same(sm.bset.bodies[0], sn.bset.bodies[0]) or both.b.x[10] != ro2.x[10]:
+            bsame = False
+    print("  Both[LBM, rope]: sphere x", sm.bset.bodies[0].pos[0], " rope end y", both.b.x[10][1])
+    s.check(bsame, "Both / BothPorts: the composite tick equals the two solvers stepped in order, bit for bit")
 
     # ---- through the runtime ------------------------------------------------------------------------
     var rt = Rt(DT, G)
