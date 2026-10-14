@@ -990,7 +990,7 @@
 | 13.4 | [腱(fixed / spatial,含繞行)](ROADMAP_HISTORY.md#134-腱fixed--spatial含繞行--已完成) | ✅ |  | physics/tendon.mojo 提供 FixedTendon(L = Σ c_i q_i)與經附著點、可繞世界固定球體(WrapSphere)的 SpatialTendon;tension 經 tau = -F dL/dq 回到關節;test_tendon 驗證線性耦合、繞行時力臂 == dL/dq、繞行起始處長度連續、功 == -F·ΔL,bench_tendon 已在報告範本中。 |
 | 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | 🔶 |  | physics/constraints.mojo 的 ConstraintSet 以單一 projected Gauss-Seidel 處理 equality / limit / friction-loss / contact 列,金字塔錐與橢圓錐用旗標(CONE_PYRAMIDAL / CONE_ELLIPTIC)切換,test_constraints 與 bench_constraints 都已存在;沒有 CG / Newton 求解器變體,而且只在縮座標(chain)空間使用,只有 tests 與 benchmarks 會用到它。 |
 | 13.6 | [機器人感測器組](ROADMAP_HISTORY.md#136-機器人感測器組---已完成) | ✅ |  | physics/sensors.mojo 從模擬狀態導出唯讀量:IMU(proper acceleration + 陀螺,另有批次版 read_imu_batch)、由反向動力學算出的關節力矩、關節位置 / 速度、只支援平面的測距儀、觸覺;test_sensors 驗證自由落體時加速度計讀 0、靜止時讀 g、關節力矩 == m·g·lever,批次 IMU 與逐個讀取逐位相同。 |
-| 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 🔶 | B | 多自由度關節、多 DOF 限制、關節屬性、接觸補完、接觸效率、閉環 |
+| 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | ✅ | B | 多自由度關節、多 DOF 限制、關節屬性、接觸補完、接觸效率、閉環 |
 
 ### 已完成條目的遺留待辦
 
@@ -1037,7 +1037,7 @@
 > **歷史**:原「現況」:只有接觸 + ball/hinge 兩種關節,沒有關節極限、沒有乾摩擦、沒有 equality 約束,而且各自用不同機制處理;設計寫的 PGS 是當時的 `_solve_point`。
 
 #### 17.51 縮座標完整化 — Wave B(承 9.1)
-> **狀態**:🔶 部分完成(2026-10-14:關節屬性(阻尼 / 彈簧 / armature / 乾摩擦)的隱式步、`Chain` / `FloatingChain` 快照、接觸摩擦、H 分解重用、閉環、直接 / CG 解、與最大座標 parity ✅;多自由度關節、多 DOF 限制、link 形狀接觸與剛體耦合、O(n) 接觸傳播未做)。
+> **狀態**:✅ 完成(2026-10-14:關節屬性的隱式步、`Chain` / `FloatingChain` 快照、接觸摩擦、H 分解重用、閉環、直接 / CG 解、與最大座標 parity、球 / 萬向 / 平面 / 自由關節、swing-twist 限制、link 膠囊接觸與自碰撞、與 `ContactScene6` 雙向耦合、ABA 型 O(n) 接觸回應(量測:n ≤ 64 時比分解慢);GPU 屬 17.17)。
 
 > **現況**:縮座標關節只有 `JOINT_REVOLUTE / JOINT_PRISMATIC`(`physics/chain.mojo:96-97`),每個 link 恰一個純量自由度與單一軸(`ChainLink`,`physics/chain.mojo:101-110`);限制 `lo / hi` 由衝量式 `resolve_limits` 處理(`physics/chain.mojo:130-140,785-848`)。grep `spherical|ball|universal|planar|free.?joint|multi.?dof|armature|damping|spring`(`physics/chain.mojo`、`physics/floating.mojo`)零命中:沒有球 / 萬向 / 平面 / 多自由度關節,也沒有關節阻尼、彈簧、armature。彈簧 / 伺服靠 `Actuator` 提供 τ(`physics/actuator.mojo:1-40`;其仿射式 `gain_q·q + gain_qd·q̇` 已能表達 PD 彈簧 - 阻尼,但為顯式 τ,非隱式處理),乾摩擦只能手組 `ConstraintSet` 的 `CON_FRICTION_LOSS` 列(`physics/constraints.mojo:100`),不是 link 屬性。9.1 狀態校正已把「縮座標沒有球關節 / 多自由度」記為剩餘(ROADMAP §9.1)。
 > 與世界的耦合只有「link 上的材質點 ↔ 靜態 `ColliderSet`」:`resolve_contacts` 經 `nearest_surface` 找最近碰撞器(`physics/chain.mojo:694-783`),只有法向衝量、沒有摩擦(`physics/chain.mojo` grep `friction|mu` 零命中)、接觸是 link 上的點而非 link 形狀,也與動態 `ContactScene6` 剛體**完全不耦合**:全樹僅 `sensors / tendon / constraints / floating` 引用 `Chain`,`gameplay/` 與 `solver6` 零引用(grep `physics.chain|FloatingChain`)。ROADMAP「Phase 17 建議順序」 另記 F12 待辦「mesh / heightfield 接觸只有觸碰無深度」。
@@ -1140,8 +1140,28 @@
 >   閉環誤差 6.6e-7、連桿保持平行 9.1e-6、曲柄 1.94 .. 2.015 rad/s;1:100 交替的 10 節閉環鏈受破環扭轉:殘差 PGS 20 1.5e-4、PGS 100 4.1e-6、
 >   直接 5.0e-6、CG 1.5e-6 —— 三條列 PGS 收斂得了,本條例子預期的 100 倍差距在這個系統上沒出現;同一閉環加兩次仍閉合。
 > - **與最大座標 parity**:見 17.47(`test_joint_parity`)。
-> - **待辦**:球 / 萬向 / 平面 / 自由多 DOF 關節(S 推廣為 6×k、SO(3) 積分)與其 swing-twist 限制;link 形狀接觸、自碰撞、與 `ContactScene6` 雙向耦合;
->   接觸的 O(n) 傳播(ABA 型)。
+> - **球關節 ✅(2026-10-14)**:`Chain.add_ball` = 三個繞 body 自身 x / y / z 的 revolute(前兩個無質量)+ 第一個 link 上的四元數;每次積分後
+>   `fold_balls` 把三個小角度併入四元數、歸零,並把角速率換成 body 角速度 —— 三個角度永遠在 0 附近,Euler 角奇異點(中間角 ±π/2)不會接近;
+>   CRBA / RNEA / ABA 不變(只有 `_joint_rot` 讀四元數)。這不是把 S 推廣為 6×3 的寫法,而是「每步重設的局部座標」;已在文件與測試中寫明。
+>   `test_ball_joint` 10/10:小擺週期 1.63958 s(解析 1.63878);無重力自由翻滾 2 s 能量 / 角動量漂移 4.66 % / 2.55 %(dt)、2.34 % / 1.27 %(dt/2,一階);
+>   以 (0.3, 2, 0.3) rad/s 穿過中間軸奇異姿態:三個普通 revolute 外軸速率衝到 13.6 rad/s、能量誤差 14.9 %,球關節 0.49 rad/s、0.62 %;
+>   對最大座標 `Joint6.ball` 3-D 擺動 2 s 尖端差 2.0 mm;10 rad/s 轉 8 圈四元數仍為單位;快照逐位。
+> - **swing-twist 限制 ✅**:`set_ball_limits(body, axis, swing, twist_lo, twist_hi)`,`resolve_limits` 在球的三個 DOF 上解 swing 列(擺動旋轉軸)與
+>   twist 列(軸本身)。3 rad/s 推向 0.5 rad 錐:最大 0.49999976;2 rad/s 扭向 ±0.3:0.3;錐 0 時軸不動(7.3e-4)、twist 自由。
+> - **萬向 / 平面 / 自由關節 ✅**:`add_universal`(兩個垂直 revolute)、`add_planar`(兩個垂直 prismatic + 法向 revolute)、`add_free`(三個 prismatic + 球)。
+>   `test_multidof` 5/5:萬向平面擺與球關節尖端差 2.9e-7 m、十字保持垂直 3.0e-8;平面關節在重力 (1, −9.8, 2) 下平面內加速度 0.9999992 / −9.800015、
+>   z 不動、自轉保持;自由關節底座 + 三節手臂對 `FloatingChain` 尖端差 1.69 mm(dt 1/240)/ 0.85 mm(1/480)。`FloatingChain` 本身保留(重寫為自由關節
+>   未做:兩者並存,parity 已量)。
+> - **與 `ContactScene6` 雙向耦合 ✅**:`physics.chain_scene.couple_contacts`(有效質量 = 鏈 J H⁻¹ Jᵀ + 物體 1/m + (r×n)·I⁻¹(r×n),等大反向)。
+>   `test_chain_scene` 5/5:擺錘撞 1 kg 箱(無摩擦地面)給出 1.4562792 N·s、箱子動量同值;5 kg 腿站在 1 kg 箱上壓 49.000023 N;靜態箱上與
+>   `resolve_contacts` 落點差 0。
+> - **link 形狀與自碰撞 ✅**:`physics.chain_shapes`(link 上的膠囊對世界走 `segment_distance`,非父子 link 之間取線段最近點,J = J_i − J_j)。
+>   `test_chain_shapes` 4/4:1 m 手臂落在中段下方的平台上,中心線距平台邊 0.050000004(半徑 0.05);只有尖端接觸點時直接掃過(到 −1.5 rad);
+>   折起的三節鏈第三節轉向第一節,中心線保持 0.10004(半徑和 0.1),不開自碰撞時 0.00015。
+> - **O(n) 接觸傳播(量測後不採用為預設)**:`hinv_aba`(q̇、根運動、重力歸零時 ABA 的加速度即 H⁻¹τ),`resolve_contacts(..., aba=True)`。
+>   每節都躺在地上,每步 分解 vs ABA:0.248 / 0.732 ms(n 8)、0.878 / 2.48(16)、3.34 / 8.89(32)、16.1 / 32.9(64)—— 到 n = 64 都還沒到交叉點,
+>   ABA 每節的常數大過 n² 三角解;動作差 1.8e-6。
+> - **待辦**:無(CPU)。GPU articulation 屬 17.17。
 
 #### 17.55 連續體步進契約 — Wave B(連續體前置)
 
@@ -3377,7 +3397,7 @@
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
-| 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | 🔶 |
+| 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | ✅ |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
 | 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
