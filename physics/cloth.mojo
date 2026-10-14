@@ -26,7 +26,7 @@ Constraints run in a fixed order (Gauss-Seidel), so a run is deterministic.
 without a scene: pins, attachments frozen, wind, no collision).
 """
 
-from std.math import sqrt, isfinite
+from std.math import sqrt, isfinite, atan2
 from std.collections import Dict
 from geometry.vec import Real, Vec3, dot, cross
 from collision.world_query import QueryFilter, overlap_sphere, point_distance
@@ -35,6 +35,14 @@ from .rigid6 import Body6
 from .solver6 import ContactScene6
 from .state_io import StateWriter, StateReader
 from .continuum import ContinuumSolver, ContinuumHealth
+
+
+comptime BEND_CROSS_EDGE = 0
+"""Bending as a distance constraint between the two vertices opposite an
+interior edge (the default; it also resists in-plane stretching)."""
+comptime BEND_DIHEDRAL = 1
+"""Bending as the signed dihedral angle across an interior edge: blind to
+in-plane stretching, so bending and stretch stiffness are independent."""
 
 
 def _len(v: Vec3) -> Real:
@@ -70,6 +78,11 @@ struct MeshCloth(ContinuumSolver):
     var att_vert: List[Int]
     var att_body: List[Int]
     var att_local: List[Vec3]
+    # ROADMAP 17.56 (2026-10-14)
+    var bend_model: Int  # BEND_CROSS_EDGE / BEND_DIHEDRAL
+    var bphi: List[Real]  # rest dihedral angle per bending constraint
+    var max_stretch: Real  # edge length cap as a multiple of rest (0 = none)
+    var ecomp: List[Real]  # per-edge stretch compliance (empty = uniform)
 
     def __init__(
         out self, verts: List[Real], tris: List[Int], density: Real,
@@ -146,6 +159,107 @@ struct MeshCloth(ContinuumSolver):
         self.att_vert = List[Int]()
         self.att_body = List[Int]()
         self.att_local = List[Vec3]()
+        self.bend_model = BEND_CROSS_EDGE
+        self.max_stretch = 0
+        self.ecomp = List[Real]()
+        self.bphi = List[Real](capacity=len(self.ba))
+        for e in range(len(self.ba)):
+            self.bphi.append(self._angle(e))
+
+    def set_bend_model(mut self, model: Int) raises:
+        if model != BEND_CROSS_EDGE and model != BEND_DIHEDRAL:
+            raise Error("MeshCloth.set_bend_model: unknown model")
+        self.bend_model = model
+
+    def set_max_stretch(mut self, ratio: Real) raises:
+        """Cap every edge at `ratio` x its rest length after each substep's
+        solve (strain limiting); 0 removes the cap."""
+        if not (ratio == 0 or ratio >= 1):
+            raise Error("MeshCloth.set_max_stretch: ratio must be 0 or >= 1")
+        self.max_stretch = ratio
+
+    def set_anisotropy(mut self, axis: Vec3, along: Real, across: Real, shear: Real) raises:
+        """Stretch compliance per edge by direction in the rest pose (woven
+        cloth): within 22.5 degrees of `axis` -> `along` (warp), within
+        22.5 degrees of perpendicular -> `across` (weft), the diagonals in
+        between -> `shear`."""
+        var la = _len(axis)
+        if not (la > 0) or not (along >= 0) or not (across >= 0) or not (shear >= 0):
+            raise Error("MeshCloth.set_anisotropy: axis must be non-zero, compliances >= 0")
+        var a = axis / la
+        self.ecomp = List[Real](capacity=len(self.ea))
+        for e in range(len(self.ea)):
+            var d = self.x[self.eb[e]] - self.x[self.ea[e]]
+            var c = abs(dot(d, a)) / max(_len(d), Real(1e-12))
+            if c >= 0.9238795325112867:
+                self.ecomp.append(along)
+            elif c <= 0.3826834323650898:
+                self.ecomp.append(across)
+            else:
+                self.ecomp.append(shear)
+
+    def _angle(self, e: Int) -> Real:
+        """Signed bend angle of bending constraint `e` across its edge (0 for
+        a flat pair): atan2((n1 x n2) . e, n1 . n2)."""
+        var x1 = self.x[self.ba[e]]
+        var x2 = self.x[self.bb[e]]
+        var x3 = self.x[self.ea[self.bedge[e]]]
+        var x4 = self.x[self.eb[self.bedge[e]]]
+        var ed = x4 - x3
+        var n1 = cross(x1 - x3, x1 - x4)
+        var n2 = cross(x2 - x4, x2 - x3)
+        var l1 = _len(n1)
+        var l2 = _len(n2)
+        var le = _len(ed)
+        if l1 < 1e-12 or l2 < 1e-12 or le < 1e-12:
+            return 0
+        var u1 = n1 / l1
+        var u2 = n2 / l2
+        return atan2(dot(cross(u1, u2), ed / le), dot(u1, u2))
+
+    def _dihedral(mut self, e: Int, alpha: Real, lam: Real) -> Real:
+        """One XPBD projection of the signed bend angle across an interior
+        edge. Gradients after Bridson et al. 2003 (wing vertices |E| N /
+        |N|^2, edge vertices the matching combinations), sign checked by
+        finite differences; unlike the acos form they stay well scaled near
+        flat. Returns the lambda increment."""
+        var i1 = self.ba[e]
+        var i2 = self.bb[e]
+        var i3 = self.ea[self.bedge[e]]
+        var i4 = self.eb[self.bedge[e]]
+        var x1 = self.x[i1]
+        var x2 = self.x[i2]
+        var x3 = self.x[i3]
+        var x4 = self.x[i4]
+        var ed = x4 - x3
+        var le = _len(ed)
+        var n1 = cross(x1 - x3, x1 - x4)
+        var n2 = cross(x2 - x4, x2 - x3)
+        var a1 = dot(n1, n1)
+        var a2 = dot(n2, n2)
+        if le < 1e-12 or a1 < 1e-24 or a2 < 1e-24:
+            return 0
+        # grad theta = -g_i
+        var g1 = n1 * (le / a1)
+        var g2 = n2 * (le / a2)
+        var g3 = n1 * (dot(x1 - x4, ed) / le / a1) + n2 * (dot(x2 - x4, ed) / le / a2)
+        var g4 = n1 * (-dot(x1 - x3, ed) / le / a1) + n2 * (-dot(x2 - x3, ed) / le / a2)
+        var w1 = self.w[i1]
+        var w2 = self.w[i2]
+        var w3 = self.w[i3]
+        var w4 = self.w[i4]
+        var den = w1 * dot(g1, g1) + w2 * dot(g2, g2) + w3 * dot(g3, g3) + w4 * dot(g4, g4)
+        if den <= 0:
+            return 0
+        var u1 = n1 / sqrt(a1)
+        var u2 = n2 / sqrt(a2)
+        var c = atan2(dot(cross(u1, u2), ed / le), dot(u1, u2)) - self.bphi[e]
+        var dl = (-c - alpha * lam) / (den + alpha)
+        self.x[i1] = self.x[i1] - g1 * (w1 * dl)
+        self.x[i2] = self.x[i2] - g2 * (w2 * dl)
+        self.x[i3] = self.x[i3] - g3 * (w3 * dl)
+        self.x[i4] = self.x[i4] - g4 * (w4 * dl)
+        return dl
 
     def vertex_count(self) -> Int:
         return len(self.x)
@@ -219,13 +333,37 @@ struct MeshCloth(ContinuumSolver):
             for e in range(len(self.ba)):
                 if self.torn[self.bedge[e]]:
                     continue
+                if self.bend_model == BEND_DIHEDRAL:
+                    var ddl = self._dihedral(e, bt, self.blam[e])
+                    self.blam[e] += ddl
+                    continue
                 var dl = self._dist(self.ba[e], self.bb[e], self.brest[e], bt, self.blam[e])
                 self.blam[e] += dl
+            var aniso = len(self.ecomp) == len(self.ea)
             for e in range(len(self.ea)):
                 if self.torn[e]:
                     continue
-                var dl = self._dist(self.ea[e], self.eb[e], self.rest[e], sa, self.lam[e])
+                var ae = self.ecomp[e] / (h * h) if aniso else sa
+                var dl = self._dist(self.ea[e], self.eb[e], self.rest[e], ae, self.lam[e])
                 self.lam[e] += dl
+        if self.max_stretch >= 1:
+            # strain limit: hard passes capping each edge at max_stretch x rest
+            for _ in range(max(self.iters, 4)):
+                for e in range(len(self.ea)):
+                    if self.torn[e]:
+                        continue
+                    var a = self.ea[e]
+                    var b = self.eb[e]
+                    var ws = self.w[a] + self.w[b]
+                    if ws <= 0:
+                        continue
+                    var d = self.x[b] - self.x[a]
+                    var l = _len(d)
+                    var cap = self.rest[e] * self.max_stretch
+                    if l > cap:
+                        var corr = d * ((l - cap) / (l * ws))
+                        self.x[a] = self.x[a] + corr * self.w[a]
+                        self.x[b] = self.x[b] - corr * self.w[b]
         if self.break_force < 1e30:
             for e in range(len(self.ea)):
                 if not self.torn[e] and abs(self.lam[e]) / (h * h) > self.break_force:
