@@ -254,7 +254,7 @@
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | ✅ | B | 限制、馬達、彈簧、新種類、`collide_connected` 開關 |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | ✅ | A | 質量性質、阻尼、`gravity_scale`、軸鎖、速度上限、持續力 / 力矩累加器 |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | ✅ | A | 接觸事件 payload、整步衝量估計器、查詢 API、逐 body 事件旗標 |
-| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 🔶 | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、求解法變體、黏附 / 吸附 |
+| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | ✅ | B | 橢圓摩擦錐、滾動 / 扭轉摩擦、靜 / 動摩擦、逐材質 / 逐 body 接觸柔度、塊求解、黏附 / 吸附(CPU ✅;GPU 對齊屬第 7 層) |
 
 ### 已完成條目的遺留待辦
 
@@ -544,7 +544,7 @@
 
 #### 17.50 接觸模型變體 — Wave B
 
-> **狀態**:🔶 部分完成(2026-10-13:橢圓摩擦錐 seam、靜 / 動摩擦、滾動 / 扭轉阻力、逐 body 接觸柔度、黏附 ✅;塊求解 / TGS 變體、逐材質柔度表、GPU 對齊(第 7 層)未做)。
+> **狀態**:✅ CPU 完成(2026-10-14:CPU 子項全部 ✅ —— 橢圓摩擦錐 seam、靜 / 動摩擦、滾動 / 扭轉阻力、逐 body 與逐材質接觸柔度、黏附、塊求解 seam、PGS / 子步量測;GPU 對齊(第 7 層)未做,GPU 求解器明確拒絕新模式)。
 > **進度註(2026-10-13)**:`SolverConfig.friction_cone`(`FRICTION_PYRAMID` 預設 / `FRICTION_ELLIPTIC`):橢圓錐兩軸先不夾,再把 (t1, t2) 投影到半徑 μλₙ 的圓盤;
 > 上限為 0 時仍走金字塔(μ = 0 兩錐逐位相同)。`ContactScene6.set_static_friction` / `set_rolling_resistance` / `set_spinning_resistance`(負值或索引越界 raise):
 > 靜摩擦以 prep 時切向速度 < 1 cm/s 的點(`ContactConstraint.stick` 位元)取 μs,與 μk 用同一組合規則;滾動 / 扭轉阻力(單位 m,取兩 body 較大者)
@@ -559,6 +559,20 @@
 > μ = 1e3 橢圓錐 1 s 移動 0.15 mm;0.5 m 落下的箱子峰值穿透 預設地面 0.29 mm、3 Hz 軟墊 13.2 mm,柔度設為 cfg 值逐位相同;
 > 天花板下 1 kg 箱子(重 9.8 N)黏附 20 N 時 2 s 位移 0、5 N 時落下。bench `bench_contact_model`(µs/步,N = 16 / 256):斜坡方塊 金字塔 369 / 6304、橢圓 400 / 7518、橢圓 + 靜摩擦 + 滾動 / 扭轉 508 / 8581;
 > 滾動球 93 / 2394、92 / 2405、140 / 2898(方塊各變體的運動不同,橢圓的方塊滑得較遠,所以差值是錐本身成本的上界)。
+> **進度註(2026-10-14,逐材質柔度 / 摩擦)**:`ContactScene6.set_material_softness(material, hertz, zeta)`(id 超出 0..65535、hertz ≤ 0、zeta < 0 raise);
+> `_collect_pairs` 在 `apply_rules` 之前以 `_apply_materials` 把三角形材質(`colliders.material(mesh, feat & 0xFFFF)`)的摩擦寫成 `mu_override`、柔度寫進
+> `ContactConstraint.soft_hz / soft_zeta`(優先於兩 body 的柔度;`RULE_FRICTION` 規則仍覆寫材質摩擦);快照帶柔度表(格式 5);GPU 求解器有柔度表即拒絕。
+> 量測(`tests/test_material_contact.mojo` 6/6):3 m/s 滑行,材質摩擦 0.05 的網格 9.177 m vs 摩擦 0.05 的箱子地面 9.177 m(解析 9.18,body 摩擦 0.8 被取代),
+> 加 0.5 摩擦規則 0.912 m;落在 3 Hz 材質三角形上最深 27.546 mm,與網格 body 設 3 Hz 逐位相同,預設 0.31 mm;無柔度的材質逐位維持預設。commit fcedf97。
+> **進度註(2026-10-14,塊求解 / TGS)**:`SolverConfig.contact_solver`(`CONTACT_GS` 預設 / `CONTACT_BLOCK`,`validated` 拒絕其他值;`BodySet.block` 帶到 `solve_contact`)。
+> 塊求解:manifold 的 2–4 點法向一起解 —— A_ij 以極化恆等式由 `angular_factor(ri + rj)` 求交叉項,剛性 LCP(x ≥ 0、w = Ax + b ≥ 0、x·w = 0)以主動集
+> 由大到小列舉、部分主元高斯消去;每點取 ms_k·x_k(即逐點軟更新 ms·(λ − (vn + bias)/A_kk) 以整塊 A 取代 A_kk);四點共面時 A 秩 3,加 1e-4 相對對角正則化取最小範數分配。
+> 單點 manifold、黏附、奇異或無解時回到逐點 GS。摩擦仍逐點。
+> 量測(`tests/test_contact_block.mojo` 8/8):球(單點)兩者逐位相同;靜置箱高度差 8e-6 m;1 次迭代下四點衝量 最大 / 最小 GS 1.291、塊 1.001;
+> 10 箱疊塔 4 s:頂箱下沉 GS 28.4 mm / 塊 27.7 mm,側向漂移 GS 4.5 mm(1 iter)/ 1.6 mm(2 iter),塊 3e-7 / 1e-6 m;100 kg 壓 1 kg 穿透 GS 28.7 mm、塊 27.9 mm(不改善,
+> 由軟接觸決定,17.19 的大質量比問題不歸塊求解)。bench `bench_contact_model` 第二表(µs/步):1 疊 1 iter GS 173 / 塊 354,16 疊 4 iter 5591 / 10101 —— 塊求解約 2 倍成本,換來無側向蠕移。
+> TGS:`step` 本身就是子步軟步進(Box2D v3,TGS 家族);第三表以相同 16 次迭代比較 1 子步 × 16(PGS 式)與 4 × 4:16 疊 3996 vs 5252 µs,頂箱下沉 28.42 vs 28.40 mm,
+> 蠕移 1.15 vs 2.10 mm —— 這組靜置疊塔上兩者差距在 1 mm 內,子步的優勢(高速衝擊、關節鏈)不在此場景顯現,不另設 seam。
 
 > **現況**:`ContactScene6` 只有一種接觸模型:Box2D v3 軟接觸 —— 全域 `hertz` / `zeta`(`physics/solver_config.mojo:53-55`,所有接觸同剛度)+ 逐點 Gauss-Seidel,切向兩個衝量各自夾 `μ·λₙ`(`physics/contact6.mojo:394-430`,逐軸夾在 `:426`),即**金字塔摩擦錐**,上限依賴 `tangent_basis(n)` 的任意基底(`geometry/vec.mojo:161-173`)。
 > 摩擦只有單一 μ(`combine` 後的 `pair_mu`,`physics/contact6.mojo:337`),沒有靜 / 動摩擦之分;grep `rolling|torsion|spin.?fric|elliptic|\bcone\b|adhesion|cohesion|stiction|static_fric|kinetic`(`physics/contact6.mojo`、`solver6.mojo`、`gpu_contact.mojo`、`material.mojo`、`solver_config.mojo`)**零命中** —— 沒有滾動 / 扭轉摩擦、黏附、橢圓錐。(`gameplay/vehicle.mojo:166` 的 `rolling_resistance` 是輪胎模型的 Crr·Fz·R 輪軸力矩,不是通用接觸屬性。)反而有**假的**滾動阻力:17.19 發現(ROADMAP §17.19)球進入純滾動後持續減速並下沉約 7 mm,根因是 body-frame 接觸錨點隨球旋轉,摩擦取在偏離真實接觸點的位置 —— 尚未修。恢復係數是後置 pass、門檻全域(`physics/contact6.mojo:444-504`、`physics/solver_config.mojo:49`);位置修正的最大推出速度是常數 −4 m/s(`physics/contact6.mojo:380`)。
@@ -3421,7 +3435,7 @@
 | 17.47 | [關節庫補完(最大座標)](#1747-關節庫補完最大座標--wave-b承-91) | 剛體動力學、接觸與關節 | ✅ |
 | 17.48 | [剛體參數 API](#1748-剛體參數-api--wave-a) | 剛體動力學、接觸與關節 | ✅ |
 | 17.49 | [力回報 / 衝擊事件](#1749-力回報--衝擊事件--wave-a) | 剛體動力學、接觸與關節 | ✅ |
-| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | 🔶 |
+| 17.50 | [接觸模型變體](#1750-接觸模型變體--wave-b) | 剛體動力學、接觸與關節 | ✅ |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | ✅ |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
