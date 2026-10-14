@@ -36,6 +36,7 @@ sync into ECS transforms (`_sync_transforms`, one `for_each2` pass: reads
 allocation, the same zero-allocation path every other ECS system in this
 engine uses)."""
 
+from std.time import perf_counter_ns
 from ecs.world import World
 from ecs.storage import StorageBackend
 from ecs.component import ComponentType
@@ -47,6 +48,7 @@ from physics.rigid6 import Body6, Pose6
 from physics.body_set import BodyId
 from physics.solver6 import ContactScene6, FORCE_MODE_FORCE
 from physics.solver_config import SolverConfig
+from physics.lod import SimBudget
 from scheduler.gameloop import FixedLoop
 from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
@@ -350,6 +352,27 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if not self.executed:
             raise Error("Runtime.finish: execute(handle) has not run")
         self.in_flight = False
+        return self._finish_frame()
+
+    def advance_budgeted(mut self, frame_dt: Float64, mut budget: SimBudget) raises -> Float64:
+        """`advance` under a step-time budget (ROADMAP 17.79): before each
+        fixed tick `budget` sets `cfg.iters` / `cfg.substeps`, and the
+        tick's measured wall time is fed back (`SimBudget.update`: above
+        110 % of the target it drops an iteration, then a substep; below
+        70 % it restores them). The rest of the tick is `advance`'s."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_budgeted: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance_budgeted: a begin_advance step is still in flight")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var steps = 0
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            budget.apply(self.cfg)
+            var t0 = Int(perf_counter_ns())
+            self._tick()
+            budget.update(Int(perf_counter_ns()) - t0)
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
         return self._finish_frame()
 
     def advance_tiered[P: TierPolicy](
