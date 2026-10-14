@@ -717,6 +717,15 @@ def _ray_one(
     return Hit.miss()
 
 
+def ray_collider(
+    cs: ColliderSet, i: Int, pose: Pose3, origin: Vec3, dir: Vec3, max_t: Real,
+    backfaces: Bool = True,
+) -> Hit:
+    """The ray against collider `i` alone at `pose` (17.46: a soft particle's
+    swept segment against one body)."""
+    return _ray_one(cs, i, pose, origin, _unit_or_up(dir), max_t, backfaces)
+
+
 def _ray_from(
     cs: ColliderSet, poses: List[Pose3], cands: List[Int], origin: Vec3, d: Vec3,
     max_t: Real, f: QueryFilter,
