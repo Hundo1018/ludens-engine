@@ -199,6 +199,16 @@ struct Chain(Movable, Deinitable):
     var rest: List[Real]
     var armature: List[Real]
     var friction: List[Real]
+    # ROADMAP 17.51 ball joints: a ball is three revolute DOFs about the
+    # link's own x / y / z on three consecutive links (two massless), and
+    # its accumulated orientation lives in `ball_rot` of the first; after
+    # every integration `fold_balls` moves the three small angles into it,
+    # sets them back to 0 and turns their rates into the body angular
+    # velocity, so the Euler-angle singularity (middle angle +-pi/2) is
+    # never approached. `balls` lists the first link of each.
+    var ball_head: List[Bool]
+    var ball_rot: List[Quat]
+    var balls: List[Int]
 
     def __init__(out self):
         self.links = List[ChainLink]()
@@ -214,6 +224,9 @@ struct Chain(Movable, Deinitable):
         self.rest = List[Real]()
         self.armature = List[Real]()
         self.friction = List[Real]()
+        self.ball_head = List[Bool]()
+        self.ball_rot = List[Quat]()
+        self.balls = List[Int]()
 
     def _push_props(mut self):
         self.damping.append(0)
@@ -221,6 +234,63 @@ struct Chain(Movable, Deinitable):
         self.rest.append(0)
         self.armature.append(0)
         self.friction.append(0)
+        self.ball_head.append(False)
+        self.ball_rot.append(Quat.identity())
+
+    def add_ball(
+        mut self, p: Int, pivot: Vec3, com: Vec3, mass: Real, i_diag: Vec3
+    ) raises -> Int:
+        """A ball (spherical, 3-DOF) joint under link `p` (-1 = root) at
+        `pivot` in the parent frame, carrying a link of `mass`, `com` and
+        principal inertia `i_diag` (17.51). Adds three links (x, y, z
+        rotation; the body is the third) and returns the body's index; its
+        three DOFs are the body angular velocity components about its own
+        axes. Mass must be > 0."""
+        if not (mass > 0):
+            raise Error("Chain.add_ball: mass must be > 0")
+        var z0 = Vec3(0, 0, 0, 0)
+        var hx = self.add_link_to(p, ChainLink.revolute(Vec3(1, 0, 0, 0), pivot, z0, 0, z0))
+        var hy = self.add_link_to(hx, ChainLink.revolute(Vec3(0, 1, 0, 0), z0, z0, 0, z0))
+        var hz = self.add_link_to(hy, ChainLink.revolute(Vec3(0, 0, 1, 0), z0, com, mass, i_diag))
+        self.ball_head[hx] = True
+        self.balls.append(hx)
+        return hz
+
+    def ball_orientation(self, body: Int) -> Quat:
+        """Parent -> body rotation of the ball whose body link is `body`."""
+        var h = body - 2
+        return (
+            self.ball_rot[h]
+            * Quat.from_axis_angle(self.links[h].axis, self.q[h])
+            * Quat.from_axis_angle(self.links[h + 1].axis, self.q[h + 1])
+            * Quat.from_axis_angle(self.links[h + 2].axis, self.q[h + 2])
+        )
+
+    def fold_balls(mut self):
+        """Move each ball's three small angles into its quaternion and turn
+        their rates into the body angular velocity (body frame): the rates
+        of the x, y, z rotations at angles (a, b, c) give the relative
+        angular velocity Rz^T Ry^T e_x a' + Rz^T e_y b' + e_z c' in the body
+        frame, which are the new three DOFs once the angles are 0. Runs
+        after every integration; a no-op without balls."""
+        for h in self.balls:
+            var rx = Quat.from_axis_angle(Vec3(1, 0, 0, 0), self.q[h])
+            var ry = Quat.from_axis_angle(Vec3(0, 1, 0, 0), self.q[h + 1])
+            var rz = Quat.from_axis_angle(Vec3(0, 0, 1, 0), self.q[h + 2])
+            var r = rx * ry * rz
+            var w0 = (
+                Vec3(1, 0, 0, 0) * self.qd[h]
+                + rx.rotate(Vec3(0, 1, 0, 0)) * self.qd[h + 1]
+                + (rx * ry).rotate(Vec3(0, 0, 1, 0)) * self.qd[h + 2]
+            )
+            var w = r.conjugate().rotate(w0)
+            self.ball_rot[h] = (self.ball_rot[h] * r).normalized()
+            self.q[h] = 0
+            self.q[h + 1] = 0
+            self.q[h + 2] = 0
+            self.qd[h] = w[0]
+            self.qd[h + 1] = w[1]
+            self.qd[h + 2] = w[2]
 
     def set_joint_props(
         mut self, i: Int, damping: Real = 0, stiffness: Real = 0, rest: Real = 0,
@@ -233,6 +303,8 @@ struct Chain(Movable, Deinitable):
             raise Error("Chain.set_joint_props: joint index out of range")
         if not (damping >= 0 and stiffness >= 0 and armature >= 0 and friction >= 0):
             raise Error("Chain.set_joint_props: damping, stiffness, armature, friction must be >= 0")
+        if stiffness > 0 and (self.ball_head[i] or (i >= 1 and self.ball_head[i - 1]) or (i >= 2 and self.ball_head[i - 2])):
+            raise Error("Chain.set_joint_props: a ball joint's DOFs have no fixed rest angle (fold_balls resets them); no stiffness")
         self.damping[i] = damping
         self.stiffness[i] = stiffness
         self.rest[i] = rest
@@ -294,6 +366,8 @@ struct Chain(Movable, Deinitable):
         """Parent -> link rotation. A prismatic joint does not rotate."""
         if self.links[i].kind == JOINT_PRISMATIC:
             return Quat.identity()
+        if self.ball_head[i]:
+            return self.ball_rot[i] * Quat.from_axis_angle(self.links[i].axis, self.q[i])
         return Quat.from_axis_angle(self.links[i].axis, self.q[i])
 
     def _joint_offset(self, i: Int) -> Vec3:
@@ -894,6 +968,8 @@ struct Chain(Movable, Deinitable):
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
+        if len(self.balls) > 0:
+            self.fold_balls()
         return initial_active
 
     def resolve_limits(mut self, dt: Real, iters: Int = 8) raises -> Int:
@@ -959,6 +1035,8 @@ struct Chain(Movable, Deinitable):
         for k in range(n):
             self.q[k] += self.qd[k] * dt
             self.qd[k] = saved[k]
+        if len(self.balls) > 0:
+            self.fold_balls()
         return initial
 
     def _joint_impulse(
@@ -985,6 +1063,8 @@ struct Chain(Movable, Deinitable):
         for i in range(len(self.links)):
             self.qd[i] += qdd[i] * dt
             self.q[i] += self.qd[i] * dt
+        if len(self.balls) > 0:
+            self.fold_balls()
 
     def step_implicit(mut self, dt: Real, tau: List[Real], gravity: Vec3) raises:
         """One step with the joint properties treated implicitly (17.51).
@@ -1032,6 +1112,8 @@ struct Chain(Movable, Deinitable):
                     qd[i] -= dv if qd[i] > 0 else -dv
             self.qd[i] = qd[i]
             self.q[i] += qd[i] * dt
+        if len(self.balls) > 0:
+            self.fold_balls()
 
     def dynamics_aba(
         self, tau: List[Real], gravity: Vec3
@@ -1156,6 +1238,8 @@ struct Chain(Movable, Deinitable):
         for i in range(len(self.links)):
             self.qd[i] += qdd[i] * dt
             self.q[i] += self.qd[i] * dt
+        if len(self.balls) > 0:
+            self.fold_balls()
 
     def energy(self, gravity: Vec3) raises -> Real:
         """Kinetic (via the velocity recursion) + potential (via motor FK)."""
@@ -1333,6 +1417,14 @@ def write_chain[W: StateWriter](ch: Chain, mut out: W):
     out.wv(ch._base_v)
     out.wv(ch._base_wa)
     out.wv(ch._base_va)
+    out.wi(len(ch.balls))
+    for h in ch.balls:
+        out.wi(h)
+        var r = ch.ball_rot[h]
+        out.wf(r.x)
+        out.wf(r.y)
+        out.wf(r.z)
+        out.wf(r.w)
 
 
 def read_chain[R: StateReader](mut r: R) raises -> Chain:
@@ -1363,4 +1455,18 @@ def read_chain[R: StateReader](mut r: R) raises -> Chain:
     var bwa = r.rv()
     var bva = r.rv()
     ch.set_base_motion(bw, bv, bwa, bva)
+    var nb = r.ri()
+    if nb < 0 or 3 * nb > n:
+        raise Error("physics.chain: corrupt snapshot (ball count)")
+    for _ in range(nb):
+        var h = r.ri()
+        if h < 0 or h + 2 >= n:
+            raise Error("physics.chain: corrupt snapshot (ball link index)")
+        var qx = r.rf()
+        var qy = r.rf()
+        var qz = r.rf()
+        var qw = r.rf()
+        ch.ball_head[h] = True
+        ch.ball_rot[h] = Quat(qx, qy, qz, qw)
+        ch.balls.append(h)
     return ch^

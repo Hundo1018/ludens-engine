@@ -478,6 +478,8 @@ def resolve_loops(
         _solve_rows(cp, ch.mass_matrix(), pseudo, mode, iters)
         for k in range(n):
             ch.q[k] += pseudo[k] * dt
+        if len(ch.balls) > 0:
+            ch.fold_balls()
     var worst = Real(0)
     for lp in loops:
         var g = length(_loop_gap(ch, lp))
