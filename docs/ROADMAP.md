@@ -615,7 +615,7 @@
 | 17.46 | [CCD 形狀覆蓋](#1746-ccd-形狀覆蓋--wave-b) | ✅ | B | 形狀覆蓋、通用凸對凸 TOI、角向 CCD、逐 body 旗標與啟用策略、配對枚舉、與 island 平行 / colored 相容 |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | ✅ | B | SDF 作為 solver 形狀、取樣式 SDF(體素 / 格點場 + 三線性內插 + 解析梯度)、橢球、圓柱、support-mapping 凸形入口 |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | ✅ | A | 一般凸形掃掠 / 重疊、距離 / 最近點對、多重命中與提前結束、命中中繼資料、單面網格選項、ray 對 mesh / heightfield 的遍歷 |
-| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 🔶 | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
+| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | ✅ | B | 先量再平行、narrowphase 平行、broadphase 平行、make_contact / 暖啟動比對、CCD 掃描、注入式 fan-out 介面 |
 
 ### 已完成條目的遺留待辦
 
@@ -957,7 +957,7 @@
 
 #### 17.54 CPU 碰撞管線 — Wave B(多執行緒)
 
-> **狀態**:🔶 部分完成(2026-10-13:trace 拆段、narrowphase 平行、make_contact 平行、注入式 fan-out(沿用 17.75 `Dispatch`)✅;broadphase 平行(BVH 建構 / fat AABB / 排序)、CCD 掃描平行、N = 1e5 量測未做)。
+> **狀態**:✅ 完成(2026-10-14:trace 拆段、narrowphase 平行、make_contact 平行、注入式 fan-out(沿用 17.75 `Dispatch`)、broadphase 候選查詢平行、BVH 建構的平方項修正、CCD 掃描平行、N = 1e5 量測 ✅)。
 > **進度註(2026-10-13)**:`_collect_pairs` 先列舉候選對(span `broadphase`),再跑 `try_pair`(`narrowphase`)與 `make_contact` + `apply_rules`(`contact_prep`)。
 > `SolverConfig.parallel_collision`(預設關)時,候選對 ≥ `NARROW_PAR_MIN`(256)就經 `cfg.dispatch` 分塊:narrowphase 每塊寫私有緩衝、依塊序串接;
 > prep 每個 raw 接觸寫自己的槽(`physics/collide_par.mojo`)。候選順序不變,輸出與串行逐位相同:`tests/test_collide_par.mojo` 15/15
@@ -967,6 +967,16 @@
 > 372 → 273、431 → 310、401 → 308 ms(−23 % 至 −27 %);箱堆 N = 4096 三次的串行 158 / 167 / 161 ms 與各 workers 列互有高低(±10 %,即本容器的執行間雜訊;
 > narrowphase 只佔 3 %);N = 64 不分派(門檻前 64 對以 4 workers 反而慢 0.6 ms,故門檻 256)。
 > 下一個熱點是串行的 broadphase(箱堆 N = 4096 佔 13 %,大於 narrowphase)。
+> **進度註(2026-10-14)**:先量 broadphase 內部(N = 4097 箱堆,10 次平均):fat AABB 58 µs、BVH 重建 15775 µs、候選查詢 2648 µs、排序約 30 µs ——
+> 熱點是重建,原因是 median 建樹每個節點以插入排序排範圍(未排序輸入 O(n²))。改成取左側的穩定 bottom-up 合併排序(與插入排序同一穩定順序,樹與查詢輸出順序不變:
+> `test_bvh` / `test_sah` / `test_solver_bp_seam` / `test_trimesh` / `test_ccd6` / `test_fracture` 等輸出與 golden 逐字相同),重建 15.8 → 3.8 ms(commit 7dd31d2)。
+> fat AABB 只佔 58 µs,不平行化。`parallel_collision` 且 body ≥ `BP_PAR_MIN`(1024)時,候選對改由 `pairs_parallel`:重建後每塊以 `query_region` 查本塊 item,
+> 保留 j > i(去重、排序、去 static-static),塊內 i 遞增,依塊序串接即為 canonical 順序,省掉全域排序。`ccd_advance` 在 `parallel_collision` 且快速移動者 ≥ `CCD_PAR_MIN`(64)時,
+> 各移動者的夾止比例經 `Dispatch` 計算(`_mover_frac` / `_FracTask`,每項只寫自己的 `frac` 槽)。兩者與串行逐位相同:`tests/test_collide_par.mojo` 25/25
+> (六個 broadphase 後端在 1500 個散布箱上的候選清單與 `collect_bp_pairs` 相同,hash grid 72826 對、其餘 1889 對;1090 body 箱堆;200 顆 40 m/s 子彈於 parallel / serial / reverse 派發)。
+> 量測(`bench_collide_par`,本容器 4 核,µs / 步):箱堆 N = 4096 串行 134103(原 158000 上下,差額即重建修正);N = 1e5 箱堆串行 3380763、4 workers 3316475(−2 %,
+> 該規模由求解主導);heightfield N = 4096 全體 30 m/s 下落開 CCD:串行 4744047 → 4 workers 2750608(−42 %);heightfield N = 4096 不開 CCD 串行 366030 → 4 workers 282156(−23 %)。
+> commit 7dd31d2、bca8064。
 > **現況**:
 > - `collision/` 整個套件**沒有任何 CPU 平行**:grep -c `parallelize`(`collision/*.mojo`)全部為 0(零命中)。GPU 端另有 `collision/bp_gpu.mojo` 與 `collision/gpu_raycast.mojo`(kernel,屬 17.17 / 17.53 範圍)。
 > - 引擎現有的 CPU 平行都在求解端:island 展開(`physics/solver6.mojo:1393-1407`,`island_work` 閉包與 `parallelize`)、同色接觸對(`physics/contact6.mojo:526-536`)、
@@ -2607,13 +2617,19 @@
 
 #### 17.79 資源治理 — Wave B
 
-> **狀態**:🔶 部分完成(2026-10-13:記憶體記帳、body / joint 上限檢查、接觸數上限 ✅;預留 / 穩態零配置量測、`BodySet` 尾端墓碑裁切、快取 / GPU 緩衝收縮、
-> `Runtime` 接 `SimBudget`、ECS 儲存的記帳未做)。
+> **狀態**:🔶 部分完成(2026-10-14:記憶體記帳、body / joint 上限檢查、接觸數上限、`Runtime` 接 `SimBudget`、ECS 儲存的記帳 ✅;預留 / 穩態零配置量測、
+> `BodySet` 尾端墓碑裁切、快取收縮未做;GPU 緩衝收縮屬第 7 層)。
 > **進度註(2026-10-13)**:`physics/resources.mojo`:`resource_report(scene)` 回傳 bodies / colliders / shapes(hull、mesh 含 BVH 節點、heightfield、SDF)/ contacts / joints / soft
 > 的使用中位元組(`len × size_of`,不含 broadphase 自身結構,所以是下界);`bytes_per_body` 給「再加 n 個 body 要多少」;`Limits(max_bodies, max_joints)` +
 > `check_room(scene, limits, bodies, joints)` 在公開邊界 raise(只算存活 body,移除的槽不算);`SolverConfig.max_contacts` 在熱路徑丟最新的 manifold 並計入新計數器
 > `CONTACT_DROPPED`。量測(`tests/test_resources.mojo` 8/8):每 body 329 bytes,預測再加 5000 個箱子 1645000 bytes,實測 1645000;一個 2 三角形網格 +314 bytes;
 > 上限 12 時 10 + 2 通過、10 + 3 raise、移除 1 個後 9 + 3 通過;地面 10 箱、上限 3 時快取留 3 個、60 步丟 515 個、狀態有限;無上限時不丟。
+> **進度註(2026-10-14)**:`Runtime.advance_budgeted(frame_dt, budget: SimBudget)`:每個固定 tick 前由 budget 設 `cfg.iters` / `cfg.substeps`,tick 的牆鐘時間回饋給
+> `SimBudget.update`(超過目標 110 % 先減迭代再減子步,低於 70 % 依序恢復)。`tests/test_runtime_budget.mojo` 4/4:200 箱、1 ns 預算降到 1 × 1(每幀平均 4736 → 1274 µs),
+> 10 s 預算維持 4 × 4 且與 `advance` 逐位相同,步驟進行中呼叫 raise。commit adfa2fc。
+> ECS:`StorageBackend.storage_bytes` / `World.storage_bytes`(長度 × 元素大小,下界;不含容量餘裕與變更日誌),六後端各自實作,`SparseSet.bytes`。
+> `tests/test_ecs_bytes.mojo` 13/13:1000 個實體(A 16 bytes、半數另有 B 8 bytes,payload 20000 bytes)—— sparse-set / reactive 80576、archetype 92408、bitset 48384、
+> naive 49000、chunked 49960 bytes;2000 個實體在六後端皆為 2.00 倍(archetype 1.9998);sparse-set 全部 despawn 後 80576 → 40576(稀疏索引保留)。
 > **緣起**:被嵌入的函式庫必須能回答「你用了多少記憶體、最多會用多少、超限時怎麼辦」。現況每個容器各自為政:有的有上限、有的無上限成長,沒有統一的用量讀數,
 > 「穩態不配置」也無從驗證。
 > **現況**:
@@ -2659,8 +2675,8 @@
 
 #### 17.80 觀測 — Wave B(工具;執行期追蹤開關、物理擷取檔與回看)
 
-> **狀態**:🔶 部分完成(2026-10-13:(a)執行期開關、(b)環形模式與 `TRACE_DROPPED`、(d)counter 軌、(e)擷取檔(無 delta 編碼)、(f)隨機讀取與重模擬驗證 ✅;
-> (b)span 名 interned id、(c)多執行緒 / GPU 軌、(e)delta 編碼與只記接觸變化、(f)驅動 `DrawQueue` 回放、(g)C-ABI 出口未做)。
+> **狀態**:🔶 部分完成(2026-10-14:(a)執行期開關、(b)環形模式與 `TRACE_DROPPED`、(d)counter 軌、(e)擷取檔含 delta 編碼與只記接觸變化、(f)隨機讀取、重模擬驗證與
+> `DrawQueue` 回放、(g)C-ABI 出口 ✅;(b)span 名 interned id 量測後不採用;(c)平行工作者各自的 trace 軌未做,GPU 軌屬第 7 層)。
 > **進度註(2026-10-13)**:`diag/trace.mojo`:`TraceBuffer.enabled`(`-D LUDENS_TRACE` 編入時的執行期開關;關閉時 span 只記深度,開關切在 span 中間也不會讓巢狀錯位)、
 > `ring`(滿了覆寫最舊者)、`sample(name, value)` 與 Chrome 匯出的 `C` 事件(solver 每步記 `contact_manifolds` / `bodies`)、`take_dropped()`;`ContactScene6.step` 步末把新丟棄數加進
 > `Counters` 的 `TRACE_DROPPED`(原本無人遞增)。`physics/capture.mojo`:`Capture.record`(每步:body 位姿 / 速度 / 睡眠 / island,接觸的法向 / 點 / 深度 / 累積衝量;
@@ -2671,6 +2687,18 @@
 > 從幀 45 驗 60 幀無差異,竄改幀 70 的一個位元時回報 70;區域擷取只留堆疊的 3 個 body 與 3 個接觸(600 vs 808 bytes)。
 > bench `bench_capture`:N = 64 / 1024 時每步 2246 / 36898 µs,記錄 41 / 362 µs(約 1–2 %),每幀 12388 / 196708 bytes(約 192 bytes / body,無 delta),
 > 關鍵幀 30556 / 483676 bytes,解碼一幀 49 / 432 µs,約十分之一地面的區域擷取每幀 792 / 17688 bytes。
+> **進度註(2026-10-14)**:
+> - (b)interned span id 實作後量測(`-D LUDENS_TRACE`,10 萬個 span,7 次取最佳):原本複製字串 62 ns / span;預先 intern 後 `begin_id` 64 ns;`begin(name)` 經 Dict 查詢 100 ns。
+>   名稱複製沒有可量到的成本,interning 只會讓既有的 `begin(name)` 變慢,所以撤回不提交。
+> - (e)擷取檔格式 2(預設):一幀只記位元組有變的 body 紀錄與不再記錄的 slot;接觸在 (a, b, feat) 序列與上一幀相同時依位置只記有變的紀錄,否則整份;
+>   關鍵幀那一幀是完整幀,`frame(k)` 從它往後套用。`Capture(delta=False)` 仍寫格式 1,讀取兩者皆可。`tests/test_capture.mojo`:240 幀的 delta 解碼與完整幀逐欄位相同;
+>   堆疊入睡後 60 幀 13096 vs 48480 bytes(球仍在滾)。`bench_capture`(1024 箱):入睡時每幀 48 vs 196708 bytes;清醒時 212831 vs 196708 bytes(+8 %,位置索引與 feat),
+>   記錄 1114 vs 339 µs(步長 32 ms 的 3.5 %),解碼 13.7 vs 0.46 ms(從關鍵幀重放,隨機讀取要快就調小 `key_every`)。
+> - (f)`draw_frame(frame, queue)`:每個 body 一個點(睡眠為灰、否則 island 色),每個接觸點一支沿法向的箭頭(與場景 debug draw 相同,調色盤移到共用的 `contact6.island_color`);
+>   幀 100 自檔案繪出的 13 支箭頭與即時場景的點、法向、顏色相同,另 5 個 body 點。
+> - (g)C-ABI 0.3:`ld_world_capture_begin` / `end` / `size` / `read`(凍結清單追加),Python `World.capture_begin` / `capture_end` / `capture_bytes`;
+>   `test_capi` 58/58(記 25 tick、end 後不再記、小緩衝與 key_every 0 被拒),`test_python_binding` 14/14。
+> - commit e2f3972、4dda989、881f932。
 > **緣起**:17.10 只做到「編譯期開關 + Chrome trace 匯出」,其進度註自列待辦「需 runtime 開關」(ROADMAP §17.10);編輯器邊界表也把「Profiler 面板」的 runtime 開關與擷取檔
 > 掛在本條(ROADMAP「(II) 圖形化編輯器依賴的核心功能」)。嵌入場景下宿主需要的是:隨時打開 / 關掉追蹤、事後看一段模擬發生了什麼。
 > **現況**:
@@ -2713,7 +2741,7 @@
 > 本條是**診斷擷取**(給人除錯),兩者不共用格式;反作弊與線上遙測屬宿主;GPU kernel 內部剖析(Nsight 類)屬廠商工具,本條只併入時間區段。
 
 #### 17.85 分級模擬:依因果可達性分配時間 / 空間解析度 — Wave C(架構)
-> **狀態**:🔶 部分完成(2026-10-12,第一刀;剩餘順序第 (3) 項)。設計筆記末段「Delivered」記錄與原設計的差異。
+> **狀態**:🔶 部分完成(2026-10-12 第一刀;2026-10-14 ECS `Tier[N]` tag、軟體逐物件 period、n = 1e4 重量測 ✅)。設計筆記末段「Delivered」記錄與原設計的差異。
 > **進度(2026-10-12)**:
 > - 物理逐 island 分級(`ContactScene6.set_tier_table` / `set_body_tiers` / `_step_tiered`):tier 表 = 每 tier 的 (iters, substeps, period);island 取成員中最細的 tier(合併取較細者),相位 = 首個成員 slot,到期的 island 以 period × dt **catch-up** 解(不丟模擬時間;原設計的「off-phase 只以速度積分位姿」會讓靜止堆疊在兩次解之間互相沉入,因此改掉),period 0 = 不解(凍結端,不轉 static)。關掉 17.31 的「逐 island 品質分級」待辦。
 > - 全 0 計畫(tier 0 = 該步設定)與不分級**逐位相同**:QuatBody6 × BVH / 持久 DBVH、ScrewBody6(`test_tiers_parity`)。
@@ -2729,7 +2757,16 @@
 > 量測(`bench_tiers`,n = 1e4,兩次執行):BVH 後端時 reuse 的差在執行間雜訊內(DistanceTiers 163 / 196 ms vs 加 reuse 166 / 211 ms);
 > 換成持久 `DbvhBroadPhase`(只重插移動者)後 DistanceTiers 為 56 / 58 ms(約 3 倍),再加 reuse 52 / 54 ms(兩次皆省約 7 %)。
 > 也就是 1e4 時的剩餘成本主要是每步全建的 BVH,而不是窄相。為此 `TierPolicy.assign` 改為對 broadphase 泛型(原本只接受預設 BVH 的場景)。
-> **剩餘**:ECS `Tier[N]` tag(17.77 的延遲 remove 與型別上限已交付,可做)、睡眠 bookkeeping 的 awake list、`BroadPhase.update_moved`(DBVH 已是增量;BVH 後端是否值得加增量更新待定)、軟體 / LBM / 粒子的 per-object period、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
+> **進度(2026-10-14)**:
+> - ECS tag:`gameplay.tiers.Tier[N, BASE]`(元件 ID = BASE + N),`Runtime.sync_tier_tags[NT, BASE]()` 依 `scene.tier_of` 給每個 body 實體掛上其 tier 的 tag、拿掉其他 tag,
+>   只寫有變的實體;`tests/test_tier_tags.mojo` 8/8(sparse-set 與 archetype:每個 body 恰一個 tag 且等於場景 tier,觀察者移動後跟著變,計畫外的 body 為 tier 0)。commit 9314530。
+> - 軟體逐物件 period:`ContactScene6.set_soft_period(s, period, phase)`,到期步以 period × 子步追上(不丟模擬時間),快照帶 period / phase;
+>   `tests/test_soft_period.mojo` 5/5(period 1 與預設逐位相同;period 4 靜止高度 0.0333 m 與 period 1 相同;60 步中動 15 步;中途快照續跑逐位相同)。commit 84b0385。
+>   LBM 不做 period:格子步長由格子單位固定,追上就是連跑 period 個格子步,省不到計算,與凍結等價;粒子系統同理需要先有逐粒子的步長契約(17.55)。
+> - 重量測(`bench_tiers`,n = 1e4,本容器 4 核,ms / 步):不分級 340;DistanceTiers 66(原 138–163)、CausalReach 66、RoundRobin 71、BudgetTiers 78;
+>   DistanceTiers + 持久 DBVH 51(原 56–58),再加 reuse 46。下降來自 17.54 的 BVH 建樹平方項修正(7dd31d2):原本剩下的約 70 ms 大半是每步重建 BVH。
+> **剩餘**:睡眠 bookkeeping 的 awake list(`update_sleep` / `refresh_islands` 已是 O(n) 線性迴圈,需先量佔比)、`BroadPhase.update_moved`(BVH 重建已降到 3.8 ms / 4097 個,
+> 是否還值得增量更新待量)、`Aggregate` 策略、n = 1e5 量測(預設 brute pair 路徑在此規模不可用,須 `broadphase=True`)。
 > **緣起**:2026-10-10 使用者提問 —— 世界中實體數遠大於玩家能產生因果交互的實體數時,
 > 引擎能否以適當的時間 / 空間解析度維護 simulation state,且分級(LOD)模組本身可替換。
 > 設計筆記:`docs/design/17.85-tiered-simulation.md`。
@@ -3447,7 +3484,7 @@
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | 縮座標關節體與致動 | ✅ |
 | 17.52 | [形狀種類](#1752-形狀種類--wave-b承接-138-的剩餘部分) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.53 | [查詢擴充](#1753-查詢擴充--wave-a承接-1713-的待辦) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
-| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
+| 17.54 | [CPU 碰撞管線](#1754-cpu-碰撞管線--wave-b多執行緒) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 17.55 | [連續體步進契約](#1755-連續體步進契約--wave-b連續體前置) | 軟體、布料、連續體與流體 | 🔶 |
 | 17.56 | [布料](#1756-布料--wave-b) | 軟體、布料、連續體與流體 | 🔶 |
 | 17.57 | [毛髮 / 肌肉](#1757-毛髮--肌肉--wave-c) | 軟體、布料、連續體與流體 | 🔶 |
