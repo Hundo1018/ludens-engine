@@ -48,6 +48,7 @@ from physics.body_set import BodyId
 from physics.solver6 import ContactScene6, FORCE_MODE_FORCE
 from physics.solver_config import SolverConfig
 from scheduler.gameloop import FixedLoop
+from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
@@ -273,6 +274,31 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self._tick()
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
+        return self._finish_frame()
+
+    def advance_with[*Systems: DeclaredSystem](
+        mut self, frame_dt: Float64, mut sched: JobGraphScheduler[Self.B, *Systems]
+    ) raises -> Float64:
+        """`advance` plus user systems (ROADMAP 17.77): after each fixed
+        tick's physics step, event publishing and transform sync, `sched`
+        ticks the world once, so a system sees this tick's poses. The order
+        among the systems is `JobGraphScheduler`'s (derived from their
+        declared reads / writes; `sched.parallel` runs a level's systems on
+        workers, bit-identical to serial). Systems are stateless statics;
+        state that must persist between ticks lives in world resources
+        (`World.set_resource` / `resource`), declared in the masks by the
+        resource component's ID like any other component."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_with: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance_with: a begin_advance step is still in flight")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var steps = 0
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            self._tick()
+            sched.tick(self.world)
             self.loop.accumulator -= self.loop.dt
             steps += 1
         return self._finish_frame()
