@@ -392,6 +392,42 @@ struct Chain(Movable, Deinitable):
                 c += 1
         return c
 
+    def add_universal(
+        mut self, p: Int, pivot: Vec3, axis1: Vec3, axis2: Vec3, com: Vec3,
+        mass: Real, i_diag: Vec3,
+    ) raises -> Int:
+        """A universal (Cardan) joint under link `p` (17.51): rotation about
+        `axis1` (parent frame) then about `axis2` (perpendicular to it) --
+        two revolute links, the first massless. Returns the body's index.
+        Its singular pose (the second angle at +-pi/2, where the first and
+        a body axis would align) is the joint's own: a real cross locks
+        there too."""
+        if not (mass > 0):
+            raise Error("Chain.add_universal: mass must be > 0")
+        if abs(dot(axis1, axis2)) > Real(1e-4) * length(axis1) * length(axis2):
+            raise Error("Chain.add_universal: axes must be perpendicular")
+        var z0 = Vec3(0, 0, 0, 0)
+        var a = self.add_link_to(p, ChainLink.revolute(axis1 / length(axis1), pivot, z0, 0, z0))
+        return self.add_link_to(a, ChainLink.revolute(axis2 / length(axis2), z0, com, mass, i_diag))
+
+    def add_planar(
+        mut self, p: Int, pivot: Vec3, u: Vec3, v: Vec3, com: Vec3, mass: Real,
+        i_diag: Vec3,
+    ) raises -> Int:
+        """A planar joint under link `p` (17.51): translation along `u` and
+        `v` (perpendicular, parent frame) and rotation about u x v -- two
+        massless prismatic links and a revolute. Returns the body's index."""
+        if not (mass > 0):
+            raise Error("Chain.add_planar: mass must be > 0")
+        if abs(dot(u, v)) > Real(1e-4) * length(u) * length(v):
+            raise Error("Chain.add_planar: u and v must be perpendicular")
+        var z0 = Vec3(0, 0, 0, 0)
+        var un = u / length(u)
+        var vn = v / length(v)
+        var a = self.add_link_to(p, ChainLink.prismatic(un, pivot, z0, 0, z0))
+        var b = self.add_link_to(a, ChainLink.prismatic(vn, z0, z0, 0, z0))
+        return self.add_link_to(b, ChainLink.revolute(cross(un, vn), z0, com, mass, i_diag))
+
     def ball_orientation(self, body: Int) -> Quat:
         """Parent -> body rotation of the ball whose body link is `body`."""
         var h = body - 2
