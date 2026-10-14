@@ -36,12 +36,15 @@ from geometry.vec import Real, Vec3, dot, length
 from physics.rigid6 import Body6
 from physics.solver6 import ContactScene6
 from physics.fields import WaterVolume
+from collision.world_query import QueryFilter
 from .character import CharacterController
 
 comptime MODE_WALK = 0
 comptime MODE_FALL = 1
 comptime MODE_SWIM = 2
 comptime MODE_FLY = 3
+comptime MODE_CLIMB = 4  # pulling up onto a ledge or vaulting a low wall (17.67)
+comptime MODE_DRIVE = 5  # riding a vehicle seat (17.67)
 
 comptime MODEL_DIRECT = 0
 comptime MODEL_ACCEL = 1
@@ -95,6 +98,18 @@ struct Mover(Copyable, Movable):
     var rising_jump: Bool  # a jump is rising and has not been cut yet
     var heading: Real
     var mode_changes: Int
+    # ROADMAP 17.67: ledge climb / vault (climb_height 0 = off) and driving
+    var climb_height: Real  # highest ledge (above the foot) the character pulls up onto
+    var climb_time: Real  # seconds a climb or vault takes
+    var vault_depth: Real  # an obstacle thinner than this is vaulted, not climbed
+    var climb_from: Vec3
+    var climb_mid: Vec3
+    var climb_to: Vec3
+    var climb_t: Real
+    var climbs: Int
+    var vaults: Int
+    var drive_body: Int
+    var drive_seat: Vec3  # seat point in the vehicle body's frame
 
     def __init__(out self, var cc: CharacterController, cfg: MoveConfig = MoveConfig.default()):
         self.cc = cc^
@@ -108,10 +123,104 @@ struct Mover(Copyable, Movable):
         self.rising_jump = False
         self.heading = 0
         self.mode_changes = 0
+        self.climb_height = 0
+        self.climb_time = 0.5
+        self.vault_depth = 0.5
+        self.climb_from = Vec3(0, 0, 0, 0)
+        self.climb_mid = Vec3(0, 0, 0, 0)
+        self.climb_to = Vec3(0, 0, 0, 0)
+        self.climb_t = 0
+        self.climbs = 0
+        self.vaults = 0
+        self.drive_body = -1
+        self.drive_seat = Vec3(0, 0, 0, 0)
 
     def add_velocity(mut self, dv: Vec3):
         if isfinite(dv[0]) and isfinite(dv[1]) and isfinite(dv[2]):
             self.ext = self.ext + dv
+
+    def enter_vehicle[B: Body6](mut self, sc: ContactScene6[B], body: Int, seat_local: Vec3) raises:
+        """Ride body `body` at `seat_local` (its frame): MODE_DRIVE until
+        `exit_vehicle`; the character follows the seat and does not collide."""
+        if body < 0 or body >= len(sc.bset.bodies) or sc.bset.is_removed(body):
+            raise Error("Mover.enter_vehicle: body out of range")
+        self.drive_body = body
+        self.drive_seat = seat_local
+        self._set_mode(MODE_DRIVE)
+        self.cc.position = sc.bset.bodies[body].act(seat_local)
+        self.cc.on_ground = False
+        self.cc.ground_body = -1
+
+    def exit_vehicle[B: Body6](mut self, sc: ContactScene6[B], exit_local: Vec3) raises:
+        """Leave the vehicle at `exit_local` (its frame) with its velocity
+        there; the character falls from there (MODE_FALL)."""
+        if self.mode != MODE_DRIVE:
+            raise Error("Mover.exit_vehicle: not driving")
+        ref b = sc.bset.bodies[self.drive_body]
+        var at = b.act(exit_local)
+        self.cc.teleport(at)
+        self.cc.velocity = b.velocity_at(at)
+        self.drive_body = -1
+        self._set_mode(MODE_FALL)
+
+    def _try_ledge[B: Body6](mut self, sc: ContactScene6[B], dir: Vec3) -> Bool:
+        """Blocked by a wall along `dir`: find its top; pull up onto it when
+        it is above a step and at most `climb_height` above the foot, or
+        vault it when it is thinner than `vault_depth` and the ground behind
+        is at foot level. The landing must fit the capsule."""
+        var cc = self.cc.copy()
+        var up = cc.up
+        var wall = cc._cast(sc, cc.position, dir, cc.cfg.radius + 0.25)
+        if not wall.hit or cc._walkable(wall.normal):
+            return False
+        var foot = cc.foot()
+        var flt = QueryFilter(cc.cfg.mask, -1, False)
+        var ahead = wall.t + cc.cfg.radius + 0.1
+        var o = foot + up * (self.climb_height + 0.05) + dir * ahead
+        var top = sc.ray_cast(o, -up, self.climb_height + 0.05, flt)
+        if not top.hit or not cc._walkable(top.normal):
+            return False
+        var top_h = dot(top.point - foot, up)
+        if top_h <= cc.cfg.step_height or top_h > self.climb_height:
+            return False
+        var lift = cc.cfg.half_height + cc.cfg.radius + cc.cfg.skin
+        var dest = top.point + up * lift
+        var vault = False
+        # vault: the wall ends within vault_depth and the ground behind is low
+        var o2 = o + dir * self.vault_depth
+        var behind = sc.ray_cast(o2, -up, self.climb_height + 0.05 + cc.cfg.step_height, flt)
+        if behind.hit and cc._walkable(behind.normal) and dot(behind.point - foot, up) < cc.cfg.step_height:
+            var d2 = behind.point + up * lift
+            if len(cc._penetrations(sc, d2, cc.cfg.half_height, cc.cfg.skin)) == 0:
+                dest = d2
+                vault = True
+        if not vault and len(cc._penetrations(sc, dest, cc.cfg.half_height, cc.cfg.skin)) > 0:
+            return False
+        self.climb_from = cc.position
+        self.climb_mid = cc.position + up * (top_h + cc.cfg.skin * 2)
+        self.climb_to = dest
+        self.climb_t = 0
+        if vault:
+            self.vaults += 1
+            # up and over the top, then down behind it
+            self.climb_mid = self.climb_mid + dir * (ahead + self.vault_depth * 0.5)
+        else:
+            self.climbs += 1
+        self._set_mode(MODE_CLIMB)
+        self.cc.velocity = Vec3(0, 0, 0, 0)
+        self.vel = Vec3(0, 0, 0, 0)
+        return True
+
+    def _climb_step(mut self, dt: Real):
+        self.climb_t += dt
+        var u = min(self.climb_t / self.climb_time, Real(1))
+        if u < 0.5:
+            self.cc.position = self.climb_from + (self.climb_mid - self.climb_from) * (u * 2)
+        else:
+            self.cc.position = self.climb_mid + (self.climb_to - self.climb_mid) * ((u - 0.5) * 2)
+        if u >= 1:
+            self._set_mode(MODE_FALL)
+            self.cc.on_ground = False
 
     def _set_mode(mut self, m: Int):
         if m != self.mode:
@@ -166,7 +275,20 @@ struct Mover(Copyable, Movable):
         var wish = wish_in
         if not (isfinite(wish[0]) and isfinite(wish[1]) and isfinite(wish[2])):
             wish = Vec3(0, 0, 0, 0)
+        if self.mode == MODE_DRIVE:
+            ref b = sc.bset.bodies[self.drive_body]
+            self.cc.position = b.act(self.drive_seat)
+            self.cc.velocity = b.velocity_at(self.cc.position)
+            return
+        if self.mode == MODE_CLIMB:
+            self._climb_step(dt)
+            return
         var grounded = self.cc.on_ground
+        # ledge climb / vault when walking or falling into a wall
+        if self.climb_height > 0 and self.mode != MODE_FLY and self.mode != MODE_SWIM:
+            var wl = length(_flat(wish))
+            if wl > 1e-6 and self._try_ledge(sc, _flat(wish) / wl):
+                return
         # mode
         var sub = self._submerged(waters)
         if self.mode == MODE_FLY:
