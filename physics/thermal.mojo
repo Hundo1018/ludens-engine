@@ -21,7 +21,7 @@ is scaled by 1 + alpha_L (T - T_ref) (mean of its four nodes), by rescaling
 `dm_inv` and the rest volume from the shape recorded at construction.
 """
 
-from std.math import sqrt, isfinite
+from std.math import sqrt, isfinite, floor
 from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
 from .fem import FemBody
@@ -197,3 +197,167 @@ struct HeatTets(Movable):
                     m.set(i, j, self.rest_dm_inv[e].get(i, j) / s)
             body.tets[e].dm_inv = m^
             body.tets[e].vol = self.rest_vol[e] * s * s * s
+
+
+def _spline_grad(r: Real, h: Real) -> Real:
+    """|dW/dr| of the 3-D cubic spline kernel (support 2h, normalised)."""
+    var q = r / h
+    var sigma = 1 / (Real(3.14159265358979) * h * h * h)
+    if q >= 2:
+        return 0
+    if q < 1:
+        return sigma * abs(-3 * q + 2.25 * q * q) / h
+    var a = 2 - q
+    return sigma * 0.75 * a * a / h
+
+
+struct HeatParticles(Movable):
+    """Heat conduction among particles (Brookshaw 1985), 17.61: the third
+    discretisation next to `HeatGrid` and `HeatTets`. Each particle stands
+    for volume `vol`; with the cubic spline kernel of radius 2h,
+        dT_i/dt = 2 alpha sum_j vol (T_j - T_i) |W'(r_ij)| / r_ij.
+    Each particle's sum is renormalised so sum_j vol r |W'| = 3 (the
+    discrete sum then reproduces the Laplacian on a lattice); the pair uses
+    the mean of the two factors, so the pair term stays antisymmetric and
+    an insulated set keeps sum T up to rounding. Particles are taken as static: neighbour lists are built
+    once (hash grid of cell 2h); `rebuild()` after moving them. The stable
+    step is 1 / max_i (row sum), Gershgorin, recomputed with the lists."""
+
+    var x: List[Vec3]
+    var t: List[Real]
+    var fixed: List[Bool]
+    var vol: Real
+    var h: Real
+    var alpha: Real
+    var nbr_start: List[Int]
+    var nbr: List[Int]
+    var coef: List[Real]  # 2 alpha vol |W'| / r per neighbour entry
+    var dt_max: Real
+
+    def __init__(out self, var x: List[Vec3], vol: Real, h: Real, alpha: Real, t0: Real) raises:
+        _check_kelvin(t0)
+        if not (vol > 0) or not (h > 0) or not (alpha > 0):
+            raise Error("HeatParticles: vol, h and alpha must be > 0")
+        var n = len(x)
+        self.x = x^
+        self.t = List[Real](length=n, fill=t0)
+        self.fixed = List[Bool](length=n, fill=False)
+        self.vol = vol
+        self.h = h
+        self.alpha = alpha
+        self.nbr_start = List[Int]()
+        self.nbr = List[Int]()
+        self.coef = List[Real]()
+        self.dt_max = 0
+        self.rebuild()
+
+    def rebuild(mut self):
+        var n = len(self.x)
+        var cell = 2 * self.h
+        var grid = Dict[Int, List[Int]]()
+        for i in range(n):
+            var k = self._key(self.x[i], cell)
+            if k in grid:
+                try:
+                    grid[k].append(i)
+                except:
+                    pass
+            else:
+                grid[k] = [i]
+        # neighbours and raw |W'| / r per pair, each cell visited once (two
+        # of the 27 cells hashing to one key counted their particles twice
+        # from one side only: an insulated block lost 0.8 % of its heat)
+        var starts = List[Int](capacity=n + 1)
+        var nb = List[Int]()
+        var raw = List[Real]()
+        var moment = List[Real](length=n, fill=0)
+        for i in range(n):
+            starts.append(len(nb))
+            var p = self.x[i]
+            var cx = Int(floor(p[0] / cell))
+            var cy = Int(floor(p[1] / cell))
+            var cz = Int(floor(p[2] / cell))
+            var seen = List[Int]()
+            for dz in range(-1, 2):
+                for dy in range(-1, 2):
+                    for dx in range(-1, 2):
+                        var k = _cell_key(cx + dx, cy + dy, cz + dz)
+                        var dup = False
+                        for q in seen:
+                            dup = dup or q == k
+                        if dup or k not in grid:
+                            continue
+                        seen.append(k)
+                        try:
+                            for j in grid[k]:
+                                if j == i:
+                                    continue
+                                var d = p - self.x[j]
+                                var r = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+                                if r <= 0 or r >= cell:
+                                    continue
+                                var g = _spline_grad(r, self.h)
+                                nb.append(j)
+                                raw.append(g / r)
+                                moment[i] += self.vol * g * r
+                        except:
+                            pass
+        starts.append(len(nb))
+        # renormalise so the sum reproduces the Laplacian on the lattice:
+        # sum_j vol r |W'| must be 3; pair factor (f_i + f_j) / 2 keeps the
+        # pair term antisymmetric (without it a 1 mm bar was 3.7 K off erf)
+        var f = List[Real](length=n, fill=1)
+        for i in range(n):
+            if moment[i] > 0:
+                f[i] = 3 / moment[i]
+        self.nbr_start = starts^
+        self.nbr = nb^
+        self.coef = List[Real](length=len(self.nbr), fill=0)
+        var worst = Real(0)
+        for i in range(n):
+            var row = Real(0)
+            for e in range(self.nbr_start[i], self.nbr_start[i + 1]):
+                var j = self.nbr[e]
+                var c = 2 * self.alpha * self.vol * 0.5 * (f[i] + f[j]) * raw[e]
+                self.coef[e] = c
+                row += c
+            worst = max(worst, row)
+        self.dt_max = 1 / worst if worst > 0 else Real(1e30)
+
+    def _key(self, p: Vec3, cell: Real) -> Int:
+        # floor, not Int(x + 1e6) - 1e6: in f32 that offset rounds to 1/16
+        # and put neighbours in the wrong cells (pairs found from one side
+        # only: an insulated block lost 0.8 % of its heat)
+        return _cell_key(Int(floor(p[0] / cell)), Int(floor(p[1] / cell)), Int(floor(p[2] / cell)))
+
+    def fix(mut self, i: Int, temp: Real) raises:
+        _check_kelvin(temp)
+        self.t[i] = temp
+        self.fixed[i] = True
+
+    def max_dt(self) -> Real:
+        return self.dt_max
+
+    def step(mut self, dt: Real) raises:
+        if dt > self.dt_max:
+            raise Error("HeatParticles.step: dt above the stability bound " + String(self.dt_max))
+        var n = len(self.t)
+        var dT = List[Real](length=n, fill=0)
+        for i in range(n):
+            var acc = Real(0)
+            for e in range(self.nbr_start[i], self.nbr_start[i + 1]):
+                acc += self.coef[e] * (self.t[self.nbr[e]] - self.t[i])
+            dT[i] = acc
+        for i in range(n):
+            if not self.fixed[i]:
+                self.t[i] += dt * dT[i]
+
+    def heat(self) -> Float64:
+        var s = Float64(0)
+        for v in self.t:
+            s += Float64(v)
+        return s * Float64(self.vol)
+
+
+def _cell_key(i: Int, j: Int, k: Int) -> Int:
+    return (i * 73856093) ^ (j * 19349663) ^ (k * 83492791)
