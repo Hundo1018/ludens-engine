@@ -102,3 +102,4 @@ geometry.sparse_volume  # [api] VDB-style sparse volume and its byte format (17.
 physics.mpm_melt  # [api] melting / freezing layer the host steps over an MpmSolver (17.61)
 physics.multiphase  # [api] multi-density SPH the host steps (17.61)
 physics.strand_air  # [api] strands <-> LBM air two-way coupling the host steps (17.61)
+physics.sediment  # [api] grains suspended in LBM fluid, stepped by the host (17.61)
