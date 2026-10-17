@@ -1278,6 +1278,12 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   ray down onto the SDF plane from y = 5: t 4.99995
   8 m/s sphere: lowest y 0.29972798  capsule lying: y 0.2998896
 [PASS] sdf_shape - 12 / 12 checks
+--- tests/test_sediment.mojo ---
+Stokes rate 1086.7925 /s  settling speed 0.0056145834 m/s   grain vy after 0.1 s -0.0056145834
+upward flow 2 x settling: height change 0.0028018467   0.5 x: -0.0014009234  (expected 0.0028072917 / -0.0014036458 )
+cloud of 400 grains, 0.3 s: sank one-way 0.0016791671  two-way 0.0034571476
+  fluid momentum change y -0.00012589482  impulse -0.00012589146  grains' drag impulse 0.00012589146
+[PASS] sediment - 8 / 8 checks
 --- tests/test_sequence_player.mojo ---
   at 1.125 s: clip 8 t 0.1875 weight 0.5 ; from clip 7 t 1.125 ;  at 3.5 s: clip 9 t 0.5 weight 1.0
   events 2 : 11 at tick 31   12 at tick 91 (sequence 3 )
