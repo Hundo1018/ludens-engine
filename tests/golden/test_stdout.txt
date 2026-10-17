@@ -697,6 +697,14 @@ after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (s
   jump at 4 m/s: peak height along up  +y 1.76  +x 1.76
   mover, double jump + pad + fly: +y ends at [0.0, 6.1224046, 6.135001, 0.0] peak 6.1224046 jumps 2 ; +x rotated back [-0.0, 6.1224046, 6.135001, 0.0] peak 6.1224046 jumps 2
 [PASS] character_up - 7 / 7 checks
+--- tests/test_cloth_air.mojo ---
+after 0.3 s: sheet vy one-way -0.48506227  two-way -0.7250841  (terminal one-way -0.49000016 )
+  two-way: air momentum change y -0.008509655  air impulse -0.008509575  cloth impulse 0.008509575
+  cloth + air momentum y -0.011428139  weight x time -0.011760004
+  one-way: air momentum change 0.0
+  free fall without drag: momentum y -0.011597634  weight x time -0.011760004
+pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.41470635   air momentum change -0.0045566186  impulse -0.0045549716
+[PASS] cloth_air - 9 / 9 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
