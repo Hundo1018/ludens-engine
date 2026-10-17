@@ -374,6 +374,11 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
 [PASS] ecs_pack_guard - 3 / 3 checks
 --- tests/test_epa.mojo ---
 [PASS] epa - 8 / 8 checks
+--- tests/test_erosion.mojo ---
+fBm tile: total height 923.3265516405372 -> 923.3265470296865  relative to sum |h| 1.0103243362008928e-09
+sloped tile: height change lower quarter 2816.0857656002045  upper half -3536.789867401123  max |change| 4.8919244
+slope filter: 331 of 667 points kept, max x 31.693409   slope at x 10 / 40: 0.0 1.0
+[PASS] erosion - 4 / 4 checks
 --- tests/test_events.mojo ---
 [PASS] events - 18 / 18 checks
 --- tests/test_floating.mojo ---
