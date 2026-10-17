@@ -1243,6 +1243,15 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   1000 Hz drive: error 0.0
   limp leg, knee limited to +-0.2 rad: worst knee angle 0.20370024  unlimited ball knee 1.5227176
 [PASS] ragdoll - 14 / 14 checks
+--- tests/test_ragdoll_ctl.mojo ---
+ragdoll body masses 9.999999 19.999998
+get-up blend: 0.5 0.25 0.0  mode at end 0
+assist: COM x 0.0 -> 0.09939743  (support centre 0.1)
+after a 60 N s push: capture point x 0.8691257  margin -0.6191257  need step True
+after 1 steps: margin 0.14997101  COM x 0.86903364  (support centre 0.8691257 )  speed 0.00016636406
+carried box at 0.5999999 1.7997258  (hand at 0.6, 2.0)
+released box fell 2.049764 m in 0.5 s
+[PASS] ragdoll_ctl - 13 / 13 checks
 --- tests/test_replay.mojo ---
 [PASS] replay - 8 / 8 checks
 --- tests/test_resources.mojo ---
