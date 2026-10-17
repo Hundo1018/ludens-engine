@@ -31,6 +31,26 @@ from .continuum import LbmContinuum
 from .coupling import CouplingPort
 
 
+@no_inline
+def sphere_drive(pos: Vec3, vel: Vec3, omega: Vec3, origin: Vec3, dx: Real, dt: Real) -> Tuple[Vec3, Vec3, Vec3]:
+    """Lattice position, velocity and angular velocity of a coupled sphere
+    (one compiled function shared by `LbmCoupler` and `LbmSpherePort`, so
+    both paths round the same way on every target: inlined copies can fuse
+    multiply-adds differently, which broke their bit-for-bit parity on
+    aarch64)."""
+    return ((pos - origin) * (1 / dx), vel * (dt / dx), omega * dt)
+
+
+@no_inline
+def sphere_load(obj_f: Vec3, obj_t: Vec3, rho: Real, dx: Real, dt: Real, radius: Real, gravity: Vec3) -> Tuple[Vec3, Vec3]:
+    """SI force (fluid + buoyancy) and torque on a coupled sphere from the
+    lattice's momentum exchange (shared, see `sphere_drive`)."""
+    var sf = rho * dx * dx * dx * dx / (dt * dt)
+    var st = rho * dx * dx * dx * dx * dx / (dt * dt)
+    var vol = Real(4.0 / 3.0 * pi) * radius * radius * radius
+    return (obj_f * sf - gravity * (rho * vol), obj_t * st)
+
+
 struct LbmCoupler(Movable):
     var lbm: Lbm
     var dx: Real  # metres per cell
@@ -82,16 +102,13 @@ struct LbmCoupler(Movable):
     def step[B: Body6](mut self, mut sc: ContactScene6[B], gravity: Vec3, cfg: SolverConfig) raises:
         for j in range(len(self.bodies)):
             var id = self.bodies[j]
-            var pose = sc.pose(id)
-            var v = sc.velocity(id) * (self.dt / self.dx)
-            var w = sc.angular_velocity(id) * self.dt
-            self.lbm.move_sphere(self.objs[j], self._lat(pose.pos), v, w)
+            var d = sphere_drive(sc.pose(id).pos, sc.velocity(id), sc.angular_velocity(id), self.origin, self.dx, self.dt)
+            self.lbm.move_sphere(self.objs[j], d[0], d[1], d[2])
         self.lbm.step()
         for j in range(len(self.bodies)):
-            var r = self.radii[j]
-            var vol = Real(4.0 / 3.0 * pi) * r * r * r
-            sc.add_force(self.bodies[j], self.fluid_force(j) - gravity * (self.rho * vol))
-            sc.add_torque(self.bodies[j], self.fluid_torque(j))
+            var ld = sphere_load(self.lbm.obj_f[self.objs[j]], self.lbm.obj_t[self.objs[j]], self.rho, self.dx, self.dt, self.radii[j], gravity)
+            sc.add_force(self.bodies[j], ld[0])
+            sc.add_torque(self.bodies[j], ld[1])
         sc.step(self.dt, gravity, cfg)
 
 
@@ -138,17 +155,12 @@ struct LbmSpherePort(CouplingPort):
         var dtl = s.dt_lattice
         for j in range(len(self.bodies)):
             var id = self.bodies[j]
-            var pose = scene.pose(id)
-            var v = scene.velocity(id) * (dtl / self.dx)
-            var w = scene.angular_velocity(id) * dtl
-            s.lbm.move_sphere(self.objs[j], self._lat(pose.pos), v, w)
+            var d = sphere_drive(scene.pose(id).pos, scene.velocity(id), scene.angular_velocity(id), self.origin, self.dx, dtl)
+            s.lbm.move_sphere(self.objs[j], d[0], d[1], d[2])
 
     def after[B: Body6](mut self, mut scene: ContactScene6[B], mut s: LbmContinuum, dt: Real, gravity: Vec3) raises:
         var dtl = s.dt_lattice
-        var sf = self.rho * self.dx * self.dx * self.dx * self.dx / (dtl * dtl)
-        var st = self.rho * self.dx * self.dx * self.dx * self.dx * self.dx / (dtl * dtl)
         for j in range(len(self.bodies)):
-            var r = self.radii[j]
-            var vol = Real(4.0 / 3.0 * pi) * r * r * r
-            scene.add_force(self.bodies[j], s.lbm.obj_f[self.objs[j]] * sf - gravity * (self.rho * vol))
-            scene.add_torque(self.bodies[j], s.lbm.obj_t[self.objs[j]] * st)
+            var ld = sphere_load(s.lbm.obj_f[self.objs[j]], s.lbm.obj_t[self.objs[j]], self.rho, self.dx, dtl, self.radii[j], gravity)
+            scene.add_force(self.bodies[j], ld[0])
+            scene.add_torque(self.bodies[j], ld[1])
