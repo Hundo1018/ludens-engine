@@ -31,6 +31,56 @@ from fluid.lbm import Lbm
 from .cloth import MeshCloth
 
 
+def lattice_corners(l: Lbm, origin: Vec3, dx: Real, p: Vec3) -> Tuple[List[Int], List[Real]]:
+    """The 8 lattice cells around p (periodic wrap) and their trilinear
+    weights; node (x, y, z) sits at origin + (x, y, z) dx."""
+    var g = (p - origin) * (1 / dx)
+    var nx = l.nx
+    var ny = l.ny
+    var nz = l.nz
+    var gx = floor(g[0])
+    var gy = floor(g[1])
+    var gz = floor(g[2])
+    var fx = g[0] - gx
+    var fy = g[1] - gy
+    var fz = g[2] - gz
+    var x0 = Int(gx)
+    var y0 = Int(gy)
+    var z0 = Int(gz)
+    var cells = List[Int]()
+    var w = List[Real]()
+    for dz in range(2):
+        for dy in range(2):
+            for dxx in range(2):
+                var cx = ((x0 + dxx) % nx + nx) % nx
+                var cy = ((y0 + dy) % ny + ny) % ny
+                var cz = ((z0 + dz) % nz + nz) % nz
+                cells.append(l.idx(cx, cy, cz))
+                var wx = fx if dxx == 1 else 1 - fx
+                var wy = fy if dy == 1 else 1 - fy
+                var wz = fz if dz == 1 else 1 - fz
+                w.append(wx * wy * wz)
+    return (cells^, w^)
+
+
+def lattice_velocity(l: Lbm, origin: Vec3, dx: Real, dt: Real, p: Vec3) -> Vec3:
+    """Trilinear lattice velocity at p, m/s (one lattice step = dt s)."""
+    var cw = lattice_corners(l, origin, dx, p)
+    var u = Vec3(0, 0, 0, 0)
+    for q in range(8):
+        u = u + l.velocity(cw[0][q]) * cw[1][q]
+    return u * (dx / dt)
+
+
+def lattice_momentum(l: Lbm, rho: Real, dx: Real, dt: Real) -> Vec3:
+    """Sum of rho u over the cells in N s (lattice sum_i f_i c_i scaled
+    by rho dx^4 / dt)."""
+    var m = Vec3(0, 0, 0, 0)
+    for c in range(l.cells()):
+        m = m + l.velocity(c) * l.density(c)
+    return m * (rho * dx * dx * dx * dx / dt)
+
+
 struct ClothAir(Movable):
     var lbm: Lbm
     var origin: Vec3
@@ -56,51 +106,16 @@ struct ClothAir(Movable):
         self.air_impulse = Vec3(0, 0, 0, 0)
 
     def _corners(self, p: Vec3) -> Tuple[List[Int], List[Real]]:
-        """The 8 lattice cells around p and their trilinear weights."""
-        var g = (p - self.origin) * (1 / self.dx)
-        var nx = self.lbm.nx
-        var ny = self.lbm.ny
-        var nz = self.lbm.nz
-        var gx = floor(g[0])
-        var gy = floor(g[1])
-        var gz = floor(g[2])
-        var fx = g[0] - gx
-        var fy = g[1] - gy
-        var fz = g[2] - gz
-        var x0 = Int(gx)
-        var y0 = Int(gy)
-        var z0 = Int(gz)
-        var cells = List[Int]()
-        var w = List[Real]()
-        for dz in range(2):
-            for dy in range(2):
-                for dxx in range(2):
-                    var cx = ((x0 + dxx) % nx + nx) % nx
-                    var cy = ((y0 + dy) % ny + ny) % ny
-                    var cz = ((z0 + dz) % nz + nz) % nz
-                    cells.append(self.lbm.idx(cx, cy, cz))
-                    var wx = fx if dxx == 1 else 1 - fx
-                    var wy = fy if dy == 1 else 1 - fy
-                    var wz = fz if dz == 1 else 1 - fz
-                    w.append(wx * wy * wz)
-        return (cells^, w^)
+        return lattice_corners(self.lbm, self.origin, self.dx, p)
 
     def air_velocity(self, p: Vec3) -> Vec3:
         """Air velocity at p, m/s."""
-        var cw = self._corners(p)
-        var u = Vec3(0, 0, 0, 0)
-        for q in range(8):
-            u = u + self.lbm.velocity(cw[0][q]) * cw[1][q]
-        return u * (self.dx / self.dt)
+        return lattice_velocity(self.lbm, self.origin, self.dx, self.dt, p)
 
     def air_momentum(self) -> Vec3:
         """Sum of rho u over the fluid cells, N s (rho u as the lattice
         stores it, sum_i f_i c_i)."""
-        var m = Vec3(0, 0, 0, 0)
-        for c in range(self.lbm.cells()):
-            m = m + self.lbm.velocity(c) * self.lbm.density(c)
-        var s = self.rho * self.dx * self.dx * self.dx * self.dx / self.dt
-        return m * s
+        return lattice_momentum(self.lbm, self.rho, self.dx, self.dt)
 
     def step(mut self, mut cloth: MeshCloth, gravity: Vec3):
         var n = len(cloth.x)
