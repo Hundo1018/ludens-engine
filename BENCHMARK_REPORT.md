@@ -2003,6 +2003,26 @@ snapshot at frame 192 and re-simulating.
 | snapshot 192 + recompute 9 frames | 1 | seek | 10053784.25 | 0.00 | 201.08 |
 
 
+
+`geometry/sparse_volume.mojo` stores a field as VDB-style 8^3 leaves with
+active masks. Its byte size follows the active voxels: at 1 % occupancy a
+64^3 field is 2.8 % of the dense f64 array, at 100 % it is 2 % larger
+(masks and leaf headers) -- the crossover the dense array wins.
+
+### Sparse volume, 64^3, by occupancy (17.63)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| encode 1 % active, 58 KiB (dense 2048 KiB) | 2639 | voxel | 448.46 | 2.23 | 1.18 |
+| decode 1 % active, 58 KiB (dense 2048 KiB) | 2639 | voxel | 458.10 | 2.18 | 1.21 |
+| encode 10 % active, 242 KiB (dense 2048 KiB) | 26207 | voxel | 66.60 | 15.02 | 1.75 |
+| decode 10 % active, 242 KiB (dense 2048 KiB) | 26207 | voxel | 97.24 | 10.28 | 2.55 |
+| encode 50 % active, 1060 KiB (dense 2048 KiB) | 130879 | voxel | 41.42 | 24.14 | 5.42 |
+| decode 50 % active, 1060 KiB (dense 2048 KiB) | 130879 | voxel | 70.83 | 14.12 | 9.27 |
+| encode 100 % active, 2086 KiB (dense 2048 KiB) | 262144 | voxel | 33.28 | 30.05 | 8.72 |
+| decode 100 % active, 2086 KiB (dense 2048 KiB) | 262144 | voxel | 69.01 | 14.49 | 18.09 |
+
+
 ## Differentiable simulation — gradient cost & Field abstraction
 
 The `Field` seam (`RealF`/`DualReal`/`DualBatch`/`RevReal` tape, gradient

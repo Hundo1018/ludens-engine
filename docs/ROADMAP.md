@@ -1823,7 +1823,12 @@
 > `CachePlayer` 經 `step_checked` 與即時布料逐幀差 ≤ err;隨機取幀與循序播放相同;播放器狀態往返後續播相同;零幀、單點、點數變動、NaN 點皆正確。
 > `bench_sim_cache`:每點每幀 3.05 / 3.21 / 3.80 / 12.05 bytes(err 1 cm / 1 mm / 0.1 mm / 無損;每座標至少 1 byte 是下限),編碼 28 ns、隨機取幀解碼 93 ns / 點·幀;
 > 跳到第 200 幀:快取 25 µs vs 第 192 幀快照 + 重算 9 幀 9.7 ms。
-> **未做**:位元打包(破 1 byte / 座標下限)、Alembic(Ogawa)寫出、OpenVDB / NanoVDB、LBM 場輸出、拓撲變動網格、外部工具讀取驗證。
+> **進度註(2026-10-17,稀疏體積)**:`geometry/sparse_volume.mojo`:`SparseVolume`(VDB 葉層:8³ 葉以雜湊找、每葉活躍遮罩、背景值;負座標可)、
+> 位元組格式("LDSV"、版本 1、背景、葉數、每葉原點 + 512 位遮罩 + 活躍值 f64、FNV-1a 64 校驗;壞魔數 / 版本 / 截斷 / 校驗不符 raise)、`from_dense` / `to_dense`。
+> `tests/test_sparse_volume.mojo` 5/5:64³ 場在佔用 0 / 1 / 10 / 100 % 下往返逐位相同,編碼大小對稠密 f64(2 MiB)為 1.5e-5 / 2.8 % / 12 % / 101.9 %
+> (稠密在滿佔用時反勝,兩邊都量);LBM 密度場(24³、移動球)輸出再讀回逐位相同(13 714 活躍體素、27 葉)。`bench_sparse_volume`:編碼 27–448 ns / 活躍體素、
+> 解碼 47–488 ns(佔用越低每體素越貴:遮罩與葉頭攤在較少體素上)。這是 repo 自己的交換容器;OpenVDB / NanoVDB 檔案格式本身未寫(環境無工具可驗)。
+> **未做**:位元打包(破 1 byte / 座標下限)、Alembic(Ogawa)寫出、OpenVDB / NanoVDB 檔案格式、VDB 的內部樹層級、拓撲變動網格、外部工具讀取驗證。
 
 > **現況**:引擎套件**不做任何檔案 I/O**——`grep -E "open\(|read_text|write_text|write_bytes|read_bytes|\bPath\b"`
 > 於 `physics/`、`geometry/`、`fluid/`、`numerics/`、`collision/`、`gameplay/`、`ecs/`、`scheduler/`、`diag/`、`procedural/` **零命中**;
