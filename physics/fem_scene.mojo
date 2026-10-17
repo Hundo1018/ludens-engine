@@ -89,7 +89,7 @@ struct FemContactPort(CouplingPort):
             for b in range(len(scene.bset.bodies)):
                 if scene.bset.is_removed(b):
                     continue
-                var res = _node_contact(scene, b, x, x - v * dt, r, dt)
+                var res = point_contact(scene, b, x, x - v * dt, r, dt)
                 if not res[0]:
                     continue
                 var nw = res[1]
@@ -112,9 +112,10 @@ struct FemContactPort(CouplingPort):
             fb.vz[i] = v[2]
 
 
-def _node_contact[B: Body6](scene: ContactScene6[B], b: Int, x: Vec3, x_prev: Vec3, r: Real, dt: Real) -> Tuple[Bool, Vec3, Vec3]:
-    """(hit, target, outward normal) for a node sphere at `x` (at `x_prev`
-    a step ago) against body `b`'s collider."""
+def point_contact[B: Body6](scene: ContactScene6[B], b: Int, x: Vec3, x_prev: Vec3, r: Real, dt: Real) -> Tuple[Bool, Vec3, Vec3]:
+    """(hit, target, outward normal) for a sphere of radius `r` at `x` (at
+    `x_prev` a step ago) against body `b`'s collider (FEM nodes here, hair
+    particles in `strand_ext`)."""
     var kind = scene.colliders.shape[b]
     ref body = scene.bset.bodies[b]
     if kind == SHAPE_BOX:
