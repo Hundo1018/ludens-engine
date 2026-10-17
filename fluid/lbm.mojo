@@ -74,6 +74,10 @@ struct Lbm(Movable, Deinitable):
     var force_x: Real  # uniform body force, the pressure gradient of a channel
     var force_y: Real  # the other two components (17.60; CPU only; `_force_yz`)
     var force_z: Real
+    # ROADMAP 17.60: two-relaxation-time collision (an MRT with two rates);
+    # 0 = BGK. The usual choice 3/16 puts half-way bounce-back walls exactly
+    # half-way whatever the viscosity; 1/4 is the most stable.
+    var trt_lambda: Real
     # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
     # bit. 0.1-0.2 is the usual range; 0.17 is the classic value.
     var smagorinsky: Real
@@ -129,6 +133,7 @@ struct Lbm(Movable, Deinitable):
         self.force_x = 0
         self.force_y = 0
         self.force_z = 0
+        self.trt_lambda = 0
         self.smagorinsky = 0
         self.fx = 0
         self.fy = 0
@@ -498,6 +503,55 @@ struct Lbm(Movable, Deinitable):
         var w = v % n
         return w + n if w < 0 else w
 
+    def collide_trt(mut self):
+        """Two-relaxation-time collision (Ginzburg 2008), 17.60. Each pair of
+        opposite directions splits into its symmetric part f+ = (f_i + f_-i)/2,
+        relaxed at 1/tau (the viscosity, as BGK), and its antisymmetric part
+        f- = (f_i - f_-i)/2, relaxed at 1/tau- with
+        (tau - 1/2)(tau- - 1/2) = trt_lambda. The body force enters as in
+        `collide` (x: velocity shift in the equilibrium, by tau- F / rho). A separate method:
+        `collide` stays exactly as it was (`test_lbm_trt`)."""
+        var wp = Real(1) / self.tau
+        var tm = self.trt_lambda / (self.tau - 0.5) + 0.5
+        var wm = Real(1) / tm
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var rho = Real(0)
+            var ux = Real(0)
+            var uy = Real(0)
+            var uz = Real(0)
+            for i in range(Q):
+                var v = self.f[i * n + c]
+                rho += v
+                ux += v * Real(self.ex[i])
+                uy += v * Real(self.ey[i])
+                uz += v * Real(self.ez[i])
+            if rho <= 0:
+                continue
+            ux /= rho
+            uy /= rho
+            uz /= rho
+            if self.force_x != 0:
+                # the shift reaches momentum through the antisymmetric part,
+                # relaxed at 1/tau-: shifting by tau- F / rho adds exactly F
+                # (by tau F / rho it added F tau / tau-)
+                ux += tm * self.force_x / rho
+            var fe = List[Real](length=Q, fill=0)
+            for i in range(Q):
+                fe[i] = self._feq(i, rho, ux, uy, uz)
+            var post = List[Real](length=Q, fill=0)
+            for i in range(Q):
+                var o = self.opp[i]
+                var fi = self.f[i * n + c]
+                var fo = self.f[o * n + c]
+                var sp = 0.5 * (fi + fo) - 0.5 * (fe[i] + fe[o])
+                var sm = 0.5 * (fi - fo) - 0.5 * (fe[i] - fe[o])
+                post[i] = fi - wp * sp - wm * sm
+            for i in range(Q):
+                self.f[i * n + c] = post[i]
+
     def collide(mut self):
         """BGK: f <- f - (f - f_eq) / tau, on fluid cells only."""
         var inv_tau = Real(1) / self.tau
@@ -783,7 +837,10 @@ struct Lbm(Movable, Deinitable):
                     self.f[i * n + c] += 3 * self.w[i] * cf
 
     def step(mut self):
-        self.collide()
+        if self.trt_lambda > 0:
+            self.collide_trt()
+        else:
+            self.collide()
         if self.force_y != 0 or self.force_z != 0:
             self._force_yz()
         self.stream()
