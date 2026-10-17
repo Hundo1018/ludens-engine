@@ -81,6 +81,7 @@ struct Lbm(Movable, Deinitable):
     # ROADMAP 17.61: per-cell relaxation time (e.g. viscosity from a
     # temperature field); empty = the uniform `tau`
     var tau_cell: List[Real]
+    var cell_force: List[Vec3]  # per-cell momentum source per step (17.61; empty = none)
     # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
     # bit. 0.1-0.2 is the usual range; 0.17 is the classic value.
     var smagorinsky: Real
@@ -138,6 +139,7 @@ struct Lbm(Movable, Deinitable):
         self.force_z = 0
         self.trt_lambda = 0
         self.tau_cell = List[Real]()
+        self.cell_force = List[Vec3]()
         self.smagorinsky = 0
         self.fx = 0
         self.fy = 0
@@ -887,6 +889,33 @@ struct Lbm(Movable, Deinitable):
                 if cf != 0:
                     self.f[i * n + c] += 3 * self.w[i] * cf
 
+    def add_cell_force(mut self, c: Int, f: Vec3):
+        """Add f (lattice momentum) to cell c's source for the next steps;
+        `clear_cell_force` drops them all (17.61: forces spread from
+        immersed Lagrangian points, e.g. cloth vertices)."""
+        if len(self.cell_force) == 0:
+            self.cell_force = List[Vec3](length=self.cells(), fill=Vec3(0, 0, 0, 0))
+        self.cell_force[c] = self.cell_force[c] + f
+
+    def clear_cell_force(mut self):
+        self.cell_force = List[Vec3]()
+
+    def _force_cells(mut self):
+        """Per-cell sources after collision, as `_force_yz`: f_i += 3 w_i
+        (c_i . F_c) adds exactly F_c of momentum to a fluid cell and no
+        mass. Solid cells drop theirs."""
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var fc = self.cell_force[c]
+            if fc[0] == 0 and fc[1] == 0 and fc[2] == 0:
+                continue
+            for i in range(1, Q):
+                var cf = Real(self.ex[i]) * fc[0] + Real(self.ey[i]) * fc[1] + Real(self.ez[i]) * fc[2]
+                if cf != 0:
+                    self.f[i * n + c] += 3 * self.w[i] * cf
+
     def step(mut self):
         if len(self.tau_cell) > 0:
             self.collide_var()
@@ -896,5 +925,7 @@ struct Lbm(Movable, Deinitable):
             self.collide()
         if self.force_y != 0 or self.force_z != 0:
             self._force_yz()
+        if len(self.cell_force) > 0:
+            self._force_cells()
         self.stream()
         self.apply_inlet_outlet()
