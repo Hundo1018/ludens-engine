@@ -52,7 +52,7 @@ struct PoseSpaceRbf(Movable):
         self.coef = List[Real]()
 
     def _phi(self, a: Int, x: List[Real], b: Int) -> Real:
-        """phi between sample a (or x when a < 0) and sample b."""
+        """Kernel value between sample a (or x when a < 0) and sample b."""
         var r2 = Real(0)
         for j in range(self.dims):
             var xa = x[j] if a < 0 else self.xs[a * self.dims + j]
