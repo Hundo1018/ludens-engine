@@ -303,21 +303,29 @@ def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
         for i in range(c):
             out.append(i)
         return out^
-    # the deepest point -- or, among points within 1e-5 of the deepest (a
-    # flat contact, depths equal to round-off), the one farthest from the
-    # centroid: an incident edge nearly parallel to a clip plane crosses it
-    # anywhere along its length, and starting from that mid-edge point left
-    # a corner of a resting box unsupported
+    # the deepest point -- or, among points within a tolerance of the
+    # deepest (a flat contact, depths equal to round-off), the one farthest
+    # from the centroid: an incident edge nearly parallel to a clip plane
+    # crosses it anywhere along its length, and starting from that mid-edge
+    # point left a corner of a resting box unsupported. The tolerance is
+    # relative to the patch (2.8e-5 of its radius: 1e-5 for a 0.25 m box
+    # face); an absolute 1e-5 tied two points at one scale and not at 16x,
+    # which reordered the manifold (ROADMAP 17.75 scale residual).
     var dmax = dep[0]
     var cen = pts[0]
     for i in range(1, c):
         dmax = max(dmax, dep[i])
         cen = cen + pts[i]
     cen = cen / Real(c)
+    var rad2 = Real(0)
+    for i in range(c):
+        var dv = pts[i] - cen
+        rad2 = max(rad2, dot(dv, dv))
+    var tie = Real(2.8e-5) * sqrt(rad2)
     var i0 = -1
     var far = Real(-1)
     for i in range(c):
-        if dep[i] >= dmax - Real(1e-5):
+        if dep[i] >= dmax - tie:
             var dv = pts[i] - cen
             var f2 = dot(dv, dv)
             if f2 > far:
@@ -413,12 +421,16 @@ def _face_manifold(
     # keep points behind the reference face; depth = distance behind
     var face_off = dot(nf, rc + rax[j] * (rh[j] * sign))
     var m = ContactManifold[3].hit_along(n_out)
-    # the points behind the face (depth > 1e-6), then a spread four of them
+    # the points behind the face (depth > 4e-6 of the reference box's half
+    # extent along the normal: 1e-6 for a 0.25 m box; relative so a scene
+    # scaled by 2^k keeps the same points, ROADMAP 17.75), then a spread
+    # four of them
     var cand = List[Vec3]()
     var cdep = List[Real]()
+    var behind = Real(4e-6) * rh[j]
     for i in range(count):
         var dd = face_off - dot(nf, pts[i])  # >0 means behind the face
-        if dd > Real(1e-6):
+        if dd > behind:
             cand.append(pts[i])
             cdep.append(dd)
     var pick = spread4(cand, cdep, nf)

@@ -393,12 +393,16 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         return not self.is_dynamic(i) or self.sleeping[i]
 
     def axes(self, i: Int) -> Axes3:
-        """World-frame box axes of body `i` (via `act`, representation-free)."""
-        var o = self.bodies[i].act(Vec3(0, 0, 0, 0))
+        """World-frame box axes of body `i`: the unit axes rotated by its orientation.
+
+        They used to be `act(unit) - act(0)`, which rounds against the
+        position: a box 1 km out had axes off by ~1e-4, and a scene scaled
+        by 2^k was not scaled bit for bit (the 17.75 `UnitScale` residual)."""
+        var q = self.bodies[i].rotation()
         var out = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
-        out[0] = self.bodies[i].act(Vec3(1, 0, 0, 0)) - o
-        out[1] = self.bodies[i].act(Vec3(0, 1, 0, 0)) - o
-        out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
+        out[0] = q.rotate(Vec3(1, 0, 0, 0))
+        out[1] = q.rotate(Vec3(0, 1, 0, 0))
+        out[2] = q.rotate(Vec3(0, 0, 1, 0))
         return out^
 
     def pose3(self, i: Int) -> Pose3:

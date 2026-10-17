@@ -3207,7 +3207,7 @@
 > - 原現況:Phase 12 ⏸ gated on 核心 API 凍結;本項「保持 gated」,交付寫「gated —— 使用者確認架構後才動」。已由 2026-10-09 決定取代。
 
 #### 17.75 嵌入契約 — Wave B(平台方向 C 前提,與 12.1 同期)
-> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;2026-10-13:job graph 與 work-stealing 派發、暫存層宿主區塊、非同步步進、`UnitScale`、執行緒 / 錯誤 / 單位契約成文 ✅;actor 排程器宿主派發 ✅;剩 box / capsule 的尺度殘差(現 ≤ 3.1e-5)來源未定位,見進度)。
+> **狀態**:🔶 部分完成(2026-10-12:宿主派發器注入 ✅;2026-10-13:job graph 與 work-stealing 派發、暫存層宿主區塊、非同步步進、`UnitScale`、執行緒 / 錯誤 / 單位契約成文 ✅;actor 排程器宿主派發 ✅;尺度殘差 2026-10-17 已定位並消除,2^-7…2^10 逐位相同;剩 scheduler 內部 jobgraph / policy / workstealing 直接呼叫 `parallelize`)。
 > **進度(派發器,2026-10-12)**:`scheduler/dispatch.mojo`:`Task` trait(`run(i)`)+ `Dispatch` 值(`parallel` 預設 = `max.algorithm.parallelize` /
 > `serial` / `reverse` / `from_host(fn, ctx)`)+ `dispatch_for`;宿主形式經 C ABI:`host(ctx, n, task, data)`,`task` 是每個 Task 型別一個的 thin C 函式
 > (`_task_trampoline[T]`,先以閉包嘗試 —— 對閉包型別泛型的函式會變成 capturing、不能當 C 函式指標,故改為 struct Task)。`SolverConfig.dispatch` 選擇派發器;
@@ -3238,6 +3238,11 @@
 > - **尺度殘差(2026-10-13 重量)**:現況盒塔 / 膠囊 300 步 |pos/s − pos_1| 在 2^-7…2^10 為 1.2e-7 … 3.1e-5(先前記錄 1.1e-3)。暖啟動配對半徑原為絕對 (5 cm)²,
 >   改為乘 `margin_base / SPEC_BASE`(`UnitScale` 會縮放;尺度 1 逐位不變);把 `spread4` 的 1e-5 與盒面 1e-6 門檻改為相對值試驗後殘差不降 → 非來源,已還原。
 >   2 的冪縮放下浮點運算本應逐位等變,殘差來源仍未定位(剩餘的絕對 epsilon 尚未逐一排除)。
+> - **尺度殘差定位並消除(2026-10-17)**:以逐步比對 s = 1 與 s = 16 的 manifold(法向 / 點 / 深度 / 累積衝量)找到三個來源:(1)`BodySet.axes` 以 `act(單位向量) − act(0)`
+>   求盒軸,捨入跟著位置大小走(位置 × 16 → 軸的捨入不同;1 km 外的盒軸誤差約 1e-4)→ 改為 `rotation().rotate(單位向量)`;修後第 0 步逐位相同。(2)`spread4` 的「與最深點相差
+>   1e-5 內視為同深」是絕對長度:s = 1 時兩點相差 2.8e-6 視為同深、s = 16 時相差 4.5e-5 不算,manifold 起點換人 → 點序改變 → GS 次序不同 → 1e-5 級分歧;改為接觸片半徑的 2.8e-5
+>   (0.25 m 盒面約 1e-5)。(3)`_face_manifold` 的「在參考面後 > 1e-6」改為參考盒法向半長的 4e-6。修後 `test_unit_scale` 12/12 全部改為逐位相同:盒塔、球、膠囊在 2^-7…2^10
+>   每個尺度 |pos/s − pos_1| = 0(先前 1.2e-7 … 3.1e-5)。先前把 1e-5 改相對值「殘差不降」是因為 (1) 蓋過了它。
 > - **慣例釘死**:`test_conventions` 8/8:右手系(X × Y = +Z)、+90° 繞 +Y 把 +X 轉到 −Z、`Quat` 欄位 x, y, z, w(w 為純量)、`UnitScale(100)` 只縮放長度類旋鈕。
 > **緣起**:2026-10-09 平台方向拍板為 C(被宿主引擎嵌入的模擬函式庫)。嵌入者(Godot / Unity / Unreal)
 > 已有自己的 job system、配置器、frame graph 與單位約定;引擎若自起執行緒、自管記憶體、同步獨佔一個
