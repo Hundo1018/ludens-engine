@@ -142,6 +142,21 @@ build: all packages precompiled into build/
   plastic  height 0.28340086  spread 0.1958955
   free-fall momentum y: -0.40140828  expected ~ -0.40140772
 [PASS] mpm - 8 / 8 checks
+--- tests/test_multiphase.mojo ---
+  t 0.29999998 s: oil - water mean height -0.15909402   equal densities -0.15942022
+  t 0.59999996 s: oil - water mean height -0.15038314   equal densities -0.1524419
+  t 0.9 s: oil - water mean height -0.13709742   equal densities -0.14721267
+  t 1.1999999 s: oil - water mean height -0.112580195   equal densities -0.13618955
+  t 1.5 s: oil - water mean height -0.07789612   equal densities -0.124825075
+  t 1.8 s: oil - water mean height -0.033681363   equal densities -0.11000244
+  t 2.1 s: oil - water mean height 0.011684358   equal densities -0.093091354
+  t 2.3999999 s: oil - water mean height 0.052641362   equal densities -0.076941915
+  t 2.7 s: oil - water mean height 0.083585106   equal densities -0.060070664
+  t 3.0 s: oil - water mean height 0.10417157   equal densities -0.043514296
+start -0.16007  after 3 s: oil - water 0.10417157   equal densities -0.043514296
+worst horizontal momentum 0.4394913 kg m/s  (mass 3.6834085 kg; 1 cm/s of all of it = 0.036834083 )
+mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers above them: 2528.4 )
+[PASS] multiphase - 3 / 3 checks
 --- tests/test_noise.mojo ---
   perlin3 range: -0.7781264781951904 0.7502906322479248  value3: -0.9594535231590271 0.9886785745620728  fbm3: -0.4969647228717804 0.49642834067344666
   worley3 min distance: 0.05094904080033302
