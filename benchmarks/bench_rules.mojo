@@ -1,10 +1,12 @@
 """Gameplay rules (ROADMAP 17.70): attribute evaluator seam.
 
-1000 actors x 4 attributes, K modifiers per attribute (K = 4, 16, 64); each
+1000 actors x 4 attributes, K modifiers per attribute (K = 4, 16, 64, 256 --
+the last is 1.02e6 modifiers in all); each
 tick changes a fraction of the actors (one modifier removed and one added)
 and then every attribute of every actor is read once. Cost per read for the
-full recompute (scans K), the incremental sums (O(1) read; an override
-still scans) and the dirty cache.
+full recompute (scans K), the incremental sums (O(1) read; since the
+override index an attribute without overrides no longer scans) and the
+dirty cache.
 
 Run with: `mojo run -I build benchmarks/bench_rules.mojo`.
 """
@@ -43,7 +45,7 @@ def run(mode: Int, k: Int, change_every: Int) -> Int:
 
 def main():
     var t = BenchTable("Attribute evaluators: 1000 actors x 4 attributes, 20 ticks (17.70)")
-    var ks: List[Int] = [4, 16, 64]
+    var ks: List[Int] = [4, 16, 64, 256]
     var names: List[String] = ["full", "incremental", "dirty"]
     var modes: List[Int] = [EVAL_FULL, EVAL_INCREMENTAL, EVAL_DIRTY]
     for k in ks:

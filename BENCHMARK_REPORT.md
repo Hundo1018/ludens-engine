@@ -4856,15 +4856,18 @@ less than the dirty cache.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| full K=4, 10 % changed per tick | 1000 | read | 37.73 | 26.51 | 3.02 |
-| incremental K=4, 10 % changed per tick | 1000 | read | 26.71 | 37.43 | 2.14 |
-| dirty K=4, 10 % changed per tick | 1000 | read | 15.73 | 63.56 | 1.26 |
-| full K=16, 10 % changed per tick | 1000 | read | 136.30 | 7.34 | 10.90 |
-| incremental K=16, 10 % changed per tick | 1000 | read | 92.41 | 10.82 | 7.39 |
-| dirty K=16, 10 % changed per tick | 1000 | read | 32.98 | 30.33 | 2.64 |
-| full K=64, 10 % changed per tick | 1000 | read | 783.82 | 1.28 | 62.71 |
-| incremental K=64, 10 % changed per tick | 1000 | read | 580.04 | 1.72 | 46.40 |
-| dirty K=64, 10 % changed per tick | 1000 | read | 188.09 | 5.32 | 15.05 |
+| full K=4, 10 % changed per tick | 1000 | read | 35.76 | 27.96 | 2.86 |
+| incremental K=4, 10 % changed per tick | 1000 | read | 33.35 | 29.98 | 2.67 |
+| dirty K=4, 10 % changed per tick | 1000 | read | 21.53 | 46.44 | 1.72 |
+| full K=16, 10 % changed per tick | 1000 | read | 75.99 | 13.16 | 6.08 |
+| incremental K=16, 10 % changed per tick | 1000 | read | 36.10 | 27.70 | 2.89 |
+| dirty K=16, 10 % changed per tick | 1000 | read | 23.81 | 41.99 | 1.91 |
+| full K=64, 10 % changed per tick | 1000 | read | 303.20 | 3.30 | 24.26 |
+| incremental K=64, 10 % changed per tick | 1000 | read | 45.96 | 21.76 | 3.68 |
+| dirty K=64, 10 % changed per tick | 1000 | read | 36.91 | 27.10 | 2.95 |
+| full K=256, 10 % changed per tick | 1000 | read | 1093.14 | 0.91 | 87.45 |
+| incremental K=256, 10 % changed per tick | 1000 | read | 108.27 | 9.24 | 8.66 |
+| dirty K=256, 10 % changed per tick | 1000 | read | 116.16 | 8.61 | 9.29 |
 
 
 ## Gameplay — flow, objectives, inventory (17.72)
