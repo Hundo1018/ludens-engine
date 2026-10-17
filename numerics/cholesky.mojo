@@ -170,7 +170,7 @@ struct SparseCholesky(Movable):
             self.lx[self.lp[k]] = sqrt(d)
 
     def solve(self, b: List[Real], mut x: List[Real]):
-        """x = A^-1 b with the stored factor."""
+        """Solve A x = b with the stored factor."""
         var n = self.n
         var y = zeros64(n)
         for k in range(n):
@@ -276,7 +276,7 @@ struct IncompleteCholesky(Movable):
                         self.val[q] = sqrt(abs(self.val[q])) if self.val[q] != 0 else 1
 
     def apply64(self, r: List[Float64], mut z: List[Float64]):
-        """z = (L L^T)^-1 r."""
+        """Apply the preconditioner: z = (L L^T)^-1 r."""
         var n = self.n
         for i in range(n):
             var acc = r[i]
