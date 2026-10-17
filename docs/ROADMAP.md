@@ -1647,7 +1647,11 @@
 > 不加質量);放進 `collide` 的分支會改變它的編譯結果、讓 `test_vehicle_aero` 的阻力係數第 7 位數變動,所以獨立一趟,現有 LBM golden 全部逐位不變。
 > GPU 版遇到 y / z 體力 raise(只在 CPU)。`tests/test_lbm_body_force.mojo` 4/4:沿 z、沿 y 驅動的 Poiseuille 通道對解析拋物線 0.25 % / 0.27 %
 > (沿 x 0.17 %),與 x 驅動的剖面差 0.08 % / 0.10 % 峰值;開放週期箱沿 z 200 步平均速度對 200 F/ρ 差 8e-4。
-> **未做**:淺水格網的流速與非線性項、MAC 投影格網流體 / FLIP、煙霧、LBM MRT、粒子 → 表面、Taylor–Green parity、FFT 海洋的水平位移(choppy)與法線。
+> **MAC 格網流體與 Taylor–Green parity**:`physics/mac_fluid.mojo` `MacFluid2`(2-D 週期交錯網格:半拉格朗日 RK2 回溯、顯式黏滯(νdt/dx² > 1/4 raise)、
+> 以 `numerics.pcg` 走無矩陣 5 點 −∇² 做壓力投影,週期奇異性以去掉右端平均處理;放在 `physics` 因 `fluid` 與 `numerics` 同層不得互引)。
+> `tests/test_taylor_green.mojo` 5/5:32² MAC(ν 0.05、U 0.01、dt 0.05,t = 10)衰減率 / 2νk² = 1.0048,每次投影後散度 ≤ 4.7e-9(U/dx 的 1e-7);
+> 32×32×1 D3Q19 同一渦 400 步 1.0041;兩者 0.07 % 內一致。`bench_grid_fluid`:MAC 32² / 64² 每格步 2.0 / 4.8 µs(PCG 43 / 87 次),LBM 0.35 µs。
+> **未做**:淺水格網的流速與非線性項、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、煙霧、LBM MRT、粒子 → 表面、FFT 海洋的水平位移(choppy)與法線。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
