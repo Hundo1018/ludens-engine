@@ -234,6 +234,10 @@ build: all packages precompiled into build/
   w=0.25 blend z — linear 0.28284955  geodesic 0.3193088  constant-speed exact 0.3193088
   q vs -q half-blend, worst deviation from identity: 0.0
 [PASS] anim - 34 / 34 checks
+--- tests/test_anim_compress.mojo ---
+  2 s walk, 3 bones: keys 60 of 726  bytes 1096 vs 10164  max error 0.0009915233 m, 0.47579226 deg
+  tolerance 0: keys 288  max error at frames 0.0
+[PASS] anim_compress - 5 / 5 checks
 --- tests/test_anim_runtime.mojo ---
   footstep in 10 s: dt 1/60 10  dt 0.3 10  one 10 s jump 10
   sync: walk 0.25 -> run 0.15   walk 0.75 -> run 0.45000002
@@ -349,6 +353,10 @@ build: all packages precompiled into build/
 [PASS] gpu_broadphase - 0 / 0 checks
 --- tests/test_gpu_narrow.mojo ---
 [PASS] gpu_narrow - 1 / 1 checks
+--- tests/test_inertialize_motor.mojo ---
+  rotated 90 deg about a pivot, halfway: distance to pivot  motor 0.99999994  split 0.70710677
+  pure translation: motor vs split 0.0 ;  rotation about the origin: 5.9604645e-08
+[PASS] inertialize_motor - 4 / 4 checks
 --- tests/test_integrator6.mojo ---
   drift: euler E 0.01260009820266772 L 0.006280878623861064 | midpoint E 3.554799107674533e-05 L 1.8525764747590046e-05
   drift: lgvci E 1.8579463614054603e-05 L 5.31608901455094e-06
@@ -638,6 +646,16 @@ build: all packages precompiled into build/
   vertex attached to a body moving 1 m/s: x after 1 s 0.4999994  body x 0.4999994
   torn edges: break force 0.5 N 238  default 0
 [PASS] cloth_mesh - 10 / 10 checks
+--- tests/test_cloth_models.mojo ---
+  flat sheet scaled 10 % in plane, one step: largest move  cross-edge bending 0.07823594  dihedral 1.2808276e-17
+  clamped strip, dihedral bending: sag soft 0.14162512  stiff 0.006481437
+  soft sheet from two corners, 2 s: largest edge ratio  free 1.6889436  capped at 1.1 1.1000004
+  vertical sheet hung 2 s: mean vertical edge ratio  stiff vertical axis 1.0002803  stiff horizontal axis 1.850259
+  0.2 kg sheet at -2 m/s onto a free 1 kg box, 0.5 s: one-way cloth 0.0 box 0.0 ;  two-way cloth 0.0 box -0.39999968  (initial -0.39999986 )
+  two sheets dropped on a floor, 1.5 s: mean height gap  without self-collision 1.3245477e-08  with (0.01 m) 0.009146257
+  16 x 16 sheet from two corners, 1.5 s, bend model 0 : colours bending 8 stretch 8 ; lowest y sweep 0.15284991  coloured 0.13392368 ; edge ratio sweep 1.0262348  coloured 1.0268211
+  16 x 16 sheet from two corners, 1.5 s, bend model 1 : colours bending 18 stretch 8 ; lowest y sweep 0.023448314  coloured 0.02708995 ; edge ratio sweep 1.0485748  coloured 1.0457413
+[PASS] cloth_models - 11 / 11 checks
 --- tests/test_collide_par.mojo ---
   1024-box pile: contacts 1024
   heightfield scene: contacts 805
@@ -698,10 +716,12 @@ build: all packages precompiled into build/
   friction override: mu=0 3.0  default 0.5499963  mu=1 -0.00012491946
 [PASS] contact_rules - 9 / 9 checks
 --- tests/test_continuum.mojo ---
+  soft body: NaN particle -> nonfinite 1  CONTINUUM_NAN 1  particle 0 y after 1 s free fall -3.961689
+  rope: NaN particle -> nonfinite 1  CONTINUUM_NAN 1  pinned at [0.6, 2.0, 0.0, 0.0]  free end y 0.7738686
   FEM: NaN node -> nonfinite 1  CONTINUUM_NAN 1  pinned inv_m 0.0
   MPM: nonfinite 1  escaped 1  particles 65 -> 63
   MPM control: one NaN particle, plain advance -> nonfinite 64 of 64
-[PASS] continuum - 11 / 11 checks
+[PASS] continuum - 15 / 15 checks
 --- tests/test_conventions.mojo ---
 [PASS] conventions - 8 / 8 checks
 --- tests/test_cylinder.mojo ---
@@ -1262,8 +1282,19 @@ build: all packages precompiled into build/
 [PASS] world_f64 - 5 / 5 checks
 --- tests/test_world_query.mojo ---
 [PASS] world_query - 30 / 30 checks
+--- tests/test_animator.mojo ---
+  walk clip, 3 s: box at x 2.9999726 z -2.043605e-10  events 3 (tagged 3 ) root x in pose 0.0
+  turned 90 deg about y: box at x -5.606562e-07 z -2.9999955
+  two animators without bodies, 2 s: events speed 1 2  speed 2 4
+  SimState with an animator, snapshot 10 ticks into a 0.5 s transition: checksum uninterrupted 7769961127015832253  restored 7769961127015832253
+[PASS] animator - 7 / 7 checks
 --- tests/test_async_step.mojo ---
 [PASS] async_step - 11 / 11 checks
+--- tests/test_coupling.mojo ---
+  150 coupled steps: sphere x LbmCoupler 0.005397233  port 0.005397233  vx -0.047819287
+  Both[LBM, rope]: sphere x 0.009758875  rope end y 0.02
+  OneWay: lattice steps 30  CONTINUUM_NAN 1  lattice finite True
+[PASS] coupling - 5 / 5 checks
 --- tests/test_runtime_budget.mojo ---
 [PASS] runtime_budget - 4 / 4 checks
 --- tests/test_runtime_params.mojo ---
