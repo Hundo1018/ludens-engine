@@ -350,6 +350,36 @@ struct Lbm(Movable, Deinitable):
         # on the sphere, reported with the next step's force
         self.obj_p[k] = self.obj_p[k] - cover
 
+    def wall_drag(self, k: Int) -> Tuple[Vec3, Vec3]:
+        """Diagonals of the moving sphere `k`'s wall-drag tensors, lattice
+        units: (sum of 6 w_i c_i c_i, sum of 6 w_i (l x c_i)(d x c_i)) over
+        its boundary links, l the link's wall point and d the solid cell,
+        both from the centre. The part of the Ladd force linear in the wall
+        velocity is -first * v, of the torque about -second * w. A body update
+        that takes these parts at the new velocity (Ladd & Verberg 2001)
+        is stable for light spheres (`physics.fsi`, 17.59)."""
+        var n = self.cells()
+        var c0 = self.obj_c[k]
+        var z = Vec3(0, 0, 0, 0)
+        var zr = Vec3(0, 0, 0, 0)
+        for c in range(n):
+            if self.flag[c] == CELL_SOLID:
+                continue
+            var zc = c // (self.nx * self.ny)
+            var yc = (c // self.nx) % self.ny
+            var xc = c % self.nx
+            for i in range(1, Q):
+                var src = self.idx(self._wrap(xc - self.ex[i], self.nx), self._wrap(yc - self.ey[i], self.ny), self._wrap(zc - self.ez[i], self.nz))
+                if self.flag[src] == CELL_SOLID and self.owner[src] == k:
+                    var w6 = 6 * self.w[i]
+                    var e = Vec3(Real(self.ex[i]), Real(self.ey[i]), Real(self.ez[i]), 0)
+                    var p = Vec3(Real(xc), Real(yc), Real(zc), 0)
+                    var lc = _cross(p - e * 0.5 - c0, e)
+                    var dc = _cross(p - e - c0, e)
+                    z = z + Vec3(w6 * e[0] * e[0], w6 * e[1] * e[1], w6 * e[2] * e[2], 0)
+                    zr = zr + Vec3(w6 * lc[0] * dc[0], w6 * lc[1] * dc[1], w6 * lc[2] * dc[2], 0)
+        return (z, zr)
+
     def solid_count(self) -> Int:
         var n = 0
         for c in range(self.cells()):

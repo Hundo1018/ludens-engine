@@ -18,6 +18,20 @@ step:
 Explicit partitioned coupling is unstable for light bodies (added mass);
 `test_fsi` measures where (density ratios 1.5 and 1.0). Coupled bodies have
 sleep disabled: a body in a moving fluid must not freeze.
+
+`LbmSpherePort.set_implicit(True)` (opt-in, off by default) stabilises
+light bodies the way Ladd & Verberg 2001 do: the part of the lattice force
+linear in the wall velocity, -Z u_w with Z = `Lbm.wall_drag` (the sum of
+6 w_i c_i c_i over the sphere's boundary links, measured once per sphere
+when it is added; rho Z dx^3 is about 0.68 rho V for R = 3 cells), is taken
+at the new velocity instead of the old one, so the body moves as
+(m + rho Z dx^3) dv = (F + m g) dt per axis, and likewise for the torque,
+(I + rho Z_r dx^5) dw = T dt, Z_r the rotational link sum (without it the
+spin of a light sphere flips sign every step and grows). The lagged term is what
+diverges explicitly (|1 - Z/m| > 1 once the body is light). The terminal
+velocity is unchanged (dv = 0 either way). Off, the port is
+`LbmCoupler.step` bit for bit. `scripts/added_mass_fit.py` fits the
+lattice's force response and gives the spectral radius of each scheme.
 """
 
 from std.math import pi
@@ -127,6 +141,9 @@ struct LbmSpherePort(CouplingPort):
     var bodies: List[BodyId]
     var objs: List[Int]
     var radii: List[Real]
+    var implicit: Bool  # implicit wall drag (module note)
+    var zeta: List[Vec3]  # per sphere: rho Z dx^3, kg per axis
+    var zeta_rot: List[Vec3]  # per sphere: rho Z_r dx^5, kg m^2 per axis
 
     def __init__(out self, dx: Real, rho: Real, origin: Vec3):
         self.dx = dx
@@ -135,6 +152,13 @@ struct LbmSpherePort(CouplingPort):
         self.bodies = List[BodyId]()
         self.objs = List[Int]()
         self.radii = List[Real]()
+        self.implicit = False
+        self.zeta = List[Vec3]()
+        self.zeta_rot = List[Vec3]()
+
+    def set_implicit(mut self, on: Bool):
+        """Implicit wall drag for light bodies (module note)."""
+        self.implicit = on
 
     def _lat(self, p: Vec3) -> Vec3:
         return (p - self.origin) * (1 / self.dx)
@@ -149,6 +173,10 @@ struct LbmSpherePort(CouplingPort):
         self.bodies.append(id)
         self.objs.append(k)
         self.radii.append(radius)
+        var dx3 = self.dx * self.dx * self.dx
+        var zd = s.lbm.wall_drag(k)
+        self.zeta.append(zd[0] * (self.rho * dx3))
+        self.zeta_rot.append(zd[1] * (self.rho * dx3 * self.dx * self.dx))
         return len(self.bodies) - 1
 
     def before[B: Body6](mut self, mut scene: ContactScene6[B], mut s: LbmContinuum, dt: Real, gravity: Vec3) raises:
@@ -162,5 +190,32 @@ struct LbmSpherePort(CouplingPort):
         var dtl = s.dt_lattice
         for j in range(len(self.bodies)):
             var ld = sphere_load(s.lbm.obj_f[self.objs[j]], s.lbm.obj_t[self.objs[j]], self.rho, self.dx, dtl, self.radii[j], gravity)
-            scene.add_force(self.bodies[j], ld[0])
-            scene.add_torque(self.bodies[j], ld[1])
+            if self.implicit:
+                self._apply_implicit(scene, j, ld[0], ld[1], gravity)
+            else:
+                scene.add_force(self.bodies[j], ld[0])
+                scene.add_torque(self.bodies[j], ld[1])
+
+    def _apply_implicit[B: Body6](mut self, mut scene: ContactScene6[B], j: Int, f: Vec3, t: Vec3, gravity: Vec3) raises:
+        var id = self.bodies[j]
+        ref body = scene.bset.bodies[id.index()]
+        var im = body.inv_mass()
+        if not (im > 0):
+            scene.add_force(id, f)
+            scene.add_torque(id, t)
+            return
+        var m = 1 / im
+        var z = self.zeta[j]
+        var zr = self.zeta_rot[j]
+        # per axis: dv = (F + m g) dt / (m + z), dw = T dt / (I + z_r); the
+        # scene adds m g itself
+        var out = Vec3(0, 0, 0, 0)
+        var tout = Vec3(0, 0, 0, 0)
+        for a in range(3):
+            out[a] = (f[a] * m - gravity[a] * (z[a] * m)) / (m + z[a])
+            var ax = Vec3(0, 0, 0, 0)
+            ax[a] = 1
+            var ia = 1 / body.angular_only_factor(ax)
+            tout[a] = t[a] * ia / (ia + zr[a])
+        scene.add_force(id, out)
+        scene.add_torque(id, tout)
