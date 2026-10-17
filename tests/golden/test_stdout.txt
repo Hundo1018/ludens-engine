@@ -537,6 +537,7 @@ v 0 DLB 0.3047964 -0.5714111 1.0308902   LBS 0.16114357 -0.6464169 0.22684316
 v 1 DLB 0.88098025 -0.24800122 0.41221493   LBS 0.44215643 -0.029279232 -0.09523639
 v 2 DLB 0.27704856 0.6037673 -1.1068717   LBS 0.39984018 -0.0567123 -0.44788763
 v 3 DLB 1.2271068 0.9086521 -0.13463011   LBS 0.64181876 0.86999315 0.0060089827
+checksum DLB 3039826071626799574  LBS 11624641202192189416
 [PASS] skin_vectors - 1 / 1 checks
 --- tests/test_skinning.mojo ---
 [PASS] skinning - 19 / 19 checks
@@ -1348,6 +1349,12 @@ cloud of 400 grains, 0.3 s: sank one-way 0.0016791671  two-way 0.0034571476
   1 mm plain 197494 bytes (test_sim_cache records 197494), version 1 ;  packed version 2
   still frame packed: cache 1467 bytes for 256 points x 2 frames
 [PASS] sim_cache_pack - 4 / 4 checks
+--- tests/test_skin_dib.mojo ---
+two bones 0.5 / 0.5: |DIB - geodesic mid| coefficients 1.767393e-07  points 2.5288108e-07    DLB points 5.9901925e-07
+twist 0..170 deg, smallest radius (rest 0.2): DIB 0.19999997  DLB 0.19999999  LBS 0.1760669
+angles: rotation 70.0  joint 69.99999  twist 50.000004  translation 0.0
+soft body, 1 s on 9 skinned pins: bottom particle 0.20628941 m below the pinned layer (rest 0.2)
+[PASS] skin_dib - 8 / 8 checks
 --- tests/test_skin_link.mojo ---
 bind pose: worst vertex move 0.0    bone 1 at 90 deg: (0, 2.4, 0) -> -1.0000002 1.4000003 -0.0
 bone 0 box half 0.2 0.45 0.2  offset 0.45   capsule radius 0.2  axis 0.2 .. 0.7
