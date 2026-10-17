@@ -2537,12 +2537,26 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         cfg.workers = workers
         self.step(dt, gravity, cfg)
 
-    def _contact_mass_scale(mut self, pairs: List[ContactConstraint], ratio: Real):
+    def _contact_mass_scale(mut self, mut pairs: List[ContactConstraint], ratio: Real, impact_speed: Real):
         """ROADMAP 17.19 `max_mass_ratio`: dynamic bodies joined by a
         contact or a (core, unbroken) joint form groups (union-find); each
         body's mass in contact and joint rows is m_c = max(m, heaviest in
         its group / ratio) -- the load a body carries comes from the whole
-        stack or chain above it, not only its neighbour. scale = m / m_c."""
+        stack or chain above it, not only its neighbour. scale = m / m_c.
+        Only touching contacts join groups (a speculative one carries no
+        load: a bullet passing 0.2 m under a 1000 kg box joined its group
+        through one), and a contact closing faster than `impact_speed` (the
+        restitution threshold) does not either: scaling is for carried load, and a
+        0.2 kg bullet that joined a 1000 kg box's group on impact hit as a
+        100 kg one and drove a 1 kg box through the floor (measured,
+        `test_solver_stress`).
+
+        Warm-started impulses were sized for last step's scales. A body
+        whose scale grew (it left a heavy group: the same bullet bouncing
+        off) would take an impulse sized for 100 kg as 0.2 kg -- it reached
+        2e4 m/s -- so a pair's cached impulses shrink by s_old / s_new of
+        its body whose scale grew most; a scale that shrank keeps them
+        (an under-warmed start only converges slower)."""
         var n = len(self.bset.bodies)
         var m = List[Real](length=n, fill=0)
         var parent = List[Int](capacity=n)
@@ -2552,7 +2566,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 m[i] = Real(1) / self.bset.bodies[i].inv_mass()
         for ref pr in pairs:
             if self.bset.is_dynamic(pr.a) and self.bset.is_dynamic(pr.b):
-                _uf_union(parent, pr.a, pr.b)
+                var impact = False
+                var touching = False
+                for k in range(pr.m.count):
+                    if pr.vn0[k] < -impact_speed:
+                        impact = True
+                    if pr.m.depths[k] >= 0:
+                        touching = True
+                if touching and not impact:
+                    _uf_union(parent, pr.a, pr.b)
         for ref jt in self.joints:
             if _scaled_linear(jt.kind) and self.bset.is_dynamic(jt.a) and self.bset.is_dynamic(jt.b):
                 _uf_union(parent, jt.a, jt.b)
@@ -2560,11 +2582,36 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         for i in range(n):
             var r = _uf_find(parent, i)
             gmax[r] = max(gmax[r], m[i])
+        var prev = self.bset.cscale^
         self.bset.cscale = List[Real](length=n, fill=1)
         for i in range(n):
             var mc = max(m[i], gmax[_uf_find(parent, i)] / ratio)
             if mc > 0:
                 self.bset.cscale[i] = m[i] / mc
+        for ref pr in pairs:
+            var f = Real(1)
+            for side in range(2):
+                var i = pr.a if side == 0 else pr.b
+                var old = prev[i] if i < len(prev) else Real(1)
+                if self.bset.cscale[i] > old:
+                    f = min(f, old / self.bset.cscale[i])
+            if f < 1:
+                for k in range(pr.m.count):
+                    pr.acc[k] *= f
+                    pr.acc_t1[k] *= f
+                    pr.acc_t2[k] *= f
+        for ref jt in self.joints:
+            if not _scaled_linear(jt.kind):
+                continue
+            var f = Real(1)
+            for side in range(2):
+                var i = jt.a if side == 0 else jt.b
+                var old = prev[i] if i < len(prev) else Real(1)
+                if self.bset.cscale[i] > old:
+                    f = min(f, old / self.bset.cscale[i])
+            if f < 1:
+                jt.acc = jt.acc * f
+                jt.acc_ang = jt.acc_ang * f
 
     def step(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """`_step_impl` (the sub-stepped soft step, every path) wrapped by the
@@ -2667,7 +2714,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.trace.end()
         self.bset.mass_ratio = cfg.max_mass_ratio
         if cfg.max_mass_ratio > 0:
-            self._contact_mass_scale(pairs, cfg.max_mass_ratio)
+            self._contact_mass_scale(pairs, cfg.max_mass_ratio, cfg.restitution_threshold)
         # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
         self.trace.sample("contact_manifolds", len(pairs))
         self.trace.sample("bodies", len(self.bset.bodies))

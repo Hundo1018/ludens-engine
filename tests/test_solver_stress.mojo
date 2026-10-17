@@ -35,6 +35,7 @@ from geometry.vec import Real, Vec3, length
 from physics.rigid6 import QuatBody6, Inertia3, Pose6
 from geometry.quat import Quat
 from physics.solver6 import ContactScene6
+from physics.ccd6 import CCD_BULLET
 from physics.joints6 import Joint6
 from physics.solver_config import SolverConfig
 from physics.body_set import BodyId
@@ -136,6 +137,43 @@ def _chain(ratio: Real) raises -> Real:
     return 20 - ch.pose(w).pos[1]
 
 
+def _mixed(ratio: Real) raises -> Tuple[Int, Bool, Real, Real, Int]:
+    """1000 kg on 1 kg, max_mass_ratio 10, CCD on: (step it fell asleep,
+    woke on impact, bullet's furthest x, worst light-box sink, step it
+    slept again or -1)."""
+    var cfg = SolverConfig()
+    cfg.max_mass_ratio = ratio
+    cfg.ccd = True
+    var sc = ContactScene6[QuatBody6]()
+    _floor(sc)
+    var l = sc.add(QuatBody6.at_rest(Vec3(0, 0.25, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    var h = sc.add(QuatBody6.at_rest(Vec3(0, 0.75, 0, 0), Inertia3.box(1000, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    var asleep = -1
+    for k in range(600):
+        sc.step(DT, G, cfg)
+        if sc.is_sleeping(l) and sc.is_sleeping(h):
+            asleep = k
+            break
+    var bb = QuatBody6.at_rest(Vec3(-3, 0.25, 0, 0), Inertia3.box(0.2, 0.05, 0.05, 0.05))
+    bb.set_velocity(Vec3(80, 0, 0, 0), Vec3(0, 0, 0, 0))
+    var bul = sc.add(bb^, Vec3(0.05, 0.05, 0.05, 0), False)
+    sc.set_ccd_mode(bul, CCD_BULLET)
+    var woke = False
+    var far = Real(-3)
+    var sink = Real(0)
+    var again = -1
+    for k in range(600):
+        sc.step(DT, G, cfg)
+        if not sc.is_sleeping(l):
+            woke = True
+        far = max(far, sc.pose(bul).pos[0])
+        sink = max(sink, 0.25 - sc.pose(l).pos[1])
+        if woke and k > 10 and sc.is_sleeping(l) and sc.is_sleeping(h):
+            again = k
+            break
+    return (asleep, woke, far, sink, again)
+
+
 def main() raises:
     var s = Suite("solver_stress")
 
@@ -163,6 +201,11 @@ def main() raises:
     var f1 = _floor_force(1000, 10)
     print("  floor force under 1000 kg on 1 kg (true 9809.8 N): off", f0, " ratio 10", f1)
     print("  1000 / 1 / 1 tower: worst overlap off", t0[0], " ratio 10", t1[0], "  top drop off", t0[1], " ratio 10", t1[1])
+    var mx0 = _mixed(0)
+    print("  (ratio off) asleep at step", mx0[0], " woke", mx0[1], " bullet max x", mx0[2], " worst sink", mx0[3], " asleep again", mx0[4])
+    var mx = _mixed(10)
+    print("  1000 on 1 kg + sleep + CCD bullet: asleep at step", mx[0], " woke", mx[1], " bullet max x", mx[2], " worst sink", mx[3], " asleep again at step", mx[4])
+    s.check(mx[0] >= 0 and mx[1] and mx[2] < -0.2 and mx[3] < 0.01 and mx[4] >= 0, "max_mass_ratio + sleep + CCD: sleeps, a bullet wakes it without tunnelling, sleeps again")
     var bad = SolverConfig()
     bad.max_mass_ratio = 0.5
     var rejected = False
