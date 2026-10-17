@@ -125,6 +125,10 @@ build: all packages precompiled into build/
   spinning sphere: torque -0.5363823  rotlet -8 pi mu R^3 w -0.5147186  ratio 1.0420885
   sphere jumping 0.3 cells/step for 40 steps: mass 13712.001 -> 13614.35  last force -5.8822236
 [PASS] lbm_moving - 6 / 6 checks
+--- tests/test_lbm_tau_field.mojo ---
+  uniform field vs plain lattice, 200 steps: worst population difference 0.0
+  two-layer channel: peak 0.0010047683 at y 11 (centre 15 , zero shear y0 10.645588 );  worst |u - analytic| 2.628722e-05  = 0.02616247 of the peak
+[PASS] lbm_tau_field - 3 / 3 checks
 --- tests/test_lbvh.mojo ---
   Sigma-area  median: 213042.88  sah: 187398.86  lbvh: 201227.88
   avg leaf depth  median: 9.293333  sah: 9.39  lbvh: 9.565
