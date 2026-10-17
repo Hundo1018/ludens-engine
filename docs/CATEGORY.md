@@ -190,6 +190,7 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | 可微接觸模型:剛性衝量 vs 軟性罰函數 | physics/diffrigid.mojo(`rollout_rigid`／`rollout_soft`) | 同一接觸態射的兩個可微化;梯度對兩模型各自定義 | `test_diffrigid` | `bench_diffrigid` |
 | 動畫混合:線性(norm-lerp)vs DLB vs 測地(等速螺旋) | procedural/anim.mojo(`BLEND_LINEAR`／`BLEND_DLB`／`BLEND_GEODESIC`) | §3 表示函子在姿態混合上的作用;測地留在運動流形上 | `test_anim` | `bench_anim` |
 | 線性解:全域 CG/PCG vs 局部 Jacobi 掃;Jacobi 前條件子 on/off | numerics/cg.mojo、sparse.mojo | 同一線性系統的迭代子家族;matrix-free 與顯式 CSR 兩路徑 | `test_numerics` | `bench_numerics` |
+| FEM 隱式步的線性解:matrix-free CG / 組裝後稀疏 Cholesky(RCM)/ IC(0)-PCG(17.84,`FemBody.solver`) | physics/fem.mojo、numerics/cholesky.mojo | 同一 `A = M − dt² ∂f/∂x` 系統的三種解法;組裝矩陣作用於向量 = matrix-free 運算子(2.7e-5 / 57.9);2 s 懸臂尖端軌跡三者差 ≤ 2.1e-7 m;非對稱系統另有 GMRES(m)(`numerics/gmres.mojo`,`test_solvers`) | `test_fem_solvers`、`test_solvers` | `bench_fem` |
 | LBM Smagorinsky LES vs 純 BGK(常數為 0 ⇒ 逐位相同) | fluid/lbm.mojo(`eddy_viscosity`) | 同一碰撞算子的湍流閉合變體;優勢區是粗網格高 Re(BGK 發散、LES 收斂) | `test_lbm_les` | `bench_lbm`(LES 表) |
 
 ### 2.2 `diag`(可觀測性層,Phase 17.9/17.10/17.32–17.34,2026-09-27)

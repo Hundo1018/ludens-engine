@@ -20,13 +20,26 @@ separates a working implementation from one that merely looks elastic at rest.
 
 Stress (co-rotational linear):  P(F) = 2*mu*(F - R) + lambda * tr(R^T F - I) * R
 Nodal forces:                   H = -W * P * Dm^-T,  columns give f0..f2, f3 = -sum
+
+The implicit step's linear solve is a seam (ROADMAP 17.84, `FemBody.solver`):
+FEM_SOLVE_CG (matrix-free conjugate gradients, the default), FEM_SOLVE_CHOLESKY
+(the operator assembled into a sparse matrix, `numerics.cholesky` with a
+reverse Cuthill-McKee ordering: a direct solve), FEM_SOLVE_PCG_IC0 (assembled,
+CG preconditioned with incomplete Cholesky). The assembled matrix drops the rows
+and columns of pinned nodes (their dv is exactly zero either way), which keeps
+it symmetric.
 """
 
 from std.math import sqrt
 from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
-from numerics.sparse import LinearOperator
+from numerics.sparse import LinearOperator, CsrMatrix
 from numerics.cg import cg, CgResult
+from numerics.cholesky import SparseCholesky, IncompleteCholesky, pcg_ic0, rcm_order
+
+comptime FEM_SOLVE_CG = 0
+comptime FEM_SOLVE_CHOLESKY = 1
+comptime FEM_SOLVE_PCG_IC0 = 2
 from diag.counters import Counters, CG_NOT_CONVERGED
 
 
@@ -108,6 +121,7 @@ struct FemBody(Movable):
     that shows what the polar decomposition BUYS: `bench_fem` prices the
     rotation extraction, and `test_fem` shows that without it a rigid rotation
     of an undeformed body generates enormous spurious force."""
+    var solver: Int  # FEM_SOLVE_* (17.84)
     var counters: Counters
     """ROADMAP 17.0h / audit E19: `diag` counters, so far only
     `CG_NOT_CONVERGED` (bumped by `step_implicit` when its `cg()` solve
@@ -128,6 +142,7 @@ struct FemBody(Movable):
         self.lam = young * poisson / ((1 + poisson) * (1 - 2 * poisson))
         self.damping = damping
         self.corotational = True
+        self.solver = FEM_SOLVE_CG
         self.counters = Counters()
 
     def node_count(self) -> Int:
@@ -288,7 +303,22 @@ struct FemBody(Movable):
         var dv = List[Real](capacity=dof)
         for _ in range(dof):
             dv.append(0)
-        var res = cg(op, b, dv, tol, max_iters)
+        var res: CgResult
+        if self.solver == FEM_SOLVE_CG:
+            res = cg(op, b, dv, tol, max_iters)
+        else:
+            var a = op.assemble()
+            if self.solver == FEM_SOLVE_CHOLESKY:
+                var ch = SparseCholesky()
+                try:
+                    ch.factor(a, rcm_order(a))
+                    ch.solve(b, dv)
+                    res = CgResult(True, False, 1, 0)
+                except:
+                    res = CgResult(False, True, 0, 1)
+            else:
+                var ic = IncompleteCholesky(a)
+                res = pcg_ic0(a, ic, b, dv, tol, max_iters)
 
         # audit E19: `CgResult.converged` is documented (numerics/cg.mojo)
         # as "the only field a caller may treat as permission to use the
@@ -444,31 +474,83 @@ struct FemImplicitOp(LinearOperator, Movable, Deinitable):
             var b = self.tet_idx[4 * e + 1]
             var c = self.tet_idx[4 * e + 2]
             var d = self.tet_idx[4 * e + 3]
-            var r = self._mat(self.rot, e)
-            var dmi = self._mat(self.dm_inv, e)
-            var dds = Mat3()
-            for k in range(3):
-                dds.set(k, 0, du[3 * b + k] - du[3 * a + k])
-                dds.set(k, 1, du[3 * c + k] - du[3 * a + k])
-                dds.set(k, 2, du[3 * d + k] - du[3 * a + k])
-            var dfm = r.transpose() * (dds * dmi)
-            var tr = dfm.get(0, 0) + dfm.get(1, 1) + dfm.get(2, 2)
-            var dp = Mat3()
-            for i in range(3):
-                for j in range(3):
-                    var lamterm = self.lam * tr if i == j else Real(0)
-                    dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
-            var h = (r * dp) * dmi.transpose()
-            var w = self.vol[e]
-            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
-            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
-            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
-            var f0 = (f1 + f2 + f3) * Real(-1)
+            var d1 = Vec3(du[3 * b] - du[3 * a], du[3 * b + 1] - du[3 * a + 1], du[3 * b + 2] - du[3 * a + 2], 0)
+            var d2 = Vec3(du[3 * c] - du[3 * a], du[3 * c + 1] - du[3 * a + 1], du[3 * c + 2] - du[3 * a + 2], 0)
+            var d3 = Vec3(du[3 * d] - du[3 * a], du[3 * d + 1] - du[3 * a + 1], du[3 * d + 2] - du[3 * a + 2], 0)
+            var f = self._elem_forces(e, d1, d2, d3)
             comptime for k in range(3):
-                out[3 * a + k] += f0[k]
-                out[3 * b + k] += f1[k]
-                out[3 * c + k] += f2[k]
-                out[3 * d + k] += f3[k]
+                out[3 * a + k] += f[0][k]
+                out[3 * b + k] += f[1][k]
+                out[3 * c + k] += f[2][k]
+                out[3 * d + k] += f[3][k]
+
+    def _elem_forces(self, e: Int, d1: Vec3, d2: Vec3, d3: Vec3) -> Tuple[Vec3, Vec3, Vec3, Vec3]:
+        """Force differentials on element e's four nodes for edge
+        differentials d1 = du_b - du_a, d2 = du_c - du_a, d3 = du_d - du_a."""
+        var r = self._mat(self.rot, e)
+        var dmi = self._mat(self.dm_inv, e)
+        var dds = Mat3()
+        for k in range(3):
+            dds.set(k, 0, d1[k])
+            dds.set(k, 1, d2[k])
+            dds.set(k, 2, d3[k])
+        var dfm = r.transpose() * (dds * dmi)
+        var tr = dfm.get(0, 0) + dfm.get(1, 1) + dfm.get(2, 2)
+        var dp = Mat3()
+        for i in range(3):
+            for j in range(3):
+                var lamterm = self.lam * tr if i == j else Real(0)
+                dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
+        var h = (r * dp) * dmi.transpose()
+        var w = self.vol[e]
+        var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+        var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+        var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
+        var f0 = (f1 + f2 + f3) * Real(-1)
+        return (f0, f1, f2, f3)
+
+    def assemble(self) -> CsrMatrix:
+        """`A = M - dt^2 df/dx` as a sparse matrix (17.84), element by element
+        from the same force differential `stiffness_apply` uses. Rows and
+        columns of pinned nodes are dropped (identity rows), so A is
+        symmetric; its solution equals `apply`'s on every free node."""
+        var rows = List[Int]()
+        var cols = List[Int]()
+        var vals = List[Real]()
+        var dt2 = self.dt * self.dt
+        for i in range(self.n):
+            comptime for k in range(3):
+                rows.append(3 * i + k)
+                cols.append(3 * i + k)
+                vals.append(Real(1) if self.mass[i] == 0 else self.mass[i])
+        var zero = Vec3(0, 0, 0, 0)
+        for e in range(len(self.vol)):
+            var nodes = List[Int]()
+            for q in range(4):
+                nodes.append(self.tet_idx[4 * e + q])
+            for q in range(4):
+                if self.mass[nodes[q]] == 0:
+                    continue
+                for k in range(3):
+                    # column: unit displacement of node q along axis k
+                    var u = Vec3(0, 0, 0, 0)
+                    u[k] = 1
+                    var d1 = u * Real(-1) if q == 0 else (u if q == 1 else zero)
+                    var d2 = u * Real(-1) if q == 0 else (u if q == 2 else zero)
+                    var d3 = u * Real(-1) if q == 0 else (u if q == 3 else zero)
+                    var f = self._elem_forces(e, d1, d2, d3)
+                    var fl: List[Vec3] = [f[0], f[1], f[2], f[3]]
+                    for rnode in range(4):
+                        var ri = nodes[rnode]
+                        if self.mass[ri] == 0:
+                            continue
+                        comptime for kk in range(3):
+                            var fv = fl[rnode][kk]
+                            if fv != 0:
+                                rows.append(3 * ri + kk)
+                                cols.append(3 * nodes[q] + k)
+                                vals.append(-dt2 * fv)
+        return CsrMatrix.from_triplets(3 * self.n, rows, cols, vals)
 
     def apply(self, x: List[Real], mut out: List[Real]):
         self.stiffness_apply(x, out)
