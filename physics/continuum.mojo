@@ -213,7 +213,10 @@ struct MpmContinuum(ContinuumSolver):
         self.mpm = mpm^
 
     def advance(mut self, dt: Real, gravity: Vec3):
-        self.mpm.step(dt, gravity)
+        if self.mpm.dp_alpha > 0 or len(self.mpm.obstacles) > 0:
+            self.mpm.step_ext(dt, gravity)
+        else:
+            self.mpm.step(dt, gravity)
 
     def health(self) -> ContinuumHealth:
         var bad = 0
