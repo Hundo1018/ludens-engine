@@ -715,6 +715,17 @@ struct ColliderSet(Movable, Deinitable):
             return self.meshes[self.mesh_id[i]].active[t]
         return self.fields[self.mesh_id[i]].active(t)
 
+    def set_active_angle(mut self, i: Int, angle: Real) raises:
+        """Active-edge guard of mesh / heightfield collider `i` (ROADMAP
+        17.45 / 17.19): seams flatter than `angle` radians stop producing
+        edge normals; negative = every edge active (the default)."""
+        if self.shape[i] == SHAPE_TRIMESH:
+            self.meshes[self.mesh_id[i]].set_active_angle(angle)
+        elif self.shape[i] == SHAPE_HEIGHTFIELD:
+            self.fields[self.mesh_id[i]].set_active_angle(angle)
+        else:
+            raise Error("ColliderSet.set_active_angle: collider is not a mesh or heightfield")
+
     def set_materials(mut self, i: Int, ids: List[Int]) raises:
         """Per-triangle surface material ids of mesh / heightfield collider
         `i` (ROADMAP 17.53); raises for any other kind."""

@@ -367,7 +367,8 @@
 > V 形谷(兩側 30°)22 → 3(兩坡 + 谷線邊),靜止 x 相差 < 1 mm;跨材質邊界保留每材質一個朝上 manifold。`bench_trimesh` 新表:每步 79.5 → 32.6 ms
 > (與 gate 同時執行的量測;其餘是每三角形一次的 hull-vs-triangle SAT)。
 > 過程中量到既有缺陷:高度場的 active-edge 防護(17.45 `set_active_angle`)預設關閉,箱子在 0.25 m 格上只滑 0.099 m 就停(1 m / 2 m 格與箱形地板皆 0.404 m)——
-> 與腳印邊緣僅細條重疊的三角形,SAT 最小重疊軸是箱子側面,側向接觸像牆;開啟防護後 0.404 m。
+> 與腳印邊緣僅細條重疊的三角形,SAT 最小重疊軸是箱子側面,側向接觸像牆;開啟防護後 0.404 m。新增公開 `ContactScene6.set_mesh_active_angle(id, angle)`(網格與高度場),
+> 並讓 `TriMesh.set_active_angle` 由共用頂點索引自行算出 active-edge 旗標(原本只能由呼叫端提供):同一 0.25 m 格三角網格無防護 0.099 m、有防護 0.404 m(`test_mesh_reduce` 5/5)。
 >
 > **歷史**:
 > - 量測(2026-09-29,`bench_gpu_contact`,F22 修正前):寬相開啟後,N=4096 箱每幀 CPU 收集 + 簿記(不含求解)達 82 ms,N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,因此排為本項第一個工作(已由上面的 F22 第一批處理)。

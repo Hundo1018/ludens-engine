@@ -31,6 +31,7 @@ silently loses its tail elements the moment it crosses a function boundary —
 """
 
 from std.math import sqrt, floor, cos
+from std.collections import Dict
 from geometry.vec import Real, Vec3, dot, length, normalize
 from geometry.aabb import AABB
 from spatial.bvh import BVH
@@ -190,6 +191,52 @@ struct TriMesh(Movable, Deinitable):
             # SAH: a level is built once and queried every step of every frame,
             # so build time is the cheap side of the trade by a wide margin.
             self.bvh.build_boxes(boxes, proxies, sah=True)
+
+    def set_active_angle(mut self, angle: Real):
+        """Compute the active-edge flags from the mesh itself (ROADMAP 17.19):
+        an edge shared by exactly two triangles (same vertex indices) whose
+        normals differ by at most `angle` radians is inactive; boundary
+        edges, creases and edges shared by more than two stay active. A
+        negative angle makes every edge active again. The same rule as
+        `HeightField.set_active_angle`, for meshes whose seams share
+        vertices."""
+        var nt = self.ntri()
+        if angle < 0:
+            for t in range(nt):
+                self.active[t] = 7
+            return
+        var c = cos(angle)
+        var first = Dict[Int, Int]()  # edge key -> first triangle * 3 + edge
+        var other = List[Int](length=3 * nt, fill=-1)  # neighbour triangle per edge, -2 = shared by > 2
+        var nv = len(self.v) // 3 + 1
+        for t in range(nt):
+            for k in range(3):
+                var a = self.idx[3 * t + k]
+                var b = self.idx[3 * t + (k + 1) % 3]
+                var key = min(a, b) * nv + max(a, b)
+                var f = first.get(key, -1)
+                if f < 0:
+                    first[key] = 3 * t + k
+                else:
+                    var t0 = f // 3
+                    if other[f] == -1:
+                        other[f] = t
+                        other[3 * t + k] = t0
+                    else:
+                        other[f] = -2
+                        other[3 * t + k] = -2
+        for t in range(nt):
+            var bits = UInt8(0)
+            var n0 = Vec3(self.nrm[3 * t], self.nrm[3 * t + 1], self.nrm[3 * t + 2], 0)
+            for k in range(3):
+                var o = other[3 * t + k]
+                var act = True
+                if o >= 0:
+                    var n1 = Vec3(self.nrm[3 * o], self.nrm[3 * o + 1], self.nrm[3 * o + 2], 0)
+                    act = dot(n0, n1) < c
+                if act:
+                    bits |= UInt8(1) << UInt8(k)
+            self.active[t] = bits
 
     def set_active_edges(mut self, flags: List[UInt8]) raises:
         """Install per-triangle active-edge flags (see the field)."""

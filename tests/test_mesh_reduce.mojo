@@ -18,6 +18,9 @@ at most 4 points.
      rests without reduction (1 mm).
   3. A box straddling a material boundary (left half friction 0.05, right
      1.0) keeps one up-facing manifold per material.
+  4. The guard on a trimesh (`set_mesh_active_angle`, computed from shared
+     vertex indices): the same 0.25 m grid as a trimesh, without the guard
+     the box stops early like on the heightfield, with it slides 0.408 m.
 """
 
 from harness.runner import Suite
@@ -26,6 +29,7 @@ from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
 from physics.body_set import BodyId
+from collision.trimesh import HeightField
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -36,7 +40,7 @@ def flat(mut sc: ContactScene6[QuatBody6]) raises -> BodyId:
     for _ in range(81 * 81):
         hs.append(0)
     var id = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs^, 81, 81, 0.25, -10, -10)
-    sc.colliders.fields[sc.colliders.mesh_id[id.index()]].set_active_angle(0.1)
+    sc.set_mesh_active_angle(id, 0.1)
     return id
 
 
@@ -86,7 +90,7 @@ def valley(reduce: Bool) raises -> Tuple[Int, Real]:
         for i in range(41):
             hs.append(abs(Real(i) * 0.25 - 5) * 0.57735)
     var vid = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs^, 41, 41, 0.25, -5, -5)
-    sc.colliders.fields[sc.colliders.mesh_id[vid.index()]].set_active_angle(0.1)
+    sc.set_mesh_active_angle(vid, 0.1)
     var b = sc.add(QuatBody6.at_rest(Vec3(0.3, 1.2, 0.1, 0), Inertia3.box(1, 0.3, 0.3, 0.3)), Vec3(0.3, 0.3, 0.3, 0), False)
     var cfg = SolverConfig()
     cfg.reduce_mesh_contacts = reduce
@@ -115,6 +119,35 @@ def boundary() raises -> Int:
     return up_count(sc)
 
 
+def trimesh_slide(guard: Bool) raises -> Real:
+    var f = HeightField(zeros(81 * 81), 81, 81, 0.25, -10, -10)
+    var m = f.to_trimesh()
+    var vv = List[Real]()
+    for i in range(len(m.v)):
+        vv.append(m.v[i])
+    var ii = List[Int]()
+    for i in range(len(m.idx)):
+        ii.append(m.idx[i])
+    var sc = ContactScene6[QuatBody6]()
+    var mid = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), vv^, ii^)
+    if guard:
+        sc.set_mesh_active_angle(mid, 0.1)
+    var b = QuatBody6.at_rest(Vec3(-3, 0.3, 0.13, 0), Inertia3.box(1, 0.4, 0.3, 0.4))
+    b.set_velocity(Vec3(2, 0, 0, 0), Vec3(0, 0, 0, 0))
+    var id = sc.add(b^, Vec3(0.4, 0.3, 0.4, 0), False)
+    var cfg = SolverConfig()
+    for _ in range(120):
+        sc.step(DT, G, cfg)
+    return sc.pose(id).pos[0] + 3
+
+
+def zeros(n: Int) -> List[Real]:
+    var z = List[Real]()
+    for _ in range(n):
+        z.append(0)
+    return z^
+
+
 def main() raises:
     var s = Suite("mesh_reduce")
     var off = sliding(False)
@@ -129,4 +162,8 @@ def main() raises:
     var nb = boundary()
     print("material boundary: up-facing manifolds", nb)
     s.check(nb == 2, "one up-facing manifold per material across a boundary")
+    var t0 = trimesh_slide(False)
+    var t1 = trimesh_slide(True)
+    print("trimesh 0.25 m grid slide: no guard", t0, " guard", t1)
+    s.check(t0 < 0.3 and abs(t1 / 0.408 - 1) < 0.02, "trimesh guard from shared vertices: slides v^2 / (2 mu g)")
     s.finish()

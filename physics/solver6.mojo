@@ -895,6 +895,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.adhesion[i] = force
         self.bset.any_contact_model = True
 
+    def set_mesh_active_angle(mut self, id: BodyId, angle: Real) raises:
+        """Ghost-contact guard of a mesh or heightfield body (ROADMAP 17.45 /
+        17.19): edges between triangles whose normals differ by at most
+        `angle` radians become inactive, so a box sliding over a flat seam
+        keeps the face normal instead of hitting the edge. Off by default
+        (every edge active): on a flat 0.25 m heightfield a 0.8 m box then
+        slides 0.099 m where it should slide 0.408 m (`test_mesh_reduce`)."""
+        var i = self._check_id(id, "set_mesh_active_angle")
+        self.colliders.set_active_angle(i, angle)
+
     def set_triangle_materials(mut self, id: BodyId, ids: List[Int]) raises:
         """ROADMAP 17.53: per-triangle surface material ids (0 .. 65535) of a
         mesh or heightfield body, one per triangle in the order the mesh was
