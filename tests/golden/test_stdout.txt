@@ -1509,6 +1509,11 @@ after 0.4 s: mean tip shift +x  one-way 0.12034178  two-way 0.055488646
 --- tests/test_terrain_deform.mojo ---
   crate after the crater: -0.7463815  edited corners 45
 [PASS] terrain_deform - 11 / 11 checks
+--- tests/test_terrain_stream.mojo ---
+loaded cells 12  colliders 12
+box rests at y 1.0384443  bottom 0.7884443  terrain there 0.7824567
+after moving 1 km: removed 12 of 12  now 11 colliders, 11 loaded
+[PASS] terrain_stream - 5 / 5 checks
 --- tests/test_tetmesh.mojo ---
   faceted sphere volume 0.5088204  (4/3 pi r^3 = 0.5235988 )
   sphere at 8 cells: nodes 447  tets 1350  volume 0.52734596 vs 0.5088204  error 0.036408782
