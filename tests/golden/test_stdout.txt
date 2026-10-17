@@ -831,6 +831,11 @@ build: all packages precompiled into build/
   assembled vs matrix-free: max diff 2.670288e-05 of 57.871613  nnz 4131  symmetric True
   2 s cantilever: tip y CG 0.3210657  Cholesky 0.3210657  IC(0)-PCG 0.32106578 ;  max gap 2.0861626e-07 m;  iterations CG 4896  IC(0) 1438 ;  volume 0.37493786 0.37493786 0.37493786 (rest 0.37499985 )
 [PASS] fem_solvers - 6 / 6 checks
+--- tests/test_fft_choppy.mojo ---
+  one choppy mode vs Gerstner Q = 0.6: worst height difference 1.6987324e-06
+  fraction of a wavelength above the level: choppiness 0 0.5  0.6 0.4725  (trochoid 1/2 - Q k A / pi = 0.4712 )
+  Phillips sea normals vs finite differences: worst 0.00010403317  |n| - 1 1.1920929e-07
+[PASS] fft_choppy - 4 / 4 checks
 --- tests/test_fft_ocean.mojo ---
   FFT 64: worst |FFT - DFT| 7.337332e-05 of 8.419345 ;  round trip 5.811453e-07
   one mode vs Gerstner Q = 0, 200 samples: worst height diff 2.3245811e-06  vertical velocity diff 0.0008085966
@@ -1213,6 +1218,12 @@ build: all packages precompiled into build/
 --- tests/test_serialize.mojo ---
   blob bytes: 20729
 [PASS] serialize - 8 / 8 checks
+--- tests/test_shallow_fv.mojo ---
+  Stoker 1 / 0.5 m, 20 s: plateau h 0.725981 u 0.9195093  analytic 0.7269205 0.9228935 ;  bore at 259  analytic 259.1282 ;  volume 300.0 -> 300.00006
+  Ritter dry dam break, 10 s, 1.0 m cells: quarter-depth point at 218.37676  analytic 215.65248 ;  1 mm tip at 246.5  analytic 259.64008
+  Ritter dry dam break, 10 s, 0.5 m cells: quarter-depth point at 217.31065  analytic 215.65248 ;  1 mm tip at 247.75  analytic 259.64008
+  lake at rest, 50 steps: max deviation 0.0  surface 0.0  velocity [0.0, 0.0, 0.0, 0.0]
+[PASS] shallow_fv - 5 / 5 checks
 --- tests/test_shape_dispatch.mojo ---
   F3 heightfield off-centre: brute y 0.24998327  bp y 0.24998327
   F3 trimesh off-centre: brute y 0.24984652  bp y 0.24984652
@@ -1242,6 +1253,11 @@ build: all packages precompiled into build/
 [PASS] sleep6 - 13 / 13 checks
 --- tests/test_sleep_api.mojo ---
 [PASS] sleep_api - 20 / 20 checks
+--- tests/test_smoke.mojo ---
+  hot blob, 2 s: centroid y 0.1999999 -> 0.6203501 ;  buoyancy 0: max |velocity| 0.0
+  net vertical momentum after one step -0.0007416347 of 3.2496383 ;  after 2 s 12.796514 of 403.8683 ;  confinement / none: kinetic energy 1.1503039  enstrophy 1.3789463
+  temperature range 0.0 0.97720605 -> 2.5272286e-33 0.17426212
+[PASS] smoke - 4 / 4 checks
 --- tests/test_smooth_positive.mojo ---
   d x(1 s) / d drop height: central differences 0.2708435 ;  sharp switch 0.5 (bias 0.2291565 )
     smooth k 30.0 : gradient 0.49688151  bias vs differences 0.22603801  x(1 s) 2.3142386
