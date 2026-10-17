@@ -69,7 +69,7 @@ geometry.mesh_bake  # [api] load-time collision-mesh baking (weld / repair / sim
 physics.cloth  # [api] mesh cloth; the host steps it beside the scene (17.56)
 physics.resources  # [api] resource report and limits a host queries (17.79)
 gameplay.camera_rig  # [api] spring arm and camera brain a host's camera code drives (17.68)
-procedural.sequence  # [api] timeline tracks a host or gameplay code evaluates (17.68)
+gameplay.sequence_player  # [api] plays a sequence into a scene: events to a Channel, kinematic bodies (17.68)
 gameplay.combat  # [api] hurtboxes, swings, hitscan, hit-stop for host gameplay code (17.71)
 gameplay.projectile  # [api] projectile pool stepped by host gameplay code (17.71)
 gameplay.explosion  # [api] explosions triggered by host gameplay code (17.71)
