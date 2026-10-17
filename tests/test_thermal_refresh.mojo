@@ -1,4 +1,4 @@
-# tier: unit
+# tier: integration
 """Conduction after thermal expansion (ROADMAP 17.61, `HeatTets.refresh`).
 
 A 4 x 2 x 2 tet beam (1 cm cells) at 400 K, `expand`ed with
