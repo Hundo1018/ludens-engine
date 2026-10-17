@@ -2654,7 +2654,12 @@
 > 魔數 / 版本 / FNV 校驗)。量測(`tests/test_ops.mojo` 11/11):40 箱場景 300 步遙測開 / 關逐位相同;10 次擊殺於第 10 次恰解鎖一次;1/4 抽樣 10000 筆留 2496 且兩次相同;
 > 回滾後已送達 tick 被拒、`rewind` 正確;黑盒 19585 bytes,於乾淨場景還原 tick 100 快照並重放 50 個輸入到 tick 150:逐位相同;損壞 / 截斷 / 版本錯 raise。
 > `bench_ops`:push 80 ns、抽樣 5.5 ns、滿時 0.6 ns;遙測開 / 關每步 725 / 768 µs(雜訊內;首版 `drain` 每 tick 從空重長串列,開時多 16 %、每筆 2.8 µs,已改預配容量)。
-> **未做**:`Runtime` tick 末排空與計數轉送、`HostServices` 服務項登記(17.75)、遠端設定 / 資格以輸入幀注入、黑盒接 17.33 不變式失敗與 17.80 擷取格式、C-ABI 取 outbox。
+> **進度註(2026-10-17)**:`Runtime.outbox` / `ops` / `take_ops`(幀末排空 outbox 到 `ops`,`ops` 以 outbox 容量為上限,outbox 滿或宿主不取所丟的筆數加到 `OUTBOX_DROPPED`)、
+> `gameplay/host_inbox.mojo` `ConfigInbox`(宿主隨時 `post`,`Runtime` 於幀首 `take` 並蓋上該幀第一個 tick、套到 `Runtime.config`;`log` 隨錄製保存,
+> `scripted(log)` 重播時忽略 `post`)。量測(`tests/test_runtime_ops.mojo` 6/6):100 幀每幀 1 筆、每幀取走 → 100 筆依 tick 序;容量 8 的 runtime 宿主 20 幀不取 → 留 8、計數 12;
+> 第 30 幀前設重力 50 %、第 60 幀步進中(`begin_advance` .. `finish`)設 100 % → log tick 為 30 / 61,第 60 幀仍 −4.9、第 61 幀 −9.8;以 `scripted(log)` 重跑 120 幀與即時執行場景位元組相同,
+> 同樣資料晚一幀則不同。
+> **未做**:`HostServices` 服務項登記(17.75)、黑盒接 17.33 不變式失敗(`debug_assert` 失敗即終止行程,無掛鉤點;需先有可恢復的不變式回報路徑)與 17.80 擷取格式、C-ABI 取 outbox / 投遞 config(ABI 凍結清單變更)。
 > **現況**:引擎端**只有診斷設施,沒有營運介面**。`diag/log.mojo:44-97` `LogRing`(分級 + 分類、drop-newest,引擎不 `print`)、`diag/counters.mojo:79,117`(`COUNT = 15` 個計數器;有 `get` / `dump`(`:129,135`),但無給宿主的匯出契約)、`diag/trace.mojo:63` `TraceBuffer`(Chrome trace 匯出);存檔給 bytes、無檔案 I/O(ROADMAP §17.40 17.40 待辦);回放錄製在記憶體(ROADMAP §17.39 17.39 待辦)。營運類能力:grep `telemetry|achievement|locali[sz]|analytics|leaderboard|entitlement|crash.?report`(不分大小寫)於全樹 `.mojo` 零命中。已定的邊界決定:17.16「傳輸層 / 線路格式交宿主」(ROADMAP §17.16)、「反作弊的帳號 / 封禁 / 用戶端防護屬宿主與線上服務」(ROADMAP §17.16)、hot config / CVar 併入 17.21(ROADMAP §17.23–17.41 增補「拒絕(5)」)、平台方向 C = 被宿主嵌入的函式庫。
 > **缺口**:本條定義**引擎對營運服務的接口與資料契約**,而非實作營運服務:
 > - **對外 outbox**:模擬在 tick 內只寫入有界佇列(drop-newest + 計數,同 `LogRing` / `DrawQueue`),tick 末由宿主取走;**模擬步內絕不呼叫宿主**,以保決定論。遙測是型別化數值欄位(構造上無 PII 字串)。

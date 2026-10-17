@@ -44,7 +44,17 @@ step's contact events. Time still accumulates and is consumed while a part
 is off, so a pause neither builds up a debt of ticks nor shifts what runs
 after it: pause N ticks, resume, run M == run M (`test_runtime_flow`).
 Systems passed to `advance_with` and coupled ports are the caller's; the
-mask does not reach them."""
+mask does not reach them.
+
+OPERATIONS (ROADMAP 17.73): at the start of every frame the runtime takes
+the host's queued config (`inbox`, `gameplay.host_inbox`), stamps it with
+the frame's first tick and applies it to `config` (key -> value); data the
+host posts during a frame, or while a `begin_advance` step is in flight,
+lands on the next frame. At the end of every frame the `outbox`
+(`diag.outbox`, written by gameplay code during ticks) is drained into
+`ops` for the host to `take_ops`; `ops` is bounded by the outbox capacity,
+and records dropped by either (a full outbox, a host that does not take)
+are added to `OUTBOX_DROPPED`."""
 
 from std.time import perf_counter_ns
 from ecs.world import World
@@ -66,10 +76,12 @@ from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
-from diag.counters import GAMELOOP_DEBT_DROPPED
+from diag.counters import GAMELOOP_DEBT_DROPPED, OUTBOX_DROPPED
+from diag.outbox import Outbox, OutRecord
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 from .tiers import TierPolicy, Tier
 from .flow import FlowStack, TICK_SIM, TICK_TIMERS, TICK_EVENTS
+from .host_inbox import ConfigInbox
 
 
 @fieldwise_init
@@ -119,8 +131,12 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var serial: Int
     var published: List[PoseQT]
     var flow: FlowStack  # ROADMAP 17.72: empty = everything ticks
+    var outbox: Outbox  # ROADMAP 17.73: written during ticks
+    var ops: List[OutRecord]  # drained at frame end, for the host
+    var inbox: ConfigInbox  # host data, applied at frame start
+    var config: Dict[Int, Int]
 
-    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8):
+    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096):
         self.world = World[Self.B]()
         self.scene = ContactScene6[Self.Body]()
         # Contact events are off by default on a bare `ContactScene6` (the
@@ -140,6 +156,10 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.serial = 0
         self.published = List[PoseQT]()
         self.flow = FlowStack()
+        self.outbox = Outbox(outbox_capacity)
+        self.ops = List[OutRecord]()
+        self.inbox = ConfigInbox()
+        self.config = Dict[Int, Int]()
 
     # ------------------------------------------------------------ lifecycle
 
@@ -287,7 +307,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         # Age the event double buffer once per FRAME, not per fixed tick: a
         # frame that runs several ticks must still deliver the first tick's
         # events to readers that read once per frame.
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self._tick()
@@ -311,7 +331,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.advance_with: a begin_advance step is still in flight")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self._tick()
@@ -335,7 +355,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.begin_advance: the previous step was not finished")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var ticks = 0
         while self.loop.accumulator >= self.loop.dt and ticks < self.loop.max_steps:
             self.loop.accumulator -= self.loop.dt
@@ -379,7 +399,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.advance_coupled: a begin_advance step is still in flight")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         var dt = Real(self.loop.dt)
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
@@ -401,7 +421,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.advance_budgeted: a begin_advance step is still in flight")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             budget.apply(self.cfg)
@@ -423,7 +443,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         history -- is `advance`'s."""
         debug_assert(self.loop.dt > 0, "Runtime.advance_tiered: loop.dt must be > 0")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self.scene.set_body_tiers(policy.assign(self.scene, observers, self.scene.step_index))
@@ -466,7 +486,25 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self._sync_transforms()
         self._capture_history()
 
+    def _begin_frame(mut self):
+        self.events.update()
+        for e in self.inbox.take(self.scene.step_index):
+            self.config[e.key] = e.value
+
+    def take_ops(mut self) -> List[OutRecord]:
+        var out = self.ops^
+        self.ops = List[OutRecord]()
+        return out^
+
     def _finish_frame(mut self) -> Float64:
+        for r in self.outbox.drain():
+            if len(self.ops) < self.outbox.capacity:
+                self.ops.append(r)
+            else:
+                self.outbox.dropped += 1
+        var d = self.outbox.take_dropped()
+        if d > 0:
+            self.loop.counters.incr(OUTBOX_DROPPED, Int64(d))
         if self.loop.accumulator >= self.loop.dt:
             # audit E22/F16's drop, replicated (FixedLoop.advance's own
             # docstring has the full reasoning): a frame-rate spike clamped
