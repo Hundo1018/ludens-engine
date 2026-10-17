@@ -13,10 +13,17 @@ a closed isosurface comes out as a closed, consistently wound mesh
 
 `splat_particles(points, radius, ...)` builds the grid from particles by
 summing the poly6 kernel (1 - r^2 / R^2)^3 over each particle's support.
+
+`sample_sdf(sdf, ...)` fills the grid with minus the signed distance, so
+`marching_tetrahedra(g, 0)` extracts the solid's surface (inside = value
+> 0); `TriMesh.flat()` gives the (x, y, z per vertex, index triples)
+arrays `ContactScene6.add_trimesh` takes -- an SDF (a cave, a carved
+terrain, 17.69) becomes a static collision mesh.
 """
 
 from std.math import sqrt
 from .vec import Real, Vec3, cross, dot, length
+from .sdf3 import Sdf3
 
 
 struct ScalarGrid(Movable):
@@ -54,6 +61,15 @@ struct TriMesh(Movable):
 
     def triangles(self) -> Int:
         return len(self.tris) // 3
+
+    def flat(self) -> Tuple[List[Real], List[Int]]:
+        """(x, y, z per vertex, index triples) for a collision mesh."""
+        var v = List[Real](capacity=3 * len(self.verts))
+        for p in self.verts:
+            v.append(p[0])
+            v.append(p[1])
+            v.append(p[2])
+        return (v^, self.tris.copy())
 
     def area(self) -> Real:
         var a = Real(0)
@@ -218,4 +234,14 @@ def splat_particles(points: List[Vec3], radius: Real, origin: Vec3, spacing: Rea
                     if q < r2:
                         var s = 1 - q / r2
                         g.v[g.idx(i, j, k)] += s * s * s
+    return g^
+
+
+def sample_sdf(sdf: Sdf3, origin: Vec3, spacing: Real, nx: Int, ny: Int, nz: Int) raises -> ScalarGrid:
+    """A node grid of -distance (positive inside the solid)."""
+    var g = ScalarGrid(nx, ny, nz, origin, spacing)
+    for k in range(nz):
+        for j in range(ny):
+            for i in range(nx):
+                g.v[g.idx(i, j, k)] = -sdf.distance(g.node(i, j, k))
     return g^

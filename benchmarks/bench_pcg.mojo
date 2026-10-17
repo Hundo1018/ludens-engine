@@ -12,7 +12,7 @@ Run with: `mojo run -I build benchmarks/bench_pcg.mojo`.
 from std.benchmark import keep
 from geometry.vec import Real, Vec2
 from procedural.scatter import poisson_disk, dart_throwing, jittered_grid
-from procedural.delaunay import delaunay
+from procedural.delaunay import delaunay, delaunay_walk
 from procedural.terrain_gen import TerrainParams, terrain_height, height_tile, thermal_erosion
 from harness.bench import BenchTable, now
 
@@ -42,6 +42,16 @@ def main() raises:
         var t5 = now()
         keep(len(tri))
         d.add("delaunay n=" + String(n), n, "point", t5 - t4, n)
+        var t6 = now()
+        var tw = delaunay_walk(sub)
+        var t7 = now()
+        keep(len(tw))
+        d.add("delaunay_walk n=" + String(n), n, "point", t7 - t6, n)
+    var tw0 = now()
+    var all_w = delaunay_walk(a)
+    var tw1 = now()
+    keep(len(all_w))
+    d.add("delaunay_walk n=" + String(len(a)) + " (all Poisson points)", len(a), "point", tw1 - tw0, len(a))
     d.print_report()
 
     var h = BenchTable("Terrain samples and erosion (17.69)")

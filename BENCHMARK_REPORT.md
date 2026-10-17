@@ -4004,28 +4004,32 @@ is the known next step).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| poisson_disk (1602 points) | 1602 | point | 5267.00 | 0.19 | 8.44 |
-| dart_throwing 5000 tries (1186 points) | 1186 | point | 1575.94 | 0.63 | 1.87 |
-| jittered_grid (2500 points) | 2500 | point | 23.89 | 41.87 | 0.06 |
+| poisson_disk (1602 points) | 1602 | point | 7509.10 | 0.13 | 12.03 |
+| dart_throwing 5000 tries (1186 points) | 1186 | point | 2590.77 | 0.39 | 3.07 |
+| jittered_grid (2500 points) | 2500 | point | 28.81 | 34.70 | 0.07 |
 
 
 ### Delaunay (Bowyer-Watson, exact predicates) (17.69)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| delaunay n=250 | 250 | point | 13666.92 | 0.07 | 3.42 |
-| delaunay n=500 | 500 | point | 22259.80 | 0.04 | 11.13 |
-| delaunay n=1000 | 1000 | point | 43273.11 | 0.02 | 43.27 |
+| delaunay n=250 | 250 | point | 20830.66 | 0.05 | 5.21 |
+| delaunay_walk n=250 | 250 | point | 3828.47 | 0.26 | 0.96 |
+| delaunay n=500 | 500 | point | 35674.74 | 0.03 | 17.84 |
+| delaunay_walk n=500 | 500 | point | 3400.13 | 0.29 | 1.70 |
+| delaunay n=1000 | 1000 | point | 69782.18 | 0.01 | 69.78 |
+| delaunay_walk n=1000 | 1000 | point | 3696.04 | 0.27 | 3.70 |
+| delaunay_walk n=1602 (all Poisson points) | 1602 | point | 3733.97 | 0.27 | 5.98 |
 
 
 ### Terrain samples and erosion (17.69)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| fbm 5 octaves | 20000 | sample | 101.40 | 9.86 | 2.03 |
-| ridged | 20000 | sample | 102.04 | 9.80 | 2.04 |
-| domain-warped (+2 x 3 octaves) | 20000 | sample | 219.54 | 4.56 | 4.39 |
-| thermal_erosion 65^2, 50 passes | 4225 | cell-pass | 88.90 | 11.25 | 18.78 |
+| fbm 5 octaves | 20000 | sample | 118.48 | 8.44 | 2.37 |
+| ridged | 20000 | sample | 114.58 | 8.73 | 2.29 |
+| domain-warped (+2 x 3 octaves) | 20000 | sample | 259.65 | 3.85 | 5.19 |
+| thermal_erosion 65^2, 50 passes | 4225 | cell-pass | 141.86 | 7.05 | 29.97 |
 
 
 ## `diag` — observability layer (Phase 17.9 / 17.10 / 17.32-17.34)

@@ -42,6 +42,10 @@ build: all packages precompiled into build/
   worst |incidence| on the torus surface: 1.5258789e-05
   worst sphere discrepancy: 7.6293945e-06
 [PASS] dcga - 6 / 6 checks
+--- tests/test_delaunay_walk.mojo ---
+500 random points: 976 vs 976 triangles, identical sets True
+lattice: 50 / 50  ring: 12
+[PASS] delaunay_walk - 5 / 5 checks
 --- tests/test_dense.mojo ---
 [PASS] dense - 21 / 21 checks
 --- tests/test_diag_arena.mojo ---
@@ -133,6 +137,12 @@ build: all packages precompiled into build/
   Sigma-area  median: 213042.88  sah: 187398.86  lbvh: 201227.88
   avg leaf depth  median: 9.293333  sah: 9.39  lbvh: 9.565
 [PASS] lbvh - 7 / 7 checks
+--- tests/test_levelgen.mojo ---
+maze 20 x 15: 599 floor cells, 299 passages, reachable 599
+bsp 60 x 40: 14 rooms, floor 1340 reachable from room 0 1340
+koch 2 rewrites: 25 F, 25 segments; bracket end -8.742278e-08 2.0
+wfc 20 x 20: sea / shore / land 187 183 30  forbidden pairs 0
+[PASS] levelgen - 7 / 7 checks
 --- tests/test_mesh_bake.mojo ---
   bumpy: largest original-vertex distance to the baked surface 0.02160775661468506
 [PASS] mesh_bake - 24 / 24 checks
@@ -368,6 +378,11 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
 [PASS] ecs_pack_guard - 3 / 3 checks
 --- tests/test_epa.mojo ---
 [PASS] epa - 8 / 8 checks
+--- tests/test_erosion.mojo ---
+fBm tile: total height 923.3265516405372 -> 923.3265470296865  relative to sum |h| 1.0103243362008928e-09
+sloped tile: height change lower quarter 2816.0857656002045  upper half -3536.789867401123  max |change| 4.8919244
+slope filter: 331 of 667 points kept, max x 31.693409   slope at x 10 / 40: 0.0 1.0
+[PASS] erosion - 4 / 4 checks
 --- tests/test_events.mojo ---
 [PASS] events - 18 / 18 checks
 --- tests/test_floating.mojo ---
@@ -986,6 +1001,10 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
 [PASS] gpu_lbvh - 0 / 0 checks
 --- tests/test_gpu_raycast.mojo ---
 [PASS] gpu_raycast - 0 / 0 checks
+--- tests/test_helicopter.mojo ---
+no tail rotor, 2 s: yaw rate -32.116
+hover 5 s: y 2.9999475  up.y 1.0  heading 0.49997857  tail thrust -3.2666419 ( 3.2666667 )
+[PASS] helicopter - 5 / 5 checks
 --- tests/test_host_bulk.mojo ---
   20 bodies teleported ( 40 were asleep): batch == sequential right after True  and for 60 steps True
   Health on 88 entities: compile-time vs host component agree True
@@ -1025,6 +1044,11 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
 --- tests/test_islands_par.mojo ---
   islands: 6
 [PASS] islands_par - 6 / 6 checks
+--- tests/test_iso_collision.mojo ---
+box SDF: triangles 7872  open edges 0  volume 3.9744866
+box dropped on the mesh: rests at 0.10040271 0.59999436 -0.19986863  (bottom 0.49999437 )
+sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
+[PASS] iso_collision - 3 / 3 checks
 --- tests/test_jobgraph.mojo ---
   levels — Integrate 0  Drag 1  Decay 0  Award 1  depth 2
   sparse digests — seq 7306341537769252880  graph 7306341537769252880  parallel 7306341537769252880
