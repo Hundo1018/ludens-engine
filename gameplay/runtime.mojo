@@ -34,7 +34,17 @@ unit, matching that test's own per-step `ch.update()` call), then poses
 sync into ECS transforms (`_sync_transforms`, one `for_each2` pass: reads
 `BodySet`, writes `ecs.transform.Transform` -- no `List[Entity]`
 allocation, the same zero-allocation path every other ECS system in this
-engine uses)."""
+engine uses).
+
+GAME FLOW (ROADMAP 17.72): `flow` is a `gameplay.flow.FlowStack`. Empty, every
+part ticks (the behaviour above). Otherwise the top state's `TICK_*` mask
+gates each part of `_tick`: `TICK_TIMERS` the timer queue, `TICK_SIM` the
+scene step with its pose sync and history, `TICK_EVENTS` forwarding that
+step's contact events. Time still accumulates and is consumed while a part
+is off, so a pause neither builds up a debt of ticks nor shifts what runs
+after it: pause N ticks, resume, run M == run M (`test_runtime_flow`).
+Systems passed to `advance_with` and coupled ports are the caller's; the
+mask does not reach them."""
 
 from std.time import perf_counter_ns
 from ecs.world import World
@@ -59,6 +69,7 @@ from collision.contact_events import ContactEvent
 from diag.counters import GAMELOOP_DEBT_DROPPED
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 from .tiers import TierPolicy, Tier
+from .flow import FlowStack, TICK_SIM, TICK_TIMERS, TICK_EVENTS
 
 
 @fieldwise_init
@@ -107,6 +118,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var executed: Bool
     var serial: Int
     var published: List[PoseQT]
+    var flow: FlowStack  # ROADMAP 17.72: empty = everything ticks
 
     def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8):
         self.world = World[Self.B]()
@@ -127,6 +139,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.executed = False
         self.serial = 0
         self.published = List[PoseQT]()
+        self.flow = FlowStack()
 
     # ------------------------------------------------------------ lifecycle
 
@@ -436,12 +449,20 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
                 elif self.world.has[Tier[k, BASE]](e):
                     self.world.remove[Tier[k, BASE]](e)
 
+    def runs(self, what: Int) -> Bool:
+        """Whether the flow state lets `what` (a `TICK_*` bit) tick."""
+        return self.flow.depth() == 0 or self.flow.ticks(what)
+
     def _tick(mut self) raises:
-        var fired = List[TimerFire]()
-        self.timers.advance(1, fired)
+        if self.runs(TICK_TIMERS):
+            var fired = List[TimerFire]()
+            self.timers.advance(1, fired)
+        if not self.runs(TICK_SIM):
+            return
         self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
-        for i in range(len(self.scene.events)):
-            self.events.send(self.scene.events[i].copy())
+        if self.runs(TICK_EVENTS):
+            for i in range(len(self.scene.events)):
+                self.events.send(self.scene.events[i].copy())
         self._sync_transforms()
         self._capture_history()
 
