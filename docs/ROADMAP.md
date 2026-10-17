@@ -1632,8 +1632,15 @@
 > 密度 500 的 2×1×2 箱在平水上中心 y = 0.062(取樣層 1/8 容許 ±0.0625);40 m、A = 0.5 的湧浪上起伏 1.08 m、週期 5.067 s(波 5.064 s);
 > 1 m 深格網漣漪到 5 m 外 1.55 s(5/√(gH) = 1.60 s);阻尼 0.5/s 時 400 步後 Σeta² 剩 2 %。`bench_water`:Gerstner 4 波查詢 300 ns、格網取樣 7.9 ns、
 > 格網每格步 8.6 ns、`float_body` 4³ 取樣在 4 波海面上 22.5 µs / 物體。
-> **未做**:FFT 海洋頻譜(Tessendorf)與 Gerstner 單頻 parity、`WaterVolume` / `apply_buoyancy` 改走 seam、淺水格網的流速與非線性項、MAC 投影格網流體 / FLIP、
-> 煙霧、LBM 擴充(任意方向體力、MRT)、粒子 → 表面、Taylor–Green parity。
+> **進度註(2026-10-17,FFT 海洋)**:`numerics/fft.mojo`(基 2 迭代複數 FFT、`fft2`,非 2 的冪 raise)與 `physics/water.mojo` `FftOcean`(`WaterSurface` 的第四個變體):
+> n×n 波向量 k = 2π m / size 各帶複振幅 h0,η = level + Re Σ h0 e^{i(k·x − ωt)},ω² = g|k|;`phillips(seed, A, wind)` 以 SplitMix64 + Box–Muller 填 Phillips 頻譜
+> (同種子逐位相同、任意 t 免步進);`update(t)` 一次反 2-D FFT 得整格,`height` 在該 t 用雙線性取格、其他 t 直接加總(精確,O(n²))。
+> `tests/test_fft_ocean.mojo` 8/8:FFT 對直接 DFT 7.3e-5(峰值 8.4)、往返 5.8e-7;單一模態對陡度 0 的 Gerstner 200 個隨機點 / 時間最差 2.3e-6 m(seam parity),
+> 垂直速度差 8e-4 m/s(Gerstner 以數值微分);64²、200 m、風 10 m/s、A = 3e-6 的海有效波高 4σ = 2.26 m,格點上 FFT 對加總 3.7e-6 m,格點間雙線性最差 0.147 m
+> (最大 |η| 1.56 m 的 9 %);2×1×2 箱(密度 500)以 `float_body` 浮在上面 5–10 s 起伏 0.66 m;無模態時 = 水位,patch 週期重複。
+> `bench_water`:update 32² / 64² / 128² = 0.06 / 0.26 / 1.18 ms,已更新 t 的格點查詢 33 ns,其他 t 的直接加總 67 µs。
+> **未做**:`WaterVolume` / `apply_buoyancy` 改走 seam、淺水格網的流速與非線性項、MAC 投影格網流體 / FLIP、煙霧、LBM 擴充(任意方向體力、MRT)、
+> 粒子 → 表面、Taylor–Green parity、FFT 海洋的水平位移(choppy)與法線。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
