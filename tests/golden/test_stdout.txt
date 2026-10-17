@@ -1654,6 +1654,15 @@ wall on the left: exit ok True  at x 1.6
 [PASS] hit_pipeline - 7 / 7 checks
 --- tests/test_runtime_budget.mojo ---
 [PASS] runtime_budget - 4 / 4 checks
+--- tests/test_runtime_flow.mojo ---
+pause: timer tick before / after the pause 40 40  end 120 120  accumulator True
+masks: contact events all / sim-only 291 0  timer tick under sim-only 0  under timers-only 10
+[PASS] runtime_flow - 5 / 5 checks
+--- tests/test_runtime_ops.mojo ---
+outbox: delivered 100  slow host kept 8 dropped 12
+config: log 2 entries at ticks 30 61  gravity in frame 60 -4.9  frame 61 -9.8
+replay: scripted run equals live True  posts one frame later differ True
+[PASS] runtime_ops - 6 / 6 checks
 --- tests/test_runtime_params.mojo ---
   floater vy 0.0  pushed vx 1.0
   runtime channel: began impulse 4.163334
