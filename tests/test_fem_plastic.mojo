@@ -1,4 +1,4 @@
-# tier: component
+# tier: integration
 """FEM plasticity and element-removal fracture (ROADMAP 17.58,
 `FemBody.set_plasticity` / `plastic_flow` / `remove_overstrained`).
 
