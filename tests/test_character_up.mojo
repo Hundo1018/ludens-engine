@@ -8,7 +8,9 @@
      the rotated trajectory: final positions agree within 1 mm, both end
      grounded, both on top of the ledge.
   2. Integration: the rounded-box character does the same (its box stands
-     along the new up); a jump rises along up.
+     along the new up); a jump rises along up. A `Mover` (accelerating
+     walk, double jump, a jump-pad `add_velocity` along up, then FLY with
+     a wish along up) gives the rotated path and the same peak (1 mm).
   3. Extreme: a zero up raises; up = +y is the default (bit for bit, the
      existing character tests' output is unchanged).
 """
@@ -19,6 +21,8 @@ from geometry.quat import Quat
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from gameplay.character import CharacterController, CharacterConfig
+from gameplay.movement import Mover, MoveConfig, MODEL_ACCEL, MODE_FLY
+from physics.fields import WaterVolume
 
 comptime DT: Real = 1.0 / 60.0
 
@@ -45,6 +49,36 @@ def _run(rot: Bool, box: Bool, jump: Bool) raises -> Tuple[Vec3, Bool, Real]:
     return (c.position, c.on_ground, top)
 
 
+def _mover(rot: Bool) raises -> Tuple[Vec3, Real, Int]:
+    """(final position, peak height along up, jumps used)."""
+    var sc = ContactScene6[QuatBody6]()
+    var fh = _r(Vec3(20, 0.5, 20, 0), rot)
+    _ = sc.add(QuatBody6.at_rest(_r(Vec3(0, -0.5, 0, 0), rot), Inertia3.box(1, 1, 1, 1)), Vec3(abs(fh[0]), abs(fh[1]), abs(fh[2]), 0), True)
+    var c = CharacterController(_r(Vec3(0, 0.92, 0, 0), rot))
+    if rot:
+        c.set_up(Vec3(1, 0, 0, 0))
+    var cfg = MoveConfig.default()
+    cfg.model = MODEL_ACCEL
+    cfg.max_jumps = 2
+    var m = Mover(c^, cfg)
+    var g = _r(Vec3(0, -9.8, 0, 0), rot)
+    var waters = List[WaterVolume]()
+    var top = Real(-1e9)
+    var used = 0
+    for k in range(200):
+        if k == 120:
+            m.add_velocity(_r(Vec3(0, 6, 0, 0), rot))
+        if k == 170:
+            m.mode = MODE_FLY
+        var wish = _r(Vec3(0, 1, 1, 0), rot) if k >= 170 else Vec3(0, 0, 2, 0)
+        var press = k == 30 or k == 45
+        m.update(sc, wish, press, k < 50, DT, g, waters)
+        used = max(used, m.jumps)
+        var p = m.cc.position
+        top = max(top, p[0] if rot else p[1])
+    return (m.cc.position, top, used)
+
+
 def main() raises:
     var s = Suite("character_up")
     for box in [False, True]:
@@ -60,6 +94,11 @@ def main() raises:
     var jb = _run(True, False, True)
     print("  jump at 4 m/s: peak height along up  +y", ja[2], " +x", jb[2])
     s.check(abs(ja[2] - jb[2]) < 1e-3 and ja[2] > 1.6, "a jump rises along up the same in both frames")
+    var ma = _mover(False)
+    var mb = _mover(True)
+    var mback = Vec3(-mb[0][1], mb[0][0], mb[0][2], 0)
+    print("  mover, double jump + pad + fly: +y ends at", ma[0], "peak", ma[1], "jumps", ma[2], "; +x rotated back", mback, "peak", mb[1], "jumps", mb[2])
+    s.check(length(mback - ma[0]) < 1e-3 and abs(ma[1] - mb[1]) < 1e-3 and ma[2] == 2 and mb[2] == 2, "Mover: jumps, pad and fly act along up (rotated path, same peak, double jump in both)")
     var raised = False
     var c = CharacterController(Vec3(0, 1, 0, 0))
     try:

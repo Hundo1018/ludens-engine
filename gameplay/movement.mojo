@@ -27,6 +27,10 @@ external velocity. `Mover` wraps it:
     overwritten by walking.
   * moving platforms: the controller already carries the position; `heading`
     (yaw, radians) now also turns with the platform's angular velocity.
+  * the vertical is the controller's `up` (17.67; `cc.set_up`): jumps,
+    the swim / fly wish, external vertical velocity and platform yaw are
+    measured along it. Water volumes stay axis-aligned boxes with a +y
+    surface.
 
 `Mover` is a value type (copy = snapshot) and uses no wall clock.
 """
@@ -80,10 +84,6 @@ def _toward(v: Vec3, target: Vec3, step: Real) -> Vec3:
     if l <= step or l == 0:
         return target
     return v + d * (step / l)
-
-
-def _flat(v: Vec3) -> Vec3:
-    return Vec3(v[0], 0, v[2], 0)
 
 
 struct Mover(Copyable, Movable):
@@ -238,8 +238,17 @@ struct Mover(Copyable, Movable):
             best = max(best, min(max((w.hi[1] - foot) / height, Real(0)), Real(1)))
         return best
 
+    def _vy(self, v: Vec3) -> Real:
+        """Component of `v` along the controller's up axis."""
+        return self.cc._v(v)
+
+    def _with_vy(self, v: Vec3, s: Real) -> Vec3:
+        """`v` with its up component replaced by `s` (exact for +y: the
+        other components pass through unchanged)."""
+        return self.cc._h(v) + self.cc.up * s
+
     def _model(mut self, wish: Vec3, grounded: Bool, dt: Real):
-        var w = _flat(wish)
+        var w = self.cc._h(wish)
         if self.cfg.model == MODEL_DIRECT:
             self.vel = w
             return
@@ -267,8 +276,8 @@ struct Mover(Copyable, Movable):
         mut self, mut sc: ContactScene6[B], wish_in: Vec3, jump_pressed: Bool, jump_held: Bool,
         dt: Real, gravity: Vec3, waters: List[WaterVolume],
     ):
-        """One tick. `wish_in` is the desired velocity (horizontal; its y is
-        used only when swimming or flying); non-finite input counts as no
+        """One tick. `wish_in` is the desired velocity (horizontal; its
+        component along `cc.up` is used only when swimming or flying); non-finite input counts as no
         wish. `dt = 0` changes nothing."""
         if not (dt > 0):
             return
@@ -286,8 +295,8 @@ struct Mover(Copyable, Movable):
         var grounded = self.cc.on_ground
         # ledge climb / vault when walking or falling into a wall
         if self.climb_height > 0 and self.mode != MODE_FLY and self.mode != MODE_SWIM:
-            var wl = length(_flat(wish))
-            if wl > 1e-6 and self._try_ledge(sc, _flat(wish) / wl):
+            var wl = length(self.cc._h(wish))
+            if wl > 1e-6 and self._try_ledge(sc, self.cc._h(wish) / wl):
                 return
         # mode
         var sub = self._submerged(waters)
@@ -312,19 +321,19 @@ struct Mover(Copyable, Movable):
             self.press_ticks += 1
         # horizontal model
         self._model(wish, grounded, dt)
-        var walk = self.vel + _flat(self.ext)
+        var walk = self.vel + self.cc._h(self.ext)
         var g = gravity
         var jump = Real(0)
         if self.mode == MODE_SWIM:
             g = gravity * (1 - self.cfg.buoyancy)
-            var vy = self.cc.velocity[1] * exp(-self.cfg.water_drag * dt) + wish[1] * (1 - exp(-self.cfg.water_drag * dt))
-            self.cc.velocity[1] = vy
+            var vy = self._vy(self.cc.velocity) * exp(-self.cfg.water_drag * dt) + self._vy(wish) * (1 - exp(-self.cfg.water_drag * dt))
+            self.cc.velocity = self._with_vy(self.cc.velocity, vy)
             self.rising_jump = False
         elif self.mode == MODE_FLY:
             g = Vec3(0, 0, 0, 0)
-            self.cc.velocity[1] = wish[1]
-            if grounded and wish[1] > 0:
-                jump = wish[1]
+            self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(wish))
+            if grounded and self._vy(wish) > 0:
+                jump = self._vy(wish)
         else:
             var ground_ok = grounded or self.air_ticks <= self.cfg.coyote_ticks
             var pending = self.press_ticks <= self.cfg.buffer_ticks
@@ -341,20 +350,21 @@ struct Mover(Copyable, Movable):
                 if grounded:
                     jump = self.cfg.jump_speed
                 else:
-                    self.cc.velocity[1] = self.cfg.jump_speed
-            elif self.rising_jump and not jump_held and self.cc.velocity[1] > 0:
-                self.cc.velocity[1] *= self.cfg.jump_cut
+                    self.cc.velocity = self._with_vy(self.cc.velocity, self.cfg.jump_speed)
+            elif self.rising_jump and not jump_held and self._vy(self.cc.velocity) > 0:
+                self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(self.cc.velocity) * self.cfg.jump_cut)
                 self.rising_jump = False
         # external vertical velocity
-        if self.ext[1] != 0:
-            if grounded and self.ext[1] > 0 and jump == 0:
-                jump = self.ext[1]
+        var ev = self._vy(self.ext)
+        if ev != 0:
+            if grounded and ev > 0 and jump == 0:
+                jump = ev
             elif not grounded:
-                self.cc.velocity[1] += self.ext[1] * dt * self.cfg.ext_decay
+                self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(self.cc.velocity) + ev * dt * self.cfg.ext_decay)
         var gb = self.cc.ground_body
         self.cc.update(sc, walk, jump, dt, g)
         if grounded and gb >= 0 and gb < len(sc.bset.bodies) and sc.bset.moves(gb):
-            self.heading += sc.bset.bodies[gb].omega_world()[1] * dt
-        if self.cc.velocity[1] <= 0:
+            self.heading += self._vy(sc.bset.bodies[gb].omega_world()) * dt
+        if self._vy(self.cc.velocity) <= 0:
             self.rising_jump = False
         self.ext = self.ext * exp(-self.cfg.ext_decay * dt)
