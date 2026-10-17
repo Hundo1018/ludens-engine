@@ -3326,7 +3326,7 @@
 > tick 週期與逐 island 品質屬 17.85(`TieredScheduler`),本條只提供它可掛的派發器。
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
-> **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣未做)。
+> **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣 2026-10-17 ✅;剩 ARM / macOS golden 與跨架構 dump 比對)。
 > **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
 > (同參數的純函數兩次呼叫被合併 → 每個閉包自帶呼叫計數)、`test_python_binding`(`build_wheel.py` 靠 `ldd` 與 ELF RUNPATH,非 Linux 改為明確拒絕,
 > 測試檢查該訊息;wheel tag 改隨建置機器 `linux_<machine>`,aarch64 不再標成 x86_64)。ubuntu-24.04-arm:`test_fracture` 碎片堆 48 塊中 6 塊入睡、
@@ -3398,8 +3398,13 @@
 >   比較狀態雜湊與最大漂移(參考 skylake 預設優化):`-O1` / `-O2` / haswell(AVX2 + FMA)/ skylake-avx512 / 本機 CPU 皆逐位相同;**改變位元的只有 FMA 有無與 -O0**:
 >   x86-64 基線(無 FMA)漂移 6.65e-3 / 1.07e-6 / 3.05e-7、`-O0` 7.20e-3 / 9.55e-7 / 1.43e-6(堆 / 球 / 塔;混沌堆疊放大到 mm 級,單體與塔在 1e-6)。
 >   → SIMD 寬度與一般優化等級不影響結果,FMA 縮併是跨目標差異的來源;ARM(皆有 FMA,但縮併由編譯器決定)的差異屬同類,容差表以此為基準。
-> - **待辦**:ARM / macOS golden 記錄並轉為阻擋式檢查;跨目標容差表(3 場景 × 300 步);FMA / SIMD 寬度 / libm / 優化等級的位元探針;
->   降級矩陣(`workers = 1`、無 GPU、SIMD 寬度 1)各一個等價測試;aarch64 與 x86-64 的 `write_state` 位元組逐項比對。
+> - **跨目標容差表與降級矩陣(2026-10-17)**:`scripts/fp_probe.py` 加 `TOLERANCE`(300 步後最大座標漂移:堆 2e-2 m、滾動球 1e-5、塔 1e-5;
+>   由 x86-64 上會改變位元的變體量值加餘裕:堆是混沌堆疊故為 mm 級),`--check`(任一變體超出即失敗)、`--dump` / `--compare`(另一平台的狀態對本機比對)、selftest 3/3;
+>   CI 可攜工作印出各平台的 dump。重量(盒軸改由旋轉求得之後):`-O0` 5.65e-3 / 9.55e-7 / 3.00e-7、無 FMA 6.65e-3 / 1.07e-6 / 3.00e-7(堆 / 球 / 塔),
+>   其餘 5 個變體逐位相同,`--check` 通過。`tests/test_degrade.mojo` 3/3:40 個 island × 120 tick,island fan-out 以 1 個 worker == 預設寬度 == 串行派發;
+>   同色 fan-out 與並行 narrowphase 以 1 個 worker == 串行 step(快照位元組相同)。降級矩陣其餘兩列在本引擎無可比對對象:沒有自動 GPU → CPU 切換(GPU 解算器是宿主明選的型別),
+>   SIMD 寬度不是旋鈕(`PadW` 依維度固定;探針顯示 x86-64 各寬度逐位相同)。
+> - **待辦**:ARM / macOS golden 記錄並轉為阻擋式檢查;以 CI 印出的 aarch64 / macOS dump 執行 `--compare`(取代逐位元組 `write_state` 比對:兩架構 FMA 縮併不同,位元組必然不同,改以容差表比對)。
 
 #### 17.78 宿主整合 / 綁定 — Wave C
 > **狀態**:🔶 部分完成(2026-10-13:批量姿態寫入、診斷計數器經 C 讀出、宿主定義元件、跨語言的逐物件 vs 批量量測 ✅;2026-10-17:宿主對映(layer、user 值)、

@@ -91,6 +91,16 @@ jobs:
             cat "$golden"
             echo "----- END GOLDEN $golden -----"
           fi
+      # ROADMAP 17.76: this platform's three probe scenes after 300 steps,
+      # printed for the cross-target comparison against x86-64
+      # (`pixi run fp-probe -- --compare <dump>` on the reference host).
+      - name: fp probe dump
+        run: |
+          pixi run fp-probe -- --dump build/fp_dump.json
+          echo "----- BEGIN FP DUMP -----"
+          cat build/fp_dump.json
+          echo
+          echo "----- END FP DUMP -----"
       - name: upload gate log
         if: always()
         uses: actions/upload-artifact@v4
