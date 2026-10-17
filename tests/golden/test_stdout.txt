@@ -400,6 +400,11 @@ build: all packages precompiled into build/
 [PASS] lbm - 28 / 28 checks
 --- tests/test_lbm_gpu.mojo ---
 [PASS] lbm_gpu - 0 / 0 checks
+--- tests/test_lbm_trt.mojo ---
+  Poiseuille relative error, tau 0.8 / 2.0 / 3.5: BGK 0.011709139 0.110912204 0.53018683 ;  TRT 3/16 0.005595984 0.024884997 0.05127477
+  shear wave under TRT: nu measured 0.030157264  input 0.03
+  TRT with tau- = tau vs BGK, 200 steps: worst population difference 7.1525574e-07
+[PASS] lbm_trt - 3 / 3 checks
 --- tests/test_lbm_validation.mojo ---
   shear wave — amplitude 0.010000001 -> 0.0062675252
     nu measured 0.030296072  input 0.03  tau-derived 0.029999992  rel err 0.009869101
@@ -857,6 +862,10 @@ build: all packages precompiled into build/
   mesh events — contacts in the last step 2.0  began total 2.0
   zero mask, crate after 2s: -19.04086
 [PASS] filter_events - 21 / 21 checks
+--- tests/test_flip.mojo ---
+  still tank 1 s: 1920 particles, max speed 1.7079161e-07  worst |p/g - (h + dx/2 - y)| 1.1920929e-07
+  dam break 0.25 x 0.5 m: front at 0.3 s 0.86836827  0.5 s 1.5221659  speed / sqrt(g h0) 1.4767783  (Ritter 2)
+[PASS] flip - 3 / 3 checks
 --- tests/test_force_elements.mojo ---
   box hull density 500 after 10 s: centre y 0.0030862144 (waterline 0, draft 0.25)
   submerged volume: polytope cut 0.6  closed form 0.6  centroid y -0.075 -0.075
