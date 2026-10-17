@@ -1436,8 +1436,20 @@
 > 懸臂樑 12×2×2、E = 1e7、隱式 600 步:尖端撓度 6.20 mm,Euler–Bernoulli 8.57 mm,比 0.72(線性四面體彎曲鎖死);E = 1e5 顯式 3 s:共旋轉與 NH 尖端差 0.04 %;
 > 單一四面體推過對面(det F = −0.2)放開 2 s:NH 回到 det F = 1.02,StVK −0.98、共旋轉 −1.02 維持反轉;單軸壓到 2 %:StVK 回復應力 35(峰值 674),NH 3430。
 > `bench_fem_material`(960 四面體):共旋轉 1545 ns/四面體(內建路徑 1793)、NH 163、StVK 185 —— 極分解占主要成本。
-> **未做**:FEM 進場景(17.55 登記 + 節點對 `ColliderSet` 推出)、隱式步的 NH 切線、近不可壓鎖死對策、四面體網格化、塑性 / 黏彈、MPM 邊界與出界計數、
-> VBD / PD 求解器變體、元素移除式斷裂。
+> **進度註(2026-10-17)**:
+> - **FEM 進場景**(`physics/fem_scene.mojo` `FemContactPort`,經 17.55 `couple_step`):每個節點(半徑球)對場景所有碰撞體推出(盒取**進入面**、球 / 膠囊徑向、
+>   其他形狀走 `soft_particle_contact`)+ 位置級 Coulomb 摩擦 + 對動態剛體的等大反向衝量;`fem_coupled_step` 以子步跑整個耦合步。
+>   **發現**(皆量過):隱式 FEM 在解外處理接觸時,後向 Euler 只回傳輕節點彈性衝量的 m / (m + dt²k)(此處約 1/29),50 kg 箱子陷入方塊 9 cm(同負載作為質量時壓縮 3 mm);
+>   顯式 24 子步 + 每幀一次接觸會爆;每子步接觸 + 每幀剛體步會抖且漂 9 cm;盒子以最小穿透推出時箱緣切入方塊。
+>   `test_fem_scene` 6/6:顯式 16 子步,箱底距節點頂 ≤ 1.6 mm、3 s 漂移 2.4 cm、殘留 8 Hz 彈跳 ≤ 0.17 m/s(未靜止,如實記錄);
+>   零重力球撞方塊動量守恆至 1e-7(方塊得 3.45 kg·m/s);場景 + FEM 快照續跑 30 步逐位相同;`FemContinuum` 加 `implicit` / `substeps`。
+> - **四面體網格化**(`geometry/tetmesh.mojo`):閉合三角網格 → 體素(`convex_decomp.voxelize`)→ 每格 5 四面體(與 `make_beam` 同交替分割,共角點)、`embed` / `place`
+>   重心嵌入;`physics.fem.fem_from_tetmesh`(集中質量)。`test_tetmesh` 7/7:24×12 UV 球,體積誤差對網格本身 8 / 16 / 24 格 3.6 % / 0.37 % / 0.03 %;
+>   266 個表面頂點嵌入重建 4.3e-8 m、剛體運動後跟隨 1.3e-7 m;E = 5e5 的球落地 3 s 後最快節點 0.012 m/s、體積變 0.39 %。
+> - **塑性 / 元素移除**(`FemBody.set_plasticity` / `plastic_flow` / `remove_overstrained`;Müller & Gross 2004 的屈服 + 潛變 + 上限):
+>   `test_fem_plastic` 4/4:1 m 懸臂 E = 1e7 10 g 下彈性下垂 0.298 m、卸載後回到 0.3 mm;塑性下垂 0.872 m、卸載後永久 0.652 m;
+>   拉桿 0.3 應變上限移除 104 個四面體分成 4 塊,不移除則只拉長到 1.60 m;關閉時既有 FEM golden 不變。
+> **未做**:隱式步的 NH 切線、近不可壓鎖死對策、MPM Drucker–Prager 與 SDF 靜態邊界、VBD / PD 求解器變體、節點 CCD。
 
 > **現況**:引擎有**三條**體積可變形路徑,但只有一條在場景裡。
 > ① `SoftBody`(`physics/softbody.mojo:50`):只有 `box_lattice`(`:67`;`n < 2` 直接 raise `:82-83`)產生的實心 n³ 粒子格、
