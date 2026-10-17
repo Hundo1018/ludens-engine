@@ -906,17 +906,17 @@ is one coupled step.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| no solid | 32768 | cell-step | 422.79 | 2.37 | 831.25 |
-| 1 static sphere | 32768 | cell-step | 436.16 | 2.29 | 857.53 |
-| 1 moving sphere (Ladd) | 32768 | cell-step | 411.36 | 2.43 | 808.76 |
-| 8 moving spheres (Ladd) | 32768 | cell-step | 450.64 | 2.22 | 885.99 |
+| no solid | 32768 | cell-step | 415.78 | 2.41 | 817.45 |
+| 1 static sphere | 32768 | cell-step | 435.85 | 2.29 | 856.93 |
+| 1 moving sphere (Ladd) | 32768 | cell-step | 423.33 | 2.36 | 832.30 |
+| 8 moving spheres (Ladd) | 32768 | cell-step | 420.86 | 2.38 | 827.44 |
 
 
 ### LbmCoupler.step: lattice + ContactScene6, one sphere (17.59)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| coupled step (32^3 lattice, 1 sphere) | 1 | step | 12483696.43 | 0.00 | 749.02 |
+| coupled step (32^3 lattice, 1 sphere) | 1 | step | 14847996.82 | 0.00 | 890.88 |
 
 
 ## Collision — scene queries (raycast + overlap)
@@ -2771,18 +2771,29 @@ over every wave.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| flat | 200000 | query | 0.00 | 3636363.64 | 0.00 |
-| gerstner 4 waves, Q = 0 | 200000 | query | 378.18 | 2.64 | 75.64 |
-| gerstner 4 waves, Q = 0.6 | 200000 | query | 332.72 | 3.01 | 66.54 |
-| shallow-water grid 128^2 (sample) | 200000 | query | 9.47 | 105.56 | 1.89 |
+| flat | 200000 | query | 0.00 | 546448.09 | 0.00 |
+| gerstner 4 waves, Q = 0 | 200000 | query | 415.62 | 2.41 | 83.12 |
+| gerstner 4 waves, Q = 0.6 | 200000 | query | 364.25 | 2.75 | 72.85 |
+| shallow-water grid 128^2 (sample) | 200000 | query | 8.41 | 118.88 | 1.68 |
+| fft ocean 64^2, grid at the updated t (bilinear) | 200000 | query | 32.24 | 31.02 | 6.45 |
+| fft ocean 64^2, other t (direct sum of 4096 modes) | 200 | query | 76303.22 | 0.01 | 15.26 |
+
+
+### FFT ocean update (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| FftOcean.update 32^2 (one inverse 2-D FFT) | 1024 | update | 79540.65 | 0.01 | 1.59 |
+| FftOcean.update 64^2 (one inverse 2-D FFT) | 4096 | update | 336422.30 | 0.00 | 6.73 |
+| FftOcean.update 128^2 (one inverse 2-D FFT) | 16384 | update | 1551133.00 | 0.00 | 31.02 |
 
 
 ### Shallow-water step and float_body (17.60)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| ShallowWaterGrid.step 128^2 | 16384 | cell-step | 10.17 | 98.30 | 16.67 |
-| float_body 4^3 samples on the 4-wave sea | 1 | body | 34992.06 | 0.03 | 69.98 |
+| ShallowWaterGrid.step 128^2 | 16384 | cell-step | 11.07 | 90.36 | 18.13 |
+| float_body 4^3 samples on the 4-wave sea | 1 | body | 24144.05 | 0.04 | 48.29 |
 
 
 ### Rope per frame: XPBD rope vs distance-joint link chain; rope collision on/off
