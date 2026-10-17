@@ -1828,7 +1828,10 @@
 > `tests/test_sparse_volume.mojo` 5/5:64³ 場在佔用 0 / 1 / 10 / 100 % 下往返逐位相同,編碼大小對稠密 f64(2 MiB)為 1.5e-5 / 2.8 % / 12 % / 101.9 %
 > (稠密在滿佔用時反勝,兩邊都量);LBM 密度場(24³、移動球)輸出再讀回逐位相同(13 714 活躍體素、27 葉)。`bench_sparse_volume`:編碼 27–448 ns / 活躍體素、
 > 解碼 47–488 ns(佔用越低每體素越貴:遮罩與葉頭攤在較少體素上)。這是 repo 自己的交換容器;OpenVDB / NanoVDB 檔案格式本身未寫(環境無工具可驗)。
-> **未做**:位元打包(破 1 byte / 座標下限)、Alembic(Ogawa)寫出、OpenVDB / NanoVDB 檔案格式、VDB 的內部樹層級、拓撲變動網格、外部工具讀取驗證。
+> **位元打包**:`PointCacheWriter(pack=True)`:差分幀改存一個位元組寬度 b(該幀最大 zig-zag 差所需)+ 每個差 b 位元的位元流(新幀種 3,檔案版本 2);
+> 不打包時位元組與版本 1 完全相同(1 mm 布料快取仍是 197 494 bytes),讀取器兩版都收。`tests/test_sim_cache_pack.mojo` 4/4:16×16 布料 240 幀,
+> 每點每幀 bytes(varint → 打包):err 1 cm 3.05 → 1.10、1 mm 3.21 → 2.26、0.1 mm 3.80 → 3.44,每幀讀回誤差 ≤ err;靜止幀寬度 0;壞位元組 / 截斷 raise。
+> **未做**:Alembic(Ogawa)寫出、OpenVDB / NanoVDB 檔案格式、VDB 的內部樹層級、拓撲變動網格、外部工具讀取驗證。
 
 > **現況**:引擎套件**不做任何檔案 I/O**——`grep -E "open\(|read_text|write_text|write_bytes|read_bytes|\bPath\b"`
 > 於 `physics/`、`geometry/`、`fluid/`、`numerics/`、`collision/`、`gameplay/`、`ecs/`、`scheduler/`、`diag/`、`procedural/` **零命中**;

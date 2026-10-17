@@ -15,6 +15,11 @@ no drift however long the run. A keyframe starts every `keyframe_every`
 frames, and whenever the point count changes: reading frame i decodes at
 most `keyframe_every - 1` deltas. A frame with a non-finite coordinate, or
 any frame when err = 0, is stored RAW (f32 bits, lossless; NaN kept).
+With `pack=True` a delta frame is stored PACKED instead: one byte of bit
+width b (enough for the frame's largest zig-zag delta) and every delta in
+b bits, so a coordinate can cost less than the varint's one-byte floor
+(test_sim_cache_pack). Such a cache is version 2; without `pack` the bytes
+are those of version 1 exactly, and the reader takes both.
 
 Layout (little-endian): magic "LDPC" (u32), version (u32), frame count
 (u32), keyframe_every (u32), err (f64 bits), frame offsets (u64 each),
@@ -36,6 +41,8 @@ comptime CACHE_VERSION: UInt32 = 1
 comptime _KEY: UInt8 = 0
 comptime _DELTA: UInt8 = 1
 comptime _RAW: UInt8 = 2
+comptime _PACKED: UInt8 = 3  # a delta frame at a fixed bit width (version 2)
+comptime CACHE_VERSION_PACKED: UInt32 = 2
 
 
 def _f32_bits(v: Float32) -> UInt32:
@@ -94,8 +101,9 @@ struct PointCacheWriter(Movable):
     var prev_q: List[Int]
     var prev_n: Int
     var since_key: Int
+    var pack: Bool
 
-    def __init__(out self, err: Real, keyframe_every: Int = 16) raises:
+    def __init__(out self, err: Real, keyframe_every: Int = 16, pack: Bool = False) raises:
         if err < 0 or keyframe_every < 1:
             raise Error("PointCacheWriter: err >= 0 and keyframe_every >= 1")
         self.err = Float64(err)
@@ -105,6 +113,7 @@ struct PointCacheWriter(Movable):
         self.prev_q = List[Int]()
         self.prev_n = -1
         self.since_key = 0
+        self.pack = pack
 
     def frames(self) -> Int:
         return len(self.offsets)
@@ -136,6 +145,40 @@ struct PointCacheWriter(Movable):
             for v in q:
                 _put_varint(self.payload, v)
             self.since_key = 0
+        elif self.pack:
+            self.payload.append(_PACKED)
+            _put_u(self.payload, UInt64(n), 4)
+            var zs = List[UInt64](capacity=len(q))
+            var top = UInt64(0)
+            for k in range(len(q)):
+                var d = q[k] - self.prev_q[k]
+                var z = UInt64((d << 1) ^ (d >> 63))
+                zs.append(z)
+                top = max(top, z)
+            var bits = 0
+            while bits < 64 and (top >> UInt64(bits)) != 0:
+                bits += 1
+            self.payload.append(UInt8(bits))
+            var acc = UInt64(0)
+            var fill = 0
+            for z in zs:
+                var rem = bits
+                var v = z
+                while rem > 0:
+                    var take = min(rem, 64 - fill)
+                    var part = v & ((UInt64(1) << UInt64(take)) - 1) if take < 64 else v
+                    acc |= part << UInt64(fill)
+                    fill += take
+                    rem -= take
+                    v = v >> UInt64(take) if take < 64 else UInt64(0)
+                    if fill == 64:
+                        _put_u(self.payload, acc, 8)
+                        acc = 0
+                        fill = 0
+            var tail = (fill + 7) // 8
+            if tail > 0:
+                _put_u(self.payload, acc, tail)
+            self.since_key += 1
         else:
             self.payload.append(_DELTA)
             _put_u(self.payload, UInt64(n), 4)
@@ -148,7 +191,7 @@ struct PointCacheWriter(Movable):
     def bytes(self) -> List[UInt8]:
         var out = List[UInt8]()
         _put_u(out, UInt64(CACHE_MAGIC), 4)
-        _put_u(out, UInt64(CACHE_VERSION), 4)
+        _put_u(out, UInt64(CACHE_VERSION_PACKED if self.pack else CACHE_VERSION), 4)
         _put_u(out, UInt64(len(self.offsets)), 4)
         _put_u(out, UInt64(self.keyframe_every), 4)
         _put_u(out, _f64_bits(self.err), 8)
@@ -175,7 +218,7 @@ struct PointCacheReader(Movable):
         if UInt32(_rd(data, 0, 4)) != CACHE_MAGIC:
             raise Error("PointCacheReader: not a point cache (bad magic)")
         var ver = UInt32(_rd(data, 4, 4))
-        if ver != CACHE_VERSION:
+        if ver != CACHE_VERSION and ver != CACHE_VERSION_PACKED:
             raise Error("PointCacheReader: unknown version " + String(ver))
         var nframes = Int(_rd(data, 8, 4))
         var base = 24 + 8 * nframes
@@ -238,6 +281,24 @@ struct PointCacheReader(Movable):
                 raise Error("PointCacheReader: delta frame without its keyframe")
             for k in range(3 * n):
                 q[k] += self._varint(at)
+        elif kind == _PACKED:
+            if len(q) != 3 * n:
+                raise Error("PointCacheReader: delta frame without its keyframe")
+            if at >= self.end:
+                raise Error("PointCacheReader: truncated packed frame")
+            var bits = Int(self.data[at])
+            at += 1
+            if bits > 64 or at + (3 * n * bits + 7) // 8 > self.end:
+                raise Error("PointCacheReader: truncated packed frame")
+            var bitpos = 0
+            for k in range(3 * n):
+                var z = UInt64(0)
+                for b in range(bits):
+                    var p = bitpos + b
+                    if (self.data[at + p // 8] >> UInt8(p % 8)) & 1 == 1:
+                        z |= UInt64(1) << UInt64(b)
+                bitpos += bits
+                q[k] += Int(z >> 1) ^ -Int(z & 1)
         else:
             raise Error("PointCacheReader: unknown frame kind")
         return n
@@ -259,7 +320,7 @@ struct PointCacheReader(Movable):
                 out.append(Vec3(Real(x), Real(y), Real(z), 0))
             return out^
         var k0 = f
-        while self._kind(k0) == _DELTA:
+        while self._kind(k0) == _DELTA or self._kind(k0) == _PACKED:
             k0 -= 1
             if k0 < 0:
                 raise Error("PointCacheReader: delta frame without its keyframe")
