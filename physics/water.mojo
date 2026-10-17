@@ -545,7 +545,9 @@ struct ShallowWaterFV(WaterSurface, Movable):
     (local Lax-Friedrichs) fluxes, reflective walls. Unlike
     `ShallowWaterGrid` (linear waves on a mean depth) it carries the flow
     velocity, moving bores and drying cells (h = 0 stays 0; velocities
-    are taken as 0 below `dry`). `step(dt)` raises past the CFL limit
+    are taken as 0 below `dry`). A bed (`set_bed`) and Manning friction
+    run in `_step_bed` (well balanced by hydrostatic reconstruction).
+    `step(dt)` raises past the CFL limit
     dt (|u| + sqrt(g h)) / cell <= 1/2; `max_dt` is that bound. Mass is
     conserved to rounding (the fluxes cancel between cells; walls pass
     none). `height` is bed + h at the cell under (x, z); `velocity` the
@@ -562,6 +564,10 @@ struct ShallowWaterFV(WaterSurface, Movable):
     var h: List[Real]
     var hu: List[Real]
     var hv: List[Real]
+    var zb: List[Real]  # per-cell bed height above `bed` (all 0: a flat bed)
+    var manning: Real  # Manning n (s / m^(1/3)); 0 = no bed friction
+    var well_balanced: Bool  # hydrostatic reconstruction (False: naive slope source)
+    var has_bed: Bool
 
     def __init__(out self, nx: Int, nz: Int, cell: Real, origin_x: Real, origin_z: Real, bed: Real, gravity: Real = 9.8) raises:
         if nx < 1 or nz < 1 or not (cell > 0):
@@ -577,6 +583,16 @@ struct ShallowWaterFV(WaterSurface, Movable):
         self.h = List[Real](length=nx * nz, fill=0)
         self.hu = List[Real](length=nx * nz, fill=0)
         self.hv = List[Real](length=nx * nz, fill=0)
+        self.zb = List[Real](length=nx * nz, fill=0)
+        self.manning = 0
+        self.well_balanced = True
+        self.has_bed = False
+
+    def set_bed(mut self, i: Int, j: Int, z: Real):
+        """Bed height of cell (i, j) above `bed`; switches `step` to the
+        bed-aware update."""
+        self.zb[j * self.nx + i] = z
+        self.has_bed = True
 
     def _vel(self, k: Int) -> Tuple[Real, Real]:
         var h = self.h[k]
@@ -615,6 +631,9 @@ struct ShallowWaterFV(WaterSurface, Movable):
     def step(mut self, dt: Real) raises:
         if not (dt > 0) or dt > self.max_dt() * 1.000001:
             raise Error("ShallowWaterFV.step: dt must be in (0, max_dt()]")
+        if self.has_bed or self.manning > 0:
+            self._step_bed(dt)
+            return
         var nx = self.nx
         var nz = self.nz
         var dh = List[Real](length=nx * nz, fill=0)
@@ -713,13 +732,122 @@ struct ShallowWaterFV(WaterSurface, Movable):
                 if self.h[k] < 0:
                     self.h[k] = 0
 
+    def _side(self, k: Int, normal_x: Bool, wall: Bool, mirror: Bool) -> Tuple[Real, Real, Real, Real]:
+        """(h, normal discharge, tangential discharge, bed) of cell k, or of
+        its mirror image across a wall."""
+        var q = self.hu[k] if normal_x else self.hv[k]
+        var p = self.hv[k] if normal_x else self.hu[k]
+        if wall and mirror:
+            q = -q
+        return (self.h[k], q, p, self.zb[k])
+
+    def _step_bed(mut self, dt: Real):
+        """`step` over a bed (`zb`) and / or with Manning friction. Well
+        balanced (Audusse et al. 2004): at each face the depths are
+        reconstructed against the higher bed, h* = max(0, h + z - max(zl, zr)),
+        the flux is taken from h*, and each side gets back g/2 (h^2 - h*^2)
+        on its normal momentum -- so a lake at rest (h + z constant, no flow)
+        stays at rest exactly. `well_balanced = False` uses the naive
+        pointwise source -g h dz/dx instead (for comparison). Friction:
+        q /= 1 + dt g n^2 |u| / h^(4/3), implicit."""
+        var nx = self.nx
+        var nz = self.nz
+        var g = self.gravity
+        var dh = List[Real](length=nx * nz, fill=0)
+        var du = List[Real](length=nx * nz, fill=0)
+        var dv = List[Real](length=nx * nz, fill=0)
+        var r = dt / self.cell
+        for axis in range(2):
+            var ax = axis == 0
+            var outer = nz if ax else nx
+            var inner = nx if ax else nz
+            for o in range(outer):
+                for a in range(-1, inner):
+                    var l = (o * nx + a) if ax else (a * nx + o)
+                    var rr = (o * nx + a + 1) if ax else ((a + 1) * nx + o)
+                    var L: Tuple[Real, Real, Real, Real]
+                    var R: Tuple[Real, Real, Real, Real]
+                    if a < 0:
+                        R = self._side(rr, ax, False, False)
+                        L = self._side(rr, ax, True, True)
+                    elif a == inner - 1:
+                        L = self._side(l, ax, False, False)
+                        R = self._side(l, ax, True, True)
+                    else:
+                        L = self._side(l, ax, False, False)
+                        R = self._side(rr, ax, False, False)
+                    var hl = L[0]
+                    var hr = R[0]
+                    var fl: Tuple[Real, Real, Real]
+                    var corr_l = Real(0)
+                    var corr_r = Real(0)
+                    if self.well_balanced:
+                        var zf = max(L[3], R[3])
+                        var hls = max(Real(0), hl + L[3] - zf)
+                        var hrs = max(Real(0), hr + R[3] - zf)
+                        var ul = L[1] / hl if hl > self.dry else Real(0)
+                        var ur = R[1] / hr if hr > self.dry else Real(0)
+                        var vl = L[2] / hl if hl > self.dry else Real(0)
+                        var vr = R[2] / hr if hr > self.dry else Real(0)
+                        fl = self._flux(hls, hls * ul, hls * vl, hrs, hrs * ur, hrs * vr)
+                        corr_l = 0.5 * g * (hl * hl - hls * hls)
+                        corr_r = 0.5 * g * (hr * hr - hrs * hrs)
+                    else:
+                        fl = self._flux(hl, L[1], L[2], hr, R[1], R[2])
+                    var dn_l = -r * (fl[1] + corr_l)
+                    var dn_r = r * (fl[1] + corr_r)
+                    if a >= 0:
+                        dh[l] -= r * fl[0]
+                        if ax:
+                            du[l] += dn_l
+                            dv[l] -= r * fl[2]
+                        else:
+                            dv[l] += dn_l
+                            du[l] -= r * fl[2]
+                    if a < inner - 1:
+                        dh[rr] += r * fl[0]
+                        if ax:
+                            du[rr] += dn_r
+                            dv[rr] += r * fl[2]
+                        else:
+                            dv[rr] += dn_r
+                            du[rr] += r * fl[2]
+        if not self.well_balanced:
+            # naive source -g h dz/dx, central differences (walls: one-sided 0)
+            for j in range(nz):
+                for i in range(nx):
+                    var k = j * nx + i
+                    var zxm = self.zb[k - 1] if i > 0 else self.zb[k]
+                    var zxp = self.zb[k + 1] if i < nx - 1 else self.zb[k]
+                    var zzm = self.zb[k - nx] if j > 0 else self.zb[k]
+                    var zzp = self.zb[k + nx] if j < nz - 1 else self.zb[k]
+                    du[k] -= dt * g * self.h[k] * (zxp - zxm) / (2 * self.cell)
+                    dv[k] -= dt * g * self.h[k] * (zzp - zzm) / (2 * self.cell)
+        for k in range(nx * nz):
+            self.h[k] += dh[k]
+            self.hu[k] += du[k]
+            self.hv[k] += dv[k]
+            if self.h[k] <= self.dry:
+                self.hu[k] = 0
+                self.hv[k] = 0
+                if self.h[k] < 0:
+                    self.h[k] = 0
+            elif self.manning > 0:
+                var v = self._vel(k)
+                var sp = sqrt(v[0] * v[0] + v[1] * v[1])
+                var hk = self.h[k]
+                var d = 1 + dt * g * self.manning * self.manning * sp / (hk * Real(Float64(hk) ** (1.0 / 3.0)))
+                self.hu[k] /= d
+                self.hv[k] /= d
+
     def _cell_at(self, x: Real, z: Real) -> Int:
         var i = min(max(Int(floor((x - self.origin_x) / self.cell)), 0), self.nx - 1)
         var j = min(max(Int(floor((z - self.origin_z) / self.cell)), 0), self.nz - 1)
         return j * self.nx + i
 
     def height(self, x: Real, z: Real, t: Real) -> Real:
-        return self.bed + self.h[self._cell_at(x, z)]
+        var k = self._cell_at(x, z)
+        return self.bed + self.zb[k] + self.h[k]
 
     def velocity(self, x: Real, z: Real, t: Real) -> Vec3:
         var v = self._vel(self._cell_at(x, z))

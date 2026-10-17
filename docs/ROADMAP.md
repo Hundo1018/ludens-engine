@@ -1666,7 +1666,11 @@
 > 以邊鍵焊接頂點;相鄰格切法一致,封閉等值面輸出封閉、向外繞向的網格)、`splat_particles`(poly6 核疊加到格點)、`TriMesh`(面積、體積、開放邊數)。
 > `tests/test_isosurface.mojo` 4/4:41³ 格上 R = 0.4 的距離場零等值面 28 560 個三角形、開放邊 0,面積 2.0086 對 4πR² = 2.0106、體積 0.26756 對 0.26808;
 > 1791 個粒子的球(半徑 0.3)以 R 0.1 疊加、取內部值一半切出 16 104 個三角形、封閉,球形度 A³/(36πV²) = 1.021;全內 / 全外無三角形。
-> **未做**:淺水的底床地形與摩擦、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、各向異性核與泡沫 / 水花次級粒子、choppy 的 FFT 格點路徑。
+> **淺水底床與摩擦**:`ShallowWaterFV.set_bed` / `manning`:有底床或摩擦時走 `_step_bed`(Audusse 2004 靜水重建:面上以較高底床重建水深、兩側補 g/2(h² − h*²)),
+> Manning 摩擦隱式;原平底路徑不變(`test_shallow_fv` golden 逐位相同)。`tests/test_shallow_bed.mojo` 4/4:0.5 m 高斯凸起上的靜水 2 s 後水面偏差 2.4e-7 m、
+> 速度 6.8e-7 m/s,同湖用樸素坡度源項則攪出 0.18 m/s;Manning n 0.03、1 m 深 2 m/s 均勻流 5 s 後 1.83790 對解析 1.83790;
+> 高出水面的島保持乾、湖靜止、體積差 3e-7。
+> **未做**:MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、各向異性核與泡沫 / 水花次級粒子、choppy 的 FFT 格點路徑。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
