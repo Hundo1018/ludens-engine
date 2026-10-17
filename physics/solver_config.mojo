@@ -104,6 +104,13 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # CONTACT_GS per point, CONTACT_BLOCK all points of a manifold at once;
     # identical for one-point manifolds).
     var contact_solver: Int
+    # ROADMAP 17.19: in contact and core joint rows every dynamic body acts
+    # with at least (heaviest body of its contact / joint group) / R -- a
+    # heavy box on a light one no longer crushes it into the floor and a
+    # light chain holding a weight stretches less, at the price of light
+    # bodies responding as heavier ones in those rows (PhysX-style mass
+    # scaling). 0 = off (bit-identical to before); else >= 1.
+    var max_mass_ratio: Real
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -129,6 +136,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.reuse_still_pairs = False
         self.max_contacts = 0
         self.contact_solver = CONTACT_GS
+        self.max_mass_ratio = 0
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes
@@ -166,6 +174,8 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
             raise Error("SolverConfig.validated: unknown friction_cone")
         if self.contact_solver != CONTACT_GS and self.contact_solver != CONTACT_BLOCK:
             raise Error("SolverConfig.validated: unknown contact_solver")
+        if self.max_mass_ratio != 0 and not (self.max_mass_ratio >= 1):
+            raise Error("SolverConfig.validated: max_mass_ratio must be 0 (off) or >= 1")
         return self
 
 

@@ -338,7 +338,18 @@
 > 1 s 內推出 0.499;兩箱同點:分開 0.4997。
 > **待辦**:
 > - 簿記仍略超線性(N ×4 → ×9),剩餘熱點待量:著色重排 O(色數 × 對數)、每幀重建 BVH、CCD 全對。
-> - 重壓輕 ≥ 1:1000 的接觸(依負載的勁度或質量分割)、受載長鏈伸長、warm-start feature-ID 穩定性、contact reduction、高質量比 + 睡眠 + CCD 同場景。
+> - warm-start feature-ID 穩定性、contact reduction、高質量比 + 睡眠 + CCD 同場景;`max_mass_ratio` 開啟時力回報不失真的版本(見下)。
+>
+> **進度 重壓輕 / 受載長鏈(2026-10-17)**:`SolverConfig.max_mass_ratio`(0 = 關,預設;否則 ≥ 1,`validated` 拒絕 < 1):每步以 union-find 把以接觸或核心關節
+> (ball / distance / hinge / weld / cone-twist / universal)相連的動態體分組,每個體在接觸列與這些關節列中的質量 m_c = max(m, 組內最重 / R),逆質量與逆慣量乘 m / m_c
+> (PhysX 式 mass scaling;warm start、法向、摩擦、恢復係數、`solve_point`、關節錨點列與 hinge / weld 角列全部套用,block 解算器在開啟時退回逐點;gear / pulley /
+> slider / D6 / drive 用實質量,與其 warm start 一致;GPU 解算器明確拒絕)。關閉時乘 1,逐位不變。
+> 首版沿接觸圖逐層除以 R(m_c = max(m, 鄰居 m_c / R)):三箱塔底箱只得 10 kg,重疊 0.036 m,鏈只改善最末一節 → 改為組內最重。
+> 量測(`test_solver_stress` 10/10,R = 10):1:1000 輕箱入地 0.251 → 0.0032 m、與重箱重疊 0.275 → 0.0032 m;1:1e4 同為 0.0032 m(= R g / ω²,與質量比無關);
+> 1000 / 1 / 1 kg 三箱塔最大重疊 0.568 → 0.0064 m;20 節 1 kg 球關節鏈吊 100 kg 伸長 11.69 % → 2.14 %。代價(量測):輕體在這些列中以 m_c 參與,
+> 地板對 1 kg 箱(上壓 1000 kg)的力讀 10780.4 N = (1000 + 100) g,而非真值 9809.8 N(+9.9 %;關閉時 8408.6 N 是被壓穿中的未收斂值)。
+> `bench_solver_scale` 新表(2 箱塔網格,BVH):N = 128 / 512 / 2048 每步 1.79 / 6.74 / 28.4 ms(關)vs 1.68 / 7.54 / 29.1 ms(R = 10),即 −6 / +12 / +2.5 %;
+> 同表兩次執行間的散佈約 ±10 %(逐層除以 R 的首版量到 +3 / −2 / −1 %),成本在雜訊量級。
 >
 > **歷史**:
 > - 量測(2026-09-29,`bench_gpu_contact`,F22 修正前):寬相開啟後,N=4096 箱每幀 CPU 收集 + 簿記(不含求解)達 82 ms,N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,因此排為本項第一個工作(已由上面的 F22 第一批處理)。

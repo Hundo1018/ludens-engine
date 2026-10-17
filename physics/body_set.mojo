@@ -156,6 +156,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var adhesion: List[Real]
     var cone: Int
     var block: Bool  # ROADMAP 17.50: CONTACT_BLOCK normal solve
+    # ROADMAP 17.19: contact mass ratio limit of the current step (0 = off)
+    # and each body's contact / joint inverse-mass scale (<= 1), set by `step`
+    var mass_ratio: Real
+    var cscale: List[Real]
     var any_contact_model: Bool
     var free: List[Int]
 
@@ -198,6 +202,8 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.adhesion = List[Real]()
         self.cone = 0
         self.block = False
+        self.mass_ratio = 0
+        self.cscale = List[Real]()
         self.any_contact_model = False
         self.free = List[Int]()
 

@@ -123,6 +123,7 @@ from .contact6 import (
 )
 from .joints6 import (
     Joint6,
+    _scaled_linear,
     JOINT_BALL,
     JOINT_DISTANCE,
     JOINT_HINGE,
@@ -2536,6 +2537,35 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         cfg.workers = workers
         self.step(dt, gravity, cfg)
 
+    def _contact_mass_scale(mut self, pairs: List[ContactConstraint], ratio: Real):
+        """ROADMAP 17.19 `max_mass_ratio`: dynamic bodies joined by a
+        contact or a (core, unbroken) joint form groups (union-find); each
+        body's mass in contact and joint rows is m_c = max(m, heaviest in
+        its group / ratio) -- the load a body carries comes from the whole
+        stack or chain above it, not only its neighbour. scale = m / m_c."""
+        var n = len(self.bset.bodies)
+        var m = List[Real](length=n, fill=0)
+        var parent = List[Int](capacity=n)
+        for i in range(n):
+            parent.append(i)
+            if self.bset.is_dynamic(i):
+                m[i] = Real(1) / self.bset.bodies[i].inv_mass()
+        for ref pr in pairs:
+            if self.bset.is_dynamic(pr.a) and self.bset.is_dynamic(pr.b):
+                _uf_union(parent, pr.a, pr.b)
+        for ref jt in self.joints:
+            if _scaled_linear(jt.kind) and self.bset.is_dynamic(jt.a) and self.bset.is_dynamic(jt.b):
+                _uf_union(parent, jt.a, jt.b)
+        var gmax = List[Real](length=n, fill=0)
+        for i in range(n):
+            var r = _uf_find(parent, i)
+            gmax[r] = max(gmax[r], m[i])
+        self.bset.cscale = List[Real](length=n, fill=1)
+        for i in range(n):
+            var mc = max(m[i], gmax[_uf_find(parent, i)] / ratio)
+            if mc > 0:
+                self.bset.cscale[i] = m[i] / mc
+
     def step(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """`_step_impl` (the sub-stepped soft step, every path) wrapped by the
         ROADMAP 17.48 per-body pass: accumulated forces and damping before,
@@ -2635,6 +2665,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             while len(pairs) > cfg.max_contacts:
                 _ = pairs.pop()
         self.trace.end()
+        self.bset.mass_ratio = cfg.max_mass_ratio
+        if cfg.max_mass_ratio > 0:
+            self._contact_mass_scale(pairs, cfg.max_mass_ratio)
         # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
         self.trace.sample("contact_manifolds", len(pairs))
         self.trace.sample("bodies", len(self.bset.bodies))
@@ -3918,3 +3951,22 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         sc.bset.ccd_mode[bi] = UInt8(md)
         if md == CCD_BULLET:
             sc.bset.any_bullet = True
+
+
+def _uf_find(mut parent: List[Int], i: Int) -> Int:
+    var r = i
+    while parent[r] != r:
+        r = parent[r]
+    var k = i
+    while parent[k] != r:
+        var nx = parent[k]
+        parent[k] = r
+        k = nx
+    return r
+
+
+def _uf_union(mut parent: List[Int], a: Int, b: Int):
+    var ra = _uf_find(parent, a)
+    var rb = _uf_find(parent, b)
+    if ra != rb:
+        parent[max(ra, rb)] = min(ra, rb)
