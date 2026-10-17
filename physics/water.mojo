@@ -32,6 +32,8 @@ from geometry.vec import Real, Vec3
 from .body_set import BodyId
 from .rigid6 import Body6
 from .solver6 import ContactScene6
+from .fields import WaterVolume, sphere_submerged, _PI
+from collision.collider_set import SHAPE_BOX, SHAPE_SPHERE
 
 
 trait WaterSurface:
@@ -404,3 +406,76 @@ def _gauss(mut rng: SplitMix64) -> Real:
     var u1 = max(Real(rng.next_f32()), Real(1e-7))
     var u2 = Real(rng.next_f32())
     return sqrt(-2 * log(u1)) * cos(2 * Real(pi) * u2)
+
+
+def _box_submerged_on[W: WaterSurface, B: Body6](body: B, half: Vec3, water: W, t: Real, samples: Int) -> Tuple[Real, Vec3]:
+    """`fields.box_submerged_sampled` with the surface read at each cell."""
+    var n = samples
+    var cell_v = 8 * half[0] * half[1] * half[2] / Real(n * n * n)
+    var v = Real(0)
+    var acc = Vec3(0, 0, 0, 0)
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+                var lp = Vec3(
+                    (Real(2 * i + 1) / Real(n) - 1) * half[0],
+                    (Real(2 * j + 1) / Real(n) - 1) * half[1],
+                    (Real(2 * k + 1) / Real(n) - 1) * half[2],
+                    0,
+                )
+                var wp = body.act(lp)
+                if wp[1] < water.height(wp[0], wp[2], t):
+                    v += cell_v
+                    acc = acc + wp * cell_v
+    if v <= 0:
+        return (Real(0), body.position())
+    return (v, acc * (1 / v))
+
+
+def apply_buoyancy_surface[W: WaterSurface, B: Body6](
+    mut sc: ContactScene6[B],
+    waters: List[WaterVolume],
+    water: W,
+    t: Real,
+    gravity: Vec3,
+    dt: Real,
+    samples: Int = 8,
+) raises:
+    """`fields.apply_buoyancy` with the level from a `WaterSurface` instead
+    of each volume's flat top (17.60): the volumes keep their footprint,
+    density and drag; a box's cells each compare with the surface where
+    they are, a sphere uses the surface above its centre. With `FlatWater`
+    at the volume's top it is `apply_buoyancy`, bit for bit (test_water_seam)."""
+    for i in range(len(sc.bset.bodies)):
+        if not sc.bset.is_dynamic(i):
+            continue
+        var kind = sc.colliders.shape[i]
+        if kind != SHAPE_BOX and kind != SHAPE_SPHERE:
+            continue
+        var p = sc.bset.bodies[i].position()
+        var half = sc.colliders.half[i]
+        for w in range(len(waters)):
+            ref wv = waters[w]
+            if p[0] < wv.lo[0] or p[0] > wv.hi[0] or p[2] < wv.lo[2] or p[2] > wv.hi[2]:
+                continue
+            var sub: Tuple[Real, Vec3]
+            var total: Real
+            if kind == SHAPE_SPHERE:
+                sub = sphere_submerged(p, half[0], water.height(p[0], p[2], t))
+                total = 4 * _PI * half[0] * half[0] * half[0] / 3
+            else:
+                sub = _box_submerged_on(sc.bset.bodies[i], half, water, t, samples)
+                total = 8 * half[0] * half[1] * half[2]
+            if sub[0] <= 0:
+                continue
+            if sc.bset.sleeping[i]:
+                sc.wake(sc.bset.id_of(i))
+            var frac = sub[0] / total
+            var fb = gravity * (-wv.density * sub[0])
+            sc.bset.bodies[i].apply_impulse(fb * dt, sub[1])
+            var v = sc.bset.bodies[i].linear_velocity()
+            var om = sc.bset.bodies[i].omega_world()
+            sc.bset.bodies[i].set_velocity(
+                v * (1 / (1 + wv.lin_drag * frac * dt)),
+                om * (1 / (1 + wv.ang_drag * frac * dt)),
+            )
