@@ -4887,12 +4887,26 @@ gives the ratio below.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| linear N=100 | 100 | event | 422.80 | 2.37 | 0.85 |
-| indexed N=100 | 100 | event | 176.15 | 5.68 | 0.35 |
-| linear N=1000 | 1000 | event | 2937.18 | 0.34 | 5.87 |
-| indexed N=1000 | 1000 | event | 263.45 | 3.80 | 0.53 |
-| linear N=10000 | 10000 | event | 20472.56 | 0.05 | 40.95 |
-| indexed N=10000 | 10000 | event | 3272.77 | 0.31 | 6.55 |
+| linear N=100 | 100 | event | 304.69 | 3.28 | 0.61 |
+| indexed N=100 | 100 | event | 90.50 | 11.05 | 0.18 |
+| linear N=1000 | 1000 | event | 2350.32 | 0.43 | 4.70 |
+| indexed N=1000 | 1000 | event | 288.23 | 3.47 | 0.58 |
+| linear N=10000 | 10000 | event | 22968.21 | 0.04 | 45.94 |
+| indexed N=10000 | 10000 | event | 2387.71 | 0.42 | 4.78 |
+
+
+### Flow checkpoint to / from bytes (17.72)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| take F=100 (4 KiB) | 100 | flag | 182.51 | 5.48 | 0.02 |
+| restore F=100 | 100 | flag | 434.37 | 2.30 | 0.04 |
+| take F=1000 (33 KiB) | 1000 | flag | 99.25 | 10.08 | 0.10 |
+| restore F=1000 | 1000 | flag | 309.08 | 3.24 | 0.31 |
+| take F=10000 (330 KiB) | 10000 | flag | 89.06 | 11.23 | 0.89 |
+| restore F=10000 | 10000 | flag | 349.90 | 2.86 | 3.50 |
+| take F=100000 (3388 KiB) | 100000 | flag | 84.89 | 11.78 | 8.49 |
+| restore F=100000 | 100000 | flag | 378.58 | 2.64 | 37.86 |
 
 
 

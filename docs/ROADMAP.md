@@ -2613,7 +2613,19 @@
 > (`Inventory` 堆疊上限、溢出回傳;`LootTable` 權重 + `Pcg32` 種子)。量測(`tests/test_flow.mojo` 14/14):暫停 / 選單堆疊依序;任務依事件序完成、鎖定時事件不計;
 > 線性與索引派發 300 目標 × 5000 事件完成序相同;10 萬次掉落 70.011 / 25.002 / 4.987 %(權重 70 / 25 / 5)、權重 0 未出現;檢查點(旗標位元組 + 目標 / 背包複本)死亡後還原相同。
 > `bench_flow`:每事件 N = 100 / 1000 / 10000:線性 434 / 3115 / 26267 ns、索引 197 / 588 / 4784 ns(首版每事件快照全部目標的活躍狀態,索引只快 2×;改為只快照聆聽者)。
-> **未做**:`checkpoint.mojo`(與 17.40 存檔 / 6.10 快照的正式接線、RNG 狀態)、對話圖、關卡切換協定、世界分區事件、`Recorder` 含流程狀態、旗標事件 → 目標的接線。
+> **進度註(2026-10-17)**:`gameplay/checkpoint.mojo`(`GameFlow` = 狀態堆疊 + 旗標 + 目標 + 背包 + `Pcg32` + tick,一個值;檢查點 = 流程段 + 6.10 場景位元組
+> + FNV-1a 64 校驗的 byte blob;`respawn` 以 `KEEP_FLAGS` / `KEEP_OBJECTIVES` / `KEEP_INVENTORY` 位元決定死亡後保留哪些部分)、`gameplay/level_flow.mojo`
+> (`LevelDirector`:`request` → `LoadLevel` 指令 → 宿主 `loaded`;載入中事件暫存、完成後依序釋出,載入中拒絕檢查點與第二次請求,未知 id / 錯的完成回報 raise;
+> `post_cells` 把 17.8 分區 cell 載入 / 卸載轉成事件)、`gameplay/dialogue.mojo`(對話圖:節點 / 選項只含 `loc_id` 鍵,選項帶旗標比較條件與 SET / ADD 副作用,
+> 狀態 = (node, done),`validate` 檢查缺節點 / 未宣告旗標)、`objectives.on_flag_changes`(旗標變更 → 事件型別 `base + i`)、`replay.SimState.flow`
+> (快照帶流程位元組,非空時納入 checksum;按鈕 2 = 以流程 RNG 撿取)。量測(`tests/test_flow_levels.mojo` 15/15):6 箱場景 + 流程在 tick 60 取檢查點(4209 bytes),
+> 還原後重跑 60 tick:剛體位置 / 速度、RNG、旗標、目標、背包逐位相同;`KEEP_NONE` 還原背包 8 件、`KEEP_INVENTORY` 保留檢查點後撿的 5 件而旗標與 tick 取自檢查點;
+> 翻一個位元組 / 截斷 / 非檢查點 blob raise;關卡 2 載入中 2 個事件暫存(進度 0),完成後目標完成;對話:賄賂需 10 金(5 金時 2 個選項、12 金時 3 個)並扣 10,
+> 出示通行證設 `gate_open` → 目標完成;`Recorder` 240 tick 每 15 tick 撿取:`first_divergence` = -1、`seek(130)` 與重跑相同(含背包),
+> 在 tick 100 的輸入多加一次撿取 → 分歧報在 tick 100。既有 replay / animator / movement_modes golden 不變。
+> `bench_flow` 檢查點列:take 每旗標約 90 ns(1e5 旗標 3388 KiB、9 ms);restore 首版 `Flags.find` 線性搜尋 → 1e5 旗標 18.7 s(每旗標 187 µs,二次方),
+> 改為名稱 → 索引 `Dict` 後 38 ms(每旗標 0.38 µs)。
+> **未做**:跨關卡持久實體(玩家剛體帶到新場景)、選擇性存檔(17.40 `SaveWriter` 區段)形式的檢查點、宿主經 12.1 C-ABI 回報載入完成、流程狀態堆疊與 `Runtime` 的接線(`ticks` 遮罩驅動固定步)。
 > **現況**:只有零件,沒有流程。`gameplay/runtime.mojo:70-101` `Runtime` 擁有 world、scene、固定步迴圈、事件通道、計時器,但**沒有遊戲狀態 / 關卡 / 暫停概念**;時間縮放與暫停被路線圖明列為「由呼叫端縮放或跳過 `frame_dt` 即可」(ROADMAP §17.23–17.41 增補「拒絕(5)」,`scheduler/gameloop.mojo:31-45` `advance(…, frame_dt)`)。grep `[Qq]uest|[Dd]ialogue|[Oo]bjective|[Cc]heckpoint|[Ii]nventory|\bloot|GameState|ScreenStack|LevelStream|[Cc]utscene|Timeline|\bpause` 於全樹 `.mojo` 命中的 `checkpoint` 僅是自動微分的檢查點(`physics/diffsim.mojo:97`、`physics/adjoint.mojo:94`、`benchmarks/bench_diffsim.mojo:142`),`inventory` / `quests` 只是存檔測試的區段名 fixture(`tests/test_save.mojo:73,127`),其餘為無關的英文字串,引擎套件內遊戲層面零命中。全域旗標 / 黑板:grep `resource|singleton|blackboard` 於 `ecs scheduler gameplay` 零命中(17.15 只在計畫中提 blackboard,ROADMAP §17.15)。已有的可組裝件:階層狀態機 `procedural/fsm.mojo:18`(history、事件冒泡,無堆疊 / push-pop)、事件 `scheduler/events.mojo:1-40`、計時器 `scheduler/timers.mojo:1-50`、存檔 `gameplay/save.mojo:70-196`(具名區段、按欄位名升版)、回放 / 快照 `gameplay/replay.mojo:101-158`(`Recorder`、`seek`)、反射 `ecs/schema.mojo:47`。17.12 場景格式「跟宿主走、本輪不做」(ROADMAP §17.12)。
 > **缺口**:
 > - **流程狀態堆疊**:Boot → Menu → Loading → Playing → Paused → GameOver,可 push / pop(暫停疊在遊玩上),各狀態宣告哪些子系統 tick(模擬 / 計時器 / 事件)——把「呼叫端跳過 `frame_dt`」正式化。

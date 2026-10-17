@@ -61,18 +61,17 @@ struct Flags(Copyable, Movable):
     var kinds: List[Int]
     var values: List[Int]
     var changed: List[Int]
+    var index: Dict[String, Int]  # name -> position; `load` of 1e5 flags was quadratic without it
 
     def __init__(out self):
         self.names = List[String]()
         self.kinds = List[Int]()
         self.values = List[Int]()
         self.changed = List[Int]()
+        self.index = Dict[String, Int]()
 
     def find(self, name: String) -> Int:
-        for i in range(len(self.names)):
-            if self.names[i] == name:
-                return i
-        return -1
+        return self.index.get(name, -1)
 
     def declare(mut self, name: String, kind: Int, initial: Int = 0) raises -> Int:
         var i = self.find(name)
@@ -80,6 +79,7 @@ struct Flags(Copyable, Movable):
             if self.kinds[i] != kind:
                 raise Error("Flags.declare: '" + name + "' already declared with another kind")
             return i
+        self.index[name] = len(self.names)
         self.names.append(name)
         self.kinds.append(kind)
         self.values.append(initial)
