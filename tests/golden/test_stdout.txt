@@ -1239,6 +1239,9 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
 [PASS] pipeline - 5 / 5 checks
 --- tests/test_pool.mojo ---
 [PASS] pool - 90 / 90 checks
+--- tests/test_projectile_damage.mojo ---
+falloff: health 960 975 990  total 75  events 3
+[PASS] projectile_damage - 5 / 5 checks
 --- tests/test_projectile_pen.mojo ---
   hits 2 : kind 1 body 0 at x 4.95  then kind 0 body 1 at x 9.95 after 9.9499 m;  speed after wall 1 244.94893
   10 deg graze: 1 hits, first kind 2 ;  45 deg: kind 0 ;  ricochet off: kind 0
