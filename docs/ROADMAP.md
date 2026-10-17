@@ -1651,7 +1651,11 @@
 > 以 `numerics.pcg` 走無矩陣 5 點 −∇² 做壓力投影,週期奇異性以去掉右端平均處理;放在 `physics` 因 `fluid` 與 `numerics` 同層不得互引)。
 > `tests/test_taylor_green.mojo` 5/5:32² MAC(ν 0.05、U 0.01、dt 0.05,t = 10)衰減率 / 2νk² = 1.0048,每次投影後散度 ≤ 4.7e-9(U/dx 的 1e-7);
 > 32×32×1 D3Q19 同一渦 400 步 1.0041;兩者 0.07 % 內一致。`bench_grid_fluid`:MAC 32² / 64² 每格步 2.0 / 4.8 µs(PCG 43 / 87 次),LBM 0.35 µs。
-> **未做**:淺水格網的流速與非線性項、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、煙霧、LBM MRT、粒子 → 表面、FFT 海洋的水平位移(choppy)與法線。
+> **煙霧**:`Smoke2`(`physics/mac_fluid.mojo`):格心溫度隨流以半拉格朗日平流,Boussinesq 浮力 fy = b (T − 平均 T)(減平均:週期盒整體不加速),
+> 渦度限制 ε dx (N × ω)(Fedkiw 2001)。`tests/test_smoke.mojo` 4/4:64² 盒熱團 2 s 內溫度質心 0.20 → 0.62 m;浮力 0 時速度維持 0;
+> 第一步後淨垂直動量為 Σ|v| 的 2.3e-4(浮力本身淨零);2 s 後漂移 3 %(半拉格朗日平流不守恆動量,記錄不修);ε = 2 對 0:動能 1.15 倍、
+> 擬渦度(enstrophy)1.38 倍;溫度保持在初值範圍內。
+> **未做**:淺水格網的流速與非線性項、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、粒子 → 表面、FFT 海洋的水平位移(choppy)與法線。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
