@@ -1440,6 +1440,14 @@ fixed-point iterations of the inverse map plus one final evaluation, each
 over every wave.
 
 @bench benchmarks/bench_water.mojo
+
+`physics/mac_fluid.mojo` is an incompressible MAC grid fluid (semi-Lagrangian
+advection, explicit viscosity, PCG pressure projection). On the Taylor-Green
+vortex it and the D3Q19 lattice both decay within 0.5 % of exp(-2 nu k^2 t)
+(test_taylor_green); per cell-step the lattice is cheaper, and the MAC
+cost grows with resolution because the PCG iteration count does.
+
+@bench benchmarks/bench_grid_fluid.mojo
 @bench benchmarks/bench_rope.mojo
 ## Physics — hair strands and Hill muscles (17.57)
 

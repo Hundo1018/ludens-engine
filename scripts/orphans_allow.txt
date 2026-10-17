@@ -96,3 +96,4 @@ physics.strand_ext  # [api] strand snapshots, scene collision, interaction, guid
 physics.sph_rigid  # [api] SPH <-> rigid two-way coupling, surface-integrated pressure (17.59)
 physics.mpm_rigid  # [api] MPM <-> rigid two-way coupling through the grid (17.59)
 physics.soft_water  # [api] soft bodies and cloth in still water (17.59)
+physics.mac_fluid  # [api] MAC grid fluid with PCG projection (17.60)
