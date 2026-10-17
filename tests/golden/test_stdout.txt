@@ -962,6 +962,13 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   still tank 1 s: 1920 particles, max speed 1.7079161e-07  worst |p/g - (h + dx/2 - y)| 1.1920929e-07
   dam break 0.25 x 0.5 m: front at 0.3 s 0.86836827  0.5 s 1.5221659  speed / sqrt(g h0) 1.4767783  (Ritter 2)
 [PASS] flip - 3 / 3 checks
+--- tests/test_flow_levels.mojo ---
+checkpoint: bytes 4209  restored at tick 60  items at 120 13 13  pickups 8  gold 18
+respawn: checkpoint items 8  keep-none bag 8 0  keep-inventory bag 13 5
+level: command 1 level 2  progress while loading 0  after load 2  current 2
+dialogue: open choices at 5 gold 2  at 12 gold 3  gold after bribe 2  flag events 1 1  gate objective done True
+recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 100
+[PASS] flow_levels - 15 / 15 checks
 --- tests/test_force_elements.mojo ---
   box hull density 500 after 10 s: centre y 0.0030862144 (waterline 0, draft 0.25)
   submerged volume: polytope cut 0.6  closed form 0.6  centroid y -0.075 -0.075
