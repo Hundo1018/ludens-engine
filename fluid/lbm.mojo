@@ -78,6 +78,9 @@ struct Lbm(Movable, Deinitable):
     # 0 = BGK. The usual choice 3/16 puts half-way bounce-back walls exactly
     # half-way whatever the viscosity; 1/4 is the most stable.
     var trt_lambda: Real
+    # ROADMAP 17.61: per-cell relaxation time (e.g. viscosity from a
+    # temperature field); empty = the uniform `tau`
+    var tau_cell: List[Real]
     # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
     # bit. 0.1-0.2 is the usual range; 0.17 is the classic value.
     var smagorinsky: Real
@@ -134,6 +137,7 @@ struct Lbm(Movable, Deinitable):
         self.force_y = 0
         self.force_z = 0
         self.trt_lambda = 0
+        self.tau_cell = List[Real]()
         self.smagorinsky = 0
         self.fx = 0
         self.fy = 0
@@ -503,6 +507,53 @@ struct Lbm(Movable, Deinitable):
         var w = v % n
         return w + n if w < 0 else w
 
+    def set_viscosity_field(mut self, nu: List[Real]) raises:
+        """Per-cell kinematic viscosity (lattice units), tau = 3 nu + 1/2;
+        `step` then collides with `collide_var`. An empty list returns to the
+        uniform tau."""
+        if len(nu) == 0:
+            self.tau_cell = List[Real]()
+            return
+        if len(nu) != self.cells():
+            raise Error("Lbm.set_viscosity_field: one viscosity per cell")
+        var t = List[Real](capacity=len(nu))
+        for v in nu:
+            if not (v > 0):
+                raise Error("Lbm.set_viscosity_field: viscosities must be > 0")
+            t.append(3 * v + 0.5)
+        self.tau_cell = t^
+
+    def collide_var(mut self):
+        """BGK with the relaxation time of each cell (`tau_cell`, 17.61:
+        tau(T)); the x body force shifts by that cell's tau. A separate
+        method: `collide` is untouched (test_lbm_tau_field)."""
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var tc = self.tau_cell[c]
+            var rho = Real(0)
+            var ux = Real(0)
+            var uy = Real(0)
+            var uz = Real(0)
+            for i in range(Q):
+                var v = self.f[i * n + c]
+                rho += v
+                ux += v * Real(self.ex[i])
+                uy += v * Real(self.ey[i])
+                uz += v * Real(self.ez[i])
+            if rho <= 0:
+                continue
+            ux /= rho
+            uy /= rho
+            uz /= rho
+            if self.force_x != 0:
+                ux += tc * self.force_x / rho
+            var inv = Real(1) / tc
+            for i in range(Q):
+                var fe = self._feq(i, rho, ux, uy, uz)
+                self.f[i * n + c] += (fe - self.f[i * n + c]) * inv
+
     def collide_trt(mut self):
         """Two-relaxation-time collision (Ginzburg 2008), 17.60. Each pair of
         opposite directions splits into its symmetric part f+ = (f_i + f_-i)/2,
@@ -837,7 +888,9 @@ struct Lbm(Movable, Deinitable):
                     self.f[i * n + c] += 3 * self.w[i] * cf
 
     def step(mut self):
-        if self.trt_lambda > 0:
+        if len(self.tau_cell) > 0:
+            self.collide_var()
+        elif self.trt_lambda > 0:
             self.collide_trt()
         else:
             self.collide()
