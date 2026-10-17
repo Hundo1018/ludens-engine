@@ -40,6 +40,7 @@ deferred (e = 0 scenes).
 
 from std.math import sqrt, isfinite, sin, cos
 from std.os import abort
+from std.time import perf_counter_ns
 from std.collections import Dict
 from scheduler.dispatch import Dispatch, Task, dispatch_for
 from geometry.vec import Real, Vec3, WorldType, dot, cross, tangent_basis
@@ -96,7 +97,7 @@ from diag.counters import (
     NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED, TRACE_DROPPED, CONTACT_DROPPED,
 )
 from diag.log import LogRing, log
-from diag.level import Level, DEBUG_DRAW_ON
+from diag.level import Level, DEBUG_DRAW_ON, TRACE_ON
 from diag.trace import TraceBuffer
 from diag.draw import DrawQueue
 from .rigid6 import Body6, QuatBody6, Inertia3, Pose6
@@ -3079,6 +3080,8 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
     var rest_threshold: Real
     var ccd: Bool
     var ccd_all: Bool
+    var times: Pointer[List[Int], MutUntrackedOrigin]  # [2k] start, [2k + 1] end per island (17.80 (c))
+    var timed: Bool
 
     def __init__(
         out self,
@@ -3091,9 +3094,12 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
         mut mstart: List[Int],
         gravity: Vec3, h: Real, substeps: Int, iters: Int, bias_rate: Real,
         mass_scale: Real, impulse_scale: Real, mu: Real, rest_threshold: Real,
+        mut times: List[Int], timed: Bool,
         ccd: Bool = False, ccd_all: Bool = False,
     ):
         self.scene = Pointer(to=scene).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.times = Pointer(to=times).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.timed = timed
         self.ccd = ccd
         self.ccd_all = ccd_all
         self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -3113,12 +3119,16 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
         self.rest_threshold = rest_threshold
 
     def run(self, k: Int):
+        if self.timed:
+            self.times[][2 * k] = Int(perf_counter_ns())
         self.scene[]._solve_island(
             self.pairs2[], self.plo[][k], self.phi[][k], self.labels[][k], self.gravity, self.h,
             self.substeps, self.iters, self.bias_rate, self.mass_scale, self.impulse_scale, self.mu,
             self.members[], self.mstart[][k], self.mstart[][k + 1], self.rest_threshold,
             self.ccd, self.ccd_all,
         )
+        if self.timed:
+            self.times[][2 * k + 1] = Int(perf_counter_ns())
 
 
 def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
@@ -3149,11 +3159,25 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     the result is bit-identical to serial whatever runs the items
     (`test_islands_par`, `test_dispatch`). `workers <= 0` lets the runtime
     pick the width of the default pool."""
+    # ROADMAP 17.80 (c): with tracing on, each island records its own
+    # start / end (disjoint slots) and the islands become worker tracks
+    var timed = False
+    comptime if TRACE_ON:
+        timed = scene.trace.enabled
+    var times = List[Int](length=2 * len(labels) if timed else 0, fill=0)
     var task = _IslandTask[BB, PBP](
         scene, pairs2, plo, phi, labels, members, mstart, gravity, h, substeps,
-        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold, ccd, ccd_all,
+        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold, times, timed, ccd, ccd_all,
     )
     dispatch_for(dispatch, task, len(labels), workers)
+    if timed:
+        var t0 = List[Int](capacity=len(labels))
+        var t1 = List[Int](capacity=len(labels))
+        for k in range(len(labels)):
+            t0.append(times[2 * k])
+            t1.append(times[2 * k + 1])
+        _ = scene.trace.add_lanes("island", t0, t1)
+    _ = len(times)  # keep `times` alive past the fan-out (untracked pointer)
 
 
 def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):

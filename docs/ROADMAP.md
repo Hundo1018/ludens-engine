@@ -2736,7 +2736,7 @@
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | 不排 | B | 規劃在 `CommandBuffer`(4.4)與 17.11 `TypeSchema` 之上建交易式 undo / redo 層(begin/commit/abort、反向操作記錄、物理場景 inverse op),以 `UndoLog` 差分 vs `SnapshotUndo` 全快照為 seam;目前只有零件,交易與反向操作層未做。 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ✅ | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | 🔶 | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
-| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | 🔶 | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
+| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ✅ | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ✅ | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
 
 ### 已完成條目的遺留待辦
@@ -2975,8 +2975,12 @@
 
 #### 17.80 觀測 — Wave B(工具;執行期追蹤開關、物理擷取檔與回看)
 
-> **狀態**:🔶 部分完成(2026-10-14:(a)執行期開關、(b)環形模式與 `TRACE_DROPPED`、(d)counter 軌、(e)擷取檔含 delta 編碼與只記接觸變化、(f)隨機讀取、重模擬驗證與
-> `DrawQueue` 回放、(g)C-ABI 出口 ✅;(b)span 名 interned id 量測後不採用;(c)平行工作者各自的 trace 軌未做,GPU 軌屬第 7 層)。
+> **狀態**:✅ 完成(CPU;GPU 時間軌屬第 7 層)(2026-10-14:(a)執行期開關、(b)環形模式與 `TRACE_DROPPED`、(d)counter 軌、(e)擷取檔含 delta 編碼與只記接觸變化、(f)隨機讀取、重模擬驗證與
+> `DrawQueue` 回放、(g)C-ABI 出口 ✅;(b)span 名 interned id 量測後不採用;2026-10-17 (c) 平行工作者 trace 軌 ✅;GPU 軌屬第 7 層)。
+> **進度(2026-10-17)**:(c) `TraceBuffer.add_lanes(name, 起, 訖)`:派發器的工作者是匿名的,所以每個工作項自記起訖時間(各寫自己的槽),派發後依起點排序、
+> 放進第一個已結束的 lane,lane k 成為 Chrome 匯出的執行緒軌 `tid + 1 + k`,lane 數即實際並行度。island 平行求解在追蹤開啟時逐 island 計時並以 "island" span 落在 lane 上
+> (追蹤關閉或編譯期關時不計時、不配置)。`tests/probes/trace_on_probe.mojo` 8/8(經 `test_trace_runtime`):40 個 island → 40 個 span、2 條 lane、同 lane 無重疊、
+> 匯出含 island;打包:[0,10] [5,15] [10,20] [20,30] 需 2 條 lane。
 > **進度註(2026-10-13)**:`diag/trace.mojo`:`TraceBuffer.enabled`(`-D LUDENS_TRACE` 編入時的執行期開關;關閉時 span 只記深度,開關切在 span 中間也不會讓巢狀錯位)、
 > `ring`(滿了覆寫最舊者)、`sample(name, value)` 與 Chrome 匯出的 `C` 事件(solver 每步記 `contact_manifolds` / `bodies`)、`take_dropped()`;`ContactScene6.step` 步末把新丟棄數加進
 > `Counters` 的 `TRACE_DROPPED`(原本無人遞增)。`physics/capture.mojo`:`Capture.record`(每步:body 位姿 / 速度 / 睡眠 / island,接觸的法向 / 點 / 深度 / 累積衝量;
@@ -3848,7 +3852,7 @@
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | ✅ |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | 🔶 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
-| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | 🔶 |
+| 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | ✅ |
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
