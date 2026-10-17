@@ -537,3 +537,190 @@ def apply_buoyancy_surface[W: WaterSurface, B: Body6](
                 v * (1 / (1 + wv.lin_drag * frac * dt)),
                 om * (1 / (1 + wv.ang_drag * frac * dt)),
             )
+
+
+struct ShallowWaterFV(WaterSurface, Movable):
+    """Nonlinear shallow water (Saint-Venant) on a flat bed, finite volume
+    (17.60): cell depths h and discharges (hu, hv), first-order Rusanov
+    (local Lax-Friedrichs) fluxes, reflective walls. Unlike
+    `ShallowWaterGrid` (linear waves on a mean depth) it carries the flow
+    velocity, moving bores and drying cells (h = 0 stays 0; velocities
+    are taken as 0 below `dry`). `step(dt)` raises past the CFL limit
+    dt (|u| + sqrt(g h)) / cell <= 1/2; `max_dt` is that bound. Mass is
+    conserved to rounding (the fluxes cancel between cells; walls pass
+    none). `height` is bed + h at the cell under (x, z); `velocity` the
+    depth-averaged (u, 0, v) there."""
+
+    var nx: Int
+    var nz: Int
+    var cell: Real
+    var origin_x: Real
+    var origin_z: Real
+    var bed: Real
+    var gravity: Real
+    var dry: Real
+    var h: List[Real]
+    var hu: List[Real]
+    var hv: List[Real]
+
+    def __init__(out self, nx: Int, nz: Int, cell: Real, origin_x: Real, origin_z: Real, bed: Real, gravity: Real = 9.8) raises:
+        if nx < 1 or nz < 1 or not (cell > 0):
+            raise Error("ShallowWaterFV: need >= 1 x 1 cells and cell > 0")
+        self.nx = nx
+        self.nz = nz
+        self.cell = cell
+        self.origin_x = origin_x
+        self.origin_z = origin_z
+        self.bed = bed
+        self.gravity = gravity
+        self.dry = 1e-6
+        self.h = List[Real](length=nx * nz, fill=0)
+        self.hu = List[Real](length=nx * nz, fill=0)
+        self.hv = List[Real](length=nx * nz, fill=0)
+
+    def _vel(self, k: Int) -> Tuple[Real, Real]:
+        var h = self.h[k]
+        if h <= self.dry:
+            return (Real(0), Real(0))
+        return (self.hu[k] / h, self.hv[k] / h)
+
+    def max_dt(self) -> Real:
+        var smax = Real(0)
+        for k in range(self.nx * self.nz):
+            var v = self._vel(k)
+            var c = sqrt(self.gravity * max(self.h[k], Real(0)))
+            smax = max(smax, max(abs(v[0]), abs(v[1])) + c)
+        return 0.5 * self.cell / smax if smax > 0 else Real(1e30)
+
+    def total_volume(self) -> Real:
+        var s = Real(0)
+        for k in range(self.nx * self.nz):
+            s += self.h[k]
+        return s * self.cell * self.cell
+
+    def _flux(self, hl: Real, ql: Real, pl: Real, hr: Real, qr: Real, pr: Real) -> Tuple[Real, Real, Real]:
+        """Rusanov flux normal to a face: q is the normal discharge, p the
+        tangential one (h, q, p) per side."""
+        var g = self.gravity
+        var ul = ql / hl if hl > self.dry else Real(0)
+        var ur = qr / hr if hr > self.dry else Real(0)
+        var cl = sqrt(g * max(hl, Real(0)))
+        var cr = sqrt(g * max(hr, Real(0)))
+        var a = max(abs(ul) + cl, abs(ur) + cr)
+        var f0 = 0.5 * (ql + qr) - 0.5 * a * (hr - hl)
+        var f1 = 0.5 * (ql * ul + 0.5 * g * hl * hl + qr * ur + 0.5 * g * hr * hr) - 0.5 * a * (qr - ql)
+        var f2 = 0.5 * (pl * ul + pr * ur) - 0.5 * a * (pr - pl)
+        return (f0, f1, f2)
+
+    def step(mut self, dt: Real) raises:
+        if not (dt > 0) or dt > self.max_dt() * 1.000001:
+            raise Error("ShallowWaterFV.step: dt must be in (0, max_dt()]")
+        var nx = self.nx
+        var nz = self.nz
+        var dh = List[Real](length=nx * nz, fill=0)
+        var du = List[Real](length=nx * nz, fill=0)
+        var dv = List[Real](length=nx * nz, fill=0)
+        var r = dt / self.cell
+        # x faces between (i, j) and (i + 1, j); walls mirror the normal discharge
+        for j in range(nz):
+            for i in range(-1, nx):
+                var l = j * nx + i
+                var rr = j * nx + i + 1
+                var hl: Real
+                var ql: Real
+                var pl: Real
+                var hr: Real
+                var qr: Real
+                var pr: Real
+                if i < 0:
+                    hr = self.h[rr]
+                    qr = self.hu[rr]
+                    pr = self.hv[rr]
+                    hl = hr
+                    ql = -qr
+                    pl = pr
+                elif i == nx - 1:
+                    hl = self.h[l]
+                    ql = self.hu[l]
+                    pl = self.hv[l]
+                    hr = hl
+                    qr = -ql
+                    pr = pl
+                else:
+                    hl = self.h[l]
+                    ql = self.hu[l]
+                    pl = self.hv[l]
+                    hr = self.h[rr]
+                    qr = self.hu[rr]
+                    pr = self.hv[rr]
+                var fl = self._flux(hl, ql, pl, hr, qr, pr)
+                if i >= 0:
+                    dh[l] -= r * fl[0]
+                    du[l] -= r * fl[1]
+                    dv[l] -= r * fl[2]
+                if i < nx - 1:
+                    dh[rr] += r * fl[0]
+                    du[rr] += r * fl[1]
+                    dv[rr] += r * fl[2]
+        # z faces: normal discharge is hv, tangential hu
+        for j in range(-1, nz):
+            for i in range(nx):
+                var l = j * nx + i
+                var rr = (j + 1) * nx + i
+                var hl: Real
+                var ql: Real
+                var pl: Real
+                var hr: Real
+                var qr: Real
+                var pr: Real
+                if j < 0:
+                    hr = self.h[rr]
+                    qr = self.hv[rr]
+                    pr = self.hu[rr]
+                    hl = hr
+                    ql = -qr
+                    pl = pr
+                elif j == nz - 1:
+                    hl = self.h[l]
+                    ql = self.hv[l]
+                    pl = self.hu[l]
+                    hr = hl
+                    qr = -ql
+                    pr = pl
+                else:
+                    hl = self.h[l]
+                    ql = self.hv[l]
+                    pl = self.hu[l]
+                    hr = self.h[rr]
+                    qr = self.hv[rr]
+                    pr = self.hu[rr]
+                var fl = self._flux(hl, ql, pl, hr, qr, pr)
+                if j >= 0:
+                    dh[l] -= r * fl[0]
+                    dv[l] -= r * fl[1]
+                    du[l] -= r * fl[2]
+                if j < nz - 1:
+                    dh[rr] += r * fl[0]
+                    dv[rr] += r * fl[1]
+                    du[rr] += r * fl[2]
+        for k in range(nx * nz):
+            self.h[k] += dh[k]
+            self.hu[k] += du[k]
+            self.hv[k] += dv[k]
+            if self.h[k] <= self.dry:
+                self.hu[k] = 0
+                self.hv[k] = 0
+                if self.h[k] < 0:
+                    self.h[k] = 0
+
+    def _cell_at(self, x: Real, z: Real) -> Int:
+        var i = min(max(Int(floor((x - self.origin_x) / self.cell)), 0), self.nx - 1)
+        var j = min(max(Int(floor((z - self.origin_z) / self.cell)), 0), self.nz - 1)
+        return j * self.nx + i
+
+    def height(self, x: Real, z: Real, t: Real) -> Real:
+        return self.bed + self.h[self._cell_at(x, z)]
+
+    def velocity(self, x: Real, z: Real, t: Real) -> Vec3:
+        var v = self._vel(self._cell_at(x, z))
+        return Vec3(v[0], 0, v[1], 0)
