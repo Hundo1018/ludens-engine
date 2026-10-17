@@ -3167,8 +3167,20 @@
 >   降級矩陣(`workers = 1`、無 GPU、SIMD 寬度 1)各一個等價測試;aarch64 與 x86-64 的 `write_state` 位元組逐項比對。
 
 #### 17.78 宿主整合 / 綁定 — Wave C
-> **狀態**:🔶 部分完成(2026-10-13:批量姿態寫入、診斷計數器經 C 讀出、宿主定義元件、跨語言的逐物件 vs 批量量測 ✅;per-host 適配層(Godot / Unity)、
-> 綁定產生、多實例與執行緒契約、宿主元件進查詢語言 / 快照未做)。批量讀(`ld_world_get_bodies`)與 POD 事件緩衝(`ld_world_get_events`)在 12.1 已存在。
+> **狀態**:🔶 部分完成(2026-10-13:批量姿態寫入、診斷計數器經 C 讀出、宿主定義元件、跨語言的逐物件 vs 批量量測 ✅;2026-10-17:宿主對映(layer、user 值)、
+> 多實例與執行緒契約、綁定產生(Rust)✅;Godot / Unity 實機適配、C 邊界的單位轉換、C# 綁定、宿主元件進查詢語言 / 快照未做)。
+> 批量讀(`ld_world_get_bodies`)與 POD 事件緩衝(`ld_world_get_events`)在 12.1 已存在。
+> **進度註(2026-10-17)**:C-ABI 0.4(`embed/ludens.h`、`abi_v0.txt` 只追加):`ld_body_set_layer`(category / mask)、`ld_world_raycast_mask`、
+> `ld_body_set_user` / `ld_body_get_user` / `ld_world_find_user`(宿主節點 id ↔ body;隨 world 存讀,只在有 user 值時於存檔尾附 `LDU0` 段,
+> 沒有 user 值的 world 存檔與雜湊與 0.3 逐位相同)、`ld_world_bind_thread` + `LD_ERR_THREAD`(-8):綁定後其他執行緒的呼叫一律拒絕且不碰 world
+> (每次呼叫一次 `pthread_self`)。標頭明載:不同 world 可同時在不同執行緒步進;GPU 每進程一個 context,C-ABI world 只走 CPU。
+> Python 綁定:`Body.set_layer`、`Body.user`、`World.find_user`、`World.bind_thread`、`raycast(mask=)`、`ThreadError`。
+> `scripts/gen_bindings.py`(`pixi run bindings`;`--check`、`--selftest` 進閘門自測):解析標頭的常數、typedef、struct、函式指標與 49 個函式,
+> 產生 `bindings/rust/ludens_sys.rs`(Rust 關鍵字參數名加 `r#`)。
+> 量測:`test_capi` 66/66:C 主機以兩條 pthread 同時各步進一個 world 120 tick,兩者雜湊都等於單獨步進的 world;綁定後另一執行緒得 -8、本執行緒正常、解除後另一執行緒正常;
+> layer 2 遮罩只打到遠的盒子、遮罩 4 不中;user 值設定 / 讀回 / 反查,未知值得 -3;`gen_bindings --check` 為最新;以生成綁定寫的 Rust 主機(`tests/capi/host.rs`,rustc 1.97)
+> 跑 C 主機的第一個情境,雜湊 `6099cef27541034c` 與 C 主機相同,系統呼叫皆 240 次。`test_python_binding` 14/14(client 加 6 項:遮罩、user 值、存讀、刪除、執行緒綁定、
+> user 值不改變模擬)。
 > **進度註(2026-10-13)**:C-ABI 0.2(`embed/ludens.h`、`embed/abi_v0.txt` 只追加):`ld_world_set_poses`(先驗證全部,失敗則一個都不動)、`ld_counter_count` / `ld_counter_name` /
 > `ld_world_get_counters`;Python 綁定 `World.set_poses` / `set_poses_from` / `counters()`。`ContactScene6.teleport_many`:對 body 一次喚醒 pass、對暖啟動快取一次過濾,
 > 結果與逐一 `teleport` 相同(原本每次 teleport 各掃一次快取與全部 body,1e4 個 body 的批量寫入 217 ms / 幀,改後 0.73 ms)。`ecs/host_components.mojo` `HostComponents`:
