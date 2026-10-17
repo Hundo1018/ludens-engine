@@ -778,6 +778,20 @@ build: all packages precompiled into build/
 [PASS] continuum - 15 / 15 checks
 --- tests/test_conventions.mojo ---
 [PASS] conventions - 8 / 8 checks
+--- tests/test_coupler.mojo ---
+weak coupling (kc 1e-3, 2 s): max |dxA| 0.0  |dxB| 6.6764915e-06
+   400.0 | 2 | 1.0379579 | 0.2880391 | 3.420404
+   400.0 | 4 | 0.47655165 | 0.2557757 | 1.1289101
+   400.0 | 8 | 0.2682073 | 0.21381175 | 0.51474047
+   400.0 | 16 | 0.2301656 | 0.13950026 | 0.29236817
+   40.0 | 2 | 0.15663576 | 0.10872769 | 0.21381033
+   40.0 | 4 | 0.121156454 | 0.055600047 | 0.14824498
+   40.0 | 8 | 0.104287505 | 0.03597927 | 0.11796224
+   40.0 | 16 | 0.09608734 | 0.028618932 | 0.10336554
+ITERATED: most passes per step 3 of 20
+NaN in A: rejected 199  B holds xA 0.052358266 (last finite 0.052358266 )
+ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
+[PASS] coupler - 10 / 10 checks
 --- tests/test_cylinder.mojo ---
   rolling down 20 deg: 8 segments 2.234532  16 segments 2.2345238  analytic 2/3 g sin 2.2345319
   standing r 0.3 hl 0.7 on a 16-gon base: y 0.69989836  axis y 1.0
@@ -1129,7 +1143,7 @@ build: all packages precompiled into build/
 --- tests/test_ops.mojo ---
   sampling 1 in 4 over 10000 records: kept 2496
   telemetry on: records 12300   scene identical to telemetry off: True
-  black box: 19625 bytes (snapshot 19268 , inputs 50 )  replay to tick 150 identical: True
+  black box: 19633 bytes (snapshot 19268 , inputs 50 )  replay to tick 150 identical: True
 [PASS] ops - 11 / 11 checks
 --- tests/test_pcg.mojo ---
   Poisson-disk 100 x 100, r = 2: 1614 points, min distance 2.000021  other seed 1596 points
