@@ -14,10 +14,24 @@ package only produces the array (`collision` is a higher layer).
 neighbour exceeds the talus angle (Musgrave 1989): each pass moves
 `rate` x the excess, split among the steeper neighbours; mass is conserved.
 It is a whole-tile pass, so eroded tiles are no longer seam-exact.
+
+`hydraulic_erosion` runs water droplets (the particle form of Mei et al.
+2007): each starts at a hashed position, rolls down the bilinear
+gradient with inertia, gains speed from the drop and loses water to
+evaporation; its sediment capacity is max(-dh, min_slope) x speed x water
+x `capacity`. Above capacity it deposits, below it erodes (at most the
+drop height), both onto the four vertices around it with bilinear weights.
+When a droplet stops or would leave the tile it drops everything it
+carries where it is, so the total height is conserved up to rounding.
+
+`slope_at` is the gradient magnitude of the bilinear height at (x, z);
+`filter_by_slope` keeps the scatter points (17.69 `scatter`) whose slope
+is at most `max_slope` -- trees on the flats, none on the cliffs.
 """
 
-from geometry.vec import Real
-from .noise import fbm2
+from std.math import sqrt
+from geometry.vec import Real, Vec2
+from .noise import fbm2, _hash
 
 
 @fieldwise_init
@@ -111,3 +125,99 @@ def max_slope(h: List[Real], nx: Int, nz: Int, cell: Real) -> Real:
             if j + 1 <= nz:
                 m = max(m, abs(h[(j + 1) * w + i] - h[j * w + i]) / cell)
     return m
+
+
+def _bilinear(h: List[Real], w: Int, x: Real, z: Real) -> Tuple[Real, Real, Real]:
+    """(height, d/dx, d/dz) of the bilinear surface at grid coordinates."""
+    var i = Int(x)
+    var j = Int(z)
+    var fx = x - Real(i)
+    var fz = z - Real(j)
+    var a = h[j * w + i]
+    var b = h[j * w + i + 1]
+    var c = h[(j + 1) * w + i]
+    var d = h[(j + 1) * w + i + 1]
+    var hh = a * (1 - fx) * (1 - fz) + b * fx * (1 - fz) + c * (1 - fx) * fz + d * fx * fz
+    var gx = (b - a) * (1 - fz) + (d - c) * fz
+    var gz = (c - a) * (1 - fx) + (d - b) * fx
+    return (hh, gx, gz)
+
+
+def _splat(mut h: List[Real], w: Int, x: Real, z: Real, amount: Real):
+    var i = Int(x)
+    var j = Int(z)
+    var fx = x - Real(i)
+    var fz = z - Real(j)
+    h[j * w + i] += amount * (1 - fx) * (1 - fz)
+    h[j * w + i + 1] += amount * fx * (1 - fz)
+    h[(j + 1) * w + i] += amount * (1 - fx) * fz
+    h[(j + 1) * w + i + 1] += amount * fx * fz
+
+
+def hydraulic_erosion(
+    mut h: List[Real], nx: Int, nz: Int, droplets: Int, seed: Int,
+    inertia: Real = 0.05, capacity: Real = 4, min_slope: Real = 0.01,
+    erode: Real = 0.3, deposit: Real = 0.3, evaporate: Real = 0.01,
+    gravity: Real = 4, lifetime: Int = 30,
+) raises:
+    """Droplet erosion on an (nx + 1) x (nz + 1) vertex grid, in grid units
+    (module note)."""
+    if nx < 2 or nz < 2 or len(h) != (nx + 1) * (nz + 1):
+        raise Error("hydraulic_erosion: an (nx + 1) x (nz + 1) grid, nx, nz >= 2")
+    var w = nx + 1
+    var lim_x = Real(nx) - Real(1e-3)
+    var lim_z = Real(nz) - Real(1e-3)
+    for d in range(droplets):
+        var x = Real(Float64(_hash(d, 1, 0xE60D, seed)) / 4294967296.0) * lim_x
+        var z = Real(Float64(_hash(d, 2, 0xE60D, seed)) / 4294967296.0) * lim_z
+        var dx = Real(0)
+        var dz = Real(0)
+        var speed = Real(1)
+        var water = Real(1)
+        var sed = Real(0)
+        for _ in range(lifetime):
+            var cur = _bilinear(h, w, x, z)
+            dx = dx * inertia - cur[1] * (1 - inertia)
+            dz = dz * inertia - cur[2] * (1 - inertia)
+            var l = sqrt(dx * dx + dz * dz)
+            if l <= 0:
+                break
+            dx /= l
+            dz /= l
+            var nxp = x + dx
+            var nzp = z + dz
+            if nxp < 0 or nzp < 0 or nxp > lim_x or nzp > lim_z:
+                break
+            var dh = _bilinear(h, w, nxp, nzp)[0] - cur[0]
+            var cap = max(-dh, min_slope) * speed * water * capacity
+            if sed > cap or dh > 0:
+                # deposit: fill the pit up to the step (going uphill) or the excess
+                var amt = min(dh, sed) if dh > 0 else (sed - cap) * deposit
+                sed -= amt
+                _splat(h, w, x, z, amt)
+            else:
+                var amt = min((cap - sed) * erode, -dh)
+                sed += amt
+                _splat(h, w, x, z, -amt)
+            speed = sqrt(max(speed * speed + dh * gravity * -1, Real(0)))
+            water *= 1 - evaporate
+            x = nxp
+            z = nzp
+        _splat(h, w, x, z, sed)
+
+
+def slope_at(h: List[Real], nx: Int, nz: Int, cell: Real, x: Real, z: Real) -> Real:
+    """Gradient magnitude (rise / run) of the bilinear height at world (x, z),
+    clamped to the tile."""
+    var gx = min(max(x / cell, Real(0)), Real(nx) - Real(1e-4))
+    var gz = min(max(z / cell, Real(0)), Real(nz) - Real(1e-4))
+    var b = _bilinear(h, nx + 1, gx, gz)
+    return sqrt(b[1] * b[1] + b[2] * b[2]) / cell
+
+
+def filter_by_slope(pts: List[Vec2], h: List[Real], nx: Int, nz: Int, cell: Real, max_slope: Real) -> List[Vec2]:
+    var out = List[Vec2]()
+    for p in pts:
+        if slope_at(h, nx, nz, cell, p[0], p[1]) <= max_slope:
+            out.append(p)
+    return out^
