@@ -575,7 +575,8 @@ build: all packages precompiled into build/
   brain: halfway x 5.0  fov 0.75   end x 10.0
 [PASS] camera_seq - 14 / 14 checks
 --- tests/test_capi.mojo ---
-[PASS] capi - 58 / 58 checks
+  gen_bindings: up to date (49 functions);  rust host hash 6099cef27541034c  c host hash 6099cef27541034c
+[PASS] capi - 66 / 66 checks
 --- tests/test_capture.mojo ---
   120 frames, 4 keyframes: 61156 bytes ( 500 per frame incl. keyframes )
   draw_frame(100): 18 commands = 5 body points + 13 contact arrows
@@ -1059,6 +1060,14 @@ build: all packages precompiled into build/
 [PASS] pipeline - 5 / 5 checks
 --- tests/test_pool.mojo ---
 [PASS] pool - 90 / 90 checks
+--- tests/test_projectile_pen.mojo ---
+  hits 2 : kind 1 body 0 at x 4.95  then kind 0 body 1 at x 9.95 after 9.9499 m;  speed after wall 1 244.94893
+  10 deg graze: 1 hits, first kind 2 ;  45 deg: kind 0 ;  ricochet off: kind 0
+  ricochet: in [49.240387, -8.682409, 0.0, 0.0]  out [29.544233, 5.209446, 0.0, 0.0]
+  target at right angles: hit without homing False , with 3 rad/s homing True
+  fuse: 1 hit, kind 3 body 0 at [10.0, 0.0, 0.0, 0.0]
+  lead: direction [0.9949875, 0.0, 0.1, 0.0]  closest approach 0.0007511158 m;  outrun: [0.0, 0.0, 0.0, 0.0]
+[PASS] projectile_pen - 9 / 9 checks
 --- tests/test_python_binding.mojo ---
 [PASS] python_binding - 14 / 14 checks
 --- tests/test_queries.mojo ---
@@ -1321,6 +1330,15 @@ build: all packages precompiled into build/
   Both[LBM, rope]: sphere x 0.009758875  rope end y 0.02
   OneWay: lattice steps 30  CONTINUUM_NAN 1  lattice finite True
 [PASS] coupling - 5 / 5 checks
+--- tests/test_hit_pipeline.mojo ---
+  2 s of attack loops: windows opened 2  hits 2 ;  window never opened: hits 0
+  health after hits 46 0  events 2 amounts 54 46  killed 1  bone 5 source 7
+  knockback 3 m/s along x while walking 2 m/s along z: slid 0.97416574 m in 1 s, walking vz 2.0
+  blast at the origin: pushed 1 ; open mover ext [5.0, 0.0, 0.0, 0.0]  behind the wall [0.0, 0.0, 0.0, 0.0] ;  zero radius pushed 0
+  shockwave at 40 m/s: crate at 2.2 m pushed at tick 4 , at 19.5 m at tick 30 ;  pushes 2  far crate vz 1.1000002
+  blast reached 9 fragments, largest impulse 2662.513
+  bonded wall, 1 s: bonds broken without blast 0 , with the blast 19
+[PASS] hit_pipeline - 7 / 7 checks
 --- tests/test_runtime_budget.mojo ---
 [PASS] runtime_budget - 4 / 4 checks
 --- tests/test_runtime_params.mojo ---

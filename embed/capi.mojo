@@ -898,8 +898,8 @@ def ld_world_get_counters(h: Optional[Handle], values: Optional[I64Ptr], cap: In
 
 @export
 def ld_world_bind_thread(h: Optional[Handle], on: Int32) abi("C") -> Int32:
-    """on = 1: bind the world to the calling thread (calls from any other
-    thread then return LD_ERR_THREAD); on = 0: unbind. Re-binding from a new
+    """Bind (on = 1) the world to the calling thread, so calls from any other
+    thread return LD_ERR_THREAD; on = 0 unbinds. Re-binding from a new
     thread hands the world over (the host must make sure the old thread is
     done with it)."""
     var o = _world_any(h)
