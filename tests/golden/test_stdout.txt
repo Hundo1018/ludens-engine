@@ -440,6 +440,11 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
 [PASS] manifold - 91 / 91 checks
 --- tests/test_mat.mojo ---
 [PASS] mat - 34 / 34 checks
+--- tests/test_morph_ext.mojo ---
+in-between at 0.75: 0.0  checks True True True True True
+RBF: 0 / 60 / 120 / 90 deg -> -8.3873275e-10 0.3 0.99999994 0.7408167
+squash (1, 0.5, 1) about y = 1: heights 0.5 1.25 1.5
+[PASS] morph_ext - 12 / 12 checks
 --- tests/test_motor_parity.mojo ---
 [PASS] motor_parity - 285 / 285 checks
 --- tests/test_mpm_melt.mojo ---
@@ -525,6 +530,14 @@ after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (s
   palette: bind pose max |skinned - rest| 5.9604645e-08   all bones lifted 1 m: max error 2.4575624e-07
   4 bones twisted 0..170 deg: radius from the axis (rest 0.2): DLB 0.2  LBS 0.096739165
 [PASS] skin_k - 13 / 13 checks
+--- tests/test_skin_vectors.mojo ---
+palette 0 : 0.4047821 0.29419497 0.38249925 0.7767208 -0.11966124 -0.13783512 0.16217858 0.018505186
+palette 1 : 0.9351064 0.2038164 -0.23165508 -0.1742722 -0.05880274 -0.17565988 -0.077723205 -0.0494982
+v 0 DLB 0.3047964 -0.5714111 1.0308902   LBS 0.16114357 -0.6464169 0.22684316
+v 1 DLB 0.88098025 -0.24800122 0.41221493   LBS 0.44215643 -0.029279232 -0.09523639
+v 2 DLB 0.27704856 0.6037673 -1.1068717   LBS 0.39984018 -0.0567123 -0.44788763
+v 3 DLB 1.2271068 0.9086521 -0.13463011   LBS 0.64181876 0.86999315 0.0060089827
+[PASS] skin_vectors - 1 / 1 checks
 --- tests/test_skinning.mojo ---
 [PASS] skinning - 19 / 19 checks
 --- tests/test_solvers.mojo ---
@@ -1335,6 +1348,11 @@ cloud of 400 grains, 0.3 s: sank one-way 0.0016791671  two-way 0.0034571476
   1 mm plain 197494 bytes (test_sim_cache records 197494), version 1 ;  packed version 2
   still frame packed: cache 1467 bytes for 256 points x 2 frames
 [PASS] sim_cache_pack - 4 / 4 checks
+--- tests/test_skin_link.mojo ---
+bind pose: worst vertex move 0.0    bone 1 at 90 deg: (0, 2.4, 0) -> -1.0000002 1.4000003 -0.0
+bone 0 box half 0.2 0.45 0.2  offset 0.45   capsule radius 0.2  axis 0.2 .. 0.7
+ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
+[PASS] skin_link - 6 / 6 checks
 --- tests/test_sleep6.mojo ---
   fell asleep at frame 35
 [PASS] sleep6 - 13 / 13 checks
