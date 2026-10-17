@@ -1449,7 +1449,15 @@
 > - **塑性 / 元素移除**(`FemBody.set_plasticity` / `plastic_flow` / `remove_overstrained`;Müller & Gross 2004 的屈服 + 潛變 + 上限):
 >   `test_fem_plastic` 4/4:1 m 懸臂 E = 1e7 10 g 下彈性下垂 0.298 m、卸載後回到 0.3 mm;塑性下垂 0.872 m、卸載後永久 0.652 m;
 >   拉桿 0.3 應變上限移除 104 個四面體分成 4 塊,不移除則只拉長到 1.60 m;關閉時既有 FEM golden 不變。
-> **未做**:隱式步的 NH 切線、近不可壓鎖死對策、MPM Drucker–Prager 與 SDF 靜態邊界、VBD / PD 求解器變體、節點 CCD。
+> - **MPM 靜態障礙 + 實驗性沙**(`MpmSolver.add_obstacle` / `set_sand` / `step_ext`):格點在 `Sdf3` 內時去掉進入速度並施 Coulomb 摩擦,仍落在內部的粒子推回表面
+>   (只靠格點投影時 288 個沙粒有 80 個陷入盒內半格以上)。`test_mpm_sand` 5/5:2 m/s 方塊在 μ 0.6 障礙地板上滑 0.346 m(v²/2μg = 0.340),μ 0 時 0.83 m;
+>   倒在盒上的沙 0 粒在內、9 粒在頂。**沙未達標**(如實記錄):Klár 2016 對數應變回映射在單一 F 上行為正確(純壓縮不變、剪切被削減而體積保持),
+>   但 0.42 m 沙柱 0.3 s 後頂高 30° 0.084 m、60° 0.176 m、85° 0.345 m(彈性 0.372)—— 隨摩擦角單調,85° 能站,30° / 60° 卻持續攤開而不停在休止角;
+>   疑因(未證):回映射是對 Hencky 應力定義的錐,本求解器應力律是 fixed-corotated。另:網域牆只去法向速度(無摩擦),沙需以障礙作地板。
+> - **發現**:在 `FemBody.step` / `MpmSolver.step` 函式體內加任何分支(即使從未執行的提早 return)或把函式體搬進 comptime 參數化的 helper,都改變編譯結果、
+>   動到 `test_thermal`(0.011999987 → 0.0119999945)與 `test_mpm`(spread 0.20055819 → 0.20055932)的末位;兩者保持原函式體逐位不動,
+>   擴充改走 `step_plastic` / `step_ext`(`FemContinuum` / `MpmContinuum` 依設定選用)。
+> **未做**:隱式步的 NH 切線、近不可壓鎖死對策、沙的休止角(應力律與回映射一致化)、VBD / PD 求解器變體、節點 CCD。
 
 > **現況**:引擎有**三條**體積可變形路徑,但只有一條在場景裡。
 > ① `SoftBody`(`physics/softbody.mojo:50`):只有 `box_lattice`(`:67`;`n < 2` 直接 raise `:82-83`)產生的實心 n³ 粒子格、
