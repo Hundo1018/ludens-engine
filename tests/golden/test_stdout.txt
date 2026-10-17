@@ -1541,6 +1541,13 @@ after 3 s: gas excess heat 9043.502771750093 J/m  centroid y 0.4009514398453459 
   LBM Cd: boxy 6.2032742  streamlined 5.634494  frontal cells 66 66
   top speed: boxy 51.099136  streamlined 53.499096
 [PASS] vehicle_aero - 25 / 25 checks
+--- tests/test_vehicle_kinds.mojo ---
+mixer: roll torque 0.39999998 (0.4)  total 8.0   yaw reaction 0.05 (0.05)
+hover after 4 s: y 2.000018  up.y 1.0  heading 0.9999981
+tracks 2 / 2 m/s, 3 s: forward speed 1.9999998  yaw rate -1.5172429e-15
+tracks +1 / -1 m/s from rest, 3 s: centre moved 0.00045151773  yaw rate 0.22685187  (no-slip 1.1111111111111112 )
+hitch: trailer moved 3.9998908 m, worst anchor gap 0.00029505944
+[PASS] vehicle_kinds - 8 / 8 checks
 --- tests/test_vehicle_wheel.mojo ---
 [PASS] vehicle_wheel - 133 / 133 checks
 --- tests/test_water.mojo ---
