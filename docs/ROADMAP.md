@@ -2079,7 +2079,7 @@
 | 17.28 | [浮力 / 水體積](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b) | ✅ | B | WaterVolume + apply_buoyancy 以 ρ g V_sub 施於浮心並加隱式線性 / 角阻尼,浸沒體積有球解析、盒取樣積分與軸對齊盒閉式解,取樣 vs 閉式為 seam parity。 |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 🔶 | C | 平衡控制、物理驅動移動、動態角色本體、模式狀態機、抓取 / 攜帶、ragdoll 質量與限制 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 🔶 | B | 模式機、加速度模型、跳躍手感、任意向上軸、外部速度 / 衝量累加器、移動平台完整繼承 |
-| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 🔶 | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
+| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | ✅ | B | 鏡頭資料與 rig、鏡頭混合與優先序、震動、視錐數學(模擬端用途)、序列 / 時間軸 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 🔶 | B | 受擊 / 攻擊體積、近戰掃掠、hitscan 與穿透 / 跳彈、彈道投射物、爆炸、受擊反應 |
 | 17.74 | [載具家族](#1774-載具家族--wave-c) | 🔶 | C | 履帶車、水上載具、飛行器、懸浮 / 推進器陣列、機車 / 自行車、通用服務 |
 
@@ -2189,8 +2189,22 @@
 > **邊界**:輸入映射 / 手把死區屬宿主;依模式選動畫由宿主(或 17.64 參數)處理;攝影機行為屬 17.68;音效屬宿主。
 
 #### 17.68 攝影機 / 序列 — Wave B(headless 資料 / 邏輯)
-> **狀態**:🔶 部分完成(2026-10-13:鏡頭資料、參考投影、視錐測試、臨界阻尼彈簧、trauma 震動、吊臂鏡頭、鏡頭混合與優先序、序列(純量 / Vec3 / 四元數 / 事件軌,seek 與游標兩種求值)✅;
-> 軌道車 / 多目標取景 rig、motor 空間彈簧變體、動畫 clip 軌、序列驅動 kinematic 剛體與事件進 `Channel` 未做)。
+> **狀態**:✅ 完成(2026-10-13:鏡頭資料、參考投影、視錐測試、臨界阻尼彈簧、trauma 震動、吊臂鏡頭、鏡頭混合與優先序、序列(純量 / Vec3 / 四元數 / 事件軌,seek 與游標兩種求值);
+> 2026-10-17:軌道車 / 多目標取景、motor 空間彈簧變體(seam)、動畫 clip 軌、序列驅動 kinematic 剛體與事件進 `Channel`)。
+> **進度註(2026-10-17)**:
+> - `procedural/camera_math.mojo`:`CamSpring`(seam:`SPRING_SPLIT` 位置與旋轉向量分開 / `SPRING_MOTOR` 相對目標的 motor 取 6 維 log;兩者皆為帶速度狀態的臨界阻尼彈簧)、
+>   `frame_targets`(各球的包圍球放進兩個視角半角中較窄者)、`Frustum.sphere_inside`、`DollyRail`(17.36 弧長表 + RMF;最近點的弧長以彈簧追、看向目標、以 RMF 法向為 up)。
+>   `test_camera_spring` 8/8:純平移(3.7 m)兩者差 1.4e-5 m(float32 motor 乘積捨入)、純旋轉(60°)差 2.9e-7 rad;兩個半步 = 一步(兩模式);
+>   繞 5 m 外樞軸 90°:motor 與樞軸最近距離 4.9999995、分開者 3.54(走弦);三球取景全在視錐內,單球拉近 2 % 即出界;24 m 直軌追 2 m/s 目標,5 s 後軌上速度 1.99985、
+>   離軌 1.4e-6 m、視線餘弦 ≥ 0.9999999,目標走過軌端時停在 x 11.99999;壞 mode、半衰期 0、無目標、零方向、fov ≥ π raise;`dt = 0` 與 NaN 目標不改變狀態。
+> - `procedural/sequence.mojo` clip 軌:`key_clip(k, start, clip, offset, speed, blend)`、`clip(k, t)` → `ClipSample`(新 / 舊 clip 的區域時間與權重;t 的純函式)。
+> - `ContactScene6.set_dynamic`(kinematic → dynamic,保留質量與速度;非 kinematic、三角網格 raise)。
+> - `gameplay/sequence_player.mojo` `SequencePlayer`:游標播放;跨過的事件以 `SeqEvent(sequence, event, time)` 送進 `Channel`;綁定的剛體設為 kinematic 並每 tick `move_to` 軌道姿勢;
+>   結束後的下一 tick 把 `release` 的剛體交還動力學,速度取軌道在最後一個 `dt` 上的導數。**發現**:首版用最後一個 tick 的 `move_to` 速度,
+>   但游標累加 1/60 的 float32 和,第 121 個 tick 只前進殘差,交還速度 0.0003 m/s;改用軌道導數後 1.9999。
+>   `test_sequence_player` 8/8:1.125 s 時 run 區域時間 0.1875、權重 0.5、walk 1.125;0.51 / 1.51 s 的事件於 tick 31 / 91 各到一次;平台到 x 4.0、載著箱子(瞬間起步滑後 0.17 m);
+>   交還時 vx 1.9999,0.5 s 後 x 與拋體公式差 3e-5 m、y 差 0.010 m(子步積分);缺軌、對非 kinematic 剛體 `set_dynamic`、負 blend、逆序 key raise。
+> - bench `bench_sequence`(ns / 次):`CamSpring` split 222、motor 221;軌道車(3 段、256 取樣)577;`frame_targets` 16 球 115。
 > **進度註(2026-10-13)**:`procedural/camera_math.mojo`:`CameraPose`、`look_rotation`(看正上 / 正下時改用 +z 當 up,不退化)、`perspective` / `ortho`(OpenGL 慣例)、`Frustum`(六個朝內平面,球 / AABB 測試)、
 > `spring_damp`(精確解,與步長無關)/ `spring_damp_quat`、`Shake`(trauma² × 種子 Perlin)。`procedural/sequence.mojo`:`Sequence`(依時間的純函式,二分找段)與 `SeqCursor`(從上一段走,事件經 17.64 `EventTrack`)。
 > `gameplay/camera_rig.mojo`:`SpringArm`(球掃,拉近立即、放長用彈簧)、`CameraBrain`(優先序最高者勝,換鏡時以緩動混合位置 / 方向 / fov)。
@@ -3544,7 +3558,7 @@
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | 動畫與程序化 | 🔶 |
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
-| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
+| 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | ✅ |
 | 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | 🔶 |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
