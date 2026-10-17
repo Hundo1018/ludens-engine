@@ -199,6 +199,10 @@ build: all packages precompiled into build/
 [PASS] spline_frames - 126 / 126 checks
 --- tests/test_spline_parity.mojo ---
 [PASS] spline_parity - 253 / 253 checks
+--- tests/test_thermal_particles.mojo ---
+  particle bar ( 7260 particles, dt 0.01 , max_dt 0.0231758 ): max |T - erf| 1.2394714 K;  max |T_particles - T_grid| 1.2267761 K
+  insulated block: heat drift 3.814697269177714e-08  spread 200.0 -> 0.00045776367
+[PASS] thermal_particles - 3 / 3 checks
 --- tests/test_trace_runtime.mojo ---
   probe: spans after 5 traced steps 35  after 5 more with enabled = False 35
   probe:   ring of 4 after 10 spans: oldest s6  newest s9  dropped 6
@@ -1270,6 +1274,11 @@ build: all packages precompiled into build/
   cloth 256 points x 240 frames: cache 197494 bytes vs raw 737280 ( 26.78683810763889 % )  max error 0.0009999983
   CachePlayer through step_checked: max error vs live 0.0009999983  frame 239
 [PASS] sim_cache - 10 / 10 checks
+--- tests/test_sim_cache_pack.mojo ---
+  bytes / point / frame (varint -> packed): err 0.01: 3.052246 -> 1.1012207 err 0.001: 3.2144206 -> 2.2587078 err 0.0001: 3.8009276 -> 3.4400554
+  1 mm plain 197494 bytes (test_sim_cache records 197494), version 1 ;  packed version 2
+  still frame packed: cache 1467 bytes for 256 points x 2 frames
+[PASS] sim_cache_pack - 4 / 4 checks
 --- tests/test_sleep6.mojo ---
   fell asleep at frame 35
 [PASS] sleep6 - 13 / 13 checks
