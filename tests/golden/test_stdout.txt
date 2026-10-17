@@ -1040,6 +1040,11 @@ hover 5 s: y 2.9999475  up.y 1.0  heading 0.49997857  tail thrust -3.2666419 ( 3
 --- tests/test_islands_par.mojo ---
   islands: 6
 [PASS] islands_par - 6 / 6 checks
+--- tests/test_iso_collision.mojo ---
+box SDF: triangles 7872  open edges 0  volume 3.9744866
+box dropped on the mesh: rests at 0.10040271 0.59999436 -0.19986863  (bottom 0.49999437 )
+sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
+[PASS] iso_collision - 3 / 3 checks
 --- tests/test_jobgraph.mojo ---
   levels — Integrate 0  Drag 1  Decay 0  Award 1  depth 2
   sparse digests — seq 7306341537769252880  graph 7306341537769252880  parallel 7306341537769252880
