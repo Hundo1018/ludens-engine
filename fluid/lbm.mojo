@@ -286,42 +286,51 @@ struct Lbm(Movable, Deinitable):
         density of their fluid neighbours; fluid cells it covers become solid,
         and their momentum goes to the sphere (added to `obj_f` at the next
         `stream`, Aidun et al. 1998)."""
+        var prev = self.obj_c[k]
         self.obj_c[k] = c
         self.obj_v[k] = v
         self.obj_w[k] = w
-        self._place(k, False)
+        self._place(k, False, prev)
 
-    def _place(mut self, k: Int, first: Bool):
+    def _place(mut self, k: Int, first: Bool, prev: Vec3 = Vec3(0, 0, 0, 0)):
         var n = self.cells()
         var c = self.obj_c[k]
         var r = self.obj_r[k]
         var cover = Vec3(0, 0, 0, 0)
-        # owned cells that fall outside: uncover
-        for cell in range(n):
-            if self.owner[cell] != k:
-                continue
-            var z = cell // (self.nx * self.ny)
-            var y = (cell // self.nx) % self.ny
-            var x = cell % self.nx
-            var d = Vec3(Real(x), Real(y), Real(z), 0) - c
-            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
-                self.flag[cell] = CELL_FLUID
-                self.owner[cell] = -1
-                var rho = Real(0)
-                var m = 0
-                for i in range(1, Q):
-                    var nxx = self._wrap(x + self.ex[i], self.nx)
-                    var nyy = self._wrap(y + self.ey[i], self.ny)
-                    var nzz = self._wrap(z + self.ez[i], self.nz)
-                    var nb = self.idx(nxx, nyy, nzz)
-                    if self.flag[nb] == CELL_FLUID and self.owner[nb] == -1:
-                        rho += self.density(nb)
-                        m += 1
-                rho = rho / Real(m) if m > 0 else Real(1)
-                var u = self.obj_v[k] + _cross(self.obj_w[k], d)
-                for i in range(Q):
-                    self.f[i * n + cell] = self._feq(i, rho, u[0], u[1], u[2])
-                cover = cover + u * rho  # the fluid gains this momentum from the sphere
+        # owned cells that fall outside: uncover. They were placed around
+        # `prev`, so only that box is scanned (ascending cell order, as a
+        # whole-grid sweep would visit them; 17.59)
+        var px0 = max(Int(prev[0] - r) - 1, 0)
+        var px1 = min(Int(prev[0] + r) + 2, self.nx) if not first else 0
+        var py0 = max(Int(prev[1] - r) - 1, 0)
+        var py1 = min(Int(prev[1] + r) + 2, self.ny)
+        var pz0 = max(Int(prev[2] - r) - 1, 0)
+        var pz1 = min(Int(prev[2] + r) + 2, self.nz)
+        for z in range(pz0, pz1):
+            for y in range(py0, py1):
+                for x in range(px0, px1):
+                    var cell = self.idx(x, y, z)
+                    if self.owner[cell] != k:
+                        continue
+                    var d = Vec3(Real(x), Real(y), Real(z), 0) - c
+                    if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
+                        self.flag[cell] = CELL_FLUID
+                        self.owner[cell] = -1
+                        var rho = Real(0)
+                        var m = 0
+                        for i in range(1, Q):
+                            var nxx = self._wrap(x + self.ex[i], self.nx)
+                            var nyy = self._wrap(y + self.ey[i], self.ny)
+                            var nzz = self._wrap(z + self.ez[i], self.nz)
+                            var nb = self.idx(nxx, nyy, nzz)
+                            if self.flag[nb] == CELL_FLUID and self.owner[nb] == -1:
+                                rho += self.density(nb)
+                                m += 1
+                        rho = rho / Real(m) if m > 0 else Real(1)
+                        var u = self.obj_v[k] + _cross(self.obj_w[k], d)
+                        for i in range(Q):
+                            self.f[i * n + cell] = self._feq(i, rho, u[0], u[1], u[2])
+                        cover = cover + u * rho  # the fluid gains this momentum from the sphere
         var x0 = max(Int(c[0] - r) - 1, 0)
         var x1 = min(Int(c[0] + r) + 2, self.nx)
         var y0 = max(Int(c[1] - r) - 1, 0)

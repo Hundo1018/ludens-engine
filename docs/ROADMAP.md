@@ -1545,7 +1545,10 @@
 > 只做平移時自轉每步變號放大(5 步 ×2.6),加上轉動項後才穩定。`LbmSpherePort.set_implicit(True)`(預設關,關時與 `LbmCoupler` 逐位相同;
 > `test_coupling` / `test_fsi` / `test_lbm*` golden 段不變)。`tests/test_fsi_added_mass.mojo` 5/5:密度比 0.5 / 0.2 / 0.05 以 5 cm/s 發射,
 > 0.3 s 後 |v| 0.55 / 0.42 / 0.40 mm/s,全程不超過發射速度;顯式同設定 1.97e4 m/s;密度比 1.5 沉降 0.4 s 速度 38.5 vs 顯式 40.4 mm/s(4.8 %,斷言 < 5 %)。
-> Z 只在 `add_sphere` 時量一次(球移動後連結數會變幾 %)。**仍未做**:Aitken 迭代(隱式阻力已涵蓋本格點法,不另做)、上列其餘項目。
+> Z 只在 `add_sphere` 時量一次(球移動後連結數會變幾 %)。
+> `move_sphere` 的「離開的格」改掃舊位置的包圍盒(升序同全格掃描,故 `test_lbm*` / `test_fsi*` / `test_coupling` golden 逐位不變):64³、R = 4 每次
+> 437 → 11 µs;但一個 stream 步 100 ms,耦合一步只省約 0.4 %(`bench_fsi` 的列在雜訊內,未更新)。
+> **仍未做**:Aitken 迭代(隱式阻力已涵蓋本格點法,不另做)、移動球跨週期邊界、SPH / PBF 雙向、MPM ↔ 剛體、柔性體 ↔ 流體、17.55 快照。
 
 > **現況**:流體與剛體**幾乎沒有耦合**。Phase 14 起因即記載 PBF / SPH 零固體耦合
 > (ROADMAP「Phase 14」);之後只補了 SPH 的 Akinci 邊界粒子 `BoundaryParticles`
