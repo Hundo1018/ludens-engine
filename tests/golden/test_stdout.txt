@@ -1284,6 +1284,11 @@ build: all packages precompiled into build/
   box teleported 10 cm into a stack: max speed 0.32527977  horizontal separation after 1 s 0.4990601
   two boxes at the same point: separation after 2 s 0.49971327
 [PASS] solver_stress - 7 / 7 checks
+--- tests/test_sph_rigid.mojo ---
+  static 10 cm box under the surface: mean fluid force 14.399869  displaced weight 14.365378  ratio 1.002401  (1000 g V = 9.8 )
+  box density 500 after 2 s: top 0.37760806  surface 0.26335323  vy -0.007734046  fluid force 16.801912  weight 16.537502  fluid inside 0
+  box density 3000 after 2 s: top 0.2665003  bottom 0.11650027  vy -0.027672479  fluid force 99.726265  weight 99.22502  fluid inside 0
+[PASS] sph_rigid - 6 / 6 checks
 --- tests/test_strand.mojo ---
   free strand after 8 s: tip 0.00017250498 1.2500007 0.0  max stretch 9.536743e-07
   tip drop after 1 s: bend 0 0.55755174  bend 0.5 0.07986808
