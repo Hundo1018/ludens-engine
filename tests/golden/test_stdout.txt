@@ -250,6 +250,13 @@ build: all packages precompiled into build/
 [PASS] backend_parity - 71 / 71 checks
 --- tests/test_bitset_backend.mojo ---
 [PASS] bitset_backend - 6 / 6 checks
+--- tests/test_camera_spring.mojo ---
+  split vs motor, 1 s: pure translation gap 1.42330355e-05 m 0.0 rad;  pure rotation gap 6.4725264e-06 m 2.9209696e-07 rad
+  90 deg orbit about a pivot 5 m away: closest approach  split 3.537551  motor 4.9999995 ;  final gap 9.9680234e-05 0.00011168729
+  framing: 3 spheres inside True ;  one sphere at 2.0858297 m inside True  2 % closer inside False
+  dolly: rail length 24.000006  camera speed after 5 s 1.9998549 m/s  off-rail 1.4212697e-06  min look cosine 0.9999999
+  target past the end (x 20.000086 ): camera x 11.999986  s 23.999996 of 24.000006
+[PASS] camera_spring - 8 / 8 checks
 --- tests/test_cga_inversion.mojo ---
   worst inversion error: 4.6292516e-06
   worst involution error: 3.3822682e-06
@@ -1129,6 +1136,11 @@ build: all packages precompiled into build/
   ray down onto the SDF plane from y = 5: t 4.99995
   8 m/s sphere: lowest y 0.29972798  capsule lying: y 0.2998896
 [PASS] sdf_shape - 12 / 12 checks
+--- tests/test_sequence_player.mojo ---
+  at 1.125 s: clip 8 t 0.1875 weight 0.5 ; from clip 7 t 1.125 ;  at 3.5 s: clip 9 t 0.5 weight 1.0
+  events 2 : 11 at tick 31   12 at tick 91 (sequence 3 )
+  platform end x 4.0333266  box x 3.8327594  released at vx 1.9998987 ;  0.5 s later x 5.033247 (free flight 5.033276 ) y -0.3186453 ( -0.3084247 )
+[PASS] sequence_player - 8 / 8 checks
 --- tests/test_serialize.mojo ---
   blob bytes: 20729
 [PASS] serialize - 8 / 8 checks
