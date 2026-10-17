@@ -160,7 +160,7 @@ struct InbetweenMorph(Movable):
         self.at.append(weight)
 
     def apply(self, base: List[Vec3], weight: Real, mut out: List[Vec3]) raises:
-        """out = base + the interpolated delta at `weight`."""
+        """Write base + the interpolated delta at `weight` into out."""
         if len(self.at) == 0 or len(base) != self.vertices or len(out) < self.vertices:
             raise Error("InbetweenMorph.apply: needs a shape; base and out sized to the vertices")
         for i in range(self.vertices):
