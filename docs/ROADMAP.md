@@ -1658,7 +1658,11 @@
 > **FFT 海洋的 choppy 與法線**:`FftOcean.choppy`(λ)、`displaced`、`normal`:水平位移 −λ Σ k̂ Im(h0 e^{ia})(Tessendorf 的 D),單一模態正好是 Q = λ 的 Gerstner;
 > choppy 時 `height` 以 4 次定點迭代反解(同 `GerstnerWater`,精確加總)。`tests/test_fft_choppy.mojo` 4/4:單模態 λ 0.6 對 Gerstner Q 0.6 最差 1.7e-6 m;
 > 一個波長中高於水位的比例 0.4725 對擺線 1/2 − QkA/π = 0.4712;Phillips 海的解析法線對高度有限差分 1.0e-4、單位長誤差 1.2e-7;無模態時法線朝上。
-> **未做**:淺水格網的流速與非線性項、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、粒子 → 表面、choppy 的 FFT 格點路徑。
+> **非線性淺水**:`ShallowWaterFV`(`WaterSurface` 的第五個變體):Saint-Venant 有限體積,h 與 (hu, hv),一階 Rusanov 通量、反射壁、乾格(h ≤ 1e-6 速度歸零)、
+> CFL 超限 raise。`tests/test_shallow_fv.mojo` 5/5:Stoker 濕潰壩(1 / 0.5 m,20 s)平台水深 0.7260 對解析 0.7269、流速 0.9195 對 0.9229、湧浪位置差 0.13 格,
+> 體積守恆 2e-7;Ritter 乾潰壩 10 s 時 1/4 水深點差 2.72 m(1 m 格)→ 1.66 m(0.5 m 格),一階收斂;1 mm 前緣 246.5 m 對解析 259.6(一階格式在乾前緣的已知落後,記錄);
+> 靜水保持逐位不動。
+> **未做**:淺水的底床地形與摩擦、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、粒子 → 表面、choppy 的 FFT 格點路徑。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
