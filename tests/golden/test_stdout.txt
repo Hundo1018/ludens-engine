@@ -1304,8 +1304,8 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
 [PASS] sleep_api - 20 / 20 checks
 --- tests/test_smoke.mojo ---
   hot blob, 2 s: centroid y 0.1999999 -> 0.6203501 ;  buoyancy 0: max |velocity| 0.0
-  net vertical momentum after one step -0.0007416347 of 3.2496383 ;  after 2 s 12.796514 of 403.8683 ;  confinement / none: kinetic energy 1.1503039  enstrophy 1.3789463
-  temperature range 0.0 0.97720605 -> 2.5272286e-33 0.17426212
+  net vertical momentum after one step -0.0007416301 of 3.2496383 ;  after 2 s 12.796507 of 403.86826 ;  confinement / none: kinetic energy 1.1503059  enstrophy 1.3789467
+  temperature range 0.0 0.97720605 -> 2.527217e-33 0.17426203
 [PASS] smoke - 4 / 4 checks
 --- tests/test_smooth_positive.mojo ---
   d x(1 s) / d drop height: central differences 0.2708435 ;  sharp switch 0.5 (bias 0.2291565 )
@@ -1402,8 +1402,8 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   system_tiers: tier changes 3430 max dp 0.006805539 max dv 0.32666668 pen gap 0.0044184644 bodies solved per step full 1800 tiered 627
 [PASS] system_tiers - 7 / 7 checks
 --- tests/test_taylor_green.mojo ---
-  MAC 32^2: amplitude 0.010000002 -> 0.0036610519  decay rate 0.10048346  analytic 0.1  worst divergence 4.7431867e-09 (U/dx 0.05092958 )
-  LBM 32 x 32 x 1: amplitude 0.010000019 -> 0.0021258106  decay rate 0.0038710844  analytic 0.0038553143 ;  ratios MAC 1.0048347  LBM 1.0040904
+  MAC 32^2: amplitude 0.010000002 -> 0.0036610516  decay rate 0.10048348  analytic 0.1  worst divergence 4.7431867e-09 (U/dx 0.05092958 )
+  LBM 32 x 32 x 1: amplitude 0.010000019 -> 0.0021258106  decay rate 0.0038710844  analytic 0.0038553143 ;  ratios MAC 1.0048348  LBM 1.0040904
 [PASS] taylor_green - 5 / 5 checks
 --- tests/test_terrain_deform.mojo ---
   crate after the crater: -0.7463815  edited corners 45
@@ -1423,6 +1423,13 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   heated bar: length change 0.011999987  alpha_L dT L 0.012000001
   insulated: grid heat drift 1.4482918431202307e-07  tet heat drift 1.1988794328399166e-06
 [PASS] thermal - 7 / 7 checks
+--- tests/test_thermal_smoke.mojo ---
+after 3 s: gas excess heat 9043.502771750093 J/m  centroid y 0.4009514398453459 m (1.5 s: 0.1423412904612872 )  mean v over plate 0.5307898 m/s
+  heat into gas 9595.073429107666  out of plate 9618.560745239258  max step imbalance 41.488636
+  cumulative |gas in + plate in| / gas in 0.002447851629810414
+  gas excess heat / heat received 0.9425152228971666
+  cumulative imbalance: explicit 0.0024737457408441784  interp 0.002447851629810414
+[PASS] thermal_smoke - 7 / 7 checks
 --- tests/test_tiers.mojo ---
 [PASS] tiers - 26 / 26 checks
 --- tests/test_timers_integration.mojo ---
