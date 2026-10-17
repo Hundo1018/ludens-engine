@@ -806,6 +806,14 @@ build: all packages precompiled into build/
   inverted tet (det F = -0.2) released: det F after 2 s  neo-hookean 1.0242903  stvk -0.97505754  corotational -1.0161943
   uniaxial to 2 %: stvk restoring 34.986 (peak 673.554 )  neo-hookean 3430.0 (at 50 %: 1750.0 )
 [PASS] fem_material - 10 / 10 checks
+--- tests/test_fem_plastic.mojo ---
+  cantilever under 10 g: sag elastic 0.29821372  plastic 0.8716165 ;  tip offset after unloading 3 s: elastic 0.00032791495  plastic 0.6518501
+  bar pulled apart: with removal 104 tets removed, 4 pieces;  without removal 0 removed, 1 piece, length 1.6000674
+[PASS] fem_plastic - 4 / 4 checks
+--- tests/test_fem_scene.mojo ---
+  50 kg box on the block, 3 s: deepest the box bottom went below the nodes under it 0.0015791953 m;  sideways drift 0.023860605 m;  box y 0.6393864 ;  last-second bounce |vy| up to 0.17044389 m/s
+  zero g: momentum before [2.0, 0.0, 0.0, 0.0]  after [1.9999999, -1.2397796e-07, 6.517668e-07, 0.0] ;  block now carries [3.4482822, -1.2397796e-07, -0.00041562706, 0.0]  ball vx -1.4482825
+[PASS] fem_scene - 6 / 6 checks
 --- tests/test_fem_solvers.mojo ---
   assembled vs matrix-free: max diff 2.670288e-05 of 57.871613  nnz 4131  symmetric True
   2 s cantilever: tip y CG 0.3210657  Cholesky 0.3210657  IC(0)-PCG 0.32106578 ;  max gap 2.0861626e-07 m;  iterations CG 4896  IC(0) 1438 ;  volume 0.37493786 0.37493786 0.37493786 (rest 0.37499985 )
@@ -1277,10 +1285,19 @@ build: all packages precompiled into build/
 --- tests/test_terrain_deform.mojo ---
   crate after the crater: -0.7463815  edited corners 45
 [PASS] terrain_deform - 11 / 11 checks
+--- tests/test_tetmesh.mojo ---
+  faceted sphere volume 0.5088204  (4/3 pi r^3 = 0.5235988 )
+  sphere at 8 cells: nodes 447  tets 1350  volume 0.52734596 vs 0.5088204  error 0.036408782
+  sphere at 16 cells: nodes 2740  tets 10460  volume 0.5107204 vs 0.5088204  error 0.0037339926
+  sphere at 24 cells: nodes 8448  tets 35170  volume 0.5089782 vs 0.5088204  error 0.00031006336
+  embedding 266 surface vertices: worst reconstruction 4.2800327e-08 m, weight-sum error 1.1920929e-07
+  rigid motion of the tets: embedded vertices off by at most 1.2644054e-07 m
+  meshed sphere dropped 0.3 m, 3 s: lowest node 0.0  fastest node 0.011706703 m/s  volume 0.5087478 of 0.5107204
+[PASS] tetmesh - 7 / 7 checks
 --- tests/test_thermal.mojo ---
   grid bar after 10 s: max |T - erf solution| 0.014007568 K   T at 10 mm 347.95932 (exact 347.95 )
   tet bar ( 300 tets, dt 0.007499992 ): max |T - erf| 0.025177002 K   max |T_tet - T_grid| 0.016357422 K
-  heated bar: length change 0.011999987  alpha_L dT L 0.012000001
+  heated bar: length change 0.0119999945  alpha_L dT L 0.012000001
   insulated: grid heat drift 1.4482918431202307e-07  tet heat drift 1.1988794328399166e-06
 [PASS] thermal - 7 / 7 checks
 --- tests/test_tiers.mojo ---
