@@ -106,4 +106,4 @@ gameplay.vehicle_seat  # [api] enter / exit seats for the host's characters (17.
 gameplay.helicopter  # [api] single-rotor helicopter force element (17.74)
 procedural.levelgen  # [api] maze / BSP / L-system / WFC generators for the host (17.69)
 gameplay.terrain_stream  # [api] streamed procedural terrain the host drives (17.69)
-gameplay.abilities  # [api] abilities over rules for the host's gameplay code (17.70)
+gameplay.rules_table  # [api] effect / ability tables the host loads (17.70)
