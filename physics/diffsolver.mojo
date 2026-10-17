@@ -236,6 +236,11 @@ struct SphereWorld[F: SolverField](Movable):
     var iters: Int
     var hertz: Real
     var zeta: Real
+    var contact_k: Real
+    """ROADMAP 17.84: 0 (default) = the sharp contact switch `positive`;
+    > 0 = `smooth_positive(contact_k)` for a pair's presence (depth +
+    margin), so the gradient sees the contact onset. The impulse clamps and
+    the friction cone stay sharp."""
 
     def __init__(out self):
         self.bodies = List[DiffSphere[Self.F]]()
@@ -247,6 +252,7 @@ struct SphereWorld[F: SolverField](Movable):
         self.iters = 4
         self.hertz = 30
         self.zeta = 10
+        self.contact_k = 0
 
     def add_sphere(
         mut self, pos: V3[Self.F], vel: V3[Self.F], radius: Self.F, mass: Self.F
@@ -329,7 +335,7 @@ struct SphereWorld[F: SolverField](Movable):
             ct.t2 = tb[1]
             ct.ra = point - A.pos
             ct.depth = depth
-            ct.on = (depth + margin).positive()
+            ct.on = (depth + margin).positive() if self.contact_k <= 0 else (depth + margin).smooth_positive(self.contact_k)
             ct.acc = ct.acc * ct.on
             ct.acc_t1 = ct.acc_t1 * ct.on
             ct.acc_t2 = ct.acc_t2 * ct.on
