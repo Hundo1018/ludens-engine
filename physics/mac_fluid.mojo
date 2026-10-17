@@ -181,3 +181,112 @@ struct MacFluid2(Movable):
                 self.u[k] += self.fx * dt
                 self.v[k] += self.fy * dt
         _ = self.project(dt)
+
+
+struct Smoke2(Movable):
+    """Buoyant smoke on a `MacFluid2` (Fedkiw, Stam & Jensen 2001), 17.60.
+
+    A temperature field `temp` at the cell centres is advected with the
+    flow (semi-Lagrangian, RK2); it pushes up by Boussinesq buoyancy,
+    fy = buoyancy (T - mean T) -- the mean is removed so a periodic box as
+    a whole does not accelerate -- and vorticity confinement adds
+    epsilon dx (N x omega) with N = grad|omega| / |grad|omega||, putting
+    back the small swirls semi-Lagrangian advection smears out.
+    `step(dt)` = buoyancy and confinement forces, then the fluid's step,
+    then the temperature's advection. epsilon = 0 skips the confinement
+    pass entirely."""
+
+    var fluid: MacFluid2
+    var temp: List[Real]
+    var buoyancy: Real
+    var epsilon: Real
+
+    def __init__(out self, var fluid: MacFluid2, buoyancy: Real, epsilon: Real) raises:
+        if not (epsilon >= 0):
+            raise Error("Smoke2: epsilon must be >= 0")
+        var n = fluid.n
+        self.fluid = fluid^
+        self.temp = List[Real](length=n * n, fill=0)
+        self.buoyancy = buoyancy
+        self.epsilon = epsilon
+
+    def vorticity(self) -> List[Real]:
+        """omega = dv/dx - du/dy at the cell corners (i dx, j dx)."""
+        ref f = self.fluid
+        var n = f.n
+        var out = List[Real](length=n * n, fill=0)
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                out[j * n + i] = (f.v[j * n + i] - f.v[j * n + im] - f.u[j * n + i] + f.u[jm * n + i]) / f.dx
+        return out^
+
+    def kinetic_energy(self) -> Real:
+        var e = Real(0)
+        for k in range(len(self.fluid.u)):
+            e += 0.5 * (self.fluid.u[k] * self.fluid.u[k] + self.fluid.v[k] * self.fluid.v[k])
+        return e * self.fluid.dx * self.fluid.dx
+
+    def _forces(mut self, dt: Real):
+        var n = self.fluid.n
+        var dx = self.fluid.dx
+        var mean = Real(0)
+        for k in range(n * n):
+            mean += self.temp[k]
+        mean /= Real(n * n)
+        # buoyancy on the v faces: temperature averaged from the two cells
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            for i in range(n):
+                var tf = 0.5 * (self.temp[j * n + i] + self.temp[jm * n + i])
+                self.fluid.v[j * n + i] += dt * self.buoyancy * (tf - mean)
+        if self.epsilon <= 0:
+            return
+        var w = self.vorticity()  # corners
+        var mag = List[Real](length=n * n, fill=0)
+        for k in range(n * n):
+            mag[k] = abs(w[k])
+        # force at the corners, then averaged onto the faces
+        var cfx = List[Real](length=n * n, fill=0)
+        var cfy = List[Real](length=n * n, fill=0)
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                var gx = (mag[j * n + ip] - mag[j * n + im]) / (2 * dx)
+                var gy = (mag[jp * n + i] - mag[jm * n + i]) / (2 * dx)
+                var gl = sqrt(gx * gx + gy * gy) + 1e-12
+                var nx = gx / gl
+                var ny = gy / gl
+                # (N x omega z) in 2-D: (ny omega, -nx omega)
+                cfx[j * n + i] = self.epsilon * dx * ny * w[j * n + i]
+                cfy[j * n + i] = -self.epsilon * dx * nx * w[j * n + i]
+        for j in range(n):
+            var jp = (j + 1) % n
+            for i in range(n):
+                var ip = (i + 1) % n
+                # u face (i, j + 1/2) between corners (i, j) and (i, j + 1)
+                self.fluid.u[j * n + i] += dt * 0.5 * (cfx[j * n + i] + cfx[jp * n + i])
+                # v face (i + 1/2, j) between corners (i, j) and (i + 1, j)
+                self.fluid.v[j * n + i] += dt * 0.5 * (cfy[j * n + i] + cfy[j * n + ip])
+
+    def _advect_temp(mut self, dt: Real):
+        var n = self.fluid.n
+        var dx = self.fluid.dx
+        var nt = List[Real](length=n * n, fill=0)
+        for j in range(n):
+            for i in range(n):
+                var x = (Real(i) + 0.5) * dx
+                var y = (Real(j) + 0.5) * dx
+                var v0 = self.fluid.velocity(x, y)
+                var vm = self.fluid.velocity(x - 0.5 * dt * v0[0], y - 0.5 * dt * v0[1])
+                nt[j * n + i] = self.fluid._bilinear(self.temp, x - dt * vm[0], y - dt * vm[1], 0.5, 0.5)
+        self.temp = nt^
+
+    def step(mut self, dt: Real) raises:
+        self._forces(dt)
+        self.fluid.step(dt)
+        self._advect_temp(dt)
