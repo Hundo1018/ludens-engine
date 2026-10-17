@@ -214,8 +214,8 @@ struct FemBody(Movable):
         return v
 
     def set_plasticity(mut self, yield_strain: Real, creep: Real, max_plastic: Real) raises:
-        """Turn on plastic flow (17.58, Mueller & Gross 2004): after each
-        step, where a tet's elastic strain (co-rotated strain minus its
+        """Turn on plastic flow (17.58, Mueller & Gross 2004) for
+        `step_plastic` (not `step` / `step_implicit`): after each step, where a tet's elastic strain (co-rotated strain minus its
         plastic strain, Frobenius norm) exceeds `yield_strain`, the plastic
         strain moves toward it by `creep` times the excess fraction, capped
         at norm `max_plastic`. Raises on yield <= 0, creep outside (0, 1] or
@@ -226,6 +226,49 @@ struct FemBody(Movable):
         self.creep = creep
         self.max_plastic = max_plastic
         self.plastic = List[Real](length=6 * len(self.tets), fill=0)
+
+    def plastic_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+        """The plastic strain's share of the elastic forces, added as its own
+        pass (the stress is linear in the strain: P - R (2 mu Ep + lambda
+        tr(Ep) I)), so `elastic_forces` itself is unchanged when plasticity
+        is off -- editing its loop moved `test_thermal`'s last digits."""
+        for e in range(len(self.tets)):
+            ref t = self.tets[e]
+            var pa = self.pos(t.a)
+            var e1 = self.pos(t.b) - pa
+            var e2 = self.pos(t.c) - pa
+            var e3 = self.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var r = polar_rotation(ds * t.dm_inv) if self.corotational else Mat3.identity()
+            var ep = self._plastic_mat(e)
+            var tre = ep.get(0, 0) + ep.get(1, 1) + ep.get(2, 2)
+            var sp = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    sp.set(i, j, 2 * self.mu * ep.get(i, j) + (self.lam * tre if i == j else Real(0)))
+            # forces of -R Sp: H = +W R Sp Dm^-T
+            var h = (r * sp) * t.dm_inv.transpose()
+            var w = t.vol
+            var f1 = Vec3(w * h.get(0, 0), w * h.get(1, 0), w * h.get(2, 0), 0)
+            var f2 = Vec3(w * h.get(0, 1), w * h.get(1, 1), w * h.get(2, 1), 0)
+            var f3 = Vec3(w * h.get(0, 2), w * h.get(1, 2), w * h.get(2, 2), 0)
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            fx[t.a] += f0[0]
+            fy[t.a] += f0[1]
+            fz[t.a] += f0[2]
+            fx[t.b] += f1[0]
+            fy[t.b] += f1[1]
+            fz[t.b] += f1[2]
+            fx[t.c] += f2[0]
+            fy[t.c] += f2[1]
+            fz[t.c] += f2[2]
+            fx[t.d] += f3[0]
+            fy[t.d] += f3[1]
+            fz[t.d] += f3[2]
 
     def _plastic_mat(self, e: Int) -> Mat3:
         var m = Mat3()
@@ -274,8 +317,7 @@ struct FemBody(Movable):
         return sqrt(acc)
 
     def plastic_flow(mut self):
-        """One plastic update (called by `step` / `step_implicit` when
-        plasticity is on)."""
+        """One plastic update (called by `step_plastic`)."""
         if len(self.plastic) == 0:
             return
         for e in range(len(self.tets)):
@@ -332,9 +374,7 @@ struct FemBody(Movable):
 
     def elastic_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
         """Accumulate co-rotational elastic forces into the given arrays."""
-        var te = -1
         for ref t in self.tets:
-            te += 1
             var pa = self.pos(t.a)
             var e1 = self.pos(t.b) - pa
             var e2 = self.pos(t.c) - pa
@@ -357,19 +397,6 @@ struct FemBody(Movable):
                         2 * self.mu * (f.get(i, j) - r.get(i, j))
                         + self.lam * tr * r.get(i, j),
                     )
-            if len(self.plastic) > 0:
-                # the plastic part of the strain carries no stress:
-                # P -= R (2 mu Ep + lambda tr(Ep) I)
-                var ep = self._plastic_mat(te)
-                var tre = ep.get(0, 0) + ep.get(1, 1) + ep.get(2, 2)
-                var sp = Mat3()
-                for i in range(3):
-                    for j in range(3):
-                        sp.set(i, j, 2 * self.mu * ep.get(i, j) + (self.lam * tre if i == j else Real(0)))
-                var rsp = r * sp
-                for i in range(3):
-                    for j in range(3):
-                        p.set(i, j, p.get(i, j) - rsp.get(i, j))
             # H = -W P Dm^-T ; its columns are the forces on nodes b, c, d
             var h = p * t.dm_inv.transpose()
             var w = t.vol
@@ -420,6 +447,8 @@ struct FemBody(Movable):
             fy.append(0)
             fz.append(0)
         self.elastic_forces(fx, fy, fz)
+        if len(self.plastic) > 0:
+            self.plastic_forces(fx, fy, fz)
 
         var v0 = List[Real](capacity=dof)
         for i in range(n):
@@ -497,9 +526,26 @@ struct FemBody(Movable):
                 self.y[i] = floor_y
                 if self.vy[i] < 0:
                     self.vy[i] = 0
-        if len(self.plastic) > 0:
-            self.plastic_flow()
         return res
+
+    def step_plastic(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
+        """`step` with the plastic forces and the plastic flow (17.58). A
+        separate method because `step` stays exactly as it was: any branch
+        added to its body, even an early return that is never taken, changed
+        how the explicit integrator compiled and moved `test_thermal`'s last
+        digits (0.011999987 -> 0.0119999945). `step` ignores plasticity;
+        without plasticity this is `step`."""
+        if len(self.plastic) == 0:
+            self.step(dt, gravity, floor_y)
+            return
+        var n = self.node_count()
+        var fx = List[Real](length=n, fill=0)
+        var fy = List[Real](length=n, fill=0)
+        var fz = List[Real](length=n, fill=0)
+        self.elastic_forces(fx, fy, fz)
+        self.plastic_forces(fx, fy, fz)
+        self.integrate(fx, fy, fz, dt, gravity, floor_y)
+        self.plastic_flow()
 
     def step(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
         var n = self.node_count()
@@ -512,8 +558,6 @@ struct FemBody(Movable):
             fz.append(0)
         self.elastic_forces(fx, fy, fz)
         self.integrate(fx, fy, fz, dt, gravity, floor_y)
-        if len(self.plastic) > 0:
-            self.plastic_flow()
 
     def integrate(
         mut self, fx: List[Real], fy: List[Real], fz: List[Real],

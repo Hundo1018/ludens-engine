@@ -118,6 +118,11 @@ struct FemContinuum(ContinuumSolver):
         if self.implicit:
             _ = self.body.step_implicit(dt, gravity, self.floor_y, 1e-5, 400)
             return
+        if len(self.body.plastic) > 0:
+            var hp = dt / Real(self.substeps)
+            for _ in range(self.substeps):
+                self.body.step_plastic(hp, gravity, self.floor_y)
+            return
         if self.substeps == 1:
             self.body.step(dt, gravity, self.floor_y)
             return
