@@ -355,7 +355,7 @@ struct FftOcean(WaterSurface, Movable):
         self.has_grid = True
 
     def direct(self, x: Real, z: Real, t: Real) -> Real:
-        """eta - level by summing every mode (exact, O(n^2))."""
+        """Height above the level, summing every mode (exact, O(n^2))."""
         var acc = Real(0)
         for iz in range(self.n):
             for ix in range(self.n):
