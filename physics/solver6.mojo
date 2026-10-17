@@ -1012,6 +1012,25 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             self.kin_local.append(loc^)
             self.kin_at.append(Pose6(self.bset.bodies[i].position(), self.bset.bodies[i].rotation()))
 
+    def set_dynamic(mut self, id: BodyId) raises:
+        """ROADMAP 17.68: hand a kinematic body back to the dynamics (a
+        sequence-driven platform released at the end of its track). Mass,
+        inertia and the current velocity are kept, so it carries on at the
+        velocity it was last driven with. Raises for an invalid id, a body
+        that is not kinematic, or a kinematic triangle mesh (a dynamic mesh
+        is not supported)."""
+        if not self.bset.is_valid(id):
+            raise Error("ContactScene6.set_dynamic: invalid BodyId")
+        var i = id.index()
+        if not self.bset.is_kinematic(i):
+            raise Error("ContactScene6.set_dynamic: body is not kinematic")
+        if self.colliders.shape[i] == SHAPE_TRIMESH:
+            raise Error("ContactScene6.set_dynamic: a triangle mesh cannot become dynamic")
+        self.bset.motion[i] = MOTION_DYNAMIC
+        self.bset.sleeping[i] = False
+        self.bset.sleep_timer[i] = 0
+        self.bset.island[i] = -1
+
     def _refresh_kinematic_meshes(mut self) raises:
         """Re-place each kinematic mesh at its body's current pose (vertices,
         BVH, world AABB; active-edge flags kept). Runs before a step (a pose

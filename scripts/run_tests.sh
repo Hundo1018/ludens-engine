@@ -89,17 +89,65 @@ run_one() {
     mojo run "${TARGET_FLAGS[@]}" -D ASSERT=all -I build "$1"
 }
 
+# The files to run, in order.
+FILES=()
 if [ "$#" -eq 0 ]; then
-    for t in tests/test_*.mojo; do
-        run_one "$t"
-    done
+    FILES=(tests/test_*.mojo)
 else
     for want in "$@"; do
         for t in tests/test_*.mojo; do
             if [ "${TIER_OF[$t]}" = "$want" ]; then
-                run_one "$t"
+                FILES+=("$t")
             fi
         done
+    done
+fi
+
+# LUDENS_TEST_JOBS=N (default 1) runs N files at once. Each file's output
+# goes to its own buffer and the buffers are printed in the order above, so
+# stdout is byte-identical to the sequential run; the first failing file in
+# that order stops the printout with its exit code, as `set -e` does below.
+# Most of a file's wall time is the `mojo run` compile, which is single-
+# threaded, so N up to the core count cuts the suite time (17.81 CI budget).
+# A file whose second line is `# run: alone` measures wall time (17.83):
+# it runs after the parallel batch, one at a time, so the other jobs do
+# not skew it (test_bench_ab failed once under 4 jobs plus a build).
+JOBS="${LUDENS_TEST_JOBS:-1}"
+if [ "$JOBS" -le 1 ]; then
+    for t in "${FILES[@]}"; do
+        run_one "$t"
+    done
+else
+    OUT=build/test_out
+    rm -rf "$OUT"
+    mkdir -p "$OUT"
+    export TARGET_FLAGS_STR="${TARGET_FLAGS[*]:-}"
+    PAR=()
+    ALONE=()
+    for t in "${FILES[@]}"; do
+        if [ "$(sed -n 2p "$t")" = "# run: alone" ]; then
+            ALONE+=("$t")
+        else
+            PAR+=("$t")
+        fi
+    done
+    ONE='f="$1"; o="$2/$(basename "$f").out"
+        set +e
+        echo "--- $f ---" > "$o"
+        mojo run $TARGET_FLAGS_STR -D ASSERT=all -I build "$f" >> "$o" 2>&1
+        echo $? > "$o.rc"
+        exit 0'
+    if [ "${#PAR[@]}" -gt 0 ]; then
+        printf '%s\n' "${PAR[@]}" | xargs -P "$JOBS" -I{} bash -c "$ONE" _ {} "$OUT"
+    fi
+    for t in "${ALONE[@]}"; do
+        bash -c "$ONE" _ "$t" "$OUT"
+    done
+    for t in "${FILES[@]}"; do
+        o="$OUT/$(basename "$t").out"
+        cat "$o"
+        rc=$(cat "$o.rc")
+        [ "$rc" -ne 0 ] && exit "$rc"
     done
 fi
 echo "all tests passed"

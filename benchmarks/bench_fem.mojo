@@ -12,6 +12,12 @@ pure overhead at rest and the entire reason the method works under motion.
 Running both variants over the same mesh prices that overhead directly, and
 the accompanying error column shows what is bought: peak spurious force after
 a 63-degree rigid rotation of an undeformed body, which should be zero.
+
+The third table is the implicit step's linear-solver seam (ROADMAP 17.84,
+`FemBody.solver`): a cantilever (the x = 0 face pinned, E = 2e5) stepped 30
+times at dt = 1/60 with matrix-free CG, assembled sparse Cholesky (RCM
+ordering, factored every step) and assembled IC(0)-PCG; time per step and
+the solver iterations per step (Cholesky: 1).
 """
 
 from std.math import sqrt, cos, sin
@@ -19,7 +25,7 @@ from std.time import perf_counter_ns
 from std.benchmark import keep
 from harness.bench import BenchTable
 from geometry.vec import Real, Vec3
-from physics.fem import FemBody, make_beam
+from physics.fem import FemBody, make_beam, FEM_SOLVE_CG, FEM_SOLVE_CHOLESKY, FEM_SOLVE_PCG_IC0
 
 comptime REPS = 5
 
@@ -113,3 +119,24 @@ def main() raises:
     _row(t, 12, 6, 6, True)
     _row(t, 12, 6, 6, False)
     t.print_report()
+    var t2 = BenchTable("FEM implicit step: linear solver seam (17.84)")
+    for dims in [(6, 2, 2), (12, 4, 4)]:
+        for solver in [FEM_SOLVE_CG, FEM_SOLVE_CHOLESKY, FEM_SOLVE_PCG_IC0]:
+            var b = FemBody(2.0e5, 0.3, 2.0)
+            make_beam(b, dims[0], dims[1], dims[2], 0.25, 1.0)
+            for i in range(b.node_count()):
+                if b.pos(i)[0] < 1e-6:
+                    b.pin(i)
+            b.solver = solver
+            var its = 0
+            var t0 = Int(perf_counter_ns())
+            for _ in range(30):
+                its += b.step_implicit(1.0 / 60.0, Vec3(0, -9.8, 0, 0), tol=1e-6, max_iters=2000).iters
+            var ns = Int(perf_counter_ns()) - t0
+            keep(b.pos(b.node_count() - 1)[1])
+            var names: List[String] = ["CG", "Cholesky", "IC(0)-PCG"]
+            t2.add(
+                names[solver] + " " + String(dims[0]) + "x" + String(dims[1]) + "x" + String(dims[2]) + " iters/step=" + String(its // 30),
+                3 * b.node_count(), "step", ns, 30,
+            )
+    t2.print_report()

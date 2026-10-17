@@ -76,45 +76,10 @@ def softbody_pass[B: Body6](
             continue
         var h = h_step * Real(per) if per > 1 else h_step
         var np = len(softs[s].pts)
-        var alpha_h = softs[s].alpha / (h * h)
         var r = softs[s].radius
-        var damp = softs[s].damp
         var smu = softs[s].mu
-        # predict (store the pre-step position in v temporarily? no —
-        # keep explicit: prev list rebuilt per substep)
-        var prev = List[Real](capacity=np * 3)
-        for i in range(np):
-            var p = softs[s].pts[i]
-            prev.append(p.x[0])
-            prev.append(p.x[1])
-            prev.append(p.x[2])
-            p.v = p.v + gravity * h
-            p.x = p.x + p.v * h
-            softs[s].pts[i] = p
-        for e in range(len(softs[s].edges)):
-            var ed = softs[s].edges[e]
-            ed.lam = 0
-            softs[s].edges[e] = ed
-        # XPBD Gauss-Seidel over the lattice edges
-        for _ in range(iters):
-            for e in range(len(softs[s].edges)):
-                var ed = softs[s].edges[e]
-                var pa = softs[s].pts[ed.a]
-                var pb = softs[s].pts[ed.b]
-                var d = pa.x - pb.x
-                var l = sqrt(max(dot(d, d), Real(1e-12)))
-                var cc = l - ed.rest
-                var wsum = pa.w + pb.w
-                if wsum <= 0:
-                    continue
-                var dl = (-cc - alpha_h * ed.lam) / (wsum + alpha_h)
-                ed.lam += dl
-                var corr = d * (dl / l)
-                pa.x = pa.x + corr * pa.w
-                pb.x = pb.x - corr * pb.w
-                softs[s].pts[ed.a] = pa
-                softs[s].pts[ed.b] = pb
-                softs[s].edges[e] = ed
+        var prev = softs[s].predict(h, gravity)
+        softs[s].solve_edges(h, iters)
         # particle vs every collider (bodies default to boxes in this
         # scene; hull/trimesh/heightfield route through `ColliderSet`
         # below, sphere/capsule keep their own exact closed forms here).
@@ -371,9 +336,4 @@ def softbody_pass[B: Body6](
                         bset.sleeping[b] = False
                         bset.sleep_timer[b] = 0
             softs[s].pts[i] = p
-        # velocities from positions
-        for i in range(np):
-            var p = softs[s].pts[i]
-            var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2], 0)
-            p.v = (p.x - pv) * (damp / h)
-            softs[s].pts[i] = p
+        softs[s].finish(prev, h)

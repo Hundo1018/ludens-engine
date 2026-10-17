@@ -25,6 +25,8 @@ from physics.solver6 import ContactScene6
 from physics.serialize import scene_to_string, scene_from_string
 from scheduler.rng import SplitMix64
 from .character import CharacterController
+from .animator import Animators
+from .movement import Mover
 
 
 @fieldwise_init
@@ -40,12 +42,16 @@ struct SimState(Movable):
     var ctl: CharacterController
     var rng: SplitMix64
     var tick: Int
+    var anims: Animators  # ROADMAP 17.64: animation state replays and snapshots with the rest
+    var movers: List[Mover]  # ROADMAP 17.67: movement-mode state (climbs, driving, jump timers)
 
     def __init__(out self, var scene: ContactScene6[QuatBody6], var ctl: CharacterController, var rng: SplitMix64):
         self.scene = scene^
         self.ctl = ctl^
         self.rng = rng^
         self.tick = 0
+        self.anims = Animators()
+        self.movers = List[Mover]()
 
 
 @fieldwise_init
@@ -54,15 +60,19 @@ struct Snapshot(Copyable, Movable):
     var scene: String
     var ctl: CharacterController
     var rng_state: UInt64  # the generator is a value: its state is all of it
+    var anims: Animators
+    var movers: List[Mover]
 
 
 def take(st: SimState) raises -> Snapshot:
-    return Snapshot(st.tick, scene_to_string(st.scene), st.ctl.copy(), st.rng.state)
+    return Snapshot(st.tick, scene_to_string(st.scene), st.ctl.copy(), st.rng.state, st.anims.copy(), st.movers.copy())
 
 
 def restore(snap: Snapshot) raises -> SimState:
     var st = SimState(scene_from_string(snap.scene), snap.ctl.copy(), SplitMix64(snap.rng_state))
     st.tick = snap.tick
+    st.anims = snap.anims.copy()
+    st.movers = snap.movers.copy()
     return st^
 
 
@@ -95,7 +105,13 @@ def checksum(st: SimState) -> UInt64:
             h = (h ^ UInt64(v[k].to_bits())) * 0x100000001B3
     for k in range(3):
         h = (h ^ UInt64(st.ctl.position[k].to_bits())) * 0x100000001B3
-    return h
+    for ref m in st.movers:
+        h = (h ^ UInt64(m.mode)) * 0x100000001B3
+        for k in range(3):
+            h = (h ^ UInt64(m.cc.position[k].to_bits())) * 0x100000001B3
+            h = (h ^ UInt64(m.cc.velocity[k].to_bits())) * 0x100000001B3
+        h = (h ^ UInt64(m.climb_t.to_bits())) * 0x100000001B3
+    return st.anims.hash_into(h)  # no animators or movers: h unchanged
 
 
 struct Recorder(Movable):

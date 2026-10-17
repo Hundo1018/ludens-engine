@@ -17,7 +17,7 @@ pointer from its taped operand. Adjoints of constants are discarded — correct,
 since nothing differentiates w.r.t. a constant.
 """
 
-from std.math import sqrt, cos, sin
+from std.math import sqrt, cos, sin, exp
 from std.memory import alloc, Layout
 from .vec import WorldType, Real
 
@@ -56,6 +56,17 @@ trait SolverField(Field):
 
     def positive(self) -> Self: ...
 
+    def smooth_positive(self, k: Real) -> Self:
+        """The logistic 1 / (1 + exp(-k x)) in place of `positive`, with its
+        true derivative (ROADMAP 17.84): a contact switch that passes a
+        gradient through the switching point. k -> inf recovers `positive`
+        away from 0; `test_smooth_positive` measures the gradient bias."""
+        ...
+
+
+def _sigmoid(x: Real) -> Real:
+    return 1 / (1 + exp(-x))
+
 
 @fieldwise_init
 struct RealF(SolverField):
@@ -91,6 +102,9 @@ struct RealF(SolverField):
 
     def positive(self) -> Self:
         return Self(1) if self.v > 0 else Self(0)
+
+    def smooth_positive(self, k: Real) -> Self:
+        return Self(_sigmoid(k * self.v))
 
 
 @fieldwise_init
@@ -135,6 +149,10 @@ struct DualReal(SolverField):
 
     def positive(self) -> Self:
         return Self(1, 0) if self.a > 0 else Self(0, 0)
+
+    def smooth_positive(self, k: Real) -> Self:
+        var s = _sigmoid(k * self.a)
+        return Self(s, self.b * (k * s * (1 - s)))
 
 
 @fieldwise_init
@@ -186,6 +204,10 @@ struct DualBatch(SolverField):
     def positive(self) -> Self:
         return Self(Real(1) if self.a > 0 else Real(0), SIMD[WorldType, 4](0))
 
+    def smooth_positive(self, k: Real) -> Self:
+        var s = _sigmoid(k * self.a)
+        return Self(s, self.b * (k * s * (1 - s)))
+
 
 @fieldwise_init
 struct BatchReal[W: Int](SolverField):
@@ -230,6 +252,9 @@ struct BatchReal[W: Int](SolverField):
                 SIMD[WorldType, Self.W](1), SIMD[WorldType, Self.W](0)
             )
         )
+
+    def smooth_positive(self, k: Real) -> Self:
+        return Self(1 / (1 + exp(-(self.v * k))))
 
 
 def dcos(x: DualReal) -> DualReal:
@@ -362,6 +387,13 @@ struct RevReal(SolverField):
     def positive(self) -> Self:
         # zero derivative by definition (SolverField): an off-tape constant
         return Self(Real(1) if self.v > 0 else Real(0), -1, None)
+
+    def smooth_positive(self, k: Real) -> Self:
+        var s = _sigmoid(k * self.v)
+        if self.idx < 0:
+            return Self(s, -1, None)
+        var t = self.tape.value()
+        return Self(s, t[].push(self.idx, -1, k * s * (1 - s), 0), t)
 
 
 def rev_seed(mut t: Tape, v: Real) -> RevReal:

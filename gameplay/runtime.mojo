@@ -49,6 +49,8 @@ from physics.body_set import BodyId
 from physics.solver6 import ContactScene6, FORCE_MODE_FORCE
 from physics.solver_config import SolverConfig
 from physics.lod import SimBudget
+from physics.coupling import CouplingPort
+from physics.continuum import step_checked
 from scheduler.gameloop import FixedLoop
 from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
@@ -352,6 +354,28 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if not self.executed:
             raise Error("Runtime.finish: execute(handle) has not run")
         self.in_flight = False
+        return self._finish_frame()
+
+    def advance_coupled[P: CouplingPort](mut self, frame_dt: Float64, mut port: P, mut solver: P.S) raises -> Float64:
+        """`advance` with a continuum solver coupled to the scene (ROADMAP
+        17.55): each fixed tick runs `port.before`, the solver's checked
+        step (`step_checked`, counted in the scene's counters),
+        `port.after`, then the rigid tick (events, transform sync,
+        history) -- the order `physics.coupling.couple_step` fixes."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_coupled: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance_coupled: a begin_advance step is still in flight")
+        self.loop.accumulator += frame_dt
+        self.events.update()
+        var steps = 0
+        var dt = Real(self.loop.dt)
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            port.before(self.scene, solver, dt, self.gravity)
+            _ = step_checked(solver, dt, self.gravity, self.scene.counters)
+            port.after(self.scene, solver, dt, self.gravity)
+            self._tick()
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
         return self._finish_frame()
 
     def advance_budgeted(mut self, frame_dt: Float64, mut budget: SimBudget) raises -> Float64:

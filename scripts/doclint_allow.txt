@@ -1,7 +1,6 @@
 # Dead doc references that are allowed (ROADMAP 17.82, scripts/doclint.py).
 # Format: path  # reason. An entry whose file now exists is reported as stale.
 
-gameplay/animator.mojo  # planned by 17.64 (not built yet)
 procedural/wfc.mojo  # planned by 17.69 (not built yet)
 gameplay/tracked.mojo  # planned by 17.74 (not built yet)
 gameplay/hitch.mojo  # planned by 17.74 (not built yet)

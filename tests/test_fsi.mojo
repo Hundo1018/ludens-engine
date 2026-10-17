@@ -15,7 +15,9 @@ would drag the whole periodic fluid down.
      the scene (the plate is not in the lattice): it comes to rest on it.
   3. Extreme: density ratios 1.0 and 0.5 launched at 5 cm/s: at 1.0 the
      sphere stays finite and slows down; at 0.5 explicit partitioned
-     coupling diverges (added mass), asserted so a fix shows up here.
+     coupling diverges (added mass). The fix is opt-in on the port,
+     `LbmSpherePort.set_implicit` (test_fsi_added_mass); `LbmCoupler`
+     stays explicit.
 """
 
 from std.math import pi, isfinite

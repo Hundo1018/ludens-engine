@@ -906,17 +906,17 @@ is one coupled step.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| no solid | 32768 | cell-step | 343.68 | 2.91 | 675.71 |
-| 1 static sphere | 32768 | cell-step | 407.10 | 2.46 | 800.40 |
-| 1 moving sphere (Ladd) | 32768 | cell-step | 365.16 | 2.74 | 717.93 |
-| 8 moving spheres (Ladd) | 32768 | cell-step | 356.53 | 2.80 | 700.96 |
+| no solid | 32768 | cell-step | 415.78 | 2.41 | 817.45 |
+| 1 static sphere | 32768 | cell-step | 435.85 | 2.29 | 856.93 |
+| 1 moving sphere (Ladd) | 32768 | cell-step | 423.33 | 2.36 | 832.30 |
+| 8 moving spheres (Ladd) | 32768 | cell-step | 420.86 | 2.38 | 827.44 |
 
 
 ### LbmCoupler.step: lattice + ContactScene6, one sphere (17.59)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| coupled step (32^3 lattice, 1 sphere) | 1 | step | 11928284.77 | 0.00 | 715.70 |
+| coupled step (32^3 lattice, 1 sphere) | 1 | step | 14847996.82 | 0.00 | 890.88 |
 
 
 ## Collision — scene queries (raycast + overlap)
@@ -1736,6 +1736,31 @@ heat flow costs on each.
 | tets (4800), max dt 0.008333324 s | 1525 | node-step | 244.95 | 4.08 | 74.71 |
 
 
+
+## Physics — partitioned coupling schedule (17.61)
+
+`physics/coupler.mojo` steps two solvers through one interface: explicit
+staggering, linear interpolation of the partner's state over substeps, or
+Aitken-relaxed iteration. The parts here are one-dof masses, so the rows are
+the coupler's own overhead per coupled step (interface lists, interpolation,
+extra passes), next to the same system written as one loop.
+
+### Coupler, two masses, 20000 steps of 4 ms (17.61)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| explicit, ratio 1 | 20000 | step | 808.60 | 1.24 | 16.17 |
+| interp, ratio 1 | 20000 | step | 875.02 | 1.14 | 17.50 |
+| iterated, ratio 1 | 20000 | step | 2891.87 | 0.35 | 57.84 |
+| explicit, ratio 4 | 20000 | step | 726.42 | 1.38 | 14.53 |
+| interp, ratio 4 | 20000 | step | 948.76 | 1.05 | 18.98 |
+| iterated, ratio 4 | 20000 | step | 3484.93 | 0.29 | 69.70 |
+| explicit, ratio 16 | 20000 | step | 907.59 | 1.10 | 18.15 |
+| interp, ratio 16 | 20000 | step | 1735.08 | 0.58 | 34.70 |
+| iterated, ratio 16 | 20000 | step | 5759.80 | 0.17 | 115.20 |
+| monolithic loop, ratio 4 | 20000 | step | 47.26 | 21.16 | 0.95 |
+
+
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this
@@ -2001,6 +2026,26 @@ snapshot at frame 192 and re-simulating.
 |---|---:|---|---:|---:|---:|
 | cache decode (keyframe 192 + 8 deltas) | 1 | seek | 29255.86 | 0.03 | 5.85 |
 | snapshot 192 + recompute 9 frames | 1 | seek | 10053784.25 | 0.00 | 201.08 |
+
+
+
+`geometry/sparse_volume.mojo` stores a field as VDB-style 8^3 leaves with
+active masks. Its byte size follows the active voxels: at 1 % occupancy a
+64^3 field is 2.8 % of the dense f64 array, at 100 % it is 2 % larger
+(masks and leaf headers) -- the crossover the dense array wins.
+
+### Sparse volume, 64^3, by occupancy (17.63)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| encode 1 % active, 58 KiB (dense 2048 KiB) | 2639 | voxel | 448.46 | 2.23 | 1.18 |
+| decode 1 % active, 58 KiB (dense 2048 KiB) | 2639 | voxel | 458.10 | 2.18 | 1.21 |
+| encode 10 % active, 242 KiB (dense 2048 KiB) | 26207 | voxel | 66.60 | 15.02 | 1.75 |
+| decode 10 % active, 242 KiB (dense 2048 KiB) | 26207 | voxel | 97.24 | 10.28 | 2.55 |
+| encode 50 % active, 1060 KiB (dense 2048 KiB) | 130879 | voxel | 41.42 | 24.14 | 5.42 |
+| decode 50 % active, 1060 KiB (dense 2048 KiB) | 130879 | voxel | 70.83 | 14.12 | 9.27 |
+| encode 100 % active, 2086 KiB (dense 2048 KiB) | 262144 | voxel | 33.28 | 30.05 | 8.72 |
+| decode 100 % active, 2086 KiB (dense 2048 KiB) | 262144 | voxel | 69.01 | 14.49 | 18.09 |
 
 
 ## Differentiable simulation — gradient cost & Field abstraction
@@ -2771,18 +2816,46 @@ over every wave.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| flat | 200000 | query | 0.00 | 3636363.64 | 0.00 |
-| gerstner 4 waves, Q = 0 | 200000 | query | 378.18 | 2.64 | 75.64 |
-| gerstner 4 waves, Q = 0.6 | 200000 | query | 332.72 | 3.01 | 66.54 |
-| shallow-water grid 128^2 (sample) | 200000 | query | 9.47 | 105.56 | 1.89 |
+| flat | 200000 | query | 0.00 | 546448.09 | 0.00 |
+| gerstner 4 waves, Q = 0 | 200000 | query | 415.62 | 2.41 | 83.12 |
+| gerstner 4 waves, Q = 0.6 | 200000 | query | 364.25 | 2.75 | 72.85 |
+| shallow-water grid 128^2 (sample) | 200000 | query | 8.41 | 118.88 | 1.68 |
+| fft ocean 64^2, grid at the updated t (bilinear) | 200000 | query | 32.24 | 31.02 | 6.45 |
+| fft ocean 64^2, other t (direct sum of 4096 modes) | 200 | query | 76303.22 | 0.01 | 15.26 |
+
+
+### FFT ocean update (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| FftOcean.update 32^2 (one inverse 2-D FFT) | 1024 | update | 79540.65 | 0.01 | 1.59 |
+| FftOcean.update 64^2 (one inverse 2-D FFT) | 4096 | update | 336422.30 | 0.00 | 6.73 |
+| FftOcean.update 128^2 (one inverse 2-D FFT) | 16384 | update | 1551133.00 | 0.00 | 31.02 |
 
 
 ### Shallow-water step and float_body (17.60)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| ShallowWaterGrid.step 128^2 | 16384 | cell-step | 10.17 | 98.30 | 16.67 |
-| float_body 4^3 samples on the 4-wave sea | 1 | body | 34992.06 | 0.03 | 69.98 |
+| ShallowWaterGrid.step 128^2 | 16384 | cell-step | 11.07 | 90.36 | 18.13 |
+| float_body 4^3 samples on the 4-wave sea | 1 | body | 24144.05 | 0.04 | 48.29 |
+
+
+
+`physics/mac_fluid.mojo` is an incompressible MAC grid fluid (semi-Lagrangian
+advection, explicit viscosity, PCG pressure projection). On the Taylor-Green
+vortex it and the D3Q19 lattice both decay within 0.5 % of exp(-2 nu k^2 t)
+(test_taylor_green); per cell-step the lattice is cheaper, and the MAC
+cost grows with resolution because the PCG iteration count does.
+
+### Grid fluids on the Taylor-Green vortex (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| MAC 32^2 (PCG 43 iterations / step) | 1024 | cell-step | 2620.39 | 0.38 | 134.16 |
+| LBM D3Q19 32^2 x 1 | 1024 | cell-step | 388.65 | 2.57 | 19.90 |
+| MAC 64^2 (PCG 87 iterations / step) | 4096 | cell-step | 4298.51 | 0.23 | 880.34 |
+| LBM D3Q19 64^2 x 1 | 4096 | cell-step | 557.66 | 1.79 | 114.21 |
 
 
 ### Rope per frame: XPBD rope vs distance-joint link chain; rope collision on/off
@@ -2814,16 +2887,16 @@ switched off the muscle is bit-identical to the plain one (`test_muscle_hill`).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| strands 1000 x 16 | 16000 | particle-step | 37.40 | 26.73 | 35.91 |
-| strands 1000 x 16 + sphere + 2 capsules | 16000 | particle-step | 43.72 | 22.87 | 41.97 |
+| strands 1000 x 16 | 16000 | particle-step | 40.78 | 24.52 | 39.14 |
+| strands 1000 x 16 + sphere + 2 capsules | 16000 | particle-step | 46.48 | 21.52 | 44.62 |
 
 
 ### Muscle: plain activation vs Hill curves (17.57)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| plain Actuator.muscle | 64 | actuator | 23.49 | 42.56 | 30.07 |
-| hill curves (fl, fv, fp) | 64 | actuator | 43.50 | 22.99 | 55.68 |
+| plain Actuator.muscle | 64 | actuator | 18.42 | 54.30 | 23.57 |
+| hill curves (fl, fv, fp) | 64 | actuator | 35.40 | 28.25 | 45.31 |
 
 
 ## Physics — joint kinds, limits and motors (ROADMAP 17.47)

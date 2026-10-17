@@ -161,6 +161,14 @@ struct LbmGpu(Movable):
     def __init__(out self, mut ctx: DeviceContext, cpu: Lbm) raises:
         if cpu.smagorinsky > 0 or cpu.interp:
             raise Error("LbmGpu: LES and interpolated bounce-back run on the CPU only")
+        if cpu.force_y != 0 or cpu.force_z != 0:
+            raise Error("LbmGpu: body force along y / z runs on the CPU only")
+        if cpu.trt_lambda > 0:
+            raise Error("LbmGpu: TRT collision runs on the CPU only")
+        if len(cpu.tau_cell) > 0:
+            raise Error("LbmGpu: a per-cell viscosity runs on the CPU only")
+        if len(cpu.cell_force) > 0:
+            raise Error("LbmGpu: per-cell forces run on the CPU only")
         self.nx = cpu.nx
         self.ny = cpu.ny
         self.nz = cpu.nz

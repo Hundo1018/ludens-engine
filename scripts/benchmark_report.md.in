@@ -904,6 +904,16 @@ same 1 mm resolution; the stable dt column says how many steps a second of
 heat flow costs on each.
 
 @bench benchmarks/bench_thermal.mojo
+
+## Physics — partitioned coupling schedule (17.61)
+
+`physics/coupler.mojo` steps two solvers through one interface: explicit
+staggering, linear interpolation of the partner's state over substeps, or
+Aitken-relaxed iteration. The parts here are one-dof masses, so the rows are
+the coupler's own overhead per coupled step (interface lists, interpolation,
+extra passes), next to the same system written as one loop.
+
+@bench benchmarks/bench_coupler.mojo
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this
@@ -1052,6 +1062,13 @@ to measure: decoding frame 200 from the cache against restoring the
 snapshot at frame 192 and re-simulating.
 
 @bench benchmarks/bench_sim_cache.mojo
+
+`geometry/sparse_volume.mojo` stores a field as VDB-style 8^3 leaves with
+active masks. Its byte size follows the active voxels: at 1 % occupancy a
+64^3 field is 2.8 % of the dense f64 array, at 100 % it is 2 % larger
+(masks and leaf headers) -- the crossover the dense array wins.
+
+@bench benchmarks/bench_sparse_volume.mojo
 ## Differentiable simulation — gradient cost & Field abstraction
 
 The `Field` seam (`RealF`/`DualReal`/`DualBatch`/`RevReal` tape, gradient
@@ -1440,6 +1457,14 @@ fixed-point iterations of the inverse map plus one final evaluation, each
 over every wave.
 
 @bench benchmarks/bench_water.mojo
+
+`physics/mac_fluid.mojo` is an incompressible MAC grid fluid (semi-Lagrangian
+advection, explicit viscosity, PCG pressure projection). On the Taylor-Green
+vortex it and the D3Q19 lattice both decay within 0.5 % of exp(-2 nu k^2 t)
+(test_taylor_green); per cell-step the lattice is cheaper, and the MAC
+cost grows with resolution because the PCG iteration count does.
+
+@bench benchmarks/bench_grid_fluid.mojo
 @bench benchmarks/bench_rope.mojo
 ## Physics — hair strands and Hill muscles (17.57)
 
