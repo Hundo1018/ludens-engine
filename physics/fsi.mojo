@@ -43,6 +43,7 @@ from .solver6 import ContactScene6
 from .solver_config import SolverConfig
 from .continuum import LbmContinuum
 from .coupling import CouplingPort
+from .state_io import StateWriter, StateReader
 
 
 @no_inline
@@ -219,3 +220,98 @@ struct LbmSpherePort(CouplingPort):
             tout[a] = t[a] * ia / (ia + zr[a])
         scene.add_force(id, out)
         scene.add_torque(id, tout)
+
+
+def lbm_write[W: StateWriter](l: Lbm, mut w: W):
+    """Dynamical lattice state (17.59): populations, cell flags, moving-wall
+    fields and moving spheres, plus the channel force. The rest (size,
+    viscosity, mode, interpolation) is construction: restore into a lattice
+    built the same way."""
+    var n = l.cells()
+    w.wi(n)
+    for i in range(len(l.f)):
+        w.wf(l.f[i])
+    for c in range(n):
+        w.wi(l.flag[c])
+    w.wf(l.force_x)
+    w.wi(1 if l.moving else 0)
+    if l.moving:
+        for c in range(n):
+            w.wf(l.wux[c])
+            w.wf(l.wuy[c])
+            w.wf(l.wuz[c])
+            w.wi(l.owner[c])
+    w.wi(len(l.obj_c))
+    for k in range(len(l.obj_c)):
+        w.wv(l.obj_c[k])
+        w.wf(l.obj_r[k])
+        w.wv(l.obj_v[k])
+        w.wv(l.obj_w[k])
+        w.wv(l.obj_f[k])
+        w.wv(l.obj_t[k])
+        w.wv(l.obj_p[k])
+
+
+def lbm_read[R: StateReader](mut l: Lbm, mut r: R) raises:
+    """Inverse of `lbm_write`; raises when the cell or sphere count differs
+    from this lattice's."""
+    var n = l.cells()
+    if r.ri() != n:
+        raise Error("lbm_read: cell count differs from this lattice")
+    for i in range(len(l.f)):
+        l.f[i] = r.rf()
+    for c in range(n):
+        l.flag[c] = r.ri()
+    l.force_x = r.rf()
+    var mv = r.ri() == 1
+    if mv != l.moving:
+        raise Error("lbm_read: moving-solid state differs from this lattice")
+    if mv:
+        for c in range(n):
+            l.wux[c] = r.rf()
+            l.wuy[c] = r.rf()
+            l.wuz[c] = r.rf()
+            l.owner[c] = r.ri()
+    if r.ri() != len(l.obj_c):
+        raise Error("lbm_read: moving sphere count differs from this lattice")
+    for k in range(len(l.obj_c)):
+        l.obj_c[k] = r.rv()
+        l.obj_r[k] = r.rf()
+        l.obj_v[k] = r.rv()
+        l.obj_w[k] = r.rv()
+        l.obj_f[k] = r.rv()
+        l.obj_t[k] = r.rv()
+        l.obj_p[k] = r.rv()
+
+
+def lbm_continuum_write[W: StateWriter](s: LbmContinuum, mut w: W):
+    """`lbm_write` plus the continuum's sub-step carry and step count."""
+    lbm_write(s.lbm, w)
+    w.wf(s.carry)
+    w.wi(s.steps_run)
+
+
+def lbm_continuum_read[R: StateReader](mut s: LbmContinuum, mut r: R) raises:
+    lbm_read(s.lbm, r)
+    s.carry = r.rf()
+    s.steps_run = r.ri()
+
+
+def sphere_port_write[W: StateWriter](p: LbmSpherePort, mut w: W):
+    """The port's measured wall drag per sphere and its mode (a restored
+    port re-measures `Lbm.wall_drag` where its sphere is added; this keeps
+    the original's)."""
+    w.wi(1 if p.implicit else 0)
+    w.wi(len(p.zeta))
+    for j in range(len(p.zeta)):
+        w.wv(p.zeta[j])
+        w.wv(p.zeta_rot[j])
+
+
+def sphere_port_read[R: StateReader](mut p: LbmSpherePort, mut r: R) raises:
+    p.implicit = r.ri() == 1
+    if r.ri() != len(p.zeta):
+        raise Error("sphere_port_read: sphere count differs from this port")
+    for j in range(len(p.zeta)):
+        p.zeta[j] = r.rv()
+        p.zeta_rot[j] = r.rv()
