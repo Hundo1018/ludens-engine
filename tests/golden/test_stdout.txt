@@ -521,6 +521,10 @@ after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (s
 [PASS] relations - 19 / 19 checks
 --- tests/test_rng.mojo ---
 [PASS] rng - 15 / 15 checks
+--- tests/test_rules_table.mojo ---
+table fireball: mana 70000  hp 72000 77000  cooldown over at 60
+errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: unknown effect 'nonesuch'
+[PASS] rules_table - 4 / 4 checks
 --- tests/test_sap.mojo ---
 [PASS] sap - 7 / 7 checks
 --- tests/test_self_collide.mojo ---
