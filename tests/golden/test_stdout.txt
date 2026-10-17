@@ -811,6 +811,10 @@ build: all packages precompiled into build/
   inverted tet (det F = -0.2) released: det F after 2 s  neo-hookean 1.0242903  stvk -0.97505754  corotational -1.0161943
   uniaxial to 2 %: stvk restoring 34.986 (peak 673.554 )  neo-hookean 3430.0 (at 50 %: 1750.0 )
 [PASS] fem_material - 10 / 10 checks
+--- tests/test_fem_muscle.mojo ---
+  free muscle, 1 s at activation 1: length 0.5000022 of 0.6 ( 16.666305 % shorter)  width 0.21500026 of 0.2  volume 0.023112532 of 0.024000002
+  pinned muscle length at activation 0.25 / 0.5 / 1: 0.5737557 0.5497864 0.5075681 ;  sigma_max doubled: 0.4405105
+[PASS] fem_muscle - 6 / 6 checks
 --- tests/test_fem_plastic.mojo ---
   cantilever under 10 g: sag elastic 0.29821372  plastic 0.87161636 ;  tip offset after unloading 3 s: elastic 0.00032791495  plastic 0.65184927
   bar pulled apart: with removal 104 tets removed, 4 pieces;  without removal 0 removed, 1 piece, length 1.6000674
@@ -1277,6 +1281,11 @@ build: all packages precompiled into build/
   wind 5 m/s: tip x 0.05837603
   100 m root jump: with teleport, shape differs from an unmoved twin by 2.3146258e-06   without: tip v 11838.264
 [PASS] strand - 12 / 12 checks
+--- tests/test_strand_ext.mojo ---
+  guide blend 0.5 / 0.5, tip [0.29999998, -2.0, 0.1, 0.0]  (mean offset (0.3, -2, 0.1))
+  16 strands over a box, 2 s: contacts 6312  particles inside 0  max stretch 0.07023203
+  voxel velocity spread before 0.47708184  after interaction 0.3339573
+[PASS] strand_ext - 5 / 5 checks
 --- tests/test_surface_material.mojo ---
   ray hits: x 50 -> material 0  x 200 -> 1  box -> -1
   heightfield: ray at cell (1, 1) -> triangle 6  material 8
