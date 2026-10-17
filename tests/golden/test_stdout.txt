@@ -81,6 +81,10 @@ build: all packages precompiled into build/
   residual acceleration under holding torque: 0.0
   worst linearity-in-qdd error: 3.8146973e-06
 [PASS] inverse_dynamics - 7 / 7 checks
+--- tests/test_isosurface.mojo ---
+  sphere R 0.4: 28560 triangles, open edges 0  area 2.0086084 ( 2.0106194 ) volume 0.267562 ( 0.2680826 )
+  particle ball ( 1791 particles):  16104 triangles, open edges 0  volume 0.11079145  sphericity A^3 / 36 pi V^2 1.0207161
+[PASS] isosurface - 4 / 4 checks
 --- tests/test_joints_lib.mojo ---
   prismatic along gravity: q = -4.9102144  qd = -9.799982
   prismatic across gravity: q = 0.0
@@ -1218,6 +1222,11 @@ build: all packages precompiled into build/
 --- tests/test_serialize.mojo ---
   blob bytes: 20729
 [PASS] serialize - 8 / 8 checks
+--- tests/test_shallow_bed.mojo ---
+  lake over a 0.5 m bump, 2 s: well balanced surface dev 2.3841858e-07  max |u| 6.754951e-07 ;  naive source 0.018750906 0.17940608
+  Manning n 0.03, 1 m deep, 2 m/s, after 5 s: middle cell u 1.8378967  analytic 1.8378975
+  island 1.5 m in a 1 m lake, 2 s: surface dev 2.3841858e-07  max |u| 5.849921e-07  island top depth 0.0  volume 360.25 -> 360.24988
+[PASS] shallow_bed - 4 / 4 checks
 --- tests/test_shallow_fv.mojo ---
   Stoker 1 / 0.5 m, 20 s: plateau h 0.725981 u 0.9195093  analytic 0.7269205 0.9228935 ;  bore at 259  analytic 259.1282 ;  volume 300.0 -> 300.00006
   Ritter dry dam break, 10 s, 1.0 m cells: quarter-depth point at 218.37676  analytic 215.65248 ;  1 mm tip at 246.5  analytic 259.64008
