@@ -60,7 +60,7 @@ def soft_water(mut sb: SoftBody, waters: List[WaterVolume], gravity: Vec3, dt: R
 
 
 def _implicit_drag(vn: Real, k: Real) -> Real:
-    """v' with v' + k v'|v'| = vn (k = drag coefficient * dt / mass)."""
+    """Solve v' + k v' |v'| = vn for v' (k = drag coefficient * dt / mass)."""
     if k <= 0 or vn == 0:
         return vn
     var s = Real(1) if vn > 0 else Real(-1)
