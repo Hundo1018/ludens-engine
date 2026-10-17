@@ -1,6 +1,6 @@
 # tier: integration
 """FEM plasticity and element-removal fracture (ROADMAP 17.58,
-`FemBody.set_plasticity` / `step_plastic` / `remove_overstrained`).
+`FemBody.set_plasticity` / `step_ext` / `remove_overstrained`).
 
   1. Ordinary: a 1 m cantilever (x = 0 face pinned, E = 1e7, dt 1/2400) sags under
      10x gravity for 2 s, then the load is removed for 3 s. Purely elastic
@@ -56,10 +56,10 @@ def _bend(plastic: Bool) raises -> Tuple[Real, Real]:
     var tip = _tip_nodes(b)
     var rest = _tip_y(b, tip)
     for _ in range(4800):
-        b.step_plastic(DT, Vec3(0, -98, 0, 0))
+        b.step_ext(DT, Vec3(0, -98, 0, 0))
     var sag = rest - _tip_y(b, tip)
     for _ in range(7200):
-        b.step_plastic(DT, Vec3(0, 0, 0, 0))
+        b.step_ext(DT, Vec3(0, 0, 0, 0))
     return (sag, rest - _tip_y(b, tip))
 
 

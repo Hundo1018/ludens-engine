@@ -1385,8 +1385,15 @@
 > 100 m 根部瞬移配 `teleport` 形狀差 2.3e-6、不配則尖端速度 1.2e4 m/s 但有限。`tests/test_muscle_hill.mojo` 9/9 —— 曲線全關時 2 s 軌跡與 `Actuator.muscle` 逐位相同;
 > 等長力峰在纖維 = l_opt 處、±30 % 為 0.819;縮短 vmax/2 為 1/6、vmax 為 0、快速伸長 1.797;被動力在 +60 % 為 1.0;啟動度 0.5 的屈肌對抗重力靜止於 q = 1.68,
 > 力矩 4.86999 vs 重力 4.86999。`bench_hair_muscle`:股線 37 ns / 粒子·步(加頭球 + 兩肩膀囊 47);肌肉 23 ns / 致動器(Hill 44)。
-> **未做**:DER 扭轉、捲曲靜止形、股線 – 股線體素互作、引導髮插值、與 `Rope` 懸鏈線的 parity、快照、`ColliderSet` 碰撞;串聯腱順應、`SpatialTendon` 力臂、
-> 體積肌肉(17.58 FEM 上的纖維主動應力)、可微肌肉控制。
+> **進度註(2026-10-17)**:
+> - `physics/strand_ext.mojo`(自由函式,`StrandSet.step` 不動):`strands_write` / `strands_read` 快照、`strands_collide`(根到梢先回復段長再對場景碰撞體推出 + 摩擦,
+>   共用 `fem_scene.point_contact`)、`strands_interact`(Petrovic 2005 式體素平均速度,雜湊格,無 O(n²))、`interpolate_strand`(引導髮偏移加權)。
+>   `test_strand_ext` 5/5:還原後 60 步逐位相同;單一引導 = 平移到新根、兩引導各 0.5 = 偏移平均;16 股披在場景盒上 0 粒子在內、最差段伸長 7 %(盒緣:推出後再拉長,
+>   先只做事後推出時為 20 %);體素速度離散 0.477 → 0.334(k 0.3),體素動量守恆。
+> - 體積肌肉(`FemBody.set_fibers` / `activation` / `active_forces`,`step_ext`;主動應力 P = a σ (F d)⊗d):`test_fem_muscle` 6/6:0.6 m 自由肌塊 E = 1e5、ν = 0.45、
+>   啟動 1 時縮短 16.7 %、寬 0.2 → 0.215 m、體積 −3.7 %(線性共旋轉在 17 % 應變下非不可壓);釘住一端時長度隨啟動度 0.25 / 0.5 / 1 為 0.574 / 0.550 / 0.508 m、
+>   σ 加倍 0.441 m;啟動 0 與無纖維逐位相同;與塑性同在 `step_ext`。
+> **未做**:DER 扭轉、捲曲靜止形、與 `Rope` 懸鏈線的 parity、串聯腱順應、`SpatialTendon` 力臂、可微肌肉控制。
 
 > **現況**:**毛髮不存在**:`grep -iE "\bstrand|cosserat|\bfur\b|\bhair\b|fib(er|re)"` 於全部引擎套件只有兩處
 > 慣用語註解(`physics/sensors.mojo:107`、`physics/ccd6.mojo:25`,皆為「a hair off」)。最近的是 17.41
@@ -1446,7 +1453,7 @@
 > - **四面體網格化**(`geometry/tetmesh.mojo`):閉合三角網格 → 體素(`convex_decomp.voxelize`)→ 每格 5 四面體(與 `make_beam` 同交替分割,共角點)、`embed` / `place`
 >   重心嵌入;`physics.fem.fem_from_tetmesh`(集中質量)。`test_tetmesh` 7/7:24×12 UV 球,體積誤差對網格本身 8 / 16 / 24 格 3.6 % / 0.37 % / 0.03 %;
 >   266 個表面頂點嵌入重建 4.3e-8 m、剛體運動後跟隨 1.3e-7 m;E = 5e5 的球落地 3 s 後最快節點 0.012 m/s、體積變 0.39 %。
-> - **塑性 / 元素移除**(`FemBody.set_plasticity` / `plastic_flow` / `remove_overstrained`;Müller & Gross 2004 的屈服 + 潛變 + 上限):
+> - **塑性 / 元素移除**(`FemBody.set_plasticity` / `step_ext` / `remove_overstrained`;Müller & Gross 2004 的屈服 + 潛變 + 上限):
 >   `test_fem_plastic` 4/4:1 m 懸臂 E = 1e7 10 g 下彈性下垂 0.298 m、卸載後回到 0.3 mm;塑性下垂 0.872 m、卸載後永久 0.652 m;
 >   拉桿 0.3 應變上限移除 104 個四面體分成 4 塊,不移除則只拉長到 1.60 m;關閉時既有 FEM golden 不變。
 > - **MPM 靜態障礙 + 實驗性沙**(`MpmSolver.add_obstacle` / `set_sand` / `step_ext`):格點在 `Sdf3` 內時去掉進入速度並施 Coulomb 摩擦,仍落在內部的粒子推回表面
@@ -1456,7 +1463,7 @@
 >   疑因(未證):回映射是對 Hencky 應力定義的錐,本求解器應力律是 fixed-corotated。另:網域牆只去法向速度(無摩擦),沙需以障礙作地板。
 > - **發現**:在 `FemBody.step` / `MpmSolver.step` 函式體內加任何分支(即使從未執行的提早 return)或把函式體搬進 comptime 參數化的 helper,都改變編譯結果、
 >   動到 `test_thermal`(0.011999987 → 0.0119999945)與 `test_mpm`(spread 0.20055819 → 0.20055932)的末位;兩者保持原函式體逐位不動,
->   擴充改走 `step_plastic` / `step_ext`(`FemContinuum` / `MpmContinuum` 依設定選用)。
+>   擴充改走 `FemBody.step_ext` / `MpmSolver.step_ext`(`FemContinuum` / `MpmContinuum` 依設定選用)。
 > **未做**:隱式步的 NH 切線、近不可壓鎖死對策、沙的休止角(應力律與回映射一致化)、VBD / PD 求解器變體、節點 CCD。
 
 > **現況**:引擎有**三條**體積可變形路徑,但只有一條在場景裡。

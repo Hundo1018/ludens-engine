@@ -130,6 +130,11 @@ struct FemBody(Movable):
     var yield_strain: Real
     var creep: Real
     var max_plastic: Real
+    # 17.57 muscle: fibre direction per tet (3 entries), peak active stress
+    # and the current activation in [0, 1]; empty = off
+    var fiber: List[Real]
+    var sigma_max: Real
+    var activation: Real
     var counters: Counters
     """ROADMAP 17.0h / audit E19: `diag` counters, so far only
     `CG_NOT_CONVERGED` (bumped by `step_implicit` when its `cg()` solve
@@ -155,6 +160,9 @@ struct FemBody(Movable):
         self.yield_strain = 0
         self.creep = 0
         self.max_plastic = 0
+        self.fiber = List[Real]()
+        self.sigma_max = 0
+        self.activation = 0
         self.counters = Counters()
 
     def node_count(self) -> Int:
@@ -215,7 +223,7 @@ struct FemBody(Movable):
 
     def set_plasticity(mut self, yield_strain: Real, creep: Real, max_plastic: Real) raises:
         """Turn on plastic flow (17.58, Mueller & Gross 2004) for
-        `step_plastic` (not `step` / `step_implicit`): after each step, where a tet's elastic strain (co-rotated strain minus its
+        `step_ext` (not `step` / `step_implicit`): after each step, where a tet's elastic strain (co-rotated strain minus its
         plastic strain, Frobenius norm) exceeds `yield_strain`, the plastic
         strain moves toward it by `creep` times the excess fraction, capped
         at norm `max_plastic`. Raises on yield <= 0, creep outside (0, 1] or
@@ -317,7 +325,7 @@ struct FemBody(Movable):
         return sqrt(acc)
 
     def plastic_flow(mut self):
-        """One plastic update (called by `step_plastic`)."""
+        """One plastic update (called by `step_ext`)."""
         if len(self.plastic) == 0:
             return
         for e in range(len(self.tets)):
@@ -528,14 +536,16 @@ struct FemBody(Movable):
                     self.vy[i] = 0
         return res
 
-    def step_plastic(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
-        """`step` with the plastic forces and the plastic flow (17.58). A
-        separate method because `step` stays exactly as it was: any branch
-        added to its body, even an early return that is never taken, changed
-        how the explicit integrator compiled and moved `test_thermal`'s last
-        digits (0.011999987 -> 0.0119999945). `step` ignores plasticity;
-        without plasticity this is `step`."""
-        if len(self.plastic) == 0:
+    def step_ext(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
+        """`step` with plasticity (17.58) and active muscle fibres (17.57)
+        when they are set. A separate method because `step` stays exactly
+        as it was: any branch added to its body, even an early return that
+        is never taken, changed how the explicit integrator compiled and
+        moved `test_thermal`'s last digits (0.011999987 -> 0.0119999945).
+        `step` ignores both; with neither set this is `step`."""
+        var has_p = len(self.plastic) > 0
+        var has_f = len(self.fiber) > 0 and self.activation > 0
+        if not has_p and not has_f:
             self.step(dt, gravity, floor_y)
             return
         var n = self.node_count()
@@ -543,9 +553,74 @@ struct FemBody(Movable):
         var fy = List[Real](length=n, fill=0)
         var fz = List[Real](length=n, fill=0)
         self.elastic_forces(fx, fy, fz)
-        self.plastic_forces(fx, fy, fz)
+        if has_p:
+            self.plastic_forces(fx, fy, fz)
+        if has_f:
+            self.active_forces(fx, fy, fz)
         self.integrate(fx, fy, fz, dt, gravity, floor_y)
-        self.plastic_flow()
+        if has_p:
+            self.plastic_flow()
+
+    def set_fibers(mut self, dirs: List[Vec3], sigma_max: Real) raises:
+        """Muscle fibres (17.57, Teran et al. 2005 style active stress): a
+        rest-frame direction per tet and the peak active stress (Pa). With
+        activation a in [0, 1] (`activation`), `step_ext` adds the first
+        Piola stress P = a sigma_max (F d) (x) d: tension along the fibre,
+        so the tissue shortens along d and, nearly incompressible, bulges
+        across it. Raises on a direction count != tets or sigma_max < 0."""
+        if len(dirs) != len(self.tets) or not (sigma_max >= 0):
+            raise Error("FemBody.set_fibers: one direction per tet and sigma_max >= 0")
+        self.fiber = List[Real](capacity=3 * len(dirs))
+        for d in dirs:
+            var l = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+            if not (l > 0):
+                raise Error("FemBody.set_fibers: zero fibre direction")
+            self.fiber.append(d[0] / l)
+            self.fiber.append(d[1] / l)
+            self.fiber.append(d[2] / l)
+        self.sigma_max = sigma_max
+
+    def active_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+        """Forces of the active fibre stress (see `set_fibers`)."""
+        var a = min(max(self.activation, Real(0)), Real(1))
+        for e in range(len(self.tets)):
+            ref t = self.tets[e]
+            var pa = self.pos(t.a)
+            var e1 = self.pos(t.b) - pa
+            var e2 = self.pos(t.c) - pa
+            var e3 = self.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var f = ds * t.dm_inv
+            var d = Vec3(self.fiber[3 * e], self.fiber[3 * e + 1], self.fiber[3 * e + 2], 0)
+            var fd = Vec3(0, 0, 0, 0)
+            for i in range(3):
+                fd[i] = f.get(i, 0) * d[0] + f.get(i, 1) * d[1] + f.get(i, 2) * d[2]
+            var p = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    p.set(i, j, a * self.sigma_max * fd[i] * d[j])
+            var h = p * t.dm_inv.transpose()
+            var w = t.vol
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            fx[t.a] += f0[0]
+            fy[t.a] += f0[1]
+            fz[t.a] += f0[2]
+            fx[t.b] += f1[0]
+            fy[t.b] += f1[1]
+            fz[t.b] += f1[2]
+            fx[t.c] += f2[0]
+            fy[t.c] += f2[1]
+            fz[t.c] += f2[2]
+            fx[t.d] += f3[0]
+            fy[t.d] += f3[1]
+            fz[t.d] += f3[2]
 
     def step(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
         var n = self.node_count()
