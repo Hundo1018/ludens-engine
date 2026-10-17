@@ -1336,6 +1336,10 @@ build: all packages precompiled into build/
 --- tests/test_system_tiers.mojo ---
   system_tiers: tier changes 3430 max dp 0.006805539 max dv 0.32666668 pen gap 0.0044184644 bodies solved per step full 1800 tiered 627
 [PASS] system_tiers - 7 / 7 checks
+--- tests/test_taylor_green.mojo ---
+  MAC 32^2: amplitude 0.010000002 -> 0.0036610519  decay rate 0.10048346  analytic 0.1  worst divergence 4.7431867e-09 (U/dx 0.05092958 )
+  LBM 32 x 32 x 1: amplitude 0.010000019 -> 0.0021258106  decay rate 0.0038710844  analytic 0.0038553143 ;  ratios MAC 1.0048347  LBM 1.0040904
+[PASS] taylor_green - 5 / 5 checks
 --- tests/test_terrain_deform.mojo ---
   crate after the crater: -0.7463815  edited corners 45
 [PASS] terrain_deform - 11 / 11 checks
