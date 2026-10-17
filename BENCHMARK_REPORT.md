@@ -5221,26 +5221,28 @@ not move is the next step for this item.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| untiered | 1000 | step | 34783538.00 | 0.00 | 1391.34 |
-| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +1 mm) | 1000 | step | 8856387.85 | 0.00 | 354.26 |
-| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +1 mm) | 1000 | step | 6821606.35 | 0.00 | 272.86 |
-| RoundRobin (all tier 2) (125 islands solved / step, penetration +1 mm) | 1000 | step | 6931707.18 | 0.00 | 277.27 |
-| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +4 mm) | 1000 | step | 6310958.35 | 0.00 | 252.44 |
-| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 36289411.38 | 0.00 | 1451.58 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs (151 islands solved / step, penetration +1 mm) | 1000 | step | 7724656.85 | 0.00 | 308.99 |
-| RoundRobin + reuse_still_pairs (125 islands solved / step, penetration +1 mm) | 1000 | step | 6978877.48 | 0.00 | 279.16 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 6785813.03 | 0.00 | 271.43 |
-| DistanceTiers 8 / 20 m, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 6977198.65 | 0.00 | 279.09 |
-| untiered | 10000 | step | 401514792.00 | 0.00 | 16060.59 |
-| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 177215983.58 | 0.00 | 7088.64 |
-| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 180981886.00 | 0.00 | 7239.28 |
-| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 174026224.80 | 0.00 | 6961.05 |
-| BudgetTiers (50 % of untiered) (1269 islands solved / step) | 10000 | step | 193529363.20 | 0.00 | 7741.17 |
-| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 372046622.65 | 0.00 | 14881.86 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs (1276 islands solved / step) | 10000 | step | 183395130.95 | 0.00 | 7335.81 |
-| RoundRobin + reuse_still_pairs (1250 islands solved / step) | 10000 | step | 153808078.85 | 0.00 | 6152.32 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (1276 islands solved / step) | 10000 | step | 50684097.78 | 0.00 | 2027.36 |
-| DistanceTiers 8 / 20 m, DBVH broadphase (1276 islands solved / step) | 10000 | step | 65640357.60 | 0.00 | 2625.61 |
+| untiered | 1000 | step | 26822688.00 | 0.00 | 1072.91 |
+| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +1 mm) | 1000 | step | 6909181.78 | 0.00 | 276.37 |
+| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +1 mm) | 1000 | step | 5793918.95 | 0.00 | 231.76 |
+| RoundRobin (all tier 2) (125 islands solved / step, penetration +1 mm) | 1000 | step | 5171987.53 | 0.00 | 206.88 |
+| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +4 mm) | 1000 | step | 4931258.58 | 0.00 | 197.25 |
+| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 29862878.73 | 0.00 | 1194.52 |
+| AggregateTiers 20 m (rest stacks beyond frozen as proxies) (79 islands solved / step, penetration +0 mm) | 1000 | step | 7010838.30 | 0.00 | 280.43 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs (151 islands solved / step, penetration +1 mm) | 1000 | step | 6556344.18 | 0.00 | 262.25 |
+| RoundRobin + reuse_still_pairs (125 islands solved / step, penetration +1 mm) | 1000 | step | 4346661.45 | 0.00 | 173.87 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 5112411.63 | 0.00 | 204.50 |
+| DistanceTiers 8 / 20 m, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 5943396.80 | 0.00 | 237.74 |
+| untiered | 10000 | step | 290380780.00 | 0.00 | 11615.23 |
+| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 58141621.95 | 0.00 | 2325.66 |
+| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 60505562.73 | 0.00 | 2420.22 |
+| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 59443445.83 | 0.00 | 2377.74 |
+| BudgetTiers (50 % of untiered) (1276 islands solved / step) | 10000 | step | 58883903.78 | 0.00 | 2355.36 |
+| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 292591480.48 | 0.00 | 11703.66 |
+| AggregateTiers 20 m (rest stacks beyond frozen as proxies) (79 islands solved / step) | 10000 | step | 41914966.90 | 0.00 | 1676.60 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs (1276 islands solved / step) | 10000 | step | 58445452.20 | 0.00 | 2337.82 |
+| RoundRobin + reuse_still_pairs (1250 islands solved / step) | 10000 | step | 60260504.18 | 0.00 | 2410.42 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (1276 islands solved / step) | 10000 | step | 43244704.65 | 0.00 | 1729.79 |
+| DistanceTiers 8 / 20 m, DBVH broadphase (1276 islands solved / step) | 10000 | step | 44373966.33 | 0.00 | 1774.96 |
 
 
 

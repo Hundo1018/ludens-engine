@@ -17,6 +17,13 @@ among its members, so a policy only has to rank bodies.
 - `RoundRobin`: every body in one tier whose period spreads the work; the
   solver's phase (an island's first slot index) makes every island tick
   exactly once per period.
+- `AggregateTiers`: islands farther than `radius` from every observer whose
+  members are all slower than `rest_speed` go to `frozen_tier` (a tier the
+  caller gives period 0: not solved, still an obstacle), and each frozen
+  island is summarised as one `ClusterProxy` (members, mass, centroid,
+  bounds) for the host -- the far crowd as aggregates instead of bodies.
+  Nothing extra wakes a frozen island: anything that touches it joins its
+  island, which then takes the toucher's finer tier.
 - `BudgetTiers`: `DistanceTiers` whose radii scale with a measured step cost
   (generalises 17.31's `SimBudget`): above the target the radii shrink by
   `shrink`, comfortably below it they grow back to the configured values.
@@ -28,6 +35,7 @@ Parity anchor (`test_tiers_parity`): a plan with every body at tier 0, tier 0
 """
 
 from std.math import sqrt
+from std.collections import Dict
 from geometry.vec import Real, Vec3, dot
 from physics.rigid6 import Body6
 from physics.solver6 import ContactScene6
@@ -219,3 +227,76 @@ struct BudgetTiers(TierPolicy, Copyable):
 
     def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
         return self.inner.assign(scene, observers, step)
+
+
+@fieldwise_init
+struct ClusterProxy(Copyable, ImplicitlyCopyable, Movable):
+    """A frozen island seen from afar (`AggregateTiers`)."""
+
+    var island: Int
+    var members: Int
+    var mass: Real
+    var centroid: Vec3  # mass-weighted
+    var lo: Vec3  # bounds of the member centres
+    var hi: Vec3
+
+
+struct AggregateTiers(TierPolicy, Copyable):
+    var radius: Real
+    var rest_speed: Real
+    var frozen_tier: Int
+    var proxies: List[ClusterProxy]
+
+    def __init__(out self, radius: Real, rest_speed: Real, frozen_tier: Int) raises:
+        if not (radius > 0) or rest_speed < 0 or frozen_tier < 1:
+            raise Error("AggregateTiers: radius > 0, rest_speed >= 0, frozen_tier >= 1")
+        self.radius = radius
+        self.rest_speed = rest_speed
+        self.frozen_tier = frozen_tier
+        self.proxies = List[ClusterProxy]()
+
+    def assign[Body: Body6, BP: BroadPhase](mut self, scene: ContactScene6[Body, BP], observers: List[Vec3], step: Int) -> List[Int]:
+        ref bs = scene.bset
+        var n = len(bs.bodies)
+        var out = List[Int](length=n, fill=0)
+        # per island (labels from the last step): nearest member distance
+        # and fastest member speed
+        var near = Dict[Int, Real]()
+        var fast = Dict[Int, Real]()
+        for i in range(n):
+            if bs.is_removed(i) or not bs.is_dynamic(i) or i >= len(bs.island):
+                continue
+            var l = bs.island[i]
+            if l < 0:
+                continue
+            var d = _nearest_dist(bs.bodies[i].position(), observers)
+            var v = bs.bodies[i].linear_velocity()
+            var sp = sqrt(dot(v, v))
+            near[l] = min(near.get(l, Real(1e30)), d)
+            fast[l] = max(fast.get(l, Real(0)), sp)
+        var proxy_of = Dict[Int, Int]()
+        self.proxies = List[ClusterProxy]()
+        for i in range(n):
+            if bs.is_removed(i) or not bs.is_dynamic(i) or i >= len(bs.island):
+                continue
+            var l = bs.island[i]
+            if l < 0 or near.get(l, Real(0)) <= self.radius or fast.get(l, Real(1e30)) >= self.rest_speed:
+                continue
+            out[i] = self.frozen_tier
+            var m = Real(1) / bs.bodies[i].inv_mass()
+            var p = bs.bodies[i].position()
+            var k = proxy_of.get(l, -1)
+            if k < 0:
+                proxy_of[l] = len(self.proxies)
+                self.proxies.append(ClusterProxy(l, 1, m, p * m, p, p))
+            else:
+                ref c = self.proxies[k]
+                c.members += 1
+                c.mass += m
+                c.centroid = c.centroid + p * m
+                for a in range(3):
+                    c.lo[a] = min(c.lo[a], p[a])
+                    c.hi[a] = max(c.hi[a], p[a])
+        for ref c in self.proxies:
+            c.centroid = c.centroid / c.mass
+        return out^

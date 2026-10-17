@@ -2730,7 +2730,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
         self.trace.sample("contact_manifolds", len(pairs))
         self.trace.sample("bodies", len(self.bset.bodies))
+        self.trace.begin("islands")
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
+        self.trace.end()
         # graph coloring (colored=True): greedy smallest-free-color over the
         # DYNAMIC-body adjacency (a shared static must not chain colors, or
         # one ground plane serialises the whole scene); pairs reordered into
