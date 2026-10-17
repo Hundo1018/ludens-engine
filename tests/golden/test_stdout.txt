@@ -827,6 +827,12 @@ build: all packages precompiled into build/
   assembled vs matrix-free: max diff 2.670288e-05 of 57.871613  nnz 4131  symmetric True
   2 s cantilever: tip y CG 0.3210657  Cholesky 0.3210657  IC(0)-PCG 0.32106578 ;  max gap 2.0861626e-07 m;  iterations CG 4896  IC(0) 1438 ;  volume 0.37493786 0.37493786 0.37493786 (rest 0.37499985 )
 [PASS] fem_solvers - 6 / 6 checks
+--- tests/test_fft_ocean.mojo ---
+  FFT 64: worst |FFT - DFT| 7.337332e-05 of 8.419345 ;  round trip 5.811453e-07
+  one mode vs Gerstner Q = 0, 200 samples: worst height diff 2.3245811e-06  vertical velocity diff 0.0008085966
+  Phillips 64^2, 200 m, wind 10 m/s, A 3e-6: significant height 4 sigma 2.2559695  max |eta| 1.555072  grid vs sum at grid points 3.695488e-06  bilinear between 0.14695251
+  2 x 1 x 2 box of density 1000 / 2 on the sea, 5 to 10 s: heave 0.6641953
+[PASS] fft_ocean - 8 / 8 checks
 --- tests/test_fields.mojo ---
 [PASS] fields - 16 / 16 checks
 --- tests/test_filter_events.mojo ---
@@ -872,6 +878,10 @@ build: all packages precompiled into build/
   ratio 0.2 implicit: v -0.00041927595 max |v| 0.020816866 finite True
   ratio 0.05 implicit: v -0.0004048942 max |v| 0.022220412 finite True
 [PASS] fsi_added_mass - 5 / 5 checks
+--- tests/test_fsi_snapshot.mojo ---
+  snapshot with the sphere at x 0.011894432 m (grid: 0 .. 0.024), + 100 steps: sphere x 0.011984664 0.011984664  same True
+  snapshot with the sphere at x 0.02486255 m (grid: 0 .. 0.024), + 100 steps: sphere x 0.024971498 0.024971498  same True
+[PASS] fsi_snapshot - 3 / 3 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
 --- tests/test_gpu_artic.mojo ---
@@ -1029,6 +1039,10 @@ build: all packages precompiled into build/
   tick 40: mover mode 4 (4 = climbing)
   tick 40: mover mode 4 (4 = climbing)
 [PASS] movement_modes - 8 / 8 checks
+--- tests/test_mpm_rigid.mojo ---
+  box ( 3.3750002 kg) on the block after 1 s: bottom 0.39486033  block top beside it 0.35295928  speed 8.007927e-05  grid force 33.10811  weight 33.075005  particles inside 0
+  sphere into a free block: momentum before [1.0, 0.0, 0.0, 0.0]  after [0.9999986, -7.0780516e-08, 4.8428774e-08, 0.0]  sphere vx -0.14835544  block px 1.1483541  block mass 16.58871
+[PASS] mpm_rigid - 6 / 6 checks
 --- tests/test_multidof.mojo ---
   universal vs ball, swing about z, 2 s: max tip distance 2.9351884e-07
   universal, swinging about x and z without gravity, 2 s: max |parent x . body z| 2.9802322e-08
@@ -1236,6 +1250,11 @@ build: all packages precompiled into build/
   lattice on a box, 4 s: lowest particle  period 1 0.03333336  period 4 0.03333336
   period 4 phase 1: the lattice moved on 15 of the first 60 steps (start y 1.0 )
 [PASS] soft_period - 5 / 5 checks
+--- tests/test_soft_water.mojo ---
+  one particle (5 cm cell) after 5 s: height -0.0033610119  at density 500 (Archimedes 0), 0.014672626  at 250 (0.0125)
+  soft cube 0.2 m, density 500, after 5 s: top 0.17015459  bottom -0.17470483  extent 0.34485942  (corner-up 0.346) max speed 0.11694286
+  horizontal sheet 1 kg/m^2 after 2 s: vy -0.12718798  (terminal -0.12780192 )  flatness 1.9073486e-06 ;  0.5 mm thick: -0.090146385  ( -0.090369605 );  2 mm thick: 0.12558752
+[PASS] soft_water - 6 / 6 checks
 --- tests/test_softbody.mojo ---
   drop: bottom 0.04999995231628418 top 0.6493484973907471 height 0.5993485450744629 speed 1.7952606867766008e-05
   stiffness: stiff height 0.5993485450744629 soft height 0.5771285891532898
@@ -1371,6 +1390,10 @@ build: all packages precompiled into build/
   ripple: peak at 5 m after 1.5529035 s, 5 / sqrt(gH) = 1.5971913  energy 0.34651673 -> 0.18622804
   energy after 400 steps: damped 0.019981787  undamped 0.7386395
 [PASS] water - 10 / 10 checks
+--- tests/test_water_seam.mojo ---
+  box and sphere, 3 s: y 0.3704939 -0.6969595  same True
+  1 m box on a 40 m swell, A 0.5, 10 to 20 s: heave Gerstner 1.1798155  FFT mode 1.1798155  (2A = 1)
+[PASS] water_seam - 3 / 3 checks
 --- tests/test_weld.mojo ---
   weld drift 0.009460454  ball drift 1.2818166  weld tilt 0.0022981346
   landed pair: gap 0.4998334 heights 0.24970834 0.24971326
