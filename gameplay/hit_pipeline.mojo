@@ -9,6 +9,13 @@ and reactions.
     multiplier goes through `rules.Rules.damage` (resistance, shield,
     health); every hit is sent as a `DamageEvent` (health lost, killed once)
     into a `scheduler.events.Channel`.
+  * `projectile_damage` (17.70): projectile hits (`projectile.ProjectileHit`,
+    which name a scene body) mapped to actors through `body_actor`
+    (-1 = not an actor), with linear damage falloff over the distance
+    flown (full up to `near`, `far_frac` of it from `far` on), through the
+    same `Rules.damage` and `DamageEvent` channel as melee hits.
+  * `targets_from_hits`: the distinct owners of a tick's hits, in first-hit
+    order -- the target list `abilities.Abilities.activate` takes.
   * `knockback`: adds the hit direction times a speed to the target's
     `Mover` external-velocity accumulator (17.67), so it is not overwritten
     by walking.
@@ -29,6 +36,7 @@ from physics.solver6 import ContactScene6
 from scheduler.events import Channel
 from .animator import AnimEvent
 from .combat import Swing, Hurtbox, HitResult
+from .projectile import ProjectileHit
 from .rules import Rules, Actor
 from .movement import Mover
 
@@ -93,6 +101,46 @@ def deal_damage(
         events.send(DamageEvent(h.owner, h.bone, lost, actors[h.owner].dead and not was, h.point, source))
         total += lost
     return total
+
+
+def projectile_damage(
+    hits: List[ProjectileHit], body_actor: List[Int], mut rules: Rules, mut actors: List[Actor],
+    base: Int, near: Real, far: Real, far_frac: Real, dtype: Int, source: Int,
+    mut events: Channel[DamageEvent],
+) raises -> Int:
+    """Falloff: full damage up to `near` metres flown, `far_frac` of it
+    from `far` on, linear between. Returns the total health lost."""
+    if not (far > near) or not (far_frac >= 0 and far_frac <= 1):
+        raise Error("projectile_damage: far > near and 0 <= far_frac <= 1")
+    var total = 0
+    for h in hits:
+        if h.body < 0 or h.body >= len(body_actor):
+            continue
+        var a = body_actor[h.body]
+        if a < 0 or a >= len(actors):
+            continue
+        var f = Real(1)
+        if h.travelled >= far:
+            f = far_frac
+        elif h.travelled > near:
+            f = 1 - (1 - far_frac) * (h.travelled - near) / (far - near)
+        var was = actors[a].dead
+        var lost = rules.damage(actors[a], a, Int(Real(base) * f), dtype)
+        events.send(DamageEvent(a, -1, lost, actors[a].dead and not was, h.point, source))
+        total += lost
+    return total
+
+
+def targets_from_hits(hits: List[HitResult]) -> List[Int]:
+    var out = List[Int]()
+    for h in hits:
+        var seen = False
+        for o in out:
+            if o == h.owner:
+                seen = True
+        if not seen and h.owner >= 0:
+            out.append(h.owner)
+    return out^
 
 
 def knockback(hits: List[HitResult], mut movers: List[Mover], speed: Real):
