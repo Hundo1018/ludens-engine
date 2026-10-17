@@ -260,7 +260,11 @@ struct FftOcean(WaterSurface, Movable):
     FFT (`numerics.fft`); `height(x, z, t)` interpolates that grid
     (bilinear, periodic) when t is the updated time, and otherwise sums
     the modes directly (exact, O(n^2) per query). `velocity` is the
-    vertical surface velocity d eta / dt, summed directly."""
+    vertical surface velocity d eta / dt, summed directly. `choppy` = lambda
+    > 0 shifts surface points horizontally (Tessendorf's choppy waves; one
+    mode = Gerstner with Q = lambda); `height` then inverts the map with
+    4 fixed-point iterations over exact sums, as `GerstnerWater` does.
+    `normal` is the non-choppy surface's normal, from analytic slopes."""
 
     var n: Int
     var size: Real  # patch edge (m); the surface repeats with this period
@@ -271,6 +275,7 @@ struct FftOcean(WaterSurface, Movable):
     var grid: List[Real]  # eta - level at the grid points, at t_grid
     var t_grid: Real
     var has_grid: Bool
+    var choppy: Real  # lambda: horizontal displacement -lambda k^ Im(...)
 
     def __init__(out self, n: Int, size: Real, level: Real, gravity: Real = 9.8) raises:
         if n < 2 or (n & (n - 1)) != 0 or not (size > 0):
@@ -284,6 +289,7 @@ struct FftOcean(WaterSurface, Movable):
         self.grid = List[Real](length=n * n, fill=0)
         self.t_grid = 0
         self.has_grid = False
+        self.choppy = 0
 
     def _m(self, i: Int) -> Int:
         return i if i < self.n // 2 else i - self.n
@@ -367,7 +373,59 @@ struct FftOcean(WaterSurface, Movable):
                 acc += self.h0_re[idx] * cos(a) - self.h0_im[idx] * sin(a)
         return acc
 
+    def displaced(self, x0: Real, z0: Real, t: Real) -> Vec3:
+        """Where the surface point with rest position (x0, z0) is at t:
+        height plus the choppy horizontal shift
+        -lambda sum k^ Im(h0 exp(i (k . x0 - w t))) (Tessendorf's D; for one
+        mode exactly Gerstner's -Q A d sin(theta) with Q = lambda)."""
+        var y = Real(0)
+        var dx = Real(0)
+        var dz = Real(0)
+        for iz in range(self.n):
+            for ix in range(self.n):
+                var idx = iz * self.n + ix
+                if self.h0_re[idx] == 0 and self.h0_im[idx] == 0:
+                    continue
+                var k = self._k(ix, iz)
+                var a = k[0] * x0 + k[1] * z0 - self.omega(ix, iz) * t
+                var c = cos(a)
+                var s = sin(a)
+                y += self.h0_re[idx] * c - self.h0_im[idx] * s
+                var kl = sqrt(k[0] * k[0] + k[1] * k[1])
+                var im = self.h0_re[idx] * s + self.h0_im[idx] * c
+                dx -= self.choppy * k[0] / kl * im
+                dz -= self.choppy * k[1] / kl * im
+        return Vec3(x0 + dx, self.level + y, z0 + dz, 0)
+
+    def normal(self, x: Real, z: Real, t: Real) -> Vec3:
+        """Unit surface normal of the non-choppy surface at (x, z):
+        (-d eta/dx, 1, -d eta/dz), slopes summed analytically."""
+        var gx = Real(0)
+        var gz = Real(0)
+        for iz in range(self.n):
+            for ix in range(self.n):
+                var idx = iz * self.n + ix
+                if self.h0_re[idx] == 0 and self.h0_im[idx] == 0:
+                    continue
+                var k = self._k(ix, iz)
+                var a = k[0] * x + k[1] * z - self.omega(ix, iz) * t
+                # d/dx Re(h0 e^{i a}) = -k_x Im(h0 e^{i a})
+                var im = self.h0_re[idx] * sin(a) + self.h0_im[idx] * cos(a)
+                gx -= k[0] * im
+                gz -= k[1] * im
+        var l = sqrt(gx * gx + 1 + gz * gz)
+        return Vec3(-gx / l, 1 / l, -gz / l, 0)
+
     def height(self, x: Real, z: Real, t: Real) -> Real:
+        if self.choppy != 0:
+            # the inverse horizontal map, as GerstnerWater.height
+            var x0 = x
+            var z0 = z
+            for _ in range(4):
+                var p = self.displaced(x0, z0, t)
+                x0 -= p[0] - x
+                z0 -= p[2] - z
+            return self.displaced(x0, z0, t)[1]
         if not self.has_grid or t != self.t_grid:
             return self.level + self.direct(x, z, t)
         var cell = self.size / Real(self.n)
