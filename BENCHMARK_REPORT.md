@@ -906,17 +906,17 @@ is one coupled step.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| no solid | 32768 | cell-step | 343.68 | 2.91 | 675.71 |
-| 1 static sphere | 32768 | cell-step | 407.10 | 2.46 | 800.40 |
-| 1 moving sphere (Ladd) | 32768 | cell-step | 365.16 | 2.74 | 717.93 |
-| 8 moving spheres (Ladd) | 32768 | cell-step | 356.53 | 2.80 | 700.96 |
+| no solid | 32768 | cell-step | 422.79 | 2.37 | 831.25 |
+| 1 static sphere | 32768 | cell-step | 436.16 | 2.29 | 857.53 |
+| 1 moving sphere (Ladd) | 32768 | cell-step | 411.36 | 2.43 | 808.76 |
+| 8 moving spheres (Ladd) | 32768 | cell-step | 450.64 | 2.22 | 885.99 |
 
 
 ### LbmCoupler.step: lattice + ContactScene6, one sphere (17.59)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| coupled step (32^3 lattice, 1 sphere) | 1 | step | 11928284.77 | 0.00 | 715.70 |
+| coupled step (32^3 lattice, 1 sphere) | 1 | step | 12483696.43 | 0.00 | 749.02 |
 
 
 ## Collision — scene queries (raycast + overlap)
@@ -2814,16 +2814,16 @@ switched off the muscle is bit-identical to the plain one (`test_muscle_hill`).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| strands 1000 x 16 | 16000 | particle-step | 37.40 | 26.73 | 35.91 |
-| strands 1000 x 16 + sphere + 2 capsules | 16000 | particle-step | 43.72 | 22.87 | 41.97 |
+| strands 1000 x 16 | 16000 | particle-step | 40.78 | 24.52 | 39.14 |
+| strands 1000 x 16 + sphere + 2 capsules | 16000 | particle-step | 46.48 | 21.52 | 44.62 |
 
 
 ### Muscle: plain activation vs Hill curves (17.57)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| plain Actuator.muscle | 64 | actuator | 23.49 | 42.56 | 30.07 |
-| hill curves (fl, fv, fp) | 64 | actuator | 43.50 | 22.99 | 55.68 |
+| plain Actuator.muscle | 64 | actuator | 18.42 | 54.30 | 23.57 |
+| hill curves (fl, fv, fp) | 64 | actuator | 35.40 | 28.25 | 45.31 |
 
 
 ## Physics — joint kinds, limits and motors (ROADMAP 17.47)
