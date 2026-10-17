@@ -98,3 +98,4 @@ physics.mpm_rigid  # [api] MPM <-> rigid two-way coupling through the grid (17.5
 physics.soft_water  # [api] soft bodies and cloth in still water (17.59)
 physics.mac_fluid  # [api] MAC grid fluid with PCG projection (17.60)
 geometry.isosurface  # [api] isosurface / particle-surface meshes for the host (17.60)
+physics.flip  # [api] FLIP free-surface water with walls (17.60)

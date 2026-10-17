@@ -1670,11 +1670,15 @@
 > Manning 摩擦隱式;原平底路徑不變(`test_shallow_fv` golden 逐位相同)。`tests/test_shallow_bed.mojo` 4/4:0.5 m 高斯凸起上的靜水 2 s 後水面偏差 2.4e-7 m、
 > 速度 6.8e-7 m/s,同湖用樸素坡度源項則攪出 0.18 m/s;Manning n 0.03、1 m 深 2 m/s 均勻流 5 s 後 1.83790 對解析 1.83790;
 > 高出水面的島保持乾、湖靜止、體積差 3e-7。
+> **FLIP 自由表面水(有牆)**:`physics/flip.mojo` `FlipWater2`(Zhu–Bridson 2005:標記粒子帶水、2-D MAC 只做壓力;四面牆無通量、空氣格 p = 0、
+> 只在水格解 `numerics.pcg`,FLIP 0.95 / PIC 0.05)。`tests/test_flip.mojo` 3/3:1 m 箱 0.3 m 靜水 1 s 後粒子最大速度 1.7e-7 m/s,各水格 p/g 對
+> h + dx/2 − y 差 1.2e-7(自由表面落在第一個空氣格中心,一階);0.25 × 0.5 m 水柱潰壩,前緣始終在 Ritter 2√(gh0) 之後,0.3–0.5 s 速度 1.48√(gh0),
+> 粒子全在箱內、壓力解全收斂。
 > **LBM TRT(MRT 族)**:`Lbm.trt_lambda` / `collide_trt`(Ginzburg 2008,對稱部以 1/τ、反對稱部以 1/τ⁻ 鬆弛,(τ−½)(τ⁻−½) = Λ;BGK 的 `collide` 不動,
 > BGK golden 全部逐位不變;GPU 遇 TRT raise)。量到:速度平移體力在 TRT 下須以 τ⁻F/ρ 平移(以 τF/ρ 時 τ 0.8 的 Poiseuille 誤差 29 %)。
 > `tests/test_lbm_trt.mojo` 3/3:11 點通道 τ 0.8 / 2.0 / 3.5 的 Poiseuille 誤差 BGK 1.2 % / 11 % / 53 %,TRT Λ = 3/16 為 0.56 % / 2.5 % / 5.1 %
 > (仍隨 τ 增:Λ = 3/16 的精確壁面位置假設二階體力項,這裡是速度平移);剪切波黏度 0.030157 對 0.03;Λ = (τ−½)² 與 BGK 差 7e-7。
-> **未做**:完整 19 矩 MRT / cumulant、TRT 的 Guo 二階體力、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、各向異性核與泡沫 / 水花次級粒子、choppy 的 FFT 格點路徑。
+> **未做**:完整 19 矩 MRT / cumulant、TRT 的 Guo 二階體力、MAC 的 level-set 自由表面、APIC、3-D MAC / FLIP、LBM MRT、各向異性核與泡沫 / 水花次級粒子、choppy 的 FFT 格點路徑。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
