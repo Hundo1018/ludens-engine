@@ -105,3 +105,4 @@ gameplay.skin_link  # [api] animator palette, cloth pins and fitted bone shapes 
 geometry.pose_space  # [api] RBF corrective-shape driver the host evaluates per frame (17.65)
 gameplay.ragdoll_ctl  # [api] ragdoll modes, balance assist, grab for the host's character code (17.66)
 gameplay.vehicle_kinds  # [api] quadrotor, tracks and hitch force elements for the host (17.74)
+gameplay.vehicle_seat  # [api] enter / exit seats for the host's characters (17.74)
