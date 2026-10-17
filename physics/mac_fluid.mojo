@@ -150,13 +150,18 @@ struct MacFluid2(Movable):
         var div = self.divergence()
         # -lap p = -div / dt, in dx^2 = 1 units: rhs = -div dx^2 / dt
         var rhs = List[Real](length=n * n, fill=0)
-        var mean = Real(0)
+        # The periodic Laplacian is singular: remove the mean in f64. An f32
+        # sum over n^2 cells left a mean of ~n^2 eps |rhs| that CG cannot
+        # reduce, so it never met tol, ran 4 n^2 iterations, and the constant
+        # it piled into p cost f32 its pressure differences (a heated row
+        # under Smoke2 blew up to 1e11 m/s in 0.3 s; 17.61).
+        var mean = Float64(0)
         for k in range(n * n):
             rhs[k] = -div[k] * self.dx * self.dx / dt
-            mean += rhs[k]
-        mean /= Real(n * n)
+            mean += Float64(rhs[k])
+        mean /= Float64(n * n)
         for k in range(n * n):
-            rhs[k] -= mean
+            rhs[k] = Real(Float64(rhs[k]) - mean)
         var op = _NegLaplacian(n)
         var r = pcg(op, rhs, self.p, tol, 4 * n * n)
         for j in range(n):
