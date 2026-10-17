@@ -24,7 +24,9 @@ instead of springing back. `test_mpm` asserts both regimes — elastic recoil
 with the clamp wide, and permanent deformation with it tight — since a solver
 that never yields would pass any test written only for the elastic case.
 
-Sand and obstacles run in `step_ext` (`step` ignores them; see there why).
+Sand, obstacles and moving rigid obstacles (`MpmRigid`, coupled to a
+`ContactScene6` by `physics.mpm_rigid`) run in `step_ext` (`step` ignores
+them; see there why).
 Sand (ROADMAP 17.58, `set_sand(friction_deg)`; EXPERIMENTAL: in
 `test_mpm_sand` a column keeps more height the larger the angle and stands
 at 85 degrees, but at 30 and 60 it keeps spreading instead of stopping at its
@@ -46,7 +48,31 @@ from geometry.vec import Real, Vec3, dot, length
 from geometry.mat import Mat3
 from geometry.mat3 import Mat3x3, sym_eigen3
 from geometry.sdf3 import Sdf3
+from geometry.quat import Quat
 from physics.fem import polar_rotation, det3
+
+
+def _cross3(a: Vec3, b: Vec3) -> Vec3:
+    return Vec3(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0], 0)
+
+
+@fieldwise_init
+struct MpmRigid(Copyable, ImplicitlyCopyable, Movable):
+    """A moving rigid obstacle for `step_ext` (17.59): `shape` in its own
+    frame, posed by `pos` / `rot`, moving with `v` / `w`. Grid nodes inside
+    it get its velocity in the normal direction (Coulomb `mu` on the
+    tangential slip); what that changes in the nodes' momentum, and what
+    the particle push-out takes, is summed into `force` / `torque` (about
+    `pos`) for the body: the exchange conserves momentum."""
+
+    var shape: Sdf3
+    var pos: Vec3
+    var rot: Quat
+    var v: Vec3
+    var w: Vec3
+    var mu: Real
+    var force: Vec3
+    var torque: Vec3
 
 
 @fieldwise_init
@@ -72,6 +98,7 @@ struct MpmSolver(Movable):
     var dp_alpha: Real  # Drucker-Prager cone (0 = off)
     var obstacles: List[Sdf3]
     var obstacle_mu: List[Real]
+    var rigids: List[MpmRigid]  # moving rigid obstacles (step_ext)
     # grid scratch (SoA, rebuilt each step)
     var gm: List[Real]
     var gvx: List[Real]
@@ -90,6 +117,7 @@ struct MpmSolver(Movable):
         self.dp_alpha = 0
         self.obstacles = List[Sdf3]()
         self.obstacle_mu = List[Real]()
+        self.rigids = List[MpmRigid]()
         self.gm = List[Real]()
         self.gvx = List[Real]()
         self.gvy = List[Real]()
@@ -188,6 +216,68 @@ struct MpmSolver(Movable):
             self.gvx[idx] = v[0]
             self.gvy[idx] = v[1]
             self.gvz[idx] = v[2]
+
+    def _rigid_node(mut self, i: Int, j: Int, k: Int, idx: Int, dt: Real):
+        """Separate a grid node's velocity from every moving rigid it is
+        inside, relative to the body's velocity there; the node's momentum
+        change goes to the body (`MpmRigid`)."""
+        var x = self.lo + Vec3(Real(i), Real(j), Real(k), 0) * self.dx
+        for o in range(len(self.rigids)):
+            ref r = self.rigids[o]
+            var lp = r.rot.conjugate().rotate(x - r.pos)
+            if r.shape.distance(lp) >= 0:
+                continue
+            var g = r.shape.gradient(lp)
+            var gl = length(g)
+            if not (gl > 0):
+                continue
+            var n = r.rot.rotate(g / gl)
+            var vb = r.v + _cross3(r.w, x - r.pos)
+            var v0 = Vec3(self.gvx[idx], self.gvy[idx], self.gvz[idx], 0)
+            var vr = v0 - vb
+            var vn = dot(vr, n)
+            if vn >= 0:
+                continue
+            var vt = vr - n * vn
+            var tl = length(vt)
+            if tl <= -r.mu * vn:
+                vr = Vec3(0, 0, 0, 0)
+            else:
+                vr = vt * (1 + r.mu * vn / tl)
+            var v1 = vb + vr
+            var fb = (v0 - v1) * (self.gm[idx] / dt)
+            r.force = r.force + fb
+            r.torque = r.torque + _cross3(x - r.pos, fb)
+            self.gvx[idx] = v1[0]
+            self.gvy[idx] = v1[1]
+            self.gvz[idx] = v1[2]
+
+    def _rigid_push_out(mut self, pi: Int, dt: Real):
+        """A particle inside a moving rigid goes to its surface and loses
+        its inward velocity relative to the body; the momentum goes to the
+        body."""
+        for o in range(len(self.rigids)):
+            ref r = self.rigids[o]
+            var x = self.p[pi].x
+            var lp = r.rot.conjugate().rotate(x - r.pos)
+            var d = r.shape.distance(lp)
+            if d >= 0:
+                continue
+            var g = r.shape.gradient(lp)
+            var gl = length(g)
+            if not (gl > 0):
+                continue
+            var n = r.rot.rotate(g / gl)
+            var xs = x - n * d
+            self.p[pi].x = xs
+            var vb = r.v + _cross3(r.w, xs - r.pos)
+            var vn = dot(self.p[pi].v - vb, n)
+            if vn < 0:
+                var dv = n * (-vn)
+                self.p[pi].v = self.p[pi].v + dv
+                var fb = dv * (-self.p[pi].mass / dt)
+                r.force = r.force + fb
+                r.torque = r.torque + _cross3(xs - r.pos, fb)
 
     def _push_out(mut self, pi: Int):
         """Move a particle that ended inside an obstacle back to its surface
@@ -561,6 +651,8 @@ struct MpmSolver(Movable):
                     self.gvy[idx] += gravity[1] * dt
                     self.gvz[idx] += gravity[2] * dt
                     self._obstacle(i, j, k, idx)
+                    if len(self.rigids) > 0:
+                        self._rigid_node(i, j, k, idx, dt)
                     # sticky walls in a 3-cell boundary band
                     if i < 3 and self.gvx[idx] < 0:
                         self.gvx[idx] = 0
@@ -666,3 +758,6 @@ struct MpmSolver(Movable):
         if len(self.obstacles) > 0:
             for pi in range(len(self.p)):
                 self._push_out(pi)
+        if len(self.rigids) > 0:
+            for pi in range(len(self.p)):
+                self._rigid_push_out(pi, dt)
