@@ -49,7 +49,14 @@ def swept_box_toi(
     rel_disp: Vec3,
 ) -> ToiResult:
     """Earliest touching time of box `b` displaced by `rel_disp` relative to a
-    stationary box `a`, as a fraction of `rel_disp` in [0, 1]."""
+    stationary box `a`, as a fraction of `rel_disp` in [0, 1].
+
+    Boxes already touching or overlapping at t = 0 report a hit at 0 only
+    when the motion closes along the axis of least penetration (moving
+    deeper); sliding along or leaving the touching face is no hit -- the
+    discrete contact owns that pair. Without this a CCD bullet resting
+    against a wall was clamped to zero motion every step and hung in the
+    air under gravity (ROADMAP 17.19, `test_solver_stress`)."""
     var axes = Array[Vec3, 15](fill=Vec3(0, 0, 0, 0))
     var count = 0
     comptime for i in range(3):
@@ -65,6 +72,8 @@ def swept_box_toi(
     var t_enter = Real(0)
     var t_exit = Real(1)
     var d = cb - ca
+    var min_pen = Real(1e30)
+    var closing = False
     for k in range(count):
         var l = axes[k]
         if dot(l, l) < 1e-12:  # near-parallel edge cross: degenerate axis
@@ -72,6 +81,10 @@ def swept_box_toi(
         var d0 = dot(d, l)
         var v = dot(rel_disp, l)
         var r = _radius(axa, ha, l) + _radius(axb, hb, l)
+        var pen = (r - abs(d0)) / dot(l, l) ** 0.5  # overlap at t = 0 along unit l
+        if pen < min_pen:
+            min_pen = pen
+            closing = v * d0 < 0 or (d0 == 0 and abs(v) >= 1e-12)
         if abs(v) < 1e-12:
             if abs(d0) > r:
                 return ToiResult(False, 1)  # separated on l for all t
@@ -88,4 +101,6 @@ def swept_box_toi(
             t_exit = t1
         if t_enter > t_exit:
             return ToiResult(False, 1)
+    if t_enter <= 0 and not closing:
+        return ToiResult(False, 1)  # touching at t = 0 and not moving deeper
     return ToiResult(True, t_enter)
