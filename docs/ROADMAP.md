@@ -1821,8 +1821,21 @@
 > Hilbert(5) 改良 3 輪殘差 1.6e-8 → 5e-17、對 Float64 解的誤差 3.8e-4 → 0。`bench_numerics_deep`:BiCGStab n=256 / 1024 / 4096 為 215 / 111 / 71 次;
 > **n=1024 加 Jacobi 時發散**(1136 次不收斂、誤差 4e14,同矩陣不加則收斂)—— 非正規矩陣上 BiCGStab 收斂不規則,GMRES 尚缺;
 > 稠密 n=32:f32 解 29 µs、改良 3 輪 123 µs、條件數 104 µs;一次 gradcheck(6 控制 × 6 步長)33 µs。
-> **未做**:四個既有可微測試改用 gradcheck、排程雜湊接到 diffrigid / diffsim 的分支位元、精度 / 縮併政策文件與旗標漂移測試、稀疏 Cholesky / IC0 / 多重網格 /
-> MINRES / GMRES / 平行 SpMV、AD 深度(批次 × 反向、檢查點、Hessian-vector、隱式微分)、`SolverField.positive` 平滑變體。
+> **進度註(2026-10-17)**:
+> - `numerics/gmres.mojo`:GMRES(m)(MGS Arnoldi、Givens、右 Jacobi 前條件、Float64、真殘差收斂判定)。`test_solvers`:對流擴散 n=1024(bench 的解)上 BiCGStab + Jacobi
+>   發散(誤差 4.1e14),GMRES(30) 有無 Jacobi 皆 120 步收斂、誤差 7e-5。
+> - `numerics/cholesky.mojo`:RCM 排序、消去樹 + `ereach` 的上視 sparse Cholesky(Float64,非正定 raise)、IC(0) 與 `pcg_ic0`。2D Poisson 32×32:Cholesky 誤差 7.2e-7;
+>   CG 69 次 vs IC(0)-PCG 22 次;節點打亂的網格 nnz(L) 自然序 81326 → RCM 23344;不定、奇異、非排列 raise。
+> - `physics/fem.mojo`:`FemImplicitOp.assemble`(與 `stiffness_apply` 共用逐元素微分,釘住節點的列行改單位,保持對稱)、`FemBody.solver` seam(CG / Cholesky / IC(0)-PCG)。
+>   `test_fem_solvers` 6/6:組裝矩陣 vs matrix-free 2.7e-5 / 57.9;2 s 懸臂三解法尖端軌跡差 2.1e-7 m;迭代 CG 4896 vs IC(0) 1438;既有 FEM 測試輸出不變。
+>   `bench_fem`(ms / 步):6×2×2 CG 2.22、Cholesky 2.09、IC(0) 2.22;12×4×4 CG 23.1、Cholesky 28.3(每步重新分解)、IC(0) 19.8。
+> - `geometry/checkpoint.mojo`:`RevSystem` + `grad_full` / `grad_checkpointed`(段尾狀態 adjoint 與參數的累加 adjoint 帶入重算段)。`test_checkpoint`:600 步彈簧鏈,
+>   每 1 / 7 / 50 / 600 步檢查點的梯度與完整 tape **逐位相同**;峰值節點 72050 → 6050(每 50 步);對中央差分 0.07 %。
+> - `SolverField.smooth_positive(k)`(五種 scalar,真導數)與 `SphereWorld.contact_k`(預設 0 = sharp,既有 diffsolver 輸出不變)。`test_smooth_positive`:
+>   **發現**:球落地滑行的 d x / d 落下高度,sharp 0.5 vs 中央差分 0.271;平滑「接觸存在」開關只在 k=30 改成 0.497、k ≥ 100 即等於 sharp —— 這個偏差不來自存在開關
+>   (衝量夾限與摩擦錐仍是 sharp),平滑存在開關不解決它。
+> **未做**:四個既有可微測試改用 gradcheck、排程雜湊接到 diffrigid / diffsim 的分支位元、精度 / 縮併政策文件與旗標漂移測試、多重網格 / MINRES / 平行 SpMV、
+> 批次 × 反向、Hessian-vector、隱式微分、平滑化衝量夾限 / 摩擦錐(上面的偏差來源候選)。
 > **現況**:
 > - **線性代數**(`numerics/`):CSR 矩陣與三元組組裝(`numerics/sparse.mojo:54`、`from_triplets` `:89`)、matrix-free 的 `LinearOperator`(**僅限對稱正定**,`:35-43`)、
 >   `cg` / `pcg`(只有 Jacobi 預條件,`numerics/cg.mojo:61,73`)、`jacobi_solve`(`:175`)、稠密高斯消去含部分選主元(`numerics/dense.mojo:84,97`)。

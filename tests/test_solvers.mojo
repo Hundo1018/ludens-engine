@@ -1,4 +1,4 @@
-# tier: unit
+# tier: component
 """GMRES, sparse Cholesky and IC(0)-preconditioned CG (ROADMAP 17.84,
 `numerics.gmres`, `numerics.cholesky`).
 
