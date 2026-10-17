@@ -25,6 +25,7 @@ pixi run arch-check        # 分層/循環/私有名稱穿透檢查 + 測試 tie
 pixi run arch -- <cmd>     # 架構索引查詢:def NAME / impl TRAIT / uses MOD / deps MOD / raises PKG / check / tiers
 pixi run gate              # 變更的總閘門:整套測試 + 摘要 + 與 tests/golden/test_stdout.txt 比對
 pixi run gate -- --update-golden   # 接受本次輸出為新 golden
+LUDENS_TEST_JOBS=4 pixi run gate   # 同時跑 4 個測試檔(輸出依原順序印出,與循序執行逐位元相同)
 pixi run gate -- --selftest        # 測試閘門工具本身(golden、archindex)
 pixi run benchmark         # 重跑所有 bench,重新產生 BENCHMARK_REPORT.md
 ONLY="bench_x.mojo" pixi run benchmark   # 只重跑列出的 bench,其餘取 build/bench_out/ 快取(需先有一次完整執行)

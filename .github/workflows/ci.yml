@@ -36,6 +36,10 @@ jobs:
       - name: benchmark template / files / report consistency
         run: pixi run perf -- governance
       - name: gate (build, arch-check, unit..system, golden compare)
+        # 4 files at a time (scripts/run_tests.sh): the sequential suite
+        # passed the 3600 s gate budget on this runner at ~270 files.
+        env:
+          LUDENS_TEST_JOBS: 4
         run: pixi run gate
       - name: wasm leaf-kernel probe (tools/wasm)
         run: pixi run wasm-probe
@@ -71,6 +75,8 @@ jobs:
       # read back from the job log and committed as
       # tests/golden/test_stdout.<os>-<arch>.txt. Later runs compare.
       - name: gate (records and prints the platform golden on first run)
+        env:
+          LUDENS_TEST_JOBS: 3
         run: |
           plat="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
           golden="tests/golden/test_stdout.$plat.txt"
