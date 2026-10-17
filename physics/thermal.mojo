@@ -148,7 +148,7 @@ struct HeatTets(Movable):
     def max_dt(self) -> Real:
         """Gershgorin bound on the explicit step: dt <= 2 / max_i (sum_j
         |K_ij| alpha / C_i), computed once at construction (conductances
-        are from the rest shape)."""
+        are from the rest shape; `refresh` recomputes both)."""
         return self.dt_max
 
     def _gershgorin(self) -> Real:
@@ -185,6 +185,26 @@ struct HeatTets(Movable):
         for i in range(len(self.t)):
             s += Float64(self.cap[i]) * Float64(self.t[i])
         return s
+
+    def refresh(mut self, body: FemBody) raises:
+        """Rebuild the element conductances (vol grad Ni . grad Nj) from the
+        body's current rest shapes, e.g. after `expand`, and the step bound
+        with them. Capacities stay: they stand for mass (rho c V at the
+        reference state), which expansion does not change. Under a uniform
+        scale s the conductances scale by s and `max_dt` by 1 / s."""
+        if len(body.tets) * 4 != len(self.tet):
+            raise Error("HeatTets.refresh: body has a different element count")
+        for e in range(len(body.tets)):
+            ref tt = body.tets[e]
+            var gb = Vec3(tt.dm_inv.get(0, 0), tt.dm_inv.get(0, 1), tt.dm_inv.get(0, 2), 0)
+            var gc = Vec3(tt.dm_inv.get(1, 0), tt.dm_inv.get(1, 1), tt.dm_inv.get(1, 2), 0)
+            var gd = Vec3(tt.dm_inv.get(2, 0), tt.dm_inv.get(2, 1), tt.dm_inv.get(2, 2), 0)
+            var g: List[Vec3] = [(gb + gc + gd) * Real(-1), gb, gc, gd]
+            for a in range(4):
+                for b in range(4):
+                    var d = g[a][0] * g[b][0] + g[a][1] * g[b][1] + g[a][2] * g[b][2]
+                    self.kel[16 * e + 4 * a + b] = tt.vol * d
+        self.dt_max = self._gershgorin()
 
     def expand(self, mut body: FemBody, t_ref: Real, alpha_l: Real):
         """Scale each element's rest shape by 1 + alpha_l (T_mean - t_ref)."""
