@@ -869,6 +869,9 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   standing r 0.3 hl 0.7 on a 16-gon base: y 0.69989824  axis y 1.0
   lying on the floor: y 0.29950675
 [PASS] cylinder - 7 / 7 checks
+--- tests/test_degrade.mojo ---
+degrade: 40 islands x 120 ticks, snapshot bytes 38148
+[PASS] degrade - 3 / 3 checks
 --- tests/test_diffsolver.mojo ---
   batch vs scalar worst lane difference: 0.0
 [PASS] diffsolver - 26 / 26 checks
