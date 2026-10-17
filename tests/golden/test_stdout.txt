@@ -1548,6 +1548,10 @@ tracks 2 / 2 m/s, 3 s: forward speed 1.9999998  yaw rate -1.5172429e-15
 tracks +1 / -1 m/s from rest, 3 s: centre moved 0.00045151773  yaw rate 0.22685187  (no-slip 1.1111111111111112 )
 hitch: trailer moved 3.9998908 m, worst anchor gap 0.00029505944
 [PASS] vehicle_kinds - 8 / 8 checks
+--- tests/test_vehicle_seat.mojo ---
+seat after the car turned and moved: 0.23395228 0.9 5.441889
+wall on the left: exit ok True  at x 1.6
+[PASS] vehicle_seat - 5 / 5 checks
 --- tests/test_vehicle_wheel.mojo ---
 [PASS] vehicle_wheel - 133 / 133 checks
 --- tests/test_water.mojo ---
