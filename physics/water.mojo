@@ -16,13 +16,18 @@ surface height where each of its hull points is, at the current time. The
     (wave) equation eta_tt = g H lap(eta) on a grid, explicit leapfrog with
     damping; `disturb` pushes the surface, `step` advances it. Its `height`
     ignores t (it is the current state).
+  * `FftOcean`: a periodic patch summed from a wave spectrum (Tessendorf
+    2001; Phillips spectrum from a seed, or modes set one by one); one
+    inverse FFT per `update(t)`, exact mode sums between updates.
 
 `float_body` applies buoyancy by sampling the body's box at n^3 points: each
 point below the local surface pushes up with rho g dV at that point (so the
 torque follows), plus a drag on the velocity relative to the water.
 """
 
-from std.math import sqrt, sin, cos, pi
+from std.math import sqrt, sin, cos, pi, exp, log, floor
+from numerics.fft import fft2
+from scheduler.rng import SplitMix64
 from geometry.vec import Real, Vec3
 from .body_set import BodyId
 from .rigid6 import Body6
@@ -235,3 +240,167 @@ def float_body[W: WaterSurface, B: Body6](
 
 def _cross(a: Vec3, b: Vec3) -> Vec3:
     return Vec3(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0], 0)
+
+
+struct FftOcean(WaterSurface, Movable):
+    """A periodic ocean patch from a wave spectrum (Tessendorf 2001), 17.60.
+
+    Each wavevector k = 2 pi (m_x, m_z) / size of an n x n grid (m in
+    [-n/2, n/2)) carries a complex amplitude h0(k); the surface is
+        eta(x, t) = level + Re sum_k h0(k) exp(i (k . x - w(k) t)),
+    w^2 = g |k| (deep water). One mode with h0 = A exp(i phase) is exactly
+    a Gerstner wave with Q = 0 (`test_fft_ocean`). `phillips(seed, ...)`
+    fills h0 from the Phillips spectrum with seeded Gaussian draws
+    (`scheduler.rng.SplitMix64`): the same seed gives the same sea, bit for
+    bit, at any t without stepping.
+
+    `update(t)` evaluates the whole n x n grid at t with one inverse 2-D
+    FFT (`numerics.fft`); `height(x, z, t)` interpolates that grid
+    (bilinear, periodic) when t is the updated time, and otherwise sums
+    the modes directly (exact, O(n^2) per query). `velocity` is the
+    vertical surface velocity d eta / dt, summed directly."""
+
+    var n: Int
+    var size: Real  # patch edge (m); the surface repeats with this period
+    var level: Real
+    var gravity: Real
+    var h0_re: List[Real]  # [mz * n + mx], FFT index order
+    var h0_im: List[Real]
+    var grid: List[Real]  # eta - level at the grid points, at t_grid
+    var t_grid: Real
+    var has_grid: Bool
+
+    def __init__(out self, n: Int, size: Real, level: Real, gravity: Real = 9.8) raises:
+        if n < 2 or (n & (n - 1)) != 0 or not (size > 0):
+            raise Error("FftOcean: n must be a power of two >= 2 and size > 0")
+        self.n = n
+        self.size = size
+        self.level = level
+        self.gravity = gravity
+        self.h0_re = List[Real](length=n * n, fill=0)
+        self.h0_im = List[Real](length=n * n, fill=0)
+        self.grid = List[Real](length=n * n, fill=0)
+        self.t_grid = 0
+        self.has_grid = False
+
+    def _m(self, i: Int) -> Int:
+        return i if i < self.n // 2 else i - self.n
+
+    def _k(self, ix: Int, iz: Int) -> Tuple[Real, Real]:
+        var s = 2 * Real(pi) / self.size
+        return (Real(self._m(ix)) * s, Real(self._m(iz)) * s)
+
+    def omega(self, ix: Int, iz: Int) -> Real:
+        var k = self._k(ix, iz)
+        return sqrt(self.gravity * sqrt(k[0] * k[0] + k[1] * k[1]))
+
+    def set_mode(mut self, mx: Int, mz: Int, amplitude: Real, phase: Real) raises:
+        """One wave: wavevector 2 pi (mx, mz) / size, A cos(k . x - w t + phase)."""
+        var h = self.n // 2
+        if mx < -h or mx >= h or mz < -h or mz >= h:
+            raise Error("FftOcean.set_mode: mode index outside [-n/2, n/2)")
+        var ix = mx if mx >= 0 else mx + self.n
+        var iz = mz if mz >= 0 else mz + self.n
+        self.h0_re[iz * self.n + ix] = amplitude * cos(phase)
+        self.h0_im[iz * self.n + ix] = amplitude * sin(phase)
+        self.has_grid = False
+
+    def phillips(mut self, seed: UInt64, amplitude: Real, wind_x: Real, wind_z: Real):
+        """Phillips spectrum P(k) = amplitude exp(-1 / (k L)^2) / k^4 |k^ . w^|^2,
+        L = |wind|^2 / g, h0 = (xi_r + i xi_i) sqrt(P / 2) with standard normal
+        xi from `seed` (Box-Muller over SplitMix64); k = 0 stays 0."""
+        var rng = SplitMix64.seeded(seed)
+        var wl = sqrt(wind_x * wind_x + wind_z * wind_z)
+        var wx = wind_x / wl if wl > 0 else Real(1)
+        var wz = wind_z / wl if wl > 0 else Real(0)
+        var big_l = wl * wl / self.gravity
+        for iz in range(self.n):
+            for ix in range(self.n):
+                var g1 = _gauss(rng)
+                var g2 = _gauss(rng)
+                var k = self._k(ix, iz)
+                var kl = sqrt(k[0] * k[0] + k[1] * k[1])
+                var idx = iz * self.n + ix
+                if kl <= 0 or big_l <= 0:
+                    self.h0_re[idx] = 0
+                    self.h0_im[idx] = 0
+                    continue
+                var kw = (k[0] * wx + k[1] * wz) / kl
+                var p = amplitude * exp(-1 / (kl * big_l * kl * big_l)) / (kl * kl * kl * kl) * kw * kw
+                var s = sqrt(p / 2)
+                self.h0_re[idx] = g1 * s
+                self.h0_im[idx] = g2 * s
+        self.has_grid = False
+
+    def update(mut self, t: Real) raises:
+        """The grid at time t: h(k, t) = h0 exp(-i w t), one inverse FFT."""
+        var n = self.n
+        var re = List[Real](length=n * n, fill=0)
+        var im = List[Real](length=n * n, fill=0)
+        for iz in range(n):
+            for ix in range(n):
+                var idx = iz * n + ix
+                var a = -self.omega(ix, iz) * t
+                var c = cos(a)
+                var s = sin(a)
+                re[idx] = self.h0_re[idx] * c - self.h0_im[idx] * s
+                im[idx] = self.h0_re[idx] * s + self.h0_im[idx] * c
+        fft2(re, im, n, True)
+        var scale = Real(n * n)  # the inverse divides by n^2; the sum does not
+        for i in range(n * n):
+            self.grid[i] = re[i] * scale
+        self.t_grid = t
+        self.has_grid = True
+
+    def direct(self, x: Real, z: Real, t: Real) -> Real:
+        """eta - level by summing every mode (exact, O(n^2))."""
+        var acc = Real(0)
+        for iz in range(self.n):
+            for ix in range(self.n):
+                var idx = iz * self.n + ix
+                if self.h0_re[idx] == 0 and self.h0_im[idx] == 0:
+                    continue
+                var k = self._k(ix, iz)
+                var a = k[0] * x + k[1] * z - self.omega(ix, iz) * t
+                acc += self.h0_re[idx] * cos(a) - self.h0_im[idx] * sin(a)
+        return acc
+
+    def height(self, x: Real, z: Real, t: Real) -> Real:
+        if not self.has_grid or t != self.t_grid:
+            return self.level + self.direct(x, z, t)
+        var cell = self.size / Real(self.n)
+        var fx = x / cell
+        var fz = z / cell
+        var x0 = Int(floor(fx))
+        var z0 = Int(floor(fz))
+        var ax = fx - Real(x0)
+        var az = fz - Real(z0)
+        var n = self.n
+        var i0 = ((x0 % n) + n) % n
+        var j0 = ((z0 % n) + n) % n
+        var i1 = (i0 + 1) % n
+        var j1 = (j0 + 1) % n
+        var a = self.grid[j0 * n + i0] * (1 - ax) + self.grid[j0 * n + i1] * ax
+        var b = self.grid[j1 * n + i0] * (1 - ax) + self.grid[j1 * n + i1] * ax
+        return self.level + a * (1 - az) + b * az
+
+    def velocity(self, x: Real, z: Real, t: Real) -> Vec3:
+        var acc = Real(0)
+        for iz in range(self.n):
+            for ix in range(self.n):
+                var idx = iz * self.n + ix
+                if self.h0_re[idx] == 0 and self.h0_im[idx] == 0:
+                    continue
+                var k = self._k(ix, iz)
+                var w = self.omega(ix, iz)
+                var a = k[0] * x + k[1] * z - w * t
+                # d/dt Re(h0 e^{i a}) with da/dt = -w
+                acc += w * (self.h0_re[idx] * sin(a) + self.h0_im[idx] * cos(a))
+        return Vec3(0, acc, 0, 0)
+
+
+def _gauss(mut rng: SplitMix64) -> Real:
+    """Standard normal by Box-Muller (one of the pair)."""
+    var u1 = max(Real(rng.next_f32()), Real(1e-7))
+    var u2 = Real(rng.next_f32())
+    return sqrt(-2 * log(u1)) * cos(2 * Real(pi) * u2)
