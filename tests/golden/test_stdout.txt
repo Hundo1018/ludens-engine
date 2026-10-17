@@ -505,6 +505,10 @@ build: all packages precompiled into build/
 [PASS] solvers - 8 / 8 checks
 --- tests/test_sparse_large.mojo ---
 [PASS] sparse_large - 6 / 6 checks
+--- tests/test_sparse_volume.mojo ---
+  64^3, encoded bytes / dense 2 MiB: 0 %: 1.5258789e-05 1 %: 0.02822113 10 %: 0.11975479 100 %: 1.01857
+  LBM density field 24^3: 13714 active voxels in 27 leaves, bytes 111796
+[PASS] sparse_volume - 5 / 5 checks
 --- tests/test_sph.mojo ---
   settled rho/rest: 1.020115  max|v|: 0.120838955
   dt=1/60 -> rho/rest: 1.7625449  max|v|: 21.317734
