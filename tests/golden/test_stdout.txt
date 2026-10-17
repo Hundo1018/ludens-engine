@@ -865,6 +865,13 @@ build: all packages precompiled into build/
   density ratio 1.0 : launched at -0.05 m/s, after 0.3 s v = -0.00047233634  max |v| 0.02113429  finite True
   density ratio 0.5 : launched at -0.05 m/s, after 0.3 s v = -11945.902  max |v| 19731.816  finite True
 [PASS] fsi - 5 / 5 checks
+--- tests/test_fsi_added_mass.mojo ---
+  wall drag rho Z dx^3 / (rho V) per axis: [0.6837767, 0.6837767, 0.6837773, 0.0]  rotational / (0.4 rho V R^2): [0.9054799, 0.90547997, 0.90547854, 0.0]
+  ratio 0.5 at -0.05 m/s, 0.3 s: plain max |v| 19731.816 finite True ;  implicit: v -0.00054678845 max |v| 0.022549732
+  ratio 1.5 settling 0.4 s: vx plain -0.04043679  implicit -0.03850443
+  ratio 0.2 implicit: v -0.00041927595 max |v| 0.020816866 finite True
+  ratio 0.05 implicit: v -0.0004048942 max |v| 0.022220412 finite True
+[PASS] fsi_added_mass - 5 / 5 checks
 --- tests/test_gameloop.mojo ---
 [PASS] gameloop - 12 / 12 checks
 --- tests/test_gpu_artic.mojo ---
@@ -1274,17 +1281,18 @@ build: all packages precompiled into build/
   two boxes at the same point: separation after 2 s 0.49971327
 [PASS] solver_stress - 7 / 7 checks
 --- tests/test_strand.mojo ---
-  free strand after 5 s: tip -0.0005815197 1.2500007 0.0  max stretch 9.536743e-07
-  tip drop after 1 s: bend 0 0.70216  bend 0.5 0.08278608
-  head turn 90 deg in 0.2 s: tip swing peak 0.39419982  after 3 s 0.0023195043
-  32 strands draped over a 10 cm head: deepest particle -1.8393621e-08  max stretch 0.0177629
-  wind 5 m/s: tip x 0.05837603
-  100 m root jump: with teleport, shape differs from an unmoved twin by 2.3146258e-06   without: tip v 11838.264
-[PASS] strand - 12 / 12 checks
+  free strand after 8 s: tip 0.00017250498 1.2500007 0.0  max stretch 9.536743e-07
+  tip drop after 1 s: bend 0 0.55755174  bend 0.5 0.07986808
+  ponytail on a still head: largest particle speed in the tenth second 0.00022732376
+  head turn 90 deg in 0.2 s: tip swing peak 0.44842485  after 6 s 4.1780177e-06
+  32 strands draped over a 10 cm head: deepest particle -1.8393621e-08  max stretch 0.004261136
+  wind 5 m/s: tip x 0.0470998
+  100 m root jump: with teleport, shape differs from an unmoved twin by 3.5247467e-06   without: tip v 10056.954
+[PASS] strand - 13 / 13 checks
 --- tests/test_strand_ext.mojo ---
   guide blend 0.5 / 0.5, tip [0.29999998, -2.0, 0.1, 0.0]  (mean offset (0.3, -2, 0.1))
-  16 strands over a box, 2 s: contacts 6312  particles inside 0  max stretch 0.07023203
-  voxel velocity spread before 0.47708184  after interaction 0.3339573
+  16 strands over a box, 2 s: contacts 6088  particles inside 0  max stretch 0.07186234
+  voxel velocity spread before 0.10576733  after interaction 0.074037135
 [PASS] strand_ext - 5 / 5 checks
 --- tests/test_surface_material.mojo ---
   ray hits: x 50 -> material 0  x 200 -> 1  box -> -1
