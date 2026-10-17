@@ -42,6 +42,10 @@ build: all packages precompiled into build/
   worst |incidence| on the torus surface: 1.5258789e-05
   worst sphere discrepancy: 7.6293945e-06
 [PASS] dcga - 6 / 6 checks
+--- tests/test_delaunay_walk.mojo ---
+500 random points: 976 vs 976 triangles, identical sets True
+lattice: 50 / 50  ring: 12
+[PASS] delaunay_walk - 5 / 5 checks
 --- tests/test_dense.mojo ---
 [PASS] dense - 21 / 21 checks
 --- tests/test_diag_arena.mojo ---
