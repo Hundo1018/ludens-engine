@@ -244,6 +244,10 @@ struct ColliderSet(Movable, Deinitable):
     var mask: List[UInt32]
     # A sensor reports overlap and never receives an impulse.
     var sensor: List[Bool]
+    # ROADMAP 17.19: merge coplanar triangle manifolds of a convex body
+    # against a mesh / heightfield (`contact_gen._reduce_coplanar`); set per
+    # step from `SolverConfig.reduce_mesh_contacts`
+    var reduce_mesh: Bool
 
     def __init__(out self):
         self.shape = List[Int]()
@@ -264,6 +268,7 @@ struct ColliderSet(Movable, Deinitable):
         self.category = List[UInt32]()
         self.mask = List[UInt32]()
         self.sensor = List[Bool]()
+        self.reduce_mesh = False
 
     # ------------------------------------------------------------ registry
 

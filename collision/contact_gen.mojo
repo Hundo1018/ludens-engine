@@ -20,7 +20,7 @@ controller can call it without ever importing physics.
 """
 
 from std.math import sqrt
-from geometry.vec import Real, Vec3, dot, length
+from geometry.vec import Real, Vec3, dot, length, cross
 from geometry.gjk import ConvexPoly
 from geometry.aabb import AABB
 from .collider_set import (
@@ -370,6 +370,9 @@ def _mesh_pair_kid(
     # a HULL body is not inflated (see `hull_manifold`): the whole margin goes
     # to the narrowphase as its speculative distance instead
     var a_is_hull = colliders.hull_is_bent_by_inflation_d(da)
+    var reduce = colliders.reduce_mesh
+    var rts = List[Int]()
+    var rms = List[ContactManifold[3]]()
     var zero = Vec3(0, 0, 0, 0)
     var spec = margin if a_is_hull else Real(0)
     var poly_a = colliders.as_hull_d(da, pa, zero if a_is_hull else wide, Real(0) if a_is_hull else mr)
@@ -392,7 +395,104 @@ def _mesh_pair_kid(
         if margin > 0:
             for k in range(m.count):
                 m.depths[k] -= margin
-        out.append(RawContact(a, b, feat_hi + t, m))
+        if reduce:
+            rts.append(t)
+            rms.append(m^)
+        else:
+            out.append(RawContact(a, b, feat_hi + t, m))
+    if reduce and len(rms) > 0:
+        _reduce_coplanar(colliders, a, b, feat_hi, rts, rms, out)
+
+
+def _reduce_coplanar(
+    colliders: ColliderSet, a: Int, b: Int, feat_hi: Int,
+    ts: List[Int], ms: List[ContactManifold[3]], mut out: List[RawContact],
+):
+    """ROADMAP 17.19 contact reduction: the triangle manifolds of one convex
+    shape against a mesh fall into groups of equal normal (dot > 0.9995) and
+    equal triangle material; each group becomes one manifold of at most 4
+    points -- the deepest, the farthest from it, the one spanning the
+    largest triangle with those two, and the one spanning the largest area
+    on the other side -- keyed by the group's lowest triangle index (stable
+    while the body rests, so it keeps its warm start). A box on a flat
+    0.25 m heightfield went from 32 manifolds to 1 (`test_mesh_reduce`).
+    A crate in a valley still gets one manifold per slope."""
+    var gn = List[Vec3]()
+    var gmat = List[Int]()
+    var gof = List[Int](length=len(ms), fill=-1)
+    for k in range(len(ms)):
+        var n = ms[k].normal
+        var mat = colliders.material(b, ts[k])
+        for g in range(len(gn)):
+            if gmat[g] == mat and dot(gn[g], n) > 0.9995:
+                gof[k] = g
+                break
+        if gof[k] < 0:
+            gof[k] = len(gn)
+            gn.append(n)
+            gmat.append(mat)
+    for g in range(len(gn)):
+        var pts = List[Vec3]()
+        var dep = List[Real]()
+        var tmin = -1
+        var first = -1
+        for k in range(len(ms)):
+            if gof[k] != g:
+                continue
+            if first < 0:
+                first = k
+            if tmin < 0 or ts[k] < tmin:
+                tmin = ts[k]
+            for q in range(ms[k].count):
+                pts.append(ms[k].points[q])
+                dep.append(ms[k].depths[q])
+        var m = ms[first].copy()
+        if len(pts) > 4:
+            var n = gn[g]
+            var sel = List[Int]()
+            var i0 = 0
+            for q in range(len(pts)):
+                if dep[q] > dep[i0]:
+                    i0 = q
+            sel.append(i0)
+            var i1 = -1
+            var best = Real(-1)
+            for q in range(len(pts)):
+                var dv = pts[q] - pts[i0]
+                if dot(dv, dv) > best:
+                    best = dot(dv, dv)
+                    i1 = q
+            sel.append(i1)
+            var e = pts[i1] - pts[i0]
+            var i2 = -1
+            var a2 = Real(-1)
+            for q in range(len(pts)):
+                var ar = abs(dot(cross(e, pts[q] - pts[i0]), n))
+                if ar > a2:
+                    a2 = ar
+                    i2 = q
+            if a2 > 1e-12:  # not all on one line
+                sel.append(i2)
+                var side = dot(cross(e, pts[i2] - pts[i0]), n)
+                var i3 = -1
+                var a3 = Real(1e-12)
+                for q in range(len(pts)):
+                    var ar = -dot(cross(e, pts[q] - pts[i0]), n) * (Real(1) if side >= 0 else Real(-1))
+                    if ar > a3:
+                        a3 = ar
+                        i3 = q
+                if i3 >= 0:
+                    sel.append(i3)
+            m.count = len(sel)
+            for q in range(len(sel)):
+                m.points[q] = pts[sel[q]]
+                m.depths[q] = dep[sel[q]]
+        else:
+            m.count = len(pts)
+            for q in range(len(pts)):
+                m.points[q] = pts[q]
+                m.depths[q] = dep[q]
+        out.append(RawContact(a, b, feat_hi + tmin, m))
 
 
 def _sdf_samples(colliders: ColliderSet, d: ShapeDesc, pose: Pose3) -> Tuple[List[Vec3], Real]:

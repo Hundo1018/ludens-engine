@@ -111,6 +111,11 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     # bodies responding as heavier ones in those rows (PhysX-style mass
     # scaling). 0 = off (bit-identical to before); else >= 1.
     var max_mass_ratio: Real
+    # ROADMAP 17.19 contact reduction: a convex body's coplanar triangle
+    # manifolds against a mesh / heightfield merge into one of <= 4 points
+    # (`collision.contact_gen._reduce_coplanar`). Off = one manifold per
+    # triangle, as before.
+    var reduce_mesh_contacts: Bool
 
     def __init__(out self):
         self.margin_base = SPEC_BASE
@@ -137,6 +142,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.max_contacts = 0
         self.contact_solver = CONTACT_GS
         self.max_mass_ratio = 0
+        self.reduce_mesh_contacts = False
 
     def validated(self) raises -> Self:
         """Raise if any tuning knob is outside the range the solver assumes

@@ -338,7 +338,8 @@
 > 1 s 內推出 0.499;兩箱同點:分開 0.4997。
 > **待辦**:
 > - 簿記仍略超線性(N ×4 → ×9),剩餘熱點待量:著色重排 O(色數 × 對數)、每幀重建 BVH、CCD 全對。
-> - contact reduction(平坦高度場每箱每步約 14 個 manifold,見下)、`max_mass_ratio` 開啟時力回報不失真的版本(見下)。
+> - `max_mass_ratio` 開啟時力回報不失真的版本;高度場的 active-edge 防護預設關閉(見下「contact reduction」:細網格上箱子滑 0.099 m 就停,應為 0.408 m)——
+>   是否改為預設開啟(會改變既有高度場場景)待決;網格 narrowphase 每三角形一次 SAT 的成本(reduction 只減求解端)。
 >
 > **進度 重壓輕 / 受載長鏈(2026-10-17)**:`SolverConfig.max_mass_ratio`(0 = 關,預設;否則 ≥ 1,`validated` 拒絕 < 1):每步以 union-find 把以接觸或核心關節
 > (ball / distance / hinge / weld / cone-twist / universal)相連的動態體分組,每個體在接觸列與這些關節列中的質量 m_c = max(m, 組內最重 / R),逆質量與逆慣量乘 m / m_c
@@ -359,6 +360,14 @@
 > warm-start feature-ID 穩定性(量測,`experiments/exp_warm_match.mojo`,300 步):同一體對有快取卻沒接上 warm start 的 manifold 比例——6 箱靜止堆 0 / 1800、翻滾箱 2 / 288(點數變化)、
 > 3 箱平地滑行 0 / 900、3 箱在平坦高度場滑行 108 / 9951(1.1 %;點數 73、三角形換 feat 35)、靜置於高度場 21 / 12900(0.16 %)。比例低,不改匹配規則;
 > 高度場上每箱每步約 14 個 manifold 是 contact reduction 的對象。
+> **進度 contact reduction(2026-10-17)**:`SolverConfig.reduce_mesh_contacts`(預設關,逐位不變):凸體對網格 / 高度場的各三角形 manifold 依法向(dot > 0.9995)
+> 與三角形材質分組,每組合成一個至多 4 點的 manifold(最深點、離它最遠者、與兩者張成最大三角形者、另一側最大面積者),feat 取組內最小三角形索引(靜止時穩定,保留 warm start)
+> (`collision.contact_gen._reduce_coplanar`,旗標經 `ColliderSet.reduce_mesh` 每步由 cfg 設定)。量測(`tests/test_mesh_reduce.mojo` 4/4):100 箱(0.8 × 0.6 × 0.8 m)
+> 在 0.25 m 格平坦高度場以 2 m/s 滑行:每箱 manifold 38 → 1;靜止高度 0.29999 / 0.29925 m;滑行 0.4040 / 0.4050 m(解析 v² / (2 μ g) = 0.408);
+> V 形谷(兩側 30°)22 → 3(兩坡 + 谷線邊),靜止 x 相差 < 1 mm;跨材質邊界保留每材質一個朝上 manifold。`bench_trimesh` 新表:每步 79.5 → 32.6 ms
+> (與 gate 同時執行的量測;其餘是每三角形一次的 hull-vs-triangle SAT)。
+> 過程中量到既有缺陷:高度場的 active-edge 防護(17.45 `set_active_angle`)預設關閉,箱子在 0.25 m 格上只滑 0.099 m 就停(1 m / 2 m 格與箱形地板皆 0.404 m)——
+> 與腳印邊緣僅細條重疊的三角形,SAT 最小重疊軸是箱子側面,側向接觸像牆;開啟防護後 0.404 m。
 >
 > **歷史**:
 > - 量測(2026-09-29,`bench_gpu_contact`,F22 修正前):寬相開啟後,N=4096 箱每幀 CPU 收集 + 簿記(不含求解)達 82 ms,N 每 ×4 成長約 ×12 —— `refresh_islands` 與 `update_sleep` 的 island 喚醒 / 入睡迴圈為 O(n²),warm-start 對快取的線性比對為 O(pairs × cache)(審計 F22)。這是 GPU 與 CPU 路徑共同的瓶頸,因此排為本項第一個工作(已由上面的 F22 第一批處理)。

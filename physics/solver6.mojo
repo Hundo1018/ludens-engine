@@ -2484,6 +2484,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         collect this frame's contacts, refresh islands, colour. On a colour
         overflow `clo`/`chi` come back empty and the pairs uncoloured; a
         colour-parallel solver must then refuse the frame."""
+        self.colliders.reduce_mesh = cfg.reduce_mesh_contacts
         var pairs = self._collect_pairs(True, dt, cfg.broadphase, cfg.margin_base)
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         _ = self._color_pairs(pairs, clo, chi)
@@ -2675,6 +2676,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.impulse_estimator = cfg.impulse_estimator
         self.bset.cone = cfg.friction_cone
         self.bset.block = cfg.contact_solver == CONTACT_BLOCK
+        self.colliders.reduce_mesh = cfg.reduce_mesh_contacts
         self._reset_joint_sums()
         debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
         debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
