@@ -1,4 +1,4 @@
-# tier: unit
+# tier: component
 """Hydraulic erosion and slope-filtered scattering (ROADMAP 17.69,
 `procedural.terrain_gen`).
 
