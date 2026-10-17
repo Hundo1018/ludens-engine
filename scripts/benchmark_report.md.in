@@ -904,6 +904,16 @@ same 1 mm resolution; the stable dt column says how many steps a second of
 heat flow costs on each.
 
 @bench benchmarks/bench_thermal.mojo
+
+## Physics — partitioned coupling schedule (17.61)
+
+`physics/coupler.mojo` steps two solvers through one interface: explicit
+staggering, linear interpolation of the partner's state over substeps, or
+Aitken-relaxed iteration. The parts here are one-dof masses, so the rows are
+the coupler's own overhead per coupled step (interface lists, interpolation,
+extra passes), next to the same system written as one loop.
+
+@bench benchmarks/bench_coupler.mojo
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this

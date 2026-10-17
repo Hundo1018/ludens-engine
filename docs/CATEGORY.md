@@ -70,6 +70,7 @@ F_arch(W) ───F_arch(f)────▶  F_arch(W')
 | 格網流體 `MacFluid2` / `Lbm`(17.60) | physics/mac_fluid.mojo、fluid/lbm.mojo | 兩個求解器作用在同一不可壓縮流上;可觀察量 = Taylor–Green 渦振幅的衰減率,對解析 2νk² | `test_taylor_green`(MAC 1.0048、LBM 1.0041,彼此 0.07 %) | `bench_grid_fluid` |
 | 連續體狀態來源:即時求解 vs `CachePlayer`(點快取播放,17.63) | physics/sim_cache.mojo | 同一 `ContinuumSolver` 契約的兩個實作;錄製幀上兩者差 ≤ 量化誤差上限(err = 0 時逐位相同) | `test_sim_cache` | `bench_sim_cache` |
 | 熱傳導離散:有限差分格網 vs 線性四面體(17.61) | physics/thermal.mojo | 同一熱方程 dT/dt = α∇²T 的兩個離散;在 1D 半無限棒的 erfc 閉式解上 parity | `test_thermal`(兩者對 erf 0.014 / 0.025 K,互差 0.016 K) | `bench_thermal` |
+| 耦合排程:顯式交錯 vs 子步插值 vs Aitken 迭代(17.61) | physics/coupler.mojo | `Coupler[A, B]` 對任意兩個 `CoupledPart` 的三種排程;ratio 1 時插值 = 顯式逐位元相同,弱耦合三者一致,dt 減半時三者互差減半 | `test_coupler`(子步比 2–16 插值的能量誤差皆低於顯式;介面衝量不平衡隨 dt 下降) | `bench_coupler` |
 | 蒙皮方法 × 影響數:DLB / LBS × K(17.65) | geometry/skinning.mojo | 全骨同一剛體運動時 DLB = LBS = 該運動;K = 2 與 `skin_motor` 逐位相同;K = 1 = 該骨 motor;扭轉體積處分歧(量給出) | `test_skin_k` | `bench_skin_k` |
 | 角色本體後端:kinematic `Mover` vs `DynamicCharacter`(17.66) | gameplay/movement.mojo、gameplay/phys_character.mojo | 平地同輸入下穩態速度與煞停距離一致;外力響應(衝量、對腳下物體的反作用)只有動態後端有 | `test_phys_character`(煞停 0.58333 vs 0.583333 m) | `bench_phys_character` |
 | 浸沒體積:取樣積分 vs `polytope` 精確切割(17.74,延伸 17.28) | gameplay/watercraft.mojo、physics/fields.mojo | 同一「物體在水面下的體積與形心」;軸對齊盒上精確切割 = 閉式解,取樣誤差隨層數收斂 | `test_force_elements`(0.6 vs 0.6 m³) | `bench_force_elements` |

@@ -1736,6 +1736,31 @@ heat flow costs on each.
 | tets (4800), max dt 0.008333324 s | 1525 | node-step | 244.95 | 4.08 | 74.71 |
 
 
+
+## Physics — partitioned coupling schedule (17.61)
+
+`physics/coupler.mojo` steps two solvers through one interface: explicit
+staggering, linear interpolation of the partner's state over substeps, or
+Aitken-relaxed iteration. The parts here are one-dof masses, so the rows are
+the coupler's own overhead per coupled step (interface lists, interpolation,
+extra passes), next to the same system written as one loop.
+
+### Coupler, two masses, 20000 steps of 4 ms (17.61)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| explicit, ratio 1 | 20000 | step | 808.60 | 1.24 | 16.17 |
+| interp, ratio 1 | 20000 | step | 875.02 | 1.14 | 17.50 |
+| iterated, ratio 1 | 20000 | step | 2891.87 | 0.35 | 57.84 |
+| explicit, ratio 4 | 20000 | step | 726.42 | 1.38 | 14.53 |
+| interp, ratio 4 | 20000 | step | 948.76 | 1.05 | 18.98 |
+| iterated, ratio 4 | 20000 | step | 3484.93 | 0.29 | 69.70 |
+| explicit, ratio 16 | 20000 | step | 907.59 | 1.10 | 18.15 |
+| interp, ratio 16 | 20000 | step | 1735.08 | 0.58 | 34.70 |
+| iterated, ratio 16 | 20000 | step | 5759.80 | 0.17 | 115.20 |
+| monolithic loop, ratio 4 | 20000 | step | 47.26 | 21.16 | 0.95 |
+
+
 ## Physics — SPH vs PBF: explicit pressure against density projection
 
 Both solvers run on the SAME particle state, grid and kernels, so this

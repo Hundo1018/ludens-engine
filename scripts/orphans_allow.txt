@@ -76,6 +76,7 @@ physics.fem_material  # [api] FEM constitutive models selected by the caller; sc
 physics.fsi  # [api] LBM-rigid coupler stepped by the host in place of ContactScene6.step (17.59)
 physics.sim_cache  # [api] point caches written / played by the host or tools (17.63)
 physics.thermal  # [api] temperature fields stepped by the host (17.61)
+physics.coupler  # [api] two-solver coupling schedule the host instantiates (17.61)
 geometry.morph  # [api] morph targets applied by the host before skinning (17.65)
 gameplay.phys_character  # [api] dynamic character body stepped by host gameplay code (17.66)
 gameplay.balance  # [api] balance quantities for host / controller code (17.66)
