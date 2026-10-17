@@ -41,6 +41,7 @@ comptime FEM_SOLVE_CG = 0
 comptime FEM_SOLVE_CHOLESKY = 1
 comptime FEM_SOLVE_PCG_IC0 = 2
 from diag.counters import Counters, CG_NOT_CONVERGED
+from geometry.tetmesh import TetMesh
 
 
 def det3(m: Mat3) -> Real:
@@ -617,3 +618,22 @@ def make_beam(
                     b.add_tet(v000, v001, v101, v011)
                     b.add_tet(v110, v101, v011, v111)
                     b.add_tet(v000, v110, v101, v011)
+
+
+def fem_from_tetmesh(mut b: FemBody, m: TetMesh, density: Real) raises:
+    """Add a `geometry.tetmesh.TetMesh` to `b`: one node per mesh point with
+    its lumped mass (a quarter of each adjacent tet's density x volume), one
+    element per tet. Node indices are the mesh's, offset by the nodes `b`
+    already had. Raises on density <= 0."""
+    if not (density > 0):
+        raise Error("fem_from_tetmesh: density must be > 0")
+    var base = b.node_count()
+    var mass = List[Real](length=len(m.pts), fill=0)
+    for t in range(m.tet_count()):
+        var q = abs(m.tet_volume(t)) * density / 4
+        for k in range(4):
+            mass[m.tets[4 * t + k]] += q
+    for i in range(len(m.pts)):
+        b.add_node(m.pts[i], max(mass[i], Real(1e-12)))
+    for t in range(m.tet_count()):
+        b.add_tet(base + m.tets[4 * t], base + m.tets[4 * t + 1], base + m.tets[4 * t + 2], base + m.tets[4 * t + 3])
