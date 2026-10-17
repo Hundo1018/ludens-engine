@@ -733,20 +733,30 @@ bones DLB keeps a vertex at radius 0.2 from the axis, LBS pulls it to 0.097
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| skin_motor (2 bones, existing) | 4096 | vertex | 62.57 | 15.98 | 5.13 |
-| DLB K=2 | 4096 | vertex | 58.97 | 16.96 | 4.83 |
-| LBS K=2 | 4096 | vertex | 17.72 | 56.43 | 1.45 |
-| DLB K=4 | 4096 | vertex | 80.45 | 12.43 | 6.59 |
-| LBS K=4 | 4096 | vertex | 37.71 | 26.52 | 3.09 |
-| DLB K=8 | 4096 | vertex | 97.30 | 10.28 | 7.97 |
-| LBS K=8 | 4096 | vertex | 52.25 | 19.14 | 4.28 |
+| skin_motor (2 bones, existing) | 4096 | vertex | 59.11 | 16.92 | 4.84 |
+| DLB K=2 | 4096 | vertex | 66.33 | 15.08 | 5.43 |
+| LBS K=2 | 4096 | vertex | 29.97 | 33.37 | 2.46 |
+| DLB K=4 | 4096 | vertex | 68.24 | 14.65 | 5.59 |
+| LBS K=4 | 4096 | vertex | 26.54 | 37.68 | 2.17 |
+| DLB K=8 | 4096 | vertex | 122.84 | 8.14 | 10.06 |
+| LBS K=8 | 4096 | vertex | 45.78 | 21.84 | 3.75 |
+
+
+### DIB vs DLB, and 1e6 vertices (17.65)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| DLB K=4, 4096 vertices | 4096 | vertex | 66.92 | 14.94 | 5.48 |
+| DIB K=4 (<= 10 passes), 4096 vertices | 4096 | vertex | 2347.30 | 0.43 | 192.29 |
+| DLB K=4, 1e6 vertices | 1000000 | vertex | 67.40 | 14.84 | 67.40 |
+| LBS K=4, 1e6 vertices | 1000000 | vertex | 31.99 | 31.26 | 31.99 |
 
 
 ### Morph targets: 6 of 60 active, 5 % of vertices each (17.65)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| apply (copy base + 6 x 205 deltas) | 4096 | vertex | 3.75 | 266.40 | 3.08 |
+| apply (copy base + 6 x 205 deltas) | 4096 | vertex | 6.09 | 164.14 | 4.99 |
 
 
 ## Physics — cloth self-collision
