@@ -1655,7 +1655,10 @@
 > 渦度限制 ε dx (N × ω)(Fedkiw 2001)。`tests/test_smoke.mojo` 4/4:64² 盒熱團 2 s 內溫度質心 0.20 → 0.62 m;浮力 0 時速度維持 0;
 > 第一步後淨垂直動量為 Σ|v| 的 2.3e-4(浮力本身淨零);2 s 後漂移 3 %(半拉格朗日平流不守恆動量,記錄不修);ε = 2 對 0:動能 1.15 倍、
 > 擬渦度(enstrophy)1.38 倍;溫度保持在初值範圍內。
-> **未做**:淺水格網的流速與非線性項、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、粒子 → 表面、FFT 海洋的水平位移(choppy)與法線。
+> **FFT 海洋的 choppy 與法線**:`FftOcean.choppy`(λ)、`displaced`、`normal`:水平位移 −λ Σ k̂ Im(h0 e^{ia})(Tessendorf 的 D),單一模態正好是 Q = λ 的 Gerstner;
+> choppy 時 `height` 以 4 次定點迭代反解(同 `GerstnerWater`,精確加總)。`tests/test_fft_choppy.mojo` 4/4:單模態 λ 0.6 對 Gerstner Q 0.6 最差 1.7e-6 m;
+> 一個波長中高於水位的比例 0.4725 對擺線 1/2 − QkA/π = 0.4712;Phillips 海的解析法線對高度有限差分 1.0e-4、單位長誤差 1.2e-7;無模態時法線朝上。
+> **未做**:淺水格網的流速與非線性項、MAC 的牆 / 自由表面(level set)/ FLIP 與潰壩、3-D MAC、LBM MRT、粒子 → 表面、choppy 的 FFT 格點路徑。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
