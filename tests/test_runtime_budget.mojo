@@ -1,4 +1,5 @@
 # tier: system
+# run: alone
 """`Runtime` under a step-time budget (ROADMAP 17.79,
 `Runtime.advance_budgeted` with `physics.lod.SimBudget`).
 
