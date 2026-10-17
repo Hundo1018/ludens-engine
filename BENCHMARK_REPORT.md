@@ -2796,6 +2796,23 @@ over every wave.
 | float_body 4^3 samples on the 4-wave sea | 1 | body | 24144.05 | 0.04 | 48.29 |
 
 
+
+`physics/mac_fluid.mojo` is an incompressible MAC grid fluid (semi-Lagrangian
+advection, explicit viscosity, PCG pressure projection). On the Taylor-Green
+vortex it and the D3Q19 lattice both decay within 0.5 % of exp(-2 nu k^2 t)
+(test_taylor_green); per cell-step the lattice is cheaper, and the MAC
+cost grows with resolution because the PCG iteration count does.
+
+### Grid fluids on the Taylor-Green vortex (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| MAC 32^2 (PCG 43 iterations / step) | 1024 | cell-step | 2620.39 | 0.38 | 134.16 |
+| LBM D3Q19 32^2 x 1 | 1024 | cell-step | 388.65 | 2.57 | 19.90 |
+| MAC 64^2 (PCG 87 iterations / step) | 4096 | cell-step | 4298.51 | 0.23 | 880.34 |
+| LBM D3Q19 64^2 x 1 | 4096 | cell-step | 557.66 | 1.79 | 114.21 |
+
+
 ### Rope per frame: XPBD rope vs distance-joint link chain; rope collision on/off
 
 | variant | N | op | ns/op | Mops/s | total ms |

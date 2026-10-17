@@ -90,6 +90,10 @@ build: all packages precompiled into build/
   qd leaving the stop: -2.0 -> -2.0
   bead on spinning rod: theta'' = -0.9837831  r'' = 1.183
 [PASS] joints_lib - 11 / 11 checks
+--- tests/test_lbm_body_force.mojo ---
+  channel profiles vs the parabola (umax 0.0105125 ): x 0.0017166457  y 0.0027496275  z 0.0025166308 ;  y / z vs x 0.001034758 0.00084289303
+  open box, 200 steps along z: mean uz 0.001998359  want 0.0019999999
+[PASS] lbm_body_force - 4 / 4 checks
 --- tests/test_lbm_bounce.mojo ---
   drag change for a half-cell shift: half-way 0.069023006  interpolated 0.017955935
   momentum exchange vs control-surface flux, worst relative difference 0.015169148
