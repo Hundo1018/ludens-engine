@@ -43,7 +43,7 @@ def raises(exc_type, fn):
 # ---------------------------------------------------------------- isolation
 check(not os.path.realpath(ludens.__file__).startswith(FORBIDDEN), "ludens imported from the venv, not the repo: " + ludens.__file__)
 check(os.path.dirname(ludens.library_path) == os.path.dirname(ludens.__file__), "libludens.so loaded from the installed package")
-check(ludens.abi_version() == (0, 3), "abi_version == (0, 3)")
+check(ludens.abi_version() == (0, 4), "abi_version == (0, 4)")
 
 
 # ------------------------------------------------- parity scenario (test_capi)
@@ -277,6 +277,50 @@ with ludens.World() as rw:
     rw.add_system(switched)
     rw.step_ticks(120)
     check(rw.hash() == hot_hash, "hot reload at tick 60 == switching functions at tick 60 (same hash)")
+
+
+# ---------------------------------------------------------------- host mapping (0.4)
+import threading
+
+with ludens.World() as mw:
+    near = mw.add_box((2, 0, 0), (0.5, 0.5, 0.5), mass=0, static=True)
+    far = mw.add_box((4, 0, 0), (0.5, 0.5, 0.5), mass=0, static=True)
+    near.set_layer(1, 0xFFFFFFFF)
+    far.set_layer(2, 0xFFFFFFFF)
+    h_all = mw.raycast((0, 0, 0), (1, 0, 0))
+    h_2 = mw.raycast((0, 0, 0), (1, 0, 0), mask=2)
+    h_none = mw.raycast((0, 0, 0), (1, 0, 0), mask=4)
+    check(h_all.body == near and h_2.body == far and h_none is None, "raycast mask selects layers: all -> near, 2 -> far, 4 -> none")
+    near.user = 1001
+    far.user = 1002
+    check(mw.find_user(1002) == far and near.user == 1001 and mw.find_user(7) is None, "user values attach to bodies and map back")
+    blob = mw.save()
+    with ludens.World() as lw:
+        lw.load(blob)
+        check(lw.find_user(1001) is not None and lw.find_user(1001).user == 1001, "user values survive save / load")
+    far.remove()
+    check(mw.find_user(1002) is None, "a removed body's user value is gone")
+    mw.bind_thread()
+    seen = []
+    t = threading.Thread(target=lambda: seen.append(raises(ludens.ThreadError, lambda: mw.tick)))
+    t.start()
+    t.join()
+    check(seen[0] is not None and mw.tick == 0, "a bound world refuses other threads (ThreadError), works on its own")
+    mw.bind_thread(False)
+    seen2 = []
+    t2 = threading.Thread(target=lambda: seen2.append(mw.tick))
+    t2.start()
+    t2.join()
+    check(seen2 == [0], "after unbinding another thread may use it")
+
+with ludens.World() as ua, ludens.World() as ub:
+    pa = build_scene(ua)
+    pb = build_scene(ub)
+    for i, b in enumerate(ub.bodies()[0]):
+        b.user = 5000 + i
+    ua.step_ticks(60)
+    ub.step_ticks(60)
+    check(pa.state() == pb.state(), "user values do not change the simulation")
 
 
 # ---------------------------------------------------------------- isolation again

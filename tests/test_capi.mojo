@@ -9,10 +9,16 @@ Builds `embed/capi.mojo` into a shared library, compiles the C host
   `EmbedWorld` with the logic written in Mojo;
 - the documented status code of every error path;
 - the v0.x freeze: every line of `embed/abi_v0.txt` is still in the header,
-  and the library exports exactly the functions the header declares.
+  and the library exports exactly the functions the header declares;
+- ABI 0.4 (17.78): two worlds stepped at once on two C threads hash like
+  one alone, a world bound to a thread refuses others (LD_ERR_THREAD),
+  layers filter a masked raycast, user values map bodies back;
+- generated bindings (17.78): `bindings/rust/ludens_sys.rs` is what
+  `scripts/gen_bindings.py` makes from the header today, and a Rust host
+  (`tests/capi/host.rs`) built on it hashes equal to the C host.
 
-Needs `gcc` and `nm` on PATH (the test fails, not skips, without them: the
-boundary is the deliverable).
+Needs `gcc`, `nm` and `rustc` on PATH (the test fails, not skips, without
+them: the boundary is the deliverable).
 """
 
 from std.python import Python, PythonObject
@@ -30,6 +36,7 @@ from embed.world import (
     LD_ERR_FORMAT,
     LD_ERR_CALLBACK,
     LD_ERR_STATE,
+    LD_ERR_THREAD,
     EVENT_BEGAN,
     EVENT_ENDED,
 )
@@ -105,11 +112,21 @@ def main() raises:
     _ = _sh(
         sp,
         Python.list(
-            "gcc", "-std=c99", "-Wall", "-Wextra", "-Werror", "-Iembed", "tests/capi/host.c",
+            "gcc", "-std=c99", "-Wall", "-Wextra", "-Werror", "-pthread", "-Iembed", "tests/capi/host.c",
             "-L" + tmp, "-lludens", "-lm", "-Wl,-rpath," + tmp, "-o", host,
         ),
     )
     var out = _sh(sp, Python.list(host))
+    var gen = _sh(sp, Python.list("python3", "scripts/gen_bindings.py", "--check"))
+    var host_rs = tmp + "/host_rs"
+    _ = _sh(
+        sp,
+        Python.list(
+            "rustc", "--edition", "2021", "-O", "tests/capi/host.rs", "-L", tmp, "-l", "ludens",
+            "-C", "link-arg=-Wl,-rpath," + tmp, "-o", host_rs,
+        ),
+    )
+    out = out + _sh(sp, Python.list(host_rs))
     var kv = Python.dict()
     for line in out.split("\n"):
         var parts = line.split(" ")
@@ -189,6 +206,19 @@ def main() raises:
     s.eqi(Int(get(kv, "callback_fail", 2)), 2, "step stops before the failing tick's physics (2 ticks done)")
     s.eqi(Int(get(kv, "destroy_inside", 0)), LD_ERR_STATE, "destroy from inside a callback -> LD_ERR_STATE")
     s.eqi(Int(get(kv, "destroy", 0)), 0, "destroy -> LD_OK")
+
+    # --- generated Rust bindings (17.78)
+    print("  " + gen.strip() + ";  rust host hash", get(kv, "rs_hash", 0), " c host hash", get(kv, "hash", 0))
+    s.check("up to date" in gen, "bindings/rust/ludens_sys.rs matches the header")
+    s.check(get(kv, "rs_hash", 0) == get(kv, "hash", 0) and get(kv, "rs_pre", 0) == get(kv, "pre", 0) and get(kv, "rs_destroy", 0) == "0", "the Rust host on the generated bindings hashes equal to the C host")
+
+    # --- ABI 0.4 (17.78): threads, layers, user values
+    s.eqi(Int(get(kv, "two_worlds_parallel", 0)), 1, "two worlds stepped at once on two threads hash like one stepped alone")
+    s.eqi(Int(get(kv, "thread_refused", 0)), LD_ERR_THREAD, "a bound world called from another thread -> LD_ERR_THREAD")
+    s.check(Int(get(kv, "thread_refused", 2)) >= 0 and Int(get(kv, "thread_refused", 4)) >= 0, "the owning thread works; after unbinding any thread does")
+    s.eqi(Int(get(kv, "thread_refused", 6)), LD_ERR_ARG, "bind_thread flag other than 0 / 1 -> LD_ERR_ARG")
+    s.check(get(kv, "mask_ray", 0) == "1" and get(kv, "mask_ray", 1) == "1" and get(kv, "mask_ray", 3) == "0", "raycast mask: all -> near layer 1 box, mask 2 -> far box, mask 4 -> miss")
+    s.check(get(kv, "user", 0) == "1" and get(kv, "user", 2) == "1" and Int(get(kv, "user", 4)) == LD_ERR_STALE, "user value set, read back, found; an unknown value -> LD_ERR_STALE")
 
     # --- navigation parity
     var vs = List[Vec3]()

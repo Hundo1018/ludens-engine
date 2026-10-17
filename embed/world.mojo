@@ -34,7 +34,7 @@ from collision.world_query import QueryFilter
 from collision.contact_events import ContactEvent
 
 comptime ABI_MAJOR = 0
-comptime ABI_MINOR = 3
+comptime ABI_MINOR = 4
 
 # Status codes (negative = error). Frozen for v0.x: values never change.
 comptime LD_OK = 0
@@ -45,6 +45,7 @@ comptime LD_ERR_BUFFER = -4  # output buffer too small (call reports the size ne
 comptime LD_ERR_FORMAT = -5  # save blob truncated or from another format
 comptime LD_ERR_CALLBACK = -6  # a host system returned non-zero; the step stopped there
 comptime LD_ERR_STATE = -7  # operation refused in the current state
+comptime LD_ERR_THREAD = -8  # called from a thread other than the one bound by ld_world_bind_thread
 
 comptime PHASE_PRE = 0  # before the physics tick
 comptime PHASE_POST = 1  # after the physics tick (this tick's contact events visible)
@@ -55,6 +56,7 @@ comptime EVENT_STAY = 1
 comptime EVENT_ENDED = 2
 
 comptime _SAVE_MAGIC = 0x3057444C  # "LDW0" little-endian
+comptime _USER_MAGIC = 0x3055444C  # "LDU0": optional host user-data trailer
 comptime _FNV_OFFSET = UInt64(0xCBF29CE484222325)
 comptime _FNV_PRIME = UInt64(0x100000001B3)
 
@@ -120,6 +122,10 @@ struct EmbedWorld(Movable):
     # ROADMAP 17.80: a physics capture of the ticks run while `capturing`
     var capturing: Bool
     var capture: Capture
+    # ROADMAP 17.78: host user data per body slot (0 = none), valid while
+    # the slot's generation matches `user_gen`
+    var user: List[UInt64]
+    var user_gen: List[UInt32]
 
     def __init__(out self, dt: Float64, gravity: Vec3, max_steps: Int = 8) raises:
         if not (dt > 0) or not isfinite(dt):
@@ -143,6 +149,8 @@ struct EmbedWorld(Movable):
         self.frame_events = List[TickEvent]()
         self.tick_events = List[TickEvent]()
         self.error = String()
+        self.user = List[UInt64]()
+        self.user_gen = List[UInt32]()
 
     # ------------------------------------------------------------ settings
 
@@ -196,6 +204,43 @@ struct EmbedWorld(Movable):
 
     def remove(mut self, h: Int64) raises:
         self.scene.remove_body(self._id(h))
+
+    # ------------------------------------------------- host mapping (17.78)
+
+    def set_layer(mut self, h: Int64, category: UInt32, mask: UInt32) raises:
+        """Collision layer of a body (host layer -> category bits, and the
+        categories it collides with)."""
+        self.scene.set_filter(self._id(h).index(), category, mask)
+
+    def set_user(mut self, h: Int64, u: UInt64) raises:
+        """Attach a host value (node id, pointer) to a body; 0 clears."""
+        var id = self._id(h)
+        var i = id.index()
+        while len(self.user) <= i:
+            self.user.append(0)
+            self.user_gen.append(0)
+        self.user[i] = u
+        self.user_gen[i] = id.gen
+
+    def get_user(self, h: Int64) raises -> UInt64:
+        var id = self._id(h)
+        var i = id.index()
+        if i < len(self.user) and self.user_gen[i] == id.gen:
+            return self.user[i]
+        return 0
+
+    def find_user(self, u: UInt64) -> Int64:
+        """Handle of the live body carrying host value `u` (the lowest slot
+        if several do), or -1."""
+        if u == 0:
+            return -1
+        for i in range(len(self.user)):
+            if self.user[i] != u or self.scene.bset.is_removed(i):
+                continue
+            var id = self.scene.bset.id_of(i)
+            if id.gen == self.user_gen[i]:
+                return pack_body(id)
+        return -1
 
     def set_velocity(mut self, h: Int64, v: Vec3, w: Vec3) raises:
         if not _finite3(v) or not _finite3(w):
@@ -258,13 +303,15 @@ struct EmbedWorld(Movable):
 
     # ------------------------------------------------------------- queries
 
-    def raycast(self, origin: Vec3, dir: Vec3, max_t: Real) raises -> RayResult:
+    def raycast(self, origin: Vec3, dir: Vec3, max_t: Real, mask: UInt32 = 0xFFFFFFFF) raises -> RayResult:
         if not _finite3(origin) or not _finite3(dir) or not (max_t >= 0):
             raise Error("raycast: origin, direction and max_t must be finite, max_t >= 0")
         var l2 = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]
         if l2 < 1e-12:
             raise Error("raycast: direction must be non-zero")
-        var hit = self.scene.ray_cast(origin, dir / l2 ** 0.5, max_t, QueryFilter.all())
+        var f = QueryFilter.all()
+        f.mask = mask
+        var hit = self.scene.ray_cast(origin, dir / l2 ** 0.5, max_t, f)
         if not hit.hit:
             return RayResult(-1, 0, Vec3(0), Vec3(0))
         return RayResult(pack_body(self.scene.bset.id_of(hit.body)), hit.t, hit.point, hit.normal)
@@ -324,6 +371,19 @@ struct EmbedWorld(Movable):
         var body = scene_to_bytes(self.scene)
         _put(out, UInt64(len(body)))
         out.extend(body^)
+        # 17.78: host user data, only when some is set (so a world without
+        # it saves -- and hashes -- exactly as before)
+        var live = List[Int]()
+        for i in range(len(self.user)):
+            if self.user[i] != 0 and not self.scene.bset.is_removed(i) and self.scene.bset.id_of(i).gen == self.user_gen[i]:
+                live.append(i)
+        if len(live) > 0:
+            _put(out, UInt64(_USER_MAGIC))
+            _put(out, UInt64(len(live)))
+            for i in live:
+                _put(out, UInt64(i))
+                _put(out, UInt64(self.user_gen[i]))
+                _put(out, self.user[i])
         return out^
 
     def load(mut self, data: List[UInt8]) raises:
@@ -336,16 +396,38 @@ struct EmbedWorld(Movable):
         var acc_bits = _get(data, pos)
         var acc = Pointer(to=acc_bits).unsafe_bitcast[Float64]()[]
         var n = Int(_get(data, pos))
-        if n < 0 or pos + n != len(data):
+        if n < 0 or pos + n > len(data):
             raise Error("load: blob length mismatch")
         var body = List[UInt8](capacity=n)
         for i in range(n):
             body.append(data[pos + i])
+        pos += n
+        var user = List[UInt64]()
+        var user_gen = List[UInt32]()
+        if pos < len(data):
+            if _get(data, pos) != UInt64(_USER_MAGIC):
+                raise Error("load: unknown trailer")
+            var m = Int(_get(data, pos))
+            if m < 0 or pos + 24 * m != len(data):
+                raise Error("load: user-data length mismatch")
+            for _ in range(m):
+                var i = Int(_get(data, pos))
+                var g = UInt32(_get(data, pos))
+                var u = _get(data, pos)
+                if i < 0 or i > (1 << 31):
+                    raise Error("load: bad user-data slot")
+                while len(user) <= i:
+                    user.append(0)
+                    user_gen.append(0)
+                user[i] = u
+                user_gen[i] = g
         var sc = scene_from_bytes(body^)
         sc.events_on = True
         self.scene = sc^
         self.tick = tick
         self.acc = acc
+        self.user = user^
+        self.user_gen = user_gen^
         self.frame_events.clear()
         self.tick_events.clear()
 

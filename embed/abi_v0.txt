@@ -62,3 +62,10 @@ int32_t ld_world_capture_begin(ld_world* w, int32_t key_every);
 int32_t ld_world_capture_end(ld_world* w);
 int64_t ld_world_capture_size(ld_world* w);
 int64_t ld_world_capture_read(ld_world* w, uint8_t* buf, int64_t cap);
+#define LD_ERR_THREAD (-8)   /* called from a thread other than the bound one (0.4) */
+int32_t ld_world_bind_thread(ld_world* w, int32_t on);
+int32_t ld_body_set_layer(ld_world* w, ld_body b, uint32_t category, uint32_t mask);
+int32_t ld_world_raycast_mask(ld_world* w, float ox, float oy, float oz, float dx, float dy, float dz, float max_t, uint32_t mask, ld_body* out_body, float* out_hit7);
+int32_t ld_body_set_user(ld_world* w, ld_body b, uint64_t user);
+int32_t ld_body_get_user(ld_world* w, ld_body b, uint64_t* out);
+int64_t ld_world_find_user(ld_world* w, uint64_t user);
