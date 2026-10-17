@@ -1452,6 +1452,10 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
   heated bar: length change 0.011999987  alpha_L dT L 0.012000001
   insulated: grid heat drift 1.4482918431202307e-07  tet heat drift 1.1988794328399166e-06
 [PASS] thermal - 7 / 7 checks
+--- tests/test_thermal_refresh.mojo ---
+conductance / (s x rest) worst rel. error 1.1920929e-07   max_dt 0.8333333 -> 0.7440474  ratio 1.1200003
+insulated expanded beam: heat drift 3.108797184459e-06
+[PASS] thermal_refresh - 6 / 6 checks
 --- tests/test_thermal_smoke.mojo ---
 after 3 s: gas excess heat 9043.502771750093 J/m  centroid y 0.4009514398453459 m (1.5 s: 0.1423412904612872 )  mean v over plate 0.5307898 m/s
   heat into gas 9595.073429107666  out of plate 9618.560745239258  max step imbalance 41.488636
