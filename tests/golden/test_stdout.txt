@@ -133,6 +133,12 @@ build: all packages precompiled into build/
   Sigma-area  median: 213042.88  sah: 187398.86  lbvh: 201227.88
   avg leaf depth  median: 9.293333  sah: 9.39  lbvh: 9.565
 [PASS] lbvh - 7 / 7 checks
+--- tests/test_levelgen.mojo ---
+maze 20 x 15: 599 floor cells, 299 passages, reachable 599
+bsp 60 x 40: 14 rooms, floor 1340 reachable from room 0 1340
+koch 2 rewrites: 25 F, 25 segments; bracket end -8.742278e-08 2.0
+wfc 20 x 20: sea / shore / land 187 183 30  forbidden pairs 0
+[PASS] levelgen - 7 / 7 checks
 --- tests/test_mesh_bake.mojo ---
   bumpy: largest original-vertex distance to the baked surface 0.02160775661468506
 [PASS] mesh_bake - 24 / 24 checks
@@ -986,6 +992,10 @@ ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
 [PASS] gpu_lbvh - 0 / 0 checks
 --- tests/test_gpu_raycast.mojo ---
 [PASS] gpu_raycast - 0 / 0 checks
+--- tests/test_helicopter.mojo ---
+no tail rotor, 2 s: yaw rate -32.116
+hover 5 s: y 2.9999475  up.y 1.0  heading 0.49997857  tail thrust -3.2666419 ( 3.2666667 )
+[PASS] helicopter - 5 / 5 checks
 --- tests/test_host_bulk.mojo ---
   20 bodies teleported ( 40 were asleep): batch == sequential right after True  and for 60 steps True
   Health on 88 entities: compile-time vs host component agree True
