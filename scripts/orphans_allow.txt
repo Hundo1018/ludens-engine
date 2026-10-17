@@ -103,3 +103,5 @@ physics.mpm_melt  # [api] melting / freezing layer the host steps over an MpmSol
 physics.multiphase  # [api] multi-density SPH the host steps (17.61)
 physics.strand_air  # [api] strands <-> LBM air two-way coupling the host steps (17.61)
 physics.sediment  # [api] grains suspended in LBM fluid, stepped by the host (17.61)
+gameplay.skin_link  # [api] animator palette, cloth pins and fitted bone shapes for the host (17.65)
+geometry.pose_space  # [api] RBF corrective-shape driver the host evaluates per frame (17.65)

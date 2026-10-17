@@ -214,3 +214,43 @@ def inverse_bind(bind_pose: List[Motor3]) -> List[Motor3]:
     for m in bind_pose:
         out.append(m.reverse())
     return out^
+
+
+# ------------------------------------------------------------- scale channel
+# ROADMAP 17.65: motors carry no scale, so squash & stretch rides on a side
+# channel. Each bone has a scale (sx, sy, sz) about its joint centre c_b in
+# the bind pose, along the bind-pose axes. The vertex is first scaled in the
+# bind pose by the weight-blended per-bone scaling,
+#     p' = p + sum_j w_j (S_j (p - c_j) + c_j - p) / sum_j w_j,
+# then skinned by the K-bone DLB motor as `skin_motor_k`. All scales 1 give
+# p' = p and the plain path bit for bit (the scaling pass is skipped).
+
+
+def skin_motor_k_scaled(
+    bones: List[Motor3], scale: List[Vec3], centre: List[Vec3],
+    rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, mut out: List[Vec3],
+) raises:
+    if len(scale) != len(bones) or len(centre) != len(bones):
+        raise Error("skin_motor_k_scaled: one scale and one centre per bone")
+    var any = False
+    for s in scale:
+        if s[0] != 1 or s[1] != 1 or s[2] != 1:
+            any = True
+    if not any:
+        skin_motor_k(bones, rest, idx, w, k, out)
+        return
+    _check_k(len(bones), len(rest), idx, w, k, len(out))
+    var scaled = List[Vec3](length=len(rest), fill=Vec3(0, 0, 0, 0))
+    for v in range(len(rest)):
+        var p = rest[v]
+        var sw = Real(0)
+        var acc = Vec3(0, 0, 0, 0)
+        for j in range(k):
+            var b = idx[v * k + j]
+            var wj = w[v * k + j]
+            sw += wj
+            var d = p - centre[b]
+            var sd = Vec3(d[0] * scale[b][0], d[1] * scale[b][1], d[2] * scale[b][2], 0)
+            acc = acc + (sd + centre[b] - p) * wj
+        scaled[v] = p + acc * (1 / sw) if sw != 0 else p
+    skin_motor_k(bones, scaled, idx, w, k, out)
