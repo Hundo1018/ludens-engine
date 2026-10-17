@@ -29,7 +29,7 @@ equilibrium with the local density, and a zero-gradient outlet that copies its
 neighbour. Without them there is no through-flow and no drag to measure.
 """
 
-from std.math import sqrt
+from std.math import sqrt, floor
 from geometry.vec import Real, Vec3
 
 from .d3q19 import (
@@ -285,7 +285,9 @@ struct Lbm(Movable, Deinitable):
         become fluid at equilibrium with the wall velocity and the mean
         density of their fluid neighbours; fluid cells it covers become solid,
         and their momentum goes to the sphere (added to `obj_f` at the next
-        `stream`, Aidun et al. 1998)."""
+        `stream`, Aidun et al. 1998). On periodic axes `c` may lie outside
+        the grid (keep it unwrapped as the body moves): cells are wrapped
+        when indexed and the torque arm is the minimum image (17.59)."""
         var prev = self.obj_c[k]
         self.obj_c[k] = c
         self.obj_v[k] = v
@@ -300,16 +302,17 @@ struct Lbm(Movable, Deinitable):
         # owned cells that fall outside: uncover. They were placed around
         # `prev`, so only that box is scanned (ascending cell order, as a
         # whole-grid sweep would visit them; 17.59)
-        var px0 = max(Int(prev[0] - r) - 1, 0)
-        var px1 = min(Int(prev[0] + r) + 2, self.nx) if not first else 0
-        var py0 = max(Int(prev[1] - r) - 1, 0)
-        var py1 = min(Int(prev[1] + r) + 2, self.ny)
-        var pz0 = max(Int(prev[2] - r) - 1, 0)
-        var pz1 = min(Int(prev[2] + r) + 2, self.nz)
+        var perx = self.mode != BC_TUNNEL
+        var px0 = self._lo(prev[0], r, self.nx, perx)
+        var px1 = self._hi(prev[0], r, self.nx, perx) if not first else px0
+        var py0 = self._lo(prev[1], r, self.ny, True)
+        var py1 = self._hi(prev[1], r, self.ny, True)
+        var pz0 = self._lo(prev[2], r, self.nz, True)
+        var pz1 = self._hi(prev[2], r, self.nz, True)
         for z in range(pz0, pz1):
             for y in range(py0, py1):
                 for x in range(px0, px1):
-                    var cell = self.idx(x, y, z)
+                    var cell = self.idx(self._wrap(x, self.nx), self._wrap(y, self.ny), self._wrap(z, self.nz))
                     if self.owner[cell] != k:
                         continue
                     var d = Vec3(Real(x), Real(y), Real(z), 0) - c
@@ -331,19 +334,19 @@ struct Lbm(Movable, Deinitable):
                         for i in range(Q):
                             self.f[i * n + cell] = self._feq(i, rho, u[0], u[1], u[2])
                         cover = cover + u * rho  # the fluid gains this momentum from the sphere
-        var x0 = max(Int(c[0] - r) - 1, 0)
-        var x1 = min(Int(c[0] + r) + 2, self.nx)
-        var y0 = max(Int(c[1] - r) - 1, 0)
-        var y1 = min(Int(c[1] + r) + 2, self.ny)
-        var z0 = max(Int(c[2] - r) - 1, 0)
-        var z1 = min(Int(c[2] + r) + 2, self.nz)
+        var x0 = self._lo(c[0], r, self.nx, perx)
+        var x1 = self._hi(c[0], r, self.nx, perx)
+        var y0 = self._lo(c[1], r, self.ny, True)
+        var y1 = self._hi(c[1], r, self.ny, True)
+        var z0 = self._lo(c[2], r, self.nz, True)
+        var z1 = self._hi(c[2], r, self.nz, True)
         for z in range(z0, z1):
             for y in range(y0, y1):
                 for x in range(x0, x1):
                     var d = Vec3(Real(x), Real(y), Real(z), 0) - c
                     if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
                         continue
-                    var cell = self.idx(x, y, z)
+                    var cell = self.idx(self._wrap(x, self.nx), self._wrap(y, self.ny), self._wrap(z, self.nz))
                     if self.flag[cell] == CELL_FLUID:
                         if not first:
                             cover = cover - self.velocity(cell) * self.density(cell)
@@ -383,8 +386,8 @@ struct Lbm(Movable, Deinitable):
                     var w6 = 6 * self.w[i]
                     var e = Vec3(Real(self.ex[i]), Real(self.ey[i]), Real(self.ez[i]), 0)
                     var p = Vec3(Real(xc), Real(yc), Real(zc), 0)
-                    var lc = _cross(p - e * 0.5 - c0, e)
-                    var dc = _cross(p - e - c0, e)
+                    var lc = _cross(self._arm(p - e * 0.5, c0), e)
+                    var dc = _cross(self._arm(p - e, c0), e)
                     z = z + Vec3(w6 * e[0] * e[0], w6 * e[1] * e[1], w6 * e[2] * e[2], 0)
                     zr = zr + Vec3(w6 * lc[0] * dc[0], w6 * lc[1] * dc[1], w6 * lc[2] * dc[2], 0)
         return (z, zr)
@@ -463,6 +466,29 @@ struct Lbm(Movable, Deinitable):
                             pi_rn += (fe + k * (fi - fe)) * ci[r] * ci[axis]
                         fsum[r] = fsum[r] - pi_rn * sgn
         return fsum
+
+    def _lo(self, c: Real, r: Real, n: Int, periodic: Bool) -> Int:
+        """First cell of a sphere's box along one axis: unclamped on a
+        periodic axis (cells are wrapped when indexed), clamped otherwise."""
+        var v = Int(floor(c - r)) - 1
+        return v if periodic else max(v, 0)
+
+    def _hi(self, c: Real, r: Real, n: Int, periodic: Bool) -> Int:
+        var v = Int(floor(c + r)) + 2
+        return v if periodic else min(v, n)
+
+    @no_inline
+    def _arm(self, p: Vec3, c: Vec3) -> Vec3:
+        """p - c by the minimum image on periodic axes (a moving sphere's
+        centre is kept unwrapped, 17.59)."""
+        var d = p - c
+        var nn = Vec3(Real(self.nx), Real(self.ny), Real(self.nz), 0)
+        for a in range(3):
+            if a == 0 and self.mode == BC_TUNNEL:
+                continue
+            if d[a] > 0.5 * nn[a] or d[a] < -0.5 * nn[a]:
+                d[a] = d[a] - nn[a] * floor(d[a] / nn[a] + 0.5)
+        return d
 
     def _wrap(self, v: Int, n: Int) -> Int:
         var w = v % n
@@ -631,7 +657,7 @@ struct Lbm(Movable, Deinitable):
                                 self.obj_f[k] = self.obj_f[k] + df
                                 # the link's wall point: half way to the solid cell
                                 var lp = Vec3(Real(x) - 0.5 * Real(self.ex[i]), Real(y) - 0.5 * Real(self.ey[i]), Real(z) - 0.5 * Real(self.ez[i]), 0)
-                                self.obj_t[k] = self.obj_t[k] + _cross(lp - self.obj_c[k], df)
+                                self.obj_t[k] = self.obj_t[k] + _cross(self._arm(lp, self.obj_c[k]), df)
                         elif self.flag[src] == CELL_SOLID:
                             var back = self.f[self.opp[i] * n + c]
                             self.g[i * n + c] = back
