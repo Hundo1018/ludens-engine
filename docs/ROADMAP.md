@@ -2147,8 +2147,20 @@
 > **邊界**:強化學習式步態(使用者已排除 RL)不在此;人形 rig 的製作屬 DCC / 宿主;死亡動畫的藝術選擇屬內容。
 
 #### 17.67 移動模式 — Wave B
-> **狀態**:🔶 部分完成(2026-10-13:模式機(走 / 落 / 游 / 飛)、三種速度整合模型、跳躍手感、外部速度累加器、平台朝向繼承 ✅;任意向上軸(需改 `character.mojo` 的 `_UP`)、
-> 攀爬 / 翻越、Driving 模式、形狀泛化、`replay` 快照接線未做)。
+> **狀態**:🔶 部分完成(2026-10-13:模式機(走 / 落 / 游 / 飛)、三種速度整合模型、跳躍手感、外部速度累加器、平台朝向繼承 ✅;2026-10-17:任意向上軸、
+> 攀上 / 翻越、Driving 模式、`replay` 快照接線 ✅;梯子 / Sliding / Gliding、形狀泛化(水平膠囊、球)、電梯夾擠未做)。
+> **進度註(2026-10-17)**:
+> - **任意向上軸**(`0564c96`、`cb64ed1`):`CharacterController.up` + `set_up`(零向量 raise);膠囊 / 圓角盒沿 `up` 站立,台階、坡度、貼地、跳躍、重力皆沿 `up` 量
+>   (`_h(v) = v − up·(v·up)`、`_v(v) = v·up`;對 +y 這兩式逐位等於舊的取分量,既有角色測試 golden 不變)。`Mover` 的跳躍、游泳 / 飛行的垂直 wish、外部垂直速度、
+>   平台朝向同樣沿 `cc.up`(設定分量用 `_h(v) + up·s`,對 +y 逐位精確);`WaterVolume` 仍是 +y 水面的軸對齊盒。
+>   `test_character_up` 7/7:場景繞 z 轉 90°(地板變 x < 0 的牆、重力 −x、up = +x)時膠囊路徑轉回後相距 0.0 m、圓角盒 1.2e-7 m;4 m/s 跳躍頂點兩框架皆 1.76;
+>   `Mover`(加速度模型、二段跳、tick 120 沿 up 6 m/s 跳墊、tick 170 起 FLY 且 wish 含 1 m/s 沿 up)兩框架終點相同、頂點皆 6.1224046、皆用 2 跳。
+>   `test_movement` / `test_replay` 等 14 個用到 `Mover` 或 runtime 的測試輸出與 golden 逐字相同。
+> - **攀上 / 翻越 / Driving**(`003c4a7`):`climb_height` > 0 時,撞牆(沿 wish 方向)從上方射線找牆頂,頂高 ≤ `climb_height` 就進 `MODE_CLIMB`,
+>   以 `climb_time` 經「上升到牆頂 → 前進」兩段移到頂上;牆厚 < `vault_depth` 且牆後地面在台階高內則翻到牆後。`enter_vehicle(body, seat)` 進 `MODE_DRIVE`,
+>   每 tick 位置 = `act(seat)`、速度 = 該點剛體速度;`exit_vehicle(offset)` 放到車旁並回到走 / 落。`SimState.movers` 入快照 / 還原 / checksum。
+>   `test_movement_modes` 8/8:1.0 m 牆攀上後腳高 1.0073;0.9 m × 0.2 m 牆翻越後腳高 0.0073、z 6.40;0.2 m 台階只跨步、2.0 m 牆不攀、預設不攀;
+>   3 m/s 車上 1 s 後下車,x 1.0000069、著地且回到走;攀爬中途快照還原後 checksum 相同;壞車輛索引與未駕駛時下車 raise。
 > **進度註(2026-10-13)**:`gameplay/movement.mojo` `Mover` 包住 `CharacterController`:`MODE_WALK / FALL / SWIM / FLY`(游泳以膠囊高度在 `WaterVolume` 水面下的比例判定,進 0.6、出 0.4 的遲滯;
 > 水中重力乘 `1 − buoyancy`、垂直 wish 驅動並以 `water_drag` 阻尼;飛行無重力);`MODEL_DIRECT`(原行為)/ `MODEL_ACCEL`(趨近 wish,無 wish 時煞車,空中乘 `air_control`)/
 > `MODEL_QUAKE`(PM_Friction + PM_Accelerate);以 tick 計的 coyote time、跳躍緩衝、放開即減半的可變跳高、`max_jumps`(空中跳需新的按壓);`add_velocity` 外部速度逐 tick 疊加並指數衰減;
