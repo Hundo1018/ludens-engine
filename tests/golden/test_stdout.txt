@@ -821,6 +821,9 @@ ITERATED: most passes per step 3 of 20
 NaN in A: rejected 199  B holds xA 0.052358266 (last finite 0.052358266 )
 ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
 [PASS] coupler - 10 / 10 checks
+--- tests/test_coupler_snapshot.mojo ---
+1 s: gas excess heat INTERP 2549.106532394886  ITERATED 2549.1142957806587  rel. diff 3.0455321007316627e-06   ITERATED passes per step <= 3
+[PASS] coupler_snapshot - 3 / 3 checks
 --- tests/test_cylinder.mojo ---
   rolling down 20 deg: 8 segments 2.234532  16 segments 2.2345238  analytic 2/3 g sin 2.2345319
   standing r 0.3 hl 0.7 on a 16-gon base: y 0.69989836  axis y 1.0
