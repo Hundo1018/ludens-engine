@@ -211,7 +211,7 @@ struct Smoke2(Movable):
         self.epsilon = epsilon
 
     def vorticity(self) -> List[Real]:
-        """omega = dv/dx - du/dy at the cell corners (i dx, j dx)."""
+        """Vorticity dv/dx - du/dy at the cell corners (i dx, j dx)."""
         ref f = self.fluid
         var n = f.n
         var out = List[Real](length=n * n, fill=0)
