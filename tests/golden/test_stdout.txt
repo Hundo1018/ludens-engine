@@ -427,6 +427,12 @@ build: all packages precompiled into build/
 [PASS] mat - 34 / 34 checks
 --- tests/test_motor_parity.mojo ---
 [PASS] motor_parity - 285 / 285 checks
+--- tests/test_mpm_melt.mojo ---
+after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (start 0.125 )
+  width solid 0.1833874  liquid 1.347734  heated 0.29297185  (start 0.17500001 )
+  melted fraction: solid 0.0  liquid 1.0  heated 0.5097836
+  enthalpy change 1499146.2212796034 J  floor heat 1499146.7783207893 J  rel. error 3.7157214621237253e-07
+[PASS] mpm_melt - 8 / 8 checks
 --- tests/test_mpm_sand.mojo ---
   block at 2 m/s on the obstacle floor: slides 0.34606156 m with mu 0.6 (v^2/2 mu g = 0.340); 0.8314862 m with mu 0
   sand poured on a box: particles deeper than half a cell inside 0  resting on its top 9 of 288
