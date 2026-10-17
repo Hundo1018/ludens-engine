@@ -249,6 +249,11 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
 [PASS] vec - 13 / 13 checks
 --- tests/test_workstealing.mojo ---
 [PASS] workstealing - 4 / 4 checks
+--- tests/test_abilities.mojo ---
+fireball: mana 70000  target hp 75000 80000  cues 3
+cooldown: refused with 4  allowed again at tick 60
+channel: on True  re-cast while channelling 3  cancel True False  uncancelled ends after 90 ticks
+[PASS] abilities - 8 / 8 checks
 --- tests/test_actuator.mojo ---
   servo vs hand-written PD, worst divergence: 5.9604645e-08  final q = 0.59999794
   velocity servo settled rate: 1.4999997  (want 1.5)
