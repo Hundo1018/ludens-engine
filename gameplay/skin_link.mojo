@@ -7,7 +7,12 @@
   * `pin_cloth_to_skin`: cloth vertices that hang on a skinned mesh (a
     cape on the shoulders) are pinned (inverse mass 0) and moved to their
     skinned vertex each step, with the velocity of that move, so the
-    cloth's own step sees a kinematic target.
+    cloth's own step sees a kinematic target. `pin_softbody_to_skin` does
+    the same for the particles of a volumetric `SoftBody` (a skinned
+    belly or cheek driving a jiggle lattice), but is called AFTER the
+    body's step: `SoftBody.predict` applies gravity to every particle,
+    inverse mass 0 included (existing scenes rely on that), so the pins
+    are imposed on the step's result, with the velocity of their move.
   * `fit_bone_boxes` / `fit_bone_capsules`: collision shapes per bone from
     the skinning weights -- the vertices a bone owns with weight >=
     `threshold`, in that bone's bind frame. Boxes come as (half extents,
@@ -24,6 +29,7 @@ from geometry.motor import Motor3
 from geometry.skinning import bind_palette
 from procedural.anim_graph import Pose, to_world
 from physics.cloth import MeshCloth
+from physics.softbody import SoftBody
 from .animator import Animators
 
 
@@ -55,6 +61,19 @@ def pin_cloth_to_skin(mut cloth: MeshCloth, cloth_vert: List[Int], skin_vert: Li
         cloth.v[c] = (skinned[sv] - cloth.x[c]) * (1 / dt)
         cloth.x[c] = skinned[sv]
         cloth.prev[c] = skinned[sv]
+
+
+def pin_softbody_to_skin(mut body: SoftBody, pts: List[Int], skin_vert: List[Int], skinned: List[Vec3], dt: Real) raises:
+    if len(pts) != len(skin_vert) or not (dt > 0):
+        raise Error("pin_softbody_to_skin: one skinned vertex per particle, dt > 0")
+    for k in range(len(pts)):
+        var c = pts[k]
+        var sv = skin_vert[k]
+        if c < 0 or c >= len(body.pts) or sv < 0 or sv >= len(skinned):
+            raise Error("pin_softbody_to_skin: index out of range")
+        body.pts[c].w = 0
+        body.pts[c].v = (skinned[sv] - body.pts[c].x) * (1 / dt)
+        body.pts[c].x = skinned[sv]
 
 
 def _owned_local(bind: Pose, rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, bone: Int, threshold: Real) -> List[Vec3]:

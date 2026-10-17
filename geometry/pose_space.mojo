@@ -12,13 +12,20 @@ with partial pivoting; the Gaussian kernel matrix is positive definite for
 distinct samples). `solve()` raises on duplicate samples (a zero pivot) or
 on sigma <= 0; `eval` before `solve` raises.
 
+Pose coordinates: `rotation_angle(m)` is the rotation angle of a motor
+(0 .. pi, sign of the rotor ignored); `joint_angle(parent, child)` that of
+the child relative to its parent; `twist_angle(m, axis)` the signed twist
+about a unit axis from the swing-twist split (the rotation left after
+swinging the axis back to itself), in (-pi, pi].
+
 Example: elbow angle samples 0, 60, 120 degrees with corrective weight
 0, 0.3, 1: the elbow at 120 degrees gets exactly 1, at 90 degrees a value
 between, and the corrective `MorphSet` adds the volume back.
 """
 
-from std.math import exp, sqrt
-from .vec import Real
+from std.math import exp, sqrt, atan2
+from .vec import Real, Vec3
+from .motor import Motor3
 
 
 struct PoseSpaceRbf(Movable):
@@ -108,3 +115,28 @@ struct PoseSpaceRbf(Movable):
             for k in range(self.outs):
                 out[k] += self.coef[s * self.outs + k] * p
         return out^
+
+
+def rotation_angle(m: Motor3) -> Real:
+    var e = sqrt(m.b12 * m.b12 + m.b13 * m.b13 + m.b23 * m.b23)
+    return 2 * atan2(e, abs(m.s))
+
+
+def joint_angle(parent: Motor3, child: Motor3) -> Real:
+    return rotation_angle(parent.reverse() * child)
+
+
+def twist_angle(m: Motor3, axis: Vec3) -> Real:
+    """Signed twist about `axis` (unit): project the rotor's vector part
+    (as a quaternion x, y, z from -e23, +e13, -e12) on the axis."""
+    var qx = -m.b23
+    var qy = m.b13
+    var qz = -m.b12
+    var p = qx * axis[0] + qy * axis[1] + qz * axis[2]
+    var s = m.s
+    if s < 0:
+        s = -s
+        p = -p
+    if p == 0 and s == 0:
+        return 0
+    return 2 * atan2(p, s)

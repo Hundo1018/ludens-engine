@@ -64,7 +64,8 @@ def main() raises:
     var h2 = UInt64(0xCBF29CE484222325)
     for v in range(64):
         h2 = fnv(h2, lbs[v])
-    print("checksum DLB", hex(h), " LBS", hex(h2))
+    # decimal: the golden filter drops "<digit>x" as a speed ratio, so 0x... vanished
+    print("checksum DLB", h, " LBS", h2)
     var finite = True
     for v in range(64):
         for a in range(3):
