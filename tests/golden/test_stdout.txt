@@ -270,6 +270,11 @@ build: all packages precompiled into build/
 [PASS] cga_narrowphase - 83 / 83 checks
 --- tests/test_cga_plane.mojo ---
 [PASS] cga_plane - 70 / 70 checks
+--- tests/test_checkpoint.mojo ---
+  600 steps: loss 11.748542  dL/dk -4.702767  dL/dc -71.26233  dL/dx0[0] -7.209905
+  peak tape nodes: full 72050  every 1 / 7 / 50 / 600: 170 858 6050 72050
+  finite differences: dL/dk -4.6994443  dL/dc -71.26283
+[PASS] checkpoint - 5 / 5 checks
 --- tests/test_convex_decomp.mojo ---
   L split: 2 parts excess 0.0 | cluster: 3 parts excess 0.0
    probes graded 81 variants agree 81 contradict the solid 0
@@ -475,6 +480,11 @@ build: all packages precompiled into build/
 [PASS] skin_k - 13 / 13 checks
 --- tests/test_skinning.mojo ---
 [PASS] skinning - 19 / 19 checks
+--- tests/test_solvers.mojo ---
+  Poisson 32 x 32: Cholesky error 7.1525574e-07  nnz(L) 23344 ;  CG 69 iterations error 4.10527e-06 ;  IC(0)-PCG 22 iterations error 5.170703e-06 shifted 0
+  shuffled grid: nnz(L) natural 81326  RCM 23344 ;  errors 1.1324882e-06 1.1324882e-06
+  convection-diffusion n 1024: GMRES(30) 120 steps error 6.9856644e-05 ;  + Jacobi 120 error 6.914139e-05 ;  BiCGStab + Jacobi converged False error 410476270000000.0
+[PASS] solvers - 8 / 8 checks
 --- tests/test_sparse_large.mojo ---
 [PASS] sparse_large - 6 / 6 checks
 --- tests/test_sph.mojo ---
@@ -796,6 +806,10 @@ build: all packages precompiled into build/
   inverted tet (det F = -0.2) released: det F after 2 s  neo-hookean 1.0242903  stvk -0.97505754  corotational -1.0161943
   uniaxial to 2 %: stvk restoring 34.986 (peak 673.554 )  neo-hookean 3430.0 (at 50 %: 1750.0 )
 [PASS] fem_material - 10 / 10 checks
+--- tests/test_fem_solvers.mojo ---
+  assembled vs matrix-free: max diff 2.670288e-05 of 57.871613  nnz 4131  symmetric True
+  2 s cantilever: tip y CG 0.3210657  Cholesky 0.3210657  IC(0)-PCG 0.32106578 ;  max gap 2.0861626e-07 m;  iterations CG 4896  IC(0) 1438 ;  volume 0.37493786 0.37493786 0.37493786 (rest 0.37499985 )
+[PASS] fem_solvers - 6 / 6 checks
 --- tests/test_fields.mojo ---
 [PASS] fields - 16 / 16 checks
 --- tests/test_filter_events.mojo ---
@@ -1182,6 +1196,14 @@ build: all packages precompiled into build/
 [PASS] sleep6 - 13 / 13 checks
 --- tests/test_sleep_api.mojo ---
 [PASS] sleep_api - 20 / 20 checks
+--- tests/test_smooth_positive.mojo ---
+  d x(1 s) / d drop height: central differences 0.2708435 ;  sharp switch 0.5 (bias 0.2291565 )
+    smooth k 30.0 : gradient 0.49688151  bias vs differences 0.22603801  x(1 s) 2.3142386
+    smooth k 100.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
+    smooth k 300.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
+    smooth k 1000.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
+    smooth k 10000.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
+[PASS] smooth_positive - 5 / 5 checks
 --- tests/test_soft_period.mojo ---
   lattice on a box, 4 s: lowest particle  period 1 0.03333336  period 4 0.03333336
   period 4 phase 1: the lattice moved on 15 of the first 60 steps (start y 1.0 )
