@@ -35,6 +35,7 @@ pixi run fp-probe          # 哪些目標 / 優化因子改變模擬位元(只�
 pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.mojo;凍結清單 embed/abi_v0.txt)
 pixi run build-f64         # 以 f64 世界純量建全部套件到 build64/(scripts/build_f64.sh,約 1 分鐘;17.8)
 pixi run wheel             # 建 Python wheel build/dist/ludens-*.whl(python/;ctypes 包 C-ABI,內含 Mojo runtime)
+pixi run bindings          # 由 embed/ludens.h 產生 bindings/rust/ludens_sys.rs(--check 檢查是否過時;test_capi 以 rustc 編譯並比對雜湊)
 pixi run examples | experiments | spikes
 ```
 

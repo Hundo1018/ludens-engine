@@ -24,7 +24,8 @@ mkdir -p build
 
 if [ "${1:-}" = "--selftest" ]; then
   bash scripts/golden.sh selftest && bash scripts/arch.sh selftest && pixi run doclint -- --selftest \
-    && pixi run orphans -- --selftest && pixi run perf -- selftest && pixi run symcov -- --selftest
+    && pixi run orphans -- --selftest && pixi run perf -- selftest && pixi run symcov -- --selftest \
+    && python3 scripts/gen_bindings.py --selftest
   exit $?
 fi
 
