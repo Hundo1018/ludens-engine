@@ -863,11 +863,11 @@ build: all packages precompiled into build/
   settling sphere: velocity -0.0027307766  mean fluid 3.9075276e-05  relative -0.0027698518  Stokes-Hasimoto -0.0027770284  ratio 0.9974157  max spin 5.617738e-06
   sphere over a static plate (top at x = 7 mm): centre x 9.970106 mm  velocity -1.2732926e-11
   density ratio 1.0 : launched at -0.05 m/s, after 0.3 s v = -0.00047233634  max |v| 0.02113429  finite True
-  density ratio 0.5 : launched at -0.05 m/s, after 0.3 s v = -11945.902  max |v| 19731.816  finite True
+  density ratio 0.5 : launched at -0.05 m/s, after 0.3 s v = 0.0  max |v| 4.0310378e+17  finite True
 [PASS] fsi - 5 / 5 checks
 --- tests/test_fsi_added_mass.mojo ---
   wall drag rho Z dx^3 / (rho V) per axis: [0.6837767, 0.6837767, 0.6837773, 0.0]  rotational / (0.4 rho V R^2): [0.9054799, 0.90547997, 0.90547854, 0.0]
-  ratio 0.5 at -0.05 m/s, 0.3 s: plain max |v| 19731.816 finite True ;  implicit: v -0.00054678845 max |v| 0.022549732
+  ratio 0.5 at -0.05 m/s, 0.3 s: plain max |v| inf finite True ;  implicit: v -0.00054678845 max |v| 0.022549732
   ratio 1.5 settling 0.4 s: vx plain -0.04043679  implicit -0.03850443
   ratio 0.2 implicit: v -0.00041927595 max |v| 0.020816866 finite True
   ratio 0.05 implicit: v -0.0004048942 max |v| 0.022220412 finite True
@@ -982,6 +982,10 @@ build: all packages precompiled into build/
   rebase at tick 120: max top speed after 0.0  max |moved + d - plain| 3.697140982694691e-06
   CCD across a rebase: sphere world x 1.8499984741210938  (wall face at 1.95)
 [PASS] large_world - 22 / 22 checks
+--- tests/test_lbm_periodic.mojo ---
+  crossing vs shifted twin, 240 steps: force error 1.1002156e-05  torque error 1.0904011e-05  (of peak);  mass 13697.448 13697.449
+  coupled body across the boundary, 0.2 s: v 0.00092939363  shifted twin 0.0009293971
+[PASS] lbm_periodic - 5 / 5 checks
 --- tests/test_lod.mojo ---
 [PASS] lod - 18 / 18 checks
 --- tests/test_loops.mojo ---
