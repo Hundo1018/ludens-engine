@@ -5,9 +5,15 @@ frames at 60 Hz over a 10 s sequence. A seek finds each track's segment by
 binary search; the cursor walks from the last segment. Both return the same
 values bit for bit (`test_camera_seq`). Nanoseconds per frame for all 64
 tracks, and the spring arm's update against an empty scene and one wall.
+
+Pose springs (a seam, `CamSpring`): SPRING_SPLIT (position + rotation
+vector) vs SPRING_MOTOR (6-vector log of the relative motor), ns per update
+toward a moving target; the dolly rail's update (nearest point + spring) on
+a 3-segment rail; `frame_targets` for 16 spheres.
 """
 
 from std.time import perf_counter_ns
+from std.math import sin, cos
 from std.benchmark import keep
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
@@ -15,6 +21,8 @@ from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from procedural.sequence import Sequence, SeqCursor
 from gameplay.camera_rig import SpringArm
+from geometry.spline import CatmullRom
+from procedural.camera_math import CamSpring, SPRING_SPLIT, SPRING_MOTOR, DollyRail, frame_targets
 
 
 def _seq(keys: Int) raises -> Sequence:
@@ -64,4 +72,34 @@ def main() raises:
             arm.aim(Real(k) * 0.01, 0.3)
             _ = arm.update(sc, Vec3(0, 1, 0, 0), 1.0 / 60.0)
         print("| empty" if walls == 0 else "| one wall", "|", (Int(perf_counter_ns()) - t3) // 1000, "|")
+    print("")
+    print("| pose spring / rig | ns / update |")
+    print("|---|---:|")
+    for mode in [SPRING_SPLIT, SPRING_MOTOR]:
+        var cs = CamSpring(mode, 0.2, Vec3(0, 0, 5, 0), Quat(0, 0, 0, 1))
+        var t4 = Int(perf_counter_ns())
+        for k in range(10000):
+            var a = Real(k) * 0.001
+            cs.update(Vec3(5 * sin(a), 0, 5 * cos(a), 0), Quat.from_axis_angle(Vec3(0, 1, 0, 0), a), 1.0 / 60.0)
+        keep(cs.position[0])
+        print("| CamSpring split" if mode == SPRING_SPLIT else "| CamSpring motor", "|", (Int(perf_counter_ns()) - t4) // 10000, "|")
+    var pts: List[Vec3] = [Vec3(-12, 3, 0, 0), Vec3(-10, 3, 2, 0), Vec3(10, 5, -2, 0), Vec3(12, 3, 0, 0)]
+    var cr = CatmullRom[3, 0.5](pts^)
+    var rail = DollyRail(cr.to_bezier_path(), 256, 0.3)
+    var t5 = Int(perf_counter_ns())
+    for k in range(10000):
+        var p = rail.update(Vec3(-12 + Real(k) * 0.002, 0, -5, 0), 1.0 / 60.0)
+        keep(p.position[0])
+    print("| dolly rail (3 segments, 256 samples) |", (Int(perf_counter_ns()) - t5) // 10000, "|")
+    var cen = List[Vec3]()
+    var rad = List[Real]()
+    for i in range(16):
+        cen.append(Vec3(Real(i % 4) * 3, Real(i // 4), Real(i % 3), 0))
+        rad.append(0.5)
+    var t6 = Int(perf_counter_ns())
+    var acc2 = Real(0)
+    for _ in range(10000):
+        acc2 += frame_targets(cen, rad, Vec3(0.2, -0.3, -1, 0), 1.0, 16.0 / 9.0)[0]
+    keep(acc2)
+    print("| frame_targets, 16 spheres |", (Int(perf_counter_ns()) - t6) // 10000, "|")
     print("")

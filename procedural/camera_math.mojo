@@ -14,13 +14,30 @@
   * `Shake`: trauma-based camera shake (Eiserloh, GDC 2016): trauma decays
     linearly, the offset is trauma^2 x max x seeded noise of time, so the same
     seed and time give the same shake.
+  * `CamSpring` (a seam, `SPRING_SPLIT` / `SPRING_MOTOR`): a critically damped
+    spring on a whole pose with velocity state. SPLIT springs the position
+    and the rotation (as a rotation vector) separately; MOTOR springs the
+    6-vector log of the pose relative to the target, so a rotation about a
+    pivot follows the screw (an arc around the pivot) instead of the chord.
+    They agree for pure translation and for pure rotation.
+  * `frame_targets`: where to put a camera looking along a direction so a set
+    of spheres is inside the view (bounding sphere of the spheres).
+  * `DollyRail`: a camera on a spline rail (17.36 arc-length table and
+    rotation-minimising frames) that slides to the rail point nearest the
+    target with a spring and looks at it, the frame's normal as up.
 """
 
-from std.math import sqrt, tan, exp, acos, sin
+from std.math import sqrt, tan, exp, acos, sin, atan, isfinite
 from geometry.vec import Real, Vec3, dot, cross, length
 from geometry.quat import Quat, slerp
 from geometry.mat import Mat4
+from geometry.motor import Motor3
+from geometry.galie import Screw3, exp_screw3, log_motor3
+from geometry.spline import BezierPath, ArcLengthTable, build_arc_length_table, build_rmf_frames, frame_at_distance, closest_point
 from .noise import perlin2
+
+comptime SPRING_SPLIT = 0
+comptime SPRING_MOTOR = 1
 
 
 @fieldwise_init
@@ -129,6 +146,13 @@ struct Frustum(Copyable, Movable):
                 return False
         return True
 
+    def sphere_inside(self, c: Vec3, radius: Real) -> Bool:
+        """The whole sphere is inside every plane."""
+        for pl in self.planes:
+            if dot(pl.n, c) + pl.d < radius:
+                return False
+        return True
+
     def aabb_visible(self, lo: Vec3, hi: Vec3) -> Bool:
         """Conservative: False only when the box is wholly outside one
         plane (the positive-vertex test)."""
@@ -191,3 +215,166 @@ struct Shake(Copyable, Movable):
         var p = Vec3(perlin2(u, 0.5, self.seed), perlin2(u, 1.5, self.seed), perlin2(u, 2.5, self.seed), 0) * (s * self.max_offset)
         var a = Vec3(perlin2(u, 3.5, self.seed), perlin2(u, 4.5, self.seed), perlin2(u, 5.5, self.seed), 0) * (s * self.max_angle)
         return (p, a)
+
+
+def _spring_rate(half_life: Real) -> Real:
+    return 4 * 0.69314718 / max(half_life, Real(1e-6)) / 2
+
+
+struct CamSpring(Copyable, Movable):
+    """Critically damped spring on a camera pose (position + rotation) with
+    velocity state. `mode` = SPRING_SPLIT or SPRING_MOTOR (see the module
+    note); `va` / `vb` are the rates of the translation / rotation parts
+    (world velocity and rotation-vector rate for SPLIT, the screw's parts in
+    the target frame for MOTOR)."""
+
+    var mode: Int
+    var half_life: Real
+    var position: Vec3
+    var rotation: Quat
+    var va: Vec3
+    var vb: Vec3
+
+    def __init__(out self, mode: Int, half_life: Real, position: Vec3, rotation: Quat) raises:
+        if mode != SPRING_SPLIT and mode != SPRING_MOTOR:
+            raise Error("CamSpring: mode must be SPRING_SPLIT or SPRING_MOTOR")
+        if not (half_life > 0):
+            raise Error("CamSpring: half_life must be > 0")
+        self.mode = mode
+        self.half_life = half_life
+        self.position = position
+        self.rotation = rotation
+        self.va = Vec3(0, 0, 0, 0)
+        self.vb = Vec3(0, 0, 0, 0)
+
+    def update(mut self, target_pos: Vec3, target_rot: Quat, dt: Real):
+        """One step of `dt` toward the target pose. `dt <= 0` or a
+        non-finite target changes nothing."""
+        if not (dt > 0) or not (isfinite(target_pos[0]) and isfinite(target_pos[1]) and isfinite(target_pos[2])):
+            return
+        var t = target_rot
+        var q = self.rotation
+        if q.x * t.x + q.y * t.y + q.z * t.z + q.w * t.w < 0:
+            t = Quat(-t.x, -t.y, -t.z, -t.w)
+        var zero = Vec3(0, 0, 0, 0)
+        if self.mode == SPRING_SPLIT:
+            var pr = spring_damp(self.position, self.va, target_pos, self.half_life, dt)
+            self.position = pr[0]
+            self.va = pr[1]
+            var tm = Motor3.from_quat(t)
+            var d = log_motor3(tm.reverse() * Motor3.from_quat(q))
+            var rr = spring_damp(Vec3(d.b12, d.b13, d.b23, 0), self.vb, zero, self.half_life, dt)
+            self.vb = rr[1]
+            var e = rr[0]
+            var m = (tm * exp_screw3(Screw3(e[0], e[1], e[2], 0, 0, 0))).normalized()
+            self.rotation = m.to_quat_translation()[0].normalized()
+            return
+        var tm = Motor3.from_quat_translation(t, target_pos)
+        var d = log_motor3(tm.reverse() * Motor3.from_quat_translation(q, self.position))
+        var rr = spring_damp(Vec3(d.b12, d.b13, d.b23, 0), self.vb, zero, self.half_life, dt)
+        var tr = spring_damp(Vec3(d.b10, d.b20, d.b30, 0), self.va, zero, self.half_life, dt)
+        self.vb = rr[1]
+        self.va = tr[1]
+        var e = rr[0]
+        var f = tr[0]
+        var m = (tm * exp_screw3(Screw3(e[0], e[1], e[2], f[0], f[1], f[2]))).normalized()
+        var qt = m.to_quat_translation()
+        self.rotation = qt[0].normalized()
+        self.position = qt[1]
+
+    def pose(self, fov_y: Real, aspect: Real, near: Real, far: Real) -> CameraPose:
+        return CameraPose(self.position, self.rotation, fov_y, aspect, near, far)
+
+
+def frame_targets(centers: List[Vec3], radii: List[Real], direction: Vec3, fov_y: Real, aspect: Real) raises -> Vec3:
+    """Camera position looking along `direction` with every sphere inside
+    the view: the spheres' bounding sphere (centre = middle of their box) at
+    the distance where it fits the narrower of the two field-of-view
+    half-angles. Raises on no targets, mismatched lists, a zero direction or
+    a field of view outside (0, pi)."""
+    var n = len(centers)
+    if n == 0 or len(radii) != n:
+        raise Error("frame_targets: need one radius per centre and at least one target")
+    if not (fov_y > 0 and fov_y < 3.14159265) or not (aspect > 0):
+        raise Error("frame_targets: fov_y must be in (0, pi) and aspect > 0")
+    var l = length(direction)
+    if not (l > 0):
+        raise Error("frame_targets: zero direction")
+    var lo = centers[0]
+    var hi = centers[0]
+    for i in range(n):
+        lo = min(lo, centers[i])
+        hi = max(hi, centers[i])
+    var c = (lo + hi) * 0.5
+    var r = Real(0)
+    for i in range(n):
+        r = max(r, length(centers[i] - c) + max(radii[i], Real(0)))
+    var half = min(fov_y / 2, atan(tan(fov_y / 2) * aspect))
+    return c - direction / l * (r / sin(half))
+
+
+struct DollyRail(Copyable, Movable):
+    """A camera on a spline rail: it slides (critically damped, along arc
+    length) toward the rail point nearest the target and looks at the
+    target with the rail's rotation-minimising normal as up, so it does not
+    roll where the rail turns vertical."""
+
+    var path: BezierPath[3]
+    var table: ArcLengthTable
+    var frames: List[Motor3]
+    var s: Real  # arc length of the camera on the rail
+    var speed: Real  # along the rail, m/s
+    var half_life: Real
+
+    def __init__(out self, var path: BezierPath[3], samples: Int = 128, half_life: Real = 0.3) raises:
+        if samples < 2:
+            raise Error("DollyRail: need at least 2 samples")
+        self.table = build_arc_length_table[3](path, samples)
+        self.frames = build_rmf_frames(path, self.table)
+        self.path = path^
+        self.s = 0
+        self.speed = 0
+        self.half_life = half_life
+
+    def length(self) -> Real:
+        return self.table.total_length()
+
+    def nearest_s(self, p: Vec3) -> Real:
+        """Arc length of the rail point nearest `p`."""
+        var t = closest_point[3](self.path, p)
+        ref ts = self.table.ts
+        var n = len(ts)
+        if t <= ts[0]:
+            return 0
+        if t >= ts[n - 1]:
+            return self.table.cum[n - 1]
+        var lo = 0
+        var hi = n - 1
+        while hi - lo > 1:
+            var mid = (lo + hi) // 2
+            if ts[mid] <= t:
+                lo = mid
+            else:
+                hi = mid
+        var f = (t - ts[lo]) / (ts[hi] - ts[lo])
+        return self.table.cum[lo] + f * (self.table.cum[hi] - self.table.cum[lo])
+
+    def update(mut self, target: Vec3, dt: Real, fov_y: Real = 1.0, aspect: Real = 16.0 / 9.0) -> CameraPose:
+        """One step: slide toward the nearest rail point, look at `target`.
+        `dt <= 0` or a non-finite target only re-evaluates the pose."""
+        if dt > 0 and isfinite(target[0]) and isfinite(target[1]) and isfinite(target[2]):
+            var goal = self.nearest_s(target)
+            var y = _spring_rate(self.half_life)
+            var j0 = self.s - goal
+            var j1 = self.speed + j0 * y
+            var e = exp(-y * dt)
+            self.s = min(max(goal + (j0 + j1 * dt) * e, Real(0)), self.length())
+            self.speed = (self.speed - j1 * (y * dt)) * e
+        var fr = frame_at_distance(self.frames, self.table, self.s)
+        var qt = fr.to_quat_translation()
+        var pos = qt[1]
+        var up = qt[0].rotate(Vec3(0, 1, 0, 0))
+        var look = target - pos
+        if not (length(look) > 1e-9) or not isfinite(look[0]):
+            look = qt[0].rotate(Vec3(0, 0, 1, 0))
+        return CameraPose(pos, look_rotation(look, up), fov_y, aspect, 0.1, 1000)
