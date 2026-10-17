@@ -3282,6 +3282,11 @@
 >   linux-aarch64 抓到一個本機抓不到的錯 —— `test_trace_runtime` 以固定 `--target-cpu skylake` 啟動子行程(`unknown target CPU`),已改為與
 >   `run_tests.sh` 同規則(`39f5b64`)。
 > - **可重現性探針 ✅**:`scripts/repro_probe.py`(`pixi run repro-probe`,`--selftest` 3/3):同 commit 連建兩次,16 個 `build/*.mojoc` 的 SHA-256 全數相同(2 m 43 s)。
+> - **CI 套件逾時(2026-10-17)**:PR #31 / #32 的 `gate` job 在約 270 個測試檔時超過 `agent_gate.sh` 的 3600 s 套件預算(exit 124,停在 `test_softstep6`;
+>   linux-aarch64 / macOS 的 portability 失敗則是另一個問題,`test_fracture`「shards」,x86 上 7 種編譯變體與 12 種擾動皆重現不出)。`run_tests.sh` 加 `LUDENS_TEST_JOBS=N`:
+>   N 個檔案同時跑,各自的輸出先寫入緩衝,再依原順序印出,所以 stdout 與循序執行逐位元相同;依該順序第一個失敗的檔案以其結束碼停止。
+>   本機 4 核:unit tier 374 s → 106 s,輸出 `cmp` 相同;整個閘門 278 檔 14 m 14 s,既有 golden 段全部相同;以假 `mojo` 讓一個檔回傳 3 時,平行與循序都印到該檔並回傳 3。
+>   `ci.yml` 的 gate job 設 4、portability 設 3。
 > - 選配未做:工具鏈升版金絲雀。
 
 #### 17.82 品質工具 — Wave A(工程)

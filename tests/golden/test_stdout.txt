@@ -637,6 +637,12 @@ build: all packages precompiled into build/
   spawned 0.04 m into the floor: bottom after one update 0.0049999952
   rounding 0 (sharp box): x 0.9999997  bottom 0.010049999
 [PASS] character_box - 10 / 10 checks
+--- tests/test_character_up.mojo ---
+  capsule: up +y ends at [0.0, 1.11, 3.9485808, 0.0]  up +x ends at [1.11, 0.0, 3.9485808, 0.0]  (rotated back, apart 0.0 m)
+  box: up +y ends at [-3.311622e-29, 1.1100501, 3.9963012, 0.0]  up +x ends at [1.11005, 2.831627e-17, 3.9963012, 0.0]  (rotated back, apart 1.1920929e-07 m)
+  jump at 4 m/s: peak height along up  +y 1.76  +x 1.76
+  mover, double jump + pad + fly: +y ends at [0.0, 6.1224046, 6.135001, 0.0] peak 6.1224046 jumps 2 ; +x rotated back [-0.0, 6.1224046, 6.135001, 0.0] peak 6.1224046 jumps 2
+[PASS] character_up - 7 / 7 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
@@ -965,6 +971,14 @@ build: all packages precompiled into build/
   knockback 5 m/s along z while walking 2 m/s along x: z moved 1.6236097  walk speed 2.0
   on a platform turning 1 rad/s for 1 s: heading 0.98333305
 [PASS] movement - 13 / 13 checks
+--- tests/test_movement_modes.mojo ---
+  1.0 m wall: climbs 1  foot 1.0072777  z 5.8999963
+  0.9 m x 0.2 m wall: vaults 1  foot 0.0072777867  z 6.3999963
+  0.2 m step: climbs 0  foot 0.20999998 ;  2.0 m wall: climbs 0  foot 0.00999999 ;  climbing off: foot 0.00999999
+  after 1 s driving and exiting: x 1.0000069  foot 0.00999999  mode 0
+  tick 40: mover mode 4 (4 = climbing)
+  tick 40: mover mode 4 (4 = climbing)
+[PASS] movement_modes - 8 / 8 checks
 --- tests/test_multidof.mojo ---
   universal vs ball, swing about z, 2 s: max tip distance 2.9351884e-07
   universal, swinging about x and z without gravity, 2 s: max |parent x . body z| 2.9802322e-08
