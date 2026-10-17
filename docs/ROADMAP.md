@@ -1643,8 +1643,11 @@
 > 對其所在位置的水面比較,球用球心上方的水面。`tests/test_water_seam.mojo` 3/3:箱與球 3 s 內與 `apply_buoyancy`(`FlatWater` 在水體頂)逐位相同;
 > 1 m 箱(密度 500)在 40 m、A = 0.5 的 Gerstner 湧浪上起伏 1.18(2A = 1;自身起伏週期約 1.4 s 對波 5.06 s 的受迫放大,無阻尼為 1.085),
 > 在同一波的 FFT 單模態上起伏完全相同。
-> **未做**:淺水格網的流速與非線性項、MAC 投影格網流體 / FLIP、煙霧、LBM 擴充(任意方向體力、MRT)、
-> 粒子 → 表面、Taylor–Green parity、FFT 海洋的水平位移(choppy)與法線。
+> **LBM 任意方向體力**:`Lbm.force_y` / `force_z`(x 仍是 `collide` 內的速度平移),以碰撞後的源項 f_i += 3 w_i (c_i·F) 加入(每格每步正好 F 的動量、
+> 不加質量);放進 `collide` 的分支會改變它的編譯結果、讓 `test_vehicle_aero` 的阻力係數第 7 位數變動,所以獨立一趟,現有 LBM golden 全部逐位不變。
+> GPU 版遇到 y / z 體力 raise(只在 CPU)。`tests/test_lbm_body_force.mojo` 4/4:沿 z、沿 y 驅動的 Poiseuille 通道對解析拋物線 0.25 % / 0.27 %
+> (沿 x 0.17 %),與 x 驅動的剖面差 0.08 % / 0.10 % 峰值;開放週期箱沿 z 200 步平均速度對 200 F/ρ 差 8e-4。
+> **未做**:淺水格網的流速與非線性項、MAC 投影格網流體 / FLIP、煙霧、LBM MRT、粒子 → 表面、Taylor–Green parity、FFT 海洋的水平位移(choppy)與法線。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
