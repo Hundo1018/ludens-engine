@@ -72,6 +72,8 @@ struct Lbm(Movable, Deinitable):
     var opp: Array[Int, Q]
     var inlet_u: Real  # x velocity imposed at the inlet
     var force_x: Real  # uniform body force, the pressure gradient of a channel
+    var force_y: Real  # the other two components (17.60; CPU only; `_force_yz`)
+    var force_z: Real
     # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
     # bit. 0.1-0.2 is the usual range; 0.17 is the classic value.
     var smagorinsky: Real
@@ -125,6 +127,8 @@ struct Lbm(Movable, Deinitable):
             self.opp[i] = opposite(i)
         self.inlet_u = 0
         self.force_x = 0
+        self.force_y = 0
+        self.force_z = 0
         self.smagorinsky = 0
         self.fx = 0
         self.fy = 0
@@ -762,7 +766,25 @@ struct Lbm(Movable, Deinitable):
             return 0
         return self.fx / (0.5 * u_inf * u_inf * area)
 
+    def _force_yz(mut self):
+        """The y / z body force as a source after collision (17.60):
+        f_i += 3 w_i (c_i . F) on fluid cells adds exactly F of momentum
+        per cell per step and no mass (sum w_i c_i = 0, sum w_i c_i c_i = I / 3).
+        A separate pass rather than the x component's velocity shift inside
+        `collide`: a branch there changed how `collide` compiled and moved
+        `test_vehicle_aero`'s drag digits."""
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            for i in range(1, Q):
+                var cf = Real(self.ey[i]) * self.force_y + Real(self.ez[i]) * self.force_z
+                if cf != 0:
+                    self.f[i * n + c] += 3 * self.w[i] * cf
+
     def step(mut self):
         self.collide()
+        if self.force_y != 0 or self.force_z != 0:
+            self._force_yz()
         self.stream()
         self.apply_inlet_outlet()
