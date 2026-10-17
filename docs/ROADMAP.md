@@ -1745,7 +1745,8 @@
 > **膨脹後的傳導矩陣**:`HeatTets.refresh(body)` 依 `expand` 後的靜止形重算元素傳導(vol ∇Ni·∇Nj)與 Gershgorin 步長;熱容(代表質量)不變。`tests/test_thermal_refresh.mojo` 6/6:4×2×2 梁 400 K、α_L 1.2e-3(s = 1.12):`expand` 單獨不動傳導;`refresh` 後傳導 / (s × 靜止) 最差相對誤差 1.2e-7,`max_dt` 0.833 → 0.744(比 1.1200003);膨脹後絕熱梁 200 步熱量漂移 3.1e-6;元素數不符 raise。
 > **股線 ↔ 氣流雙向**:`physics/strand_air.mojo` 的 `StrandAir`(與 `ClothAir` 共用 `lattice_corners` / `lattice_velocity` / `lattice_momentum`):非根粒子以股線自身的 drag 率朝格子風速隱式拖曳,每粒子代表 `particle_mass`,−J 三線性寫回格子;股線自身步驟時暫關其 drag。`tests/test_strand_air.mojo` 7/7(24³ 格、0.4 m/s 風、6×6 股 × 8 粒子、20 /s、每粒 0.1 g):0.4 s 後梢端平均順風偏移 單向 0.120 m、雙向 0.055 m(空氣被減速);刷後下游 vx 0.068 vs 旁邊 0.386 m/s;空氣動量變化 −0.0104942 vs 衝量 −0.0104930;單向時均勻流動量只因 f32 捨入漂 7.5e-8(1.5e-6 相對)。
 > **顆粒 – 流體(泥沙懸浮)**:`physics/sediment.mojo` 的 `Sediment`:點顆粒(d、ρp)在 `Lbm` 流體中,Stokes 拖曳率 β = 18 ρ ν / (ρp d²)、浮力修正重力,隱式積分(任意 β dt 下靜水終端速度恰為 g' / β),拖曳衝量反向寫回 8 格;只交換拖曳(重量 / 浮力的靜水部分留在格子自身壓力)。顆粒彼此不碰撞,密堆屬 17.58 MPM 砂。`tests/test_sediment.mojo` 8/8(24³、dx 2 mm、1 ms、ν 4e-5;石英 0.5 mm,β 1087 /s):靜水終端 5.6146 mm/s 與 Stokes 一致;上升流 2 倍終端速度時 0.5 s 上升 2.802 mm(預期 2.807),0.5 倍時下沉 1.401 mm(預期 1.404);400 顆雲雙向 0.3 s 下沉 3.46 mm vs 單向 1.68 mm;流體動量變化 −1.25895e-4 vs 衝量 −1.25891e-4。
-> **未做**:`Coupler` 接上布料 + 風 + 剛體(現有各對仍各自排程)。
+> **整合**:`tests/test_coupler_snapshot.mojo` 3/3:加熱板 / 煙(32² 氣體)經 `Coupler` 跑 5 步後 `save()`、再 5 步記錄、`restore()` 後重跑 5 步,板溫、氣溫、速度逐位相同;`ITERATED` 於此對每步 ≤ 3 次收斂,1 s 後氣體多餘熱與 `INTERP` 相對差 3.0e-6(板熱容大、弱耦合)。
+> **未做**:布料 + 風 + 剛體三方經 `Coupler`(`ClothAir` / `StrandAir` / `Sediment` 自帶排程,尚未改寫成 `CoupledPart`);`Coupler` 狀態未接 `state_io` 快照(各 part 的 save / restore 為記憶體內)。
 
 > **現況**:耦合是**逐對手寫**,沒有耦合排程,也沒有除溫度以外的場種類(溫度也不存在)。已有的耦合:
 > 剛體 ↔ 晶格軟體雙向(`physics/soft_couple.mojo:46`,有動量守恆量測 0.03%,ROADMAP 6.1);
