@@ -406,6 +406,11 @@ build: all packages precompiled into build/
 [PASS] mat - 34 / 34 checks
 --- tests/test_motor_parity.mojo ---
 [PASS] motor_parity - 285 / 285 checks
+--- tests/test_mpm_sand.mojo ---
+  block at 2 m/s on the obstacle floor: slides 0.34606156 m with mu 0.6 (v^2/2 mu g = 0.340); 0.8314862 m with mu 0
+  sand poured on a box: particles deeper than half a cell inside 0  resting on its top 9 of 288
+  column 0.42 m after 0.3 s, top / spread: elastic 0.372447 0.21578056 ; sand 30 deg 0.08373968 0.56632865 ; 60 deg 0.17557476 0.3200286 ; 85 deg 0.34503222 0.22743237
+[PASS] mpm_sand - 5 / 5 checks
 --- tests/test_muscle_hill.mojo ---
   identity curves vs plain muscle after 2 s: q 0.40190706 0.40190706
   force-length peak at q 0.5 (fiber = l_opt at 0.5)  fl at +30 % 0.81873095
