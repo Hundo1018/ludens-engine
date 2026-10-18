@@ -25,7 +25,8 @@ from ecs.world import World
 from ecs.sparse_backend import SparseSetBackend
 from ecs.component import ComponentType
 from ecs.entity import Entity
-from ecs.host_components import HostComponents
+from ecs.host_components import HostComponents, query_host
+from gameplay.save import SaveWriter, SaveReader
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -178,4 +179,33 @@ def main() raises:
     except:
         errs += 1
     s.check(errs == 3, "wrong size, duplicate name, offset past the end raise")
+
+    # ---- host components in a query and in a save (17.78) ----------------------------------
+    # `query_host[Tag]` with Health + Mana: the entities carrying the
+    # compile-time Tag and both host components, in Tag's query order
+    for k in range(0, len(both), 2):  # Tag on every other entity that has both host components
+        if not w.has[Tag](both[k]):
+            w.set(both[k], Tag(k))
+    var mixed = query_host[SparseSetBackend[Health, Tag], Tag](w, hc, [hid, mid])
+    var expect = List[Entity]()
+    for e in w.query1[Tag]():
+        if hc.has(e, hid) and hc.has(e, mid):
+            expect.append(e)
+    var same_q = len(mixed) == len(expect) and len(mixed) > 0
+    if same_q:
+        for k in range(len(mixed)):
+            same_q = same_q and mixed[k] == expect[k]
+    var bad_id = False
+    try:
+        _ = query_host[SparseSetBackend[Health, Tag], Tag](w, hc, [99])
+    except:
+        bad_id = True
+    print("query_host[Tag](Health, Mana):", len(mixed), "entities")
+    s.check(same_q and bad_id, "a query mixing a compiled and two host components; unknown host id raises")
+    var sw = SaveWriter()
+    sw.add_raw("host_components", hc.to_bytes())
+    var sr = SaveReader(sw.bytes())
+    var back = HostComponents.from_bytes(sr.raw("host_components"))
+    var restored = back.to_bytes() == hc.to_bytes() and len(query_host[SparseSetBackend[Health, Tag], Tag](w, back, [hid, mid])) == len(mixed)
+    s.check(restored and len(sr.raw("missing")) == 0, "host components through a save file section: same store, same query")
     s.finish()
