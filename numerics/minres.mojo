@@ -13,7 +13,10 @@ Float64 like `cg` / `gmres` (Real is f32).
 symmetric positive-definite preconditioner, and a saddle point's zero block
 has no diagonal to invert. The convergence estimate is then in the M^-1
 norm; the returned `residual` is always the true ||b - A x|| / ||b|| of the
-f32 x, with the same floor as `gmres` (max(tol, 1.2e-4)). `stalled`
+f32 x, with the same floor as `gmres` (max(tol, 1.2e-4)) unless the caller
+passes `floor`: rounding x to f32 alone leaves a relative residual of about
+eps_f32 cond(A), 5.2e-4 on the stiff implicit FEM system of
+`test_fem_nh_implicit`, so a caller with such a system raises it. `stalled`
 reports a Lanczos breakdown (beta = 0) short of the tolerance.
 """
 
@@ -34,6 +37,7 @@ def _apply64[Op: LinearOperator](a: Op, v: List[Float64], mut tmp: List[Real], m
 def minres[Op: LinearOperator](
     a: Op, b: List[Real], mut x: List[Real],
     tol: Real = 1e-6, max_iters: Int = 0, precondition: Bool = False,
+    floor: Real = 1.2e-4,
 ) -> CgResult:
     var n = a.size()
     var limit = max_iters if max_iters > 0 else 4 * n
@@ -125,7 +129,7 @@ def minres[Op: LinearOperator](
     for i in range(n):
         r1[i] = b64[i] - r1[i]
     var true_res = norm64(r1) / bn
-    var ok = est <= Float64(tol) and true_res <= max(Float64(tol), 1.2e-4)
+    var ok = est <= Float64(tol) and true_res <= max(Float64(tol), Float64(floor))
     if stalled and ok:
         stalled = False
     return CgResult(ok, stalled, it, Real(true_res))
