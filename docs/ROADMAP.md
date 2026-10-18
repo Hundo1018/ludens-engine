@@ -1796,7 +1796,11 @@
 > 盒內平均 v 為最大值的 1.4e-3(半拉格朗日平流不守恆動量)。
 > **修正(`MacFluid2` 投影)**:流場已近無散時右端只剩捨入雜訊,以上一步壓力暖啟動的 CG 初始殘差為 ‖b‖ 的許多倍,f32 達不到 tol ‖b‖ 而崩潰,留下的壓力把速度灌大:
 > 上述 2-D 場 15 步內 |u| 0.05 → 667。`mac_fluid.warm_start_or_zero`:暖啟動殘差大於 ‖b‖ 時改由零開始(之後每步 16–19 次收斂);既有 MAC 測試的 golden 不變。
-> **未做**:MAC 的 level-set 自由表面、cumulant LBM、3-D 渦度約束與 multigrid。
+> **Level-set 自由表面(2026-10-18)**:`physics/mac_levelset.mojo` `LevelSetWater2`(2-D 牆盒 MAC、格心 level set、只解液體格的壓力:牆 Neumann、
+> 水面 ghost-fluid Dirichlet p = 0(θ = φ_l / (φ_l − φ_a) ≥ 0.01)、速度外插 4 圈、每 5 步 fast sweeping 重距離化)。`tests/test_levelset_water.mojo` 5/5
+> (32²、dt 1/120):半滿靜水 1 s 最大面速 1.6e-7、體積不變、每次解收斂;潰壩 0.25 × 0.5 m:T = 1.48 時前緣 Z = 1.81(Martin & Moyce 約 2.0)、
+> 0.34 s 到對牆、1 s 內體積比 0.96–1.13(level set 不守恆體積)。
+> **未做**:cumulant LBM、3-D 渦度約束與 multigrid、3-D 自由表面、粒子 level set(體積修正)。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
