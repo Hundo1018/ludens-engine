@@ -126,3 +126,10 @@ def main() raises:
         for p in [0, 10]:
             var r = run(8, 400, 0, 1, g, 0.1 * g, Real(p))
             print("| ankle torque PD", g, "/", 0.1 * g, ", push", p, "N s at 1 s | 8 | 400 | 1 |", r[0], "|", r[1], "|")
+    var hz_stiff: List[Real] = [15, 40]
+    var kp2: List[Real] = [0.3, 1.0, 2.0]
+    for h in hz_stiff:
+        for kp in kp2:
+            for p in [0, 10, 20]:
+                var r = run(h, 3000, kp, 1, 0, 0, Real(p))
+                print("| stiff ankle servo kp", kp, ", push", p, "N s | ", h, "| 3000 | 1 |", r[0], "|", r[1], "|")
