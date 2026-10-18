@@ -285,7 +285,7 @@ def _clip_poly_plane(
     return (out^, n_out)
 
 
-def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
+def spread4_core(pts: Span[Vec3, _], dep: Span[Real, _], c: Int, n: Vec3) -> Tuple[Array[Int, 4], Int]:
     """Indices of at most 4 contact points (ROADMAP 17.52). Up to 4: all, in
     order. More (a clipped face with many vertices, e.g. a tessellated
     cylinder's cap, or two boxes face to face with a slight yaw): the
@@ -296,13 +296,17 @@ def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
     one arc of a 32-gon and the cylinder tipped over; keeping the four
     deepest of a box pair's 8 clipped points (depths equal to 1e-7) could
     keep two points at one corner and none at another, and a resting
-    3-box stack kicked."""
-    var out = List[Int]()
-    var c = len(pts)
+    3-box stack kicked.
+
+    Works on spans of the first `c` points and returns at most 4 indices in
+    a fixed array (no allocation: the box-box path calls it for every
+    manifold, ROADMAP 17.79)."""
+    var out = Array[Int, 4](fill=-1)
+    var k = 0
     if c <= 4:
         for i in range(c):
-            out.append(i)
-        return out^
+            out[i] = i
+        return (out^, c)
     # the deepest point -- or, among points within a tolerance of the
     # deepest (a flat contact, depths equal to round-off), the one farthest
     # from the centroid: an incident edge nearly parallel to a clip plane
@@ -359,12 +363,26 @@ def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
         if score > best:
             best = score
             i3 = i
-    out.append(i0)
-    out.append(i1)
+    out[k] = i0
+    k += 1
+    out[k] = i1
+    k += 1
     if i2 != i0 and i2 != i1:
-        out.append(i2)
+        out[k] = i2
+        k += 1
     if i3 >= 0:
-        out.append(i3)
+        out[k] = i3
+        k += 1
+    return (out^, k)
+
+
+def spread4(pts: List[Vec3], dep: List[Real], n: Vec3) -> List[Int]:
+    """`spread4_core` over lists (hull and mesh callers, any number of
+    points)."""
+    var r = spread4_core(Span(pts), Span(dep), len(pts), n)
+    var out = List[Int](capacity=r[1])
+    for k in range(r[1]):
+        out.append(r[0][k])
     return out^
 
 
@@ -425,29 +443,37 @@ def _face_manifold(
     # extent along the normal: 1e-6 for a 0.25 m box; relative so a scene
     # scaled by 2^k keeps the same points, ROADMAP 17.75), then a spread
     # four of them
-    var cand = List[Vec3]()
-    var cdep = List[Real]()
+    # (fixed arrays: at most 8 clipped points, no allocation per manifold;
+    # the List versions were ~2400 allocations per step for 200 boxes,
+    # ROADMAP 17.79)
+    var cand = Array[Vec3, 8](fill=Vec3(0, 0, 0, 0))
+    var cdep = Array[Real, 8](fill=0)
+    var nc = 0
     var behind = Real(4e-6) * rh[j]
     for i in range(count):
         var dd = face_off - dot(nf, pts[i])  # >0 means behind the face
         if dd > behind:
-            cand.append(pts[i])
-            cdep.append(dd)
-    var pick = spread4(cand, cdep, nf)
-    if len(cand) <= 4:
+            cand[nc] = pts[i]
+            cdep[nc] = dd
+            nc += 1
+    var picked = spread4_core(Span(cand), Span(cdep), nc, nf)
+    var pick = picked[0].copy()
+    var np = picked[1]
+    if nc <= 4:
         # unchanged order for up to four: deepest first, as before
-        pick = List[Int]()
+        np = 0
         var used = Array[Bool, 8](fill=False)
-        for _ in range(len(cand)):
+        for _ in range(nc):
             var bi = -1
             var bd = Real(-1)
-            for i in range(len(cand)):
+            for i in range(nc):
                 if not used[i] and cdep[i] > bd:
                     bd = cdep[i]
                     bi = i
             used[bi] = True
-            pick.append(bi)
-    for k in range(len(pick)):
+            pick[np] = bi
+            np += 1
+    for k in range(np):
         m.add(cand[pick[k]], cdep[pick[k]])
     if m.count == 0:
         return ContactManifold[3].miss()

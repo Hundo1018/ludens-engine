@@ -1938,10 +1938,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         candidates the last two fan out through `dispatch`
         (`physics.collide_par`), keeping the candidate order, so the result
         is bit-identical to `par=False`."""
-        var raws = List[RawContact]()
+        # reserved from last step's contact count (ROADMAP 17.79): these
+        # lists were rebuilt from empty every step, ~9 reallocations each
+        var est = len(self.cache) + 8
+        var raws = List[RawContact](capacity=est)
         var sraws = List[RawContact]()
-        var ci = List[Int]()
-        var cj = List[Int]()
+        var ci = List[Int](capacity=2 * est)
+        var cj = List[Int](capacity=2 * est)
         self.trace.begin("broadphase")
         var n = len(self.bset.bodies)
         # ROADMAP 17.5: two bodies held together by a live weld do not collide
@@ -1964,7 +1967,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # though the `__init__` comptime assert guarantees they are
             # equal (mojo_1.1_migration.md Gotcha #2) -- `rebind` bridges
             # the two syntactically-distinct, semantically-equal types.
-            var boxes = List[AABB[Self.BP.dim]]()
+            var boxes = List[AABB[Self.BP.dim]](capacity=n)
             for i in range(n):
                 boxes.append(
                     rebind[AABB[Self.BP.dim]](
@@ -1973,7 +1976,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         )
                     )
                 )
-            var bp_pairs = List[Pair]()
+            var bp_pairs = List[Pair](capacity=2 * est)
             # `collect_bp_pairs` still wants a plain `List[Bool]` of which
             # bodies are static (it lives in `collision`, which cannot
             # import `physics.body_set`'s `MOTION_*` constants -- physics is
@@ -2098,7 +2101,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if fan:
             pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch, margin_base / SPEC_BASE)
         else:
-            pairs = List[ContactConstraint]()
+            pairs = List[ContactConstraint](capacity=len(raws))
             for c in range(len(raws)):
                 pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm, margin_base / SPEC_BASE))
         if len(self.material_mu) > 0 or len(self.material_hz) > 0:

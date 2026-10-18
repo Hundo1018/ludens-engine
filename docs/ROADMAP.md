@@ -2917,8 +2917,15 @@
 
 #### 17.79 資源治理 — Wave B
 
-> **狀態**:🔶 部分完成(2026-10-14:記憶體記帳、body / joint 上限檢查、接觸數上限、`Runtime` 接 `SimBudget`、ECS 儲存的記帳 ✅;預留 / 穩態零配置量測、
-> `BodySet` 尾端墓碑裁切、快取收縮未做;GPU 緩衝收縮屬第 7 層)。
+> **狀態**:🔶 部分完成(2026-10-14:記憶體記帳、body / joint 上限檢查、接觸數上限、`Runtime` 接 `SimBudget`、ECS 儲存的記帳 ✅;2026-10-18 穩態配置量測與預留 ✅
+> (每步 2465 → 49 次);`BodySet` 尾端墓碑裁切、快取收縮未做;GPU 緩衝收縮屬第 7 層)。
+> **進度(2026-10-18,穩態配置)**:`scripts/alloc_probe.py`(`pixi run alloc-probe`,selftest 1/1)以 LD_PRELOAD 的 C 計數器量每步配置次數:
+> Mojo 的 `List` 不經 libc malloc,而是 `KGEN_CompilerRT_AlignedAlloc` → 執行期 tcmalloc,所以只攔 malloc 時量到 0.1 次 / 步(對照組也 0.1,證明沒攔到)——
+> 改攔該符號後對照組(每步新建一個 List)為 1.4。`--sites <場景>` 以 backtrace + addr2line 列出前 15 個呼叫點。200 箱(睡眠關,暖機 60 步後量 30 步),每步配置次數:
+> serial 2465 → 49、broadphase 3108 → 159、island 平行 3207 → 258、colored 3139 → 190。來源與修正:(1)盒對盒 manifold 的 `_face_manifold` / `spread4` 每對建 4 個暫存
+> List(約 2400 次 / 步)→ 改為最多 8 點的固定陣列,`spread4_core` 以 `Span` 同時服務陣列與 List 呼叫端;(2)BVH / DBVH / hash grid / octree broadphase 每個 proxy 新建
+> 候選 List(約 500 次)→ 共用一個並 `clear`;(3)`_collect_pairs` 的每步串列從空長起(每個約 9 次重配)→ 依上一步接觸數預留。全部逐位不變(9 個盒相關測試 golden 相同)。
+> 剩下的 49 次多為小型每步串列與 Dict 成長;未追到 0。
 > **進度註(2026-10-13)**:`physics/resources.mojo`:`resource_report(scene)` 回傳 bodies / colliders / shapes(hull、mesh 含 BVH 節點、heightfield、SDF)/ contacts / joints / soft
 > 的使用中位元組(`len × size_of`,不含 broadphase 自身結構,所以是下界);`bytes_per_body` 給「再加 n 個 body 要多少」;`Limits(max_bodies, max_joints)` +
 > `check_room(scene, limits, bodies, joints)` 在公開邊界 raise(只算存活 body,移除的槽不算);`SolverConfig.max_contacts` 在熱路徑丟最新的 manifold 並計入新計數器

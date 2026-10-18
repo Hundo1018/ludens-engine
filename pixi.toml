@@ -61,6 +61,7 @@ repro-probe = "python3 scripts/repro_probe.py"
 icount = "python3 scripts/icount.py"
 # Which CPU target / optimisation factors change simulation bits (scripts/fp_probe.py; ROADMAP 17.76).
 fp-probe = "python3 scripts/fp_probe.py"
+alloc-probe = "python3 scripts/alloc_probe.py"
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.
