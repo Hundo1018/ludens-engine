@@ -23,6 +23,13 @@ per lattice step, rho 1.2, lattice viscosity 0.05) and a 0.2 m sheet
      air impulses) stays at rounding level and the air's momentum changes
      by minus what cloth and ball received. The ball in the sheet's
      wake falls faster than the same ball alone in still air.
+  5. Strands: `Coupler[StrandPart, AirPart]` at ratio 1 equals
+     `StrandAir.step` bit for bit over 200 steps (a 6 x 6 brush of
+     8-particle strands in a lattice flowing at 0.02), strands and
+     populations. Grains: `Coupler[GrainPart, AirPart]` equals
+     `Sediment.step` bit for bit over 300 steps (5 sand grains, 0.5 mm,
+     in water flowing up at twice their settling speed; `test_sediment`'s
+     setup).
 """
 
 from harness.runner import Suite
@@ -31,7 +38,12 @@ from fluid.lbm import Lbm
 from diag.counters import Counters
 from physics.cloth import MeshCloth, grid_mesh
 from physics.cloth_air import ClothAir, lattice_momentum
-from physics.cloth_air_parts import ClothPart, AirPart, BallPart
+from physics.cloth_air_parts import ClothPart, AirPart, BallPart, StrandPart, GrainPart
+from physics.sediment import Sediment
+from physics.strand import StrandSet
+from physics.strand_air import StrandAir
+from physics.rigid6 import Pose6
+from geometry.quat import Quat
 from physics.coupler import Coupler, Both, EXPLICIT, INTERP
 from physics.serialize import BinWriter, BinReader
 
@@ -61,6 +73,26 @@ def pair(ratio: Int, scheme: Int) raises -> Coupler[ClothPart, AirPart]:
     return Coupler[ClothPart, AirPart](
         ClothPart(c^, 2.0, G), AirPart(air(), Vec3(0, 0, 0, 0), DX, DT, RHO, ratio, x), ratio, scheme
     )
+
+
+def flowing() -> Lbm:
+    var l = Lbm(NL, NL, NL, 0.05)
+    l.init_uniform(1.0, 0.02, 0.0, 0.0)
+    return l^
+
+
+def water(uy_lat: Real) -> Lbm:
+    var l = Lbm(24, 24, 24, 0.01)
+    l.init_uniform(1.0, 0.0, uy_lat, 0.0)
+    return l^
+
+
+def brush(bones: List[Pose6]) raises -> StrandSet:
+    var ss = StrandSet(0.0, 20.0)
+    for i in range(6):
+        for k in range(6):
+            _ = ss.add(0, bones[0], Vec3(0.19 + Real(i) * 0.02, 0.40, 0.19 + Real(k) * 0.02, 0), Vec3(0, -1, 0, 0), 8, 0.03)
+    return ss^
 
 
 def same_cloth(a: MeshCloth, b: MeshCloth) -> Bool:
@@ -168,4 +200,50 @@ def main() raises:
     s.check(three.max_imbalance <= 1e-6 * sc3, "three-way: per-step imbalance at rounding level")
     s.check(rel < 1e-3, "three-way: air momentum change = -(cloth + ball impulses) within 1e-3")
     s.check(three.a.b.v[1] < lone.a.v[1], "the ball in the sheet's wake falls faster than alone")
+
+    # 5. strands
+    var bones: List[Pose6] = [Pose6(Vec3(0, 0, 0, 0), Quat.identity())]
+    var ref_s = brush(bones)
+    var ref_air = StrandAir(flowing(), Vec3(0, 0, 0, 0), DX, DT, RHO, 1e-4)
+    var bs = brush(bones)
+    var sx = bs.x.copy()
+    var sp = Coupler[StrandPart, AirPart](
+        StrandPart(bs^, bones.copy(), G, 1e-4), AirPart(flowing(), Vec3(0, 0, 0, 0), DX, DT, RHO, 1, sx), 1, EXPLICIT
+    )
+    for _ in range(200):
+        ref_air.step(ref_s, G, bones)
+        sp.step(DT, counters)
+    var same_s = True
+    for i in range(len(ref_s.x)):
+        for c in range(3):
+            same_s = same_s and ref_s.x[i][c] == sp.a.strands.x[i][c] and ref_s.v[i][c] == sp.a.strands.v[i][c]
+    print("  strands: 36 strands x 8 particles, 200 steps; strand impulse", ref_air.strand_impulse[0], sp.a.total[0])
+    s.check(same_s and same_f(ref_air.lbm, sp.b.lbm), "StrandPart + AirPart equal StrandAir.step bit for bit (200 steps)")
+
+    # grains (test_sediment's units: dx 2 mm, 1 ms, water)
+    var gdx = Real(0.002)
+    var gnu = Real(0.01) * gdx * gdx / DT
+    var lo = Vec3(0, 0, 0, 0)
+    var hi = Vec3(0.048, 0.048, 0.048, 0)
+    var ref_sed = Sediment(water(0), lo, gdx, DT, 1000.0, gnu, 2650.0, 5e-4, lo, hi)
+    var ws = ref_sed.settling_speed(G)
+    var uy = 2 * ws / (gdx / DT)
+    var sed = Sediment(water(uy), lo, gdx, DT, 1000.0, gnu, 2650.0, 5e-4, lo, hi)
+    var gx = List[Vec3]()
+    for k in range(5):
+        var p = Vec3(0.01 + 0.006 * Real(k), 0.02, 0.024, 0)
+        sed.add(p)
+        gx.append(p)
+    var gp = Coupler[GrainPart, AirPart](
+        GrainPart(gx.copy(), 1000.0, gnu, 2650.0, 5e-4, G, lo, hi), AirPart(water(uy), lo, gdx, DT, 1000.0, 1, gx), 1, EXPLICIT
+    )
+    for _ in range(300):
+        sed.step(G)
+        gp.step(DT, counters)
+    var same_g = True
+    for i in range(5):
+        for c in range(3):
+            same_g = same_g and sed.x[i][c] == gp.a.x[i][c] and sed.v[i][c] == gp.a.v[i][c]
+    print("  grains: 5 in water rising at 2 x settling speed, 300 steps; mean height", sed.mean_height(), " grain vy", sed.v[0][1], gp.a.v[0][1])
+    s.check(same_g and same_f(sed.lbm, gp.b.lbm), "GrainPart + AirPart equal Sediment.step bit for bit (300 steps)")
     s.finish()

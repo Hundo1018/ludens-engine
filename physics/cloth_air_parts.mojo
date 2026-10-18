@@ -32,6 +32,9 @@ from std.math import sqrt
 from geometry.vec import Real, Vec3, cross, dot
 from fluid.lbm import Lbm
 from .cloth import MeshCloth
+from .strand import StrandSet
+from .softbody import SoftBody, SP
+from .rigid6 import Pose6
 from .cloth_air import lattice_corners, lattice_velocity
 from .coupler import CoupledPart, write_reals, read_reals
 from .state_io import StateWriter, StateReader
@@ -374,4 +377,352 @@ struct BallPart(CoupledPart):
         self.air_u = r.rv()
         self.x_drag = r.rv()
         self.j = r.rv()
+        self.total = r.rv()
+
+
+struct StrandPart(CoupledPart):
+    """Hair strands as A against `AirPart`: `StrandAir`'s exchange (each
+    non-root particle gets implicit drag toward the received air velocity
+    at the strands' own rate, v <- (v + a u) / (1 + a), a = drag dt, as a
+    particle of `particle_mass`), then the strands' own step with their
+    drag off for that call; roots follow `bones` and take no drag. Same
+    interface as `ClothPart`: receives 3 per particle, sends 9 (position
+    now, position at the drag, impulse). With `AirPart` at ratio 1 it is
+    `StrandAir.step` bit for bit (`test_cloth_air_parts`)."""
+
+    var strands: StrandSet
+    var bones: List[Pose6]
+    var gravity: Vec3
+    var particle_mass: Real
+    var air_u: List[Real]
+    var x_drag: List[Vec3]
+    var jv: List[Vec3]
+    var received: Vec3
+    var total: Vec3
+    var _x: List[Vec3]
+    var _v: List[Vec3]
+    var _xd: List[Vec3]
+    var _jv: List[Vec3]
+
+    def __init__(out self, var strands: StrandSet, var bones: List[Pose6], gravity: Vec3, particle_mass: Real) raises:
+        if not (particle_mass > 0):
+            raise Error("StrandPart: particle_mass > 0")
+        var n = len(strands.x)
+        self.bones = bones^
+        self.gravity = gravity
+        self.particle_mass = particle_mass
+        self.air_u = List[Real](length=3 * n, fill=0)
+        self.x_drag = strands.x.copy()
+        self.jv = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.received = Vec3(0, 0, 0, 0)
+        self.total = Vec3(0, 0, 0, 0)
+        self._x = List[Vec3]()
+        self._v = List[Vec3]()
+        self._xd = List[Vec3]()
+        self._jv = List[Vec3]()
+        self.strands = strands^
+
+    def advance(mut self, dt: Real) raises:
+        var a = self.strands.drag * dt
+        self.received = Vec3(0, 0, 0, 0)
+        for i in range(len(self.strands.x)):
+            self.x_drag[i] = self.strands.x[i]
+            self.jv[i] = Vec3(0, 0, 0, 0)
+        for s in range(len(self.strands.start)):
+            for k in range(1, self.strands.count[s]):
+                var i = self.strands.start[s] + k
+                var u = _vec(self.air_u, i)
+                var vn = (self.strands.v[i] + u * a) * (1 / (1 + a))
+                var j = (vn - self.strands.v[i]) * self.particle_mass
+                self.strands.v[i] = vn
+                self.jv[i] = j
+                self.received = self.received + j
+        self.total = self.total + self.received
+        var keep = self.strands.drag
+        self.strands.drag = 0
+        self.strands.step(dt, self.gravity, self.bones)
+        self.strands.drag = keep
+
+    def send(self) -> List[Real]:
+        var n = len(self.strands.x)
+        var out = List[Real](capacity=9 * n)
+        for i in range(n):
+            for c in range(3):
+                out.append(self.strands.x[i][c])
+            for c in range(3):
+                out.append(self.x_drag[i][c])
+            for c in range(3):
+                out.append(self.jv[i][c])
+        return out^
+
+    def recv(mut self, data: List[Real]):
+        self.air_u = data.copy()
+
+    def impulse(self) -> List[Real]:
+        return [self.received[0], self.received[1], self.received[2]]
+
+    def save(mut self):
+        self._x = self.strands.x.copy()
+        self._v = self.strands.v.copy()
+        self._xd = self.x_drag.copy()
+        self._jv = self.jv.copy()
+
+    def restore(mut self):
+        self.strands.x = self._x.copy()
+        self.strands.v = self._v.copy()
+        self.x_drag = self._xd.copy()
+        self.jv = self._jv.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wi(len(self.strands.x))
+        for i in range(len(self.strands.x)):
+            w.wv(self.strands.x[i])
+            w.wv(self.strands.v[i])
+            w.wv(self.x_drag[i])
+            w.wv(self.jv[i])
+        write_reals(w, self.air_u)
+        w.wv(self.received)
+        w.wv(self.total)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var n = r.ri()
+        if n != len(self.strands.x):
+            raise Error("StrandPart.read_state: particle count differs")
+        for i in range(n):
+            self.strands.x[i] = r.rv()
+            self.strands.v[i] = r.rv()
+            self.x_drag[i] = r.rv()
+            self.jv[i] = r.rv()
+        self.air_u = read_reals(r)
+        self.received = r.rv()
+        self.total = r.rv()
+
+
+struct GrainPart(CoupledPart):
+    """Suspended grains as A against `AirPart` (here the lattice is water):
+    `Sediment`'s exchange -- Stokes drag at rate beta toward the received
+    fluid velocity with buoyancy-reduced gravity, implicit,
+    v <- (v + beta dt u + g' dt) / (1 + beta dt); the drag impulse
+    m beta dt (u - v) at the grain's position before it moves; then
+    x += v dt, clamped into [lo, hi]. Same interface as `ClothPart`; with
+    `AirPart` at ratio 1 it is `Sediment.step` bit for bit."""
+
+    var x: List[Vec3]
+    var v: List[Vec3]
+    var beta: Real
+    var mass: Real
+    var g_eff: Vec3
+    var lo: Vec3
+    var hi: Vec3
+    var fluid_u: List[Real]
+    var x_drag: List[Vec3]
+    var jv: List[Vec3]
+    var received: Vec3
+    var _x: List[Vec3]
+    var _v: List[Vec3]
+    var _xd: List[Vec3]
+    var _jv: List[Vec3]
+
+    def __init__(
+        out self, var x: List[Vec3], rho: Real, nu: Real, rho_p: Real, diameter: Real,
+        gravity: Vec3, lo: Vec3, hi: Vec3,
+    ) raises:
+        if not (rho > 0) or not (nu > 0) or not (rho_p > 0) or not (diameter > 0):
+            raise Error("GrainPart: rho, nu, rho_p and diameter must be > 0")
+        var n = len(x)
+        self.beta = 18 * rho * nu / (rho_p * diameter * diameter)
+        self.mass = rho_p * Real(3.14159265358979) * diameter * diameter * diameter / 6
+        self.g_eff = gravity * (1 - rho / rho_p)
+        self.lo = lo
+        self.hi = hi
+        self.v = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.fluid_u = List[Real](length=3 * n, fill=0)
+        self.x_drag = x.copy()
+        self.jv = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.received = Vec3(0, 0, 0, 0)
+        self._x = List[Vec3]()
+        self._v = List[Vec3]()
+        self._xd = List[Vec3]()
+        self._jv = List[Vec3]()
+        self.x = x^
+
+    def advance(mut self, dt: Real) raises:
+        var a = self.beta * dt
+        self.received = Vec3(0, 0, 0, 0)
+        for i in range(len(self.x)):
+            var u = _vec(self.fluid_u, i)
+            var vn = (self.v[i] + u * a + self.g_eff * dt) * (1 / (1 + a))
+            var j = (u - vn) * (self.mass * a)
+            self.jv[i] = j
+            self.x_drag[i] = self.x[i]
+            self.received = self.received + j
+            var p = self.x[i] + vn * dt
+            for ax in range(3):
+                if p[ax] < self.lo[ax]:
+                    p[ax] = self.lo[ax]
+                    vn[ax] = 0
+                elif p[ax] > self.hi[ax]:
+                    p[ax] = self.hi[ax]
+                    vn[ax] = 0
+            self.x[i] = p
+            self.v[i] = vn
+
+    def send(self) -> List[Real]:
+        var out = List[Real](capacity=9 * len(self.x))
+        for i in range(len(self.x)):
+            for c in range(3):
+                out.append(self.x[i][c])
+            for c in range(3):
+                out.append(self.x_drag[i][c])
+            for c in range(3):
+                out.append(self.jv[i][c])
+        return out^
+
+    def recv(mut self, data: List[Real]):
+        self.fluid_u = data.copy()
+
+    def impulse(self) -> List[Real]:
+        return [self.received[0], self.received[1], self.received[2]]
+
+    def save(mut self):
+        self._x = self.x.copy()
+        self._v = self.v.copy()
+        self._xd = self.x_drag.copy()
+        self._jv = self.jv.copy()
+
+    def restore(mut self):
+        self.x = self._x.copy()
+        self.v = self._v.copy()
+        self.x_drag = self._xd.copy()
+        self.jv = self._jv.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wi(len(self.x))
+        for i in range(len(self.x)):
+            w.wv(self.x[i])
+            w.wv(self.v[i])
+            w.wv(self.x_drag[i])
+            w.wv(self.jv[i])
+        write_reals(w, self.fluid_u)
+        w.wv(self.received)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var n = r.ri()
+        if n != len(self.x):
+            raise Error("GrainPart.read_state: grain count differs")
+        for i in range(n):
+            self.x[i] = r.rv()
+            self.v[i] = r.rv()
+            self.x_drag[i] = r.rv()
+            self.jv[i] = r.rv()
+        self.fluid_u = read_reals(r)
+        self.received = r.rv()
+
+
+struct SoftPart(CoupledPart):
+    """A volumetric `SoftBody` in the lattice fluid (ROADMAP 17.59:
+    soft body <-> fluid two-way). Each particle is an immersed point with
+    linear drag at rate `drag` (1/s) toward the received fluid velocity,
+    integrated implicitly, v <- (v + a u) / (1 + a), a = drag dt, as a
+    point of mass 1 / w; kinematic particles (w = 0) take none. Then the
+    body's own step (`SoftBody.advance`). Same interface as `ClothPart`, so
+    it couples to `AirPart` and conserves momentum the same way."""
+
+    var body: SoftBody
+    var drag: Real
+    var gravity: Vec3
+    var fluid_u: List[Real]
+    var x_drag: List[Vec3]
+    var jv: List[Vec3]
+    var received: Vec3
+    var total: Vec3
+    var _pts: List[SP]
+    var _xd: List[Vec3]
+    var _jv: List[Vec3]
+
+    def __init__(out self, var body: SoftBody, drag: Real, gravity: Vec3) raises:
+        if not (drag >= 0):
+            raise Error("SoftPart: drag >= 0")
+        var n = len(body.pts)
+        self.drag = drag
+        self.gravity = gravity
+        self.fluid_u = List[Real](length=3 * n, fill=0)
+        self.x_drag = List[Vec3](capacity=n)
+        for p in body.pts:
+            self.x_drag.append(p.x)
+        self.jv = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.received = Vec3(0, 0, 0, 0)
+        self.total = Vec3(0, 0, 0, 0)
+        self._pts = List[SP]()
+        self._xd = List[Vec3]()
+        self._jv = List[Vec3]()
+        self.body = body^
+
+    def advance(mut self, dt: Real) raises:
+        var a = self.drag * dt
+        self.received = Vec3(0, 0, 0, 0)
+        for i in range(len(self.body.pts)):
+            var p = self.body.pts[i]
+            self.x_drag[i] = p.x
+            self.jv[i] = Vec3(0, 0, 0, 0)
+            if p.w == 0:
+                continue
+            var u = _vec(self.fluid_u, i)
+            var vn = (p.v + u * a) * (1 / (1 + a))
+            var j = (vn - p.v) * (1 / p.w)
+            p.v = vn
+            self.body.pts[i] = p
+            self.jv[i] = j
+            self.received = self.received + j
+        self.total = self.total + self.received
+        self.body.advance(dt, self.gravity)
+
+    def send(self) -> List[Real]:
+        var n = len(self.body.pts)
+        var out = List[Real](capacity=9 * n)
+        for i in range(n):
+            for c in range(3):
+                out.append(self.body.pts[i].x[c])
+            for c in range(3):
+                out.append(self.x_drag[i][c])
+            for c in range(3):
+                out.append(self.jv[i][c])
+        return out^
+
+    def recv(mut self, data: List[Real]):
+        self.fluid_u = data.copy()
+
+    def impulse(self) -> List[Real]:
+        return [self.received[0], self.received[1], self.received[2]]
+
+    def save(mut self):
+        self._pts = self.body.pts.copy()
+        self._xd = self.x_drag.copy()
+        self._jv = self.jv.copy()
+
+    def restore(mut self):
+        self.body.pts = self._pts.copy()
+        self.x_drag = self._xd.copy()
+        self.jv = self._jv.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        self.body.write_state(w)
+        w.wi(len(self.x_drag))
+        for i in range(len(self.x_drag)):
+            w.wv(self.x_drag[i])
+            w.wv(self.jv[i])
+        write_reals(w, self.fluid_u)
+        w.wv(self.received)
+        w.wv(self.total)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.body.read_state(r)
+        var n = r.ri()
+        if n != len(self.x_drag):
+            raise Error("SoftPart.read_state: particle count differs")
+        for i in range(n):
+            self.x_drag[i] = r.rv()
+            self.jv[i] = r.rv()
+        self.fluid_u = read_reals(r)
+        self.received = r.rv()
         self.total = r.rv()
