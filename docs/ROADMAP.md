@@ -1833,7 +1833,13 @@
 > 水面 ghost-fluid Dirichlet p = 0(θ = φ_l / (φ_l − φ_a) ≥ 0.01)、速度外插 4 圈、每 5 步 fast sweeping 重距離化)。`tests/test_levelset_water.mojo` 5/5
 > (32²、dt 1/120):半滿靜水 1 s 最大面速 1.6e-7、體積不變、每次解收斂;潰壩 0.25 × 0.5 m:T = 1.48 時前緣 Z = 1.81(Martin & Moyce 約 2.0)、
 > 0.34 s 到對牆、1 s 內體積比 0.96–1.13(level set 不守恆體積)。
-> **未做**:cumulant LBM、3-D 渦度約束與 multigrid、3-D 自由表面、粒子 level set(體積修正)。
+> **Cumulant LBM(2026-10-18)**:`fluid/lbm_cumulant.mojo` `Lbm27`(週期 D3Q27 立方、三次一維轉換得中心矩、二階 cumulant 以 ω 鬆弛(剪切)/ ω_b(跡)、
+> 高於二階的 cumulant 全設 0 = 高斯閉合,偶階中心矩由 Wick 規則從碰撞後二階矩得出;`collide_bgk` 為 D3Q27 BGK 對照)。`tests/test_lbm_cumulant.mojo` 8/8:
+> Taylor–Green 32³、ν 0.02、400 步:E/E0 0.28780(BGK 0.28766、解析 0.29121,偏差 1.2 %)、質量漂移 8.7e-8(BGK 約 2e-5 至 5e-6);雙剪切層 ν 1e-4:
+> BGK 472 步後發散,cumulant 撐 1954 步(約 4 倍)但仍發散(ν 1e-5 / 1e-6 約 1500 步)。**量到的限制**:並非伽利略不變 —— 疊加均勻流 u0 後渦旋衰減變慢,
+> 能量比偏差 1.35 / 5.5 / 24.5 %(u0 = 0.05 / 0.1 / 0.2;BGK 0.88 / 3.6 / 15 %),∝ u0²,原因是格子沒有第三階中心矩(c³ = c);Geier 2015 在對角二階 cumulant 的鬆弛中
+> 加的修正項(由速度梯度估計)未實作,目前不比 BGK 好。
+> **未做**:Geier 的對角修正項(伽利略不變)、ω3 等可調高階速率、壁面 / 力(`Lbm` 的 D3Q19 路徑不變)、3-D 渦度約束與 multigrid、3-D 自由表面、粒子 level set(體積修正)。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
