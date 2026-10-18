@@ -19,6 +19,11 @@
      than the character (1.8 m) and true from the first tick it is not;
      the character is never pushed through the ceiling (it used to end up
      standing on top of it).
+  6. Shapes: under a bar 0.7 m above the floor an upright character
+     (1.8 m) is stopped, the same character lying along its walking
+     direction crawls through; standing up under the bar is refused,
+     past it allowed. A sphere character (`half_height` 0) steps up a
+     0.2 m step and rests on it.
 """
 
 from std.math import sin, cos
@@ -28,7 +33,7 @@ from geometry.quat import Quat
 from physics.rigid6 import QuatBody6, Inertia3, Pose6
 from physics.solver6 import ContactScene6
 from physics.fields import WaterVolume
-from gameplay.character import CharacterController
+from gameplay.character import CharacterController, CharacterConfig
 from gameplay.movement import Mover, Ladder, MODE_LADDER, MODE_SLIDE, MODE_GLIDE
 
 comptime DT: Real = 1.0 / 60.0
@@ -164,4 +169,32 @@ def main() raises:
     print("crush: first crushed at gap", first_crush_gap, " (character 1.8 m)  highest head", worst_head, " ceiling top 3.5")
     s.check(not early and first_crush_gap > 1.8 - 0.05 and first_crush_gap <= 1.8 + 0.01, "crushed from the first tick the gap is shorter than the character")
     s.check(worst_head < 3.5, "never pushed through the ceiling")
+
+    # ---- shapes: lying and sphere ---------------------------------------------------------------------
+    var cs = ContactScene6[QuatBody6]()
+    floor(cs)
+    _ = cs.add(QuatBody6.at_rest(Vec3(2, 0.95, 0, 0), Inertia3.box(1, 0.5, 0.25, 3)), Vec3(0.5, 0.25, 3, 0), True)  # bar x 1.5..2.5, y 0.7..1.2
+    var up_c = CharacterController(Vec3(0, 0.91, 0, 0))
+    var lay = CharacterController(Vec3(0, 0.91, 0, 0))
+    var laid = lay.set_lying(cs, Vec3(1, 0, 0, 0))
+    var refused_under = False
+    for k in range(180):
+        up_c.update(cs, Vec3(1.5, 0, 0, 0), 0, DT, G)
+        lay.update(cs, Vec3(1.5, 0, 0, 0), 0, DT, G)
+        if k == 70:  # under the bar
+            refused_under = not lay.set_lying(cs, Vec3(0, 0, 0, 0))
+    var stood_after = lay.set_lying(cs, Vec3(0, 0, 0, 0))
+    print("crawl: upright stops at x", up_c.position[0], "  lying reaches x", lay.position[0], " (foot y", lay.foot()[1], ")  stand under the bar refused", refused_under, " stands after", stood_after)
+    s.check(laid and up_c.position[0] < 1.3 and lay.position[0] > 3 and abs(lay.foot()[1]) < 0.05, "upright is stopped by the bar, lying crawls under it")
+    s.check(refused_under and stood_after, "standing up is refused under the bar and allowed past it")
+    var ss = ContactScene6[QuatBody6]()
+    floor(ss)
+    _ = ss.add(QuatBody6.at_rest(Vec3(3, 0.1, 0, 0), Inertia3.box(1, 1, 0.1, 2)), Vec3(1, 0.1, 2, 0), True)  # step x 2..4, top 0.2
+    var scfg = CharacterConfig.default()
+    scfg.half_height = 0
+    var ball = CharacterController(Vec3(0, 0.31, 0, 0), scfg)
+    for _ in range(120):
+        ball.update(ss, Vec3(1.5, 0, 0, 0), 0, DT, G)
+    print("sphere character: x", ball.position[0], " foot y", ball.foot()[1], " grounded", ball.on_ground)
+    s.check(ball.position[0] > 2.3 and abs(ball.foot()[1] - 0.2) < 0.03 and ball.on_ground, "a sphere character steps up 0.2 m and rests on the step")
     s.finish()
