@@ -95,6 +95,7 @@ physics.mpm_rigid  # [api] MPM <-> rigid two-way coupling through the grid (17.5
 physics.soft_water  # [api] soft bodies and cloth in still water (17.59)
 geometry.isosurface  # [api] isosurface / particle-surface meshes for the host (17.60)
 physics.flip_apic  # [api] APIC transfers for FlipWater2 (a variant of its step, parity and noise in test_flip_apic, cost in bench_grid_fluid) (17.60)
+fluid.lbm_mrt  # [api] D3Q19 MRT collision (BGK parity, low-viscosity stability in test_lbm_mrt, cost in bench_lbm) (17.60)
 geometry.sparse_volume  # [api] VDB-style sparse volume and its byte format (17.63)
 physics.mpm_melt  # [api] melting / freezing layer the host steps over an MpmSolver (17.61)
 physics.multiphase  # [api] multi-density SPH the host steps (17.61)

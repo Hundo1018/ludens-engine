@@ -35,6 +35,7 @@ Run with: `mojo run -I build benchmarks/bench_lbm.mojo`.
 from std.benchmark import keep
 from geometry.vec import Real, Vec3
 from fluid.lbm import Lbm, CELL_SOLID, BC_PERIODIC, BC_TUNNEL
+from fluid.lbm_mrt import Mrt, mrt_step
 from harness.bench import BenchTable, now
 
 
@@ -179,6 +180,16 @@ def collision_rows(mut table: BenchTable):
         keep(l.f[7])
         var name = "BGK" if mode == 0 else ("TRT 3/16, velocity-shift force" if mode == 1 else "TRT 3/16 + Guo force")
         table.add("periodic 32^3, " + name, l.cells(), "cell-step", t1 - t0, steps * l.cells())
+    var lm = Lbm(32, 32, 32, 0.1, BC_PERIODIC)
+    lm.init_uniform(1.0, 0.01, 0, 0)
+    lm.force_x = 1e-6
+    var mr = Mrt(lm)
+    var t2 = now()
+    for _ in range(30):
+        mrt_step(lm, mr)
+    var t3 = now()
+    keep(lm.f[7])
+    table.add("periodic 32^3, MRT (d'Humieres rates)", lm.cells(), "cell-step", t3 - t2, 30 * lm.cells())
 
 
 def main() raises:
