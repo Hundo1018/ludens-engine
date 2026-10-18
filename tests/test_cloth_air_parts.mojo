@@ -1,0 +1,134 @@
+# tier: integration
+"""Cloth <-> lattice air through `Coupler` (ROADMAP 17.61,
+`physics.cloth_air_parts`).
+
+Same setup as `test_cloth_air`: a 24^3 periodic lattice (dx 2 cm, 1 ms
+per lattice step, rho 1.2, lattice viscosity 0.05) and a 0.2 m sheet
+(6 x 6 cells, 0.1 kg/m^2) falling through it, drag k = 2 kg/(m^2 s).
+
+  1. Parity: `Coupler[ClothPart, AirPart]`, EXPLICIT, ratio 1, gives the
+     cloth positions, velocities and lattice populations of
+     `ClothAir.step` bit for bit after 200 steps.
+  2. Conservation: per step the coupler's imbalance (|cloth impulse + air
+     impulse|) stays at rounding level with EXPLICIT; the cloth's and the
+     air's running totals are equal and opposite. With ratio 2 (cloth
+     2 ms, lattice 1 ms) EXPLICIT still conserves; INTERP blends the
+     impulse between steps and the imbalance it records is printed.
+  3. Snapshot: `Coupler.write_state` after 100 steps, 100 more; a fresh
+     pair restored from the bytes and run 100 steps matches bit for bit.
+     A lattice substep that is not one lattice step raises.
+"""
+
+from harness.runner import Suite
+from geometry.vec import Real, Vec3, length
+from fluid.lbm import Lbm
+from diag.counters import Counters
+from physics.cloth import MeshCloth, grid_mesh
+from physics.cloth_air import ClothAir
+from physics.cloth_air_parts import ClothPart, AirPart
+from physics.coupler import Coupler, EXPLICIT, INTERP
+from physics.serialize import BinWriter, BinReader
+
+comptime NL = 24
+comptime DX: Real = 0.02
+comptime DT: Real = 1e-3
+comptime RHO: Real = 1.2
+comptime G = Vec3(0, -9.8, 0, 0)
+
+
+def air() -> Lbm:
+    var l = Lbm(NL, NL, NL, 0.05)
+    l.init_uniform(1.0, 0.0, 0.0, 0.0)
+    return l^
+
+
+def sheet() raises -> MeshCloth:
+    var m = grid_mesh(6, 6, 0.2, 0.2, Vec3(0.14, 0.30, 0.14, 0))
+    var c = MeshCloth(m[0], m[1], 0.1, 0, 1e-3)
+    c.damping = 1.0
+    return c^
+
+
+def pair(ratio: Int, scheme: Int) raises -> Coupler[ClothPart, AirPart]:
+    var c = sheet()
+    var x = c.x.copy()
+    return Coupler[ClothPart, AirPart](
+        ClothPart(c^, 2.0, G), AirPart(air(), Vec3(0, 0, 0, 0), DX, DT, RHO, ratio, x), ratio, scheme
+    )
+
+
+def same_cloth(a: MeshCloth, b: MeshCloth) -> Bool:
+    for i in range(len(a.x)):
+        for c in range(3):
+            if a.x[i][c] != b.x[i][c] or a.v[i][c] != b.v[i][c]:
+                return False
+    return True
+
+
+def same_f(a: Lbm, b: Lbm) -> Bool:
+    for i in range(len(a.f)):
+        if a.f[i] != b.f[i]:
+            return False
+    return True
+
+
+def main() raises:
+    var s = Suite("cloth_air_parts")
+    var counters = Counters()
+
+    # 1. parity with ClothAir
+    var ref_c = sheet()
+    var ref_a = ClothAir(air(), Vec3(0, 0, 0, 0), DX, DT, RHO, 2.0)
+    var cp = pair(1, EXPLICIT)
+    var worst = Real(0)
+    var scale = Real(0)
+    for _ in range(200):
+        ref_a.step(ref_c, G)
+        cp.step(DT, counters)
+        worst = max(worst, cp.imbalance)
+        scale = max(scale, length(cp.a.received))
+    s.check(same_cloth(ref_c, cp.a.cloth), "EXPLICIT ratio 1: cloth equals ClothAir.step bit for bit (200 steps)")
+    s.check(same_f(ref_a.lbm, cp.b.lbm), "EXPLICIT ratio 1: lattice populations equal bit for bit")
+    var tot = cp.a.total + cp.b.total
+    print("  EXPLICIT 1:1: max per-step imbalance", worst, "N s vs per-step impulse up to", scale, "; totals", cp.a.total[1], cp.b.total[1])
+    s.check(worst <= 1e-6 * scale, "EXPLICIT: per-step imbalance at rounding level (<= 1e-6 of the impulse)")
+    s.check(length(tot) <= 1e-5 * length(cp.a.total), "cloth and air totals equal and opposite")
+
+    # 2. ratio 2: cloth 2 ms, lattice 1 ms
+    var e2 = pair(2, EXPLICIT)
+    var i2 = pair(2, INTERP)
+    var sc2 = Real(0)
+    for _ in range(100):
+        e2.step(2 * DT, counters)
+        i2.step(2 * DT, counters)
+        sc2 = max(sc2, length(e2.a.received))
+    print("  ratio 2: EXPLICIT max imbalance", e2.max_imbalance, " INTERP", i2.max_imbalance, " per-step impulse up to", sc2)
+    s.check(e2.max_imbalance <= 1e-6 * sc2, "ratio 2 EXPLICIT: conserves to rounding")
+    s.check(i2.max_imbalance > 100 * e2.max_imbalance, "ratio 2 INTERP: blends impulses, imbalance recorded")
+    print("  after 0.2 s, vertex 0 vy: ratio 2 EXPLICIT", e2.a.cloth.v[0][1], " ratio 1", cp.a.cloth.v[0][1])
+
+    # 3. snapshot
+    var live = pair(1, EXPLICIT)
+    for _ in range(100):
+        live.step(DT, counters)
+    var w = BinWriter()
+    live.write_state(w)
+    for _ in range(100):
+        live.step(DT, counters)
+    var back = pair(1, EXPLICIT)
+    var r = BinReader(w.b.copy())
+    back.read_state(r)
+    for _ in range(100):
+        back.step(DT, counters)
+    print("  snapshot after 100 steps:", len(w.b), "bytes")
+    s.check(same_cloth(live.a.cloth, back.a.cloth) and same_f(live.b.lbm, back.b.lbm), "restored pair continues bit for bit (100 steps)")
+    s.check(live.max_imbalance == back.max_imbalance, "conservation record restored")
+
+    var raised = False
+    try:
+        var bad = pair(1, EXPLICIT)
+        bad.step(2 * DT, counters)  # lattice substep 2 ms, lattice step is 1 ms
+    except:
+        raised = True
+    s.check(raised, "a lattice substep that is not dt_lat raises")
+    s.finish()
