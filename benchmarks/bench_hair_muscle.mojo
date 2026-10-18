@@ -22,7 +22,7 @@ from physics.muscle_tendon import MuscleTendon
 from harness.bench import BenchTable, now
 
 
-def make_hair(colliders: Bool) raises -> StrandSet:
+def make_hair(colliders: Bool, curl: Real = 0) raises -> StrandSet:
     var hs = StrandSet(0.2)
     if colliders:
         hs.spheres.append(StrandSphere(Vec3(0, 1.7, 0, 0), 0.1))
@@ -32,12 +32,15 @@ def make_hair(colliders: Bool) raises -> StrandSet:
     for k in range(1000):
         var a = Real(k) * 0.0063
         var d = Quat.from_axis_angle(Vec3(0, 1, 0, 0), a).rotate(Vec3(1, 0.3, 0, 0))
-        _ = hs.add(0, b, d * 0.1, d, 16, 0.02)
+        if curl != 0:
+            _ = hs.add_curl(0, b, d * 0.1, d, Vec3(0, 1, 0, 0), curl, 16, 0.02)
+        else:
+            _ = hs.add(0, b, d * 0.1, d, 16, 0.02)
     return hs^
 
 
-def bench_hair(mut t: BenchTable, colliders: Bool, steps: Int) raises:
-    var hs = make_hair(colliders)
+def bench_hair(mut t: BenchTable, colliders: Bool, steps: Int, curl: Real = 0) raises:
+    var hs = make_hair(colliders, curl)
     var bones: List[Pose6] = [Pose6(Vec3(0, 1.7, 0, 0), Quat.from_axis_angle(Vec3(0, 1, 0, 0), 0))]
     var t0 = now()
     for k in range(steps):
@@ -45,7 +48,7 @@ def bench_hair(mut t: BenchTable, colliders: Bool, steps: Int) raises:
         hs.step(1.0 / 60.0, Vec3(0, -9.8, 0, 0), bones)
     var t1 = now()
     keep(hs.tip(0)[0])
-    t.add("strands 1000 x 16" + (" + sphere + 2 capsules" if colliders else ""), len(hs.x), "particle-step", t1 - t0, steps * len(hs.x))
+    t.add("strands 1000 x 16" + (" + sphere + 2 capsules" if colliders else "") + (", curled rest shape" if curl != 0 else ""), len(hs.x), "particle-step", t1 - t0, steps * len(hs.x))
 
 
 def bench_muscle(mut t: BenchTable, hill: Bool, reps: Int):
@@ -89,6 +92,7 @@ def main() raises:
     var t = BenchTable("Hair strands: Follow-The-Leader with bending (17.57)")
     bench_hair(t, False, 60)
     bench_hair(t, True, 60)
+    bench_hair(t, False, 60, 0.3)
     t.print_report()
     var m = BenchTable("Muscle: plain activation vs Hill curves (17.57)")
     bench_muscle(m, False, 20000)
