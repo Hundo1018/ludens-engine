@@ -64,7 +64,7 @@ trait SolverField(Field):
         ...
 
     def exp(self) -> Self:
-        """e^x with its derivative e^x (ROADMAP 17.57: the Hill muscle
+        """Exp: e^x with its derivative e^x (ROADMAP 17.57: the Hill muscle
         curves are exponentials)."""
         ...
 
