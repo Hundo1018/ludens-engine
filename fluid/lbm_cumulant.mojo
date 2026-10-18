@@ -32,11 +32,14 @@ is `galilean` = 1 (the default; 0 switches it off). It brings the error at
 u0 = 0.2 down to 2.7 %. Measured limit (`test_lbm_cumulant`): at a
 viscosity BGK cannot hold (a double shear layer at nu 1e-4) it survives
 4x longer (1954 steps against 472) but still fails.
+`smagorinsky` (Cs, 0 = off) adds an eddy viscosity from the
+non-equilibrium second moments (Hou et al. 1996) to either collision.
 `collide_bgk` is the D3Q27 BGK control on the same
 storage. No walls, no forcing: this is the periodic collision study that
 the D3Q19 `Lbm` (walls, forcing, moving solids) is not.
 """
 
+from std.math import sqrt
 from geometry.vec import Real
 
 comptime Q27 = 27
@@ -102,6 +105,7 @@ struct Lbm27(Movable):
     var n: Int
     var omega: Real
     var omega_b: Real
+    var smagorinsky: Real  # Smagorinsky constant for the shear rate (0 = off; 0.1-0.2 is usual)
     var galilean: Real  # strength of the Galilean correction of the diagonal relaxation (0 = off)
     var f: List[Real]  # [dir][cell]
     var g: List[Real]
@@ -113,6 +117,7 @@ struct Lbm27(Movable):
         self.omega = 1 / (3 * nu + Real(0.5))
         self.omega_b = 1
         self.galilean = 1
+        self.smagorinsky = 0
         var m = n * n * n
         self.f = List[Real](length=Q27 * m, fill=0)
         self.g = List[Real](length=Q27 * m, fill=0)
@@ -201,27 +206,39 @@ struct Lbm27(Movable):
             var mxy = a[4]
             var mxz = a[10]
             var myz = a[12]
+            var omega = self.omega
+            if self.smagorinsky > 0:
+                # eddy viscosity from the non-equilibrium second moments
+                # (Hou et al. 1996): tau = (tau0 + sqrt(tau0^2 +
+                # 18 sqrt(2) Cs^2 sqrt(Q) / rho)) / 2, Q = |m - rho cs^2 I|^2
+                var ex = mxx - rho * _CS2
+                var ey = myy - rho * _CS2
+                var ez = mzz - rho * _CS2
+                var q = ex * ex + ey * ey + ez * ez + 2 * (mxy * mxy + mxz * mxz + myz * myz)
+                var tau0 = 1 / self.omega
+                var tau = Real(0.5) * (tau0 + sqrt(tau0 * tau0 + Real(25.455844122715707) * self.smagorinsky * self.smagorinsky * sqrt(q) / rho))
+                omega = 1 / tau
             var tr = mxx + myy + mzz
             var d1 = mxx - myy
             var d2 = mxx - mzz
             var trn = tr + self.omega_b * (rho - tr)
-            d1 *= 1 - self.omega
-            d2 *= 1 - self.omega
+            d1 *= 1 - omega
+            d2 *= 1 - omega
             if self.galilean != 0:
                 # Geier et al. 2015: the velocity gradients d_x u_x, ... from the
                 # pre-collision second moments, and the u^2 grad u terms the
                 # lattice's missing third moment leaves in the stress
                 var tr0 = mxx + myy + mzz
-                var dxu = -(self.omega / (2 * rho)) * (2 * mxx - myy - mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
-                var dyu = -(self.omega / (2 * rho)) * (mxx - 2 * myy + mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
-                var dzu = -(self.omega / (2 * rho)) * (mxx + myy - 2 * mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
-                var k1 = 3 * rho * (1 - self.omega / 2) * self.galilean
+                var dxu = -(omega / (2 * rho)) * (2 * mxx - myy - mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
+                var dyu = -(omega / (2 * rho)) * (mxx - 2 * myy + mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
+                var dzu = -(omega / (2 * rho)) * (mxx + myy - 2 * mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
+                var k1 = 3 * rho * (1 - omega / 2) * self.galilean
                 d1 -= k1 * (ux * ux * dxu - uy * uy * dyu)
                 d2 -= k1 * (ux * ux * dxu - uz * uz * dzu)
                 trn -= 3 * rho * (1 - self.omega_b / 2) * self.galilean * (ux * ux * dxu + uy * uy * dyu + uz * uz * dzu)
-            mxy *= 1 - self.omega
-            mxz *= 1 - self.omega
-            myz *= 1 - self.omega
+            mxy *= 1 - omega
+            mxz *= 1 - omega
+            myz *= 1 - omega
             mxx = (trn + d1 + d2) / 3
             myy = mxx - d1
             mzz = mxx - d2
@@ -272,10 +289,30 @@ struct Lbm27(Movable):
             uy /= rho
             uz /= rho
             var usq = ux * ux + uy * uy + uz * uz
+            var omega = self.omega
+            if self.smagorinsky > 0:
+                var pxx = Real(0)
+                var pyy = Real(0)
+                var pzz = Real(0)
+                var pxy = Real(0)
+                var pxz = Real(0)
+                var pyz = Real(0)
+                for i in range(Q27):
+                    var cu = Real(_cx(i)) * ux + Real(_cy(i)) * uy + Real(_cz(i)) * uz
+                    var neq = self.f[i * m + c] - _w(i) * rho * (1 + 3 * cu + Real(4.5) * cu * cu - Real(1.5) * usq)
+                    pxx += neq * Real(_cx(i) * _cx(i))
+                    pyy += neq * Real(_cy(i) * _cy(i))
+                    pzz += neq * Real(_cz(i) * _cz(i))
+                    pxy += neq * Real(_cx(i) * _cy(i))
+                    pxz += neq * Real(_cx(i) * _cz(i))
+                    pyz += neq * Real(_cy(i) * _cz(i))
+                var q = pxx * pxx + pyy * pyy + pzz * pzz + 2 * (pxy * pxy + pxz * pxz + pyz * pyz)
+                var tau0 = 1 / self.omega
+                omega = 1 / (Real(0.5) * (tau0 + sqrt(tau0 * tau0 + Real(25.455844122715707) * self.smagorinsky * self.smagorinsky * sqrt(q) / rho)))
             for i in range(Q27):
                 var cu = Real(_cx(i)) * ux + Real(_cy(i)) * uy + Real(_cz(i)) * uz
                 var feq = _w(i) * rho * (1 + 3 * cu + Real(4.5) * cu * cu - Real(1.5) * usq)
-                self.f[i * m + c] += self.omega * (feq - self.f[i * m + c])
+                self.f[i * m + c] += omega * (feq - self.f[i * m + c])
 
     def stream(mut self):
         var n = self.n
