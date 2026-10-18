@@ -324,4 +324,9 @@ So:
 - no build path passes fast-math or an explicit -O level to mojo, except the probe that measures them (R3);
 - across targets, results are compared with the tolerance table in `scripts/fp_probe.py`, never bitwise.
 
-**AD.** The derivative types round differently from each other. `RevDual`'s gradient lane matches `RevReal`'s to 5e-8 on a 30-frame contact rollout (`test_hvp`), not bit for bit. Parity tests between AD types use tolerances; a type and its own primal are bit-identical.
+**AD.** Measured on contact rollouts (`test_hvp`, `test_rev_batch`):
+- Lane k of `RevBatch[W]` equals a `RevReal` run of world k bit for bit, primal and gradient.
+- `RevDual`'s gradient lane matches `RevReal`'s to 5e-8 over 30 frames.
+- The taped types' primal differs from `RealF` / `BatchReal` by 1 ulp: the plain types get FMA contractions the taped arithmetic does not.
+
+Parity tests across AD types therefore use tolerances, except where a bitwise match was measured.
