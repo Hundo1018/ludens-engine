@@ -17,6 +17,14 @@ parts of the current flow survive the death (flags, objectives,
 inventories); everything else, the scene included, comes from the blob.
 `KEEP_NONE` is a plain reload.
 
+`save_checkpoint` / `load_save_checkpoint` are the save-game form (17.40
+`SaveWriter` sections, ROADMAP 17.72): a "flow" section (`GameFlow`
+bytes) and a "bodies" section (a `BodyRecord` per dynamic body), no scene
+snapshot -- the level script rebuilds the scene and the records go back
+onto it, so the checkpoint survives builds that change the scene format.
+`sections` picks what to load (`SECTION_FLOW`, `SECTION_BODIES`); a section
+the blob lacks loads as nothing; `keep` works as in `respawn`.
+
 Flags are restored by name into a fresh `Flags`, so a blob written by a
 build with another flag order loads; the `changed` list stays empty (a
 restore is not a gameplay change).
@@ -29,6 +37,9 @@ from scheduler.rng import Pcg32
 from .flow import FlowStack, FlowState, Flags
 from .objectives import ObjectiveLog, Objective
 from .inventory import Inventory
+from .save import SaveWriter, SaveReader, BodyRecord, save_bodies, load_bodies
+from geometry.vec import Vec3
+from geometry.quat import Quat
 
 comptime _CKP_MAGIC = 0x504B434C  # "LCKP"
 comptime CHECKPOINT_FORMAT = 1
@@ -37,6 +48,10 @@ comptime KEEP_NONE = 0
 comptime KEEP_FLAGS = 1
 comptime KEEP_OBJECTIVES = 2
 comptime KEEP_INVENTORY = 4
+
+comptime SECTION_FLOW = 1
+comptime SECTION_BODIES = 2
+comptime SECTION_ALL = 3
 
 
 struct GameFlow(Copyable, Movable):
@@ -250,3 +265,35 @@ def _get_blob(b: List[UInt8], mut at: Int) raises -> List[UInt8]:
         out.append(b[at + k])
     at += n
     return out^
+
+
+def save_checkpoint(flow: GameFlow, scene: ContactScene6[QuatBody6]) -> List[UInt8]:
+    var w = SaveWriter()
+    w.add_raw("flow", flow.to_bytes())
+    w.add[BodyRecord]("bodies", save_bodies(scene))
+    return w.bytes()
+
+
+def load_save_checkpoint(
+    data: List[UInt8], current: GameFlow, mut scene: ContactScene6[QuatBody6], keep: Int = KEEP_NONE,
+    sections: Int = SECTION_ALL,
+) raises -> GameFlow:
+    """The flow to continue with; dynamic bodies of `scene` (already rebuilt
+    by the level script) are put back where the checkpoint had them."""
+    var r = SaveReader(data.copy())
+    var flow = current.copy()
+    if sections & SECTION_FLOW != 0 and r.has("flow"):
+        flow = GameFlow.from_bytes(r.raw("flow"))
+        if keep & KEEP_FLAGS != 0:
+            flow.flags = current.flags.copy()
+            flow.flags.changed = List[Int]()
+        if keep & KEEP_OBJECTIVES != 0:
+            flow.objectives = current.objectives.copy()
+        if keep & KEEP_INVENTORY != 0:
+            flow.inventories = current.inventories.copy()
+    if sections & SECTION_BODIES != 0:
+        var recs = List[BodyRecord]()
+        var zero = Vec3(0, 0, 0, 0)
+        _ = r.read[BodyRecord]("bodies", BodyRecord(-1, zero, Quat(0, 0, 0, 1), zero, zero), recs)
+        _ = load_bodies(scene, recs)
+    return flow^
