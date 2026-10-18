@@ -2524,6 +2524,8 @@
 > 站姿是架在軟彈簧上的倒單擺。力矩層級:每腿脛 / 腳一對踝力矩 τ = K θ + D θ̇(θ 為質心相對踝的傾角,x 與 z,疊在 drive 上)
 > 於 K 800–1600、D = 0.1 K 未受推時站滿 10 s(K 400 於 3.5 s 倒);K 400–1200 × D 0.1–0.4 K 的掃描中沒有一組撐得過軀幹 10 N·s 的推
 > (2.2–2.4 s 倒),D = 0.4 K 立即發散 —— 60 Hz 的顯式力矩。推回復需要求解器內的(隱式)踝致動器或髖 / 踏步策略。
+> 更硬的踝伺服(drive 15 / 40 Hz、力矩上限 3000 N·m、capture point 前傾 kp 0.3 / 1 / 2)只延後倒下、不能防止:未推 2.1–5.0 s(最佳為 40 Hz、kp 2)倒,
+> 10 N·s 推 2.0–3.5 s、20 N·s 推 1.8–2.4 s。
 > **未做**:有重力的雙足站立(踝 / 髖力矩、腳的實際碰撞;上列實驗為起點)與真正踏步(移動腳骨而非支撐多邊形)、以動畫為參考的 PD 追蹤(現為角度 drive + 根部力)、負重改變步態。
 > **現況**:兩端各有,中間沒接。17.1 是 kinematic 膠囊(`gameplay/character.mojo:61` `CharacterController`),**不進 solver**;17.2 是主動布娃娃(`gameplay/ragdoll.mojo:37` `Ragdoll`:每骨一個盒、父子球關節、`AngularDrive`(`physics/joints6.mojo:279`)追動畫目標,`:108` `set_strength` 0=軟癱、`:113` `hit`、`:127` `blend_world` 做起身混合)。**沒有的**:平衡 / 支撐判斷——grep `center_of_mass|zmp|support.?polygon|capture.?point|centroidal|footstep` 全樹 `.mojo` 零命中;ragdoll 質量是每骨統一預設 5 kg 的盒(`gameplay/ragdoll.mojo:53` `mass: Real = 5`);ragdoll 用的最大座標關節無角度限制(縮座標 `Chain` 有 joint-limit 列,`physics/constraints.mojo:1-14`,但 ragdoll 不走 chain;17.2 待辦「膝單向」,ROADMAP §17.2;關節庫缺口歸 17.47);起身無姿態匹配 / 地面對齊(同待辦)。控制器**無法被外力推動**:`character.mojo:279` 每次 `update` 把水平速度整個覆寫為 `walk`,knockback 不可能殘留。動態(進 solver 的)角色本體不存在。縮座標模型可作控制器端的分析模型:`physics/chain.mojo:321` `rnea_root`、`:404` `inverse_dynamics`、`:416` `mass_matrix`、`:610` `point_jacobian` 已有,但與 ragdoll 的最大座標關節是兩套,沒有橋。`Runtime` 不擁有角色 / ragdoll(`gameplay/runtime.mojo` grep 零命中,見 17.64)。
 > **缺口**:
