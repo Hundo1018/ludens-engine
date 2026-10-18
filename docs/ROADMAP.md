@@ -1430,7 +1430,27 @@
 >   16 × 5 cm 鏈約臨界)衰減,剛體運動與靜止不受影響。結果:靜止頭第 10 秒最大速度 2.3e-4 m/s;轉頭擺幅峰值 0.448 m(原 0.394),6 s 後距 20 s 參考形 4e-6 m,
 >   約每 2 s 縮 4 倍;自由鏈 8 s 後梢 x 1.7e-4 m(檢查改 5 → 8 s:原 5 s 的收斂靠的是那個偏差);5 m/s 風的穩態偏移 4.7 cm(原檢查 > 5 cm 取自 2 s 時的過衝,改 > 3 cm)。
 >   `test_strand` 13/13(新增「靜止頭會停」);`test_strand_ext` 盒上最差段伸長 7.2 %。`bench_hair_muscle` 每粒子步 37.4 → 40.8 ns(+9 %)。
-> **未做**:DER 扭轉、捲曲靜止形、與 `Rope` 懸鏈線的 parity、串聯腱順應、`SpatialTendon` 力臂、可微肌肉控制。
+> **進度註(2026-10-18)**:
+> - **串聯腱 + 路徑力臂**(`physics/muscle_tendon.mojo` `MuscleTendon`):Hill 纖維串聯線性彈性腱,`eps0` 為峰值力時的應變,0 即剛性腱。
+>   纖維長度是狀態,以平衡模型推進(由 a fl fv + fp = ft 反解 fv);l_mt 取自任意路徑(`SpatialTendon.length`),
+>   力經 `apply_tension` 變成 −F dL/dq。`test_muscle_tendon` 6/6:
+>   - 剛性極限 == `ActuatorBank.muscle_force`,差 2.3e-7;
+>   - 等長 0 → 1 啟動:剛性一步 99.6 N;順應腱 62 ms 到 90 %,平衡在較短纖維(0.102 vs 0.110 m,平衡誤差 1e-4);eps0 = 1e-3 收在 99.61 N;
+>   - 路徑力矩 == −F dL/dq,關節 1 力臂在 q1 = 0.8 / 0.2 為 −0.206 / −0.114;路徑驅動的雙連桿 1 s 有限。
+>   每單元步 19.5 / 27.2 ns(剛性 / 順應)。
+> - **捲曲靜止形**(`StrandSet.add_curl`):每粒子在骨骼座標的靜止方向;彎曲目標是本段靜止方向,經「前段靜止方向 → 目前方向」的最小旋轉帶過來。
+>   捲曲股線走 `_step_shaped`,直股線的 `_step_strand` 原封不動(`test_strand` / `_ext` / `_air` 輸出不變)。
+>   `test_strand_curl` 4/4:角度 0 與 `add` 逐位相同;踢擾後回到靜止形(6e-5 m,轉角誤差 1.2e-4 rad);重力下捲曲梢側移 8.8 cm、直股垂直;
+>   骨骼轉 90° 後停在轉過的靜止形(9.5e-6 m)。每粒子步 57.0 vs 45.8 ns。
+> - **與 `Rope` 的 parity**(`test_strand_rope_parity`;**發現**):對照單端懸吊鏈第一模態 T1 = 2π / (1.2025 √(g/L)) = 0.944 s。
+>   `Rope`(XPBD)量到 0.964 s(16 節離散)。FTL 股線的週期由 `ftl_damping` 決定,而非 g 與 L:0.5 → 0.79 s、預設 0.9 → 2.22 s、1.0 不回擺。
+>   能對上 T1 的值隨解析度改變(16 節 1/240 s 為 0.62、16 節 1/60 s 為 0.53、32 節 1/240 s 為 0.68),不能當校準。擺動時序重要時用 `Rope`。
+> - **可微肌肉控制**(`physics/muscle_ad.mojo`):`SolverField` 加 `exp`(七個純量型別,真導數)。`hill_force_f[F]` 為無分支 Hill 力;
+>   `arm_rollout[F]` 是屈 / 伸肌對、一階啟動動力學的單自由度臂。`test_muscle_ad` 3/3:
+>   - 泛型力 == `HillParams` 曲線;
+>   - 對 6 個控制量,一次 RevReal 掃描的梯度對中央差分最佳誤差 1.6e-5;
+>   - 投影梯度下降到 0.8 rad,loss 0.47 → 1e-14。
+> **未做**:DER 扭轉(離散彈性桿的扭轉自由度,獨立的較大項)。
 
 > **現況**:**毛髮不存在**:`grep -iE "\bstrand|cosserat|\bfur\b|\bhair\b|fib(er|re)"` 於全部引擎套件只有兩處
 > 慣用語註解(`physics/sensors.mojo:107`、`physics/ccd6.mojo:25`,皆為「a hair off」)。最近的是 17.41
