@@ -120,7 +120,12 @@ comptime COUPLING_REJECTED: Int = 24
 interface data from one solver and passed the last finite data on
 instead (ROADMAP 17.61)."""
 
-comptime COUNT: Int = 25
+comptime TIMER_FIRES_DROPPED: Int = 25
+"""`gameplay.runtime.Runtime` held more timer fires than its capacity
+because the caller did not `take_fired` them, and dropped the newest
+(ROADMAP 17.72)."""
+
+comptime COUNT: Int = 26
 
 
 def counter_name(id: Int) -> String:
@@ -180,6 +185,8 @@ def _name(id: Int) -> String:
         return "outbox_dropped"
     elif id == COUPLING_REJECTED:
         return "coupling_rejected"
+    elif id == TIMER_FIRES_DROPPED:
+        return "timer_fires_dropped"
     else:
         return "counter_" + String(id)
 

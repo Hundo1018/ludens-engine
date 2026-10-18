@@ -2813,7 +2813,11 @@
 > `Runtime.flow`(`FlowStack`;空 = 全部 tick,其餘以頂端遮罩分別閘控計時器 / 場景步進 + 姿態同步 / 接觸事件轉送;暫停中時間照常消耗,不累積欠步)。
 > 量測(`tests/test_runtime_flow.mojo` 5/5):40 幀 → 暫停 30 幀 → 選單 10 幀 → 彈出 → 80 幀,場景位元組與計時器 tick 等於直接跑 120 幀;暫停中場景 / 計時器不動;
 > 只開 `TICK_SIM` 時箱子落地且接觸事件 0(全開對照 291),只開 `TICK_TIMERS` 時計時器走 10 tick 而場景不動。
-> **未做**:跨關卡持久實體(玩家剛體帶到新場景)、選擇性存檔(17.40 `SaveWriter` 區段)形式的檢查點、宿主經 12.1 C-ABI 回報載入完成、`Runtime` 的已觸發計時器對外交付(`_tick` 現在丟棄 `fired`)。
+> **計時器交付(2026-10-18)**:`Runtime._tick` 原把 `timers.advance` 的觸發清單丟掉;現累積在 `Runtime.fired`(上限 `fired_capacity`,超過丟最新並記
+> 新計數器 `TIMER_FIRES_DROPPED`,`diag.counters.COUNT` 25 → 26,C-ABI 以 `ld_counter_count` 動態取得),`take_fired()` 取走。
+> `tests/test_runtime_fired.mojo` 5/5:13 tick 內 (7 @ 3) (9 @ 5) (9 @ 9) (9 @ 13) 依序各一次、再取為空;無 `TICK_TIMERS` 的流程狀態 10 幀不觸發、
+> 計時器停在 tick 1,恢復後於計時器 tick 4 觸發;容量 2、5 次未取:留最舊 2 個、丟 3 個並計數。
+> **未做**:跨關卡持久實體(玩家剛體帶到新場景)、選擇性存檔(17.40 `SaveWriter` 區段)形式的檢查點、宿主經 12.1 C-ABI 回報載入完成。
 > **現況**:只有零件,沒有流程。`gameplay/runtime.mojo:70-101` `Runtime` 擁有 world、scene、固定步迴圈、事件通道、計時器,但**沒有遊戲狀態 / 關卡 / 暫停概念**;時間縮放與暫停被路線圖明列為「由呼叫端縮放或跳過 `frame_dt` 即可」(ROADMAP §17.23–17.41 增補「拒絕(5)」,`scheduler/gameloop.mojo:31-45` `advance(…, frame_dt)`)。grep `[Qq]uest|[Dd]ialogue|[Oo]bjective|[Cc]heckpoint|[Ii]nventory|\bloot|GameState|ScreenStack|LevelStream|[Cc]utscene|Timeline|\bpause` 於全樹 `.mojo` 命中的 `checkpoint` 僅是自動微分的檢查點(`physics/diffsim.mojo:97`、`physics/adjoint.mojo:94`、`benchmarks/bench_diffsim.mojo:142`),`inventory` / `quests` 只是存檔測試的區段名 fixture(`tests/test_save.mojo:73,127`),其餘為無關的英文字串,引擎套件內遊戲層面零命中。全域旗標 / 黑板:grep `resource|singleton|blackboard` 於 `ecs scheduler gameplay` 零命中(17.15 只在計畫中提 blackboard,ROADMAP §17.15)。已有的可組裝件:階層狀態機 `procedural/fsm.mojo:18`(history、事件冒泡,無堆疊 / push-pop)、事件 `scheduler/events.mojo:1-40`、計時器 `scheduler/timers.mojo:1-50`、存檔 `gameplay/save.mojo:70-196`(具名區段、按欄位名升版)、回放 / 快照 `gameplay/replay.mojo:101-158`(`Recorder`、`seek`)、反射 `ecs/schema.mojo:47`。17.12 場景格式「跟宿主走、本輪不做」(ROADMAP §17.12)。
 > **缺口**:
 > - **流程狀態堆疊**:Boot → Menu → Loading → Playing → Paused → GameOver,可 push / pop(暫停疊在遊玩上),各狀態宣告哪些子系統 tick(模擬 / 計時器 / 事件)——把「呼叫端跳過 `frame_dt`」正式化。

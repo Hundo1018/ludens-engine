@@ -21,7 +21,8 @@ tests/benchmarks/examples).
 
 WIRING PER FIXED TICK (`advance`): `timers.advance(1, ...)` first (so a
 timer scheduled to fire "this tick" is visible to code that reacts to it
-before the physics step runs), then `scene.step(dt, gravity, cfg)`, then
+before the physics step runs; the fires collect in `fired` for the caller's
+`take_fired`, ROADMAP 17.72), then `scene.step(dt, gravity, cfg)`, then
 `scene.events` (this step's contact began/stay/ended, rebuilt fresh every
 step since `scene.events_on` is turned on by `Runtime.__init__`) is
 forwarded onto `events` (`scheduler.events.Channel`, the SAME adapter shape
@@ -76,7 +77,7 @@ from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
-from diag.counters import GAMELOOP_DEBT_DROPPED, OUTBOX_DROPPED
+from diag.counters import GAMELOOP_DEBT_DROPPED, OUTBOX_DROPPED, TIMER_FIRES_DROPPED
 from diag.outbox import Outbox, OutRecord
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 from .tiers import TierPolicy, Tier
@@ -135,8 +136,10 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var ops: List[OutRecord]  # drained at frame end, for the host
     var inbox: ConfigInbox  # host data, applied at frame start
     var config: Dict[Int, Int]
+    var fired: List[TimerFire]  # ROADMAP 17.72: this frame's timer fires, for `take_fired`
+    var fired_capacity: Int
 
-    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096):
+    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096, fired_capacity: Int = 4096):
         self.world = World[Self.B]()
         self.scene = ContactScene6[Self.Body]()
         # Contact events are off by default on a bare `ContactScene6` (the
@@ -160,6 +163,8 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.ops = List[OutRecord]()
         self.inbox = ConfigInbox()
         self.config = Dict[Int, Int]()
+        self.fired = List[TimerFire]()
+        self.fired_capacity = fired_capacity
 
     # ------------------------------------------------------------ lifecycle
 
@@ -477,6 +482,11 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.runs(TICK_TIMERS):
             var fired = List[TimerFire]()
             self.timers.advance(1, fired)
+            for f in fired:
+                if len(self.fired) < self.fired_capacity:
+                    self.fired.append(f)
+                else:
+                    self.loop.counters.incr(TIMER_FIRES_DROPPED)
         if not self.runs(TICK_SIM):
             return
         self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
@@ -490,6 +500,15 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.events.update()
         for e in self.inbox.take(self.scene.step_index):
             self.config[e.key] = e.value
+
+    def take_fired(mut self) -> List[TimerFire]:
+        """The timer fires since the last call, in firing order (tick, then
+        the timer queue's order within a tick). Not taken, they pile up to
+        `fired_capacity`; past it the newest are dropped and counted in
+        `TIMER_FIRES_DROPPED`."""
+        var out = self.fired^
+        self.fired = List[TimerFire]()
+        return out^
 
     def take_ops(mut self) -> List[OutRecord]:
         var out = self.ops^
