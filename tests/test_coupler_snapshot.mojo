@@ -5,7 +5,9 @@
 
   1. Snapshot: run 5 coupled steps, `save()` both parts, run 5 more and
      record the state, `restore()`, run the same 5 again: plate
-     temperatures, gas temperatures and velocities are bit-identical.
+     temperatures, gas temperatures and velocities are bit-identical. The
+     same through `Coupler.write_state` bytes read into a freshly built
+     pair (`state_io`).
   2. `ITERATED` on the pair converges (passes per step printed) and its
      plume stays within 1 % of `INTERP`'s excess heat (the plate's huge
      heat capacity makes the coupling weak, so the schemes agree).
@@ -18,6 +20,7 @@ from physics.thermal import HeatGrid
 from physics.mac_fluid import MacFluid2, Smoke2
 from physics.coupler import Coupler, INTERP, ITERATED
 from physics.thermal_smoke import HeatPlate, SmokeGas
+from physics.serialize import BinWriter, BinReader
 
 comptime N = 32
 comptime DX: Real = 1.0 / 32.0
@@ -50,6 +53,8 @@ def main() raises:
         c.step(0.05, counters)
     c.a.save()
     c.b.save()
+    var w = BinWriter()
+    c.write_state(w)
     for _ in range(5):
         c.step(0.05, counters)
     var t_plate = c.a.grid.t.copy()
@@ -66,6 +71,20 @@ def main() raises:
     for k in range(len(t_gas)):
         same = same and c.b.smoke.temp[k] == t_gas[k] and c.b.smoke.fluid.u[k] == u[k] and c.b.smoke.fluid.v[k] == v[k]
     s.check(same, "restore + the same 5 steps: plate and gas bit-identical")
+
+    # the same through bytes: `Coupler.write_state` into a fresh pair
+    var fresh = setup(INTERP)
+    var r = BinReader(w.b.copy())
+    fresh.read_state(r)
+    for _ in range(5):
+        fresh.step(0.05, counters)
+    var same_b = True
+    for i in range(len(t_plate)):
+        same_b = same_b and fresh.a.grid.t[i] == t_plate[i]
+    for k in range(len(t_gas)):
+        same_b = same_b and fresh.b.smoke.temp[k] == t_gas[k] and fresh.b.smoke.fluid.u[k] == u[k] and fresh.b.smoke.fluid.v[k] == v[k]
+    print("state_io snapshot of the pair:", len(w.b), "bytes")
+    s.check(same_b, "Coupler.write_state -> fresh pair -> the same 5 steps: bit-identical")
 
     var ci = setup(INTERP)
     var cr = setup(ITERATED)

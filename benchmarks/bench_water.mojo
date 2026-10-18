@@ -59,6 +59,22 @@ def main() raises:
     var q3 = now()
     keep(acc)
     t.add("fft ocean 64^2, other t (direct sum of 4096 modes)", 200, "query", q3 - q2, 200)
+    var co = FftOcean(64, 200, 0)
+    co.phillips(7, 3e-6, 10, 0)
+    co.choppy = 0.8
+    co.update(3.0)
+    var c0 = now()
+    var cacc = Real(0)
+    for k in range(20000):
+        cacc += co.height(Real(k % 997) * 0.2, Real(k % 991) * 0.2, 3.0)
+    var c1 = now()
+    t.add("fft ocean 64^2 choppy 0.8, grid inversion at the updated t", 20000, "query", c1 - c0, 20000)
+    var c2 = now()
+    for k in range(20):
+        cacc += co.height(Real(k) * 3.1, Real(k) * 1.7, 3.5)
+    var c3 = now()
+    keep(cacc)
+    t.add("fft ocean 64^2 choppy 0.8, other t (inversion over direct sums)", 20, "query", c3 - c2, 20)
     t.print_report()
 
     var f = BenchTable("FFT ocean update (17.60)")

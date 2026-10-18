@@ -1,0 +1,304 @@
+"""Incompressible grid fluid on a 3-D MAC grid, periodic, and buoyant smoke
+on it (ROADMAP 17.60: 3-D single-phase MAC).
+
+`MacFluid2` in three dimensions: u on the x faces (i, j + 1/2, k + 1/2) dx,
+v on the y faces, w on the z faces, pressure at the cell centres. One
+`step(dt)`:
+
+  1. advect u, v, w semi-Lagrangian, RK2 backtrace, trilinear (periodic);
+  2. viscosity explicitly, u += nu dt lap u (raises when
+     nu dt / dx^2 > 1/6, the explicit limit in 3-D);
+  3. the body force (fx, fy, fz) times dt;
+  4. project: -lap p = -div u / dt with `numerics.pcg` through a
+     matrix-free 7-point operator, right-hand side mean removed in f64 (the
+     periodic Laplacian is singular; see `MacFluid2.project`), warm-started
+     from the last pressure unless that is a worse start than zero
+     (`mac_fluid.warm_start_or_zero`), then u -= dt grad p.
+
+`Smoke3`: a cell-centred temperature advected with the flow (RK2,
+trilinear) pushes the v faces by Boussinesq buoyancy,
+fy = buoyancy (T - mean T); the mean is removed so the periodic box as a
+whole does not accelerate. No vorticity confinement (2-D `Smoke2` has it).
+
+A field that does not vary along z, with w = 0, steps like `MacFluid2`
+(`test_mac_fluid3` compares them; equal to the CG tolerance, not bit for
+bit -- the 3-D solve sums over n^3 cells).
+"""
+
+from std.math import floor
+from geometry.vec import Real
+from numerics.sparse import LinearOperator
+from numerics.cg import pcg, CgResult
+from .mac_fluid import warm_start_or_zero
+
+
+struct _NegLaplacian3(LinearOperator, Movable):
+    """-lap on an n^3 periodic cell grid, scaled by dx^2 = 1."""
+
+    var n: Int
+
+    def __init__(out self, n: Int):
+        self.n = n
+
+    def size(self) -> Int:
+        return self.n * self.n * self.n
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        var n = self.n
+        for k in range(n):
+            var km = (k + n - 1) % n
+            var kp = (k + 1) % n
+            for j in range(n):
+                var jm = (j + n - 1) % n
+                var jp = (j + 1) % n
+                for i in range(n):
+                    var im = (i + n - 1) % n
+                    var ip = (i + 1) % n
+                    var c = (k * n + j) * n + i
+                    out[c] = (
+                        6 * x[c]
+                        - x[(k * n + j) * n + im] - x[(k * n + j) * n + ip]
+                        - x[(k * n + jm) * n + i] - x[(k * n + jp) * n + i]
+                        - x[(km * n + j) * n + i] - x[(kp * n + j) * n + i]
+                    )
+
+    def diagonal(self, mut out: List[Real]):
+        for c in range(self.n * self.n * self.n):
+            out[c] = 6
+
+
+struct MacFluid3(Movable):
+    var n: Int  # cells per side
+    var dx: Real
+    var nu: Real
+    var fx: Real
+    var fy: Real
+    var fz: Real
+    var u: List[Real]  # [(k n + j) n + i] at (i, j + 1/2, k + 1/2) dx
+    var v: List[Real]  # at (i + 1/2, j, k + 1/2) dx
+    var w: List[Real]  # at (i + 1/2, j + 1/2, k) dx
+    var p: List[Real]  # cell centres, warm start
+    var last: CgResult
+
+    def __init__(out self, n: Int, dx: Real, nu: Real) raises:
+        if n < 4 or not (dx > 0) or not (nu >= 0):
+            raise Error("MacFluid3: n >= 4, dx > 0, nu >= 0")
+        self.n = n
+        self.dx = dx
+        self.nu = nu
+        self.fx = 0
+        self.fy = 0
+        self.fz = 0
+        var m = n * n * n
+        self.u = List[Real](length=m, fill=0)
+        self.v = List[Real](length=m, fill=0)
+        self.w = List[Real](length=m, fill=0)
+        self.p = List[Real](length=m, fill=0)
+        self.last = CgResult(True, False, 0, 0)
+
+    def cells(self) -> Int:
+        return self.n * self.n * self.n
+
+    def idx(self, i: Int, j: Int, k: Int) -> Int:
+        var n = self.n
+        return ((((k % n) + n) % n) * n + (((j % n) + n) % n)) * n + (((i % n) + n) % n)
+
+    def sample(self, f: List[Real], x: Real, y: Real, z: Real, ox: Real, oy: Real, oz: Real) -> Real:
+        """Trilinear sample of a field whose (i, j, k) value sits at
+        ((i + ox) dx, (j + oy) dx, (k + oz) dx)."""
+        var gx = x / self.dx - ox
+        var gy = y / self.dx - oy
+        var gz = z / self.dx - oz
+        var i0 = Int(floor(gx))
+        var j0 = Int(floor(gy))
+        var k0 = Int(floor(gz))
+        var ax = gx - Real(i0)
+        var ay = gy - Real(j0)
+        var az = gz - Real(k0)
+        var c00 = f[self.idx(i0, j0, k0)] * (1 - ax) + f[self.idx(i0 + 1, j0, k0)] * ax
+        var c10 = f[self.idx(i0, j0 + 1, k0)] * (1 - ax) + f[self.idx(i0 + 1, j0 + 1, k0)] * ax
+        var c01 = f[self.idx(i0, j0, k0 + 1)] * (1 - ax) + f[self.idx(i0 + 1, j0, k0 + 1)] * ax
+        var c11 = f[self.idx(i0, j0 + 1, k0 + 1)] * (1 - ax) + f[self.idx(i0 + 1, j0 + 1, k0 + 1)] * ax
+        var lo = c00 * (1 - ay) + c10 * ay
+        var hi = c01 * (1 - ay) + c11 * ay
+        return lo * (1 - az) + hi * az
+
+    def velocity(self, x: Real, y: Real, z: Real) -> Tuple[Real, Real, Real]:
+        return (
+            self.sample(self.u, x, y, z, 0, 0.5, 0.5),
+            self.sample(self.v, x, y, z, 0.5, 0, 0.5),
+            self.sample(self.w, x, y, z, 0.5, 0.5, 0),
+        )
+
+    def divergence(self) -> List[Real]:
+        var n = self.n
+        var out = List[Real](length=self.cells(), fill=0)
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = (k * n + j) * n + i
+                    out[c] = (
+                        self.u[self.idx(i + 1, j, k)] - self.u[c]
+                        + self.v[self.idx(i, j + 1, k)] - self.v[c]
+                        + self.w[self.idx(i, j, k + 1)] - self.w[c]
+                    ) / self.dx
+        return out^
+
+    def _back(self, x: Real, y: Real, z: Real, dt: Real) -> Tuple[Real, Real, Real]:
+        """RK2 (midpoint) backtrace of the point (x, y, z) over dt."""
+        var v0 = self.velocity(x, y, z)
+        var vm = self.velocity(x - 0.5 * dt * v0[0], y - 0.5 * dt * v0[1], z - 0.5 * dt * v0[2])
+        return (x - dt * vm[0], y - dt * vm[1], z - dt * vm[2])
+
+    def _advect(mut self, dt: Real):
+        var n = self.n
+        var dx = self.dx
+        var nu_ = List[Real](length=self.cells(), fill=0)
+        var nv_ = List[Real](length=self.cells(), fill=0)
+        var nw_ = List[Real](length=self.cells(), fill=0)
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = (k * n + j) * n + i
+                    var b = self._back(Real(i) * dx, (Real(j) + 0.5) * dx, (Real(k) + 0.5) * dx, dt)
+                    nu_[c] = self.sample(self.u, b[0], b[1], b[2], 0, 0.5, 0.5)
+                    b = self._back((Real(i) + 0.5) * dx, Real(j) * dx, (Real(k) + 0.5) * dx, dt)
+                    nv_[c] = self.sample(self.v, b[0], b[1], b[2], 0.5, 0, 0.5)
+                    b = self._back((Real(i) + 0.5) * dx, (Real(j) + 0.5) * dx, Real(k) * dx, dt)
+                    nw_[c] = self.sample(self.w, b[0], b[1], b[2], 0.5, 0.5, 0)
+        self.u = nu_^
+        self.v = nv_^
+        self.w = nw_^
+
+    def _lap(self, f: List[Real], i: Int, j: Int, k: Int) -> Real:
+        return (
+            f[self.idx(i - 1, j, k)] + f[self.idx(i + 1, j, k)]
+            + f[self.idx(i, j - 1, k)] + f[self.idx(i, j + 1, k)]
+            + f[self.idx(i, j, k - 1)] + f[self.idx(i, j, k + 1)]
+            - 6 * f[self.idx(i, j, k)]
+        )
+
+    def _diffuse(mut self, dt: Real):
+        var n = self.n
+        var a = self.nu * dt / (self.dx * self.dx)
+        var nu_ = self.u.copy()
+        var nv_ = self.v.copy()
+        var nw_ = self.w.copy()
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = (k * n + j) * n + i
+                    nu_[c] += a * self._lap(self.u, i, j, k)
+                    nv_[c] += a * self._lap(self.v, i, j, k)
+                    nw_[c] += a * self._lap(self.w, i, j, k)
+        self.u = nu_^
+        self.v = nv_^
+        self.w = nw_^
+
+    def project(mut self, dt: Real, tol: Real = 1e-6) -> CgResult:
+        var n = self.n
+        var m = self.cells()
+        var div = self.divergence()
+        var rhs = List[Real](length=m, fill=0)
+        var mean = Float64(0)
+        for c in range(m):
+            rhs[c] = -div[c] * self.dx * self.dx / dt
+            mean += Float64(rhs[c])
+        mean /= Float64(m)
+        for c in range(m):
+            rhs[c] = Real(Float64(rhs[c]) - mean)
+        var op = _NegLaplacian3(n)
+        warm_start_or_zero(op, rhs, self.p)
+        var r = pcg(op, rhs, self.p, tol, 4 * m)
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = (k * n + j) * n + i
+                    self.u[c] -= dt * (self.p[c] - self.p[self.idx(i - 1, j, k)]) / self.dx
+                    self.v[c] -= dt * (self.p[c] - self.p[self.idx(i, j - 1, k)]) / self.dx
+                    self.w[c] -= dt * (self.p[c] - self.p[self.idx(i, j, k - 1)]) / self.dx
+        self.last = r
+        return r
+
+    def step(mut self, dt: Real) raises:
+        if not (dt > 0):
+            raise Error("MacFluid3.step: dt must be > 0")
+        if self.nu * dt / (self.dx * self.dx) > Real(1.0 / 6.0):
+            raise Error("MacFluid3.step: nu dt / dx^2 > 1/6 (explicit viscosity limit)")
+        self._advect(dt)
+        if self.nu > 0:
+            self._diffuse(dt)
+        if self.fx != 0 or self.fy != 0 or self.fz != 0:
+            for c in range(self.cells()):
+                self.u[c] += self.fx * dt
+                self.v[c] += self.fy * dt
+                self.w[c] += self.fz * dt
+        _ = self.project(dt)
+
+    def kinetic_energy(self) -> Real:
+        var e = Real(0)
+        for c in range(self.cells()):
+            e += 0.5 * (self.u[c] * self.u[c] + self.v[c] * self.v[c] + self.w[c] * self.w[c])
+        return e * self.dx * self.dx * self.dx
+
+
+struct Smoke3(Movable):
+    var fluid: MacFluid3
+    var temp: List[Real]
+    var buoyancy: Real
+
+    def __init__(out self, var fluid: MacFluid3, buoyancy: Real):
+        var m = fluid.cells()
+        self.fluid = fluid^
+        self.temp = List[Real](length=m, fill=0)
+        self.buoyancy = buoyancy
+
+    def _buoyancy(mut self, dt: Real):
+        var n = self.fluid.n
+        var m = self.fluid.cells()
+        var mean = Float64(0)
+        for c in range(m):
+            mean += Float64(self.temp[c])
+        var tm = Real(mean / Float64(m))
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = (k * n + j) * n + i
+                    var tf = 0.5 * (self.temp[c] + self.temp[self.fluid.idx(i, j - 1, k)])
+                    self.fluid.v[c] += dt * self.buoyancy * (tf - tm)
+
+    def _advect_temp(mut self, dt: Real):
+        var n = self.fluid.n
+        var dx = self.fluid.dx
+        var nt = List[Real](length=self.fluid.cells(), fill=0)
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var b = self.fluid._back((Real(i) + 0.5) * dx, (Real(j) + 0.5) * dx, (Real(k) + 0.5) * dx, dt)
+                    nt[(k * n + j) * n + i] = self.fluid.sample(self.temp, b[0], b[1], b[2], 0.5, 0.5, 0.5)
+        self.temp = nt^
+
+    def step(mut self, dt: Real) raises:
+        self._buoyancy(dt)
+        self.fluid.step(dt)
+        self._advect_temp(dt)
+
+    def heat_centre_y(self) -> Real:
+        """Temperature-weighted mean height of the cells above the mean
+        temperature (where the hot blob is), in metres."""
+        var n = self.fluid.n
+        var m = self.fluid.cells()
+        var mean = Float64(0)
+        for c in range(m):
+            mean += Float64(self.temp[c])
+        mean /= Float64(m)
+        var sw = Float64(0)
+        var sy = Float64(0)
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var t = Float64(self.temp[(k * n + j) * n + i]) - mean
+                    if t > 0:
+                        sw += t
+                        sy += t * (Float64(j) + 0.5)
+        return Real(sy / sw) * self.fluid.dx if sw > 0 else Real(0)

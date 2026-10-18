@@ -21,7 +21,8 @@ tests/benchmarks/examples).
 
 WIRING PER FIXED TICK (`advance`): `timers.advance(1, ...)` first (so a
 timer scheduled to fire "this tick" is visible to code that reacts to it
-before the physics step runs), then `scene.step(dt, gravity, cfg)`, then
+before the physics step runs; the fires collect in `fired` for the caller's
+`take_fired`, ROADMAP 17.72), then `scene.step(dt, gravity, cfg)`, then
 `scene.events` (this step's contact began/stay/ended, rebuilt fresh every
 step since `scene.events_on` is turned on by `Runtime.__init__`) is
 forwarded onto `events` (`scheduler.events.Channel`, the SAME adapter shape
@@ -76,7 +77,8 @@ from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
-from diag.counters import GAMELOOP_DEBT_DROPPED, OUTBOX_DROPPED
+from collision.collider_set import SHAPE_BOX, SHAPE_SPHERE
+from diag.counters import GAMELOOP_DEBT_DROPPED, OUTBOX_DROPPED, TIMER_FIRES_DROPPED
 from diag.outbox import Outbox, OutRecord
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 from .tiers import TierPolicy, Tier
@@ -135,8 +137,10 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var ops: List[OutRecord]  # drained at frame end, for the host
     var inbox: ConfigInbox  # host data, applied at frame start
     var config: Dict[Int, Int]
+    var fired: List[TimerFire]  # ROADMAP 17.72: this frame's timer fires, for `take_fired`
+    var fired_capacity: Int
 
-    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096):
+    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096, fired_capacity: Int = 4096):
         self.world = World[Self.B]()
         self.scene = ContactScene6[Self.Body]()
         # Contact events are off by default on a bare `ContactScene6` (the
@@ -160,6 +164,8 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.ops = List[OutRecord]()
         self.inbox = ConfigInbox()
         self.config = Dict[Int, Int]()
+        self.fired = List[TimerFire]()
+        self.fired_capacity = fired_capacity
 
     # ------------------------------------------------------------ lifecycle
 
@@ -281,6 +287,50 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
             if self.scene.bset.is_valid(r.id):
                 self.scene.remove_body(r.id)
         self.world.despawn(e)
+
+    def carry_to(mut self, e: Entity, mut dst: Self) raises -> Entity:
+        """Move a dynamic body to another runtime (ROADMAP 17.72: the player
+        carried into the next level): the body value (pose, velocities,
+        mass) and its collider (box or sphere) are added to `dst` with the
+        per-body settings a game sets -- damping, gravity scale, velocity
+        caps, axis locks, friction (kinetic, static, combine mode),
+        restitution (and its combine mode) -- and the body and entity
+        leave this runtime. Returns the entity in `dst`. Other components
+        on `e` are the caller's to move (a world's component set is its
+        own). Raises for an entity that is not a live rigid body here, for
+        static bodies and for other collider kinds."""
+        if not self.world.is_alive(e) or not self.world.has[RigidBodyRef](e):
+            raise Error("Runtime.carry_to: not a live rigid-body entity of this runtime")
+        var id = self.body_of(e)
+        var i = id.index()
+        if self.scene.bset.is_static(i):
+            raise Error("Runtime.carry_to: static bodies stay with their level")
+        var kind = self.scene.colliders.shape[i]
+        var half = self.scene.colliders.half[i]
+        var body = self.scene.bset.bodies[i].copy()
+        var out: Entity
+        if kind == SHAPE_BOX:
+            out = dst.spawn_body(body^, half, False)
+        elif kind == SHAPE_SPHERE:
+            out = dst.spawn_sphere(body^, half[0], False)
+        else:
+            raise Error("Runtime.carry_to: only box and sphere bodies are carried")
+        ref bs = self.scene.bset
+        var j = dst.body_of(out).index()
+        dst.set_damping(out, bs.lin_damping[i], bs.ang_damping[i])
+        dst.set_gravity_scale(out, bs.gravity_scale[i])
+        dst.set_max_velocity(out, bs.max_lin[i], bs.max_ang[i])
+        var lk = bs.locks[i]
+        dst.set_axis_locks(out, lk & 1 != 0, lk & 2 != 0, lk & 4 != 0, lk & 8 != 0, lk & 16 != 0, lk & 32 != 0)
+        # raw copies: a negative friction is the "never set" sentinel, which
+        # `set_friction` refuses; combine modes and static friction go along
+        dst.scene.bset.friction[j] = bs.friction[i]
+        dst.scene.bset.static_friction[j] = bs.static_friction[i]
+        dst.scene.bset.friction_combine[j] = bs.friction_combine[i]
+        dst.scene.set_restitution(j, bs.restitution[i])
+        dst.scene.bset.restitution_combine[j] = bs.restitution_combine[i]
+        self.despawn(e)
+        return out
 
     # --------------------------------------------------------------- update
 
@@ -477,6 +527,11 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.runs(TICK_TIMERS):
             var fired = List[TimerFire]()
             self.timers.advance(1, fired)
+            for f in fired:
+                if len(self.fired) < self.fired_capacity:
+                    self.fired.append(f)
+                else:
+                    self.loop.counters.incr(TIMER_FIRES_DROPPED)
         if not self.runs(TICK_SIM):
             return
         self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
@@ -490,6 +545,15 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.events.update()
         for e in self.inbox.take(self.scene.step_index):
             self.config[e.key] = e.value
+
+    def take_fired(mut self) -> List[TimerFire]:
+        """The timer fires since the last call, in firing order (tick, then
+        the timer queue's order within a tick). Not taken, they pile up to
+        `fired_capacity`; past it the newest are dropped and counted in
+        `TIMER_FIRES_DROPPED`."""
+        var out = self.fired^
+        self.fired = List[TimerFire]()
+        return out^
 
     def take_ops(mut self) -> List[OutRecord]:
         var out = self.ops^

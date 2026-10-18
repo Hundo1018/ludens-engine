@@ -610,12 +610,16 @@ def sphere_box_manifold(
     var q = _box_closest_local(lp, hb)
     var dl = lp - q
     var d2 = dot(dl, dl)
-    if d2 > r * r and d2 > 1e-12:
+    # "centre on the surface" cut-off relative to the radius (ROADMAP 17.76):
+    # an absolute 1e-12 sent the same centre down different branches at
+    # different unit scales (`test_unit_scale` on targets without FMA)
+    var tiny = r * r * 1e-12
+    if d2 > r * r and d2 > tiny:
         return ContactManifold[3].miss()
     var n_world: Vec3
     var depth: Real
     var point: Vec3
-    if d2 > 1e-12:
+    if d2 > tiny:
         # centre outside the box: normal along centre -> surface point
         var dist = sqrt(d2)
         var nl = dl / dist

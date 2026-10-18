@@ -78,6 +78,7 @@ struct Lbm(Movable, Deinitable):
     # 0 = BGK. The usual choice 3/16 puts half-way bounce-back walls exactly
     # half-way whatever the viscosity; 1/4 is the most stable.
     var trt_lambda: Real
+    var trt_guo: Bool  # TRT with Guo's second-order body force (17.60; `_step_guo`)
     # ROADMAP 17.61: per-cell relaxation time (e.g. viscosity from a
     # temperature field); empty = the uniform `tau`
     var tau_cell: List[Real]
@@ -138,6 +139,7 @@ struct Lbm(Movable, Deinitable):
         self.force_y = 0
         self.force_z = 0
         self.trt_lambda = 0
+        self.trt_guo = False
         self.tau_cell = List[Real]()
         self.cell_force = List[Vec3]()
         self.smagorinsky = 0
@@ -605,6 +607,74 @@ struct Lbm(Movable, Deinitable):
             for i in range(Q):
                 self.f[i * n + c] = post[i]
 
+    def _step_guo(mut self):
+        """`step` with `collide_trt_guo` (it applies all three force
+        components itself, so `_force_yz` is skipped)."""
+        self.collide_trt_guo()
+        if len(self.cell_force) > 0:
+            self._force_cells()
+        self.stream()
+        self.apply_inlet_outlet()
+
+    def collide_trt_guo(mut self):
+        """TRT with Guo et al.'s (2002) second-order body force (17.60):
+        velocity u = (sum f c + F / 2) / rho, and the source
+        S_i = w_i (3 c.F + 9 (c.u)(c.F) - 3 u.F) split into its antisymmetric
+        part (3 w_i c.F, scaled by 1 - 1/(2 tau-)) and its symmetric part
+        (scaled by 1 - 1/(2 tau)). With Lambda = 3/16 a half-way
+        bounce-back wall then sits exactly half way and Poiseuille flow is
+        exact for every tau (`test_lbm_trt_guo`); the velocity shift of
+        `collide_trt` is not (5.1 % at tau 3.5). `velocity` returns the bare
+        first moment: the physical velocity adds F / (2 rho)."""
+        var wp = Real(1) / self.tau
+        var tm = self.trt_lambda / (self.tau - 0.5) + 0.5
+        var wm = Real(1) / tm
+        var fx = self.force_x
+        var fy = self.force_y
+        var fz = self.force_z
+        var n = self.cells()
+        var fe = List[Real](length=Q, fill=0)
+        var src = List[Real](length=Q, fill=0)
+        var post = List[Real](length=Q, fill=0)
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var rho = Real(0)
+            var ux = Real(0)
+            var uy = Real(0)
+            var uz = Real(0)
+            for i in range(Q):
+                var v = self.f[i * n + c]
+                rho += v
+                ux += v * Real(self.ex[i])
+                uy += v * Real(self.ey[i])
+                uz += v * Real(self.ez[i])
+            if rho <= 0:
+                continue
+            ux = (ux + 0.5 * fx) / rho
+            uy = (uy + 0.5 * fy) / rho
+            uz = (uz + 0.5 * fz) / rho
+            var uf = ux * fx + uy * fy + uz * fz
+            for i in range(Q):
+                fe[i] = self._feq(i, rho, ux, uy, uz)
+                var cx = Real(self.ex[i])
+                var cy = Real(self.ey[i])
+                var cz = Real(self.ez[i])
+                var cf = cx * fx + cy * fy + cz * fz
+                var cu = cx * ux + cy * uy + cz * uz
+                src[i] = self.w[i] * (3 * cf + 9 * cu * cf - 3 * uf)
+            for i in range(Q):
+                var o = self.opp[i]
+                var fi = self.f[i * n + c]
+                var fo = self.f[o * n + c]
+                var sp = 0.5 * (fi + fo) - 0.5 * (fe[i] + fe[o])
+                var sm = 0.5 * (fi - fo) - 0.5 * (fe[i] - fe[o])
+                var ssym = 0.5 * (src[i] + src[o])
+                var santi = 0.5 * (src[i] - src[o])
+                post[i] = fi - wp * sp - wm * sm + (1 - 0.5 * wp) * ssym + (1 - 0.5 * wm) * santi
+            for i in range(Q):
+                self.f[i * n + c] = post[i]
+
     def collide(mut self):
         """BGK: f <- f - (f - f_eq) / tau, on fluid cells only."""
         var inv_tau = Real(1) / self.tau
@@ -917,6 +987,9 @@ struct Lbm(Movable, Deinitable):
                     self.f[i * n + c] += 3 * self.w[i] * cf
 
     def step(mut self):
+        if self.trt_guo and self.trt_lambda > 0 and len(self.tau_cell) == 0:
+            self._step_guo()
+            return
         if len(self.tau_cell) > 0:
             self.collide_var()
         elif self.trt_lambda > 0:

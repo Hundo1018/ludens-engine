@@ -9,10 +9,14 @@
     skinned vertex each step, with the velocity of that move, so the
     cloth's own step sees a kinematic target. `pin_softbody_to_skin` does
     the same for the particles of a volumetric `SoftBody` (a skinned
-    belly or cheek driving a jiggle lattice), but is called AFTER the
-    body's step: `SoftBody.predict` applies gravity to every particle,
-    inverse mass 0 included (existing scenes rely on that), so the pins
-    are imposed on the step's result, with the velocity of their move.
+    belly or cheek driving a jiggle lattice): a particle with inverse
+    mass 0 is kinematic there, so it stays on its pin through the step
+    (until 17.65's fix `SoftBody.predict` pulled it 6.9e-5 m off per
+    1/60 s step and `momentum` divided by its zero inverse mass).
+  * `pin_fem_to_skin`: the same for the nodes of a tetrahedral `FemBody`
+    (a muscle or fat volume riding a bone): pinned nodes (inverse mass 0)
+    are placed on their skinned vertices and the elastic forces of the
+    next step pull the free nodes along.
   * `fit_bone_boxes` / `fit_bone_capsules`: collision shapes per bone from
     the skinning weights -- the vertices a bone owns with weight >=
     `threshold`, in that bone's bind frame. Boxes come as (half extents,
@@ -30,6 +34,7 @@ from geometry.skinning import bind_palette
 from procedural.anim_graph import Pose, to_world
 from physics.cloth import MeshCloth
 from physics.softbody import SoftBody
+from physics.fem import FemBody
 from .animator import Animators
 
 
@@ -74,6 +79,27 @@ def pin_softbody_to_skin(mut body: SoftBody, pts: List[Int], skin_vert: List[Int
         body.pts[c].w = 0
         body.pts[c].v = (skinned[sv] - body.pts[c].x) * (1 / dt)
         body.pts[c].x = skinned[sv]
+
+
+def pin_fem_to_skin(mut body: FemBody, nodes: List[Int], skin_vert: List[Int], skinned: List[Vec3]) raises:
+    """Pin `nodes[k]` of a tetrahedral body to `skinned[skin_vert[k]]`:
+    inverse mass 0 (the FEM steps keep such nodes still, velocity 0) and
+    position set; call before each body step with the frame's skinned
+    vertices."""
+    if len(nodes) != len(skin_vert):
+        raise Error("pin_fem_to_skin: one skinned vertex per node")
+    for k in range(len(nodes)):
+        var c = nodes[k]
+        var sv = skin_vert[k]
+        if c < 0 or c >= body.node_count() or sv < 0 or sv >= len(skinned):
+            raise Error("pin_fem_to_skin: index out of range")
+        body.inv_m[c] = 0
+        body.x[c] = skinned[sv][0]
+        body.y[c] = skinned[sv][1]
+        body.z[c] = skinned[sv][2]
+        body.vx[c] = 0
+        body.vy[c] = 0
+        body.vz[c] = 0
 
 
 def _owned_local(bind: Pose, rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, bone: Int, threshold: Real) -> List[Vec3]:

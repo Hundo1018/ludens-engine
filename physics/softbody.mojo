@@ -14,6 +14,11 @@ Coupling with rigid bodies is positional-to-impulse, both ways:
   * every pushout applies the equivalent impulse `-m_p * dx / h` back to a
     dynamic body at the contact point, and wakes it if it was sleeping.
 
+A particle with inverse mass 0 is kinematic: `predict` and `finish` leave
+it where it was put and keep the velocity it was given (a skin pin,
+`gameplay.skin_link.pin_softbody_to_skin`, or `quarantine`); constraints
+and pushouts do not move it; `momentum` leaves it out (ROADMAP 17.65).
+
 The solve is sequential Gauss-Seidel — deterministic by construction (gate:
 bit-identical repeat runs in `test_softbody`).
 """
@@ -88,6 +93,8 @@ struct SoftBody(Movable, Deinitable, ContinuumSolver):
             prev.append(p.x[0])
             prev.append(p.x[1])
             prev.append(p.x[2])
+            if p.w == 0:
+                continue  # kinematic: placed from outside (pin / quarantine)
             p.v = p.v + gravity * h
             p.x = p.x + p.v * h
             self.pts[i] = p
@@ -124,6 +131,8 @@ struct SoftBody(Movable, Deinitable, ContinuumSolver):
         """Velocities from positions, damped."""
         for i in range(len(self.pts)):
             var p = self.pts[i]
+            if p.w == 0:
+                continue  # keeps the velocity it was given
             var pv = Vec3(prev[i * 3], prev[i * 3 + 1], prev[i * 3 + 2], 0)
             p.v = (p.x - pv) * (self.damp / h)
             self.pts[i] = p
@@ -262,7 +271,11 @@ struct SoftBody(Movable, Deinitable, ContinuumSolver):
         return sqrt(m)
 
     def momentum(self) -> Vec3:
+        """Momentum of the dynamic particles; kinematic ones (w = 0, infinite
+        mass) are left out."""
         var p = Vec3(0, 0, 0, 0)
         for i in range(len(self.pts)):
+            if self.pts[i].w == 0:
+                continue
             p = p + self.pts[i].v / self.pts[i].w
         return p

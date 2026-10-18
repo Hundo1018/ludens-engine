@@ -21,7 +21,8 @@ h dx dt / cap_gas >= 1 (the explicit exchange would overshoot).
 from geometry.vec import Real
 from .thermal import HeatGrid
 from .mac_fluid import Smoke2
-from .coupler import CoupledPart
+from .coupler import CoupledPart, write_reals, read_reals
+from .state_io import StateWriter, StateReader, f64_bits, f64_from_bits
 
 
 struct HeatPlate(CoupledPart):
@@ -76,6 +77,21 @@ struct HeatPlate(CoupledPart):
 
     def restore(mut self):
         self.grid.t = self._saved.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        write_reals(w, self.grid.t)
+        write_reals(w, self.gas_t)
+        w.wf(self.received)
+        w.wi(f64_bits(self.total_in))
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var t = read_reals(r)
+        if len(t) != len(self.grid.t):
+            raise Error("HeatPlate.read_state: grid size differs")
+        self.grid.t = t^
+        self.gas_t = read_reals(r)
+        self.received = r.rf()
+        self.total_in = f64_from_bits(r.ri())
 
 
 struct SmokeGas(CoupledPart):
@@ -150,3 +166,27 @@ struct SmokeGas(CoupledPart):
         self.smoke.fluid.v = self._sv.copy()
         self.smoke.fluid.p = self._sp.copy()
         self.smoke.temp = self._st.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        write_reals(w, self.smoke.fluid.u)
+        write_reals(w, self.smoke.fluid.v)
+        write_reals(w, self.smoke.fluid.p)
+        write_reals(w, self.smoke.temp)
+        write_reals(w, self.plate_t)
+        w.wf(self.received)
+        w.wi(f64_bits(self.total_in))
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var u = read_reals(r)
+        var v = read_reals(r)
+        var p = read_reals(r)
+        var t = read_reals(r)
+        if len(u) != len(self.smoke.fluid.u) or len(t) != len(self.smoke.temp):
+            raise Error("SmokeGas.read_state: grid size differs")
+        self.smoke.fluid.u = u^
+        self.smoke.fluid.v = v^
+        self.smoke.fluid.p = p^
+        self.smoke.temp = t^
+        self.plate_t = read_reals(r)
+        self.received = r.rf()
+        self.total_in = f64_from_bits(r.ri())

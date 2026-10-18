@@ -13,6 +13,8 @@ from harness.runner import Suite
 from geometry.vec import Real
 from diag.counters import Counters, COUPLING_REJECTED
 from physics.coupler import Coupler, CoupledPart, EXPLICIT, INTERP, ITERATED
+from physics.state_io import StateWriter, StateReader
+from physics.serialize import BinWriter, BinReader
 
 
 struct MassA(CoupledPart):
@@ -69,6 +71,20 @@ struct MassA(CoupledPart):
         self.x = self.sx
         self.v = self.sv
 
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wf(self.x)
+        w.wf(self.v)
+        w.wf(self.xb)
+        w.wf(self.imp)
+        w.wi(self.steps)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.x = r.rf()
+        self.v = r.rf()
+        self.xb = r.rf()
+        self.imp = r.rf()
+        self.steps = r.ri()
+
 
 struct MassB(CoupledPart):
     var x: Real
@@ -112,6 +128,18 @@ struct MassB(CoupledPart):
     def restore(mut self):
         self.x = self.sx
         self.v = self.sv
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wf(self.x)
+        w.wf(self.v)
+        w.wf(self.xa)
+        w.wf(self.imp)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.x = r.rf()
+        self.v = r.rf()
+        self.xa = r.rf()
+        self.imp = r.rf()
 
 
 def energy(a: MassA, b: MassB) -> Real:
@@ -253,4 +281,31 @@ def main() raises:
     except:
         raised += 1
     s.check(raised == 2, "ratio < 1 and unknown scheme raise")
+
+    # snapshot: a coupler restored from bytes continues bit for bit
+    for scheme in [EXPLICIT, INTERP, ITERATED]:
+        var live = make(400.0, 4, scheme)
+        run(live, 2e-3, 60, counters)
+        var w = BinWriter()
+        live.write_state(w)
+        run(live, 2e-3, 60, counters)
+        var back = make(400.0, 4, scheme)
+        var r = BinReader(w.b.copy())
+        back.read_state(r)
+        run(back, 2e-3, 60, counters)
+        s.check(
+            back.a.x == live.a.x and back.b.x == live.b.x and back.b.v == live.b.v
+            and back.max_imbalance == live.max_imbalance,
+            "snapshot after 60 steps, 60 more: same as uninterrupted (scheme " + String(scheme) + ")",
+        )
+    var other = make(400.0, 2, EXPLICIT)
+    var ws = BinWriter()
+    make(400.0, 4, EXPLICIT).write_state(ws)
+    var bad_schedule = False
+    try:
+        var r2 = BinReader(ws.b.copy())
+        other.read_state(r2)
+    except:
+        bad_schedule = True
+    s.check(bad_schedule, "a snapshot of another schedule (ratio 4 into ratio 2) raises")
     s.finish()

@@ -12,6 +12,28 @@ from physics.mac_fluid import MacFluid2
 from fluid.lbm import Lbm, BC_PERIODIC
 from fluid.d3q19 import equilibrium
 from harness.bench import BenchTable, now
+from physics.flip import FlipWater2
+from physics.flip_apic import ApicState, apic_step
+from physics.flip_diffuse import DiffuseParticles
+from physics.flip3 import FlipWater3
+
+
+def flip_rows(mut t: BenchTable) raises:
+    """FLIP vs APIC transfers (17.60) on the 0.25 x 0.5 m dam break, 0.2 s."""
+    for apic in [False, True]:
+        var d = FlipWater2(80, 24, 0.025)
+        var st = ApicState()
+        d.fill_box(0, 0, 0.25, 0.5)
+        var steps = 50
+        var t0 = now()
+        for _ in range(steps):
+            if apic:
+                apic_step(d, st, 0.004)
+            else:
+                d.step(0.004)
+        var t1 = now()
+        keep(d.px[0])
+        t.add("dam break 80 x 24, " + ("APIC" if apic else "FLIP 0.95"), d.count(), "particle-step", t1 - t0, steps * d.count())
 
 
 def main() raises:
@@ -60,3 +82,26 @@ def main() raises:
         keep(l.f[5])
         t.add("LBM D3Q19 " + String(n) + "^2 x 1", n * n, "cell-step", t3 - t2, steps * n * n)
     t.print_report()
+    var f = BenchTable("FLIP water: FLIP 0.95 vs APIC transfers (17.60)")
+    flip_rows(f)
+    var d = FlipWater2(80, 24, 0.025)
+    d.fill_box(0, 0, 0.25, 0.5)
+    var df = DiffuseParticles(7)
+    for _ in range(100):
+        d.step(0.004)
+        df.update(d, 0.004)
+    var t0 = now()
+    for _ in range(50):
+        df.update(d, 0.004)
+    var t1 = now()
+    keep(df.count())
+    var c3 = FlipWater3(24, 16, 24, 0.05)
+    c3.fill_box(0, 0, 0, 0.3, 0.6, 0.3)
+    var s0 = now()
+    for _ in range(20):
+        c3.step(0.005)
+    var s1 = now()
+    keep(c3.px[0])
+    f.add("3-D FLIP corner column 24 x 16 x 24", c3.count(), "particle-step", s1 - s0, 20 * c3.count())
+    f.add("diffuse update (" + String(df.count()) + " diffuse, " + String(d.count()) + " water particles)", d.count(), "water particle", t1 - t0, 50 * d.count())
+    f.print_report()

@@ -55,6 +55,27 @@ struct _NegLaplacian(LinearOperator, Movable):
             out[k] = 4
 
 
+def warm_start_or_zero[Op: LinearOperator](op: Op, rhs: List[Real], mut x: List[Real]):
+    """Zero `x` when it is a worse start than zero, ||b - A x|| > ||b||
+    (ROADMAP 17.60). A projection warm-started from the last pressure
+    after the flow has become divergence-free faces a right-hand side of
+    rounding noise: the old pressure's residual is then many times ||b||,
+    CG cannot reach tol ||b|| from it in f32 and breaks down, and the
+    pressure it leaves injects velocity (a 2-D MAC field grew from
+    |u| 0.05 to 667 in 15 steps). From zero the same solve converges."""
+    var ax = List[Real](length=len(x), fill=0)
+    op.apply(x, ax)
+    var rr = Float64(0)
+    var bb = Float64(0)
+    for k in range(len(x)):
+        var d = Float64(rhs[k]) - Float64(ax[k])
+        rr += d * d
+        bb += Float64(rhs[k]) * Float64(rhs[k])
+    if rr > bb:
+        for k in range(len(x)):
+            x[k] = 0
+
+
 struct MacFluid2(Movable):
     var n: Int  # cells per side
     var dx: Real
@@ -173,6 +194,7 @@ struct MacFluid2(Movable):
         for k in range(n * n):
             rhs[k] = Real(Float64(rhs[k]) - mean)
         var op = _NegLaplacian(n)
+        warm_start_or_zero(op, rhs, self.p)
         var r: CgResult
         if self.mg:
             r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)

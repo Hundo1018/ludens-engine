@@ -141,7 +141,7 @@ def main() raises:
             var f = full.value(a)
             if f != inc.value(a) or f != dirty.value(a):
                 agree = False
-    print("  evaluators over 20000 seeded ops (", reads, "reads,", len(full.mods), "modifiers left): agree", agree)
+    print("  evaluators over 20000 seeded ops (", reads, "reads,", full.modifier_count(), "modifiers left): agree", agree)
     s.check(agree, "full / incremental / dirty agree on every read")
 
     # ---- snapshot ------------------------------------------------------------------------------------

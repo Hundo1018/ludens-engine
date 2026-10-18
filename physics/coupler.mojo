@@ -10,7 +10,11 @@ A `CoupledPart` is any solver that meets a partner across an interface:
   * `impulse()`: what crossed the interface into it during the last
     `advance` (momentum, heat, ...), same layout for both parts, so the
     two sum to zero when the exchange conserves it;
-  * `save()` / `restore()`: one checkpoint, for the iterated scheme.
+  * `save()` / `restore()`: one checkpoint, for the iterated scheme;
+  * `write_state` / `read_state`: a snapshot through `state_io` (the
+    part's evolving state and the interface data it last received), so
+    `Coupler.write_state` can snapshot the coupled pair and a restored
+    pair continues bit for bit (`test_coupler`, `test_cloth_air_parts`).
 
 `Coupler[A, B]` steps A with dt and B with `ratio` substeps of dt / ratio
 (each solver at its own stable step). Schemes:
@@ -37,6 +41,7 @@ solver isolates its failure as it would uncoupled.
 from std.math import isfinite, sqrt
 from geometry.vec import Real
 from diag.counters import Counters, COUPLING_REJECTED
+from .state_io import StateWriter, StateReader, f64_bits, f64_from_bits
 
 comptime EXPLICIT = 0
 comptime INTERP = 1
@@ -50,6 +55,8 @@ trait CoupledPart(Movable, Deinitable):
     def impulse(self) -> List[Real]: ...
     def save(mut self): ...
     def restore(mut self): ...
+    def write_state[W: StateWriter](self, mut w: W): ...
+    def read_state[R: StateReader](mut self, mut r: R) raises: ...
 
 
 def _finite(d: List[Real]) -> Bool:
@@ -57,6 +64,22 @@ def _finite(d: List[Real]) -> Bool:
         if not isfinite(x):
             return False
     return True
+
+
+def write_reals[W: StateWriter](mut w: W, d: List[Real]):
+    w.wi(len(d))
+    for x in d:
+        w.wf(x)
+
+
+def read_reals[R: StateReader](mut r: R) raises -> List[Real]:
+    var n = r.ri()
+    if n < 0 or n > (1 << 40):
+        raise Error("read_reals: bad length")
+    var d = List[Real](capacity=n)
+    for _ in range(n):
+        d.append(r.rf())
+    return d^
 
 
 def _norm(a: List[Real]) -> Real:
@@ -182,3 +205,88 @@ struct Coupler[A: CoupledPart, B: CoupledPart](Movable):
         self.imbalance = _norm(total)
         if self.imbalance > self.max_imbalance:
             self.max_imbalance = self.imbalance
+
+    def write_state[W: StateWriter](self, mut w: W):
+        """Snapshot: the schedule (ratio, scheme), the conservation record,
+        the last finite interface data of each side, then both parts."""
+        w.wi(self.ratio)
+        w.wi(self.scheme)
+        w.wi(f64_bits(Float64(self.imbalance)))
+        w.wi(f64_bits(Float64(self.max_imbalance)))
+        w.wi(self.iterations)
+        write_reals(w, self._last_a)
+        write_reals(w, self._last_b)
+        self.a.write_state(w)
+        self.b.write_state(w)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        if r.ri() != self.ratio or r.ri() != self.scheme:
+            raise Error("Coupler.read_state: snapshot of a different schedule")
+        self.imbalance = Real(f64_from_bits(r.ri()))
+        self.max_imbalance = Real(f64_from_bits(r.ri()))
+        self.iterations = r.ri()
+        self._last_a = read_reals(r)
+        self._last_b = read_reals(r)
+        self.a.read_state(r)
+        self.b.read_state(r)
+
+
+struct Both[A: CoupledPart, B: CoupledPart](CoupledPart):
+    """Two parts on the same side of a `Coupler`, so three solvers couple
+    through one partner (e.g. a cloth and a rigid body in one air
+    lattice): `advance` steps both, `send` is A's data then B's, `recv`
+    gives the first `a_recv` values to A and the rest to B, `impulse` is
+    the sum of both (same layout)."""
+
+    var a: Self.A
+    var b: Self.B
+    var a_recv: Int
+
+    def __init__(out self, var a: Self.A, var b: Self.B, a_recv: Int):
+        self.a = a^
+        self.b = b^
+        self.a_recv = a_recv
+
+    def advance(mut self, dt: Real) raises:
+        self.a.advance(dt)
+        self.b.advance(dt)
+
+    def send(self) -> List[Real]:
+        var d = self.a.send()
+        for x in self.b.send():
+            d.append(x)
+        return d^
+
+    def recv(mut self, data: List[Real]):
+        var da = List[Real](capacity=self.a_recv)
+        var db = List[Real](capacity=max(len(data) - self.a_recv, 0))
+        for i in range(len(data)):
+            if i < self.a_recv:
+                da.append(data[i])
+            else:
+                db.append(data[i])
+        self.a.recv(da)
+        self.b.recv(db)
+
+    def impulse(self) -> List[Real]:
+        var ia = self.a.impulse()
+        var ib = self.b.impulse()
+        for i in range(min(len(ia), len(ib))):
+            ia[i] += ib[i]
+        return ia^
+
+    def save(mut self):
+        self.a.save()
+        self.b.save()
+
+    def restore(mut self):
+        self.a.restore()
+        self.b.restore()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        self.a.write_state(w)
+        self.b.write_state(w)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.a.read_state(r)
+        self.b.read_state(r)
