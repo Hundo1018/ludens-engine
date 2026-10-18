@@ -28,11 +28,25 @@ the box height; slope 0.82 against the ideal 1).
 from std.math import sqrt
 from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
-from .pbf import H, poly6, spiky_grad
+from .pbf import H
 from .fem import polar_rotation
 
-comptime _EPS: Real = 1e-4
 comptime _MAX_CORR: Real = 0.2
+
+
+def _poly6(r2: Real, h: Real) -> Real:
+    var h2 = h * h
+    if r2 >= h2 or r2 < 0:
+        return 0
+    var t = h2 - r2
+    return 315.0 / (64.0 * 3.14159265 * (h ** 9)) * t * t * t
+
+
+def _spiky_grad(r: Real, h: Real) -> Real:
+    if r >= h or r <= 1e-9:
+        return 0
+    var t = h - r
+    return -45.0 / (3.14159265 * (h ** 6)) * t * t
 
 
 struct UnifiedPbf(Movable):
@@ -47,9 +61,11 @@ struct UnifiedPbf(Movable):
     var lo: Vec3
     var hi: Vec3
     var rho0: Real
+    var h: Real  # kernel radius (default `pbf.H`; 2-3 particle spacings)
+    var eps: Real  # constraint-force mixing, 1e-6 / h^2 (1e-4 at h = 0.1)
     var lam: List[Real]
 
-    def __init__(out self, lo: Vec3, hi: Vec3):
+    def __init__(out self, lo: Vec3, hi: Vec3, h: Real = H):
         self.x = List[Vec3]()
         self.p = List[Vec3]()
         self.v = List[Vec3]()
@@ -61,11 +77,13 @@ struct UnifiedPbf(Movable):
         self.lo = lo
         self.hi = hi
         self.rho0 = 1
+        self.h = h
+        self.eps = Real(1e-6) / (h * h)
         self.lam = List[Real]()
 
     def calibrate(mut self, spacing: Real):
         """Rest density of a particle in a full lattice at `spacing`."""
-        var reach = Int(H / spacing) + 1
+        var reach = Int(self.h / spacing) + 1
         var rho = Real(0)
         for i in range(-reach, reach + 1):
             for j in range(-reach, reach + 1):
@@ -73,7 +91,7 @@ struct UnifiedPbf(Movable):
                     var dx = Real(i) * spacing
                     var dy = Real(j) * spacing
                     var dz = Real(k) * spacing
-                    rho += poly6(dx * dx + dy * dy + dz * dz)
+                    rho += _poly6(dx * dx + dy * dy + dz * dz, self.h)
         self.rho0 = rho
 
     def count(self) -> Int:
@@ -202,18 +220,18 @@ struct UnifiedPbf(Movable):
             )
 
     def _neighbours(self) -> List[List[Int]]:
-        """Neighbours within H of every particle (cell hashing on H)."""
+        """Neighbours within h of every particle (cell hashing on h)."""
         var n = len(self.p)
-        var gx = Int((self.hi[0] - self.lo[0]) / H) + 1
-        var gy = Int((self.hi[1] - self.lo[1]) / H) + 1
-        var gz = Int((self.hi[2] - self.lo[2]) / H) + 1
+        var gx = Int((self.hi[0] - self.lo[0]) / self.h) + 1
+        var gy = Int((self.hi[1] - self.lo[1]) / self.h) + 1
+        var gz = Int((self.hi[2] - self.lo[2]) / self.h) + 1
         var start = List[Int](length=gx * gy * gz + 1, fill=0)
         var cell = List[Int](length=n, fill=0)
         for k in range(n):
             var q = self.p[k] - self.lo
-            var a = min(max(Int(q[0] / H), 0), gx - 1)
-            var b = min(max(Int(q[1] / H), 0), gy - 1)
-            var c = min(max(Int(q[2] / H), 0), gz - 1)
+            var a = min(max(Int(q[0] / self.h), 0), gx - 1)
+            var b = min(max(Int(q[1] / self.h), 0), gy - 1)
+            var c = min(max(Int(q[2] / self.h), 0), gz - 1)
             cell[k] = (c * gy + b) * gx + a
             start[cell[k] + 1] += 1
         for i in range(gx * gy * gz):
@@ -224,7 +242,7 @@ struct UnifiedPbf(Movable):
             items[fill[cell[k]]] = k
             fill[cell[k]] += 1
         var out = List[List[Int]]()
-        var h2 = H * H
+        var h2 = self.h * self.h
         for k in range(n):
             var nb = List[Int]()
             var ck = cell[k]
@@ -263,21 +281,21 @@ struct UnifiedPbf(Movable):
                 if self.body[i] != -1:
                     self.lam[i] = 0
                     continue
-                var rho = poly6(0)
+                var rho = _poly6(0, self.h)
                 var gi = Vec3(0, 0, 0, 0)
                 var s2 = Real(0)
                 for j in nbs[i]:
                     var d = self.p[i] - self.p[j]
                     var r = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
-                    rho += poly6(r * r)
+                    rho += _poly6(r * r, self.h)
                     if r <= 1e-9:
                         continue
-                    var g = d * (spiky_grad(r) / (self.rho0 * r))
+                    var g = d * (_spiky_grad(r, self.h) / (self.rho0 * r))
                     s2 += self.w[j] * (g[0] * g[0] + g[1] * g[1] + g[2] * g[2])
                     gi = gi - g
                 s2 += self.w[i] * (gi[0] * gi[0] + gi[1] * gi[1] + gi[2] * gi[2])
                 var c = rho / self.rho0 - 1
-                self.lam[i] = -max(c, 0) / (s2 + _EPS)
+                self.lam[i] = -max(c, 0) / (s2 + self.eps)
             for k in range(n):
                 corr[k] = Vec3(0, 0, 0, 0)
             for i in range(n):
@@ -288,7 +306,7 @@ struct UnifiedPbf(Movable):
                     var r = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
                     if r <= 1e-9:
                         continue
-                    var g = d * (spiky_grad(r) / (self.rho0 * r))
+                    var g = d * (_spiky_grad(r, self.h) / (self.rho0 * r))
                     if self.body[j] == -1:
                         # fluid pair: PBF's symmetric (lambda_i + lambda_j) form
                         corr[i] = corr[i] + g * ((self.lam[i] + self.lam[j]) * self.w[i])
@@ -301,8 +319,8 @@ struct UnifiedPbf(Movable):
                     continue
                 var c = corr[k]
                 var l = sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2])
-                if l > _MAX_CORR * H:
-                    c = c * (_MAX_CORR * H / l)
+                if l > _MAX_CORR * self.h:
+                    c = c * (_MAX_CORR * self.h / l)
                 self.p[k] = self.p[k] + c
                 self._clamp(k)
             for b in range(len(self.body_first)):

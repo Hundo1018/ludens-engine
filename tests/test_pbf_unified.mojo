@@ -17,7 +17,8 @@ dt 1/60 s, 6 s.
      release height (sqrt(2 g 0.6) = 3.43 m/s; measured 2.43, reached in
      the air before the water) and every particle in the tank; the
      particle count is unchanged.
-  3. Measured limit: the drafts sit about one particle layer too deep
+  3. The kernel radius is a constructor parameter (default `pbf.H`).
+     Measured limit: the drafts sit about one particle layer too deep
      (0.59 / 0.84 for ratios 0.3 / 0.6; slope 0.82, offset +0.29),
      about the same at 10 and 20 iterations. Wall particles (`add_walls`) are on:
      without them the fluid packed against the walls, the 0.4 m column
@@ -116,4 +117,14 @@ def main() raises:
     print("  largest body speed over all runs", vmax, " all particles in the tank", inside)
     s.check(vmax < 3.43 and inside, "no body thrown out: speeds under free fall from 0.6 m (3.43 m/s), every particle in the tank")
     s.check(a.fluid_count() == nf and nf == 1152, "fluid particle count unchanged")
+
+    # the kernel radius is a parameter: a lattice's rest density scales as
+    # 1 / spacing^3 when h scales with the spacing (normalised kernels)
+    var k1 = UnifiedPbf(Vec3(0, 0, 0, 0), Vec3(1, 1, 1, 0), 0.1)
+    k1.calibrate(0.05)
+    var k2 = UnifiedPbf(Vec3(0, 0, 0, 0), Vec3(1, 1, 1, 0), 0.05)
+    k2.calibrate(0.025)
+    var ratio = Float64(k2.rho0) / Float64(k1.rho0)
+    print("  rest density at (h 0.05, spacing 0.025) over (h 0.1, spacing 0.05):", ratio, " (8 expected)")
+    s.check(abs(ratio / 8 - 1) < 1e-3, "rest density scales as 1 / spacing^3 with the kernel radius")
     s.finish()
