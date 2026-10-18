@@ -236,7 +236,8 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
   probe: spans after 5 traced steps 40  after 5 more with enabled = False 40
   probe:   ring of 4 after 10 spans: oldest s6  newest s9  dropped 6
   probe:   8-slot trace, 10 steps: dropped 84  TRACE_DROPPED counter 84
-  probe: [PASS] trace_on_probe - 6 / 6 checks
+  probe: island spans 40  lanes 3
+  probe: [PASS] trace_on_probe - 8 / 8 checks
 [PASS] trace_runtime - 1 / 1 checks
 --- tests/test_tree.mojo ---
   Y-tree ABA vs dense worst rel err: 2.089270997983122e-07
@@ -661,7 +662,8 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   10 rad/s for 5 s ( 7.957747 turns): |q| - 1 = 0.0  spin 10.0
 [PASS] ball_joint - 10 / 10 checks
 --- tests/test_body_removal.mojo ---
-[PASS] body_removal - 14 / 14 checks
+broadphase items before / after removing 400: 401 1   re-added box slot 1  y 0.24971199
+[PASS] body_removal - 16 / 16 checks
 --- tests/test_broadphase.mojo ---
 [PASS] broadphase - 4 / 4 checks
 --- tests/test_camera_seq.mojo ---
@@ -674,7 +676,7 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   brain: halfway x 5.0  fov 0.75   end x 10.0
 [PASS] camera_seq - 14 / 14 checks
 --- tests/test_capi.mojo ---
-  gen_bindings: up to date (49 functions);  rust host hash 79f9c93f91681323  c host hash 79f9c93f91681323
+  gen_bindings: up to date (50 functions);  rust host hash 79f9c93f91681323  c host hash 79f9c93f91681323
 [PASS] capi - 66 / 66 checks
 --- tests/test_capture.mojo ---
   120 frames, 4 keyframes: 60532 bytes ( 495 per frame incl. keyframes )
@@ -1184,6 +1186,15 @@ trimesh 0.25 m grid slide: no guard 0.09920597  guard 0.4040029
   tick 40: mover mode 4 (4 = climbing)
   tick 40: mover mode 4 (4 = climbing)
 [PASS] movement_modes - 8 / 8 checks
+--- tests/test_movement_more.mojo ---
+ladder: on at tick 53  off at 171  ( 1.9666668 s )  final foot 1.35 3.0099998
+jump off the ladder: lands at x 0.27499968  foot y 0.00999999  grounded True
+slide: ticks sliding 30 / 30  moved 1.1544471  speed along slope 3.2793315  analytic 3.3462574  without slide_angle moved 0.0
+glide: worst sink -2.0  landed after 9.500001 s;  free fall 1.95 s
+crush: first crushed at gap 1.8000003  (character 1.8 m)  highest head 3.3999994  ceiling top 3.5
+crawl: upright stops at x 1.1899999   lying reaches x 4.500008  (foot y 0.0072777867 )  stand under the bar refused True  stands after True
+sphere character: x 2.9511297  foot y 0.20999998  grounded True
+[PASS] movement_more - 11 / 11 checks
 --- tests/test_mpm_rigid.mojo ---
   box ( 3.3750002 kg) on the block after 1 s: bottom 0.39486033  block top beside it 0.35295928  speed 8.007927e-05  grid force 33.10811  weight 33.075005  particles inside 0
   sphere into a free block: momentum before [1.0, 0.0, 0.0, 0.0]  after [0.9999986, -7.0780516e-08, 4.8428774e-08, 0.0]  sphere vx -0.14835544  block px 1.1483541  block mass 16.58871
