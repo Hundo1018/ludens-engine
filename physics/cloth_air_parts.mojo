@@ -33,6 +33,7 @@ from geometry.vec import Real, Vec3, cross, dot
 from fluid.lbm import Lbm
 from .cloth import MeshCloth
 from .strand import StrandSet
+from .softbody import SoftBody, SP
 from .rigid6 import Pose6
 from .cloth_air import lattice_corners, lattice_velocity
 from .coupler import CoupledPart, write_reals, read_reals
@@ -616,3 +617,112 @@ struct GrainPart(CoupledPart):
             self.jv[i] = r.rv()
         self.fluid_u = read_reals(r)
         self.received = r.rv()
+
+
+struct SoftPart(CoupledPart):
+    """A volumetric `SoftBody` in the lattice fluid (ROADMAP 17.59:
+    soft body <-> fluid two-way). Each particle is an immersed point with
+    linear drag at rate `drag` (1/s) toward the received fluid velocity,
+    integrated implicitly, v <- (v + a u) / (1 + a), a = drag dt, as a
+    point of mass 1 / w; kinematic particles (w = 0) take none. Then the
+    body's own step (`SoftBody.advance`). Same interface as `ClothPart`, so
+    it couples to `AirPart` and conserves momentum the same way."""
+
+    var body: SoftBody
+    var drag: Real
+    var gravity: Vec3
+    var fluid_u: List[Real]
+    var x_drag: List[Vec3]
+    var jv: List[Vec3]
+    var received: Vec3
+    var total: Vec3
+    var _pts: List[SP]
+    var _xd: List[Vec3]
+    var _jv: List[Vec3]
+
+    def __init__(out self, var body: SoftBody, drag: Real, gravity: Vec3) raises:
+        if not (drag >= 0):
+            raise Error("SoftPart: drag >= 0")
+        var n = len(body.pts)
+        self.drag = drag
+        self.gravity = gravity
+        self.fluid_u = List[Real](length=3 * n, fill=0)
+        self.x_drag = List[Vec3](capacity=n)
+        for p in body.pts:
+            self.x_drag.append(p.x)
+        self.jv = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.received = Vec3(0, 0, 0, 0)
+        self.total = Vec3(0, 0, 0, 0)
+        self._pts = List[SP]()
+        self._xd = List[Vec3]()
+        self._jv = List[Vec3]()
+        self.body = body^
+
+    def advance(mut self, dt: Real) raises:
+        var a = self.drag * dt
+        self.received = Vec3(0, 0, 0, 0)
+        for i in range(len(self.body.pts)):
+            var p = self.body.pts[i]
+            self.x_drag[i] = p.x
+            self.jv[i] = Vec3(0, 0, 0, 0)
+            if p.w == 0:
+                continue
+            var u = _vec(self.fluid_u, i)
+            var vn = (p.v + u * a) * (1 / (1 + a))
+            var j = (vn - p.v) * (1 / p.w)
+            p.v = vn
+            self.body.pts[i] = p
+            self.jv[i] = j
+            self.received = self.received + j
+        self.total = self.total + self.received
+        self.body.advance(dt, self.gravity)
+
+    def send(self) -> List[Real]:
+        var n = len(self.body.pts)
+        var out = List[Real](capacity=9 * n)
+        for i in range(n):
+            for c in range(3):
+                out.append(self.body.pts[i].x[c])
+            for c in range(3):
+                out.append(self.x_drag[i][c])
+            for c in range(3):
+                out.append(self.jv[i][c])
+        return out^
+
+    def recv(mut self, data: List[Real]):
+        self.fluid_u = data.copy()
+
+    def impulse(self) -> List[Real]:
+        return [self.received[0], self.received[1], self.received[2]]
+
+    def save(mut self):
+        self._pts = self.body.pts.copy()
+        self._xd = self.x_drag.copy()
+        self._jv = self.jv.copy()
+
+    def restore(mut self):
+        self.body.pts = self._pts.copy()
+        self.x_drag = self._xd.copy()
+        self.jv = self._jv.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        self.body.write_state(w)
+        w.wi(len(self.x_drag))
+        for i in range(len(self.x_drag)):
+            w.wv(self.x_drag[i])
+            w.wv(self.jv[i])
+        write_reals(w, self.fluid_u)
+        w.wv(self.received)
+        w.wv(self.total)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.body.read_state(r)
+        var n = r.ri()
+        if n != len(self.x_drag):
+            raise Error("SoftPart.read_state: particle count differs")
+        for i in range(n):
+            self.x_drag[i] = r.rv()
+            self.jv[i] = r.rv()
+        self.fluid_u = read_reals(r)
+        self.received = r.rv()
+        self.total = r.rv()
