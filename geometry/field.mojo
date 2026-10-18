@@ -63,6 +63,11 @@ trait SolverField(Field):
         away from 0; `test_smooth_positive` measures the gradient bias."""
         ...
 
+    def exp(self) -> Self:
+        """e^x with its derivative e^x (ROADMAP 17.57: the Hill muscle
+        curves are exponentials)."""
+        ...
+
 
 def _sigmoid(x: Real) -> Real:
     return 1 / (1 + exp(-x))
@@ -105,6 +110,9 @@ struct RealF(SolverField):
 
     def smooth_positive(self, k: Real) -> Self:
         return Self(_sigmoid(k * self.v))
+
+    def exp(self) -> Self:
+        return Self(exp(self.v))
 
 
 @fieldwise_init
@@ -153,6 +161,10 @@ struct DualReal(SolverField):
     def smooth_positive(self, k: Real) -> Self:
         var s = _sigmoid(k * self.a)
         return Self(s, self.b * (k * s * (1 - s)))
+
+    def exp(self) -> Self:
+        var e = exp(self.a)
+        return Self(e, self.b * e)
 
 
 @fieldwise_init
@@ -208,6 +220,10 @@ struct DualBatch(SolverField):
         var s = _sigmoid(k * self.a)
         return Self(s, self.b * (k * s * (1 - s)))
 
+    def exp(self) -> Self:
+        var e = exp(self.a)
+        return Self(e, self.b * e)
+
 
 @fieldwise_init
 struct BatchReal[W: Int](SolverField):
@@ -255,6 +271,9 @@ struct BatchReal[W: Int](SolverField):
 
     def smooth_positive(self, k: Real) -> Self:
         return Self(1 / (1 + exp(-(self.v * k))))
+
+    def exp(self) -> Self:
+        return Self(exp(self.v))
 
 
 def dcos(x: DualReal) -> DualReal:
@@ -394,6 +413,13 @@ struct RevReal(SolverField):
             return Self(s, -1, None)
         var t = self.tape.value()
         return Self(s, t[].push(self.idx, -1, k * s * (1 - s), 0), t)
+
+    def exp(self) -> Self:
+        var e = exp(self.v)
+        if self.idx < 0:
+            return Self(e, -1, None)
+        var t = self.tape.value()
+        return Self(e, t[].push(self.idx, -1, e, 0), t)
 
 
 def rev_seed(mut t: Tape, v: Real) -> RevReal:
@@ -538,6 +564,13 @@ struct RevDual(SolverField):
         var d = DualReal.const(k) * s * (DualReal.const(1) - s)
         return Self(s, t[].push(self.idx, -1, d, DualReal.zero()), t)
 
+    def exp(self) -> Self:
+        var e = self.v.exp()
+        if self.idx < 0:
+            return Self(e, -1, None)
+        var t = self.tape.value()
+        return Self(e, t[].push(self.idx, -1, e, DualReal.zero()), t)
+
 
 def hvp_seed(mut t: DualTape, x: Real, direction: Real) -> RevDual:
     """Seed input x with its component of the direction v of H v."""
@@ -672,6 +705,13 @@ struct RevBatch[W: Int](SolverField):
             return Self(s, -1, None)
         var t = self.tape.value()
         return Self(s, t[].push(self.idx, -1, k * s * (1 - s), Self.V(0)), t)
+
+    def exp(self) -> Self:
+        var e = exp(self.v)
+        if self.idx < 0:
+            return Self(e, -1, None)
+        var t = self.tape.value()
+        return Self(e, t[].push(self.idx, -1, e, Self.V(0)), t)
 
 
 def rev_batch_seed[W: Int](mut t: BatchTape[W], v: SIMD[WorldType, W]) -> RevBatch[W]:

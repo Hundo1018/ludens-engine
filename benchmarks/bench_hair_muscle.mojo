@@ -19,6 +19,8 @@ from physics.rigid6 import Pose6
 from physics.strand import StrandSet, StrandSphere, StrandCapsule
 from physics.actuator import Actuator, ActuatorBank, HillParams
 from physics.muscle_tendon import MuscleTendon
+from physics.muscle_ad import ArmParams, arm_rollout
+from geometry.field import RealF, RevReal, Tape, rev_seed
 from harness.bench import BenchTable, now
 
 
@@ -88,6 +90,31 @@ def tendon_row(mut t: BenchTable, eps0: Real) raises:
     t.add("MuscleTendon " + ("rigid tendon" if eps0 == 0 else "compliant tendon (eps0 0.04)"), 64, "unit-step", t1 - t0, reps * 64)
 
 
+def ad_rows(mut t: BenchTable):
+    var p = ArmParams(HillParams.thelen(0.04, 0.1, 0.2, 0.32, 10), HillParams.thelen(0.04, 0.1, 0.2, 0.30, 10), 200.0, 0.05, 0.5, 0.04, 1.0 / 240.0, 144)
+    var reps = 200
+    var acc = Real(0)
+    var t0 = now()
+    for _ in range(reps):
+        var u = List[RealF]()
+        for _ in range(6):
+            u.append(RealF(0.3))
+        acc += arm_rollout(p, u, 0).v
+    var t1 = now()
+    t.add("0.6 s reach rollout (RealF)", 6, "rollout", t1 - t0, reps)
+    t0 = now()
+    for _ in range(reps):
+        var tp = Tape()
+        var u = List[RevReal]()
+        for _ in range(6):
+            u.append(rev_seed(tp, 0.3))
+        var q = arm_rollout(p, u, 0)
+        acc += tp.grad(q.idx)[u[0].idx]
+    t1 = now()
+    keep(acc)
+    t.add("same + gradient w.r.t. 6 controls (RevReal, 1 sweep)", 6, "rollout", t1 - t0, reps)
+
+
 def main() raises:
     var t = BenchTable("Hair strands: Follow-The-Leader with bending (17.57)")
     bench_hair(t, False, 60)
@@ -99,4 +126,5 @@ def main() raises:
     bench_muscle(m, True, 20000)
     tendon_row(m, 0)
     tendon_row(m, 0.04)
+    ad_rows(m)
     m.print_report()
