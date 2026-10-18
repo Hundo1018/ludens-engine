@@ -2893,6 +2893,8 @@
 > 第 30 幀前設重力 50 %、第 60 幀步進中(`begin_advance` .. `finish`)設 100 % → log tick 為 30 / 61,第 60 幀仍 −4.9、第 61 幀 −9.8;以 `scripted(log)` 重跑 120 幀與即時執行場景位元組相同,
 > 同樣資料晚一幀則不同。
 > **未做**:`HostServices` 服務項登記(17.75)、黑盒接 17.33 不變式失敗(`debug_assert` 失敗即終止行程,無掛鉤點;需先有可恢復的不變式回報路徑)與 17.80 擷取格式、C-ABI 取 outbox / 投遞 config(ABI 凍結清單變更)。
+> **決定(2026-10-18,使用者)**:`EmbedWorld` 維持薄的物理包裝,C-ABI 的 outbox / config 不加,直到有宿主需要;不變式維持「失敗即終止」(ARCHITECTURE §2 不改),
+> 黑盒只記數值失敗與計數器,「黑盒接不變式失敗」依政策結案。
 > **評估(2026-10-18)**:C-ABI 取 outbox / 投遞 config 暫不加:`EmbedWorld`(`embed/world.mojo`)不是建在 `Runtime` 上,沒有任何程式寫它的 outbox
 > 或讀它的 config,加 `ld_*` 函式只會暴露永遠為空的緩衝。前提是先決定嵌入世界的形態(改以 `Runtime` 為底,或在 `EmbedWorld` 內定義 outbox 的生產者 /
 > config 的消費者);這是設計決定,不是接線。
