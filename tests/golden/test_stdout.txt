@@ -6,10 +6,18 @@ build: all packages precompiled into build/
   hanging equilibrium: max |qdd| 0.0
   double pendulum via ABA: energy drift: 0.002937075593044455
 [PASS] aba - 3 / 3 checks
+--- tests/test_abc_file.mojo ---
+  cloth: bytes per extra frame 420 (positions 300 B)
+  empty archive 276 bytes
+[PASS] abc_file - 10 / 10 checks
 --- tests/test_ai_smart.mojo ---
 [PASS] ai_smart - 17 / 17 checks
 --- tests/test_ai_steering.mojo ---
 [PASS] ai_steering - 19 / 19 checks
+--- tests/test_aniso_splat.mojo ---
+slab top surface height spread: isotropic 0.0028285433  anisotropic 0.0012355654
+ball of 7232 particles: sphericity isotropic 1.1089748  anisotropic 1.0873784 ;  open edges 0 0
+[PASS] aniso_splat - 3 / 3 checks
 --- tests/test_bench_ab.mojo ---
 [PASS] bench_ab - 5 / 5 checks
 --- tests/test_body_set.mojo ---
@@ -133,6 +141,10 @@ lattice: 50 / 50  ring: 12
   uniform field vs plain lattice, 200 steps: worst population difference 0.0
   two-layer channel: peak 0.0010047683 at y 11 (centre 15 , zero shear y0 10.645588 );  worst |u - analytic| 2.628722e-05  = 0.02616247 of the peak
 [PASS] lbm_tau_field - 3 / 3 checks
+--- tests/test_lbm_trt_guo.mojo ---
+Poiseuille relative error with Guo forcing, tau 0.8 / 2.0 / 3.5: 0.0008517577 0.0011329654 0.00024993363
+x-driven vs z-driven profile: largest difference 1.8655555e-08  peak 0.00020227057
+[PASS] lbm_trt_guo - 3 / 3 checks
 --- tests/test_lbvh.mojo ---
   Sigma-area  median: 213042.88  sah: 187398.86  lbvh: 201227.88
   avg leaf depth  median: 9.293333  sah: 9.39  lbvh: 9.565
@@ -228,6 +240,11 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
 [PASS] spline_frames - 126 / 126 checks
 --- tests/test_spline_parity.mojo ---
 [PASS] spline_parity - 253 / 253 checks
+--- tests/test_strand_curl.mojo ---
+zero g, kicked: largest deviation from the rest shape after 3 s 6.157642e-05  worst segment turn error 0.00011649728
+under gravity after 4 s: curled tip x 0.087966524  straight tip x 0.0
+bone turned 90 deg about y: deviation from the turned rest shape 9.514859e-06
+[PASS] strand_curl - 4 / 4 checks
 --- tests/test_thermal_particles.mojo ---
   particle bar ( 7260 particles, dt 0.01 , max_dt 0.0231758 ): max |T - erf| 1.2394714 K;  max |T_particles - T_grid| 1.2267761 K
   insulated block: heat drift 3.814697269177714e-08  spread 200.0 -> 0.00045776367
@@ -464,6 +481,11 @@ saddle: implicit -0.3460207901198977  central difference -0.34594534184484516
 [PASS] lbm - 28 / 28 checks
 --- tests/test_lbm_gpu.mojo ---
 [PASS] lbm_gpu - 0 / 0 checks
+--- tests/test_lbm_mrt.mojo ---
+MRT with every rate 1/tau vs BGK: largest population difference 2.9802322e-07
+shear wave under MRT: nu measured 0.030295346  input 0.03
+double shear layer, tau 0.50051 : BGK diverged by step 999  MRT finite after 2000 True
+[PASS] lbm_mrt - 3 / 3 checks
 --- tests/test_lbm_trt.mojo ---
   Poiseuille relative error, tau 0.8 / 2.0 / 3.5: BGK 0.011709139 0.110912204 0.53018683 ;  TRT 3/16 0.005595984 0.024884997 0.05127477
   shear wave under TRT: nu measured 0.030157264  input 0.03
@@ -505,6 +527,11 @@ n 64 : MGPCG 4 iterations error 2.2649765e-06 ;  Jacobi PCG 96 iterations error 
 n 128 : MGPCG 4 iterations error 2.6226044e-06 ;  Jacobi PCG 160 iterations error 6.67572e-06
 symmetry: <Mu, v> -0.17407910163508053  <u, Mv> -0.17407910163507975
 [PASS] multigrid - 4 / 4 checks
+--- tests/test_muscle_ad.mojo ---
+generic Hill force vs HillParams: worst relative difference 1.2603413e-05
+reach gradient vs central differences: best error 1.5835606846184282e-05 at h 0.001  skipped at h 1e-2: 0
+reach to 0.8 rad: loss 0.46853699201202514 -> 1.1510792328842743e-14  final angle 0.8000001311302185  controls 0.843040947953288 0.9448405299408356 0.0926095706201294 6.0279578951119e-05 2.393127462337153e-05 0.3197233630791203
+[PASS] muscle_ad - 3 / 3 checks
 --- tests/test_muscle_hill.mojo ---
   identity curves vs plain muscle after 2 s: q 0.40190706 0.40190706
   force-length peak at q 0.5 (fiber = l_opt at 0.5)  fl at +30 % 0.81873095
@@ -647,6 +674,10 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   max horizontal neighbour distance: 0.05003971242034327
   xpbd same-budget max distance: 0.05000007152337331
 [PASS] vbd_cloth - 5 / 5 checks
+--- tests/test_vdb_file.mojo ---
+  sphere: active voxels 7674 leaves 51
+  far: active voxels 5 leaves 5
+[PASS] vdb_file - 26 / 26 checks
 --- tests/test_vehicle_drive.mojo ---
 [PASS] vehicle_drive - 62 / 62 checks
 --- tests/test_world.mojo ---
@@ -792,6 +823,12 @@ after 0.3 s: sheet vy one-way -0.48506227  two-way -0.7250841  (terminal one-way
   free fall without drag: momentum y -0.011597634  weight x time -0.011760004
 pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.41470635   air momentum change -0.0045566186  impulse -0.0045549716
 [PASS] cloth_air - 9 / 9 checks
+--- tests/test_cloth_air_parts.mojo ---
+  EXPLICIT 1:1: max per-step imbalance 0.0 N s vs per-step impulse up to 3.3712815e-05 ; totals 0.0050632893 -0.0050632893
+  ratio 2: EXPLICIT max imbalance 0.0  INTERP 7.702745e-07  per-step impulse up to 6.896153e-05
+  after 0.2 s, vertex 0 vy: ratio 2 EXPLICIT -0.6422996  ratio 1 -0.58543676
+  snapshot after 100 steps: 1059588 bytes
+[PASS] cloth_air_parts - 9 / 9 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
@@ -879,6 +916,10 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
 [PASS] continuum - 15 / 15 checks
 --- tests/test_conventions.mojo ---
 [PASS] conventions - 8 / 8 checks
+--- tests/test_couple_snapshot.mojo ---
+SPH: box y after 360 steps 0.25504145 restored 0.25504145  force 44.277492 44.277492
+MPM: box y after 360 steps 0.37382936 restored 0.37382936  material force on it 9.439643
+[PASS] couple_snapshot - 3 / 3 checks
 --- tests/test_coupler.mojo ---
 weak coupling (kc 1e-3, 2 s): max |dxA| 0.0  |dxB| 6.6764915e-06
    400.0 | 2 | 1.0379579 | 0.2880391 | 3.420404
@@ -892,10 +933,11 @@ weak coupling (kc 1e-3, 2 s): max |dxA| 0.0  |dxB| 6.6764915e-06
 ITERATED: most passes per step 3 of 20
 NaN in A: rejected 199  B holds xA 0.052358266 (last finite 0.052358266 )
 ratio 1000:1, 0.2 s: worst |E/E0 - 1| 0.0355438
-[PASS] coupler - 10 / 10 checks
+[PASS] coupler - 14 / 14 checks
 --- tests/test_coupler_snapshot.mojo ---
+state_io snapshot of the pair: 16744 bytes
 1 s: gas excess heat INTERP 2549.106532394886  ITERATED 2549.1142957806587  rel. diff 3.0455321007316627e-06   ITERATED passes per step <= 3
-[PASS] coupler_snapshot - 3 / 3 checks
+[PASS] coupler_snapshot - 4 / 4 checks
 --- tests/test_cylinder.mojo ---
   rolling down 20 deg: 8 segments 2.2345295  16 segments 2.2345245  analytic 2/3 g sin 2.2345319
   standing r 0.3 hl 0.7 on a 16-gon base: y 0.69989824  axis y 1.0
@@ -997,6 +1039,9 @@ E 1e5 cantilever after 2 s: implicit NH sag 0.54836845 ;  VBD relative error at 
   fraction of a wavelength above the level: choppiness 0 0.5  0.6 0.4725  (trochoid 1/2 - Q k A / pi = 0.4712 )
   Phillips sea normals vs finite differences: worst 0.00010403317  |n| - 1 1.1920929e-07
 [PASS] fft_choppy - 4 / 4 checks
+--- tests/test_fft_choppy_grid.mojo ---
+displacement grid vs exact sums: worst 9.119511e-06 m
+[PASS] fft_choppy_grid - 3 / 3 checks
 --- tests/test_fft_ocean.mojo ---
   FFT 64: worst |FFT - DFT| 7.337332e-05 of 8.419345 ;  round trip 5.811453e-07
   one mode vs Gerstner Q = 0, 200 samples: worst height diff 2.3245811e-06  vertical velocity diff 0.0008085966
@@ -1018,6 +1063,35 @@ E 1e5 cantilever after 2 s: implicit NH sag 0.54836845 ;  VBD relative error at 
   still tank 1 s: 1920 particles, max speed 1.7079161e-07  worst |p/g - (h + dx/2 - y)| 1.1920929e-07
   dam break 0.25 x 0.5 m: front at 0.3 s 0.86836827  0.5 s 1.5221659  speed / sqrt(g h0) 1.4767783  (Ritter 2)
 [PASS] flip - 3 / 3 checks
+--- tests/test_flip3.mojo ---
+still pool 0.5 s: 5760 particles, max speed 2.7809125e-07  worst |p/g - (h + dx/2 - y)| 4.4703484e-08
+dam break slab 0.5 s: front 3-D 1.5221659  2-D 1.5221659  ratio 1.0
+corner column 0.4 s: front along x 1.0538338  along z 1.0538338
+[PASS] flip3 - 4 / 4 checks
+--- tests/test_flip_apic.mojo ---
+spinning disc 0.5 s, angular momentum kept: APIC 0.9825305  PIC 0.24788879  FLIP 0.95 0.9284548 ;  velocity noise about rigid rotation: APIC 0.041591223  PIC 0.13507177  FLIP 0.057575777
+APIC still tank max speed 2.0541935e-07 ;  dam break front speed / sqrt(g h0) 1.5826327
+[PASS] flip_apic - 3 / 3 checks
+--- tests/test_flip_diffuse.mojo ---
+still tank 1 s: spawned 0
+  t 0.2 diffuse 60  spray 0  foam 0  bubble 60  spawned 60
+  t 0.4 diffuse 351  spray 0  foam 0  bubble 351  spawned 351
+  t 0.6 diffuse 489  spray 0  foam 0  bubble 489  spawned 489
+  t 0.8 diffuse 757  spray 0  foam 0  bubble 757  spawned 805
+  t 1.0 diffuse 788  spray 0  foam 7  bubble 781  spawned 936
+  t 0.2 diffuse 60  spray 0  foam 0  bubble 60  spawned 60
+  t 0.4 diffuse 351  spray 0  foam 0  bubble 351  spawned 351
+  t 0.6 diffuse 489  spray 0  foam 0  bubble 489  spawned 489
+  t 0.8 diffuse 757  spray 0  foam 0  bubble 757  spawned 805
+  t 1.0 diffuse 788  spray 0  foam 7  bubble 781  spawned 936
+dam break 1 s: spawned 936  alive 788
+lone spray after 0.1 s: u 1.0  v -0.97999996  (-g t -0.98 )
+  t 0.2 diffuse 50  spray 0  foam 0  bubble 50  spawned 50
+  t 0.4 diffuse 50  spray 0  foam 0  bubble 50  spawned 50
+  t 0.6 diffuse 50  spray 0  foam 0  bubble 50  spawned 50
+  t 0.8 diffuse 50  spray 0  foam 0  bubble 50  spawned 57
+  t 1.0 diffuse 50  spray 0  foam 0  bubble 50  spawned 63
+[PASS] flip_diffuse - 4 / 4 checks
 --- tests/test_flow_levels.mojo ---
 checkpoint: bytes 4209  restored at tick 60  items at 120 13 13  pickups 8  gold 18
 respawn: checkpoint items 8  keep-none bag 8 0  keep-inventory bag 13 5
@@ -1264,6 +1338,12 @@ sphere character: x 2.9511297  foot y 0.20999998  grounded True
   planar joint under gravity (1, -9.8, 2), 1 s: v 0.9999992 -9.800015  z -0.0  spin 1.4999984
   free joint vs FloatingChain, 4 kg base + 3-link arm, 1 s: max tip distance 0.0016940337 (dt 1/240) 0.0008450311 (dt 1/480)
 [PASS] multidof - 5 / 5 checks
+--- tests/test_muscle_tendon.mojo ---
+rigid tendon vs ActuatorBank.muscle_force: worst relative difference 2.30743e-07
+isometric step 0 -> 1: rigid 99.5705 N at once;  compliant 100.172874 N after 0.5 s, 90 % at 0.062000003 s;  fiber 0.10198618 vs rigid 0.11 ;  balance 1.0017288 1.0017653 ;  stiff tendon 99.606804
+path unit: force 49.010735 N;  tau 5.933824e-07 10.117838  vs -F dL/dq -0.0014606336 10.119269 ;  joint-1 arm at q1 0.8 -0.20647048 at 0.2 -0.113799945
+driven 2-link arm, 1 s: q -3.0983264 0.71169233  force 4.657855
+[PASS] muscle_tendon - 6 / 6 checks
 --- tests/test_nav_world.mojo ---
   nav_world: samples 109 worst |dy| 0.125
 [PASS] nav_world - 6 / 6 checks
@@ -1608,6 +1688,9 @@ after 0.4 s: mean tip shift +x  one-way 0.12034178  two-way 0.055488646
   16 strands over a box, 2 s: contacts 6088  particles inside 0  max stretch 0.07186234
   voxel velocity spread before 0.10576733  after interaction 0.074037135
 [PASS] strand_ext - 5 / 5 checks
+--- tests/test_strand_rope_parity.mojo ---
+first mode T1 0.9441842 ;  rope 0.9637286 ;  strand ftl_damping 0.5 0.7913122  0.9 (default) 2.220425  1.0 -1.0
+[PASS] strand_rope_parity - 3 / 3 checks
 --- tests/test_surface_material.mojo ---
   ray hits: x 50 -> material 0  x 200 -> 1  box -> -1
   heightfield: ray at cell (1, 1) -> triangle 6  material 8
