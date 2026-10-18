@@ -85,6 +85,8 @@ def softbody_pass[B: Body6](
         # below, sphere/capsule keep their own exact closed forms here).
         for i in range(np):
             var p = softs[s].pts[i]
+            if p.w == 0:
+                continue  # kinematic (17.65): colliders do not push it
             for b in range(len(bset.bodies)):
                 var kind = colliders.shape[b]
                 if (
