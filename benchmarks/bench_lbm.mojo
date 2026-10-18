@@ -160,6 +160,27 @@ def les_regime_row(mut table: BenchTable, label: String, cs: Real):
         )
 
 
+def collision_rows(mut table: BenchTable):
+    """BGK vs TRT (velocity-shift force) vs TRT + Guo forcing (17.60), 32^3
+    periodic with a body force."""
+    for mode in range(3):
+        var l = Lbm(32, 32, 32, 0.1, BC_PERIODIC)
+        l.init_uniform(1.0, 0.01, 0, 0)
+        l.force_x = 1e-6
+        if mode > 0:
+            l.trt_lambda = 3.0 / 16.0
+        if mode == 2:
+            l.trt_guo = True
+        var steps = 30
+        var t0 = now()
+        for _ in range(steps):
+            l.step()
+        var t1 = now()
+        keep(l.f[7])
+        var name = "BGK" if mode == 0 else ("TRT 3/16, velocity-shift force" if mode == 1 else "TRT 3/16 + Guo force")
+        table.add("periodic 32^3, " + name, l.cells(), "cell-step", t1 - t0, steps * l.cells())
+
+
 def main() raises:
     var table = BenchTable("Lattice Boltzmann D3Q19 (one op = one cell update)")
     run(table, "periodic 16^3", 16, 200, BC_PERIODIC, False)
@@ -168,6 +189,7 @@ def main() raises:
     run(table, "periodic 64^3", 64, 10, BC_PERIODIC, False)
     run(table, "tunnel 32^3", 32, 60, BC_TUNNEL, False)
     run(table, "tunnel 32^3 + sphere", 32, 60, BC_TUNNEL, True)
+    collision_rows(table)
     table.print_report()
 
     var cdt = BenchTable("Sphere drag: resolution vs deviation from experiment")
