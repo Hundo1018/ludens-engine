@@ -3442,7 +3442,13 @@
 
 #### 17.78 宿主整合 / 綁定 — Wave C
 > **狀態**:🔶 部分完成(2026-10-13:批量姿態寫入、診斷計數器經 C 讀出、宿主定義元件、跨語言的逐物件 vs 批量量測 ✅;2026-10-17:宿主對映(layer、user 值)、
-> 多實例與執行緒契約、綁定產生(Rust)✅;Godot / Unity 實機適配、C 邊界的單位轉換、C# 綁定、宿主元件進查詢語言 / 快照未做)。
+> 多實例與執行緒契約、綁定產生(Rust)✅;2026-10-18:C 邊界的單位轉換、C# 綁定 ✅;Godot / Unity 實機適配、宿主元件進查詢語言 / 快照未做)。
+> **進度註(2026-10-18)**:C-ABI 0.5:`ld_world_set_unit_scale(w, per_meter)`(`EmbedWorld.set_unit_scale`:以與上次值的比例套 `UnitScale`,可連續呼叫;設定、不入存檔),
+> Python `World.set_unit_scale`。`test_python_binding` 14/14(client 加 3 項):以 1/128 m 為單位、全部長度與重力 × 128 並設 `set_unit_scale(128)` 的 world,120 tick 後
+> 每個 body 位置 = 公尺 world × 128,逐位相同(17.75 的精確尺度修正);未設時不同(4.1e-5 m);0 被拒。`scripts/gen_bindings.py` 加 C# 輸出 `bindings/csharp/Ludens.cs`
+> (sequential struct、不透明 handle struct 經指標、callback 以 `delegate* unmanaged[Cdecl]` 函式指標、`DllImport` extern;`--check` 兩份都檢查,selftest 加 C# 6 項)。
+> 實測(一次性,.NET 9.0.319 SDK 臨時安裝於 scratchpad):`tests/capi/host.cs` 只經生成的綁定跑 C 主機的第一個情境,world 雜湊 `79f9c93f91681323` 與 C 主機、Rust 主機相同,
+> 系統呼叫 240 次;C# 主機不列為測試相依(.NET SDK 太大),重驗步驟寫在檔頭。
 > 批量讀(`ld_world_get_bodies`)與 POD 事件緩衝(`ld_world_get_events`)在 12.1 已存在。
 > **進度註(2026-10-17)**:C-ABI 0.4(`embed/ludens.h`、`abi_v0.txt` 只追加):`ld_body_set_layer`(category / mask)、`ld_world_raycast_mask`、
 > `ld_body_set_user` / `ld_body_get_user` / `ld_world_find_user`(宿主節點 id ↔ body;隨 world 存讀,只在有 user 值時於存檔尾附 `LDU0` 段,

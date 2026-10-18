@@ -27,14 +27,14 @@ from geometry.quat import Quat
 from physics.body_set import BodyId
 from physics.rigid6 import Inertia3, Pose6, QuatBody6
 from physics.solver6 import ContactScene6
-from physics.solver_config import SolverConfig
+from physics.solver_config import SolverConfig, UnitScale
 from physics.serialize import scene_to_bytes, scene_from_bytes
 from physics.capture import Capture
 from collision.world_query import QueryFilter
 from collision.contact_events import ContactEvent
 
 comptime ABI_MAJOR = 0
-comptime ABI_MINOR = 4
+comptime ABI_MINOR = 5
 
 # Status codes (negative = error). Frozen for v0.x: values never change.
 comptime LD_OK = 0
@@ -110,6 +110,7 @@ struct TickEvent(Copyable, ImplicitlyCopyable, Movable):
 struct EmbedWorld(Movable):
     var scene: ContactScene6[QuatBody6]
     var cfg: SolverConfig
+    var per_meter: Real  # host length units per meter (17.78; `set_unit_scale`)
     var gravity: Vec3
     var dt: Float64
     var acc: Float64
@@ -139,6 +140,7 @@ struct EmbedWorld(Movable):
         self.capturing = False
         self.capture = Capture(60)
         self.cfg = SolverConfig()
+        self.per_meter = 1
         self.cfg.broadphase = True
         self.gravity = gravity
         self.dt = dt
@@ -159,6 +161,18 @@ struct EmbedWorld(Movable):
             raise Error("set_solver: iterations and substeps must be >= 1")
         self.cfg.iters = iters
         self.cfg.substeps = substeps
+
+    def set_unit_scale(mut self, per_meter: Real) raises:
+        """The host's length unit (ROADMAP 17.78 / 17.75): `per_meter` host
+        units make one meter (100 for centimetres). Every position, size,
+        velocity and the gravity the host passes is in its own unit; this
+        rescales the solver's absolute length tolerances to match
+        (`UnitScale`). Calls compose: the tolerances are rescaled by the
+        ratio to the previous value. A setting, not saved with the world."""
+        if not (per_meter > 0) or not isfinite(per_meter):
+            raise Error("set_unit_scale: per_meter must be finite and > 0")
+        self.cfg = UnitScale(per_meter / self.per_meter).apply(self.cfg)
+        self.per_meter = per_meter
 
     def set_gravity(mut self, g: Vec3) raises:
         if not _finite3(g):

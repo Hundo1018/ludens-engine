@@ -22,7 +22,7 @@ from ctypes import (
 )
 
 ABI_MAJOR = 0
-ABI_MINOR = 4
+ABI_MINOR = 5
 
 LD_OK = 0
 LD_ERR_HANDLE = -1
@@ -111,6 +111,7 @@ PROTOTYPES = {
     "ld_body_set_user": (c_int32, [_W, c_int64, c_uint64]),
     "ld_body_get_user": (c_int32, [_W, c_int64, POINTER(c_uint64)]),
     "ld_world_find_user": (c_int64, [_W, c_uint64]),
+    "ld_world_set_unit_scale": (c_int32, [_W, _F]),
 }
 
 

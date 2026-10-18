@@ -90,4 +90,5 @@ extern "C" {
     pub fn ld_body_set_user(w: *mut ld_world, b: ld_body, user: u64) -> i32;
     pub fn ld_body_get_user(w: *mut ld_world, b: ld_body, out: *mut u64) -> i32;
     pub fn ld_world_find_user(w: *mut ld_world, user: u64) -> i64;
+    pub fn ld_world_set_unit_scale(w: *mut ld_world, per_meter: f32) -> i32;
 }

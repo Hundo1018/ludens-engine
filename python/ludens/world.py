@@ -213,6 +213,11 @@ class World:
     def set_gravity(self, g):
         self._check(C.lib.ld_world_set_gravity(self._h, *_f3(g, "gravity")))
 
+    def set_unit_scale(self, per_meter):
+        """Host length units per meter (ABI 0.5): 100 for centimetres. All
+        lengths, velocities and gravity are then given in host units."""
+        self._check(C.lib.ld_world_set_unit_scale(self._h, float(per_meter)))
+
     @property
     def tick(self):
         return self._check(C.lib.ld_world_tick(self._h))
