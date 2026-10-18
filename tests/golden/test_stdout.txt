@@ -233,9 +233,9 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
   insulated block: heat drift 3.814697269177714e-08  spread 200.0 -> 0.00045776367
 [PASS] thermal_particles - 3 / 3 checks
 --- tests/test_trace_runtime.mojo ---
-  probe: spans after 5 traced steps 35  after 5 more with enabled = False 35
+  probe: spans after 5 traced steps 40  after 5 more with enabled = False 40
   probe:   ring of 4 after 10 spans: oldest s6  newest s9  dropped 6
-  probe:   8-slot trace, 10 steps: dropped 74  TRACE_DROPPED counter 74
+  probe:   8-slot trace, 10 steps: dropped 84  TRACE_DROPPED counter 84
   probe: [PASS] trace_on_probe - 6 / 6 checks
 [PASS] trace_runtime - 1 / 1 checks
 --- tests/test_tree.mojo ---
@@ -1577,6 +1577,11 @@ after 3 s: gas excess heat 9043.502771750093 J/m  centroid y 0.4009514398453459 
 [PASS] thermal_smoke - 7 / 7 checks
 --- tests/test_tiers.mojo ---
 [PASS] tiers - 26 / 26 checks
+--- tests/test_tiers_aggregate.mojo ---
+proxies 16  first: members 2  mass 2.0  centroid 40.0 0.4999094
+hit stack: lower box moved 0.11212921  vs untiered 0.11227417  diff 0.0001449585
+observer at x = 100: proxies 13
+[PASS] tiers_aggregate - 4 / 4 checks
 --- tests/test_timers_integration.mojo ---
 [PASS] timers_integration - 9 / 9 checks
 --- tests/test_trimesh.mojo ---
