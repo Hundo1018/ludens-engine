@@ -51,7 +51,7 @@
 | [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 4 | 2 | 0 |
 | [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 9 | 2 | 0 | 0 |
 | [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
-| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 5 | 1 | 1 | 1 |
+| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 0 | 1 | 1 |
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 7 | 0 | 3 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
@@ -1935,7 +1935,7 @@
 | 15.3 | [comptime 自動伴隨式生成](ROADMAP_HISTORY.md#153-comptime-自動伴隨式生成---完成2026-08-11) | ✅ |  | 步驟以小型線性直線程式描述,用 comptime for 在編譯期展開前向與伴隨,8.48 ns,比 runtime tape 快 5.9×,有 27 checks 測試與 bench_diffsim 一列。 |
 | 17.18 | [批次多世界步進(13.9 落地)](ROADMAP_HISTORY.md#1718-批次多世界步進139-落地--wave-b) | ✅ | B | `BatchReal[W]` 讓 17.20 的 `SphereWorld` 每個 SIMD lane 跑一個世界,`step_worlds_parallel[W]` 再把批次分到各核,N ≥ 64 時約 7.4×(lane)/ 22×(lane × 核)於純量循序。 |
 | 17.20 | [剛體 solver 可微化收尾(13.7)](ROADMAP_HISTORY.md#1720-剛體-solver-可微化收尾137--wave-b) | ✅ | B | `SolverField` 係數環加上 `physics/diffsolver.mojo` 的 `SphereWorld[F]`(動態球 + 靜態平面)以與 `ContactScene6` 相同的每幀演算法提供可微接觸 / 摩擦步進,四種係數環梯度一致,並有 μ 系統識別範例。 |
-| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 🔶 | C | 共用 gradcheck、精度與可重現性政策、求解器多樣性、AD 深度、接觸梯度的平滑變體 |
+| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | ✅ | C | 共用 gradcheck、精度與可重現性政策、求解器多樣性、AD 深度、接觸梯度的平滑變體 |
 
 ### 已完成條目的遺留待辦
 
@@ -1988,6 +1988,9 @@
 > **相依**:平台整合方向拍板。
 
 #### 17.84 數值 / 可微深化 — Wave C
+
+> **狀態**:✅ 完成(CPU;GPU 批次屬第 7 層)(2026-10-18:MINRES、平行 SpMV、多重網格 PCG、Hessian-vector、隱式微分、批次 × 反向、
+> 精度 / 旗標政策與漂移檢查、四個可微測試改用 gradcheck、衝量夾限 / 摩擦錐平滑變體與偏差來源定位;見下方 2026-10-18 進度註)。
 > **進度註(2026-10-13)**:三塊先行。(1)`harness/gradcheck.mojo`:`GradProblem` trait(`dim` / `value` / `gradient` / `schedule`)+ `gradcheck(p, x, steps)`
 > 回傳每個步長的誤差(max |fd − g| / max(1, max |g|))、每個步長因分支改變而略過的分量數與最佳步長;`max_rel_diff` 比兩個解析梯度(前向 vs 反向)。
 > (2)`numerics/bicgstab.mojo`:`bicgstab[Op: LinearOperator]`(Float64 遞迴、可選 Jacobi),`residual` 回報**真殘差**而非遞迴估計,
@@ -2013,8 +2016,37 @@
 > - `SolverField.smooth_positive(k)`(五種 scalar,真導數)與 `SphereWorld.contact_k`(預設 0 = sharp,既有 diffsolver 輸出不變)。`test_smooth_positive`:
 >   **發現**:球落地滑行的 d x / d 落下高度,sharp 0.5 vs 中央差分 0.271;平滑「接觸存在」開關只在 k=30 改成 0.497、k ≥ 100 即等於 sharp —— 這個偏差不來自存在開關
 >   (衝量夾限與摩擦錐仍是 sharp),平滑存在開關不解決它。
-> **未做**:四個既有可微測試改用 gradcheck、排程雜湊接到 diffrigid / diffsim 的分支位元、精度 / 縮併政策文件與旗標漂移測試、多重網格 / MINRES / 平行 SpMV、
-> 批次 × 反向、Hessian-vector、隱式微分、平滑化衝量夾限 / 摩擦錐(上面的偏差來源候選)。
+> **進度註(2026-10-18)**:
+> - **求解器多樣性**
+>   - `numerics/minres.mojo`:Paige–Saunders MINRES,Float64,可選 |diag| 前條件,真殘差判定。`test_solvers` 鞍點 [[K, Bᵀ], [B, 0]](n=288):
+>     CG 不收斂(誤差 7.0);MINRES 110 步(加前條件 97 步)、誤差 4e-6;GMRES(30) 236 步。
+>     `bench_numerics_deep` n=288 / 1152:MINRES 1.57 / 11.3 ms,GMRES(30) 7.77 / 60.7 ms。
+>   - `numerics.sparse.ParallelCsr`:列分塊平行 SpMV,與 `CsrMatrix.apply` 逐位相同(`test_par_spmv`:預設寬度、1–3 工作者、
+>     不整除的區塊;其上 CG 的迭代數與 x 逐位相同)。4 核:n=18432 359 → 148 µs(2.4×),n=294912 6.2 → 2.9 ms(2.1×);
+>     n=1152 單一區塊走串行路徑。
+>   - `numerics/multigrid.mojo`:週期 2D Poisson 的幾何多重網格 V-cycle(紅黑 GS,對稱)+ `pcg_mg`。`test_multigrid`:
+>     n=32 / 64 / 128 迭代 4 / 4 / 4(Jacobi PCG 53 / 96 / 160);V-cycle 對稱性 4.5e-15。
+>     接到 `MacFluid2.use_multigrid()`:`test_mac_multigrid` 煙霧 64² 1 s,迭代 10622 → 400,速度差 2.9e-6(峰值 0.70)。
+>     `bench_grid_fluid`:32² 2.25 → 1.02 µs / cell-step,64² 4.18 → 1.04。
+> - **AD 深度**
+>   - `RevDual` / `DualTape` / `hvp_seed`(前向套反向):一次反向掃描得梯度與 H v。`test_hvp`:Rosenbrock 對解析 Hessian 2.4e-6;
+>     GA 馬達 `GMV[3,0,1,RevDual]` 對梯度中央差分 0.03 %;SphereWorld 碰撞中梯度與 `RevReal` 差 5e-8、H 對稱 2.3e-6。
+>     代價為一次 `RevReal` 梯度的 1.22 倍(14.1 vs 11.5 ms)。
+>   - `numerics/implicit.mojo`:`implicit_gradient[Op, P: ParamDerivative]`,一次伴隨解(SPD 用 CG,否則 MINRES)。`test_implicit` 16×16 導熱、481 參數:
+>     compliance 對精確式 3e-9;x·x 對完整重解的中央差分 0.13 %;鞍點對中央差分 2e-4;一次 92 步伴隨 CG 取代 962 次求解。
+>   - `RevBatch[W]` / `BatchTape[W]`(批次 × 反向):W 個世界一次錄製、一次掃描。`test_rev_batch` 8 世界:lane k 與 `RevReal` 的世界 k
+>     primal 與梯度逐位相同,磁帶長度同一個世界。`bench_diffsolver`:每世界梯度 1.32 vs 2.54 ms(1.9×)。
+> - **gradcheck 接線**:`DiffState2.schedule`(接觸步 FNV-1a,對應 `RigidState.schedule`)。
+>   `test_adjoint`、`test_diffsim`、`test_diffrigid`、`test_gmv_ad` 的手寫差分改為 `GradProblem` + `gradcheck`:
+>   diffsim 在 h=1e-2 有 1 個分量因排程改變被略過;diffrigid 的 2e-3、5e-4 探針被略過,最佳 7.2e-5(1.25e-4)。
+> - **精度 / 旗標政策**:`docs/ARCHITECTURE.md` §6,內容為 f32 世界純量 / f64 Krylov、決定論契約、只有 FMA 與 -O0 改位元、AD 型別間的容差。
+>   `scripts/flag_policy.py`(`pixi run flag-policy`,CI 與 `gate --selftest`)檢查三條:R1 精確版本鎖定、R2 釘死目標 == 文件、R3 fast-math / -O 不外流。
+> - **接觸梯度的平滑變體**:`SphereWorld.clamp_k`(衝量夾限與摩擦錐用 x·σ(kx)),預設 0,既有輸出不變。
+>   `test_smooth_positive`:clamp_k 10 / 30 / 100 時梯度 0.39 / 0.45 / 0.55,不收斂到差分;≥ 1000 與 sharp 逐位相同 → **夾限不是偏差來源**。
+> - **偏差來源定位**(探針;尚未修正):落地下一幀 AD 的 d x / d 落下高度跳到 **恰為 μ**(μ = 0.3 / 0.5 / 0.8 → 0.3 / 0.5 / 0.8,與步長無關)。
+>   原因:推測式接觸的偏壓 −d/h 使 dλ/d(間隙) = 1/h,落地子步的摩擦處於上限 μλ,於是 dvx = μ/h,積分 h 後 dx = μ。
+>   滑動在落地後延續時(μ = 0.3)這是正確值,中央差分 0.30;落地即進入滾動時(μ ≥ 0.5)真值是 (6/7) / v_impact = 0.433,
+>   中央差分隨細化收斂到它(60 → 960 fps:0.401 → 0.432)。修正需要撞擊時刻的導數,目前未排入。
 > **現況**:
 > - **線性代數**(`numerics/`):CSR 矩陣與三元組組裝(`numerics/sparse.mojo:54`、`from_triplets` `:89`)、matrix-free 的 `LinearOperator`(**僅限對稱正定**,`:35-43`)、
 >   `cg` / `pcg`(只有 Jacobi 預條件,`numerics/cg.mojo:61,73`)、`jacobi_solve`(`:175`)、稠密高斯消去含部分選主元(`numerics/dense.mojo:84,97`)。
@@ -3886,5 +3918,5 @@
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
-| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | 🔶 |
+| 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | ✅ |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | ✅ |
