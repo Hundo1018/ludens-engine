@@ -22,6 +22,10 @@ pair reproduces `ClothAir.step` bit for bit (`test_cloth_air_parts`).
 `INTERP` interpolates the received data between steps, impulses
 included, so it does not conserve momentum here; the coupler's
 `imbalance` shows by how much.
+
+`BallPart` is a rigid ball with the same per-point interface; with
+`coupler.Both` a cloth and a ball share one lattice (three solvers, one
+coupler, one imbalance per step).
 """
 
 from std.math import sqrt
@@ -280,4 +284,94 @@ struct AirPart(CoupledPart):
             self.x_drag[i] = r.rv()
             self.jv[i] = r.rv()
         self.received = r.rv()
+        self.total = r.rv()
+
+
+struct BallPart(CoupledPart):
+    """A rigid ball in the air as one immersed point at its centre: linear
+    drag F = c (u - v), integrated implicitly, v <- (v + a u) / (1 + a),
+    a = c dt / m, then gravity and the position update (symplectic Euler).
+    Same interface as `ClothPart` for one point (receives 3, sends 9), so
+    it plugs into `AirPart` and, with `Both`, shares a lattice with a
+    cloth. Translation only: a drag at the centre exerts no torque."""
+
+    var x: Vec3
+    var v: Vec3
+    var m: Real
+    var c: Real  # drag coefficient, kg / s
+    var gravity: Vec3
+    var air_u: Vec3
+    var x_drag: Vec3
+    var j: Vec3
+    var total: Vec3
+    var _x: Vec3
+    var _v: Vec3
+    var _xd: Vec3
+    var _j: Vec3
+
+    def __init__(out self, x: Vec3, m: Real, c: Real, gravity: Vec3) raises:
+        if not (m > 0) or not (c >= 0):
+            raise Error("BallPart: m > 0 and c >= 0")
+        self.x = x
+        self.v = Vec3(0, 0, 0, 0)
+        self.m = m
+        self.c = c
+        self.gravity = gravity
+        self.air_u = Vec3(0, 0, 0, 0)
+        self.x_drag = x
+        self.j = Vec3(0, 0, 0, 0)
+        self.total = Vec3(0, 0, 0, 0)
+        self._x = x
+        self._v = self.v
+        self._xd = x
+        self._j = self.j
+
+    def advance(mut self, dt: Real) raises:
+        var a = self.c * dt / self.m
+        var v_new = (self.v + self.air_u * a) * (1 / (1 + a))
+        self.j = (v_new - self.v) * self.m
+        self.total = self.total + self.j
+        self.x_drag = self.x
+        self.v = v_new + self.gravity * dt
+        self.x = self.x + self.v * dt
+
+    def send(self) -> List[Real]:
+        return [
+            self.x[0], self.x[1], self.x[2],
+            self.x_drag[0], self.x_drag[1], self.x_drag[2],
+            self.j[0], self.j[1], self.j[2],
+        ]
+
+    def recv(mut self, data: List[Real]):
+        self.air_u = Vec3(data[0], data[1], data[2], 0)
+
+    def impulse(self) -> List[Real]:
+        return [self.j[0], self.j[1], self.j[2]]
+
+    def save(mut self):
+        self._x = self.x
+        self._v = self.v
+        self._xd = self.x_drag
+        self._j = self.j
+
+    def restore(mut self):
+        self.x = self._x
+        self.v = self._v
+        self.x_drag = self._xd
+        self.j = self._j
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wv(self.x)
+        w.wv(self.v)
+        w.wv(self.air_u)
+        w.wv(self.x_drag)
+        w.wv(self.j)
+        w.wv(self.total)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.x = r.rv()
+        self.v = r.rv()
+        self.air_u = r.rv()
+        self.x_drag = r.rv()
+        self.j = r.rv()
         self.total = r.rv()

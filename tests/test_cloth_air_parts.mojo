@@ -17,6 +17,12 @@ per lattice step, rho 1.2, lattice viscosity 0.05) and a 0.2 m sheet
   3. Snapshot: `Coupler.write_state` after 100 steps, 100 more; a fresh
      pair restored from the bytes and run 100 steps matches bit for bit.
      A lattice substep that is not one lattice step raises.
+  4. Three solvers, one coupler: the sheet and a 4 g rigid ball 0.1 m
+     below it (`BallPart`, linear drag 0.08 kg/s) in one lattice through
+     `Both[ClothPart, BallPart]`. Per step the imbalance (cloth + ball +
+     air impulses) stays at rounding level and the air's momentum changes
+     by minus what cloth and ball received. The ball in the sheet's
+     wake falls faster than the same ball alone in still air.
 """
 
 from harness.runner import Suite
@@ -24,9 +30,9 @@ from geometry.vec import Real, Vec3, length
 from fluid.lbm import Lbm
 from diag.counters import Counters
 from physics.cloth import MeshCloth, grid_mesh
-from physics.cloth_air import ClothAir
-from physics.cloth_air_parts import ClothPart, AirPart
-from physics.coupler import Coupler, EXPLICIT, INTERP
+from physics.cloth_air import ClothAir, lattice_momentum
+from physics.cloth_air_parts import ClothPart, AirPart, BallPart
+from physics.coupler import Coupler, Both, EXPLICIT, INTERP
 from physics.serialize import BinWriter, BinReader
 
 comptime NL = 24
@@ -131,4 +137,35 @@ def main() raises:
     except:
         raised = True
     s.check(raised, "a lattice substep that is not dt_lat raises")
+
+    # 4. cloth + ball + air
+    var c3 = sheet()
+    var pts = c3.x.copy()
+    var nc = len(pts)
+    var ball_x = Vec3(0.24, 0.20, 0.24, 0)
+    pts.append(ball_x)
+    var three = Coupler[Both[ClothPart, BallPart], AirPart](
+        Both[ClothPart, BallPart](ClothPart(c3^, 2.0, G), BallPart(ball_x, 0.004, 0.08, G), 3 * nc),
+        AirPart(air(), Vec3(0, 0, 0, 0), DX, DT, RHO, 1, pts),
+        1, EXPLICIT,
+    )
+    var lone_pts: List[Vec3] = [ball_x]
+    var lone = Coupler[BallPart, AirPart](
+        BallPart(ball_x, 0.004, 0.08, G), AirPart(air(), Vec3(0, 0, 0, 0), DX, DT, RHO, 1, lone_pts), 1, EXPLICIT
+    )
+    var p0 = lattice_momentum(three.b.lbm, RHO, DX, DT)
+    var sc3 = Real(0)
+    for _ in range(300):
+        three.step(DT, counters)
+        lone.step(DT, counters)
+        sc3 = max(sc3, length(three.a.a.received) + length(three.a.b.j))
+    var gave = three.a.a.total + three.a.b.total
+    var dp = lattice_momentum(three.b.lbm, RHO, DX, DT) - p0
+    var rel = length(dp + gave) / length(gave)
+    print("  three-way, 0.3 s: max imbalance", three.max_imbalance, " per-step impulses up to", sc3)
+    print("  air momentum change", dp[1], " cloth + ball received", gave[1], " relative mismatch", rel)
+    print("  ball vy: under the sheet", three.a.b.v[1], " alone", lone.a.v[1])
+    s.check(three.max_imbalance <= 1e-6 * sc3, "three-way: per-step imbalance at rounding level")
+    s.check(rel < 1e-3, "three-way: air momentum change = -(cloth + ball impulses) within 1e-3")
+    s.check(three.a.b.v[1] < lone.a.v[1], "the ball in the sheet's wake falls faster than alone")
     s.finish()

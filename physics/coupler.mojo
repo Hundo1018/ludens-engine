@@ -229,3 +229,64 @@ struct Coupler[A: CoupledPart, B: CoupledPart](Movable):
         self._last_b = read_reals(r)
         self.a.read_state(r)
         self.b.read_state(r)
+
+
+struct Both[A: CoupledPart, B: CoupledPart](CoupledPart):
+    """Two parts on the same side of a `Coupler`, so three solvers couple
+    through one partner (e.g. a cloth and a rigid body in one air
+    lattice): `advance` steps both, `send` is A's data then B's, `recv`
+    gives the first `a_recv` values to A and the rest to B, `impulse` is
+    the sum of both (same layout)."""
+
+    var a: Self.A
+    var b: Self.B
+    var a_recv: Int
+
+    def __init__(out self, var a: Self.A, var b: Self.B, a_recv: Int):
+        self.a = a^
+        self.b = b^
+        self.a_recv = a_recv
+
+    def advance(mut self, dt: Real) raises:
+        self.a.advance(dt)
+        self.b.advance(dt)
+
+    def send(self) -> List[Real]:
+        var d = self.a.send()
+        for x in self.b.send():
+            d.append(x)
+        return d^
+
+    def recv(mut self, data: List[Real]):
+        var da = List[Real](capacity=self.a_recv)
+        var db = List[Real](capacity=max(len(data) - self.a_recv, 0))
+        for i in range(len(data)):
+            if i < self.a_recv:
+                da.append(data[i])
+            else:
+                db.append(data[i])
+        self.a.recv(da)
+        self.b.recv(db)
+
+    def impulse(self) -> List[Real]:
+        var ia = self.a.impulse()
+        var ib = self.b.impulse()
+        for i in range(min(len(ia), len(ib))):
+            ia[i] += ib[i]
+        return ia^
+
+    def save(mut self):
+        self.a.save()
+        self.b.save()
+
+    def restore(mut self):
+        self.a.restore()
+        self.b.restore()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        self.a.write_state(w)
+        self.b.write_state(w)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.a.read_state(r)
+        self.b.read_state(r)
