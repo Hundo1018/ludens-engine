@@ -22,14 +22,16 @@ second order relaxed at rate 1).
                  + 8 Sxy Syz Sxz);
   4. the three transforms run backwards, then the populations stream.
 
-Measured limits (`test_lbm_cumulant`): at a viscosity BGK cannot hold
-(a double shear layer at nu 1e-4) it survives 4x longer (1954 steps
-against 472) but still fails; and it is NOT Galilean invariant: a vortex
-carried by a uniform flow u0 decays more slowly by an amount that grows as
-u0^2 (25 % in energy at u0 = 0.2, BGK 15 %). The cause is the lattice's
-missing third central moment (c^3 = c on {-1, 0, 1}); Geier et al. 2015
-cancel it with an extra term in the diagonal second-order relaxation
-(from the velocity-gradient estimate), which is not implemented here.
+Galilean invariance: the lattice has no third central moment (c^3 = c
+on {-1, 0, 1}), so the u^2 grad u terms of the stress are missing and a
+flow carried by a uniform velocity u0 would decay more slowly, by an
+amount growing as u0^2 (24.5 % in energy at u0 = 0.2, BGK 15 %). Geier et
+al. 2015 add them back to the diagonal second-order relaxation, using the
+velocity gradients estimated from the pre-collision second moments; that
+is `galilean` = 1 (the default; 0 switches it off). It brings the error at
+u0 = 0.2 down to 2.7 %. Measured limit (`test_lbm_cumulant`): at a
+viscosity BGK cannot hold (a double shear layer at nu 1e-4) it survives
+4x longer (1954 steps against 472) but still fails.
 `collide_bgk` is the D3Q27 BGK control on the same
 storage. No walls, no forcing: this is the periodic collision study that
 the D3Q19 `Lbm` (walls, forcing, moving solids) is not.
@@ -100,6 +102,7 @@ struct Lbm27(Movable):
     var n: Int
     var omega: Real
     var omega_b: Real
+    var galilean: Real  # strength of the Galilean correction of the diagonal relaxation (0 = off)
     var f: List[Real]  # [dir][cell]
     var g: List[Real]
 
@@ -109,6 +112,7 @@ struct Lbm27(Movable):
         self.n = n
         self.omega = 1 / (3 * nu + Real(0.5))
         self.omega_b = 1
+        self.galilean = 1
         var m = n * n * n
         self.f = List[Real](length=Q27 * m, fill=0)
         self.g = List[Real](length=Q27 * m, fill=0)
@@ -203,6 +207,18 @@ struct Lbm27(Movable):
             var trn = tr + self.omega_b * (rho - tr)
             d1 *= 1 - self.omega
             d2 *= 1 - self.omega
+            if self.galilean != 0:
+                # Geier et al. 2015: the velocity gradients d_x u_x, ... from the
+                # pre-collision second moments, and the u^2 grad u terms the
+                # lattice's missing third moment leaves in the stress
+                var tr0 = mxx + myy + mzz
+                var dxu = -(self.omega / (2 * rho)) * (2 * mxx - myy - mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
+                var dyu = -(self.omega / (2 * rho)) * (mxx - 2 * myy + mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
+                var dzu = -(self.omega / (2 * rho)) * (mxx + myy - 2 * mzz) - (self.omega_b / (2 * rho)) * (tr0 - rho)
+                var k1 = 3 * rho * (1 - self.omega / 2) * self.galilean
+                d1 -= k1 * (ux * ux * dxu - uy * uy * dyu)
+                d2 -= k1 * (ux * ux * dxu - uz * uz * dzu)
+                trn -= 3 * rho * (1 - self.omega_b / 2) * self.galilean * (ux * ux * dxu + uy * uy * dyu + uz * uz * dzu)
             mxy *= 1 - self.omega
             mxz *= 1 - self.omega
             myz *= 1 - self.omega

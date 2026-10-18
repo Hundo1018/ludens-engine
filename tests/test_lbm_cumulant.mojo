@@ -6,21 +6,23 @@
      nu 0.02) decays at the analytic rate exp(-4 nu k^2 t): after 400 steps
      the energy ratio is within 2 % of it and within 1 % of the D3Q27 BGK
      control's; mass is conserved to 1e-6 (relative).
-  2. Galilean error (a measured limitation): the same vortex (16^3, 200
-     steps) carried by a uniform flow u0 decays more slowly, the
-     fluctuation energy ratio off the at-rest run by 1.4 / 5.5 / 25 % at
-     u0 = 0.05 / 0.1 / 0.2 (BGK: 0.9 / 3.6 / 15 %): the lattice cannot hold
-     a third central moment (c^3 = c on {-1, 0, 1}), the error scales as
-     u0^2, and this collision, without the correction term Geier et al.
-     add to the diagonal second-order cumulants, is not better than BGK
-     here. Checked: the u0^2 scaling (the error at 0.1 is 3-5 times the
-     one at 0.05).
+  2. Galilean invariance: the same vortex (16^3, 200 steps) carried by a
+     uniform flow u0 = 0.05 / 0.1 / 0.2. Without the correction of Geier
+     et al. 2015 (`galilean` = 0) the decay slows by 1.35 / 5.5 / 24.5 %
+     (BGK 0.88 / 3.6 / 15 %): the lattice cannot hold a third central
+     moment (c^3 = c on {-1, 0, 1}) and the error scales as u0^2. With it
+     (the default, `galilean` = 1: the u^2 grad u terms from the
+     velocity-gradient estimate added to the diagonal relaxation) the
+     deviations are 0.0 / 0.01 / 2.7 %; checked: under 0.5 % at u0 = 0.1,
+     under 5 % at 0.2, and the uncorrected u0^2 scaling (x3..5 from 0.05
+     to 0.1).
   3. Stability: a double shear layer (32^3, u 0.1, layer width 1/40,
      perturbation 0.05 in v) at nu 1e-4, 3000 steps: BGK blows up (NaN or
      > 1e30) in under 1000 steps; the cumulant collision survives at least
      twice as long. It does not stay stable (measured: it fails at about
      step 1950 at nu 1e-4 and 1500 at 1e-5 and 1e-6, the shear layer
-     being under-resolved); the numbers are printed.
+     being under-resolved, with or without the Galilean correction); the
+     numbers are printed.
   4. Extreme: n < 4 and nu <= 0 raise.
 """
 
@@ -30,8 +32,9 @@ from geometry.vec import Real
 from fluid.lbm_cumulant import Lbm27
 
 
-def taylor_green(n: Int, nu: Real, amp: Real, u0: Real) raises -> Lbm27:
+def taylor_green(n: Int, nu: Real, amp: Real, u0: Real, galilean: Real = 1) raises -> Lbm27:
     var l = Lbm27(n, nu)
+    l.galilean = galilean
     var k = 2 * Real(pi) / Real(n)
     for z in range(n):
         for y in range(n):
@@ -56,8 +59,8 @@ def fluct_energy(l: Lbm27, u0: Real) -> Real:
     return Real(e)
 
 
-def decay(cumulant: Bool, n: Int, u0: Real, steps: Int) raises -> Real:
-    var l = taylor_green(n, 0.02, 0.03, u0)
+def decay(cumulant: Bool, n: Int, u0: Real, steps: Int, galilean: Real = 1) raises -> Real:
+    var l = taylor_green(n, 0.02, 0.03, u0, galilean)
     var e0 = fluct_energy(l, u0)
     for _ in range(steps):
         if cumulant:
@@ -108,15 +111,18 @@ def main() raises:
 
     var rest_c = decay(True, 16, 0, 200)
     var rest_b = decay(False, 16, 0, 200)
-    var dev_c = List[Real]()
+    var off_c = List[Real]()
+    var on_c = List[Real]()
     var dev_b = List[Real]()
     for u0 in [Real(0.05), Real(0.1), Real(0.2)]:
-        dev_c.append(decay(True, 16, u0, 200) / rest_c - 1)
+        off_c.append(decay(True, 16, u0, 200, 0) / rest_c - 1)
+        on_c.append(decay(True, 16, u0, 200, 1) / rest_c - 1)
         dev_b.append(decay(False, 16, u0, 200) / rest_b - 1)
-    print("  Galilean error (energy ratio vs at rest) at u0 = 0.05 / 0.1 / 0.2: cumulant", dev_c[0], dev_c[1], dev_c[2], " bgk", dev_b[0], dev_b[1], dev_b[2])
-    var scale_c = dev_c[1] / dev_c[0]
-    s.check(scale_c > 3 and scale_c < 5 and dev_c[0] > 0, "the Galilean error grows as u0^2 (x3..5 from 0.05 to 0.1)")
-    s.check(dev_c[2] > dev_b[2], "recorded: without Geier's diagonal correction the cumulant's error is not smaller than BGK's")
+    print("  Galilean error at u0 = 0.05 / 0.1 / 0.2: cumulant uncorrected", off_c[0], off_c[1], off_c[2], " corrected", on_c[0], on_c[1], on_c[2], " bgk", dev_b[0], dev_b[1], dev_b[2])
+    var scale_c = off_c[1] / off_c[0]
+    s.check(scale_c > 3 and scale_c < 5 and off_c[0] > 0, "uncorrected: the Galilean error grows as u0^2 (x3..5 from 0.05 to 0.1)")
+    s.check(abs(on_c[1]) < 0.005 and abs(on_c[2]) < 0.05, "corrected: under 0.5 % at u0 = 0.1 and under 5 % at 0.2")
+    s.check(abs(on_c[2]) < 0.5 * abs(dev_b[2]), "corrected cumulant's error at 0.2 is under half of BGK's")
 
     var tb = survive(False, 1e-4, 3000)
     var tc = survive(True, 1e-4, 3000)
