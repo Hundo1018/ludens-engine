@@ -18,6 +18,7 @@ from geometry.quat import Quat
 from physics.rigid6 import Pose6
 from physics.strand import StrandSet, StrandSphere, StrandCapsule
 from physics.actuator import Actuator, ActuatorBank, HillParams
+from physics.muscle_tendon import MuscleTendon
 from harness.bench import BenchTable, now
 
 
@@ -66,6 +67,24 @@ def bench_muscle(mut t: BenchTable, hill: Bool, reps: Int):
     t.add("hill curves (fl, fv, fp)" if hill else "plain Actuator.muscle", 64, "actuator", t1 - t0, reps * 64)
 
 
+def tendon_row(mut t: BenchTable, eps0: Real) raises:
+    var h = HillParams.thelen(0.04, 0.1, 0.2, 0.32, 10)
+    var units = List[MuscleTendon]()
+    for _ in range(64):
+        var u = MuscleTendon(h, 100.0, 0.2, eps0)
+        u.equilibrate(0, 0.31)
+        units.append(u^)
+    var reps = 2000
+    var acc = Real(0)
+    var t0 = now()
+    for k in range(reps):
+        for i in range(64):
+            acc += units[i].step(Real(k % 2), 0.31, 0, 1.0 / 2000.0)
+    var t1 = now()
+    keep(acc)
+    t.add("MuscleTendon " + ("rigid tendon" if eps0 == 0 else "compliant tendon (eps0 0.04)"), 64, "unit-step", t1 - t0, reps * 64)
+
+
 def main() raises:
     var t = BenchTable("Hair strands: Follow-The-Leader with bending (17.57)")
     bench_hair(t, False, 60)
@@ -74,4 +93,6 @@ def main() raises:
     var m = BenchTable("Muscle: plain activation vs Hill curves (17.57)")
     bench_muscle(m, False, 20000)
     bench_muscle(m, True, 20000)
+    tendon_row(m, 0)
+    tendon_row(m, 0.04)
     m.print_report()
