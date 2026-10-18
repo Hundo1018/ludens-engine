@@ -263,7 +263,9 @@ struct FftOcean(WaterSurface, Movable):
     vertical surface velocity d eta / dt, summed directly. `choppy` = lambda
     > 0 shifts surface points horizontally (Tessendorf's choppy waves; one
     mode = Gerstner with Q = lambda); `height` then inverts the map with
-    4 fixed-point iterations over exact sums, as `GerstnerWater` does.
+    4 fixed-point iterations, as `GerstnerWater` does: at the updated t over
+    the displacement grids `update` also builds (two more inverse FFTs,
+    bilinear like the height grid), otherwise over exact sums.
     `normal` is the non-choppy surface's normal, from analytic slopes."""
 
     var n: Int
@@ -276,6 +278,8 @@ struct FftOcean(WaterSurface, Movable):
     var t_grid: Real
     var has_grid: Bool
     var choppy: Real  # lambda: horizontal displacement -lambda k^ Im(...)
+    var disp_x: List[Real]  # choppy displacement grids at t_grid (empty unless choppy)
+    var disp_z: List[Real]
 
     def __init__(out self, n: Int, size: Real, level: Real, gravity: Real = 9.8) raises:
         if n < 2 or (n & (n - 1)) != 0 or not (size > 0):
@@ -290,6 +294,8 @@ struct FftOcean(WaterSurface, Movable):
         self.t_grid = 0
         self.has_grid = False
         self.choppy = 0
+        self.disp_x = List[Real]()
+        self.disp_z = List[Real]()
 
     def _m(self, i: Int) -> Int:
         return i if i < self.n // 2 else i - self.n
@@ -353,12 +359,65 @@ struct FftOcean(WaterSurface, Movable):
                 var s = sin(a)
                 re[idx] = self.h0_re[idx] * c - self.h0_im[idx] * s
                 im[idx] = self.h0_re[idx] * s + self.h0_im[idx] * c
+        var cre = re.copy()
+        var cim = im.copy()
         fft2(re, im, n, True)
         var scale = Real(n * n)  # the inverse divides by n^2; the sum does not
         for i in range(n * n):
             self.grid[i] = re[i] * scale
         self.t_grid = t
         self.has_grid = True
+        if self.choppy != 0:
+            self._update_displacement(cre, cim)
+
+    def _update_displacement(mut self, cre: List[Real], cim: List[Real]) raises:
+        """Choppy displacement grids from the time-shifted spectrum c:
+        -lambda k^ Im(c e^{i k.x}) = Re(i lambda k^ c e^{i k.x}), so each
+        component's spectrum is i lambda k^ c."""
+        var n = self.n
+        var xr = List[Real](length=n * n, fill=0)
+        var xi = List[Real](length=n * n, fill=0)
+        var zr = List[Real](length=n * n, fill=0)
+        var zi = List[Real](length=n * n, fill=0)
+        for iz in range(n):
+            for ix in range(n):
+                var idx = iz * n + ix
+                var k = self._k(ix, iz)
+                var kl = sqrt(k[0] * k[0] + k[1] * k[1])
+                if kl <= 0:
+                    continue
+                var ax = self.choppy * k[0] / kl
+                var az = self.choppy * k[1] / kl
+                xr[idx] = -ax * cim[idx]
+                xi[idx] = ax * cre[idx]
+                zr[idx] = -az * cim[idx]
+                zi[idx] = az * cre[idx]
+        fft2(xr, xi, n, True)
+        fft2(zr, zi, n, True)
+        var scale = Real(n * n)
+        self.disp_x = List[Real](length=n * n, fill=0)
+        self.disp_z = List[Real](length=n * n, fill=0)
+        for i in range(n * n):
+            self.disp_x[i] = xr[i] * scale
+            self.disp_z[i] = zr[i] * scale
+
+    def _bilinear(self, g: List[Real], x: Real, z: Real) -> Real:
+        """A periodic grid of this patch, bilinear at (x, z)."""
+        var cell = self.size / Real(self.n)
+        var fx = x / cell
+        var fz = z / cell
+        var x0 = Int(floor(fx))
+        var z0 = Int(floor(fz))
+        var ax = fx - Real(x0)
+        var az = fz - Real(z0)
+        var n = self.n
+        var i0 = ((x0 % n) + n) % n
+        var j0 = ((z0 % n) + n) % n
+        var i1 = (i0 + 1) % n
+        var j1 = (j0 + 1) % n
+        var a = g[j0 * n + i0] * (1 - ax) + g[j0 * n + i1] * ax
+        var b = g[j1 * n + i0] * (1 - ax) + g[j1 * n + i1] * ax
+        return a * (1 - az) + b * az
 
     def direct(self, x: Real, z: Real, t: Real) -> Real:
         """Height above the level, summing every mode (exact, O(n^2))."""
@@ -421,6 +480,11 @@ struct FftOcean(WaterSurface, Movable):
             # the inverse horizontal map, as GerstnerWater.height
             var x0 = x
             var z0 = z
+            if self.has_grid and t == self.t_grid and len(self.disp_x) == self.n * self.n:
+                for _ in range(4):
+                    x0 -= x0 + self._bilinear(self.disp_x, x0, z0) - x
+                    z0 -= z0 + self._bilinear(self.disp_z, x0, z0) - z
+                return self.level + self._bilinear(self.grid, x0, z0)
             for _ in range(4):
                 var p = self.displaced(x0, z0, t)
                 x0 -= p[0] - x
