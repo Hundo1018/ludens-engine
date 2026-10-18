@@ -36,7 +36,7 @@ the polar decomposition and a symmetric eigen solve), in log-strain space:
 a stretched particle forgets all elastic strain (sand has no tension), a
 compressed one is projected back onto the friction cone. It replaces the
 determinant clamp. Static obstacles (`add_obstacle(sdf, mu)`): a grid node
-within `node_margin` (dx / 2) of an `Sdf3`, or inside it, loses the velocity
+within `node_margin` (3 dx / 4) of an `Sdf3`, or inside it, loses the velocity
 into it, with Coulomb friction on the rest (sticks when the tangential speed
 is within mu times the normal one), and a particle closer than `skin`
 (dx / 4) to the surface is put back at that distance with the same friction
@@ -102,7 +102,7 @@ struct MpmSolver(Movable):
     var obstacles: List[Sdf3]
     var obstacle_mu: List[Real]
     var skin: Real  # particles keep this far from an obstacle surface (dx / 4)
-    var node_margin: Real  # grid nodes this close to a surface (or inside) are projected (dx / 2)
+    var node_margin: Real  # grid nodes this close to a surface (or inside) are projected (dx * 3 / 4)
     var rigids: List[MpmRigid]  # moving rigid obstacles (step_ext)
     # grid scratch (SoA, rebuilt each step)
     var gm: List[Real]
@@ -123,7 +123,7 @@ struct MpmSolver(Movable):
         self.obstacles = List[Sdf3]()
         self.obstacle_mu = List[Real]()
         self.skin = dx * 0.25
-        self.node_margin = dx * 0.5
+        self.node_margin = dx * 0.75
         self.rigids = List[MpmRigid]()
         self.gm = List[Real]()
         self.gvx = List[Real]()
