@@ -1,4 +1,7 @@
+Pixi task (build): bash scripts/build_engine.sh
 build: all packages precompiled into build/
+Pixi task (arch-check): bash scripts/arch.sh check && bash scripts/arch.sh tiers --check
+Pixi task (test): bash scripts/run_tests.sh unit component integration system
 --- tests/test_aabb.mojo ---
 [PASS] aabb - 21 / 21 checks
 --- tests/test_aba.mojo ---
@@ -160,10 +163,14 @@ wfc 20 x 20: sea / shore / land 187 183 30  forbidden pairs 0
 [PASS] mesh_bake - 24 / 24 checks
 --- tests/test_mpm.mojo ---
   particles: 240
-  elastic  height 0.6363874  spread 0.20055819
-  plastic  height 0.28340086  spread 0.1958955
+  elastic  height 0.6324054  spread 0.2009601
+  plastic  height 0.28637883  spread 0.19851571
   free-fall momentum y: -0.40140828  expected ~ -0.40140772
 [PASS] mpm - 8 / 8 checks
+--- tests/test_mpm_frame.mojo ---
+  F = 0.95 I: L_z -2.5346791e-08 KE 10.774611 ; F = 0.95 Rz(90): L_z -4.858064e-08 KE 10.774613
+  step_ext: F = 0.95 I: L_z -2.5346791e-08 KE 10.774611 ; F = 0.95 Rz(90): L_z -4.858064e-08 KE 10.774613
+[PASS] mpm_frame - 4 / 4 checks
 --- tests/test_multiphase.mojo ---
   t 0.29999998 s: oil - water mean height -0.15909402   equal densities -0.15942022
   t 0.59999996 s: oil - water mean height -0.15038314   equal densities -0.1524419
@@ -521,17 +528,22 @@ squash (1, 0.5, 1) about y = 1: heights 0.5 1.25 1.5
 [PASS] morph_ext - 12 / 12 checks
 --- tests/test_motor_parity.mojo ---
 [PASS] motor_parity - 285 / 285 checks
+--- tests/test_mpm_contact.mojo ---
+  slide with mu 0.6 by floor top (Coulomb 0.340): 0.2 -> 0.3385388; 0.19 -> 0.3390005; 0.2125 -> 0.33941022; 0.225 -> 0.32961732; 0.2375 -> 0.3389886; 
+  heap cone angle at 20 degrees of friction, floor top 0.2 / 0.19 / 0.2375 m: 22.929882 24.63895 24.688393
+[PASS] mpm_contact - 3 / 3 checks
 --- tests/test_mpm_melt.mojo ---
-after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (start 0.125 )
-  width solid 0.1833874  liquid 1.347734  heated 0.29297185  (start 0.17500001 )
-  melted fraction: solid 0.0  liquid 1.0  heated 0.5097836
-  enthalpy change 1499146.2212796034 J  floor heat 1499146.7783207893 J  rel. error 3.7157214621237253e-07
+after 1.2 s: height solid 0.12160547  liquid 0.04250191  heated 0.10070474  (start 0.125 )
+  width solid 0.18309075  liquid 1.3477201  heated 0.29721826  (start 0.17500001 )
+  melted fraction: solid 0.0  liquid 1.0  heated 0.53906477
+  enthalpy change 1580818.4511198653 J  floor heat 1580819.3068518639 J  rel. error 5.413218290421935e-07
 [PASS] mpm_melt - 8 / 8 checks
 --- tests/test_mpm_sand.mojo ---
-  block at 2 m/s on the obstacle floor: slides 0.34606156 m with mu 0.6 (v^2/2 mu g = 0.340); 0.8314862 m with mu 0
-  sand poured on a box: particles deeper than half a cell inside 0  resting on its top 9 of 288
-  column 0.42 m after 0.3 s, top / spread: elastic 0.372447 0.21578056 ; sand 30 deg 0.08373968 0.56632865 ; 60 deg 0.17557476 0.3200286 ; 85 deg 0.34503222 0.22743237
-[PASS] mpm_sand - 5 / 5 checks
+  block at 2 m/s on the obstacle floor: slides 0.3343084 m with mu 0.6 (v^2/2 mu g = 0.340); 0.82738733 m with mu 0
+  sand poured on a box: particles deeper than half a cell inside 0  resting on its top 288 of 288
+  column 0.42 m after 0.3 s, top / spread: elastic 0.40453225 0.21032828 ; sand 30 deg 0.15509973 0.4059201 ; 60 deg 0.26789314 0.3008831 ; 85 deg 0.36938125 0.2280137
+  heap from a 0.24 m block, equal-volume cone angle: friction 20 -> 22.929882 ; 40 -> 32.569332
+[PASS] mpm_sand - 7 / 7 checks
 --- tests/test_multigrid.mojo ---
 n 32 : MGPCG 4 iterations error 7.1525574e-07 ;  Jacobi PCG 53 iterations error 1.1920929e-06
 n 64 : MGPCG 4 iterations error 2.2649765e-06 ;  Jacobi PCG 96 iterations error 2.2053719e-06
@@ -934,7 +946,7 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
 [PASS] conventions - 8 / 8 checks
 --- tests/test_couple_snapshot.mojo ---
 SPH: box y after 360 steps 0.25504145 restored 0.25504145  force 44.277492 44.277492
-MPM: box y after 360 steps 0.37382936 restored 0.37382936  material force on it 9.439643
+MPM: box y after 360 steps 0.38334212 restored 0.38334212  material force on it -4.511076e-05
 [PASS] couple_snapshot - 3 / 3 checks
 --- tests/test_coupler.mojo ---
 weak coupling (kc 1e-3, 2 s): max |dxA| 0.0  |dxB| 6.6764915e-06
@@ -1361,8 +1373,8 @@ crawl: upright stops at x 1.1899999   lying reaches x 4.500008  (foot y 0.007277
 sphere character: x 2.9511297  foot y 0.20999998  grounded True
 [PASS] movement_more - 11 / 11 checks
 --- tests/test_mpm_rigid.mojo ---
-  box ( 3.3750002 kg) on the block after 1 s: bottom 0.39486033  block top beside it 0.35295928  speed 8.007927e-05  grid force 33.10811  weight 33.075005  particles inside 0
-  sphere into a free block: momentum before [1.0, 0.0, 0.0, 0.0]  after [0.9999986, -7.0780516e-08, 4.8428774e-08, 0.0]  sphere vx -0.14835544  block px 1.1483541  block mass 16.58871
+  box ( 3.3750002 kg) on the block after 1 s: bottom 0.3978327  block top beside it 0.36380935  speed 0.0004305789  grid force 33.05527  weight 33.075005  particles inside 0
+  sphere into a free block: momentum before [1.0, 0.0, 0.0, 0.0]  after [0.9999995, -3.3527613e-08, -7.450581e-09, 0.0]  sphere vx -0.15027748  block px 1.150277  block mass 16.58871
 [PASS] mpm_rigid - 6 / 6 checks
 --- tests/test_multidof.mojo ---
   universal vs ball, swing about z, 2 s: max tip distance 2.9351884e-07
@@ -1642,6 +1654,11 @@ ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
     clamp_k 1000.0 : gradient 0.5  own central difference (h 3e-3) 0.4005035  x(1 s) 2.31424
     clamp_k 10000.0 : gradient 0.5  own central difference (h 3e-3) 0.4005035  x(1 s) 2.31424
 [PASS] smooth_positive - 6 / 6 checks
+--- tests/test_soft_fluid.mojo ---
+  0.3 s: mean vy -1.4106723  free fall -2.94  max per-step imbalance 0.0  of impulses up to 0.00010401943
+  air momentum change -0.023664702  cube received 0.023664698  relative mismatch 3.2329663e-07
+  snapshot at 0.15 s: 1054776 bytes
+[PASS] soft_fluid - 5 / 5 checks
 --- tests/test_soft_period.mojo ---
   lattice on a box, 4 s: lowest particle  period 1 0.03333336  period 4 0.03333336
   period 4 phase 1: the lattice moved on 15 of the first 60 steps (start y 1.0 )
