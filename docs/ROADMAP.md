@@ -1888,7 +1888,8 @@
 > 尾流中的球 vy −2.076 m/s 對單獨 −2.027。`test_coupler` 14/14(三種方案各做快照續跑逐位相同、他排程 raise),
 > `test_coupler_snapshot` 4/4(板 / 煙 16 744 bytes 快照讀進新建的一對,逐位相同)。
 > **股線(2026-10-18)**:`StrandPart`(`cloth_air_parts`,與 `ClothPart` 同介面)+ `AirPart` 在 ratio 1 時與 `StrandAir.step` 200 步逐位相同(6 × 6 刷、每股 8 粒子、流速 0.02 的格點;`test_cloth_air_parts` 13/13)。
-> **未做**:`Sediment` 仍自帶排程(未改寫成 `CoupledPart`);布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣;
+> 懸浮顆粒:`GrainPart` + `AirPart` 與 `Sediment.step` 300 步逐位相同(5 顆 0.5 mm 砂、水以 2 倍沉降速度上升;`test_cloth_air_parts` 14/14)。
+> **未做**:布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣;
 > `BallPart` 是平移點(中心拖曳無力矩),不是 `QuatBody6`。
 
 > **現況**:耦合是**逐對手寫**,沒有耦合排程,也沒有除溫度以外的場種類(溫度也不存在)。已有的耦合:

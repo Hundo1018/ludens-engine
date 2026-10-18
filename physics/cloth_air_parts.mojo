@@ -495,3 +495,124 @@ struct StrandPart(CoupledPart):
         self.air_u = read_reals(r)
         self.received = r.rv()
         self.total = r.rv()
+
+
+struct GrainPart(CoupledPart):
+    """Suspended grains as A against `AirPart` (here the lattice is water):
+    `Sediment`'s exchange -- Stokes drag at rate beta toward the received
+    fluid velocity with buoyancy-reduced gravity, implicit,
+    v <- (v + beta dt u + g' dt) / (1 + beta dt); the drag impulse
+    m beta dt (u - v) at the grain's position before it moves; then
+    x += v dt, clamped into [lo, hi]. Same interface as `ClothPart`; with
+    `AirPart` at ratio 1 it is `Sediment.step` bit for bit."""
+
+    var x: List[Vec3]
+    var v: List[Vec3]
+    var beta: Real
+    var mass: Real
+    var g_eff: Vec3
+    var lo: Vec3
+    var hi: Vec3
+    var fluid_u: List[Real]
+    var x_drag: List[Vec3]
+    var jv: List[Vec3]
+    var received: Vec3
+    var _x: List[Vec3]
+    var _v: List[Vec3]
+    var _xd: List[Vec3]
+    var _jv: List[Vec3]
+
+    def __init__(
+        out self, var x: List[Vec3], rho: Real, nu: Real, rho_p: Real, diameter: Real,
+        gravity: Vec3, lo: Vec3, hi: Vec3,
+    ) raises:
+        if not (rho > 0) or not (nu > 0) or not (rho_p > 0) or not (diameter > 0):
+            raise Error("GrainPart: rho, nu, rho_p and diameter must be > 0")
+        var n = len(x)
+        self.beta = 18 * rho * nu / (rho_p * diameter * diameter)
+        self.mass = rho_p * Real(3.14159265358979) * diameter * diameter * diameter / 6
+        self.g_eff = gravity * (1 - rho / rho_p)
+        self.lo = lo
+        self.hi = hi
+        self.v = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.fluid_u = List[Real](length=3 * n, fill=0)
+        self.x_drag = x.copy()
+        self.jv = List[Vec3](length=n, fill=Vec3(0, 0, 0, 0))
+        self.received = Vec3(0, 0, 0, 0)
+        self._x = List[Vec3]()
+        self._v = List[Vec3]()
+        self._xd = List[Vec3]()
+        self._jv = List[Vec3]()
+        self.x = x^
+
+    def advance(mut self, dt: Real) raises:
+        var a = self.beta * dt
+        self.received = Vec3(0, 0, 0, 0)
+        for i in range(len(self.x)):
+            var u = _vec(self.fluid_u, i)
+            var vn = (self.v[i] + u * a + self.g_eff * dt) * (1 / (1 + a))
+            var j = (u - vn) * (self.mass * a)
+            self.jv[i] = j
+            self.x_drag[i] = self.x[i]
+            self.received = self.received + j
+            var p = self.x[i] + vn * dt
+            for ax in range(3):
+                if p[ax] < self.lo[ax]:
+                    p[ax] = self.lo[ax]
+                    vn[ax] = 0
+                elif p[ax] > self.hi[ax]:
+                    p[ax] = self.hi[ax]
+                    vn[ax] = 0
+            self.x[i] = p
+            self.v[i] = vn
+
+    def send(self) -> List[Real]:
+        var out = List[Real](capacity=9 * len(self.x))
+        for i in range(len(self.x)):
+            for c in range(3):
+                out.append(self.x[i][c])
+            for c in range(3):
+                out.append(self.x_drag[i][c])
+            for c in range(3):
+                out.append(self.jv[i][c])
+        return out^
+
+    def recv(mut self, data: List[Real]):
+        self.fluid_u = data.copy()
+
+    def impulse(self) -> List[Real]:
+        return [self.received[0], self.received[1], self.received[2]]
+
+    def save(mut self):
+        self._x = self.x.copy()
+        self._v = self.v.copy()
+        self._xd = self.x_drag.copy()
+        self._jv = self.jv.copy()
+
+    def restore(mut self):
+        self.x = self._x.copy()
+        self.v = self._v.copy()
+        self.x_drag = self._xd.copy()
+        self.jv = self._jv.copy()
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wi(len(self.x))
+        for i in range(len(self.x)):
+            w.wv(self.x[i])
+            w.wv(self.v[i])
+            w.wv(self.x_drag[i])
+            w.wv(self.jv[i])
+        write_reals(w, self.fluid_u)
+        w.wv(self.received)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var n = r.ri()
+        if n != len(self.x):
+            raise Error("GrainPart.read_state: grain count differs")
+        for i in range(n):
+            self.x[i] = r.rv()
+            self.v[i] = r.rv()
+            self.x_drag[i] = r.rv()
+            self.jv[i] = r.rv()
+        self.fluid_u = read_reals(r)
+        self.received = r.rv()
