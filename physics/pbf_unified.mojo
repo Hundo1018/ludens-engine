@@ -17,8 +17,12 @@ The earlier attempt recorded under 17.59 pushed the fluid against fixed
 body samples and handed the reaction back as an explicit force; a
 density-300 box was thrown out of the tank. Here the body moves inside
 the same projection, so its displacement is limited the same way the
-fluid's is (`test_pbf_unified`: a light box floats at its density
-ratio's draft, a heavy one sinks).
+fluid's is (`test_pbf_unified`: a light box rises and floats, a heavy one
+sinks, nothing is thrown out). `add_walls` lines the floor and side walls
+with static particles (inverse mass 0): without them the fluid packed
+against the walls (0.4 m of water settled at 0.30 m). The draft still
+sits about one particle layer deep (density 0.3 / 0.6 -> 0.59 / 0.84 of
+the box height; slope 0.82 against the ideal 1).
 """
 
 from std.math import sqrt
@@ -36,7 +40,7 @@ struct UnifiedPbf(Movable):
     var p: List[Vec3]  # working positions
     var v: List[Vec3]
     var w: List[Real]  # inverse mass relative to a fluid particle
-    var body: List[Int]  # -1 = fluid, else rigid body index
+    var body: List[Int]  # -1 = fluid, -2 = wall particle, else rigid body index
     var rest: List[Vec3]  # per particle: rest offset from its body centroid (solids)
     var body_first: List[Int]
     var body_count: List[Int]
@@ -105,6 +109,48 @@ struct UnifiedPbf(Movable):
             self.rest.append(q - c)
             self.lam.append(0)
         return b
+
+    def add_walls(mut self, spacing: Real, layers: Int = 2, height: Real = -1):
+        """Static boundary particles (inverse mass 0) in `layers` rows just
+        outside the floor and the four side walls, up to `height` (default
+        the box top): the fluid next to a wall then has the neighbours a
+        full lattice would give it and stops packing against it."""
+        var top = self.hi[1] if height < 0 else height
+        var nx = Int((self.hi[0] - self.lo[0]) / spacing + 0.5)
+        var nz = Int((self.hi[2] - self.lo[2]) / spacing + 0.5)
+        var ny = Int((top - self.lo[1]) / spacing + 0.5)
+        for l in range(layers):
+            var o = (Real(l) + 0.5) * spacing
+            # floor (extended under the side-wall rows)
+            for k in range(-layers, nz + layers):
+                for i in range(-layers, nx + layers):
+                    self._add_static(Vec3(self.lo[0] + (Real(i) + 0.5) * spacing, self.lo[1] - o, self.lo[2] + (Real(k) + 0.5) * spacing, 0))
+            for j in range(ny):
+                var y = self.lo[1] + (Real(j) + 0.5) * spacing
+                for k in range(-layers, nz + layers):
+                    var z = self.lo[2] + (Real(k) + 0.5) * spacing
+                    self._add_static(Vec3(self.lo[0] - o, y, z, 0))
+                    self._add_static(Vec3(self.hi[0] + o, y, z, 0))
+                for i in range(nx):
+                    var x = self.lo[0] + (Real(i) + 0.5) * spacing
+                    self._add_static(Vec3(x, y, self.lo[2] - o, 0))
+                    self._add_static(Vec3(x, y, self.hi[2] + o, 0))
+
+    def _add_static(mut self, q: Vec3):
+        self.x.append(q)
+        self.p.append(q)
+        self.v.append(Vec3(0, 0, 0, 0))
+        self.w.append(0)
+        self.body.append(-2)
+        self.rest.append(Vec3(0, 0, 0, 0))
+        self.lam.append(0)
+
+    def fluid_count(self) -> Int:
+        var c = 0
+        for b in self.body:
+            if b == -1:
+                c += 1
+        return c
 
     def body_centroid(self, b: Int) -> Vec3:
         var c = Vec3(0, 0, 0, 0)
@@ -202,6 +248,8 @@ struct UnifiedPbf(Movable):
     def step(mut self, dt: Real, gravity: Vec3, iters: Int):
         var n = len(self.x)
         for k in range(n):
+            if self.body[k] == -2:
+                continue  # wall particle
             self.v[k] = self.v[k] + gravity * dt
             self.p[k] = self.x[k] + self.v[k] * dt
             self._clamp(k)
@@ -212,7 +260,7 @@ struct UnifiedPbf(Movable):
         for _ in range(iters):
             # lambda per fluid particle, gradients weighted by inverse mass
             for i in range(n):
-                if self.body[i] >= 0:
+                if self.body[i] != -1:
                     self.lam[i] = 0
                     continue
                 var rho = poly6(0)
@@ -233,7 +281,7 @@ struct UnifiedPbf(Movable):
             for k in range(n):
                 corr[k] = Vec3(0, 0, 0, 0)
             for i in range(n):
-                if self.body[i] >= 0:
+                if self.body[i] != -1:
                     continue
                 for j in nbs[i]:
                     var d = self.p[i] - self.p[j]
@@ -241,7 +289,7 @@ struct UnifiedPbf(Movable):
                     if r <= 1e-9:
                         continue
                     var g = d * (spiky_grad(r) / (self.rho0 * r))
-                    if self.body[j] < 0:
+                    if self.body[j] == -1:
                         # fluid pair: PBF's symmetric (lambda_i + lambda_j) form
                         corr[i] = corr[i] + g * ((self.lam[i] + self.lam[j]) * self.w[i])
                     else:
@@ -249,6 +297,8 @@ struct UnifiedPbf(Movable):
                         corr[i] = corr[i] + g * (self.lam[i] * self.w[i])
                         corr[j] = corr[j] - g * (self.lam[i] * self.w[j])
             for k in range(n):
+                if self.body[k] == -2:
+                    continue
                 var c = corr[k]
                 var l = sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2])
                 if l > _MAX_CORR * H:
@@ -258,5 +308,7 @@ struct UnifiedPbf(Movable):
             for b in range(len(self.body_first)):
                 self._shape_match(b)
         for k in range(n):
+            if self.body[k] == -2:
+                continue
             self.v[k] = (self.p[k] - self.x[k]) / dt
             self.x[k] = self.p[k]
