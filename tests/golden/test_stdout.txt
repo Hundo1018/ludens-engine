@@ -1,7 +1,4 @@
-Pixi task (build): bash scripts/build_engine.sh
 build: all packages precompiled into build/
-Pixi task (arch-check): bash scripts/arch.sh check && bash scripts/arch.sh tiers --check
-Pixi task (test): bash scripts/run_tests.sh unit component integration system
 --- tests/test_aabb.mojo ---
 [PASS] aabb - 21 / 21 checks
 --- tests/test_aba.mojo ---
@@ -118,6 +115,12 @@ lattice: 50 / 50  ring: 12
   momentum exchange vs control-surface flux, worst relative difference 0.015169148
   periodic box with an interpolated sphere: relative mass drift 0.00011142196
 [PASS] lbm_bounce - 5 / 5 checks
+--- tests/test_lbm_cumulant.mojo ---
+  Taylor-Green 32^3, nu 0.02, 400 steps: E/E0 cumulant 0.28779545  bgk 0.28765947  analytic 0.2912129090685657
+  mass drift after 100 steps (16^3): 4.3877661562597185e-08
+  Galilean error at u0 = 0.05 / 0.1 / 0.2: cumulant uncorrected 0.01345098 0.05517745 0.24503374  corrected -0.00036919117 8.21352e-05 0.026812315  bgk 0.008762002 0.035551548 0.15054739
+  double shear layer, nu 1e-4: BGK survives 472 steps, cumulant 1955 (of 3000)
+[PASS] lbm_cumulant - 9 / 9 checks
 --- tests/test_lbm_force.mojo ---
   still fluid force: 2.2351742e-08 2.30968e-07 4.61936e-07
   sphere in tunnel — Fx 0.17174578  Fy -1.9092113e-08  Fz -1.8635765e-07
