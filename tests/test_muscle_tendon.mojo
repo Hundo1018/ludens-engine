@@ -65,15 +65,14 @@ def main() raises:
     comp.equilibrate(0, l_mt)
     stiff.equilibrate(0, l_mt)
     var f_rigid = rigid.step(1, l_mt, 0, DT)
-    var f_final = Real(0)
     var t90 = Real(-1)
     var f_stiff = Real(0)
     var n = 1000  # 0.5 s
     var fc = List[Real]()
-    for k in range(n):
+    for _ in range(n):
         fc.append(comp.step(1, l_mt, 0, DT))
         f_stiff = stiff.step(1, l_mt, 0, DT)
-    f_final = fc[n - 1]
+    var f_final = fc[n - 1]
     for k in range(n):
         if t90 < 0 and fc[k] >= 0.9 * f_final:
             t90 = Real(k + 1) * DT
