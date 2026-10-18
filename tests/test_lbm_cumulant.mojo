@@ -23,6 +23,11 @@
      step 1950 at nu 1e-4 and 1500 at 1e-5 and 1e-6, the shear layer
      being under-resolved, with or without the Galilean correction); the
      numbers are printed.
+  3b. With the Smagorinsky eddy viscosity (`smagorinsky` = Cs, Hou et
+     al. 1996, from the non-equilibrium second moments) on a 24^3 layer of
+     width 1/30 at nu 1e-5, 2000 steps: at Cs 0.05 the cumulant collision
+     runs to the end (energy ratio 0.87) while BGK diverges; at Cs 0.1 both
+     run and the cumulant keeps more energy (0.84 against 0.76).
   4. Extreme: n < 4 and nu <= 0 raise.
 """
 
@@ -70,25 +75,28 @@ def decay(cumulant: Bool, n: Int, u0: Real, steps: Int, galilean: Real = 1) rais
     return fluct_energy(l, u0) / e0
 
 
-def survive(cumulant: Bool, nu: Real, steps: Int) raises -> Int:
-    var n = 32
+def shear_layer(cumulant: Bool, n: Int, width: Real, nu: Real, cs: Real, steps: Int) raises -> Tuple[Int, Real]:
+    """(steps survived before NaN / 1e30, energy ratio at the end); the
+    double shear layer of the module note."""
     var l = Lbm27(n, nu)
+    l.smagorinsky = cs
     for z in range(n):
         for y in range(n):
             for x in range(n):
                 var xf = (Real(x) + 0.5) / Real(n)
                 var yf = (Real(y) + 0.5) / Real(n)
-                var ux = Real(0.1) * (tanh(40 * (yf - 0.25)) if yf <= 0.5 else tanh(40 * (0.75 - yf)))
+                var ux = Real(0.1) * (tanh(width * (yf - 0.25)) if yf <= 0.5 else tanh(width * (0.75 - yf)))
                 var uy = Real(0.05) * sin(2 * Real(pi) * (xf + 0.25))
                 l.set_equilibrium((z * n + y) * n + x, 1, ux, uy, 0)
+    var e0 = l.kinetic_energy()
     for t in range(steps):
         if cumulant:
             l.step()
         else:
             l.step_bgk()
         if not l.is_finite():
-            return t
-    return steps
+            return (t, Real(-1))
+    return (steps, l.kinetic_energy() / e0)
 
 
 def main() raises:
@@ -124,11 +132,22 @@ def main() raises:
     s.check(abs(on_c[1]) < 0.005 and abs(on_c[2]) < 0.05, "corrected: under 0.5 % at u0 = 0.1 and under 5 % at 0.2")
     s.check(abs(on_c[2]) < 0.5 * abs(dev_b[2]), "corrected cumulant's error at 0.2 is under half of BGK's")
 
-    var tb = survive(False, 1e-4, 3000)
-    var tc = survive(True, 1e-4, 3000)
+    var tb = shear_layer(False, 32, 40, 1e-4, 0, 3000)[0]
+    var tc = shear_layer(True, 32, 40, 1e-4, 0, 3000)[0]
     print("  double shear layer, nu 1e-4: BGK survives", tb, "steps, cumulant", tc, "(of 3000)")
     s.check(tb < 1000, "BGK blows up in under 1000 steps")
     s.check(tc >= 2 * tb, "cumulant survives at least twice as long")
+
+    # Smagorinsky eddy viscosity (Hou et al.) on the same layer: 24^3,
+    # width 1/30, nu 1e-5, 2000 steps
+    var bg05 = shear_layer(False, 24, 30, 1e-5, 0.05, 2000)
+    var cu05 = shear_layer(True, 24, 30, 1e-5, 0.05, 2000)
+    var bg10 = shear_layer(False, 24, 30, 1e-5, 0.1, 2000)
+    var cu10 = shear_layer(True, 24, 30, 1e-5, 0.1, 2000)
+    print("  with Cs 0.05: energy ratio BGK", bg05[1], "(diverged unless in (0, 1]) cumulant", cu05[1], "; Cs 0.1: BGK", bg10[1], "cumulant", cu10[1])
+    var bg05_ok = bg05[0] == 2000 and bg05[1] > 0 and bg05[1] <= 1
+    s.check(cu05[0] == 2000 and cu05[1] > 0.5 and cu05[1] <= 1 and not bg05_ok, "Cs 0.05: the cumulant runs 2000 steps, BGK diverges")
+    s.check(bg10[1] > 0 and bg10[1] <= 1 and cu10[1] > bg10[1], "Cs 0.1: both run; the cumulant keeps more energy (less dissipative)")
 
     var raised = 0
     try:

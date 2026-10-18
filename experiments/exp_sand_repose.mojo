@@ -9,7 +9,7 @@ while the heaps are visibly 20 to 30 degree cones.) A low block is used
 because a tall column keeps spreading on inertia and ends far below the repose
 angle (Lube et al. 2004).
 
-A second table gives the criterion that does not depend on the dynamics: a
+A second table (friction angles 20, 35 and 50, cone slopes 6 degrees below to 12 above) gives the criterion that does not depend on the dynamics: a
 cone of slope theta built from particles must stand for theta below the
 friction angle and flow for theta above it. Its figure of merit is the peak
 height after 1 s over the initial one.
@@ -107,6 +107,26 @@ def _cone_deg(m: MpmSolver) -> Tuple[Real, Real, Real]:
     return (atan2(3 * v, 3.141592653589793 * rmax * rmax * rmax) * 57.29577951308232, peak, rmax)
 
 
+def _poured(phi: Real, clusters: Int, every: Int) raises -> MpmSolver:
+    """1000 particles dropped as 2 x 2 x 2 clusters on the axis, one every
+    `every` steps, 0.4 m above the floor (the heap stays under 0.2 m); then 1 s to settle."""
+    var m = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 2.0e5, 0.3)
+    m.add_obstacle(Sdf3.box(Vec3(0.8, 0.0, 0.8, 0), Vec3(1.0, FLOOR, 1.0, 0)), 1.0)
+    m.set_sand(phi)
+    var vol = SP * SP * SP
+    for c in range(clusters):
+        var top = FLOOR + 0.4
+        for i in range(2):
+            for j in range(2):
+                for k in range(2):
+                    m.add(Vec3(0.8 + (Real(i) - 0.5) * SP, top + Real(j) * SP, 0.8 + (Real(k) - 0.5) * SP, 0), vol * 1600.0, vol)
+        for _ in range(every):
+            m.step_ext(DT, G)
+    for _ in range(2000):
+        m.step_ext(DT, G)
+    return m^
+
+
 def main() raises:
     print("| friction angle | equal-volume cone angle | peak height (m) | outer radius (m) | KE at 1.5 s / PE released |")
     print("|---:|---:|---:|---:|---:|")
@@ -121,10 +141,19 @@ def main() raises:
     print()
     print("| friction angle | cone slope | peak after 1 s / initial |")
     print("|---:|---:|---:|")
-    for dtheta in [Real(-12), Real(6), Real(24)]:
-        var phi = Real(35)
-        var m = _cone(phi, phi + dtheta, 0.36)
-        var p0 = _peak(m)
-        for _ in range(2000):
-            m.step_ext(DT, G)
-        print("|", phi, "|", phi + dtheta, "|", _peak(m) / p0, "|")
+    for phi in [Real(20), Real(35), Real(50)]:
+        for dtheta in [Real(-6), Real(0), Real(6), Real(12)]:
+            var m = _cone(phi, phi + dtheta, 0.36)
+            var p0 = _peak(m)
+            for _ in range(2000):
+                m.step_ext(DT, G)
+            print("|", phi, "|", phi + dtheta, "|", _peak(m) / p0, "|")
+
+    print()
+    print("| friction angle | pour interval (s) | equal-volume cone angle | peak height (m) | outer radius (m) |")
+    print("|---:|---:|---:|---:|---:|")
+    for phi in [Real(20), Real(50)]:
+        for every in [150, 400]:
+            var m = _poured(phi, 125, every)
+            var r = _cone_deg(m)
+            print("|", phi, "|", Real(every) * DT, "|", r[0], "|", r[1], "|", r[2], "|")

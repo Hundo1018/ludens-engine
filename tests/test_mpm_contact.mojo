@@ -5,7 +5,7 @@ cell around the node plane at 0.2 m.
 
   1. A 0.18 x 0.12 x 0.18 m elastic block given 2 m/s on a mu 0.6 floor slides
      v^2 / (2 mu g) = 0.340 m. With floor tops 0.19, 0.2125, 0.225, 0.2375 and
-     0.2 m the distance stays within 5 % of that (measured 0.329 to 0.339 m).
+     0.2 m the distance stays within 5 % of that (measured 0.3385 to 0.3394 m with node_margin 3 dx / 4; 0.329 to 0.339 m with dx / 2).
      When only nodes strictly inside the obstacle were projected the same
      block slid 0.444 m at 0.19 and 0.310 m at 0.2375.
   2. A 0.24 m block of sand (20 degrees of friction, floor mu 1) settles to a
