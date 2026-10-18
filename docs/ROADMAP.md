@@ -1501,7 +1501,29 @@
 > - **發現**:在 `FemBody.step` / `MpmSolver.step` 函式體內加任何分支(即使從未執行的提早 return)或把函式體搬進 comptime 參數化的 helper,都改變編譯結果、
 >   動到 `test_thermal`(0.011999987 → 0.0119999945)與 `test_mpm`(spread 0.20055819 → 0.20055932)的末位;兩者保持原函式體逐位不動,
 >   擴充改走 `FemBody.step_ext` / `MpmSolver.step_ext`(`FemContinuum` / `MpmContinuum` 依設定選用)。
-> **未做**:隱式步的 NH 切線、近不可壓鎖死對策、沙的休止角(應力律與回映射一致化)、VBD / PD 求解器變體、節點 CCD。
+> **進度註(2026-10-18)**:
+> - **隱式 NH 切線**:`NhImplicitOp` + `step_implicit_nh`(MINRES,切線在壓縮下不定)。`test_fem_nh_implicit` 7/7:
+>   切線對力的中央差分 2.9e-5、對稱 7e-8;E = 1e7 懸臂 dt 1/60,NH 3.3 s 即到終值 6.503 mm,共旋轉同時只到 65 %、20 s 到 99.7 %;
+>   同 dt 顯式 NH 為 NaN;反轉元素 det F −0.2 → 1.002;未收斂解被丟棄並計數。
+>   `minres` 加 `floor` 參數:f32 捨入 dv 的真殘差為 eps·cond(A) = 5.2e-4,高於預設 1.2e-4。
+>   `bench_fem_material`:每步 6.0 ms(共旋轉 CG 7.5 ms)。
+> - **近不可壓**:`nh_forces_averaged`(Bonet–Burton 平均節點壓力,能量一致)。`test_fem_incompressible` 4/4。
+>   **量測:本專案的 5-四面體結構網格沒有體積鎖死**。ν = 0.499 的單軸 patch test F/(EεA) 1.012、側向比 0.503;
+>   厚壁圓筒對 Lamé:一般四面體 ν 0.3 為 1.093、ν 0.499 為 1.037;平均版為 1.095 / 1.057。
+>   平均版讓線性四面體的彎曲變軟:E = 1e6 懸臂 64.7 → 74.0 mm(Euler–Bernoulli 85.7)。
+> - **VBD**:`step_vbd_nh`(Vertex Block Descent,逐頂點 3×3 Newton)。`test_fem_vbd` 3/3:每次掃描目標函數下降並趨平;
+>   E = 1e5 懸臂對 `step_implicit_nh` 的誤差在 10 / 40 / 160 次掃描為 92 % / 33 % / 1.5 %。
+>   **限制(量測)**:E = 1e7 時 160 次掃描仍軟 24 倍(Gauss–Seidel 每次掃描只傳一個元素),每步 143 ms,對 MINRES 步 6 ms。PD 未做。
+> - **節點 CCD**:`FemContactPort(ccd=True)`。`before()` 記錄起點,掃掠段以 `ray_collider` 投射;命中後節點放在命中點加半徑的法向位置,
+>   採速度層非彈性回應 + Coulomb 摩擦。三個量到的坑:
+>   (a)沿射線退 r 會讓起點在帶內的節點逐步下沉;(b)以 v + dx/dt 更新速度讓方塊飛到 260 m;
+>   (c)把分支寫在 `after()` 內就改動 ccd 關閉時 `test_fem_scene` 的末位,所以拆成獨立方法。
+>   `test_fem_ccd` 4/4(4 mm 板):30 m/s 的自由節點無 CCD 全穿、有 CCD 全落在板上;3 m/s 方塊 27/27 穿 → 0,完整停在板上;
+>   靜置不下沉。7 m/s 時顯式 FEM 本身在撞擊時發散(與 CCD 無關)。
+> - **沙(負結果)**:改用 Klár 回映射所假設的 Hencky 應力**沒有修好**,0.3 s 時頂高幾乎相同;fixed-corotated 的 85° 柱可站 2 s,
+>   Hencky 的 85° 柱反而在 2 s 內塌掉;兩種應力律下 30° / 60° 柱在 2 s 內都完全攤平。既然沒有改善,改動已撤回。
+>   「應力律不一致」這個疑因已排除,真正原因未明。
+> **未做**:沙的休止角(原因未明,見上)、PD 求解器變體。
 
 > **現況**:引擎有**三條**體積可變形路徑,但只有一條在場景裡。
 > ① `SoftBody`(`physics/softbody.mojo:50`):只有 `box_lattice`(`:67`;`n < 2` 直接 raise `:82-83`)產生的實心 n³ 粒子格、
