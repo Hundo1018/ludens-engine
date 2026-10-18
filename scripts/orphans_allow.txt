@@ -99,6 +99,7 @@ fluid.lbm_mrt  # [api] D3Q19 MRT collision (BGK parity, low-viscosity stability 
 physics.flip_diffuse  # [api] spray / foam / bubble particles over FlipWater2 (Ihmsen 2012), one-way, for the renderer (17.60)
 physics.flip3  # [api] 3-D FLIP free-surface water with walls (17.60)
 geometry.vdb_file  # [api] OpenVDB .vdb writer for the host / DCC tools, checked by `pixi run vdb-check` (17.63)
+geometry.abc_file  # [api] Alembic (Ogawa) writer for meshes / points / curves, checked by `pixi run abc-check` (17.63)
 physics.mpm_melt  # [api] melting / freezing layer the host steps over an MpmSolver (17.61)
 physics.multiphase  # [api] multi-density SPH the host steps (17.61)
 physics.strand_air  # [api] strands <-> LBM air two-way coupling the host steps (17.61)

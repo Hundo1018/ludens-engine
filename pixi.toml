@@ -66,6 +66,8 @@ fp-probe = "python3 scripts/fp_probe.py"
 alloc-probe = "python3 scripts/alloc_probe.py"
 # Write .vdb files (tests/test_vdb_file.mojo) and read them with OpenVDB's own Python module (ROADMAP 17.63).
 vdb-check = { cmd = "mojo run -D ASSERT=all -I build tests/test_vdb_file.mojo && pixi exec --spec openvdb --spec python=3.12 -- python scripts/vdb_check.py build/vdb", depends-on = ["build"] }
+# Write .abc files (tests/test_abc_file.mojo) and import them with Blender's Alembic importer (bpy; ROADMAP 17.63).
+abc-check = { cmd = "mojo run -D ASSERT=all -I build tests/test_abc_file.mojo && python3 scripts/abc_check.py build/abc", depends-on = ["build"] }
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.

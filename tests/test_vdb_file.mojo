@@ -9,7 +9,7 @@
      last one is its length; the bytes are hashed (FNV-1a) so the golden
      pins the exact files.
   2. Integration: the files land in `build/vdb/` with a text list of every
-     active voxel (`x y z value`); `pixi run vdb-check` opens each `.vdb`
+     active voxel (`x y z f32-bits`); `pixi run vdb-check` opens each `.vdb`
      with OpenVDB's own reader (`scripts/vdb_check.py`) and compares the
      active voxel count, every value, the background and the voxel size.
      `vdb_grid` reads every file back: name, voxel size, leaf count and
@@ -63,7 +63,8 @@ def _save(path: String, b: List[UInt8]) raises:
 
 
 def _dump(path: String, vol: SparseVolume) raises:
-    """Every active voxel as `x y z value`, value printed with 9 digits."""
+    """Every active voxel as `x y z value`, the value as its f32 bit pattern
+    (hex): `String(Float32)` does not always read back to the same f32."""
     var out = String()
     for ref lf in vol.leaves:
         for o in range(LEAF * LEAF * LEAF):
@@ -72,7 +73,8 @@ def _dump(path: String, vol: SparseVolume) raises:
             var x = lf.ox + o % LEAF
             var y = lf.oy + (o // LEAF) % LEAF
             var z = lf.oz + o // (LEAF * LEAF)
-            out += String(x) + " " + String(y) + " " + String(z) + " " + String(Float32(lf.val[o])) + "\n"
+            var v = Float32(lf.val[o])
+            out += String(x) + " " + String(y) + " " + String(z) + " " + hex(Pointer(to=v).unsafe_bitcast[UInt32]()[]) + "\n"
     with open(path, "w") as f:
         f.write(out)
 

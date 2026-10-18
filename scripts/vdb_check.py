@@ -2,7 +2,7 @@
 """Check `.vdb` files written by `geometry.vdb_file` with OpenVDB's reader (ROADMAP 17.63).
 
 `tests/test_vdb_file.mojo` writes `build/vdb/<name>.vdb` and `<name>.txt`
-(every active voxel as `x y z value`), each volume twice: `<name>.vdb`
+(every active voxel as `x y z value`, the value as f32 bits in hex), each volume twice: `<name>.vdb`
 with active-mask values and `<name>_raw.vdb` with every value. For each pair this opens the `.vdb`
 with the `openvdb` Python module (conda-forge, not in the project
 environment; `pixi run vdb-check` runs it through `pixi exec`) and compares:
@@ -46,7 +46,7 @@ def check(vdb_path: Path, txt_path: Path, vdb) -> list[str]:
     want: dict[tuple[int, int, int], float] = {}
     for line in txt_path.read_text().splitlines():
         x, y, z, v = line.split()
-        want[(int(x), int(y), int(z))] = f32(float(v))
+        want[(int(x), int(y), int(z))] = struct.unpack("<f", struct.pack("<I", int(v, 16)))[0]
     got: dict[tuple[int, int, int], float] = {}
     for it in grid.citerOnValues():
         if it.count != 1:
