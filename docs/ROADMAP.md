@@ -1848,7 +1848,17 @@
 > **股線 ↔ 氣流雙向**:`physics/strand_air.mojo` 的 `StrandAir`(與 `ClothAir` 共用 `lattice_corners` / `lattice_velocity` / `lattice_momentum`):非根粒子以股線自身的 drag 率朝格子風速隱式拖曳,每粒子代表 `particle_mass`,−J 三線性寫回格子;股線自身步驟時暫關其 drag。`tests/test_strand_air.mojo` 7/7(24³ 格、0.4 m/s 風、6×6 股 × 8 粒子、20 /s、每粒 0.1 g):0.4 s 後梢端平均順風偏移 單向 0.120 m、雙向 0.055 m(空氣被減速);刷後下游 vx 0.068 vs 旁邊 0.386 m/s;空氣動量變化 −0.0104942 vs 衝量 −0.0104930;單向時均勻流動量只因 f32 捨入漂 7.5e-8(1.5e-6 相對)。
 > **顆粒 – 流體(泥沙懸浮)**:`physics/sediment.mojo` 的 `Sediment`:點顆粒(d、ρp)在 `Lbm` 流體中,Stokes 拖曳率 β = 18 ρ ν / (ρp d²)、浮力修正重力,隱式積分(任意 β dt 下靜水終端速度恰為 g' / β),拖曳衝量反向寫回 8 格;只交換拖曳(重量 / 浮力的靜水部分留在格子自身壓力)。顆粒彼此不碰撞,密堆屬 17.58 MPM 砂。`tests/test_sediment.mojo` 8/8(24³、dx 2 mm、1 ms、ν 4e-5;石英 0.5 mm,β 1087 /s):靜水終端 5.6146 mm/s 與 Stokes 一致;上升流 2 倍終端速度時 0.5 s 上升 2.802 mm(預期 2.807),0.5 倍時下沉 1.401 mm(預期 1.404);400 顆雲雙向 0.3 s 下沉 3.46 mm vs 單向 1.68 mm;流體動量變化 −1.25895e-4 vs 衝量 −1.25891e-4。
 > **整合**:`tests/test_coupler_snapshot.mojo` 3/3:加熱板 / 煙(32² 氣體)經 `Coupler` 跑 5 步後 `save()`、再 5 步記錄、`restore()` 後重跑 5 步,板溫、氣溫、速度逐位相同;`ITERATED` 於此對每步 ≤ 3 次收斂,1 s 後氣體多餘熱與 `INTERP` 相對差 3.0e-6(板熱容大、弱耦合)。
-> **未做**:布料 + 風 + 剛體三方經 `Coupler`(`ClothAir` / `StrandAir` / `Sediment` 自帶排程,尚未改寫成 `CoupledPart`);`Coupler` 狀態未接 `state_io` 快照(各 part 的 save / restore 為記憶體內)。
+> **進度註(2026-10-18,Coupler 快照與三方)**:`CoupledPart` 加 `write_state` / `read_state`(`state_io`);`Coupler.write_state`
+> 寫排程(ratio、方案)、守恆紀錄、雙方最後介面資料與兩個 part,`read_state` 遇不同排程 raise;`HeatPlate` / `SmokeGas` 實作。
+> `physics/cloth_air_parts.mojo`:`ClothPart` / `AirPart` 把 `ClothAir` 的交換放進 `Coupler`(布料收每頂點氣流速度,送現位置 / 拖曳位置 / 拖曳衝量;
+> 空氣把 −J 依子步均分寫回格子),`BallPart`(剛體球,一個浸沒點、同介面),`coupler.Both[A, B]`(兩個 part 同側:一個夥伴耦合三個求解器)。
+> `tests/test_cloth_air_parts.mojo` 12/12:EXPLICIT 1:1 與 `ClothAir.step` 200 步布料與格子分佈函數逐位相同;每步不平衡 0.0(衝量至 3.4e-5 N s);
+> ratio 2 EXPLICIT 0.0、INTERP 7.7e-7(它把衝量也內插);100 步後位元組快照(1 059 588 bytes)續跑 100 步逐位相同;
+> 布料 + 4 g 球 + 24³ 空氣 0.3 s:每步不平衡 0.0,空氣動量變化 −0.011786776 對布料 + 球所得 0.011786737(相對 3.4e-6),
+> 尾流中的球 vy −2.076 m/s 對單獨 −2.027。`test_coupler` 14/14(三種方案各做快照續跑逐位相同、他排程 raise),
+> `test_coupler_snapshot` 4/4(板 / 煙 16 744 bytes 快照讀進新建的一對,逐位相同)。
+> **未做**:`StrandAir` / `Sediment` 仍自帶排程(未改寫成 `CoupledPart`);布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣;
+> `BallPart` 是平移點(中心拖曳無力矩),不是 `QuatBody6`。
 
 > **現況**:耦合是**逐對手寫**,沒有耦合排程,也沒有除溫度以外的場種類(溫度也不存在)。已有的耦合:
 > 剛體 ↔ 晶格軟體雙向(`physics/soft_couple.mojo:46`,有動量守恆量測 0.03%,ROADMAP 6.1);
