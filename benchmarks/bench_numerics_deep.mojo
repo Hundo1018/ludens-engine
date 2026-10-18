@@ -8,6 +8,15 @@ diagonal is constant, so Jacobi is a scalar multiple of the identity here;
 it still changes the rounding, and on this non-normal matrix that alone can
 flip BiCGStab between converging and not (the n=1024 rows).
 
+SYMMETRIC INDEFINITE SOLVE. A saddle point [[K, B^T], [B, 0]] (K the
+m x m 5-point Poisson block + 0.01 I, B m^2/8 rows x_8k - x_8k+3): MINRES
+with and without |diag| preconditioning vs restarted GMRES(30), and CG as
+the wrong solver (it does not converge on an indefinite operator).
+
+PARALLEL SPMV. `CsrMatrix.apply` vs `ParallelCsr.apply` (blocks of 2048
+rows on the default pool) on the saddle-point matrix above; the product is bit-identical
+(`test_par_spmv`), so the rows differ only in time.
+
 DENSE REFINEMENT. `solve_dense` (f32 elimination) vs `solve_dense_refined`
 (3 rounds, residual in f64) vs `condition_1` (f64 LU plus n solves) on a
 diagonally dominant random-ish matrix: the price of the accuracy.
@@ -20,9 +29,11 @@ Run with: `mojo run -I build benchmarks/bench_numerics_deep.mojo`.
 
 from std.benchmark import keep
 from geometry.vec import Real
-from numerics.sparse import CsrMatrix
+from numerics.sparse import CsrMatrix, ParallelCsr
 from numerics.cg import cg
 from numerics.bicgstab import bicgstab
+from numerics.gmres import gmres
+from numerics.minres import minres
 from numerics.dense import solve_dense, solve_dense_refined, condition_1
 from physics.diffsim import rollout_ctrl_adjoint
 from harness.bench import BenchTable, now
@@ -61,6 +72,12 @@ def solve_once(a: CsrMatrix, b: List[Real], xt: List[Real], which: Int) -> Tuple
     if which == 2:
         var r = cg(a, b, x, 1e-6, 4 * n)
         return (r.iters, r.converged, max_err(x, xt))
+    if which == 3 or which == 4:
+        var r = minres(a, b, x, 1e-6, 0, which == 4)
+        return (r.iters, r.converged, max_err(x, xt))
+    if which == 5:
+        var r = gmres(a, b, x, 1e-6, 8 * n, 30, False)
+        return (r.iters, r.converged, max_err(x, xt))
     var r = bicgstab(a, b, x, 1e-6, 4 * n, which == 1)
     return (r.iters, r.converged, max_err(x, xt))
 
@@ -90,6 +107,69 @@ def bench_nonsym(mut t: BenchTable, n: Int, reps: Int):
     bench_row(t, "bicgstab", a, b, xt, 0, reps)
     bench_row(t, "bicgstab+jacobi", a, b, xt, 1, reps)
     bench_row(t, "cg (wrong solver)", a, b, xt, 2, reps)
+
+
+def saddle(m: Int) -> CsrMatrix:
+    var r = List[Int]()
+    var cl = List[Int]()
+    var v = List[Real]()
+    for i in range(m):
+        for j in range(m):
+            var k = i * m + j
+            r.append(k)
+            cl.append(k)
+            v.append(4.01)
+            var nb: List[Int] = [k - m if i > 0 else -1, k + m if i + 1 < m else -1, k - 1 if j > 0 else -1, k + 1 if j + 1 < m else -1]
+            for q in nb:
+                if q >= 0:
+                    r.append(k)
+                    cl.append(q)
+                    v.append(-1)
+    var nc = m * m // 8
+    for c in range(nc):
+        for e in range(2):
+            var s = Real(1) if e == 0 else Real(-1)
+            r.append(m * m + c)
+            cl.append(8 * c + 3 * e)
+            v.append(s)
+            r.append(8 * c + 3 * e)
+            cl.append(m * m + c)
+            v.append(s)
+    return CsrMatrix.from_triplets(m * m + nc, r, cl, v)
+
+
+def bench_indef(mut t: BenchTable, m: Int, reps: Int):
+    var a = saddle(m)
+    var n = a.size()
+    var xt = List[Real]()
+    for i in range(n):
+        xt.append(Real(1) + Real(i % 7) * 0.25)
+    var b = List[Real](length=n, fill=0)
+    a.apply(xt, b)
+    bench_row(t, "minres", a, b, xt, 3, reps)
+    bench_row(t, "minres+absdiag", a, b, xt, 4, reps)
+    bench_row(t, "gmres(30)", a, b, xt, 5, reps)
+    bench_row(t, "cg (wrong solver)", a, b, xt, 2, reps)
+
+
+def bench_spmv(mut t: BenchTable, m: Int, reps: Int):
+    var a = saddle(m)
+    var n = a.size()
+    var x = List[Real](length=n, fill=1)
+    var y = List[Real](length=n, fill=0)
+    var t0 = now()
+    for _ in range(reps):
+        a.apply(x, y)
+        keep(y[n // 2])
+    var t1 = now()
+    t.add("serial", n, "spmv", t1 - t0, reps)
+    var p = ParallelCsr(saddle(m))
+    t0 = now()
+    for _ in range(reps):
+        p.apply(x, y)
+        keep(y[n // 2])
+    t1 = now()
+    t.add("parallel (2048-row blocks)", n, "spmv", t1 - t0, reps)
 
 
 def dense_matrix(n: Int) -> List[Real]:
@@ -162,6 +242,17 @@ def main() raises:
     bench_nonsym(t1, 1024, 5)
     bench_nonsym(t1, 4096, 2)
     t1.print_report()
+
+    var t4 = BenchTable("Symmetric indefinite solve: MINRES vs GMRES(30) vs CG (saddle point, 17.84)")
+    bench_indef(t4, 16, 20)
+    bench_indef(t4, 32, 5)
+    t4.print_report()
+
+    var t5 = BenchTable("SpMV: serial vs ParallelCsr (Poisson saddle matrix, 17.84)")
+    bench_spmv(t5, 32, 2000)
+    bench_spmv(t5, 128, 200)
+    bench_spmv(t5, 512, 20)
+    t5.print_report()
 
     var t2 = BenchTable("Dense solve: f32 elimination, mixed-precision refinement, condition number (17.84)")
     bench_dense(t2, 8, 2000)
