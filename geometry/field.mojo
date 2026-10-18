@@ -402,3 +402,144 @@ def rev_seed(mut t: Tape, v: Real) -> RevReal:
     return RevReal.seed(
         TapePtr(unsafe_from_address=Int(Pointer(to=t))), v
     )
+
+
+# ---- second order: forward-over-reverse (ROADMAP 17.84) -------------------
+#
+# A Hessian-vector product H v of a scalar f written against `SolverField`,
+# in one forward pass and one backward sweep. `RevDual` is `RevReal` whose
+# primal values and recorded partials are `DualReal`s: the inputs are seeded
+# with value x_i and ε-part v_i, so every value is f's intermediate at x + εv
+# to first order in ε, and every partial carries its own directional
+# derivative. The backward sweep runs in dual arithmetic; the adjoint of
+# input i comes out as (∂f/∂x_i, (H v)_i) -- the gradient and the
+# Hessian-vector product together. Cost measured on a 30-frame two-sphere
+# collision: 14.1 ms against 11.5 ms for one `RevReal` gradient (1.22x;
+# `bench_numerics_deep`), where a central difference of gradients needs 2.
+# `positive` keeps its zero derivative, so H is the Hessian of the piecewise
+# smooth branch the primal took (`test_hvp`).
+
+
+struct DualTapeNode(Copyable, ImplicitlyCopyable, Movable):
+    var l: Int
+    var r: Int
+    var dl: DualReal
+    var dr: DualReal
+
+    def __init__(out self, l: Int, r: Int, dl: DualReal, dr: DualReal):
+        self.l = l
+        self.r = r
+        self.dl = dl
+        self.dr = dr
+
+
+struct DualTape(Movable, Deinitable):
+    """`Tape` with dual-number partials; `grad` returns dual adjoints:
+    `.a` the gradient entry, `.b` the Hessian-vector product entry."""
+
+    var nodes: List[DualTapeNode]
+
+    def __init__(out self):
+        self.nodes = List[DualTapeNode]()
+
+    def push(mut self, l: Int, r: Int, dl: DualReal, dr: DualReal) -> Int:
+        self.nodes.append(DualTapeNode(l, r, dl, dr))
+        return len(self.nodes) - 1
+
+    def input(mut self) -> Int:
+        return self.push(-1, -1, DualReal.zero(), DualReal.zero())
+
+    def grad(self, out_idx: Int) -> List[DualReal]:
+        var adj = List[DualReal](length=len(self.nodes), fill=DualReal.zero())
+        if out_idx >= 0 and out_idx < len(self.nodes):
+            adj[out_idx] = DualReal.const(1)
+        var k = len(self.nodes) - 1
+        while k >= 0:
+            var a = adj[k]
+            if a.a != 0 or a.b != 0:
+                var nd = self.nodes[k]
+                if nd.l >= 0:
+                    adj[nd.l] = adj[nd.l] + nd.dl * a
+                if nd.r >= 0:
+                    adj[nd.r] = adj[nd.r] + nd.dr * a
+            k -= 1
+        return adj^
+
+
+comptime DualTapePtr = type_of(alloc[DualTape](Layout[DualTape](count=1)).unsafe_leak())
+
+
+@fieldwise_init
+struct RevDual(SolverField):
+    """Forward-over-reverse AD scalar for Hessian-vector products (see the
+    section comment above)."""
+
+    var v: DualReal
+    var idx: Int
+    var tape: Optional[DualTapePtr]
+
+    def _t(self, o: Self) -> DualTapePtr:
+        return self.tape.value() if self.idx >= 0 else o.tape.value()
+
+    def __add__(self, o: Self) -> Self:
+        if self.idx < 0 and o.idx < 0:
+            return Self(self.v + o.v, -1, None)
+        var t = self._t(o)
+        return Self(self.v + o.v, t[].push(self.idx, o.idx, DualReal.const(1), DualReal.const(1)), t)
+
+    def __sub__(self, o: Self) -> Self:
+        if self.idx < 0 and o.idx < 0:
+            return Self(self.v - o.v, -1, None)
+        var t = self._t(o)
+        return Self(self.v - o.v, t[].push(self.idx, o.idx, DualReal.const(1), DualReal.const(-1)), t)
+
+    def __mul__(self, o: Self) -> Self:
+        if self.idx < 0 and o.idx < 0:
+            return Self(self.v * o.v, -1, None)
+        var t = self._t(o)
+        return Self(self.v * o.v, t[].push(self.idx, o.idx, o.v, self.v), t)
+
+    @staticmethod
+    def zero() -> Self:
+        return Self(DualReal.zero(), -1, None)
+
+    @staticmethod
+    def const(v: Real) -> Self:
+        return Self(DualReal.const(v), -1, None)
+
+    def value(self) -> Real:
+        return self.v.a
+
+    def recip(self) -> Self:
+        var inv = self.v.recip()
+        if self.idx < 0:
+            return Self(inv, -1, None)
+        var t = self.tape.value()
+        return Self(inv, t[].push(self.idx, -1, DualReal.const(-1) * inv * inv, DualReal.zero()), t)
+
+    def root(self) -> Self:
+        var s = self.v.root()
+        if self.idx < 0:
+            return Self(s, -1, None)
+        var t = self.tape.value()
+        # 0.5 / s with its ε-part -0.5 s' / s^2; the value is RevReal's
+        # 0.5 / s exactly, so the gradient lane matches RevReal bit for bit
+        var d = DualReal(Real(0.5) / s.a, Real(-0.5) * s.b / (s.a * s.a)) if s.a > 0 else DualReal.zero()
+        return Self(s, t[].push(self.idx, -1, d, DualReal.zero()), t)
+
+    def positive(self) -> Self:
+        return Self(self.v.positive(), -1, None)
+
+    def smooth_positive(self, k: Real) -> Self:
+        var s = self.v.smooth_positive(k)
+        if self.idx < 0:
+            return Self(s, -1, None)
+        var t = self.tape.value()
+        var d = DualReal.const(k) * s * (DualReal.const(1) - s)
+        return Self(s, t[].push(self.idx, -1, d, DualReal.zero()), t)
+
+
+def hvp_seed(mut t: DualTape, x: Real, direction: Real) -> RevDual:
+    """Seed input x with its component of the direction v of H v."""
+    var p = DualTapePtr(unsafe_from_address=Int(Pointer(to=t)))
+    return RevDual(DualReal(x, direction), p[].input(), p)

@@ -21,6 +21,11 @@ DENSE REFINEMENT. `solve_dense` (f32 elimination) vs `solve_dense_refined`
 (3 rounds, residual in f64) vs `condition_1` (f64 LU plus n solves) on a
 diagonally dominant random-ish matrix: the price of the accuracy.
 
+HESSIAN-VECTOR PRODUCT. Sphere A launched at an off-centre sphere B
+(`SphereWorld`, 30 frames), loss = B's z: one `RevReal` gradient vs one
+`RevDual` sweep (gradient + H v, forward-over-reverse) vs the 2 gradients a
+central difference of gradients would need for one H v.
+
 GRADCHECK. One `gradcheck` of the diffsim landing x over 6 controls and 6
 step sizes: 72 rollouts plus one adjoint. Reported per call.
 
@@ -36,6 +41,9 @@ from numerics.gmres import gmres
 from numerics.minres import minres
 from numerics.dense import solve_dense, solve_dense_refined, condition_1
 from physics.diffsim import rollout_ctrl_adjoint
+from physics.diffsolver import SphereWorld, V3
+from geometry.vec import Vec3
+from geometry.field import SolverField, Tape, rev_seed, DualTape, hvp_seed
 from harness.bench import BenchTable, now
 from harness.gradcheck import GradProblem, gradcheck, default_steps
 
@@ -172,6 +180,40 @@ def bench_spmv(mut t: BenchTable, m: Int, reps: Int):
     t.add("parallel (2048-row blocks)", n, "spmv", t1 - t0, reps)
 
 
+def collide[F: SolverField](vx0: F, zoff: F) -> F:
+    var w = SphereWorld[F]()
+    w.mu = F.const(0.3)
+    _ = w.add_plane(Vec3(0, 1, 0, 0), 0)
+    _ = w.add_sphere(V3[F](F.zero(), F.const(0.5), F.zero()), V3[F](vx0, F.zero(), F.zero()), F.const(0.5), F.const(1))
+    _ = w.add_sphere(V3[F](F.const(1.5), F.const(0.5), zoff), V3[F](F.zero(), F.zero(), F.zero()), F.const(0.5), F.const(1))
+    for _ in range(30):
+        w.step(1.0 / 60.0)
+    return w.bodies[1].pos.z
+
+
+def bench_hvp(mut t: BenchTable, reps: Int):
+    var acc = Real(0)
+    var t0 = now()
+    for _ in range(reps):
+        var tp = Tape()
+        var a = rev_seed(tp, 3)
+        var b = rev_seed(tp, 0.3)
+        var f = collide(a, b)
+        acc += tp.grad(f.idx)[a.idx]
+    var t1 = now()
+    t.add("RevReal gradient", 2, "sweep", t1 - t0, reps)
+    t0 = now()
+    for _ in range(reps):
+        var tp = DualTape()
+        var a = hvp_seed(tp, 3, 0.6)
+        var b = hvp_seed(tp, 0.3, -0.8)
+        var f = collide(a, b)
+        acc += tp.grad(f.idx)[a.idx].b
+    t1 = now()
+    keep(acc)
+    t.add("RevDual gradient + H v", 2, "sweep", t1 - t0, reps)
+
+
 def dense_matrix(n: Int) -> List[Real]:
     var a = List[Real](capacity=n * n)
     for i in range(n):
@@ -258,6 +300,10 @@ def main() raises:
     bench_dense(t2, 8, 2000)
     bench_dense(t2, 32, 200)
     t2.print_report()
+
+    var t6 = BenchTable("Hessian-vector product: forward-over-reverse vs one gradient (sphere collision, 17.84)")
+    bench_hvp(t6, 50)
+    t6.print_report()
 
     var t3 = BenchTable("gradcheck: diffsim landing x, 6 controls x 6 steps (17.84)")
     var p = Landing(6)
