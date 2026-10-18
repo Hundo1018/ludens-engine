@@ -6,7 +6,9 @@ is about 1e2 bodies regardless of n. Tier table: 0 = full config, 1 = same
 quality every 2nd step, 2 = 2 iterations / 2 substeps every 4th step (both
 catch up the skipped time). Policies: untiered, DistanceTiers (8 / 20 m),
 CausalReach (seed 8 m, depth 0 / 2), RoundRobin (everything tier 2),
-BudgetTiers (DistanceTiers whose radii follow a 50 %-of-untiered budget).
+BudgetTiers (DistanceTiers whose radii follow a 50 %-of-untiered budget),
+AggregateTiers (resting islands beyond 20 m frozen in tier 3, period 0, and
+kept as cluster proxies).
 The DBVH row runs the same scene on the persistent `DbvhBroadPhase` (only
 moved proxies are re-inserted) instead of the default per-step BVH build.
 The `+ reuse_still_pairs` rows copy last collection's narrowphase output
@@ -27,7 +29,7 @@ from collision.broadphase import BroadPhase
 from collision.bp_bvh import BVHBroadPhase
 from collision.bp_dbvh import DbvhBroadPhase
 from physics.solver_config import SolverConfig
-from gameplay.tiers import TierPolicy, DistanceTiers, CausalReach, RoundRobin, BudgetTiers
+from gameplay.tiers import TierPolicy, DistanceTiers, CausalReach, RoundRobin, BudgetTiers, AggregateTiers
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -71,6 +73,9 @@ def build[BP: BroadPhase = BVHBroadPhase[3]](n: Int, tiered: Bool) raises -> Con
         it.append(2)
         su.append(2)
         pe.append(4)
+        it.append(2)  # tier 3: frozen (AggregateTiers)
+        su.append(2)
+        pe.append(0)
         sc.set_tier_table(it, su, pe)
     return sc^
 
@@ -167,6 +172,7 @@ def main() raises:
         _run(t, RoundRobin(2), "RoundRobin (all tier 2)", n, 0)
         _run(t, Budgeted(full_ns // 2), "BudgetTiers (50 % of untiered)", n, full_ns // 2)
         _run(t, Untiered(), "all tier 0 (parity anchor)", n, 0)
+        _run(t, AggregateTiers(20, 0.05, 3), "AggregateTiers 20 m (rest stacks beyond frozen as proxies)", n, 0)
         var r2 = List[Real]()
         r2.append(8)
         r2.append(20)

@@ -156,6 +156,10 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var adhesion: List[Real]
     var cone: Int
     var block: Bool  # ROADMAP 17.50: CONTACT_BLOCK normal solve
+    # ROADMAP 17.19: contact mass ratio limit of the current step (0 = off)
+    # and each body's contact / joint inverse-mass scale (<= 1), set by `step`
+    var mass_ratio: Real
+    var cscale: List[Real]
     var any_contact_model: Bool
     var free: List[Int]
 
@@ -198,6 +202,8 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.adhesion = List[Real]()
         self.cone = 0
         self.block = False
+        self.mass_ratio = 0
+        self.cscale = List[Real]()
         self.any_contact_model = False
         self.free = List[Int]()
 
@@ -387,12 +393,16 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         return not self.is_dynamic(i) or self.sleeping[i]
 
     def axes(self, i: Int) -> Axes3:
-        """World-frame box axes of body `i` (via `act`, representation-free)."""
-        var o = self.bodies[i].act(Vec3(0, 0, 0, 0))
+        """World-frame box axes of body `i`: the unit axes rotated by its orientation.
+
+        They used to be `act(unit) - act(0)`, which rounds against the
+        position: a box 1 km out had axes off by ~1e-4, and a scene scaled
+        by 2^k was not scaled bit for bit (the 17.75 `UnitScale` residual)."""
+        var q = self.bodies[i].rotation()
         var out = Array[Vec3, 3](fill=Vec3(0, 0, 0, 0))
-        out[0] = self.bodies[i].act(Vec3(1, 0, 0, 0)) - o
-        out[1] = self.bodies[i].act(Vec3(0, 1, 0, 0)) - o
-        out[2] = self.bodies[i].act(Vec3(0, 0, 1, 0)) - o
+        out[0] = q.rotate(Vec3(1, 0, 0, 0))
+        out[1] = q.rotate(Vec3(0, 1, 0, 0))
+        out[2] = q.rotate(Vec3(0, 0, 1, 0))
         return out^
 
     def pose3(self, i: Int) -> Pose3:

@@ -3443,76 +3443,88 @@ each a plausible place for the O(n) claim to quietly stop holding.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| brute N=8 | 8 | step | 112893.48 | 0.01 | 9.03 |
-| bvh   N=8 | 8 | step | 111995.55 | 0.01 | 8.96 |
-| brute N=32 | 32 | step | 451366.88 | 0.00 | 36.11 |
-| bvh   N=32 | 32 | step | 419145.60 | 0.00 | 33.53 |
-| brute N=128 | 128 | step | 2675010.88 | 0.00 | 214.00 |
-| bvh   N=128 | 128 | step | 1977563.85 | 0.00 | 158.21 |
-| brute N=288 | 288 | step | 7244458.08 | 0.00 | 579.56 |
-| bvh   N=288 | 288 | step | 4444545.10 | 0.00 | 355.56 |
-| brute N=512 | 512 | step | 17539420.60 | 0.00 | 1403.15 |
-| bvh   N=512 | 512 | step | 8043813.41 | 0.00 | 643.51 |
+| brute N=8 | 8 | step | 141618.08 | 0.01 | 11.33 |
+| bvh   N=8 | 8 | step | 156469.33 | 0.01 | 12.52 |
+| brute N=32 | 32 | step | 410700.14 | 0.00 | 32.86 |
+| bvh   N=32 | 32 | step | 392959.21 | 0.00 | 31.44 |
+| brute N=128 | 128 | step | 1781963.10 | 0.00 | 142.56 |
+| bvh   N=128 | 128 | step | 1615057.36 | 0.00 | 129.20 |
+| brute N=288 | 288 | step | 4871680.81 | 0.00 | 389.73 |
+| bvh   N=288 | 288 | step | 3792076.46 | 0.00 | 303.37 |
+| brute N=512 | 512 | step | 10959980.06 | 0.00 | 876.80 |
+| bvh   N=512 | 512 | step | 6677538.13 | 0.00 | 534.20 |
 
 
 ### solver broadphase seam at scale: BVH vs DBVH vs SAP vs hash grid vs octree
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| bvh      N=72 | 72 | step | 951156.55 | 0.00 | 76.09 |
-| dbvh     N=72 | 72 | step | 923008.81 | 0.00 | 73.84 |
-| sap      N=72 | 72 | step | 929763.11 | 0.00 | 74.38 |
-| hashgrid N=72 | 72 | step | 1085711.90 | 0.00 | 86.86 |
-| octree   N=72 | 72 | step | 1143290.02 | 0.00 | 91.46 |
-| bvh      N=128 | 128 | step | 1903951.00 | 0.00 | 152.32 |
-| dbvh     N=128 | 128 | step | 1825806.78 | 0.00 | 146.06 |
-| sap      N=128 | 128 | step | 1769326.04 | 0.00 | 141.55 |
-| hashgrid N=128 | 128 | step | 1902921.59 | 0.00 | 152.23 |
-| octree   N=128 | 128 | step | 1982381.58 | 0.00 | 158.59 |
-| bvh      N=242 | 242 | step | 3384016.20 | 0.00 | 270.72 |
-| dbvh     N=242 | 242 | step | 3193761.04 | 0.00 | 255.50 |
-| sap      N=242 | 242 | step | 3336813.76 | 0.00 | 266.95 |
-| hashgrid N=242 | 242 | step | 3529044.96 | 0.00 | 282.32 |
-| octree   N=242 | 242 | step | 3413680.71 | 0.00 | 273.09 |
-| bvh      N=512 | 512 | step | 8344945.75 | 0.00 | 667.60 |
-| dbvh     N=512 | 512 | step | 7691411.64 | 0.00 | 615.31 |
-| sap      N=512 | 512 | step | 7902363.05 | 0.00 | 632.19 |
-| hashgrid N=512 | 512 | step | 8582550.24 | 0.00 | 686.60 |
-| octree   N=512 | 512 | step | 8342808.58 | 0.00 | 667.42 |
-| bvh      N=1058 | 1058 | step | 17584704.44 | 0.00 | 1406.78 |
-| dbvh     N=1058 | 1058 | step | 15992469.84 | 0.00 | 1279.40 |
-| sap      N=1058 | 1058 | step | 16222470.09 | 0.00 | 1297.80 |
-| hashgrid N=1058 | 1058 | step | 16771689.21 | 0.00 | 1341.74 |
-| octree   N=1058 | 1058 | step | 18368431.56 | 0.00 | 1469.47 |
-| bvh      N=2048 | 2048 | step | 39655838.74 | 0.00 | 3172.47 |
-| dbvh     N=2048 | 2048 | step | 34118589.54 | 0.00 | 2729.49 |
-| sap      N=2048 | 2048 | step | 34940528.94 | 0.00 | 2795.24 |
-| hashgrid N=2048 | 2048 | step | 38002552.84 | 0.00 | 3040.20 |
-| octree   N=2048 | 2048 | step | 38523486.17 | 0.00 | 3081.88 |
-| bvh      N=4050 | 4050 | step | 90015243.86 | 0.00 | 7201.22 |
-| dbvh     N=4050 | 4050 | step | 71864707.44 | 0.00 | 5749.18 |
-| sap      N=4050 | 4050 | step | 75666230.45 | 0.00 | 6053.30 |
-| hashgrid N=4050 | 4050 | step | 77594726.81 | 0.00 | 6207.58 |
-| octree   N=4050 | 4050 | step | 86654660.43 | 0.00 | 6932.37 |
+| bvh      N=72 | 72 | step | 1326279.15 | 0.00 | 106.10 |
+| dbvh     N=72 | 72 | step | 1200326.44 | 0.00 | 96.03 |
+| sap      N=72 | 72 | step | 1259837.49 | 0.00 | 100.79 |
+| hashgrid N=72 | 72 | step | 1235939.43 | 0.00 | 98.88 |
+| octree   N=72 | 72 | step | 931830.51 | 0.00 | 74.55 |
+| bvh      N=128 | 128 | step | 1613439.55 | 0.00 | 129.08 |
+| dbvh     N=128 | 128 | step | 1517767.49 | 0.00 | 121.42 |
+| sap      N=128 | 128 | step | 1552768.21 | 0.00 | 124.22 |
+| hashgrid N=128 | 128 | step | 1720097.16 | 0.00 | 137.61 |
+| octree   N=128 | 128 | step | 1669244.51 | 0.00 | 133.54 |
+| bvh      N=242 | 242 | step | 3083338.80 | 0.00 | 246.67 |
+| dbvh     N=242 | 242 | step | 2916408.31 | 0.00 | 233.31 |
+| sap      N=242 | 242 | step | 3173973.88 | 0.00 | 253.92 |
+| hashgrid N=242 | 242 | step | 3263434.88 | 0.00 | 261.07 |
+| octree   N=242 | 242 | step | 3060922.59 | 0.00 | 244.87 |
+| bvh      N=512 | 512 | step | 6820374.96 | 0.00 | 545.63 |
+| dbvh     N=512 | 512 | step | 6455365.19 | 0.00 | 516.43 |
+| sap      N=512 | 512 | step | 6809807.04 | 0.00 | 544.78 |
+| hashgrid N=512 | 512 | step | 7104203.74 | 0.00 | 568.34 |
+| octree   N=512 | 512 | step | 6954626.99 | 0.00 | 556.37 |
+| bvh      N=1058 | 1058 | step | 14424506.08 | 0.00 | 1153.96 |
+| dbvh     N=1058 | 1058 | step | 12960688.53 | 0.00 | 1036.86 |
+| sap      N=1058 | 1058 | step | 13070559.98 | 0.00 | 1045.64 |
+| hashgrid N=1058 | 1058 | step | 15188526.95 | 0.00 | 1215.08 |
+| octree   N=1058 | 1058 | step | 15940695.59 | 0.00 | 1275.26 |
+| bvh      N=2048 | 2048 | step | 28838445.89 | 0.00 | 2307.08 |
+| dbvh     N=2048 | 2048 | step | 27348031.16 | 0.00 | 2187.84 |
+| sap      N=2048 | 2048 | step | 26928519.69 | 0.00 | 2154.28 |
+| hashgrid N=2048 | 2048 | step | 28714188.94 | 0.00 | 2297.14 |
+| octree   N=2048 | 2048 | step | 30433621.69 | 0.00 | 2434.69 |
+| bvh      N=4050 | 4050 | step | 56026901.49 | 0.00 | 4482.15 |
+| dbvh     N=4050 | 4050 | step | 50804417.66 | 0.00 | 4064.35 |
+| sap      N=4050 | 4050 | step | 52118121.80 | 0.00 | 4169.45 |
+| hashgrid N=4050 | 4050 | step | 56748084.40 | 0.00 | 4539.85 |
+| octree   N=4050 | 4050 | step | 69412572.54 | 0.00 | 5553.01 |
 
 
 ### SAP vs hash grid: uniform sizes vs 20:1 size spread (N=1024)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| sap      uniform | 1024 | step | 7985718.44 | 0.00 | 638.86 |
-| sap      20:1 spread | 1024 | step | 9694965.55 | 0.00 | 775.60 |
-| hashgrid uniform | 1024 | step | 16599066.40 | 0.00 | 1327.93 |
-| hashgrid 20:1 spread | 1024 | step | 19625203.99 | 0.00 | 1570.02 |
+| sap      uniform | 1024 | step | 8586350.04 | 0.00 | 686.91 |
+| sap      20:1 spread | 1024 | step | 9543284.23 | 0.00 | 763.46 |
+| hashgrid uniform | 1024 | step | 16339089.33 | 0.00 | 1307.13 |
+| hashgrid 20:1 spread | 1024 | step | 18509584.71 | 0.00 | 1480.77 |
+
+
+### max_mass_ratio cost: grid of 2-box towers, step(cfg) with BVH broadphase (17.19)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| ratio off N=128 | 128 | step | 1793343.93 | 0.00 | 143.47 |
+| ratio 10  N=128 | 128 | step | 1684187.09 | 0.00 | 134.73 |
+| ratio off N=512 | 512 | step | 6738604.85 | 0.00 | 539.09 |
+| ratio 10  N=512 | 512 | step | 7535891.45 | 0.00 | 602.87 |
+| ratio off N=2048 | 2048 | step | 28368025.84 | 0.00 | 2269.44 |
+| ratio 10  N=2048 | 2048 | step | 29081542.58 | 0.00 | 2326.52 |
 
 
 ### ROADMAP 17.0h: diag overhead (compare this table's ns/step across a plain run and a -D LUDENS_TRACE run; NaN-scan share printed below under -D LUDENS_TRACE)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| round=0 | 512 | step | 8003382.00 | 0.00 | 640.27 |
-| round=1 | 512 | step | 8422597.55 | 0.00 | 673.81 |
-| round=2 | 512 | step | 8333825.59 | 0.00 | 666.71 |
+| round=0 | 512 | step | 6791939.45 | 0.00 | 543.36 |
+| round=1 | 512 | step | 6689023.33 | 0.00 | 535.12 |
+| round=2 | 512 | step | 6694481.76 | 0.00 | 535.56 |
 
 
 (rebuild with -D LUDENS_TRACE to see the nan_scan share breakdown)
@@ -4004,28 +4016,32 @@ is the known next step).
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| poisson_disk (1602 points) | 1602 | point | 5267.00 | 0.19 | 8.44 |
-| dart_throwing 5000 tries (1186 points) | 1186 | point | 1575.94 | 0.63 | 1.87 |
-| jittered_grid (2500 points) | 2500 | point | 23.89 | 41.87 | 0.06 |
+| poisson_disk (1602 points) | 1602 | point | 7509.10 | 0.13 | 12.03 |
+| dart_throwing 5000 tries (1186 points) | 1186 | point | 2590.77 | 0.39 | 3.07 |
+| jittered_grid (2500 points) | 2500 | point | 28.81 | 34.70 | 0.07 |
 
 
 ### Delaunay (Bowyer-Watson, exact predicates) (17.69)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| delaunay n=250 | 250 | point | 13666.92 | 0.07 | 3.42 |
-| delaunay n=500 | 500 | point | 22259.80 | 0.04 | 11.13 |
-| delaunay n=1000 | 1000 | point | 43273.11 | 0.02 | 43.27 |
+| delaunay n=250 | 250 | point | 20830.66 | 0.05 | 5.21 |
+| delaunay_walk n=250 | 250 | point | 3828.47 | 0.26 | 0.96 |
+| delaunay n=500 | 500 | point | 35674.74 | 0.03 | 17.84 |
+| delaunay_walk n=500 | 500 | point | 3400.13 | 0.29 | 1.70 |
+| delaunay n=1000 | 1000 | point | 69782.18 | 0.01 | 69.78 |
+| delaunay_walk n=1000 | 1000 | point | 3696.04 | 0.27 | 3.70 |
+| delaunay_walk n=1602 (all Poisson points) | 1602 | point | 3733.97 | 0.27 | 5.98 |
 
 
 ### Terrain samples and erosion (17.69)
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| fbm 5 octaves | 20000 | sample | 101.40 | 9.86 | 2.03 |
-| ridged | 20000 | sample | 102.04 | 9.80 | 2.04 |
-| domain-warped (+2 x 3 octaves) | 20000 | sample | 219.54 | 4.56 | 4.39 |
-| thermal_erosion 65^2, 50 passes | 4225 | cell-pass | 88.90 | 11.25 | 18.78 |
+| fbm 5 octaves | 20000 | sample | 118.48 | 8.44 | 2.37 |
+| ridged | 20000 | sample | 114.58 | 8.73 | 2.29 |
+| domain-warped (+2 x 3 octaves) | 20000 | sample | 259.65 | 3.85 | 5.19 |
+| thermal_erosion 65^2, 50 passes | 4225 | cell-pass | 141.86 | 7.05 | 29.97 |
 
 
 ## `diag` — observability layer (Phase 17.9 / 17.10 / 17.32-17.34)
@@ -4852,15 +4868,18 @@ less than the dirty cache.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| full K=4, 10 % changed per tick | 1000 | read | 37.73 | 26.51 | 3.02 |
-| incremental K=4, 10 % changed per tick | 1000 | read | 26.71 | 37.43 | 2.14 |
-| dirty K=4, 10 % changed per tick | 1000 | read | 15.73 | 63.56 | 1.26 |
-| full K=16, 10 % changed per tick | 1000 | read | 136.30 | 7.34 | 10.90 |
-| incremental K=16, 10 % changed per tick | 1000 | read | 92.41 | 10.82 | 7.39 |
-| dirty K=16, 10 % changed per tick | 1000 | read | 32.98 | 30.33 | 2.64 |
-| full K=64, 10 % changed per tick | 1000 | read | 783.82 | 1.28 | 62.71 |
-| incremental K=64, 10 % changed per tick | 1000 | read | 580.04 | 1.72 | 46.40 |
-| dirty K=64, 10 % changed per tick | 1000 | read | 188.09 | 5.32 | 15.05 |
+| full K=4, 10 % changed per tick | 1000 | read | 35.76 | 27.96 | 2.86 |
+| incremental K=4, 10 % changed per tick | 1000 | read | 33.35 | 29.98 | 2.67 |
+| dirty K=4, 10 % changed per tick | 1000 | read | 21.53 | 46.44 | 1.72 |
+| full K=16, 10 % changed per tick | 1000 | read | 75.99 | 13.16 | 6.08 |
+| incremental K=16, 10 % changed per tick | 1000 | read | 36.10 | 27.70 | 2.89 |
+| dirty K=16, 10 % changed per tick | 1000 | read | 23.81 | 41.99 | 1.91 |
+| full K=64, 10 % changed per tick | 1000 | read | 303.20 | 3.30 | 24.26 |
+| incremental K=64, 10 % changed per tick | 1000 | read | 45.96 | 21.76 | 3.68 |
+| dirty K=64, 10 % changed per tick | 1000 | read | 36.91 | 27.10 | 2.95 |
+| full K=256, 10 % changed per tick | 1000 | read | 1093.14 | 0.91 | 87.45 |
+| incremental K=256, 10 % changed per tick | 1000 | read | 108.27 | 9.24 | 8.66 |
+| dirty K=256, 10 % changed per tick | 1000 | read | 116.16 | 8.61 | 9.29 |
 
 
 ## Gameplay — flow, objectives, inventory (17.72)
@@ -4880,12 +4899,26 @@ gives the ratio below.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| linear N=100 | 100 | event | 422.80 | 2.37 | 0.85 |
-| indexed N=100 | 100 | event | 176.15 | 5.68 | 0.35 |
-| linear N=1000 | 1000 | event | 2937.18 | 0.34 | 5.87 |
-| indexed N=1000 | 1000 | event | 263.45 | 3.80 | 0.53 |
-| linear N=10000 | 10000 | event | 20472.56 | 0.05 | 40.95 |
-| indexed N=10000 | 10000 | event | 3272.77 | 0.31 | 6.55 |
+| linear N=100 | 100 | event | 304.69 | 3.28 | 0.61 |
+| indexed N=100 | 100 | event | 90.50 | 11.05 | 0.18 |
+| linear N=1000 | 1000 | event | 2350.32 | 0.43 | 4.70 |
+| indexed N=1000 | 1000 | event | 288.23 | 3.47 | 0.58 |
+| linear N=10000 | 10000 | event | 22968.21 | 0.04 | 45.94 |
+| indexed N=10000 | 10000 | event | 2387.71 | 0.42 | 4.78 |
+
+
+### Flow checkpoint to / from bytes (17.72)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| take F=100 (4 KiB) | 100 | flag | 182.51 | 5.48 | 0.02 |
+| restore F=100 | 100 | flag | 434.37 | 2.30 | 0.04 |
+| take F=1000 (33 KiB) | 1000 | flag | 99.25 | 10.08 | 0.10 |
+| restore F=1000 | 1000 | flag | 309.08 | 3.24 | 0.31 |
+| take F=10000 (330 KiB) | 10000 | flag | 89.06 | 11.23 | 0.89 |
+| restore F=10000 | 10000 | flag | 349.90 | 2.86 | 3.50 |
+| take F=100000 (3388 KiB) | 100000 | flag | 84.89 | 11.78 | 8.49 |
+| restore F=100000 | 100000 | flag | 378.58 | 2.64 | 37.86 |
 
 
 
@@ -5188,26 +5221,28 @@ not move is the next step for this item.
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| untiered | 1000 | step | 34783538.00 | 0.00 | 1391.34 |
-| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +1 mm) | 1000 | step | 8856387.85 | 0.00 | 354.26 |
-| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +1 mm) | 1000 | step | 6821606.35 | 0.00 | 272.86 |
-| RoundRobin (all tier 2) (125 islands solved / step, penetration +1 mm) | 1000 | step | 6931707.18 | 0.00 | 277.27 |
-| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +4 mm) | 1000 | step | 6310958.35 | 0.00 | 252.44 |
-| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 36289411.38 | 0.00 | 1451.58 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs (151 islands solved / step, penetration +1 mm) | 1000 | step | 7724656.85 | 0.00 | 308.99 |
-| RoundRobin + reuse_still_pairs (125 islands solved / step, penetration +1 mm) | 1000 | step | 6978877.48 | 0.00 | 279.16 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 6785813.03 | 0.00 | 271.43 |
-| DistanceTiers 8 / 20 m, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 6977198.65 | 0.00 | 279.09 |
-| untiered | 10000 | step | 401514792.00 | 0.00 | 16060.59 |
-| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 177215983.58 | 0.00 | 7088.64 |
-| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 180981886.00 | 0.00 | 7239.28 |
-| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 174026224.80 | 0.00 | 6961.05 |
-| BudgetTiers (50 % of untiered) (1269 islands solved / step) | 10000 | step | 193529363.20 | 0.00 | 7741.17 |
-| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 372046622.65 | 0.00 | 14881.86 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs (1276 islands solved / step) | 10000 | step | 183395130.95 | 0.00 | 7335.81 |
-| RoundRobin + reuse_still_pairs (1250 islands solved / step) | 10000 | step | 153808078.85 | 0.00 | 6152.32 |
-| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (1276 islands solved / step) | 10000 | step | 50684097.78 | 0.00 | 2027.36 |
-| DistanceTiers 8 / 20 m, DBVH broadphase (1276 islands solved / step) | 10000 | step | 65640357.60 | 0.00 | 2625.61 |
+| untiered | 1000 | step | 26822688.00 | 0.00 | 1072.91 |
+| DistanceTiers 8 / 20 m (151 islands solved / step, penetration +1 mm) | 1000 | step | 6909181.78 | 0.00 | 276.37 |
+| CausalReach seed 8 m, depth 0 / 2 (134 islands solved / step, penetration +1 mm) | 1000 | step | 5793918.95 | 0.00 | 231.76 |
+| RoundRobin (all tier 2) (125 islands solved / step, penetration +1 mm) | 1000 | step | 5171987.53 | 0.00 | 206.88 |
+| BudgetTiers (50 % of untiered) (125 islands solved / step, penetration +4 mm) | 1000 | step | 4931258.58 | 0.00 | 197.25 |
+| all tier 0 (parity anchor) (500 islands solved / step, penetration +0 mm) | 1000 | step | 29862878.73 | 0.00 | 1194.52 |
+| AggregateTiers 20 m (rest stacks beyond frozen as proxies) (79 islands solved / step, penetration +0 mm) | 1000 | step | 7010838.30 | 0.00 | 280.43 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs (151 islands solved / step, penetration +1 mm) | 1000 | step | 6556344.18 | 0.00 | 262.25 |
+| RoundRobin + reuse_still_pairs (125 islands solved / step, penetration +1 mm) | 1000 | step | 4346661.45 | 0.00 | 173.87 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 5112411.63 | 0.00 | 204.50 |
+| DistanceTiers 8 / 20 m, DBVH broadphase (151 islands solved / step, penetration +1 mm) | 1000 | step | 5943396.80 | 0.00 | 237.74 |
+| untiered | 10000 | step | 290380780.00 | 0.00 | 11615.23 |
+| DistanceTiers 8 / 20 m (1276 islands solved / step) | 10000 | step | 58141621.95 | 0.00 | 2325.66 |
+| CausalReach seed 8 m, depth 0 / 2 (1259 islands solved / step) | 10000 | step | 60505562.73 | 0.00 | 2420.22 |
+| RoundRobin (all tier 2) (1250 islands solved / step) | 10000 | step | 59443445.83 | 0.00 | 2377.74 |
+| BudgetTiers (50 % of untiered) (1276 islands solved / step) | 10000 | step | 58883903.78 | 0.00 | 2355.36 |
+| all tier 0 (parity anchor) (5000 islands solved / step) | 10000 | step | 292591480.48 | 0.00 | 11703.66 |
+| AggregateTiers 20 m (rest stacks beyond frozen as proxies) (79 islands solved / step) | 10000 | step | 41914966.90 | 0.00 | 1676.60 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs (1276 islands solved / step) | 10000 | step | 58445452.20 | 0.00 | 2337.82 |
+| RoundRobin + reuse_still_pairs (1250 islands solved / step) | 10000 | step | 60260504.18 | 0.00 | 2410.42 |
+| DistanceTiers 8 / 20 m + reuse_still_pairs, DBVH broadphase (1276 islands solved / step) | 10000 | step | 43244704.65 | 0.00 | 1729.79 |
+| DistanceTiers 8 / 20 m, DBVH broadphase (1276 islands solved / step) | 10000 | step | 44373966.33 | 0.00 | 1774.96 |
 
 
 

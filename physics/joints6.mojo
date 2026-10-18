@@ -160,6 +160,19 @@ struct Joint6(Copyable, ImplicitlyCopyable, Movable):
 
 
 
+@always_inline
+def _js[B: Body6](bset: BodySet[B], i: Int) -> Real:
+    """Contact / joint mass scale of body i (`SolverConfig.max_mass_ratio`,
+    17.19); 1 when off (x * 1 is exact: bit-identical)."""
+    return bset.cscale[i] if bset.mass_ratio > 0 else Real(1)
+
+
+@always_inline
+def _scaled_linear(kind: Int) -> Bool:
+    """Joint kinds whose anchor rows `joint_sweep` solves (and so scales)."""
+    return kind == JOINT_BALL or kind == JOINT_DISTANCE or kind == JOINT_HINGE or kind == JOINT_WELD or kind == JOINT_CONE_TWIST or kind == JOINT_UNIVERSAL
+
+
 def joint_island[B: Body6](bset: BodySet[B], jt: Joint6) -> Int:
     return bset.island[jt.a] if bset.is_dynamic(jt.a) else bset.island[jt.b]
 
@@ -178,9 +191,13 @@ def joint_axis[B: Body6](
     isc: Real,
     use_bias: Bool,
     acc_e: Real,
+    scaled: Bool = False,
 ) -> Real:
     """One scalar equality-constraint solve along unit axis `e` with
-    position error `c`; returns the accumulated-impulse delta."""
+    position error `c`; returns the accumulated-impulse delta. `scaled`:
+    apply the bodies' `max_mass_ratio` scale (the core joint rows)."""
+    var sa = _js(bset, ia) if scaled else Real(1)
+    var sb = _js(bset, ib) if scaled else Real(1)
     var va = Vec3(0, 0, 0, 0)
     var ka = Real(0)
     if bset.moves(ia):
@@ -197,6 +214,8 @@ def joint_axis[B: Body6](
         kb = bset.bodies[ib].inv_mass() + bset.bodies[ib].angular_factor(
             pwb - bset.bodies[ib].position(), e
         )
+    ka *= sa
+    kb *= sb
     var denom = ka + kb
     if denom <= 0:
         return 0
@@ -205,9 +224,9 @@ def joint_axis[B: Body6](
     var dl = -ms * (vr + bias) / denom - isc * acc_e
     var j = e * dl
     if bset.is_dynamic(ia):
-        bset.bodies[ia].apply_impulse(-j, pwa)
+        bset.bodies[ia].apply_impulse(-j * sa, pwa)
     if bset.is_dynamic(ib):
-        bset.bodies[ib].apply_impulse(j, pwb)
+        bset.bodies[ib].apply_impulse(j * sb, pwb)
     return dl
 
 
@@ -248,7 +267,7 @@ def joint_sweep[B: Body6](
                 var acc_s = dot(jt.acc, u)
                 var dl = joint_axis(bset,
                     jt.a, jt.b, pwa, pwb, u, l - jt.rest,
-                    h, bias_rate, ms, isc, use_bias, acc_s,
+                    h, bias_rate, ms, isc, use_bias, acc_s, True,
                 )
                 jt.acc = u * (acc_s + dl)
             else:
@@ -258,7 +277,7 @@ def joint_sweep[B: Body6](
                     e[ax] = 1
                     var dl = joint_axis(bset,
                         jt.a, jt.b, pwa, pwb, e, gap[ax],
-                        h, bias_rate, ms, isc, use_bias, jt.acc[ax],
+                        h, bias_rate, ms, isc, use_bias, jt.acc[ax], True,
                     )
                     jt.acc[ax] += dl
                 if jt.kind == JOINT_HINGE:
@@ -281,9 +300,9 @@ def joint_sweep[B: Body6](
                         var kaa = Real(0)
                         var kbb = Real(0)
                         if bset.is_dynamic(jt.a):
-                            kaa = bset.bodies[jt.a].angular_only_factor(t)
+                            kaa = bset.bodies[jt.a].angular_only_factor(t) * _js(bset, jt.a)
                         if bset.is_dynamic(jt.b):
-                            kbb = bset.bodies[jt.b].angular_only_factor(t)
+                            kbb = bset.bodies[jt.b].angular_only_factor(t) * _js(bset, jt.b)
                         var den = kaa + kbb
                         if den <= 0:
                             continue
@@ -296,9 +315,9 @@ def joint_sweep[B: Body6](
                         jt.acc_ang = jt.acc_ang + t * dl
                         var limp = t * dl
                         if bset.is_dynamic(jt.a):
-                            bset.bodies[jt.a].apply_angular_impulse(-limp)
+                            bset.bodies[jt.a].apply_angular_impulse(-limp * _js(bset, jt.a))
                         if bset.is_dynamic(jt.b):
-                            bset.bodies[jt.b].apply_angular_impulse(limp)
+                            bset.bodies[jt.b].apply_angular_impulse(limp * _js(bset, jt.b))
                         wa = Vec3(0, 0, 0, 0)
                         wb2 = Vec3(0, 0, 0, 0)
                         if bset.moves(jt.a):
@@ -321,9 +340,9 @@ def joint_sweep[B: Body6](
                         ax[k] = 1
                         var den = Real(0)
                         if bset.is_dynamic(jt.a):
-                            den += bset.bodies[jt.a].angular_only_factor(ax)
+                            den += bset.bodies[jt.a].angular_only_factor(ax) * _js(bset, jt.a)
                         if bset.is_dynamic(jt.b):
-                            den += bset.bodies[jt.b].angular_only_factor(ax)
+                            den += bset.bodies[jt.b].angular_only_factor(ax) * _js(bset, jt.b)
                         if den <= 0:
                             continue
                         var wa = Vec3(0, 0, 0, 0)
@@ -338,9 +357,9 @@ def joint_sweep[B: Body6](
                         jt.acc_ang[k] += dl
                         var limp = ax * dl
                         if bset.is_dynamic(jt.a):
-                            bset.bodies[jt.a].apply_angular_impulse(-limp)
+                            bset.bodies[jt.a].apply_angular_impulse(-limp * _js(bset, jt.a))
                         if bset.is_dynamic(jt.b):
-                            bset.bodies[jt.b].apply_angular_impulse(limp)
+                            bset.bodies[jt.b].apply_angular_impulse(limp * _js(bset, jt.b))
             joints[c] = jt
 
 
@@ -490,14 +509,19 @@ def warm_start_joints[B: Body6](
             continue
         var pwa = bset.bodies[jt.a].act(jt.la)
         var pwb = bset.bodies[jt.b].act(jt.lb)
+        # 17.19: rows `joint_sweep` scales take the same scale here
+        var lin = _scaled_linear(jt.kind)
+        var ang = jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD
+        var sa = _js(bset, jt.a)
+        var sb = _js(bset, jt.b)
         if bset.is_dynamic(jt.a):
-            bset.bodies[jt.a].apply_impulse(-jt.acc, pwa)
+            bset.bodies[jt.a].apply_impulse(-jt.acc * (sa if lin else Real(1)), pwa)
             if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER or jt.kind == JOINT_UNIVERSAL:
-                bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang)
+                bset.bodies[jt.a].apply_angular_impulse(-jt.acc_ang * (sa if ang else Real(1)))
         if bset.is_dynamic(jt.b):
-            bset.bodies[jt.b].apply_impulse(jt.acc, pwb)
+            bset.bodies[jt.b].apply_impulse(jt.acc * (sb if lin else Real(1)), pwb)
             if jt.kind == JOINT_HINGE or jt.kind == JOINT_WELD or jt.kind == JOINT_SLIDER or jt.kind == JOINT_UNIVERSAL:
-                bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang)
+                bset.bodies[jt.b].apply_angular_impulse(jt.acc_ang * (sb if ang else Real(1)))
 
 
 # ------------------------------------------------------------ angular drives

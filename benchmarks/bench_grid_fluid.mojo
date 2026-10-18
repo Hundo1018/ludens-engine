@@ -1,5 +1,6 @@
 """Grid fluids per cell-step on the Taylor-Green vortex (ROADMAP 17.60):
-the MAC projection solver (`physics.mac_fluid`, PCG pressure) and the
+the MAC projection solver (`physics.mac_fluid`; pressure by Jacobi PCG and,
+17.84, by multigrid-preconditioned CG) and the
 D3Q19 lattice (`fluid.lbm`) as a quasi-2-D 1-cell-thick slab. Both reach
 the analytic decay within 0.5 % (test_taylor_green); this is their cost.
 """
@@ -31,6 +32,20 @@ def main() raises:
         var t1 = now()
         keep(f.u[3])
         t.add("MAC " + String(n) + "^2 (PCG " + String(iters // steps) + " iterations / step)", n * n, "cell-step", t1 - t0, steps * n * n)
+        var g = MacFluid2(n, dx, 0.05)
+        g.use_multigrid()
+        for j in range(n):
+            for i in range(n):
+                g.u[j * n + i] = 0.01 * sin(Real(i) * dx) * cos((Real(j) + 0.5) * dx)
+                g.v[j * n + i] = -0.01 * cos((Real(i) + 0.5) * dx) * sin(Real(j) * dx)
+        iters = 0
+        t0 = now()
+        for _ in range(steps):
+            g.step(0.02)
+            iters += g.last.iters
+        t1 = now()
+        keep(g.u[3])
+        t.add("MAC " + String(n) + "^2 (MGPCG " + String(iters // steps) + " iterations / step)", n * n, "cell-step", t1 - t0, steps * n * n)
         var l = Lbm(n, n, 1, 0.05, BC_PERIODIC)
         var k = 2 * Real(pi) / Real(n)
         for j in range(n):

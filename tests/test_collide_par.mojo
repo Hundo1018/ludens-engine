@@ -172,7 +172,8 @@ def _backend[BP: BroadPhase](name: String, mut s: Suite) raises:
     var bp1 = BP()
     var bp2 = BP()
     collect_bp_pairs[BP](bp1, boxes, st, p1)
-    pairs_parallel[BP](bp2, boxes, st, p2, 4, Dispatch.parallel())
+    var noskip = List[Bool]()
+    pairs_parallel[BP](bp2, boxes, st, p2, 4, Dispatch.parallel(), noskip)
     var same = len(p1) == len(p2)
     if same:
         for c in range(len(p1)):

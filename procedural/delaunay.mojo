@@ -103,3 +103,123 @@ def is_delaunay(pts: List[Vec2], tri: List[Int]) -> Bool:
             if incircle(a, b, c, p) > 0:
                 return False
     return True
+
+
+def delaunay_walk(pts: List[Vec2]) -> List[Int]:
+    """`delaunay` with triangle adjacency (ROADMAP 17.69): the point is
+    located by walking from the last triangle made (cross the edge it lies
+    outside of, `orient2d` < 0) and the cavity grown from there through
+    neighbours whose circumcircle holds it, instead of testing every
+    triangle. Same exact predicates, same super-triangle and duplicate
+    rule, so for points in general position the triangle set equals
+    `delaunay`'s (order and rotation aside); for cocircular inputs both are
+    valid Delaunay triangulations, not necessarily the same one."""
+    var n = len(pts)
+    if n < 3:
+        return List[Int]()
+    var lo = pts[0]
+    var hi = pts[0]
+    for p in pts:
+        lo = Vec2(min(lo[0], p[0]), min(lo[1], p[1]))
+        hi = Vec2(max(hi[0], p[0]), max(hi[1], p[1]))
+    var span = max(hi[0] - lo[0], hi[1] - lo[1])
+    if span == 0:
+        span = 1
+    var mid = (lo + hi) * Real(0.5)
+    var v = pts.copy()
+    v.append(Vec2(mid[0] - 20 * span, mid[1] - 20 * span))
+    v.append(Vec2(mid[0] + 20 * span, mid[1] - 20 * span))
+    v.append(Vec2(mid[0], mid[1] + 20 * span))
+    # tri[3t + e]: vertices ccw; nbr[3t + e]: across edge (tri[3t+e], tri[3t+e+1])
+    var tri: List[Int] = [n, n + 1, n + 2]
+    var nbr: List[Int] = [-1, -1, -1]
+    var alive: List[Bool] = [True]
+    var last = 0
+    var bad = List[Bool](length=1, fill=False)
+    for i in range(n):
+        var p = v[i]
+        # walk
+        var t = last
+        var steps = 0
+        while True:
+            var moved = False
+            for e in range(3):
+                var a = tri[3 * t + e]
+                var b = tri[3 * t + (e + 1) % 3]
+                if orient2d(v[a], v[b], p) < 0 and nbr[3 * t + e] >= 0:
+                    t = nbr[3 * t + e]
+                    moved = True
+                    break
+            steps += 1
+            if not moved or steps > 4 * len(alive) + 8:
+                break
+        # duplicate of a vertex already in: skip, as `delaunay` does
+        var dup = False
+        for e in range(3):
+            if v[tri[3 * t + e]] == p:
+                dup = True
+        if dup:
+            continue
+        # cavity
+        while len(bad) < len(alive):
+            bad.append(False)
+        var cav: List[Int] = [t]
+        bad[t] = True
+        var k = 0
+        while k < len(cav):
+            var u = cav[k]
+            k += 1
+            for e in range(3):
+                var w = nbr[3 * u + e]
+                if w >= 0 and not bad[w] and alive[w]:
+                    if incircle(v[tri[3 * w]], v[tri[3 * w + 1]], v[tri[3 * w + 2]], p) > 0:
+                        bad[w] = True
+                        cav.append(w)
+        # boundary edges (a, b, outside neighbour), one cycle around p
+        var ea = List[Int]()
+        var eb = List[Int]()
+        var eo = List[Int]()
+        for u in cav:
+            for e in range(3):
+                var w = nbr[3 * u + e]
+                if w < 0 or not bad[w]:
+                    ea.append(tri[3 * u + e])
+                    eb.append(tri[3 * u + (e + 1) % 3])
+                    eo.append(w)
+        for u in cav:
+            alive[u] = False
+            bad[u] = False
+        var start_of = Dict[Int, Int]()
+        var base = len(alive)
+        for q in range(len(ea)):
+            var nt = base + q
+            tri.append(ea[q])
+            tri.append(eb[q])
+            tri.append(i)
+            nbr.append(eo[q])
+            nbr.append(-1)
+            nbr.append(-1)
+            alive.append(True)
+            start_of[ea[q]] = nt
+            var w = eo[q]
+            if w >= 0:
+                for f in range(3):
+                    if tri[3 * w + f] == eb[q] and tri[3 * w + (f + 1) % 3] == ea[q]:
+                        nbr[3 * w + f] = nt
+        for q in range(len(ea)):
+            var nt = base + q
+            # edge (b, p) borders the new triangle starting at b; edge (p, a)
+            # the one ending at a, whose own (b, p) edge points back here
+            try:
+                nbr[3 * nt + 1] = start_of[eb[q]]
+                nbr[3 * start_of[eb[q]] + 2] = nt
+            except:
+                pass
+        last = base
+    var out = List[Int]()
+    for t in range(len(alive)):
+        if alive[t] and tri[3 * t] < n and tri[3 * t + 1] < n and tri[3 * t + 2] < n:
+            out.append(tri[3 * t])
+            out.append(tri[3 * t + 1])
+            out.append(tri[3 * t + 2])
+    return out^

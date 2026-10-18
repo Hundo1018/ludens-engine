@@ -263,6 +263,20 @@ def ld_world_set_gravity(h: Optional[Handle], gx: Float32, gy: Float32, gz: Floa
 
 
 @export
+def ld_world_set_unit_scale(h: Optional[Handle], per_meter: Float32) abi("C") -> Int32:
+    """ROADMAP 17.78 (0.5): host length units per meter."""
+    var o = _world(h)
+    if not o:
+        return Int32(_why(h))
+    var p = o.value()
+    try:
+        p[].w.set_unit_scale(Real(per_meter))
+        return Int32(LD_OK)
+    except e:
+        return Int32(_fail(p, LD_ERR_ARG, String(e)))
+
+
+@export
 def ld_world_tick(h: Optional[Handle]) abi("C") -> Int64:
     var o = _world(h)
     if not o:

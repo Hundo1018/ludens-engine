@@ -28,7 +28,9 @@ direction (`push_strength`), which is the controller's half of two-way
 interaction; the other half (a body shoving the character) is step 4.
 
 The capsule is vertical: centre `position`, segment half-length `half_height`,
-radius `radius`; its bottom is `position.y - half_height - radius`.
+radius `radius`; its bottom is `position.y - half_height - radius`. It can
+lie along a horizontal axis (`set_lying`, ROADMAP 17.67; then its bottom is
+`position.y - radius`), and `half_height = 0` makes it a sphere.
 
 Box option (ROADMAP 17.53): `CharacterController(p, cfg, box_rounding=r)`
 with r >= 0 sweeps an axis-aligned box of half extents (radius,
@@ -78,12 +80,16 @@ struct CharacterController(Copyable, Movable):
     var hit_ceiling: Bool
     var pushed: Int  # dynamic bodies pushed during the last update
     var box_rounding: Real  # < 0: capsule; >= 0: rounded box (17.53)
+    var crushed: Bool  # squeezed between surfaces below and above this update (17.67)
+    var lie: Vec3  # unit horizontal capsule axis when lying (17.67); zero = upright
     var up: Vec3  # unit up axis (17.67); gravity need not point along -y
     var _orient: Quat  # rotation taking +y to `up` (identity for +y)
 
     def __init__(out self, position: Vec3, cfg: CharacterConfig = CharacterConfig.default(), box_rounding: Real = -1):
         self.cfg = cfg
         self.box_rounding = box_rounding
+        self.crushed = False
+        self.lie = Vec3(0, 0, 0, 0)
         self.position = position
         self.velocity = Vec3(0, 0, 0, 0)
         self.on_ground = False
@@ -124,14 +130,23 @@ struct CharacterController(Copyable, Movable):
 
     # ---------------------------------------------------------------- shape
 
+    def _axis(self) -> Vec3:
+        """The capsule segment's direction: `up`, or the lying axis."""
+        return self.lie if self.lie[0] != 0 or self.lie[1] != 0 or self.lie[2] != 0 else self.up
+
     def _seg(self, at: Vec3) -> Tuple[Vec3, Vec3]:
-        var h = self.up * self.cfg.half_height
+        var h = self._axis() * self.cfg.half_height
         return (at - h, at + h)
 
     def _filter(self) -> QueryFilter:
         return QueryFilter(self.cfg.mask, -1, False)
 
+    def _lying(self) -> Bool:
+        return self.lie[0] != 0 or self.lie[1] != 0 or self.lie[2] != 0
+
     def foot(self) -> Vec3:
+        if self._lying():
+            return self.position - self.up * self.cfg.radius
         return self.position - self.up * (self.cfg.half_height + self.cfg.radius)
 
     def _walkable(self, n: Vec3) -> Bool:
@@ -147,7 +162,7 @@ struct CharacterController(Copyable, Movable):
     def _penetrations[B: Body6](self, sc: ContactScene6[B], at: Vec3, half_height: Real, shrink: Real) -> List[Penetration]:
         if self.is_box():
             return sc.shape_penetrations(self._box(half_height, shrink), pose3_of(at, self._orient), self._filter())
-        var s = self.up * half_height
+        var s = self._axis() * half_height
         return sc.capsule_penetrations(at - s, at + s, self.cfg.radius - shrink, self._filter())
 
     def _cast[B: Body6](self, sc: ContactScene6[B], at: Vec3, d: Vec3, dist: Real) -> Hit:
@@ -156,12 +171,39 @@ struct CharacterController(Copyable, Movable):
         var s = self._seg(at)
         return sc.capsule_cast(s[0], s[1], self.cfg.radius, d, dist, self._filter())
 
+    def set_lying[B: Body6](mut self, sc: ContactScene6[B], axis: Vec3) raises -> Bool:
+        """Lie down along horizontal `axis` (crawling, a prone or four-legged
+        body; ROADMAP 17.67), or stand back up with a zero axis, keeping the
+        foot in place. Refused (False) when the new pose would overlap
+        something: standing up in a crawl space. A box character cannot lie."""
+        if self.is_box():
+            raise Error("CharacterController.set_lying: a box character cannot lie down")
+        var foot = self.foot()
+        var l = length(axis)
+        var new_lie = Vec3(0, 0, 0, 0)
+        if l > 0:
+            new_lie = self._h(axis) / l
+            if abs(length(new_lie) - 1) > 1e-3:
+                raise Error("CharacterController.set_lying: the axis must be horizontal")
+        var old = self.lie
+        self.lie = new_lie
+        var c = foot + self.up * self.cfg.radius
+        if not self._lying():
+            c = foot + self.up * (self.cfg.half_height + self.cfg.radius)
+        if len(self._penetrations(sc, c, self.cfg.half_height, self.cfg.skin)) > 0:
+            self.lie = old
+            return False
+        self.position = c
+        return True
+
     def set_half_height[B: Body6](mut self, sc: ContactScene6[B], h: Real) -> Bool:
         """Crouch / stand: change the capsule height keeping the foot fixed.
         Growing is refused (returns False) when the taller capsule would
         overlap something -- standing up under a low ceiling."""
-        var foot = self.position - self.up * self.cfg.half_height - self.up * self.cfg.radius
+        var foot = self.foot()
         var c = foot + self.up * h + self.up * self.cfg.radius
+        if self._lying():
+            c = foot + self.up * self.cfg.radius
         if h > self.cfg.half_height:
             if len(self._penetrations(sc, c, h, self.cfg.skin)) > 0:
                 return False
@@ -261,6 +303,17 @@ struct CharacterController(Copyable, Movable):
         return True
 
     def _depenetrate[B: Body6](mut self, sc: ContactScene6[B]):
+        """Push out of overlaps. Squeezed between a surface below and one
+        above (a lift rising into a ceiling, ROADMAP 17.67) there is no
+        room: the vertical part of the push is dropped, so the character
+        is never shoved through either surface, and `crushed` reports it
+        for the game to act on (damage, respawn). Without this a lift
+        rising into a 0.5 m ceiling pushed the character up through it."""
+        # sides seen over all iterations: squeezed, the pushes alternate
+        # (up out of the lift into the ceiling, then back down) and never
+        # show both sides in one iteration
+        var below = False
+        var above = False
         for _ in range(4):
             var pens = self._penetrations(sc, self.position, self.cfg.half_height, 0)
             if len(pens) == 0:
@@ -268,6 +321,14 @@ struct CharacterController(Copyable, Movable):
             var push = Vec3(0, 0, 0, 0)
             for k in range(len(pens)):
                 push += pens[k].normal * (pens[k].depth + self.cfg.skin * 0.5)
+                var nu = self._v(pens[k].normal)
+                if nu > 0.5:
+                    below = True
+                elif nu < -0.5:
+                    above = True
+            if below and above:
+                self.crushed = True
+                push = self._h(push)
             self.position += push
 
     def _surface[B: Body6](self, sc: ContactScene6[B], h: Hit) -> Tuple[Vec3, Real]:
@@ -322,6 +383,7 @@ struct CharacterController(Copyable, Movable):
         velocity; `jump_speed > 0` jumps if grounded."""
         self.hit_ceiling = False
         self.pushed = 0
+        self.crushed = False
         var was_grounded = self.on_ground
         var vy = self._v(self.velocity)
         var jumped = False

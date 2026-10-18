@@ -41,6 +41,8 @@ gpu-compile = { cmd = "bash scripts/gpu_compile_check.sh", depends-on = ["build"
 wheel = { cmd = "python3 python/build_wheel.py", depends-on = ["build"] }
 # Dead file references in README / CLAUDE / ROADMAP / ARCHITECTURE (scripts/doclint.py; ROADMAP 17.82).
 doclint = "python3 scripts/doclint.py"
+# Floating-point flag policy: exact toolchain pins, pinned target, no fast-math / -O (scripts/flag_policy.py; ROADMAP 17.84).
+flag-policy = "python3 scripts/flag_policy.py"
 # Engine modules nothing in the engine or examples imports, gated by scripts/orphans_allow.txt (ROADMAP 17.82).
 orphans = "python3 scripts/orphans.py"
 # Seed sweeps over randomised tests via LUDENS_SEED (scripts/fuzz.py; ROADMAP 17.82).
@@ -61,6 +63,7 @@ repro-probe = "python3 scripts/repro_probe.py"
 icount = "python3 scripts/icount.py"
 # Which CPU target / optimisation factors change simulation bits (scripts/fp_probe.py; ROADMAP 17.76).
 fp-probe = "python3 scripts/fp_probe.py"
+alloc-probe = "python3 scripts/alloc_probe.py"
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.

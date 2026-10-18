@@ -348,6 +348,8 @@ struct GpuContactSolver(Movable):
             raise Error("GpuContactSolver: joints, drives, soft bodies, CCD and gravity zones are not supported")
         if sc.bset.any_contact_model or cfg.friction_cone != FRICTION_PYRAMID or cfg.contact_solver != 0 or len(sc.material_hz) > 0:
             raise Error("GpuContactSolver: static, rolling and spin friction, per-body and per-material softness, adhesion, the elliptic cone and the block solver are not supported (17.50)")
+        if cfg.max_mass_ratio > 0:
+            raise Error("GpuContactSolver: max_mass_ratio is not supported (17.19; the device path is deferred to layer 7)")
         var h = dt / Real(cfg.substeps)
         var omega = Real(6.283185307179586) * cfg.hertz
         var cc = h * omega * (2 * cfg.zeta + h * omega)

@@ -13,6 +13,10 @@ differences (2·NP rollouts), forward mode (NP `DualReal` rollouts, or NP/4
 `DualBatch` ones) and reverse mode (one `RevReal` rollout plus one tape
 sweep). Reverse is flat in NP by construction; the interesting number is
 where its taping overhead is paid back.
+
+Batch x reverse (17.84): d x_final / d vx0 for 8 one-sphere worlds (30
+frames), as 8 `RevReal` rollouts + sweeps vs ONE `RevBatch[8]` rollout and
+sweep (lane k = world k, bit for bit; `test_rev_batch`).
 """
 
 from std.benchmark import keep
@@ -21,7 +25,9 @@ from harness.bench import BenchTable
 from geometry.vec import Real, Vec3
 from geometry.field import (
     SolverField, RealF, DualReal, DualBatch, RevReal, BatchReal, Tape, rev_seed,
+    RevBatch, BatchTape, rev_batch_seed,
 )
+from geometry.vec import WorldType
 from physics.diffsolver import SphereWorld, V3, step_worlds_parallel
 
 comptime DT: Real = 1.0 / 60.0
@@ -176,6 +182,35 @@ def _grad_rows(mut t: BenchTable, np: Int) raises:
     t.add("reverse RevReal (1 rollout + sweep)", np, "gradient", b4, 1)
 
 
+def _rev_batch_rows(mut t: BenchTable):
+    var b1 = Int.MAX
+    for _ in range(REPS):
+        var t0 = Int(perf_counter_ns())
+        for k in range(8):
+            var tape = Tape()
+            var v = rev_seed(tape, Real(0.5) * Real(k))
+            var w = _world[RevReal](v)
+            for _ in range(FRAMES):
+                w.step(DT)
+            keep(tape.grad(w.bodies[0].pos.x.idx)[v.idx])
+        b1 = min(b1, Int(perf_counter_ns()) - t0)
+    t.add("8 x RevReal (8 rollouts + 8 sweeps)", 8, "world-gradient", b1, 8)
+    var b2 = Int.MAX
+    for _ in range(REPS):
+        var t0 = Int(perf_counter_ns())
+        var tape = BatchTape[8]()
+        var lanes = SIMD[WorldType, 8](0)
+        for k in range(8):
+            lanes[k] = Real(0.5) * Real(k)
+        var v = rev_batch_seed(tape, lanes)
+        var w = _world[RevBatch[8]](v)
+        for _ in range(FRAMES):
+            w.step(DT)
+        keep(tape.grad(w.bodies[0].pos.x.idx)[v.idx][7])
+        b2 = min(b2, Int(perf_counter_ns()) - t0)
+    t.add("RevBatch[8] (1 rollout + 1 sweep)", 8, "world-gradient", b2, 8)
+
+
 def main() raises:
     var t = BenchTable("Batched worlds: scalar vs SIMD lanes vs lanes x cores (30 frames, 1 sphere/world)")
     for n in [1, 8, 64, 512, 4096]:
@@ -186,3 +221,7 @@ def main() raises:
     for np in [1, 2, 4, 8, 16]:
         _grad_rows(g, np)
     g.print_report()
+    print("")
+    var rb = BenchTable("Batch x reverse: 8 worlds' gradients (30 frames, 1 sphere/world, 17.84)")
+    _rev_batch_rows(rb)
+    rb.print_report()

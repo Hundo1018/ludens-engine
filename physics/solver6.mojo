@@ -40,6 +40,7 @@ deferred (e = 0 scenes).
 
 from std.math import sqrt, isfinite, sin, cos
 from std.os import abort
+from std.time import perf_counter_ns
 from std.collections import Dict
 from scheduler.dispatch import Dispatch, Task, dispatch_for
 from geometry.vec import Real, Vec3, WorldType, dot, cross, tangent_basis
@@ -96,7 +97,7 @@ from diag.counters import (
     NARROWPHASE_PAIRS, CONTACT_MANIFOLDS, CONTACT_POINTS, VELOCITY_CLAMPED, TRACE_DROPPED, CONTACT_DROPPED,
 )
 from diag.log import LogRing, log
-from diag.level import Level, DEBUG_DRAW_ON
+from diag.level import Level, DEBUG_DRAW_ON, TRACE_ON
 from diag.trace import TraceBuffer
 from diag.draw import DrawQueue
 from .rigid6 import Body6, QuatBody6, Inertia3, Pose6
@@ -123,6 +124,7 @@ from .contact6 import (
 )
 from .joints6 import (
     Joint6,
+    _scaled_linear,
     JOINT_BALL,
     JOINT_DISTANCE,
     JOINT_HINGE,
@@ -893,6 +895,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             raise Error("ContactScene6.set_adhesion: force must be >= 0")
         self.bset.adhesion[i] = force
         self.bset.any_contact_model = True
+
+    def set_mesh_active_angle(mut self, id: BodyId, angle: Real) raises:
+        """Ghost-contact guard of a mesh or heightfield body (ROADMAP 17.45 /
+        17.19): edges between triangles whose normals differ by at most
+        `angle` radians become inactive, so a box sliding over a flat seam
+        keeps the face normal instead of hitting the edge. Off by default
+        (every edge active): on a flat 0.25 m heightfield a 0.8 m box then
+        slides 0.099 m where it should slide 0.408 m (`test_mesh_reduce`)."""
+        var i = self._check_id(id, "set_mesh_active_angle")
+        self.colliders.set_active_angle(i, angle)
 
     def set_triangle_materials(mut self, id: BodyId, ids: List[Int]) raises:
         """ROADMAP 17.53: per-triangle surface material ids (0 .. 65535) of a
@@ -1926,10 +1938,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         candidates the last two fan out through `dispatch`
         (`physics.collide_par`), keeping the candidate order, so the result
         is bit-identical to `par=False`."""
-        var raws = List[RawContact]()
+        # reserved from last step's contact count (ROADMAP 17.79): these
+        # lists were rebuilt from empty every step, ~9 reallocations each
+        var est = len(self.cache) + 8
+        var raws = List[RawContact](capacity=est)
         var sraws = List[RawContact]()
-        var ci = List[Int]()
-        var cj = List[Int]()
+        var ci = List[Int](capacity=2 * est)
+        var cj = List[Int](capacity=2 * est)
         self.trace.begin("broadphase")
         var n = len(self.bset.bodies)
         # ROADMAP 17.5: two bodies held together by a live weld do not collide
@@ -1952,8 +1967,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # though the `__init__` comptime assert guarantees they are
             # equal (mojo_1.1_migration.md Gotcha #2) -- `rebind` bridges
             # the two syntactically-distinct, semantically-equal types.
-            var boxes = List[AABB[Self.BP.dim]]()
+            var boxes = List[AABB[Self.BP.dim]](capacity=n)
+            var any_removed = len(self.bset.free) > 0
             for i in range(n):
+                if any_removed and self.bset.is_removed(i):
+                    # never inserted (`removed` below); no box to compute
+                    var z = Vec3(0, 0, 0, 0)
+                    boxes.append(rebind[AABB[Self.BP.dim]](AABB[3](z, z)))
+                    continue
                 boxes.append(
                     rebind[AABB[Self.BP.dim]](
                         self.colliders.fat_aabb(
@@ -1961,7 +1982,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                         )
                     )
                 )
-            var bp_pairs = List[Pair]()
+            var bp_pairs = List[Pair](capacity=2 * est)
+            # removed slots stay out of the broadphase (ROADMAP 17.79); only
+            # built when a slot has been removed, so other scenes are untouched
+            var removed = List[Bool]()
+            if len(self.bset.free) > 0:
+                removed = List[Bool](length=n, fill=False)
+                for i in range(n):
+                    removed[i] = self.bset.is_removed(i)
             # `collect_bp_pairs` still wants a plain `List[Bool]` of which
             # bodies are static (it lives in `collision`, which cannot
             # import `physics.body_set`'s `MOTION_*` constants -- physics is
@@ -1988,9 +2016,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # should never actually raise.
             try:
                 if par and n >= BP_PAR_MIN:
-                    pairs_parallel[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, workers, dispatch)
+                    pairs_parallel[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, workers, dispatch, removed)
                 else:
-                    collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs)
+                    collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, removed)
             except e:
                 abort("BroadPhase raised inside ContactScene6: " + String(e))
             for c in range(len(bp_pairs)):
@@ -2086,7 +2114,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if fan:
             pairs = prep_parallel(self.bset, self.colliders, self.cache, cidx, raws, warm, workers, dispatch, margin_base / SPEC_BASE)
         else:
-            pairs = List[ContactConstraint]()
+            pairs = List[ContactConstraint](capacity=len(raws))
             for c in range(len(raws)):
                 pairs.append(make_contact(self.bset, self.colliders, self.cache, cidx, raws[c], warm, margin_base / SPEC_BASE))
         if len(self.material_mu) > 0 or len(self.material_hz) > 0:
@@ -2483,6 +2511,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         collect this frame's contacts, refresh islands, colour. On a colour
         overflow `clo`/`chi` come back empty and the pairs uncoloured; a
         colour-parallel solver must then refuse the frame."""
+        self.colliders.reduce_mesh = cfg.reduce_mesh_contacts
         var pairs = self._collect_pairs(True, dt, cfg.broadphase, cfg.margin_base)
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
         _ = self._color_pairs(pairs, clo, chi)
@@ -2535,6 +2564,82 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         cfg.broadphase = broadphase
         cfg.workers = workers
         self.step(dt, gravity, cfg)
+
+    def _contact_mass_scale(mut self, mut pairs: List[ContactConstraint], ratio: Real, impact_speed: Real):
+        """ROADMAP 17.19 `max_mass_ratio`: dynamic bodies joined by a
+        contact or a (core, unbroken) joint form groups (union-find); each
+        body's mass in contact and joint rows is m_c = max(m, heaviest in
+        its group / ratio) -- the load a body carries comes from the whole
+        stack or chain above it, not only its neighbour. scale = m / m_c.
+        Only touching contacts join groups (a speculative one carries no
+        load: a bullet passing 0.2 m under a 1000 kg box joined its group
+        through one), and a contact closing faster than `impact_speed` (the
+        restitution threshold) does not either: scaling is for carried load, and a
+        0.2 kg bullet that joined a 1000 kg box's group on impact hit as a
+        100 kg one and drove a 1 kg box through the floor (measured,
+        `test_solver_stress`).
+
+        Warm-started impulses were sized for last step's scales. A body
+        whose scale grew (it left a heavy group: the same bullet bouncing
+        off) would take an impulse sized for 100 kg as 0.2 kg -- it reached
+        2e4 m/s -- so a pair's cached impulses shrink by s_old / s_new of
+        its body whose scale grew most; a scale that shrank keeps them
+        (an under-warmed start only converges slower)."""
+        var n = len(self.bset.bodies)
+        var m = List[Real](length=n, fill=0)
+        var parent = List[Int](capacity=n)
+        for i in range(n):
+            parent.append(i)
+            if self.bset.is_dynamic(i):
+                m[i] = Real(1) / self.bset.bodies[i].inv_mass()
+        for ref pr in pairs:
+            if self.bset.is_dynamic(pr.a) and self.bset.is_dynamic(pr.b):
+                var impact = False
+                var touching = False
+                for k in range(pr.m.count):
+                    if pr.vn0[k] < -impact_speed:
+                        impact = True
+                    if pr.m.depths[k] >= 0:
+                        touching = True
+                if touching and not impact:
+                    _uf_union(parent, pr.a, pr.b)
+        for ref jt in self.joints:
+            if _scaled_linear(jt.kind) and self.bset.is_dynamic(jt.a) and self.bset.is_dynamic(jt.b):
+                _uf_union(parent, jt.a, jt.b)
+        var gmax = List[Real](length=n, fill=0)
+        for i in range(n):
+            var r = _uf_find(parent, i)
+            gmax[r] = max(gmax[r], m[i])
+        var prev = self.bset.cscale^
+        self.bset.cscale = List[Real](length=n, fill=1)
+        for i in range(n):
+            var mc = max(m[i], gmax[_uf_find(parent, i)] / ratio)
+            if mc > 0:
+                self.bset.cscale[i] = m[i] / mc
+        for ref pr in pairs:
+            var f = Real(1)
+            for side in range(2):
+                var i = pr.a if side == 0 else pr.b
+                var old = prev[i] if i < len(prev) else Real(1)
+                if self.bset.cscale[i] > old:
+                    f = min(f, old / self.bset.cscale[i])
+            if f < 1:
+                for k in range(pr.m.count):
+                    pr.acc[k] *= f
+                    pr.acc_t1[k] *= f
+                    pr.acc_t2[k] *= f
+        for ref jt in self.joints:
+            if not _scaled_linear(jt.kind):
+                continue
+            var f = Real(1)
+            for side in range(2):
+                var i = jt.a if side == 0 else jt.b
+                var old = prev[i] if i < len(prev) else Real(1)
+                if self.bset.cscale[i] > old:
+                    f = min(f, old / self.bset.cscale[i])
+            if f < 1:
+                jt.acc = jt.acc * f
+                jt.acc_ang = jt.acc_ang * f
 
     def step(mut self, dt: Real, gravity: Vec3, cfg: SolverConfig):
         """`_step_impl` (the sub-stepped soft step, every path) wrapped by the
@@ -2598,6 +2703,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.impulse_estimator = cfg.impulse_estimator
         self.bset.cone = cfg.friction_cone
         self.bset.block = cfg.contact_solver == CONTACT_BLOCK
+        self.colliders.reduce_mesh = cfg.reduce_mesh_contacts
         self._reset_joint_sums()
         debug_assert(cfg.substeps >= 1, "ContactScene6.step: cfg.substeps must be >= 1")
         debug_assert(cfg.iters >= 1, "ContactScene6.step: cfg.iters must be >= 1")
@@ -2635,10 +2741,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             while len(pairs) > cfg.max_contacts:
                 _ = pairs.pop()
         self.trace.end()
+        self.bset.mass_ratio = cfg.max_mass_ratio
+        if cfg.max_mass_ratio > 0:
+            self._contact_mass_scale(pairs, cfg.max_mass_ratio, cfg.restitution_threshold)
         # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
         self.trace.sample("contact_manifolds", len(pairs))
         self.trace.sample("bodies", len(self.bset.bodies))
+        self.trace.begin("islands")
         refresh_islands(self.bset, self._constraint_edges(pairs), len(pairs))
+        self.trace.end()
         # graph coloring (colored=True): greedy smallest-free-color over the
         # DYNAMIC-body adjacency (a shared static must not chain colors, or
         # one ground plane serialises the whole scene); pairs reordered into
@@ -2985,6 +3096,8 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
     var rest_threshold: Real
     var ccd: Bool
     var ccd_all: Bool
+    var times: Pointer[List[Int], MutUntrackedOrigin]  # [2k] start, [2k + 1] end per island (17.80 (c))
+    var timed: Bool
 
     def __init__(
         out self,
@@ -2997,9 +3110,12 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
         mut mstart: List[Int],
         gravity: Vec3, h: Real, substeps: Int, iters: Int, bias_rate: Real,
         mass_scale: Real, impulse_scale: Real, mu: Real, rest_threshold: Real,
+        mut times: List[Int], timed: Bool,
         ccd: Bool = False, ccd_all: Bool = False,
     ):
         self.scene = Pointer(to=scene).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.times = Pointer(to=times).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.timed = timed
         self.ccd = ccd
         self.ccd_all = ccd_all
         self.pairs2 = Pointer(to=pairs2).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -3019,12 +3135,16 @@ struct _IslandTask[BB: Body6, PBP: BroadPhase](Task):
         self.rest_threshold = rest_threshold
 
     def run(self, k: Int):
+        if self.timed:
+            self.times[][2 * k] = Int(perf_counter_ns())
         self.scene[]._solve_island(
             self.pairs2[], self.plo[][k], self.phi[][k], self.labels[][k], self.gravity, self.h,
             self.substeps, self.iters, self.bias_rate, self.mass_scale, self.impulse_scale, self.mu,
             self.members[], self.mstart[][k], self.mstart[][k + 1], self.rest_threshold,
             self.ccd, self.ccd_all,
         )
+        if self.timed:
+            self.times[][2 * k + 1] = Int(perf_counter_ns())
 
 
 def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
@@ -3055,11 +3175,25 @@ def _solve_islands_parallel[BB: Body6, PBP: BroadPhase](
     the result is bit-identical to serial whatever runs the items
     (`test_islands_par`, `test_dispatch`). `workers <= 0` lets the runtime
     pick the width of the default pool."""
+    # ROADMAP 17.80 (c): with tracing on, each island records its own
+    # start / end (disjoint slots) and the islands become worker tracks
+    var timed = False
+    comptime if TRACE_ON:
+        timed = scene.trace.enabled
+    var times = List[Int](length=2 * len(labels) if timed else 0, fill=0)
     var task = _IslandTask[BB, PBP](
         scene, pairs2, plo, phi, labels, members, mstart, gravity, h, substeps,
-        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold, ccd, ccd_all,
+        iters, bias_rate, mass_scale, impulse_scale, mu, rest_threshold, times, timed, ccd, ccd_all,
     )
     dispatch_for(dispatch, task, len(labels), workers)
+    if timed:
+        var t0 = List[Int](capacity=len(labels))
+        var t1 = List[Int](capacity=len(labels))
+        for k in range(len(labels)):
+            t0.append(times[2 * k])
+            t1.append(times[2 * k + 1])
+        _ = scene.trace.add_lanes("island", t0, t1)
+    _ = len(times)  # keep `times` alive past the fan-out (untracked pointer)
 
 
 def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
@@ -3918,3 +4052,22 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         sc.bset.ccd_mode[bi] = UInt8(md)
         if md == CCD_BULLET:
             sc.bset.any_bullet = True
+
+
+def _uf_find(mut parent: List[Int], i: Int) -> Int:
+    var r = i
+    while parent[r] != r:
+        r = parent[r]
+    var k = i
+    while parent[k] != r:
+        var nx = parent[k]
+        parent[k] = r
+        k = nx
+    return r
+
+
+def _uf_union(mut parent: List[Int], a: Int, b: Int):
+    var ra = _uf_find(parent, a)
+    var rb = _uf_find(parent, b)
+    if ra != rb:
+        parent[max(ra, rb)] = min(ra, rb)

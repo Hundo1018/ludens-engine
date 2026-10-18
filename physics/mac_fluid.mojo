@@ -11,7 +11,10 @@ cell centres. One `step(dt)`:
   4. project: solve -lap p = -div u / dt with `numerics.pcg` through a
      matrix-free 5-point operator (the periodic Laplacian is singular: the
      right-hand side's mean is removed, which CG then never re-enters),
-     u -= dt grad p.
+     u -= dt grad p. `use_multigrid()` swaps Jacobi PCG for
+     multigrid-preconditioned CG (`numerics.multigrid`, n a power of two):
+     a near-constant iteration count instead of one growing with n
+     (`bench_grid_fluid`, `test_mac_multigrid`).
 
 Lives in `physics`, not `fluid`: `fluid` and `numerics` share a layer and
 may not import each other (ROADMAP 17.60's layering note). Semi-Lagrangian
@@ -23,6 +26,7 @@ from std.math import floor, sqrt
 from geometry.vec import Real
 from numerics.sparse import LinearOperator
 from numerics.cg import pcg, CgResult
+from numerics.multigrid import PeriodicPoissonMG, pcg_mg
 
 
 struct _NegLaplacian(LinearOperator, Movable):
@@ -61,6 +65,7 @@ struct MacFluid2(Movable):
     var v: List[Real]  # [j * n + i] at ((i + 1/2) dx, j dx)
     var p: List[Real]  # last pressure (warm start), cell centres
     var last: CgResult
+    var mg: Optional[PeriodicPoissonMG]  # set by use_multigrid
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -74,6 +79,11 @@ struct MacFluid2(Movable):
         self.v = List[Real](length=n * n, fill=0)
         self.p = List[Real](length=n * n, fill=0)
         self.last = CgResult(True, False, 0, 0)
+        self.mg = None
+
+    def use_multigrid(mut self) raises:
+        """Project with MGPCG from now on; raises unless n is a power of two."""
+        self.mg = PeriodicPoissonMG(self.n)
 
     def _w(self, i: Int) -> Int:
         return ((i % self.n) + self.n) % self.n
@@ -163,7 +173,11 @@ struct MacFluid2(Movable):
         for k in range(n * n):
             rhs[k] = Real(Float64(rhs[k]) - mean)
         var op = _NegLaplacian(n)
-        var r = pcg(op, rhs, self.p, tol, 4 * n * n)
+        var r: CgResult
+        if self.mg:
+            r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)
+        else:
+            r = pcg(op, rhs, self.p, tol, 4 * n * n)
         for j in range(n):
             var jm = (j + n - 1) % n
             for i in range(n):

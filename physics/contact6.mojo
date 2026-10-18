@@ -134,6 +134,15 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.soft_zeta = copy.soft_zeta
 
 
+@always_inline
+def _cs[B: Body6](bset: BodySet[B], i: Int) -> Real:
+    """Contact mass scale of body i (`SolverConfig.max_mass_ratio`, 17.19):
+    its inverse mass and inertia in contact rows are multiplied by this
+    (<= 1). 1 when the option is off; x * 1 is exact, so an unscaled step
+    is bit-identical to one without the option."""
+    return bset.cscale[i] if bset.mass_ratio > 0 else Real(1)
+
+
 def contact_island[B: Body6](bset: BodySet[B], pr: ContactConstraint) -> Int:
     """The island a contact belongs to: its dynamic side's label."""
     return bset.island[pr.a] if bset.is_dynamic(pr.a) else bset.island[pr.b]
@@ -487,11 +496,11 @@ def warm_start_contacts[B: Body6](
             )
             if bset.is_dynamic(pr.a):
                 bset.bodies[pr.a].apply_impulse(
-                    -j, anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
+                    -j * _cs(bset, pr.a), anchor_world(bset, pr.a, pr.ra[k], pr.oa[k], pr.ea, n)
                 )
             if bset.is_dynamic(pr.b):
                 bset.bodies[pr.b].apply_impulse(
-                    j, anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
+                    j * _cs(bset, pr.b), anchor_world(bset, pr.b, pr.rb[k], pr.ob[k], pr.eb, -n)
                 )
         if bset.any_contact_model:
             var l = pr.roll_acc + n * pr.spin_acc
@@ -537,6 +546,8 @@ def solve_point[B: Body6](
         kb = bset.bodies[ib].inv_mass() + bset.bodies[ib].angular_factor(
             p - bset.bodies[ib].position(), n
         )
+    ka *= _cs(bset, ia)
+    kb *= _cs(bset, ib)
     var denom = ka + kb
     if denom <= 0:
         return acc
@@ -548,9 +559,9 @@ def solve_point[B: Body6](
         return acc
     var j = n * dl
     if bset.is_dynamic(ia):
-        bset.bodies[ia].apply_impulse(-j, p)
+        bset.bodies[ia].apply_impulse(-j * _cs(bset, ia), p)
     if bset.is_dynamic(ib):
-        bset.bodies[ib].apply_impulse(j, p)
+        bset.bodies[ib].apply_impulse(j * _cs(bset, ib), p)
     return new_acc
 
 
@@ -694,7 +705,7 @@ def solve_contact[B: Body6](
     # ROADMAP 17.50 block solver: all of a manifold's normal impulses at
     # once (a small LCP), then friction per point; one point, adhesion or
     # a singular block stays on the per-point Gauss-Seidel.
-    var blk = bset.block and pr.m.count > 1 and adh == 0
+    var blk = bset.block and pr.m.count > 1 and adh == 0 and bset.mass_ratio <= 0
     if blk:
         blk = _block_normal(bset, pr, n, h, p_bias, p_ms, use_bias, max_push)
     for k in range(pr.m.count):
@@ -720,6 +731,8 @@ def solve_contact[B: Body6](
                 kb = bset.bodies[pr.b].inv_mass() + bset.bodies[
                     pr.b
                 ].angular_factor(pwb - bset.bodies[pr.b].position(), n)
+            ka *= _cs(bset, pr.a)
+            kb *= _cs(bset, pr.b)
             var denom = ka + kb
             if denom <= 0:
                 continue
@@ -745,9 +758,9 @@ def solve_contact[B: Body6](
             if dl != 0:
                 var j = n * dl
                 if bset.is_dynamic(pr.a):
-                    bset.bodies[pr.a].apply_impulse(-j, pwa)
+                    bset.bodies[pr.a].apply_impulse(-j * _cs(bset, pr.a), pwa)
                 if bset.is_dynamic(pr.b):
-                    bset.bodies[pr.b].apply_impulse(j, pwb)
+                    bset.bodies[pr.b].apply_impulse(j * _cs(bset, pr.b), pwb)
         # Coulomb friction: tangent impulses clamped to pair_mu * lambda_n.
         var tb = tangent_basis(n)
         # an adhesive point's normal impulse may be negative; it gives no grip
@@ -781,6 +794,8 @@ def solve_contact[B: Body6](
                 ].angular_factor(
                     pwb - bset.bodies[pr.b].position(), t
                 )
+            kat *= _cs(bset, pr.a)
+            kbt *= _cs(bset, pr.b)
             var dent = kat + kbt
             if dent <= 0:
                 continue
@@ -803,9 +818,9 @@ def solve_contact[B: Body6](
             if dtl != 0:
                 var jt = t * dtl
                 if bset.is_dynamic(pr.a):
-                    bset.bodies[pr.a].apply_impulse(-jt, pwa)
+                    bset.bodies[pr.a].apply_impulse(-jt * _cs(bset, pr.a), pwa)
                 if bset.is_dynamic(pr.b):
-                    bset.bodies[pr.b].apply_impulse(jt, pwb)
+                    bset.bodies[pr.b].apply_impulse(jt * _cs(bset, pr.b), pwb)
         if disk:
             var t1 = pr.acc_t1[k]
             var t2 = pr.acc_t2[k]
@@ -816,9 +831,9 @@ def solve_contact[B: Body6](
                 pr.acc_t2[k] = t2 * sc
                 var jt = tb[0] * (t1 * sc - t1) + tb[1] * (t2 * sc - t2)
                 if bset.is_dynamic(pr.a):
-                    bset.bodies[pr.a].apply_impulse(-jt, pwa)
+                    bset.bodies[pr.a].apply_impulse(-jt * _cs(bset, pr.a), pwa)
                 if bset.is_dynamic(pr.b):
-                    bset.bodies[pr.b].apply_impulse(jt, pwb)
+                    bset.bodies[pr.b].apply_impulse(jt * _cs(bset, pr.b), pwb)
     if model:
         _solve_rolling(bset, pr, n)
     pairs[c] = pr
@@ -1101,6 +1116,8 @@ def restitution_pass[B: Body6](
                     kb = bset.bodies[pr.b].inv_mass() + bset.bodies[
                         pr.b
                     ].angular_factor(pwb - bset.bodies[pr.b].position(), n)
+                ka *= _cs(bset, pr.a)
+                kb *= _cs(bset, pr.b)
                 var denom = ka + kb
                 if denom <= 0:
                     continue
@@ -1112,9 +1129,9 @@ def restitution_pass[B: Body6](
                 if dl != 0:
                     var j = n * dl
                     if bset.is_dynamic(pr.a):
-                        bset.bodies[pr.a].apply_impulse(-j, pwa)
+                        bset.bodies[pr.a].apply_impulse(-j * _cs(bset, pr.a), pwa)
                     if bset.is_dynamic(pr.b):
-                        bset.bodies[pr.b].apply_impulse(j, pwb)
+                        bset.bodies[pr.b].apply_impulse(j * _cs(bset, pr.b), pwb)
             pairs[c] = pr
 
 

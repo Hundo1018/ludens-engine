@@ -4,7 +4,9 @@ Each differentiable test used to carry its own finite difference (`_fd` in
 `test_adjoint`, `test_gmv_ad`, ...), with its own step and tolerance. This
 module is the one implementation: a problem implements `GradProblem`, and
 `gradcheck` compares its analytic gradient with central differences at a
-sweep of step sizes.
+sweep of step sizes. `test_adjoint`, `test_diffsim`, `test_diffrigid` and
+`test_gmv_ad` use it; the first three hash their contact steps
+(`DiffState2.schedule`, `RigidState.schedule`).
 
 Why a sweep: truncation error falls as h^2 and rounding error rises as eps/h,
 so a single h either hides a wrong gradient (too large) or reports noise as

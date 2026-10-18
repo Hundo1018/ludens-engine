@@ -1,6 +1,6 @@
 # tier: component
-"""GMRES, sparse Cholesky and IC(0)-preconditioned CG (ROADMAP 17.84,
-`numerics.gmres`, `numerics.cholesky`).
+"""GMRES, MINRES, sparse Cholesky and IC(0)-preconditioned CG (ROADMAP 17.84,
+`numerics.gmres`, `numerics.minres`, `numerics.cholesky`).
 
   1. Ordinary: on 2D Poisson (32 x 32 grid, n = 1024) the sparse Cholesky
      solve matches the manufactured solution (max error printed, < 1e-4);
@@ -11,11 +11,16 @@
      ordering (nnz printed), both solve it. Upwind convection-diffusion
      (rows -2, 3.1, -1; n = 1024; `bench_numerics_deep`'s solution
      1 + 0.25 (i mod 7)), where BiCGStab with Jacobi diverges (printed):
-     GMRES(30) with and without Jacobi converges, error < 1e-3.
+     GMRES(30) with and without Jacobi converges, error < 1e-3. A
+     saddle-point system [[K, B^T], [B, 0]] (K the 16 x 16 Poisson block,
+     B 32 constraint rows x_8k - x_8k+3; n = 288, symmetric indefinite):
+     CG does not converge (printed), MINRES with and without |diag|
+     preconditioning does, error < 1e-3, and needs no more steps than
+     GMRES(30) restarted (printed).
   3. Extreme: an indefinite matrix (one negative diagonal) and a singular
      one (pure Neumann Laplacian) make `factor` raise; a non-permutation
-     raises; b = 0 returns x = 0 converged in 0 iterations (GMRES, PCG);
-     n = 1 works.
+     raises; b = 0 returns x = 0 converged in 0 iterations (GMRES, PCG,
+     MINRES); n = 1 works (MINRES on the negative 1 x 1 system -2 x = 4).
 """
 
 from std.math import sin
@@ -25,6 +30,7 @@ from numerics.sparse import CsrMatrix
 from numerics.cg import cg
 from numerics.bicgstab import bicgstab
 from numerics.gmres import gmres
+from numerics.minres import minres
 from numerics.cholesky import SparseCholesky, IncompleteCholesky, pcg_ic0, rcm_order
 
 
@@ -76,6 +82,32 @@ def _convdiff(n: Int) -> CsrMatrix:
             c.append(i + 1)
             v.append(-1)
     return CsrMatrix.from_triplets(n, r, c, v)
+
+
+def _saddle(m: Int, nc: Int) -> CsrMatrix:
+    """[[K, B^T], [B, 0]]: K the m x m Poisson block, row k of B is
+    x_8k - x_8k+3."""
+    var k = _poisson2d(m, _ident(m * m))
+    var r = List[Int]()
+    var c = List[Int]()
+    var v = List[Real]()
+    for i in range(k.n):
+        for q in range(k.row_start[i], k.row_start[i + 1]):
+            r.append(i)
+            c.append(k.col[q])
+            v.append(k.val[q])
+    for j in range(nc):
+        var row = m * m + j
+        for e in range(2):
+            var node = 8 * j + 3 * e
+            var s = Real(1) if e == 0 else Real(-1)
+            r.append(row)
+            c.append(node)
+            v.append(s)
+            r.append(node)
+            c.append(row)
+            v.append(s)
+    return CsrMatrix.from_triplets(m * m + nc, r, c, v)
 
 
 def _xstar(n: Int) -> List[Real]:
@@ -160,6 +192,23 @@ def main() raises:
     print("  convection-diffusion n 1024: GMRES(30)", rg.iters, "steps error", _err(x_g, xc), ";  + Jacobi", rgj.iters, "error", _err(x_gj, xc), ";  BiCGStab + Jacobi converged", rbj.converged, "error", _err(x_bj, xc))
     s.check(rg.converged and rgj.converged and _err(x_g, xc) < 1e-3 and _err(x_gj, xc) < 1e-3, "GMRES converges with and without Jacobi")
 
+    # ---- MINRES on a saddle point --------------------------------------------------------------------------
+    var sp = _saddle(16, 32)
+    var xsp = _xstar(sp.n)
+    var bsp = _rhs(sp, xsp)
+    var x_scg = List[Real](length=sp.n, fill=0)
+    var x_m = List[Real](length=sp.n, fill=0)
+    var x_mj = List[Real](length=sp.n, fill=0)
+    var x_sg = List[Real](length=sp.n, fill=0)
+    var r_scg = cg(sp, bsp, x_scg, 1e-6, 4 * sp.n)
+    var r_m = minres(sp, bsp, x_m, 1e-6)
+    var r_mj = minres(sp, bsp, x_mj, 1e-6, 0, True)
+    var r_sg = gmres(sp, bsp, x_sg, 1e-6, 8 * sp.n, 30, False)
+    print("  saddle point n", sp.n, ": CG converged", r_scg.converged, "error", _err(x_scg, xsp), ";  MINRES", r_m.iters, "steps error", _err(x_m, xsp), "residual", r_m.residual, ";  + |diag|", r_mj.iters, "error", _err(x_mj, xsp), ";  GMRES(30)", r_sg.iters, "steps converged", r_sg.converged)
+    s.check(not r_scg.converged, "CG fails on the saddle point")
+    s.check(r_m.converged and r_mj.converged and _err(x_m, xsp) < 1e-3 and _err(x_mj, xsp) < 1e-3, "MINRES converges with and without preconditioning")
+    s.check(r_m.iters <= r_sg.iters, "MINRES needs no more steps than restarted GMRES(30)")
+
     # ---- extremes -----------------------------------------------------------------------------------------------
     var raised = 0
     var bad = CsrMatrix.from_triplets(2, [0, 1], [0, 1], [1.0, -1.0])
@@ -185,11 +234,16 @@ def main() raises:
     var rz = gmres(a, zero, xz, 1e-6)
     var xz2 = List[Real](length=n, fill=0)
     var rz2 = pcg_ic0(a, ic, zero, xz2, 1e-6)
-    s.check(rz.converged and rz.iters == 0 and rz2.converged and rz2.iters == 0 and _err(xz, zero) == 0, "b = 0: x = 0 in 0 iterations")
+    var xz3 = List[Real](length=n, fill=0)
+    var rz3 = minres(a, zero, xz3, 1e-6)
+    s.check(rz.converged and rz.iters == 0 and rz2.converged and rz2.iters == 0 and rz3.converged and rz3.iters == 0 and _err(xz, zero) == 0 and _err(xz3, zero) == 0, "b = 0: x = 0 in 0 iterations")
     var one = CsrMatrix.from_triplets(1, [0], [0], [4.0])
     var f1 = SparseCholesky()
     f1.factor(one, _ident(1))
     var x1 = List[Real](length=1, fill=0)
     f1.solve([2.0], x1)
-    s.check(x1[0] == 0.5, "n = 1")
+    var neg = CsrMatrix.from_triplets(1, [0], [0], [-2.0])
+    var xm1 = List[Real](length=1, fill=0)
+    var rm1 = minres(neg, [4.0], xm1)
+    s.check(x1[0] == 0.5 and rm1.converged and rm1.iters == 1 and abs(xm1[0] + 2) < 1e-6, "n = 1")
     s.finish()

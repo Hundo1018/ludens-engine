@@ -133,6 +133,7 @@ struct Attributes(Copyable, Movable):
     var cache: List[Int]
     var dirty: List[Bool]
     var next_handle: Int
+    var ov_count: List[Int]  # override modifiers per attribute (17.70 index)
 
     def __init__(out self, n: Int, mode: Int = EVAL_INCREMENTAL):
         self.base = List[Int](length=n, fill=0)
@@ -145,6 +146,7 @@ struct Attributes(Copyable, Movable):
         self.cache = List[Int](length=n, fill=0)
         self.dirty = List[Bool](length=n, fill=True)
         self.next_handle = 1
+        self.ov_count = List[Int](length=n, fill=0)
 
     def set_base(mut self, a: Int, v: Int):
         self.base[a] = v
@@ -163,6 +165,8 @@ struct Attributes(Copyable, Movable):
             self.add_sum[attr] += value
         elif op == OP_MUL:
             self.mul_sum[attr] += value
+        else:
+            self.ov_count[attr] += 1
         self.dirty[attr] = True
         return h
 
@@ -175,12 +179,18 @@ struct Attributes(Copyable, Movable):
                     self.add_sum[m.attr] -= m.value
                 elif m.op == OP_MUL:
                     self.mul_sum[m.attr] -= m.value
+                else:
+                    self.ov_count[m.attr] -= 1
                 self.dirty[m.attr] = True
                 _ = self.mods.pop(i)
                 return True
         return False
 
     def _override(self, a: Int) -> Tuple[Bool, Int]:
+        # index: most attributes carry no override, skip the scan (the
+        # scan, when it runs, keeps the priority / tie order)
+        if self.ov_count[a] == 0:
+            return (False, 0)
         var found = False
         var best_p = 0
         var v = 0
@@ -423,6 +433,8 @@ def actor_from_bytes(b: List[UInt8]) raises -> Actor:
             a.attrs.add_sum[m.attr] += m.value
         elif m.op == OP_MUL:
             a.attrs.mul_sum[m.attr] += m.value
+        else:
+            a.attrs.ov_count[m.attr] += 1
     a.attrs.mods = mods^
     a.attrs.next_handle = nh
     a.tags = UInt64(_get(b, at))

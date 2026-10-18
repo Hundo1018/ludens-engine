@@ -1,4 +1,4 @@
-/* ludens-engine embedding API (ROADMAP 12.1), ABI v0.1.
+/* ludens-engine embedding API (ROADMAP 12.1), ABI v0.5.
  *
  * Build the library with `pixi run capi` -> build/libludens.so.
  * Contract (docs/design/12.1-embedding.md):
@@ -6,8 +6,9 @@
  *     list, return type or meaning; new functions and new status codes may
  *     be added (minor version bump). `tests/test_capi.mojo` checks every
  *     line of embed/abi_v0.txt is still present here verbatim.
- *   - Units: SI (m, kg, s, rad). Right-handed, +Y up for the default
- *     gravity the host passes. Quaternions are x, y, z, w.
+ *   - Units: SI (m, kg, s, rad) unless ld_world_set_unit_scale (0.5) names
+ *     another length unit. Right-handed, +Y up for the default gravity the
+ *     host passes. Quaternions are x, y, z, w.
  *   - Status: >= 0 success (or a count / handle), < 0 an LD_ERR_* code;
  *     ld_world_last_error() gives the message of the latest failure.
  *   - Threads: a world (and a navmesh) is used from one thread at a time;
@@ -128,6 +129,12 @@ int32_t ld_world_raycast_mask(ld_world* w, float ox, float oy, float oz, float d
 int32_t ld_body_set_user(ld_world* w, ld_body b, uint64_t user);
 int32_t ld_body_get_user(ld_world* w, ld_body b, uint64_t* out);
 int64_t ld_world_find_user(ld_world* w, uint64_t user);
+
+/* ---- 0.5 (ROADMAP 17.78): units at the boundary. per_meter host length
+ * units make one meter (100: centimetres); positions, sizes, velocities and
+ * gravity are then all given in host units, and the solver's absolute
+ * length tolerances are rescaled to match. A setting, not saved. */
+int32_t ld_world_set_unit_scale(ld_world* w, float per_meter);
 
 #ifdef __cplusplus
 }

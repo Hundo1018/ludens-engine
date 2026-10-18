@@ -43,7 +43,7 @@ def raises(exc_type, fn):
 # ---------------------------------------------------------------- isolation
 check(not os.path.realpath(ludens.__file__).startswith(FORBIDDEN), "ludens imported from the venv, not the repo: " + ludens.__file__)
 check(os.path.dirname(ludens.library_path) == os.path.dirname(ludens.__file__), "libludens.so loaded from the installed package")
-check(ludens.abi_version() == (0, 4), "abi_version == (0, 4)")
+check(ludens.abi_version() == (0, 5), "abi_version == (0, 5)")
 
 
 # ------------------------------------------------- parity scenario (test_capi)
@@ -321,6 +321,31 @@ with ludens.World() as ua, ludens.World() as ub:
     ua.step_ticks(60)
     ub.step_ticks(60)
     check(pa.state() == pb.state(), "user values do not change the simulation")
+
+
+# ---------------------------------------------------------------- units (ABI 0.5)
+def scaled_scene(w, k):
+    w.add_box((0, -0.5 * k, 0), (20 * k, 0.5 * k, 20 * k), mass=0, static=True)
+    out = []
+    for i in range(4):
+        for j in range(2):
+            out.append(w.add_box(((-3 + 2.0 * i) * k, (0.25 + 0.51 * j) * k, 2 * k), (0.25 * k, 0.25 * k, 0.25 * k), mass=1))
+    return out
+
+
+K = 128.0
+with ludens.World(1.0 / 60.0, (0, -9.8, 0)) as m1, ludens.World(1.0 / 60.0, (0, -9.8 * K, 0)) as mk, ludens.World(1.0 / 60.0, (0, -9.8 * K, 0)) as mn:
+    b1 = scaled_scene(m1, 1.0)
+    bk = scaled_scene(mk, K)
+    bn = scaled_scene(mn, K)
+    mk.set_unit_scale(K)
+    for wv in (m1, mk, mn):
+        wv.step_ticks(120)
+    same = all(tuple(x * K for x in a.state().pos) == tuple(b.state().pos) for a, b in zip(b1, bk))
+    drift = max(abs(a.state().pos[1] * K - b.state().pos[1]) / K for a, b in zip(b1, bn))
+    check(same, "a world in units of 1/128 m with set_unit_scale(128) is the metre world x 128, bit for bit")
+    check(drift > 0, "without set_unit_scale the same world differs (by %.2g m)" % drift)
+    check(raises(ludens.LudensError, lambda: mk.set_unit_scale(0)) is not None, "set_unit_scale(0) is rejected")
 
 
 # ---------------------------------------------------------------- isolation again

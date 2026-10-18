@@ -201,6 +201,7 @@ struct _BpTask[BP: BroadPhase](Task):
     var boxes: Pointer[List[AABB[Self.BP.dim]], MutUntrackedOrigin]
     var statics: Pointer[List[Bool], MutUntrackedOrigin]
     var outs: Pointer[List[List[Pair]], MutUntrackedOrigin]
+    var skip: Pointer[List[Bool], MutUntrackedOrigin]
     var chunk: Int
 
     def __init__(
@@ -209,8 +210,10 @@ struct _BpTask[BP: BroadPhase](Task):
         mut boxes: List[AABB[Self.BP.dim]],
         mut statics: List[Bool],
         mut outs: List[List[Pair]],
+        mut skip: List[Bool],
         chunk: Int,
     ):
+        self.skip = Pointer(to=skip).unsafe_origin_cast[MutUntrackedOrigin]()
         self.bp = Pointer(to=bp).unsafe_origin_cast[MutUntrackedOrigin]()
         self.boxes = Pointer(to=boxes).unsafe_origin_cast[MutUntrackedOrigin]()
         self.statics = Pointer(to=statics).unsafe_origin_cast[MutUntrackedOrigin]()
@@ -223,6 +226,8 @@ struct _BpTask[BP: BroadPhase](Task):
         var o = List[Pair]()
         var cands = List[Int]()
         for i in range(lo, hi):
+            if i < len(self.skip[]) and self.skip[][i]:
+                continue
             cands.clear()
             try:
                 self.bp[].query_region(self.boxes[][i], cands)
@@ -247,6 +252,7 @@ def pairs_parallel[BP: BroadPhase](
     mut out: List[Pair],
     workers: Int,
     dispatch: Dispatch,
+    mut skip: List[Bool],
 ) raises:
     """ROADMAP 17.54: `collect_bp_pairs` with the candidate query fanned out.
     `bp` is rebuilt from `boxes` (proxy = index), then each item's box is
@@ -259,6 +265,8 @@ def pairs_parallel[BP: BroadPhase](
     var n = len(boxes)
     var items = List[BoxProxy[BP.dim]](capacity=n)
     for i in range(n):
+        if i < len(skip) and skip[i]:
+            continue  # removed slot (`collect_bp_pairs`' `skip`)
         items.append(BoxProxy[BP.dim](i, boxes[i]))
     bp.rebuild(items)
     if n == 0:
@@ -268,7 +276,7 @@ def pairs_parallel[BP: BroadPhase](
     var outs = List[List[Pair]](capacity=nchunk)
     for _ in range(nchunk):
         outs.append(List[Pair]())
-    var task = _BpTask[BP](bp, boxes, statics, outs, chunk)
+    var task = _BpTask[BP](bp, boxes, statics, outs, skip, chunk)
     dispatch_for(dispatch, task, nchunk, workers)
     for k in range(nchunk):
         for c in range(len(outs[k])):

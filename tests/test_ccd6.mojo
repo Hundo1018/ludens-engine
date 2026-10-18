@@ -6,6 +6,8 @@ from collision.manifold import Axes3
 from collision.toi import swept_box_toi
 from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
+from physics.solver_config import SolverConfig
+from physics.ccd6 import CCD_BULLET
 
 comptime DT: Real = 1.0 / 60.0
 
@@ -220,4 +222,23 @@ def main() raises:
     s.check(abs(y2 - 0.25) < 0.005, "swept: rest height unchanged")
     s.almost(y2, y, "swept: parity with speculative-only rest height", 1e-6)
 
+    # Touching at t = 0 (ROADMAP 17.19): a bullet resting against a wall
+    # and sliding along it, or leaving it, is no hit; moving deeper is.
+    var ia = _id_axes()
+    var touch = Vec3(0.3, 0, 0, 0)  # 0.25 + 0.05: face to face on x
+    var slide = swept_box_toi(Vec3(0, 0, 0, 0), ia, Vec3(0.25, 1, 0.25, 0), touch, ia, Vec3(0.05, 0.05, 0.05, 0), Vec3(0, -0.2, 0, 0))
+    var leave = swept_box_toi(Vec3(0, 0, 0, 0), ia, Vec3(0.25, 1, 0.25, 0), touch, ia, Vec3(0.05, 0.05, 0.05, 0), Vec3(0.2, 0, 0, 0))
+    var into = swept_box_toi(Vec3(0, 0, 0, 0), ia, Vec3(0.25, 1, 0.25, 0), touch, ia, Vec3(0.05, 0.05, 0.05, 0), Vec3(-0.2, 0, 0, 0))
+    print("touching at t=0: slide hit", slide.hit, " leave hit", leave.hit, " into hit", into.hit, "t", into.t)
+    s.check(not slide.hit and not leave.hit and into.hit and into.t == 0, "touching: sliding or leaving is no hit, moving deeper is t = 0")
+    var wall = ContactScene6[QuatBody6]()
+    _ = wall.add(QuatBody6.at_rest(Vec3(0, -0.5, 0, 0), Inertia3.box(1, 20, 0.5, 20)), Vec3(20, 0.5, 20, 0), True)
+    _ = wall.add(QuatBody6.at_rest(Vec3(0, 1, 0, 0), Inertia3.box(1, 0.25, 1, 0.25)), Vec3(0.25, 1, 0.25, 0), True)
+    var bl = wall.add(QuatBody6.at_rest(Vec3(-0.3, 1.5, 0, 0), Inertia3.box(0.2, 0.05, 0.05, 0.05)), Vec3(0.05, 0.05, 0.05, 0), False)
+    wall.set_ccd_mode(bl, CCD_BULLET)
+    var wcfg = SolverConfig()
+    for _ in range(60):
+        wall.step(DT, Vec3(0, -9.8, 0, 0), wcfg)
+    print("bullet released touching a wall, after 1 s: y", wall.pose(bl).pos[1])
+    s.check(abs(wall.pose(bl).pos[1] - 0.05) < 0.01, "a CCD bullet touching a wall falls to the floor (was frozen at y 1.5)")
     s.finish()

@@ -16,9 +16,11 @@ box, 180 steps of 1/60 s, sleeping on.
   1. Ordinary: s = 1 is bit-identical to the plain config (UnitScale(1) is a
      no-op).
   2. Integration: s = 2^-3, 2^4, 2^7 (an engine in mm-ish and in cm units):
-     the sphere's position / s is bit-identical to the s = 1 run; every
-     body is within 5e-3 (a box is 0.5 wide).
-  3. Extreme: s = 2^-7 and 2^10, same bounds; and the control -- the s = 2^7
+     every body's position / s is bit-identical to the s = 1 run. (Until
+     ROADMAP 17.19 the boxes and the capsule drifted by up to 3.1e-5: box
+     axes were taken as act(unit) - act(0), rounding against the position,
+     and two manifold tolerances were absolute lengths.)
+  3. Extreme: s = 2^-7 and 2^10, same; and the control -- the s = 2^7
      scene stepped WITHOUT UnitScale deviates by more than 0.1.
 """
 
@@ -101,7 +103,7 @@ def main() raises:
             if ref1[4][c] != got[4][c]:
                 sphere_exact = False
         s.check(sphere_exact, "s = 2^" + String(k) + ": sphere trajectory / s bit-identical to s = 1")
-        s.check(w < 5e-3, "s = 2^" + String(k) + ": every body within 5e-3 of the s = 1 trajectory")
+        s.check(w == 0, "s = 2^" + String(k) + ": every body's trajectory / s bit-identical to s = 1")
 
     # The control: the same scaled scene WITHOUT UnitScale must deviate,
     # otherwise the test cannot tell a scaled tolerance from an unused one.

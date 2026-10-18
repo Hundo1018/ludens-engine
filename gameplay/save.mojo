@@ -88,6 +88,13 @@ struct SaveWriter(Movable):
         self.names.append(section)
         self.blobs.append(b^)
 
+    def add_raw(mut self, section: String, data: List[UInt8]):
+        """A section of bytes the caller encodes itself -- e.g. host-defined
+        components (`ecs.host_components.HostComponents.to_bytes`, ROADMAP
+        17.78), which carry their own names and sizes."""
+        self.names.append(section)
+        self.blobs.append(data.copy())
+
     def bytes(self) -> List[UInt8]:
         var out = List[UInt8]()
         _put(out, _SAVE_MAGIC)
@@ -105,12 +112,14 @@ struct SaveReader(Movable):
     var data: List[UInt8]
     var names: List[String]
     var offsets: List[Int]
+    var sizes: List[Int]
     var format: Int
 
     def __init__(out self, var data: List[UInt8]) raises:
         self.data = data^
         self.names = List[String]()
         self.offsets = List[Int]()
+        self.sizes = List[Int]()
         var pos = 0
         if _get(self.data, pos) != _SAVE_MAGIC:
             raise Error("save: not a save file")
@@ -126,6 +135,7 @@ struct SaveReader(Movable):
             if size < 0 or pos + size > len(self.data):
                 raise Error("save: truncated section")
             self.offsets.append(pos)
+            self.sizes.append(size)
             pos += size
 
     def has(self, section: String) -> Bool:
@@ -133,6 +143,16 @@ struct SaveReader(Movable):
             if self.names[i] == section:
                 return True
         return False
+
+    def raw(self, section: String) -> List[UInt8]:
+        """The bytes of an `add_raw` section; empty when it is missing."""
+        for i in range(len(self.names)):
+            if self.names[i] == section:
+                var out = List[UInt8](capacity=self.sizes[i])
+                for k in range(self.sizes[i]):
+                    out.append(self.data[self.offsets[i] + k])
+                return out^
+        return List[UInt8]()
 
     def read[T: Copyable](
         self, section: String, template: T, mut out: List[T], version: Int = 1,
