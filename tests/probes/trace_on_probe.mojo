@@ -94,7 +94,9 @@ def main() raises:
             ref f = isl.trace.events[j]
             if f.name == "island" and f.tid == e.tid and f.t_begin_ns < e.t_end_ns and e.t_begin_ns < f.t_end_ns:
                 overlap = True
-    print("island spans", spans, " lanes", len(lanes))
+    # the lane count depends on how the pool interleaved the islands (2 or
+    # 3 measured on 4 cores): not printed, so the golden stays fixed
+    print("island spans", spans, " lanes >= 1", len(lanes) >= 1)
     s.check(spans == 40 and len(lanes) >= 1 and not overlap and "island" in isl.trace.to_chrome_json(), "40 islands as spans on non-overlapping worker lanes, exported")
     var b: List[Int] = [0, 10, 20, 5]
     var e2: List[Int] = [10, 20, 30, 15]
