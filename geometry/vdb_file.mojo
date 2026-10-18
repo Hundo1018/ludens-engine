@@ -23,6 +23,11 @@ writes metadata 6 ("all values") and every value raw. Inside a node the voxel
 `SparseVolume` stores leaves z-major: the order is converted. Values are
 written as f32.
 
+`vdb_grid(bytes)` reads the first grid back into a `SparseVolume` (both
+value layouts, every metadata byte kind); it raises on what it cannot hold
+or does not decode: zip / blosc, half floats, other grid types or
+transforms, active tiles, mismatched offsets, truncation.
+
 Checked against the real reader: `pixi run vdb-check` opens the file with
 OpenVDB's Python module (`scripts/vdb_check.py`, conda-forge `openvdb`)
 and compares every active voxel (`test_vdb_file` writes the files).
@@ -284,3 +289,242 @@ def _leaf_mask(vol: SparseVolume, li: Int) -> List[Bool]:
         var z = o & 7
         m[o] = lf.mask[(z * LEAF + y) * LEAF + x]
     return m^
+
+
+struct VdbGrid(Movable):
+    """One float grid read back by `vdb_grid`: its name, voxel size and the
+    active voxels as a `SparseVolume`."""
+
+    var name: String
+    var voxel_size: Float64
+    var volume: SparseVolume
+
+    def __init__(out self, var name: String, voxel_size: Float64, var volume: SparseVolume):
+        self.name = name^
+        self.voxel_size = voxel_size
+        self.volume = volume^
+
+
+def _need(d: List[UInt8], at: Int, n: Int) raises:
+    if n < 0 or at + n > len(d):
+        raise Error("vdb_grid: truncated file")
+
+
+def _rd_u32(d: List[UInt8], mut at: Int) raises -> Int:
+    _need(d, at, 4)
+    var v = 0
+    for k in range(4):
+        v |= Int(d[at + k]) << (8 * k)
+    at += 4
+    return v
+
+
+def _rd_i32(d: List[UInt8], mut at: Int) raises -> Int:
+    var v = _rd_u32(d, at)
+    return v - (1 << 32) if v >= (1 << 31) else v
+
+
+def _rd_u64(d: List[UInt8], mut at: Int) raises -> Int:
+    _need(d, at, 8)
+    var v = UInt64(0)
+    for k in range(8):
+        v |= UInt64(d[at + k]) << UInt64(8 * k)
+    at += 8
+    if v > UInt64(1 << 62):
+        raise Error("vdb_grid: offset out of range")
+    return Int(v)
+
+
+def _rd_f32(d: List[UInt8], mut at: Int) raises -> Float32:
+    _need(d, at, 4)
+    var u = UInt32(0)
+    for k in range(4):
+        u |= UInt32(d[at + k]) << UInt32(8 * k)
+    at += 4
+    return Pointer(to=u).unsafe_bitcast[Float32]()[]
+
+
+def _rd_f64(d: List[UInt8], mut at: Int) raises -> Float64:
+    _need(d, at, 8)
+    var u = UInt64(0)
+    for k in range(8):
+        u |= UInt64(d[at + k]) << UInt64(8 * k)
+    at += 8
+    return Pointer(to=u).unsafe_bitcast[Float64]()[]
+
+
+def _rd_string(d: List[UInt8], mut at: Int) raises -> String:
+    var n = _rd_u32(d, at)
+    _need(d, at, n)
+    var s = String(unsafe_from_utf8=Span(d)[at : at + n])
+    at += n
+    return s^
+
+
+def _rd_mask(d: List[UInt8], mut at: Int, n: Int) raises -> List[Bool]:
+    """n bits saved as n / 64 words; bit k of word w is entry 64 w + k."""
+    _need(d, at, n // 8)
+    var m = List[Bool](length=n, fill=False)
+    for i in range(n):
+        m[i] = (d[at + i // 8] >> UInt8(i % 8)) & 1 == 1
+    at += n // 8
+    return m^
+
+
+def _skip_metadata(d: List[UInt8], mut at: Int) raises:
+    var count = _rd_u32(d, at)
+    for _ in range(count):
+        _ = _rd_string(d, at)
+        _ = _rd_string(d, at)
+        var size = _rd_u32(d, at)
+        _need(d, at, size)
+        at += size
+
+
+def _rd_values(
+    d: List[UInt8], mut at: Int, n: Int, active: List[Bool], mask_compressed: Bool, background: Float32
+) raises -> List[Float32]:
+    """A node's value array as `io::readCompressedValues` reads it (no zip /
+    blosc, no half floats): metadata byte, optional inactive values and
+    selection mask, then the active values only or all n."""
+    _need(d, at, 1)
+    var meta = Int(d[at])
+    at += 1
+    if meta > 6:
+        raise Error("vdb_grid: bad value metadata byte")
+    var in0 = background
+    var in1 = background
+    if meta == 1:
+        in0 = -background
+    if meta == 2 or meta == 4 or meta == 5:
+        in0 = _rd_f32(d, at)
+    if meta == 3:
+        in0 = background
+        in1 = -background
+    if meta == 5:
+        in1 = _rd_f32(d, at)
+    var sel = List[Bool]()
+    if meta == 3 or meta == 4 or meta == 5:
+        sel = _rd_mask(d, at, n)
+    var out = List[Float32](length=n, fill=in0)
+    if mask_compressed and meta != 6:
+        for i in range(n):
+            if active[i]:
+                out[i] = _rd_f32(d, at)
+            elif len(sel) > 0 and sel[i]:
+                out[i] = in1
+    else:
+        for i in range(n):
+            out[i] = _rd_f32(d, at)
+    return out^
+
+
+def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
+    """Read the first grid of a `.vdb` file (file version 224) into a
+    `SparseVolume`: what `vdb_bytes` writes, and any FloatGrid in the 5-4-3
+    configuration stored without zip / blosc and without half floats.
+    Raises on a wrong magic or version, another grid type or transform, zip
+    / blosc compression, active tiles (a constant region SparseVolume cannot
+    hold), offsets that do not match the stream, and truncation. Inactive
+    values read as the background (a level set's inside value is lost)."""
+    var at = 0
+    if _rd_u64(d, at) != 0x56444220:
+        raise Error("vdb_grid: not a .vdb file (magic)")
+    var version = _rd_u32(d, at)
+    if version != 224:
+        raise Error("vdb_grid: unsupported file version " + String(version))
+    _ = _rd_u32(d, at)
+    _ = _rd_u32(d, at)
+    _need(d, at, 37)
+    if d[at] != 1:
+        raise Error("vdb_grid: files without grid offsets are not supported")
+    at += 37  # offsets flag + UUID
+    _skip_metadata(d, at)
+    if _rd_u32(d, at) < 1:
+        raise Error("vdb_grid: no grids")
+    var name = _rd_string(d, at)
+    var gtype = _rd_string(d, at)
+    if gtype != "Tree_float_5_4_3":
+        raise Error("vdb_grid: grid type " + gtype + " (only Tree_float_5_4_3)")
+    if _rd_string(d, at) != "":
+        raise Error("vdb_grid: instanced grids are not supported")
+    var grid_pos = _rd_u64(d, at)
+    var block_pos = _rd_u64(d, at)
+    var end_pos = _rd_u64(d, at)
+    if grid_pos != at or not (grid_pos < block_pos and block_pos <= end_pos and end_pos <= len(d)):
+        raise Error("vdb_grid: grid offsets do not match the stream")
+    var compression = _rd_u32(d, at)
+    if compression & ~2 != 0:
+        raise Error("vdb_grid: zip / blosc compression is not supported")
+    var mc = compression == 2
+    _skip_metadata(d, at)
+    var map_type = _rd_string(d, at)
+    if map_type != "UniformScaleMap":
+        raise Error("vdb_grid: transform " + map_type + " (only UniformScaleMap)")
+    var voxel_size = _rd_f64(d, at)
+    at += 14 * 8
+    _need(d, at, 0)
+    if _rd_u32(d, at) != 1:
+        raise Error("vdb_grid: buffer count must be 1")
+    var bg = _rd_f32(d, at)
+    var vol = SparseVolume(Real(bg))
+    var tiles = _rd_u32(d, at)
+    var kids = _rd_u32(d, at)
+    for _ in range(tiles):
+        _ = _rd_i32(d, at)
+        _ = _rd_i32(d, at)
+        _ = _rd_i32(d, at)
+        var v = _rd_f32(d, at)
+        _need(d, at, 1)
+        var on = d[at] != 0
+        at += 1
+        if on or v != bg:
+            raise Error("vdb_grid: root tiles are not supported")
+    # topology: collect the leaf origins and value masks in stream order
+    var lo = List[Int]()  # x, y, z per leaf
+    var lmasks = List[List[Bool]]()
+    var none32 = List[Bool](length=32768, fill=False)
+    var none16 = List[Bool](length=4096, fill=False)
+    for _ in range(kids):
+        var tx = _rd_i32(d, at)
+        var ty = _rd_i32(d, at)
+        var tz = _rd_i32(d, at)
+        var cm = _rd_mask(d, at, 32768)
+        var vm = _rd_mask(d, at, 32768)
+        for k in range(32768):
+            if vm[k]:
+                raise Error("vdb_grid: active tiles are not supported")
+        _ = _rd_values(d, at, 32768, none32, mc, bg)
+        for k in range(32768):
+            if not cm[k]:
+                continue
+            var mx = tx + (((k >> 10) & 31) << 7)
+            var my = ty + (((k >> 5) & 31) << 7)
+            var mz = tz + ((k & 31) << 7)
+            var cm2 = _rd_mask(d, at, 4096)
+            var vm2 = _rd_mask(d, at, 4096)
+            for q in range(4096):
+                if vm2[q]:
+                    raise Error("vdb_grid: active tiles are not supported")
+            _ = _rd_values(d, at, 4096, none16, mc, bg)
+            for q in range(4096):
+                if not cm2[q]:
+                    continue
+                lo.append(mx + (((q >> 8) & 15) << 3))
+                lo.append(my + (((q >> 4) & 15) << 3))
+                lo.append(mz + ((q & 15) << 3))
+                lmasks.append(_rd_mask(d, at, 512))
+    if at != block_pos:
+        raise Error("vdb_grid: topology does not end at the block offset")
+    for li in range(len(lmasks)):
+        var m = _rd_mask(d, at, 512)
+        for o in range(512):
+            if m[o] != lmasks[li][o]:
+                raise Error("vdb_grid: leaf buffer mask differs from its topology mask")
+        var vals = _rd_values(d, at, 512, m, mc, bg)
+        for o in range(512):
+            if m[o]:
+                vol.set(lo[3 * li] + (o >> 6), lo[3 * li + 1] + ((o >> 3) & 7), lo[3 * li + 2] + (o & 7), Real(vals[o]))
+    if at != end_pos:
+        raise Error("vdb_grid: buffers do not end at the end offset")
+    return VdbGrid(name^, voxel_size, vol^)
