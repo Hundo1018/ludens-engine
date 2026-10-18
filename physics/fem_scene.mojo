@@ -40,9 +40,14 @@ Measured on a 50 kg box dropped onto a 0.6 x 0.4 x 0.6 m block (E = 3e5,
     in 3 s, with an undamped 8 Hz bounce of ~0.1 m/s left (position-level
     contact on an elastic support).
 
-No continuous collision for nodes: a node faster than its radius per step
-can pass through a thin collider (the lattice soft body's swept test is the
-model for adding it).
+Node CCD (`ccd = True`, 17.58; off by default, results unchanged): each
+node's swept segment over the step is cast against every collider
+(`ray_collider`, in the body's frame to first order: the start point moves
+with the body's contact-point velocity). A hit puts the node at the hit
+point plus `radius` along the surface normal and outranks the closest-point push-out, which would eject a
+node that crossed a thin collider's midplane out of the far side
+(the lattice soft body's 17.46 rule). `test_fem_ccd` fires a block at a 2 cm
+plate: without CCD nodes end beyond it, with CCD none.
 """
 
 from std.math import sqrt
@@ -55,6 +60,7 @@ from .coupling import CouplingPort, couple_step
 from .solver_config import SolverConfig
 from diag.counters import Counters
 from .soft_couple import soft_fric
+from collision.world_query import ray_collider
 
 
 struct FemContactPort(CouplingPort):
@@ -63,18 +69,38 @@ struct FemContactPort(CouplingPort):
     var radius: Real
     var mu: Real
     var contacts: Int  # node-collider contacts resolved in the last step
+    var ccd: Bool  # swept node test (module note); default off
+    var swept: Int  # contacts found by the sweep in the last step
+    var start: List[Vec3]  # node positions before the continuum step (ccd)
 
-    def __init__(out self, radius: Real, mu: Real = 0.5) raises:
+    def __init__(out self, radius: Real, mu: Real = 0.5, ccd: Bool = False) raises:
         if not (radius > 0) or not (mu >= 0):
             raise Error("FemContactPort: radius > 0 and mu >= 0")
         self.radius = radius
         self.mu = mu
         self.contacts = 0
+        self.ccd = ccd
+        self.swept = 0
+        self.start = List[Vec3]()
 
     def before[B: Body6](mut self, mut scene: ContactScene6[B], mut s: FemContinuum, dt: Real, gravity: Vec3) raises:
-        pass
+        if not self.ccd:
+            return
+        # the sweep starts where the node really was: x - v dt with the
+        # end-of-step velocity is off under contact accelerations (measured:
+        # a resting block gained energy and sank through a 4 mm plate)
+        ref fb = s.body
+        self.start.resize(len(fb.x), Vec3(0, 0, 0, 0))
+        for i in range(len(fb.x)):
+            self.start[i] = Vec3(fb.x[i], fb.y[i], fb.z[i], 0)
 
     def after[B: Body6](mut self, mut scene: ContactScene6[B], mut s: FemContinuum, dt: Real, gravity: Vec3) raises:
+        if self.ccd:
+            self.swept = 0
+            self.contacts = 0
+            if dt > 0:
+                self._after_ccd(scene, s, dt)
+            return
         self.contacts = 0
         if not (dt > 0):
             return
@@ -101,6 +127,85 @@ struct FemContactPort(CouplingPort):
                 self.contacts += 1
                 if scene.bset.is_dynamic(b):
                     scene.bset.bodies[b].apply_impulse(dx * (-m / dt), nw)
+                    if scene.bset.sleeping[b]:
+                        scene.bset.sleeping[b] = False
+                        scene.bset.sleep_timer[b] = 0
+            fb.x[i] = x[0]
+            fb.y[i] = x[1]
+            fb.z[i] = x[2]
+            fb.vx[i] = v[0]
+            fb.vy[i] = v[1]
+            fb.vz[i] = v[2]
+
+    def _after_ccd[B: Body6](mut self, mut scene: ContactScene6[B], mut s: FemContinuum, dt: Real):
+        """`after` with the swept test (module note). A separate method: adding
+        the ccd branches inside `after` changed its compiled arithmetic and
+        moved `test_fem_scene` in the last digits with ccd off."""
+        self.contacts = 0
+        self.swept = 0
+        if not (dt > 0):
+            return
+        var r = self.radius
+        ref fb = s.body
+        for i in range(len(fb.x)):
+            if fb.inv_m[i] == 0:
+                continue
+            var x = Vec3(fb.x[i], fb.y[i], fb.z[i], 0)
+            var v = Vec3(fb.vx[i], fb.vy[i], fb.vz[i], 0)
+            var m = 1 / fb.inv_m[i]
+            for b in range(len(scene.bset.bodies)):
+                if scene.bset.is_removed(b):
+                    continue
+                # with ccd the recorded start also picks the box's entry face
+                var res = point_contact(scene, b, x, self.start[i], r, dt)
+                var swept = False
+                var s0 = self.start[i] + scene.bset.bodies[b].velocity_at(x) * dt
+                var seg = x - s0
+                var sl = sqrt(dot(seg, seg))
+                if sl > r:
+                    var hit = ray_collider(scene.colliders, b, scene.bset.pose3(b), s0, seg * (1 / sl), sl + r)
+                    if hit.hit and not hit.start_solid and hit.t <= sl + r:
+                        # the hit point plus r along the surface normal:
+                        # backing up r along the segment instead leaves a
+                        # node that started within r of the surface inside
+                        # the band, sinking a little every step (measured:
+                        # a resting block sank through a 4 mm plate)
+                        res = (True, s0 + seg * (hit.t / sl) + hit.normal * (r + Real(1e-4)), hit.normal)
+                        swept = True
+                        self.swept += 1
+                if not res[0]:
+                    continue
+                var nw = res[1]
+                var dv = Vec3(0, 0, 0, 0)
+                var dx = Vec3(0, 0, 0, 0)
+                if swept:
+                    # velocity-level response: the node was put back along
+                    # its sweep, so v + dx / dt would add the whole distance
+                    # as speed (measured: a block shot up to 260 m). Remove
+                    # the approach speed along n relative to the body;
+                    # Coulomb friction from that impulse.
+                    var n = res[2]
+                    var rel = v - scene.bset.bodies[b].velocity_at(nw)
+                    var vn = dot(rel, n)
+                    if vn < 0:
+                        dv = n * (-vn)
+                        var vt = rel - n * vn
+                        var vtl = sqrt(dot(vt, vt))
+                        if vtl > 0:
+                            dv = dv - vt * (min(self.mu * (-vn), vtl) / vtl)
+                    x = nw
+                    v = v + dv
+                else:
+                    # unchanged expression order (FMA contraction): the
+                    # non-ccd path stays bit-identical
+                    if self.mu > 0:
+                        nw = soft_fric(scene.bset, b, x, x - v * dt, nw, res[2], dt, self.mu)
+                    dx = nw - x
+                    x = nw
+                    v = v + dx * (1 / dt)
+                self.contacts += 1
+                if scene.bset.is_dynamic(b):
+                    scene.bset.bodies[b].apply_impulse(dv * (-m) if swept else dx * (-m / dt), nw)
                     if scene.bset.sleeping[b]:
                         scene.bset.sleeping[b] = False
                         scene.bset.sleep_timer[b] = 0
