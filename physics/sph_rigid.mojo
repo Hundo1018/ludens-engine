@@ -43,6 +43,7 @@ from .body_set import BodyId
 from .rigid6 import Body6, Pose6
 from .solver6 import ContactScene6
 from .solver_config import SolverConfig
+from .state_io import StateWriter, StateReader
 
 comptime _STIFF: Real = 8.0  # as physics.sph
 comptime _VISC: Real = 0.15
@@ -370,3 +371,45 @@ def sph_rigid_step[B: Body6](
         scene.add_force(cp.bodies[b], cp.force[b])
         scene.add_torque(cp.bodies[b], cp.torque[b])
     scene.step(dt, gravity, cfg)
+
+
+def sph_rigid_write[W: StateWriter](f: PbfFluid, cp: SphRigidCoupler, mut w: W):
+    """Dynamical state of an SPH <-> rigid run (17.59): the fluid particles
+    (positions, velocities) and the coupler's last body forces; the scene
+    goes through `solver6.write_state`. Samples, psi and the fluid's grid
+    are construction: restore into a fluid and coupler built the same way."""
+    w.wi(f.count())
+    for i in range(f.count()):
+        w.wf(f.x[i])
+        w.wf(f.y[i])
+        w.wf(f.z[i])
+        w.wf(f.vx[i])
+        w.wf(f.vy[i])
+        w.wf(f.vz[i])
+    w.wi(len(cp.bodies))
+    for b in range(len(cp.bodies)):
+        w.wv(cp.force[b])
+        w.wv(cp.torque[b])
+
+
+def sph_rigid_read[R: StateReader](mut f: PbfFluid, mut cp: SphRigidCoupler, mut r: R) raises:
+    """Inverse of `sph_rigid_write`. The predicted positions are set to the
+    positions, as a finished step leaves them (`sph_rigid_step` reads them
+    for the density); raises when the particle or body count differs."""
+    if r.ri() != f.count():
+        raise Error("sph_rigid_read: particle count differs from this fluid")
+    for i in range(f.count()):
+        f.x[i] = r.rf()
+        f.y[i] = r.rf()
+        f.z[i] = r.rf()
+        f.vx[i] = r.rf()
+        f.vy[i] = r.rf()
+        f.vz[i] = r.rf()
+        f.px[i] = f.x[i]
+        f.py[i] = f.y[i]
+        f.pz[i] = f.z[i]
+    if r.ri() != len(cp.bodies):
+        raise Error("sph_rigid_read: coupled body count differs from this coupler")
+    for b in range(len(cp.bodies)):
+        cp.force[b] = r.rv()
+        cp.torque[b] = r.rv()
