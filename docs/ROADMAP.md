@@ -1761,7 +1761,26 @@
 > BGK golden 全部逐位不變;GPU 遇 TRT raise)。量到:速度平移體力在 TRT 下須以 τ⁻F/ρ 平移(以 τF/ρ 時 τ 0.8 的 Poiseuille 誤差 29 %)。
 > `tests/test_lbm_trt.mojo` 3/3:11 點通道 τ 0.8 / 2.0 / 3.5 的 Poiseuille 誤差 BGK 1.2 % / 11 % / 53 %,TRT Λ = 3/16 為 0.56 % / 2.5 % / 5.1 %
 > (仍隨 τ 增:Λ = 3/16 的精確壁面位置假設二階體力項,這裡是速度平移);剪切波黏度 0.030157 對 0.03;Λ = (τ−½)² 與 BGK 差 7e-7。
-> **未做**:完整 19 矩 MRT / cumulant、TRT 的 Guo 二階體力、MAC 的 level-set 自由表面、APIC、3-D MAC / FLIP、LBM MRT、各向異性核與泡沫 / 水花次級粒子、choppy 的 FFT 格點路徑。
+> **進度註(2026-10-18)**:
+> - **TRT + Guo 二階體力**(`Lbm.trt_guo` → `_step_guo` / `collide_trt_guo`;其他路徑原封,`test_lbm`、`_validation`、`_trt`、`_body_force`、`test_vehicle_aero` 不變)。
+>   `test_lbm_trt_guo` 3/3:Poiseuille(11 點,Λ = 3/16)在 τ 0.8 / 2.0 / 3.5 的誤差為 0.085 % / 0.11 % / 0.025 %,不隨 τ 增加(速度平移版為 0.56 / 2.5 / 5.1 %)。
+>   z 驅動 == x 驅動,差為峰值的 9e-5。每格步 582 vs 646 ns。
+> - **LBM MRT**(`fluid/lbm_mrt.mojo`:d'Humières 正交矩基底,M⁻¹ = Mᵀ D⁻¹;獨立模組,`Lbm` 不動)。`test_lbm_mrt` 3/3:
+>   - 全部速率 1/τ 時 == BGK,差 3e-7;
+>   - 剪切波黏度 0.0303 對 0.03;
+>   - 64² 雙剪切層 ν 1.7e-4:BGK 第 999 步發散,MRT 2000 步仍有限。
+>   每格步 1172 ns(BGK 412)。
+> - **APIC**(`physics/flip_apic.mojo` `ApicState` / `apic_step`)。把欄位加進 `FlipWater2` 會改動 `test_flip` 的末位,所以獨立成模組。
+>   `test_flip_apic` 3/3:1 rad/s 圓盤 0.5 s 後角動量 APIC 98.3 %、PIC 24.8 %、FLIP 92.8 %;對剛體旋轉的速度雜訊 APIC 4.2 %、FLIP 5.8 %;靜水靜止;潰壩前緣 1.58 √(g h0)。
+> - **choppy 的 FFT 格點路徑**:`update` 在 choppy 時多做兩次反 FFT 得水平位移格,在已更新的 t 以雙線性反解。`test_fft_choppy_grid` 3/3:
+>   位移格對精確加總 9e-6 m;格點高度對精確 choppy 路徑 0.130 m(平面海自己的格點誤差 0.128 m);每次查詢 0.88 vs 448 µs。
+> - **各向異性核**(`splat_particles_anisotropic`,Yu & Turk 2013):鄰域協方差 → 特徵分解 → 等體積橢球核;中心平滑。`test_aniso_splat` 3/3:
+>   粒子板頂面高度散佈 1.24 vs 2.83 mm;粒子球球形度 1.087 vs 1.109、封閉;孤立粒子與等向核逐位相同。新增 `bench_isosurface`。
+> - **水花 / 泡沫 / 氣泡**(`physics/flip_diffuse.mojo` `DiffuseParticles`,Ihmsen 2012,單向)。`test_flip_diffuse` 4/4:
+>   靜水 1 s 不生成;潰壩 1 s 生成 936 個,存活 788(781 氣泡、7 泡沫、這個網格上尚無水花);同種子逐位相同;孤立水花以 −g t 下落。
+> - **3-D FLIP**(`physics/flip3.mojo` `FlipWater3`)。`test_flip3` 4/4:靜池靜止(2.8e-7 m/s)、靜水壓 4e-8;
+>   兩格厚的板狀潰壩與 2-D 解算前緣逐位相同(1.5222 m);角落水柱沿 x、z 擴展相同(兩者 0.4 s 時 1.0538 m)。
+> **未做**:MAC 的 level-set 自由表面、3-D 單相 MAC(煙霧)、cumulant LBM。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
