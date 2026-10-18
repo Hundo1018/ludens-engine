@@ -53,7 +53,7 @@
 | [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
 | [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 0 | 1 | 1 |
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
-| [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 9 | 1 | 0 | 0 |
+| [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 10 | 0 | 0 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 16 | 1 | 3 | 2 |
@@ -2275,7 +2275,7 @@
 | 17.36 | [樣條 / 曲線(路徑)](ROADMAP_HISTORY.md#1736-樣條--曲線路徑--wave-a) | ✅ | A | `geometry/spline.mojo` 提供維度泛型的 Catmull-Rom(comptime alpha:uniform / centripetal / chordal)與分段三次 Bezier;Catmull-Rom 段會精確轉成 `CubicBezier`,所以弧長表、`closest_point` 與 RMF motor 標架只需實作一次。有三個測試檔共 577 項檢查、`bench_spline` 與範例 15。 |
 | 17.64 | [動畫執行期](#1764-動畫執行期--wave-b) | ✅ | B | Animator 狀態圖、clip 事件與同步標記、慣性化轉場(inertialization)、無配置求值、進 ECS / Runtime 的組裝、動畫狀態入快照 / 回放 |
 | 17.65 | [形變資料](#1765-形變資料--wave-cheadless-資料--邏輯) | ✅ | C | N 影響蒙皮、綁定資料、Morph targets / blend shapes、修正形狀(pose-space deformation)、縮放 / 擠壓伸展通道、蒙皮 → 模擬耦合 |
-| 17.69 | [PCG](#1769-pcg--wave-c) | 🔶 | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
+| 17.69 | [PCG](#1769-pcg--wave-c) | ✅ | C | 點分佈、地形生成、結構 / 關卡、2D Voronoi / Delaunay、等值面抽取、決定論契約 |
 
 ### 已完成條目的遺留待辦
 
@@ -4012,7 +4012,7 @@
 | 17.66 | [物理角色](#1766-物理角色--wave-c) | 角色、載具、破壞與 gameplay 物理 | 🔶 |
 | 17.67 | [移動模式](#1767-移動模式--wave-b) | 角色、載具、破壞與 gameplay 物理 | ✅ |
 | 17.68 | [攝影機 / 序列](#1768-攝影機--序列--wave-bheadless-資料--邏輯) | 角色、載具、破壞與 gameplay 物理 | ✅ |
-| 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | 🔶 |
+| 17.69 | [PCG](#1769-pcg--wave-c) | 動畫與程序化 | ✅ |
 | 17.70 | [規則框架](#1770-規則框架--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
 | 17.71 | [戰鬥物理](#1771-戰鬥物理--wave-b) | 角色、載具、破壞與 gameplay 物理 | ✅ |
 | 17.72 | [流程服務](#1772-流程服務--wave-c) | gameplay 服務、AI、導航與網路 | 🔶 |
