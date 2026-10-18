@@ -828,7 +828,10 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
   ratio 2: EXPLICIT max imbalance 0.0  INTERP 7.702745e-07  per-step impulse up to 6.896153e-05
   after 0.2 s, vertex 0 vy: ratio 2 EXPLICIT -0.6422996  ratio 1 -0.58543676
   snapshot after 100 steps: 1059588 bytes
-[PASS] cloth_air_parts - 9 / 9 checks
+  three-way, 0.3 s: max imbalance 0.0  per-step impulses up to 5.504689e-05
+  air momentum change -0.011786776  cloth + ball received 0.011786737  relative mismatch 3.4105346e-06
+  ball vy: under the sheet -2.0764306  alone -2.026976
+[PASS] cloth_air_parts - 12 / 12 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
@@ -908,7 +911,7 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
   friction override: mu=0 3.0  default 0.54999447  mu=1 -0.00012492505
 [PASS] contact_rules - 9 / 9 checks
 --- tests/test_continuum.mojo ---
-  soft body: NaN particle -> nonfinite 1  CONTINUUM_NAN 1  particle 0 y after 1 s free fall -3.961689
+  soft body: NaN particle -> nonfinite 1  CONTINUUM_NAN 1  particle 0 y after 1 s hanging from the pinned particle 0.5281452  pinned particle y 0.8
   rope: NaN particle -> nonfinite 1  CONTINUUM_NAN 1  pinned at [0.6, 2.0, 0.0, 0.0]  free end y 0.7738686
   FEM: NaN node -> nonfinite 1  CONTINUUM_NAN 1  pinned inv_m 0.0
   MPM: nonfinite 1  escaped 1  particles 65 -> 63
@@ -1390,7 +1393,7 @@ driven 2-link arm, 1 s: q -3.0983264 0.71169233  force 4.657855
 --- tests/test_ops.mojo ---
   sampling 1 in 4 over 10000 records: kept 2496
   telemetry on: records 12300   scene identical to telemetry off: True
-  black box: 19633 bytes (snapshot 19268 , inputs 50 )  replay to tick 150 identical: True
+  black box: 19641 bytes (snapshot 19268 , inputs 50 )  replay to tick 150 identical: True
 [PASS] ops - 11 / 11 checks
 --- tests/test_pcg.mojo ---
   Poisson-disk 100 x 100, r = 2: 1614 points, min distance 2.000021  other seed 1596 points
@@ -1501,6 +1504,10 @@ primal: RevBatch vs BatchReal[8] (and RealF) worst lane difference 1.1920929e-07
 --- tests/test_save.mojo ---
   one second after loading: save vs snapshot max position difference 2.0623207e-05
 [PASS] save - 11 / 11 checks
+--- tests/test_save_checkpoint.mojo ---
+  tick 60: save checkpoint 1008 bytes, full checkpoint (scene snapshot) 2521 bytes
+  coins at tick 60 11  at tick 120 21
+[PASS] save_checkpoint - 6 / 6 checks
 --- tests/test_scheduler_parity.mojo ---
 [PASS] scheduler_parity - 147 / 147 checks
 --- tests/test_schema.mojo ---
@@ -1571,13 +1578,17 @@ cloud of 400 grains, 0.3 s: sank one-way 0.0016791671  two-way 0.0034571476
 two bones 0.5 / 0.5: |DIB - geodesic mid| coefficients 1.767393e-07  points 2.5288108e-07    DLB points 5.9901925e-07
 twist 0..170 deg, smallest radius (rest 0.2): DIB 0.19999997  DLB 0.19999999  LBS 0.1760669
 angles: rotation 70.0  joint 69.99999  twist 50.000004  translation 0.0
-soft body, 1 s on 9 skinned pins: bottom particle 0.20628941 m below the pinned layer (rest 0.2)
+soft body, 1 s on 9 skinned pins: bottom particle 0.19997013 m below the pinned layer (rest 0.2)
 [PASS] skin_dib - 8 / 8 checks
 --- tests/test_skin_link.mojo ---
 bind pose: worst vertex move 0.0    bone 1 at 90 deg: (0, 2.4, 0) -> -1.0000002 1.4000003 -0.0
 bone 0 box half 0.2 0.45 0.2  offset 0.45   capsule radius 0.2  axis 0.2 .. 0.7
 ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
 [PASS] skin_link - 6 / 6 checks
+--- tests/test_skin_pin.mojo ---
+  soft body: 9 pins, 60 steps: worst pin offset after a step 0.0  momentum y 2.117157e-06
+  FEM beam: worst pinned-node offset 0.0  tip direction 40.78841 deg (bone 45, gravity sags it)
+[PASS] skin_pin - 6 / 6 checks
 --- tests/test_sleep6.mojo ---
   fell asleep at frame 35
 [PASS] sleep6 - 13 / 13 checks
@@ -1765,7 +1776,7 @@ observer at x = 100: proxies 13
   s = 2^4: per body |pos/s - pos_1|: 0.0 0.0 0.0 0.0 0.0 0.0
   s = 2^7: per body |pos/s - pos_1|: 0.0 0.0 0.0 0.0 0.0 0.0
   s = 2^10: per body |pos/s - pos_1|: 0.0 0.0 0.0 0.0 0.0 0.0
-  s = 2^7 without UnitScale: worst |pos/s - pos_1| = 0.24893707036972046
+  s = 2^7 without UnitScale: worst |pos/s - pos_1| = 0.24893689155578613
 [PASS] unit_scale - 12 / 12 checks
 --- tests/test_vehicle.mojo ---
   snapshot mid-turn: chassis 9.454932 1.925639  restored 9.454932 1.925639  gear 1 1
@@ -1839,6 +1850,14 @@ wall on the left: exit ok True  at x 1.6
 [PASS] hit_pipeline - 7 / 7 checks
 --- tests/test_runtime_budget.mojo ---
 [PASS] runtime_budget - 4 / 4 checks
+--- tests/test_runtime_carry.mojo ---
+  carried at frame 20; after 30 more frames: y 2.6302242  vx 1.5585727
+[PASS] runtime_carry - 6 / 6 checks
+--- tests/test_runtime_fired.mojo ---
+  fired over 13 ticks: (7 @ 3) (9 @ 5) (9 @ 9) (9 @ 13)
+  paused 10 frames: fires 0  timer tick 1 ; 3 frames after: fires 1 at timer tick 4
+  capacity 2, 5 fires untaken: kept 2  dropped 3
+[PASS] runtime_fired - 5 / 5 checks
 --- tests/test_runtime_flow.mojo ---
 pause: timer tick before / after the pause 40 40  end 120 120  accumulator True
 masks: contact events all / sim-only 291 0  timer tick under sim-only 0  under timers-only 10
