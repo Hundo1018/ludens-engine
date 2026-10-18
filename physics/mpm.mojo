@@ -27,20 +27,23 @@ that never yields would pass any test written only for the elastic case.
 Sand, obstacles and moving rigid obstacles (`MpmRigid`, coupled to a
 `ContactScene6` by `physics.mpm_rigid`) run in `step_ext` (`step` ignores
 them; see there why).
-Sand (ROADMAP 17.58, `set_sand(friction_deg)`; EXPERIMENTAL: in
-`test_mpm_sand` a column keeps more height the larger the angle and stands
-at 85 degrees, but at 30 and 60 it keeps spreading instead of stopping at its
-angle of repose): Drucker-Prager plasticity by
+Sand (ROADMAP 17.58, `set_sand(friction_deg)`; measured, not a validated
+material: heaps of a collapsed block have an equal-volume cone angle of
+20 / 25 / 29 / 32 degrees for 20 / 30 / 40 / 50 degrees of friction, see
+`experiments/exp_sand_repose.mojo`): Drucker-Prager plasticity by
 the return mapping of Klar et al. 2016 on the singular values of F (SVD from
 the polar decomposition and a symmetric eigen solve), in log-strain space:
 a stretched particle forgets all elastic strain (sand has no tension), a
 compressed one is projected back onto the friction cone. It replaces the
 determinant clamp. Static obstacles (`add_obstacle(sdf, mu)`): a grid node
-inside an `Sdf3` loses the velocity into it, with Coulomb friction on the
-rest (sticks when the tangential speed is within mu times the normal one),
-and a particle that still ends inside is put back on the surface. The
-domain walls only remove the velocity into them (frictionless), so sand
-needs an obstacle as its floor to pile instead of spreading.
+within `node_margin` (dx / 2) of an `Sdf3`, or inside it, loses the velocity
+into it, with Coulomb friction on the rest (sticks when the tangential speed
+is within mu times the normal one), and a particle closer than `skin`
+(dx / 4) to the surface is put back at that distance with the same friction
+on the velocity removed. Both are needed so that contact does not depend on
+where the surface falls between grid nodes (`test_mpm_contact`). The domain
+walls only remove the velocity into them (frictionless), so sand needs an
+obstacle as its floor to pile instead of spreading.
 """
 
 from std.math import sqrt, log, exp, sin
@@ -98,6 +101,8 @@ struct MpmSolver(Movable):
     var dp_alpha: Real  # Drucker-Prager cone (0 = off)
     var obstacles: List[Sdf3]
     var obstacle_mu: List[Real]
+    var skin: Real  # particles keep this far from an obstacle surface (dx / 4)
+    var node_margin: Real  # grid nodes this close to a surface (or inside) are projected (dx / 2)
     var rigids: List[MpmRigid]  # moving rigid obstacles (step_ext)
     # grid scratch (SoA, rebuilt each step)
     var gm: List[Real]
@@ -117,6 +122,8 @@ struct MpmSolver(Movable):
         self.dp_alpha = 0
         self.obstacles = List[Sdf3]()
         self.obstacle_mu = List[Real]()
+        self.skin = dx * 0.25
+        self.node_margin = dx * 0.5
         self.rigids = List[MpmRigid]()
         self.gm = List[Real]()
         self.gvx = List[Real]()
@@ -199,7 +206,7 @@ struct MpmSolver(Movable):
         0.34)."""
         var x = self.lo + Vec3(Real(i), Real(j), Real(k), 0) * self.dx
         for o in range(len(self.obstacles)):
-            if self.obstacles[o].distance(x) > 0:
+            if self.obstacles[o].distance(x) > self.node_margin:
                 continue
             var g = self.obstacles[o].gradient(x)
             var gl = length(g)
@@ -284,25 +291,34 @@ struct MpmSolver(Movable):
                 r.torque = r.torque + _cross3(xs - r.pos, fb)
 
     def _push_out(mut self, pi: Int):
-        """Move a particle that ended inside an obstacle back to its surface
-        and drop its velocity into it: the grid-node projection alone let
-        surface particles pick up inward velocity from the nodes outside
-        (measured: 80 of 288 sand particles more than half a cell inside a
-        box)."""
+        """Keep a particle `skin` outside every obstacle: move it back to that
+        distance and drop its inward velocity, with Coulomb friction on the
+        removed normal velocity. The grid projection alone is not enough: it
+        only sees nodes inside the obstacle, so a floor whose surface falls
+        between two node planes left the particles' own nodes free and the
+        floor frictionless (measured: sand on a floor 1 cm below a node plane
+        spread to a 2 degree film; 80 of 288 sand particles also ended more
+        than half a cell inside a box)."""
         for o in range(len(self.obstacles)):
             var x = self.p[pi].x
             var d = self.obstacles[o].distance(x)
-            if d >= 0:
+            if d >= self.skin:
                 continue
             var g = self.obstacles[o].gradient(x)
             var gl = length(g)
             if not (gl > 0):
                 continue
             var n = g / gl
-            self.p[pi].x = x - n * d
+            self.p[pi].x = x - n * (d - self.skin)
             var vn = dot(self.p[pi].v, n)
             if vn < 0:
-                self.p[pi].v = self.p[pi].v - n * vn
+                var vt = self.p[pi].v - n * vn
+                var tl = length(vt)
+                var mu = self.obstacle_mu[o]
+                if tl <= -mu * vn:
+                    self.p[pi].v = Vec3(0, 0, 0, 0)
+                else:
+                    self.p[pi].v = vt * (1 + mu * vn / tl)
 
     def _gi(self, i: Int, j: Int, k: Int) -> Int:
         return (k * self.n + j) * self.n + i

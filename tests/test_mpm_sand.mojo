@@ -11,15 +11,16 @@
      friction angle (30 < 60 < 85 degrees) and stands at 85.
   2b. A 0.24 m block released on the floor settles to a heap whose equal-volume
      cone (slope 3 V / (pi R^3)) is 23 degrees steep at 20 degrees of friction
-     and 32.6 at 40 (the heaps stay below the friction angle at large angles
-     because the collapse overshoots). `experiments/exp_sand_repose.mojo` has
-     the sweep on a larger block (20.4 / 25.0 / 28.8 / 31.8 degrees at 20 /
-     30 / 40 / 50), and a cone of slope 41 degrees still stands at 35 degrees
-     of friction (peak 0.97 after 1 s; Drucker-Prager matched to triaxial
-     compression is stronger than Mohr-Coulomb in plane strain). Before the
-     volumetric stress was applied in the right frame and the obstacle nodes
-     on the floor surface were projected, the same columns spread to a film
-     (0.6 degrees at 30 degrees of friction).
+     and 32.6 at 40. `experiments/exp_sand_repose.mojo` has the sweep on a
+     larger block (20.4 / 25.0 / 28.8 / 31.8 degrees at 20 / 30 / 40 / 50), and
+     a cone of slope 41 degrees still stands at 35 degrees of friction (peak
+     0.97 after 1 s). Why the heaps fall below the friction angle at large
+     angles and the cones stand above it is not established (suspects, not
+     measured: overshoot of the collapse; the Drucker-Prager cone matched to
+     triaxial compression being stronger than Mohr-Coulomb in plane strain). Before the
+     volumetric stress was applied in the right frame and the floor was
+     treated the same way at every height (`test_mpm_contact`), the same
+     columns spread to a film (0.6 degrees at 30 degrees of friction).
   3. Extreme: friction angles 0 and 90 and a negative obstacle mu raise; the
      runs stay finite and inside the grid.
 """

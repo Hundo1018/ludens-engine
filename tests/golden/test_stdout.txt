@@ -528,6 +528,10 @@ squash (1, 0.5, 1) about y = 1: heights 0.5 1.25 1.5
 [PASS] morph_ext - 12 / 12 checks
 --- tests/test_motor_parity.mojo ---
 [PASS] motor_parity - 285 / 285 checks
+--- tests/test_mpm_contact.mojo ---
+  slide with mu 0.6 by floor top (Coulomb 0.340): 0.2 -> 0.3385388; 0.19 -> 0.3390005; 0.2125 -> 0.33941022; 0.225 -> 0.32961732; 0.2375 -> 0.3389886; 
+  heap cone angle at 20 degrees of friction, floor top 0.2 / 0.19 / 0.2375 m: 22.929882 24.63895 24.688393
+[PASS] mpm_contact - 3 / 3 checks
 --- tests/test_mpm_melt.mojo ---
 after 1.2 s: height solid 0.12160547  liquid 0.04250191  heated 0.10070474  (start 0.125 )
   width solid 0.18309075  liquid 1.3477201  heated 0.29721826  (start 0.17500001 )
@@ -536,9 +540,9 @@ after 1.2 s: height solid 0.12160547  liquid 0.04250191  heated 0.10070474  (sta
 [PASS] mpm_melt - 8 / 8 checks
 --- tests/test_mpm_sand.mojo ---
   block at 2 m/s on the obstacle floor: slides 0.3343084 m with mu 0.6 (v^2/2 mu g = 0.340); 0.82738733 m with mu 0
-  sand poured on a box: particles deeper than half a cell inside 0  resting on its top 8 of 288
-  column 0.42 m after 0.3 s, top / spread: elastic 0.40453225 0.21032828 ; sand 30 deg 0.15046038 0.40920496 ; 60 deg 0.26789278 0.30088306 ; 85 deg 0.36938208 0.2280131
-  heap from a 0.24 m block, equal-volume cone angle: friction 20 -> 22.953909 ; 40 -> 32.562973
+  sand poured on a box: particles deeper than half a cell inside 0  resting on its top 288 of 288
+  column 0.42 m after 0.3 s, top / spread: elastic 0.40453225 0.21032828 ; sand 30 deg 0.15509973 0.4059201 ; 60 deg 0.26789314 0.3008831 ; 85 deg 0.36938125 0.2280137
+  heap from a 0.24 m block, equal-volume cone angle: friction 20 -> 22.929882 ; 40 -> 32.569332
 [PASS] mpm_sand - 7 / 7 checks
 --- tests/test_multigrid.mojo ---
 n 32 : MGPCG 4 iterations error 7.1525574e-07 ;  Jacobi PCG 53 iterations error 1.1920929e-06
