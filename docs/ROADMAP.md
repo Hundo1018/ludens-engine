@@ -2735,7 +2735,7 @@
 | 17.40 | [存檔系統(相對於決定論快照)](ROADMAP_HISTORY.md#1740-存檔系統相對於決定論快照--wave-b) | ✅ | B | `gameplay/save.mojo` 建在 17.11 schema 上,提供 `SaveWriter` / `SaveReader`:具名區段,按欄位名載入,處理新增、刪除、改型的欄位並以 `ReadReport` 回報;`save_bodies` / `load_bodies` 只存動態體的姿態與速度;`test_save` 11/11 驗證存檔涵蓋的欄位與 6.10 快照逐位相同;`bench_save` 的存檔大小為 74 KB,快照為 932 KB。 |
 | 17.43 | [Undo / redo 交易層(編輯器前置)](#1743-undo--redo-交易層編輯器前置) | 不排 | B | 規劃在 `CommandBuffer`(4.4)與 17.11 `TypeSchema` 之上建交易式 undo / redo 層(begin/commit/abort、反向操作記錄、物理場景 inverse op),以 `UndoLog` 差分 vs `SnapshotUndo` 全快照為 seam;目前只有零件,交易與反向操作層未做。 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ✅ | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
-| 17.79 | [資源治理](#1779-資源治理--wave-b) | 🔶 | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
+| 17.79 | [資源治理](#1779-資源治理--wave-b) | ✅ | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ✅ | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ✅ | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
 
@@ -2917,8 +2917,8 @@
 
 #### 17.79 資源治理 — Wave B
 
-> **狀態**:🔶 部分完成(2026-10-14:記憶體記帳、body / joint 上限檢查、接觸數上限、`Runtime` 接 `SimBudget`、ECS 儲存的記帳 ✅;2026-10-18 穩態配置量測與預留 ✅
-> (每步 2465 → 49 次);`BodySet` 尾端墓碑裁切、快取收縮未做;GPU 緩衝收縮屬第 7 層)。
+> **狀態**:✅ 完成(CPU;GPU 緩衝收縮屬第 7 層)(2026-10-14:記憶體記帳、body / joint 上限檢查、接觸數上限、`Runtime` 接 `SimBudget`、ECS 儲存的記帳 ✅;
+> 2026-10-18 穩態配置量測與預留(每步 2465 → 49 次)、移除後的墓碑成本 ✅;尾端裁切與快取收縮依量測不做)。
 > **進度(2026-10-18,穩態配置)**:`scripts/alloc_probe.py`(`pixi run alloc-probe`,selftest 1/1)以 LD_PRELOAD 的 C 計數器量每步配置次數:
 > Mojo 的 `List` 不經 libc malloc,而是 `KGEN_CompilerRT_AlignedAlloc` → 執行期 tcmalloc,所以只攔 malloc 時量到 0.1 次 / 步(對照組也 0.1,證明沒攔到)——
 > 改攔該符號後對照組(每步新建一個 List)為 1.4。`--sites <場景>` 以 backtrace + addr2line 列出前 15 個呼叫點。200 箱(睡眠關,暖機 60 步後量 30 步),每步配置次數:
@@ -2926,7 +2926,12 @@
 > List(約 2400 次 / 步)→ 改為最多 8 點的固定陣列,`spread4_core` 以 `Span` 同時服務陣列與 List 呼叫端;(2)BVH / DBVH / hash grid / octree broadphase 每個 proxy 新建
 > 候選 List(約 500 次)→ 共用一個並 `clear`;(3)`_collect_pairs` 的每步串列從空長起(每個約 9 次重配)→ 依上一步接觸數預留。全部逐位不變(9 個盒相關測試 golden 相同)。
 > 剩下的 49 次多為小型每步串列與 Dict 成長;未追到 0。
-> **進度註(2026-10-13)**:`physics/resources.mojo`:`resource_report(scene)` 回傳 bodies / colliders / shapes(hull、mesh 含 BVH 節點、heightfield、SDF)/ contacts / joints / soft
+> **進度(2026-10-18,墓碑)**:量測 1 萬箱全部 `remove_body` 後:每步 12553 µs,而只有地板的新場景 0.89 µs —— 移除的槽保留最後的位姿,`_collect_pairs`
+> 仍為每個槽建 fat AABB 並插入 broadphase,1 萬個仍疊在原處的舊盒互相重疊產生候選對,之後才被 `is_removed` 丟掉。修正:`collect_bp_pairs` / `pairs_parallel` 加 `skip`,
+> 有移除過的槽時不把它們放進 broadphase、也不算它們的 fat AABB → 378 µs(其餘約 38 ns / 槽是各個逐槽迴圈的跳過成本)。`test_body_removal` 16/16:400 箱全移除後
+> BVH broadphase 由 401 個項目降為 1,之後新增的箱重用槽 1 並落在地板上。尾端墓碑裁切不做:它要讓 `BodySet` 的 34 個與 `ColliderSet` 的 17 個逐槽陣列加上場景的逐槽陣列同步縮短,
+> 且 `generation` 不能縮(否則舊 `BodyId` 會在重建的槽上復活);而 free list 以最低槽優先重用,記憶體上限即歷史峰值,剩下的成本是每個墓碑約 38 ns / 步。
+> 快取收縮同理不做:串列容量停在峰值正是穩態零配置要的(收縮後下次成長又要重配)。> **進度註(2026-10-13)**:`physics/resources.mojo`:`resource_report(scene)` 回傳 bodies / colliders / shapes(hull、mesh 含 BVH 節點、heightfield、SDF)/ contacts / joints / soft
 > 的使用中位元組(`len × size_of`,不含 broadphase 自身結構,所以是下界);`bytes_per_body` 給「再加 n 個 body 要多少」;`Limits(max_bodies, max_joints)` +
 > `check_room(scene, limits, bodies, joints)` 在公開邊界 raise(只算存活 body,移除的槽不算);`SolverConfig.max_contacts` 在熱路徑丟最新的 manifold 並計入新計數器
 > `CONTACT_DROPPED`。量測(`tests/test_resources.mojo` 8/8):每 body 329 bytes,預測再加 5000 個箱子 1645000 bytes,實測 1645000;一個 2 三角形網格 +314 bytes;
@@ -3858,7 +3863,7 @@
 | 17.76 | [平台可攜](#1776-平台可攜--wave-b平台方向-c-前提) | 嵌入、腳本與平台 | 🔶 |
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ECS、排程、執行期與診斷 | ✅ |
 | 17.78 | [宿主整合 / 綁定](#1778-宿主整合--綁定--wave-c) | 嵌入、腳本與平台 | 🔶 |
-| 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | 🔶 |
+| 17.79 | [資源治理](#1779-資源治理--wave-b) | ECS、排程、執行期與診斷 | ✅ |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | ECS、排程、執行期與診斷 | ✅ |
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |

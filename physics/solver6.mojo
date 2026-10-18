@@ -1968,7 +1968,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # equal (mojo_1.1_migration.md Gotcha #2) -- `rebind` bridges
             # the two syntactically-distinct, semantically-equal types.
             var boxes = List[AABB[Self.BP.dim]](capacity=n)
+            var any_removed = len(self.bset.free) > 0
             for i in range(n):
+                if any_removed and self.bset.is_removed(i):
+                    # never inserted (`removed` below); no box to compute
+                    var z = Vec3(0, 0, 0, 0)
+                    boxes.append(rebind[AABB[Self.BP.dim]](AABB[3](z, z)))
+                    continue
                 boxes.append(
                     rebind[AABB[Self.BP.dim]](
                         self.colliders.fat_aabb(
@@ -1977,6 +1983,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     )
                 )
             var bp_pairs = List[Pair](capacity=2 * est)
+            # removed slots stay out of the broadphase (ROADMAP 17.79); only
+            # built when a slot has been removed, so other scenes are untouched
+            var removed = List[Bool]()
+            if len(self.bset.free) > 0:
+                removed = List[Bool](length=n, fill=False)
+                for i in range(n):
+                    removed[i] = self.bset.is_removed(i)
             # `collect_bp_pairs` still wants a plain `List[Bool]` of which
             # bodies are static (it lives in `collision`, which cannot
             # import `physics.body_set`'s `MOTION_*` constants -- physics is
@@ -2003,9 +2016,9 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             # should never actually raise.
             try:
                 if par and n >= BP_PAR_MIN:
-                    pairs_parallel[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, workers, dispatch)
+                    pairs_parallel[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, workers, dispatch, removed)
                 else:
-                    collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs)
+                    collect_bp_pairs[Self.BP](self.bp, boxes, is_static_bool, bp_pairs, removed)
             except e:
                 abort("BroadPhase raised inside ContactScene6: " + String(e))
             for c in range(len(bp_pairs)):

@@ -52,7 +52,8 @@ struct RawContact(Copyable, ImplicitlyCopyable, Movable):
 
 
 def collect_bp_pairs[BP: BroadPhase](
-    mut bp: BP, boxes: List[AABB[BP.dim]], statics: List[Bool], mut out: List[Pair]
+    mut bp: BP, boxes: List[AABB[BP.dim]], statics: List[Bool], mut out: List[Pair],
+    skip: List[Bool] = List[Bool](),
 ) raises:
     """Rebuild `bp` from `boxes` (proxy == index into `boxes`, i.e. the body
     index), read its candidate pairs, and reduce them to the canonical order
@@ -61,9 +62,16 @@ def collect_bp_pairs[BP: BroadPhase](
     `bp_sap.mojo`'s docstring), static-static pairs dropped, sorted ascending
     by `(a, b)`. This is the ONLY thing that makes swapping in any backend
     bit-identical to the brute reference: the Gauss-Seidel solve is order-
-    dependent, so the pair sequence has to match exactly, not just the set."""
-    var items = List[BoxProxy[BP.dim]]()
+    dependent, so the pair sequence has to match exactly, not just the set.
+
+    `skip[i]` (when given) leaves box i out of the broadphase entirely: a
+    removed body's slot keeps its last pose, and 10000 removed boxes still
+    stacked where they were cost 12.5 ms a step in the tree and its
+    candidate pairs (ROADMAP 17.79)."""
+    var items = List[BoxProxy[BP.dim]](capacity=len(boxes))
     for i in range(len(boxes)):
+        if i < len(skip) and skip[i]:
+            continue
         items.append(BoxProxy[BP.dim](i, boxes[i]))
     bp.rebuild(items)
     var raw = List[Pair]()
