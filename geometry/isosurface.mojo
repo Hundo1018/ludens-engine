@@ -13,6 +13,15 @@ a closed isosurface comes out as a closed, consistently wound mesh
 
 `splat_particles(points, radius, ...)` builds the grid from particles by
 summing the poly6 kernel (1 - r^2 / R^2)^3 over each particle's support.
+`splat_particles_anisotropic` (Yu & Turk 2013, 17.60) stretches each
+particle's kernel along its neighbourhood: weighted mean and covariance of
+the neighbours within `neighbor_radius`, eigen-decomposed; the spreads are
+clamped to at least max / `k_r`, and the axes are normalised to unit
+geometric mean, so every kernel keeps the sphere's volume (an ellipsoid
+of semi-axes R s_k, s_1 s_2 s_3 = 1). Centres move toward the
+neighbourhood mean by `smooth`. A particle with fewer than
+`min_neighbors` neighbours keeps the sphere. Flat sheets and smooth
+surfaces come out flat instead of bumpy (`test_aniso_splat`).
 
 `sample_sdf(sdf, ...)` fills the grid with minus the signed distance, so
 `marching_tetrahedra(g, 0)` extracts the solid's surface (inside = value
@@ -24,6 +33,7 @@ terrain, 17.69) becomes a static collision mesh.
 from std.math import sqrt
 from .vec import Real, Vec3, cross, dot, length
 from .sdf3 import Sdf3
+from .mat3 import Mat3x3, sym_eigen3
 
 
 struct ScalarGrid(Movable):
@@ -244,4 +254,109 @@ def sample_sdf(sdf: Sdf3, origin: Vec3, spacing: Real, nx: Int, ny: Int, nz: Int
         for j in range(ny):
             for i in range(nx):
                 g.v[g.idx(i, j, k)] = -sdf.distance(g.node(i, j, k))
+    return g^
+
+
+def splat_particles_anisotropic(
+    points: List[Vec3], radius: Real, origin: Vec3, spacing: Real, nx: Int, ny: Int, nz: Int,
+    neighbor_radius: Real, min_neighbors: Int = 25, k_r: Real = 4, smooth: Real = 0.9,
+) raises -> ScalarGrid:
+    """`splat_particles` with anisotropic kernels (module note)."""
+    if not (radius > 0) or not (neighbor_radius > 0):
+        raise Error("splat_particles_anisotropic: radius and neighbor_radius must be > 0")
+    var n = len(points)
+    # neighbours through a uniform grid of cell neighbor_radius
+    var lo = origin
+    var cell = neighbor_radius
+    var cx = max(Int(Real(nx) * spacing / cell) + 2, 1)
+    var cy = max(Int(Real(ny) * spacing / cell) + 2, 1)
+    var cz = max(Int(Real(nz) * spacing / cell) + 2, 1)
+    var cnt = List[Int](length=cx * cy * cz + 1, fill=0)
+    var cid = List[Int](length=n, fill=0)
+    for p in range(n):
+        var a = min(max(Int((points[p][0] - lo[0]) / cell), 0), cx - 1)
+        var b = min(max(Int((points[p][1] - lo[1]) / cell), 0), cy - 1)
+        var c = min(max(Int((points[p][2] - lo[2]) / cell), 0), cz - 1)
+        cid[p] = (c * cy + b) * cx + a
+        cnt[cid[p] + 1] += 1
+    for q in range(cx * cy * cz):
+        cnt[q + 1] += cnt[q]
+    var fill = cnt.copy()
+    var order = List[Int](length=n, fill=0)
+    for p in range(n):
+        order[fill[cid[p]]] = p
+        fill[cid[p]] += 1
+    var g = ScalarGrid(nx, ny, nz, origin, spacing)
+    var r2 = radius * radius
+    var nr2 = neighbor_radius * neighbor_radius
+    for p in range(n):
+        var a0 = cid[p] % cx
+        var b0 = (cid[p] // cx) % cy
+        var c0 = cid[p] // (cx * cy)
+        var wsum = Real(0)
+        var mean = Vec3(0, 0, 0, 0)
+        var nb = List[Int]()
+        for c in range(max(c0 - 1, 0), min(c0 + 2, cz)):
+            for b in range(max(b0 - 1, 0), min(b0 + 2, cy)):
+                for a in range(max(a0 - 1, 0), min(a0 + 2, cx)):
+                    var q0 = (c * cy + b) * cx + a
+                    for k in range(cnt[q0], cnt[q0 + 1]):
+                        var j = order[k]
+                        var d = points[j] - points[p]
+                        var dd = dot(d, d)
+                        if dd < nr2:
+                            var w = 1 - (sqrt(dd) / neighbor_radius) ** 3
+                            wsum += w
+                            mean = mean + points[j] * w
+                            nb.append(j)
+        var center = points[p]
+        # the sphere unless the neighbourhood is well sampled
+        var axes = Mat3x3.identity()
+        var stretch = Vec3(1, 1, 1, 0)
+        var aniso = False
+        if len(nb) >= min_neighbors and wsum > 0:
+            mean = mean * (1 / wsum)
+            var cov = Mat3x3.zero()
+            for j in nb:
+                var d = points[j] - mean
+                var w = 1 - (length(points[j] - points[p]) / neighbor_radius) ** 3
+                for r in range(3):
+                    for s in range(3):
+                        cov.m[r * 3 + s] += w * d[r] * d[s]
+            for k in range(9):
+                cov.m[k] /= wsum
+            var ev = sym_eigen3(cov)
+            var sig = ev[0]
+            var smax = max(sig[0], max(sig[1], sig[2]))
+            if smax > 0:
+                var s0 = sqrt(max(sig[0], smax / k_r))
+                var s1 = sqrt(max(sig[1], smax / k_r))
+                var s2 = sqrt(max(sig[2], smax / k_r))
+                var gm = (s0 * s1 * s2) ** (Real(1) / 3)
+                stretch = Vec3(s0 / gm, s1 / gm, s2 / gm, 0)
+                axes = ev[1]
+                aniso = True
+            center = points[p] * (1 - smooth) + mean * smooth
+        # node reach: the longest semi-axis
+        var smax2 = max(stretch[0], max(stretch[1], stretch[2]))
+        var reach = Int(radius * smax2 / spacing) + 1
+        var rel = (center - origin) * (1 / spacing)
+        var ci = Int(rel[0])
+        var cj = Int(rel[1])
+        var ck = Int(rel[2])
+        for k in range(max(ck - reach, 0), min(ck + reach + 2, nz)):
+            for j in range(max(cj - reach, 0), min(cj + reach + 2, ny)):
+                for i in range(max(ci - reach, 0), min(ci + reach + 2, nx)):
+                    var d = g.node(i, j, k) - center
+                    # coordinates along the axes, scaled by 1 / stretch (the
+                    # sphere as `splat_particles` computes it, bit for bit)
+                    var q = dot(d, d)
+                    if aniso:
+                        q = 0
+                        for a in range(3):
+                            var u = (axes.m[0 * 3 + a] * d[0] + axes.m[1 * 3 + a] * d[1] + axes.m[2 * 3 + a] * d[2]) / stretch[a]
+                            q += u * u
+                    if q < r2:
+                        var s = 1 - q / r2
+                        g.v[g.idx(i, j, k)] += s * s * s
     return g^
