@@ -198,6 +198,12 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
   dam-break KE: early 483.15817  late 23.848238
   dam-break x spread: 0.99979997  (initial 0.24)
 [PASS] pbf - 10 / 10 checks
+--- tests/test_pbf_unified.mojo ---
+  density 0.3 released 5 cm above the floor, under water: centroid y 0.15 -> 0.40933585  surface 0.37334007  draft fraction 0.5926449
+  density 3.0 dropped from above: centroid y 0.07381954  (resting on the floor: 0.075)
+  dropped from above: draft fraction density 0.3 0.5918169  0.6 0.83692324  slope 0.8170211  offset 0.2918169  (ideal: slope 1, offset 0)
+  largest body speed over all runs 2.2041593  all particles in the tank True
+[PASS] pbf_unified - 6 / 6 checks
 --- tests/test_pip.mojo ---
 [PASS] pip - 16 / 16 checks
 --- tests/test_polytope.mojo ---
@@ -345,6 +351,11 @@ channel: on True  re-cast while channelling 3  cancel True False  uncancelled en
   U split: 3 parts excess 0.019999999999999928 | cluster: 4 parts excess 0.04500000000000011
    probes graded 41 variants agree 41 contradict the solid 0
 [PASS] convex_decomp - 44 / 44 checks
+--- tests/test_cosserat_rod.mojo ---
+  clamped, end turned by pi: total twist 3.141593  per joint 0.16534698  worst relative deviation 0.0060845017  max off-axis 0.0
+  end released: total twist after 5 s 4.1166983e-12
+  cantilever tip sag: bend compliance 1 0.8733191  0.01 0.3825132
+[PASS] cosserat_rod - 5 / 5 checks
 --- tests/test_crowd.mojo ---
   crowd: swap/orca time 12.1 min sep 8.583069e-06 late 8.583069e-06
   crowd: swap/rvo time 11.900001 min sep 0.003354013 late 0.003354013
@@ -831,7 +842,9 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
   three-way, 0.3 s: max imbalance 0.0  per-step impulses up to 5.504689e-05
   air momentum change -0.011786776  cloth + ball received 0.011786737  relative mismatch 3.4105346e-06
   ball vy: under the sheet -2.0764306  alone -2.026976
-[PASS] cloth_air_parts - 12 / 12 checks
+  strands: 36 strands x 8 particles, 200 steps; strand impulse 0.00632945 0.0063295146
+  grains: 5 in water rising at 2 x settling speed, 300 steps; mean height 0.021544788  grain vy 0.00501842 0.00501842
+[PASS] cloth_air_parts - 14 / 14 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
@@ -1021,6 +1034,10 @@ tangent: worst |K du - central difference| / max |K du| 2.7867749e-05 ;  u.K w 6
 E = 1e7 cantilever, dt 1/60: sag at 3.3 s NH 0.006502785  corotational 0.004246287 ;  at 20 s NH 0.0065027773  corotational 0.006481163 ;  worst MINRES iterations 130  dropped 0 ;  explicit NH tip after 1 s nan
 inverted element: det F -0.2 -> 1.0019028 ;  capped solve converged False  counter 1
 [PASS] fem_nh_implicit - 7 / 7 checks
+--- tests/test_fem_pd.mojo ---
+  free body at rest, 1 s: max |v| unrotated 0.00014190565  turned 90 degrees 0.00014041978
+  dt 0.1, 10 iterations, 10 s: tip y -0.040367447  (not converged per step: one local-global pass per iteration)
+[PASS] fem_pd - 6 / 6 checks
 --- tests/test_fem_plastic.mojo ---
   cantilever under 10 g: sag elastic 0.29821372  plastic 0.87161636 ;  tip offset after unloading 3 s: elastic 0.00032791495  plastic 0.65184927
   bar pulled apart: with removal 104 tets removed, 4 pieces;  without removal 0 removed, 1 piece, length 1.6000674
@@ -1269,6 +1286,11 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   crossing vs shifted twin, 240 steps: force error 1.1002156e-05  torque error 1.0904011e-05  (of peak);  mass 13697.448 13697.449
   coupled body across the boundary, 0.2 s: v 0.00092939363  shifted twin 0.0009293971
 [PASS] lbm_periodic - 5 / 5 checks
+--- tests/test_levelset_water.mojo ---
+  still water, 1 s: max face speed 1.5646219e-07  volume ratio 1.0
+  dam break front x: 0.453125 0.921875 0.984375 0.984375 0.984375 0.984375
+  Z at T = 1.48: 1.8125  (Martin & Moyce ~2.0)  far wall reached at 0.3416667 s  volume ratio range 0.9609375 1.1328125
+[PASS] levelset_water - 5 / 5 checks
 --- tests/test_lod.mojo ---
 [PASS] lod - 18 / 18 checks
 --- tests/test_loops.mojo ---
@@ -1276,6 +1298,13 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   1:100 closed chain, loop-breaking twist: velocity residual PGS 20 0.00015205792  PGS 100 4.0514287e-06  direct 4.95287e-06  CG 1.4807274e-06
   1:100 closed chain under gravity, 1 s: max loop gap PGS(20) 0.00060931  direct 0.0005459994  CG 0.00054793217
 [PASS] loops - 6 / 6 checks
+--- tests/test_mac_fluid3.mojo ---
+  projection 16^3: max |div| before 41.001366  after 3.9577484e-05  CG iterations 40
+  shear decay over 50 steps: amplitude ratio 0.9617614530522497  discrete 0.9617625450632548  continuous 0.9612906972181532
+  2-D parity after 20 steps: max |u3 - u2| 1.1175871e-08  of 0.04800701  max |w| 0.0
+  smoke heat centre y: 0.15625 0.17348835 0.21485332 0.26522574 0.3171574
+  mean v -0.0007724176468322241  max |v| 0.534762
+[PASS] mac_fluid3 - 7 / 7 checks
 --- tests/test_mac_multigrid.mojo ---
 1 s: peak speed 0.70249695  max velocity difference 2.939254e-06  KE 0.008806919 0.00880692  worst divergence 7.6293945e-06 7.6293945e-06 (peak/dx 44.959805 )
 iterations over 100 steps: Jacobi PCG 10622  MGPCG 400
