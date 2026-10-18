@@ -117,3 +117,4 @@ physics.mac_fluid3  # [api] 3-D MAC fluid / smoke for hosts and benches (17.60, 
 physics.cosserat_rod  # [api] Cosserat rods with twist (position + orientation), 17.57 (test_cosserat_rod)
 physics.fem_pd  # [api] projective-dynamics solver for tet bodies, 17.58 (test_fem_pd)
 physics.mac_levelset  # [api] free-surface water: MAC + level set + ghost fluid, 17.60 (test_levelset_water)
+physics.pbf_unified  # [api] fluid + rigid bodies in one PBF solve, 17.59 (test_pbf_unified)
