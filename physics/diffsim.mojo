@@ -25,12 +25,25 @@ comptime _K: Real = 400.0  # ground spring
 comptime _C: Real = 8.0  # ground damper
 
 
-@fieldwise_init
 struct DiffState2[F: Field](Copyable, ImplicitlyCopyable, Movable):
     var x: Self.F
     var y: Self.F
     var vx: Self.F
     var vy: Self.F
+    var step: Int
+    # FNV-1a over the indices of the steps whose contact branch fired: two
+    # rollouts with equal `schedule` took the same branches, so a central
+    # difference between them measures a derivative, not a jump
+    # (`harness.gradcheck`'s schedule; ROADMAP 17.84)
+    var schedule: UInt64
+
+    def __init__(out self, x: Self.F, y: Self.F, vx: Self.F, vy: Self.F):
+        self.x = x
+        self.y = y
+        self.vx = vx
+        self.vy = vy
+        self.step = 0
+        self.schedule = 14695981039346656037
 
 
 def _step2[F: Field](
@@ -41,6 +54,8 @@ def _step2[F: Field](
     if s.y.value() < 0:
         # spring-damper penalty: fy = k·(−y) − c·vy
         s.vy = s.vy + kdt * (F.zero() - s.y) - cdt * s.vy
+        s.schedule = (s.schedule ^ UInt64(s.step)) * 1099511628211
+    s.step += 1
     s.x = s.x + s.vx * dtf
     s.y = s.y + s.vy * dtf
 

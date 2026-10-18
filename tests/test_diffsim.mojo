@@ -4,9 +4,67 @@ from geometry.vec import Real
 from geometry.field import RealF, DualReal, DualBatch, Tape, RevReal, rev_seed
 from geometry.gmv import GMV
 from physics.diffsim import rollout2, rollout_ctrl
+from harness.gradcheck import GradProblem, gradcheck, default_steps
 
 comptime DT: Real = 1.0 / 240.0
 comptime STEPS = 480  # 2 seconds, includes at least one ground bounce
+
+
+struct Launch(GradProblem):
+    """Landing x after STEPS frames as a function of (vx0, vy0)."""
+
+    def __init__(out self):
+        pass
+
+    def dim(self) -> Int:
+        return 2
+
+    def value(self, x: List[Float64]) -> Float64:
+        return Float64(rollout2[RealF](RealF(Real(x[0])), RealF(Real(x[1])), 1.0, STEPS, DT).x.v)
+
+    def gradient(self, x: List[Float64], mut g: List[Float64]):
+        g[0] = Float64(rollout2[DualReal](DualReal.seed(Real(x[0])), DualReal.const(Real(x[1])), 1.0, STEPS, DT).x.b)
+        g[1] = Float64(rollout2[DualReal](DualReal.const(Real(x[0])), DualReal.seed(Real(x[1])), 1.0, STEPS, DT).x.b)
+
+    def schedule(self, x: List[Float64]) -> UInt64:
+        return rollout2[RealF](RealF(Real(x[0])), RealF(Real(x[1])), 1.0, STEPS, DT).schedule
+
+
+struct Ctrl(GradProblem):
+    """Landing x of `rollout_ctrl` as a function of its controls; gradient
+    from the reverse tape."""
+
+    var n: Int
+    var burst: Int
+
+    def __init__(out self, n: Int, burst: Int):
+        self.n = n
+        self.burst = burst
+
+    def dim(self) -> Int:
+        return self.n
+
+    def _u(self, x: List[Float64]) -> List[RealF]:
+        var u = List[RealF]()
+        for v in x:
+            u.append(RealF(Real(v)))
+        return u^
+
+    def value(self, x: List[Float64]) -> Float64:
+        return Float64(rollout_ctrl[RealF](self._u(x), self.burst, DT).x.v)
+
+    def gradient(self, x: List[Float64], mut g: List[Float64]):
+        var t = Tape()
+        var u = List[RevReal]()
+        for v in x:
+            u.append(rev_seed(t, Real(v)))
+        var st = rollout_ctrl[RevReal](u, self.burst, DT)
+        var a = t.grad(st.x.idx)
+        for k in range(self.n):
+            g[k] = Float64(a[u[k].idx])
+
+    def schedule(self, x: List[Float64]) -> UInt64:
+        return rollout_ctrl[RealF](self._u(x), self.burst, DT).schedule
 
 
 def main() raises:
@@ -22,18 +80,12 @@ def main() raises:
     var dvy = rollout2[DualReal](
         DualReal.const(vx0), DualReal.seed(vy0), 1.0, STEPS, DT
     )
-    comptime EPS: Real = 1e-2
-    var xp = rollout2[RealF](RealF(vx0 + EPS), RealF(vy0), 1.0, STEPS, DT)
-    var xm = rollout2[RealF](RealF(vx0 - EPS), RealF(vy0), 1.0, STEPS, DT)
-    var fd_x = Float64((xp.x.v - xm.x.v) / (2 * EPS))
-    var yp = rollout2[RealF](RealF(vx0), RealF(vy0 + EPS), 1.0, STEPS, DT)
-    var ym = rollout2[RealF](RealF(vx0), RealF(vy0 - EPS), 1.0, STEPS, DT)
-    var fd_y = Float64((yp.x.v - ym.x.v) / (2 * EPS))
-    print("  d(x)/d(vx0): dual", dvx.x.b, "fd", fd_x)
-    print("  d(x)/d(vy0): dual", dvy.x.b, "fd", fd_y)
-    s.check(abs(Float64(dvx.x.b) - fd_x) < 0.02, "dual vs FD: d(x)/d(vx0)")
-    s.check(abs(Float64(dvy.x.b) - fd_y) < 0.02, "dual vs FD: d(x)/d(vy0)")
-    s.check(abs(fd_x) > 0.1, "gradient is nontrivial (not zero)")
+    var rep = gradcheck(Launch(), [Float64(vx0), Float64(vy0)], default_steps())
+    for i in range(len(rep.steps)):
+        print("  gradcheck h", rep.steps[i], ": error", rep.errors[i], " skipped (branch crossed)", rep.crossings[i])
+    print("  d(x)/d(vx0): dual", dvx.x.b, " d(x)/d(vy0): dual", dvy.x.b, ";  best error", rep.best_error, "at h", rep.best_step)
+    s.check(rep.passed(5e-3), "dual vs central differences (gradcheck, same contact schedule): d(x)/d(vx0), d(x)/d(vy0)")
+    s.check(abs(dvx.x.b) > 0.1, "gradient is nontrivial (not zero)")
 
     # 2. Batch lanes reproduce the sequential duals in ONE rollout.
     var b = rollout2[DualBatch](
@@ -114,8 +166,8 @@ def main() raises:
         abs(Float64(adj[rvy.idx] - dvy.x.b)) < 1e-4,
         "reverse == forward: d(x)/d(vy0)",
     )
-    s.check(abs(Float64(adj[rvx.idx]) - fd_x) < 0.02, "reverse vs FD: d/dvx0")
-    s.check(abs(Float64(adj[rvy.idx]) - fd_y) < 0.02, "reverse vs FD: d/dvy0")
+    # reverse == forward here and forward == central differences in 1
+    # (gradcheck), so reverse == differences without a second check
 
     # 6. One sweep per output: the SAME tape answers d(y_final)/d(inputs)
     #    without re-running the rollout.
@@ -180,23 +232,16 @@ def main() raises:
     for j in range(NP):
         u0.append(RealF(base[j]))
     var s0 = rollout_ctrl[RealF](u0, BURST, DT)
-    comptime H8: Real = 1e-2
     var worst_rb = Float64(0)
-    var worst_rf = Float64(0)
     for k in range(NP):
-        var up = List[RealF]()
-        for j in range(NP):
-            up.append(RealF(base[j] + (H8 if j == k else Real(0))))
-        var sp = rollout_ctrl[RealF](up, BURST, DT)
-        var fd = Float64((sp.x.v - s0.x.v) / H8)
-        var rev_k = Float64(a8[u8[k].idx])
-        if abs(rev_k - Float64(g_batch[k])) > worst_rb:
-            worst_rb = abs(rev_k - Float64(g_batch[k]))
-        if abs(rev_k - fd) > worst_rf:
-            worst_rf = abs(rev_k - fd)
-    print("  8-param: worst |rev-batch| =", worst_rb, "|rev-fd| =", worst_rf)
+        worst_rb = max(worst_rb, abs(Float64(a8[u8[k].idx]) - Float64(g_batch[k])))
+    var x8 = List[Float64]()
+    for j in range(NP):
+        x8.append(Float64(base[j]))
+    var rep8 = gradcheck(Ctrl(NP, BURST), x8, default_steps())
+    print("  8-param: worst |rev-batch| =", worst_rb, " gradcheck best error", rep8.best_error, "at h", rep8.best_step, " skipped at h 1e-2:", rep8.crossings[0])
     s.check(Float64(s8.x.v) == Float64(s0.x.v), "8-param primal bit parity")
     s.check(worst_rb < 1e-4, "8-param: reverse == chunked batch")
-    s.check(worst_rf < 0.05, "8-param: reverse vs forward differences")
+    s.check(rep8.passed(1e-3), "8-param: reverse vs central differences (gradcheck)")
 
     s.finish()

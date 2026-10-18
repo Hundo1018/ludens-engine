@@ -15,7 +15,8 @@ So this file does three things:
 
   1. checks the rigid gradient against finite differences INSIDE one piece —
      and to do that it has to first FIND one, by shrinking the probe until
-     the contact step indices match on both sides. The bounce count matching
+     the contact step indices match on both sides (`harness.gradcheck` with
+     the contact-step schedule hash skips every probe that crosses). The bounce count matching
      is not enough and the first version of this test was wrong for exactly
      that reason: it compared a dual of -1.0 against a difference of 0.33 and
      the two were derivatives of different functions.
@@ -32,6 +33,7 @@ from harness.runner import Suite
 from geometry.vec import Real
 from geometry.field import RealF, DualReal
 from physics.diffrigid import rollout_rigid, rollout_soft
+from harness.gradcheck import GradProblem, gradcheck
 
 comptime DT: Real = 1.0 / 480.0
 comptime STEPS = 720  # 1.5 s
@@ -48,6 +50,30 @@ def _rigid_y(vx0: Real, vy0: Real, y0: Real) -> Tuple[Real, Int, Int]:
     return (r.y.v, r.bounces, r.schedule)
 
 
+struct Height(GradProblem):
+    """Final height w.r.t. y0; the schedule is the contact-step hash."""
+
+    var vx0: Real
+    var vy0: Real
+
+    def __init__(out self, vx0: Real, vy0: Real):
+        self.vx0 = vx0
+        self.vy0 = vy0
+
+    def dim(self) -> Int:
+        return 1
+
+    def value(self, x: List[Float64]) -> Float64:
+        return Float64(_rigid_y(self.vx0, self.vy0, Real(x[0]))[0])
+
+    def gradient(self, x: List[Float64], mut g: List[Float64]):
+        g[0] = Float64(rollout_rigid[DualReal](DualReal.const(self.vx0), DualReal.const(self.vy0), DualReal.seed(Real(x[0])), STEPS, DT, E).y.b)
+
+    def schedule(self, x: List[Float64]) -> UInt64:
+        var r = _rigid_y(self.vx0, self.vy0, Real(x[0]))
+        return UInt64(r[2]) * 1000003 + UInt64(r[1])
+
+
 def main() raises:
     var s = Suite("diffrigid")
 
@@ -59,31 +85,24 @@ def main() raises:
         DualReal.const(vx0), DualReal.const(vy0), DualReal.seed(y0),
         STEPS, DT, E,
     )
-    # shrink the probe until BOTH sides fire their contacts on the same steps
-    var eps = Real(2e-3)
-    var ok = False
-    print("  probe      same count?   same schedule?")
-    for _ in range(30):
-        var hp = _rigid_y(vx0, vy0, y0 + eps)
-        var hm = _rigid_y(vx0, vy0, y0 - eps)
-        var same_n = hp[1] == d.bounces and hm[1] == d.bounces
-        var same_s = hp[2] == d.schedule and hm[2] == d.schedule
-        print("   ", eps, "     ", same_n, "        ", same_s)
-        if same_s:
-            ok = True
-            break
-        eps = eps * 0.25
-    s.check(ok, "a probe small enough to stay on one smooth piece exists")
-
-    var hp2 = _rigid_y(vx0, vy0, y0 + eps)
-    var hm2 = _rigid_y(vx0, vy0, y0 - eps)
-    var fd = (hp2[0] - hm2[0]) / (2 * eps)
-    print("  d(y)/d(y0): dual", d.y.b, " fd", fd, " at eps", eps)
-    s.check(
-        abs(Float64(d.y.b - fd)) < 1e-3 * (abs(Float64(fd)) + 1.0),
-        "rigid gradient == finite differences inside one piece",
-    )
-    s.check(abs(Float64(fd)) > 1e-3, "the gradient is not trivially zero")
+    # shrink the probe until BOTH sides fire their contacts on the same steps:
+    # gradcheck skips every step whose two evaluations changed the schedule
+    var steps = List[Float64]()
+    var eps = Float64(2e-3)
+    for _ in range(12):
+        steps.append(eps)
+        eps *= 0.25
+    var rep = gradcheck(Height(vx0, vy0), [Float64(y0)], steps)
+    print("  probe      schedule crossed?   error")
+    var first_ok = -1
+    for i in range(len(rep.steps)):
+        print("   ", rep.steps[i], "     ", rep.crossings[i] > 0, "        ", rep.errors[i])
+        if first_ok < 0 and rep.crossings[i] == 0:
+            first_ok = i
+    s.check(first_ok >= 0, "a probe small enough to stay on one smooth piece exists")
+    print("  d(y)/d(y0): dual", d.y.b, " best error", rep.best_error, "at eps", rep.best_step)
+    s.check(rep.passed(1e-3), "rigid gradient == central differences inside one piece (gradcheck)")
+    s.check(abs(Float64(d.y.b)) > 1e-3, "the gradient is not trivially zero")
 
     # the point of the loop: the naive probe passed the bounce-COUNT check
     # and was still comparing two different functions
