@@ -27,6 +27,20 @@ external velocity. `Mover` wraps it:
     overwritten by walking.
   * moving platforms: the controller already carries the position; `heading`
     (yaw, radians) now also turns with the platform's angular velocity.
+  * ladders (`Mover.ladders`, `Ladder` = a box volume and the direction
+    its face looks out of): inside one, pushing toward the face climbs at
+    the ladder's speed, pushing away climbs down, nothing holds still;
+    gravity is off. Climbing past the top pulls up onto the ledge behind
+    (the ledge climb's motion);
+    reaching the ground going down, or jumping, lets go (a jump pushes off
+    along the face direction).
+  * sliding (`slide_angle` > 0): on ground steeper than `slide_angle`
+    (but still walkable) the character slides downhill like a block with
+    kinetic friction `slide_friction`: along the slope it gains
+    g (sin a - mu cos a) per second; the wish is ignored until the ground
+    flattens.
+  * gliding (`glide_sink` > 0): holding jump while falling caps the sink
+    speed at `glide_sink` and steers toward the wish with air control.
   * the vertical is the controller's `up` (17.67; `cc.set_up`): jumps,
     the swim / fly wish, external vertical velocity and platform yaw are
     measured along it. Water volumes stay axis-aligned boxes with a +y
@@ -35,7 +49,7 @@ external velocity. `Mover` wraps it:
 `Mover` is a value type (copy = snapshot) and uses no wall clock.
 """
 
-from std.math import sqrt, isfinite, exp
+from std.math import sqrt, isfinite, exp, cos
 from geometry.vec import Real, Vec3, dot, length
 from physics.rigid6 import Body6
 from physics.solver6 import ContactScene6
@@ -49,6 +63,20 @@ comptime MODE_SWIM = 2
 comptime MODE_FLY = 3
 comptime MODE_CLIMB = 4  # pulling up onto a ledge or vaulting a low wall (17.67)
 comptime MODE_DRIVE = 5  # riding a vehicle seat (17.67)
+comptime MODE_LADDER = 6  # on a ladder volume (17.67)
+comptime MODE_SLIDE = 7  # sliding down a steep slope (17.67)
+comptime MODE_GLIDE = 8  # gliding: falling with the sink speed capped (17.67)
+
+
+@fieldwise_init
+struct Ladder(Copyable, ImplicitlyCopyable, Movable):
+    """A climbable volume: axis-aligned box `lo`..`hi`, `face` the unit
+    horizontal direction its climbable side looks out of, `speed` m/s."""
+
+    var lo: Vec3
+    var hi: Vec3
+    var face: Vec3
+    var speed: Real
 
 comptime MODEL_DIRECT = 0
 comptime MODEL_ACCEL = 1
@@ -110,6 +138,12 @@ struct Mover(Copyable, Movable):
     var vaults: Int
     var drive_body: Int
     var drive_seat: Vec3  # seat point in the vehicle body's frame
+    # ROADMAP 17.67: ladders, sliding, gliding (all off by default)
+    var ladders: List[Ladder]
+    var ladder: Int  # the ladder being climbed (-1 = none)
+    var slide_angle: Real  # radians; 0 = no sliding mode
+    var slide_friction: Real
+    var glide_sink: Real  # m/s; 0 = no gliding
 
     def __init__(out self, var cc: CharacterController, cfg: MoveConfig = MoveConfig.default()):
         self.cc = cc^
@@ -134,6 +168,11 @@ struct Mover(Copyable, Movable):
         self.vaults = 0
         self.drive_body = -1
         self.drive_seat = Vec3(0, 0, 0, 0)
+        self.ladders = List[Ladder]()
+        self.ladder = -1
+        self.slide_angle = 0
+        self.slide_friction = 0.2
+        self.glide_sink = 0
 
     def add_velocity(mut self, dv: Vec3):
         if isfinite(dv[0]) and isfinite(dv[1]) and isfinite(dv[2]):
@@ -222,6 +261,69 @@ struct Mover(Copyable, Movable):
             self._set_mode(MODE_FALL)
             self.cc.on_ground = False
 
+    def _ladder_at(self) -> Int:
+        """The ladder whose volume the character stands in: its centre
+        within the box horizontally (grown by the radius), its foot between
+        the bottom and the top (a centre test let go 0.6 m below the top,
+        leaving the character hanging on the ledge edge). -1 when none."""
+        var p = self.cc.position
+        var f = self.cc.foot()[1]
+        var r = self.cc.cfg.radius
+        for i in range(len(self.ladders)):
+            ref l = self.ladders[i]
+            if p[0] >= l.lo[0] - r and p[0] <= l.hi[0] + r and p[2] >= l.lo[2] - r and p[2] <= l.hi[2] + r and f >= l.lo[1] - r and f <= l.hi[1]:
+                return i
+        return -1
+
+    def _ladder_step[B: Body6](mut self, mut sc: ContactScene6[B], wish: Vec3, jump_pressed: Bool, dt: Real, gravity: Vec3):
+        var l = self.ladders[self.ladder]
+        var wl = length(self.cc._h(wish))
+        var into = Real(0)
+        if wl > 1e-6:
+            into = min(max(dot(self.cc._h(wish) / wl, -l.face), Real(-1)), Real(1)) * min(wl, Real(1))
+        if jump_pressed:
+            self.ladder = -1
+            self._set_mode(MODE_FALL)
+            self.cc.velocity = l.face * 3 + self.cc.up * (self.cfg.jump_speed * 0.5)
+            self.cc.on_ground = False
+            self.cc.update(sc, l.face * 3, 0, dt, gravity)
+            return
+        var foot = self._vy(self.cc.foot())
+        if into > 0 and foot >= l.hi[1] - 0.05:
+            # over the top: the ledge climb (MODE_CLIMB) lifts the foot just
+            # above the top and moves the capsule past the wall face onto it
+            # (walking forward left its lower half hooked on the edge)
+            var lift = self.cc.up * (l.hi[1] - foot + 0.02)
+            # forward until the capsule clears the wall: from the centre to
+            # the volume's far side along -face, plus the radius
+            var into_dir = -l.face
+            var far = Real(0)
+            for ax in range(3):
+                far += (l.hi[ax] if into_dir[ax] > 0 else l.lo[ax]) * into_dir[ax]
+            var fwd = far - dot(self.cc.position, into_dir) + self.cc.cfg.radius + 0.05
+            self.climb_from = self.cc.position
+            self.climb_mid = self.cc.position + lift
+            self.climb_to = self.climb_mid + into_dir * fwd
+            self.climb_t = 0
+            self.ladder = -1
+            self.cc.velocity = Vec3(0, 0, 0, 0)
+            self._set_mode(MODE_CLIMB)
+            return
+        if into < 0 and self.cc.on_ground:
+            self.ladder = -1
+            self._set_mode(MODE_WALK)
+            self.cc.update(sc, Vec3(0, 0, 0, 0), 0, dt, gravity)
+            return
+        self.cc.velocity = self._with_vy(Vec3(0, 0, 0, 0), into * l.speed)
+        # standing at the foot of the ladder the controller keeps a grounded
+        # character's vertical speed at zero unless it is given a jump speed
+        var up = into * l.speed if self.cc.on_ground and into > 0 else Real(0)
+        self.cc.update(sc, Vec3(0, 0, 0, 0), up, dt, Vec3(0, 0, 0, 0))
+        # left the volume sideways or below it: let go
+        if self._ladder_at() != self.ladder:
+            self.ladder = -1
+            self._set_mode(MODE_FALL)
+
     def _set_mode(mut self, m: Int):
         if m != self.mode:
             self.mode = m
@@ -292,6 +394,18 @@ struct Mover(Copyable, Movable):
         if self.mode == MODE_CLIMB:
             self._climb_step(dt)
             return
+        if self.mode == MODE_LADDER:
+            self._ladder_step(sc, wish, jump_pressed, dt, gravity)
+            return
+        if len(self.ladders) > 0 and self.mode != MODE_FLY:
+            var li = self._ladder_at()
+            if li >= 0:
+                var wl0 = length(self.cc._h(wish))
+                if wl0 > 1e-6 and dot(self.cc._h(wish) / wl0, -self.ladders[li].face) > 0.5:
+                    self.ladder = li
+                    self._set_mode(MODE_LADDER)
+                    self._ladder_step(sc, wish, False, dt, gravity)
+                    return
         var grounded = self.cc.on_ground
         # ledge climb / vault when walking or falling into a wall
         if self.climb_height > 0 and self.mode != MODE_FLY and self.mode != MODE_SWIM:
@@ -307,6 +421,10 @@ struct Mover(Copyable, Movable):
                 self._set_mode(MODE_WALK if grounded else MODE_FALL)
         elif sub > self.cfg.swim_enter:
             self._set_mode(MODE_SWIM)
+        elif grounded and self.slide_angle > 0 and dot(self.cc.ground_normal, self.cc.up) < cos(self.slide_angle):
+            self._set_mode(MODE_SLIDE)
+        elif not grounded and self.glide_sink > 0 and jump_held and not self.rising_jump and self._vy(self.cc.velocity) <= 0:
+            self._set_mode(MODE_GLIDE)
         else:
             self._set_mode(MODE_WALK if grounded else MODE_FALL)
         # jump bookkeeping (ticks)
@@ -319,8 +437,26 @@ struct Mover(Copyable, Movable):
             self.press_ticks = 0
         else:
             self.press_ticks += 1
-        # horizontal model
-        self._model(wish, grounded, dt)
+        # horizontal model (a slide ignores the wish: the slope drives it)
+        if self.mode == MODE_SLIDE:
+            var n = self.cc.ground_normal
+            var c = dot(n, self.cc.up)
+            var gt = gravity - n * dot(gravity, n)  # gravity along the slope
+            var dl = length(gt)
+            if dl > 0:
+                var down = gt / dl  # unit downhill along the slope
+                var sa = sqrt(max(Real(1) - c * c, Real(0)))
+                var a = length(gravity) * (sa - self.slide_friction * c)
+                var hd = self.cc._h(down)
+                var hl = length(hd)
+                if hl > 0:
+                    hd = hd / hl
+                    # speed along the slope = horizontal speed / horizontal share
+                    var s_along = dot(self.vel, hd) / max(hl, Real(1e-6))
+                    s_along = max(s_along + a * dt, Real(0))
+                    self.vel = hd * (s_along * hl)
+        else:
+            self._model(wish, grounded, dt)
         var walk = self.vel + self.cc._h(self.ext)
         var g = gravity
         var jump = Real(0)
@@ -329,6 +465,12 @@ struct Mover(Copyable, Movable):
             var vy = self._vy(self.cc.velocity) * exp(-self.cfg.water_drag * dt) + self._vy(wish) * (1 - exp(-self.cfg.water_drag * dt))
             self.cc.velocity = self._with_vy(self.cc.velocity, vy)
             self.rising_jump = False
+        elif self.mode == MODE_GLIDE:
+            # gravity integrated here and the sink speed clamped, so the
+            # controller (given no gravity) never exceeds it
+            var vy = max(self._vy(self.cc.velocity) + self._vy(gravity) * dt, -self.glide_sink)
+            self.cc.velocity = self._with_vy(self.cc.velocity, vy)
+            g = Vec3(0, 0, 0, 0)
         elif self.mode == MODE_FLY:
             g = Vec3(0, 0, 0, 0)
             self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(wish))
