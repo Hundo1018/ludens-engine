@@ -14,6 +14,7 @@ from fluid.d3q19 import equilibrium
 from harness.bench import BenchTable, now
 from physics.flip import FlipWater2
 from physics.flip_apic import ApicState, apic_step
+from physics.flip_diffuse import DiffuseParticles
 
 
 def flip_rows(mut t: BenchTable) raises:
@@ -82,4 +83,16 @@ def main() raises:
     t.print_report()
     var f = BenchTable("FLIP water: FLIP 0.95 vs APIC transfers (17.60)")
     flip_rows(f)
+    var d = FlipWater2(80, 24, 0.025)
+    d.fill_box(0, 0, 0.25, 0.5)
+    var df = DiffuseParticles(7)
+    for _ in range(100):
+        d.step(0.004)
+        df.update(d, 0.004)
+    var t0 = now()
+    for _ in range(50):
+        df.update(d, 0.004)
+    var t1 = now()
+    keep(df.count())
+    f.add("diffuse update (" + String(df.count()) + " diffuse, " + String(d.count()) + " water particles)", d.count(), "water particle", t1 - t0, 50 * d.count())
     f.print_report()
