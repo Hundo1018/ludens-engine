@@ -1450,7 +1450,12 @@
 >   - 泛型力 == `HillParams` 曲線;
 >   - 對 6 個控制量,一次 RevReal 掃描的梯度對中央差分最佳誤差 1.6e-5;
 >   - 投影梯度下降到 0.8 rad,loss 0.47 → 1e-14。
-> **未做**:DER 扭轉(離散彈性桿的扭轉自由度,獨立的較大項)。
+> **扭轉(2026-10-18)**:不寫 DER,改用位置 + 方向的 Cosserat 桿(Kugelstadt & Schömer 2016):`physics/cosserat_rod.mojo` `CosseratRod`(每段一個四元數,
+> 拉伸–剪切約束把 d3 拉向邊、彎曲–扭轉以 Darboux 向量 Ω = Im(q_e* q_{e+1}) 作每分量 XPBD 約束(x / y 彎曲、z 扭轉柔度),掃描方向每次迭代交替)。
+> 量到兩個陷阱:PBD 比例剛度的 Gauss–Seidel 停在非能量最小(端點關節 0.144 rad、內部 0.175,最小為 0.165);柔度 / h² 遠小於段的逆慣量時關節等於剛性,
+> 最後解的關節吸收全部誤差(1.9e-4 rad);預設柔度 1 時扭轉均分到 0.7 % 以內。`tests/test_cosserat_rod.mojo` 5/5:兩端夾住、末段 5 s 內轉 π:
+> 每個關節與 π / 19 差 ≤ 0.61 %、桿不離軸;放開末段 5 s 後總扭轉 4e-12;懸臂下垂:柔度 1 為 0.873 m、0.01 為 0.383 m。
+> **未做**:扭轉與 `StrandSet` / `Rope` 的整合(現為獨立型別)、扭轉驅動的螺旋 / plectoneme 屈曲量測、與流體 / 接觸的耦合。
 
 > **現況**:**毛髮不存在**:`grep -iE "\bstrand|cosserat|\bfur\b|\bhair\b|fib(er|re)"` 於全部引擎套件只有兩處
 > 慣用語註解(`physics/sensors.mojo:107`、`physics/ccd6.mojo:25`,皆為「a hair off」)。最近的是 17.41
