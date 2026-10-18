@@ -236,7 +236,7 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
   probe: spans after 5 traced steps 40  after 5 more with enabled = False 40
   probe:   ring of 4 after 10 spans: oldest s6  newest s9  dropped 6
   probe:   8-slot trace, 10 steps: dropped 84  TRACE_DROPPED counter 84
-  probe: island spans 40  lanes 3
+  probe: island spans 40  lanes >= 1 True
   probe: [PASS] trace_on_probe - 8 / 8 checks
 [PASS] trace_runtime - 1 / 1 checks
 --- tests/test_tree.mojo ---
@@ -265,8 +265,8 @@ channel: on True  re-cast while channelling 3  cancel True False  uncancelled en
   program: linear True  bits/step 1  ops 14
   primal — hand 1.5474435  generated 1.5474435
   vs diffsim primal — x 1.5474435  y 0.18882477  | generated x 1.5474435  y 0.18882497
-  worst |generated - central difference| on x: 0.0004454255
-  largest |d(y)/du| — generated 0.0  finite difference 0.0
+  x gradient vs central differences: best error 2.9742717742919922e-05 at h 0.01
+  largest |d(y)/du| — generated 0.0  gradcheck best error vs differences 0.0
   forward dual d(x)/d(u[2]): 0.64465266  generated: 0.64465237
   long rollout (800 steps) final y: -0.022866668
 [PASS] adjoint - 27 / 27 checks
@@ -347,11 +347,20 @@ channel: on True  re-cast while channelling 3  cancel True False  uncancelled en
 --- tests/test_deferred_set.mojo ---
 [PASS] deferred_set - 13 / 13 checks
 --- tests/test_diffrigid.mojo ---
-  probe      same count?   same schedule?
-    0.002       True          False
-    0.0005       True          False
-    0.000125       True          True
-  d(y)/d(y0): dual -1.0  fd -0.99992746  at eps 0.000125
+  probe      schedule crossed?   error
+    0.002       True          0.0
+    0.0005       True          0.0
+    0.000125       False          7.2479248046875e-05
+    3.125e-05       False          0.00054931640625
+    7.8125e-06       False          0.00054931640625
+    1.953125e-06       False          0.0234375
+    4.8828125e-07       False          0.0234375
+    1.220703125e-07       False          0.0234375
+    3.0517578125e-08       False          1.0
+    7.62939453125e-09       False          1.0
+    1.9073486328125e-09       False          1.0
+    4.76837158203125e-10       False          1.0
+  d(y)/d(y0): dual -1.0  best error 7.2479248046875e-05 at eps 0.000125
   naive eps=2e-3: same count True  same schedule False  fd 0.32798293
   d(x)/d(vx0): dual 1.4999986   flight time 1.5000001
   schedule changes over y0 in [0.5, 1.0]: 366 of 499 samples
@@ -363,14 +372,19 @@ channel: on True  re-cast while channelling 3  cancel True False  uncancelled en
     51200.0       3e-45       1.0
 [PASS] diffrigid - 9 / 9 checks
 --- tests/test_diffsim.mojo ---
-  d(x)/d(vx0): dual 1.812278 fd 1.8123626708984375
-  d(x)/d(vy0): dual 0.0 fd 0.0
+  gradcheck h 0.01 : error 4.670287564734461e-05  skipped (branch crossed) 1
+  gradcheck h 0.001 : error 9.932583412322587e-05  skipped (branch crossed) 0
+  gradcheck h 0.0001 : error 0.030421990081887902  skipped (branch crossed) 0
+  gradcheck h 1e-05 : error 0.03930342989865464  skipped (branch crossed) 0
+  gradcheck h 1e-06 : error 0.5786887542764376  skipped (branch crossed) 0
+  gradcheck h 1e-07 : error 1.0  skipped (branch crossed) 0
+  d(x)/d(vx0): dual 1.812278  d(x)/d(vy0): dual 0.0 ;  best error 4.670287564734461e-05 at h 0.01
   control task: final loss = 9.126362101596897e-07 v0 = ( 3.1523705 , 5.529121 )
   motor sandwich: x = 2.6999998 dx/dt = 1.0
   reverse: d(x)/d(vx0) = 1.8122891 d(x)/d(vy0) = 0.0 tape nodes = 5192
   reverse motor sandwich: x = 2.6999998 dx/dt = 1.0
-  8-param: worst |rev-batch| = 1.1086463928222656e-05 |rev-fd| = 0.00011146068572998047
-[PASS] diffsim - 20 / 20 checks
+  8-param: worst |rev-batch| = 1.1086463928222656e-05  gradcheck best error 4.019053867359251e-05 at h 0.01  skipped at h 1e-2: 0
+[PASS] diffsim - 17 / 17 checks
 --- tests/test_ecs_bytes.mojo ---
   sparse-set: empty 0  1000 entities 80576 bytes ( 80 per entity )  2000: 161152  ratio 2.0
   archetype: empty 8  1000 entities 92408 bytes ( 92 per entity )  2000: 184792  ratio 1.9998268398268397
@@ -412,11 +426,17 @@ slope filter: 331 of 667 points kept, max x 31.693409   slope at x 10 / 40: 0.0 
   100000 draws: shares 70.011 25.002 4.987 % (70 / 25 / 5), weight 0: 0  item 1 counts 2 .. 4
 [PASS] flow - 14 / 14 checks
 --- tests/test_gmv_ad.mojo ---
-[PASS] gmv_ad - 266 / 266 checks
+  rotor sandwich: worst gradcheck error over 5 angles x 2 blades 1.5676021575927734e-05
+[PASS] gmv_ad - 257 / 257 checks
 --- tests/test_gpu_broadphase.mojo ---
 [PASS] gpu_broadphase - 0 / 0 checks
 --- tests/test_gpu_narrow.mojo ---
 [PASS] gpu_narrow - 1 / 1 checks
+--- tests/test_implicit.mojo ---
+compliance: adjoint CG 79 iterations; worst |implicit - exact| / max 3.009466095237096e-09
+x.x: worst relative error vs central differences 0.0013002258494804956 ;  dL/ds 24.641738891601563 exact 2 L / s 24.641734621648475 ;  adjoint CG 92 iterations vs 962 solves for a full central difference
+saddle: implicit -0.3460207901198977  central difference -0.34594534184484516
+[PASS] implicit - 4 / 4 checks
 --- tests/test_inertialize_motor.mojo ---
   rotated 90 deg about a pivot, halfway: distance to pivot  motor 0.99999994  split 0.70710677
   pure translation: motor vs split 0.0 ;  rotation about the origin: 5.9604645e-08
@@ -479,6 +499,12 @@ after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (s
   sand poured on a box: particles deeper than half a cell inside 0  resting on its top 9 of 288
   column 0.42 m after 0.3 s, top / spread: elastic 0.372447 0.21578056 ; sand 30 deg 0.08373968 0.56632865 ; 60 deg 0.17557476 0.3200286 ; 85 deg 0.34503222 0.22743237
 [PASS] mpm_sand - 5 / 5 checks
+--- tests/test_multigrid.mojo ---
+n 32 : MGPCG 4 iterations error 7.1525574e-07 ;  Jacobi PCG 53 iterations error 1.1920929e-06
+n 64 : MGPCG 4 iterations error 2.2649765e-06 ;  Jacobi PCG 96 iterations error 2.2053719e-06
+n 128 : MGPCG 4 iterations error 2.6226044e-06 ;  Jacobi PCG 160 iterations error 6.67572e-06
+symmetry: <Mu, v> -0.17407910163508053  <u, Mv> -0.17407910163507975
+[PASS] multigrid - 4 / 4 checks
 --- tests/test_muscle_hill.mojo ---
   identity curves vs plain muscle after 2 s: q 0.40190706 0.40190706
   force-length peak at q 0.5 (fiber = l_opt at 0.5)  fl at +30 % 0.81873095
@@ -505,6 +531,9 @@ after 1.2 s: height solid 0.121314466  liquid 0.04212778  heated 0.100727975  (s
 [PASS] obb - 11 / 11 checks
 --- tests/test_observers.mojo ---
 [PASS] observers - 8 / 8 checks
+--- tests/test_par_spmv.mojo ---
+CG n 16384 : serial 154 iterations, parallel 154
+[PASS] par_spmv - 4 / 4 checks
 --- tests/test_predicates.mojo ---
   naive cyclic-invariance violations (of 2000): 558
   near-degenerate cloud -> exact hull vertices: 4
@@ -570,7 +599,8 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   Poisson 32 x 32: Cholesky error 7.1525574e-07  nnz(L) 23344 ;  CG 69 iterations error 4.10527e-06 ;  IC(0)-PCG 22 iterations error 5.170703e-06 shifted 0
   shuffled grid: nnz(L) natural 81326  RCM 23344 ;  errors 1.1324882e-06 1.1324882e-06
   convection-diffusion n 1024: GMRES(30) 120 steps error 6.9856644e-05 ;  + Jacobi 120 error 6.914139e-05 ;  BiCGStab + Jacobi converged False error 410476270000000.0
-[PASS] solvers - 8 / 8 checks
+  saddle point n 288 : CG converged False error 7.0232973 ;  MINRES 110 steps error 4.172325e-06 residual 9.622034e-07 ;  + |diag| 97 error 3.4570694e-06 ;  GMRES(30) 236 steps converged True
+[PASS] solvers - 11 / 11 checks
 --- tests/test_sparse_large.mojo ---
 [PASS] sparse_large - 6 / 6 checks
 --- tests/test_sparse_volume.mojo ---
@@ -919,6 +949,16 @@ degrade: 40 islands x 120 ticks, snapshot bytes 38148
   restoring force at the stretched end: -2.2435906
   cantilever tip y: -0.08829661   volume 0.024000002 -> 0.023990544
 [PASS] fem - 9 / 9 checks
+--- tests/test_fem_ccd.mojo ---
+free nodes at 30 m/s: below the plate without CCD 9 of 9 ;  with CCD 0  resting at 0.007 0.007  swept 9
+block at 3 m/s: nodes below the plate without CCD 27 of 27 ;  with CCD 0  swept 72  lowest 0.007  top 0.106941186
+resting block with CCD: lowest 0.007  top 0.10632534  swept 2
+[PASS] fem_ccd - 4 / 4 checks
+--- tests/test_fem_incompressible.mojo ---
+patch nu 0.499: F / (E eps A) standard 1.0092041  averaged 1.0122116 ;  lateral / axial standard 0.5029082  averaged 0.5029917
+cylinder u(a) / Lame: nu 0.3 standard 1.092731  averaged 1.0948637 ;  nu 0.499 standard 1.0366912  averaged 1.0570927
+at rest: largest nodal force 0.002415744 N;  cantilever E 1e6 nu 0.3: tip sag standard 0.06471163  averaged 0.07395662  Euler-Bernoulli 0.08573044
+[PASS] fem_incompressible - 4 / 4 checks
 --- tests/test_fem_material.mojo ---
   small strain: |P_nh - P_co| / |P_co| 0.0007675469   |P_stvk - P_co| / |P_co| 0.0020990176
   rigid rotation 63 deg: |P| corotational 0.0  neo-hookean 0.0001075651  stvk 1.197283e-05
@@ -931,6 +971,11 @@ degrade: 40 islands x 120 ticks, snapshot bytes 38148
   free muscle, 1 s at activation 1: length 0.5000022 of 0.6 ( 16.666305 % shorter)  width 0.21500026 of 0.2  volume 0.023112532 of 0.024000002
   pinned muscle length at activation 0.25 / 0.5 / 1: 0.5737557 0.5497864 0.5075681 ;  sigma_max doubled: 0.4405105
 [PASS] fem_muscle - 6 / 6 checks
+--- tests/test_fem_nh_implicit.mojo ---
+tangent: worst |K du - central difference| / max |K du| 2.7867749e-05 ;  u.K w 649.2266938886161  w.K u 649.2267382133632
+E = 1e7 cantilever, dt 1/60: sag at 3.3 s NH 0.006502785  corotational 0.004246287 ;  at 20 s NH 0.0065027773  corotational 0.006481163 ;  worst MINRES iterations 130  dropped 0 ;  explicit NH tip after 1 s nan
+inverted element: det F -0.2 -> 1.0019028 ;  capped solve converged False  counter 1
+[PASS] fem_nh_implicit - 7 / 7 checks
 --- tests/test_fem_plastic.mojo ---
   cantilever under 10 g: sag elastic 0.29821372  plastic 0.87161636 ;  tip offset after unloading 3 s: elastic 0.00032791495  plastic 0.65184927
   bar pulled apart: with removal 104 tets removed, 4 pieces;  without removal 0 removed, 1 piece, length 1.6000674
@@ -943,6 +988,10 @@ degrade: 40 islands x 120 ticks, snapshot bytes 38148
   assembled vs matrix-free: max diff 2.670288e-05 of 57.871613  nnz 4131  symmetric True
   2 s cantilever: tip y CG 0.3210657  Cholesky 0.3210657  IC(0)-PCG 0.32106578 ;  max gap 2.0861626e-07 m;  iterations CG 4896  IC(0) 1438 ;  volume 0.37493786 0.37493786 0.37493786 (rest 0.37499985 )
 [PASS] fem_solvers - 6 / 6 checks
+--- tests/test_fem_vbd.mojo ---
+objective after 1, 2, 4, 8, 16, 32 sweeps: 3.1972819608936853 3.1759015912878668 3.1740998279142962 3.1739371517417414 3.173930273907423 3.1739303980110147
+E 1e5 cantilever after 2 s: implicit NH sag 0.54836845 ;  VBD relative error at 10 / 40 / 160 sweeps 0.91878307 0.3270309 0.014714003
+[PASS] fem_vbd - 3 / 3 checks
 --- tests/test_fft_choppy.mojo ---
   one choppy mode vs Gerstner Q = 0.6: worst height difference 1.6987324e-06
   fraction of a wavelength above the level: choppiness 0 0.5  0.6 0.4725  (trochoid 1/2 - Q k A / pi = 0.4712 )
@@ -1031,7 +1080,8 @@ hover 5 s: y 2.9999475  up.y 1.0  heading 0.49997857  tail thrust -3.2666419 ( 3
 --- tests/test_host_bulk.mojo ---
   20 bodies teleported ( 40 were asleep): batch == sequential right after True  and for 60 steps True
   Health on 88 entities: compile-time vs host component agree True
-[PASS] host_bulk - 7 / 7 checks
+query_host[Tag](Health, Mana): 13 entities
+[PASS] host_bulk - 9 / 9 checks
 --- tests/test_hull.mojo ---
   face-face: hit 1.0  count 4.0  |n.y| 1.0  depth 0.19999999
   box-box reference: |n.y| 1.0  depth 0.19999999
@@ -1049,6 +1099,11 @@ hover 5 s: y 2.9999475  up.y 1.0  heading 0.49997857  tail thrust -3.2666419 ( 3
   14-vertex balls: rested 6 of 6, asleep 6
   jittered cubes: rested 8 of 8, asleep 8
 [PASS] hull_irregular - 13 / 13 checks
+--- tests/test_hvp.mojo ---
+Rosenbrock: H v worst relative error 2.3841753e-06  gradient -215.60004 -88.000015
+GA motor x'^3: H v 40.888245 -23.359139  central difference of RevReal gradients 40.874672 -23.35763
+sphere collision: gradient -0.021412198 1.1984232 RevReal -0.021412147 1.1984232  H v 0.18116823 -0.9924587  w.Hv -0.9020332  v.Hw -0.9020353 ;  difference of gradients (first entry)  h=0.1: 0.030469224 h=0.01: -0.5021754 h=0.001: -18.951637
+[PASS] hvp - 4 / 4 checks
 --- tests/test_ik.mojo ---
 [PASS] ik - 27 / 27 checks
 --- tests/test_impact_report.mojo ---
@@ -1144,6 +1199,10 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   1:100 closed chain, loop-breaking twist: velocity residual PGS 20 0.00015205792  PGS 100 4.0514287e-06  direct 4.95287e-06  CG 1.4807274e-06
   1:100 closed chain under gravity, 1 s: max loop gap PGS(20) 0.00060931  direct 0.0005459994  CG 0.00054793217
 [PASS] loops - 6 / 6 checks
+--- tests/test_mac_multigrid.mojo ---
+1 s: peak speed 0.70249695  max velocity difference 2.939254e-06  KE 0.008806919 0.00880692  worst divergence 7.6293945e-06 7.6293945e-06 (peak/dx 44.959805 )
+iterations over 100 steps: Jacobi PCG 10622  MGPCG 400
+[PASS] mac_multigrid - 4 / 4 checks
 --- tests/test_material_contact.mojo ---
   slide from 3 m/s: material-0.05 mesh 9.177369 m, body-0.05 box floor 9.1772 m (v^2/2 mu g = 9.18);  with a 0.5 friction rule 0.9121277 m
   drop on 3 Hz material triangles: deepest 0.027545959 m;  3 Hz on the mesh body 0.027545959 m;  default 0.00031003356 m
@@ -1332,6 +1391,11 @@ released box fell 2.049764 m in 0.5 s
   e=0.0 first apex: 0.0
   apex ratio 2/1: 0.5992163707845061 (analytic 0.64)
 [PASS] restitution - 7 / 7 checks
+--- tests/test_rev_batch.mojo ---
+world 5: RevReal dx/dvx0 1.1130941 dx/dmu -0.10699005 ;  RevBatch lane 5 1.1130941 -0.10699005
+primal: RevBatch vs BatchReal[8] (and RealF) worst lane difference 1.1920929e-07
+8 worlds: worst |RevBatch lane - RevReal world| / max gradient 0.0 ;  tape nodes: batch 718748  one RevReal world 718748
+[PASS] rev_batch - 4 / 4 checks
 --- tests/test_rigid6.mojo ---
 [PASS] rigid6 - 15 / 15 checks
 --- tests/test_rigid_params.mojo ---
@@ -1446,12 +1510,18 @@ ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
 [PASS] smoke - 4 / 4 checks
 --- tests/test_smooth_positive.mojo ---
   d x(1 s) / d drop height: central differences 0.2708435 ;  sharp switch 0.5 (bias 0.2291565 )
-    smooth k 30.0 : gradient 0.49688151  bias vs differences 0.22603801  x(1 s) 2.3142386
+    smooth k 30.0 : gradient 0.49688149  bias vs differences 0.22603798  x(1 s) 2.3142386
     smooth k 100.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
     smooth k 300.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
     smooth k 1000.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
     smooth k 10000.0 : gradient 0.5  bias vs differences 0.2291565  x(1 s) 2.31424
-[PASS] smooth_positive - 5 / 5 checks
+  sharp model central differences at h = 1e-3 / 3e-3 / 1e-2: 0.2708435 0.4005035 0.41043758 ;  continuous-time estimate 0.433
+    clamp_k 10.0 : gradient 0.39004988  own central difference (h 3e-3) 0.39633116  x(1 s) 2.3137477
+    clamp_k 30.0 : gradient 0.44723922  own central difference (h 3e-3) 0.40090084  x(1 s) 2.3142448
+    clamp_k 100.0 : gradient 0.5538619  own central difference (h 3e-3) 0.4005035  x(1 s) 2.3142445
+    clamp_k 1000.0 : gradient 0.5  own central difference (h 3e-3) 0.4005035  x(1 s) 2.31424
+    clamp_k 10000.0 : gradient 0.5  own central difference (h 3e-3) 0.4005035  x(1 s) 2.31424
+[PASS] smooth_positive - 6 / 6 checks
 --- tests/test_soft_period.mojo ---
   lattice on a box, 4 s: lowest particle  period 1 0.03333336  period 4 0.03333336
   period 4 phase 1: the lattice moved on 15 of the first 60 steps (start y 1.0 )
