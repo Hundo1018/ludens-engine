@@ -295,3 +295,33 @@ literal dotted-path lookups, and differs on `raises` only by which
 physical line of an already-correct answer it reports.
 
 _Filled in by the index commit; see `pixi run arch -- bench`._
+
+## 6. Precision and floating-point flag policy
+
+ROADMAP 17.84. What is computed in which precision, which build flags may
+change simulation bits, and how that is enforced (`pixi run flag-policy`,
+`scripts/flag_policy.py`, run with `--selftest` by `pixi run gate -- --selftest`).
+
+**Scalars.**
+- The world scalar `Real` is f32 (`geometry/vec.mojo`); `pixi run build-f64` builds every package with f64 instead (17.8).
+- Krylov recurrences (`numerics/cg.mojo`, `bicgstab`, `gmres`, `minres`, `multigrid`, `cholesky`) run in f64 over an f32 operator.
+  Measured need: an f32 CG recurrence diverges on 1-D Poisson n = 256 (final residual 8.4).
+- Their convergence is judged on the true residual of the returned f32 x, with the floor max(tol, 1.2e-4).
+- Dense solves offer mixed-precision refinement (`solve_dense_refined`): f32 elimination, f64 residual.
+
+**Determinism contract.**
+- Same toolchain + same target CPU + default optimisation ⇒ bit-identical results. The goldens and every bitwise parity test rely on this.
+- The toolchain is pinned exactly in `pixi.toml` (R1).
+- The pinned x86-64 target: `skylake`. `scripts/run_tests.sh` passes it to every test (R2).
+  Other architectures compile for the host and keep their own golden file.
+
+**Which flags change bits** (`pixi run fp-probe`, 17.76). These do not: `-O1`, `-O2`, haswell, skylake-avx512, the host CPU, and SIMD width.
+Two things do:
+- **FMA contraction.** The x86-64 baseline without FMA drifts 6.65e-3 / 1.07e-6 / 3.0e-7 (pile / ball / tower).
+- **`-O0`.**
+
+So:
+- no build path passes fast-math or an explicit -O level to mojo, except the probe that measures them (R3);
+- across targets, results are compared with the tolerance table in `scripts/fp_probe.py`, never bitwise.
+
+**AD.** The derivative types round differently from each other. `RevDual`'s gradient lane matches `RevReal`'s to 5e-8 on a 30-frame contact rollout (`test_hvp`), not bit for bit. Parity tests between AD types use tolerances; a type and its own primal are bit-identical.

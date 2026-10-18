@@ -33,6 +33,8 @@ jobs:
         run: pixi run doclint
       - name: unwired modules (scripts/orphans_allow.txt)
         run: pixi run orphans
+      - name: floating-point flag policy (docs/ARCHITECTURE.md §6)
+        run: pixi run flag-policy
       - name: benchmark template / files / report consistency
         run: pixi run perf -- governance
       - name: gate (build, arch-check, unit..system, golden compare)
