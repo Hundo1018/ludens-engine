@@ -15,6 +15,7 @@ from harness.bench import BenchTable, now
 from physics.flip import FlipWater2
 from physics.flip_apic import ApicState, apic_step
 from physics.flip_diffuse import DiffuseParticles
+from physics.flip3 import FlipWater3
 
 
 def flip_rows(mut t: BenchTable) raises:
@@ -94,5 +95,13 @@ def main() raises:
         df.update(d, 0.004)
     var t1 = now()
     keep(df.count())
+    var c3 = FlipWater3(24, 16, 24, 0.05)
+    c3.fill_box(0, 0, 0, 0.3, 0.6, 0.3)
+    var s0 = now()
+    for _ in range(20):
+        c3.step(0.005)
+    var s1 = now()
+    keep(c3.px[0])
+    f.add("3-D FLIP corner column 24 x 16 x 24", c3.count(), "particle-step", s1 - s0, 20 * c3.count())
     f.add("diffuse update (" + String(df.count()) + " diffuse, " + String(d.count()) + " water particles)", d.count(), "water particle", t1 - t0, 50 * d.count())
     f.print_report()
