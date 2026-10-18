@@ -14,6 +14,11 @@
   4. Gliding: dropped from 20 m with jump held and `glide_sink` 2 m/s it
      never sinks faster than 2 m/s once gliding and takes about 10 s to
      land; without holding jump it falls in about 2 s.
+  5. Crushing: a kinematic lift rising at 1 m/s under a 0.5 m ceiling
+     carries the character up; `crushed` is false while the gap is taller
+     than the character (1.8 m) and true from the first tick it is not;
+     the character is never pushed through the ceiling (it used to end up
+     standing on top of it).
 """
 
 from std.math import sin, cos
@@ -135,4 +140,28 @@ def main() raises:
             t_ff = k
     print("glide: worst sink", worst, " landed after", Real(t_gl) * DT, "s;  free fall", Real(t_ff) * DT, "s")
     s.check(worst >= -2.0001 and t_gl > 0 and abs(Real(t_gl) * DT - 9.6) < 1 and abs(Real(t_ff) * DT - 1.95) < 0.2, "gliding sinks at most 2 m/s (~10 s from 20 m); free fall ~2 s")
+
+    # ---- crushing -------------------------------------------------------------------------------------
+    var cr = ContactScene6[QuatBody6]()
+    floor(cr)
+    _ = cr.add(QuatBody6.at_rest(Vec3(0, 3.25, 0, 0), Inertia3.box(1, 3, 0.25, 3)), Vec3(3, 0.25, 3, 0), True)  # ceiling y 3 .. 3.5
+    var lift = cr.add(QuatBody6.at_rest(Vec3(0, 0.1, 0, 0), Inertia3.box(1, 1.5, 0.1, 1.5)), Vec3(1.5, 0.1, 1.5, 0), False)
+    cr.set_kinematic(lift)
+    cr.set_velocity(lift, Vec3(0, 1, 0, 0), Vec3(0, 0, 0, 0))
+    var c = CharacterController(Vec3(0, 0.2 + 0.9 + 0.01, 0, 0))
+    var first_crush_gap = Real(-1)
+    var early = False
+    var worst_head = Real(0)
+    for _ in range(150):
+        c.update(cr, Vec3(0, 0, 0, 0), 0, DT, G)
+        var gap = Real(3) - (cr.pose(lift).pos[1] + 0.1)
+        if c.crushed and first_crush_gap < 0:
+            first_crush_gap = gap
+        if c.crushed and gap > 1.8 + 0.02:
+            early = True
+        worst_head = max(worst_head, c.foot()[1] + 1.8)
+        cr.step(DT, G)
+    print("crush: first crushed at gap", first_crush_gap, " (character 1.8 m)  highest head", worst_head, " ceiling top 3.5")
+    s.check(not early and first_crush_gap > 1.8 - 0.05 and first_crush_gap <= 1.8 + 0.01, "crushed from the first tick the gap is shorter than the character")
+    s.check(worst_head < 3.5, "never pushed through the ceiling")
     s.finish()

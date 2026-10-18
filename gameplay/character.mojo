@@ -78,12 +78,14 @@ struct CharacterController(Copyable, Movable):
     var hit_ceiling: Bool
     var pushed: Int  # dynamic bodies pushed during the last update
     var box_rounding: Real  # < 0: capsule; >= 0: rounded box (17.53)
+    var crushed: Bool  # squeezed between surfaces below and above this update (17.67)
     var up: Vec3  # unit up axis (17.67); gravity need not point along -y
     var _orient: Quat  # rotation taking +y to `up` (identity for +y)
 
     def __init__(out self, position: Vec3, cfg: CharacterConfig = CharacterConfig.default(), box_rounding: Real = -1):
         self.cfg = cfg
         self.box_rounding = box_rounding
+        self.crushed = False
         self.position = position
         self.velocity = Vec3(0, 0, 0, 0)
         self.on_ground = False
@@ -261,6 +263,17 @@ struct CharacterController(Copyable, Movable):
         return True
 
     def _depenetrate[B: Body6](mut self, sc: ContactScene6[B]):
+        """Push out of overlaps. Squeezed between a surface below and one
+        above (a lift rising into a ceiling, ROADMAP 17.67) there is no
+        room: the vertical part of the push is dropped, so the character
+        is never shoved through either surface, and `crushed` reports it
+        for the game to act on (damage, respawn). Without this a lift
+        rising into a 0.5 m ceiling pushed the character up through it."""
+        # sides seen over all iterations: squeezed, the pushes alternate
+        # (up out of the lift into the ceiling, then back down) and never
+        # show both sides in one iteration
+        var below = False
+        var above = False
         for _ in range(4):
             var pens = self._penetrations(sc, self.position, self.cfg.half_height, 0)
             if len(pens) == 0:
@@ -268,6 +281,14 @@ struct CharacterController(Copyable, Movable):
             var push = Vec3(0, 0, 0, 0)
             for k in range(len(pens)):
                 push += pens[k].normal * (pens[k].depth + self.cfg.skin * 0.5)
+                var nu = self._v(pens[k].normal)
+                if nu > 0.5:
+                    below = True
+                elif nu < -0.5:
+                    above = True
+            if below and above:
+                self.crushed = True
+                push = self._h(push)
             self.position += push
 
     def _surface[B: Body6](self, sc: ContactScene6[B], h: Hit) -> Tuple[Vec3, Real]:
@@ -322,6 +343,7 @@ struct CharacterController(Copyable, Movable):
         velocity; `jump_speed > 0` jumps if grounded."""
         self.hit_ceiling = False
         self.pushed = 0
+        self.crushed = False
         var was_grounded = self.on_ground
         var vy = self._v(self.velocity)
         var jumped = False
