@@ -2858,6 +2858,9 @@
 > 第 30 幀前設重力 50 %、第 60 幀步進中(`begin_advance` .. `finish`)設 100 % → log tick 為 30 / 61,第 60 幀仍 −4.9、第 61 幀 −9.8;以 `scripted(log)` 重跑 120 幀與即時執行場景位元組相同,
 > 同樣資料晚一幀則不同。
 > **未做**:`HostServices` 服務項登記(17.75)、黑盒接 17.33 不變式失敗(`debug_assert` 失敗即終止行程,無掛鉤點;需先有可恢復的不變式回報路徑)與 17.80 擷取格式、C-ABI 取 outbox / 投遞 config(ABI 凍結清單變更)。
+> **評估(2026-10-18)**:C-ABI 取 outbox / 投遞 config 暫不加:`EmbedWorld`(`embed/world.mojo`)不是建在 `Runtime` 上,沒有任何程式寫它的 outbox
+> 或讀它的 config,加 `ld_*` 函式只會暴露永遠為空的緩衝。前提是先決定嵌入世界的形態(改以 `Runtime` 為底,或在 `EmbedWorld` 內定義 outbox 的生產者 /
+> config 的消費者);這是設計決定,不是接線。
 > **現況**:引擎端**只有診斷設施,沒有營運介面**。`diag/log.mojo:44-97` `LogRing`(分級 + 分類、drop-newest,引擎不 `print`)、`diag/counters.mojo:79,117`(`COUNT = 15` 個計數器;有 `get` / `dump`(`:129,135`),但無給宿主的匯出契約)、`diag/trace.mojo:63` `TraceBuffer`(Chrome trace 匯出);存檔給 bytes、無檔案 I/O(ROADMAP §17.40 17.40 待辦);回放錄製在記憶體(ROADMAP §17.39 17.39 待辦)。營運類能力:grep `telemetry|achievement|locali[sz]|analytics|leaderboard|entitlement|crash.?report`(不分大小寫)於全樹 `.mojo` 零命中。已定的邊界決定:17.16「傳輸層 / 線路格式交宿主」(ROADMAP §17.16)、「反作弊的帳號 / 封禁 / 用戶端防護屬宿主與線上服務」(ROADMAP §17.16)、hot config / CVar 併入 17.21(ROADMAP §17.23–17.41 增補「拒絕(5)」)、平台方向 C = 被宿主嵌入的函式庫。
 > **缺口**:本條定義**引擎對營運服務的接口與資料契約**,而非實作營運服務:
 > - **對外 outbox**:模擬在 tick 內只寫入有界佇列(drop-newest + 計數,同 `LogRing` / `DrawQueue`),tick 末由宿主取走;**模擬步內絕不呼叫宿主**,以保決定論。遙測是型別化數值欄位(構造上無 PII 字串)。
