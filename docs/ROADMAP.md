@@ -1947,7 +1947,23 @@
 > **位元打包**:`PointCacheWriter(pack=True)`:差分幀改存一個位元組寬度 b(該幀最大 zig-zag 差所需)+ 每個差 b 位元的位元流(新幀種 3,檔案版本 2);
 > 不打包時位元組與版本 1 完全相同(1 mm 布料快取仍是 197 494 bytes),讀取器兩版都收。`tests/test_sim_cache_pack.mojo` 4/4:16×16 布料 240 幀,
 > 每點每幀 bytes(varint → 打包):err 1 cm 3.05 → 1.10、1 mm 3.21 → 2.26、0.1 mm 3.80 → 3.44,每幀讀回誤差 ≤ err;靜止幀寬度 0;壞位元組 / 截斷 raise。
-> **未做**:Alembic(Ogawa)寫出、OpenVDB / NanoVDB 檔案格式、VDB 的內部樹層級、拓撲變動網格、外部工具讀取驗證。
+> **進度註(2026-10-18,外部格式)**:`geometry/vdb_file.mojo`:`vdb_bytes`(OpenVDB 檔案版本 224、一個 FloatGrid、
+> 標準 5-4-3 樹:葉 8³ → 內部節點 128³ → 4096³ → root,`name` 中繼資料、`UniformScaleMap` f64 體素大小;
+> `active_mask=True` 用 COMPRESS_ACTIVE_MASK 只寫活躍值,`False` 寫全部值)與 `vdb_grid`(讀回 `SparseVolume`;
+> zip / blosc、half、其他網格型別 / transform、活躍 tile、偏移不符、截斷一律 raise)。`tests/test_vdb_file.mojo` 26/26:
+> 窄帶球(7674 活躍體素、51 葉)、跨四個 root 子節點的分散體積、空體積各寫兩種版面,repo 內讀回名稱 / 體素大小 / 葉數 / 每個體素相同;
+> 壞魔數、未知版本、9 個截斷點、zip 位元、移動的 block 偏移皆 raise。檔案大小:球 111 429 bytes(active-mask)vs 1 364 837(全值)。
+> **外部驗證**:`pixi run vdb-check` 以 conda-forge openvdb 13.1 的 Python 模組讀這 6 個檔(`scripts/vdb_check.py`):
+> 活躍體素數、每個體素座標與 f32 值、背景值、體素大小、遠處讀背景,全部相同。
+> `geometry/abc_file.mojo`:`AbcArchive`(Alembic Ogawa 容器、AbcCoreOgawa 版面:屬性標頭位元欄、帶 16 位元組鍵的樣本、
+> inline 中繼資料、1/fps 均勻時間取樣;多邊形網格每幀可換拓撲、帶 id 的點、線性曲線;相同樣本重用資料塊、全幀相同的屬性只存一次;
+> 面以逆時針輸入、依 Alembic 慣例寫成順時針)。`tests/test_abc_file.mojo` 10/10:5×5 頂點布料 12 幀 6210 bytes(每多一幀 420 bytes,
+> 拓撲不重寫)、每幀多一個三角形的扇形、粒子數變動的噴濺 + 3 條股線;錯誤輸入 raise。
+> **外部驗證**:`pixi run abc-check` 以 Blender 5.2.2 的 Alembic 匯入器(PyPI `bpy`,`scripts/abc_check.py` 首次自建 `build/bpy-venv`)
+> 匯入 3 個檔、32 個物件-幀:每個位置與寫入的 f32 位元相同、每個面的頂點順序相同、曲線長度相同。`scripts/ogawa_dump.py` 印 Ogawa 樹。
+> 量測副產物:`String(Float32)` 有一個布料值讀回差 1 ulp,外部比對的文字檔因此改存 f32 位元型態。
+> **未做**:NanoVDB;讀 OpenVDB 自己寫的檔(它預設 blosc / zip,這裡不解壓);活躍 tile;Alembic 讀回(目前只有 Blender 讀);
+> 點快取本身仍在點數變動時強制關鍵幀(拓撲變動網格改由 Alembic 承載)。
 
 > **現況**:引擎套件**不做任何檔案 I/O**——`grep -E "open\(|read_text|write_text|write_bytes|read_bytes|\bPath\b"`
 > 於 `physics/`、`geometry/`、`fluid/`、`numerics/`、`collision/`、`gameplay/`、`ecs/`、`scheduler/`、`diag/`、`procedural/` **零命中**;
