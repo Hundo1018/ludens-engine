@@ -192,10 +192,14 @@ struct MpmSolver(Movable):
         return r * out
 
     def _obstacle(mut self, i: Int, j: Int, k: Int, idx: Int):
-        """Separate a grid node's velocity from every obstacle it is inside."""
+        """Separate a grid node's velocity from every obstacle it is inside or
+        on the surface of (distance <= 0: with the surface on a node plane,
+        the nodes carrying a resting body's weight sit at distance 0, and
+        skipping them left the floor friction at 0.49 m of sliding instead of
+        0.34)."""
         var x = self.lo + Vec3(Real(i), Real(j), Real(k), 0) * self.dx
         for o in range(len(self.obstacles)):
-            if self.obstacles[o].distance(x) >= 0:
+            if self.obstacles[o].distance(x) > 0:
                 continue
             var g = self.obstacles[o].gradient(x)
             var gl = length(g)
@@ -363,13 +367,14 @@ struct MpmSolver(Movable):
             for a in range(3):
                 for b in range(3):
                     stress.set(a, b, 2 * self.mu * (q.f.get(a, b) - r.get(a, b)))
-            # volumetric part: lambda (J-1) J * F^-T  ~  add along the diagonal
-            # through the standard cofactor identity for the isotropic term
+            # volumetric part: P_vol F^T = lambda (J-1) J F^-T F^T = lambda (J-1) J I,
+            # so it joins the Kirchhoff stress P F^T after the product, not P
+            # before it (before it, F^T would rotate the pressure)
             var volterm = self.lam * (jdet - 1.0) * jdet
-            for a in range(3):
-                stress.set(a, a, stress.get(a, a) + volterm)
             var ft = q.f.transpose()
             var pft = stress * ft  # P F^T, the Cauchy-like term MLS scatters
+            for a in range(3):
+                pft.set(a, a, pft.get(a, a) + volterm)
             var scale = -dt * q.vol * 4.0 * inv_dx * inv_dx
             var affine = Mat3()
             for a in range(3):
@@ -584,13 +589,14 @@ struct MpmSolver(Movable):
             for a in range(3):
                 for b in range(3):
                     stress.set(a, b, 2 * self.mu * (q.f.get(a, b) - r.get(a, b)))
-            # volumetric part: lambda (J-1) J * F^-T  ~  add along the diagonal
-            # through the standard cofactor identity for the isotropic term
+            # volumetric part: P_vol F^T = lambda (J-1) J F^-T F^T = lambda (J-1) J I,
+            # so it joins the Kirchhoff stress P F^T after the product, not P
+            # before it (before it, F^T would rotate the pressure)
             var volterm = self.lam * (jdet - 1.0) * jdet
-            for a in range(3):
-                stress.set(a, a, stress.get(a, a) + volterm)
             var ft = q.f.transpose()
             var pft = stress * ft  # P F^T, the Cauchy-like term MLS scatters
+            for a in range(3):
+                pft.set(a, a, pft.get(a, a) + volterm)
             var scale = -dt * q.vol * 4.0 * inv_dx * inv_dx
             var affine = Mat3()
             for a in range(3):
