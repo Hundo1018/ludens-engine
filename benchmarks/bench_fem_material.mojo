@@ -3,7 +3,9 @@
 One `material_forces[M]` pass over a bent 12 x 4 x 4 beam (960 tets), per
 model, against `FemBody.elastic_forces` (the built-in corotational path the
 seam's `Corotational` must equal). Corotational pays 12 Newton iterations of
-the polar decomposition per element; Neo-Hookean and StVK need none.
+the polar decomposition per element; Neo-Hookean and StVK need none. The
+averaged-nodal-pressure Neo-Hookean (`nh_forces_averaged`, 17.58) adds a
+node-volume pass.
 
 Implicit step (17.58): one linearised backward-Euler step of a stiff
 cantilever (12 x 2 x 2 cells, E = 1e7, dt = 1/60, first step from rest) with
@@ -16,7 +18,7 @@ Run with: `mojo run -I build benchmarks/bench_fem_material.mojo`.
 from std.benchmark import keep
 from geometry.vec import Real
 from physics.fem import FemBody, make_beam
-from physics.fem_material import Material, Corotational, StableNeoHookean, StVK, material_forces, step_implicit_nh
+from physics.fem_material import Material, Corotational, StableNeoHookean, StVK, material_forces, step_implicit_nh, nh_forces_averaged
 from geometry.vec import Vec3
 from harness.bench import BenchTable, now
 
@@ -85,6 +87,15 @@ def main():
     row[Corotational](t, b, reps)
     row[StableNeoHookean](t, b, reps)
     row[StVK](t, b, reps)
+    var fxa = List[Real](length=b.node_count(), fill=0)
+    var fya = List[Real](length=b.node_count(), fill=0)
+    var fza = List[Real](length=b.node_count(), fill=0)
+    var ta = now()
+    for _ in range(reps):
+        nh_forces_averaged(b, fxa, fya, fza)
+    var tb = now()
+    keep(fxa[0])
+    t.add("stable neo-hookean, averaged nodal pressure", len(b.tets), "tet", tb - ta, reps * len(b.tets))
     t.print_report()
     var ti = BenchTable("Implicit FEM step: co-rotational vs stable Neo-Hookean tangent (E = 1e7 cantilever, 17.58)")
     implicit_rows(ti)

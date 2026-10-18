@@ -357,3 +357,78 @@ def step_implicit_nh(
             if body.vy[i] < 0:
                 body.vy[i] = 0
     return res
+
+
+def nh_forces_averaged(body: FemBody, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+    """Stable Neo-Hookean forces with the averaged-nodal-pressure volumetric
+    term (Bonet & Burton 1998), the near-incompressible variant (17.58).
+
+    Linear tets lock when lambda >> mu: every element must keep its own
+    volume, which over-constrains a mesh with fewer nodes than elements.
+    Here the volumetric energy lives at the nodes, W_vol = sum_n V_n Psi(J_n)
+    with V_n = sum_{e at n} V_e / 4 and J_n the V_e-weighted mean of the
+    adjacent elements' det F. Its gradient gives each element the
+    volumetric stress p_e cof(F_e) with p_e the mean over its 4 nodes of
+    Psi'(J_n) = lambda_s (J_n - alpha): energy-consistent, and one volume
+    constraint per node instead of per element. The mu F term is per
+    element as in `StableNeoHookean`."""
+    var n = body.node_count()
+    var nt = len(body.tets)
+    var vn = List[Real](length=n, fill=0)
+    var jn = List[Real](length=n, fill=0)
+    var fs = List[Mat3]()
+    for e in range(nt):
+        var f = deformation_gradient(body, e)
+        var j = det3(f)
+        fs.append(f)
+        var tt = body.tets[e]
+        var w = tt.vol * 0.25
+        for q in [tt.a, tt.b, tt.c, tt.d]:
+            vn[q] += w
+            jn[q] += w * j
+    var lam_s = body.lam + body.mu
+    var alpha = 1 + body.mu / lam_s
+    for q in range(n):
+        jn[q] = jn[q] / vn[q] if vn[q] > 0 else 1
+    for e in range(nt):
+        var tt = body.tets[e]
+        var pbar = lam_s * ((jn[tt.a] + jn[tt.b] + jn[tt.c] + jn[tt.d]) * 0.25 - alpha)
+        var f = fs[e]
+        var c = cofactor(f)
+        var p = Mat3()
+        for a in range(3):
+            for b in range(3):
+                p.set(a, b, body.mu * f.get(a, b) + pbar * c.get(a, b))
+        var h = p * tt.dm_inv.transpose()
+        var w = tt.vol
+        for k in range(3):
+            var g1 = -w * h.get(k, 0)
+            var g2 = -w * h.get(k, 1)
+            var g3 = -w * h.get(k, 2)
+            var g0 = -(g1 + g2 + g3)
+            if k == 0:
+                fx[tt.a] += g0
+                fx[tt.b] += g1
+                fx[tt.c] += g2
+                fx[tt.d] += g3
+            elif k == 1:
+                fy[tt.a] += g0
+                fy[tt.b] += g1
+                fy[tt.c] += g2
+                fy[tt.d] += g3
+            else:
+                fz[tt.a] += g0
+                fz[tt.b] += g1
+                fz[tt.c] += g2
+                fz[tt.d] += g3
+
+
+def step_nh_averaged(mut body: FemBody, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
+    """Explicit step with `nh_forces_averaged` (same integrator as
+    `step_material`)."""
+    var n = body.node_count()
+    var fx = List[Real](length=n, fill=0)
+    var fy = List[Real](length=n, fill=0)
+    var fz = List[Real](length=n, fill=0)
+    nh_forces_averaged(body, fx, fy, fz)
+    body.integrate(fx, fy, fz, dt, gravity, floor_y)
