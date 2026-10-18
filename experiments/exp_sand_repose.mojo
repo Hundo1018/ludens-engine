@@ -9,7 +9,7 @@ while the heaps are visibly 20 to 30 degree cones.) A low block is used
 because a tall column keeps spreading on inertia and ends far below the repose
 angle (Lube et al. 2004).
 
-A second table gives the criterion that does not depend on the dynamics: a
+A second table (friction angles 20, 35 and 50, cone slopes 6 degrees below to 12 above) gives the criterion that does not depend on the dynamics: a
 cone of slope theta built from particles must stand for theta below the
 friction angle and flow for theta above it. Its figure of merit is the peak
 height after 1 s over the initial one.
@@ -121,10 +121,10 @@ def main() raises:
     print()
     print("| friction angle | cone slope | peak after 1 s / initial |")
     print("|---:|---:|---:|")
-    for dtheta in [Real(-12), Real(6), Real(24)]:
-        var phi = Real(35)
-        var m = _cone(phi, phi + dtheta, 0.36)
-        var p0 = _peak(m)
-        for _ in range(2000):
-            m.step_ext(DT, G)
-        print("|", phi, "|", phi + dtheta, "|", _peak(m) / p0, "|")
+    for phi in [Real(20), Real(35), Real(50)]:
+        for dtheta in [Real(-6), Real(0), Real(6), Real(12)]:
+            var m = _cone(phi, phi + dtheta, 0.36)
+            var p0 = _peak(m)
+            for _ in range(2000):
+                m.step_ext(DT, G)
+            print("|", phi, "|", phi + dtheta, "|", _peak(m) / p0, "|")
