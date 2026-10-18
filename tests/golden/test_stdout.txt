@@ -213,7 +213,8 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
   density 3.0 dropped from above: centroid y 0.07381954  (resting on the floor: 0.075)
   dropped from above: draft fraction density 0.3 0.5918169  0.6 0.83692324  slope 0.8170211  offset 0.2918169  (ideal: slope 1, offset 0)
   largest body speed over all runs 2.2041593  all particles in the tank True
-[PASS] pbf_unified - 6 / 6 checks
+  rest density at (h 0.05, spacing 0.025) over (h 0.1, spacing 0.05): 8.0  (8 expected)
+[PASS] pbf_unified - 7 / 7 checks
 --- tests/test_pip.mojo ---
 [PASS] pip - 16 / 16 checks
 --- tests/test_polytope.mojo ---
