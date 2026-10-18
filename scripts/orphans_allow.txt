@@ -94,7 +94,7 @@ physics.sph_rigid  # [api] SPH <-> rigid two-way coupling, surface-integrated pr
 physics.mpm_rigid  # [api] MPM <-> rigid two-way coupling through the grid (17.59)
 physics.soft_water  # [api] soft bodies and cloth in still water (17.59)
 geometry.isosurface  # [api] isosurface / particle-surface meshes for the host (17.60)
-physics.flip  # [api] FLIP free-surface water with walls (17.60)
+physics.flip_apic  # [api] APIC transfers for FlipWater2 (a variant of its step, parity and noise in test_flip_apic, cost in bench_grid_fluid) (17.60)
 geometry.sparse_volume  # [api] VDB-style sparse volume and its byte format (17.63)
 physics.mpm_melt  # [api] melting / freezing layer the host steps over an MpmSolver (17.61)
 physics.multiphase  # [api] multi-density SPH the host steps (17.61)

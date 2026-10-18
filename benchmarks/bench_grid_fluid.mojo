@@ -12,6 +12,26 @@ from physics.mac_fluid import MacFluid2
 from fluid.lbm import Lbm, BC_PERIODIC
 from fluid.d3q19 import equilibrium
 from harness.bench import BenchTable, now
+from physics.flip import FlipWater2
+from physics.flip_apic import ApicState, apic_step
+
+
+def flip_rows(mut t: BenchTable) raises:
+    """FLIP vs APIC transfers (17.60) on the 0.25 x 0.5 m dam break, 0.2 s."""
+    for apic in [False, True]:
+        var d = FlipWater2(80, 24, 0.025)
+        var st = ApicState()
+        d.fill_box(0, 0, 0.25, 0.5)
+        var steps = 50
+        var t0 = now()
+        for _ in range(steps):
+            if apic:
+                apic_step(d, st, 0.004)
+            else:
+                d.step(0.004)
+        var t1 = now()
+        keep(d.px[0])
+        t.add("dam break 80 x 24, " + ("APIC" if apic else "FLIP 0.95"), d.count(), "particle-step", t1 - t0, steps * d.count())
 
 
 def main() raises:
@@ -60,3 +80,6 @@ def main() raises:
         keep(l.f[5])
         t.add("LBM D3Q19 " + String(n) + "^2 x 1", n * n, "cell-step", t3 - t2, steps * n * n)
     t.print_report()
+    var f = BenchTable("FLIP water: FLIP 0.95 vs APIC transfers (17.60)")
+    flip_rows(f)
+    f.print_report()
