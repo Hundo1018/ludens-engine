@@ -35,7 +35,7 @@ With no coupled bodies `sph_rigid_step` moves the fluid exactly as
 `sph_step_boundary`.
 """
 
-from std.math import sqrt, pi, cos, sin
+from std.math import sqrt, pi, cos, sin, floor
 from geometry.vec import Real, Vec3, cross, length, dot
 from .pbf import PbfFluid, poly6, spiky_grad, H
 from .sph import BoundaryParticles, visc_lap
@@ -187,6 +187,60 @@ struct SphRigidCoupler(Movable):
         return (True, q, nv)
 
 
+def _candidates(f: PbfFluid, pts: List[Vec3], mut start: List[Int], mut out: List[Int]):
+    """Per particle i, the points in the 27 grid cells (size H) around its
+    predicted position, ascending: out[start[i]:start[i + 1]]."""
+    var ns = len(pts)
+    var n = f.count()
+    if ns == 0:
+        for i in range(n + 1):
+            start[i] = 0
+        return
+    var lo = pts[0]
+    var hi = pts[0]
+    for s in range(ns):
+        for a in range(3):
+            lo[a] = min(lo[a], pts[s][a])
+            hi[a] = max(hi[a], pts[s][a])
+    var nx = Int((hi[0] - lo[0]) / H) + 1
+    var ny = Int((hi[1] - lo[1]) / H) + 1
+    var nz = Int((hi[2] - lo[2]) / H) + 1
+    var cells = nx * ny * nz
+    var count = List[Int](length=cells + 1, fill=0)
+    var cid = List[Int](length=ns, fill=0)
+    for s in range(ns):
+        var cx = min(Int((pts[s][0] - lo[0]) / H), nx - 1)
+        var cy = min(Int((pts[s][1] - lo[1]) / H), ny - 1)
+        var cz = min(Int((pts[s][2] - lo[2]) / H), nz - 1)
+        cid[s] = (cz * ny + cy) * nx + cx
+        count[cid[s] + 1] += 1
+    for c in range(cells):
+        count[c + 1] += count[c]
+    var fill = count.copy()
+    var sorted = List[Int](length=ns, fill=0)
+    for s in range(ns):  # ascending within each cell
+        sorted[fill[cid[s]]] = s
+        fill[cid[s]] += 1
+    out.clear()
+    var tmp = List[Int]()
+    for i in range(n):
+        start[i] = len(out)
+        var gx = Int(floor((f.px[i] - lo[0]) / H))
+        var gy = Int(floor((f.py[i] - lo[1]) / H))
+        var gz = Int(floor((f.pz[i] - lo[2]) / H))
+        tmp.clear()
+        for cz in range(max(gz - 1, 0), min(gz + 2, nz)):
+            for cy in range(max(gy - 1, 0), min(gy + 2, ny)):
+                for cx in range(max(gx - 1, 0), min(gx + 2, nx)):
+                    var c = (cz * ny + cy) * nx + cx
+                    for k in range(count[c], count[c + 1]):
+                        tmp.append(sorted[k])
+        sort(tmp)
+        for k in range(len(tmp)):
+            out.append(tmp[k])
+    start[n] = len(out)
+
+
 def sph_rigid_step[B: Body6](
     mut f: PbfFluid,
     bnd: BoundaryParticles,
@@ -231,6 +285,22 @@ def sph_rigid_step[B: Body6](
     var n = f.count()
     f._rebuild_grid()
     var h2 = H * H
+    # samples near each particle: a hash grid of the posed samples (cell H),
+    # each particle's 27 cells gathered and sorted ascending, so the sums
+    # below visit the same samples in the same order as a loop over all
+    # samples that skips those beyond H -- bit for bit the same, without the
+    # O(particles x samples) scan
+    var cand_start = List[Int](length=n + 1, fill=0)
+    var cand = List[Int]()
+    _candidates(f, cp.world, cand_start, cand)
+    # the same for the static boundary particles (poly6 is 0 beyond H and
+    # the force loop skips r >= H, so the skipped terms added exactly 0)
+    var bpts = List[Vec3](capacity=len(bnd.x))
+    for b in range(len(bnd.x)):
+        bpts.append(Vec3(bnd.x[b], bnd.y[b], bnd.z[b], 0))
+    var bc_start = List[Int](length=n + 1, fill=0)
+    var bc = List[Int]()
+    _candidates(f, bpts, bc_start, bc)
 
     # 2. density and pressure
     var rho = List[Real]()
@@ -239,12 +309,14 @@ def sph_rigid_step[B: Body6](
     for i in range(n):
         f._neighbors(i, nbr)
         var d = f.density(i, nbr)
-        for b in range(len(bnd.x)):
+        for qb in range(bc_start[i], bc_start[i + 1]):
+            var b = bc[qb]
             var bx = f.px[i] - bnd.x[b]
             var by = f.py[i] - bnd.y[b]
             var bz = f.pz[i] - bnd.z[b]
             d += bnd.psi[b] * poly6(bx * bx + by * by + bz * bz)
-        for s in range(len(cp.local)):
+        for q in range(cand_start[i], cand_start[i + 1]):
+            var s = cand[q]
             var e = Vec3(f.px[i], f.py[i], f.pz[i], 0) - cp.world[s]
             var r2 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2]
             if r2 < h2:
@@ -280,7 +352,8 @@ def sph_rigid_step[B: Body6](
             fx += lap * (f.vx[j] - f.vx[i])
             fy += lap * (f.vy[j] - f.vy[i])
             fz += lap * (f.vz[j] - f.vz[i])
-        for b in range(len(bnd.x)):
+        for qb in range(bc_start[i], bc_start[i + 1]):
+            var b = bc[qb]
             var bx = f.px[i] - bnd.x[b]
             var by = f.py[i] - bnd.y[b]
             var bz = f.pz[i] - bnd.z[b]
@@ -293,7 +366,8 @@ def sph_rigid_step[B: Body6](
             fy -= coeff * g * by
             fz -= coeff * g * bz
         var vi = Vec3(f.vx[i], f.vy[i], f.vz[i], 0)
-        for s in range(len(cp.local)):
+        for q in range(cand_start[i], cand_start[i + 1]):
+            var s = cand[q]
             var e = Vec3(f.px[i], f.py[i], f.pz[i], 0) - cp.world[s]
             var r = length(e)
             if r <= 1e-9 or r >= H:

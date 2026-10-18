@@ -12,6 +12,11 @@ stiff explicit solver is CFL-limited, a projection solver is not. Each row also
 carries the settled density it achieved, so an unusable configuration is
 visible rather than merely cheap: a row that is fast because it diverged is
 marked by its own error column.
+
+SPH <-> RIGID (17.59): one `sph_rigid_step` with a 0.15 m box in a
+1152-particle tank (216 box samples, 289 floor boundary particles). The
+sample and boundary neighbours come from a hash grid (12.1 ms per step
+measured with the former scan over every sample / boundary particle).
 """
 
 from std.math import sqrt
@@ -20,7 +25,11 @@ from std.benchmark import keep
 from harness.bench import BenchTable
 from geometry.vec import Real, Vec3
 from physics.pbf import PbfFluid
-from physics.sph import sph_step
+from physics.sph import sph_step, box_floor_boundary
+from physics.sph_rigid import SphRigidCoupler, sph_rigid_step
+from physics.rigid6 import QuatBody6, Inertia3
+from physics.solver6 import ContactScene6
+from physics.solver_config import SolverConfig
 
 comptime G = Vec3(0, -9.8, 0, 0)
 comptime SP: Real = 0.06
@@ -103,6 +112,30 @@ def _pbf_row(mut t: BenchTable, dt: Real, name: String, iters: Int) raises:
     )
 
 
+def coupled_row(mut t: BenchTable) raises:
+    var f = PbfFluid(Vec3(0, 0, 0, 0), Vec3(0.6, 1.0, 0.6, 0))
+    f.calibrate(0.05)
+    for i in range(12):
+        for j in range(8):
+            for k in range(12):
+                f.add(Vec3(0.025 + Real(i) * 0.05, 0.025 + Real(j) * 0.05, 0.025 + Real(k) * 0.05, 0))
+    var floor = box_floor_boundary(f.lo, f.hi, 0.05, f.rho0)
+    var sc = ContactScene6[QuatBody6]()
+    var cp = SphRigidCoupler(1000, f.rho0)
+    _ = sc.add(QuatBody6.at_rest(Vec3(0.3, -0.05, 0.3, 0), Inertia3.box(1, 1, 0.05, 1)), Vec3(1, 0.05, 1, 0), True)
+    var id = sc.add(QuatBody6.at_rest(Vec3(0.3, 0.3, 0.3, 0), Inertia3.box(1.5, 0.075, 0.075, 0.075)), Vec3(0.075, 0.075, 0.075, 0), False)
+    _ = cp.add_box(id, Vec3(0.075, 0.075, 0.075, 0), 0.025, f.rho0)
+    var cfg = SolverConfig()
+    cfg.substeps = 1
+    var steps = 100
+    var t0 = Int(perf_counter_ns())
+    for _ in range(steps):
+        sph_rigid_step(f, floor, cp, sc, 1.0 / 2000.0, G, cfg)
+    var t1 = Int(perf_counter_ns())
+    keep(f.y[0])
+    t.add("sph_rigid_step, 1152 particles + box (216 samples)", f.count(), "step", t1 - t0, steps)
+
+
 def main() raises:
     var t = BenchTable("Fluids: SPH (explicit pressure) vs PBF (density projection)")
     _sph_row(t, 1.0 / 2000.0, "1/2000")
@@ -114,3 +147,6 @@ def main() raises:
     _pbf_row(t, 1.0 / 30.0, "1/30", 4)
     _pbf_row(t, 1.0 / 30.0, "1/30", 8)
     t.print_report()
+    var c = BenchTable("SPH <-> rigid coupled step (17.59)")
+    coupled_row(c)
+    c.print_report()
