@@ -36,7 +36,7 @@ the solve is `numerics.minres`, not CG (`test_fem_nh_implicit`).
 
 from geometry.vec import Real, Vec3, cross
 from geometry.mat import Mat3
-from .fem import FemBody, polar_rotation, det3
+from .fem import FemBody, polar_rotation, det3, _inv3
 from numerics.sparse import LinearOperator
 from numerics.cg import CgResult
 from numerics.minres import minres
@@ -432,3 +432,119 @@ def step_nh_averaged(mut body: FemBody, dt: Real, gravity: Vec3, floor_y: Real =
     var fz = List[Real](length=n, fill=0)
     nh_forces_averaged(body, fx, fy, fz)
     body.integrate(fx, fy, fz, dt, gravity, floor_y)
+
+
+def step_vbd_nh(mut body: FemBody, dt: Real, gravity: Vec3, iters: Int = 20, floor_y: Real = -1e30):
+    """One backward-Euler step of stable Neo-Hookean FEM by Vertex Block
+    Descent (Chen, Macklin et al. 2024), the 17.58 solver variant.
+
+    Minimises G(x) = sum_i m_i / (2 dt^2) |x_i - y_i|^2 + E(x), y = x + dt v +
+    dt^2 g, by Gauss-Seidel over the vertices: each takes one 3 x 3 Newton
+    step on G with the others fixed (gradient and Hessian block from its
+    adjacent elements; the Hessian block is `nh_dpk1` applied to the three
+    unit directions). A block that is not positive definite (compression
+    can make the Neo-Hookean part indefinite) keeps only the inertial term
+    m / dt^2 I, a damped gradient step. Converged, this is the exact
+    nonlinear backward-Euler step (`step_implicit_nh` takes one linearised
+    Newton step of the same problem); velocities are (x - x_old) / dt with
+    the body's mass-proportional damping."""
+    var n = body.node_count()
+    var adj = List[List[Int]]()
+    for _ in range(n):
+        adj.append(List[Int]())
+    for e in range(len(body.tets)):
+        var tt = body.tets[e]
+        adj[tt.a].append(e)
+        adj[tt.b].append(e)
+        adj[tt.c].append(e)
+        adj[tt.d].append(e)
+    var x0 = body.x.copy()
+    var y0 = body.y.copy()
+    var z0 = body.z.copy()
+    var tx = List[Real](length=n, fill=0)
+    var ty = List[Real](length=n, fill=0)
+    var tz = List[Real](length=n, fill=0)
+    for i in range(n):
+        if body.inv_m[i] == 0:
+            continue
+        tx[i] = body.x[i] + dt * body.vx[i] + dt * dt * gravity[0]
+        ty[i] = body.y[i] + dt * body.vy[i] + dt * dt * gravity[1]
+        tz[i] = body.z[i] + dt * body.vz[i] + dt * dt * gravity[2]
+        body.x[i] = tx[i]
+        body.y[i] = ty[i]
+        body.z[i] = tz[i]
+    var inv_dt2 = Real(1) / (dt * dt)
+    for _ in range(iters):
+        for i in range(n):
+            if body.inv_m[i] == 0:
+                continue
+            var m = Real(1) / body.inv_m[i]
+            var gvec = Vec3(m * inv_dt2 * (body.x[i] - tx[i]), m * inv_dt2 * (body.y[i] - ty[i]), m * inv_dt2 * (body.z[i] - tz[i]), 0)
+            var h = Mat3()
+            for k in range(3):
+                h.set(k, k, m * inv_dt2)
+            var he = Mat3()
+            for e in adj[i]:
+                var tt = body.tets[e]
+                var f = deformation_gradient(body, e)
+                var p = StableNeoHookean.pk1(f, body.mu, body.lam)
+                # dF / dx_i = dx (x) r with r the vertex's row of Dm^-1
+                # (minus the sum of the rows for the first vertex)
+                var r = Vec3(0, 0, 0, 0)
+                var dmi = tt.dm_inv
+                if i == tt.a:
+                    for c in range(3):
+                        r[c] = -(dmi.get(0, c) + dmi.get(1, c) + dmi.get(2, c))
+                else:
+                    var row = 0 if i == tt.b else (1 if i == tt.c else 2)
+                    for c in range(3):
+                        r[c] = dmi.get(row, c)
+                var w = tt.vol
+                # gradient of E w.r.t. x_i: W P r
+                for k in range(3):
+                    var acc = Real(0)
+                    for c in range(3):
+                        acc += p.get(k, c) * r[c]
+                    gvec[k] += w * acc
+                # Hessian block: column q = W dP(e_q r^T) r
+                for q in range(3):
+                    var df = Mat3()
+                    for c in range(3):
+                        df.set(q, c, r[c])
+                    var dp = nh_dpk1(f, df, body.mu, body.lam)
+                    for k in range(3):
+                        var acc = Real(0)
+                        for c in range(3):
+                            acc += dp.get(k, c) * r[c]
+                        he.set(k, q, he.get(k, q) + w * acc)
+            var full = Mat3()
+            for a in range(3):
+                for b in range(3):
+                    full.set(a, b, h.get(a, b) + he.get(a, b))
+            # positive definite (Sylvester): else keep the inertial block
+            var m1 = full.get(0, 0)
+            var m2 = full.get(0, 0) * full.get(1, 1) - full.get(0, 1) * full.get(1, 0)
+            var m3 = det3(full)
+            var sys = full if (m1 > 0 and m2 > 0 and m3 > 0) else h
+            var inv = _inv3(sys)
+            var dx = Vec3(0, 0, 0, 0)
+            for k in range(3):
+                dx[k] = -(inv.get(k, 0) * gvec[0] + inv.get(k, 1) * gvec[1] + inv.get(k, 2) * gvec[2])
+            body.x[i] += dx[0]
+            body.y[i] += dx[1]
+            body.z[i] += dx[2]
+    var damp = Real(1.0) / (1.0 + body.damping * dt)
+    for i in range(n):
+        if body.inv_m[i] == 0:
+            body.vx[i] = 0
+            body.vy[i] = 0
+            body.vz[i] = 0
+            body.x[i] = x0[i]
+            body.y[i] = y0[i]
+            body.z[i] = z0[i]
+            continue
+        if body.y[i] < floor_y:
+            body.y[i] = floor_y
+        body.vx[i] = (body.x[i] - x0[i]) / dt * damp
+        body.vy[i] = (body.y[i] - y0[i]) / dt * damp
+        body.vz[i] = (body.z[i] - z0[i]) / dt * damp

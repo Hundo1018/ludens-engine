@@ -11,6 +11,9 @@ Implicit step (17.58): one linearised backward-Euler step of a stiff
 cantilever (12 x 2 x 2 cells, E = 1e7, dt = 1/60, first step from rest) with
 the co-rotational tangent (`FemBody.step_implicit`, CG) and the stable
 Neo-Hookean one (`step_implicit_nh`, MINRES); solver iterations in the row.
+Vertex block descent (`step_vbd_nh`) per sweep count: on this stiff beam
+even 160 sweeps leave the sag 24x too small (`test_fem_vbd`), so its rows
+price the method, not an equal-accuracy alternative.
 
 Run with: `mojo run -I build benchmarks/bench_fem_material.mojo`.
 """
@@ -18,7 +21,7 @@ Run with: `mojo run -I build benchmarks/bench_fem_material.mojo`.
 from std.benchmark import keep
 from geometry.vec import Real
 from physics.fem import FemBody, make_beam
-from physics.fem_material import Material, Corotational, StableNeoHookean, StVK, material_forces, step_implicit_nh, nh_forces_averaged
+from physics.fem_material import Material, Corotational, StableNeoHookean, StVK, material_forces, step_implicit_nh, nh_forces_averaged, step_vbd_nh
 from geometry.vec import Vec3
 from harness.bench import BenchTable, now
 
@@ -68,6 +71,13 @@ def implicit_rows(mut t: BenchTable):
         it = step_implicit_nh(b, 1.0 / 60.0, Vec3(0, -9.8, 0, 0), -1e30, 1e-4, 2000).iters
     t1 = now()
     t.add("implicit stable Neo-Hookean, MINRES (" + String(it) + " iterations)", 1, "step", t1 - t0, reps)
+    for sweeps in [10, 40]:
+        t0 = now()
+        for _ in range(reps):
+            var b = cantilever()
+            step_vbd_nh(b, 1.0 / 60.0, Vec3(0, -9.8, 0, 0), sweeps)
+        t1 = now()
+        t.add("vertex block descent, stable Neo-Hookean (" + String(sweeps) + " sweeps; not converged on this beam, test_fem_vbd)", 1, "step", t1 - t0, reps)
 
 
 def main():
