@@ -1142,12 +1142,13 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
 --- tests/test_force_elements.mojo ---
   box hull density 500 after 10 s: centre y 0.0030862144 (waterline 0, draft 0.25)
   submerged volume: polytope cut 0.6  closed form 0.6  centroid y -0.075 -0.075
+  tilted surface y = 0.1 x: centroid x flat plane 0.0  tilted plane 0.26666668  closed form 0.26667  volume 4.0 (4)
   keeled hull (GM > 0 upright, < 0 inverted) from 150 deg: up.y 1.0    tall hull (GM < 0) from 3 deg: up.y 1.1920929e-06
   wing 2 m^2 at 5 deg, 20 m/s: lift 268.6727  q A 2 pi alpha 268.6726  drag 17.165817
   CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.66020864 0.65953505  30 deg 0.8624042
   half-throttle 100 N on 10 kg for 1 s: v 5.0
   boat with a 2 kN propeller on a 0.3 m swell, 10 s: x 32.359886  heave 0.9160427
-[PASS] force_elements - 12 / 12 checks
+[PASS] force_elements - 13 / 13 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
   shot: broke 106 bonds, thrown through 36 , left in line 0 , live bonds 37 of 143 , ball z -2.145414
