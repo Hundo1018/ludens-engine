@@ -8,6 +8,7 @@ from geometry.vec import Real
 from diag.counters import Counters
 from harness.bench import BenchTable, now
 from physics.coupler import Coupler, CoupledPart, EXPLICIT, INTERP, ITERATED
+from physics.state_io import StateWriter, StateReader
 
 
 struct MassA(CoupledPart):
@@ -64,6 +65,20 @@ struct MassA(CoupledPart):
         self.x = self.sx
         self.v = self.sv
 
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wf(self.x)
+        w.wf(self.v)
+        w.wf(self.xb)
+        w.wf(self.imp)
+        w.wi(self.steps)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.x = r.rf()
+        self.v = r.rf()
+        self.xb = r.rf()
+        self.imp = r.rf()
+        self.steps = r.ri()
+
 
 struct MassB(CoupledPart):
     var x: Real
@@ -107,6 +122,18 @@ struct MassB(CoupledPart):
     def restore(mut self):
         self.x = self.sx
         self.v = self.sv
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wf(self.x)
+        w.wf(self.v)
+        w.wf(self.xa)
+        w.wf(self.imp)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        self.x = r.rf()
+        self.v = r.rf()
+        self.xa = r.rf()
+        self.imp = r.rf()
 
 
 def main() raises:
