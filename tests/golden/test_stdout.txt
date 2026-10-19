@@ -1847,8 +1847,9 @@ tracks 2 / 2 m/s, 3 s: forward speed 1.9999998  yaw rate -1.5864996e-16
 tracks +1 / -1 m/s from rest, 3 s: centre moved 0.00045151875  yaw rate 0.22685187  (no-slip 1.1111111111111112 )
 ramp climb, tracks 2 m/s, 10 s: slope 0.2 z 12.264299  vz 1.8041083 ; slope 0.4 z 9.532903  vz 1.5753437
 ramp hold, tracks stopped, slope 0.15: vz -0.11980487  viscous creep W sin(a) / (n k) -0.12114471
+parked on the ramp, drift 1 s -> 5 s: slope 0.15 -2.861023e-06  m; 0.6 -8.34465e-06  m; slope 0.9 ends at z -3.276763  (from 3)
 hitch: trailer moved 3.9998908 m, worst anchor gap 0.00029503176
-[PASS] vehicle_kinds - 10 / 10 checks
+[PASS] vehicle_kinds - 12 / 12 checks
 --- tests/test_vehicle_seat.mojo ---
 seat after the car turned and moved: 0.23395228 0.9 5.441889
 wall on the left: exit ok True  at x 1.6
