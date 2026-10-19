@@ -753,6 +753,10 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   limits: cone 0.5 pushed at 3 rad/s -> max swing 0.49999976 ; twist +-0.3 driven at 2 rad/s -> max |twist| 0.3 ; cone 0 -> max swing 0.0007338162  twist after 1 s -2.002353
   10 rad/s for 5 s ( 7.957747 turns): |q| - 1 = 0.0  spin 10.0
 [PASS] ball_joint - 10 / 10 checks
+--- tests/test_bike.mojo ---
+worst lean over 6 s from 0.1 rad: unsteered at 8 m/s 3.139469  balanced at 8 m/s 0.15766415  balanced at rest 3.1338973
+balanced at 2 m/s 3.1414216  at 6 m/s 0.14446111
+[PASS] bike - 5 / 5 checks
 --- tests/test_body_removal.mojo ---
 broadphase items before / after removing 400: 401 1   re-added box slot 1  y 0.24971199
 [PASS] body_removal - 16 / 16 checks
