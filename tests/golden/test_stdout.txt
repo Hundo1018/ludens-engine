@@ -1531,6 +1531,11 @@ primal: RevBatch vs BatchReal[8] (and RealF) worst lane difference 1.1920929e-07
 [PASS] rev_batch - 4 / 4 checks
 --- tests/test_rigid6.mojo ---
 [PASS] rigid6 - 15 / 15 checks
+--- tests/test_rigid_air_part.mojo ---
+central point vs BallPart over 120 steps: worst position gap 1.96605e-06  x 4.8089523  vy -4.0528884
+shear: w 0.0 -1.99976 0.0  v 0.0 0.0 0.0  (ideal w_y = -2)
+books: sum j -0.001923576 0.18504383 0.111759886  m dv -0.0019235744 0.18504384 0.111759886 ; sum r x j -0.014721882 0.04296597 -0.039763845
+[PASS] rigid_air_part - 7 / 7 checks
 --- tests/test_rigid_params.mojo ---
   damping c = 2: v after 1 s 1.3982166  discrete 1.3982142  continuous 1.3533528
   gravity scale 0 / 2 / 1: vy 0.0 -9.799998 -4.899999
