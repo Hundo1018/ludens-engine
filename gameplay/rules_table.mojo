@@ -31,6 +31,7 @@ from .rules import (
     KIND_PERIODIC, STACK_REFRESH, STACK_COUNT, EffectDef, Rules, TagRegistry,
 )
 from .abilities import Abilities, AbilityDef
+from ecs.schema import TypeSchema
 
 
 def _index(names: List[String], name: String, what: String, line: Int) raises -> Int:
@@ -184,3 +185,55 @@ def load_abilities(
         for e in target_effects:
             ab.add_target_effect(id, e)
         names[w[0]] = id
+
+
+def load_records[T: Copyable & Deinitable](
+    text: String,
+    template: T,
+    schema: TypeSchema,
+    enums: Dict[String, List[String]],
+    tag_fields: List[String],
+    mut reg: TagRegistry,
+) raises -> List[Tuple[String, T]]:
+    """A table for ANY plain-data struct `T` through its `TypeSchema`
+    (`ecs.schema.schema_of[T]`, 17.11): the keys are `T`'s own field names,
+    so a new field is a new column with no loader change. Every field read
+    this way is 8 bytes (`Int` / `UInt64`). A key in `enums` takes a name
+    from that list (stored as its index); a key in `tag_fields` takes
+    comma-separated hierarchical tag names (stored as the OR of their bits
+    and their parents'); any other key takes a number, decimals as fixed
+    point. Lines start from a copy of `template`, so omitted keys keep its
+    values. Returns (name, record) per line."""
+    var out = List[Tuple[String, T]]()
+    for item in _lines(text):
+        var line = item[0]
+        ref w = item[1]
+        var rec = template.copy()
+        var dst = Pointer(to=rec).unsafe_bitcast[UInt8]()
+        for k in range(1, len(w)):
+            var kv = w[k].split("=")
+            if len(kv) != 2:
+                raise Error("rules_table: line " + String(line) + ": expected key=value, got '" + w[k] + "'")
+            var key = String(kv[0])
+            var v = String(kv[1])
+            var j = schema.find(key)
+            if j < 0:
+                raise Error("rules_table: line " + String(line) + ": unknown key '" + key + "'")
+            ref f = schema.fields[j]
+            if f.size != 8:
+                raise Error("rules_table: line " + String(line) + ": field '" + key + "' is " + f.type_name + ", only 8-byte fields are supported")
+            var bits: UInt64
+            var is_tag = False
+            for t in tag_fields:
+                if t == key:
+                    is_tag = True
+            if is_tag:
+                bits = _tags(reg, v)
+            elif key in enums:
+                bits = UInt64(_index(enums[key], v, key, line))
+            else:
+                bits = UInt64(_fixed(v, line))
+            for b in range(8):
+                dst.unsafe_offset(f.offset + b)[] = UInt8((bits >> UInt64(8 * b)) & 0xFF)
+        out.append((w[0], rec^))
+    return out^
