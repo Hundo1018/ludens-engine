@@ -1935,8 +1935,9 @@
 > `test_coupler_snapshot` 4/4(板 / 煙 16 744 bytes 快照讀進新建的一對,逐位相同)。
 > **股線(2026-10-18)**:`StrandPart`(`cloth_air_parts`,與 `ClothPart` 同介面)+ `AirPart` 在 ratio 1 時與 `StrandAir.step` 200 步逐位相同(6 × 6 刷、每股 8 粒子、流速 0.02 的格點;`test_cloth_air_parts` 13/13)。
 > 懸浮顆粒:`GrainPart` + `AirPart` 與 `Sediment.step` 300 步逐位相同(5 顆 0.5 mm 砂、水以 2 倍沉降速度上升;`test_cloth_air_parts` 14/14)。
-> **帶力矩的剛體**(2026-10-19):`physics/rigid_air_part.mojo` `RigidPart`:剛體上一組固定點(體座標),每點拖曳 F_i = c (u_i − v − w × r_i),整步對新線速度與角速度隱式求解(6 × 6 線性系統,部分樞軸高斯消去;任意 c dt / m 穩定),再加重力並更新姿態(q += dt/2 (0, w') q);線格式同 `ClothPart`(收 3、送 9),可直接掛進 `AirPart`。`tests/test_rigid_air_part.mojo` 7/7(新檔):單一質心點與 `BallPart` 120 步最大位置差 1.97e-6;兩點 x = ±0.5 m、空氣速度 z = ±1 的剪切,一步 c dt / m = 1.7e3 後 w_y = −1.99976(理想 −2),線速度 0;三點偏心剛體各點衝量之和 vs m Δv 與力矩之和 vs I Δw 相符(Σ j = (−0.0019236, 0.18504, 0.11176) = m Δv;力矩差 < 1e-3);c dt / m = 1e7 的 50 步有限;`save` / `restore` 與 `write_state` / `read_state` 逐位相同。限制:拖曳是每點線性(沒有法向 / 切向分量,不隨姿態改變投影面積),慣量取步首世界系並忽略陀螺項,姿態沒有與 `ContactScene6` 的接觸連動,沒有接進 `Coupler` + `AirPart` 的完整場景測試(只量到部件本身)。
-> **未做**:布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣;`RigidPart` 尚未接進 `Coupler` + `AirPart` 的完整場景。
+> **帶力矩的剛體**(2026-10-19):`physics/rigid_air_part.mojo` `RigidPart`:剛體上一組固定點(體座標),每點拖曳 F_i = c (u_i − v − w × r_i),整步對新線速度與角速度隱式求解(6 × 6 線性系統,部分樞軸高斯消去;任意 c dt / m 穩定),再加重力並更新姿態(q += dt/2 (0, w') q);線格式同 `ClothPart`(收 3、送 9),可直接掛進 `AirPart`。`tests/test_rigid_air_part.mojo` 7/7(新檔):單一質心點與 `BallPart` 120 步最大位置差 1.97e-6;兩點 x = ±0.5 m、空氣速度 z = ±1 的剪切,一步 c dt / m = 1.7e3 後 w_y = −1.99976(理想 −2),線速度 0;三點偏心剛體各點衝量之和 vs m Δv 與力矩之和 vs I Δw 相符(Σ j = (−0.0019236, 0.18504, 0.11176) = m Δv;力矩差 < 1e-3);c dt / m = 1e7 的 50 步有限;`save` / `restore` 與 `write_state` / `read_state` 逐位相同。限制:拖曳是每點線性(沒有法向 / 切向分量,不隨姿態改變投影面積),慣量取步首世界系並忽略陀螺項,姿態沒有與 `ContactScene6` 的接觸連動,完整場景見下一段。
+> **剛體 + 空氣的完整場景**:`tests/test_rigid_air_scene.mojo` 3/3(新檔):4 g 剛體,兩個在質心 +x 側 0.06 m、z = ±0.04 m 的浸沒點,24³ 格子(dx 2 cm、1 ms、黏度 0.05)中空氣以 0.02 格子單位(0.4 m/s)沿 +y 流動,無重力,`Coupler[RigidPart, AirPart]` 300 步:v = (0.140, 0.180, 0) m/s、w_z = 3.79 rad/s(r = +x、F = +y 的力矩方向);逐步不平衡 0.0;空氣動量變化 −7.2166e-4 對剛體收到 7.2034e-4,差 1.31e-6 kg m / s,100 / 300 / 600 步都是 1.2–1.3e-6(固定偏移,不隨步數長大)。
+> **未做**:布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣。
 
 > **現況**:耦合是**逐對手寫**,沒有耦合排程,也沒有除溫度以外的場種類(溫度也不存在)。已有的耦合:
 > 剛體 ↔ 晶格軟體雙向(`physics/soft_couple.mojo:46`,有動量守恆量測 0.03%,ROADMAP 6.1);
