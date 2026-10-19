@@ -34,12 +34,41 @@ struct Wing(ForceElement, Copyable, Movable):
     var stall_blend: Real
     var cd0: Real
     var k_induced: Real
+    var table_cl: List[Real]  # polar samples at alpha = i * table_step on [0, pi / 2]; empty: analytic model
+    var table_cd: List[Real]
+    var table_step: Real
 
     @staticmethod
     def simple(local_pos: Vec3, area: Real) -> Wing:
-        return Wing(local_pos, Vec3(1, 0, 0, 0), Vec3(0, 1, 0, 0), area, 1.225, Vec3(0, 0, 0, 0), 1, 0.26, 0.1, 0.02, 0.05)
+        return Wing(local_pos, Vec3(1, 0, 0, 0), Vec3(0, 1, 0, 0), area, 1.225, Vec3(0, 0, 0, 0), 1, 0.26, 0.1, 0.02, 0.05, List[Real](), List[Real](), 0)
+
+    def set_polar(mut self, var cl: List[Real], var cd: List[Real], step: Real) raises:
+        """Use a sampled polar of a symmetric section (e.g. from `plate_polar`)
+        instead of the analytic model: `cl[i]`, `cd[i]` at alpha = i step from
+        0 to pi / 2, odd in alpha for CL and mirrored about pi / 2 beyond."""
+        if len(cl) != len(cd) or len(cl) < 2 or step <= 0:
+            raise Error("Wing.set_polar: equal-length tables of >= 2 samples and step > 0")
+        self.table_cl = cl^
+        self.table_cd = cd^
+        self.table_step = step
+
+    def _tabulated(self, alpha: Real) -> Tuple[Real, Real]:
+        var a = abs(alpha)
+        var sign = Real(1) if alpha >= 0 else Real(-1)
+        if a > Real(pi) / 2:
+            a = Real(pi) - a
+            sign = -sign  # CL is odd about pi / 2 for a symmetric section
+        var x = a / self.table_step
+        var n = len(self.table_cl)
+        var i = Int(x)
+        if i >= n - 1:
+            return (sign * self.table_cl[n - 1], self.table_cd[n - 1])
+        var f = x - Real(i)
+        return (sign * (self.table_cl[i] * (1 - f) + self.table_cl[i + 1] * f), self.table_cd[i] * (1 - f) + self.table_cd[i + 1] * f)
 
     def coefficients(self, alpha: Real) -> Tuple[Real, Real]:
+        if len(self.table_cl) > 0:
+            return self._tabulated(alpha)
         var lin_cl = self.cl_scale * 2 * Real(pi) * alpha
         var lin_cd = self.cd0 + self.k_induced * lin_cl * lin_cl
         var plate_cl = sin(2 * alpha)
