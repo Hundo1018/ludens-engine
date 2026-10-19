@@ -1844,6 +1844,10 @@ observer at x = 100: proxies 13
   LBM Cd: boxy 6.2032742  streamlined 5.634494  frontal cells 66 66
   top speed: boxy 51.099136  streamlined 53.499096
 [PASS] vehicle_aero - 25 / 25 checks
+--- tests/test_vehicle_element.mojo ---
+330 steps: direct update x 15.645469  z 18.48561 ; as an element x 15.645469  z 18.48561
+coasting from 5 m/s, 1 s: without rocket -0.10789463  with 3 kN rocket 1.6183065  gain 1.7262012  F t / m 2.5
+[PASS] vehicle_element - 2 / 2 checks
 --- tests/test_vehicle_kinds.mojo ---
 mixer: roll torque 0.39999998 (0.4)  total 8.0   yaw reaction 0.05 (0.05)
 hover after 4 s: y 2.000018  up.y 1.0  heading 0.9999981
