@@ -63,7 +63,7 @@ struct Helicopter(ForceElement, Copyable, Movable):
         var q = Quat.from_axis_angle(Vec3(1, 0, 0, 0), p) * Quat.from_axis_angle(Vec3(0, 0, 1, 0), r)
         return q.rotate(Vec3(0, 1, 0, 0))
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var th = min(max(self.collective, Real(0)), self.max_thrust)
         var f = pose.rot.rotate(self.thrust_dir_local()) * th

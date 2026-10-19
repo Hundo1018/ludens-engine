@@ -86,7 +86,7 @@ struct HullBuoyancy[W: WaterSurface & Copyable & Deinitable](ForceElement, Movab
         var c = below.centroid()
         return (Real(below.volume()), Vec3(Real(c[0]), Real(c[1]), Real(c[2]), 0))
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var sub = self.submerged(sc, id, t)
         if sub[0] <= 0:
             return Vec3(0, 0, 0, 0)

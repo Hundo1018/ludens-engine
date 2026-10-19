@@ -67,7 +67,7 @@ struct QuadRotor(ForceElement, Copyable, Movable):
                 t += yaw * spin[i] / (4 * self.drag_ratio)
             self.thrust[i] = min(max(t, Real(0)), self.max_thrust)
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var up = pose.rot.rotate(Vec3(0, 1, 0, 0))
         var total = Vec3(0, 0, 0, 0)
@@ -202,7 +202,7 @@ struct TrackDrive(ForceElement, Copyable, Movable):
     def ground_at(self, z: Real) -> Real:
         return self.ground_y + max(Real(0), z - self.ramp_start) * self.ramp_slope
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var v = sc.velocity(id)
         var w = sc.angular_velocity(id)

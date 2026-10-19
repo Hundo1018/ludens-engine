@@ -54,7 +54,7 @@ struct Bike(ForceElement, Copyable, Movable):
         var ks = mass * 9.8 / (2 * 0.05)
         return Bike(wheelbase, contact_depth, 0, ks, 0.3 * 2 * sqrt(ks * mass / 2), 4000.0, 3000.0, 1.0, 0.0, 0.0)
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var v = sc.velocity(id)
         var w = sc.angular_velocity(id)

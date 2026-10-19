@@ -83,7 +83,7 @@ struct Wing(ForceElement, Copyable, Movable):
         var s_cd = self.cd0 + self.k_induced * s_cl * s_cl
         return (s_cl * (1 - u) + plate_cl * u, s_cd * (1 - u) + max(plate_cd, self.cd0) * u)
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var p = pose.pos + pose.rot.rotate(self.local_pos)
         var i = id.index()
