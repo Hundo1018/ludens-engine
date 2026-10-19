@@ -17,7 +17,7 @@ comptime DT: Real = 1.0 / 60.0
 comptime G: Vec3 = Vec3(0, -9.8, 0, 0)
 
 
-def run(slope: Real, drive: Real, steps: Int, on_ramp: Bool) raises -> Tuple[Real, Real, Real]:
+def run(slope: Real, drive: Real, steps: Int, on_ramp: Bool, park: Bool = False) raises -> Tuple[Real, Real, Real]:
     var cfg = SolverConfig()
     var sc = ContactScene6[QuatBody6]()
     var ang = atan(slope)
@@ -41,6 +41,8 @@ def run(slope: Real, drive: Real, steps: Int, on_ramp: Bool) raises -> Tuple[Rea
     var tr = TrackDrive(0.9, 3.6, 6, -0.4, 0.0, 2000.0, 9.8, 2000.0, 4000.0, 0.8)
     if slope > 0:
         tr.set_ramp(sink / slope, slope)
+    if park:
+        tr.park(sc, tank)
     tr.speed_left = drive
     tr.speed_right = drive
     for _ in range(steps):
@@ -65,4 +67,11 @@ def main() raises:
     for i in range(1, 7):
         var sl = Real(i) * 0.15
         var r = run(sl, 0.0, 300, True)
+        print("|", sl, "|", atan(sl) * 57.29578, "|", r[0], "|", r[2], "|")
+    print("parked (static anchor): hull on the ramp at z 3, 5 s")
+    print("| slope | angle deg | z after | vz |")
+    print("|---:|---:|---:|---:|")
+    for i in range(1, 7):
+        var sl = Real(i) * 0.15
+        var r = run(sl, 0.0, 300, True, True)
         print("|", sl, "|", atan(sl) * 57.29578, "|", r[0], "|", r[2], "|")
