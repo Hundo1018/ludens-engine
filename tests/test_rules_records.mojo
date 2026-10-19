@@ -1,4 +1,4 @@
-# tier: component
+# tier: integration
 """Tables through `TypeSchema` reflection (ROADMAP 17.70, 17.11).
 
 `rules_table.load_records[T]` reads `name key=value ...` lines into any

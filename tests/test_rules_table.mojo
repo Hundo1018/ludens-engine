@@ -1,4 +1,4 @@
-# tier: component
+# tier: integration
 """Effects and abilities from a text table (ROADMAP 17.70,
 `gameplay.rules_table`).
 
