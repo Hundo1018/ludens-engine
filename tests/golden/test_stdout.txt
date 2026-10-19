@@ -609,10 +609,6 @@ CG n 16384 : serial 154 iterations, parallel 154
 [PASS] relations - 19 / 19 checks
 --- tests/test_rng.mojo ---
 [PASS] rng - 15 / 15 checks
---- tests/test_rules_table.mojo ---
-table fireball: mana 70000  hp 72000 77000  cooldown over at 60
-errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: unknown effect 'nonesuch'
-[PASS] rules_table - 4 / 4 checks
 --- tests/test_sap.mojo ---
 [PASS] sap - 7 / 7 checks
 --- tests/test_self_collide.mojo ---
@@ -753,6 +749,10 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   limits: cone 0.5 pushed at 3 rad/s -> max swing 0.49999976 ; twist +-0.3 driven at 2 rad/s -> max |twist| 0.3 ; cone 0 -> max swing 0.0007338162  twist after 1 s -2.002353
   10 rad/s for 5 s ( 7.957747 turns): |q| - 1 = 0.0  spin 10.0
 [PASS] ball_joint - 10 / 10 checks
+--- tests/test_bike.mojo ---
+worst lean over 6 s from 0.1 rad: unsteered at 8 m/s 3.139469  balanced at 8 m/s 0.15766415  balanced at rest 3.1338973
+balanced at 2 m/s 3.1414216  at 6 m/s 0.14446111
+[PASS] bike - 5 / 5 checks
 --- tests/test_body_removal.mojo ---
 broadphase items before / after removing 400: 401 1   re-added box slot 1  y 0.24971199
 [PASS] body_removal - 16 / 16 checks
@@ -1142,12 +1142,13 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
 --- tests/test_force_elements.mojo ---
   box hull density 500 after 10 s: centre y 0.0030862144 (waterline 0, draft 0.25)
   submerged volume: polytope cut 0.6  closed form 0.6  centroid y -0.075 -0.075
+  tilted surface y = 0.1 x: centroid x flat plane 0.0  tilted plane 0.26666668  closed form 0.26667  volume 4.0 (4)
   keeled hull (GM > 0 upright, < 0 inverted) from 150 deg: up.y 1.0    tall hull (GM < 0) from 3 deg: up.y 1.1920929e-06
   wing 2 m^2 at 5 deg, 20 m/s: lift 268.6727  q A 2 pi alpha 268.6726  drag 17.165817
-  CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.66020864 0.65953505  30 deg 0.8624042
+  CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.6602086 0.65953505  30 deg 0.8624042
   half-throttle 100 N on 10 kg for 1 s: v 5.0
   boat with a 2 kN propeller on a 0.3 m swell, 10 s: x 32.359886  heave 0.9160427
-[PASS] force_elements - 12 / 12 checks
+[PASS] force_elements - 13 / 13 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
   shot: broke 106 bonds, thrown through 36 , left in line 0 , live bonds 37 of 143 , ball z -2.145414
@@ -1550,6 +1551,15 @@ primal: RevBatch vs BatchReal[8] (and RealF) worst lane difference 1.1920929e-07
   rigid-link chain sag 1.0416659
   hanging crate y 2.9997272  rope load 19.6
 [PASS] rope - 12 / 12 checks
+--- tests/test_rules_records.mojo ---
+reflective effects: 3  burn grants 28  haste max_stacks 3
+turrets: gun 25500 2 3000 7  laser 10000 9 5000 2
+errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: field 'b' is SIMD[DType.int32, 1], only 8-byte fields are supported
+[PASS] rules_records - 4 / 4 checks
+--- tests/test_rules_table.mojo ---
+table fireball: mana 70000  hp 72000 77000  cooldown over at 60
+errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: unknown effect 'nonesuch'
+[PASS] rules_table - 4 / 4 checks
 --- tests/test_save.mojo ---
   one second after loading: save vs snapshot max position difference 2.0623207e-05
 [PASS] save - 11 / 11 checks
@@ -1839,13 +1849,20 @@ observer at x = 100: proxies 13
   LBM Cd: boxy 6.2032742  streamlined 5.634494  frontal cells 66 66
   top speed: boxy 51.099136  streamlined 53.499096
 [PASS] vehicle_aero - 25 / 25 checks
+--- tests/test_vehicle_element.mojo ---
+330 steps: direct update x 15.645469  z 18.48561 ; as an element x 15.645469  z 18.48561
+coasting from 5 m/s, 1 s: without rocket -0.10789463  with 3 kN rocket 1.6183065  gain 1.7262012  F t / m 2.5
+[PASS] vehicle_element - 2 / 2 checks
 --- tests/test_vehicle_kinds.mojo ---
 mixer: roll torque 0.39999998 (0.4)  total 8.0   yaw reaction 0.05 (0.05)
 hover after 4 s: y 2.000018  up.y 1.0  heading 0.9999981
 tracks 2 / 2 m/s, 3 s: forward speed 1.9999998  yaw rate -1.5864996e-16
 tracks +1 / -1 m/s from rest, 3 s: centre moved 0.00045151875  yaw rate 0.22685187  (no-slip 1.1111111111111112 )
+ramp climb, tracks 2 m/s, 10 s: slope 0.2 z 12.264299  vz 1.8041083 ; slope 0.4 z 9.532903  vz 1.5753437
+ramp hold, tracks stopped, slope 0.15: vz -0.11980487  viscous creep W sin(a) / (n k) -0.12114471
+parked on the ramp, drift 1 s -> 5 s: slope 0.15 -2.861023e-06  m; 0.6 -8.34465e-06  m; slope 0.9 ends at z -3.276763  (from 3)
 hitch: trailer moved 3.9998908 m, worst anchor gap 0.00029503176
-[PASS] vehicle_kinds - 8 / 8 checks
+[PASS] vehicle_kinds - 12 / 12 checks
 --- tests/test_vehicle_seat.mojo ---
 seat after the car turned and moved: 0.23395228 0.9 5.441889
 wall on the left: exit ok True  at x 1.6
@@ -1869,6 +1886,13 @@ wall on the left: exit ok True  at x 1.6
   landed pair: gap 0.49983198 heights 0.2497083 0.24971324
   overlap 0.4: welded spacing 0.6000000238418579  free spacing 0.9956424832344055
 [PASS] weld - 15 / 15 checks
+--- tests/test_wing_polar.mojo ---
+table lookup: +0.25 0.5 0.15  -0.25 -0.5 0.15  pi-0.25 -0.5 0.15  past the end 1.2 2.0 0.3
+plate 0 deg: CL 2.9943574e-06  CD 1.0787518
+plate 30 deg: CL 1.1466774  CD 1.5146891
+plate 60 deg: CL 0.9280587  CD 3.0406609
+plate 90 deg: CL -0.18601498  CD 4.130768
+[PASS] wing_polar - 9 / 9 checks
 --- tests/test_work_counters.mojo ---
   N = 4  brute pairs 10  bp pairs 4  manifolds 4 4  points 4 4
   N = 16  brute pairs 136  bp pairs 16  manifolds 16 16  points 16 16

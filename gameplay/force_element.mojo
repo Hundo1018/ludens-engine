@@ -16,7 +16,7 @@ from physics.solver6 import ContactScene6
 
 
 trait ForceElement:
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         """Accumulate this element's force for the next step; returns the
         force (world frame) for inspection."""
         ...
@@ -32,7 +32,7 @@ struct Thruster(ForceElement, Copyable, Movable):
     var max_thrust: Real  # N
     var throttle: Real
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var th = min(max(self.throttle, Real(0)), Real(1))
         var f = pose.rot.rotate(self.local_dir) * (th * self.max_thrust)

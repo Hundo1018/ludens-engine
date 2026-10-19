@@ -17,7 +17,7 @@
      anchor points stay together (< 1 cm) and the trailer moves > 3 m.
 """
 
-from std.math import atan2
+from std.math import atan2, atan, sin
 from harness.runner import Suite
 from geometry.vec import Real, Vec3, length, dot
 from geometry.quat import Quat
@@ -28,6 +28,38 @@ from gameplay.vehicle_kinds import QuadRotor, QuadController, TrackDrive, hitch
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
+
+
+def ramp_run(slope: Real, drive: Real, steps: Int, on_ramp: Bool, park: Bool = False) raises -> Tuple[Real, Real]:
+    """A 2000 kg hull on TrackDrive over a ramp rising `slope` per metre from z 0
+    (the ramp emerges from the ground 5 cm down, so there is no vertical seam).
+    Returns (z, vz) after `steps`. `on_ramp` starts the hull at rest on it, 3 m up."""
+    var cfg = SolverConfig()
+    var sc = ContactScene6[QuatBody6]()
+    var ang = atan(slope)
+    var g0 = sc.add(QuatBody6.at_rest(Vec3(0, -0.5, 0, 0), Inertia3.box(1, 50, 0.5, 50)), Vec3(50, 0.5, 50, 0), True)
+    sc.set_friction(g0.index(), 0)
+    var rot = Quat.from_axis_angle(Vec3(1, 0, 0, 0), -ang)
+    var sink = Real(0.05)
+    var c = rot.rotate(Vec3(0, -0.5, 10, 0)) + Vec3(0, -sink, 0, 0)
+    var ramp = sc.add(QuatBody6.at_rest(c, Inertia3.box(1, 50, 0.5, 10)), Vec3(50, 0.5, 10, 0), True)
+    sc.set_friction(ramp.index(), 0)
+    sc.bset.bodies[ramp.index()].set_pose(Pose6(c, rot))
+    var tank = sc.add(QuatBody6.at_rest(Vec3(0, 0.4, -6, 0), Inertia3.box(2000, 1, 0.4, 2)), Vec3(1, 0.4, 2, 0), False)
+    sc.set_friction(tank.index(), 0)
+    if on_ramp:
+        var pos = Vec3(0, slope * 3.0 - sink, 3.0, 0) + rot.rotate(Vec3(0, 0.4, 0, 0))
+        sc.bset.bodies[tank.index()].set_pose(Pose6(pos, rot))
+    var tr = TrackDrive(0.9, 3.6, 6, -0.4, 0.0, 2000.0, 9.8, 2000.0, 4000.0, 0.8)
+    tr.set_ramp(sink / slope, slope)
+    if park:
+        tr.park(sc, tank)
+    tr.speed_left = drive
+    tr.speed_right = drive
+    for _ in range(steps):
+        _ = tr.apply(sc, tank, 0)
+        sc.step(DT, G, cfg)
+    return (sc.pose(tank).pos[2], sc.velocity(tank)[2])
 
 
 def main() raises:
@@ -106,6 +138,29 @@ def main() raises:
     # skid steering: the ends of each track slide sideways as the hull turns,
     # so the lateral resistance holds the rate below the no-slip 2 v / width
     s.check(length(c1 - c0) < 0.05 and abs(wy) > 0.1 and abs(wy) < 2.0 / 1.8, "opposite track speeds turn on the spot, slower than no-slip")
+
+    # 3b. ramp: the tracks climb 0.2 / 0.4 slopes; with the tracks stopped the
+    # hull creeps down at the viscous rate W sin(a) / (n k), it is not braked
+    var r1 = ramp_run(0.2, 2.0, 600, False)
+    var r2 = ramp_run(0.4, 2.0, 600, False)
+    print("ramp climb, tracks 2 m/s, 10 s: slope 0.2 z", r1[0], " vz", r1[1], "; slope 0.4 z", r2[0], " vz", r2[1])
+    s.check(r1[0] > 10 and r1[1] > 1.5 and r2[0] > 8 and r2[1] > 1.3, "tracks drive the hull up 0.2 and 0.4 slopes")
+    var hold = ramp_run(0.15, 0.0, 300, True)
+    var a = atan(Real(0.15))
+    var creep = 2000.0 * 9.8 * sin(a) / (12.0 * 2000.0)
+    print("ramp hold, tracks stopped, slope 0.15: vz", hold[1], " viscous creep W sin(a) / (n k)", -creep)
+    s.check(abs(hold[1] + creep) < 0.1 * creep, "a stopped track set creeps down at W sin(a) / (n k)")
+    # parked: anchors give static friction up to tan(a) = mu (0.8, 38.7 degrees)
+    # the hull settles a few cm onto the ramp in the first frames; hold is the
+    # drift after that settle (1 s to 5 s)
+    var held0 = ramp_run(0.15, 0.0, 60, True, True)
+    var held = ramp_run(0.15, 0.0, 300, True, True)
+    var held20 = ramp_run(0.6, 0.0, 60, True, True)
+    var held2 = ramp_run(0.6, 0.0, 300, True, True)
+    var slid = ramp_run(0.9, 0.0, 300, True, True)
+    print("parked on the ramp, drift 1 s -> 5 s: slope 0.15", held[0] - held0[0], " m; 0.6", held2[0] - held20[0], " m; slope 0.9 ends at z", slid[0], " (from 3)")
+    s.check(abs(held[0] - held0[0]) < 0.005 and abs(held2[0] - held20[0]) < 0.005, "a parked hull holds on 0.15 and 0.6 slopes")
+    s.check(slid[0] < 2, "a parked hull slides past the friction cone (0.9 slope)")
 
     # 4. hitch
     var hs = ContactScene6[QuatBody6]()

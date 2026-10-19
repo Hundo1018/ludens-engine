@@ -25,10 +25,10 @@ vehicle, trailer hitch.
 """
 
 from std.math import sqrt, atan2
-from geometry.vec import Real, Vec3, dot, cross
+from geometry.vec import Real, Vec3, dot, cross, length
 from geometry.quat import Quat
 from physics.body_set import BodyId
-from physics.rigid6 import QuatBody6
+from physics.rigid6 import QuatBody6, Pose6
 from physics.solver6 import ContactScene6
 from physics.joints6 import Joint6
 from .force_element import ForceElement
@@ -67,7 +67,7 @@ struct QuadRotor(ForceElement, Copyable, Movable):
                 t += yaw * spin[i] / (4 * self.drag_ratio)
             self.thrust[i] = min(max(t, Real(0)), self.max_thrust)
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var up = pose.rot.rotate(Vec3(0, 1, 0, 0))
         var total = Vec3(0, 0, 0, 0)
@@ -151,6 +151,10 @@ struct TrackDrive(ForceElement, Copyable, Movable):
     var weight_per_point: Real
     var speed_left: Real
     var speed_right: Real
+    var ramp_start: Real  # world z where the ground starts to rise
+    var ramp_slope: Real  # rise per metre of +z from ramp_start (0: flat)
+    var hold_k: Real  # N / m per point, the parked anchor spring
+    var anchors: List[Vec3]  # world anchor per track sample while parked, else empty
 
     def __init__(out self, half_width: Real, length: Real, samples: Int, bottom: Real, ground_y: Real, mass: Real, g: Real, k: Real, c: Real, mu: Real) raises:
         if not (half_width > 0 and length > 0 and samples >= 2 and mass > 0 and mu > 0):
@@ -167,14 +171,46 @@ struct TrackDrive(ForceElement, Copyable, Movable):
         self.weight_per_point = mass * g / Real(2 * samples)
         self.speed_left = 0
         self.speed_right = 0
+        self.ramp_start = 0
+        self.ramp_slope = 0
+        self.hold_k = 100000.0
+        self.anchors = List[Vec3]()
 
-    def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+    def set_ramp(mut self, start: Real, slope: Real):
+        self.ramp_start = start
+        self.ramp_slope = slope
+
+    def _sample(self, pose: Pose6, i: Int) -> Vec3:
+        var s = i // self.samples
+        var k = i % self.samples
+        var x = -self.half_width if s == 0 else self.half_width
+        var z = -0.5 * self.length + self.length * Real(k) / Real(self.samples - 1)
+        return pose.pos + pose.rot.rotate(Vec3(x, self.bottom, z, 0))
+
+    def park(mut self, sc: ContactScene6[QuatBody6], id: BodyId) raises:
+        """Pin every track sample to where it is now: a spring of `hold_k` per
+        point pulls it back along the ground, capped at the friction limit, so
+        a stopped hull is held (static friction) instead of creeping."""
+        var pose = sc.pose(id)
+        self.anchors = List[Vec3]()
+        for i in range(2 * self.samples):
+            self.anchors.append(self._sample(pose, i))
+
+    def unpark(mut self):
+        self.anchors = List[Vec3]()
+
+    def ground_at(self, z: Real) -> Real:
+        return self.ground_y + max(Real(0), z - self.ramp_start) * self.ramp_slope
+
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
         var v = sc.velocity(id)
         var w = sc.angular_velocity(id)
         var fwd = pose.rot.rotate(Vec3(0, 0, 1, 0))
         var side = pose.rot.rotate(Vec3(1, 0, 0, 0))
-        var cap = self.mu * self.weight_per_point
+        # friction limit from the load normal to the ground: weight x cos(slope)
+        var cos_slope = 1.0 / sqrt(1.0 + self.ramp_slope * self.ramp_slope)
+        var cap = self.mu * self.weight_per_point * cos_slope
         var total = Vec3(0, 0, 0, 0)
         for s in range(2):
             var x = -self.half_width if s == 0 else self.half_width
@@ -182,9 +218,28 @@ struct TrackDrive(ForceElement, Copyable, Movable):
             for k in range(self.samples):
                 var z = -0.5 * self.length + self.length * Real(k) / Real(self.samples - 1)
                 var p = pose.pos + pose.rot.rotate(Vec3(x, self.bottom, z, 0))
-                if p[1] > self.ground_y + self.reach:
+                if p[1] > self.ground_at(p[2]) + self.reach:
                     continue
                 var vp = v + cross(w, p - pose.pos)
+                if len(self.anchors) > 0:
+                    # parked: spring to the anchor in the ground's tangent plane,
+                    # damped by the point velocity, friction-cone limited
+                    var nrm = Vec3(0, 1, 0, 0)
+                    if self.ramp_slope > 0 and p[2] > self.ramp_start:
+                        nrm = Vec3(0, 1, -self.ramp_slope, 0) * cos_slope
+                    var d = p - self.anchors[s * self.samples + k]
+                    var dt_ = d - nrm * dot(d, nrm)
+                    var vt_ = vp - nrm * dot(vp, nrm)
+                    var fh = dt_ * (-self.hold_k) - vt_ * self.k
+                    var mag = length(fh)
+                    if mag > cap:
+                        # past the friction cone the point slides: kinetic
+                        # friction opposes its velocity, the anchor no longer pulls
+                        var sp = length(vt_)
+                        fh = vt_ * (-cap / sp) if sp > 1e-6 else Vec3(0, 0, 0, 0)
+                    sc.add_force_at(id, fh, p)
+                    total = total + fh
+                    continue
                 var fl = self.k * (vt - dot(vp, fwd))
                 var fs = -self.c * dot(vp, side)
                 fl = min(max(fl, -cap), cap)
