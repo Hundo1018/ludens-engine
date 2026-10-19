@@ -35,7 +35,7 @@ comptime DT: Real = 1.0 / 60.0
 
 @fieldwise_init
 struct TiltedWater(WaterSurface, Copyable, Movable):
-    """y = slope x: a planar surface for checking the cutting plane's tilt."""
+    """A planar surface, height = slope x, for checking the cutting plane's tilt."""
     var slope: Real
 
     def height(self, x: Real, z: Real, t: Real) -> Real:
