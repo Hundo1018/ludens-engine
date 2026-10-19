@@ -151,6 +151,8 @@ struct TrackDrive(ForceElement, Copyable, Movable):
     var weight_per_point: Real
     var speed_left: Real
     var speed_right: Real
+    var ramp_start: Real  # world z where the ground starts to rise
+    var ramp_slope: Real  # rise per metre of +z from ramp_start (0: flat)
 
     def __init__(out self, half_width: Real, length: Real, samples: Int, bottom: Real, ground_y: Real, mass: Real, g: Real, k: Real, c: Real, mu: Real) raises:
         if not (half_width > 0 and length > 0 and samples >= 2 and mass > 0 and mu > 0):
@@ -167,6 +169,15 @@ struct TrackDrive(ForceElement, Copyable, Movable):
         self.weight_per_point = mass * g / Real(2 * samples)
         self.speed_left = 0
         self.speed_right = 0
+        self.ramp_start = 0
+        self.ramp_slope = 0
+
+    def set_ramp(mut self, start: Real, slope: Real):
+        self.ramp_start = start
+        self.ramp_slope = slope
+
+    def ground_at(self, z: Real) -> Real:
+        return self.ground_y + max(Real(0), z - self.ramp_start) * self.ramp_slope
 
     def apply(self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
         var pose = sc.pose(id)
@@ -174,7 +185,9 @@ struct TrackDrive(ForceElement, Copyable, Movable):
         var w = sc.angular_velocity(id)
         var fwd = pose.rot.rotate(Vec3(0, 0, 1, 0))
         var side = pose.rot.rotate(Vec3(1, 0, 0, 0))
-        var cap = self.mu * self.weight_per_point
+        # friction limit from the load normal to the ground: weight x cos(slope)
+        var cos_slope = 1.0 / sqrt(1.0 + self.ramp_slope * self.ramp_slope)
+        var cap = self.mu * self.weight_per_point * cos_slope
         var total = Vec3(0, 0, 0, 0)
         for s in range(2):
             var x = -self.half_width if s == 0 else self.half_width
@@ -182,7 +195,7 @@ struct TrackDrive(ForceElement, Copyable, Movable):
             for k in range(self.samples):
                 var z = -0.5 * self.length + self.length * Real(k) / Real(self.samples - 1)
                 var p = pose.pos + pose.rot.rotate(Vec3(x, self.bottom, z, 0))
-                if p[1] > self.ground_y + self.reach:
+                if p[1] > self.ground_at(p[2]) + self.reach:
                     continue
                 var vp = v + cross(w, p - pose.pos)
                 var fl = self.k * (vt - dot(vp, fwd))
