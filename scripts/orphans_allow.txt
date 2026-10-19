@@ -115,6 +115,7 @@ procedural.levelgen  # [api] maze / BSP / L-system / WFC generators for the host
 gameplay.terrain_stream  # [api] streamed procedural terrain the host drives (17.69)
 gameplay.rules_table  # [api] effect / ability tables the host loads (17.70)
 physics.cloth_air_parts  # [api] cloth / lattice air as Coupler parts (17.61), the host composes them (test_cloth_air_parts)
+physics.rigid_air_part  # [api] rigid body with torque as a Coupler part (17.61), the host composes it (test_rigid_air_part)
 physics.mac_fluid3  # [api] 3-D MAC fluid / smoke for hosts and benches (17.60, test_mac_fluid3)
 physics.cosserat_rod  # [api] Cosserat rods with twist (position + orientation), 17.57 (test_cosserat_rod)
 physics.fem_pd  # [api] projective-dynamics solver for tet bodies, 17.58 (test_fem_pd)
