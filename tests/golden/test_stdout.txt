@@ -1145,7 +1145,7 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
   tilted surface y = 0.1 x: centroid x flat plane 0.0  tilted plane 0.26666668  closed form 0.26667  volume 4.0 (4)
   keeled hull (GM > 0 upright, < 0 inverted) from 150 deg: up.y 1.0    tall hull (GM < 0) from 3 deg: up.y 1.1920929e-06
   wing 2 m^2 at 5 deg, 20 m/s: lift 268.6727  q A 2 pi alpha 268.6726  drag 17.165817
-  CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.66020864 0.65953505  30 deg 0.8624042
+  CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.6602086 0.65953505  30 deg 0.8624042
   half-throttle 100 N on 10 kg for 1 s: v 5.0
   boat with a 2 kN propeller on a 0.3 m swell, 10 s: x 32.359886  heave 0.9160427
 [PASS] force_elements - 13 / 13 checks
@@ -1872,6 +1872,13 @@ wall on the left: exit ok True  at x 1.6
   landed pair: gap 0.49983198 heights 0.2497083 0.24971324
   overlap 0.4: welded spacing 0.6000000238418579  free spacing 0.9956424832344055
 [PASS] weld - 15 / 15 checks
+--- tests/test_wing_polar.mojo ---
+table lookup: +0.25 0.5 0.15  -0.25 -0.5 0.15  pi-0.25 -0.5 0.15  past the end 1.2 2.0 0.3
+plate 0 deg: CL 2.9943574e-06  CD 1.0787518
+plate 30 deg: CL 1.1466774  CD 1.5146891
+plate 60 deg: CL 0.9280587  CD 3.0406609
+plate 90 deg: CL -0.18601498  CD 4.130768
+[PASS] wing_polar - 9 / 9 checks
 --- tests/test_work_counters.mojo ---
   N = 4  brute pairs 10  bp pairs 4  manifolds 4 4  points 4 4
   N = 16  brute pairs 136  bp pairs 16  manifolds 16 16  points 16 16
