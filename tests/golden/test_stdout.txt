@@ -609,10 +609,6 @@ CG n 16384 : serial 154 iterations, parallel 154
 [PASS] relations - 19 / 19 checks
 --- tests/test_rng.mojo ---
 [PASS] rng - 15 / 15 checks
---- tests/test_rules_table.mojo ---
-table fireball: mana 70000  hp 72000 77000  cooldown over at 60
-errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: unknown effect 'nonesuch'
-[PASS] rules_table - 4 / 4 checks
 --- tests/test_sap.mojo ---
 [PASS] sap - 7 / 7 checks
 --- tests/test_self_collide.mojo ---
@@ -1555,6 +1551,15 @@ primal: RevBatch vs BatchReal[8] (and RealF) worst lane difference 1.1920929e-07
   rigid-link chain sag 1.0416659
   hanging crate y 2.9997272  rope load 19.6
 [PASS] rope - 12 / 12 checks
+--- tests/test_rules_records.mojo ---
+reflective effects: 3  burn grants 28  haste max_stacks 3
+turrets: gun 25500 2 3000 7  laser 10000 9 5000 2
+errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: field 'b' is SIMD[DType.int32, 1], only 8-byte fields are supported
+[PASS] rules_records - 4 / 4 checks
+--- tests/test_rules_table.mojo ---
+table fireball: mana 70000  hp 72000 77000  cooldown over at 60
+errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: unknown effect 'nonesuch'
+[PASS] rules_table - 4 / 4 checks
 --- tests/test_save.mojo ---
   one second after loading: save vs snapshot max position difference 2.0623207e-05
 [PASS] save - 11 / 11 checks
