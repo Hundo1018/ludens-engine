@@ -2517,7 +2517,7 @@
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):引擎轉動慣量(換檔時 rpm 瞬變)
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):LBM 風洞 Cd 為格子數(Re 差 4 個數量級、階梯體素、無地面);高解析度 / GPU 風洞(`lbm_gpu`)Cd 可接入但未做
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):BENCHMARK_REPORT.md 尚未以 `pixi run benchmark` 重產，bench_vehicle 列只在範本(2026-10-09 修訂;目前報告無 vehicle 列)
-- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):碎片慣量只取張量對角，需轉主軸(`TODO`)
+- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):~~碎片慣量只取張量對角，需轉主軸~~ ✅ 2026-10-20 `Polytope.inertia_tensor` 含慣量積;碎片 body 框轉到主軸(`sym_eigen3`)。`test_polytope` 52/52(0.7 rad 旋轉的箱子保留跡 / 二階不變量 / 行列式,誤差 1e-9);`test_fracture` 89/89(碎片 body 的世界慣量張量對旋轉箱子 5.5e-6;同一檢查在舊程式碼上誤差 107)。gate 390/390 通過,golden 更新。碎片動態有變:斷裂場景的鍵數與島數改變,例如 shot 斷鍵 106 → 97、soft top moved −0.069 → −0.111,斷言仍通過,但非位元不變。
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`polytope_split` 的符號判斷改走 `geometry/predicates.orient3d`(目前是 epsilon 帶)
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`bond_overlapping` 為 O(n²),需 broadphase(physics/fracture.mojo:316 TODO);跨零件接縫面積以 `min(V)^(2/3)` 估
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`HullShape` 面表上限 30 面、O(V⁴) 建構，單碎片頂點數宜 ≲ 60

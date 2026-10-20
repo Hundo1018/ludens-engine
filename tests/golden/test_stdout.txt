@@ -223,7 +223,7 @@ mean pressure in the bottom two rows 2833.9343 Pa  (hydrostatic, both layers abo
 [PASS] pip - 16 / 16 checks
 --- tests/test_polytope.mojo ---
   rolling cuts: 1576 pieces, volume error 1.0658141036401503e-14 worst open 1.5057955228406652e-15
-[PASS] polytope - 44 / 44 checks
+[PASS] polytope - 52 / 52 checks
 --- tests/test_quad_tree.mojo ---
 [PASS] quad_tree - 7 / 7 checks
 --- tests/test_rules.mojo ---
@@ -1151,16 +1151,17 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
 [PASS] force_elements - 13 / 13 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
-  shot: broke 106 bonds, thrown through 36 , left in line 0 , live bonds 37 of 143 , ball z -2.145414
+  shot: broke 97 bonds, thrown through 36 , left in line 0 , live bonds 46 of 143 , ball z -2.0509412
   bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 14 , on crate 27 , on ledge 27 , lowest centre 0.1657566875219345 , soft top moved -0.04887735843658447 , crate sag 0.011606425046920776 , max speed 0.042879797518253326
-  shards: 72 fragments, asleep 48 of 48 on rigid bodies, islands 19 , on crate 20 , on ledge 18 , lowest centre 0.03890646621584892 , soft top moved -0.06872421503067017 , crate sag 0.010576412081718445 , max speed 0.04353521764278412
+  shards: 72 fragments, asleep 48 of 48 on rigid bodies, islands 14 , on crate 21 , on ledge 17 , lowest centre 0.03304039686918259 , soft top moved -0.11144638061523438 , crate sag 0.011169463396072388 , max speed 0.040879711508750916
   L chain: parts 2 fragments 36 volume 1.2 parts volume 1.2
-  L chain: bonds within parts 104 across parts 23
-  L grouped: cells 36 -> bodies 27 ( 9 compounds ) vs 36 hull bodies; mass 1199.9999 vs 1200.0 ; bonds within parts 104 across parts 11 (hulls: 23 )
+  L chain: bonds within parts 104 across parts 21
+  L grouped: cells 36 -> bodies 27 ( 9 compounds ) vs 36 hull bodies; mass 1199.9999 vs 1200.0 ; bonds within parts 104 across parts 11 (hulls: 21 )
+  rotated box: worst world-tensor entry error 5.5025018923515745e-06
   voronoi: 1000 cells, volume 8.000000000000004 of 8.0
   one cut: 1000 pieces, volume error 3.241851231905457e-14
-  snapshot: bonds broken after restore 8 vs 8 , live 21 vs 21
-[PASS] fracture - 87 / 87 checks
+  snapshot: bonds broken after restore 14 vs 14 , live 15 vs 15
+[PASS] fracture - 89 / 89 checks
 --- tests/test_fsi.mojo ---
   settling sphere: velocity -0.0027307766  mean fluid 3.9075276e-05  relative -0.0027698518  Stokes-Hasimoto -0.0027770284  ratio 0.9974157  max spin 5.617738e-06
   sphere over a static plate (top at x = 7 mm): centre x 9.970106 mm  velocity -1.2732926e-11
@@ -1895,6 +1896,11 @@ wall on the left: exit ok True  at x 1.6
   landed pair: gap 0.49983198 heights 0.2497083 0.24971324
   overlap 0.4: welded spacing 0.6000000238418579  free spacing 0.9956424832344055
 [PASS] weld - 15 / 15 checks
+--- tests/test_wind_lbm.mojo ---
+  uniform lattice flow 0.02 at 5 m/s per unit: worst node error 8.940697e-08
+  driven channel after 200 steps: mean ux (m/s) 0.09999939  max node mismatch 1.8626451e-09
+  node (2, 5, 7) at 11.0 0.5 6.5  sample ux 0.09999964  node ux 0.09999964
+[PASS] wind_lbm - 7 / 7 checks
 --- tests/test_wing_polar.mojo ---
 table lookup: +0.25 0.5 0.15  -0.25 -0.5 0.15  pi-0.25 -0.5 0.15  past the end 1.2 2.0 0.3
 plate 0 deg: CL 2.9943574e-06  CD 1.0787518
@@ -1932,8 +1938,8 @@ plate 90 deg: CL -0.18601498  CD 4.130768
   knockback 3 m/s along x while walking 2 m/s along z: slid 0.97416574 m in 1 s, walking vz 2.0
   blast at the origin: pushed 1 ; open mover ext [5.0, 0.0, 0.0, 0.0]  behind the wall [0.0, 0.0, 0.0, 0.0] ;  zero radius pushed 0
   shockwave at 40 m/s: crate at 2.2 m pushed at tick 4 , at 19.5 m at tick 30 ;  pushes 2  far crate vz 1.1000002
-  blast reached 9 fragments, largest impulse 2662.513
-  bonded wall, 1 s: bonds broken without blast 0 , with the blast 19
+  blast reached 12 fragments, largest impulse 3106.2583
+  bonded wall, 1 s: bonds broken without blast 0 , with the blast 23
 [PASS] hit_pipeline - 7 / 7 checks
 --- tests/test_runtime_budget.mojo ---
 [PASS] runtime_budget - 4 / 4 checks
