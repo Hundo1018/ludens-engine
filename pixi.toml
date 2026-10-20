@@ -41,6 +41,7 @@ gpu-compile = { cmd = "bash scripts/gpu_compile_check.sh", depends-on = ["build"
 wheel = { cmd = "python3 python/build_wheel.py", depends-on = ["build"] }
 # Dead file references in README / CLAUDE / ROADMAP / ARCHITECTURE (scripts/doclint.py; ROADMAP 17.82).
 doclint = "python3 scripts/doclint.py"
+roadmap-status = "python3 scripts/roadmap_status.py"
 # Floating-point flag policy: exact toolchain pins, pinned target, no fast-math / -O (scripts/flag_policy.py; ROADMAP 17.84).
 flag-policy = "python3 scripts/flag_policy.py"
 # Engine modules nothing in the engine or examples imports, gated by scripts/orphans_allow.txt (ROADMAP 17.82).

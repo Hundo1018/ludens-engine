@@ -47,18 +47,18 @@
 | 子系統 | 範圍 | ✅ | 🔶 | ⬜ | ⏸ / 不排 |
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
-| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 18 | 3 | 2 | 0 |
-| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 4 | 2 | 0 |
-| [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 9 | 2 | 0 | 0 |
-| [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
-| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 0 | 1 | 1 |
+| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 21 | 2 | 0 | 0 |
+| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 14 | 1 | 0 | 0 |
+| [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 10 | 1 | 0 | 0 |
+| [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 15 | 5 | 1 | 1 |
+| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 1 | 0 | 1 |
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 10 | 0 | 0 | 0 |
-| [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
-| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
-| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 16 | 1 | 3 | 2 |
-| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 2 | 1 | 0 |
-| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 9 | 2 | 0 | 0 |
+| [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 10 | 1 | 0 | 1 |
+| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 5 | 1 | 0 | 0 |
+| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 20 | 0 | 0 | 2 |
+| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 4 | 2 | 0 | 0 |
+| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 10 | 1 | 0 | 0 |
 
 ## 原則與決策
 
