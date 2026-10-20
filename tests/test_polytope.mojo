@@ -15,7 +15,7 @@
             empty hull instead of garbage; a hull with a duplicated point.
 """
 
-from std.math import sqrt
+from std.math import cos, sin, sqrt
 from harness.runner import Suite
 from geometry.polytope import Polytope, polytope_split, convex_hull
 
@@ -224,9 +224,72 @@ def case_extreme(mut s: Suite):
     s.almost(Polytope.empty().volume(), 0, "empty polytope has no volume", 0)
 
 
+def _invariants(t: List[Float64]) -> List[Float64]:
+    """Trace, sum of principal 2x2 minors, determinant of the symmetric
+    tensor [Ixx, Iyy, Izz, Ixy, Ixz, Iyz]: unchanged by any rotation."""
+    var xx = t[0]
+    var yy = t[1]
+    var zz = t[2]
+    var xy = t[3]
+    var xz = t[4]
+    var yz = t[5]
+    var tr = xx + yy + zz
+    var e2 = (xx * yy - xy * xy) + (yy * zz - yz * yz) + (xx * zz - xz * xz)
+    var det = xx * (yy * zz - yz * yz) - xy * (xy * zz - yz * xz) + xz * (xy * yz - yy * xz)
+    var out = List[Float64](capacity=3)
+    out.append(tr)
+    out.append(e2)
+    out.append(det)
+    return out^
+
+
+def case_rotated_tensor(mut s: Suite):
+    """17.5: the tensor of a rotated box keeps its invariants, and it has
+    products of inertia in the mesh axes (so the diagonal alone is wrong)."""
+    var a = 1.0
+    var b = 0.5
+    var c = 0.25
+    var box = Polytope.box(0, 0, 0, a, b, c)
+    var m = box.volume()
+    # rotation by 0.7 rad about the unit axis (0.6, 0.8, 0): Rodrigues' formula
+    var ax = 0.6
+    var ay = 0.8
+    var th = 0.7
+    var cs = cos(th)
+    var sn = sin(th)
+    var rot = Polytope.box(0, 0, 0, a, b, c)
+    for i in range(rot.nv()):
+        var x = rot.v[3 * i]
+        var y = rot.v[3 * i + 1]
+        var z = rot.v[3 * i + 2]
+        var kd = ax * x + ay * y
+        rot.v[3 * i] = x * cs + (ay * z) * sn + ax * kd * (1 - cs)
+        rot.v[3 * i + 1] = y * cs + (-ax * z) * sn + ay * kd * (1 - cs)
+        rot.v[3 * i + 2] = z * cs + (ax * y - ay * x) * sn
+    var t0 = box.inertia_tensor()
+    var t1 = rot.inertia_tensor()
+    s.almost(t0[3] * t0[3] + t0[4] * t0[4] + t0[5] * t0[5], 0, "axis box: no products of inertia", 1e-12)
+    s.check(abs(t1[3]) + abs(t1[4]) + abs(t1[5]) > 0.05, "rotated box: products of inertia present")
+    var want = List[Float64]()
+    want.append(m / 3 * (b * b + c * c))
+    want.append(m / 3 * (a * a + c * c))
+    want.append(m / 3 * (a * a + b * b))
+    for k in range(3):
+        want.append(0)
+        want.append(0)
+        want.append(0)
+    var i0 = _invariants(t0)
+    var i1 = _invariants(t1)
+    var iw = _invariants(want)
+    for k in range(3):
+        s.almost(i1[k], iw[k], "rotated box invariant " + String(k), 1e-9)
+        s.almost(i0[k], iw[k], "axis box invariant " + String(k), 1e-9)
+
+
 def main() raises:
     var s = Suite("polytope")
     case_ordinary(s)
     case_integration(s)
     case_extreme(s)
+    case_rotated_tensor(s)
     s.finish()
