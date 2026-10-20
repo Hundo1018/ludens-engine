@@ -865,6 +865,15 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
   strands: 36 strands x 8 particles, 200 steps; strand impulse 0.00632945 0.0063295146
   grains: 5 in water rising at 2 x settling speed, 300 steps; mean height 0.021544788  grain vy 0.00501842 0.00501842
 [PASS] cloth_air_parts - 14 / 14 checks
+--- tests/test_cloth_anchor.mojo ---
+  weight x time 0.3920001 cloth impulse summed 0.3926242 rel 0.001592067
+  anchor drift after 10 s -0.0019606948
+  ratio 1 worst momentum error 5.964246e-06 vs step impulse 0.0105840005
+  ratio 2 worst momentum error 5.8452906e-06 vs step impulse 0.0105840005
+  free fall: anchor vy -1.9587247 vs -g t -1.96 rel 0.00065066374 worst over steps 0.0036492636
+  last reaction / (M g dt) 0.00010362107
+  snapshot 2920 bytes
+[PASS] cloth_anchor - 8 / 8 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
