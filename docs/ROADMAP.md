@@ -2519,7 +2519,7 @@
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):BENCHMARK_REPORT.md 尚未以 `pixi run benchmark` 重產，bench_vehicle 列只在範本(2026-10-09 修訂;目前報告無 vehicle 列)
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):~~碎片慣量只取張量對角，需轉主軸~~ ✅ 2026-10-20 `Polytope.inertia_tensor` 含慣量積;碎片 body 框轉到主軸(`sym_eigen3`)。`test_polytope` 52/52(0.7 rad 旋轉的箱子保留跡 / 二階不變量 / 行列式,誤差 1e-9);`test_fracture` 89/89(碎片 body 的世界慣量張量對旋轉箱子 5.5e-6;同一檢查在舊程式碼上誤差 107)。gate 390/390 通過,golden 更新。碎片動態有變:斷裂場景的鍵數與島數改變,例如 shot 斷鍵 106 → 97、soft top moved −0.069 → −0.111,斷言仍通過,但非位元不變。
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`polytope_split` 的符號判斷改走 `geometry/predicates.orient3d`(目前是 epsilon 帶)
-- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`bond_overlapping` 為 O(n²),需 broadphase(physics/fracture.mojo:316 TODO);跨零件接縫面積以 `min(V)^(2/3)` 估
+- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`bond_overlapping` 為 O(n²),需 broadphase(physics/fracture.mojo:316 TODO);跨零件接縫面積以 `min(V)^(2/3)` 估。2026-10-20 量測:x 軸掃掠取候選(鍵與順序同全對掃描,`test_fracture` 輸出逐字相同)在 n = 250 / 1000 / 4000 時為 HEAD 10.3 / 124 / 3490 ms 對掃掠 14.5 / 117 / 3202 ms,無實質加速,已還原;瓶頸不在 AABB 掃描。每對 GJK 與凸殼建構的佔比未剖析,TODO 保留。
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`HullShape` 面表上限 30 面、O(V⁴) 建構，單碎片頂點數宜 ≲ 60
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):只切凸實體(凹體須先分解)
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):~~`FractureSet` 與斷裂閾值未入快照~~ ✅ 2026-10-13 `write_fracture / read_fracture`(Float64 以位元樣式精確保存;`test_fracture` case_snapshot:還原後斷同樣 16 條鍵、碎片位姿逐位相同)
