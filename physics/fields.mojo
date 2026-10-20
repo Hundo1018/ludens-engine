@@ -31,6 +31,7 @@ angular damping scaled by the submerged fraction. Submerged volume:
 from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from collision.collider_set import SHAPE_BOX, SHAPE_SPHERE
+from fluid.lbm import Lbm
 from .rigid6 import Body6
 from .solver6 import ContactScene6
 
@@ -90,6 +91,17 @@ struct WindGrid(Copyable, Movable):
         self.origin = origin
         self.cell = cell
         self.vel = List[Vec3](length=nx * ny * nz, fill=fill)
+
+    @staticmethod
+    def from_lbm(lattice: Lbm, origin: Vec3, cell: Real, speed: Real) -> WindGrid:
+        """One node per lattice cell, same indexing, holding that cell's
+        velocity (17.61: the LBM wind feeds `apply_fields` / `StrandAir`).
+        Node (i, j, k) sits at origin + (i, j, k) * cell; `speed` converts
+        lattice units to m/s, so the caller picks the physical scale."""
+        var g = WindGrid(lattice.nx, lattice.ny, lattice.nz, origin, cell, Vec3(0, 0, 0, 0))
+        for c in range(lattice.cells()):
+            g.vel[c] = lattice.velocity(c) * speed
+        return g^
 
     def at(self, i: Int, j: Int, k: Int) -> Vec3:
         return self.vel[(k * self.ny + j) * self.nx + i]

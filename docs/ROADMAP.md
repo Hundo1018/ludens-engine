@@ -1732,7 +1732,7 @@
 > (`set_solid_box` / `set_solid_sphere` `fluid/lbm.mojo:185`、`:197`);`grep -iE
 > "moving.?(wall|solid|boundary)|wall_vel|moving_bounce"` 於全部引擎套件 **零命中**——沒有移動壁面。
 > 力的方向是**單向**:動量交換(`stream()` 內累加力 `fluid/lbm.mojo:369`)與控制面通量(`momentum_flux_force` `:242`)兩條測力路徑 → 車體阻力
-> (`gameplay/vehicle_tunnel.mojo:1-20`);LBM 速度場 → `WindGrid` 的接線列為待辦(ROADMAP §17.27)。
+> (`gameplay/vehicle_tunnel.mojo:1-20`);LBM 速度場 → `WindGrid` 已接(`WindGrid.from_lbm`,17.61)。
 > 浮力是解析式:`WaterVolume` 為平面水位 AABB(`physics/fields.mojo:181`)、`apply_buoyancy`(`:235`)。
 > `grep "FemBody|MpmSolver|PbfFluid|\bLbm\b"` 於 `physics/solver6.mojo`、`physics/body_set.mojo`、
 > `collision/`、`gameplay/runtime.mojo` 零命中:PBF / SPH / MPM / LBM 都與 `ContactScene6` 無介面。
@@ -1937,13 +1937,14 @@
 > 懸浮顆粒:`GrainPart` + `AirPart` 與 `Sediment.step` 300 步逐位相同(5 顆 0.5 mm 砂、水以 2 倍沉降速度上升;`test_cloth_air_parts` 14/14)。
 > **帶力矩的剛體**(2026-10-19):`physics/rigid_air_part.mojo` `RigidPart`:剛體上一組固定點(體座標),每點拖曳 F_i = c (u_i − v − w × r_i),整步對新線速度與角速度隱式求解(6 × 6 線性系統,部分樞軸高斯消去;任意 c dt / m 穩定),再加重力並更新姿態(q += dt/2 (0, w') q);線格式同 `ClothPart`(收 3、送 9),可直接掛進 `AirPart`。`tests/test_rigid_air_part.mojo` 7/7(新檔):單一質心點與 `BallPart` 120 步最大位置差 1.97e-6;兩點 x = ±0.5 m、空氣速度 z = ±1 的剪切,一步 c dt / m = 1.7e3 後 w_y = −1.99976(理想 −2),線速度 0;三點偏心剛體各點衝量之和 vs m Δv 與力矩之和 vs I Δw 相符(Σ j = (−0.0019236, 0.18504, 0.11176) = m Δv;力矩差 < 1e-3);c dt / m = 1e7 的 50 步有限;`save` / `restore` 與 `write_state` / `read_state` 逐位相同。限制:拖曳是每點線性(沒有法向 / 切向分量,不隨姿態改變投影面積),慣量取步首世界系並忽略陀螺項,姿態沒有與 `ContactScene6` 的接觸連動,完整場景見下一段。
 > **剛體 + 空氣的完整場景**:`tests/test_rigid_air_scene.mojo` 3/3(新檔):4 g 剛體,兩個在質心 +x 側 0.06 m、z = ±0.04 m 的浸沒點,24³ 格子(dx 2 cm、1 ms、黏度 0.05)中空氣以 0.02 格子單位(0.4 m/s)沿 +y 流動,無重力,`Coupler[RigidPart, AirPart]` 300 步:v = (0.140, 0.180, 0) m/s、w_z = 3.79 rad/s(r = +x、F = +y 的力矩方向);逐步不平衡 0.0;空氣動量變化 −7.2166e-4 對剛體收到 7.2034e-4,差 1.31e-6 kg m / s,100 / 300 / 600 步都是 1.2–1.3e-6(固定偏移,不隨步數長大)。
+> **LBM 風場接線(2026-10-20)**:`WindGrid.from_lbm(lattice, origin, cell, speed)` 每格一個節點(同索引),節點值 = 格子速度 × speed(m/s 每格子單位);節點 (i, j, k) 位於 origin + (i, j, k) cell,`sample` 於節點處回傳節點值。`tests/test_wind_lbm.mojo` 7/7:8³ 均勻流 0.02 格子單位 → 每節點誤差 8.9e-8;驅動週期通道 200 步後節點與格子逐格相差 1.9e-9,節點平均 = 格子平均 × speed(容差 1e-6);(2, 5, 7) 節點取樣與節點值相差 0。
 > **未做**:布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣。
 
 > **現況**:耦合是**逐對手寫**,沒有耦合排程,也沒有除溫度以外的場種類(溫度也不存在)。已有的耦合:
 > 剛體 ↔ 晶格軟體雙向(`physics/soft_couple.mojo:46`,有動量守恆量測 0.03%,ROADMAP 6.1);
 > 繩 ↔ 剛體(粒子只跟隨掛點,剛體 → 繩粒子單向、不回饋 `physics/rope.mojo:7-12`;載重由
 `Rope.tie` 加的距離關節經解算器承擔 `:96`);
-> 風場 → 剛體(`apply_fields` `physics/fields.mojo:125`,`WindGrid` `:75` 可由 LBM 填入但**接線未做**,
+> 風場 → 剛體(`apply_fields` `physics/fields.mojo:125`,`WindGrid` `:75` 已由 LBM 填入(`WindGrid.from_lbm`,17.61),
 > ROADMAP §17.27);LBM 動量交換 Cd → 載具阻力(`gameplay/vehicle_tunnel.mojo:1-20`)。
 > 零命中:`grep -iE "temperature|thermal|combust"` 於全部引擎套件 **零**——無熱傳導、熱膨脹、相變、燃燒;
 > 多相流(兩種流體)、顆粒 – 流體無;`grep "Coupler|coupling"` 作為排程抽象不存在(耦合只以各檔頭的敘述
@@ -2526,7 +2527,6 @@
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):一次切上千片的 O(pieces × planes) 分類尚未加空間索引
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):軟體不睡，壓在其上的碎片保持清醒
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):BENCHMARK_REPORT.md 尚未重產，bench_fracture 列只在範本(2026-10-09 修訂;目前報告無 fracture 列)
-- **17.27**([紀錄](ROADMAP_HISTORY.md#1727-力場--區域效果--wave-b)):LBM 速度場直接接成 WindGrid 的範例
 - **17.27**([紀錄](ROADMAP_HISTORY.md#1727-力場--區域效果--wave-b)):力場的空間索引(現為 bodies × fields 全掃)
 - **17.28**([紀錄](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b)):hull / 膠囊浸沒
 - **17.28**([紀錄](ROADMAP_HISTORY.md#1728-浮力--水體積--wave-b)):以平面切割凸體求精確體積取代取樣
