@@ -37,11 +37,13 @@ from geometry.vec import Real, Vec3, length
 from geometry.quat import Quat
 from geometry.gjk import ConvexPoly, gjk_intersect
 from geometry.polytope import Polytope
+from geometry.mat3 import Mat3x3, sym_eigen3
 from geometry.fracture_cut import FragmentSet, cut_by_planes
 from collision.broadphase import BroadPhase
 from collision.collider_set import CompoundSpec
 from diag.counters import FRAGMENT_EVICTED
 from .rigid6 import QuatBody6, Inertia3
+from .mass_props import quat_from_mat
 from .solver6 import ContactScene6
 from .solver_config import SolverConfig
 from .joints6 import Joint6, JOINT_BROKEN, JOINT_WELD
@@ -208,30 +210,46 @@ struct FractureSet(Movable):
         var verts = p.hull_vertices(c[0], c[1], c[2], 1e-9)
         if len(verts) < 12:
             return -1
-        var hv = List[Real](capacity=len(verts))
-        for k in range(len(verts)):
-            hv.append(Real(verts[k]))
         var off = rot.rotate(_v3(c[0], c[1], c[2]))
         var mass = self.density * Real(vol)
-        var ii = p.inertia_diag()
+        # Body axes are the principal axes of the fragment's inertia tensor
+        # (products of inertia included), so the diagonal `Inertia3` is exact.
+        var it = p.inertia_tensor()
+        var d = self.density
+        var tensor = Mat3x3.from_rows(
+            Vec3(d * Real(it[0]), d * Real(it[3]), d * Real(it[4]), 0),
+            Vec3(d * Real(it[3]), d * Real(it[1]), d * Real(it[5]), 0),
+            Vec3(d * Real(it[4]), d * Real(it[5]), d * Real(it[2]), 0),
+        )
+        var eig = sym_eigen3(tensor)
+        var moments = eig[0]
+        var frame = eig[1]  # columns: principal axes in object coordinates
         var inertia = Inertia3(
             mass,
-            max(self.density * Real(ii[0]), Real(1e-9)),
-            max(self.density * Real(ii[1]), Real(1e-9)),
-            max(self.density * Real(ii[2]), Real(1e-9)),
+            max(moments[0], Real(1e-9)),
+            max(moments[1], Real(1e-9)),
+            max(moments[2], Real(1e-9)),
         )
+        # hull vertices in body axes (object-frame offsets from the centroid)
+        var fr_t = frame.transpose()
+        var hv = List[Real](capacity=len(verts))
+        for k in range(0, len(verts), 3):
+            var lp = fr_t.matvec(_v3(verts[k], verts[k + 1], verts[k + 2]))
+            hv.append(lp[0])
+            hv.append(lp[1])
+            hv.append(lp[2])
         var v = lin + Vec3(
             ang[1] * off[2] - ang[2] * off[1],
             ang[2] * off[0] - ang[0] * off[2],
             ang[0] * off[1] - ang[1] * off[0],
             0,
         )
-        var body = QuatBody6(pos + off, rot, v, ang, inertia)
+        var body = QuatBody6(pos + off, rot * quat_from_mat(frame), v, ang, inertia)
         var id = sc.add_hull(body^, hv^, False)
         self.compound.append(False)
         self.kid_first.append(len(self.kid_shape))
         self.kid_n.append(1)
-        self._push_kid(p.moved(-c[0], -c[1], -c[2]), Vec3(0, 0, 0, 0), Quat.identity(), part, seed)
+        self._push_kid(p.moved(-c[0], -c[1], -c[2]), Vec3(0, 0, 0, 0), quat_from_mat(fr_t), part, seed)
         self.shape.append(p.moved(-c[0], -c[1], -c[2]))
         self.body.append(id.index())
         self.bid.append(id)

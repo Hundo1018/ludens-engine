@@ -47,18 +47,18 @@
 | 子系統 | 範圍 | ✅ | 🔶 | ⬜ | ⏸ / 不排 |
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
-| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 18 | 3 | 2 | 0 |
-| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 9 | 4 | 2 | 0 |
-| [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 9 | 2 | 0 | 0 |
-| [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 13 | 0 | 9 | 0 |
-| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 0 | 1 | 1 |
+| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 21 | 2 | 0 | 0 |
+| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 14 | 1 | 0 | 0 |
+| [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 10 | 1 | 0 | 0 |
+| [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 15 | 5 | 1 | 1 |
+| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 1 | 0 | 1 |
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 10 | 0 | 0 | 0 |
-| [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 7 | 0 | 5 | 0 |
-| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 3 | 0 | 3 | 0 |
-| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 16 | 1 | 3 | 2 |
-| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 3 | 2 | 1 | 0 |
-| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 9 | 2 | 0 | 0 |
+| [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 10 | 1 | 0 | 1 |
+| [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 5 | 1 | 0 | 0 |
+| [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 20 | 0 | 0 | 2 |
+| [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 4 | 2 | 0 | 0 |
+| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 10 | 1 | 0 | 0 |
 
 ## 原則與決策
 
@@ -1907,7 +1907,7 @@
 #### 17.61 多物理 — Wave C
 > **進度註(2026-10-13)**:熱場先行。`physics/thermal.mojo`:`HeatGrid`(7 點有限差分、外表面絕熱、`fix` Dirichlet、dt ≤ dx²/(6α) 否則 raise)、
 > `HeatTets`(`FemBody` 四面體上的線性元素、集中熱容、靜止形梯度的傳導矩陣、建構時算 Gershgorin 步長上限)、`expand`(依四節點均溫縮放各四面體的靜止形與體積);
-> 溫度 ≤ 0 K 或非有限值在設定時 raise。量測(`tests/test_thermal.mojo` 7/7):α = 1e-5、端點 400 K、10 s 後:格網對 erf 解 0.014 K、300 個四面體 0.025 K、兩者互差 0.016 K;
+> 溫度 ≤ 0 K、非有限值或 > `T_MAX`(1e5 K)在設定時 raise(1e9 K 的策略,2026-10-21);`HeatGrid.step` 遇到非有限的格子時以鄰格有限值的平均重設、計入 `HeatGrid.isolated`,不讓 NaN 擴散。`tests/test_thermal_guard.mojo` 10/10,既有 thermal 測試不變。量測(`tests/test_thermal.mojo` 7/7):α = 1e-5、端點 400 K、10 s 後:格網對 erf 解 0.014 K、300 個四面體 0.025 K、兩者互差 0.016 K;
 > 自由棒加熱 100 K、α_L = 1.2e-3:伸長 0.0119999 m vs 0.012 m;絕熱域總熱量漂移 1.4e-7(格網)/ 1.2e-6(四面體,f32);單一四面體有界。
 > `bench_thermal`(1 mm、60×4×4 mm):格網 14 ns / 節點·步(dt 上限 16.7 ms)、四面體 181 ns(上限 8.3 ms)。
 > **粒子熱傳導**:`HeatParticles`(Brookshaw 1985,三次樣條核;每粒子把 Σ vol r |W′| 正規化為 3,使晶格上的離散和重現拉普拉斯,成對用兩者因子平均以保反對稱;
@@ -1938,7 +1938,8 @@
 > **帶力矩的剛體**(2026-10-19):`physics/rigid_air_part.mojo` `RigidPart`:剛體上一組固定點(體座標),每點拖曳 F_i = c (u_i − v − w × r_i),整步對新線速度與角速度隱式求解(6 × 6 線性系統,部分樞軸高斯消去;任意 c dt / m 穩定),再加重力並更新姿態(q += dt/2 (0, w') q);線格式同 `ClothPart`(收 3、送 9),可直接掛進 `AirPart`。`tests/test_rigid_air_part.mojo` 7/7(新檔):單一質心點與 `BallPart` 120 步最大位置差 1.97e-6;兩點 x = ±0.5 m、空氣速度 z = ±1 的剪切,一步 c dt / m = 1.7e3 後 w_y = −1.99976(理想 −2),線速度 0;三點偏心剛體各點衝量之和 vs m Δv 與力矩之和 vs I Δw 相符(Σ j = (−0.0019236, 0.18504, 0.11176) = m Δv;力矩差 < 1e-3);c dt / m = 1e7 的 50 步有限;`save` / `restore` 與 `write_state` / `read_state` 逐位相同。限制:拖曳是每點線性(沒有法向 / 切向分量,不隨姿態改變投影面積),慣量取步首世界系並忽略陀螺項,姿態沒有與 `ContactScene6` 的接觸連動,完整場景見下一段。
 > **剛體 + 空氣的完整場景**:`tests/test_rigid_air_scene.mojo` 3/3(新檔):4 g 剛體,兩個在質心 +x 側 0.06 m、z = ±0.04 m 的浸沒點,24³ 格子(dx 2 cm、1 ms、黏度 0.05)中空氣以 0.02 格子單位(0.4 m/s)沿 +y 流動,無重力,`Coupler[RigidPart, AirPart]` 300 步:v = (0.140, 0.180, 0) m/s、w_z = 3.79 rad/s(r = +x、F = +y 的力矩方向);逐步不平衡 0.0;空氣動量變化 −7.2166e-4 對剛體收到 7.2034e-4,差 1.31e-6 kg m / s,100 / 300 / 600 步都是 1.2–1.3e-6(固定偏移,不隨步數長大)。
 > **LBM 風場接線(2026-10-20)**:`WindGrid.from_lbm(lattice, origin, cell, speed)` 每格一個節點(同索引),節點值 = 格子速度 × speed(m/s 每格子單位);節點 (i, j, k) 位於 origin + (i, j, k) cell,`sample` 於節點處回傳節點值。`tests/test_wind_lbm.mojo` 7/7:8³ 均勻流 0.02 格子單位 → 每節點誤差 8.9e-8;驅動週期通道 200 步後節點與格子逐格相差 1.9e-9,節點平均 = 格子平均 × speed(容差 1e-6);(2, 5, 7) 節點取樣與節點值相差 0。
-> **未做**:布料掛在剛體上的附著(釘點)不經 `Coupler`,三方只經共同的空氣。
+> **布料 ↔ 剛體附著(2026-10-20)**:`physics/cloth_anchor.mojo` 的 `ClothAnchorPart`(布料;附著頂點保有質量,每步結束後焊回剛體上的目標點,焊接衝量 J = m dx / dt 即剛體感受到的張力與重量)與 `AnchorPart`(平移剛體,附著點為固定偏移)以 `Coupler` 交換 J 與目標點。`tests/test_cloth_anchor.mojo` 8/8:掛在 1000 kg 錨上的 6×6 布,10 ms 步、10 s 內焊接衝量累積 vs 重量 × 時間相差 0.16 %;錨 0.05 kg 時布 + 錨的動量每步變化 vs (m + M) g dt 相對誤差 5.6e-4(子步比 1 與 2,20 ms 步),`imbalance` 0;自由落下 0.2 s 錨速 vs g t 相差 0.065 %;快照續跑逐位相同。量到的限制:`MeshCloth` 的動量由位置差 (x − prev) / h 求得,位置為 f32,1 ms 步時每子步重力位移約 1.5e-7 m 接近 ulp(約 3e-8 m),裸布(未接任何剛體)單獨就偏 2.7 %,故測試改用 20 ms 步;錨的目標點取步首位置,布看到的錨落後一步,自由落下的 0.065 % 即來自此。`MeshCloth.attach` 的舊路徑(運動學、不回饋剛體)保留不動。
+> **水 – 浮 – 熱(2026-10-21,未完成)**:`physics/thermal_float.mojo` 的 `HeatedWater` 以 `HeatGrid` 一維柱的體積平均溫度經線性狀態方程 ρ(T) = ρ0 (1 − β (T − t_ref)) 給出 `WaterVolume.density`(單一密度,不建分層剖面)。`tests/test_thermal_float.mojo` 9/9 只測膠合:t_ref 與 +30 K 的密度、均勻柱的平均溫、頂部加熱的柱增溫且密度單調下降、非有限格子計入 `isolated`。**浮力整合未通過,未以放寬容差掩蓋**:既有 `apply_buoyancy` + `step_soft` 的靜止吃水與水密度不一致。量測(`ContactScene6`,水面 y = 2 m,1200 步 @ 1/60 s):(a) `tests/test_fields.mojo` 的 0.4 m 立方(32 kg)在 ρ = 1000:吃水 0.2026 m vs 理論 0.2000 m(1.3 %);在 ρ = 1500:吃水 0.1559 m vs 0.1333 m(17 %);兩者結束時 `linear_velocity` 仍讀出 −0.065 m/s,位置不動。(b) 0.6 × 0.4 × 0.6 m、70 kg 的箱在 ρ(293.15 / 323.15 / 353.15 K):吃水 0.1879 / 0.1875 / 0.1876 m,與理論 0.1948 / 0.1960 / 0.1972 m 不同,且不隨溫度單調變化。下一步:查 `step_soft` 的位置 / 速度與浮力衝量的一致性(速度讀數與位置不同步),修好後把整合測試補進同一檔。
 
 > **現況**:耦合是**逐對手寫**,沒有耦合排程,也沒有除溫度以外的場種類(溫度也不存在)。已有的耦合:
 > 剛體 ↔ 晶格軟體雙向(`physics/soft_couple.mojo:46`,有動量守恆量測 0.03%,ROADMAP 6.1);
@@ -2517,9 +2518,9 @@
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):引擎轉動慣量(換檔時 rpm 瞬變)
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):LBM 風洞 Cd 為格子數(Re 差 4 個數量級、階梯體素、無地面);高解析度 / GPU 風洞(`lbm_gpu`)Cd 可接入但未做
 - **17.4**([紀錄](ROADMAP_HISTORY.md#174-載具動力學--wave-c)):BENCHMARK_REPORT.md 尚未以 `pixi run benchmark` 重產，bench_vehicle 列只在範本(2026-10-09 修訂;目前報告無 vehicle 列)
-- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):碎片慣量只取張量對角，需轉主軸(`TODO`)
+- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):~~碎片慣量只取張量對角，需轉主軸~~ ✅ 2026-10-20 `Polytope.inertia_tensor` 含慣量積;碎片 body 框轉到主軸(`sym_eigen3`)。`test_polytope` 52/52(0.7 rad 旋轉的箱子保留跡 / 二階不變量 / 行列式,誤差 1e-9);`test_fracture` 89/89(碎片 body 的世界慣量張量對旋轉箱子 5.5e-6;同一檢查在舊程式碼上誤差 107)。gate 390/390 通過,golden 更新。碎片動態有變:斷裂場景的鍵數與島數改變,例如 shot 斷鍵 106 → 97、soft top moved −0.069 → −0.111,斷言仍通過,但非位元不變。
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`polytope_split` 的符號判斷改走 `geometry/predicates.orient3d`(目前是 epsilon 帶)
-- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`bond_overlapping` 為 O(n²),需 broadphase(physics/fracture.mojo:316 TODO);跨零件接縫面積以 `min(V)^(2/3)` 估
+- **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`bond_overlapping` 為 O(n²),需 broadphase(physics/fracture.mojo:316 TODO);跨零件接縫面積以 `min(V)^(2/3)` 估。2026-10-20 量測:x 軸掃掠取候選(鍵與順序同全對掃描,`test_fracture` 輸出逐字相同)在 n = 250 / 1000 / 4000 時為 HEAD 10.3 / 124 / 3490 ms 對掃掠 14.5 / 117 / 3202 ms,無實質加速,已還原;瓶頸不在 AABB 掃描。每對 GJK 與凸殼建構的佔比未剖析,TODO 保留。
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):`HullShape` 面表上限 30 面、O(V⁴) 建構，單碎片頂點數宜 ≲ 60
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):只切凸實體(凹體須先分解)
 - **17.5**([紀錄](ROADMAP_HISTORY.md#175-破壞--破碎--wave-c)):~~`FractureSet` 與斷裂閾值未入快照~~ ✅ 2026-10-13 `write_fracture / read_fracture`(Float64 以位元樣式精確保存;`test_fracture` case_snapshot:還原後斷同樣 16 條鍵、碎片位姿逐位相同)
