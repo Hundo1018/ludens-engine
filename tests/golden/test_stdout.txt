@@ -266,6 +266,8 @@ zero g, kicked: largest deviation from the rest shape after 3 s 6.157642e-05  wo
 under gravity after 4 s: curled tip x 0.087966524  straight tip x 0.0
 bone turned 90 deg about y: deviation from the turned rest shape 9.514859e-06
 [PASS] strand_curl - 4 / 4 checks
+--- tests/test_thermal_guard.mojo ---
+[PASS] thermal_guard - 10 / 10 checks
 --- tests/test_thermal_particles.mojo ---
   particle bar ( 7260 particles, dt 0.01 , max_dt 0.0231758 ): max |T - erf| 1.2394714 K;  max |T_particles - T_grid| 1.2267761 K
   insulated block: heat drift 3.814697269177714e-08  spread 200.0 -> 0.00045776367
