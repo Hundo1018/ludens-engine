@@ -27,9 +27,15 @@ from geometry.mat import Mat3
 from .fem import FemBody
 
 
+comptime T_MAX: Real = 1e5
+"""Ceiling on any temperature set through the public API, in Kelvin. Far above
+every solid or fluid this engine models (the hottest, a flame, is ~2e3 K), so
+it only rejects inputs that are wrong by orders of magnitude, such as 1e9 K."""
+
+
 def _check_kelvin(t: Real) raises:
-    if not isfinite(t) or t <= 0:
-        raise Error("thermal: temperature must be a finite value > 0 K, got " + String(t))
+    if not isfinite(t) or t <= 0 or t > T_MAX:
+        raise Error("thermal: temperature must be a finite value in (0, " + String(T_MAX) + "] K, got " + String(t))
 
 
 struct HeatGrid(Movable):
@@ -40,6 +46,7 @@ struct HeatGrid(Movable):
     var alpha: Real  # thermal diffusivity, m^2 / s
     var t: List[Real]
     var fixed: List[Bool]
+    var isolated: Int  # cells found non-finite and reset, since construction
 
     def __init__(out self, nx: Int, ny: Int, nz: Int, dx: Real, alpha: Real, t0: Real) raises:
         if nx < 1 or ny < 1 or nz < 1 or dx <= 0 or alpha <= 0:
@@ -52,6 +59,7 @@ struct HeatGrid(Movable):
         self.alpha = alpha
         self.t = List[Real](length=nx * ny * nz, fill=t0)
         self.fixed = List[Bool](length=nx * ny * nz, fill=False)
+        self.isolated = 0
 
     def idx(self, i: Int, j: Int, k: Int) -> Int:
         return (k * self.ny + j) * self.nx + i
@@ -68,6 +76,7 @@ struct HeatGrid(Movable):
     def step(mut self, dt: Real) raises:
         if dt > self.max_dt():
             raise Error("HeatGrid.step: dt above the stability limit " + String(self.max_dt()))
+        self._isolate()
         var r = self.alpha * dt / (self.dx * self.dx)
         var nt = self.t.copy()
         for k in range(self.nz):
@@ -84,6 +93,46 @@ struct HeatGrid(Movable):
                     lap += (self.t[c - s] if k > 0 else tc) + (self.t[c + s] if k < self.nz - 1 else tc) - 2 * tc
                     nt[c] = tc + r * lap
         self.t = nt^
+
+    def _isolate(mut self):
+        """A cell whose value is not finite (the API and the constructor
+        check every value they set, so this comes only from outside) is reset
+        to the mean of its finite neighbours, or of the finite cells of the
+        grid when none is finite, and counted in `isolated`. The explicit
+        update reads six neighbours per cell, so an unreset NaN would spread
+        through the whole grid in one step."""
+        var bad = List[Int]()
+        for c in range(len(self.t)):
+            if not isfinite(self.t[c]):
+                bad.append(c)
+        if len(bad) == 0:
+            return
+        self.isolated += len(bad)
+        var mean = Real(0)
+        var n = 0
+        for c in range(len(self.t)):
+            if isfinite(self.t[c]):
+                mean += self.t[c]
+                n += 1
+        var fallback = mean / Real(n) if n > 0 else Real(0)
+        var s = self.nx * self.ny
+        for c in bad:
+            var i = c % self.nx
+            var j = (c // self.nx) % self.ny
+            var k = c // s
+            var sum = Real(0)
+            var m = 0
+            for q in range(6):
+                var ii = i + (1 if q == 0 else (-1 if q == 1 else 0))
+                var jj = j + (1 if q == 2 else (-1 if q == 3 else 0))
+                var kk = k + (1 if q == 4 else (-1 if q == 5 else 0))
+                if ii < 0 or ii >= self.nx or jj < 0 or jj >= self.ny or kk < 0 or kk >= self.nz:
+                    continue
+                var v = self.t[self.idx(ii, jj, kk)]
+                if isfinite(v):
+                    sum += v
+                    m += 1
+            self.t[c] = sum / Real(m) if m > 0 else fallback
 
     def heat(self) -> Float64:
         """Sum of T over cells (proportional to stored heat for a uniform

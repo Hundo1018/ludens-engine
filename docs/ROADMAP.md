@@ -1907,7 +1907,7 @@
 #### 17.61 多物理 — Wave C
 > **進度註(2026-10-13)**:熱場先行。`physics/thermal.mojo`:`HeatGrid`(7 點有限差分、外表面絕熱、`fix` Dirichlet、dt ≤ dx²/(6α) 否則 raise)、
 > `HeatTets`(`FemBody` 四面體上的線性元素、集中熱容、靜止形梯度的傳導矩陣、建構時算 Gershgorin 步長上限)、`expand`(依四節點均溫縮放各四面體的靜止形與體積);
-> 溫度 ≤ 0 K 或非有限值在設定時 raise。量測(`tests/test_thermal.mojo` 7/7):α = 1e-5、端點 400 K、10 s 後:格網對 erf 解 0.014 K、300 個四面體 0.025 K、兩者互差 0.016 K;
+> 溫度 ≤ 0 K、非有限值或 > `T_MAX`(1e5 K)在設定時 raise(1e9 K 的策略,2026-10-21);`HeatGrid.step` 遇到非有限的格子時以鄰格有限值的平均重設、計入 `HeatGrid.isolated`,不讓 NaN 擴散。`tests/test_thermal_guard.mojo` 10/10,既有 thermal 測試不變。量測(`tests/test_thermal.mojo` 7/7):α = 1e-5、端點 400 K、10 s 後:格網對 erf 解 0.014 K、300 個四面體 0.025 K、兩者互差 0.016 K;
 > 自由棒加熱 100 K、α_L = 1.2e-3:伸長 0.0119999 m vs 0.012 m;絕熱域總熱量漂移 1.4e-7(格網)/ 1.2e-6(四面體,f32);單一四面體有界。
 > `bench_thermal`(1 mm、60×4×4 mm):格網 14 ns / 節點·步(dt 上限 16.7 ms)、四面體 181 ns(上限 8.3 ms)。
 > **粒子熱傳導**:`HeatParticles`(Brookshaw 1985,三次樣條核;每粒子把 Σ vol r |W′| 正規化為 3,使晶格上的離散和重現拉普拉斯,成對用兩者因子平均以保反對稱;
