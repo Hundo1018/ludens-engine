@@ -695,6 +695,8 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   integrated work: 0.08030199   -F*(L1-L0): 0.08052158
   relative: 0.0027271068141653293
 [PASS] tendon - 12 / 12 checks
+--- tests/test_thermal_float.mojo ---
+[PASS] thermal_float - 9 / 9 checks
 --- tests/test_timers.mojo ---
 [PASS] timers - 46 / 46 checks
 --- tests/test_transform.mojo ---
