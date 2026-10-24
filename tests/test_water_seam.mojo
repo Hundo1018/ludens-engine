@@ -6,7 +6,7 @@
      move bit for bit the same over 3 s with `apply_buoyancy` and with
      `apply_buoyancy_surface` on `FlatWater` at the volume's top.
   2. Integration: the same box (1 m, density 500) on a 40 m Gerstner swell
-     of amplitude 0.5 heaves 2A within 25 % (measured 1.18: its own heave
+     of amplitude 0.5 heaves 2A within 25 % (measured 1.11; 1.18 with the staircase submerged volume: its own heave
      period, about 1.4 s, against the wave's 5.06 s amplifies the forced
      motion -- 1.085 undamped -- and 10 to 20 s still carries some of the
      drop), and on a `FftOcean` single mode of the same wave the heave is

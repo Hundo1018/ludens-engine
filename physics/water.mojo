@@ -32,7 +32,7 @@ from geometry.vec import Real, Vec3
 from .body_set import BodyId
 from .rigid6 import Body6
 from .solver6 import ContactScene6
-from .fields import WaterVolume, sphere_submerged, _PI
+from .fields import WaterVolume, sphere_submerged, _PI, _cell_half_height, _cell_below
 from collision.collider_set import SHAPE_BOX, SHAPE_SPHERE
 
 
@@ -534,6 +534,7 @@ def _box_submerged_on[W: WaterSurface, B: Body6](body: B, half: Vec3, water: W, 
     """`fields.box_submerged_sampled` with the surface read at each cell."""
     var n = samples
     var cell_v = 8 * half[0] * half[1] * half[2] / Real(n * n * n)
+    var e = _cell_half_height(body, half, n)
     var v = Real(0)
     var acc = Vec3(0, 0, 0, 0)
     for i in range(n):
@@ -546,9 +547,10 @@ def _box_submerged_on[W: WaterSurface, B: Body6](body: B, half: Vec3, water: W, 
                     0,
                 )
                 var wp = body.act(lp)
-                if wp[1] < water.height(wp[0], wp[2], t):
-                    v += cell_v
-                    acc = acc + wp * cell_v
+                var part = _cell_below(wp, e, water.height(wp[0], wp[2], t), cell_v)
+                if part[0] > 0:
+                    v += part[0]
+                    acc = acc + part[1] * part[0]
     if v <= 0:
         return (Real(0), body.position())
     return (v, acc * (1 / v))

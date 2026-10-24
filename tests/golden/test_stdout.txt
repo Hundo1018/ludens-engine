@@ -695,8 +695,6 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
   integrated work: 0.08030199   -F*(L1-L0): 0.08052158
   relative: 0.0027271068141653293
 [PASS] tendon - 12 / 12 checks
---- tests/test_thermal_float.mojo ---
-[PASS] thermal_float - 9 / 9 checks
 --- tests/test_timers.mojo ---
 [PASS] timers - 46 / 46 checks
 --- tests/test_transform.mojo ---
@@ -1826,6 +1824,14 @@ after moving 1 km: removed 12 of 12  now 11 colliders, 11 loaded
   heated bar: length change 0.011999987  alpha_L dT L 0.012000001
   insulated: grid heat drift 1.4482918431202307e-07  tet heat drift 1.1988794328399166e-06
 [PASS] thermal - 7 / 7 checks
+--- tests/test_thermal_float.mojo ---
+  T 293.15 rho 998.2 draft 0.19679165 M/(rho A) 0.19479506 rel 0.010249704 |omega| 3.249352e-07 GM 0.050841317
+  T 323.15 rho 992.00116 draft 0.19803452 M/(rho A) 0.19601232 rel 0.010316733 |omega| 9.461187e-08 GM 0.05050598
+  draft ratio vs rho_ref / rho: rel 6.651878e-05
+  T 353.15 rho 985.80237 draft 0.19929266 M/(rho A) 0.19724485 rel 0.010382055 |omega| 1.8873254e-07 GM 0.05017872
+  draft ratio vs rho_ref / rho: rel 0.00013101101
+  heated top cell: draft start 0.19679165 end 0.1972096 rise 0.00041794777 predicted 0.00041368292 mean T 303.2841
+[PASS] thermal_float - 21 / 21 checks
 --- tests/test_thermal_refresh.mojo ---
 conductance / (s x rest) worst rel. error 1.1920929e-07   max_dt 0.8333333 -> 0.7440474  ratio 1.1200003
 insulated expanded beam: heat drift 3.108797184459e-06
@@ -1901,8 +1907,8 @@ wall on the left: exit ok True  at x 1.6
   energy after 400 steps: damped 0.019981787  undamped 0.7386395
 [PASS] water - 10 / 10 checks
 --- tests/test_water_seam.mojo ---
-  box and sphere, 3 s: y 0.3704939 -0.6969595  same True
-  1 m box on a 40 m swell, A 0.5, 10 to 20 s: heave Gerstner 1.1798155  FFT mode 1.1798155  (2A = 1)
+  box and sphere, 3 s: y 0.3697573 -0.6969595  same True
+  1 m box on a 40 m swell, A 0.5, 10 to 20 s: heave Gerstner 1.1103857  FFT mode 1.1103892  (2A = 1)
 [PASS] water_seam - 3 / 3 checks
 --- tests/test_weld.mojo ---
   weld drift 0.009460454  ball drift 1.2818166  weld tilt 0.0022981346
