@@ -11,7 +11,11 @@ set from those numbers, so a regression shows up as a bound being crossed.
               half-height). More iterations do not change it (60 gives the same
               collapse), so this is compliance, not an unconverged solve. The
               300:1 and 1000:1 cases are characterized, not bounded: they assert
-              only that the state stays finite. Fixing them is open (17.19).
+              only that the state stays finite. This is the default path
+              (`max_mass_ratio = 0`). The opt-in `SolverConfig.max_mass_ratio`
+              removes the sink; `test_solver_stress` bounds it (1:1000 under
+              1 cm). Wiring it into `step_soft` and fixing the floor-force
+              report are open (17.19).
   tower       ten 0.5 m boxes. The top settles to 0.029 m below its ideal height
               and then stops moving (drift over the second half < 1e-3 m).
   pile        64 boxes in a 4 x 4 x 4 block. After settling, the largest
