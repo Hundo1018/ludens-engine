@@ -199,6 +199,18 @@ struct ContactReport(Copyable, ImplicitlyCopyable, Movable):
     var force: Vec3  # impulse / step time (N)
 
 
+def _excess_jn(pr: ContactConstraint, jn: Real) -> Real:
+    """ROADMAP 17.19 A2: a pair's compressive normal impulse `jn` (summed
+    over its points) less the scaled excess its report carries
+    (`ContactScene6._report_excess`). The excess is on the pair, so the
+    sign is the side it supports: +1 when `pr.a` is the supported body,
+    -1 when `pr.b` is. `contacts_of` and the events both read through this."""
+    if pr.excess_up < 0:
+        return jn
+    var along = pr.span * dot(pr.excess, pr.m.normal)
+    return jn + along if pr.excess_up == pr.a else jn - along
+
+
 struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deinitable):
     """Boxes (dynamic or static) under gravity with contact impulses."""
 
@@ -258,6 +270,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     var jsum_f: List[Vec3]
     var jsum_t: List[Vec3]
     var jspan: List[Real]
+    # ROADMAP 17.19 A2: per joint, the upward force this step's scaled solve
+    # carried through it beyond the true load (`_report_excess`); jexcess_up is
+    # the carrier body, -1 for none.
+    var jexcess: List[Vec3]
+    var jexcess_up: List[Int]
     # ROADMAP 17.0h: `diag` wired into the production solver path.
     # `trace`/`log` are solver-owned, mirroring `counters` above (a caller
     # reads `sc.trace`/`sc.log` directly, the same shape as `sc.counters`);
@@ -341,6 +358,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.jsum_f = List[Vec3]()
         self.jsum_t = List[Vec3]()
         self.jspan = List[Real]()
+        self.jexcess = List[Vec3]()
+        self.jexcess_up = List[Int]()
         self.trace = TraceBuffer(capacity=512)
         self.log = LogRing[256]()
         self.draw = DrawQueue[WorldType](capacity=1024)
@@ -1328,9 +1347,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var nrep = pr.m.normal * (-sgn)
             if pr.excess_up >= 0:
                 # 17.19 A2: the solve carried the scaled excess; report the load
-                var d = (Real(1) if pr.excess_up == i else Real(-1)) * pr.span
-                imp = imp - pr.excess * d
-                jn = jn + d * dot(pr.excess, nrep)
+                imp = imp - pr.excess * ((Real(1) if pr.excess_up == i else Real(-1)) * pr.span)
+            jn = _excess_jn(pr, jn)
             var f = imp / pr.span if pr.span > 0 else Vec3(0, 0, 0, 0)
             var p = pr.m.points[best] if best >= 0 else self.bset.bodies[i].position()
             out.append(ContactReport(
@@ -1355,7 +1373,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             raise Error("ContactScene6.joint_reaction: joint index out of range")
         if j >= len(self.jspan) or self.jspan[j] <= 0:
             return (Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
-        return (self.jsum_f[j] / self.jspan[j], self.jsum_t[j] / self.jspan[j])
+        var f = self.jsum_f[j] / self.jspan[j]
+        if self.jexcess_up[j] >= 0:
+            # 17.19 A2: the solve's excess is load the joint does not carry. Its
+            # carrier's reaction is short by the excess; the other side's is over.
+            var sgn = Real(1) if self.jexcess_up[j] == self.joints[j].b else Real(-1)
+            f = f - self.jexcess[j] * sgn
+        return (f, self.jsum_t[j] / self.jspan[j])
 
     # ------------------------------------------------ per-body parameters (17.48)
 
@@ -2165,10 +2189,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.jsum_f = List[Vec3](capacity=n)
         self.jsum_t = List[Vec3](capacity=n)
         self.jspan = List[Real](capacity=n)
+        self.jexcess = List[Vec3](capacity=n)
+        self.jexcess_up = List[Int](capacity=n)
         for _ in range(n):
             self.jsum_f.append(Vec3(0, 0, 0, 0))
             self.jsum_t.append(Vec3(0, 0, 0, 0))
             self.jspan.append(0)
+            self.jexcess.append(Vec3(0, 0, 0, 0))
+            self.jexcess_up.append(-1)
 
     def _report_substep(
         mut self, mut pairs: List[ContactConstraint], lo: Int, hi: Int, label: Int,
@@ -2326,6 +2354,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                     if best < 0 or pr.jn[q] > pr.jn[best]:
                         best = q
                     approach = max(approach, -pr.vn0[q])
+                total = _excess_jn(pr, total)
                 ev.impulse = total
                 ev.force = total / pr.span if pr.span > 0 else Real(0)
                 if best >= 0:
@@ -2500,6 +2529,11 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
     def _release_overloaded(mut self):
         self.broken_joints = List[Int]()
         if self.any_break:
+            # 17.19 A2: a peak carries the scaled excess; subtract its magnitude
+            for c in range(min(len(self.jexcess_up), len(self.peak_force))):
+                if self.jexcess_up[c] >= 0:
+                    var e = sqrt(dot(self.jexcess[c], self.jexcess[c]))
+                    self.peak_force[c] = max(Real(0), self.peak_force[c] - e)
             check_breaks(
                 self.joints, self.break_force, self.break_torque,
                 self.peak_force, self.peak_torque, self.broken_joints,
@@ -2597,82 +2631,129 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
 
     def _report_excess(mut self, mut pairs: List[ContactConstraint], own: List[Real], gravity: Vec3):
         """ROADMAP 17.19 A2: moves each scaled body's excess weight from the
-        solved contact impulses into the report (`contacts_of`); the solve
-        itself is unchanged, so the default path and the golden are too.
+        solved impulses into the report (`contacts_of`, `joint_reaction`);
+        the solve itself is unchanged, so the default path and the golden are too.
 
-        Top-down over the support graph, ordered by height along -gravity:
-        a body's excess is its own (`_own_excess`) plus what its supports
-        received from above, and it leaves through its supporting pairs in
-        proportion to their upward normal impulse. Each pair records the
-        upward force it carries and the body it supports. Approximate where
-        the graph is not a stack: a pair between bodies at equal height
-        carries nothing, and multi-support load splits by impulse rather
-        than by the exact load solution. Break checks (`peak_force`) still
-        read the scaled impulses; they are not corrected here."""
+        The support graph has one edge per contact pair and per scaled joint
+        (`_scaled_linear`). An edge runs from its carrier to the body that holds
+        it: the carrier is the dynamic side the other side pushes upward, decided
+        by the sign of that upward impulse (not by height), and the edge weight
+        is that upward impulse. A body's excess is its own (`_own_excess`) plus
+        what its carriers sent it, and it leaves through its edges in proportion
+        to their weights. Kahn's topological order visits every carrier before
+        the body it rests on. A ring of bodies each holding the next up has no
+        such order: the lowest unvisited dynamic body is then taken with the
+        inflow it has so far. That break is arbitrary, not an exact split. A
+        static holder takes its share and passes nothing on. Each edge records
+        the upward force it carries (`pr.excess` / `jexcess`) and its carrier.
+        Torques through joints are not corrected."""
         var n = len(self.bset.bodies)
         var glen = sqrt(dot(gravity, gravity))
         var up = Vec3(0, 0, 0, 0)
         if glen > 0:
             up = gravity * (Real(-1) / glen)
-        var height = List[Real](length=n, fill=0)
-        var order = List[Int]()
-        for i in range(n):
-            if not self.bset.is_dynamic(i):
-                continue
-            height[i] = dot(self.bset.bodies[i].position(), up)
-            var k = len(order)
-            order.append(i)
-            while k > 0 and height[order[k - 1]] < height[i]:
-                order[k] = order[k - 1]
-                k -= 1
-            order[k] = i
-        var np = len(pairs)
-        var eff = List[Real](length=np, fill=0)
-        var head = List[Int](length=n, fill=-1)
-        var nxt = List[Int](length=np, fill=-1)
-        var wsum = List[Real](length=n, fill=0)
-        for p in range(np):
+        # edge e: carrier esrc[e] holds edst[e] with weight ew[e]; eref[e] is the
+        # pair index (>= 0) or -(joint index + 1)
+        var esrc = List[Int]()
+        var edst = List[Int]()
+        var ew = List[Real]()
+        var eref = List[Int]()
+        for p in range(len(pairs)):
             ref pr = pairs[p]
             pr.excess = Vec3(0, 0, 0, 0)
             pr.excess_up = -1
-            var da = self.bset.is_dynamic(pr.a)
-            var db = self.bset.is_dynamic(pr.b)
-            if not da and not db:
-                continue
-            var u = pr.b
-            if da and db:
-                if height[pr.a] == height[pr.b]:
-                    continue
-                u = pr.a if height[pr.a] > height[pr.b] else pr.b
-            elif da:
-                u = pr.a
-            var nu = pr.m.normal if u == pr.a else pr.m.normal * Real(-1)
             var jsup = Real(0)
             for q in range(pr.m.count):
                 jsup += pr.jn[q]
-            # upward push on u from its other side: the impulse on u points away from it
-            var e = max(Real(0), Real(0) - dot(nu, up)) * jsup
-            if e <= 0:
+            # the impulse on b is normal * jsup, on a its negative
+            var s = dot(pr.m.normal, up) * jsup
+            if s < 0 and self.bset.is_dynamic(pr.a):
+                esrc.append(pr.a)
+                edst.append(pr.b)
+                ew.append(-s)
+                eref.append(p)
+            elif s > 0 and self.bset.is_dynamic(pr.b):
+                esrc.append(pr.b)
+                edst.append(pr.a)
+                ew.append(s)
+                eref.append(p)
+        for j in range(len(self.joints)):
+            ref jt = self.joints[j]
+            self.jexcess[j] = Vec3(0, 0, 0, 0)
+            self.jexcess_up[j] = -1
+            if not _scaled_linear(jt.kind) or jt.kind == JOINT_BROKEN:
                 continue
-            eff[p] = e
-            nxt[p] = head[u]
-            head[u] = p
-            wsum[u] += e
+            if j >= len(self.jspan) or self.jspan[j] <= 0:
+                continue
+            # the joint's force on b; its force on a is the negative
+            var sb = dot(self.jsum_f[j] / self.jspan[j], up)
+            if sb > 0 and self.bset.is_dynamic(jt.b):
+                esrc.append(jt.b)
+                edst.append(jt.a)
+                ew.append(sb)
+                eref.append(-(j + 1))
+            elif sb < 0 and self.bset.is_dynamic(jt.a):
+                esrc.append(jt.a)
+                edst.append(jt.b)
+                ew.append(-sb)
+                eref.append(-(j + 1))
+        var ne = len(ew)
+        var head = List[Int](length=n, fill=-1)
+        var nxt = List[Int](length=ne, fill=-1)
+        var wsum = List[Real](length=n, fill=0)
+        var indeg = List[Int](length=n, fill=0)
+        for e in range(ne):
+            nxt[e] = head[esrc[e]]
+            head[esrc[e]] = e
+            wsum[esrc[e]] += ew[e]
+            if self.bset.is_dynamic(edst[e]):
+                indeg[edst[e]] += 1
+        var ndyn = 0
+        var queue = List[Int]()
+        for i in range(n):
+            if self.bset.is_dynamic(i):
+                ndyn += 1
+                if indeg[i] == 0:
+                    queue.append(i)
+        var done = List[Bool](length=n, fill=False)
         var inflow = List[Real](length=n, fill=0)
-        for k in range(len(order)):
-            var u = order[k]
+        var qh = 0
+        var visited = 0
+        while visited < ndyn:
+            var u = -1
+            while qh < len(queue) and u < 0:
+                if not done[queue[qh]]:
+                    u = queue[qh]
+                qh += 1
+            if u < 0:
+                # a cycle: take the lowest unvisited body with the inflow it has
+                for i in range(n):
+                    if self.bset.is_dynamic(i) and not done[i]:
+                        u = i
+                        break
+            done[u] = True
+            visited += 1
             var t = own[u] + inflow[u]
-            var p = head[u]
-            while p >= 0:
-                ref pr = pairs[p]
-                var c = t * eff[p] / wsum[u]
+            var e = head[u]
+            while e >= 0:
+                var lo = edst[e]
+                var c = t * ew[e] / wsum[u]
                 if c > 0:
-                    pr.excess = up * c
-                    pr.excess_up = u
-                    var lo = pr.b if pr.a == u else pr.a
+                    if eref[e] >= 0:
+                        ref pr = pairs[eref[e]]
+                        pr.excess = up * c
+                        pr.excess_up = u
+                    else:
+                        var j = -eref[e] - 1
+                        self.jexcess[j] = up * c
+                        self.jexcess_up[j] = u
                     if self.bset.is_dynamic(lo):
                         inflow[lo] += c
-                p = nxt[p]
+                if self.bset.is_dynamic(lo):
+                    indeg[lo] -= 1
+                    if indeg[lo] == 0 and not done[lo]:
+                        queue.append(lo)
+                e = nxt[e]
 
     def _contact_mass_scale(mut self, mut pairs: List[ContactConstraint], ratio: Real, impact_speed: Real):
         """ROADMAP 17.19 `max_mass_ratio`: dynamic bodies joined by a
@@ -3022,13 +3103,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.trace.begin("nan_scan")
         self._quarantine_nonfinite()
         self.trace.end()
+        if cfg.max_mass_ratio > 0:
+            self._report_excess(pairs, own, gravity)
         comptime if DEBUG_DRAW_ON:
             self._emit_debug_draw(pairs)
         if self.events_on:
             self._emit_events(pairs)
         self._release_overloaded()
-        if cfg.max_mass_ratio > 0:
-            self._report_excess(pairs, own, gravity)
         self.cache = pairs^  # impulses persist to the next frame
         self.step_index += 1
 
