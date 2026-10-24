@@ -49,6 +49,18 @@ ball of 7232 particles: sphericity isotropic 1.1089748  anisotropic 1.0873784 ; 
   mixed: equality resid 0.0  limit 0.0  contact 0.0
   |f_t| = 0.56568545   mu*f_n = 0.6
 [PASS] constraints - 18 / 18 checks
+--- tests/test_constraints_newton.mojo ---
+  stick: rounds 1 vx 0.0 vy 0.0
+  axis slide, cone 1 rounds 2 vx 0.5 vz 0.0
+  axis slide, cone 0 rounds 2 vx 0.5 vz 0.0
+  elliptic newton: rounds 2 vx 0.50970966 vz 0.10194193 vz/vx 0.19999999
+  elliptic pgs:    vx 0.50970966 vz 0.101941936 vz/vx 0.2
+  pyramidal newton: rounds 2 vx 0.5 vz 0.0 vz/vx 0.0
+  pyramidal pgs:    vx 0.5 vz 0.0 vz/vx 0.0
+  limit + contact + friction: rounds 2 vx 0.5 vy 0.0 q3 0.0
+  sweep: worst |Newton - PGS| per component 1.1920929e-07 worst rounds 2
+  coupled KKT: rounds 3 penetration 1.1775046e-07 comp 7.692271e-08 cone excess 0.0 stuck speed 3.1639726e-09 against 0.0
+[PASS] constraints_newton - 26 / 26 checks
 --- tests/test_dcga.mojo ---
   worst |incidence| on the torus surface: 1.5258789e-05
   worst sphere discrepancy: 7.6293945e-06
