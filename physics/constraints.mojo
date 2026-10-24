@@ -32,7 +32,9 @@ anisotropy directly.
 
 from std.math import sqrt, isfinite
 from geometry.vec import Real, Vec3, length
+from numerics.bicgstab import bicgstab
 from numerics.dense import solve_dense
+from numerics.sparse import LinearOperator
 from physics.chain import Chain
 
 comptime CON_EQUALITY = 0
@@ -301,7 +303,9 @@ struct ConstraintSet(Movable, Deinitable):
             self.force[r] = f[r]
         return it
 
-    def solve_cone_newton(mut self, var hmat: List[Real], mut qd: List[Real], max_iter: Int = 40) raises -> Int:
+    def solve_cone_newton(
+        mut self, var hmat: List[Real], mut qd: List[Real], max_iter: Int = 40, krylov: Bool = False
+    ) raises -> Int:
         """Active-set Newton that keeps the friction cone (13.5).
 
         `solve_active_set` leaves the tangent rows out. This one keeps them.
@@ -311,7 +315,8 @@ struct ConstraintSet(Movable, Deinitable):
         is recomputed from the velocity, which is the Newton step on the cone.
         Substituting the boundary into the normal column makes the system
         non-symmetric, so it is solved by dense LU (`solve_dense`), not
-        Cholesky.
+        Cholesky. With `krylov` the same system goes to BiCGStab instead
+        (13.5 CG column; `krylov` is an inner-solver flag, not a trait seam).
 
         One change per round, in this order: drop a normal that pulls, stick a
         sliding group whose velocity has reversed, slide a stuck group that
@@ -381,7 +386,15 @@ struct ConstraintSet(Movable, Deinitable):
                             var nrow = self.rows[s].normal_row
                             if state[nrow] == 1:
                                 a[p * nu + idx[nrow]] += g * (-self.rows[s].mu * sdir[s])
-                var sol = solve_dense(a^, b^, nu)
+                var sol: List[Real]
+                if krylov:
+                    var xk = List[Real](length=nu, fill=0)
+                    var info = bicgstab(_DenseOp(a^, nu), b, xk, tol=1e-6)
+                    if not info.converged:
+                        raise Error("ConstraintSet.solve_cone_newton: BiCGStab did not converge")
+                    sol = xk^
+                else:
+                    sol = solve_dense(a^, b^, nu)
                 for p in range(nu):
                     f[u[p]] = sol[p]
             for s in range(m):
@@ -610,6 +623,32 @@ struct LoopClosure(Copyable, ImplicitlyCopyable, Movable):
     var la: Vec3
     var b: Int
     var lb: Vec3
+
+
+struct _DenseOp(LinearOperator, Movable):
+    """Row-major dense square matrix as a `LinearOperator`, for the Krylov
+    inner solve of `solve_cone_newton` (the reduced system is built dense)."""
+
+    var a: List[Real]
+    var n: Int
+
+    def __init__(out self, var a: List[Real], n: Int):
+        self.a = a^
+        self.n = n
+
+    def size(self) -> Int:
+        return self.n
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        for i in range(self.n):
+            var acc = Real(0)
+            for j in range(self.n):
+                acc += self.a[i * self.n + j] * x[j]
+            out[i] = acc
+
+    def diagonal(self, mut out: List[Real]):
+        for i in range(self.n):
+            out[i] = self.a[i * self.n + i]
 
 
 def _loop_gap(ch: Chain, lp: LoopClosure) -> Vec3:
