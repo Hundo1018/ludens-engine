@@ -43,15 +43,16 @@ def _floor(mut sc: ContactScene6[QuatBody6]):
     _ = sc.add(QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(1, 10, 1, 10)), Vec3(10, 1, 10, 0), True)
 
 
-def mass_ratio(ratio: Real, steps: Int) raises -> Real:
-    """Worst offset of either box from its ideal position, over the run."""
+def mass_ratio(ratio: Real, steps: Int, max_mass_ratio: Real = 0) raises -> Real:
+    """Worst offset of either box from its ideal position, over the run.
+    `max_mass_ratio` (17.19, 0 = off) is the opt-in mass scaling."""
     var sc = ContactScene6[QuatBody6]()
     _floor(sc)
     var light = sc.add(QuatBody6.at_rest(Vec3(0, 0.25, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
     var heavy = sc.add(QuatBody6.at_rest(Vec3(0, 0.75, 0, 0), Inertia3.box(ratio, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
     var worst = Real(0)
     for _ in range(steps):
-        sc.step_soft(DT, G)
+        sc.step_soft(DT, G, max_mass_ratio=max_mass_ratio)
         var yl = sc.bset.bodies[light.index()].position()[1]
         var yh = sc.bset.bodies[heavy.index()].position()[1]
         worst = max(worst, abs(Real(0.25) - yl), abs((yh - yl) - Real(0.5)))
@@ -128,6 +129,10 @@ def main() raises:
     s.check(w100 < MAX_SAG_100, "mass ratio 100:1 keeps the stack within 5 cm (measured 3 cm)")
     s.check(isfinite(w300) and isfinite(w1000), "mass ratio 300:1 and 1000:1 stay finite (characterized: 10 cm and 25 cm, not bounded)")
     s.check(w300 > w100 and w1000 > w300, "penetration grows with the mass ratio")
+    # 17.19 opt-in through step_soft: the same 1000:1 stack with max_mass_ratio = 10
+    var w1000_on = mass_ratio(1000, 600, 10)
+    print("  mass ratio 1000:1 with max_mass_ratio 10, worst offset", w1000_on)
+    s.check(w1000_on < 0.01, "mass ratio 1000:1 with max_mass_ratio 10 stays within 1 cm (step_soft opt-in)")
 
     var t = tower(10, 900)
     s.check(t[0] < MAX_TOWER_SAG, "ten-box tower settles within 5 cm of its ideal height (measured 3 cm)")
