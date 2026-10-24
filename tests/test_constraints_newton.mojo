@@ -223,4 +223,24 @@ def main() raises:
     s.check(excess < 1e-6 and stick < 1e-5, "coupled Newton: inside the cone, stuck pairs have zero tangential speed")
     s.check(against < 1e-6, "coupled Newton: sliding friction opposes the tangential velocity")
 
+    # G: the same coupled system with the inner solve by BiCGStab (13.5 CG
+    # column). Same active-set path, so the forces must agree with the dense LU
+    # answer and the round count must match.
+    var ck = ConstraintSet(nc)
+    ck.cone = CONE_ELLIPTIC
+    for k in range(6):
+        var base = (k * 3) % nc
+        var nr = ck.add_contact(unit(nc, base), 0)
+        _ = ck.add_tangents(unit(nc, base + 1), unit(nc, base + 2), nr, MU)
+    var qk = List[Real](length=nc, fill=0)
+    for i in range(nc):
+        qk[i] = -1.0 + Real(i) * 0.13
+    var rk = ck.solve_cone_newton(banded(nc), qk, MAX_ROUNDS, True)
+    var fdiff = Real(0)
+    for r in range(len(cc.rows)):
+        fdiff = max(fdiff, abs(ck.force[r] - cc.force[r]))
+    print("  krylov (BiCGStab) vs dense LU: rounds", rk, "dense rounds", rc, "max |force diff|", fdiff)
+    s.check(rk == rc, "BiCGStab inner solve takes the same active-set rounds as dense LU")
+    s.check(fdiff < 1e-4, "BiCGStab inner solve agrees with dense LU on every impulse")
+
     s.finish()

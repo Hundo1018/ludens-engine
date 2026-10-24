@@ -1101,6 +1101,7 @@
 > **量測**:`test_constraints_newton` 26/26。斜坡:橢圓錐保持滑動方向(vz/vx = 0.2),金字塔錐偏轉到 vz = 0;兩種求解器一致。24 組速度掃描上橢圓 Newton 與 PGS 差 1.2e-7。耦合 6 接觸的 KKT 條件:穿透 1.2e-7、互補 7.7e-8、錐超出 0、黏著切向速度 3e-9、滑動摩擦與運動反向。`bench_constraints` 匹配精度(以 Newton 解為基準,PGS 取達到 1e-6 所需的最小 2 的冪次):金字塔錐 PGS 8 次迭代即匹配,n=6/18/48 的每解時間 PGS 7.8 / 133 / 4529 µs、Newton 10.7 / 152 / 4875 µs(Newton 5 輪);橢圓錐 PGS 在 4096 次迭代內不匹配。
 > **發現(屬於 PGS,不在本項修改範圍)**:耦合橢圓接觸上,現有 `solve`(PGS)停在距 Newton 解 4.8e-3 的位置,64 到 16384 次迭代完全不動,是停滯而不是收斂慢。Newton 的解滿足全部 KKT 條件,所以問題在 PGS。`solve` 依設計未修改。
 > **仍未閉合**:(1)`solve_cg` 仍只接受等式列。錐感知的 CG 需要對非對稱的代入系統做 Krylov 內層求解(GMRES / BiCGStab),尚未做。(2)因此設計中「PGS / CG / Newton × 兩種錐」的 CG 欄只有等式列。本項維持 🔶。
+> **進度註(2026-10-24,錐感知 Krylov 內層)**:`solve_cone_newton(..., krylov=True)` 以 `numerics.bicgstab` 取代同一個約簡系統的稠密 LU(`_DenseOp` 包裝)。`test_constraints_newton` 28/28,新增案例 G:耦合 6 接觸(n=18)上,BiCGStab 與稠密 LU 的輪數相同(3),衝量最大差 2.4e-7。本次只驗證正確性,未加 bench 欄位;約簡系統仍是顯式稠密組裝,所以 Krylov 在此規模不預期比 LU 快,成本未量測。
 > **選擇**:錐型維持執行期旗標(`self.cone`),不是 trait seam。摩擦錐的判斷發生在每個摩擦組內,不需要編譯期分派。
 > **狀態校正(2026-10-10,17.44–17.84 重寫時的對抗審查)**:原標 ✅,但本節沒有進度註,且設計要求的
 > 「求解器 seam:PGS vs CG vs Newton」只交付了 PGS —— `physics/constraints.mojo:18-19` 自述「one projected
