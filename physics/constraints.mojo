@@ -301,6 +301,191 @@ struct ConstraintSet(Movable, Deinitable):
             self.force[r] = f[r]
         return it
 
+    def solve_cone_newton(mut self, var hmat: List[Real], mut qd: List[Real], max_iter: Int = 40) raises -> Int:
+        """Active-set Newton that keeps the friction cone (13.5).
+
+        `solve_active_set` leaves the tangent rows out. This one keeps them.
+        Each tangent group is STICK (its rows are equalities with target 0) or
+        SLIDE (its impulse sits on the cone boundary, f_t = -mu f_n s, where s
+        is the unit sliding direction, fixed within a round). Between rounds s
+        is recomputed from the velocity, which is the Newton step on the cone.
+        Substituting the boundary into the normal column makes the system
+        non-symmetric, so it is solved by dense LU (`solve_dense`), not
+        Cholesky.
+
+        One change per round, in this order: drop a normal that pulls, stick a
+        sliding group whose velocity has reversed, slide a stuck group that
+        left the cone, add a violated inactive normal. Returns the rounds used;
+        a return equal to `max_iter` means the set did not settle.
+
+        Friction-loss rows are not handled here (they raise). Cone type stays
+        the runtime flag `self.cone`; it is not a trait seam."""
+        var m = len(self.rows)
+        if m == 0:
+            return 0
+        for r in range(m):
+            var k = self.rows[r].kind
+            if k != CON_EQUALITY and k != CON_LIMIT and k != CON_CONTACT and k != CON_TANGENT:
+                raise Error("ConstraintSet.solve_cone_newton: friction-loss rows are not handled")
+        var pyramidal = self.cone == CONE_PYRAMIDAL
+        var mj = self._minv_jt(hmat)
+        var qd0 = qd.copy()
+        # gram[r * m + s] = J_r H^-1 J_s^T
+        var gram = List[Real](length=m * m, fill=0)
+        for r in range(m):
+            for s in range(m):
+                var acc = Real(0)
+                for i in range(self.n):
+                    acc += self.jac[r * self.n + i] * mj[s * self.n + i]
+                gram[r * m + s] = acc
+        # state 0: off; 1: active, impulse unknown; 2: sliding tangent
+        var state = List[Int](length=m, fill=0)
+        # sliding direction s_r: a sliding tangent has f_r = -mu f_n s_r
+        var sdir = List[Real](length=m, fill=0)
+        for r in range(m):
+            var k = self.rows[r].kind
+            if k == CON_EQUALITY:
+                state[r] = 1
+            elif (k == CON_LIMIT or k == CON_CONTACT) and self._row_dot(r, qd0) < self.rows[r].bias:
+                state[r] = 1
+        for r in range(m):
+            if self.rows[r].kind == CON_TANGENT and state[self.rows[r].normal_row] == 1:
+                state[r] = 1
+
+        var f = List[Real](length=m, fill=0)
+        var rounds = 0
+        for _ in range(max_iter):
+            rounds += 1
+            var idx = List[Int](length=m, fill=-1)
+            var u = List[Int]()
+            for r in range(m):
+                if state[r] == 1:
+                    idx[r] = len(u)
+                    u.append(r)
+            var nu = len(u)
+            for r in range(m):
+                f[r] = 0
+            if nu > 0:
+                # rows of the unknown set: velocity J_p (qd0 + sum_s H^-1 J_s^T f_s) = bias_p.
+                # a sliding tangent contributes -mu s f_n through its normal's unknown
+                var a = List[Real](length=nu * nu, fill=0)
+                var b = List[Real](length=nu, fill=0)
+                for p in range(nu):
+                    var rp = u[p]
+                    b[p] = self.rows[rp].bias - self._row_dot(rp, qd0)
+                    for s in range(m):
+                        var g = gram[rp * m + s]
+                        if state[s] == 1:
+                            a[p * nu + idx[s]] += g
+                        elif state[s] == 2:
+                            var nrow = self.rows[s].normal_row
+                            if state[nrow] == 1:
+                                a[p * nu + idx[nrow]] += g * (-self.rows[s].mu * sdir[s])
+                var sol = solve_dense(a^, b^, nu)
+                for p in range(nu):
+                    f[u[p]] = sol[p]
+            for s in range(m):
+                if state[s] == 2:
+                    var nrow = self.rows[s].normal_row
+                    if state[nrow] == 1:
+                        f[s] = -self.rows[s].mu * sdir[s] * f[nrow]
+                    else:
+                        f[s] = 0
+            for i in range(self.n):
+                var v = qd0[i]
+                for r in range(m):
+                    if f[r] != 0:
+                        v += mj[r * self.n + i] * f[r]
+                qd[i] = v
+
+            # 1. a normal (or limit) that pulls is dropped, with its tangents
+            var worst_r = -1
+            var worst_v = Real(-1e-9)
+            for r in range(m):
+                var k = self.rows[r].kind
+                if state[r] == 1 and (k == CON_LIMIT or k == CON_CONTACT) and f[r] < worst_v:
+                    worst_v = f[r]
+                    worst_r = r
+            if worst_r >= 0:
+                state[worst_r] = 0
+                for t in range(m):
+                    if self.rows[t].kind == CON_TANGENT and self.rows[t].normal_row == worst_r:
+                        state[t] = 0
+                continue
+
+            # 2. a sliding group whose velocity has reversed against its direction sticks
+            var stick_r = -1
+            for r in range(m):
+                if self.rows[r].kind != CON_TANGENT or state[r] != 2:
+                    continue
+                if pyramidal:
+                    if self._row_dot(r, qd) * sdir[r] < 0:
+                        stick_r = r
+                        break
+                elif self.rows[r].partner > r:
+                    var p = self.rows[r].partner
+                    if self._row_dot(r, qd) * sdir[r] + self._row_dot(p, qd) * sdir[p] < 0:
+                        stick_r = r
+                        break
+            if stick_r >= 0:
+                state[stick_r] = 1
+                if not pyramidal:
+                    state[self.rows[stick_r].partner] = 1
+                continue
+
+            # 3. a stuck group whose impulse leaves its cone starts to slide
+            var slide_r = -1
+            var slide_v = Real(1e-9)
+            for r in range(m):
+                if self.rows[r].kind != CON_TANGENT or state[r] != 1:
+                    continue
+                var cap = self.rows[r].mu * f[self.rows[r].normal_row]
+                if pyramidal:
+                    var ex = abs(f[r]) - cap
+                    if ex > slide_v:
+                        slide_v = ex
+                        slide_r = r
+                elif self.rows[r].partner > r:
+                    var p = self.rows[r].partner
+                    var ex = sqrt(f[r] * f[r] + f[p] * f[p]) - cap
+                    if ex > slide_v:
+                        slide_v = ex
+                        slide_r = r
+            if slide_r >= 0:
+                if pyramidal:
+                    state[slide_r] = 2
+                    sdir[slide_r] = -1 if f[slide_r] > 0 else 1
+                else:
+                    var p = self.rows[slide_r].partner
+                    var norm = sqrt(f[slide_r] * f[slide_r] + f[p] * f[p])
+                    state[slide_r] = 2
+                    state[p] = 2
+                    sdir[slide_r] = -f[slide_r] / norm
+                    sdir[p] = -f[p] / norm
+                continue
+
+            # 4. a violated inactive normal joins the active set, with its stuck tangents
+            var add_r = -1
+            var add_v = Real(1e-7)
+            for r in range(m):
+                var k = self.rows[r].kind
+                if state[r] == 0 and (k == CON_LIMIT or k == CON_CONTACT):
+                    var short = self.rows[r].bias - self._row_dot(r, qd)
+                    if short > add_v:
+                        add_v = short
+                        add_r = r
+            if add_r < 0:
+                for r in range(m):
+                    self.force[r] = f[r]
+                return rounds
+            state[add_r] = 1
+            for t in range(m):
+                if self.rows[t].kind == CON_TANGENT and self.rows[t].normal_row == add_r:
+                    state[t] = 1
+        for r in range(m):
+            self.force[r] = f[r]
+        return rounds
+
     def _row_dot(self, r: Int, v: List[Real]) -> Real:
         var s = Real(0)
         for i in range(self.n):
