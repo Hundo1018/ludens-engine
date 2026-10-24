@@ -47,7 +47,7 @@
 | 子系統 | 範圍 | ✅ | 🔶 | ⬜ | ⏸ / 不排 |
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
-| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 21 | 2 | 0 | 0 |
+| [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 22 | 1 | 0 | 0 |
 | [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 14 | 1 | 0 | 0 |
 | [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 10 | 1 | 0 | 0 |
 | [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 15 | 5 | 1 | 1 |
@@ -241,7 +241,7 @@
 | 6.3 | [Sphere / Capsule 形狀入 solver(脫離 box-only)](ROADMAP_HISTORY.md#63-sphere--capsule-形狀入-solver脫離-box-only) | ✅ |  | `collision/manifold.mojo` 新增 sphere/capsule 相關形狀對 manifold,ContactScene6 以 shape kind 派發,錨點、warm-start、摩擦、restitution、睡眠全形狀通用。 |
 | 6.5 | [Islands 平行化(多執行緒 solver)](ROADMAP_HISTORY.md#65-islands-平行化多執行緒-solver) | ✅ |  | step_soft(parallel=True) 依 island 重排 pairs/joints,_solve_island 以 parallelize fan-out 各島整個子步迴圈,平行與串行 bit-identical,16 島 1.52×(單大島反慢 1.37×)。 |
 | 6.11 | [島內著色平行(單大島的約束圖著色)](ROADMAP_HISTORY.md#611-島內著色平行單大島的約束圖著色) | ✅ |  | step_soft 的 colored 模式以貪婪著色(靜態體不入鄰接)把 pairs 排成色段,色內 parallelize、色間順序,排程決定且串行==平行逐位相同,120 盒單島平行 1.66×、iters=8 品質對齊行 1.21×。 |
-| 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | 🔶 |  | 已有縮座標 revolute / prismatic 與上下限(physics/chain.mojo resolve_limits)、最大座標 weld(17.5)與 AngularDrive 姿態驅動(17.2);Joint6 仍沒有上下限、速度馬達、彈簧、滑軌、cone-twist,縮座標也沒有球關節 / 多自由度關節。 |
+| 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | ✅ |  | 最大座標的限制、馬達、彈簧、滑軌、cone-twist、universal、gear、pulley、rope 由 17.47 交付(`physics/joints6.mojo`、`physics/joint_ext.mojo`);縮座標多自由度與 D6 由 17.51 交付;2026-10-24 重新核對,相關測試 test_joints_ext 18/18、test_joint_d6 8/8、test_joint_kinds 10/10、test_joints_lib 11/11、test_joint_parity 5/5 全數通過。 |
 | 9.4 | [接觸事件(began / stay / ended)](ROADMAP_HISTORY.md#94-接觸事件began--stay--ended--完成2026-08-11) | ✅ |  | `events_on` 開啟時每步以排序合併差分本步與上步接觸集(鍵為 (a,b,feat) 打包的 Int)產生 began/stay/ended 事件,含 sensor 重疊,事件流在 brute 與寬相 seam 上逐位相同,開啟成本 <3%。 |
 | 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),但高質量比、大 island、接觸密集堆疊等壓力測試尚未做;滾動球的錨點缺陷已修(2026-10-13:球 / 膠囊維持解析滾動速度、不再下沉,`test_rolling_sphere`)。 |
 | 17.23 | [物理材質與逐對組合模式](ROADMAP_HISTORY.md#1723-物理材質與逐對組合模式--wave-a) | ✅ | A | physics/material.mojo 提供四種組合模式(average/min/multiply/max,較高優先模式勝),BodySet 存逐 body 的 friction 與兩種組合模式,solver6 每對接觸算一次 pair_mu 與組合後的 restitution,並有 parity 測試與 bench(四模式成本在雜訊範圍內)。 |
@@ -283,7 +283,7 @@
 
 #### 9.1 關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)
 
-> **狀態**:🔶 部分完成(縮座標 revolute / prismatic + 上下限、最大座標 weld 已有;最大座標的限制 / 馬達 / 彈簧 / 滑軌 / cone-twist 與縮座標多自由度關節未做,剩餘移至 17.47 / 17.51)
+> **狀態**:✅(2026-10-24 校正)。原 🔶 的「未做」清單已由 17.47(最大座標:限制、馬達、彈簧、滑軌、cone-twist、universal、gear、pulley、rope)與 17.51(縮座標多自由度、D6)交付。本條 2026-10-24 重新核對:`physics/joints6.mojo` 的 `JOINT_SLIDER` / `JOINT_CONE_TWIST` / `JOINT_ROPE` / `JOINT_UNIVERSAL` / `JOINT_GEAR` / `JOINT_PULLEY` / `JOINT_D6` 與 `physics/joint_ext.mojo` 的求解;測試 `test_joints_ext` 18/18、`test_joint_d6` 8/8、`test_joint_kinds` 10/10、`test_joints_lib` 11/11、`test_joint_parity` 5/5。
 > **狀態校正(2026-10-09,負空間盤點)**:原標 ✅,但程式碼只交付了一部分。
 > **已有**:
 > - 縮座標:`physics/chain.mojo:96-97`(`JOINT_REVOLUTE` / `JOINT_PRISMATIC`)、`:108-109,130-139`(`lo` / `hi` 與 `limited()`)、`:785` `resolve_limits`(測試 `tests/test_joints_lib.mojo`)。
@@ -4023,7 +4023,7 @@
 | 7.2 | [solver6 接寬相(生產 solver 脫離 O(n²))](ROADMAP_HISTORY.md#72-solver6-接寬相生產-solver-脫離-on²--2026-07-22) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 8.1 | [凸包碰撞入 narrowphase](ROADMAP_HISTORY.md#81-凸包碰撞入-narrowphase---完成2026-08-11) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 8.2 | [三角網格 / heightfield 靜態關卡幾何](ROADMAP_HISTORY.md#82-三角網格--heightfield-靜態關卡幾何---完成2026-08-11) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
-| 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | 剛體動力學、接觸與關節 | 🔶 |
+| 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | 剛體動力學、接觸與關節 | ✅ |
 | 9.2 | [浮動基座關節(完整 ragdoll)](ROADMAP_HISTORY.md#92-浮動基座關節完整-ragdoll--已完成) | 縮座標關節體與致動 | ✅ |
 | 9.3 | [碰撞過濾(layers / groups / masks)+ sensors / triggers](ROADMAP_HISTORY.md#93-碰撞過濾layers--groups--masks-sensors--triggers---完成2026-08-11) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 9.4 | [接觸事件(began / stay / ended)](ROADMAP_HISTORY.md#94-接觸事件began--stay--ended--完成2026-08-11) | 剛體動力學、接觸與關節 | ✅ |
