@@ -14,9 +14,10 @@ cases the ROADMAP item lists, each with the measured quantity printed:
      With `max_mass_ratio = 10` (in contact and joint rows each body acts
      with at least 1/10 of the heaviest body of its contact / joint group):
      1:1000 and 1:1e4 sink 3 mm (R g / w^2, independent of the ratio); a
-     1000 / 1 / 1 kg tower's worst overlap is under 1 cm; the price,
-     measured: the floor's force under 1000 kg on 1 kg reads (M + M / R) g
-     instead of (M + m) g. A ratio below 1 is rejected by `validated`.
+     1000 / 1 / 1 kg tower's worst overlap is under 1 cm; the floor's force
+     under 1000 kg on 1 kg reads the true (M + m) g (17.19 A2 corrects the
+     scaled (M + M / R) g the solve carries). A ratio below 1 is rejected by
+     `validated`.
   2. Long chain under load: 20 ball-jointed links holding a 100 kg weight
      (100:1 against a link) for 5 s - the chain's stretch, and with
      `max_mass_ratio = 10` under 3 %.
@@ -214,7 +215,7 @@ def main() raises:
     except:
         rejected = True
     s.check(m3[0] < 0.01 and m3[1] < 0.01 and m4[0] < 0.01 and m4[1] < 0.01 and t1[0] < 0.01, "max_mass_ratio 10: 1:1000 and 1:1e4 sink < 1 cm, 3-box tower < 1 cm")
-    s.check(abs(f1 / (1100 * 9.8) - 1) < 0.01 and rejected, "the price: floor force reads (M + M/R) g; ratio < 1 rejected")
+    s.check(abs(f1 / (1001 * 9.8) - 1) < 0.01 and rejected, "floor force under 1000 kg on 1 kg reads the true (M + m) g within 1%; ratio < 1 rejected")
 
     # ---- loaded chain -------------------------------------------------------------------------------
     var rest_len = Real(0.1 + 20 * 0.5 + 0.2)

@@ -1763,7 +1763,7 @@ ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
   1:1000  light box floor penetration 0.25098088  overlap with heavy 0.27522975  drift 0.011872425  sag law 0.2758188
   1:1e4   light box floor penetration 0.2513221  overlap with heavy 0.28463855  drift 0.0024085648
   max_mass_ratio 10:  1:1000 penetration 0.0031626225  overlap 0.0031924248  drift 0.00058357645    1:1e4 penetration 0.003163129  overlap 0.0031923354
-  floor force under 1000 kg on 1 kg (true 9809.8 N): off 8408.597  ratio 10 10780.298
+  floor force under 1000 kg on 1 kg (true 9809.8 N): off 8408.597  ratio 10 9810.099
   1000 / 1 / 1 tower: worst overlap off 0.618292  ratio 10 0.0064021945   top drop off 1.0002914  ratio 10 0.013091445
   (ratio off) asleep at step 62  woke True  bullet max x -0.2929742  worst sink 0.2516439  asleep again 32
   1000 on 1 kg + sleep + CCD bullet: asleep at step 37  woke True  bullet max x -0.3013363  worst sink 0.0032167733  asleep again at step 31
