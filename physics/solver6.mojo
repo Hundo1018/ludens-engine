@@ -1325,10 +1325,16 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             var on_b = pr.m.normal * jn + pr.jf
             var sgn = Real(1) if pr.b == i else Real(-1)
             var imp = on_b * sgn
+            var nrep = pr.m.normal * (-sgn)
+            if pr.excess_up >= 0:
+                # 17.19 A2: the solve carried the scaled excess; report the load
+                var d = (Real(1) if pr.excess_up == i else Real(-1)) * pr.span
+                imp = imp - pr.excess * d
+                jn = jn + d * dot(pr.excess, nrep)
             var f = imp / pr.span if pr.span > 0 else Vec3(0, 0, 0, 0)
             var p = pr.m.points[best] if best >= 0 else self.bset.bodies[i].position()
             out.append(ContactReport(
-                pr.b if pr.a == i else pr.a, pr.feat, p, pr.m.normal * (-sgn), jn, imp, f,
+                pr.b if pr.a == i else pr.a, pr.feat, p, nrep, jn, imp, f,
             ))
         return out^
 
@@ -2568,6 +2574,106 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         cfg.max_mass_ratio = max_mass_ratio
         self.step(dt, gravity, cfg)
 
+    def _own_excess(self, gravity: Vec3) -> List[Real]:
+        """ROADMAP 17.19 A2: per body, the upward force its scaled mass adds
+        to each of its supports. The solver weighs a scaled body as m_c > m,
+        so its contacts carry (m_c - m) * |a| more than its true weight, where
+        a is gravity plus the applied force per unit mass (read before the
+        integration clears it). Zero for static and unscaled bodies."""
+        var n = len(self.bset.bodies)
+        var own = List[Real](length=n, fill=0)
+        var glen = sqrt(dot(gravity, gravity))
+        if glen == 0:
+            return own^
+        var up = gravity * (Real(-1) / glen)
+        for i in range(n):
+            if not self.bset.is_dynamic(i) or self.bset.cscale[i] >= 1:
+                continue
+            var m = Real(1) / self.bset.bodies[i].inv_mass()
+            var mc = m / self.bset.cscale[i]
+            var a = gravity + self.bset.force[i] * (Real(1) / m)
+            own[i] = (mc - m) * (Real(0) - dot(a, up))
+        return own^
+
+    def _report_excess(mut self, mut pairs: List[ContactConstraint], own: List[Real], gravity: Vec3):
+        """ROADMAP 17.19 A2: moves each scaled body's excess weight from the
+        solved contact impulses into the report (`contacts_of`); the solve
+        itself is unchanged, so the default path and the golden are too.
+
+        Top-down over the support graph, ordered by height along -gravity:
+        a body's excess is its own (`_own_excess`) plus what its supports
+        received from above, and it leaves through its supporting pairs in
+        proportion to their upward normal impulse. Each pair records the
+        upward force it carries and the body it supports. Approximate where
+        the graph is not a stack: a pair between bodies at equal height
+        carries nothing, and multi-support load splits by impulse rather
+        than by the exact load solution. Break checks (`peak_force`) still
+        read the scaled impulses; they are not corrected here."""
+        var n = len(self.bset.bodies)
+        var glen = sqrt(dot(gravity, gravity))
+        var up = Vec3(0, 0, 0, 0)
+        if glen > 0:
+            up = gravity * (Real(-1) / glen)
+        var height = List[Real](length=n, fill=0)
+        var order = List[Int]()
+        for i in range(n):
+            if not self.bset.is_dynamic(i):
+                continue
+            height[i] = dot(self.bset.bodies[i].position(), up)
+            var k = len(order)
+            order.append(i)
+            while k > 0 and height[order[k - 1]] < height[i]:
+                order[k] = order[k - 1]
+                k -= 1
+            order[k] = i
+        var np = len(pairs)
+        var eff = List[Real](length=np, fill=0)
+        var head = List[Int](length=n, fill=-1)
+        var nxt = List[Int](length=np, fill=-1)
+        var wsum = List[Real](length=n, fill=0)
+        for p in range(np):
+            ref pr = pairs[p]
+            pr.excess = Vec3(0, 0, 0, 0)
+            pr.excess_up = -1
+            var da = self.bset.is_dynamic(pr.a)
+            var db = self.bset.is_dynamic(pr.b)
+            if not da and not db:
+                continue
+            var u = pr.b
+            if da and db:
+                if height[pr.a] == height[pr.b]:
+                    continue
+                u = pr.a if height[pr.a] > height[pr.b] else pr.b
+            elif da:
+                u = pr.a
+            var nu = pr.m.normal if u == pr.a else pr.m.normal * Real(-1)
+            var jsup = Real(0)
+            for q in range(pr.m.count):
+                jsup += pr.jn[q]
+            # upward push on u from its other side: the impulse on u points away from it
+            var e = max(Real(0), Real(0) - dot(nu, up)) * jsup
+            if e <= 0:
+                continue
+            eff[p] = e
+            nxt[p] = head[u]
+            head[u] = p
+            wsum[u] += e
+        var inflow = List[Real](length=n, fill=0)
+        for k in range(len(order)):
+            var u = order[k]
+            var t = own[u] + inflow[u]
+            var p = head[u]
+            while p >= 0:
+                ref pr = pairs[p]
+                var c = t * eff[p] / wsum[u]
+                if c > 0:
+                    pr.excess = up * c
+                    pr.excess_up = u
+                    var lo = pr.b if pr.a == u else pr.a
+                    if self.bset.is_dynamic(lo):
+                        inflow[lo] += c
+                p = nxt[p]
+
     def _contact_mass_scale(mut self, mut pairs: List[ContactConstraint], ratio: Real, impact_speed: Real):
         """ROADMAP 17.19 `max_mass_ratio`: dynamic bodies joined by a
         contact or a (core, unbroken) joint form groups (union-find); each
@@ -2745,8 +2851,10 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 _ = pairs.pop()
         self.trace.end()
         self.bset.mass_ratio = cfg.max_mass_ratio
+        var own = List[Real]()
         if cfg.max_mass_ratio > 0:
             self._contact_mass_scale(pairs, cfg.max_mass_ratio, cfg.restitution_threshold)
+            own = self._own_excess(gravity)
         # ROADMAP 17.80: counter tracks (no-op unless traced and enabled)
         self.trace.sample("contact_manifolds", len(pairs))
         self.trace.sample("bodies", len(self.bset.bodies))
@@ -2919,6 +3027,8 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if self.events_on:
             self._emit_events(pairs)
         self._release_overloaded()
+        if cfg.max_mass_ratio > 0:
+            self._report_excess(pairs, own, gravity)
         self.cache = pairs^  # impulses persist to the next frame
         self.step_index += 1
 
@@ -3821,6 +3931,7 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
             Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
             Vec3(0, 0, 0, 0), Real(0), 0, Real(0), Real(0),
+            Vec3(0, 0, 0, 0), -1,
         )
         for p in range(4):
             pr.m.points[p] = r.rv()
