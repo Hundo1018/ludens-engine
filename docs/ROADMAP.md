@@ -1093,6 +1093,7 @@
 #### 13.5 統一約束求解器(equality / limit / friction-loss / contact 一體)
 
 > **狀態**:🔶 部分完成(只交付 PGS;CG / Newton 變體與 `ContactScene6` 雙向耦合移至 17.51,接觸模型變體移至 17.50)— 原屬 Wave C
+> **進度註(2026-10-24,依程式碼核對)**:求解器 seam 現有三個實作:`ConstraintSet.solve`(PGS,`SOLVE_PGS`)、`solve_active_set`(Newton 型精確解,`SOLVE_DIRECT`)、`solve_cg`(`SOLVE_CG`)。`tests/test_loops.mojo` 以同一閉環場景逐一執行三種模式並比較殘差。**未閉合**:(1) `solve_active_set` 與 `solve_cg` 都拒絕摩擦錐列(`constraints.mojo` 內的 raise:Newton 只接受等式 / 限制 / 接觸列,CG 只接受等式列),所以設計的「PGS / CG / Newton × 兩種錐」矩陣在結構上只有 PGS 一列;(2) `bench_constraints` 只量 PGS × 兩種錐,沒有同精度的跨求解器比較。閉合此項需要二選一,由作者決定:實作錐感知的 Newton / CG(摩擦列要處理 |f_t| ≤ μ f_n 的非線性),或把設計中的「× 兩種錐」收窄為「摩擦只走 PGS」並改寫設計。在決定之前本項維持 🔶。
 > **狀態校正(2026-10-10,17.44–17.84 重寫時的對抗審查)**:原標 ✅,但本節沒有進度註,且設計要求的
 > 「求解器 seam:PGS vs CG vs Newton」只交付了 PGS —— `physics/constraints.mojo:18-19` 自述「one projected
 > Gauss-Seidel loop」,`solve`(`:124-174`)只有 PGS;grep `newton|conjugate|krylov` 於 `constraints.mojo`、
