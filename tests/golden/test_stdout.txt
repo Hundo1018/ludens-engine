@@ -60,7 +60,8 @@ ball of 7232 particles: sphericity isotropic 1.1089748  anisotropic 1.0873784 ; 
   limit + contact + friction: rounds 2 vx 0.5 vy 0.0 q3 0.0
   sweep: worst |Newton - PGS| per component 1.1920929e-07 worst rounds 2
   coupled KKT: rounds 3 penetration 1.1775046e-07 comp 7.692271e-08 cone excess 0.0 stuck speed 3.1639726e-09 against 0.0
-[PASS] constraints_newton - 26 / 26 checks
+  krylov (BiCGStab) vs dense LU: rounds 3 dense rounds 3 max |force diff| 2.3841858e-07
+[PASS] constraints_newton - 28 / 28 checks
 --- tests/test_dcga.mojo ---
   worst |incidence| on the torus surface: 1.5258789e-05
   worst sphere discrepancy: 7.6293945e-06
