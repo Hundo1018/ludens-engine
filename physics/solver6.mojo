@@ -2545,13 +2545,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         colored: Bool = False,
         broadphase: Bool = False,
         workers: Int = 0,
+        max_mass_ratio: Real = 0,
     ):
         """Thin forwarder (audit F19): builds a `SolverConfig` from these
         keyword arguments and calls `step`. Kept with its original keyword
         signature so every existing call site (~100 across tests/benchmarks/
         examples) keeps compiling and behaving identically -- `step(dt,
         gravity, cfg)` is the config-driven entry point new code should
-        prefer."""
+        prefer. `max_mass_ratio` (17.19, default 0 = off) is forwarded to
+        `SolverConfig.max_mass_ratio`."""
         var cfg = SolverConfig()
         cfg.substeps = substeps
         cfg.iters = iters
@@ -2563,6 +2565,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         cfg.colored = colored
         cfg.broadphase = broadphase
         cfg.workers = workers
+        cfg.max_mass_ratio = max_mass_ratio
         self.step(dt, gravity, cfg)
 
     def _contact_mass_scale(mut self, mut pairs: List[ContactConstraint], ratio: Real, impact_speed: Real):
