@@ -176,6 +176,83 @@ def _compare() raises:
             print("    ", sw, "     ", sep, "     ", uni)
 
 
+def _start(n: Int) -> List[Real]:
+    var qd = _vec(n)
+    for i in range(n):
+        qd[i] = -1.0 + Real(i) * 0.13
+    return qd^
+
+
+def _gap(a: List[Real], b: List[Real]) -> Real:
+    var worst = Real(0)
+    for i in range(len(a)):
+        worst = max(worst, abs(a[i] - b[i]))
+    return worst
+
+
+def _matched(n: Int, pairs: Int, cone: Int) raises:
+    """Solver x cone at matched accuracy (13.5): the reference is the Newton
+    solution converged to 200 rounds; PGS is charged the smallest power-of-two
+    iteration count that reaches it to 1e-6, and both are timed on that
+    basis. The contact build is inside both timings, so it cancels."""
+    var n_ = n
+    var want = _start(n_)
+    var cs0 = _contacts(n_, pairs, cone)
+    var rounds = cs0.solve_cone_newton(_mass(n_), want, 200)
+    var need = -1
+    var iters = 1
+    var last_gap = Real(0)
+    while iters <= 4096:
+        var cs = _contacts(n_, pairs, cone)
+        var qd = _start(n_)
+        cs.solve(_mass(n_), qd, iters)
+        last_gap = _gap(qd, want)
+        if last_gap < 1e-6:
+            need = iters
+            break
+        iters *= 2
+    var pgs_best = Int.MAX
+    var newton_best = Int.MAX
+    var pgs_iters = need if need > 0 else 4096
+    for _ in range(REPS):
+        var t0 = Int(perf_counter_ns())
+        for _ in range(ITERS):
+            var cs = _contacts(n_, pairs, cone)
+            var qd = _start(n_)
+            cs.solve(_mass(n_), qd, pgs_iters)
+            keep(qd[0])
+        var dt = Int(perf_counter_ns()) - t0
+        if dt < pgs_best:
+            pgs_best = dt
+        var t1 = Int(perf_counter_ns())
+        for _ in range(ITERS):
+            var cs = _contacts(n_, pairs, cone)
+            var qd = _start(n_)
+            _ = cs.solve_cone_newton(_mass(n_), qd, 200)
+            keep(qd[0])
+        var dn = Int(perf_counter_ns()) - t1
+        if dn < newton_best:
+            newton_best = dn
+    var label = "pyramidal" if cone == CONE_PYRAMIDAL else "elliptic"
+    var pgs_note = String(need) if need > 0 else ">4096 (stalls at gap " + String(last_gap) + ")"
+    print(
+        "  " + label + ", n=" + String(n_) + ", " + String(pairs) + " contacts:",
+        "PGS iters", pgs_note,
+        "PGS us/solve", Real(pgs_best) / Real(ITERS) / 1000.0,
+        "| Newton rounds", rounds,
+        "Newton us/solve", Real(newton_best) / Real(ITERS) / 1000.0,
+    )
+
+
+def _matched_compare() raises:
+    print("Solver x cone at matched accuracy (|qd - Newton reference| < 1e-6)")
+    for cone in [CONE_PYRAMIDAL, CONE_ELLIPTIC]:
+        _matched(6, 2, cone)
+        _matched(18, 6, cone)
+        _matched(48, 16, cone)
+    print("")
+
+
 def main() raises:
     print("Separate passes vs one system: worst remaining violation, equal work")
     _compare()
@@ -187,3 +264,4 @@ def main() raises:
         _cone_rows(t, NL, 2)
         _cone_rows(t, NL, NL // 3)
     t.print_report()
+    _matched_compare()

@@ -160,6 +160,7 @@ LES 對照列,`test_lbm_les` 的 seam 從此有量測(見末列)。
 | Seam | 檔案 | 範疇論解讀 | 定律測試 | Benchmark |
 |---|---|---|---|---|
 | 統一約束求解器 vs 交替通道;金字塔 vs 橢圓摩擦錐 | physics/constraints.mojo(`CONE_PYRAMIDAL`／`CONE_ELLIPTIC`) | equality/limit/friction/contact 一體 vs 分通道;等工作量下打平,錐耦合列是能力差而非速度差 | `test_constraints` | `bench_constraints` |
+| 摩擦錐求解器 PGS vs active-set Newton(13.5);同一 KKT 解的兩個下降法 | physics/constraints.mojo(`solve` vs `solve_cone_newton`;錐型為執行期旗標,非 trait seam) | 同一 LCP / 錐互補問題的兩個解法:PGS 是迭代投影,Newton 是對作用集與滑動方向的精確子問題;兩者在可解的情形收斂到同一 KKT 點 | `test_constraints_newton`(橢圓錐 sweep 與 PGS 一致 1e-7、耦合 KKT 條件、錐形斜坡方向) | `bench_constraints`(匹配精度對照) |
 | 致動器(仿射傳動 + 內部動力學低通)vs 直接 PD 伺服 | physics/actuator.mojo | 力生成態射的抽象層;高增益極限下兩者收斂 | `test_actuator` | `bench_actuator` |
 | 腱力臂:解析 Jacobian vs 中央差分;`FixedTendon` vs `SpatialTendon`、繞行 on/off | physics/tendon.mojo | 同一長度映射的解析與數值梯度;1–2 DOF 差分勝、交叉點 2–8 DOF | `test_tendon` | `bench_tendon` |
 | 感測:逐呼叫 `read_imu`(O(S·L))vs 共享掃描 `read_imu_batch`(O(L+S))vs 差分 | physics/sensors.mojo | 同一觀測函子的攤銷實作;N=1 控制組須略慢方為可信 | `test_sensors` | `bench_sensors` |

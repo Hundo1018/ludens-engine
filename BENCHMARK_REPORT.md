@@ -2581,19 +2581,27 @@ Separate passes vs one system: worst remaining violation, equal work
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| 2 contacts, pyramidal | 6 | solve | 11832.65 | 0.08 | 0.71 |
-| 2 contacts, elliptic | 6 | solve | 11759.28 | 0.09 | 0.71 |
-| 2 contacts, pyramidal | 6 | solve | 11499.55 | 0.09 | 0.69 |
-| 2 contacts, elliptic | 6 | solve | 11332.80 | 0.09 | 0.68 |
-| 2 contacts, pyramidal | 18 | solve | 69344.40 | 0.01 | 4.16 |
-| 2 contacts, elliptic | 18 | solve | 67382.05 | 0.01 | 4.04 |
-| 6 contacts, pyramidal | 18 | solve | 201926.55 | 0.00 | 12.12 |
-| 6 contacts, elliptic | 18 | solve | 201369.05 | 0.00 | 12.08 |
-| 2 contacts, pyramidal | 48 | solve | 873215.00 | 0.00 | 52.39 |
-| 2 contacts, elliptic | 48 | solve | 865232.37 | 0.00 | 51.91 |
-| 16 contacts, pyramidal | 48 | solve | 6794286.40 | 0.00 | 407.66 |
-| 16 contacts, elliptic | 48 | solve | 6925922.97 | 0.00 | 415.56 |
+| 2 contacts, pyramidal | 6 | solve | 11122.72 | 0.09 | 0.67 |
+| 2 contacts, elliptic | 6 | solve | 11774.90 | 0.08 | 0.71 |
+| 2 contacts, pyramidal | 6 | solve | 10836.02 | 0.09 | 0.65 |
+| 2 contacts, elliptic | 6 | solve | 10748.78 | 0.09 | 0.64 |
+| 2 contacts, pyramidal | 18 | solve | 66949.95 | 0.01 | 4.02 |
+| 2 contacts, elliptic | 18 | solve | 67424.40 | 0.01 | 4.05 |
+| 6 contacts, pyramidal | 18 | solve | 197712.27 | 0.01 | 11.86 |
+| 6 contacts, elliptic | 18 | solve | 195405.00 | 0.01 | 11.72 |
+| 2 contacts, pyramidal | 48 | solve | 862345.52 | 0.00 | 51.74 |
+| 2 contacts, elliptic | 48 | solve | 874167.52 | 0.00 | 52.45 |
+| 16 contacts, pyramidal | 48 | solve | 6813238.35 | 0.00 | 408.79 |
+| 16 contacts, elliptic | 48 | solve | 6750876.15 | 0.00 | 405.05 |
 
+
+Solver x cone at matched accuracy (|qd - Newton reference| < 1e-6)
+  pyramidal, n=6, 2 contacts: PGS iters 8 PGS us/solve 7.798717 | Newton rounds 5 Newton us/solve 10.702849
+  pyramidal, n=18, 6 contacts: PGS iters 8 PGS us/solve 132.74385 | Newton rounds 5 Newton us/solve 151.67975
+  pyramidal, n=48, 16 contacts: PGS iters 8 PGS us/solve 4529.2993 | Newton rounds 5 Newton us/solve 4875.125
+  elliptic, n=6, 2 contacts: PGS iters >4096 (stalls at gap 0.004893154) PGS us/solve 781.90186 | Newton rounds 3 Newton us/solve 9.5311165
+  elliptic, n=18, 6 contacts: PGS iters >4096 (stalls at gap 0.0048184544) PGS us/solve 6001.5024 | Newton rounds 3 Newton us/solve 143.75086
+  elliptic, n=48, 16 contacts: PGS iters >4096 (stalls at gap 0.0048184544) PGS us/solve 43130.668 | Newton rounds 3 Newton us/solve 4793.5923
 
 ## Physics — differentiating through RIGID contact
 
@@ -2849,6 +2857,16 @@ over every wave.
 |---|---:|---|---:|---:|---:|
 | ShallowWaterGrid.step 128^2 | 16384 | cell-step | 11.07 | 90.36 | 18.13 |
 | float_body 4^3 samples on the 4-wave sea | 1 | body | 24144.05 | 0.04 | 48.29 |
+
+
+
+### Particles to surface: splat and marching tetrahedra (17.60)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| isotropic splat | 7208 | particle | 3198.22 | 0.31 | 23.05 |
+| anisotropic splat (neighbours, covariance, eigen) | 7208 | particle | 20382.62 | 0.05 | 146.92 |
+| marching tetrahedra 73^3 (65556 triangles) | 373248 | cell | 969.51 | 1.03 | 361.87 |
 
 
 
