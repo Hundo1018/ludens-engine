@@ -12,7 +12,7 @@
 > 依據:[SOTA_GAP_ANALYSIS.md](SOTA_GAP_ANALYSIS.md)(2026-07-10 差距分析)、[ARCHITECTURE.md](ARCHITECTURE.md)
 > (分層、錯誤政策、測試分層)、[CATEGORY.md](CATEGORY.md)(seam 與 parity 對照)。
 
-## 目前位置(2026-10-13)
+## 目前位置(2026-10-24)
 
 - **物理與數值核心**:角動力學、sub-stepped soft solver、CCD、islands / sleeping / warm-start、軟體與雙向耦合、
   縮座標關節體(ABA / RNEA / 致動器 / 腱 / 感測器)、FEM / MPM / SPH / PBF / 布料、LBM 風洞、可微模擬
@@ -23,16 +23,17 @@
   17.16 rollback(`fdfba02`)、12.1 C-ABI(`4e3ef8c`)、17.21 Python 綁定 + 12.2(`9cedbb5`)、
   17.8 大世界座標(`ee946e8`)。其餘 2 項 🔶:
   - **17.85 分級模擬**:第一刀(逐 island tier 表、`TierPolicy` seam、`TieredScheduler`,`8e7edcb`);
-    剩 ECS `Tier[N]` tag、`BroadPhase.update_moved`、軟體 / LBM / 粒子的 per-object period、n = 1e5 量測等。
+    2026-10-14 補上 ECS `Tier[N]` tag(`53292d8`)、軟體逐物件 period(`81dbb29`)、n = 1e4 重量測;
+    剩 awake list、`BroadPhase.update_moved`、`Aggregate` 策略、n = 1e5 量測。
   - **17.17 GPU articulation / narrowphase**:程式碼已交付(`98a69cb`)。`test_gpu_narrow` 的裝置半段
     已在 GPU 主機上跑過,box / capsule 的容差因此放寬到 5e-3(`94493c2`);`test_gpu_artic` 裝置半段與
     bench 裝置列的 GPU 實跑結果尚未記入 17.17 進度註。「GPU 剛體 + CPU 軟體同幀」未達成。
 - **17.75 嵌入契約**:宿主派發器注入 ✅(`71cb718`);2026-10-13 補上 job graph / work-stealing 派發、`FrameArena.from_block`、非同步步進、`UnitScale`、契約成文。
 - **gate**:依裝置而變的檢查以 `Suite.begin_device()` 分段,有無 GPU 的主機共用同一份 golden(`f5ca7df`);
   2026-10-13 起測試以固定編譯目標跑,另一台主機(無 GPU、AVX-512)上也逐段重現 golden。
-- **剩餘順序進度(2026-10-13)**:第 1 步 17.19 滾動球錨點 ✅;第 2–4 步 17.81(🔶,待 GitHub 上首次 CI)/ 17.83(🔶)/ 17.82(✅);
+- **剩餘順序進度(2026-10-13)**:第 1 步 17.19 滾動球錨點 ✅;第 2–4 步 17.81(✅)/ 17.83(🔶)/ 17.82(✅);
   第 5 步 17.75(🔶,剩 actor 靜態策略與 box / capsule 尺度殘差)。跨機 golden 探針結論:測試一律以 `--target-cpu skylake` 編譯。
-  下一步 17.76 平台可攜。見[剩餘順序](#剩餘順序2026-10-13-決定同日修訂gpu-延後)與[編號索引](#編號索引)。
+  2026-10-14 起 17.77(✅)、17.54(✅)、17.50(✅)已交付,17.79 / 17.80 / 17.85 為 🔶;下一步 17.76 平台可攜。見[剩餘順序](#剩餘順序2026-10-13-決定同日修訂gpu-延後)與[編號索引](#編號索引)。
 - **平台方向已定為 C**:被宿主引擎嵌入的模擬函式庫,RL 平台次要(2026-10-09,`a93c53d`)。
 - **2026-10-09 負空間盤點**:對照 SOTA 引擎找出「不在路線上」的能力,RL / 機器人以外全數入路線,
   成為 17.44–17.84,並擴充尚未開工的 17.14 / 17.15 / 17.16。同一次盤點發現 9.1、13.8 標 ✅ 但程式碼
@@ -243,7 +244,7 @@
 | 6.11 | [島內著色平行(單大島的約束圖著色)](ROADMAP_HISTORY.md#611-島內著色平行單大島的約束圖著色) | ✅ |  | step_soft 的 colored 模式以貪婪著色(靜態體不入鄰接)把 pairs 排成色段,色內 parallelize、色間順序,排程決定且串行==平行逐位相同,120 盒單島平行 1.66×、iters=8 品質對齊行 1.21×。 |
 | 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | 🔶 |  | 已有縮座標 revolute / prismatic 與上下限(physics/chain.mojo resolve_limits)、最大座標 weld(17.5)與 AngularDrive 姿態驅動(17.2);Joint6 仍沒有上下限、速度馬達、彈簧、滑軌、cone-twist,縮座標也沒有球關節 / 多自由度關節。 |
 | 9.4 | [接觸事件(began / stay / ended)](ROADMAP_HISTORY.md#94-接觸事件began--stay--ended--完成2026-08-11) | ✅ |  | `events_on` 開啟時每步以排序合併差分本步與上步接觸集(鍵為 (a,b,feat) 打包的 Int)產生 began/stay/ended 事件,含 sensor 重疊,事件流在 brute 與寬相 seam 上逐位相同,開啟成本 <3%。 |
-| 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),但高質量比、大 island、接觸密集堆疊等壓力測試尚未做;滾動球的錨點缺陷已修(2026-10-13:球 / 膠囊維持解析滾動速度、不再下沉,`test_rolling_sphere`)。 |
+| 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),壓力測試(重壓輕、大 island 等,`test_solver_stress` 7/7)已於 2026-10-13 交付,簿記仍略超線性(N ×4 → ×9);滾動球的錨點缺陷已修(2026-10-13:球 / 膠囊維持解析滾動速度、不再下沉,`test_rolling_sphere`)。 |
 | 17.23 | [物理材質與逐對組合模式](ROADMAP_HISTORY.md#1723-物理材質與逐對組合模式--wave-a) | ✅ | A | physics/material.mojo 提供四種組合模式(average/min/multiply/max,較高優先模式勝),BodySet 存逐 body 的 friction 與兩種組合模式,solver6 每對接觸算一次 pair_mu 與組合後的 restitution,並有 parity 測試與 bench(四模式成本在雜訊範圍內)。 |
 | 17.24 | [Kinematic 剛體型別(通用可移動體)](ROADMAP_HISTORY.md#1724-kinematic-剛體型別通用可移動體--wave-a) | ✅ | A | solver6 支援 static/dynamic/kinematic 三種運動型別:kinematic 由腳本設定速度或用 move_to 指定目標位姿、會推動動態體,也會喚醒已入睡的動態體;零速度時與 static 逐位 parity,序列化格式升到 v2。 |
 | 17.25 | [睡眠/喚醒生命週期公開 API](ROADMAP_HISTORY.md#1725-睡眠喚醒生命週期公開-api--wave-a) | ✅ | A | ContactScene6 提供公開的 is_sleeping、wake(整島喚醒)、set_can_sleep 與 teleport(瞬移、喚醒並清掉 warm-start 快取),無效 id 會 raise;本項不是新 seam,所以 CATEGORY 沒有對應列。 |
@@ -300,7 +301,7 @@
 
 #### 17.19 生產級 solver 硬化
 
-> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試案例尚未處理)
+> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試 `test_solver_stress` 7/7 ✅ 2026-10-13,簿記仍略超線性,熱點待量)
 > **進度註(2026-10-13,靜止堆疊踢動)**:ARM runner 上 `test_impact_report` 的 3 箱堆疊頂箱側向接觸力 1.24 N(x86 單步 0.0014 N)。
 > 追查(x86 600 步探針):堆疊靜止後側向擾動累積,第 180 步踢動 2.05 N、ω 0.02。兩個原因:
 > (1)暖啟動以索引對應接觸點,`box_box_manifold` 同四角每步順序不同,摩擦衝量交給錯的角 → 改為同 pair 內以 body a 局部錨點最近者對應(限 5 cm 內),沒有近點的沿用同索引舊點(`physics/contact6.mojo` `make_contact`;世界座標最近點強配曾讓 8 m/s 滑過 80 格網格的盒子在接縫彈起 |vy| 0.023,`test_active_edges` 上限 0.01;遠點改冷啟動則讓子彈撞牆反彈由 2.39 升到 3.52 m/s,`test_ccd6` 上限 3);
@@ -2437,7 +2438,7 @@
 | 17.77 | [ECS 表達力](#1777-ecs-表達力--wave-b) | ✅ | B | N 元查詢與迭代、過濾器、變更偵測、單例 / 資源、有狀態系統與使用者系統註冊、延遲結構變更補齊 |
 | 17.79 | [資源治理](#1779-資源治理--wave-b) | 🔶 | B | 記憶體記帳、容量上限與滿載政策、預留與穩態零配置、收縮、執行緒 / GPU 資源政策、資源上限觸發的退讓 |
 | 17.80 | [觀測](#1780-觀測--wave-b工具執行期追蹤開關物理擷取檔與回看) | 🔶 | B | (a)runtime 追蹤開關、(b)緩衝政策、(c)多執行緒與 GPU 軌、(d)counter 軌、(e)物理擷取檔、(f)回看 |
-| 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag(待 17.77)、awake list、`update_moved` / 窄相跳過未做 |
+| 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | 🔶 | C | 逐 island tier 表(iters / substeps / period,catch-up)、`TierPolicy` seam(距離 / 因果 / 輪轉 / 預算)、`TieredScheduler`、`Runtime.advance_tiered`、快照 v3 已交付;ECS `Tier[N]` tag、軟體逐物件 period(2026-10-14)已交付;awake list、`update_moved` / 窄相跳過、n = 1e5 量測未做 |
 
 ### 已完成條目的遺留待辦
 
