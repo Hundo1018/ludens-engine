@@ -103,6 +103,12 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # material (`ContactScene6.set_material_softness`); hertz 0 = none.
     var soft_hz: Real
     var soft_zeta: Real
+    # ROADMAP 17.19 (A2): the upward force this pair's report carries from a
+    # scaled body's excess weight (`ContactScene6._report_excess`), set per
+    # step when `max_mass_ratio` is on. `excess_up` is the body it supports
+    # (-1 = none). Read by `contacts_of` only; the solver never reads it.
+    var excess: Vec3
+    var excess_up: Int
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -132,6 +138,8 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.stick = copy.stick
         self.soft_hz = copy.soft_hz
         self.soft_zeta = copy.soft_zeta
+        self.excess = copy.excess
+        self.excess_up = copy.excess_up
 
 
 @always_inline
@@ -193,6 +201,8 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         0,
         Real(0),
         Real(0),
+        Vec3(0, 0, 0, 0),
+        -1,
     )
 
 
@@ -328,6 +338,8 @@ def make_contact[B: Body6](
         0,
         Real(0),
         Real(0),
+        Vec3(0, 0, 0, 0),
+        -1,
     )
     if colliders.shape[rc.a] == SHAPE_ELLIPSOID:
         pr.ea = colliders.half[rc.a]
