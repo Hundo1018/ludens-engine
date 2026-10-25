@@ -12,7 +12,7 @@
 > 依據:[SOTA_GAP_ANALYSIS.md](SOTA_GAP_ANALYSIS.md)(2026-07-10 差距分析)、[ARCHITECTURE.md](ARCHITECTURE.md)
 > (分層、錯誤政策、測試分層)、[CATEGORY.md](CATEGORY.md)(seam 與 parity 對照)。
 
-## 目前位置(2026-10-13)
+## 目前位置(2026-10-24)
 
 - **物理與數值核心**:角動力學、sub-stepped soft solver、CCD、islands / sleeping / warm-start、軟體與雙向耦合、
   縮座標關節體(ABA / RNEA / 致動器 / 腱 / 感測器)、FEM / MPM / SPH / PBF / 布料、LBM 風洞、可微模擬
@@ -22,17 +22,18 @@
 - **已決定的剩餘順序(2026-10-12)**:8 項中 6 項 ✅ —— 17.14 導航(`99fe1d9`)、17.15 AI(`7c4f4d6`)、
   17.16 rollback(`fdfba02`)、12.1 C-ABI(`4e3ef8c`)、17.21 Python 綁定 + 12.2(`9cedbb5`)、
   17.8 大世界座標(`ee946e8`)。其餘 2 項 🔶:
-  - **17.85 分級模擬**:第一刀(逐 island tier 表、`TierPolicy` seam、`TieredScheduler`,`8e7edcb`);
-    剩 ECS `Tier[N]` tag、`BroadPhase.update_moved`、軟體 / LBM / 粒子的 per-object period、n = 1e5 量測等。
+  - **17.85 分級模擬** ✅(2026-10-17 結案):第一刀(逐 island tier 表、`TierPolicy` seam、`TieredScheduler`,`8e7edcb`);
+    2026-10-14 補上 ECS `Tier[N]` tag(`53292d8`)、軟體逐物件 period(`81dbb29`)、n = 1e4 重量測;
+    2026-10-17 補分段量測、n = 1e5、`AggregateTiers`。awake list 與 `BroadPhase.update_moved` 依量測不做(睡眠 / island 簿記 < 2 %,持久 DBVH 的寬相約 4 %)。
   - **17.17 GPU articulation / narrowphase**:程式碼已交付(`98a69cb`)。`test_gpu_narrow` 的裝置半段
     已在 GPU 主機上跑過,box / capsule 的容差因此放寬到 5e-3(`94493c2`);`test_gpu_artic` 裝置半段與
     bench 裝置列的 GPU 實跑結果尚未記入 17.17 進度註。「GPU 剛體 + CPU 軟體同幀」未達成。
 - **17.75 嵌入契約**:宿主派發器注入 ✅(`71cb718`);2026-10-13 補上 job graph / work-stealing 派發、`FrameArena.from_block`、非同步步進、`UnitScale`、契約成文。
 - **gate**:依裝置而變的檢查以 `Suite.begin_device()` 分段,有無 GPU 的主機共用同一份 golden(`f5ca7df`);
   2026-10-13 起測試以固定編譯目標跑,另一台主機(無 GPU、AVX-512)上也逐段重現 golden。
-- **剩餘順序進度(2026-10-13)**:第 1 步 17.19 滾動球錨點 ✅;第 2–4 步 17.81(🔶,待 GitHub 上首次 CI)/ 17.83(🔶)/ 17.82(✅);
+- **剩餘順序進度(2026-10-13)**:第 1 步 17.19 滾動球錨點 ✅;第 2–4 步 17.81(✅)/ 17.83(🔶)/ 17.82(✅);
   第 5 步 17.75(🔶,剩 actor 靜態策略與 box / capsule 尺度殘差)。跨機 golden 探針結論:測試一律以 `--target-cpu skylake` 編譯。
-  下一步 17.76 平台可攜。見[剩餘順序](#剩餘順序2026-10-13-決定同日修訂gpu-延後)與[編號索引](#編號索引)。
+  2026-10-14 起 17.77(✅)、17.54(✅)、17.50(✅)已交付,17.79 / 17.80(CPU 部分)與 17.85 已 ✅,GPU 相關部分屬第 7 層;下一步 17.76 平台可攜。見[剩餘順序](#剩餘順序2026-10-13-決定同日修訂gpu-延後)與[編號索引](#編號索引)。
 - **平台方向已定為 C**:被宿主引擎嵌入的模擬函式庫,RL 平台次要(2026-10-09,`a93c53d`)。
 - **2026-10-09 負空間盤點**:對照 SOTA 引擎找出「不在路線上」的能力,RL / 機器人以外全數入路線,
   成為 17.44–17.84,並擴充尚未開工的 17.14 / 17.15 / 17.16。同一次盤點發現 9.1、13.8 標 ✅ 但程式碼
@@ -243,7 +244,7 @@
 | 6.11 | [島內著色平行(單大島的約束圖著色)](ROADMAP_HISTORY.md#611-島內著色平行單大島的約束圖著色) | ✅ |  | step_soft 的 colored 模式以貪婪著色(靜態體不入鄰接)把 pairs 排成色段,色內 parallelize、色間順序,排程決定且串行==平行逐位相同,120 盒單島平行 1.66×、iters=8 品質對齊行 1.21×。 |
 | 9.1 | [關節庫深度(limits / motors / springs / prismatic / weld / cone-twist)](#91-關節庫深度limits--motors--springs--prismatic--weld--cone-twist) | ✅ |  | 最大座標的限制、馬達、彈簧、滑軌、cone-twist、universal、gear、pulley、rope 由 17.47 交付(`physics/joints6.mojo`、`physics/joint_ext.mojo`);縮座標多自由度與 D6 由 17.51 交付;2026-10-24 重新核對,相關測試 test_joints_ext 18/18、test_joint_d6 8/8、test_joint_kinds 10/10、test_joints_lib 11/11、test_joint_parity 5/5 全數通過。 |
 | 9.4 | [接觸事件(began / stay / ended)](ROADMAP_HISTORY.md#94-接觸事件began--stay--ended--完成2026-08-11) | ✅ |  | `events_on` 開啟時每步以排序合併差分本步與上步接觸集(鍵為 (a,b,feat) 打包的 Int)產生 began/stay/ended 事件,含 sensor 重疊,事件流在 brute 與寬相 seam 上逐位相同,開啟成本 <3%。 |
-| 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),但高質量比、大 island、接觸密集堆疊等壓力測試尚未做;滾動球的錨點缺陷已修(2026-10-13:球 / 膠囊維持解析滾動速度、不再下沉,`test_rolling_sphere`)。 |
+| 17.19 | [生產級 solver 硬化](#1719-生產級-solver-硬化) | 🔶 | B | F22 第一批已把 island 喚醒 / 入睡與 warm-start 快取比對改成線性(N=4096 簿記 82 → 20.6 ms/幀),壓力測試(重壓輕、大 island 等,`test_solver_stress` 7/7)已於 2026-10-13 交付,簿記仍略超線性(N ×4 → ×9);滾動球的錨點缺陷已修(2026-10-13:球 / 膠囊維持解析滾動速度、不再下沉,`test_rolling_sphere`)。 |
 | 17.23 | [物理材質與逐對組合模式](ROADMAP_HISTORY.md#1723-物理材質與逐對組合模式--wave-a) | ✅ | A | physics/material.mojo 提供四種組合模式(average/min/multiply/max,較高優先模式勝),BodySet 存逐 body 的 friction 與兩種組合模式,solver6 每對接觸算一次 pair_mu 與組合後的 restitution,並有 parity 測試與 bench(四模式成本在雜訊範圍內)。 |
 | 17.24 | [Kinematic 剛體型別(通用可移動體)](ROADMAP_HISTORY.md#1724-kinematic-剛體型別通用可移動體--wave-a) | ✅ | A | solver6 支援 static/dynamic/kinematic 三種運動型別:kinematic 由腳本設定速度或用 move_to 指定目標位姿、會推動動態體,也會喚醒已入睡的動態體;零速度時與 static 逐位 parity,序列化格式升到 v2。 |
 | 17.25 | [睡眠/喚醒生命週期公開 API](ROADMAP_HISTORY.md#1725-睡眠喚醒生命週期公開-api--wave-a) | ✅ | A | ContactScene6 提供公開的 is_sleeping、wake(整島喚醒)、set_can_sleep 與 teleport(瞬移、喚醒並清掉 warm-start 快取),無效 id 會 raise;本項不是新 seam,所以 CATEGORY 沒有對應列。 |
@@ -300,7 +301,7 @@
 
 #### 17.19 生產級 solver 硬化
 
-> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試案例尚未處理)
+> **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試 `test_stress_solver` 15/15 ✅ 2026-10-24)
 > **進度註(2026-10-24,壓測)**:`tests/test_stress_solver.mojo`(stress tier,`pixi run test-stress`)8/8。量測值(`step_soft` 預設 4 子步、4 迭代,600 步):質量比 10:1 偏移 3 mm,100:1 偏移 3 cm,300:1 偏移 10 cm,1000:1 輕箱被壓進地板 25 cm(整個半高)。迭代 20 與 60 不改變結果,所以這是軟約束的順應(compliance),不是收斂不足:有效質量取輕的那個體,重體越重越沉。300:1 與 1000:1 只斷言有限值,作為特徵記錄,未設界。10 箱塔頂部低於理想高度 2.9 cm 後靜止(後半段漂移 0);64 箱堆(4×4×4)落定後最後一秒位移 0,最低箱在地面以上 0.2488 m;每步時間分別為 0.04 ms 與 0.31 ms(記錄,不斷言)。
 > **更正(同日)**:上段「需要改善有效質量」一句有誤。有效質量的修正已存在為 opt-in 的 `SolverConfig.max_mass_ratio`(見下方 2026-10-17 進度註,`_contact_mass_scale`),`tests/test_solver_stress.mojo` 斷言其 1:1000 與 1:1e4 下沉 < 1 cm(量得 3 mm)。`step_soft` 預設 `max_mass_ratio = 0`,所以壓測的預設路徑仍沉降。
 > **仍未處理**:(1)`step_soft` 尚未暴露 `max_mass_ratio`(已完成,見下一段 PR #56);(2)開啟時的力回報失真(已完成,見下一段 A2);(3)預設是否開啟(影響既有場景,未決)。
