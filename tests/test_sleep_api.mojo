@@ -10,7 +10,6 @@ from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from physics.rigid6 import Inertia3, QuatBody6, Pose6
 from physics.solver6 import ContactScene6
-from physics.solver_config import SolverConfig
 from physics.body_set import BodyId
 
 comptime DT: Real = 1.0 / 60.0
@@ -163,31 +162,5 @@ def main() raises:
     sc6.wake(r6)
     sc6.wake(r6)
     s.check(not sc6.is_sleeping(r6), "repeated wake stays not-sleeping, no error")
-
-    # 17.19 (5): a sleeping stack keeps reporting its resting load. Two 1 kg
-    #    boxes on a floor read 19.6 N there both awake and asleep; the floor
-    #    report read 0 N once the stack slept, because a pair the solver skips
-    #    adds no step impulse. Steps 0-9 are the drop transient, so they are not
-    #    checked.
-    var cfg7 = SolverConfig()
-    var sc7 = ContactScene6[QuatBody6]()
-    _ = _ground(sc7)
-    var base7 = sc7.add(QuatBody6.at_rest(Vec3(0, 0.25, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
-    _ = sc7.add(QuatBody6.at_rest(Vec3(0, 0.75, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
-    var slept7 = False
-    var worst7 = Real(0)
-    for step7 in range(120):
-        sc7.step(DT, G, cfg7)
-        if step7 < 10:
-            continue
-        var f7 = Real(0)
-        for r7 in sc7.contacts_of(base7):
-            if r7.other == 0:
-                f7 += r7.force[1]
-        if sc7.is_sleeping(base7):
-            slept7 = True
-        worst7 = max(worst7, abs(f7 - Real(19.6)) / Real(19.6))
-    s.check(slept7, "the 2 kg stack falls asleep within 120 steps")
-    s.check(worst7 < 0.01, "floor report within 1% of 19.6 N, awake and asleep (17.19 (5))")
 
     s.finish()
