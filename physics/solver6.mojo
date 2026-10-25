@@ -102,7 +102,7 @@ from diag.trace import TraceBuffer
 from diag.draw import DrawQueue
 from .rigid6 import Body6, QuatBody6, Inertia3, Pose6
 from .body_set import BodySet, BodyId, MOTION_STATIC, MOTION_DYNAMIC, MOTION_KINEMATIC
-from .solver_config import SolverConfig, IMPULSE_SUBSTEP_SUM, IMPULSE_LAST_SUBSTEP, CONTACT_BLOCK
+from .solver_config import SolverConfig, IMPULSE_SUBSTEP_SUM, IMPULSE_LAST_SUBSTEP, CONTACT_BLOCK, MASS_RATIO_DEFAULT
 from .state_io import StateWriter, StateReader
 from .softbody import SoftBody, SP, SEdge
 from .contact6 import (
@@ -2585,14 +2585,13 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         colored: Bool = False,
         broadphase: Bool = False,
         workers: Int = 0,
-        max_mass_ratio: Real = 0,
+        max_mass_ratio: Real = MASS_RATIO_DEFAULT,
     ):
         """Thin forwarder (audit F19): builds a `SolverConfig` from these
         keyword arguments and calls `step`. Kept with its original keyword
         signature so every existing call site (~100 across tests/benchmarks/
-        examples) keeps compiling and behaving identically -- `step(dt,
-        gravity, cfg)` is the config-driven entry point new code should
-        prefer. `max_mass_ratio` (17.19, default 0 = off) is forwarded to
+        examples) keeps compiling. `max_mass_ratio` (17.19, default
+        `MASS_RATIO_DEFAULT`; 0 = off) is forwarded to
         `SolverConfig.max_mass_ratio`."""
         var cfg = SolverConfig()
         cfg.substeps = substeps
