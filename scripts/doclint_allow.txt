@@ -1,12 +1,10 @@
 # Dead doc references that are allowed (ROADMAP 17.82, scripts/doclint.py).
 # Format: path  # reason. An entry whose file now exists is reported as stale.
 
-gameplay/animator.mojo  # planned by 17.64 (not built yet)
 procedural/wfc.mojo  # planned by 17.69 (not built yet)
 gameplay/tracked.mojo  # planned by 17.74 (not built yet)
 gameplay/hitch.mojo  # planned by 17.74 (not built yet)
 scheduler/fsm.mojo  # historical: a misplaced path, the FSM is procedural/fsm.mojo (noted in place)
-gameplay/checkpoint.mojo  # planned by 17.72 (not built yet)
 examples/08_wgpu_motor_skinning.mojo  # historical: removed with the wgpu demo (3.4)
 examples/20_contact_solver_2d.mojo  # historical: removed with the 2D physics path (2026-09-29)
 physics/solver.mojo  # historical: removed with the 2D physics path (2026-09-29)

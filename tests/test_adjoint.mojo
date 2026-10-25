@@ -32,7 +32,8 @@ only observable here that can see any of it.
 from harness.runner import Suite
 from geometry.vec import Real
 from geometry.field import RealF, DualReal
-from physics.diffsim import rollout_ctrl, rollout_ctrl_adjoint
+from physics.diffsim import rollout_ctrl, rollout_ctrl_adjoint, DiffState2
+from harness.gradcheck import GradProblem, gradcheck, default_steps
 from physics.adjoint import (
     rollout_generated, op, concat, program_is_linear, program_marks,
     marks_before, STEP_PROGRAM, STEP_IS_LINEAR, STEP_BITS,
@@ -47,26 +48,45 @@ def _controls(n: Int, scale: Real) -> List[Real]:
     return u^
 
 
-def _fd(u: List[Real], burst: Int, dt: Real, k: Int, use_y: Bool) -> Real:
-    """Central difference of the chosen final coordinate w.r.t. u[k]."""
-    var h = Real(1e-3)
-    var up = List[Real](capacity=len(u))
-    var um = List[Real](capacity=len(u))
-    for i in range(len(u)):
-        up.append(u[i])
-        um.append(u[i])
-    up[k] += h
-    um[k] -= h
-    var upf = List[RealF](capacity=len(u))
-    var umf = List[RealF](capacity=len(u))
-    for i in range(len(u)):
-        upf.append(RealF(up[i]))
-        umf.append(RealF(um[i]))
-    var sp = rollout_ctrl[RealF](upf, burst, dt)
-    var sm = rollout_ctrl[RealF](umf, burst, dt)
-    if use_y:
-        return (sp.y.v - sm.y.v) / (2 * h)
-    return (sp.x.v - sm.x.v) / (2 * h)
+struct Landing(GradProblem):
+    """Final x (or y) of `rollout_ctrl` w.r.t. the controls; the gradient is
+    the generated adjoint's; the schedule is diffsim's contact-step hash."""
+
+    var burst: Int
+    var dt: Real
+    var n: Int
+    var use_y: Bool
+
+    def __init__(out self, n: Int, burst: Int, dt: Real, use_y: Bool):
+        self.n = n
+        self.burst = burst
+        self.dt = dt
+        self.use_y = use_y
+
+    def dim(self) -> Int:
+        return self.n
+
+    def _run(self, x: List[Float64]) -> DiffState2[RealF]:
+        var u = List[RealF]()
+        for v in x:
+            u.append(RealF(Real(v)))
+        return rollout_ctrl[RealF](u, self.burst, self.dt)
+
+    def value(self, x: List[Float64]) -> Float64:
+        var s = self._run(x)
+        return Float64(s.y.v) if self.use_y else Float64(s.x.v)
+
+    def gradient(self, x: List[Float64], mut g: List[Float64]):
+        var u = List[Real]()
+        for v in x:
+            u.append(Real(v))
+        var gg = List[Real]()
+        _ = rollout_generated(u, self.burst, self.dt, gg, R_Y if self.use_y else R_X)
+        for k in range(self.n):
+            g[k] = Float64(gg[k])
+
+    def schedule(self, x: List[Float64]) -> UInt64:
+        return self._run(x).schedule
 
 
 def main() raises:
@@ -110,14 +130,13 @@ def main() raises:
         "and its y -- which is what pins gravity, the spring and the damper",
     )
 
-    # X gradient against finite differences
-    var worst_x = Real(0)
+    # X gradient against central differences
+    var u64 = List[Float64]()
     for k in range(len(u)):
-        var e = abs(gg[k] - _fd(u, burst, dt, k, False))
-        if e > worst_x:
-            worst_x = e
-    print("  worst |generated - central difference| on x:", worst_x)
-    s.check(Float64(worst_x) < 2e-3, "the x gradient matches finite differences")
+        u64.append(Float64(u[k]))
+    var rx = gradcheck(Landing(len(u), burst, dt, False), u64, default_steps())
+    print("  x gradient vs central differences: best error", rx.best_error, "at h", rx.best_step)
+    s.check(rx.passed(1e-3), "the x gradient matches central differences (gradcheck)")
 
     # The Y gradient is identically zero here, and that is a STRUCTURAL fact
     # rather than a coincidence: a control adds to vx, and y is driven only by
@@ -128,22 +147,18 @@ def main() raises:
     var gy = List[Real]()
     _ = rollout_generated(u, burst, dt, gy, R_Y)
     var worst_y = Real(0)
-    var worst_fd = Real(0)
     for k in range(len(u)):
-        if abs(gy[k]) > worst_y:
-            worst_y = abs(gy[k])
-        var f = abs(_fd(u, burst, dt, k, True))
-        if f > worst_fd:
-            worst_fd = f
-    print("  largest |d(y)/du| — generated", worst_y, " finite difference", worst_fd)
+        worst_y = max(worst_y, abs(gy[k]))
+    var ry = gradcheck(Landing(len(u), burst, dt, True), u64, default_steps())
+    print("  largest |d(y)/du| — generated", worst_y, " gradcheck best error vs differences", ry.best_error)
     s.check(
         Float64(worst_y) == 0.0,
         "d(y)/du is exactly zero: the adjoint invents no coupling between the"
         " horizontal controls and the vertical state",
     )
     s.check(
-        Float64(worst_fd) < 1e-3,
-        "and finite differences agree that there is none",
+        ry.passed(1e-3),
+        "and central differences agree that there is none",
     )
 
     # forward-mode dual on the same problem, as a third opinion

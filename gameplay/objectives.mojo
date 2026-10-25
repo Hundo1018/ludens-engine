@@ -14,7 +14,13 @@ few listeners per event type (`bench_flow`).
 
 Prerequisite cycles are rejected at `add` (raise), not discovered as a
 quest that never starts.
+
+`on_flag_changes` wires flags to objectives: it drains `Flags.changed`
+and posts event type `base + flag index` once per change, so "open the
+gate" can be an objective without a separate event per flag.
 """
+
+from .flow import Flags
 
 comptime DISPATCH_LINEAR = 0
 comptime DISPATCH_INDEXED = 1
@@ -100,3 +106,11 @@ struct ObjectiveLog(Copyable, Movable):
             if not o.optional and not o.done:
                 return False
         return True
+
+
+def on_flag_changes(mut log: ObjectiveLog, mut flags: Flags, base: Int) -> Int:
+    """Post `base + i` for each changed flag i, in change order; returns how many."""
+    var ch = flags.drain()
+    for i in ch:
+        log.on_event(base + i)
+    return len(ch)

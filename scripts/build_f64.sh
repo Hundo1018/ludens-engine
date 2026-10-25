@@ -20,7 +20,9 @@ PKGS=$(grep -E '^pc [a-z_]+$' scripts/build_engine.sh | awk '{print $2}')
 for p in $PKGS; do
     cp -r "$p" "$SRC/$p"
 done
-sed -i 's/^comptime WorldType = DType.float32$/comptime WorldType = DType.float64/' "$SRC/geometry/vec.mojo"
+# no `sed -i`: BSD sed (macOS) takes the next argument as a backup suffix
+sed 's/^comptime WorldType = DType.float32$/comptime WorldType = DType.float64/' "$SRC/geometry/vec.mojo" > "$SRC/vec.tmp"
+mv "$SRC/vec.tmp" "$SRC/geometry/vec.mojo"
 grep -q '^comptime WorldType = DType.float64$' "$SRC/geometry/vec.mojo" || { echo "build_f64: WorldType line not found"; exit 1; }
 cd "$SRC"
 for p in $PKGS; do

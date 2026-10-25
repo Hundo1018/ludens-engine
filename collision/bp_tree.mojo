@@ -46,8 +46,9 @@ struct TreeBroadPhase[D: Int](BroadPhase):
             self.tree.insert(items[i].proxy, items[i].box)
 
     def pairs(self, mut out: List[Pair]) raises:
+        var cands = List[Int]()  # reused: cleared per query, buffer kept (17.79)
         for i in range(len(self.items)):
-            var cands = List[Int]()
+            cands.clear()
             self.tree.query_region(self.items[i].box, cands)
             for k in range(len(cands)):
                 if cands[k] > self.items[i].proxy:

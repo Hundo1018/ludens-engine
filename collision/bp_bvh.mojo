@@ -17,16 +17,20 @@ struct BVHBroadPhase[D: Int](BroadPhase):
 
     def rebuild(mut self, items: List[BoxProxy[Self.D]]) raises:
         self.items = items.copy()
-        var boxes = List[AABB[Self.D]]()
-        var proxies = List[Int]()
+        var boxes = List[AABB[Self.D]](capacity=len(items))
+        var proxies = List[Int](capacity=len(items))
         for i in range(len(items)):
             boxes.append(items[i].box)
             proxies.append(items[i].proxy)
         self.bvh.build_boxes(boxes, proxies)
 
     def pairs(self, mut out: List[Pair]) raises:
+        # one candidate list for every query (cleared, its buffer kept): a
+        # fresh list per proxy was ~500 allocations per step for 200 boxes
+        # (`pixi run alloc-probe`, ROADMAP 17.79)
+        var cands = List[Int]()
         for i in range(len(self.items)):
-            var cands = List[Int]()
+            cands.clear()
             self.bvh.query_region(self.items[i].box, cands)
             for k in range(len(cands)):
                 if cands[k] > self.items[i].proxy:

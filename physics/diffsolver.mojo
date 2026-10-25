@@ -96,6 +96,17 @@ def clamp_sym[F: SolverField](x: F, cap: F) -> F:
     return x - relu(x - cap) + relu(F.zero() - cap - x)
 
 
+def relu_k[F: SolverField](x: F, k: Real) -> F:
+    """`relu`, or with k > 0 the smooth x / (1 + exp(-k x)) (ROADMAP 17.84):
+    within 1/k of relu, with a derivative that passes through 0."""
+    return relu(x) if k <= 0 else x * x.smooth_positive(k)
+
+
+def clamp_sym_k[F: SolverField](x: F, cap: F, k: Real) -> F:
+    """`clamp_sym` built on `relu_k`."""
+    return x - relu_k(x - cap, k) + relu_k(F.zero() - cap - x, k)
+
+
 def length[F: SolverField](v: V3[F]) -> F:
     return v.dot(v).root()
 
@@ -236,6 +247,16 @@ struct SphereWorld[F: SolverField](Movable):
     var iters: Int
     var hertz: Real
     var zeta: Real
+    var contact_k: Real
+    """ROADMAP 17.84: 0 (default) = the sharp contact switch `positive`;
+    > 0 = `smooth_positive(contact_k)` for a pair's presence (depth +
+    margin), so the gradient sees the contact onset. The impulse clamps and
+    the friction cone stay sharp unless `clamp_k` > 0."""
+    var clamp_k: Real
+    """ROADMAP 17.84: 0 (default) = sharp; > 0 = the normal-impulse clamp
+    (accumulated impulse >= 0) and the friction cone (|tangent| <= mu
+    lambda_n) use `relu_k(., clamp_k)`, so a gradient sees an impulse
+    reaching its bound (`test_smooth_positive` measures the bias)."""
 
     def __init__(out self):
         self.bodies = List[DiffSphere[Self.F]]()
@@ -247,6 +268,8 @@ struct SphereWorld[F: SolverField](Movable):
         self.iters = 4
         self.hertz = 30
         self.zeta = 10
+        self.contact_k = 0
+        self.clamp_k = 0
 
     def add_sphere(
         mut self, pos: V3[Self.F], vel: V3[Self.F], radius: Self.F, mass: Self.F
@@ -329,7 +352,7 @@ struct SphereWorld[F: SolverField](Movable):
             ct.t2 = tb[1]
             ct.ra = point - A.pos
             ct.depth = depth
-            ct.on = (depth + margin).positive()
+            ct.on = (depth + margin).positive() if self.contact_k <= 0 else (depth + margin).smooth_positive(self.contact_k)
             ct.acc = ct.acc * ct.on
             ct.acc_t1 = ct.acc_t1 * ct.on
             ct.acc_t2 = ct.acc_t2 * ct.on
@@ -399,7 +422,7 @@ struct SphereWorld[F: SolverField](Movable):
         var ms = one + soft * (mass_scale - one)
         var isc = soft * impulse_scale
         var raw = zero - ms * (vn + bias) * denom.recip() - isc * ct.acc
-        var new_acc = ct.acc + ct.on * (relu(ct.acc + raw) - ct.acc)
+        var new_acc = ct.acc + ct.on * (relu_k(ct.acc + raw, self.clamp_k) - ct.acc)
         var dl = new_acc - ct.acc
         ct.acc = new_acc
         self._push(ct, n * dl, pwa, pwb)
@@ -413,7 +436,7 @@ struct SphereWorld[F: SolverField](Movable):
             var kbt = self._k_b(ct, pwb, t)
             var vt = (vbt - vat).dot(t)
             var acc_t = ct.acc_t1 if ti == 0 else ct.acc_t2
-            var new_t = clamp_sym(acc_t - vt * (kat + kbt).recip(), cap)
+            var new_t = clamp_sym_k(acc_t - vt * (kat + kbt).recip(), cap, self.clamp_k)
             new_t = acc_t + ct.on * (new_t - acc_t)
             var dtl = new_t - acc_t
             if ti == 0:

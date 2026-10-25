@@ -501,6 +501,54 @@ def case_budget(mut s: Suite) raises:
 
 
 # ----------------------------------------------------------------- EXTREME
+def _world_tensor(m0: Float64, m1: Float64, m2: Float64, r: Quat) -> List[Float64]:
+    """Σ_k m_k (r e_k)(r e_k)^T, row-major 3x3."""
+    var out = List[Float64]()
+    for _ in range(9):
+        out.append(0)
+    for k in range(3):
+        var mk = m0 if k == 0 else (m1 if k == 1 else m2)
+        var e = Vec3(Real(1) if k == 0 else Real(0), Real(1) if k == 1 else Real(0), Real(1) if k == 2 else Real(0), 0)
+        var u = r.rotate(e)
+        for i in range(3):
+            for j in range(3):
+                out[3 * i + j] += mk * Float64(u[i]) * Float64(u[j])
+    return out^
+
+
+def case_principal_frame(mut s: Suite) raises:
+    """17.5: a fragment's body spins about the principal axes of its inertia
+    tensor. A box turned by an oblique rotation has products of inertia in
+    the mesh axes; its body must carry the principal moments, and the world
+    tensor (body rotation x principal moments) must equal the rotated box's."""
+    var a = 1.0
+    var b = 0.5
+    var c = 0.25
+    var q = Quat.from_axis_angle(Vec3(Real(0.6), Real(0.8), 0, 0), Real(0.7))
+    var src = Polytope.box(0, 0, 0, a, b, c)
+    for i in range(src.nv()):
+        var p = q.rotate(Vec3(Real(src.v[3 * i]), Real(src.v[3 * i + 1]), Real(src.v[3 * i + 2]), 0))
+        src.v[3 * i] = Float64(p[0])
+        src.v[3 * i + 1] = Float64(p[1])
+        src.v[3 * i + 2] = Float64(p[2])
+    var fs = _cells(src, 1, 0, 0.0)
+    var sc = ContactScene6[QuatBody6]()
+    var set = FractureSet(800, 0)
+    _ = set.spawn(sc, fs, ZERO, Quat.identity(), ZERO, ZERO)
+    var body = sc.bset.bodies[set.body[0]]
+    var inn = body.get_inertia()
+    var rho = 800.0  # FractureSet(800, 0): density
+    var m = rho * src.volume()
+    var want = _world_tensor(m / 3 * (b * b + c * c), m / 3 * (a * a + c * c), m / 3 * (a * a + b * b), q)
+    var got = _world_tensor(Float64(inn.ix), Float64(inn.iy), Float64(inn.iz), body.rotation())
+    var worst = Float64(0)
+    for k in range(9):
+        worst = max(worst, abs(got[k] - want[k]))
+    print("  rotated box: worst world-tensor entry error", worst)
+    s.check(worst < 1e-4, "fragment body: world inertia tensor is the rotated box's")
+    s.almost(Float64(inn.ix) + Float64(inn.iy) + Float64(inn.iz), m / 3 * (a * a + b * b + c * c) * 2, "principal moments sum to the trace", 1e-3 * m)
+
+
 def case_single(mut s: Suite) raises:
     var sc = ContactScene6[QuatBody6]()
     _ = _ground(sc)
@@ -662,6 +710,7 @@ def main() raises:
     case_runtime_cut(s)
     case_budget(s)
     case_single(s)
+    case_principal_frame(s)
     case_thousand(s)
     case_snapshot(s)
     s.finish()

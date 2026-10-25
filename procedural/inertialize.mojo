@@ -16,6 +16,15 @@ applied at all).
 
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat, slerp
+from geometry.motor import Motor3
+from geometry.galie import exp_screw3, log_motor3
+
+comptime INERT_SPLIT = 0
+"""Offset as a translation plus a rotation, decayed separately (default)."""
+comptime INERT_MOTOR = 1
+"""Offset as one rigid motion (motor), decayed along its screw: a bone
+rotated about a pivot away from its origin swings back on the arc around
+that pivot instead of cutting the chord."""
 
 
 def _decay(u: Real) -> Real:
@@ -33,14 +42,18 @@ struct Inertializer(Copyable, Movable):
     var elapsed: Real
     var duration: Real
     var active: Bool
+    var space: Int  # INERT_SPLIT / INERT_MOTOR
+    var off_m: List[Motor3]  # per bone (INERT_MOTOR)
 
-    def __init__(out self, bones: Int):
+    def __init__(out self, bones: Int, space: Int = INERT_SPLIT):
         self.bones = bones
         self.off_p = List[Real](length=3 * bones, fill=0)
         self.off_q = List[Real](length=4 * bones, fill=0)
         self.elapsed = 0
         self.duration = 0
         self.active = False
+        self.space = space
+        self.off_m = List[Motor3](length=bones, fill=Motor3.from_translation(Vec3(0, 0, 0, 0)))
 
     def start(mut self, src_pos: List[Real], src_rot: List[Real], dst_pos: List[Real], dst_rot: List[Real], duration: Real):
         """Record the offset from the pose being shown (src) to the new
@@ -60,6 +73,10 @@ struct Inertializer(Copyable, Movable):
             self.off_q[4 * b + 1] = off.y
             self.off_q[4 * b + 2] = off.z
             self.off_q[4 * b + 3] = off.w
+            if self.space == INERT_MOTOR:
+                var ms = Motor3.from_quat_translation(qs, Vec3(src_pos[3 * b], src_pos[3 * b + 1], src_pos[3 * b + 2], 0))
+                var md = Motor3.from_quat_translation(qd, Vec3(dst_pos[3 * b], dst_pos[3 * b + 1], dst_pos[3 * b + 2], 0))
+                self.off_m[b] = (ms * md.reverse()).normalized()
         self.elapsed = 0
         self.duration = duration
         self.active = True
@@ -77,6 +94,23 @@ struct Inertializer(Copyable, Movable):
             return
         var k = _decay(self.elapsed / self.duration)
         if k <= 0:
+            return
+        if self.space == INERT_MOTOR:
+            for b in range(self.bones):
+                var q = Quat(rot[4 * b], rot[4 * b + 1], rot[4 * b + 2], rot[4 * b + 3])
+                var md = Motor3.from_quat_translation(q, Vec3(pos[3 * b], pos[3 * b + 1], pos[3 * b + 2], 0))
+                var m = (exp_screw3(log_motor3(self.off_m[b]).scaled(k)) * md).normalized()
+                var qt = m.to_quat_translation()
+                var r = qt[0]
+                if r.x * q.x + r.y * q.y + r.z * q.z + r.w * q.w < 0:  # keep the target's hemisphere
+                    r = Quat(-r.x, -r.y, -r.z, -r.w)
+                pos[3 * b] = qt[1][0]
+                pos[3 * b + 1] = qt[1][1]
+                pos[3 * b + 2] = qt[1][2]
+                rot[4 * b] = r.x
+                rot[4 * b + 1] = r.y
+                rot[4 * b + 2] = r.z
+                rot[4 * b + 3] = r.w
             return
         var one = Quat(0, 0, 0, 1)
         for b in range(self.bones):

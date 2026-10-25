@@ -17,6 +17,12 @@ RNG is a value), a recording is just the inputs plus periodic snapshots:
   `first_divergence`  re-run and compare checksums tick by tick: the first
                    tick where a changed build stops reproducing a recording
   `ghost`          the character's positions over a replay
+
+The game flow (17.72 `GameFlow`: flags, objectives, inventories, its own
+RNG) rides along: snapshots carry its bytes, and once it holds anything
+the checksum covers it, so a recording whose pickups or quest progress
+stop reproducing diverges like one whose bodies do. Button 2 is a pickup:
+a 1-3 item roll from the flow RNG into inventory 0, one `EV_PICKUP` event.
 """
 
 from geometry.vec import Real, Vec3
@@ -25,6 +31,11 @@ from physics.solver6 import ContactScene6
 from physics.serialize import scene_to_string, scene_from_string
 from scheduler.rng import SplitMix64
 from .character import CharacterController
+from .animator import Animators
+from .movement import Mover
+from .checkpoint import GameFlow
+
+comptime EV_PICKUP = 0
 
 
 @fieldwise_init
@@ -40,12 +51,18 @@ struct SimState(Movable):
     var ctl: CharacterController
     var rng: SplitMix64
     var tick: Int
+    var anims: Animators  # ROADMAP 17.64: animation state replays and snapshots with the rest
+    var movers: List[Mover]  # ROADMAP 17.67: movement-mode state (climbs, driving, jump timers)
+    var flow: GameFlow  # ROADMAP 17.72: flags, objectives, inventories
 
     def __init__(out self, var scene: ContactScene6[QuatBody6], var ctl: CharacterController, var rng: SplitMix64):
         self.scene = scene^
         self.ctl = ctl^
         self.rng = rng^
         self.tick = 0
+        self.anims = Animators()
+        self.movers = List[Mover]()
+        self.flow = GameFlow(0)
 
 
 @fieldwise_init
@@ -54,15 +71,21 @@ struct Snapshot(Copyable, Movable):
     var scene: String
     var ctl: CharacterController
     var rng_state: UInt64  # the generator is a value: its state is all of it
+    var anims: Animators
+    var movers: List[Mover]
+    var flow: List[UInt8]
 
 
 def take(st: SimState) raises -> Snapshot:
-    return Snapshot(st.tick, scene_to_string(st.scene), st.ctl.copy(), st.rng.state)
+    return Snapshot(st.tick, scene_to_string(st.scene), st.ctl.copy(), st.rng.state, st.anims.copy(), st.movers.copy(), st.flow.to_bytes())
 
 
 def restore(snap: Snapshot) raises -> SimState:
     var st = SimState(scene_from_string(snap.scene), snap.ctl.copy(), SplitMix64(snap.rng_state))
     st.tick = snap.tick
+    st.anims = snap.anims.copy()
+    st.movers = snap.movers.copy()
+    st.flow = GameFlow.from_bytes(snap.flow)
     return st^
 
 
@@ -79,6 +102,10 @@ def sim_tick(mut st: SimState, inp: InputFrame, dt: Real, gravity: Vec3) raises:
                 var id = st.scene.bset.id_of(i)
                 st.scene.apply_impulse(id, dir, st.scene.pose(id).pos)
                 break
+    if inp.buttons & 2 != 0 and len(st.flow.inventories) > 0:
+        var n = 1 + Int(st.flow.rng.next_u32() % 3)
+        _ = st.flow.inventories[0].add(0, n)
+        st.flow.objectives.on_event(EV_PICKUP, n)
     st.scene.step_soft(dt, gravity)
     st.tick += 1
 
@@ -95,7 +122,17 @@ def checksum(st: SimState) -> UInt64:
             h = (h ^ UInt64(v[k].to_bits())) * 0x100000001B3
     for k in range(3):
         h = (h ^ UInt64(st.ctl.position[k].to_bits())) * 0x100000001B3
-    return h
+    for ref m in st.movers:
+        h = (h ^ UInt64(m.mode)) * 0x100000001B3
+        for k in range(3):
+            h = (h ^ UInt64(m.cc.position[k].to_bits())) * 0x100000001B3
+            h = (h ^ UInt64(m.cc.velocity[k].to_bits())) * 0x100000001B3
+        h = (h ^ UInt64(m.climb_t.to_bits())) * 0x100000001B3
+    ref f = st.flow
+    if len(f.inventories) > 0 or len(f.objectives.objs) > 0 or len(f.flags.names) > 0 or len(f.stack.stack) > 0:
+        for c in f.to_bytes():
+            h = (h ^ UInt64(c)) * 0x100000001B3
+    return st.anims.hash_into(h)  # no animators, movers or flow: h unchanged
 
 
 struct Recorder(Movable):

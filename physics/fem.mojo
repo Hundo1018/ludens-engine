@@ -20,14 +20,28 @@ separates a working implementation from one that merely looks elastic at rest.
 
 Stress (co-rotational linear):  P(F) = 2*mu*(F - R) + lambda * tr(R^T F - I) * R
 Nodal forces:                   H = -W * P * Dm^-T,  columns give f0..f2, f3 = -sum
+
+The implicit step's linear solve is a seam (ROADMAP 17.84, `FemBody.solver`):
+FEM_SOLVE_CG (matrix-free conjugate gradients, the default), FEM_SOLVE_CHOLESKY
+(the operator assembled into a sparse matrix, `numerics.cholesky` with a
+reverse Cuthill-McKee ordering: a direct solve), FEM_SOLVE_PCG_IC0 (assembled,
+CG preconditioned with incomplete Cholesky). The assembled matrix drops the rows
+and columns of pinned nodes (their dv is exactly zero either way), which keeps
+it symmetric.
 """
 
 from std.math import sqrt
 from geometry.vec import Real, Vec3
 from geometry.mat import Mat3
-from numerics.sparse import LinearOperator
+from numerics.sparse import LinearOperator, CsrMatrix
 from numerics.cg import cg, CgResult
+from numerics.cholesky import SparseCholesky, IncompleteCholesky, pcg_ic0, rcm_order
+
+comptime FEM_SOLVE_CG = 0
+comptime FEM_SOLVE_CHOLESKY = 1
+comptime FEM_SOLVE_PCG_IC0 = 2
 from diag.counters import Counters, CG_NOT_CONVERGED
+from geometry.tetmesh import TetMesh
 
 
 def det3(m: Mat3) -> Real:
@@ -108,6 +122,19 @@ struct FemBody(Movable):
     that shows what the polar decomposition BUYS: `bench_fem` prices the
     rotation extraction, and `test_fem` shows that without it a rigid rotation
     of an undeformed body generates enormous spurious force."""
+    var solver: Int  # FEM_SOLVE_* (17.84)
+    # 17.58 plasticity (Mueller & Gross 2004): a plastic strain per tet (6
+    # entries: xx yy zz xy xz yz), subtracted from the co-rotated strain
+    # before the stress; empty = off (forces bit for bit as before)
+    var plastic: List[Real]
+    var yield_strain: Real
+    var creep: Real
+    var max_plastic: Real
+    # 17.57 muscle: fibre direction per tet (3 entries), peak active stress
+    # and the current activation in [0, 1]; empty = off
+    var fiber: List[Real]
+    var sigma_max: Real
+    var activation: Real
     var counters: Counters
     """ROADMAP 17.0h / audit E19: `diag` counters, so far only
     `CG_NOT_CONVERGED` (bumped by `step_implicit` when its `cg()` solve
@@ -128,6 +155,14 @@ struct FemBody(Movable):
         self.lam = young * poisson / ((1 + poisson) * (1 - 2 * poisson))
         self.damping = damping
         self.corotational = True
+        self.solver = FEM_SOLVE_CG
+        self.plastic = List[Real]()
+        self.yield_strain = 0
+        self.creep = 0
+        self.max_plastic = 0
+        self.fiber = List[Real]()
+        self.sigma_max = 0
+        self.activation = 0
         self.counters = Counters()
 
     def node_count(self) -> Int:
@@ -167,6 +202,9 @@ struct FemBody(Movable):
         if abs(det) < 1e-12:
             return
         self.tets.append(Tet(a, b, c, d, _inv3(dm), abs(det) / 6.0))
+        if len(self.plastic) > 0:
+            for _ in range(6):
+                self.plastic.append(0)
 
     def total_volume(self) -> Real:
         var v = Real(0)
@@ -182,6 +220,165 @@ struct FemBody(Movable):
                 ds.set(k, 2, e3[k])
             v += abs(det3(ds)) / 6.0
         return v
+
+    def set_plasticity(mut self, yield_strain: Real, creep: Real, max_plastic: Real) raises:
+        """Turn on plastic flow (17.58, Mueller & Gross 2004) for
+        `step_ext` (not `step` / `step_implicit`): after each step, where a tet's elastic strain (co-rotated strain minus its
+        plastic strain, Frobenius norm) exceeds `yield_strain`, the plastic
+        strain moves toward it by `creep` times the excess fraction, capped
+        at norm `max_plastic`. Raises on yield <= 0, creep outside (0, 1] or
+        max_plastic < 0."""
+        if not (yield_strain > 0) or not (creep > 0 and creep <= 1) or not (max_plastic >= 0):
+            raise Error("FemBody.set_plasticity: yield > 0, creep in (0, 1], max_plastic >= 0")
+        self.yield_strain = yield_strain
+        self.creep = creep
+        self.max_plastic = max_plastic
+        self.plastic = List[Real](length=6 * len(self.tets), fill=0)
+
+    def plastic_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+        """The plastic strain's share of the elastic forces, added as its own
+        pass (the stress is linear in the strain: P - R (2 mu Ep + lambda
+        tr(Ep) I)), so `elastic_forces` itself is unchanged when plasticity
+        is off -- editing its loop moved `test_thermal`'s last digits."""
+        for e in range(len(self.tets)):
+            ref t = self.tets[e]
+            var pa = self.pos(t.a)
+            var e1 = self.pos(t.b) - pa
+            var e2 = self.pos(t.c) - pa
+            var e3 = self.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var r = polar_rotation(ds * t.dm_inv) if self.corotational else Mat3.identity()
+            var ep = self._plastic_mat(e)
+            var tre = ep.get(0, 0) + ep.get(1, 1) + ep.get(2, 2)
+            var sp = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    sp.set(i, j, 2 * self.mu * ep.get(i, j) + (self.lam * tre if i == j else Real(0)))
+            # forces of -R Sp: H = +W R Sp Dm^-T
+            var h = (r * sp) * t.dm_inv.transpose()
+            var w = t.vol
+            var f1 = Vec3(w * h.get(0, 0), w * h.get(1, 0), w * h.get(2, 0), 0)
+            var f2 = Vec3(w * h.get(0, 1), w * h.get(1, 1), w * h.get(2, 1), 0)
+            var f3 = Vec3(w * h.get(0, 2), w * h.get(1, 2), w * h.get(2, 2), 0)
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            fx[t.a] += f0[0]
+            fy[t.a] += f0[1]
+            fz[t.a] += f0[2]
+            fx[t.b] += f1[0]
+            fy[t.b] += f1[1]
+            fz[t.b] += f1[2]
+            fx[t.c] += f2[0]
+            fy[t.c] += f2[1]
+            fz[t.c] += f2[2]
+            fx[t.d] += f3[0]
+            fy[t.d] += f3[1]
+            fz[t.d] += f3[2]
+
+    def _plastic_mat(self, e: Int) -> Mat3:
+        var m = Mat3()
+        m.set(0, 0, self.plastic[6 * e])
+        m.set(1, 1, self.plastic[6 * e + 1])
+        m.set(2, 2, self.plastic[6 * e + 2])
+        m.set(0, 1, self.plastic[6 * e + 3])
+        m.set(1, 0, self.plastic[6 * e + 3])
+        m.set(0, 2, self.plastic[6 * e + 4])
+        m.set(2, 0, self.plastic[6 * e + 4])
+        m.set(1, 2, self.plastic[6 * e + 5])
+        m.set(2, 1, self.plastic[6 * e + 5])
+        return m
+
+    def strain(self, e: Int) -> Mat3:
+        """Co-rotated strain of tet `e`: sym(R^T F) - I."""
+        ref t = self.tets[e]
+        var pa = self.pos(t.a)
+        var e1 = self.pos(t.b) - pa
+        var e2 = self.pos(t.c) - pa
+        var e3 = self.pos(t.d) - pa
+        var ds = Mat3()
+        for k in range(3):
+            ds.set(k, 0, e1[k])
+            ds.set(k, 1, e2[k])
+            ds.set(k, 2, e3[k])
+        var f = ds * t.dm_inv
+        var r = polar_rotation(f) if self.corotational else Mat3.identity()
+        var rtf = r.transpose() * f
+        var out = Mat3()
+        for i in range(3):
+            for j in range(3):
+                out.set(i, j, (rtf.get(i, j) + rtf.get(j, i)) * 0.5 - (Real(1) if i == j else Real(0)))
+        return out
+
+    def elastic_strain_norm(self, e: Int) -> Real:
+        var eps = self.strain(e)
+        var acc = Real(0)
+        var has = len(self.plastic) > 0
+        for i in range(3):
+            for j in range(3):
+                var v = eps.get(i, j)
+                if has:
+                    v -= self._plastic_mat(e).get(i, j)
+                acc += v * v
+        return sqrt(acc)
+
+    def plastic_flow(mut self):
+        """One plastic update (called by `step_ext`)."""
+        if len(self.plastic) == 0:
+            return
+        for e in range(len(self.tets)):
+            var eps = self.strain(e)
+            var ep = self._plastic_mat(e)
+            var el = Mat3()
+            var n2 = Real(0)
+            for i in range(3):
+                for j in range(3):
+                    var v = eps.get(i, j) - ep.get(i, j)
+                    el.set(i, j, v)
+                    n2 += v * v
+            var n = sqrt(n2)
+            if n <= self.yield_strain:
+                continue
+            var k = self.creep * (1 - self.yield_strain / n)
+            var q = List[Real](length=6, fill=0)
+            q[0] = ep.get(0, 0) + k * el.get(0, 0)
+            q[1] = ep.get(1, 1) + k * el.get(1, 1)
+            q[2] = ep.get(2, 2) + k * el.get(2, 2)
+            q[3] = ep.get(0, 1) + k * el.get(0, 1)
+            q[4] = ep.get(0, 2) + k * el.get(0, 2)
+            q[5] = ep.get(1, 2) + k * el.get(1, 2)
+            var pn = sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + 2 * (q[3] * q[3] + q[4] * q[4] + q[5] * q[5]))
+            if pn > self.max_plastic and pn > 0:
+                for c in range(6):
+                    q[c] *= self.max_plastic / pn
+            for c in range(6):
+                self.plastic[6 * e + c] = q[c]
+
+    def remove_overstrained(mut self, max_strain: Real) raises -> Int:
+        """Element-removal fracture (17.58): delete every tet whose elastic
+        strain norm exceeds `max_strain`; returns how many. Node masses are
+        kept (a node left without tets flies free). Raises on max_strain
+        <= 0."""
+        if not (max_strain > 0):
+            raise Error("FemBody.remove_overstrained: max_strain must be > 0")
+        var keep = List[Tet]()
+        var keep_p = List[Real]()
+        var gone = 0
+        for e in range(len(self.tets)):
+            if self.elastic_strain_norm(e) > max_strain:
+                gone += 1
+                continue
+            keep.append(self.tets[e])
+            if len(self.plastic) > 0:
+                for c in range(6):
+                    keep_p.append(self.plastic[6 * e + c])
+        if gone > 0:
+            self.tets = keep^
+            if len(self.plastic) > 0:
+                self.plastic = keep_p^
+        return gone
 
     def elastic_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
         """Accumulate co-rotational elastic forces into the given arrays."""
@@ -258,6 +455,8 @@ struct FemBody(Movable):
             fy.append(0)
             fz.append(0)
         self.elastic_forces(fx, fy, fz)
+        if len(self.plastic) > 0:
+            self.plastic_forces(fx, fy, fz)
 
         var v0 = List[Real](capacity=dof)
         for i in range(n):
@@ -288,7 +487,22 @@ struct FemBody(Movable):
         var dv = List[Real](capacity=dof)
         for _ in range(dof):
             dv.append(0)
-        var res = cg(op, b, dv, tol, max_iters)
+        var res: CgResult
+        if self.solver == FEM_SOLVE_CG:
+            res = cg(op, b, dv, tol, max_iters)
+        else:
+            var a = op.assemble()
+            if self.solver == FEM_SOLVE_CHOLESKY:
+                var ch = SparseCholesky()
+                try:
+                    ch.factor(a, rcm_order(a))
+                    ch.solve(b, dv)
+                    res = CgResult(True, False, 1, 0)
+                except:
+                    res = CgResult(False, True, 0, 1)
+            else:
+                var ic = IncompleteCholesky(a)
+                res = pcg_ic0(a, ic, b, dv, tol, max_iters)
 
         # audit E19: `CgResult.converged` is documented (numerics/cg.mojo)
         # as "the only field a caller may treat as permission to use the
@@ -321,6 +535,92 @@ struct FemBody(Movable):
                 if self.vy[i] < 0:
                     self.vy[i] = 0
         return res
+
+    def step_ext(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
+        """`step` with plasticity (17.58) and active muscle fibres (17.57)
+        when they are set. A separate method because `step` stays exactly
+        as it was: any branch added to its body, even an early return that
+        is never taken, changed how the explicit integrator compiled and
+        moved `test_thermal`'s last digits (0.011999987 -> 0.0119999945).
+        `step` ignores both; with neither set this is `step`."""
+        var has_p = len(self.plastic) > 0
+        var has_f = len(self.fiber) > 0 and self.activation > 0
+        if not has_p and not has_f:
+            self.step(dt, gravity, floor_y)
+            return
+        var n = self.node_count()
+        var fx = List[Real](length=n, fill=0)
+        var fy = List[Real](length=n, fill=0)
+        var fz = List[Real](length=n, fill=0)
+        self.elastic_forces(fx, fy, fz)
+        if has_p:
+            self.plastic_forces(fx, fy, fz)
+        if has_f:
+            self.active_forces(fx, fy, fz)
+        self.integrate(fx, fy, fz, dt, gravity, floor_y)
+        if has_p:
+            self.plastic_flow()
+
+    def set_fibers(mut self, dirs: List[Vec3], sigma_max: Real) raises:
+        """Muscle fibres (17.57, Teran et al. 2005 style active stress): a
+        rest-frame direction per tet and the peak active stress (Pa). With
+        activation a in [0, 1] (`activation`), `step_ext` adds the first
+        Piola stress P = a sigma_max (F d) (x) d: tension along the fibre,
+        so the tissue shortens along d and, nearly incompressible, bulges
+        across it. Raises on a direction count != tets or sigma_max < 0."""
+        if len(dirs) != len(self.tets) or not (sigma_max >= 0):
+            raise Error("FemBody.set_fibers: one direction per tet and sigma_max >= 0")
+        self.fiber = List[Real](capacity=3 * len(dirs))
+        for d in dirs:
+            var l = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+            if not (l > 0):
+                raise Error("FemBody.set_fibers: zero fibre direction")
+            self.fiber.append(d[0] / l)
+            self.fiber.append(d[1] / l)
+            self.fiber.append(d[2] / l)
+        self.sigma_max = sigma_max
+
+    def active_forces(self, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+        """Forces of the active fibre stress (see `set_fibers`)."""
+        var a = min(max(self.activation, Real(0)), Real(1))
+        for e in range(len(self.tets)):
+            ref t = self.tets[e]
+            var pa = self.pos(t.a)
+            var e1 = self.pos(t.b) - pa
+            var e2 = self.pos(t.c) - pa
+            var e3 = self.pos(t.d) - pa
+            var ds = Mat3()
+            for k in range(3):
+                ds.set(k, 0, e1[k])
+                ds.set(k, 1, e2[k])
+                ds.set(k, 2, e3[k])
+            var f = ds * t.dm_inv
+            var d = Vec3(self.fiber[3 * e], self.fiber[3 * e + 1], self.fiber[3 * e + 2], 0)
+            var fd = Vec3(0, 0, 0, 0)
+            for i in range(3):
+                fd[i] = f.get(i, 0) * d[0] + f.get(i, 1) * d[1] + f.get(i, 2) * d[2]
+            var p = Mat3()
+            for i in range(3):
+                for j in range(3):
+                    p.set(i, j, a * self.sigma_max * fd[i] * d[j])
+            var h = p * t.dm_inv.transpose()
+            var w = t.vol
+            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
+            var f0 = (f1 + f2 + f3) * Real(-1)
+            fx[t.a] += f0[0]
+            fy[t.a] += f0[1]
+            fz[t.a] += f0[2]
+            fx[t.b] += f1[0]
+            fy[t.b] += f1[1]
+            fz[t.b] += f1[2]
+            fx[t.c] += f2[0]
+            fy[t.c] += f2[1]
+            fz[t.c] += f2[2]
+            fx[t.d] += f3[0]
+            fy[t.d] += f3[1]
+            fz[t.d] += f3[2]
 
     def step(mut self, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
         var n = self.node_count()
@@ -444,31 +744,83 @@ struct FemImplicitOp(LinearOperator, Movable, Deinitable):
             var b = self.tet_idx[4 * e + 1]
             var c = self.tet_idx[4 * e + 2]
             var d = self.tet_idx[4 * e + 3]
-            var r = self._mat(self.rot, e)
-            var dmi = self._mat(self.dm_inv, e)
-            var dds = Mat3()
-            for k in range(3):
-                dds.set(k, 0, du[3 * b + k] - du[3 * a + k])
-                dds.set(k, 1, du[3 * c + k] - du[3 * a + k])
-                dds.set(k, 2, du[3 * d + k] - du[3 * a + k])
-            var dfm = r.transpose() * (dds * dmi)
-            var tr = dfm.get(0, 0) + dfm.get(1, 1) + dfm.get(2, 2)
-            var dp = Mat3()
-            for i in range(3):
-                for j in range(3):
-                    var lamterm = self.lam * tr if i == j else Real(0)
-                    dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
-            var h = (r * dp) * dmi.transpose()
-            var w = self.vol[e]
-            var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
-            var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
-            var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
-            var f0 = (f1 + f2 + f3) * Real(-1)
+            var d1 = Vec3(du[3 * b] - du[3 * a], du[3 * b + 1] - du[3 * a + 1], du[3 * b + 2] - du[3 * a + 2], 0)
+            var d2 = Vec3(du[3 * c] - du[3 * a], du[3 * c + 1] - du[3 * a + 1], du[3 * c + 2] - du[3 * a + 2], 0)
+            var d3 = Vec3(du[3 * d] - du[3 * a], du[3 * d + 1] - du[3 * a + 1], du[3 * d + 2] - du[3 * a + 2], 0)
+            var f = self._elem_forces(e, d1, d2, d3)
             comptime for k in range(3):
-                out[3 * a + k] += f0[k]
-                out[3 * b + k] += f1[k]
-                out[3 * c + k] += f2[k]
-                out[3 * d + k] += f3[k]
+                out[3 * a + k] += f[0][k]
+                out[3 * b + k] += f[1][k]
+                out[3 * c + k] += f[2][k]
+                out[3 * d + k] += f[3][k]
+
+    def _elem_forces(self, e: Int, d1: Vec3, d2: Vec3, d3: Vec3) -> Tuple[Vec3, Vec3, Vec3, Vec3]:
+        """Force differentials on element e's four nodes for edge
+        differentials d1 = du_b - du_a, d2 = du_c - du_a, d3 = du_d - du_a."""
+        var r = self._mat(self.rot, e)
+        var dmi = self._mat(self.dm_inv, e)
+        var dds = Mat3()
+        for k in range(3):
+            dds.set(k, 0, d1[k])
+            dds.set(k, 1, d2[k])
+            dds.set(k, 2, d3[k])
+        var dfm = r.transpose() * (dds * dmi)
+        var tr = dfm.get(0, 0) + dfm.get(1, 1) + dfm.get(2, 2)
+        var dp = Mat3()
+        for i in range(3):
+            for j in range(3):
+                var lamterm = self.lam * tr if i == j else Real(0)
+                dp.set(i, j, 2 * self.mu * dfm.get(i, j) + lamterm)
+        var h = (r * dp) * dmi.transpose()
+        var w = self.vol[e]
+        var f1 = Vec3(-w * h.get(0, 0), -w * h.get(1, 0), -w * h.get(2, 0), 0)
+        var f2 = Vec3(-w * h.get(0, 1), -w * h.get(1, 1), -w * h.get(2, 1), 0)
+        var f3 = Vec3(-w * h.get(0, 2), -w * h.get(1, 2), -w * h.get(2, 2), 0)
+        var f0 = (f1 + f2 + f3) * Real(-1)
+        return (f0, f1, f2, f3)
+
+    def assemble(self) -> CsrMatrix:
+        """`A = M - dt^2 df/dx` as a sparse matrix (17.84), element by element
+        from the same force differential `stiffness_apply` uses. Rows and
+        columns of pinned nodes are dropped (identity rows), so A is
+        symmetric; its solution equals `apply`'s on every free node."""
+        var rows = List[Int]()
+        var cols = List[Int]()
+        var vals = List[Real]()
+        var dt2 = self.dt * self.dt
+        for i in range(self.n):
+            comptime for k in range(3):
+                rows.append(3 * i + k)
+                cols.append(3 * i + k)
+                vals.append(Real(1) if self.mass[i] == 0 else self.mass[i])
+        var zero = Vec3(0, 0, 0, 0)
+        for e in range(len(self.vol)):
+            var nodes = List[Int]()
+            for q in range(4):
+                nodes.append(self.tet_idx[4 * e + q])
+            for q in range(4):
+                if self.mass[nodes[q]] == 0:
+                    continue
+                for k in range(3):
+                    # column: unit displacement of node q along axis k
+                    var u = Vec3(0, 0, 0, 0)
+                    u[k] = 1
+                    var d1 = u * Real(-1) if q == 0 else (u if q == 1 else zero)
+                    var d2 = u * Real(-1) if q == 0 else (u if q == 2 else zero)
+                    var d3 = u * Real(-1) if q == 0 else (u if q == 3 else zero)
+                    var f = self._elem_forces(e, d1, d2, d3)
+                    var fl: List[Vec3] = [f[0], f[1], f[2], f[3]]
+                    for rnode in range(4):
+                        var ri = nodes[rnode]
+                        if self.mass[ri] == 0:
+                            continue
+                        comptime for kk in range(3):
+                            var fv = fl[rnode][kk]
+                            if fv != 0:
+                                rows.append(3 * ri + kk)
+                                cols.append(3 * nodes[q] + k)
+                                vals.append(-dt2 * fv)
+        return CsrMatrix.from_triplets(3 * self.n, rows, cols, vals)
 
     def apply(self, x: List[Real], mut out: List[Real]):
         self.stiffness_apply(x, out)
@@ -535,3 +887,22 @@ def make_beam(
                     b.add_tet(v000, v001, v101, v011)
                     b.add_tet(v110, v101, v011, v111)
                     b.add_tet(v000, v110, v101, v011)
+
+
+def fem_from_tetmesh(mut b: FemBody, m: TetMesh, density: Real) raises:
+    """Add a `geometry.tetmesh.TetMesh` to `b`: one node per mesh point with
+    its lumped mass (a quarter of each adjacent tet's density x volume), one
+    element per tet. Node indices are the mesh's, offset by the nodes `b`
+    already had. Raises on density <= 0."""
+    if not (density > 0):
+        raise Error("fem_from_tetmesh: density must be > 0")
+    var base = b.node_count()
+    var mass = List[Real](length=len(m.pts), fill=0)
+    for t in range(m.tet_count()):
+        var q = abs(m.tet_volume(t)) * density / 4
+        for k in range(4):
+            mass[m.tets[4 * t + k]] += q
+    for i in range(len(m.pts)):
+        b.add_node(m.pts[i], max(mass[i], Real(1e-12)))
+    for t in range(m.tet_count()):
+        b.add_tet(base + m.tets[4 * t], base + m.tets[4 * t + 1], base + m.tets[4 * t + 2], base + m.tets[4 * t + 3])

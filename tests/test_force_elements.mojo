@@ -24,13 +24,25 @@ from geometry.quat import Quat
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
 from physics.fields import box_submerged_exact
-from physics.water import FlatWater, GerstnerWater
+from physics.water import FlatWater, GerstnerWater, WaterSurface
 from gameplay.force_element import Thruster
 from gameplay.watercraft import HullBuoyancy
 from gameplay.aircraft import Wing
 
 comptime G = Vec3(0, -9.8, 0, 0)
 comptime DT: Real = 1.0 / 60.0
+
+
+@fieldwise_init
+struct TiltedWater(WaterSurface, Copyable, Movable):
+    """A planar surface, height = slope x, for checking the cutting plane's tilt."""
+    var slope: Real
+
+    def height(self, x: Real, z: Real, t: Real) -> Real:
+        return self.slope * x
+
+    def velocity(self, x: Real, z: Real, t: Real) -> Vec3:
+        return Vec3(0, 0, 0, 0)
 
 
 def _box_pts(hx: Real, hy: Real, hz: Real, lift: Real = 0) -> List[Float64]:
@@ -77,6 +89,15 @@ def main() raises:
     var ref_v = box_submerged_exact(Vec3(0.3, 0.1, -0.2, 0), Vec3(1, 0.25, 1, 0), 0)
     print("  submerged volume: polytope cut", ex[0], " closed form", ref_v[0], " centroid y", ex[1][1], ref_v[1][1])
     s.check(abs(ex[0] - ref_v[0]) < 1e-5 and abs(ex[1][1] - ref_v[1][1]) < 1e-5, "exact cut == closed-form box volume and centroid")
+    # surface y = 0.1 x through a 4 x 1 x 2 box centred on the origin: the
+    # volume stays 2 hx 2 hz (h0 + hy) = 4 and the centroid moves to the low
+    # side's opposite: x = slope hx^2 / (3 (h0 + hy)) = 0.2667 (flat plane: 0)
+    var tilt_id = ContactScene6[QuatBody6]()
+    var tilt_body = tilt_id.add(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 2, 0.5, 1)), Vec3(2, 0.5, 1, 0), False)
+    var flat_cut = HullBuoyancy(_box_pts(2, 0.5, 1), TiltedWater(0.1)).submerged(tilt_id, tilt_body, 0)
+    var tilt_cut = HullBuoyancy(_box_pts(2, 0.5, 1), TiltedWater(0.1), 1000, 9.8, 200, 200, 0.05).submerged(tilt_id, tilt_body, 0)
+    print("  tilted surface y = 0.1 x: centroid x flat plane", flat_cut[1][0], " tilted plane", tilt_cut[1][0], " closed form 0.26667  volume", tilt_cut[0], "(4)")
+    s.check(abs(flat_cut[1][0]) < 1e-5 and abs(tilt_cut[1][0] - 0.2666667) < 1e-4 and abs(tilt_cut[0] - 4.0) < 1e-4, "a tilted cutting plane moves the centroid to the closed-form value")
 
     # ---- metacentric stability --------------------------------------------------------------------
     # a symmetric box is the same shape upside down; the keel (centre of

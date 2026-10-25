@@ -33,6 +33,7 @@ from .world import (
     NavMesh,
     StaleBodyError,
     StateError,
+    ThreadError,
     World,
     abi_version,
 )

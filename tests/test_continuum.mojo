@@ -4,7 +4,7 @@
 FEM, MPM, PBF and an LBM adapter are driven by one generic function written
 against `physics.continuum.ContinuumSolver` only.
 
-  1. Ordinary: each solver runs 40 steps through `step_checked`, writes its
+  1. Ordinary: each solver (and a 20-segment rope and a soft lattice, 17.55) runs 40 steps through `step_checked`, writes its
      state, a fresh copy reads it back, and both run 40 more steps -- their
      written states are byte-identical (snapshot participation).
   2. Integration: an injected NaN (FEM node, MPM / PBF particle, LBM
@@ -26,6 +26,8 @@ from physics.fem import FemBody, make_beam
 from physics.mpm import MpmSolver
 from physics.pbf import PbfFluid
 from fluid.lbm import Lbm, BC_PERIODIC
+from physics.rope import Rope
+from physics.softbody import SoftBody
 from physics.continuum import (
     ContinuumSolver, ContinuumHealth, step_checked,
     FemContinuum, MpmContinuum, PbfContinuum, LbmContinuum,
@@ -62,6 +64,16 @@ def _lbm() raises -> LbmContinuum:
     var l = Lbm(6, 6, 6, Real(0.05), BC_PERIODIC)
     l.init_uniform(1.0, 0.03, 0, 0)
     return LbmContinuum(l^, 0.001)
+
+
+def _rope() -> Rope:
+    var r = Rope(Vec3(0, 2, 0, 0), Vec3(2, 2, 0, 0), 20, 0.5, 1e-5)
+    r.pin(0, Vec3(0, 2, 0, 0))
+    return r^
+
+
+def _soft() raises -> SoftBody:
+    return SoftBody.box_lattice(Vec3(0, 1, 0, 0), Vec3(0.2, 0.2, 0.2, 0), 3, 1.0, 1e-4)
 
 
 def _bytes[S: ContinuumSolver](s: S) -> List[UInt8]:
@@ -109,6 +121,26 @@ def main() raises:
     var la = _lbm()
     var lb = _lbm()
     s.check(_roundtrip(la, lb, 0.004), "LBM adapter: round trip, byte-identical after 40 more advances")
+    var ra = _rope()
+    var rb = _rope()
+    s.check(_roundtrip(ra, rb, 1.0 / 60.0), "rope: round trip, byte-identical after 40 more steps")
+    var sa = _soft()
+    var sb2 = _soft()
+    s.check(_roundtrip(sa, sb2, 1.0 / 60.0), "soft body: round trip, byte-identical after 40 more steps")
+    var sq = _soft()
+    var cs = Counters()
+    sq.pts[4].v = Vec3(nan, 0, 0, 0)
+    var hs = step_checked(sq, 1.0 / 60.0, G, cs)
+    var soft_ok = _run(sq, 60, 1.0 / 60.0, cs)
+    print("  soft body: NaN particle -> nonfinite", hs.nonfinite, " CONTINUUM_NAN", cs.get(CONTINUUM_NAN), " particle 0 y after 1 s hanging from the pinned particle", sq.pts[0].x[1], " pinned particle y", sq.pts[4].x[1])
+    s.check(hs.nonfinite >= 1 and cs.get(CONTINUUM_NAN) >= 1 and soft_ok and sq.pts[4].w == 0, "soft body: NaN particle counted and pinned; the lattice hangs from it, finite")
+    var rq = _rope()
+    var cr = Counters()
+    rq.x[7] = Vec3(nan, 0, 0, 0)
+    var hr = step_checked(rq, 1.0 / 60.0, G, cr)
+    var rope_ok = _run(rq, 60, 1.0 / 60.0, cr)
+    print("  rope: NaN particle -> nonfinite", hr.nonfinite, " CONTINUUM_NAN", cr.get(CONTINUUM_NAN), " pinned at", rq.x[7], " free end y", rq.x[20][1])
+    s.check(hr.nonfinite >= 1 and cr.get(CONTINUUM_NAN) >= 1 and rope_ok and rq.w[7] == 0 and rq.x[20][1] < 2, "rope: NaN particle counted, pinned at a neighbour; the rest keeps swinging, finite")
 
     # ---- failure policy -------------------------------------------------------------
     var c = Counters()

@@ -26,15 +26,35 @@ Constraints run in a fixed order (Gauss-Seidel), so a run is deterministic.
 without a scene: pins, attachments frozen, wind, no collision).
 """
 
-from std.math import sqrt, isfinite
+from std.math import sqrt, isfinite, atan2
 from std.collections import Dict
 from geometry.vec import Real, Vec3, dot, cross
 from collision.world_query import QueryFilter, overlap_sphere, point_distance
+from collision.collider_set import Pose3
 from collision.broadphase import BroadPhase
 from .rigid6 import Body6
 from .solver6 import ContactScene6
 from .state_io import StateWriter, StateReader
 from .continuum import ContinuumSolver, ContinuumHealth
+from scheduler.dispatch import Dispatch, Task, dispatch_for
+
+
+@fieldwise_init
+struct ClothHit(Copyable, ImplicitlyCopyable, Movable):
+    """One collision correction of a cloth vertex (`MeshCloth._collide`)."""
+
+    var body: Int
+    var dx: Vec3
+    var mass: Real
+    var at: Vec3
+
+
+comptime BEND_CROSS_EDGE = 0
+"""Bending as a distance constraint between the two vertices opposite an
+interior edge (the default; it also resists in-plane stretching)."""
+comptime BEND_DIHEDRAL = 1
+"""Bending as the signed dihedral angle across an interior edge: blind to
+in-plane stretching, so bending and stretch stiffness are independent."""
 
 
 def _len(v: Vec3) -> Real:
@@ -70,6 +90,20 @@ struct MeshCloth(ContinuumSolver):
     var att_vert: List[Int]
     var att_body: List[Int]
     var att_local: List[Vec3]
+    # ROADMAP 17.56 (2026-10-14)
+    var bend_model: Int  # BEND_CROSS_EDGE / BEND_DIHEDRAL
+    var bphi: List[Real]  # rest dihedral angle per bending constraint
+    var max_stretch: Real  # edge length cap as a multiple of rest (0 = none)
+    var ecomp: List[Real]  # per-edge stretch compliance (empty = uniform)
+    var self_radius: Real  # vertex-triangle self-collision distance (0 = off)
+    # coloured solve: constraints grouped so no two in a group share a
+    # vertex; a group runs through `dispatch` (empty lists = Gauss-Seidel)
+    var col_b: List[Int]  # bending constraint order, grouped by colour
+    var col_b_lo: List[Int]
+    var col_s: List[Int]  # stretch edge order, grouped by colour
+    var col_s_lo: List[Int]
+    var workers: Int
+    var dispatch: Dispatch
 
     def __init__(
         out self, verts: List[Real], tris: List[Int], density: Real,
@@ -146,6 +180,253 @@ struct MeshCloth(ContinuumSolver):
         self.att_vert = List[Int]()
         self.att_body = List[Int]()
         self.att_local = List[Vec3]()
+        self.bend_model = BEND_CROSS_EDGE
+        self.max_stretch = 0
+        self.ecomp = List[Real]()
+        self.self_radius = 0
+        self.col_b = List[Int]()
+        self.col_b_lo = List[Int]()
+        self.col_s = List[Int]()
+        self.col_s_lo = List[Int]()
+        self.workers = 0
+        self.dispatch = Dispatch.parallel()
+        self.bphi = List[Real](capacity=len(self.ba))
+        for e in range(len(self.ba)):
+            self.bphi.append(self._angle(e))
+
+    def set_bend_model(mut self, model: Int) raises:
+        if model != BEND_CROSS_EDGE and model != BEND_DIHEDRAL:
+            raise Error("MeshCloth.set_bend_model: unknown model")
+        self.bend_model = model
+
+    def set_max_stretch(mut self, ratio: Real) raises:
+        """Cap every edge at `ratio` x its rest length after each substep's
+        solve (strain limiting); 0 removes the cap."""
+        if not (ratio == 0 or ratio >= 1):
+            raise Error("MeshCloth.set_max_stretch: ratio must be 0 or >= 1")
+        self.max_stretch = ratio
+
+    def set_anisotropy(mut self, axis: Vec3, along: Real, across: Real, shear: Real) raises:
+        """Stretch compliance per edge by direction in the rest pose (woven
+        cloth): within 22.5 degrees of `axis` -> `along` (warp), within
+        22.5 degrees of perpendicular -> `across` (weft), the diagonals in
+        between -> `shear`."""
+        var la = _len(axis)
+        if not (la > 0) or not (along >= 0) or not (across >= 0) or not (shear >= 0):
+            raise Error("MeshCloth.set_anisotropy: axis must be non-zero, compliances >= 0")
+        var a = axis / la
+        self.ecomp = List[Real](capacity=len(self.ea))
+        for e in range(len(self.ea)):
+            var d = self.x[self.eb[e]] - self.x[self.ea[e]]
+            var c = abs(dot(d, a)) / max(_len(d), Real(1e-12))
+            if c >= 0.9238795325112867:
+                self.ecomp.append(along)
+            elif c <= 0.3826834323650898:
+                self.ecomp.append(across)
+            else:
+                self.ecomp.append(shear)
+
+    def set_colored(mut self, on: Bool, workers: Int = 0, dispatch: Dispatch = Dispatch.parallel()) raises:
+        """Coloured solve (ROADMAP 17.56): constraints greedily coloured so
+        that no two of one colour share a vertex; colours run in order, a
+        colour's constraints through `dispatch` (Jacobi within a colour,
+        Gauss-Seidel across colours). Bit-identical for any `workers` and
+        dispatcher, but not to the default sweep (a different order).
+        Colour again after changing the bend model."""
+        self.col_b = List[Int]()
+        self.col_b_lo = List[Int]()
+        self.col_s = List[Int]()
+        self.col_s_lo = List[Int]()
+        self.workers = workers
+        self.dispatch = dispatch
+        if not on:
+            return
+        var nb = len(self.ba)
+        var bverts = List[Int](capacity=4 * nb)
+        for e in range(nb):
+            bverts.append(self.ba[e])
+            bverts.append(self.bb[e])
+            if self.bend_model == BEND_DIHEDRAL:
+                bverts.append(self.ea[self.bedge[e]])
+                bverts.append(self.eb[self.bedge[e]])
+            else:
+                bverts.append(-1)
+                bverts.append(-1)
+        if not _color(bverts, 4, len(self.x), self.col_b, self.col_b_lo):
+            raise Error("MeshCloth.set_colored: more than 64 colours needed")
+        var sverts = List[Int](capacity=4 * len(self.ea))
+        for e in range(len(self.ea)):
+            sverts.append(self.ea[e])
+            sverts.append(self.eb[e])
+            sverts.append(-1)
+            sverts.append(-1)
+        if not _color(sverts, 4, len(self.x), self.col_s, self.col_s_lo):
+            raise Error("MeshCloth.set_colored: more than 64 colours needed")
+
+    def _bend_one(mut self, e: Int, bt: Real):
+        if self.torn[self.bedge[e]]:
+            return
+        if self.bend_model == BEND_DIHEDRAL:
+            var ddl = self._dihedral(e, bt, self.blam[e])
+            self.blam[e] += ddl
+            return
+        var dl = self._dist(self.ba[e], self.bb[e], self.brest[e], bt, self.blam[e])
+        self.blam[e] += dl
+
+    def _stretch_one(mut self, e: Int, h: Real, sa: Real):
+        if self.torn[e]:
+            return
+        var ae = self.ecomp[e] / (h * h) if len(self.ecomp) == len(self.ea) else sa
+        var dl = self._dist(self.ea[e], self.eb[e], self.rest[e], ae, self.lam[e])
+        self.lam[e] += dl
+
+    def set_self_collision(mut self, radius: Real) raises:
+        """Keep every free vertex at least `radius` from every triangle it
+        is not a corner of (0 = off)."""
+        if not (radius >= 0):
+            raise Error("MeshCloth.set_self_collision: radius must be >= 0")
+        self.self_radius = radius
+
+    def _self_collide(mut self) -> Int:
+        """One pass of vertex-triangle separation: triangles binned in a
+        hash grid of cell 2 x max(edge, radius); each vertex near a triangle
+        it is not a corner of is pushed back to `self_radius` on the side
+        it was on at the substep start (from `prev`), the correction split
+        between the vertex and the triangle's corners by inverse mass and
+        barycentric weight. Returns the pairs corrected."""
+        var r = self.self_radius
+        var nt = len(self.tris) // 3
+        var cell = r * 2
+        for e in range(len(self.rest)):
+            cell = max(cell, self.rest[e])
+        var inv = 1 / cell
+        var grid = Dict[Int, List[Int]]()
+        for t in range(nt):
+            var a = self.x[self.tris[3 * t]]
+            var b = self.x[self.tris[3 * t + 1]]
+            var c = self.x[self.tris[3 * t + 2]]
+            var lo0 = Int((min(a[0], min(b[0], c[0])) - r) * inv // 1)
+            var lo1 = Int((min(a[1], min(b[1], c[1])) - r) * inv // 1)
+            var lo2 = Int((min(a[2], min(b[2], c[2])) - r) * inv // 1)
+            var hi0 = Int((max(a[0], max(b[0], c[0])) + r) * inv // 1)
+            var hi1 = Int((max(a[1], max(b[1], c[1])) + r) * inv // 1)
+            var hi2 = Int((max(a[2], max(b[2], c[2])) + r) * inv // 1)
+            for i0 in range(lo0, hi0 + 1):
+                for i1 in range(lo1, hi1 + 1):
+                    for i2 in range(lo2, hi2 + 1):
+                        var key = _cell_key(i0, i1, i2)
+                        if key in grid:
+                            try:
+                                grid[key].append(t)
+                            except:
+                                pass
+                        else:
+                            grid[key] = [t]
+        var fixed = 0
+        for i in range(len(self.x)):
+            if self.w[i] == 0:
+                continue
+            var p = self.x[i]
+            var key = _cell_key(Int(p[0] * inv // 1), Int(p[1] * inv // 1), Int(p[2] * inv // 1))
+            var cand = grid.get(key)
+            if not cand:
+                continue
+            for t in cand.value():
+                var ia = self.tris[3 * t]
+                var ib = self.tris[3 * t + 1]
+                var ic = self.tris[3 * t + 2]
+                if ia == i or ib == i or ic == i:
+                    continue
+                var q = _closest_bary(p, self.x[ia], self.x[ib], self.x[ic])
+                var cp = self.x[ia] * q[0] + self.x[ib] * q[1] + self.x[ic] * q[2]
+                var nn = cross(self.x[ib] - self.x[ia], self.x[ic] - self.x[ia])
+                var ln = _len(nn)
+                if ln < 1e-12:
+                    continue
+                var n = nn / ln
+                var d = dot(p - cp, n)
+                if abs(d) >= r or _len(p - cp) >= r * 1.5:
+                    continue
+                # side from the substep start
+                var side = Real(1) if dot(self.prev[i] - (self.prev[ia] * q[0] + self.prev[ib] * q[1] + self.prev[ic] * q[2]), n) >= 0 else Real(-1)
+                var c = side * d - r  # < 0: too close or crossed
+                if c >= 0:
+                    continue
+                var wsum = self.w[i] + self.w[ia] * q[0] * q[0] + self.w[ib] * q[1] * q[1] + self.w[ic] * q[2] * q[2]
+                if wsum <= 0:
+                    continue
+                var s_ = -c / wsum
+                var dirn = n * side
+                self.x[i] = self.x[i] + dirn * (s_ * self.w[i])
+                self.x[ia] = self.x[ia] - dirn * (s_ * self.w[ia] * q[0])
+                self.x[ib] = self.x[ib] - dirn * (s_ * self.w[ib] * q[1])
+                self.x[ic] = self.x[ic] - dirn * (s_ * self.w[ic] * q[2])
+                p = self.x[i]
+                fixed += 1
+        return fixed
+
+    def _angle(self, e: Int) -> Real:
+        """Signed bend angle of bending constraint `e` across its edge (0 for
+        a flat pair): atan2((n1 x n2) . e, n1 . n2)."""
+        var x1 = self.x[self.ba[e]]
+        var x2 = self.x[self.bb[e]]
+        var x3 = self.x[self.ea[self.bedge[e]]]
+        var x4 = self.x[self.eb[self.bedge[e]]]
+        var ed = x4 - x3
+        var n1 = cross(x1 - x3, x1 - x4)
+        var n2 = cross(x2 - x4, x2 - x3)
+        var l1 = _len(n1)
+        var l2 = _len(n2)
+        var le = _len(ed)
+        if l1 < 1e-12 or l2 < 1e-12 or le < 1e-12:
+            return 0
+        var u1 = n1 / l1
+        var u2 = n2 / l2
+        return atan2(dot(cross(u1, u2), ed / le), dot(u1, u2))
+
+    def _dihedral(mut self, e: Int, alpha: Real, lam: Real) -> Real:
+        """One XPBD projection of the signed bend angle across an interior
+        edge. Gradients after Bridson et al. 2003 (wing vertices |E| N /
+        |N|^2, edge vertices the matching combinations), sign checked by
+        finite differences; unlike the acos form they stay well scaled near
+        flat. Returns the lambda increment."""
+        var i1 = self.ba[e]
+        var i2 = self.bb[e]
+        var i3 = self.ea[self.bedge[e]]
+        var i4 = self.eb[self.bedge[e]]
+        var x1 = self.x[i1]
+        var x2 = self.x[i2]
+        var x3 = self.x[i3]
+        var x4 = self.x[i4]
+        var ed = x4 - x3
+        var le = _len(ed)
+        var n1 = cross(x1 - x3, x1 - x4)
+        var n2 = cross(x2 - x4, x2 - x3)
+        var a1 = dot(n1, n1)
+        var a2 = dot(n2, n2)
+        if le < 1e-12 or a1 < 1e-24 or a2 < 1e-24:
+            return 0
+        # grad theta = -g_i
+        var g1 = n1 * (le / a1)
+        var g2 = n2 * (le / a2)
+        var g3 = n1 * (dot(x1 - x4, ed) / le / a1) + n2 * (dot(x2 - x4, ed) / le / a2)
+        var g4 = n1 * (-dot(x1 - x3, ed) / le / a1) + n2 * (-dot(x2 - x3, ed) / le / a2)
+        var w1 = self.w[i1]
+        var w2 = self.w[i2]
+        var w3 = self.w[i3]
+        var w4 = self.w[i4]
+        var den = w1 * dot(g1, g1) + w2 * dot(g2, g2) + w3 * dot(g3, g3) + w4 * dot(g4, g4)
+        if den <= 0:
+            return 0
+        var u1 = n1 / sqrt(a1)
+        var u2 = n2 / sqrt(a2)
+        var c = atan2(dot(cross(u1, u2), ed / le), dot(u1, u2)) - self.bphi[e]
+        var dl = (-c - alpha * lam) / (den + alpha)
+        self.x[i1] = self.x[i1] - g1 * (w1 * dl)
+        self.x[i2] = self.x[i2] - g2 * (w2 * dl)
+        self.x[i3] = self.x[i3] - g3 * (w3 * dl)
+        self.x[i4] = self.x[i4] - g4 * (w4 * dl)
+        return dl
 
     def vertex_count(self) -> Int:
         return len(self.x)
@@ -212,20 +493,52 @@ struct MeshCloth(ContinuumSolver):
             self.blam[e] = 0
         var sa = self.stretch_compliance / (h * h)
         var bt = self.bend_compliance / (h * h)
-        for _ in range(self.iters):
+        if len(self.col_s_lo) > 0:
+            for _ in range(self.iters):
+                for c in range(len(self.col_b_lo) - 1):
+                    var tb = _ColorTask(self, self.col_b_lo[c], self.col_b_lo[c + 1], True, h, bt)
+                    dispatch_for(self.dispatch, tb, tb.chunks(), self.workers)
+                for c in range(len(self.col_s_lo) - 1):
+                    var ts = _ColorTask(self, self.col_s_lo[c], self.col_s_lo[c + 1], False, h, sa)
+                    dispatch_for(self.dispatch, ts, ts.chunks(), self.workers)
+        for _ in range(self.iters if len(self.col_s_lo) == 0 else 0):
             # bending first, stretch last: the stiffer stretch constraints
             # get the final word in each sweep (the other order let a stiff
             # bending setting stretch the cloth)
             for e in range(len(self.ba)):
                 if self.torn[self.bedge[e]]:
                     continue
+                if self.bend_model == BEND_DIHEDRAL:
+                    var ddl = self._dihedral(e, bt, self.blam[e])
+                    self.blam[e] += ddl
+                    continue
                 var dl = self._dist(self.ba[e], self.bb[e], self.brest[e], bt, self.blam[e])
                 self.blam[e] += dl
+            var aniso = len(self.ecomp) == len(self.ea)
             for e in range(len(self.ea)):
                 if self.torn[e]:
                     continue
-                var dl = self._dist(self.ea[e], self.eb[e], self.rest[e], sa, self.lam[e])
+                var ae = self.ecomp[e] / (h * h) if aniso else sa
+                var dl = self._dist(self.ea[e], self.eb[e], self.rest[e], ae, self.lam[e])
                 self.lam[e] += dl
+        if self.max_stretch >= 1:
+            # strain limit: hard passes capping each edge at max_stretch x rest
+            for _ in range(max(self.iters, 4)):
+                for e in range(len(self.ea)):
+                    if self.torn[e]:
+                        continue
+                    var a = self.ea[e]
+                    var b = self.eb[e]
+                    var ws = self.w[a] + self.w[b]
+                    if ws <= 0:
+                        continue
+                    var d = self.x[b] - self.x[a]
+                    var l = _len(d)
+                    var cap = self.rest[e] * self.max_stretch
+                    if l > cap:
+                        var corr = d * ((l - cap) / (l * ws))
+                        self.x[a] = self.x[a] + corr * self.w[a]
+                        self.x[b] = self.x[b] - corr * self.w[b]
         if self.break_force < 1e30:
             for e in range(len(self.ea)):
                 if not self.torn[e] and abs(self.lam[e]) / (h * h) > self.break_force:
@@ -261,21 +574,56 @@ struct MeshCloth(ContinuumSolver):
                 self.x[self.att_vert[k]] = sc.bset.bodies[self.att_body[k]].act(self.att_local[k])
             self._predict(h, gravity)
             self._constraints(h)
-            for i in range(len(self.x)):
-                if self.w[i] == 0:
-                    continue
-                var hits = overlap_sphere(sc.colliders, poses, self.x[i], self.thickness, QueryFilter.all())
-                for q in range(len(hits)):
-                    var pr = point_distance(sc.colliders, hits[q], poses[hits[q]], self.x[i])
-                    if pr.dist < self.thickness:
-                        var push = self.thickness - pr.dist
-                        self.x[i] = self.x[i] + pr.normal * push
-                        var dx = self.x[i] - self.prev[i]
-                        var dt_ = dx - pr.normal * dot(dx, pr.normal)
-                        var lt = _len(dt_)
-                        if lt > 0:
-                            self.x[i] = self.x[i] - dt_ * min(Real(1), self.friction * push / lt)
+            if self.self_radius > 0:
+                _ = self._self_collide()
+            _ = self._collide(sc, poses)
             self._finish(h)
+
+    def step_two_way[B: Body6, BP: BroadPhase](mut self, mut sc: ContactScene6[B, BP], dt: Real, gravity: Vec3):
+        """`step`, plus the reaction (ROADMAP 17.56): every collision
+        correction dx of a vertex of mass m against a DYNAMIC body gives
+        that body the impulse -m dx / h at the vertex, so the momentum the
+        cloth gains or loses is the body's loss or gain. Call before the
+        scene's own step."""
+        var h = dt / Real(self.substeps)
+        var poses = sc.query_poses()
+        for _ in range(self.substeps):
+            for k in range(len(self.att_vert)):
+                self.x[self.att_vert[k]] = sc.bset.bodies[self.att_body[k]].act(self.att_local[k])
+            self._predict(h, gravity)
+            self._constraints(h)
+            if self.self_radius > 0:
+                _ = self._self_collide()
+            var hits = self._collide(sc, poses)
+            for ref c in hits:
+                if sc.bset.is_dynamic(c.body):
+                    sc.bset.bodies[c.body].apply_impulse(c.dx * (-c.mass / h), c.at)
+                    sc.bset.sleeping[c.body] = False
+                    sc.bset.sleep_timer[c.body] = 0
+            self._finish(h)
+
+    def _collide[B: Body6, BP: BroadPhase](mut self, sc: ContactScene6[B, BP], poses: List[Pose3]) -> List[ClothHit]:
+        """Push free vertices out of every collider (sphere of radius
+        `thickness`), with Coulomb-style friction on the tangential motion;
+        returns each correction made."""
+        var out = List[ClothHit]()
+        for i in range(len(self.x)):
+            if self.w[i] == 0:
+                continue
+            var hits = overlap_sphere(sc.colliders, poses, self.x[i], self.thickness, QueryFilter.all())
+            for q in range(len(hits)):
+                var pr = point_distance(sc.colliders, hits[q], poses[hits[q]], self.x[i])
+                if pr.dist < self.thickness:
+                    var before = self.x[i]
+                    var push = self.thickness - pr.dist
+                    self.x[i] = self.x[i] + pr.normal * push
+                    var dx = self.x[i] - self.prev[i]
+                    var dt_ = dx - pr.normal * dot(dx, pr.normal)
+                    var lt = _len(dt_)
+                    if lt > 0:
+                        self.x[i] = self.x[i] - dt_ * min(Real(1), self.friction * push / lt)
+                    out.append(ClothHit(hits[q], self.x[i] - before, 1 / self.w[i], self.x[i]))
+        return out^
 
     # ---- ContinuumSolver (17.55) ----------------------------------------------
     def advance(mut self, dt: Real, gravity: Vec3):
@@ -283,6 +631,8 @@ struct MeshCloth(ContinuumSolver):
         for _ in range(self.substeps):
             self._predict(h, gravity)
             self._constraints(h)
+            if self.self_radius > 0:
+                _ = self._self_collide()
             self._finish(h)
 
     def _ok(self, i: Int) -> Bool:
@@ -339,6 +689,118 @@ struct MeshCloth(ContinuumSolver):
             raise Error("MeshCloth.read_state: edge count differs")
         for e in range(ne):
             self.torn[e] = r.ri() == 1
+
+
+struct _ColorTask(Task):
+    """One colour of cloth constraints, in chunks of 256 (no two share a
+    vertex, so chunks write disjoint vertices and multipliers)."""
+
+    var cloth: Pointer[MeshCloth, MutUntrackedOrigin]
+    var lo: Int
+    var hi: Int
+    var bend: Bool
+    var h: Real
+    var alpha: Real
+
+    def __init__(out self, mut cloth: MeshCloth, lo: Int, hi: Int, bend: Bool, h: Real, alpha: Real):
+        self.cloth = Pointer(to=cloth).unsafe_origin_cast[MutUntrackedOrigin]()
+        self.lo = lo
+        self.hi = hi
+        self.bend = bend
+        self.h = h
+        self.alpha = alpha
+
+    def chunks(self) -> Int:
+        return (self.hi - self.lo + 255) // 256
+
+    def run(self, k: Int):
+        var a = self.lo + 256 * k
+        var b = min(a + 256, self.hi)
+        for q in range(a, b):
+            if self.bend:
+                var e = self.cloth[].col_b[q]
+                self.cloth[]._bend_one(e, self.alpha)
+            else:
+                var e = self.cloth[].col_s[q]
+                self.cloth[]._stretch_one(e, self.h, self.alpha)
+
+
+def _color(verts: List[Int], per: Int, nv: Int, mut order: List[Int], mut lo: List[Int]) -> Bool:
+    """Greedy smallest-free colour per constraint (`per` vertex slots each,
+    -1 = unused); `order` lists constraints grouped by colour, `lo[c]` ..
+    `lo[c + 1]` the range of colour c. False if 64 colours do not suffice."""
+    var n = len(verts) // per
+    var used = List[UInt64](length=nv, fill=0)
+    var color = List[Int](length=n, fill=0)
+    var ncol = 0
+    for c in range(n):
+        var m = UInt64(0)
+        for k in range(per):
+            var v = verts[per * c + k]
+            if v >= 0:
+                m |= used[v]
+        var col = 0
+        while col < 64 and (m >> UInt64(col)) & 1 == 1:
+            col += 1
+        if col == 64:
+            return False
+        color[c] = col
+        ncol = max(ncol, col + 1)
+        for k in range(per):
+            var v = verts[per * c + k]
+            if v >= 0:
+                used[v] |= UInt64(1) << UInt64(col)
+    order.clear()
+    lo.clear()
+    for col in range(ncol):
+        lo.append(len(order))
+        for c in range(n):
+            if color[c] == col:
+                order.append(c)
+    lo.append(len(order))
+    return True
+
+
+def _cell_key(i: Int, j: Int, k: Int) -> Int:
+    return (i * 73856093) ^ (j * 19349663) ^ (k * 83492791)
+
+
+def _closest_bary(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Tuple[Real, Real, Real]:
+    """Barycentric weights of the point of triangle abc closest to p
+    (Ericson, Real-Time Collision Detection 5.1.5)."""
+    var ab = b - a
+    var ac = c - a
+    var ap = p - a
+    var d1 = dot(ab, ap)
+    var d2 = dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        return (Real(1), Real(0), Real(0))
+    var bp = p - b
+    var d3 = dot(ab, bp)
+    var d4 = dot(ac, bp)
+    if d3 >= 0 and d4 <= d3:
+        return (Real(0), Real(1), Real(0))
+    var vc = d1 * d4 - d3 * d2
+    if vc <= 0 and d1 >= 0 and d3 <= 0:
+        var v = d1 / (d1 - d3)
+        return (1 - v, v, Real(0))
+    var cp = p - c
+    var d5 = dot(ab, cp)
+    var d6 = dot(ac, cp)
+    if d6 >= 0 and d5 <= d6:
+        return (Real(0), Real(0), Real(1))
+    var vb = d5 * d2 - d1 * d6
+    if vb <= 0 and d2 >= 0 and d6 <= 0:
+        var w = d2 / (d2 - d6)
+        return (1 - w, Real(0), w)
+    var va = d3 * d6 - d5 * d4
+    if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
+        var w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        return (Real(0), 1 - w, w)
+    var den = 1 / (va + vb + vc)
+    var v = vb * den
+    var w = vc * den
+    return (1 - v - w, v, w)
 
 
 def grid_mesh(nx: Int, nz: Int, size_x: Real, size_z: Real, origin: Vec3) -> Tuple[List[Real], List[Int]]:

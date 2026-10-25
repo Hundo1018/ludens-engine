@@ -12,7 +12,7 @@ from std.benchmark import keep
 from geometry.vec import Real, Vec3
 from physics.rigid6 import QuatBody6, Inertia3
 from physics.solver6 import ContactScene6
-from physics.water import WaterSurface, FlatWater, GerstnerWater, ShallowWaterGrid, float_body
+from physics.water import WaterSurface, FlatWater, GerstnerWater, ShallowWaterGrid, FftOcean, float_body
 from harness.bench import BenchTable, now
 
 
@@ -43,7 +43,51 @@ def main() raises:
     var sw = ShallowWaterGrid(128, 128, 0.25, 0, 0, 0, 1)
     sw.disturb(16, 16, 2, 0.2)
     query_row(t, "shallow-water grid 128^2 (sample)", sw, 200000)
+    var oc = FftOcean(64, 200, 0)
+    oc.phillips(42, 3e-6, 10, 3)
+    oc.update(1.5)
+    var acc = Real(0)
+    var q0 = now()
+    for k in range(200000):
+        acc += oc.height(Real(k % 997) * 0.37, Real(k % 89) * 0.53, 1.5)
+    var q1 = now()
+    keep(acc)
+    t.add("fft ocean 64^2, grid at the updated t (bilinear)", 200000, "query", q1 - q0, 200000)
+    var q2 = now()
+    for k in range(200):
+        acc += oc.height(Real(k % 997) * 0.37, Real(k % 89) * 0.53, 1.6)
+    var q3 = now()
+    keep(acc)
+    t.add("fft ocean 64^2, other t (direct sum of 4096 modes)", 200, "query", q3 - q2, 200)
+    var co = FftOcean(64, 200, 0)
+    co.phillips(7, 3e-6, 10, 0)
+    co.choppy = 0.8
+    co.update(3.0)
+    var c0 = now()
+    var cacc = Real(0)
+    for k in range(20000):
+        cacc += co.height(Real(k % 997) * 0.2, Real(k % 991) * 0.2, 3.0)
+    var c1 = now()
+    t.add("fft ocean 64^2 choppy 0.8, grid inversion at the updated t", 20000, "query", c1 - c0, 20000)
+    var c2 = now()
+    for k in range(20):
+        cacc += co.height(Real(k) * 3.1, Real(k) * 1.7, 3.5)
+    var c3 = now()
+    keep(cacc)
+    t.add("fft ocean 64^2 choppy 0.8, other t (inversion over direct sums)", 20, "query", c3 - c2, 20)
     t.print_report()
+
+    var f = BenchTable("FFT ocean update (17.60)")
+    for nn in [32, 64, 128]:
+        var o2 = FftOcean(nn, 200, 0)
+        o2.phillips(42, 3e-6, 10, 3)
+        var u0 = now()
+        for k in range(20):
+            o2.update(Real(k) * 0.1)
+        var u1 = now()
+        keep(o2.grid[3])
+        f.add("FftOcean.update " + String(nn) + "^2 (one inverse 2-D FFT)", nn * nn, "update", u1 - u0, 20)
+    f.print_report()
 
     var u = BenchTable("Shallow-water step and float_body (17.60)")
     var dt = 0.5 * sw.max_dt()

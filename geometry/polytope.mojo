@@ -165,21 +165,21 @@ struct Polytope(Copyable, Movable):
         out[2] = oz + sz / (4 * vs)
         return out^
 
-    def inertia_diag(self) -> List[Float64]:
-        """[Ixx, Iyy, Izz] about the volume centroid, per unit density, in the
-        mesh's own axes (products of inertia are dropped: TODO rotate to the
-        principal frame). Exact for an axis-aligned box."""
-        var out = List[Float64](capacity=3)
-        out.append(0)
-        out.append(0)
-        out.append(0)
+    def inertia_tensor(self) -> List[Float64]:
+        """[Ixx, Iyy, Izz, Ixy, Ixz, Iyz] about the volume centroid, per unit
+        density, in the mesh's own axes (off-diagonal entries are the
+        products of inertia, I_ij = -∫ x_i x_j dV). Exact for any closed
+        mesh: each triangle with the centroid as apex is a tetrahedron with
+        ∫ x_i x_j = V/20 (Σ_k p_ki p_kj + S_i S_j) over its three corners."""
+        var out = List[Float64](capacity=6)
+        for _ in range(6):
+            out.append(0)
         if self.nt() == 0:
             return out^
         var c = self.centroid()
-        var cxx = Float64(0)
-        var cyy = Float64(0)
-        var czz = Float64(0)
-        var vol = Float64(0)
+        var m = List[Float64](capacity=6)
+        for _ in range(6):
+            m.append(0)  # ∫ x_i x_j dV in order xx, yy, zz, xy, xz, yz
         for f in range(self.nt()):
             var a = 3 * self.t[3 * f]
             var b = 3 * self.t[3 * f + 1]
@@ -195,17 +195,33 @@ struct Polytope(Copyable, Movable):
             var r2 = self.v[d + 2] - c[2]
             var dv = p0 * (q1 * r2 - q2 * r1) - p1 * (q0 * r2 - q2 * r0) + p2 * (q0 * r1 - q1 * r0)
             var tv = dv / 6
-            vol += tv
-            # int x_i x_j over tetra (0, p, q, r) = V/20 (sum pp^T + S S^T)
             var s0 = p0 + q0 + r0
             var s1 = p1 + q1 + r1
             var s2 = p2 + q2 + r2
-            cxx += tv / 20 * (p0 * p0 + q0 * q0 + r0 * r0 + s0 * s0)
-            cyy += tv / 20 * (p1 * p1 + q1 * q1 + r1 * r1 + s1 * s1)
-            czz += tv / 20 * (p2 * p2 + q2 * q2 + r2 * r2 + s2 * s2)
-        out[0] = cyy + czz
-        out[1] = cxx + czz
-        out[2] = cxx + cyy
+            m[0] += tv / 20 * (p0 * p0 + q0 * q0 + r0 * r0 + s0 * s0)
+            m[1] += tv / 20 * (p1 * p1 + q1 * q1 + r1 * r1 + s1 * s1)
+            m[2] += tv / 20 * (p2 * p2 + q2 * q2 + r2 * r2 + s2 * s2)
+            m[3] += tv / 20 * (p0 * p1 + q0 * q1 + r0 * r1 + s0 * s1)
+            m[4] += tv / 20 * (p0 * p2 + q0 * q2 + r0 * r2 + s0 * s2)
+            m[5] += tv / 20 * (p1 * p2 + q1 * q2 + r1 * r2 + s1 * s2)
+        out[0] = m[1] + m[2]
+        out[1] = m[0] + m[2]
+        out[2] = m[0] + m[1]
+        out[3] = -m[3]
+        out[4] = -m[4]
+        out[5] = -m[5]
+        return out^
+
+    def inertia_diag(self) -> List[Float64]:
+        """[Ixx, Iyy, Izz] about the volume centroid, per unit density, in the
+        mesh's own axes (products of inertia dropped: see `inertia_tensor`
+        and `physics/fracture.mojo`, which rotates to the principal frame).
+        Exact for an axis-aligned box."""
+        var t = self.inertia_tensor()
+        var out = List[Float64](capacity=3)
+        out.append(t[0])
+        out.append(t[1])
+        out.append(t[2])
         return out^
 
     def bounds(self) -> List[Float64]:

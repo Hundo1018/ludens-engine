@@ -10,13 +10,29 @@ skylake, skylake-avx512, the host CPU) and optimisation levels -O0 .. -O3.
 A target the host cannot run is skipped.
 
     pixi run fp-probe
-    pixi run fp-probe -- --selftest   # parser check on a synthetic output
+    pixi run fp-probe -- --check            # fail if a variant drifts past TOLERANCE
+    pixi run fp-probe -- --dump out.json    # this host's native build, for another platform
+    pixi run fp-probe -- --compare in.json  # a dump from another platform vs this host
+    pixi run fp-probe -- --selftest         # parser / tolerance check on synthetic data
+
+Cross-target tolerance table (`TOLERANCE`, largest coordinate drift after
+300 steps, m): from the measured drift of the variants that change bits on
+x86-64 (2026-10-13: no FMA 6.65e-3 / 1.07e-6 / 3.05e-7, -O0 7.20e-3 /
+9.55e-7 / 1.43e-6 for pile / roll / tower) with about 3x (pile) and 10x
+(single bodies) headroom. The pile is chaotic (40 boxes settling: a
+different contraction reorders who lands first), so its bound is mm-scale;
+a single rolling ball and a tower are not, so theirs stay at 1e-5. Another
+architecture (aarch64 always contracts to FMA, but where is up to the
+compiler) is held to the same table through `--dump` / `--compare`.
 """
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
+
+TOLERANCE = {"pile": 2e-2, "roll": 1e-5, "tower": 1e-5}
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROBE = "benchmarks/probes/fp_probe.mojo"
@@ -56,12 +72,53 @@ def run(flags, d):
     return parse(r.stdout), ""
 
 
+def drift(res, ref, scene):
+    h, vals = res[scene]
+    rh, rvals = ref[scene]
+    if h == rh:
+        return 0.0
+    return max(abs(a - b) for a, b in zip(vals, rvals))
+
+
+def over(res, ref):
+    """Scenes whose drift exceeds TOLERANCE."""
+    return [s for s in TOLERANCE if drift(res, ref, s) > TOLERANCE[s]]
+
+
 def main():
     if "--selftest" in sys.argv:
         p = parse("HASH a 42\na 1.0 2.5\nHASH b 7\nb 3.0\n")
         assert p["a"] == (42, [1.0, 2.5]) and p["b"] == (7, [3.0])
-        print("fp-probe selftest: 1 / 1")
+        ref = {"pile": (1, [0.0]), "roll": (2, [0.0]), "tower": (3, [0.0])}
+        ok = {"pile": (9, [0.01]), "roll": (2, [0.0]), "tower": (8, [5e-6])}
+        bad = {"pile": (1, [0.0]), "roll": (9, [2e-5]), "tower": (3, [0.0])}
+        assert over(ok, ref) == [] and over(bad, ref) == ["roll"]
+        print("fp-probe selftest: 3 / 3")
         return
+    if "--dump" in sys.argv or "--compare" in sys.argv:
+        with tempfile.TemporaryDirectory() as d:
+            res, err = run([], d)
+            if res is None:
+                sys.exit("fp-probe: native build failed: " + err)
+        if "--dump" in sys.argv:
+            path = sys.argv[sys.argv.index("--dump") + 1]
+            with open(path, "w") as f:
+                json.dump({k: [v[0], v[1]] for k, v in res.items()}, f)
+            print("fp-probe: wrote", path)
+            return
+        path = sys.argv[sys.argv.index("--compare") + 1]
+        with open(path) as f:
+            other = {k: (v[0], v[1]) for k, v in json.load(f).items()}
+        print("| scene | drift vs dump | tolerance |")
+        print("|---|---|---|")
+        for scene in TOLERANCE:
+            print("| %s | %.2e | %.0e |" % (scene, drift(res, other, scene), TOLERANCE[scene]))
+        bad = over(res, other)
+        if bad:
+            sys.exit("fp-probe: over tolerance: " + ", ".join(bad))
+        return
+    check = "--check" in sys.argv
+    failed = []
     with tempfile.TemporaryDirectory() as d:
         ref = None
         print("| variant | pile | roll | tower |")
@@ -73,6 +130,8 @@ def main():
                 continue
             if ref is None:
                 ref = res
+            for sc in over(res, ref):
+                failed.append(name + " " + sc)
             cells = []
             for scene in ("pile", "roll", "tower"):
                 h, vals = res[scene]
@@ -83,6 +142,8 @@ def main():
                     drift = max(abs(a - b) for a, b in zip(vals, rvals))
                     cells.append("differs, max drift %.2e" % drift)
             print("| %s | %s |" % (name, " | ".join(cells)))
+        if check and failed:
+            sys.exit("fp-probe: over tolerance: " + "; ".join(failed))
 
 
 if __name__ == "__main__":

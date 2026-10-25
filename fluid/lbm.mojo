@@ -29,7 +29,7 @@ equilibrium with the local density, and a zero-gradient outlet that copies its
 neighbour. Without them there is no through-flow and no drag to measure.
 """
 
-from std.math import sqrt
+from std.math import sqrt, floor
 from geometry.vec import Real, Vec3
 
 from .d3q19 import (
@@ -72,6 +72,17 @@ struct Lbm(Movable, Deinitable):
     var opp: Array[Int, Q]
     var inlet_u: Real  # x velocity imposed at the inlet
     var force_x: Real  # uniform body force, the pressure gradient of a channel
+    var force_y: Real  # the other two components (17.60; CPU only; `_force_yz`)
+    var force_z: Real
+    # ROADMAP 17.60: two-relaxation-time collision (an MRT with two rates);
+    # 0 = BGK. The usual choice 3/16 puts half-way bounce-back walls exactly
+    # half-way whatever the viscosity; 1/4 is the most stable.
+    var trt_lambda: Real
+    var trt_guo: Bool  # TRT with Guo's second-order body force (17.60; `_step_guo`)
+    # ROADMAP 17.61: per-cell relaxation time (e.g. viscosity from a
+    # temperature field); empty = the uniform `tau`
+    var tau_cell: List[Real]
+    var cell_force: List[Vec3]  # per-cell momentum source per step (17.61; empty = none)
     # Smagorinsky constant. 0 disables the model and leaves plain BGK, bit for
     # bit. 0.1-0.2 is the usual range; 0.17 is the classic value.
     var smagorinsky: Real
@@ -125,6 +136,12 @@ struct Lbm(Movable, Deinitable):
             self.opp[i] = opposite(i)
         self.inlet_u = 0
         self.force_x = 0
+        self.force_y = 0
+        self.force_z = 0
+        self.trt_lambda = 0
+        self.trt_guo = False
+        self.tau_cell = List[Real]()
+        self.cell_force = List[Vec3]()
         self.smagorinsky = 0
         self.fx = 0
         self.fy = 0
@@ -285,56 +302,68 @@ struct Lbm(Movable, Deinitable):
         become fluid at equilibrium with the wall velocity and the mean
         density of their fluid neighbours; fluid cells it covers become solid,
         and their momentum goes to the sphere (added to `obj_f` at the next
-        `stream`, Aidun et al. 1998)."""
+        `stream`, Aidun et al. 1998). On periodic axes `c` may lie outside
+        the grid (keep it unwrapped as the body moves): cells are wrapped
+        when indexed and the torque arm is the minimum image (17.59)."""
+        var prev = self.obj_c[k]
         self.obj_c[k] = c
         self.obj_v[k] = v
         self.obj_w[k] = w
-        self._place(k, False)
+        self._place(k, False, prev)
 
-    def _place(mut self, k: Int, first: Bool):
+    def _place(mut self, k: Int, first: Bool, prev: Vec3 = Vec3(0, 0, 0, 0)):
         var n = self.cells()
         var c = self.obj_c[k]
         var r = self.obj_r[k]
         var cover = Vec3(0, 0, 0, 0)
-        # owned cells that fall outside: uncover
-        for cell in range(n):
-            if self.owner[cell] != k:
-                continue
-            var z = cell // (self.nx * self.ny)
-            var y = (cell // self.nx) % self.ny
-            var x = cell % self.nx
-            var d = Vec3(Real(x), Real(y), Real(z), 0) - c
-            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
-                self.flag[cell] = CELL_FLUID
-                self.owner[cell] = -1
-                var rho = Real(0)
-                var m = 0
-                for i in range(1, Q):
-                    var nxx = self._wrap(x + self.ex[i], self.nx)
-                    var nyy = self._wrap(y + self.ey[i], self.ny)
-                    var nzz = self._wrap(z + self.ez[i], self.nz)
-                    var nb = self.idx(nxx, nyy, nzz)
-                    if self.flag[nb] == CELL_FLUID and self.owner[nb] == -1:
-                        rho += self.density(nb)
-                        m += 1
-                rho = rho / Real(m) if m > 0 else Real(1)
-                var u = self.obj_v[k] + _cross(self.obj_w[k], d)
-                for i in range(Q):
-                    self.f[i * n + cell] = self._feq(i, rho, u[0], u[1], u[2])
-                cover = cover + u * rho  # the fluid gains this momentum from the sphere
-        var x0 = max(Int(c[0] - r) - 1, 0)
-        var x1 = min(Int(c[0] + r) + 2, self.nx)
-        var y0 = max(Int(c[1] - r) - 1, 0)
-        var y1 = min(Int(c[1] + r) + 2, self.ny)
-        var z0 = max(Int(c[2] - r) - 1, 0)
-        var z1 = min(Int(c[2] + r) + 2, self.nz)
+        # owned cells that fall outside: uncover. They were placed around
+        # `prev`, so only that box is scanned (ascending cell order, as a
+        # whole-grid sweep would visit them; 17.59)
+        var perx = self.mode != BC_TUNNEL
+        var px0 = self._lo(prev[0], r, self.nx, perx)
+        var px1 = self._hi(prev[0], r, self.nx, perx) if not first else px0
+        var py0 = self._lo(prev[1], r, self.ny, True)
+        var py1 = self._hi(prev[1], r, self.ny, True)
+        var pz0 = self._lo(prev[2], r, self.nz, True)
+        var pz1 = self._hi(prev[2], r, self.nz, True)
+        for z in range(pz0, pz1):
+            for y in range(py0, py1):
+                for x in range(px0, px1):
+                    var cell = self.idx(self._wrap(x, self.nx), self._wrap(y, self.ny), self._wrap(z, self.nz))
+                    if self.owner[cell] != k:
+                        continue
+                    var d = Vec3(Real(x), Real(y), Real(z), 0) - c
+                    if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
+                        self.flag[cell] = CELL_FLUID
+                        self.owner[cell] = -1
+                        var rho = Real(0)
+                        var m = 0
+                        for i in range(1, Q):
+                            var nxx = self._wrap(x + self.ex[i], self.nx)
+                            var nyy = self._wrap(y + self.ey[i], self.ny)
+                            var nzz = self._wrap(z + self.ez[i], self.nz)
+                            var nb = self.idx(nxx, nyy, nzz)
+                            if self.flag[nb] == CELL_FLUID and self.owner[nb] == -1:
+                                rho += self.density(nb)
+                                m += 1
+                        rho = rho / Real(m) if m > 0 else Real(1)
+                        var u = self.obj_v[k] + _cross(self.obj_w[k], d)
+                        for i in range(Q):
+                            self.f[i * n + cell] = self._feq(i, rho, u[0], u[1], u[2])
+                        cover = cover + u * rho  # the fluid gains this momentum from the sphere
+        var x0 = self._lo(c[0], r, self.nx, perx)
+        var x1 = self._hi(c[0], r, self.nx, perx)
+        var y0 = self._lo(c[1], r, self.ny, True)
+        var y1 = self._hi(c[1], r, self.ny, True)
+        var z0 = self._lo(c[2], r, self.nz, True)
+        var z1 = self._hi(c[2], r, self.nz, True)
         for z in range(z0, z1):
             for y in range(y0, y1):
                 for x in range(x0, x1):
                     var d = Vec3(Real(x), Real(y), Real(z), 0) - c
                     if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > r * r:
                         continue
-                    var cell = self.idx(x, y, z)
+                    var cell = self.idx(self._wrap(x, self.nx), self._wrap(y, self.ny), self._wrap(z, self.nz))
                     if self.flag[cell] == CELL_FLUID:
                         if not first:
                             cover = cover - self.velocity(cell) * self.density(cell)
@@ -349,6 +378,36 @@ struct Lbm(Movable, Deinitable):
         # momentum handed between fluid and sphere by (un)covering: an impulse
         # on the sphere, reported with the next step's force
         self.obj_p[k] = self.obj_p[k] - cover
+
+    def wall_drag(self, k: Int) -> Tuple[Vec3, Vec3]:
+        """Diagonals of the moving sphere `k`'s wall-drag tensors, lattice
+        units: (sum of 6 w_i c_i c_i, sum of 6 w_i (l x c_i)(d x c_i)) over
+        its boundary links, l the link's wall point and d the solid cell,
+        both from the centre. The part of the Ladd force linear in the wall
+        velocity is -first * v, of the torque about -second * w. A body update
+        that takes these parts at the new velocity (Ladd & Verberg 2001)
+        is stable for light spheres (`physics.fsi`, 17.59)."""
+        var n = self.cells()
+        var c0 = self.obj_c[k]
+        var z = Vec3(0, 0, 0, 0)
+        var zr = Vec3(0, 0, 0, 0)
+        for c in range(n):
+            if self.flag[c] == CELL_SOLID:
+                continue
+            var zc = c // (self.nx * self.ny)
+            var yc = (c // self.nx) % self.ny
+            var xc = c % self.nx
+            for i in range(1, Q):
+                var src = self.idx(self._wrap(xc - self.ex[i], self.nx), self._wrap(yc - self.ey[i], self.ny), self._wrap(zc - self.ez[i], self.nz))
+                if self.flag[src] == CELL_SOLID and self.owner[src] == k:
+                    var w6 = 6 * self.w[i]
+                    var e = Vec3(Real(self.ex[i]), Real(self.ey[i]), Real(self.ez[i]), 0)
+                    var p = Vec3(Real(xc), Real(yc), Real(zc), 0)
+                    var lc = _cross(self._arm(p - e * 0.5, c0), e)
+                    var dc = _cross(self._arm(p - e, c0), e)
+                    z = z + Vec3(w6 * e[0] * e[0], w6 * e[1] * e[1], w6 * e[2] * e[2], 0)
+                    zr = zr + Vec3(w6 * lc[0] * dc[0], w6 * lc[1] * dc[1], w6 * lc[2] * dc[2], 0)
+        return (z, zr)
 
     def solid_count(self) -> Int:
         var n = 0
@@ -425,9 +484,196 @@ struct Lbm(Movable, Deinitable):
                         fsum[r] = fsum[r] - pi_rn * sgn
         return fsum
 
+    def _lo(self, c: Real, r: Real, n: Int, periodic: Bool) -> Int:
+        """First cell of a sphere's box along one axis: unclamped on a
+        periodic axis (cells are wrapped when indexed), clamped otherwise."""
+        var v = Int(floor(c - r)) - 1
+        return v if periodic else max(v, 0)
+
+    def _hi(self, c: Real, r: Real, n: Int, periodic: Bool) -> Int:
+        var v = Int(floor(c + r)) + 2
+        return v if periodic else min(v, n)
+
+    @no_inline
+    def _arm(self, p: Vec3, c: Vec3) -> Vec3:
+        """p - c by the minimum image on periodic axes (a moving sphere's
+        centre is kept unwrapped, 17.59)."""
+        var d = p - c
+        var nn = Vec3(Real(self.nx), Real(self.ny), Real(self.nz), 0)
+        for a in range(3):
+            if a == 0 and self.mode == BC_TUNNEL:
+                continue
+            if d[a] > 0.5 * nn[a] or d[a] < -0.5 * nn[a]:
+                d[a] = d[a] - nn[a] * floor(d[a] / nn[a] + 0.5)
+        return d
+
     def _wrap(self, v: Int, n: Int) -> Int:
         var w = v % n
         return w + n if w < 0 else w
+
+    def set_viscosity_field(mut self, nu: List[Real]) raises:
+        """Per-cell kinematic viscosity (lattice units), tau = 3 nu + 1/2;
+        `step` then collides with `collide_var`. An empty list returns to the
+        uniform tau."""
+        if len(nu) == 0:
+            self.tau_cell = List[Real]()
+            return
+        if len(nu) != self.cells():
+            raise Error("Lbm.set_viscosity_field: one viscosity per cell")
+        var t = List[Real](capacity=len(nu))
+        for v in nu:
+            if not (v > 0):
+                raise Error("Lbm.set_viscosity_field: viscosities must be > 0")
+            t.append(3 * v + 0.5)
+        self.tau_cell = t^
+
+    def collide_var(mut self):
+        """BGK with the relaxation time of each cell (`tau_cell`, 17.61:
+        tau(T)); the x body force shifts by that cell's tau. A separate
+        method: `collide` is untouched (test_lbm_tau_field)."""
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var tc = self.tau_cell[c]
+            var rho = Real(0)
+            var ux = Real(0)
+            var uy = Real(0)
+            var uz = Real(0)
+            for i in range(Q):
+                var v = self.f[i * n + c]
+                rho += v
+                ux += v * Real(self.ex[i])
+                uy += v * Real(self.ey[i])
+                uz += v * Real(self.ez[i])
+            if rho <= 0:
+                continue
+            ux /= rho
+            uy /= rho
+            uz /= rho
+            if self.force_x != 0:
+                ux += tc * self.force_x / rho
+            var inv = Real(1) / tc
+            for i in range(Q):
+                var fe = self._feq(i, rho, ux, uy, uz)
+                self.f[i * n + c] += (fe - self.f[i * n + c]) * inv
+
+    def collide_trt(mut self):
+        """Two-relaxation-time collision (Ginzburg 2008), 17.60. Each pair of
+        opposite directions splits into its symmetric part f+ = (f_i + f_-i)/2,
+        relaxed at 1/tau (the viscosity, as BGK), and its antisymmetric part
+        f- = (f_i - f_-i)/2, relaxed at 1/tau- with
+        (tau - 1/2)(tau- - 1/2) = trt_lambda. The body force enters as in
+        `collide` (x: velocity shift in the equilibrium, by tau- F / rho). A separate method:
+        `collide` stays exactly as it was (`test_lbm_trt`)."""
+        var wp = Real(1) / self.tau
+        var tm = self.trt_lambda / (self.tau - 0.5) + 0.5
+        var wm = Real(1) / tm
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var rho = Real(0)
+            var ux = Real(0)
+            var uy = Real(0)
+            var uz = Real(0)
+            for i in range(Q):
+                var v = self.f[i * n + c]
+                rho += v
+                ux += v * Real(self.ex[i])
+                uy += v * Real(self.ey[i])
+                uz += v * Real(self.ez[i])
+            if rho <= 0:
+                continue
+            ux /= rho
+            uy /= rho
+            uz /= rho
+            if self.force_x != 0:
+                # the shift reaches momentum through the antisymmetric part,
+                # relaxed at 1/tau-: shifting by tau- F / rho adds exactly F
+                # (by tau F / rho it added F tau / tau-)
+                ux += tm * self.force_x / rho
+            var fe = List[Real](length=Q, fill=0)
+            for i in range(Q):
+                fe[i] = self._feq(i, rho, ux, uy, uz)
+            var post = List[Real](length=Q, fill=0)
+            for i in range(Q):
+                var o = self.opp[i]
+                var fi = self.f[i * n + c]
+                var fo = self.f[o * n + c]
+                var sp = 0.5 * (fi + fo) - 0.5 * (fe[i] + fe[o])
+                var sm = 0.5 * (fi - fo) - 0.5 * (fe[i] - fe[o])
+                post[i] = fi - wp * sp - wm * sm
+            for i in range(Q):
+                self.f[i * n + c] = post[i]
+
+    def _step_guo(mut self):
+        """`step` with `collide_trt_guo` (it applies all three force
+        components itself, so `_force_yz` is skipped)."""
+        self.collide_trt_guo()
+        if len(self.cell_force) > 0:
+            self._force_cells()
+        self.stream()
+        self.apply_inlet_outlet()
+
+    def collide_trt_guo(mut self):
+        """TRT with Guo et al.'s (2002) second-order body force (17.60):
+        velocity u = (sum f c + F / 2) / rho, and the source
+        S_i = w_i (3 c.F + 9 (c.u)(c.F) - 3 u.F) split into its antisymmetric
+        part (3 w_i c.F, scaled by 1 - 1/(2 tau-)) and its symmetric part
+        (scaled by 1 - 1/(2 tau)). With Lambda = 3/16 a half-way
+        bounce-back wall then sits exactly half way and Poiseuille flow is
+        exact for every tau (`test_lbm_trt_guo`); the velocity shift of
+        `collide_trt` is not (5.1 % at tau 3.5). `velocity` returns the bare
+        first moment: the physical velocity adds F / (2 rho)."""
+        var wp = Real(1) / self.tau
+        var tm = self.trt_lambda / (self.tau - 0.5) + 0.5
+        var wm = Real(1) / tm
+        var fx = self.force_x
+        var fy = self.force_y
+        var fz = self.force_z
+        var n = self.cells()
+        var fe = List[Real](length=Q, fill=0)
+        var src = List[Real](length=Q, fill=0)
+        var post = List[Real](length=Q, fill=0)
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var rho = Real(0)
+            var ux = Real(0)
+            var uy = Real(0)
+            var uz = Real(0)
+            for i in range(Q):
+                var v = self.f[i * n + c]
+                rho += v
+                ux += v * Real(self.ex[i])
+                uy += v * Real(self.ey[i])
+                uz += v * Real(self.ez[i])
+            if rho <= 0:
+                continue
+            ux = (ux + 0.5 * fx) / rho
+            uy = (uy + 0.5 * fy) / rho
+            uz = (uz + 0.5 * fz) / rho
+            var uf = ux * fx + uy * fy + uz * fz
+            for i in range(Q):
+                fe[i] = self._feq(i, rho, ux, uy, uz)
+                var cx = Real(self.ex[i])
+                var cy = Real(self.ey[i])
+                var cz = Real(self.ez[i])
+                var cf = cx * fx + cy * fy + cz * fz
+                var cu = cx * ux + cy * uy + cz * uz
+                src[i] = self.w[i] * (3 * cf + 9 * cu * cf - 3 * uf)
+            for i in range(Q):
+                var o = self.opp[i]
+                var fi = self.f[i * n + c]
+                var fo = self.f[o * n + c]
+                var sp = 0.5 * (fi + fo) - 0.5 * (fe[i] + fe[o])
+                var sm = 0.5 * (fi - fo) - 0.5 * (fe[i] - fe[o])
+                var ssym = 0.5 * (src[i] + src[o])
+                var santi = 0.5 * (src[i] - src[o])
+                post[i] = fi - wp * sp - wm * sm + (1 - 0.5 * wp) * ssym + (1 - 0.5 * wm) * santi
+            for i in range(Q):
+                self.f[i * n + c] = post[i]
 
     def collide(mut self):
         """BGK: f <- f - (f - f_eq) / tau, on fluid cells only."""
@@ -592,7 +838,7 @@ struct Lbm(Movable, Deinitable):
                                 self.obj_f[k] = self.obj_f[k] + df
                                 # the link's wall point: half way to the solid cell
                                 var lp = Vec3(Real(x) - 0.5 * Real(self.ex[i]), Real(y) - 0.5 * Real(self.ey[i]), Real(z) - 0.5 * Real(self.ez[i]), 0)
-                                self.obj_t[k] = self.obj_t[k] + _cross(lp - self.obj_c[k], df)
+                                self.obj_t[k] = self.obj_t[k] + _cross(self._arm(lp, self.obj_c[k]), df)
                         elif self.flag[src] == CELL_SOLID:
                             var back = self.f[self.opp[i] * n + c]
                             self.g[i * n + c] = back
@@ -697,7 +943,62 @@ struct Lbm(Movable, Deinitable):
             return 0
         return self.fx / (0.5 * u_inf * u_inf * area)
 
+    def _force_yz(mut self):
+        """The y / z body force as a source after collision (17.60):
+        f_i += 3 w_i (c_i . F) on fluid cells adds exactly F of momentum
+        per cell per step and no mass (sum w_i c_i = 0, sum w_i c_i c_i = I / 3).
+        A separate pass rather than the x component's velocity shift inside
+        `collide`: a branch there changed how `collide` compiled and moved
+        `test_vehicle_aero`'s drag digits."""
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            for i in range(1, Q):
+                var cf = Real(self.ey[i]) * self.force_y + Real(self.ez[i]) * self.force_z
+                if cf != 0:
+                    self.f[i * n + c] += 3 * self.w[i] * cf
+
+    def add_cell_force(mut self, c: Int, f: Vec3):
+        """Add f (lattice momentum) to cell c's source for the next steps;
+        `clear_cell_force` drops them all (17.61: forces spread from
+        immersed Lagrangian points, e.g. cloth vertices)."""
+        if len(self.cell_force) == 0:
+            self.cell_force = List[Vec3](length=self.cells(), fill=Vec3(0, 0, 0, 0))
+        self.cell_force[c] = self.cell_force[c] + f
+
+    def clear_cell_force(mut self):
+        self.cell_force = List[Vec3]()
+
+    def _force_cells(mut self):
+        """Per-cell sources after collision, as `_force_yz`: f_i += 3 w_i
+        (c_i . F_c) adds exactly F_c of momentum to a fluid cell and no
+        mass. Solid cells drop theirs."""
+        var n = self.cells()
+        for c in range(n):
+            if self.flag[c] != CELL_FLUID:
+                continue
+            var fc = self.cell_force[c]
+            if fc[0] == 0 and fc[1] == 0 and fc[2] == 0:
+                continue
+            for i in range(1, Q):
+                var cf = Real(self.ex[i]) * fc[0] + Real(self.ey[i]) * fc[1] + Real(self.ez[i]) * fc[2]
+                if cf != 0:
+                    self.f[i * n + c] += 3 * self.w[i] * cf
+
     def step(mut self):
-        self.collide()
+        if self.trt_guo and self.trt_lambda > 0 and len(self.tau_cell) == 0:
+            self._step_guo()
+            return
+        if len(self.tau_cell) > 0:
+            self.collide_var()
+        elif self.trt_lambda > 0:
+            self.collide_trt()
+        else:
+            self.collide()
+        if self.force_y != 0 or self.force_z != 0:
+            self._force_yz()
+        if len(self.cell_force) > 0:
+            self._force_cells()
         self.stream()
         self.apply_inlet_outlet()

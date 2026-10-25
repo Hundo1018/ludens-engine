@@ -2,13 +2,18 @@
 """Hair strands: Follow-The-Leader with bending (ROADMAP 17.57).
 
   1. Ordinary: a free strand (bend 0, 16 particles) released horizontal
-     (air drag 2 /s) hangs straight below its root after 5 s, every segment within 1e-5 of
+     (air drag 2 /s) hangs straight below its root after 8 s, every segment within 1e-5 of
      its rest length (FTL keeps length exactly up to rounding); with
      bend 0.5 the same strand sags less than half as far.
-  2. Integration: a ponytail on a head bone that turns 90 degrees in 0.2 s
-     swings out and settles back to its rest shape on the turned head
-     (within 1 cm after 3 s); strands draped over a head sphere stay outside
-     it; a constant wind blows tips downwind and a uniform `WindGrid` gives
+  2. Integration: a ponytail (bend 0.3) on a still head comes to rest
+     (largest particle speed in its tenth second < 1 cm/s; it was 2 m/s
+     before the FTL shift was measured from x + v dt, see physics.strand);
+     on a head bone that turns 90 degrees in 0.2 s it swings out and
+     settles back to its rest shape on the turned head (within 1 cm after
+     6 s; the rest shape is a 20 s run on the turned head, and the
+     distance shrinks about 4x per 2 s); strands draped over a head sphere stay outside
+     it; a constant 5 m/s wind blows tips downwind (steady 4.7 cm for this
+     strand, reached within 2 s; asserted > 3 cm) and a uniform `WindGrid` gives
      the same result bit for bit.
   3. Extreme: a one-particle strand follows its root; zero-length segments
      stay at the root, finite; a 100 m root jump paired with `teleport` keeps
@@ -45,9 +50,9 @@ def main() raises:
     var s = Suite("strand")
 
     # ---- free hang and bending --------------------------------------------------------------
-    var free = _hang(0, 5, 2.0)
+    var free = _hang(0, 8, 2.0)
     var tip = free.tip(0)
-    print("  free strand after 5 s: tip", tip[0], tip[1], tip[2], " max stretch", free.max_stretch())
+    print("  free strand after 8 s: tip", tip[0], tip[1], tip[2], " max stretch", free.max_stretch())
     s.check(abs(tip[0]) < 2e-3 and abs(tip[1] - 1.25) < 2e-3 and free.max_stretch() < 1e-5, "free strand hangs straight, segments at rest length")
     var f2 = _hang(0, 1)
     var b2 = _hang(0.5, 1)
@@ -57,6 +62,17 @@ def main() raises:
     s.check(drop_bend < 0.5 * drop_free, "bending stiffness holds the strand up")
 
     # ---- head turn: swing and settle --------------------------------------------------------
+    var still = StrandSet(0.3)
+    var still_bones: List[Pose6] = [_pose(Vec3(0, 1.7, 0, 0))]
+    _ = still.add(0, still_bones[0], Vec3(0, 0.05, -0.1, 0), Vec3(0, -0.3, -1, 0), 16, 0.025)
+    var still_v = Real(0)
+    for k in range(1200):
+        still.step(DT, G, still_bones)
+        if k >= 1080:
+            for i in range(len(still.v)):
+                still_v = max(still_v, length(still.v[i]))
+    print("  ponytail on a still head: largest particle speed in the tenth second", still_v)
+    s.check(still_v < 0.01, "a strand on a still head comes to rest")
     var head = StrandSet(0.3)
     var bones: List[Pose6] = [_pose(Vec3(0, 1.7, 0, 0))]
     _ = head.add(0, bones[0], Vec3(0, 0.05, -0.1, 0), Vec3(0, -0.3, -1, 0), 16, 0.025)
@@ -67,17 +83,17 @@ def main() raises:
     var ref_set = StrandSet(0.3)
     var final_bones: List[Pose6] = [_pose(Vec3(0, 1.7, 0, 0), 1.5707963)]
     _ = ref_set.add(0, final_bones[0], Vec3(0, 0.05, -0.1, 0), Vec3(0, -0.3, -1, 0), 16, 0.025)
-    for _ in range(600):
+    for _ in range(2400):
         ref_set.step(DT, G, final_bones)
     var rest_tip = ref_set.tip(0)
-    for k in range(360 + turn):
+    for k in range(720 + turn):
         var yaw = Real(1.5707963) * min(Real(1), Real(k) / Real(turn))
         bones[0] = _pose(Vec3(0, 1.7, 0, 0), yaw)
         head.step(DT, G, bones)
         if k >= turn:
             peak = max(peak, length(head.tip(0) - rest_tip))
     var settle = length(head.tip(0) - rest_tip)
-    print("  head turn 90 deg in 0.2 s: tip swing peak", peak, " after 3 s", settle)
+    print("  head turn 90 deg in 0.2 s: tip swing peak", peak, " after 6 s", settle)
     s.check(peak > 0.05 and settle < 0.01, "ponytail swings out and settles to its rest shape on the turned head")
 
     # ---- collision ----------------------------------------------------------------------------
@@ -112,7 +128,7 @@ def main() raises:
             if w1.x[i] != w2.x[i]:
                 wsame = False
     print("  wind 5 m/s: tip x", w1.tip(0)[0])
-    s.check(w1.tip(0)[0] > 0.05, "wind blows the tip downwind")
+    s.check(w1.tip(0)[0] > 0.03, "wind blows the tip downwind")
     s.check(wsame, "uniform WindGrid == constant wind, bit for bit")
 
     # ---- extremes ----------------------------------------------------------------------------------

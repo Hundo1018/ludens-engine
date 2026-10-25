@@ -8,6 +8,10 @@ nanoseconds per `Swing.step` (the arc and linear modes sample so no blade
 point moves more than 1 cm).
 Table 2: N projectiles with quadratic drag over a floor, one step each:
 microseconds per step (one ray cast per projectile).
+Table 3: 1000 rounds at 300 m/s for 1 s, microseconds per step: plain,
+homing on a body and a 16-target proximity fuse in open space (one body,
+the target); with 0.5 m of penetration through a row of 0.1 m walls 1 m
+apart (a back cast per wall crossed; a crossing ends the tick's travel).
 """
 
 from std.time import perf_counter_ns
@@ -76,4 +80,28 @@ def main() raises:
         for _ in range(10):
             _ = ps.step(sc, 1.0 / 60.0, Vec3(0, -9.8, 0, 0))
         print("|", n, "|", (Int(perf_counter_ns()) - t0) // 10000, "|")
+    print("")
+    print("| 1000 rounds | us per step |")
+    print("|---|---:|")
+    for variant in range(4):
+        var sc = ContactScene6[QuatBody6]()
+        for w in range(1, 40 if variant == 1 else 1):
+            _ = sc.add(QuatBody6.at_rest(Vec3(Real(w) * 1.0 + 0.5, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), Vec3(0.05, 50, 50, 0), True)
+        var tgt = sc.add(QuatBody6.at_rest(Vec3(50, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), Vec3(0.3, 0.3, 0.3, 0), True).index()
+        var ps = ProjectileSet(1000)
+        if variant == 1:
+            ps.penetration = 0.5
+        if variant == 3:
+            ps.fuse_radius = 0.5
+            for k in range(16):
+                ps.fuse_targets.append(tgt if k == 0 else 0)
+        for i in range(1000):
+            var j = ps.spawn(Vec3(0, Real(i % 40) - 20, Real(i // 40) - 12, 0), Vec3(300, 0, 0, 0))
+            if variant == 2:
+                ps.set_homing(j, tgt, 2)
+        var t0 = Int(perf_counter_ns())
+        for _ in range(60):
+            _ = ps.step(sc, 1.0 / 60.0, Vec3(0, 0, 0, 0))
+        var names: List[String] = ["plain, open", "penetration 0.5 m, walls every 1 m", "homing, open", "fuse 16 targets, open"]
+        print("|", names[variant], "|", (Int(perf_counter_ns()) - t0) // 60000, "|")
     print("")

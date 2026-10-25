@@ -32,6 +32,7 @@ test = { cmd = "bash scripts/run_tests.sh unit component integration system", de
 test-all = { cmd = "bash scripts/run_tests.sh unit component integration system stress", depends-on = ["build", "arch-check"] }
 # Build the C-ABI shared library build/libludens.so (embed/capi.mojo, header embed/ludens.h; ROADMAP 12.1).
 capi = { cmd = "mojo build --emit shared-lib -I build -o build/libludens.so embed/capi.mojo", depends-on = ["build"] }
+bindings = "python3 scripts/gen_bindings.py"
 # Precompile every package with an f64 world scalar into build64/ (ROADMAP 17.8; scripts/build_f64.sh).
 build-f64 = "bash scripts/build_f64.sh"
 # Compile every GPU test and bench for an explicit accelerator (default sm_86) without running it (ROADMAP 17.17).
@@ -40,6 +41,9 @@ gpu-compile = { cmd = "bash scripts/gpu_compile_check.sh", depends-on = ["build"
 wheel = { cmd = "python3 python/build_wheel.py", depends-on = ["build"] }
 # Dead file references in README / CLAUDE / ROADMAP / ARCHITECTURE (scripts/doclint.py; ROADMAP 17.82).
 doclint = "python3 scripts/doclint.py"
+roadmap-status = "python3 scripts/roadmap_status.py"
+# Floating-point flag policy: exact toolchain pins, pinned target, no fast-math / -O (scripts/flag_policy.py; ROADMAP 17.84).
+flag-policy = "python3 scripts/flag_policy.py"
 # Engine modules nothing in the engine or examples imports, gated by scripts/orphans_allow.txt (ROADMAP 17.82).
 orphans = "python3 scripts/orphans.py"
 # Seed sweeps over randomised tests via LUDENS_SEED (scripts/fuzz.py; ROADMAP 17.82).
@@ -60,6 +64,11 @@ repro-probe = "python3 scripts/repro_probe.py"
 icount = "python3 scripts/icount.py"
 # Which CPU target / optimisation factors change simulation bits (scripts/fp_probe.py; ROADMAP 17.76).
 fp-probe = "python3 scripts/fp_probe.py"
+alloc-probe = "python3 scripts/alloc_probe.py"
+# Write .vdb files (tests/test_vdb_file.mojo) and read them with OpenVDB's own Python module (ROADMAP 17.63).
+vdb-check = { cmd = "mojo run -D ASSERT=all -I build tests/test_vdb_file.mojo && pixi exec --spec openvdb --spec python=3.12 -- python scripts/vdb_check.py build/vdb", depends-on = ["build"] }
+# Write .abc files (tests/test_abc_file.mojo) and import them with Blender's Alembic importer (bpy; ROADMAP 17.63).
+abc-check = { cmd = "mojo run -D ASSERT=all -I build tests/test_abc_file.mojo && python3 scripts/abc_check.py build/abc", depends-on = ["build"] }
 # Build, then run every example.
 examples = { cmd = "bash scripts/run_examples.sh", depends-on = ["build"] }
 # Build, then run every benchmark and write BENCHMARK_REPORT.md.

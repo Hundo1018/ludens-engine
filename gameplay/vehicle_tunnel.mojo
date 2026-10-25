@@ -17,6 +17,7 @@ drops into the same `Aero`. `scaled_cd` lets a caller calibrate a lattice
 result against a known reference shape.
 """
 
+from std.math import sin, cos
 from geometry.vec import Real
 from fluid.lbm import Lbm, BC_TUNNEL, CELL_SOLID
 
@@ -124,3 +125,56 @@ def scaled_cd(measured: Real, reference_measured: Real, reference_real: Real) ->
     if reference_measured <= 0:
         return measured
     return measured * (reference_real / reference_measured)
+
+
+@fieldwise_init
+struct PolarPoint(Copyable, ImplicitlyCopyable, Movable):
+    var alpha: Real  # angle of attack, radians
+    var cl: Real  # lift coefficient on chord x span, lattice
+    var cd: Real  # drag coefficient on chord x span, lattice
+
+
+def plate_polar(
+    alpha: Real,
+    chord: Int = 16,
+    nx: Int = 112,
+    ny: Int = 96,
+    nz: Int = 4,
+    u: Real = 0.05,
+    nu: Real = 0.02,
+    steps: Int = 2400,
+    avg: Int = 300,
+) -> PolarPoint:
+    """Lift and drag of a 2-cell-thick flat plate at angle of attack `alpha`
+    in an `Lbm` tunnel, spanning the periodic z axis (an infinite wing), as
+    force over 1/2 u^2 chord span. The lattice Reynolds number is
+    u chord / nu = 40, so the numbers are a viscous-flow polar, not a
+    high-Re airfoil's (a plate there gives CL ~ 2 pi alpha)."""
+    var t = Lbm(nx, ny, nz, nu, BC_TUNNEL)
+    t.init_uniform(1.0, u, 0, 0)
+    t.inlet_u = u
+    var xc = Real(nx // 4 + chord // 2)
+    var yc = Real(ny // 2)
+    var ca = cos(alpha)
+    var sa = sin(alpha)
+    for z in range(nz):
+        for y in range(ny):
+            for x in range(nx):
+                var dx = Real(x) - xc
+                var dy = Real(y) - yc
+                # chord runs leading edge -> trailing edge along (cos a, -sin a)
+                var s = dx * ca - dy * sa
+                var n = dx * sa + dy * ca
+                if abs(s) <= Real(chord) * 0.5 and abs(n) <= 1.0:
+                    t.flag[t.idx(x, y, z)] = CELL_SOLID
+    var fx = Real(0)
+    var fy = Real(0)
+    var m = 0
+    for k in range(steps):
+        t.step()
+        if k >= steps - avg:
+            fx += t.fx
+            fy += t.fy
+            m += 1
+    var q = Real(0.5) * u * u * Real(chord * nz)
+    return PolarPoint(alpha, fy / Real(m) / q, fx / Real(m) / q)

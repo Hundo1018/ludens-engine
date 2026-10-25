@@ -49,7 +49,7 @@ struct ContinuumHealth(Copyable, ImplicitlyCopyable, Movable):
     var unconverged: Int
 
 
-trait ContinuumSolver(Movable):
+trait ContinuumSolver(Movable, Deinitable):
     def advance(mut self, dt: Real, gravity: Vec3): ...
     def health(self) -> ContinuumHealth: ...
     def quarantine(mut self) -> Int: ...
@@ -94,18 +94,41 @@ def _fem_node_ok(b: FemBody, i: Int) -> Bool:
 
 
 struct FemContinuum(ContinuumSolver):
-    """`FemBody` under the contract (explicit `step`, a floor at
-    `floor_y`)."""
+    """`FemBody` under the contract (explicit `step` in `substeps`, or
+    `step_implicit` with `implicit`; a floor at `floor_y`). In a scene,
+    `FemContactPort` (`physics/fem_scene.mojo`) collides the nodes with the
+    colliders; use the explicit path there: contact is applied outside the
+    implicit solve, which hands back only m / (m + dt^2 k) of a light node's
+    elastic impulse per step (1/29 for E = 3e5 at 1/60 s), so a box sinks
+    into the block until it is compressed ~29x too far (measured 9 cm for
+    an expected 3 mm)."""
 
     var body: FemBody
     var floor_y: Real
+    var implicit: Bool
+    var substeps: Int  # explicit steps per advance (stability: dt / substeps)
 
-    def __init__(out self, var body: FemBody, floor_y: Real = -1e30):
+    def __init__(out self, var body: FemBody, floor_y: Real = -1e30, implicit: Bool = False, substeps: Int = 1):
         self.body = body^
         self.floor_y = floor_y
+        self.implicit = implicit
+        self.substeps = max(substeps, 1)
 
     def advance(mut self, dt: Real, gravity: Vec3):
-        self.body.step(dt, gravity, self.floor_y)
+        if self.implicit:
+            _ = self.body.step_implicit(dt, gravity, self.floor_y, 1e-5, 400)
+            return
+        if len(self.body.plastic) > 0 or len(self.body.fiber) > 0:
+            var hp = dt / Real(self.substeps)
+            for _ in range(self.substeps):
+                self.body.step_ext(hp, gravity, self.floor_y)
+            return
+        if self.substeps == 1:
+            self.body.step(dt, gravity, self.floor_y)
+            return
+        var h = dt / Real(self.substeps)
+        for _ in range(self.substeps):
+            self.body.step(h, gravity, self.floor_y)
 
     def health(self) -> ContinuumHealth:
         var bad = 0
@@ -190,7 +213,10 @@ struct MpmContinuum(ContinuumSolver):
         self.mpm = mpm^
 
     def advance(mut self, dt: Real, gravity: Vec3):
-        self.mpm.step(dt, gravity)
+        if self.mpm.dp_alpha > 0 or len(self.mpm.obstacles) > 0:
+            self.mpm.step_ext(dt, gravity)
+        else:
+            self.mpm.step(dt, gravity)
 
     def health(self) -> ContinuumHealth:
         var bad = 0

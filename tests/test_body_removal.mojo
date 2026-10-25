@@ -22,6 +22,7 @@ from geometry.vec import Real, Vec3
 from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6, Joint6
 from physics.body_set import BodyId
+from physics.solver_config import SolverConfig
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -150,4 +151,27 @@ def main() raises:
     _test_ordinary(s)
     _test_integration(s)
     _test_extreme(s)
+    # ROADMAP 17.79: removed slots stay out of the broadphase. 400 boxes in
+    # touching stacks, all removed: the BVH broadphase holds only the floor
+    # (it held all 401, and their stale overlaps cost 12.5 ms a step at
+    # 10000), and a box added afterwards reuses slot 1 and lands on the floor.
+    var big = ContactScene6[QuatBody6]()
+    _ = big.add(QuatBody6.at_rest(Vec3(0, -0.5, 0, 0), Inertia3.box(1, 50, 0.5, 50)), Vec3(50, 0.5, 50, 0), True)
+    var many = List[BodyId]()
+    for k in range(400):
+        many.append(big.add(QuatBody6.at_rest(Vec3(Real(k % 20) - 10, 0.25 + 0.5 * Real(k // 20), 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False))
+    var bcfg = SolverConfig()
+    bcfg.broadphase = True
+    big.step(1.0 / 60.0, Vec3(0, -9.8, 0, 0), bcfg)
+    var before = len(big.bp.items)
+    for id in many:
+        big.remove_body(id)
+    big.step(1.0 / 60.0, Vec3(0, -9.8, 0, 0), bcfg)
+    var after = len(big.bp.items)
+    var again = big.add(QuatBody6.at_rest(Vec3(3, 1, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    for _ in range(90):
+        big.step(1.0 / 60.0, Vec3(0, -9.8, 0, 0), bcfg)
+    print("broadphase items before / after removing 400:", before, after, "  re-added box slot", again.index(), " y", big.pose(again).pos[1])
+    s.check(before == 401 and after == 1, "removed bodies leave the broadphase")
+    s.check(again.index() == 1 and abs(big.pose(again).pos[1] - 0.25) < 0.01, "a box added after the mass removal reuses slot 1 and rests on the floor")
     s.finish()

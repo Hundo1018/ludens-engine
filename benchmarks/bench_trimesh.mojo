@@ -20,6 +20,12 @@ The terrain sweep is the point of the table. Query cost against the mesh grows
 with the tree's depth; against the field it does not grow at all, because the
 size of the terrain never enters the arithmetic.
 
+The reduction table (ROADMAP 17.19) prices `SolverConfig.reduce_mesh_contacts`:
+100 crates (0.8 x 0.6 x 0.8 m) sliding on a flat heightfield of 0.25 m cells
+(active-edge guard on), where each crate overlaps ~38 triangles and so gets as
+many manifolds; with reduction they merge into one. `m=` is manifolds per
+crate at the end.
+
 Run with: `mojo run -I build benchmarks/bench_trimesh.mojo`.
 """
 
@@ -28,6 +34,7 @@ from geometry.vec import Real, Vec3, length
 from geometry.aabb import AABB
 from collision.trimesh import TriMesh, HeightField
 from physics.rigid6 import Inertia3, QuatBody6
+from physics.solver_config import SolverConfig
 from physics.solver6 import ContactScene6
 from harness.bench import BenchTable, now
 
@@ -159,6 +166,28 @@ def bench_step(mut table: BenchTable, grid: Int, nb: Int, steps: Int, as_field: 
     table.add(label, f.ntri(), "step", t1 - t0, steps)
 
 
+def bench_reduce(mut table: BenchTable, reduce: Bool) raises:
+    var sc = ContactScene6[QuatBody6]()
+    var hs = List[Real]()
+    for _ in range(81 * 81):
+        hs.append(0)
+    var hid = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs^, 81, 81, 0.25, -10, -10)
+    sc.colliders.fields[sc.colliders.mesh_id[hid.index()]].set_active_angle(0.1)
+    for i in range(10):
+        for j in range(10):
+            var b = QuatBody6.at_rest(Vec3(Real(i) * 1.5 - 7, 0.3, Real(j) * 1.5 - 7, 0), Inertia3.box(1, 0.4, 0.3, 0.4))
+            b.set_velocity(Vec3(1, 0, 0.3, 0), Vec3(0, 0, 0, 0))
+            _ = sc.add(b^, Vec3(0.4, 0.3, 0.4, 0), False)
+    var cfg = SolverConfig()
+    cfg.broadphase = True
+    cfg.reduce_mesh_contacts = reduce
+    var t0 = now()
+    for _ in range(60):
+        sc.step(DT, G, cfg)
+    var t1 = now()
+    table.add(("reduce on " if reduce else "reduce off") + " m=" + String(len(sc.cache) // 100), 100, "step", t1 - t0, 60)
+
+
 def main() raises:
     var table = BenchTable("Static level geometry: midphase candidates per query")
     bench_size(table, 32, 512)
@@ -172,3 +201,8 @@ def main() raises:
         bench_step(st, 64, 64, 120, False)
         bench_step(st, 64, 64, 120, True)
     st.print_report()
+
+    var rt = BenchTable("Mesh contact reduction: 100 crates on a flat 0.25 m heightfield (17.19)")
+    bench_reduce(rt, False)
+    bench_reduce(rt, True)
+    rt.print_report()

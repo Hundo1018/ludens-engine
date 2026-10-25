@@ -1,4 +1,5 @@
 # tier: unit
+# run: alone
 """`harness.bench.measure_ab` (ROADMAP 17.83): interleaved A/B timing.
 
   1. A planted 2x workload (the same loop run twice as long) is resolved as

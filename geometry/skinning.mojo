@@ -19,6 +19,7 @@ sandwich dominate, so a GPU port or a specialized sandwich is the next win.
 from .vec import Real, Vec3
 from .mat import Mat4, transform_point4
 from .motor import Motor3
+from .galie import Screw3, exp_screw3, log_motor3
 
 
 # `SkinVert` used to live here: a struct wrapping one `Vec3`, because a bare
@@ -214,3 +215,99 @@ def inverse_bind(bind_pose: List[Motor3]) -> List[Motor3]:
     for m in bind_pose:
         out.append(m.reverse())
     return out^
+
+
+# ------------------------------------------------------------- scale channel
+# ROADMAP 17.65: motors carry no scale, so squash & stretch rides on a side
+# channel. Each bone has a scale (sx, sy, sz) about its joint centre c_b in
+# the bind pose, along the bind-pose axes. The vertex is first scaled in the
+# bind pose by the weight-blended per-bone scaling,
+#     p' = p + sum_j w_j (S_j (p - c_j) + c_j - p) / sum_j w_j,
+# then skinned by the K-bone DLB motor as `skin_motor_k`. All scales 1 give
+# p' = p and the plain path bit for bit (the scaling pass is skipped).
+
+
+def skin_motor_k_scaled(
+    bones: List[Motor3], scale: List[Vec3], centre: List[Vec3],
+    rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, mut out: List[Vec3],
+) raises:
+    if len(scale) != len(bones) or len(centre) != len(bones):
+        raise Error("skin_motor_k_scaled: one scale and one centre per bone")
+    var any = False
+    for s in scale:
+        if s[0] != 1 or s[1] != 1 or s[2] != 1:
+            any = True
+    if not any:
+        skin_motor_k(bones, rest, idx, w, k, out)
+        return
+    _check_k(len(bones), len(rest), idx, w, k, len(out))
+    var scaled = List[Vec3](length=len(rest), fill=Vec3(0, 0, 0, 0))
+    for v in range(len(rest)):
+        var p = rest[v]
+        var sw = Real(0)
+        var acc = Vec3(0, 0, 0, 0)
+        for j in range(k):
+            var b = idx[v * k + j]
+            var wj = w[v * k + j]
+            sw += wj
+            var d = p - centre[b]
+            var sd = Vec3(d[0] * scale[b][0], d[1] * scale[b][1], d[2] * scale[b][2], 0)
+            acc = acc + (sd + centre[b] - p) * wj
+        scaled[v] = p + acc * (1 / sw) if sw != 0 else p
+    skin_motor_k(bones, scaled, idx, w, k, out)
+
+
+# ------------------------------------------------------------------- DIB
+# ROADMAP 17.65: dual-quaternion iterative blending (Kavan et al. 2008) on
+# the motor Lie group. Start from the DLB blend m; repeat: m <- m exp(sum_j
+# w_j log(~m M_j) / sum_j w_j), with each M_j hemisphere-aligned to m. The
+# fixed point is the weighted mean on the manifold (DLB is its first-order
+# approximation); `iters` passes, stopping early once the update screw is
+# below 1e-7. All bones equal, or K = 1, give the same motor as DLB.
+# The DLB start is first projected onto the motor manifold (the dual-
+# quaternion normalisation: remove the component of the translational part
+# that breaks s pss = b12 b30 - b13 b20 + b23 b10). DLB's renormalisation
+# only scales the rotor; the leftover violation moves no point under
+# `apply_point` (4e-8 on test points) but log / exp read it, and without
+# the projection the iteration stopped 0.26 (coefficients) away from the
+# geodesic midpoint of two bones.
+
+
+@always_inline
+def _project(m: Motor3) -> Motor3:
+    var c = m.s * m.pss - m.b12 * m.b30 + m.b13 * m.b20 - m.b23 * m.b10
+    return Motor3(m.s, m.b12, m.b13, m.b23, m.b10 + c * m.b23, m.b20 - c * m.b13, m.b30 + c * m.b12, m.pss - c * m.s)
+
+
+def blend_k_iter(bones: List[Motor3], idx: List[Int], w: List[Real], base: Int, k: Int, iters: Int) -> Motor3:
+    var m = _project(blend_k(bones, idx, w, base, k))
+    var sw = Real(0)
+    for j in range(k):
+        sw += w[base + j]
+    if sw == 0 or k == 1:
+        return m
+    for _ in range(iters):
+        var inv = m.reverse()
+        var acc = Screw3.zero()
+        for j in range(k):
+            var mj = bones[idx[base + j]]
+            if _hemi(m, mj) < 0:
+                mj = Motor3(-mj.s, -mj.b12, -mj.b13, -mj.b23, -mj.b10, -mj.b20, -mj.b30, -mj.pss)
+            var l = log_motor3(inv * mj)
+            var wj = w[base + j] / sw
+            acc = Screw3(
+                acc.b12 + l.b12 * wj, acc.b13 + l.b13 * wj, acc.b23 + l.b23 * wj,
+                acc.b10 + l.b10 * wj, acc.b20 + l.b20 * wj, acc.b30 + l.b30 * wj,
+            )
+        m = _project((m * exp_screw3(acc)).normalized())
+        var n = abs(acc.b12) + abs(acc.b13) + abs(acc.b23) + abs(acc.b10) + abs(acc.b20) + abs(acc.b30)
+        if n < 1e-7:
+            break
+    return m
+
+
+def skin_dib_k(bones: List[Motor3], rest: List[Vec3], idx: List[Int], w: List[Real], k: Int, iters: Int, mut out: List[Vec3]) raises:
+    """Per-vertex DIB motor (`blend_k_iter`) and one sandwich."""
+    _check_k(len(bones), len(rest), idx, w, k, len(out))
+    for v in range(len(rest)):
+        out[v] = blend_k_iter(bones, idx, w, v * k, k, iters).apply_point(rest[v])

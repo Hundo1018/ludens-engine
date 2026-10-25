@@ -21,7 +21,8 @@ tests/benchmarks/examples).
 
 WIRING PER FIXED TICK (`advance`): `timers.advance(1, ...)` first (so a
 timer scheduled to fire "this tick" is visible to code that reacts to it
-before the physics step runs), then `scene.step(dt, gravity, cfg)`, then
+before the physics step runs; the fires collect in `fired` for the caller's
+`take_fired`, ROADMAP 17.72), then `scene.step(dt, gravity, cfg)`, then
 `scene.events` (this step's contact began/stay/ended, rebuilt fresh every
 step since `scene.events_on` is turned on by `Runtime.__init__`) is
 forwarded onto `events` (`scheduler.events.Channel`, the SAME adapter shape
@@ -34,7 +35,27 @@ unit, matching that test's own per-step `ch.update()` call), then poses
 sync into ECS transforms (`_sync_transforms`, one `for_each2` pass: reads
 `BodySet`, writes `ecs.transform.Transform` -- no `List[Entity]`
 allocation, the same zero-allocation path every other ECS system in this
-engine uses)."""
+engine uses).
+
+GAME FLOW (ROADMAP 17.72): `flow` is a `gameplay.flow.FlowStack`. Empty, every
+part ticks (the behaviour above). Otherwise the top state's `TICK_*` mask
+gates each part of `_tick`: `TICK_TIMERS` the timer queue, `TICK_SIM` the
+scene step with its pose sync and history, `TICK_EVENTS` forwarding that
+step's contact events. Time still accumulates and is consumed while a part
+is off, so a pause neither builds up a debt of ticks nor shifts what runs
+after it: pause N ticks, resume, run M == run M (`test_runtime_flow`).
+Systems passed to `advance_with` and coupled ports are the caller's; the
+mask does not reach them.
+
+OPERATIONS (ROADMAP 17.73): at the start of every frame the runtime takes
+the host's queued config (`inbox`, `gameplay.host_inbox`), stamps it with
+the frame's first tick and applies it to `config` (key -> value); data the
+host posts during a frame, or while a `begin_advance` step is in flight,
+lands on the next frame. At the end of every frame the `outbox`
+(`diag.outbox`, written by gameplay code during ticks) is drained into
+`ops` for the host to `take_ops`; `ops` is bounded by the outbox capacity,
+and records dropped by either (a full outbox, a host that does not take)
+are added to `OUTBOX_DROPPED`."""
 
 from std.time import perf_counter_ns
 from ecs.world import World
@@ -49,14 +70,20 @@ from physics.body_set import BodyId
 from physics.solver6 import ContactScene6, FORCE_MODE_FORCE
 from physics.solver_config import SolverConfig
 from physics.lod import SimBudget
+from physics.coupling import CouplingPort
+from physics.continuum import step_checked
 from scheduler.gameloop import FixedLoop
 from scheduler.jobgraph import JobGraphScheduler, DeclaredSystem
 from scheduler.events import Channel
 from scheduler.timers import TimerHeap, TimerFire
 from collision.contact_events import ContactEvent
-from diag.counters import GAMELOOP_DEBT_DROPPED
+from collision.collider_set import SHAPE_BOX, SHAPE_SPHERE
+from diag.counters import GAMELOOP_DEBT_DROPPED, OUTBOX_DROPPED, TIMER_FIRES_DROPPED
+from diag.outbox import Outbox, OutRecord
 from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 from .tiers import TierPolicy, Tier
+from .flow import FlowStack, TICK_SIM, TICK_TIMERS, TICK_EVENTS
+from .host_inbox import ConfigInbox
 
 
 @fieldwise_init
@@ -105,8 +132,15 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var executed: Bool
     var serial: Int
     var published: List[PoseQT]
+    var flow: FlowStack  # ROADMAP 17.72: empty = everything ticks
+    var outbox: Outbox  # ROADMAP 17.73: written during ticks
+    var ops: List[OutRecord]  # drained at frame end, for the host
+    var inbox: ConfigInbox  # host data, applied at frame start
+    var config: Dict[Int, Int]
+    var fired: List[TimerFire]  # ROADMAP 17.72: this frame's timer fires, for `take_fired`
+    var fired_capacity: Int
 
-    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8):
+    def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096, fired_capacity: Int = 4096):
         self.world = World[Self.B]()
         self.scene = ContactScene6[Self.Body]()
         # Contact events are off by default on a bare `ContactScene6` (the
@@ -125,6 +159,13 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.executed = False
         self.serial = 0
         self.published = List[PoseQT]()
+        self.flow = FlowStack()
+        self.outbox = Outbox(outbox_capacity)
+        self.ops = List[OutRecord]()
+        self.inbox = ConfigInbox()
+        self.config = Dict[Int, Int]()
+        self.fired = List[TimerFire]()
+        self.fired_capacity = fired_capacity
 
     # ------------------------------------------------------------ lifecycle
 
@@ -247,6 +288,50 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
                 self.scene.remove_body(r.id)
         self.world.despawn(e)
 
+    def carry_to(mut self, e: Entity, mut dst: Self) raises -> Entity:
+        """Move a dynamic body to another runtime (ROADMAP 17.72: the player
+        carried into the next level): the body value (pose, velocities,
+        mass) and its collider (box or sphere) are added to `dst` with the
+        per-body settings a game sets -- damping, gravity scale, velocity
+        caps, axis locks, friction (kinetic, static, combine mode),
+        restitution (and its combine mode) -- and the body and entity
+        leave this runtime. Returns the entity in `dst`. Other components
+        on `e` are the caller's to move (a world's component set is its
+        own). Raises for an entity that is not a live rigid body here, for
+        static bodies and for other collider kinds."""
+        if not self.world.is_alive(e) or not self.world.has[RigidBodyRef](e):
+            raise Error("Runtime.carry_to: not a live rigid-body entity of this runtime")
+        var id = self.body_of(e)
+        var i = id.index()
+        if self.scene.bset.is_static(i):
+            raise Error("Runtime.carry_to: static bodies stay with their level")
+        var kind = self.scene.colliders.shape[i]
+        var half = self.scene.colliders.half[i]
+        var body = self.scene.bset.bodies[i].copy()
+        var out: Entity
+        if kind == SHAPE_BOX:
+            out = dst.spawn_body(body^, half, False)
+        elif kind == SHAPE_SPHERE:
+            out = dst.spawn_sphere(body^, half[0], False)
+        else:
+            raise Error("Runtime.carry_to: only box and sphere bodies are carried")
+        ref bs = self.scene.bset
+        var j = dst.body_of(out).index()
+        dst.set_damping(out, bs.lin_damping[i], bs.ang_damping[i])
+        dst.set_gravity_scale(out, bs.gravity_scale[i])
+        dst.set_max_velocity(out, bs.max_lin[i], bs.max_ang[i])
+        var lk = bs.locks[i]
+        dst.set_axis_locks(out, lk & 1 != 0, lk & 2 != 0, lk & 4 != 0, lk & 8 != 0, lk & 16 != 0, lk & 32 != 0)
+        # raw copies: a negative friction is the "never set" sentinel, which
+        # `set_friction` refuses; combine modes and static friction go along
+        dst.scene.bset.friction[j] = bs.friction[i]
+        dst.scene.bset.static_friction[j] = bs.static_friction[i]
+        dst.scene.bset.friction_combine[j] = bs.friction_combine[i]
+        dst.scene.set_restitution(j, bs.restitution[i])
+        dst.scene.bset.restitution_combine[j] = bs.restitution_combine[i]
+        self.despawn(e)
+        return out
+
     # --------------------------------------------------------------- update
 
     def advance(mut self, frame_dt: Float64) raises -> Float64:
@@ -272,7 +357,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         # Age the event double buffer once per FRAME, not per fixed tick: a
         # frame that runs several ticks must still deliver the first tick's
         # events to readers that read once per frame.
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self._tick()
@@ -296,7 +381,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.advance_with: a begin_advance step is still in flight")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self._tick()
@@ -320,7 +405,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.begin_advance: the previous step was not finished")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var ticks = 0
         while self.loop.accumulator >= self.loop.dt and ticks < self.loop.max_steps:
             self.loop.accumulator -= self.loop.dt
@@ -354,6 +439,28 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.in_flight = False
         return self._finish_frame()
 
+    def advance_coupled[P: CouplingPort](mut self, frame_dt: Float64, mut port: P, mut solver: P.S) raises -> Float64:
+        """`advance` with a continuum solver coupled to the scene (ROADMAP
+        17.55): each fixed tick runs `port.before`, the solver's checked
+        step (`step_checked`, counted in the scene's counters),
+        `port.after`, then the rigid tick (events, transform sync,
+        history) -- the order `physics.coupling.couple_step` fixes."""
+        debug_assert(self.loop.dt > 0, "Runtime.advance_coupled: loop.dt must be > 0")
+        if self.in_flight:
+            raise Error("Runtime.advance_coupled: a begin_advance step is still in flight")
+        self.loop.accumulator += frame_dt
+        self._begin_frame()
+        var steps = 0
+        var dt = Real(self.loop.dt)
+        while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
+            port.before(self.scene, solver, dt, self.gravity)
+            _ = step_checked(solver, dt, self.gravity, self.scene.counters)
+            port.after(self.scene, solver, dt, self.gravity)
+            self._tick()
+            self.loop.accumulator -= self.loop.dt
+            steps += 1
+        return self._finish_frame()
+
     def advance_budgeted(mut self, frame_dt: Float64, mut budget: SimBudget) raises -> Float64:
         """`advance` under a step-time budget (ROADMAP 17.79): before each
         fixed tick `budget` sets `cfg.iters` / `cfg.substeps`, and the
@@ -364,7 +471,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         if self.in_flight:
             raise Error("Runtime.advance_budgeted: a begin_advance step is still in flight")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             budget.apply(self.cfg)
@@ -386,7 +493,7 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         history -- is `advance`'s."""
         debug_assert(self.loop.dt > 0, "Runtime.advance_tiered: loop.dt must be > 0")
         self.loop.accumulator += frame_dt
-        self.events.update()
+        self._begin_frame()
         var steps = 0
         while self.loop.accumulator >= self.loop.dt and steps < self.loop.max_steps:
             self.scene.set_body_tiers(policy.assign(self.scene, observers, self.scene.step_index))
@@ -412,16 +519,56 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
                 elif self.world.has[Tier[k, BASE]](e):
                     self.world.remove[Tier[k, BASE]](e)
 
+    def runs(self, what: Int) -> Bool:
+        """Whether the flow state lets `what` (a `TICK_*` bit) tick."""
+        return self.flow.depth() == 0 or self.flow.ticks(what)
+
     def _tick(mut self) raises:
-        var fired = List[TimerFire]()
-        self.timers.advance(1, fired)
+        if self.runs(TICK_TIMERS):
+            var fired = List[TimerFire]()
+            self.timers.advance(1, fired)
+            for f in fired:
+                if len(self.fired) < self.fired_capacity:
+                    self.fired.append(f)
+                else:
+                    self.loop.counters.incr(TIMER_FIRES_DROPPED)
+        if not self.runs(TICK_SIM):
+            return
         self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
-        for i in range(len(self.scene.events)):
-            self.events.send(self.scene.events[i].copy())
+        if self.runs(TICK_EVENTS):
+            for i in range(len(self.scene.events)):
+                self.events.send(self.scene.events[i].copy())
         self._sync_transforms()
         self._capture_history()
 
+    def _begin_frame(mut self):
+        self.events.update()
+        for e in self.inbox.take(self.scene.step_index):
+            self.config[e.key] = e.value
+
+    def take_fired(mut self) -> List[TimerFire]:
+        """The timer fires since the last call, in firing order (tick, then
+        the timer queue's order within a tick). Not taken, they pile up to
+        `fired_capacity`; past it the newest are dropped and counted in
+        `TIMER_FIRES_DROPPED`."""
+        var out = self.fired^
+        self.fired = List[TimerFire]()
+        return out^
+
+    def take_ops(mut self) -> List[OutRecord]:
+        var out = self.ops^
+        self.ops = List[OutRecord]()
+        return out^
+
     def _finish_frame(mut self) -> Float64:
+        for r in self.outbox.drain():
+            if len(self.ops) < self.outbox.capacity:
+                self.ops.append(r)
+            else:
+                self.outbox.dropped += 1
+        var d = self.outbox.take_dropped()
+        if d > 0:
+            self.loop.counters.incr(OUTBOX_DROPPED, Int64(d))
         if self.loop.accumulator >= self.loop.dt:
             # audit E22/F16's drop, replicated (FixedLoop.advance's own
             # docstring has the full reasoning): a frame-rate spike clamped

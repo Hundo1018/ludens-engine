@@ -1,4 +1,4 @@
-/* ludens-engine embedding API (ROADMAP 12.1), ABI v0.1.
+/* ludens-engine embedding API (ROADMAP 12.1), ABI v0.5.
  *
  * Build the library with `pixi run capi` -> build/libludens.so.
  * Contract (docs/design/12.1-embedding.md):
@@ -6,12 +6,17 @@
  *     list, return type or meaning; new functions and new status codes may
  *     be added (minor version bump). `tests/test_capi.mojo` checks every
  *     line of embed/abi_v0.txt is still present here verbatim.
- *   - Units: SI (m, kg, s, rad). Right-handed, +Y up for the default
- *     gravity the host passes. Quaternions are x, y, z, w.
+ *   - Units: SI (m, kg, s, rad) unless ld_world_set_unit_scale (0.5) names
+ *     another length unit. Right-handed, +Y up for the default gravity the
+ *     host passes. Quaternions are x, y, z, w.
  *   - Status: >= 0 success (or a count / handle), < 0 an LD_ERR_* code;
  *     ld_world_last_error() gives the message of the latest failure.
  *   - Threads: a world (and a navmesh) is used from one thread at a time;
- *     different worlds are independent.
+ *     different worlds are independent and may step on different threads
+ *     at once. ld_world_bind_thread (0.4) makes the rule checked: calls on
+ *     a bound world from any other thread return LD_ERR_THREAD.
+ *     GPU paths use one device context per process (docs/ARCHITECTURE.md);
+ *     the C-ABI worlds are CPU only.
  *   - Callbacks run inside ld_world_step / ld_world_step_ticks and may call
  *     any function on the same world except ld_world_destroy and
  *     ld_world_load (refused with LD_ERR_STATE); a non-zero return stops
@@ -29,7 +34,7 @@ extern "C" {
 #endif
 
 #define LD_ABI_MAJOR 0
-#define LD_ABI_MINOR 3
+#define LD_ABI_MINOR 4
 
 #define LD_OK 0
 #define LD_ERR_HANDLE (-1)   /* null or destroyed world / navmesh handle */
@@ -39,6 +44,7 @@ extern "C" {
 #define LD_ERR_FORMAT (-5)   /* save blob truncated or not a world blob */
 #define LD_ERR_CALLBACK (-6) /* a host callback returned non-zero */
 #define LD_ERR_STATE (-7)    /* refused in the current state */
+#define LD_ERR_THREAD (-8)   /* called from a thread other than the bound one (0.4) */
 
 #define LD_PHASE_PRE 0  /* systems run before the physics tick */
 #define LD_PHASE_POST 1 /* systems run after it (and after contact subscribers) */
@@ -115,6 +121,20 @@ int32_t ld_world_capture_begin(ld_world* w, int32_t key_every);
 int32_t ld_world_capture_end(ld_world* w);
 int64_t ld_world_capture_size(ld_world* w);
 int64_t ld_world_capture_read(ld_world* w, uint8_t* buf, int64_t cap);
+
+/* ---- 0.4 (ROADMAP 17.78): host mapping -- layers, user data, thread binding */
+int32_t ld_world_bind_thread(ld_world* w, int32_t on);
+int32_t ld_body_set_layer(ld_world* w, ld_body b, uint32_t category, uint32_t mask);
+int32_t ld_world_raycast_mask(ld_world* w, float ox, float oy, float oz, float dx, float dy, float dz, float max_t, uint32_t mask, ld_body* out_body, float* out_hit7);
+int32_t ld_body_set_user(ld_world* w, ld_body b, uint64_t user);
+int32_t ld_body_get_user(ld_world* w, ld_body b, uint64_t* out);
+int64_t ld_world_find_user(ld_world* w, uint64_t user);
+
+/* ---- 0.5 (ROADMAP 17.78): units at the boundary. per_meter host length
+ * units make one meter (100: centimetres); positions, sizes, velocities and
+ * gravity are then all given in host units, and the solver's absolute
+ * length tolerances are rescaled to match. A setting, not saved. */
+int32_t ld_world_set_unit_scale(ld_world* w, float per_meter);
 
 #ifdef __cplusplus
 }

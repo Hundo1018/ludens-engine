@@ -17,6 +17,9 @@ touching the backends' generic contract:
 
 from std.collections import Dict
 from .entity import Entity
+from .world import World
+from .storage import StorageBackend
+from .component import ComponentType
 
 
 def _f64_bits(v: Float64) -> UInt64:
@@ -253,3 +256,23 @@ def _get(d: List[UInt8], at: Int) raises -> Int:
     for k in range(8):
         u |= UInt64(d[at + k]) << UInt64(8 * k)
     return Int(u)
+
+
+def query_host[B: StorageBackend, A: ComponentType](
+    world: World[B], hc: HostComponents, host_ids: List[Int]
+) raises -> List[Entity]:
+    """Entities that have compile-time component `A` and every host-defined
+    component in `host_ids` (ROADMAP 17.78: host components in the same
+    query as compiled ones), in `A`'s query order. Unknown ids raise."""
+    for cid in host_ids:
+        hc._check(cid)
+    var out = List[Entity]()
+    for e in world.query1[A]():
+        var ok = True
+        for cid in host_ids:
+            if not hc.has(e, cid):
+                ok = False
+                break
+        if ok:
+            out.append(e)
+    return out^

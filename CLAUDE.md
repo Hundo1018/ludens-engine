@@ -25,15 +25,18 @@ pixi run arch-check        # 分層/循環/私有名稱穿透檢查 + 測試 tie
 pixi run arch -- <cmd>     # 架構索引查詢:def NAME / impl TRAIT / uses MOD / deps MOD / raises PKG / check / tiers
 pixi run gate              # 變更的總閘門:整套測試 + 摘要 + 與 tests/golden/test_stdout.txt 比對
 pixi run gate -- --update-golden   # 接受本次輸出為新 golden
+LUDENS_TEST_JOBS=4 pixi run gate   # 同時跑 4 個測試檔(輸出依原順序印出,與循序執行逐位元相同)
 pixi run gate -- --selftest        # 測試閘門工具本身(golden、archindex)
 pixi run benchmark         # 重跑所有 bench,重新產生 BENCHMARK_REPORT.md
 ONLY="bench_x.mojo" pixi run benchmark   # 只重跑列出的 bench,其餘取 build/bench_out/ 快取(需先有一次完整執行)
 pixi run repro-probe       # 同 commit 連建兩次,比對 build/*.mojoc 校驗和(17.81)
 pixi run icount            # cachegrind 指令數(固定工作量,散佈約 1e-3;--selftest 注入 +10 %)
 pixi run fp-probe          # 哪些目標 / 優化因子改變模擬位元(只有 FMA 有無與 -O0;17.76)
+pixi run flag-policy       # 浮點旗標政策:工具鏈精確鎖定、x86-64 目標釘死、無 fast-math / -O(ARCHITECTURE §6;17.84)
 pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.mojo;凍結清單 embed/abi_v0.txt)
 pixi run build-f64         # 以 f64 世界純量建全部套件到 build64/(scripts/build_f64.sh,約 1 分鐘;17.8)
 pixi run wheel             # 建 Python wheel build/dist/ludens-*.whl(python/;ctypes 包 C-ABI,內含 Mojo runtime)
+pixi run bindings          # 由 embed/ludens.h 產生 bindings/rust/ludens_sys.rs(--check 檢查是否過時;test_capi 以 rustc 編譯並比對雜湊)
 pixi run examples | experiments | spikes
 ```
 

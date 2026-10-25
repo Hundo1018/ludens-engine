@@ -31,6 +31,7 @@ angular damping scaled by the submerged fraction. Submerged volume:
 from std.math import sqrt
 from geometry.vec import Real, Vec3, dot
 from collision.collider_set import SHAPE_BOX, SHAPE_SPHERE
+from fluid.lbm import Lbm
 from .rigid6 import Body6
 from .solver6 import ContactScene6
 
@@ -90,6 +91,17 @@ struct WindGrid(Copyable, Movable):
         self.origin = origin
         self.cell = cell
         self.vel = List[Vec3](length=nx * ny * nz, fill=fill)
+
+    @staticmethod
+    def from_lbm(lattice: Lbm, origin: Vec3, cell: Real, speed: Real) -> WindGrid:
+        """One node per lattice cell, same indexing, holding that cell's
+        velocity (17.61: the LBM wind feeds `apply_fields` / `StrandAir`).
+        Node (i, j, k) sits at origin + (i, j, k) * cell; `speed` converts
+        lattice units to m/s, so the caller picks the physical scale."""
+        var g = WindGrid(lattice.nx, lattice.ny, lattice.nz, origin, cell, Vec3(0, 0, 0, 0))
+        for c in range(lattice.cells()):
+            g.vel[c] = lattice.velocity(c) * speed
+        return g^
 
     def at(self, i: Int, j: Int, k: Int) -> Vec3:
         return self.vel[(k * self.ny + j) * self.nx + i]
@@ -206,12 +218,41 @@ def box_submerged_exact(c: Vec3, half: Vec3, surface: Real) -> Tuple[Real, Vec3]
     return (v, Vec3(c[0], bottom + h / 2, c[2], 0))
 
 
+def _cell_half_height[B: Body6](body: B, half: Vec3, n: Int) -> Real:
+    """World-y half-extent of one sample cell of the (rotated) box: the
+    three half-edges of the cell projected onto y, summed."""
+    var p = body.position()
+    var ex = body.act(Vec3(half[0] / Real(n), 0, 0, 0)) - p
+    var ey = body.act(Vec3(0, half[1] / Real(n), 0, 0)) - p
+    var ez = body.act(Vec3(0, 0, half[2] / Real(n), 0)) - p
+    return abs(ex[1]) + abs(ey[1]) + abs(ez[1])
+
+
+def _cell_below(wp: Vec3, e: Real, surface: Real, cell_v: Real) -> Tuple[Real, Vec3]:
+    """(volume, centroid) of the part of a sample cell centred at `wp`
+    with world-y half-extent `e` that lies below `surface`: the fraction
+    of its height under water, so the volume is continuous in the
+    waterline. A cell counted whole or not at all made the submerged
+    volume a staircase with one step per cell layer, and a floating box
+    settled on a step edge instead of at M / (rho A) (1.3 % off for the
+    test_fields cube, 17 % in water 1.5 x as dense; 17.61)."""
+    var f = (surface - (wp[1] - e)) / (2 * e)
+    if f <= 0:
+        return (Real(0), wp)
+    if f > 1:
+        f = 1
+    return (cell_v * f, Vec3(wp[0], wp[1] - e + f * e, wp[2], 0))
+
+
 def box_submerged_sampled[B: Body6](
     body: B, half: Vec3, surface: Real, samples: Int
 ) -> Tuple[Real, Vec3]:
-    """Midpoint integration over `samples`^3 cells of the (rotated) box."""
+    """Midpoint integration over `samples`^3 cells of the (rotated) box,
+    each cell weighted by the fraction of its height below the surface
+    (`_cell_below`). Exact for an axis-aligned box at any waterline."""
     var n = samples
     var cell_v = 8 * half[0] * half[1] * half[2] / Real(n * n * n)
+    var e = _cell_half_height(body, half, n)
     var v = Real(0)
     var acc = Vec3(0, 0, 0, 0)
     for i in range(n):
@@ -223,10 +264,10 @@ def box_submerged_sampled[B: Body6](
                     (Real(2 * k + 1) / Real(n) - 1) * half[2],
                     0,
                 )
-                var wp = body.act(lp)
-                if wp[1] < surface:
-                    v += cell_v
-                    acc = acc + wp * cell_v
+                var part = _cell_below(body.act(lp), e, surface, cell_v)
+                if part[0] > 0:
+                    v += part[0]
+                    acc = acc + part[1] * part[0]
     if v <= 0:
         return (Real(0), body.position())
     return (v, acc * (1 / v))

@@ -57,7 +57,12 @@ class StateError(LudensError):
     code = C.LD_ERR_STATE
 
 
-_BY_CODE = {e.code: e for e in (HandleError, ArgumentError, StaleBodyError, BufferTooSmallError, FormatError, CallbackError, StateError)}
+class ThreadError(LudensError):
+    """Called from a thread other than the one bound by `World.bind_thread`."""
+    code = C.LD_ERR_THREAD
+
+
+_BY_CODE = {e.code: e for e in (HandleError, ArgumentError, StaleBodyError, BufferTooSmallError, FormatError, CallbackError, StateError, ThreadError)}
 
 
 def abi_version():
@@ -121,6 +126,21 @@ class Body:
 
     def remove(self):
         self.world._check(C.lib.ld_body_remove(self.world._h, self.handle))
+
+    def set_layer(self, category, mask=0xFFFFFFFF):
+        """Collision layer: category bits and the categories it collides with."""
+        self.world._check(C.lib.ld_body_set_layer(self.world._h, self.handle, int(category), int(mask)))
+
+    @property
+    def user(self):
+        """Host value attached to the body (0 = none); saved with the world."""
+        out = c_uint64(0)
+        self.world._check(C.lib.ld_body_get_user(self.world._h, self.handle, byref(out)))
+        return out.value
+
+    @user.setter
+    def user(self, value):
+        self.world._check(C.lib.ld_body_set_user(self.world._h, self.handle, int(value)))
 
 
 class World:
@@ -193,6 +213,11 @@ class World:
     def set_gravity(self, g):
         self._check(C.lib.ld_world_set_gravity(self._h, *_f3(g, "gravity")))
 
+    def set_unit_scale(self, per_meter):
+        """Host length units per meter (ABI 0.5): 100 for centimetres. All
+        lengths, velocities and gravity are then given in host units."""
+        self._check(C.lib.ld_world_set_unit_scale(self._h, float(per_meter)))
+
     @property
     def tick(self):
         return self._check(C.lib.ld_world_tick(self._h))
@@ -252,13 +277,28 @@ class World:
 
     # -- queries
 
-    def raycast(self, origin, direction, max_t=1e30):
+    def raycast(self, origin, direction, max_t=1e30, mask=None):
         b = c_int64(-1)
         out = (c_float * 7)()
-        r = self._check(C.lib.ld_world_raycast(self._h, *_f3(origin, "origin"), *_f3(direction, "direction"), float(max_t), byref(b), out))
+        if mask is None:
+            r = self._check(C.lib.ld_world_raycast(self._h, *_f3(origin, "origin"), *_f3(direction, "direction"), float(max_t), byref(b), out))
+        else:
+            r = self._check(C.lib.ld_world_raycast_mask(self._h, *_f3(origin, "origin"), *_f3(direction, "direction"), float(max_t), int(mask), byref(b), out))
         if r == 0:
             return None
         return Hit(Body(self, b.value), out[0], tuple(out[1:4]), tuple(out[4:7]))
+
+    def find_user(self, value):
+        """The live body carrying host value `value`, or None."""
+        r = C.lib.ld_world_find_user(self._h, int(value))
+        if r == C.LD_ERR_STALE:
+            return None
+        return Body(self, self._check(r))
+
+    def bind_thread(self, on=True):
+        """Bind the world to the calling thread: calls from other threads
+        raise ThreadError (ABI 0.4). `on=False` unbinds."""
+        self._check(C.lib.ld_world_bind_thread(self._h, 1 if on else 0))
 
     # -- systems and events
 

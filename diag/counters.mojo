@@ -115,7 +115,17 @@ comptime OUTBOX_DROPPED: Int = 23
 """`diag.outbox.Outbox` was full and dropped the newest record (ROADMAP
 17.73): the host drained it too slowly or the capacity is too small."""
 
-comptime COUNT: Int = 24
+comptime COUPLING_REJECTED: Int = 24
+"""`physics.coupler.Coupler` received non-finite (or wrongly sized)
+interface data from one solver and passed the last finite data on
+instead (ROADMAP 17.61)."""
+
+comptime TIMER_FIRES_DROPPED: Int = 25
+"""`gameplay.runtime.Runtime` held more timer fires than its capacity
+because the caller did not `take_fired` them, and dropped the newest
+(ROADMAP 17.72)."""
+
+comptime COUNT: Int = 26
 
 
 def counter_name(id: Int) -> String:
@@ -173,6 +183,10 @@ def _name(id: Int) -> String:
         return "continuum_escaped"
     elif id == OUTBOX_DROPPED:
         return "outbox_dropped"
+    elif id == COUPLING_REJECTED:
+        return "coupling_rejected"
+    elif id == TIMER_FIRES_DROPPED:
+        return "timer_fires_dropped"
     else:
         return "counter_" + String(id)
 

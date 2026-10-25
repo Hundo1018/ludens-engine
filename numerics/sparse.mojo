@@ -29,16 +29,19 @@ vectors to an operator does nothing else all day (`collision/hull.mojo` carries
 the reduced probe).
 """
 
+from max.algorithm import parallelize
 from geometry.vec import Real
 
 
 trait LinearOperator:
     """Anything that can apply itself to a vector.
 
-    `apply` must be linear and, for the solvers here, symmetric positive
-    (semi)definite — conjugate gradients is not merely slower on a
-    non-symmetric operator, it converges to the wrong thing, so this is a
-    precondition and not a hint."""
+    `apply` must be linear. What else it must be depends on the solver:
+    `cg` / `pcg` / `pcg_ic0` need symmetric positive (semi)definite —
+    conjugate gradients is not merely slower on a non-symmetric operator, it
+    converges to the wrong thing, so this is a precondition and not a hint;
+    `minres` needs symmetric (indefinite is fine); `bicgstab` / `gmres` take
+    any non-singular operator."""
 
     def size(self) -> Int: ...
 
@@ -158,6 +161,57 @@ struct CsrMatrix(LinearOperator, Movable, Deinitable):
                 if not found and abs(self.val[k]) > tol:
                     return False
         return True
+
+
+struct ParallelCsr(LinearOperator, Movable, Deinitable):
+    """A `CsrMatrix` whose `apply` runs blocks of `block` rows on worker
+    threads (`max.algorithm.parallelize`; `workers` = 0 uses the runtime's
+    default width). Each row is summed in the same order as
+    `CsrMatrix.apply`, so the product is bit-identical to the serial one
+    (`test_par_spmv`); every solver here takes it as a `LinearOperator`.
+    Below a few thousand rows the dispatch costs more than it saves
+    (`bench_numerics_deep`), so `apply` runs serially when there is only
+    one block."""
+
+    var m: CsrMatrix
+    var block: Int
+    var workers: Int
+
+    def __init__(out self, var m: CsrMatrix, block: Int = 2048, workers: Int = 0):
+        self.m = m^
+        self.block = max(1, block)
+        self.workers = workers
+
+    def size(self) -> Int:
+        return self.m.n
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        var n = self.m.n
+        var bs = self.block
+        var nb = (n + bs - 1) // bs
+        if nb <= 1:
+            self.m.apply(x, out)
+            return
+        var op = out.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
+        var mp = Pointer(to=self.m)
+        var xp = Pointer(to=x)
+
+        def rows(k: Int) {imm mp, imm xp, imm op, imm bs, imm n}:
+            var lo = k * bs
+            var hi = min(n, lo + bs)
+            for i in range(lo, hi):
+                var acc = Real(0)
+                for q in range(mp[].row_start[i], mp[].row_start[i + 1]):
+                    acc += mp[].val[q] * xp[][mp[].col[q]]
+                op[unsafe_offset=i] = acc
+
+        if self.workers > 0:
+            parallelize(rows, nb, self.workers)
+        else:
+            parallelize(rows, nb)
+
+    def diagonal(self, mut out: List[Real]):
+        self.m.diagonal(out)
 
 
 def poisson_1d(n: Int, h: Real = 1) -> CsrMatrix:

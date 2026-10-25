@@ -56,6 +56,7 @@ struct Ragdoll(Movable):
         zeta: Real = 1,
         max_torque: Real = 400,
         collide_connected: Bool = True,
+        masses: List[Real] = List[Real](),
     ) raises:
         self.parent = parent^
         self.offset = offset^
@@ -68,7 +69,8 @@ struct Ragdoll(Movable):
         for b in range(n):
             var q = pose_world.q(b)
             var c = pose_world.p(b) + q.rotate(self.offset[b])
-            var body = QuatBody6.at_rest(c, Inertia3.box(mass, half[b][0], half[b][1], half[b][2]))
+            var mb = masses[b] if len(masses) == n else mass
+            var body = QuatBody6.at_rest(c, Inertia3.box(mb, half[b][0], half[b][1], half[b][2]))
             body.q = q
             var id = sc.add(body^, half[b], False)
             sc.set_can_sleep(id, False)

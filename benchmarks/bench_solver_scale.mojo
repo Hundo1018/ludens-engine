@@ -21,6 +21,11 @@ across the whole pass and degrade it toward O(n); a hash grid sized for the
 small bodies pays for the same huge box in every cell it spans. Neither
 backend's docstring claims to be spread-proof -- this is the measurement
 that would catch it if either quietly stopped being O(n) under spread.
+
+The mass-ratio table (ROADMAP 17.19) is the cost of `max_mass_ratio`: the
+same grid of 2-box towers stepped through `step(cfg)` with the option off
+and at 10 (the per-step contact-mass relaxation over the pairs plus a
+multiply per row).
 """
 
 from std.time import perf_counter_ns
@@ -35,6 +40,7 @@ from collision.bp_sap import SapBroadPhase
 from collision.bp_hashgrid import SpatialHashBroadPhase
 from collision.bp_tree import OctreeBroadPhase
 from diag.level import TRACE_ON
+from physics.solver_config import SolverConfig
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -185,6 +191,20 @@ def main() raises:
     var hash_spread = _spread_scene[SpatialHashBroadPhase[3]](SPREAD_N, True)
     t3.add("hashgrid 20:1 spread", SPREAD_N, "step", _run_bp(hash_spread), STEPS)
     t3.print_report()
+
+    var tm = BenchTable("max_mass_ratio cost: grid of 2-box towers, step(cfg) with BVH broadphase (17.19)")
+    for side in [8, 16, 32]:
+        var n = 2 * side * side
+        for ratio in [Real(0), Real(10)]:
+            var cfg = SolverConfig()
+            cfg.broadphase = True
+            cfg.max_mass_ratio = ratio
+            var sc = _grid(side)
+            var t0 = Int(perf_counter_ns())
+            for _ in range(STEPS):
+                sc.step(DT, G, cfg)
+            tm.add(("ratio off" if ratio == 0 else "ratio 10 ") + " N=" + String(n), n, "step", Int(perf_counter_ns()) - t0, STEPS)
+    tm.print_report()
 
     # Table 4 (ROADMAP 17.0h): diag overhead on the production step path.
     # `TRACE_ON` is resolved once per COMPILED binary (`-D LUDENS_TRACE` is a

@@ -22,7 +22,7 @@ from ctypes import (
 )
 
 ABI_MAJOR = 0
-ABI_MINOR = 3
+ABI_MINOR = 5
 
 LD_OK = 0
 LD_ERR_HANDLE = -1
@@ -32,6 +32,7 @@ LD_ERR_BUFFER = -4
 LD_ERR_FORMAT = -5
 LD_ERR_CALLBACK = -6
 LD_ERR_STATE = -7
+LD_ERR_THREAD = -8
 
 LD_PHASE_PRE = 0
 LD_PHASE_POST = 1
@@ -103,6 +104,14 @@ PROTOTYPES = {
     "ld_world_capture_end": (c_int32, [_W]),
     "ld_world_capture_size": (c_int64, [_W]),
     "ld_world_capture_read": (c_int64, [_W, POINTER(c_uint8), c_int64]),
+    # 0.4 (17.78): host mapping
+    "ld_world_bind_thread": (c_int32, [_W, c_int32]),
+    "ld_body_set_layer": (c_int32, [_W, c_int64, c_uint32, c_uint32]),
+    "ld_world_raycast_mask": (c_int32, [_W, _F, _F, _F, _F, _F, _F, _F, c_uint32, POINTER(c_int64), POINTER(c_float)]),
+    "ld_body_set_user": (c_int32, [_W, c_int64, c_uint64]),
+    "ld_body_get_user": (c_int32, [_W, c_int64, POINTER(c_uint64)]),
+    "ld_world_find_user": (c_int64, [_W, c_uint64]),
+    "ld_world_set_unit_scale": (c_int32, [_W, _F]),
 }
 
 

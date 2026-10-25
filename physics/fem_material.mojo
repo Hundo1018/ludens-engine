@@ -23,11 +23,24 @@ module puts the stress law behind a trait, chosen at compile time:
 All three agree at small strain and give zero force under a rigid rotation
 (`test_fem_material`); they differ under large compression, which is the
 point of the seam.
+
+IMPLICIT NEO-HOOKEAN (17.58). `step_implicit_nh` is `FemBody.step_implicit`'s
+linearised backward Euler with the stable Neo-Hookean tangent in place of
+the co-rotational one. `NhImplicitOp` applies dP = mu dF + lambda_s
+(cof F : dF) cof F + lambda_s (J - alpha) d cof(F)[dF] matrix-free, where
+cof F's columns are f1 x f2, f2 x f0, f0 x f1 (f_i the columns of F), so
+d cof is a sum of cross products. The tangent is symmetric (an energy
+Hessian) but indefinite under compression (the (J - alpha) d cof term), so
+the solve is `numerics.minres`, not CG (`test_fem_nh_implicit`).
 """
 
-from geometry.vec import Real, Vec3
+from geometry.vec import Real, Vec3, cross
 from geometry.mat import Mat3
-from .fem import FemBody, polar_rotation, det3
+from .fem import FemBody, polar_rotation, det3, _inv3
+from numerics.sparse import LinearOperator
+from numerics.cg import CgResult
+from numerics.minres import minres
+from diag.counters import CG_NOT_CONVERGED
 
 
 trait Material:
@@ -168,3 +181,370 @@ def inverted_count(body: FemBody) -> Int:
         if det3(deformation_gradient(body, t)) <= 0:
             k += 1
     return k
+
+
+def _col(m: Mat3, j: Int) -> Vec3:
+    return Vec3(m.get(0, j), m.get(1, j), m.get(2, j), 0)
+
+
+def _set_col(mut m: Mat3, j: Int, v: Vec3):
+    for i in range(3):
+        m.set(i, j, v[i])
+
+
+def nh_dpk1(f: Mat3, df: Mat3, mu: Real, lam: Real) -> Mat3:
+    """Differential of `StableNeoHookean.pk1` at F in direction dF."""
+    var lam_s = lam + mu
+    var alpha = 1 + mu / lam_s
+    var j = det3(f)
+    var c = cofactor(f)
+    var cdf = Real(0)
+    for a in range(3):
+        for b in range(3):
+            cdf += c.get(a, b) * df.get(a, b)
+    var f0 = _col(f, 0)
+    var f1 = _col(f, 1)
+    var f2 = _col(f, 2)
+    var d0 = _col(df, 0)
+    var d1 = _col(df, 1)
+    var d2 = _col(df, 2)
+    var dc = Mat3()
+    _set_col(dc, 0, cross(d1, f2) + cross(f1, d2))
+    _set_col(dc, 1, cross(d2, f0) + cross(f2, d0))
+    _set_col(dc, 2, cross(d0, f1) + cross(f0, d1))
+    var dp = Mat3()
+    for a in range(3):
+        for b in range(3):
+            dp.set(a, b, mu * df.get(a, b) + lam_s * cdf * c.get(a, b) + lam_s * (j - alpha) * dc.get(a, b))
+    return dp^
+
+
+struct NhImplicitOp(LinearOperator, Movable):
+    """A = M - dt^2 df/dx with the stable Neo-Hookean tangent at the
+    snapshot F of every element (F is fixed for the solve, so the operator
+    does not change between Krylov iterations)."""
+
+    var n: Int
+    var dt: Real
+    var mu: Real
+    var lam: Real
+    var tet_idx: List[Int]
+    var f: List[Mat3]
+    var dm_inv: List[Mat3]
+    var vol: List[Real]
+    var mass: List[Real]
+
+    def __init__(out self, body: FemBody, dt: Real):
+        self.n = body.node_count()
+        self.dt = dt
+        self.mu = body.mu
+        self.lam = body.lam
+        self.tet_idx = List[Int]()
+        self.f = List[Mat3]()
+        self.dm_inv = List[Mat3]()
+        self.vol = List[Real]()
+        for t in range(len(body.tets)):
+            var tt = body.tets[t]
+            self.tet_idx.append(tt.a)
+            self.tet_idx.append(tt.b)
+            self.tet_idx.append(tt.c)
+            self.tet_idx.append(tt.d)
+            self.f.append(deformation_gradient(body, t))
+            self.dm_inv.append(tt.dm_inv)
+            self.vol.append(tt.vol)
+        self.mass = List[Real]()
+        for i in range(self.n):
+            self.mass.append(Real(0) if body.inv_m[i] == 0 else Real(1) / body.inv_m[i])
+
+    def size(self) -> Int:
+        return 3 * self.n
+
+    def stiffness_apply(self, du: List[Real], mut out: List[Real]):
+        """Out = (df/dx) du."""
+        for i in range(len(out)):
+            out[i] = 0
+        for e in range(len(self.vol)):
+            var a = self.tet_idx[4 * e]
+            var b = self.tet_idx[4 * e + 1]
+            var c = self.tet_idx[4 * e + 2]
+            var d = self.tet_idx[4 * e + 3]
+            var dds = Mat3()
+            for k in range(3):
+                dds.set(k, 0, du[3 * b + k] - du[3 * a + k])
+                dds.set(k, 1, du[3 * c + k] - du[3 * a + k])
+                dds.set(k, 2, du[3 * d + k] - du[3 * a + k])
+            var dmi = self.dm_inv[e]
+            var dp = nh_dpk1(self.f[e], dds * dmi, self.mu, self.lam)
+            var h = dp * dmi.transpose()
+            var w = self.vol[e]
+            for k in range(3):
+                var g1 = -w * h.get(k, 0)
+                var g2 = -w * h.get(k, 1)
+                var g3 = -w * h.get(k, 2)
+                out[3 * b + k] += g1
+                out[3 * c + k] += g2
+                out[3 * d + k] += g3
+                out[3 * a + k] -= g1 + g2 + g3
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        self.stiffness_apply(x, out)
+        var dt2 = self.dt * self.dt
+        for i in range(self.n):
+            for k in range(3):
+                if self.mass[i] == 0:
+                    out[3 * i + k] = x[3 * i + k]
+                else:
+                    out[3 * i + k] = self.mass[i] * x[3 * i + k] - dt2 * out[3 * i + k]
+
+    def diagonal(self, mut out: List[Real]):
+        for i in range(self.n):
+            for k in range(3):
+                out[3 * i + k] = Real(1) if self.mass[i] == 0 else self.mass[i]
+
+
+def step_implicit_nh(
+    mut body: FemBody, dt: Real, gravity: Vec3, floor_y: Real = -1e30,
+    tol: Real = 1e-4, max_iters: Int = 0,
+) -> CgResult:
+    """Linearised backward Euler with the stable Neo-Hookean tangent:
+    (M - dt^2 K) dv = dt (f(x) + M g + dt K v), K = df/dx at the current x,
+    solved with MINRES. A non-converged solve is dropped and counted
+    (`CG_NOT_CONVERGED`), as in `FemBody.step_implicit`."""
+    var n = body.node_count()
+    var fx = List[Real](length=n, fill=0)
+    var fy = List[Real](length=n, fill=0)
+    var fz = List[Real](length=n, fill=0)
+    material_forces[StableNeoHookean](body, fx, fy, fz)
+    var op = NhImplicitOp(body, dt)
+    var v0 = List[Real](length=3 * n, fill=0)
+    for i in range(n):
+        v0[3 * i] = body.vx[i]
+        v0[3 * i + 1] = body.vy[i]
+        v0[3 * i + 2] = body.vz[i]
+    var kv = List[Real](length=3 * n, fill=0)
+    op.stiffness_apply(v0, kv)
+    var b = List[Real](length=3 * n, fill=0)
+    for i in range(n):
+        if body.inv_m[i] == 0:
+            continue
+        var m = Real(1) / body.inv_m[i]
+        b[3 * i] = dt * (fx[i] + m * gravity[0] + dt * kv[3 * i])
+        b[3 * i + 1] = dt * (fy[i] + m * gravity[1] + dt * kv[3 * i + 1])
+        b[3 * i + 2] = dt * (fz[i] + m * gravity[2] + dt * kv[3 * i + 2])
+    var dv = List[Real](length=3 * n, fill=0)
+    # floor 1e-2: rounding dv to f32 leaves a true relative residual of
+    # eps_f32 cond(A) (5.2e-4 at E = 1e7, dt = 1/60), above minres's default
+    # 1.2e-4 floor; a failed recurrence shows residuals of order 1
+    var res = minres(op, b, dv, tol, max_iters, False, 1e-2)
+    if not res.converged:
+        body.counters.incr(CG_NOT_CONVERGED)
+        return res
+    var damp = Real(1.0) / (1.0 + body.damping * dt)
+    for i in range(n):
+        if body.inv_m[i] == 0:
+            body.vx[i] = 0
+            body.vy[i] = 0
+            body.vz[i] = 0
+            continue
+        body.vx[i] = (body.vx[i] + dv[3 * i]) * damp
+        body.vy[i] = (body.vy[i] + dv[3 * i + 1]) * damp
+        body.vz[i] = (body.vz[i] + dv[3 * i + 2]) * damp
+        body.x[i] += body.vx[i] * dt
+        body.y[i] += body.vy[i] * dt
+        body.z[i] += body.vz[i] * dt
+        if body.y[i] < floor_y:
+            body.y[i] = floor_y
+            if body.vy[i] < 0:
+                body.vy[i] = 0
+    return res
+
+
+def nh_forces_averaged(body: FemBody, mut fx: List[Real], mut fy: List[Real], mut fz: List[Real]):
+    """Stable Neo-Hookean forces with the averaged-nodal-pressure volumetric
+    term (Bonet & Burton 1998), the near-incompressible variant (17.58).
+
+    Linear tets lock when lambda >> mu: every element must keep its own
+    volume, which over-constrains a mesh with fewer nodes than elements.
+    Here the volumetric energy lives at the nodes, W_vol = sum_n V_n Psi(J_n)
+    with V_n = sum_{e at n} V_e / 4 and J_n the V_e-weighted mean of the
+    adjacent elements' det F. Its gradient gives each element the
+    volumetric stress p_e cof(F_e) with p_e the mean over its 4 nodes of
+    Psi'(J_n) = lambda_s (J_n - alpha): energy-consistent, and one volume
+    constraint per node instead of per element. The mu F term is per
+    element as in `StableNeoHookean`."""
+    var n = body.node_count()
+    var nt = len(body.tets)
+    var vn = List[Real](length=n, fill=0)
+    var jn = List[Real](length=n, fill=0)
+    var fs = List[Mat3]()
+    for e in range(nt):
+        var f = deformation_gradient(body, e)
+        var j = det3(f)
+        fs.append(f)
+        var tt = body.tets[e]
+        var w = tt.vol * 0.25
+        for q in [tt.a, tt.b, tt.c, tt.d]:
+            vn[q] += w
+            jn[q] += w * j
+    var lam_s = body.lam + body.mu
+    var alpha = 1 + body.mu / lam_s
+    for q in range(n):
+        jn[q] = jn[q] / vn[q] if vn[q] > 0 else 1
+    for e in range(nt):
+        var tt = body.tets[e]
+        var pbar = lam_s * ((jn[tt.a] + jn[tt.b] + jn[tt.c] + jn[tt.d]) * 0.25 - alpha)
+        var f = fs[e]
+        var c = cofactor(f)
+        var p = Mat3()
+        for a in range(3):
+            for b in range(3):
+                p.set(a, b, body.mu * f.get(a, b) + pbar * c.get(a, b))
+        var h = p * tt.dm_inv.transpose()
+        var w = tt.vol
+        for k in range(3):
+            var g1 = -w * h.get(k, 0)
+            var g2 = -w * h.get(k, 1)
+            var g3 = -w * h.get(k, 2)
+            var g0 = -(g1 + g2 + g3)
+            if k == 0:
+                fx[tt.a] += g0
+                fx[tt.b] += g1
+                fx[tt.c] += g2
+                fx[tt.d] += g3
+            elif k == 1:
+                fy[tt.a] += g0
+                fy[tt.b] += g1
+                fy[tt.c] += g2
+                fy[tt.d] += g3
+            else:
+                fz[tt.a] += g0
+                fz[tt.b] += g1
+                fz[tt.c] += g2
+                fz[tt.d] += g3
+
+
+def step_nh_averaged(mut body: FemBody, dt: Real, gravity: Vec3, floor_y: Real = -1e30):
+    """Explicit step with `nh_forces_averaged` (same integrator as
+    `step_material`)."""
+    var n = body.node_count()
+    var fx = List[Real](length=n, fill=0)
+    var fy = List[Real](length=n, fill=0)
+    var fz = List[Real](length=n, fill=0)
+    nh_forces_averaged(body, fx, fy, fz)
+    body.integrate(fx, fy, fz, dt, gravity, floor_y)
+
+
+def step_vbd_nh(mut body: FemBody, dt: Real, gravity: Vec3, iters: Int = 20, floor_y: Real = -1e30):
+    """One backward-Euler step of stable Neo-Hookean FEM by Vertex Block
+    Descent (Chen, Macklin et al. 2024), the 17.58 solver variant.
+
+    Minimises G(x) = sum_i m_i / (2 dt^2) |x_i - y_i|^2 + E(x), y = x + dt v +
+    dt^2 g, by Gauss-Seidel over the vertices: each takes one 3 x 3 Newton
+    step on G with the others fixed (gradient and Hessian block from its
+    adjacent elements; the Hessian block is `nh_dpk1` applied to the three
+    unit directions). A block that is not positive definite (compression
+    can make the Neo-Hookean part indefinite) keeps only the inertial term
+    m / dt^2 I, a damped gradient step. Converged, this is the exact
+    nonlinear backward-Euler step (`step_implicit_nh` takes one linearised
+    Newton step of the same problem); velocities are (x - x_old) / dt with
+    the body's mass-proportional damping."""
+    var n = body.node_count()
+    var adj = List[List[Int]]()
+    for _ in range(n):
+        adj.append(List[Int]())
+    for e in range(len(body.tets)):
+        var tt = body.tets[e]
+        adj[tt.a].append(e)
+        adj[tt.b].append(e)
+        adj[tt.c].append(e)
+        adj[tt.d].append(e)
+    var x0 = body.x.copy()
+    var y0 = body.y.copy()
+    var z0 = body.z.copy()
+    var tx = List[Real](length=n, fill=0)
+    var ty = List[Real](length=n, fill=0)
+    var tz = List[Real](length=n, fill=0)
+    for i in range(n):
+        if body.inv_m[i] == 0:
+            continue
+        tx[i] = body.x[i] + dt * body.vx[i] + dt * dt * gravity[0]
+        ty[i] = body.y[i] + dt * body.vy[i] + dt * dt * gravity[1]
+        tz[i] = body.z[i] + dt * body.vz[i] + dt * dt * gravity[2]
+        body.x[i] = tx[i]
+        body.y[i] = ty[i]
+        body.z[i] = tz[i]
+    var inv_dt2 = Real(1) / (dt * dt)
+    for _ in range(iters):
+        for i in range(n):
+            if body.inv_m[i] == 0:
+                continue
+            var m = Real(1) / body.inv_m[i]
+            var gvec = Vec3(m * inv_dt2 * (body.x[i] - tx[i]), m * inv_dt2 * (body.y[i] - ty[i]), m * inv_dt2 * (body.z[i] - tz[i]), 0)
+            var h = Mat3()
+            for k in range(3):
+                h.set(k, k, m * inv_dt2)
+            var he = Mat3()
+            for e in adj[i]:
+                var tt = body.tets[e]
+                var f = deformation_gradient(body, e)
+                var p = StableNeoHookean.pk1(f, body.mu, body.lam)
+                # dF / dx_i = dx (x) r with r the vertex's row of Dm^-1
+                # (minus the sum of the rows for the first vertex)
+                var r = Vec3(0, 0, 0, 0)
+                var dmi = tt.dm_inv
+                if i == tt.a:
+                    for c in range(3):
+                        r[c] = -(dmi.get(0, c) + dmi.get(1, c) + dmi.get(2, c))
+                else:
+                    var row = 0 if i == tt.b else (1 if i == tt.c else 2)
+                    for c in range(3):
+                        r[c] = dmi.get(row, c)
+                var w = tt.vol
+                # gradient of E w.r.t. x_i: W P r
+                for k in range(3):
+                    var acc = Real(0)
+                    for c in range(3):
+                        acc += p.get(k, c) * r[c]
+                    gvec[k] += w * acc
+                # Hessian block: column q = W dP(e_q r^T) r
+                for q in range(3):
+                    var df = Mat3()
+                    for c in range(3):
+                        df.set(q, c, r[c])
+                    var dp = nh_dpk1(f, df, body.mu, body.lam)
+                    for k in range(3):
+                        var acc = Real(0)
+                        for c in range(3):
+                            acc += dp.get(k, c) * r[c]
+                        he.set(k, q, he.get(k, q) + w * acc)
+            var full = Mat3()
+            for a in range(3):
+                for b in range(3):
+                    full.set(a, b, h.get(a, b) + he.get(a, b))
+            # positive definite (Sylvester): else keep the inertial block
+            var m1 = full.get(0, 0)
+            var m2 = full.get(0, 0) * full.get(1, 1) - full.get(0, 1) * full.get(1, 0)
+            var m3 = det3(full)
+            var sys = full if (m1 > 0 and m2 > 0 and m3 > 0) else h
+            var inv = _inv3(sys)
+            var dx = Vec3(0, 0, 0, 0)
+            for k in range(3):
+                dx[k] = -(inv.get(k, 0) * gvec[0] + inv.get(k, 1) * gvec[1] + inv.get(k, 2) * gvec[2])
+            body.x[i] += dx[0]
+            body.y[i] += dx[1]
+            body.z[i] += dx[2]
+    var damp = Real(1.0) / (1.0 + body.damping * dt)
+    for i in range(n):
+        if body.inv_m[i] == 0:
+            body.vx[i] = 0
+            body.vy[i] = 0
+            body.vz[i] = 0
+            body.x[i] = x0[i]
+            body.y[i] = y0[i]
+            body.z[i] = z0[i]
+            continue
+        if body.y[i] < floor_y:
+            body.y[i] = floor_y
+        body.vx[i] = (body.x[i] - x0[i]) / dt * damp
+        body.vy[i] = (body.y[i] - y0[i]) / dt * damp
+        body.vz[i] = (body.z[i] - z0[i]) / dt * damp

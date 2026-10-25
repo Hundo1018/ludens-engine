@@ -5,6 +5,7 @@
  * same scenario (tests/test_capi.mojo: `scenario`). Keep the two in step.
  */
 #include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -68,6 +69,27 @@ static int drain_events(ld_world* w, int64_t* total, int64_t* began) {
     *total += n;
     free(evs);
     return 0;
+}
+
+/* ABI 0.4 (17.78): worlds on threads */
+typedef struct {
+    ld_world* w;
+    int32_t ticks;
+    int32_t rc;
+    uint64_t hash;
+} job;
+
+static void* run_job(void* p) {
+    job* j = (job*)p;
+    j->rc = ld_world_step_ticks(j->w, j->ticks);
+    ld_world_hash(j->w, &j->hash);
+    return NULL;
+}
+
+static void* poke(void* p) {
+    job* j = (job*)p;
+    j->rc = (int32_t)ld_world_tick(j->w);
+    return NULL;
 }
 
 static ld_world* build(host_state* s) {
@@ -192,6 +214,53 @@ int main(void) {
     ld_world_step_ticks(w, 1);
     printf("destroy_inside %d\n", inner);
     printf("destroy %d\n", ld_world_destroy(w));
+
+    /* -- ABI 0.4: two worlds stepped at once on two threads == one alone */
+    host_state s1 = {0}, s2 = {0}, s3 = {0};
+    ld_world* w1 = build(&s1);
+    ld_world* w2 = build(&s2);
+    ld_world* w3 = build(&s3);
+    uint64_t h3 = 0;
+    ld_world_step_ticks(w3, 120);
+    ld_world_hash(w3, &h3);
+    job j1 = {w1, 120, 0, 0}, j2 = {w2, 120, 0, 0};
+    pthread_t t1, t2;
+    pthread_create(&t1, NULL, run_job, &j1);
+    pthread_create(&t2, NULL, run_job, &j2);
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+    printf("two_worlds_parallel %d\n", j1.rc == 120 && j2.rc == 120 && j1.hash == h3 && j2.hash == h3);
+    /* thread binding */
+    ld_world_bind_thread(w1, 1);
+    job pk = {w1, 0, 0, 0};
+    pthread_create(&t1, NULL, poke, &pk);
+    pthread_join(t1, NULL);
+    int32_t refused = pk.rc;
+    int32_t own = (int32_t)ld_world_tick(w1);
+    ld_world_bind_thread(w1, 0);
+    pthread_create(&t1, NULL, poke, &pk);
+    pthread_join(t1, NULL);
+    printf("thread_refused %d own_tick %d after_unbind %d bad_flag %d\n", refused, own, pk.rc, ld_world_bind_thread(w1, 7));
+    /* layers and user values */
+    ld_body lay_a = ld_body_add_box(w3, 2.0f, 10.0f, 0.0f, 0.5f, 0.5f, 0.5f, 0.0f, 1);
+    ld_body lay_b = ld_body_add_box(w3, 4.0f, 10.0f, 0.0f, 0.5f, 0.5f, 0.5f, 0.0f, 1);
+    ld_body_set_layer(w3, lay_a, 1u, 0xFFFFFFFFu);
+    ld_body_set_layer(w3, lay_b, 2u, 0xFFFFFFFFu);
+    ld_body ray_b = -1;
+    float rhit[7];
+    int32_t ra = ld_world_raycast_mask(w3, 0.0f, 10.0f, 0.0f, 1.0f, 0.0f, 0.0f, 10.0f, 0xFFFFFFFFu, &ray_b, rhit);
+    int all_near = ra == 1 && ray_b == lay_a;
+    int32_t rb = ld_world_raycast_mask(w3, 0.0f, 10.0f, 0.0f, 1.0f, 0.0f, 0.0f, 10.0f, 2u, &ray_b, rhit);
+    int only_far = rb == 1 && ray_b == lay_b;
+    printf("mask_ray %d %d none %d\n", all_near, only_far, ld_world_raycast_mask(w3, 0.0f, 10.0f, 0.0f, 1.0f, 0.0f, 0.0f, 10.0f, 4u, &ray_b, rhit));
+    ld_body_set_user(w3, s3.player, 0xABCDEF0123ull);
+    uint64_t uv = 0;
+    ld_body_get_user(w3, s3.player, &uv);
+    printf("user %d find %d missing %lld\n", uv == 0xABCDEF0123ull, ld_world_find_user(w3, 0xABCDEF0123ull) == s3.player,
+           (long long)ld_world_find_user(w3, 42));
+    ld_world_destroy(w1);
+    ld_world_destroy(w2);
+    ld_world_destroy(w3);
 
     /* -- navigation: 10 x 10 m floor, wall across x = 0 from z = -5 to z = 3 */
     float verts[] = {-5, 0, -5, 5, 0, -5, 5, 0, 5, -5, 0, 5,

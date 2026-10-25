@@ -133,6 +133,43 @@ struct TraceBuffer(Movable):
             ev.t_end_ns = Int(perf_counter_ns())
             self._push(ev^)
 
+    def add_lanes(mut self, name: String, t_begin: List[Int], t_end: List[Int]) -> Int:
+        """Record already-timed work items (ROADMAP 17.80 (c)): items ran on
+        anonymous workers of a parallel fan-out, so each is placed on the
+        first lane whose last item ended before it began (items sorted by
+        start), and lane k becomes thread track `tid + 1 + k` in the Chrome
+        export. The lane count is the concurrency the items actually had.
+        Returns it (0 when tracing is off). No-op unless `-D LUDENS_TRACE`."""
+        comptime if TRACE_ON:
+            if not self.enabled:
+                return 0
+            var n = len(t_begin)
+            var order = List[Int](capacity=n)
+            for i in range(n):
+                order.append(i)
+            # insertion sort by start time (fan-outs are small: islands, chunks)
+            for i in range(1, n):
+                var k = order[i]
+                var j = i - 1
+                while j >= 0 and t_begin[order[j]] > t_begin[k]:
+                    order[j + 1] = order[j]
+                    j -= 1
+                order[j + 1] = k
+            var lane_end = List[Int]()
+            for k in order:
+                var lane = -1
+                for l in range(len(lane_end)):
+                    if lane_end[l] <= t_begin[k]:
+                        lane = l
+                        break
+                if lane < 0:
+                    lane = len(lane_end)
+                    lane_end.append(0)
+                lane_end[lane] = t_end[k]
+                self._push(SpanEvent(name, t_begin[k], t_end[k], self.tid + 1 + lane))
+            return len(lane_end)
+        return 0
+
     def _push(mut self, var ev: SpanEvent):
         if len(self.events) < self.capacity:
             self.events.append(ev^)

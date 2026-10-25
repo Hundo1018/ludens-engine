@@ -233,10 +233,11 @@ struct DbvhBroadPhase[D: Int](BroadPhase):
         for c in range(len(self.cache)):
             if not is_moved[self.cache[c].a] and not is_moved[self.cache[c].b]:
                 kept.append(self.cache[c])
+        var cands = List[Int]()  # reused: cleared per query, buffer kept (17.79)
         for i in range(len(moved)):
             var p = moved[i]
             var leaf = self.leaf_of[p]
-            var cands = List[Int]()
+            cands.clear()
             self._query_fat(self.nodes[leaf].fat, cands)
             for k in range(len(cands)):
                 var q = cands[k]

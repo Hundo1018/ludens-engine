@@ -19,15 +19,17 @@ for its length -- the same curve a chain of rigid links on distance joints
 approaches as the links get short (`test_rope`).
 """
 
-from std.math import sqrt
+from std.math import sqrt, isfinite
 from geometry.vec import Real, Vec3, dot
 from collision.world_query import QueryFilter
 from .rigid6 import Body6, QuatBody6, Inertia3
 from .solver6 import ContactScene6
 from .joints6 import Joint6, JOINT_BROKEN
+from .continuum import ContinuumSolver, ContinuumHealth
+from .state_io import StateWriter, StateReader
 
 
-struct Rope(Copyable, Movable):
+struct Rope(Copyable, Movable, ContinuumSolver):
     var x: List[Vec3]
     var prev: List[Vec3]
     var v: List[Vec3]
@@ -149,37 +151,7 @@ struct Rope(Copyable, Movable):
                 if bi >= 0:
                     var i = 0 if e == 0 else n - 1
                     self.x[i] = sc.bset.bodies[bi].act(self.end_local[e])
-            # predict
-            for i in range(n):
-                self.prev[i] = self.x[i]
-                if self.w[i] > 0:
-                    self.v[i] = self.v[i] + gravity * h
-                    self.x[i] = self.x[i] + self.v[i] * h
-            for s in range(len(self.lam)):
-                self.lam[s] = 0
-            # XPBD distance constraints
-            for _ in range(iters):
-                for s in range(len(self.rest)):
-                    if self.cut[s]:
-                        continue
-                    var wa = self.w[s]
-                    var wb = self.w[s + 1]
-                    var ws = wa + wb
-                    if ws <= 0:
-                        continue
-                    var d = self.x[s + 1] - self.x[s]
-                    var l = sqrt(max(dot(d, d), Real(1e-12)))
-                    var c = l - self.rest[s]
-                    var dl = (-c - ah * self.lam[s]) / (ws + ah)
-                    self.lam[s] += dl
-                    var corr = d * (dl / l)
-                    self.x[s] = self.x[s] - corr * wa
-                    self.x[s + 1] = self.x[s + 1] + corr * wb
-            # tension and snapping
-            for s in range(len(self.rest)):
-                self.tension[s] = abs(self.lam[s]) / (h * h)
-                if self.tension[s] > self.break_tension:
-                    self.cut[s] = True
+            self._solve(h, gravity, iters, ah)
             # collide with the scene
             if self.radius > 0:
                 for i in range(n):
@@ -193,7 +165,114 @@ struct Rope(Copyable, Movable):
                         var pr = sc.closest_point(b, self.x[i])
                         if pr.dist < self.radius:
                             self.x[i] = self.x[i] + pr.normal * (self.radius - pr.dist)
-            # velocities from the corrected positions, lightly damped
-            for i in range(n):
-                if self.w[i] > 0:
-                    self.v[i] = (self.x[i] - self.prev[i]) * (self.damping / h)
+            self._velocities(h)
+
+    def _solve(mut self, h: Real, gravity: Vec3, iters: Int, ah: Real):
+        """Predict, XPBD distance constraints, tension and snapping."""
+        var n = len(self.x)
+        # predict
+        for i in range(n):
+            self.prev[i] = self.x[i]
+            if self.w[i] > 0:
+                self.v[i] = self.v[i] + gravity * h
+                self.x[i] = self.x[i] + self.v[i] * h
+        for s in range(len(self.lam)):
+            self.lam[s] = 0
+        # XPBD distance constraints
+        for _ in range(iters):
+            for s in range(len(self.rest)):
+                if self.cut[s]:
+                    continue
+                var wa = self.w[s]
+                var wb = self.w[s + 1]
+                var ws = wa + wb
+                if ws <= 0:
+                    continue
+                var d = self.x[s + 1] - self.x[s]
+                var l = sqrt(max(dot(d, d), Real(1e-12)))
+                var c = l - self.rest[s]
+                var dl = (-c - ah * self.lam[s]) / (ws + ah)
+                self.lam[s] += dl
+                var corr = d * (dl / l)
+                self.x[s] = self.x[s] - corr * wa
+                self.x[s + 1] = self.x[s + 1] + corr * wb
+        # tension and snapping
+        for s in range(len(self.rest)):
+            self.tension[s] = abs(self.lam[s]) / (h * h)
+            if self.tension[s] > self.break_tension:
+                self.cut[s] = True
+
+    def _velocities(mut self, h: Real):
+        var n = len(self.x)
+        # velocities from the corrected positions, lightly damped
+        for i in range(n):
+            if self.w[i] > 0:
+                self.v[i] = (self.x[i] - self.prev[i]) * (self.damping / h)
+
+    # ---- ContinuumSolver (17.55) ----------------------------------------------
+    def advance(mut self, dt: Real, gravity: Vec3):
+        """`step` without a scene: no collisions; body-attached ends hold
+        where they are (their inverse mass is 0). 8 substeps x 4 iterations,
+        `step`'s defaults."""
+        var h = dt / Real(8)
+        var ah = self.alpha / (h * h)
+        for _ in range(8):
+            self._solve(h, gravity, 4, ah)
+            self._velocities(h)
+
+    def _ok(self, i: Int) -> Bool:
+        return isfinite(self.x[i][0]) and isfinite(self.x[i][1]) and isfinite(self.x[i][2]) and isfinite(self.v[i][0]) and isfinite(self.v[i][1]) and isfinite(self.v[i][2])
+
+    def health(self) -> ContinuumHealth:
+        var bad = 0
+        for i in range(len(self.x)):
+            if not self._ok(i):
+                bad += 1
+        return ContinuumHealth(bad, 0, 0)
+
+    def quarantine(mut self) -> Int:
+        """Pin a non-finite particle at its nearest finite neighbour along
+        the rope (the origin if none) with zero velocity."""
+        var n = 0
+        for i in range(len(self.x)):
+            if self._ok(i):
+                continue
+            var p = Vec3(0, 0, 0, 0)
+            for d in range(1, len(self.x)):
+                if i - d >= 0 and self._ok(i - d):
+                    p = self.x[i - d]
+                    break
+                if i + d < len(self.x) and self._ok(i + d):
+                    p = self.x[i + d]
+                    break
+            self.x[i] = p
+            self.prev[i] = p
+            self.v[i] = Vec3(0, 0, 0, 0)
+            self.w[i] = 0
+            n += 1
+        return n
+
+    def write_state[W: StateWriter](self, mut w: W):
+        w.wi(len(self.x))
+        for i in range(len(self.x)):
+            w.wv(self.x[i])
+            w.wv(self.v[i])
+            w.wf(self.w[i])
+        w.wi(len(self.cut))
+        for c in self.cut:
+            w.wi(1 if c else 0)
+
+    def read_state[R: StateReader](mut self, mut r: R) raises:
+        var n = r.ri()
+        if n != len(self.x):
+            raise Error("Rope.read_state: particle count differs")
+        for i in range(n):
+            self.x[i] = r.rv()
+            self.prev[i] = self.x[i]
+            self.v[i] = r.rv()
+            self.w[i] = r.rf()
+        var ns = r.ri()
+        if ns != len(self.cut):
+            raise Error("Rope.read_state: segment count differs")
+        for k in range(ns):
+            self.cut[k] = r.ri() == 1

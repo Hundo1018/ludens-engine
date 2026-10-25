@@ -133,6 +133,12 @@ struct Attributes(Copyable, Movable):
     var cache: List[Int]
     var dirty: List[Bool]
     var next_handle: Int
+    var ov_count: List[Int]  # override modifiers per attribute (17.70 index)
+    # handle -> index in `mods` (17.70): removal finds its modifier without a
+    # scan and leaves a tombstone (attr -1) so the order -- the override tie
+    # rule -- is kept; tombstones are compacted away once they are half
+    var slot: Dict[Int, Int]
+    var dead: Int
 
     def __init__(out self, n: Int, mode: Int = EVAL_INCREMENTAL):
         self.base = List[Int](length=n, fill=0)
@@ -145,6 +151,23 @@ struct Attributes(Copyable, Movable):
         self.cache = List[Int](length=n, fill=0)
         self.dirty = List[Bool](length=n, fill=True)
         self.next_handle = 1
+        self.ov_count = List[Int](length=n, fill=0)
+        self.slot = Dict[Int, Int]()
+        self.dead = 0
+
+    def modifier_count(self) -> Int:
+        return len(self.mods) - self.dead
+
+    def _reindex(mut self):
+        """Drop tombstones (order kept) and rebuild the handle index."""
+        var live = List[Modifier](capacity=len(self.mods) - self.dead)
+        self.slot = Dict[Int, Int]()
+        for m in self.mods:
+            if m.attr >= 0:
+                self.slot[m.source] = len(live)
+                live.append(m)
+        self.mods = live^
+        self.dead = 0
 
     def set_base(mut self, a: Int, v: Int):
         self.base[a] = v
@@ -158,29 +181,42 @@ struct Attributes(Copyable, Movable):
     def add_modifier(mut self, attr: Int, op: Int, value: Int, priority: Int = 0) -> Int:
         var h = self.next_handle
         self.next_handle += 1
+        self.slot[h] = len(self.mods)
         self.mods.append(Modifier(attr, op, value, h, priority))
         if op == OP_ADD:
             self.add_sum[attr] += value
         elif op == OP_MUL:
             self.mul_sum[attr] += value
+        else:
+            self.ov_count[attr] += 1
         self.dirty[attr] = True
         return h
 
     def remove_modifier(mut self, handle: Int) -> Bool:
         """False if no modifier has this handle (removing twice is harmless)."""
-        for i in range(len(self.mods)):
-            if self.mods[i].source == handle:
-                var m = self.mods[i]
-                if m.op == OP_ADD:
-                    self.add_sum[m.attr] -= m.value
-                elif m.op == OP_MUL:
-                    self.mul_sum[m.attr] -= m.value
-                self.dirty[m.attr] = True
-                _ = self.mods.pop(i)
-                return True
-        return False
+        var i = self.slot.get(handle, -1)
+        if i < 0:
+            return False
+        _ = self.slot.pop(handle, -1)
+        var m = self.mods[i]
+        if m.op == OP_ADD:
+            self.add_sum[m.attr] -= m.value
+        elif m.op == OP_MUL:
+            self.mul_sum[m.attr] -= m.value
+        else:
+            self.ov_count[m.attr] -= 1
+        self.dirty[m.attr] = True
+        self.mods[i].attr = -1  # tombstone: matches no attribute
+        self.dead += 1
+        if self.dead * 2 > len(self.mods):
+            self._reindex()
+        return True
 
     def _override(self, a: Int) -> Tuple[Bool, Int]:
+        # index: most attributes carry no override, skip the scan (the
+        # scan, when it runs, keeps the priority / tie order)
+        if self.ov_count[a] == 0:
+            return (False, 0)
         var found = False
         var best_p = 0
         var v = 0
@@ -363,8 +399,10 @@ def actor_to_bytes(a: Actor) -> List[UInt8]:
         _put(b, a.attrs.base[i])
         _put(b, a.attrs.lo[i])
         _put(b, a.attrs.hi[i])
-    _put(b, len(a.attrs.mods))
+    _put(b, a.attrs.modifier_count())
     for m in a.attrs.mods:
+        if m.attr < 0:
+            continue
         _put(b, m.attr)
         _put(b, m.op)
         _put(b, m.value)
@@ -423,7 +461,10 @@ def actor_from_bytes(b: List[UInt8]) raises -> Actor:
             a.attrs.add_sum[m.attr] += m.value
         elif m.op == OP_MUL:
             a.attrs.mul_sum[m.attr] += m.value
+        else:
+            a.attrs.ov_count[m.attr] += 1
     a.attrs.mods = mods^
+    a.attrs._reindex()
     a.attrs.next_handle = nh
     a.tags = UInt64(_get(b, at))
     var ne = _get(b, at)

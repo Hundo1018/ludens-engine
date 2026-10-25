@@ -18,7 +18,7 @@ jobs:
   gate:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,9 +33,17 @@ jobs:
         run: pixi run doclint
       - name: unwired modules (scripts/orphans_allow.txt)
         run: pixi run orphans
+      - name: floating-point flag policy (docs/ARCHITECTURE.md §6)
+        run: pixi run flag-policy
       - name: benchmark template / files / report consistency
         run: pixi run perf -- governance
       - name: gate (build, arch-check, unit..system, golden compare)
+        # 4 files at a time (scripts/run_tests.sh): the sequential suite
+        # passed the 3600 s gate budget on this runner at ~270 files; with 4
+        # at a time the suite passed it again at ~370 files (PR #39, exit 124).
+        env:
+          LUDENS_TEST_JOBS: 4
+          GATE_TIMEOUT: 6600
         run: pixi run gate
       - name: wasm leaf-kernel probe (tools/wasm)
         run: pixi run wasm-probe
@@ -57,7 +65,7 @@ jobs:
         os: [ubuntu-24.04-arm, macos-14]
     runs-on: ${{ matrix.os }}
     continue-on-error: true
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,6 +79,9 @@ jobs:
       # read back from the job log and committed as
       # tests/golden/test_stdout.<os>-<arch>.txt. Later runs compare.
       - name: gate (records and prints the platform golden on first run)
+        env:
+          LUDENS_TEST_JOBS: 3
+          GATE_TIMEOUT: 8400
         run: |
           plat="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
           golden="tests/golden/test_stdout.$plat.txt"
@@ -85,6 +96,16 @@ jobs:
             cat "$golden"
             echo "----- END GOLDEN $golden -----"
           fi
+      # ROADMAP 17.76: this platform's three probe scenes after 300 steps,
+      # printed for the cross-target comparison against x86-64
+      # (`pixi run fp-probe -- --compare <dump>` on the reference host).
+      - name: fp probe dump
+        run: |
+          pixi run fp-probe -- --dump build/fp_dump.json
+          echo "----- BEGIN FP DUMP -----"
+          cat build/fp_dump.json
+          echo
+          echo "----- END FP DUMP -----"
       - name: upload gate log
         if: always()
         uses: actions/upload-artifact@v4

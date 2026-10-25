@@ -43,7 +43,7 @@ def raises(exc_type, fn):
 # ---------------------------------------------------------------- isolation
 check(not os.path.realpath(ludens.__file__).startswith(FORBIDDEN), "ludens imported from the venv, not the repo: " + ludens.__file__)
 check(os.path.dirname(ludens.library_path) == os.path.dirname(ludens.__file__), "libludens.so loaded from the installed package")
-check(ludens.abi_version() == (0, 3), "abi_version == (0, 3)")
+check(ludens.abi_version() == (0, 5), "abi_version == (0, 5)")
 
 
 # ------------------------------------------------- parity scenario (test_capi)
@@ -277,6 +277,75 @@ with ludens.World() as rw:
     rw.add_system(switched)
     rw.step_ticks(120)
     check(rw.hash() == hot_hash, "hot reload at tick 60 == switching functions at tick 60 (same hash)")
+
+
+# ---------------------------------------------------------------- host mapping (0.4)
+import threading
+
+with ludens.World() as mw:
+    near = mw.add_box((2, 0, 0), (0.5, 0.5, 0.5), mass=0, static=True)
+    far = mw.add_box((4, 0, 0), (0.5, 0.5, 0.5), mass=0, static=True)
+    near.set_layer(1, 0xFFFFFFFF)
+    far.set_layer(2, 0xFFFFFFFF)
+    h_all = mw.raycast((0, 0, 0), (1, 0, 0))
+    h_2 = mw.raycast((0, 0, 0), (1, 0, 0), mask=2)
+    h_none = mw.raycast((0, 0, 0), (1, 0, 0), mask=4)
+    check(h_all.body == near and h_2.body == far and h_none is None, "raycast mask selects layers: all -> near, 2 -> far, 4 -> none")
+    near.user = 1001
+    far.user = 1002
+    check(mw.find_user(1002) == far and near.user == 1001 and mw.find_user(7) is None, "user values attach to bodies and map back")
+    blob = mw.save()
+    with ludens.World() as lw:
+        lw.load(blob)
+        check(lw.find_user(1001) is not None and lw.find_user(1001).user == 1001, "user values survive save / load")
+    far.remove()
+    check(mw.find_user(1002) is None, "a removed body's user value is gone")
+    mw.bind_thread()
+    seen = []
+    t = threading.Thread(target=lambda: seen.append(raises(ludens.ThreadError, lambda: mw.tick)))
+    t.start()
+    t.join()
+    check(seen[0] is not None and mw.tick == 0, "a bound world refuses other threads (ThreadError), works on its own")
+    mw.bind_thread(False)
+    seen2 = []
+    t2 = threading.Thread(target=lambda: seen2.append(mw.tick))
+    t2.start()
+    t2.join()
+    check(seen2 == [0], "after unbinding another thread may use it")
+
+with ludens.World() as ua, ludens.World() as ub:
+    pa = build_scene(ua)
+    pb = build_scene(ub)
+    for i, b in enumerate(ub.bodies()[0]):
+        b.user = 5000 + i
+    ua.step_ticks(60)
+    ub.step_ticks(60)
+    check(pa.state() == pb.state(), "user values do not change the simulation")
+
+
+# ---------------------------------------------------------------- units (ABI 0.5)
+def scaled_scene(w, k):
+    w.add_box((0, -0.5 * k, 0), (20 * k, 0.5 * k, 20 * k), mass=0, static=True)
+    out = []
+    for i in range(4):
+        for j in range(2):
+            out.append(w.add_box(((-3 + 2.0 * i) * k, (0.25 + 0.51 * j) * k, 2 * k), (0.25 * k, 0.25 * k, 0.25 * k), mass=1))
+    return out
+
+
+K = 128.0
+with ludens.World(1.0 / 60.0, (0, -9.8, 0)) as m1, ludens.World(1.0 / 60.0, (0, -9.8 * K, 0)) as mk, ludens.World(1.0 / 60.0, (0, -9.8 * K, 0)) as mn:
+    b1 = scaled_scene(m1, 1.0)
+    bk = scaled_scene(mk, K)
+    bn = scaled_scene(mn, K)
+    mk.set_unit_scale(K)
+    for wv in (m1, mk, mn):
+        wv.step_ticks(120)
+    same = all(tuple(x * K for x in a.state().pos) == tuple(b.state().pos) for a, b in zip(b1, bk))
+    drift = max(abs(a.state().pos[1] * K - b.state().pos[1]) / K for a, b in zip(b1, bn))
+    check(same, "a world in units of 1/128 m with set_unit_scale(128) is the metre world x 128, bit for bit")
+    check(drift > 0, "without set_unit_scale the same world differs (by %.2g m)" % drift)
+    check(raises(ludens.LudensError, lambda: mk.set_unit_scale(0)) is not None, "set_unit_scale(0) is rejected")
 
 
 # ---------------------------------------------------------------- isolation again
