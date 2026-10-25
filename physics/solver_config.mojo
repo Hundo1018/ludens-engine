@@ -37,6 +37,9 @@ comptime CONTACT_GS = 0
 """Contact normals (ROADMAP 17.50): one point at a time (Gauss-Seidel)."""
 comptime CONTACT_BLOCK = 1
 """Contact normals: a manifold's points solved together (a small LCP)."""
+comptime MASS_RATIO_DEFAULT: Real = 10
+"""ROADMAP 17.19: default `max_mass_ratio` (R). Every `SolverConfig()` and
+`step_soft` call uses it unless the caller passes 0 to turn mass scaling off."""
 
 
 @fieldwise_init
@@ -141,7 +144,7 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
         self.reuse_still_pairs = False
         self.max_contacts = 0
         self.contact_solver = CONTACT_GS
-        self.max_mass_ratio = 0
+        self.max_mass_ratio = MASS_RATIO_DEFAULT
         self.reduce_mesh_contacts = False
 
     def validated(self) raises -> Self:
