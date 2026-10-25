@@ -14,9 +14,10 @@ set from those numbers, so a regression shows up as a bound being crossed.
               only that the state stays finite. This is the default path
               (`max_mass_ratio = 0`). The opt-in `SolverConfig.max_mass_ratio`
               removes the sink; `test_solver_stress` bounds it (1:1000 under
-              1 cm). Its floor-force report is corrected by load propagation
-              (17.19 A2, `stack_floor`): the true load within 1%, pair forces
-              unchanged. Break checks still read the scaled impulses.
+              1 cm). Its contact and joint reports are corrected by load
+              propagation (17.19 A2, `stack_floor`, `hang_rig`): the true load
+              within 1%, and a break threshold between the true and the scaled
+              load does not trip.
   tower       ten 0.5 m boxes. The top settles to 0.029 m below its ideal height
               and then stops moving (drift over the second half < 1e-3 m).
   pile        64 boxes in a 4 x 4 x 4 block. After settling, the largest
@@ -29,6 +30,7 @@ from std.time import perf_counter_ns
 from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.rigid6 import QuatBody6, Inertia3
+from physics.joints6 import Joint6
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
 
@@ -87,6 +89,38 @@ def stack_floor(heavy: Real, lights: Int, ratio: Real, push: Real = 0) raises ->
             f += r.force[1]
     print("  stack", heavy, "on", lights, "light, ratio", ratio, "push", push, "floor", f, "true", (heavy + Real(lights)) * 9.8 + push)
     return f
+
+
+def hang_rig(ratio: Real, break_force: Real, steps: Int) raises -> List[Real]:
+    """Returns [upward joint force on the light box, 1 if the top joint broke
+    after it settled]. A static ceiling holds a 1 kg box by a ball joint, and
+    that box holds a 1000 kg box by a second one. The top joint's true load is
+    1001 g. At `ratio` the light box's mass in the solve is 100 kg, so the raw
+    joint load is about 10780 N; the report must correct that to 9810 N (17.19
+    A2). The break threshold arms after 120 steps: the start from rest
+    overshoots (10412 N at step 1), and that transient is not the steady load."""
+    var cfg = SolverConfig()
+    cfg.max_mass_ratio = ratio
+    var sc = ContactScene6[QuatBody6]()
+    var ceil = sc.add(QuatBody6.at_rest(Vec3(0, 10, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1)), Vec3(0.1, 0.1, 0.1, 0), True)
+    var light = sc.add(QuatBody6.at_rest(Vec3(0, 9.5, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    var heavy = sc.add(QuatBody6.at_rest(Vec3(0, 8.5, 0, 0), Inertia3.box(1000, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc.add_joint(Joint6.ball(ceil.index(), light.index(), Vec3(0, 0, 0, 0), Vec3(0, 0.5, 0, 0)))
+    _ = sc.add_joint(Joint6.ball(light.index(), heavy.index(), Vec3(0, -0.5, 0, 0), Vec3(0, 0.5, 0, 0)))
+    var broke = Real(0)
+    var f = Real(0)
+    for s in range(steps):
+        if s == 120:
+            sc.set_joint_break(0, break_force, 1e9)
+        sc.step(DT, G, cfg)
+        if len(sc.broken_joints) > 0:
+            broke = 1
+        f = sc.joint_reaction(0)[0][1]
+    print("  hang ratio", ratio, "break", break_force, "top joint up", f, "broke", broke)
+    var out = List[Real]()
+    out.append(f)
+    out.append(broke)
+    return out^
 
 
 def tower(n: Int, steps: Int) raises -> List[Real]:
@@ -170,6 +204,17 @@ def main() raises:
     s.check(abs(c3 - 1002 * 9.8) < 0.01 * 1002 * 9.8, "stack 1000 on 2 kg at ratio 10: floor within 1% of the true 1002 g")
     s.check(abs(c2 - 1001 * 9.8) < 0.01 * 1001 * 9.8, "stack 1000 on 1 kg at ratio 100: floor within 1% of the true 1001 g")
     s.check(abs(cp - (1001 * 9.8 + 500)) < 0.01 * (1001 * 9.8 + 500), "stack 1000 on 1 kg with a 500 N push at ratio 10: floor within 1%")
+
+    # 17.19 A2 joints: the top joint of a hanging rig reads its true load, and a
+    # break threshold above that load does not trip. Uncorrected, the raw load
+    # (~10780 N) would trip the 10000 N threshold at ratio 10.
+    # (ratio 0 is not a reference here: its 1000:1 soft joint rings with
+    # peaks near 13500 N, the known compliance of test_solver_stress above)
+    var h10 = hang_rig(10, 10000, 240)
+    var hb = hang_rig(10, 9500, 240)
+    s.check(abs(h10[0] - 1001 * 9.8) < 0.01 * 1001 * 9.8, "hanging rig at ratio 10: top joint reads the true 1001 g within 1%")
+    s.check(h10[1] == 0, "hanging rig at ratio 10: 10000 N break threshold does not trip (raw load 10780 N would)")
+    s.check(hb[1] == 1, "hanging rig at ratio 10: 9500 N threshold (below the true 9810 N) trips")
 
     var t = tower(10, 900)
     s.check(t[0] < MAX_TOWER_SAG, "ten-box tower settles within 5 cm of its ideal height (measured 3 cm)")
