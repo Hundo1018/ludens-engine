@@ -452,6 +452,17 @@ def make_contact[B: Body6](
                         pr.acc[k] = old.acc[src[k]]
                         pr.acc_t1[k] = old.acc_t1[src[k]]
                         pr.acc_t2[k] = old.acc_t2[src[k]]
+                if bset.impulse_inert(rc.a) and bset.impulse_inert(rc.b):
+                    # 17.19 (5): an asleep pair applies no impulse this step, so
+                    # `accumulate_step_impulse` adds nothing and its report totals
+                    # would read zero -- a sleeping stack showed 0 N on its floor.
+                    # Hold the last awake step's totals (the cache carries them
+                    # forward while the pair stays asleep) so the report keeps the
+                    # resting load; `span` goes with them so `jn / span` stays the
+                    # per-step average. An awake pair starts its totals at zero.
+                    pr.jn = old.jn.copy()
+                    pr.jf = old.jf
+                    pr.span = old.span
                 break
     return pr^
 
