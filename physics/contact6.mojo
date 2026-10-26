@@ -750,7 +750,7 @@ def solve_contact[B: Body6](
     # ROADMAP 17.50 block solver: all of a manifold's normal impulses at
     # once (a small LCP), then friction per point; one point, adhesion or
     # a singular block stays on the per-point Gauss-Seidel.
-    var blk = bset.block and pr.m.count > 1 and adh == 0 and bset.mass_ratio <= 0
+    var blk = bset.block and pr.m.count > 1 and adh == 0
     if blk:
         blk = _block_normal(bset, pr, n, h, p_bias, p_ms, use_bias, max_push)
     for k in range(pr.m.count):
@@ -905,6 +905,10 @@ def _block_normal[B: Body6](
     var ms = List[Real](length=cnt, fill=1)
     var dyn_a = bset.is_dynamic(pr.a)
     var dyn_b = bset.is_dynamic(pr.b)
+    # 17.19 mass scale, the same `_cs` the per-point sweep applies to each side:
+    # it multiplies the block's effective mass and the impulse it applies
+    var wa = _cs(bset, pr.a)
+    var wb = _cs(bset, pr.b)
     var pos_a = bset.bodies[pr.a].position()
     var pos_b = bset.bodies[pr.b].position()
     for k in range(cnt):
@@ -930,14 +934,14 @@ def _block_normal[B: Body6](
         b[k] = dot(vb - va, n) + bias
     # A by polarisation: (ri x n)·I^-1 (rj x n) = (f(ri + rj) - f(ri) - f(rj)) / 2
     var A = List[Real](length=cnt * cnt, fill=0)
-    var im = (bset.bodies[pr.a].inv_mass() if dyn_a else Real(0)) + (bset.bodies[pr.b].inv_mass() if dyn_b else Real(0))
+    var im = (wa * bset.bodies[pr.a].inv_mass() if dyn_a else Real(0)) + (wb * bset.bodies[pr.b].inv_mass() if dyn_b else Real(0))
     var fa = List[Real](length=cnt, fill=0)
     var fb = List[Real](length=cnt, fill=0)
     for i in range(cnt):
         if dyn_a:
-            fa[i] = bset.bodies[pr.a].angular_factor(ra[i], n)
+            fa[i] = wa * bset.bodies[pr.a].angular_factor(ra[i], n)
         if dyn_b:
-            fb[i] = bset.bodies[pr.b].angular_factor(rb[i], n)
+            fb[i] = wb * bset.bodies[pr.b].angular_factor(rb[i], n)
     for i in range(cnt):
         for j in range(i, cnt):
             var v = im
@@ -945,9 +949,9 @@ def _block_normal[B: Body6](
                 v += fa[i] + fb[i]
             else:
                 if dyn_a:
-                    v += (bset.bodies[pr.a].angular_factor(ra[i] + ra[j], n) - fa[i] - fa[j]) / 2
+                    v += (wa * bset.bodies[pr.a].angular_factor(ra[i] + ra[j], n) - fa[i] - fa[j]) / 2
                 if dyn_b:
-                    v += (bset.bodies[pr.b].angular_factor(rb[i] + rb[j], n) - fb[i] - fb[j]) / 2
+                    v += (wb * bset.bodies[pr.b].angular_factor(rb[i] + rb[j], n) - fb[i] - fb[j]) / 2
             A[i * cnt + j] = v
             A[j * cnt + i] = v
     # b uses the unregularised A; then eps·I: four coplanar points give a
@@ -984,9 +988,9 @@ def _block_normal[B: Body6](
         if dl != 0:
             var j = n * dl
             if dyn_a:
-                bset.bodies[pr.a].apply_impulse(-j, pa[k])
+                bset.bodies[pr.a].apply_impulse(-j * wa, pa[k])
             if dyn_b:
-                bset.bodies[pr.b].apply_impulse(j, pb[k])
+                bset.bodies[pr.b].apply_impulse(j * wb, pb[k])
     return True
 
 

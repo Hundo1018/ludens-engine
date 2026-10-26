@@ -105,9 +105,8 @@ struct SolverConfig(Copyable, ImplicitlyCopyable, Movable):
     var max_contacts: Int
     # ROADMAP 17.50: how a manifold's normal impulses are solved (a seam:
     # CONTACT_GS per point, CONTACT_BLOCK all points of a manifold at once;
-    # identical for one-point manifolds). With `max_mass_ratio > 0` the block
-    # solve is not used and every manifold takes the per-point sweep: the
-    # block matrix does not yet carry the mass scale (`_block_normal`).
+    # identical for one-point manifolds). The block matrix carries the mass
+    # scale of `max_mass_ratio` (`_block_normal` applies the per-side `_cs`).
     var contact_solver: Int
     # ROADMAP 17.19: in contact and core joint rows every dynamic body acts
     # with at least (heaviest body of its contact / joint group) / R -- a
