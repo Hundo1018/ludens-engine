@@ -10,6 +10,7 @@ from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from physics.rigid6 import Inertia3, QuatBody6, Pose6
 from physics.solver6 import ContactScene6
+from physics.solver_config import SolverConfig
 from physics.body_set import BodyId
 
 comptime DT: Real = 1.0 / 60.0
@@ -22,6 +23,16 @@ def _ground(mut sc: ContactScene6[QuatBody6]) -> BodyId:
         Vec3(20, 1, 20, 0),
         True,
     )
+
+
+def _floor_load(sc: ContactScene6[QuatBody6], id: BodyId) raises -> Real:
+    """Upward force on body `id` from the static ground (other == 0), this
+    step's report."""
+    var f = Real(0)
+    for r in sc.contacts_of(id):
+        if r.other == 0:
+            f += r.force[1]
+    return f
 
 
 def main() raises:
@@ -162,5 +173,67 @@ def main() raises:
     sc6.wake(r6)
     sc6.wake(r6)
     s.check(not sc6.is_sleeping(r6), "repeated wake stays not-sleeping, no error")
+
+    # 17.19 (5): a sleeping stack keeps reporting its resting load. Two 1 kg
+    #    boxes on a floor read 19.6 N there both awake and asleep; the floor
+    #    report read 0 N once the stack slept, because a pair the solver skips
+    #    adds no step impulse. Steps 0-9 are the drop transient, so they are not
+    #    checked.
+    var cfg7 = SolverConfig()
+    var sc7 = ContactScene6[QuatBody6]()
+    _ = _ground(sc7)
+    var base7 = sc7.add(QuatBody6.at_rest(Vec3(0, 0.25, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc7.add(QuatBody6.at_rest(Vec3(0, 0.75, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    var slept7 = False
+    var worst7 = Real(0)
+    var awake_last7 = Real(0)
+    var held_vs_live7 = Real(0)
+    for step7 in range(120):
+        sc7.step(DT, G, cfg7)
+        if step7 < 10:
+            continue
+        var f7 = _floor_load(sc7, base7)
+        if sc7.is_sleeping(base7):
+            if not slept7:
+                # the step before sleep was solved live; the first asleep
+                # report must match it (the held snapshot is that step's load)
+                held_vs_live7 = abs(f7 - awake_last7) / Real(19.6)
+            slept7 = True
+        worst7 = max(worst7, abs(f7 - Real(19.6)) / Real(19.6))
+        awake_last7 = f7
+    s.check(slept7, "the 2 kg stack falls asleep within 120 steps")
+    s.check(worst7 < 0.01, "floor report within 1% of 19.6 N, awake and asleep (17.19 (5))")
+    s.check(held_vs_live7 < 0.01, "first asleep report equals the last live report (held snapshot)")
+
+    # 17.19 (5): waking the stack resumes the live path -- the next report is
+    #    the awake one again, with no stale hold left over.
+    sc7.wake(base7)
+    sc7.step(DT, G, cfg7)
+    var woke7 = _floor_load(sc7, base7)
+    s.check(not sc7.is_sleeping(base7), "wake resumes the live solve")
+    s.check(abs(woke7 - Real(19.6)) / Real(19.6) < 0.01, "after wake the floor report is the live 19.6 N")
+
+    # 17.19 (5), excess path: a heavy body on a light one under the default
+    #    `max_mass_ratio` carries a scaled excess in its report. The held
+    #    report of the sleeping stack must equal its last live report, so the
+    #    excess snapshot (`hold_excess`) is carried, not dropped.
+    var sc8 = ContactScene6[QuatBody6]()
+    _ = _ground(sc8)
+    var light8 = sc8.add(QuatBody6.at_rest(Vec3(0, 0.25, 0, 0), Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    _ = sc8.add(QuatBody6.at_rest(Vec3(0, 0.75, 0, 0), Inertia3.box(30, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    var slept8 = False
+    var held_excess8 = Real(0)
+    var last_live8 = Real(0)
+    for _ in range(200):
+        sc8.step(DT, G, cfg7)
+        var f8 = _floor_load(sc8, light8)
+        if sc8.is_sleeping(light8):
+            if not slept8:
+                held_excess8 = abs(f8 - last_live8) / max(last_live8, Real(1))
+            slept8 = True
+        else:
+            last_live8 = f8
+    s.check(slept8, "the heavy-on-light stack falls asleep within 200 steps")
+    s.check(held_excess8 < 0.01, "held excess-path report equals the last live report (17.19 (5) A2)")
 
     s.finish()
