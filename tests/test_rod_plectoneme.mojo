@@ -23,13 +23,13 @@ Two claims, and what each is worth:
     (energy per joint ~ 1 / compliance, same factor for bend and twist). With
     the bend compliance fixed at 1, doubling the twist compliance from 0.1 to
     0.2 must double the onset; tolerance 15 %, written before the final run.
-  * Constant (NOT checked): the Kirchhoff zero-tension threshold is usually
-    quoted as C * omega_c = 2 * B. Here that gives omega_c = 0.2 rad/m for
-    the 0.1 ratio, but the measured onset is ~0.66 rad/m (about 3.3 times
-    larger). The end boundary condition of this test (positions free,
-    orientations held) and the discrete calibration B = l / (4 * bend),
-    C = l / (4 * twist) are both unverified against the literature. The
-    onset value is printed, not asserted.
+  * Constant (NOT checked): the header formula C * omega_c = 2 * B is
+    dimensionally incomplete (C omega_c is a torque, B is N m^2); the
+    threshold is a total twist, phi_c = omega_c L, and the classical form is
+    phi_c = 2 pi B / C. For the 0.1 ratio that gives 0.628, and the 1 m onset
+    measured here is 0.659 (+4.9 %). The length scaling is checked in
+    `test_rod_greenhill` (2 m onset within 10 % of the 1 m onset after a
+    longer run). The onset value here is printed, not asserted.
 
 Cost: 12 bisection runs of 1500 steps each (40 iterations), about 12 s.
 """
