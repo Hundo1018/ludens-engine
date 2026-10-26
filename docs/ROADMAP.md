@@ -3975,7 +3975,7 @@
 > - **沒有回歸偵測**:grep `baseline|regress|threshold|budget`(`scripts/*.sh`、`harness/bench.mojo`)零命中;`scripts/run_benchmarks.sh` 只負責執行並組報告(重試機制 `:37`),不存結果、不比較。
 >   (範本 `scripts/benchmark_report.md.in:350` 的「gated on physics rather than on regression」只是 LBM 段的正確性說明,不是全報告的效能政策;全範本沒有任何效能回歸政策。)
 > - **雜訊量級已知**:同機跨行程約 ±15%(ROADMAP §17.10,17.10 進度註);當時的待辦是「同一行程交錯量測 on/off」。曲線的 argmax 在平台段會跳動(BENCHMARK_REPORT「Physics — island-parallel solver (serial vs worker threads)」)。
-> - **機器相依**:報告數字來自特定主機(README.md:34「RTX 3060 laptop」;6 P-core + 8 E-core,BENCHMARK_REPORT「Physics — island-parallel solver (serial vs worker threads)」),沒有主機指紋隨結果保存。
+> - **機器相依**(2026-10-26 更正):舊報告的數字來自 RTX 3060 筆電(6 P-core + 8 E-core)。`67f8de5` 的重產在 4 核、無加速器的容器上完成,舊報告中的主機註記因此不再適用。報告現在由 `@host` 指令輸出主機指紋(CPU 型號、邏輯核心數、加速器裝置節點),`scripts/run_benchmarks.sh` 產生,提交於後續 commit。並行縮放曲線(island-parallel、`bench_collide_par`)目前是 4 核的數字,需要在固定主機上重量。GPU 區段的行數與舊報告相同(40 處提及),沒有資料遺失。
 > - **報告新鮮度**(2026-10-26 已重產):`pixi run benchmark` 完整跑完,`BENCHMARK_REPORT.md` 重新產生(119 個區段,無殘留 `@bench`),提交 `67f8de5`。仍未做:新鮮度閘門(讓 CI 比對報告與 `benchmarks/` 是否同步);目前只能靠人手重跑。
 > - **夜間牆鐘閘門**:需要固定主機(釘核、穩定的時脈與負載),這是環境條件,不在本程式碼內完成;本機是 4 核容器,不能當作閘門主機。
 > - **漸近行為退化只靠人工發現**:F22 的 O(n²) 簿記(N ×4 → 成本 ×12)由人讀 bench 輸出發現(ROADMAP §17.19)。

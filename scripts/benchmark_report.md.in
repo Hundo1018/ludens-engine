@@ -8,6 +8,8 @@ performance-competitive. Timings are wall-clock ns via `perf_counter_ns`
 with `keep()` guarding against dead-code elimination; absolute numbers are
 machine-specific, so read the *relative* columns.
 
+@host
+
 ## Engine implementations — movement workload
 
 Note the two archetype rows: `archetype (handle)` is the ergonomic

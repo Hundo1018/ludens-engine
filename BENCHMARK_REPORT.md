@@ -8,6 +8,9 @@ performance-competitive. Timings are wall-clock ns via `perf_counter_ns`
 with `keep()` guarding against dead-code elimination; absolute numbers are
 machine-specific, so read the *relative* columns.
 
+Host: CPU "Intel(R) Xeon(R) Processor @ 2.10GHz", 4 logical cores, accelerator none detected (generated 2026-10-26 by scripts/run_benchmarks.sh). Absolute numbers and the parallel-scaling curves depend on these; rows from a host with a different fingerprint are not comparable.
+
+
 ## Engine implementations — movement workload
 
 Note the two archetype rows: `archetype (handle)` is the ergonomic
