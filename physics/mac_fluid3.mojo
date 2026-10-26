@@ -32,7 +32,7 @@ A field that does not vary along z, with w = 0, steps like `MacFluid2`
 bit -- the 3-D solve sums over n^3 cells).
 """
 
-from std.math import floor, sqrt
+from std.math import ceil, floor, sqrt
 from geometry.vec import Real
 from numerics.sparse import LinearOperator
 from numerics.cg import pcg, CgResult
@@ -89,6 +89,7 @@ struct MacFluid3(Movable):
     var p: List[Real]  # cell centres, warm start
     var last: CgResult
     var mg: Optional[PeriodicPoissonMG3]  # set by use_multigrid
+    var flux_advect: Bool  # set by use_flux_advection
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -107,6 +108,7 @@ struct MacFluid3(Movable):
         self.p = List[Real](length=m, fill=0)
         self.last = CgResult(True, False, 0, 0)
         self.mg = None
+        self.flux_advect = False
 
     def cells(self) -> Int:
         return self.n * self.n * self.n
@@ -114,6 +116,11 @@ struct MacFluid3(Movable):
     def use_multigrid(mut self) raises:
         """Project with MGPCG from now on; raises unless n is a power of two."""
         self.mg = PeriodicPoissonMG3(self.n)
+
+    def use_flux_advection(mut self):
+        """Advect the faces in flux form, `_advect_flux` (opt-in; off by
+        default). Total momentum is conserved by construction."""
+        self.flux_advect = True
 
     def set_confinement(mut self, eps: Real) raises:
         if not (eps >= 0):
@@ -335,12 +342,97 @@ struct MacFluid3(Movable):
         self.last = r
         return r
 
+    def _advect_flux(mut self, dt: Real):
+        """Flux-form advection, first-order upwind, finite volume (17.61 in 3-D).
+
+        Each face owns the control volume around it: the u face at
+        (i, j + 1/2, k + 1/2) owns [i - 1/2, i + 1/2] x [j, j + 1] x [k, k + 1],
+        and v and w are the same with their roles permuted. Each side's
+        advecting speed is the average of the staggered components there, and
+        the advected value is upwind. A shared side is evaluated once by each
+        neighbour from the same arrays, so the periodic sum telescopes and total
+        momentum is conserved to rounding. Explicit and unsplit: stability needs
+        3 |u|max h <= 1, so the step is sub-cycled ceil(3 |u|max dt / dx) times,
+        and each sub-step is itself conservative. First order, hence diffusive."""
+        var umax = Real(0)
+        for c in range(self.cells()):
+            umax = max(umax, max(abs(self.u[c]), max(abs(self.v[c]), abs(self.w[c]))))
+        var need = 3 * umax * dt / self.dx
+        var sub = 1
+        if need > 1:
+            sub = Int(ceil(need))
+        var h = dt / Real(sub) / self.dx
+        for _ in range(sub):
+            self._flux_once(h)
+
+    def _flux_once(mut self, h: Real):
+        """One conservative flux update with step h = sub-step / dx."""
+        var m = self.cells()
+        var u0 = self.u.copy()
+        var v0 = self.v.copy()
+        var w0 = self.w.copy()
+        var nu_ = List[Real](length=m, fill=0)
+        var nv_ = List[Real](length=m, fill=0)
+        var nw_ = List[Real](length=m, fill=0)
+        for k in range(self.n):
+            for j in range(self.n):
+                for i in range(self.n):
+                    # u face: x sides speed from u; y sides from v; z sides from w
+                    var c = self.idx(i, j, k)
+                    var ue = 0.5 * (u0[c] + u0[self.idx(i + 1, j, k)])
+                    var fe = ue * (u0[c] if ue > 0 else u0[self.idx(i + 1, j, k)])
+                    var uw = 0.5 * (u0[self.idx(i - 1, j, k)] + u0[c])
+                    var fw = uw * (u0[self.idx(i - 1, j, k)] if uw > 0 else u0[c])
+                    var vn = 0.5 * (v0[self.idx(i - 1, j + 1, k)] + v0[self.idx(i, j + 1, k)])
+                    var fnorth = vn * (u0[c] if vn > 0 else u0[self.idx(i, j + 1, k)])
+                    var vs = 0.5 * (v0[self.idx(i - 1, j, k)] + v0[c])
+                    var fs = vs * (u0[self.idx(i, j - 1, k)] if vs > 0 else u0[c])
+                    var wt = 0.5 * (w0[self.idx(i - 1, j, k + 1)] + w0[self.idx(i, j, k + 1)])
+                    var ft = wt * (u0[c] if wt > 0 else u0[self.idx(i, j, k + 1)])
+                    var wb = 0.5 * (w0[self.idx(i - 1, j, k)] + w0[c])
+                    var fb = wb * (u0[self.idx(i, j, k - 1)] if wb > 0 else u0[c])
+                    nu_[c] = u0[c] - h * ((fe - fw) + (fnorth - fs) + (ft - fb))
+                    # v face: x sides speed from u; y sides from v; z sides from w
+                    ue = 0.5 * (u0[self.idx(i + 1, j - 1, k)] + u0[self.idx(i + 1, j, k)])
+                    fe = ue * (v0[c] if ue > 0 else v0[self.idx(i + 1, j, k)])
+                    uw = 0.5 * (u0[self.idx(i, j - 1, k)] + u0[c])
+                    fw = uw * (v0[self.idx(i - 1, j, k)] if uw > 0 else v0[c])
+                    var vnv = 0.5 * (v0[c] + v0[self.idx(i, j + 1, k)])
+                    fnorth = vnv * (v0[c] if vnv > 0 else v0[self.idx(i, j + 1, k)])
+                    var vsv = 0.5 * (v0[self.idx(i, j - 1, k)] + v0[c])
+                    fs = vsv * (v0[self.idx(i, j - 1, k)] if vsv > 0 else v0[c])
+                    wt = 0.5 * (w0[self.idx(i, j - 1, k + 1)] + w0[self.idx(i, j, k + 1)])
+                    ft = wt * (v0[c] if wt > 0 else v0[self.idx(i, j, k + 1)])
+                    wb = 0.5 * (w0[self.idx(i, j - 1, k)] + w0[c])
+                    fb = wb * (v0[self.idx(i, j, k - 1)] if wb > 0 else v0[c])
+                    nv_[c] = v0[c] - h * ((fe - fw) + (fnorth - fs) + (ft - fb))
+                    # w face: x sides speed from u; y sides from v; z sides from w
+                    ue = 0.5 * (u0[self.idx(i + 1, j, k - 1)] + u0[self.idx(i + 1, j, k)])
+                    fe = ue * (w0[c] if ue > 0 else w0[self.idx(i + 1, j, k)])
+                    uw = 0.5 * (u0[self.idx(i, j, k - 1)] + u0[c])
+                    fw = uw * (w0[self.idx(i - 1, j, k)] if uw > 0 else w0[c])
+                    vn = 0.5 * (v0[self.idx(i, j + 1, k - 1)] + v0[self.idx(i, j + 1, k)])
+                    fnorth = vn * (w0[c] if vn > 0 else w0[self.idx(i, j + 1, k)])
+                    vs = 0.5 * (v0[self.idx(i, j, k - 1)] + v0[c])
+                    fs = vs * (w0[self.idx(i, j - 1, k)] if vs > 0 else w0[c])
+                    var wtw = 0.5 * (w0[c] + w0[self.idx(i, j, k + 1)])
+                    ft = wtw * (w0[c] if wtw > 0 else w0[self.idx(i, j, k + 1)])
+                    var wbw = 0.5 * (w0[self.idx(i, j, k - 1)] + w0[c])
+                    fb = wbw * (w0[self.idx(i, j, k - 1)] if wbw > 0 else w0[c])
+                    nw_[c] = w0[c] - h * ((fe - fw) + (fnorth - fs) + (ft - fb))
+        self.u = nu_^
+        self.v = nv_^
+        self.w = nw_^
+
     def step(mut self, dt: Real) raises:
         if not (dt > 0):
             raise Error("MacFluid3.step: dt must be > 0")
         if self.nu * dt / (self.dx * self.dx) > Real(1.0 / 6.0):
             raise Error("MacFluid3.step: nu dt / dx^2 > 1/6 (explicit viscosity limit)")
-        self._advect(dt)
+        if self.flux_advect:
+            self._advect_flux(dt)
+        else:
+            self._advect(dt)
         if self.nu > 0:
             self._diffuse(dt)
         if self.fx != 0 or self.fy != 0 or self.fz != 0:
