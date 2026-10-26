@@ -633,6 +633,9 @@ CG n 16384 : serial 154 iterations, parallel 154
 [PASS] relations - 19 / 19 checks
 --- tests/test_rng.mojo ---
 [PASS] rng - 15 / 15 checks
+--- tests/test_rod_greenhill.mojo ---
+  total twist onset: 1 m 0.6593751   2 m 0.703125   ratio 2 m / 1 m 1.0663506   2 pi B/C 0.62831855
+[PASS] rod_greenhill - 2 / 2 checks
 --- tests/test_rod_plectoneme.mojo ---
   onset omega_c (rad/m): twist compliance 0.1: 0.6593751   0.2: 1.315625   ratio 1.9952604
   Kirchhoff 2B/C for 0.1 ratio: 0.2 rad/m (not reproduced; see header)
