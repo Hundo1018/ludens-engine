@@ -302,6 +302,12 @@
 #### 17.19 生產級 solver 硬化
 
 > **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試 `test_stress_solver` 15/15 ✅ 2026-10-24)
+> **進度註(2026-10-26,持有負載的存檔 17.19 (5))**:`ContactConstraint` 的 `hold_jn` / `hold_jf` / `hold_span` / `hold_excess` / `hold_excess_up` 隨快取序列化,snapshot format 6(`physics/serialize.mojo` `_VERSION = 6`)。載入後的休眠 pair 繼續回報靜止負載,不再歸零。
+> 驗證:`tests/test_sleep_api.mojo` 新增三項 reload 斷言(載入後仍休眠;前後負載差 < 1e-9;約 19.6 N),30/30。變異測試:還原前的 reload 路徑(不讀 `hold_jn`)時 30 項中 2 項失敗,之後還原原始碼。
+> golden:acb7804 記錄 `test_sleep_api` 27/27(PR #64 未記錄的段落);ee6ae3d 記錄 format 6 造成的變動(`test_capi` 雜湊 `039b05d835e9eec3`、數個位元組數、`test_sleep_api` 30/30)。382c1c2(`max_mass_ratio` 預設 10)造成三段 golden 差異。
+> **fracture 最大速度 0.163 的歸因(探針,scratch 未入庫)**:`_debris_scene` 的 `vmax` 取全部碎片。拆分後:休眠剛體碎片 0.0 m/s、醒著的剛體碎片 0.0 m/s,全部 0.1625 m/s 來自軟體碎片堆(永不休眠)。bricks 情境為 0.0429 m/s。結論:不是休眠剛體碎片的回歸。
+> **未決**:軟體堆的速度從 0.041 升到 0.163 的原因未查。此處沒有在同一設定下量過變更前的軟體堆速度,所以不能斷言它來自 17.50 / 17.19 的改動。需要 before/after 同設定量測,由使用者判斷是否列為回歸。
+>
 > **進度註(2026-10-24,壓測)**:`tests/test_stress_solver.mojo`(stress tier,`pixi run test-stress`)8/8。量測值(`step_soft` 預設 4 子步、4 迭代,600 步):質量比 10:1 偏移 3 mm,100:1 偏移 3 cm,300:1 偏移 10 cm,1000:1 輕箱被壓進地板 25 cm(整個半高)。迭代 20 與 60 不改變結果,所以這是軟約束的順應(compliance),不是收斂不足:有效質量取輕的那個體,重體越重越沉。300:1 與 1000:1 只斷言有限值,作為特徵記錄,未設界。10 箱塔頂部低於理想高度 2.9 cm 後靜止(後半段漂移 0);64 箱堆(4×4×4)落定後最後一秒位移 0,最低箱在地面以上 0.2488 m;每步時間分別為 0.04 ms 與 0.31 ms(記錄,不斷言)。
 > **更正(同日)**:上段「需要改善有效質量」一句有誤。有效質量的修正已存在為 opt-in 的 `SolverConfig.max_mass_ratio`(見下方 2026-10-17 進度註,`_contact_mass_scale`),`tests/test_solver_stress.mojo` 斷言其 1:1000 與 1:1e4 下沉 < 1 cm(量得 3 mm)。`step_soft` 預設 `max_mass_ratio = 0`,所以壓測的預設路徑仍沉降。
 > **仍未處理**:(1)`step_soft` 尚未暴露 `max_mass_ratio`(已完成,見下一段 PR #56);(2)開啟時的力回報失真(已完成,見下一段 A2);(3)預設是否開啟(影響既有場景,未決)。
