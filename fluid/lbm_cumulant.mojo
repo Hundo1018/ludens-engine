@@ -186,7 +186,6 @@ struct Lbm27(Movable):
 
     def collide(mut self):
         var m = self.cells()
-        var forced = self.fx != 0 or self.fy != 0 or self.fz != 0
         var a = Array[Real, 27](fill=0)
         for c in range(m):
             for i in range(Q27):
@@ -205,12 +204,11 @@ struct Lbm27(Movable):
             ux /= rho
             uy /= rho
             uz /= rho
-            if forced:
-                # first-order shift: the cumulant path sets the post-collision
-                # momentum to rho * (u + F / rho) outright
-                ux += self.fx / rho
-                uy += self.fy / rho
-                uz += self.fz / rho
+            # first-order shift: the cumulant path sets the post-collision
+            # momentum to rho * (u + F / rho) outright
+            ux += self.fx / rho
+            uy += self.fy / rho
+            uz += self.fz / rho
             _fwd(a, 1, ux)
             _fwd(a, 3, uy)
             _fwd(a, 9, uz)
