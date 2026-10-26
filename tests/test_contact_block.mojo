@@ -33,6 +33,10 @@ def _cfg(kind: Int, iters: Int) -> SolverConfig:
     var c = SolverConfig()
     c.contact_solver = kind
     c.iters = iters
+    # The block solve is gated off under mass scaling (`_block_normal` does not
+    # carry the scale), and `SolverConfig()` defaults to scaling since 17.19.
+    # These cases test the block seam itself, so they run unscaled.
+    c.max_mass_ratio = 0
     return c
 
 

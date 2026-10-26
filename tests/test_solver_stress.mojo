@@ -72,7 +72,8 @@ def _floor_force(heavy: Real, ratio: Real) raises -> Real:
 def _heavy_on_light(heavy: Real, ratio: Real = 0) raises -> Tuple[Real, Real, Real]:
     """Returns (light box floor penetration, light/heavy overlap, max
     horizontal drift) over 5 s; `ratio` > 0 steps with that
-    `max_mass_ratio`, otherwise `step_soft`'s defaults."""
+    `max_mass_ratio`, otherwise unscaled (`step_soft(max_mass_ratio=0)`:
+    the sag law is for unscaled contacts; the default scales since 17.19)."""
     var cfg = SolverConfig()
     cfg.max_mass_ratio = ratio
     var sc = ContactScene6[QuatBody6]()
@@ -86,7 +87,7 @@ def _heavy_on_light(heavy: Real, ratio: Real = 0) raises -> Tuple[Real, Real, Re
         if ratio > 0:
             sc.step(DT, G, cfg)
         else:
-            sc.step_soft(DT, G)
+            sc.step_soft(DT, G, max_mass_ratio=0)
         var yl = sc.pose(l).pos[1]
         var yh = sc.pose(h).pos[1]
         pen = max(pen, 0.25 - yl)
@@ -134,7 +135,7 @@ def _chain(ratio: Real) raises -> Real:
         if ratio > 0:
             ch.step(DT, G, cfg)
         else:
-            ch.step_soft(DT, G)
+            ch.step_soft(DT, G, max_mass_ratio=0)
     return 20 - ch.pose(w).pos[1]
 
 

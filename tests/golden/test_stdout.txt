@@ -1175,9 +1175,9 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
 [PASS] force_elements - 13 / 13 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
-  shot: broke 97 bonds, thrown through 36 , left in line 0 , live bonds 46 of 143 , ball z -2.0509412
+  shot: broke 114 bonds, thrown through 38 , left in line 0 , live bonds 29 of 143 , ball z -1.044369
   bricks: 81 fragments, asleep 54 of 54 on rigid bodies, islands 14 , on crate 27 , on ledge 27 , lowest centre 0.1657566875219345 , soft top moved -0.04887735843658447 , crate sag 0.011606425046920776 , max speed 0.042879797518253326
-  shards: 72 fragments, asleep 48 of 48 on rigid bodies, islands 14 , on crate 21 , on ledge 17 , lowest centre 0.03304039686918259 , soft top moved -0.11144638061523438 , crate sag 0.011169463396072388 , max speed 0.040879711508750916
+  shards: 72 fragments, asleep 48 of 48 on rigid bodies, islands 16 , on crate 20 , on ledge 17 , lowest centre 0.03165055811405182 , soft top moved -0.1390262246131897 , crate sag 0.010638892650604248 , max speed 0.16254062950611115
   L chain: parts 2 fragments 36 volume 1.2 parts volume 1.2
   L chain: bonds within parts 104 across parts 21
   L grouped: cells 36 -> bodies 27 ( 9 compounds ) vs 36 hull bodies; mass 1199.9999 vs 1200.0 ; bonds within parts 104 across parts 11 (hulls: 21 )
@@ -1532,7 +1532,7 @@ assist: COM x 0.0 -> 0.09939743  (support centre 0.1)
 after a 60 N s push: capture point x 0.8691259  margin -0.6191259  need step True
 after 1 steps: margin 0.14997107  COM x 0.86903364  (support centre 0.8691259 )  speed 0.00016665803
 carried box at 0.5999999 1.7997258  (hand at 0.6, 2.0)
-released box fell 2.049764 m in 0.5 s
+released box fell 1.988128 m in 0.5 s
 [PASS] ragdoll_ctl - 13 / 13 checks
 --- tests/test_replay.mojo ---
 [PASS] replay - 8 / 8 checks
@@ -1578,7 +1578,7 @@ rigid in air, 0.3 s: v 0.13973519 0.18008693 -1.8569243e-09  w_z 3.7921658  max 
   sphere v0=3 mu=0.5: vx(1.5 s) = 2.1428554  vx(4 s) = 2.1428554  omega*r(4 s) = 2.1428554  y(4 s) = 0.49972457
   capsule: vx = 2.033903  want 2.0338984  omega*r = 2.033903  y = 0.29965526
   spin-only: vx = 1.1428576  omega*r = 1.1428576
-  ball on dynamic slab: relative vx = 2.1428573  omega*r = 2.1428573  height above slab centre = 0.69972426
+  ball on dynamic slab: relative vx = 2.1429021  omega*r = 2.1429024  height above slab centre = 0.69967246
 [PASS] rolling_sphere - 11 / 11 checks
 --- tests/test_rope.mojo ---
   catenary sag 1.0052668  rope 1.0073015  length 3.0027263
