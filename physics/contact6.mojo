@@ -114,8 +114,8 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # because both sides are inert -- and the event stream must keep seeing
     # zero there. `hold_*` is the snapshot of the last step this pair was
     # solved (`ContactScene6._hold_loads`), carried by the warm-start match,
-    # and read only by `contacts_of` while the pair is inert. Not serialized:
-    # a loaded sleeping pair reports zero until it wakes.
+    # and read only by `contacts_of` while the pair is inert. Serialized with
+    # the cache (snapshot format 6), so a loaded sleeping pair keeps reporting.
     var hold_jn: Array[Real, 4]
     var hold_jf: Vec3
     var hold_span: Real

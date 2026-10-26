@@ -3582,6 +3582,13 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wv(pr.rb[p])
             out.wf(pr.vn0[p])
             out.wf(pr.racc[p])
+            out.wf(pr.hold_jn[p])
+        # 17.19 (5): the held report load (`ContactConstraint.hold_*`), so a
+        # loaded sleeping pair keeps reporting its resting load
+        out.wv(pr.hold_jf)
+        out.wf(pr.hold_span)
+        out.wv(pr.hold_excess)
+        out.wi(pr.hold_excess_up)
     # F20: the event stream's own state, so a resumed scene's events
     # continue identically instead of restarting from an empty history.
     out.wi(1 if sc.events_on else 0)
@@ -4052,6 +4059,11 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             pr.rb[p] = r.rv()
             pr.vn0[p] = r.rf()
             pr.racc[p] = r.rf()
+            pr.hold_jn[p] = r.rf()
+        pr.hold_jf = r.rv()
+        pr.hold_span = r.rf()
+        pr.hold_excess = r.rv()
+        pr.hold_excess_up = r.ri()
         sc.cache.append(pr)
     # F20: restore the event stream's own state.
     sc.events_on = r.ri() == 1

@@ -12,6 +12,7 @@ from physics.rigid6 import Inertia3, QuatBody6, Pose6
 from physics.solver6 import ContactScene6
 from physics.solver_config import SolverConfig
 from physics.body_set import BodyId
+from physics.serialize import scene_to_string, scene_from_string
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -204,6 +205,15 @@ def main() raises:
     s.check(slept7, "the 2 kg stack falls asleep within 120 steps")
     s.check(worst7 < 0.01, "floor report within 1% of 19.6 N, awake and asleep (17.19 (5))")
     s.check(held_vs_live7 < 0.01, "first asleep report equals the last live report (held snapshot)")
+
+    # 17.19 (5), snapshot (format 6): a saved and reloaded sleeping stack stays
+    #    asleep and keeps reporting the held load, not zero.
+    var f7_before = _floor_load(sc7, base7)
+    var sc7b = scene_from_string(scene_to_string(sc7))
+    var f7_after = _floor_load(sc7b, base7)
+    s.check(sc7b.is_sleeping(base7), "a loaded sleeping stack loads asleep")
+    s.check(abs(f7_after - f7_before) < 1e-9, "the loaded sleeping stack reports the same held load (format 6)")
+    s.check(abs(f7_after - Real(19.6)) / Real(19.6) < 0.01, "the loaded sleeping stack reports ~19.6 N, not zero")
 
     # 17.19 (5): waking the stack resumes the live path -- the next report is
     #    the awake one again, with no stale hold left over.

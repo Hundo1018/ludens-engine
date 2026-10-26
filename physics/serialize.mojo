@@ -35,8 +35,11 @@ from physics.rigid6 import QuatBody6
 from physics.solver6 import ContactScene6, write_state, read_state
 from physics.state_io import StateWriter, StateReader
 
-comptime _VERSION = 5
-"""5 since ROADMAP 17.45 / 17.53: after the 17.50 contact-model block, the
+comptime _VERSION = 6
+"""6 since ROADMAP 17.19 (5): each cached contact pair carries its held report
+load (`hold_jn` per point, `hold_jf`, `hold_span`, `hold_excess`,
+`hold_excess_up`), so a loaded sleeping pair keeps reporting its resting load.
+5 since ROADMAP 17.45 / 17.53: after the 17.50 contact-model block, the
 kinematic meshes (body index, body-frame vertices, pose last placed at),
 each mesh / heightfield's surface data (heightfield active-edge angle,
 per-triangle material ids) and the material friction table -- without them
