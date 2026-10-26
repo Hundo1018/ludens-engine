@@ -789,6 +789,11 @@ balanced at 2 m/s 3.1414216  at 6 m/s 0.14446111
 --- tests/test_body_removal.mojo ---
 broadphase items before / after removing 400: 401 1   re-added box slot 1  y 0.24971199
 [PASS] body_removal - 16 / 16 checks
+--- tests/test_body_square.mojo ---
+  one step: samples 64  momentum error 0.0
+  8 s fall: body vy -0.6299508  gas vy at samples -0.5297363  rho g / kappa 0.1
+  momentum book residual (relative to m g t) 0.01020527  speed change over last 0.5 s 0.00094996404  drag / weight 1.0021454
+[PASS] body_square - 4 / 4 checks
 --- tests/test_broadphase.mojo ---
 [PASS] broadphase - 4 / 4 checks
 --- tests/test_camera_seq.mojo ---
