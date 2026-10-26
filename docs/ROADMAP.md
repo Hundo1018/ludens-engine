@@ -306,7 +306,9 @@
 > 驗證:`tests/test_sleep_api.mojo` 新增三項 reload 斷言(載入後仍休眠;前後負載差 < 1e-9;約 19.6 N),30/30。變異測試:還原前的 reload 路徑(不讀 `hold_jn`)時 30 項中 2 項失敗,之後還原原始碼。
 > golden:acb7804 記錄 `test_sleep_api` 27/27(PR #64 未記錄的段落);ee6ae3d 記錄 format 6 造成的變動(`test_capi` 雜湊 `039b05d835e9eec3`、數個位元組數、`test_sleep_api` 30/30)。382c1c2(`max_mass_ratio` 預設 10)造成三段 golden 差異。
 > **fracture 最大速度 0.163 的歸因(探針,scratch 未入庫)**:`_debris_scene` 的 `vmax` 取全部碎片。拆分後:休眠剛體碎片 0.0 m/s、醒著的剛體碎片 0.0 m/s,全部 0.1625 m/s 來自軟體碎片堆(永不休眠)。bricks 情境為 0.0429 m/s。結論:不是休眠剛體碎片的回歸。
-> **未決**:軟體堆的速度從 0.041 升到 0.163 的原因未查。此處沒有在同一設定下量過變更前的軟體堆速度,所以不能斷言它來自 17.50 / 17.19 的改動。需要 before/after 同設定量測,由使用者判斷是否列為回歸。
+> **歸因(二分,2026-10-26,已驗證)**:同一探針、各 commit 以 `git rev-parse` 確認 HEAD 後建置:e018d7d(382c1c2 的父)shards 最大速度 0.0409、islands 14;61e04ac(main,17a6a3e 的父)0.1625、islands 16;382c1c2 0.1625、islands 16。變異:382c1c2 上把 `debris_config()` 的 `max_mass_ratio` 設 0,回到 0.0409 / islands 14,與 e018d7d 一致。因此原因是 382c1c2 把 `MASS_RATIO_DEFAULT` 改為 10 的預設縮放,而 17a6a3e(塊求解)不是原因。
+> 同一碎片情境、縮放開 / 關的對照(shards):軟體頂面 −0.111 → −0.139 m(低 2.8 cm),islands 14 → 16,on_crate 21 → 20,最大速度 0.041 → 0.163 m/s。bricks 情境無變化(0.0429 m/s)。剛體碎片的速度始終為 0。
+> 判定:這是 17.19 預設縮放的可觀察效果,不是休眠剛體的回歸;但它改變了軟體堆的靜置結果。是否接受 0.16 m/s 的殘餘速度與 2.8 cm 的下沉,由使用者決定(見 advisor 報告);在此之前記錄為已知行為變化。
 >
 > **進度註(2026-10-24,壓測)**:`tests/test_stress_solver.mojo`(stress tier,`pixi run test-stress`)8/8。量測值(`step_soft` 預設 4 子步、4 迭代,600 步):質量比 10:1 偏移 3 mm,100:1 偏移 3 cm,300:1 偏移 10 cm,1000:1 輕箱被壓進地板 25 cm(整個半高)。迭代 20 與 60 不改變結果,所以這是軟約束的順應(compliance),不是收斂不足:有效質量取輕的那個體,重體越重越沉。300:1 與 1000:1 只斷言有限值,作為特徵記錄,未設界。10 箱塔頂部低於理想高度 2.9 cm 後靜止(後半段漂移 0);64 箱堆(4×4×4)落定後最後一秒位移 0,最低箱在地面以上 0.2488 m;每步時間分別為 0.04 ms 與 0.31 ms(記錄,不斷言)。
 > **更正(同日)**:上段「需要改善有效質量」一句有誤。有效質量的修正已存在為 opt-in 的 `SolverConfig.max_mass_ratio`(見下方 2026-10-17 進度註,`_contact_mass_scale`),`tests/test_solver_stress.mojo` 斷言其 1:1000 與 1:1e4 下沉 < 1 cm(量得 3 mm)。`step_soft` 預設 `max_mass_ratio = 0`,所以壓測的預設路徑仍沉降。
