@@ -1,4 +1,4 @@
-# tier: component
+# tier: integration
 """Two-way point drag on the 2-D grid gas (ROADMAP 17.61, `physics.mac_fluid`
 `MacFluid2.add_impulse`).
 
