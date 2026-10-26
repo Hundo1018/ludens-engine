@@ -106,6 +106,8 @@ struct MacFluid2(Movable):
     var p: List[Real]  # last pressure (warm start), cell centres
     var last: CgResult
     var mg: Optional[PeriodicPoissonMG]  # set by use_multigrid
+    var fix_momentum: Bool  # set by use_momentum_fix
+    var momentum_booked: Real  # sum of |momentum corrections| applied (x and y)
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -120,6 +122,25 @@ struct MacFluid2(Movable):
         self.p = List[Real](length=n * n, fill=0)
         self.last = CgResult(True, False, 0, 0)
         self.mg = None
+        self.fix_momentum = False
+        self.momentum_booked = 0
+
+    def use_momentum_fix(mut self):
+        """Restore the total momentum after each advection (opt-in; off by
+        default so the semi-Lagrangian default path is unchanged). The applied
+        corrections are summed in `momentum_booked`."""
+        self.fix_momentum = True
+
+    def momentum(self) -> Tuple[Real, Real]:
+        """Total (sum u dx^2, sum v dx^2), accumulated in f64."""
+        var sx = Float64(0)
+        var sy = Float64(0)
+        for k in range(self.n * self.n):
+            sx += Float64(self.u[k])
+            sy += Float64(self.v[k])
+        var a = Real(sx * Float64(self.dx) * Float64(self.dx))
+        var b = Real(sy * Float64(self.dx) * Float64(self.dx))
+        return (a, b)
 
     def use_multigrid(mut self) raises:
         """Project with MGPCG from now on; raises unless n is a power of two."""
@@ -242,7 +263,23 @@ struct MacFluid2(Movable):
             raise Error("MacFluid2.step: dt must be > 0")
         if self.nu * dt / (self.dx * self.dx) > 0.25:
             raise Error("MacFluid2.step: nu dt / dx^2 > 1/4 (explicit viscosity limit)")
+        var m0 = self.momentum() if self.fix_momentum else (Real(0), Real(0))
         self._advect(dt)
+        if self.fix_momentum:
+            # Semi-Lagrangian advection changes sum(u) and sum(v) by the
+            # interpolation residual, though the periodic box has no external
+            # momentum source. Shift every face by the same amount so the total
+            # matches m0. A constant has zero divergence on the periodic grid,
+            # so the projection is unaffected. This restores the total only:
+            # the local distribution keeps the advection error.
+            var m1 = self.momentum()
+            var cells = Real(self.n * self.n) * self.dx * self.dx
+            var du = (m0[0] - m1[0]) / cells
+            var dv = (m0[1] - m1[1]) / cells
+            for k in range(self.n * self.n):
+                self.u[k] += du
+                self.v[k] += dv
+            self.momentum_booked += abs(m0[0] - m1[0]) + abs(m0[1] - m1[1])
         if self.nu > 0:
             self._diffuse(dt)
         if self.fx != 0 or self.fy != 0:
