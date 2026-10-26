@@ -123,6 +123,9 @@ lattice: 50 / 50  ring: 12
   qd leaving the stop: -2.0 -> -2.0
   bead on spinning rod: theta'' = -0.9837831  r'' = 1.183
 [PASS] joints_lib - 11 / 11 checks
+--- tests/test_lbm27_poiseuille.mojo ---
+  worst profile error / umax: tau 0.8 0.004993235  tau 1.5 0.01165898
+[PASS] lbm27_poiseuille - 2 / 2 checks
 --- tests/test_lbm_body_force.mojo ---
   channel profiles vs the parabola (umax 0.0105125 ): x 0.0017166457  y 0.0027496275  z 0.0025166308 ;  y / z vs x 0.001034758 0.00084289303
   open box, 200 steps along z: mean uz 0.001998359  want 0.0019999999
