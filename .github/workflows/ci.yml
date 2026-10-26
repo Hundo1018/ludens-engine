@@ -37,6 +37,8 @@ jobs:
         run: pixi run flag-policy
       - name: benchmark template / files / report consistency
         run: pixi run perf -- governance
+      - name: benchmark report not older than any bench (17.83)
+        run: pixi run bench-fresh
       - name: gate (build, arch-check, unit..system, golden compare)
         # 4 files at a time (scripts/run_tests.sh): the sequential suite
         # passed the 3600 s gate budget on this runner at ~270 files; with 4
