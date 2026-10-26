@@ -38,6 +38,26 @@ def disk_samples(radius: Real, dx: Real) raises -> Tuple[List[Real], List[Real]]
     return (ox^, oy^)
 
 
+def square_samples(half_side: Real, dx: Real) raises -> Tuple[List[Real], List[Real]]:
+    """Centres of the grid cells (side dx) whose centre lies inside the square
+    |x| <= half_side, |y| <= half_side about the origin. Returns the (x, y) offsets."""
+    if not (half_side > 0) or not (dx > 0):
+        raise Error("square_samples: half_side > 0 and dx > 0")
+    var ox = List[Real]()
+    var oy = List[Real]()
+    var half = Int(half_side / dx) + 2
+    for j in range(-half, half):
+        for i in range(-half, half):
+            var px = (Real(i) + 0.5) * dx
+            var py = (Real(j) + 0.5) * dx
+            if abs(px) <= half_side and abs(py) <= half_side:
+                ox.append(px)
+                oy.append(py)
+    if len(ox) == 0:
+        raise Error("square_samples: no cell centre inside the square; half_side too small for dx")
+    return (ox^, oy^)
+
+
 struct DragBody2(Movable):
     var mass: Real
     var x: Real  # centre
