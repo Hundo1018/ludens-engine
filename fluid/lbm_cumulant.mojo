@@ -186,6 +186,7 @@ struct Lbm27(Movable):
 
     def collide(mut self):
         var m = self.cells()
+        var forced = self.fx != 0 or self.fy != 0 or self.fz != 0
         var a = Array[Real, 27](fill=0)
         for c in range(m):
             for i in range(Q27):
@@ -204,6 +205,12 @@ struct Lbm27(Movable):
             ux /= rho
             uy /= rho
             uz /= rho
+            if forced:
+                # first-order shift: the cumulant path sets the post-collision
+                # momentum to rho * (u + F / rho) outright
+                ux += self.fx / rho
+                uy += self.fy / rho
+                uz += self.fz / rho
             _fwd(a, 1, ux)
             _fwd(a, 3, uy)
             _fwd(a, 9, uz)
@@ -280,12 +287,13 @@ struct Lbm27(Movable):
 
     def set_walls_z(mut self, on: Bool):
         """Half-way bounce-back on the two z planes (x and y stay periodic).
-        Applies to `step_bgk` / `stream`; the cumulant `step` is periodic only."""
+        Applies to both `step` and `step_bgk`: the wall lives in the shared `stream`."""
         self.wall_z = on
 
     def set_force(mut self, fx: Real, fy: Real, fz: Real):
-        """Uniform body force per unit volume (Guo et al. 2002). Applies to
-        `step_bgk`; the cumulant `collide` ignores it."""
+        """Uniform body force per unit volume. `step_bgk` uses the Guo et al. (2002)
+        scheme; the cumulant `step` shifts the moment velocity by F / rho (first
+        order; see the 17.60 note for the measured accuracy)."""
         self.fx = fx
         self.fy = fy
         self.fz = fz
