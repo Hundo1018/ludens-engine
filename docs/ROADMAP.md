@@ -1897,7 +1897,8 @@
 > **Smagorinsky 渦黏**(`Lbm27.smagorinsky` = Cs,預設 0;Hou 等 1996,由碰撞前非平衡二階矩 Q 算 τ = ½(τ0 + √(τ0² + 18√2 Cs² √Q / ρ)),用於剪切鬆弛與 Galilean 修正項;`collide_bgk` 以 f − feq 二階矩同法):
 > 24³、寬 1/30 的雙剪切層、ν 1e-5、2000 步:Cs 0.05 時 cumulant 跑完(E/E0 0.866)而 BGK 發散(4.9e21);Cs 0.1 時兩者皆跑完,cumulant 保留較多能量(0.837 對 0.742)。
 > 32³、寬 1/40、Cs 0 的 cumulant 仍在 1488 步發散,所以穩定來自渦黏而非 cumulant 本身。
-> **未做**:ω3 等可調高階速率與限制器(使剪切層撐更久)、壁面 / 力(`Lbm` 的 D3Q19 路徑不變)、3-D 渦度約束與 multigrid、3-D 自由表面、粒子 level set(體積修正)。
+> **進度註(2026-10-26,粒子 level set)**:`physics/mac_levelset_particles.mojo` `LevelSetParticles`(Enright 等 2002):正負標記粒子以 RK2 隨格速平流,逃出的負粒子以 min(φ, |x − x_p| − r) 修正附近格點、逃入液體的正粒子以 max(φ, r − |x − x_p|) 修正;r = 0.3 dx。`tests/test_levelset_particles.mojo` 2/2:32² 格、dx 1/32、240 步,半徑 0.15 m 圓盤被單一渦旋(ψ = A sin²πx sin²πy,A 0.6)攪拌 1 s:無粒子體積剩 0.0117(初 0.0707,−83 %);有粒子 0.0771(+9 %)。超出的 9 % 來源未定位(修正可能過量;只檢查了 10 % 的寬容上限)。粒子只在開始時 seed、不重播;平流用步末速度(一階)。
+> **未做**:ω3 等可調高階速率與限制器(使剪切層撐更久)、壁面 / 力(`Lbm` 的 D3Q19 路徑不變)、3-D 渦度約束與 multigrid、3-D 自由表面、粒子重播種與 3-D 版本。
 
 > **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
 > 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
