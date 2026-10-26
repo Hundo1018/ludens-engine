@@ -2153,7 +2153,7 @@
 |---|---|:-:|:-:|---|
 | 3.1 | [可微模擬(與 GA 核心契合度最高)](ROADMAP_HISTORY.md#31-可微模擬與-ga-核心契合度最高) | ✅ |  | `Field` trait 擴充 + `DualBatch`(SIMD 4 lane 多方向導數)+ `physics/diffsim.mojo` 拋體 rollout,`tests/test_diffsim.mojo` 驗證對偶 vs 中央差分穿過彈跳 parity、梯度下降控制任務收斂與 `GMV[3,0,1,DualReal]` GA 原生 AD。 |
 | 4.2 | [可微模擬深化:reverse-mode AD tape](ROADMAP_HISTORY.md#42-可微模擬深化reverse-mode-ad-tape) | ✅ |  | Field trait 已有 reverse-mode 成員 RevReal 與 append-only Tape(grad() 一次反向掃即得全部 adjoint),reverse / DualBatch / FD 三方 parity 通過;bench_diffsim 顯示成本對參數數 N 持平,外推交叉點約 N=76。 |
-| 13.7 | [剛體求解器可微(把 `Field` 推進 solver6)](#137-剛體求解器可微把-field-推進-solver6) | 🔶 |  | 可微剛體接觸有兩個實作:physics/diffrigid.mojo(Field 泛型的衝量式 rollout)與 17.20 的 physics/diffsolver.mojo(SphereWorld[F]:用指示函數改寫 ContactScene6 的同一套演算法,範圍限定動態球 + 靜態平面,並在檔頭寫明子集邊界);solver6.mojo 本身沒有泛型化。 |
+| 13.7 | [剛體求解器可微(把 `Field` 推進 solver6)](#137-剛體求解器可微把-field-推進-solver6) | ✅ |  | 可微剛體接觸有兩個實作:physics/diffrigid.mojo(Field 泛型的衝量式 rollout)與 17.20 的 physics/diffsolver.mojo(SphereWorld[F]:用指示函數改寫 ContactScene6 的同一套演算法,範圍限定動態球 + 靜態平面,並在檔頭寫明子集邊界);solver6.mojo 本身沒有泛型化。 |
 | 13.9 | [批次多世界步進](#139-批次多世界步進) | ⏸ |  | 多個獨立世界一起步進的通用 RL 能力;目前只在可微子集上以 17.18 的 `BatchReal[W]` / `step_worlds_parallel[W]` 落地,完整 solver6 批次仍待平台整合方向決定。 |
 | 15.3 | [comptime 自動伴隨式生成](ROADMAP_HISTORY.md#153-comptime-自動伴隨式生成---完成2026-08-11) | ✅ |  | 步驟以小型線性直線程式描述,用 comptime for 在編譯期展開前向與伴隨,8.48 ns,比 runtime tape 快 5.9×,有 27 checks 測試與 bench_diffsim 一列。 |
 | 17.18 | [批次多世界步進(13.9 落地)](ROADMAP_HISTORY.md#1718-批次多世界步進139-落地--wave-b) | ✅ | B | `BatchReal[W]` 讓 17.20 的 `SphereWorld` 每個 SIMD lane 跑一個世界,`step_worlds_parallel[W]` 再把批次分到各核,N ≥ 64 時約 7.4×(lane)/ 22×(lane × 核)於純量循序。 |
@@ -2184,7 +2184,7 @@
 
 #### 13.7 剛體求解器可微(把 `Field` 推進 solver6)
 
-> **狀態**:🔶 部分完成(衝量式玩具 `diffrigid` 與 17.20 的可微子集 `diffsolver` 已交付;`solver6.mojo` 本身沒有穿過 `Field`,收尾見 17.20)— 原屬 Wave D
+> **狀態**:✅ 完成(2026-10-26 閉合:路徑取捨於 17.20 決定。`Field` 穿過 `solver6.mojo` 的具體 `Vec3` / `Body6` 路徑被放棄,改以明確定義的可微子集 `physics/diffsolver.mojo`(`SphereWorld[F]`,與 `ContactScene6` 的容差比對)承接,並記在檔頭。`solver6.mojo` 不做可微化,是 17.20 的設計決定,不是遺漏。)— 原屬 Wave D。舊狀態:🔶 部分完成(衝量式玩具 `diffrigid` 與 17.20 的可微子集 `diffsolver` 已交付;`solver6.mojo` 本身沒有穿過 `Field`,收尾見 17.20)
 > **進度(2026-08-11)**:完成 `physics/diffrigid.mojo`:Field 泛型的衝量式剛體接觸 rollout(鏡射反射 + 恢復係數),含 `tests/test_diffrigid.mojo` 與 `benchmarks/bench_diffrigid.mojo`。先做衝量接觸,是因為接觸才是可微剛體模擬真正困難的部分,量測也證實了這點:接觸排程的身分是觸發步索引,不是反彈次數;y0 ∈ [0.5, 1.0] 的 499 個取樣點中有 366 次排程改變;可用的有限差分探針隨 dt 縮小(dt = 1/120 時從 2.5e-3 降到 1.6e-4)。在這些性質確立之前就把 solver6 泛型化,只會得到一個更大、而且有同樣陷阱的東西。
 > **進度(2026-09-29,見 17.20)**:沒有把 `Field` 穿過具體的 `Vec3` / `Body6` solver6,而是改為明確定義「可微子集」並寫在檔頭。`geometry/field.mojo` 的 `SolverField`(`positive` 的導數定義為 0,也就是接觸開關的次梯度約定);`physics/diffsolver.mojo` 的 `SphereWorld[F]` 以同一套 per-frame 演算法處理動態球 + 靜態平面;`tests/test_diffsolver.mojo` 26/26(與 `ContactScene6` parity,四方梯度一致);`bench_diffsolver`;`examples/22_diffsolver_sysid.mojo`。
 > **剩餘**:
@@ -4086,7 +4086,7 @@
 | 13.4 | [腱(fixed / spatial,含繞行)](ROADMAP_HISTORY.md#134-腱fixed--spatial含繞行--已完成) | 縮座標關節體與致動 | ✅ |
 | 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | 縮座標關節體與致動 | ✅ |
 | 13.6 | [機器人感測器組](ROADMAP_HISTORY.md#136-機器人感測器組---已完成) | 縮座標關節體與致動 | ✅ |
-| 13.7 | [剛體求解器可微(把 `Field` 推進 solver6)](#137-剛體求解器可微把-field-推進-solver6) | 可微模擬、批次世界與數值深化 | 🔶 |
+| 13.7 | [剛體求解器可微(把 `Field` 推進 solver6)](#137-剛體求解器可微把-field-推進-solver6) | 可微模擬、批次世界與數值深化 | ✅ |
 | 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 13.9 | [批次多世界步進](#139-批次多世界步進) | 可微模擬、批次世界與數值深化 | ⏸ |
 | 14.1 | [LBM 核心(D3Q19 碰撞-傳播)](ROADMAP_HISTORY.md#141-lbm-核心d3q19-碰撞-傳播--完成2026-08-12cpu) | 軟體、布料、連續體與流體 | ✅ |
