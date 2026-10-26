@@ -120,6 +120,6 @@ physics.thermal_float  # [api] water whose density follows a HeatGrid column tem
 physics.mac_fluid3  # [api] 3-D MAC fluid / smoke for hosts and benches (17.60, test_mac_fluid3)
 physics.cosserat_rod  # [api] Cosserat rods with twist (position + orientation), 17.57 (test_cosserat_rod)
 physics.fem_pd  # [api] projective-dynamics solver for tet bodies, 17.58 (test_fem_pd)
-physics.mac_levelset  # [api] free-surface water: MAC + level set + ghost fluid, 17.60 (test_levelset_water)
 physics.pbf_unified  # [api] fluid + rigid bodies in one PBF solve, 17.59 (test_pbf_unified)
 fluid.lbm_cumulant  # [api] periodic D3Q27 cumulant collision study, 17.60 (test_lbm_cumulant)
+physics.mac_levelset_particles  # [api] particle level set volume correction, 17.60 (test_levelset_particles)
