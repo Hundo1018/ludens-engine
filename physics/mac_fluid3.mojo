@@ -36,6 +36,7 @@ from std.math import floor, sqrt
 from geometry.vec import Real
 from numerics.sparse import LinearOperator
 from numerics.cg import pcg, CgResult
+from numerics.multigrid3 import PeriodicPoissonMG3, pcg_mg3
 from .mac_fluid import warm_start_or_zero
 
 
@@ -87,6 +88,7 @@ struct MacFluid3(Movable):
     var w: List[Real]  # at (i + 1/2, j + 1/2, k) dx
     var p: List[Real]  # cell centres, warm start
     var last: CgResult
+    var mg: Optional[PeriodicPoissonMG3]  # set by use_multigrid
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -104,9 +106,14 @@ struct MacFluid3(Movable):
         self.w = List[Real](length=m, fill=0)
         self.p = List[Real](length=m, fill=0)
         self.last = CgResult(True, False, 0, 0)
+        self.mg = None
 
     def cells(self) -> Int:
         return self.n * self.n * self.n
+
+    def use_multigrid(mut self) raises:
+        """Project with MGPCG from now on; raises unless n is a power of two."""
+        self.mg = PeriodicPoissonMG3(self.n)
 
     def set_confinement(mut self, eps: Real) raises:
         if not (eps >= 0):
@@ -313,7 +320,11 @@ struct MacFluid3(Movable):
             rhs[c] = Real(Float64(rhs[c]) - mean)
         var op = _NegLaplacian3(n)
         warm_start_or_zero(op, rhs, self.p)
-        var r = pcg(op, rhs, self.p, tol, 4 * m)
+        var r: CgResult
+        if self.mg:
+            r = pcg_mg3(op, self.mg.value(), rhs, self.p, tol, 4 * m)
+        else:
+            r = pcg(op, rhs, self.p, tol, 4 * m)
         for k in range(n):
             for j in range(n):
                 for i in range(n):
