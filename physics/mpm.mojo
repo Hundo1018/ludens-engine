@@ -336,6 +336,9 @@ struct MpmSolver(Movable):
         return s
 
     def step(mut self, dt: Real, gravity: Vec3):
+        # Obstacle friction is applied only by `step_ext` (`_push_out`); this path
+        # would let obstacles pass friction-free (17.58, tests/test_mpm_domain.mojo).
+        debug_assert(len(self.obstacles) == 0, "MpmSolver.step ignores obstacles; use step_ext")
         var cells = self.n * self.n * self.n
         for c in range(cells):
             self.gm[c] = 0

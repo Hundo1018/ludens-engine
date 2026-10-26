@@ -556,6 +556,8 @@ squash (1, 0.5, 1) about y = 1: heights 0.5 1.25 1.5
   slide with mu 0.6 by floor top (Coulomb 0.340): 0.2 -> 0.3385388; 0.19 -> 0.3390005; 0.2125 -> 0.33934975; 0.225 -> 0.3392161; 0.2375 -> 0.3389886; 
   heap cone angle at 20 degrees of friction, floor top 0.2 / 0.19 / 0.2375 m: 22.929882 24.63895 24.688393
 [PASS] mpm_contact - 3 / 3 checks
+--- tests/test_mpm_domain.mojo ---
+[PASS] mpm_domain - 9 / 9 checks
 --- tests/test_mpm_melt.mojo ---
 after 1.2 s: height solid 0.12160547  liquid 0.04250191  heated 0.10070474  (start 0.125 )
   width solid 0.18309075  liquid 1.3477201  heated 0.29721826  (start 0.17500001 )
