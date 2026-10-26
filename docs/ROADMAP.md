@@ -604,6 +604,8 @@
 #### 17.50 接觸模型變體 — Wave B
 
 > **狀態**:✅ CPU 完成(2026-10-14:CPU 子項全部 ✅ —— 橢圓摩擦錐 seam、靜 / 動摩擦、滾動 / 扭轉阻力、逐 body 與逐材質接觸柔度、黏附、塊求解 seam、PGS / 子步量測;GPU 對齊(第 7 層)未做,GPU 求解器明確拒絕新模式)。
+> **進度註(2026-10-26,耦合橢圓接觸的 PGS 與 Newton 差距)**:6 個接觸共用 3 組座標、H 三對角(`test_constraints_newton` F / F2 的系統)。PGS 1024 次迭代停在距 Newton 解 4.5e-3(力)、4.8e-3(速度)。兩個點的 KKT 殘差都在同一容差內(穿透 1.7e-8 vs 1.2e-7、互補 2.2e-8 vs 7.7e-8、錐超出 0、黏著切向速度 1.2e-9 vs 3.2e-9、滑動反摩擦 0)。結論:摩擦問題有非唯一解,PGS 收斂到另一個有效解;不是 PGS 停滯。這個差距由 `test_constraints_newton` F2 以 < 1e-2 上界釘住,變動會在 golden 中顯示。`solve` 不因此修改。復現:`pixi run mojo run -I build tests/test_constraints_newton.mojo`,看 `coupled PGS vs Newton` 行。
+>
 > **進度註(2026-10-13)**:`SolverConfig.friction_cone`(`FRICTION_PYRAMID` 預設 / `FRICTION_ELLIPTIC`):橢圓錐兩軸先不夾,再把 (t1, t2) 投影到半徑 μλₙ 的圓盤;
 > 上限為 0 時仍走金字塔(μ = 0 兩錐逐位相同)。`ContactScene6.set_static_friction` / `set_rolling_resistance` / `set_spinning_resistance`(負值或索引越界 raise):
 > 靜摩擦以 prep 時切向速度 < 1 cm/s 的點(`ContactConstraint.stick` 位元)取 μs,與 μk 用同一組合規則;滾動 / 扭轉阻力(單位 m,取兩 body 較大者)
@@ -1102,7 +1104,7 @@
 | 13.2 | [縮座標 ↔ 接觸耦合(關節體能碰到世界)](ROADMAP_HISTORY.md#132-縮座標--接觸耦合關節體能碰到世界--已完成) | ✅ |  | `Chain.point_jacobian` 加上 `Chain.resolve_contacts` 用 J H⁻¹ Jᵀ 在關節空間解接觸(速度與位置分兩趟),對象是 `collision.ColliderSet` 中的靜態碰撞體;tests/test_chain_contact.mojo 驗證 Jacobian 對有限差分 FK、不穿透、能量不增,bench_chain_contact 量 dynamics step 與 step+contact。 |
 | 13.3 | [致動器模型(傳動 + 力生成 + 內部動力學)](ROADMAP_HISTORY.md#133-致動器模型傳動--力生成--內部動力學--已完成) | ✅ |  | physics/actuator.mojo 的 `Actuator` / `ActuatorBank` 用 MuJoCo 式三段:關節傳動加齒比、仿射力生成(涵蓋 motor / position / velocity servo)、內部動力學(無、一階濾波、Hill 型肌肉的非對稱啟動);tests/test_actuator.mojo 驗證 servo 與手寫 PD 逐步一致,bench_actuator 量致動器成本。 |
 | 13.4 | [腱(fixed / spatial,含繞行)](ROADMAP_HISTORY.md#134-腱fixed--spatial含繞行--已完成) | ✅ |  | physics/tendon.mojo 提供 FixedTendon(L = Σ c_i q_i)與經附著點、可繞世界固定球體(WrapSphere)的 SpatialTendon;tension 經 tau = -F dL/dq 回到關節;test_tendon 驗證線性耦合、繞行時力臂 == dL/dq、繞行起始處長度連續、功 == -F·ΔL,bench_tendon 已在報告範本中。 |
-| 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | 🔶 |  | physics/constraints.mojo 的 ConstraintSet 以單一 projected Gauss-Seidel 處理 equality / limit / friction-loss / contact 列,金字塔錐與橢圓錐用旗標(CONE_PYRAMIDAL / CONE_ELLIPTIC)切換,test_constraints 與 bench_constraints 都已存在;沒有 CG / Newton 求解器變體,而且只在縮座標(chain)空間使用,只有 tests 與 benchmarks 會用到它。 |
+| 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | ✅ |  | physics/constraints.mojo 的 ConstraintSet 以單一 projected Gauss-Seidel 處理 equality / limit / friction-loss / contact 列,金字塔錐與橢圓錐用旗標(CONE_PYRAMIDAL / CONE_ELLIPTIC)切換,test_constraints 與 bench_constraints 都已存在;沒有 CG / Newton 求解器變體,而且只在縮座標(chain)空間使用,只有 tests 與 benchmarks 會用到它。 |
 | 13.6 | [機器人感測器組](ROADMAP_HISTORY.md#136-機器人感測器組---已完成) | ✅ |  | physics/sensors.mojo 從模擬狀態導出唯讀量:IMU(proper acceleration + 陀螺,另有批次版 read_imu_batch)、由反向動力學算出的關節力矩、關節位置 / 速度、只支援平面的測距儀、觸覺;test_sensors 驗證自由落體時加速度計讀 0、靜止時讀 g、關節力矩 == m·g·lever,批次 IMU 與逐個讀取逐位相同。 |
 | 17.51 | [縮座標完整化](#1751-縮座標完整化--wave-b承-91) | ✅ | B | 多自由度關節、多 DOF 限制、關節屬性、接觸補完、接觸效率、閉環 |
 
@@ -1127,12 +1129,12 @@
 
 #### 13.5 統一約束求解器(equality / limit / friction-loss / contact 一體)
 
-> **狀態**:🔶 部分完成(只交付 PGS;CG / Newton 變體與 `ContactScene6` 雙向耦合移至 17.51,接觸模型變體移至 17.50)— 原屬 Wave C
+> **狀態**:✅ 完成(2026-10-26 閉合:PGS、Newton 錐感知求解、BiCGStab 內層(17.51 的 CG 欄由它覆蓋)、統一約束列集合;錐感知 CG 不做,見「閉合」段;PGS 停滯已判定為非唯一解,見 17.50。)— 原屬 Wave C。舊狀態:🔶 部分完成(只交付 PGS;
 > **進度註(2026-10-24,選項 a:錐感知的 active-set Newton)**:`ConstraintSet.solve_cone_newton`(`physics/constraints.mojo`)把摩擦錐留在作用集裡。每個摩擦組是黏著(兩列等式、目標 0)或滑動(衝量落在錐面上,f_t = −μ f_n s,s 為單位滑動方向)。一輪只做一個變更,順序為:丟棄拉扯的法向與限制、滑動組速度反向則改黏著、黏著組超出錐則改滑動、加入違反的非作用法向。代入滑動邊界後的系統不對稱,故以 `solve_dense`(部分主元 LU)求解。
 > **滑動方向的設計決定**:方向在進入滑動時定義,之後不逐輪從速度重算。逐輪重算在耦合接觸(6 接觸、18 座標)下會在兩個狀態間振盪,40 輪不收斂;移除後同一系統 3–5 輪收斂。
 > **量測**:`test_constraints_newton` 26/26。斜坡:橢圓錐保持滑動方向(vz/vx = 0.2),金字塔錐偏轉到 vz = 0;兩種求解器一致。24 組速度掃描上橢圓 Newton 與 PGS 差 1.2e-7。耦合 6 接觸的 KKT 條件:穿透 1.2e-7、互補 7.7e-8、錐超出 0、黏著切向速度 3e-9、滑動摩擦與運動反向。`bench_constraints` 匹配精度(以 Newton 解為基準,PGS 取達到 1e-6 所需的最小 2 的冪次):金字塔錐 PGS 8 次迭代即匹配,n=6/18/48 的每解時間 PGS 7.8 / 133 / 4529 µs、Newton 10.7 / 152 / 4875 µs(Newton 5 輪);橢圓錐 PGS 在 4096 次迭代內不匹配。
-> **發現(屬於 PGS,不在本項修改範圍)**:耦合橢圓接觸上,現有 `solve`(PGS)停在距 Newton 解 4.8e-3 的位置,64 到 16384 次迭代完全不動,是停滯而不是收斂慢。Newton 的解滿足全部 KKT 條件,所以問題在 PGS。`solve` 依設計未修改。
-> **仍未閉合**:(1)`solve_cg` 仍只接受等式列。錐感知的 CG 需要對非對稱的代入系統做 Krylov 內層求解(GMRES / BiCGStab),尚未做。(2)因此設計中「PGS / CG / Newton × 兩種錐」的 CG 欄只有等式列。本項維持 🔶。
+> **PGS 停滯的判定(2026-10-26,已量測,見 17.50 進度註)**:耦合橢圓接觸上,PGS(1024 次迭代)與 Newton 兩個點都滿足 KKT 條件到同一容差(穿透 1.7e-8 / 1.2e-7,互補 2.2e-8 / 7.7e-8,錐超出 0,黏著切向速度 1.2e-9 / 3.2e-9),兩者力差 4.5e-3。這是摩擦問題的非唯一解,不是 PGS 停滯。`test_constraints_newton` F2 以 < 1e-2 的上界釘住此差距。`solve` 未修改。
+> **閉合(2026-10-26)**:(1)獨立的錐感知 `solve_cg` 不做:CG 需要對稱正定系統,Coulomb 問題不是;錐感知的 Krylov 路徑就是 `solve_cone_newton(krylov=True)`(BiCGStab 內層,見下一段),`test_constraints_newton` case G 覆蓋「CG 欄」。(2)因此設計的 PGS / CG / Newton × 兩種錐矩陣中,CG 欄的錐版本由 Newton-BiCGStab 覆蓋,不另立。
 > **進度註(2026-10-24,錐感知 Krylov 內層)**:`solve_cone_newton(..., krylov=True)` 以 `numerics.bicgstab` 取代同一個約簡系統的稠密 LU(`_DenseOp` 包裝)。`test_constraints_newton` 28/28,新增案例 G:耦合 6 接觸(n=18)上,BiCGStab 與稠密 LU 的輪數相同(3),衝量最大差 2.4e-7。本次只驗證正確性,未加 bench 欄位;約簡系統仍是顯式稠密組裝,所以 Krylov 在此規模不預期比 LU 快,成本未量測。
 > **選擇**:錐型維持執行期旗標(`self.cone`),不是 trait seam。摩擦錐的判斷發生在每個摩擦組內,不需要編譯期分派。
 > **狀態校正(2026-10-10,17.44–17.84 重寫時的對抗審查)**:原標 ✅,但本節沒有進度註,且設計要求的
@@ -4081,7 +4083,7 @@
 | 13.2 | [縮座標 ↔ 接觸耦合(關節體能碰到世界)](ROADMAP_HISTORY.md#132-縮座標--接觸耦合關節體能碰到世界--已完成) | 縮座標關節體與致動 | ✅ |
 | 13.3 | [致動器模型(傳動 + 力生成 + 內部動力學)](ROADMAP_HISTORY.md#133-致動器模型傳動--力生成--內部動力學--已完成) | 縮座標關節體與致動 | ✅ |
 | 13.4 | [腱(fixed / spatial,含繞行)](ROADMAP_HISTORY.md#134-腱fixed--spatial含繞行--已完成) | 縮座標關節體與致動 | ✅ |
-| 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | 縮座標關節體與致動 | 🔶 |
+| 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | 縮座標關節體與致動 | ✅ |
 | 13.6 | [機器人感測器組](ROADMAP_HISTORY.md#136-機器人感測器組---已完成) | 縮座標關節體與致動 | ✅ |
 | 13.7 | [剛體求解器可微(把 `Field` 推進 solver6)](#137-剛體求解器可微把-field-推進-solver6) | 可微模擬、批次世界與數值深化 | 🔶 |
 | 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
