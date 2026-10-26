@@ -949,7 +949,10 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
   10-box stack, iters 2 , 4 s: top drop GS 0.028388977 m, drift 0.0039486485 ;  block 0.027659416 m, drift 1.0206886e-06
   100 kg on 1 kg, iters 1 , 3 s: penetration GS 0.028669119 m;  block 0.027918875
   100 kg on 1 kg, iters 4 , 3 s: penetration GS 0.028687835 m;  block 0.027917981
-[PASS] contact_block - 8 / 8 checks
+  scaled, resting box, 1 iteration: largest / smallest point impulse GS 1.2910833 ;  block 1.0009478
+  scaled, box at rest, 2 s: GS y 0.4997162 ;  block y 0.49972403
+  scaled, 100 kg on 1 kg, 4 iters, 3 s: penetration GS 0.0031241179 m;  block 0.0030393004
+[PASS] contact_block - 11 / 11 checks
 --- tests/test_contact_model.mojo ---
   30 deg slope, mu 0.3, 1 s: analytic 1.1769427  pyramid 45 deg analytic 0.6496251
     elliptic: along axis 1.1818447  diagonal 1.198319    pyramid: along axis 1.1818471  diagonal 0.65232855
@@ -1686,7 +1689,7 @@ ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
   fell asleep at frame 35
 [PASS] sleep6 - 13 / 13 checks
 --- tests/test_sleep_api.mojo ---
-[PASS] sleep_api - 20 / 20 checks
+[PASS] sleep_api - 27 / 27 checks
 --- tests/test_smoke.mojo ---
   hot blob, 2 s: centroid y 0.1999999 -> 0.6203501 ;  buoyancy 0: max |velocity| 0.0
   net vertical momentum after one step -0.0007416301 of 3.2496383 ;  after 2 s 12.796507 of 403.86826 ;  confinement / none: kinetic energy 1.1503059  enstrophy 1.3789467
