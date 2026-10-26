@@ -625,6 +625,12 @@
 > 由軟接觸決定,17.19 的大質量比問題不歸塊求解)。bench `bench_contact_model` 第二表(µs/步):1 疊 1 iter GS 173 / 塊 354,16 疊 4 iter 5591 / 10101 —— 塊求解約 2 倍成本,換來無側向蠕移。
 > TGS:`step` 本身就是子步軟步進(Box2D v3,TGS 家族);第三表以相同 16 次迭代比較 1 子步 × 16(PGS 式)與 4 × 4:16 疊 3996 vs 5252 µs,頂箱下沉 28.42 vs 28.40 mm,
 > 蠕移 1.15 vs 2.10 mm —— 這組靜置疊塔上兩者差距在 1 mm 內,子步的優勢(高速衝擊、關節鏈)不在此場景顯現,不另設 seam。
+> **進度註(2026-10-26,塊求解承接質量縮放)**:`_block_normal` 原本忽略 17.19 的逐側質量縮放 `_cs()`,而 382c1c2 把 `max_mass_ratio` 預設改為 10 後,塊求解在預設設定下整個被跳過(`CONTACT_BLOCK` 形同 GS)。
+> 現在塊矩陣的質量項與套用衝量都乘上每側的 `_cs()`(與逐點路徑相同),移除 `max_mass_ratio <= 0` 的閘門;未縮放時 `_cs()` 為 1,逐位不變。
+> 量測(`tests/test_contact_block.mojo` 11/11,新增縮放區段):靜置箱 1 次迭代四點衝量 塊 1.001、GS 1.291(塊確實有作用);靜置箱高度差 7.8e-6 m(< 1e-5 門檻);
+> 100 kg 壓 1 kg 穿透(縮放、4 次迭代、3 s)GS 3.124 mm、塊 3.039 mm,差 0.085 mm。
+> 注意:縮放的 100 kg 壓 1 kg 穿透 3.1 mm,未縮放時為 28.7 mm,這個差距來自 17.19 的縮放,不是塊求解。
+> **仍缺**:GPU 路徑(`gpu_contact.mojo`)拒絕 `max_mass_ratio > 0`,屬第 7 層(GPU 不在本階段範圍)。
 
 > **現況**:`ContactScene6` 只有一種接觸模型:Box2D v3 軟接觸 —— 全域 `hertz` / `zeta`(`physics/solver_config.mojo:53-55`,所有接觸同剛度)+ 逐點 Gauss-Seidel,切向兩個衝量各自夾 `μ·λₙ`(`physics/contact6.mojo:394-430`,逐軸夾在 `:426`),即**金字塔摩擦錐**,上限依賴 `tangent_basis(n)` 的任意基底(`geometry/vec.mojo:161-173`)。
 > 摩擦只有單一 μ(`combine` 後的 `pair_mu`,`physics/contact6.mojo:337`),沒有靜 / 動摩擦之分;grep `rolling|torsion|spin.?fric|elliptic|\bcone\b|adhesion|cohesion|stiction|static_fric|kinetic`(`physics/contact6.mojo`、`solver6.mojo`、`gpu_contact.mojo`、`material.mojo`、`solver_config.mojo`)**零命中** —— 沒有滾動 / 扭轉摩擦、黏附、橢圓錐。(`gameplay/vehicle.mojo:166` 的 `rolling_resistance` 是輪胎模型的 Crr·Fz·R 輪軸力矩,不是通用接觸屬性。)反而有**假的**滾動阻力:17.19 發現(ROADMAP §17.19)球進入純滾動後持續減速並下沉約 7 mm,根因是 body-frame 接觸錨點隨球旋轉,摩擦取在偏離真實接觸點的位置 —— 尚未修。恢復係數是後置 pass、門檻全域(`physics/contact6.mojo:444-504`、`physics/solver_config.mojo:49`);位置修正的最大推出速度是常數 −4 m/s(`physics/contact6.mojo:380`)。
