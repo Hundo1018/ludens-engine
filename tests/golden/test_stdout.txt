@@ -781,6 +781,11 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
 worst lean over 6 s from 0.1 rad: unsteered at 8 m/s 3.139469  balanced at 8 m/s 0.15766415  balanced at rest 3.1338973
 balanced at 2 m/s 3.1414216  at 6 m/s 0.14446111
 [PASS] bike - 5 / 5 checks
+--- tests/test_body_drag.mojo ---
+  one step: samples 52  momentum error 0.0
+  8 s fall: body vy -0.5833033  gas vy at samples -0.48396567  rho g / kappa 0.1
+  momentum book residual (relative to m g t) 0.0134731615  speed change over last 0.5 s 0.000605955  drag / weight 0.9933761
+[PASS] body_drag - 4 / 4 checks
 --- tests/test_body_removal.mojo ---
 broadphase items before / after removing 400: 401 1   re-added box slot 1  y 0.24971199
 [PASS] body_removal - 16 / 16 checks
