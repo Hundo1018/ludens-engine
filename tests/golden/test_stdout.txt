@@ -783,13 +783,13 @@ broadphase items before / after removing 400: 401 1   re-added box slot 1  y 0.2
   brain: halfway x 5.0  fov 0.75   end x 10.0
 [PASS] camera_seq - 14 / 14 checks
 --- tests/test_capi.mojo ---
-  gen_bindings: up to date (50 functions);  rust host hash 79f9c93f91681323  c host hash 79f9c93f91681323
+  gen_bindings: up to date (50 functions);  rust host hash 039b05d835e9eec3  c host hash 039b05d835e9eec3
 [PASS] capi - 66 / 66 checks
 --- tests/test_capture.mojo ---
-  120 frames, 4 keyframes: 60532 bytes ( 495 per frame incl. keyframes )
+  120 frames, 4 keyframes: 61208 bytes ( 501 per frame incl. keyframes )
   draw_frame(100): 18 commands = 5 body points + 13 contact arrows
   tampered frame 70: verify reports 70
-  240 frames: version 1 208816 bytes, version 2 (delta) 94764 ; frames 180-239 (stack asleep): 48480 vs 13096 bytes
+  240 frames: version 1 210324 bytes, version 2 (delta) 96272 ; frames 180-239 (stack asleep): 48480 vs 13096 bytes
   region capture: bodies 3  contacts 3  frame bytes 48 vs 196
 [PASS] capture - 12 / 12 checks
 --- tests/test_ccd6.mojo ---
@@ -1007,7 +1007,7 @@ state_io snapshot of the pair: 16744 bytes
   lying on the floor: y 0.29950675
 [PASS] cylinder - 7 / 7 checks
 --- tests/test_degrade.mojo ---
-degrade: 40 islands x 120 ticks, snapshot bytes 38148
+degrade: 40 islands x 120 ticks, snapshot bytes 42308
 [PASS] degrade - 3 / 3 checks
 --- tests/test_diffsolver.mojo ---
   batch vs scalar worst lane difference: 0.0
@@ -1160,7 +1160,7 @@ lone spray after 0.1 s: u 1.0  v -0.97999996  (-g t -0.98 )
   t 1.0 diffuse 50  spray 0  foam 0  bubble 50  spawned 63
 [PASS] flip_diffuse - 4 / 4 checks
 --- tests/test_flow_levels.mojo ---
-checkpoint: bytes 4209  restored at tick 60  items at 120 13 13  pickups 8  gold 18
+checkpoint: bytes 4625  restored at tick 60  items at 120 13 13  pickups 8  gold 18
 respawn: checkpoint items 8  keep-none bag 8 0  keep-inventory bag 13 5
 level: command 1 level 2  progress while loading 0  after load 2  current 2
 dialogue: open choices at 5 gold 2  at 12 gold 3  gold after bribe 2  flag events 1 1  gate objective done True
@@ -1430,7 +1430,7 @@ driven 2-link arm, 1 s: q -3.0983264 0.71169233  force 4.657855
 [PASS] nav_world - 6 / 6 checks
 --- tests/test_netcode.mojo ---
   netcode: rollback peer 0 181 rollbacks, 1094 re-simulated ticks, 477 mispredicted inputs
-  netcode: snapshot 5364 bytes full, 1431 bytes per frame to all clients (delta), frames 249
+  netcode: snapshot 5832 bytes full, 1566 bytes per frame to all clients (delta), frames 249
 [PASS] netcode - 28 / 28 checks
 --- tests/test_np_reuse.mojo ---
   tiered stacks (200 boxes): candidates copied over 120 steps 16358
@@ -1471,7 +1471,7 @@ driven 2-link arm, 1 s: q -3.0983264 0.71169233  force 4.657855
 --- tests/test_ops.mojo ---
   sampling 1 in 4 over 10000 records: kept 2496
   telemetry on: records 12300   scene identical to telemetry off: True
-  black box: 19641 bytes (snapshot 19268 , inputs 50 )  replay to tick 150 identical: True
+  black box: 21721 bytes (snapshot 21348 , inputs 50 )  replay to tick 150 identical: True
 [PASS] ops - 11 / 11 checks
 --- tests/test_pcg.mojo ---
   Poisson-disk 100 x 100, r = 2: 1614 points, min distance 2.000021  other seed 1596 points
@@ -1601,7 +1601,7 @@ errors: rules_table: line 1: unknown key 'colour' | rules_table: line 1: unknown
   one second after loading: save vs snapshot max position difference 2.0623207e-05
 [PASS] save - 11 / 11 checks
 --- tests/test_save_checkpoint.mojo ---
-  tick 60: save checkpoint 1008 bytes, full checkpoint (scene snapshot) 2521 bytes
+  tick 60: save checkpoint 1008 bytes, full checkpoint (scene snapshot) 2729 bytes
   coins at tick 60 11  at tick 120 21
 [PASS] save_checkpoint - 6 / 6 checks
 --- tests/test_scheduler_parity.mojo ---
@@ -1628,7 +1628,7 @@ cloud of 400 grains, 0.3 s: sank one-way 0.0016791671  two-way 0.0034571476
   platform end x 4.0333266  box x 3.8327596  released at vx 1.9998986 ;  0.5 s later x 5.033247 (free flight 5.033276 ) y -0.31864545 ( -0.3084247 )
 [PASS] sequence_player - 8 / 8 checks
 --- tests/test_serialize.mojo ---
-  blob bytes: 20731
+  blob bytes: 21053
 [PASS] serialize - 8 / 8 checks
 --- tests/test_shallow_bed.mojo ---
   lake over a 0.5 m bump, 2 s: well balanced surface dev 2.3841858e-07  max |u| 6.754951e-07 ;  naive source 0.018750906 0.17940608
@@ -1689,7 +1689,7 @@ ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
   fell asleep at frame 35
 [PASS] sleep6 - 13 / 13 checks
 --- tests/test_sleep_api.mojo ---
-[PASS] sleep_api - 27 / 27 checks
+[PASS] sleep_api - 30 / 30 checks
 --- tests/test_smoke.mojo ---
   hot blob, 2 s: centroid y 0.1999999 -> 0.6203501 ;  buoyancy 0: max |velocity| 0.0
   net vertical momentum after one step -0.0007416301 of 3.2496383 ;  after 2 s 12.796507 of 403.86826 ;  confinement / none: kinetic energy 1.1503059  enstrophy 1.3789467
