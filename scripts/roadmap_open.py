@@ -27,7 +27,7 @@ def main() -> None:
         if start is None:
             continue
         end = start + 1
-        while end < len(text) and not text[end].startswith("#### "):
+        while end < len(text) and not text[end].startswith(("#### ", "## ")):
             end += 1
         for l in text[start:end]:
             if MARKERS.search(l):
