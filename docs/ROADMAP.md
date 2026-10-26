@@ -673,7 +673,7 @@
 | 8.1 | [凸包碰撞入 narrowphase](ROADMAP_HISTORY.md#81-凸包碰撞入-narrowphase---完成2026-08-11) | ✅ |  | 任意凸包經 ContactScene6.add_hull 進入生產解算器,以兩包面法向 SAT 求法向/深度、產生多點 patch 接觸,EPA 只留作邊-邊 fallback;test_hull 24 checks、test_quickhull 17 checks,bench_manifold 有兩列量測。 |
 | 8.2 | [三角網格 / heightfield 靜態關卡幾何](ROADMAP_HISTORY.md#82-三角網格--heightfield-靜態關卡幾何---完成2026-08-11) | ✅ |  | 靜態 TriMesh(BVH midphase)與 HeightField(格點 midphase)接進 ContactScene6,窄相復用 8.1 hull_manifold,_CPair 以三角形索引 feat 為子鍵支援一對多接觸;test_trimesh 18 checks,bench_trimesh 量測 brute 線性、BVH 對數、heightfield 不隨三角形數成長。 |
 | 9.3 | [碰撞過濾(layers / groups / masks)+ sensors / triggers](ROADMAP_HISTORY.md#93-碰撞過濾layers--groups--masks-sensors--triggers---完成2026-08-11) | ✅ |  | ContactScene6 在 _try_pair 開頭做 Box2D 式對稱 category/mask 過濾(brute 與寬相共用),sensor 接觸收在獨立的 sensor_pairs,solve / warm-start / islands 不需認識 sensor;tests/test_filter_events.mojo 21 checks(與 9.4 合測),bench_filter 顯示過濾決定場景能否收斂到靜止。 |
-| 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | 🔶 |  | geometry/sdf3.mojo 有 3D SDF 場與 SDF 對 SDF 接觸,collision/narrowphase.mojo 有 2D 的 SDFNarrowPhase,但兩者都沒有接進 solver6(collider_set 沒有 SDF 形狀種類);橢球與圓柱沒有任何形狀程式碼;交付物 test_sdf_narrowphase 不存在。 |
+| 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | ✅ |  | geometry/sdf3.mojo 有 3D SDF 場與 SDF 對 SDF 接觸,collision/narrowphase.mojo 有 2D 的 SDFNarrowPhase,但兩者都沒有接進 solver6(collider_set 沒有 SDF 形狀種類);橢球與圓柱沒有任何形狀程式碼;交付物 test_sdf_narrowphase 不存在。 |
 | 17.13 | [世界查詢完整度](ROADMAP_HISTORY.md#1713-世界查詢完整度--wave-a) | ✅ | A | `collision/world_query.mojo` 對真實 collider 幾何提供有號距離、ray / sphere / capsule cast、overlap、capsule penetration、batched raycast 與 QueryFilter,`test_world_query` 30/30、`bench_world_query` 已量測。 |
 | 17.30 | [地形(HeightField)執行期變形](ROADMAP_HISTORY.md#1730-地形heightfield執行期變形--wave-b) | ✅ | B | HeightField 支援 set_height / deform(圓盤挖填)與 16×16 區塊 min/max 摘要增量重算 bounds,ColliderSet / ContactScene6.deform_heightfield 更新 AABB 並喚醒受影響的睡眠體,1024² 地形每次編輯 11.7 µs vs 全表重掃 2.87 ms。 |
 | 17.45 | [網格碰撞品質](#1745-網格碰撞品質--wave-a資產前處理) | ✅ | A | 烘焙管線、內部邊 / ghost collision 修正、球 / 膠囊對三角形的解析 manifold、mesh → SDF、網格本地位姿、kinematic 網格 |
@@ -705,7 +705,7 @@
 
 #### 13.8 SDF / 橢球 / 圓柱 narrowphase
 
-> **狀態**:🔶 部分完成(2026-10-09 負空間盤點時由 ✅ 改為 🔶;已有 3D SDF 場與 SDF 對 SDF 接觸,但沒有接進 solver6;剩餘工作移到 **17.52**)— 原屬 Wave A
+> **狀態**:✅ 完成(剩餘工作已由 **17.52** 交付,2026-10-13:SDF 作為 solver 形狀、橢球、圓柱;測試 `test_sdf_shape`、`test_sdf_grid`、`test_ellipsoid`、`test_cylinder`)。`test_sdf_narrowphase` 這個檔名從未建立,交付物以 17.52 的測試取代。— 原屬 Wave A
 > **狀態校正(2026-10-09)**:原本標 ✅,但本節沒有進度註,程式碼也對不上:
 > - 3D SDF 場與 SDF 對 SDF 接觸在 `geometry/sdf3.mojo`,只被 `tests/test_sdf3.mojo` 與 `benchmarks/bench_sdf3.mojo` 使用。
 > - `collision/collider_set.mojo:37-42` 的形狀種類只有 box / sphere / capsule / hull / trimesh / heightfield,沒有 SDF,所以 SDF 沒有接進 solver6。
@@ -4084,7 +4084,7 @@
 | 13.5 | [統一約束求解器(equality / limit / friction-loss / contact 一體)](#135-統一約束求解器equality--limit--friction-loss--contact-一體) | 縮座標關節體與致動 | 🔶 |
 | 13.6 | [機器人感測器組](ROADMAP_HISTORY.md#136-機器人感測器組---已完成) | 縮座標關節體與致動 | ✅ |
 | 13.7 | [剛體求解器可微(把 `Field` 推進 solver6)](#137-剛體求解器可微把-field-推進-solver6) | 可微模擬、批次世界與數值深化 | 🔶 |
-| 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | 碰撞形狀、寬窄相與世界查詢 | 🔶 |
+| 13.8 | [SDF / 橢球 / 圓柱 narrowphase](#138-sdf--橢球--圓柱-narrowphase) | 碰撞形狀、寬窄相與世界查詢 | ✅ |
 | 13.9 | [批次多世界步進](#139-批次多世界步進) | 可微模擬、批次世界與數值深化 | ⏸ |
 | 14.1 | [LBM 核心(D3Q19 碰撞-傳播)](ROADMAP_HISTORY.md#141-lbm-核心d3q19-碰撞-傳播--完成2026-08-12cpu) | 軟體、布料、連續體與流體 | ✅ |
 | 14.2 | [障礙物:bounce-back / 浸沒邊界](ROADMAP_HISTORY.md#142-障礙物bounce-back--浸沒邊界---完成2026-08-12半程-bounce-back) | 軟體、布料、連續體與流體 | ✅ |
