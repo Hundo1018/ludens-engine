@@ -123,6 +123,9 @@ lattice: 50 / 50  ring: 12
   qd leaving the stop: -2.0 -> -2.0
   bead on spinning rod: theta'' = -0.9837831  r'' = 1.183
 [PASS] joints_lib - 11 / 11 checks
+--- tests/test_lbm27_cumulant_poiseuille.mojo ---
+  worst profile error / umax: tau 0.8 0.0032154187  tau 1.5 0.0012058693
+[PASS] lbm27_cumulant_poiseuille - 2 / 2 checks
 --- tests/test_lbm27_poiseuille.mojo ---
   worst profile error / umax: tau 0.8 0.004993235  tau 1.5 0.01165898
 [PASS] lbm27_poiseuille - 2 / 2 checks
@@ -1708,6 +1711,10 @@ ragdoll bone 1 body after 1 s: 0.0 2.3997276 0.0
   net vertical momentum after one step -0.0007416301 of 3.2496383 ;  after 2 s 12.796507 of 403.86826 ;  confinement / none: kinetic energy 1.1503059  enstrophy 1.3789467
   temperature range 0.0 0.97720605 -> 2.527217e-33 0.17426203
 [PASS] smoke - 4 / 4 checks
+--- tests/test_smoke_drag.mojo ---
+  single impulse: momentum change error 0.0
+  2 s coupled: impulse 0.10211307 9.7109325e-09  air momentum change 0.10673844 9.780479e-09  relative residual 0.045296576  point speed 0.89788693
+[PASS] smoke_drag - 3 / 3 checks
 --- tests/test_smooth_positive.mojo ---
   d x(1 s) / d drop height: central differences 0.2708435 ;  sharp switch 0.5 (bias 0.2291565 )
     smooth k 30.0 : gradient 0.49688149  bias vs differences 0.22603798  x(1 s) 2.3142386
