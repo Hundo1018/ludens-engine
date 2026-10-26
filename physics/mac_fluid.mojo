@@ -76,6 +76,25 @@ def warm_start_or_zero[Op: LinearOperator](op: Op, rhs: List[Real], mut x: List[
             x[k] = 0
 
 
+def _spread_face(mut f: List[Real], n: Int, dx: Real, x: Real, y: Real, ox: Real, oy: Real, amount: Real):
+    """Adjoint of `MacFluid2._bilinear`: adds `amount` to the four samples around
+    (x, y), weighted as the sampling weights, so the four weights sum to one."""
+    var gx = x / dx - ox
+    var gy = y / dx - oy
+    var i0 = Int(floor(gx))
+    var j0 = Int(floor(gy))
+    var ax = gx - Real(i0)
+    var ay = gy - Real(j0)
+    var a = ((i0 % n) + n) % n
+    var b = ((i0 + 1) % n + n) % n
+    var c = ((j0 % n) + n) % n
+    var d = ((j0 + 1) % n + n) % n
+    f[c * n + a] += amount * (1 - ax) * (1 - ay)
+    f[c * n + b] += amount * ax * (1 - ay)
+    f[d * n + a] += amount * (1 - ax) * ay
+    f[d * n + b] += amount * ax * ay
+
+
 struct MacFluid2(Movable):
     var n: Int  # cells per side
     var dx: Real
@@ -129,6 +148,15 @@ struct MacFluid2(Movable):
 
     def velocity(self, x: Real, y: Real) -> Tuple[Real, Real]:
         return (self._bilinear(self.u, x, y, 0, 0.5), self._bilinear(self.v, x, y, 0.5, 0))
+
+    def add_impulse(mut self, x: Real, y: Real, ix: Real, iy: Real):
+        """Adds the momentum impulse (ix, iy) per unit density at the point (x, y).
+        The impulse is spread onto the staggered faces with the velocity-sampling
+        weights, so the total momentum sum(u) dx^2 rises by exactly ix (and
+        sum(v) dx^2 by iy); density is 1, as in the rest of this struct."""
+        var inv = 1 / (self.dx * self.dx)
+        _spread_face(self.u, self.n, self.dx, x, y, 0, 0.5, ix * inv)
+        _spread_face(self.v, self.n, self.dx, x, y, 0.5, 0, iy * inv)
 
     def divergence(self) -> List[Real]:
         """Per cell, (du/dx + dv/dy)."""
