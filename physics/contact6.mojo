@@ -109,6 +109,18 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
     # (-1 = none). Read by `contacts_of` only; the solver never reads it.
     var excess: Vec3
     var excess_up: Int
+    # ROADMAP 17.19 (5): the held report load. `jn` / `jf` / `span` / `excess`
+    # above are this step's live values, zero for a pair the solver skipped
+    # because both sides are inert -- and the event stream must keep seeing
+    # zero there. `hold_*` is the snapshot of the last step this pair was
+    # solved (`ContactScene6._hold_loads`), carried by the warm-start match,
+    # and read only by `contacts_of` while the pair is inert. Not serialized:
+    # a loaded sleeping pair reports zero until it wakes.
+    var hold_jn: Array[Real, 4]
+    var hold_jf: Vec3
+    var hold_span: Real
+    var hold_excess: Vec3
+    var hold_excess_up: Int
 
     def __init__(out self, *, copy: Self):
         """Explicit copy: `Array` is not `ImplicitlyCopyable` in
@@ -140,6 +152,11 @@ struct ContactConstraint(Copyable, ImplicitlyCopyable, Movable):
         self.soft_zeta = copy.soft_zeta
         self.excess = copy.excess
         self.excess_up = copy.excess_up
+        self.hold_jn = copy.hold_jn.copy()
+        self.hold_jf = copy.hold_jf
+        self.hold_span = copy.hold_span
+        self.hold_excess = copy.hold_excess
+        self.hold_excess_up = copy.hold_excess_up
 
 
 @always_inline
@@ -200,6 +217,11 @@ def make_sensor_contact(rc: RawContact) -> ContactConstraint:
         Real(0),
         0,
         Real(0),
+        Real(0),
+        Vec3(0, 0, 0, 0),
+        -1,
+        Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
         Real(0),
         Vec3(0, 0, 0, 0),
         -1,
@@ -340,6 +362,11 @@ def make_contact[B: Body6](
         Real(0),
         Vec3(0, 0, 0, 0),
         -1,
+        Array[Real, 4](fill=0),
+        Vec3(0, 0, 0, 0),
+        Real(0),
+        Vec3(0, 0, 0, 0),
+        -1,
     )
     if colliders.shape[rc.a] == SHAPE_ELLIPSOID:
         pr.ea = colliders.half[rc.a]
@@ -452,6 +479,12 @@ def make_contact[B: Body6](
                         pr.acc[k] = old.acc[src[k]]
                         pr.acc_t1[k] = old.acc_t1[src[k]]
                         pr.acc_t2[k] = old.acc_t2[src[k]]
+                # 17.19 (5): the held loads ride along with the warm start
+                pr.hold_jn = old.hold_jn.copy()
+                pr.hold_jf = old.hold_jf
+                pr.hold_span = old.hold_span
+                pr.hold_excess = old.hold_excess
+                pr.hold_excess_up = old.hold_excess_up
                 break
     return pr^
 

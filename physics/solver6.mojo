@@ -1326,15 +1326,41 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
                 any = True
         self.bset.any_report = any
 
+    def _hold_loads(self, mut pairs: List[ContactConstraint]):
+        """ROADMAP 17.19 (5): snapshot the loads of every pair the solver
+        touched this step into its `hold_*` fields. `span > 0` is the solver's
+        own "solved this step" mark (`accumulate_step_impulse` only adds to it
+        for a pair it solved), and it is read after `update_sleep`, so a pair
+        whose bodies fell asleep this step is still snapshotted. Runs after
+        `_report_excess`, which sets the excess the snapshot carries."""
+        for p in range(len(pairs)):
+            ref pr = pairs[p]
+            if pr.span <= 0:
+                continue
+            pr.hold_jn = pr.jn.copy()
+            pr.hold_jf = pr.jf
+            pr.hold_span = pr.span
+            pr.hold_excess = pr.excess
+            pr.hold_excess_up = pr.excess_up
+
     def contacts_of(self, id: BodyId) raises -> List[ContactReport]:
         """This step's contacts of body `id` with their impulses (from the
-        pairs the step solved; empty before the first step)."""
+        pairs the step solved; empty before the first step). A pair whose
+        bodies are both inert (asleep or static) was skipped by the solver,
+        so its report carries the held loads of its last solved step (17.19
+        (5)); its live fields stay zero for the event stream."""
         var i = self._check_id(id, "contacts_of")
         var out = List[ContactReport]()
         for c in range(len(self.cache)):
-            ref pr = self.cache[c]
+            var pr = self.cache[c]
             if pr.a != i and pr.b != i:
                 continue
+            if self.bset.impulse_inert(pr.a) and self.bset.impulse_inert(pr.b):
+                pr.jn = pr.hold_jn.copy()
+                pr.jf = pr.hold_jf
+                pr.span = pr.hold_span
+                pr.excess = pr.hold_excess
+                pr.excess_up = pr.hold_excess_up
             var jn = Real(0)
             var best = -1
             for q in range(pr.m.count):
@@ -3104,6 +3130,7 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.trace.end()
         if cfg.max_mass_ratio > 0:
             self._report_excess(pairs, own, gravity)
+        self._hold_loads(pairs)
         comptime if DEBUG_DRAW_ON:
             self._emit_debug_draw(pairs)
         if self.events_on:
@@ -4011,6 +4038,8 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
             Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0),
             Vec3(0, 0, 0, 0), Real(0), 0, Real(0), Real(0),
+            Vec3(0, 0, 0, 0), -1,
+            Array[Real, 4](fill=0), Vec3(0, 0, 0, 0), Real(0),
             Vec3(0, 0, 0, 0), -1,
         )
         for p in range(4):
