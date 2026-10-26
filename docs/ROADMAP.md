@@ -705,7 +705,7 @@
 
 #### 13.8 SDF / 橢球 / 圓柱 narrowphase
 
-> **狀態**:✅ 完成(剩餘工作已由 **17.52** 交付,2026-10-13:SDF 作為 solver 形狀、橢球、圓柱;測試 `test_sdf_shape`、`test_sdf_grid`、`test_ellipsoid`、`test_cylinder`)。`test_sdf_narrowphase` 這個檔名從未建立,交付物以 17.52 的測試取代。— 原屬 Wave A
+> **狀態**:✅ 完成(剩餘工作已由 **17.52** 交付,2026-10-13:SDF 作為 solver 形狀、橢球、圓柱;測試 `test_sdf_shape`、`test_sdf_grid`、`test_ellipsoid`、`test_cylinder`)。`test_sdf_narrowphase` 這個檔名從未建立,交付物以 17.52 的測試取代。SDF 對 SDF 的接觸在幾何層存在(`test_sdf3`),解算器層的 SDF 對 SDF 配對由 17.52 決定移出,不在本條交付內。— 原屬 Wave A
 > **狀態校正(2026-10-09)**:原本標 ✅,但本節沒有進度註,程式碼也對不上:
 > - 3D SDF 場與 SDF 對 SDF 接觸在 `geometry/sdf3.mojo`,只被 `tests/test_sdf3.mojo` 與 `benchmarks/bench_sdf3.mojo` 使用。
 > - `collision/collider_set.mojo:37-42` 的形狀種類只有 box / sphere / capsule / hull / trimesh / heightfield,沒有 SDF,所以 SDF 沒有接進 solver6。
