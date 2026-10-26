@@ -1195,6 +1195,9 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
 --- tests/test_fluid3_confinement.mojo ---
   enstrophy eps 0 3.95215  eps 2 15.563259  ratio 3.937922   energy eps 0 0.01185528  eps 2 0.03794464
 [PASS] fluid3_confinement - 4 / 4 checks
+--- tests/test_fluid3_flux.mojo ---
+  relative drift of the sums after 20 steps: flux 5.18179e-10   semi-Lagrangian 0.00093261764
+[PASS] fluid3_flux - 1 / 1 checks
 --- tests/test_fluid3_multigrid.mojo ---
   iterations: Jacobi 56  MGPCG 3   residual Jacobi 9.0443075e-07  MGPCG 9.714316e-07
   max |u| diff / max |u| 2.63486e-06   divergence after: Jacobi 0.00022125244  MGPCG 0.00037574768   before 130.79042
