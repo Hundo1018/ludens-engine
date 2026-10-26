@@ -1192,6 +1192,9 @@ level: command 1 level 2  progress while loading 0  after load 2  current 2
 dialogue: open choices at 5 gold 2  at 12 gold 3  gold after bribe 2  flag events 1 1  gate objective done True
 recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 100
 [PASS] flow_levels - 15 / 15 checks
+--- tests/test_fluid3_confinement.mojo ---
+  enstrophy eps 0 3.95215  eps 2 15.563259  ratio 3.937922   energy eps 0 0.01185528  eps 2 0.03794464
+[PASS] fluid3_confinement - 4 / 4 checks
 --- tests/test_fluid_momentum.mojo ---
   k 0.5 default: residual 0.045297187  k 5 default: 2.2711666  k 5 fixed: 1.3554726e-06  booked 234.62749  impulse 2.1986666
 [PASS] fluid_momentum - 3 / 3 checks

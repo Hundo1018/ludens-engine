@@ -18,14 +18,21 @@ v on the y faces, w on the z faces, pressure at the cell centres. One
 `Smoke3`: a cell-centred temperature advected with the flow (RK2,
 trilinear) pushes the v faces by Boussinesq buoyancy,
 fy = buoyancy (T - mean T); the mean is removed so the periodic box as a
-whole does not accelerate. No vorticity confinement (2-D `Smoke2` has it).
+whole does not accelerate.
+
+Vorticity confinement (17.60, opt-in): `set_confinement(eps)` adds
+eps dx (N x omega) to the body force, N = grad|omega| / |grad|omega|, with
+omega the curl of the cell-centred velocity (central differences). eps = 0
+(the default) skips it, so the off path is the same code as before. The
+2-D version is `Smoke2`'s `_forces` in `mac_fluid.mojo`; this one works at the
+cell centres instead of the corners.
 
 A field that does not vary along z, with w = 0, steps like `MacFluid2`
 (`test_mac_fluid3` compares them; equal to the CG tolerance, not bit for
 bit -- the 3-D solve sums over n^3 cells).
 """
 
-from std.math import floor
+from std.math import floor, sqrt
 from geometry.vec import Real
 from numerics.sparse import LinearOperator
 from numerics.cg import pcg, CgResult
@@ -74,6 +81,7 @@ struct MacFluid3(Movable):
     var fx: Real
     var fy: Real
     var fz: Real
+    var epsilon: Real  # vorticity confinement strength, 0 = off
     var u: List[Real]  # [(k n + j) n + i] at (i, j + 1/2, k + 1/2) dx
     var v: List[Real]  # at (i + 1/2, j, k + 1/2) dx
     var w: List[Real]  # at (i + 1/2, j + 1/2, k) dx
@@ -89,6 +97,7 @@ struct MacFluid3(Movable):
         self.fx = 0
         self.fy = 0
         self.fz = 0
+        self.epsilon = 0
         var m = n * n * n
         self.u = List[Real](length=m, fill=0)
         self.v = List[Real](length=m, fill=0)
@@ -98,6 +107,101 @@ struct MacFluid3(Movable):
 
     def cells(self) -> Int:
         return self.n * self.n * self.n
+
+    def set_confinement(mut self, eps: Real) raises:
+        if not (eps >= 0):
+            raise Error("MacFluid3.set_confinement: eps must be >= 0")
+        self.epsilon = eps
+
+    def _centre_velocity(self) -> Tuple[List[Real], List[Real], List[Real]]:
+        """Face velocities averaged to the cell centres."""
+        var m = self.cells()
+        var uc = List[Real](length=m, fill=0)
+        var vc = List[Real](length=m, fill=0)
+        var wc = List[Real](length=m, fill=0)
+        for k in range(self.n):
+            for j in range(self.n):
+                for i in range(self.n):
+                    var c = self.idx(i, j, k)
+                    uc[c] = 0.5 * (self.u[c] + self.u[self.idx(i + 1, j, k)])
+                    vc[c] = 0.5 * (self.v[c] + self.v[self.idx(i, j + 1, k)])
+                    wc[c] = 0.5 * (self.w[c] + self.w[self.idx(i, j, k + 1)])
+        return (uc^, vc^, wc^)
+
+    def vorticity(self) -> Tuple[List[Real], List[Real], List[Real]]:
+        """Curl of the cell-centred velocity (central differences, periodic)."""
+        var vel = self._centre_velocity()
+        ref uc = vel[0]
+        ref vc = vel[1]
+        ref wc = vel[2]
+        var m = self.cells()
+        var ox = List[Real](length=m, fill=0)
+        var oy = List[Real](length=m, fill=0)
+        var oz = List[Real](length=m, fill=0)
+        var h = 2 * self.dx
+        for k in range(self.n):
+            for j in range(self.n):
+                for i in range(self.n):
+                    var c = self.idx(i, j, k)
+                    ox[c] = (wc[self.idx(i, j + 1, k)] - wc[self.idx(i, j - 1, k)]) / h - (vc[self.idx(i, j, k + 1)] - vc[self.idx(i, j, k - 1)]) / h
+                    oy[c] = (uc[self.idx(i, j, k + 1)] - uc[self.idx(i, j, k - 1)]) / h - (wc[self.idx(i + 1, j, k)] - wc[self.idx(i - 1, j, k)]) / h
+                    oz[c] = (vc[self.idx(i + 1, j, k)] - vc[self.idx(i - 1, j, k)]) / h - (uc[self.idx(i, j + 1, k)] - uc[self.idx(i, j - 1, k)]) / h
+        return (ox^, oy^, oz^)
+
+    def enstrophy(self) -> Real:
+        """Sum of |omega|^2 over the cells, times dx^3."""
+        var om = self.vorticity()
+        ref ox = om[0]
+        ref oy = om[1]
+        ref oz = om[2]
+        var e = Real(0)
+        for c in range(self.cells()):
+            e += ox[c] * ox[c] + oy[c] * oy[c] + oz[c] * oz[c]
+        return e * self.dx * self.dx * self.dx
+
+    def _confine(mut self, dt: Real):
+        """Adds dt eps dx (N x omega) to the faces; the force is taken from the
+        velocity at the start of the call, all components before any face moves."""
+        var n = self.n
+        var m = self.cells()
+        var dx = self.dx
+        var om = self.vorticity()
+        ref ox = om[0]
+        ref oy = om[1]
+        ref oz = om[2]
+        var mag = List[Real](length=m, fill=0)
+        for c in range(m):
+            mag[c] = sqrt(ox[c] * ox[c] + oy[c] * oy[c] + oz[c] * oz[c])
+        var fx = List[Real](length=m, fill=0)
+        var fy = List[Real](length=m, fill=0)
+        var fz = List[Real](length=m, fill=0)
+        var h = 2 * dx
+        var scale = self.epsilon * dx
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = self.idx(i, j, k)
+                    var gx = (mag[self.idx(i + 1, j, k)] - mag[self.idx(i - 1, j, k)]) / h
+                    var gy = (mag[self.idx(i, j + 1, k)] - mag[self.idx(i, j - 1, k)]) / h
+                    var gz = (mag[self.idx(i, j, k + 1)] - mag[self.idx(i, j, k - 1)]) / h
+                    var gl = sqrt(gx * gx + gy * gy + gz * gz) + 1e-12
+                    var nx = gx / gl
+                    var ny = gy / gl
+                    var nz = gz / gl
+                    var wx = ox[c]
+                    var wy = oy[c]
+                    var wz = oz[c]
+                    fx[c] = scale * (ny * wz - nz * wy)
+                    fy[c] = scale * (nz * wx - nx * wz)
+                    fz[c] = scale * (nx * wy - ny * wx)
+        for k in range(n):
+            for j in range(n):
+                for i in range(n):
+                    var c = self.idx(i, j, k)
+                    # each face sits between the two cells on either side of it
+                    self.u[c] += dt * 0.5 * (fx[self.idx(i - 1, j, k)] + fx[c])
+                    self.v[c] += dt * 0.5 * (fy[self.idx(i, j - 1, k)] + fy[c])
+                    self.w[c] += dt * 0.5 * (fz[self.idx(i, j, k - 1)] + fz[c])
 
     def idx(self, i: Int, j: Int, k: Int) -> Int:
         var n = self.n
@@ -233,6 +337,8 @@ struct MacFluid3(Movable):
                 self.u[c] += self.fx * dt
                 self.v[c] += self.fy * dt
                 self.w[c] += self.fz * dt
+        if self.epsilon > 0:
+            self._confine(dt)
         _ = self.project(dt)
 
     def kinetic_energy(self) -> Real:

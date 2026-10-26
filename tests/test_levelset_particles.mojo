@@ -5,8 +5,9 @@
 A 32 x 32 cell box, dx 1/32, dt 1/240 s, 240 steps, gravity 0. The velocity is
 a single vortex psi = A sin^2(pi x) sin^2(pi y) (zero normal flow on the walls),
 set on the faces before the first step and kept divergence-free by the
-projection. A disk of radius 0.25 m sits off centre in it and is stirred for
-1 s. Volume (cells with phi < 0, times dx^2) is compared at the end with and
+projection. A disk of radius 0.15 m is centred on the box centre (0.5, 0.5),
+which is the vortex's stagnation point (zero velocity there), and is stirred
+for 1 s. Volume (cells with phi < 0, times dx^2) is compared at the end with and
 without the particle correction; the particle correction must keep more of it.
 """
 
