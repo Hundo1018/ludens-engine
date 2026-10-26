@@ -3976,7 +3976,8 @@
 >   (範本 `scripts/benchmark_report.md.in:350` 的「gated on physics rather than on regression」只是 LBM 段的正確性說明,不是全報告的效能政策;全範本沒有任何效能回歸政策。)
 > - **雜訊量級已知**:同機跨行程約 ±15%(ROADMAP §17.10,17.10 進度註);當時的待辦是「同一行程交錯量測 on/off」。曲線的 argmax 在平台段會跳動(BENCHMARK_REPORT「Physics — island-parallel solver (serial vs worker threads)」)。
 > - **機器相依**:報告數字來自特定主機(README.md:34「RTX 3060 laptop」;6 P-core + 8 E-core,BENCHMARK_REPORT「Physics — island-parallel solver (serial vs worker threads)」),沒有主機指紋隨結果保存。
-> - **報告新鮮度無人把關**:ROADMAP「Phase 17 建議順序」 記錄 `BENCHMARK_REPORT.md` 尚未以 `pixi run benchmark` 重產。
+> - **報告新鮮度**(2026-10-26 已重產):`pixi run benchmark` 完整跑完,`BENCHMARK_REPORT.md` 重新產生(119 個區段,無殘留 `@bench`),提交 `67f8de5`。仍未做:新鮮度閘門(讓 CI 比對報告與 `benchmarks/` 是否同步);目前只能靠人手重跑。
+> - **夜間牆鐘閘門**:需要固定主機(釘核、穩定的時脈與負載),這是環境條件,不在本程式碼內完成;本機是 4 核容器,不能當作閘門主機。
 > - **漸近行為退化只靠人工發現**:F22 的 O(n²) 簿記(N ×4 → 成本 ×12)由人讀 bench 輸出發現(ROADMAP §17.19)。
 > - **確定性的代理量測已有零件,但沒接成閘門**:`diag/counters.mojo`(comptime id 計數器,目前 15 個 id 全是失敗 / 溢出事件類,`:27-79`;**沒有**工作量計數如接觸數 / 候選對數 / 迭代數)、`diag/trace.mojo` 的 span(ROADMAP §17.10)、
 >   valgrind(`pixi.toml:52`;cachegrind 流程見 `ECS_VS_OOP_INVESTIGATION.md:211-214`)。
