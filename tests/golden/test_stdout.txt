@@ -1199,6 +1199,11 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
   iterations: Jacobi 56  MGPCG 3   residual Jacobi 9.0443075e-07  MGPCG 9.714316e-07
   max |u| diff / max |u| 2.63486e-06   divergence after: Jacobi 0.00022125244  MGPCG 0.00037574768   before 130.79042
 [PASS] fluid3_multigrid - 6 / 6 checks
+--- tests/test_fluid_flux.mojo ---
+  flux k 5.0  booked 0.0
+  flux k 0.5  booked 0.0
+  k 5 flux residual 9.3318526e-08  booked 0.0  KE flux 3.5310867  | k 0.5 flux residual 7.970185e-08  | k 5 semi-Lagrangian KE 80.96552
+[PASS] fluid_flux - 3 / 3 checks
 --- tests/test_fluid_momentum.mojo ---
   k 0.5 default: residual 0.045297187  k 5 default: 2.2711666  k 5 fixed: 1.3554726e-06  booked 234.62749  impulse 2.1986666
 [PASS] fluid_momentum - 3 / 3 checks

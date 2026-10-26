@@ -22,7 +22,7 @@ advection adds numerical viscosity of order |u| dx / 2: decay-rate tests
 keep the velocity small (test_taylor_green).
 """
 
-from std.math import floor, sqrt
+from std.math import ceil, floor, sqrt
 from geometry.vec import Real
 from numerics.sparse import LinearOperator
 from numerics.cg import pcg, CgResult
@@ -108,6 +108,7 @@ struct MacFluid2(Movable):
     var mg: Optional[PeriodicPoissonMG]  # set by use_multigrid
     var fix_momentum: Bool  # set by use_momentum_fix
     var momentum_booked: Real  # sum of |momentum corrections| applied (x and y)
+    var flux_advect: Bool  # set by use_flux_advection
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -124,12 +125,19 @@ struct MacFluid2(Movable):
         self.mg = None
         self.fix_momentum = False
         self.momentum_booked = 0
+        self.flux_advect = False
 
     def use_momentum_fix(mut self):
         """Restore the total momentum after each advection (opt-in; off by
         default so the semi-Lagrangian default path is unchanged). The applied
         corrections are summed in `momentum_booked`."""
         self.fix_momentum = True
+
+    def use_flux_advection(mut self):
+        """Advect the faces in flux form, `_advect_flux`, instead of
+        semi-Lagrangian (opt-in; off by default). Total momentum is conserved
+        by construction, so `momentum_booked` stays zero on this path."""
+        self.flux_advect = True
 
     def momentum(self) -> Tuple[Real, Real]:
         """Total (sum u dx^2, sum v dx^2), accumulated in f64."""
@@ -258,13 +266,84 @@ struct MacFluid2(Movable):
         self.last = r
         return r
 
+    def _advect_flux(mut self, dt: Real):
+        """Flux-form (finite-volume) advection, first-order upwind (17.61).
+
+        Each face is advected through its own control volume: the u face at
+        (i, j + 1/2) owns [i - 1/2, i + 1/2] x [j, j + 1]; the v face at
+        (i + 1/2, j) owns [i, i + 1] x [j - 1/2, j + 1/2]. The advecting speed
+        on each side is the average of the two staggered components there, and
+        the advected value is taken upwind. The flux through a shared side is
+        computed once from the same arrays by both neighbours, so the periodic
+        sum over the grid telescopes: total momentum is conserved to rounding
+        with no correction term. The scheme is first order and therefore
+        diffusive: the upwind value is the cell value, not an interpolated
+        one, which dissipates small-scale swirl that semi-Lagrangian keeps.
+        Explicit and unsplit, so stability needs 2 |u|max h <= 1 (h = sub-step
+        dt / dx). The step is sub-cycled: the count is ceil(2 |u|max dt / dx),
+        and each sub-step is itself a conservative flux update, so the total is
+        still conserved. Without sub-cycling the 17.61 k = 5 run goes to NaN
+        within 3 steps (face speeds reach 1000 m/s against dx / dt = 3.75)."""
+        var umax = Real(0)
+        for c in range(self.n * self.n):
+            umax = max(umax, max(abs(self.u[c]), abs(self.v[c])))
+        var need = 2 * umax * dt / self.dx
+        var sub = 1
+        if need > 1:
+            sub = Int(ceil(need))
+        var h = dt / Real(sub) / self.dx
+        for _ in range(sub):
+            self._flux_once(h)
+
+    def _flux_once(mut self, h: Real):
+        """One conservative flux update with step h = sub-step / dx."""
+        var n = self.n
+        var u0 = self.u.copy()
+        var v0 = self.v.copy()
+        var nu_ = List[Real](length=n * n, fill=0)
+        var nv_ = List[Real](length=n * n, fill=0)
+        for j in range(n):
+            var jm = self._w(j - 1)
+            var jp = self._w(j + 1)
+            for i in range(n):
+                var im = self._w(i - 1)
+                var ip = self._w(i + 1)
+                # u face: east / west sides at x = i +- 1/2, speed from u
+                var c = j * n + i
+                var ue = 0.5 * (u0[c] + u0[j * n + ip])
+                var fe = ue * (u0[c] if ue > 0 else u0[j * n + ip])
+                var uw = 0.5 * (u0[j * n + im] + u0[c])
+                var fw = uw * (u0[j * n + im] if uw > 0 else u0[c])
+                # u face: north / south sides at y = j + 1, j, speed from v at x = i +- 1/2
+                var vn = 0.5 * (v0[jp * n + im] + v0[jp * n + i])
+                var fnorth = vn * (u0[c] if vn > 0 else u0[jp * n + i])
+                var vs = 0.5 * (v0[j * n + im] + v0[j * n + i])
+                var fs = vs * (u0[jm * n + i] if vs > 0 else u0[c])
+                nu_[c] = u0[c] - h * ((fe - fw) + (fnorth - fs))
+                # v face: east / west sides at x = i + 1, i, speed from u at y = j +- 1/2
+                var ve = 0.5 * (u0[jm * n + ip] + u0[j * n + ip])
+                var ge = ve * (v0[c] if ve > 0 else v0[j * n + ip])
+                var vw = 0.5 * (u0[jm * n + i] + u0[j * n + i])
+                var gw = vw * (v0[j * n + im] if vw > 0 else v0[c])
+                # v face: north / south sides at y = j + 1/2, j - 1/2, speed from v
+                var vv_n = 0.5 * (v0[c] + v0[jp * n + i])
+                var gn = vv_n * (v0[c] if vv_n > 0 else v0[jp * n + i])
+                var vv_s = 0.5 * (v0[jm * n + i] + v0[c])
+                var gs = vv_s * (v0[jm * n + i] if vv_s > 0 else v0[c])
+                nv_[c] = v0[c] - h * ((ge - gw) + (gn - gs))
+        self.u = nu_^
+        self.v = nv_^
+
     def step(mut self, dt: Real) raises:
         if not (dt > 0):
             raise Error("MacFluid2.step: dt must be > 0")
         if self.nu * dt / (self.dx * self.dx) > 0.25:
             raise Error("MacFluid2.step: nu dt / dx^2 > 1/4 (explicit viscosity limit)")
         var m0 = self.momentum() if self.fix_momentum else (Real(0), Real(0))
-        self._advect(dt)
+        if self.flux_advect:
+            self._advect_flux(dt)
+        else:
+            self._advect(dt)
         if self.fix_momentum:
             # Semi-Lagrangian advection changes sum(u) and sum(v) by the
             # interpolation residual, though the periodic box has no external
