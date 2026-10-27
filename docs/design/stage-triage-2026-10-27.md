@@ -142,7 +142,7 @@
 | 讀回 `.vdb` 的 blosc 壓縮 | done | LZ4 blosc 區塊由 `geometry/blosc.mojo` 解碼,`vdb_grid` 讀壓縮字 4 / 6 | `tests/test_vdb_zip.mojo` 10/10(OpenVDB 寫出的 blosc 檔逐體素核對)、`tests/test_blosc.mojo` 4/4;ROADMAP 17.63 進度註 |
 | 讀外部 VDB SDF 的內部值(level set 非活躍值) | done | `vdb_grid(d, keep_inactive=True)` 保留與背景不同的非活躍值(葉與 8³ / 128³ tile) | `tests/test_vdb_zip.mojo` 14/14:`createLevelSetSphere` 寫出的檔,內部讀為 -3(預設讀為背景 +3),表面近 0,遠處仍為背景 |
 | 主動 tile 讀取 | done | 8³ tile(16³ 節點的值遮罩)與 128³ tile(32³ 節點的值遮罩)於 `vdb_grid` 展開為體素;根層 tile 仍拒絕 | `tests/test_vdb_zip.mojo` 7/7:四個檔各含 (64,16,16) 的 8³ tile 與 (0,128,0) 的 128³ tile,計 2 098 622 個活躍體素,tile 體素逐一核對 |
-| Alembic 讀回 | doable | `geometry/abc_file.mojo` 只有寫入 `_Ogawa`;read / parse / decode / load 0 命中 | 加入讀取器;`tests/test_abc_file.mojo` 往返自身輸出 |
+| Alembic 讀回 | done | `geometry/abc_file.mojo` `abc_read` 讀回本寫出器的 Ogawa 檔(範圍:本寫出器的版面) | `tests/test_abc_file.mojo` 14/14:布料 12 幀位置逐位元相同、面與數量相同;點與曲線往返;截斷檔 raise |
 | 點數變化時的強制 keyframe | deferred | `physics/sim_cache.mojo:206`;ROADMAP:2164 | 點快取場景的點數會變(拓撲已改走 Alembic) |
 
 子代理回報的列數:stale-done 8、doable 11、unverified 5、deferred 7、GPU 1、env-blocked 1(共 33 列,部分列合併多個子句)。

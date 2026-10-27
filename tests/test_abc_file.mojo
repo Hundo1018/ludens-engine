@@ -23,7 +23,7 @@ from std.math import sin, cos
 from std.os import makedirs
 from harness.runner import Suite
 from geometry.vec import Real
-from geometry.abc_file import AbcArchive
+from geometry.abc_file import AbcArchive, abc_read, ABC_MESH, ABC_POINTS, ABC_CURVES
 
 
 def _fnv(b: List[UInt8]) -> UInt64:
@@ -96,6 +96,15 @@ def _raises_mesh(mut a: AbcArchive, obj: Int, pos: List[Real], c: List[Int], i: 
     except:
         return True
     return False
+
+
+def _eqi(a: List[Int], b: List[Int]) -> Bool:
+    if len(a) != len(b):
+        return False
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return False
+    return True
 
 
 def main() raises:
@@ -250,4 +259,55 @@ def main() raises:
     except:
         r += 1
     s.check(r == 6, "duplicate / empty name, 1-vertex curve, missing ids, wrong kind, fps 0 raise")
+    # 4. round trip: `abc_read` reads back what `bytes` wrote
+    var objs = abc_read(b)
+    var cloth_ok = len(objs) == 1 and objs[0].name == "cloth" and objs[0].kind == ABC_MESH and len(objs[0].pos) == 12
+    if cloth_ok:
+        for t in range(12):
+            var want = _cloth(t)
+            for i in range(len(want)):
+                if Float32(want[i]) != objs[0].pos[t][i]:
+                    cloth_ok = False
+            if not _eqi(objs[0].counts[t], counts) or not _eqi(objs[0].indices[t], idx):
+                cloth_ok = False
+    s.check(cloth_ok, "round trip: cloth positions (bitwise), faces and counts over 12 frames")
+
+    var pa = AbcArchive(24, 0)
+    var dust_obj = pa.add_points("dust")
+    var strand_obj = pa.add_curves("strand")
+    var ids0: List[Int] = [7, 8, 9]
+    var ids1: List[Int] = [4, 5]
+    var pp0: List[Real] = [0.5, 1, 2, -1, 0, 3, 4, 4, 4]
+    var pp1: List[Real] = [1, 1, 1, 2, 2, 2]
+    pa.points_frame(dust_obj, pp0, ids0)
+    pa.points_frame(dust_obj, pp1, ids1)
+    var cc: List[Int] = [3]
+    var cp: List[Real] = [0, 0, 0, 1, 0, 0, 2, 0, 0]
+    pa.curves_frame(strand_obj, cp, cc)
+    var pb = pa.bytes()
+    var po = abc_read(pb)
+    var pts_ok = len(po) == 2 and po[0].name == "dust" and po[0].kind == ABC_POINTS
+    if pts_ok:
+        pts_ok = len(po[0].pos) == 2 and _eqi(po[0].indices[0], ids0) and _eqi(po[0].indices[1], ids1)
+        for i in range(len(pp1)):
+            if Float32(pp1[i]) != po[0].pos[1][i]:
+                pts_ok = False
+    s.check(pts_ok, "round trip: points, ids per frame, count changing between frames")
+    var curves_ok = len(po) == 2 and po[1].name == "strand" and po[1].kind == ABC_CURVES
+    if curves_ok:
+        curves_ok = len(po[1].pos) == 1 and _eqi(po[1].counts[0], cc) and len(po[1].pos[0]) == 9
+        for i in range(len(cp)):
+            if Float32(cp[i]) != po[1].pos[0][i]:
+                curves_ok = False
+    s.check(curves_ok, "round trip: curves, vertex counts and positions")
+
+    var cut = List[UInt8]()
+    for i in range(len(b) - 1):
+        cut.append(b[i])
+    var cut_raised = False
+    try:
+        _ = abc_read(cut)
+    except:
+        cut_raised = True
+    s.check(cut_raised, "a file one byte short raises (no read past the end)")
     s.finish()
