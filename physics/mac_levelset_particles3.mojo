@@ -1,12 +1,20 @@
 """Particle level set volume correction for `LevelSetWater3` (ROADMAP 17.60;
 3-D version of `physics.mac_levelset_particles`, after Enright et al. 2002).
 
-The structure is the 2-D one: positive particles seeded on the air side and
+The structure is close to the 2-D one: positive particles seeded on the air side and
 negative particles on the liquid side are advected with the grid velocity (RK2,
 trilinear). A negative particle found in the air takes the cells near it to
 min(phi, |x - x_p| - r); a positive particle found in the liquid takes them to
 max(phi, r - |x - x_p|). r = 0.3 dx, and only the cells within `reach` cells
 (in each axis) of an escaped particle change.
+
+Two differences from `physics.mac_levelset_particles` (2-D), both measured on
+the 2-D vortex disk (2026-10-27). (1) Escape tests use the phi before the
+correction (`correct` below); the 2-D code tests each particle against the phi
+its predecessors already changed. (2) The corrections are merged per cell by
+min / max before they are applied. Applying (1) alone to the 2-D scheme gives
++14.7 % volume against +9.1 % for the sequential 2-D code; adding (2) gives
++24.3 %. The 2-D scheme keeps the sequential form.
 
 Known limits, inherited from the 2-D scheme and measured there (17.60 note,
 2026-10-27): the volume gain is not converged in resolution, the sign of the

@@ -18,12 +18,22 @@ Predictions, written before the run:
   P3. Per unit depth, the 3-D volume matches the 2-D volume: |V3 / (n dx) -
       V2| / V2 < 1e-3.
   P4. The slab drains: V(0.25 s) < 0.9 V0 in 3-D.
+  P5. Outflow identity (mirrors the 2-D P3): the identity mismatch
+      |(V0 - V) - F| / V0, with F the floor outflow summed over the steps, is
+      equal in 3-D and in 2-D on the same grid to 1e-3 (both are per unit depth,
+      and the 3-D run is z-invariant). Written before the run; the 2-D mismatch
+      on this grid was not known, so the bound is parity, not a number.
 
 Measured (first run, 2026-10-27, 4/4 pass): z invariance 0.0 dx; middle plane
 against 2-D 0.0 dx (identical to the printed precision); volume per unit depth
 relative difference 4.5e-7 (summation order over 16^3 against 16^2 cells);
 V(0.25 s) / V0 = 0.332. The exact zeros are recorded as measured, not
 assumed: the bounds P1 and P2 are the predictions, and both hold with room.
+Added 2026-10-27 (P5, same run): floor outflow F3 = 0.154482, F2 = 0.154483;
+identity mismatch 0.0471914 in 3-D and 0.0471880 in 2-D (difference 3.6e-6).
+The 2-D mismatch on this 16^2 grid is 4.7 %, against 5.4 % on the 32^2 grid of
+test_levelset_open, so the mismatch is grid-dependent; this test does not
+claim a resolution-independent value.
 """
 
 from harness.runner import Suite
@@ -67,9 +77,17 @@ def main() raises:
     var v2_init = v2_0 * dx * dx
     print("  initial: 3-D", v3_init, " 2-D", v2_init, " (per unit depth)", v3_init / (Real(N) * dx))
 
+    var f3 = Real(0)
+    var f2 = Real(0)
     for _ in range(STEPS):
         ls3.step(dt)
         ls2.step(dt)
+        for k in range(N):
+            for i in range(N):
+                var fv = ls3.v[(k * (N + 1) + 0) * N + i]
+                f3 += -fv * _h(ls3.phi[(k * N + 0) * N + i], dx) * dx * dx * dt
+        for i in range(N):
+            f2 += -ls2.v[i] * _h(ls2.phi[i], dx) * dx * dt
 
     var dmax_z = Real(0)
     var dmax_2d = Real(0)
@@ -103,4 +121,8 @@ def main() raises:
     s.check(dmax_2d / dx < 1e-3, "P2 3-D middle plane matches the 2-D outlet run (< 1e-3 dx)")
     s.check(per_depth_err < 1e-3, "P3 3-D volume per unit depth matches the 2-D volume (< 1e-3)")
     s.check(V3 < 0.9 * v3_init, "P4 the 3-D slab drains (V(0.25 s) < 0.9 V0)")
+    var mis3 = abs((v3_init - V3) - f3) / v3_init
+    var mis2 = abs((v2_init - V2) - f2) / v2_init
+    print("  outflow F3", f3, " F2", f2, " identity mismatch 3-D", mis3, " 2-D", mis2)
+    s.check(abs(mis3 - mis2) < 1e-3, "P5 3-D outflow identity mismatch equals the 2-D one on the same grid (< 1e-3)")
     s.finish()

@@ -10,8 +10,14 @@ it take min(phi, |x - x_p| - r); a positive particle found in the liquid does
 the reverse with max(phi, r - |x - x_p|). r is the particle radius, 0.3 dx by
 default. Only the cells within `reach` cells of an escaped particle change.
 
-Particles are seeded once (`seed`) and not reseeded; `advect` uses the
-velocity after the level-set step, so this is first order in time.
+`reseed` is the per-cell Enright reseeding, opt-in: a caller that
+does not call it gets the seed-once behaviour. `correct` tests each escape
+against the phi left by earlier particles and merges by sequential min / max.
+Both choices matter to the result (measured 2026-10-27 on the test vortex:
+escape flags on a snapshot give +14.7 % volume, a per-cell min / max merge
+gives +24.3 %; the 3-D scheme does both, so the 2-D and 3-D schemes differ).
+`advect` uses the velocity after the level-set step, so this is first order
+in time.
 """
 
 from std.math import floor, sqrt
@@ -54,6 +60,53 @@ struct LevelSetParticles(Movable):
                         self.x.append((Real(i) + 0.25 + 0.5 * Real(a)) * dx)
                         self.y.append((Real(j) + 0.25 + 0.5 * Real(b)) * dx)
                         self.neg.append(f < 0)
+
+    def reseed(mut self, ls: LevelSetWater2, band: Real, target: Int):
+        """Enright-style per-cell reseeding (Enright et al. 2002, section 4); the
+        2-D port of `LevelSetParticles3.reseed`.
+
+        A particle deeper than `band` cells on its own side is deleted. Escaped
+        particles (on the wrong side) are kept: they carry the correction. Then
+        every band cell is topped up to `target` particles, placed on the 2 x 2
+        lattice of the cell, each on the side given by the bilinear phi there."""
+        var n = ls.n
+        var dx = ls.dx
+        var keep_x = List[Real]()
+        var keep_y = List[Real]()
+        var keep_neg = List[Bool]()
+        for q in range(len(self.x)):
+            var f = self._phi(ls, self.x[q], self.y[q])
+            var own = (self.neg[q] and f < 0) or (not self.neg[q] and f > 0)
+            if own and abs(f) > band * dx:
+                continue
+            keep_x.append(self.x[q])
+            keep_y.append(self.y[q])
+            keep_neg.append(self.neg[q])
+        self.x = keep_x^
+        self.y = keep_y^
+        self.neg = keep_neg^
+        var cnt = List[Int](length=n * n, fill=0)
+        for q in range(len(self.x)):
+            var ci = min(max(Int(floor(self.x[q] / dx)), 0), n - 1)
+            var cj = min(max(Int(floor(self.y[q] / dx)), 0), n - 1)
+            cnt[cj * n + ci] += 1
+        for j in range(n):
+            for i in range(n):
+                var c = j * n + i
+                if abs(ls.phi[c]) > band * dx:
+                    continue
+                var need = target - cnt[c]
+                for a in range(2):
+                    for b in range(2):
+                        if need <= 0:
+                            break
+                        var px = (Real(i) + 0.25 + 0.5 * Real(a)) * dx
+                        var py = (Real(j) + 0.25 + 0.5 * Real(b)) * dx
+                        var f = self._phi(ls, px, py)
+                        self.x.append(px)
+                        self.y.append(py)
+                        self.neg.append(f < 0)
+                        need -= 1
 
     def advect(mut self, ls: LevelSetWater2, dt: Real):
         for k in range(len(self.x)):

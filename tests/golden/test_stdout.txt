@@ -1418,10 +1418,12 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   3-D mid plane against 2-D max |dphi| / dx: 0.0
   V3 per unit depth 0.08251511  V2 0.08251515  relative 4.5146743e-07
   V3(0.25 s) / V0: 0.33173832
-[PASS] levelset_open3 - 4 / 4 checks
+  outflow F3 0.15448223  F2 0.15448283  identity mismatch 3-D 0.04719147  2-D 0.047187984
+[PASS] levelset_open3 - 5 / 5 checks
 --- tests/test_levelset_particles.mojo ---
   volume: initial 0.07068584 plain 0.01171875 particles 0.07714844
-[PASS] levelset_particles - 2 / 2 checks
+  reseed every 20 steps: volume 0.07714844  seed once 0.07714844  particles 720 -> 3708
+[PASS] levelset_particles - 3 / 3 checks
 --- tests/test_levelset_particles3.mojo ---
   3-D volume: initial 0.07068584 plain 0.006944445 particles 0.06944445
   z invariance: max |phi(k) - phi(mid)| / dx = 5.1140785e-05
