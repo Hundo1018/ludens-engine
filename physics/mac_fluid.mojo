@@ -22,7 +22,7 @@ advection adds numerical viscosity of order |u| dx / 2: decay-rate tests
 keep the velocity small (test_taylor_green).
 """
 
-from std.math import floor, sqrt
+from std.math import ceil, floor, sqrt
 from geometry.vec import Real
 from numerics.sparse import LinearOperator
 from numerics.cg import pcg, CgResult
@@ -55,6 +55,72 @@ struct _NegLaplacian(LinearOperator, Movable):
             out[k] = 4
 
 
+struct _MaskedNegLaplacian(LinearOperator, Movable):
+    """-lap on the fluid cells of a periodic n x n grid (17.61 solid mask).
+
+    A face between two fluid cells couples them. A face to a solid cell
+    carries no flux (Neumann), so it leaves the stencil. Solid cells are
+    identity rows, which keeps the operator nonsingular there. Symmetric
+    positive semidefinite; its null space is the constant on each connected
+    fluid region."""
+
+    var n: Int
+    var solid: List[Bool]
+
+    def __init__(out self, n: Int, var solid: List[Bool]):
+        self.n = n
+        self.solid = solid^
+
+    def size(self) -> Int:
+        return self.n * self.n
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        var n = self.n
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                var k = j * n + i
+                if self.solid[k]:
+                    out[k] = x[k]
+                    continue
+                var acc = Real(0)
+                if not self.solid[j * n + im]:
+                    acc += x[k] - x[j * n + im]
+                if not self.solid[j * n + ip]:
+                    acc += x[k] - x[j * n + ip]
+                if not self.solid[jm * n + i]:
+                    acc += x[k] - x[jm * n + i]
+                if not self.solid[jp * n + i]:
+                    acc += x[k] - x[jp * n + i]
+                out[k] = acc
+
+    def diagonal(self, mut out: List[Real]):
+        var n = self.n
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                var k = j * n + i
+                if self.solid[k]:
+                    out[k] = 1
+                    continue
+                var cnt = 0
+                if not self.solid[j * n + im]:
+                    cnt += 1
+                if not self.solid[j * n + ip]:
+                    cnt += 1
+                if not self.solid[jm * n + i]:
+                    cnt += 1
+                if not self.solid[jp * n + i]:
+                    cnt += 1
+                out[k] = Real(cnt)
+
+
 def warm_start_or_zero[Op: LinearOperator](op: Op, rhs: List[Real], mut x: List[Real]):
     """Zero `x` when it is a worse start than zero, ||b - A x|| > ||b||
     (ROADMAP 17.60). A projection warm-started from the last pressure
@@ -76,6 +142,25 @@ def warm_start_or_zero[Op: LinearOperator](op: Op, rhs: List[Real], mut x: List[
             x[k] = 0
 
 
+def _spread_face(mut f: List[Real], n: Int, dx: Real, x: Real, y: Real, ox: Real, oy: Real, amount: Real):
+    """Adjoint of `MacFluid2._bilinear`: adds `amount` to the four samples around
+    (x, y), weighted as the sampling weights, so the four weights sum to one."""
+    var gx = x / dx - ox
+    var gy = y / dx - oy
+    var i0 = Int(floor(gx))
+    var j0 = Int(floor(gy))
+    var ax = gx - Real(i0)
+    var ay = gy - Real(j0)
+    var a = ((i0 % n) + n) % n
+    var b = ((i0 + 1) % n + n) % n
+    var c = ((j0 % n) + n) % n
+    var d = ((j0 + 1) % n + n) % n
+    f[c * n + a] += amount * (1 - ax) * (1 - ay)
+    f[c * n + b] += amount * ax * (1 - ay)
+    f[d * n + a] += amount * (1 - ax) * ay
+    f[d * n + b] += amount * ax * ay
+
+
 struct MacFluid2(Movable):
     var n: Int  # cells per side
     var dx: Real
@@ -87,6 +172,11 @@ struct MacFluid2(Movable):
     var p: List[Real]  # last pressure (warm start), cell centres
     var last: CgResult
     var mg: Optional[PeriodicPoissonMG]  # set by use_multigrid
+    var fix_momentum: Bool  # set by use_momentum_fix
+    var momentum_booked: Real  # sum of |momentum corrections| applied (x and y)
+    var flux_advect: Bool  # set by use_flux_advection
+    var flux_substeps: Int  # sub-steps taken by `_advect_flux`, summed
+    var solid: List[Bool]  # set by set_solid; empty means no solid cell
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -101,9 +191,76 @@ struct MacFluid2(Movable):
         self.p = List[Real](length=n * n, fill=0)
         self.last = CgResult(True, False, 0, 0)
         self.mg = None
+        self.fix_momentum = False
+        self.momentum_booked = 0
+        self.flux_advect = False
+        self.flux_substeps = 0
+        self.solid = List[Bool]()
+
+    def set_solid(mut self, var mask: List[Bool]) raises:
+        """Mark cells solid (opt-in; the default empty mask leaves the solver
+        unchanged). Faces that touch a solid cell carry no normal flux: they
+        are zeroed before each projection and the pressure solve treats them
+        as walls. Every fluid cell needs a fluid neighbour, so the operator has
+        no empty row. Not available with multigrid."""
+        var n = self.n
+        if len(mask) != n * n:
+            raise Error("MacFluid2.set_solid: mask length must be n * n")
+        if self.mg:
+            raise Error("MacFluid2.set_solid: the solid mask is not supported with multigrid")
+        var fluid = 0
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                if mask[j * n + i]:
+                    continue
+                fluid += 1
+                var nb = 0
+                if not mask[j * n + im]:
+                    nb += 1
+                if not mask[j * n + ip]:
+                    nb += 1
+                if not mask[jm * n + i]:
+                    nb += 1
+                if not mask[jp * n + i]:
+                    nb += 1
+                if nb == 0:
+                    raise Error("MacFluid2.set_solid: a fluid cell has no fluid neighbour")
+        if fluid == 0:
+            raise Error("MacFluid2.set_solid: the mask leaves no fluid cell")
+        self.solid = mask^
+
+    def use_momentum_fix(mut self):
+        """Restore the total momentum after each advection (opt-in; off by
+        default so the semi-Lagrangian default path is unchanged). The applied
+        corrections are summed in `momentum_booked`."""
+        self.fix_momentum = True
+
+    def use_flux_advection(mut self):
+        """Advect the faces in flux form, `_advect_flux`, instead of
+        semi-Lagrangian (opt-in; off by default). Total momentum is conserved
+        by construction, so `momentum_booked` stays zero on this path."""
+        self.flux_advect = True
+
+    def momentum(self) -> Tuple[Real, Real]:
+        """Total (sum u dx^2, sum v dx^2), accumulated in f64."""
+        var sx = Float64(0)
+        var sy = Float64(0)
+        for k in range(self.n * self.n):
+            sx += Float64(self.u[k])
+            sy += Float64(self.v[k])
+        var a = Real(sx * Float64(self.dx) * Float64(self.dx))
+        var b = Real(sy * Float64(self.dx) * Float64(self.dx))
+        return (a, b)
 
     def use_multigrid(mut self) raises:
-        """Project with MGPCG from now on; raises unless n is a power of two."""
+        """Project with MGPCG from now on; raises unless n is a power of two.
+        Not available once a solid mask is set."""
+        if len(self.solid) > 0:
+            raise Error("MacFluid2.use_multigrid: not supported with a solid mask")
         self.mg = PeriodicPoissonMG(self.n)
 
     def _w(self, i: Int) -> Int:
@@ -129,6 +286,15 @@ struct MacFluid2(Movable):
 
     def velocity(self, x: Real, y: Real) -> Tuple[Real, Real]:
         return (self._bilinear(self.u, x, y, 0, 0.5), self._bilinear(self.v, x, y, 0.5, 0))
+
+    def add_impulse(mut self, x: Real, y: Real, ix: Real, iy: Real):
+        """Adds the momentum impulse (ix, iy) per unit density at the point (x, y).
+        The impulse is spread onto the staggered faces with the velocity-sampling
+        weights, so the total momentum sum(u) dx^2 rises by exactly ix (and
+        sum(v) dx^2 by iy); density is 1, as in the rest of this struct."""
+        var inv = 1 / (self.dx * self.dx)
+        _spread_face(self.u, self.n, self.dx, x, y, 0, 0.5, ix * inv)
+        _spread_face(self.v, self.n, self.dx, x, y, 0.5, 0, iy * inv)
 
     def divergence(self) -> List[Real]:
         """Per cell, (du/dx + dv/dy)."""
@@ -176,8 +342,28 @@ struct MacFluid2(Movable):
         self.u = nu_^
         self.v = nv_^
 
+    def _zero_solid_faces(mut self):
+        """Hold the normal velocity on every face that touches a solid cell at
+        zero (the u face on a cell's left and right, the v face below and
+        above it)."""
+        var n = self.n
+        for j in range(n):
+            var jp = (j + 1) % n
+            for i in range(n):
+                var k = j * n + i
+                if not self.solid[k]:
+                    continue
+                var ip = (i + 1) % n
+                self.u[k] = 0
+                self.u[j * n + ip] = 0
+                self.v[k] = 0
+                self.v[jp * n + i] = 0
+
     def project(mut self, dt: Real, tol: Real = 1e-6) -> CgResult:
         var n = self.n
+        var masked = len(self.solid) > 0
+        if masked:
+            self._zero_solid_faces()
         var div = self.divergence()
         # -lap p = -div / dt, in dx^2 = 1 units: rhs = -div dx^2 / dt
         var rhs = List[Real](length=n * n, fill=0)
@@ -185,36 +371,144 @@ struct MacFluid2(Movable):
         # sum over n^2 cells left a mean of ~n^2 eps |rhs| that CG cannot
         # reduce, so it never met tol, ran 4 n^2 iterations, and the constant
         # it piled into p cost f32 its pressure differences (a heated row
-        # under Smoke2 blew up to 1e11 m/s in 0.3 s; 17.61).
+        # under Smoke2 blew up to 1e11 m/s in 0.3 s; 17.61). With solid cells
+        # the mean runs over the fluid cells only, and solid rows stay zero.
+        var fluid = 0
+        for k in range(n * n):
+            if not masked or not self.solid[k]:
+                fluid += 1
         var mean = Float64(0)
         for k in range(n * n):
+            if masked and self.solid[k]:
+                continue
             rhs[k] = -div[k] * self.dx * self.dx / dt
             mean += Float64(rhs[k])
-        mean /= Float64(n * n)
+        mean /= Float64(fluid)
         for k in range(n * n):
+            if masked and self.solid[k]:
+                continue
             rhs[k] = Real(Float64(rhs[k]) - mean)
-        var op = _NegLaplacian(n)
-        warm_start_or_zero(op, rhs, self.p)
         var r: CgResult
-        if self.mg:
-            r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)
+        if masked:
+            var mop = _MaskedNegLaplacian(n, self.solid.copy())
+            warm_start_or_zero(mop, rhs, self.p)
+            r = pcg(mop, rhs, self.p, tol, 4 * n * n)
         else:
-            r = pcg(op, rhs, self.p, tol, 4 * n * n)
+            var op = _NegLaplacian(n)
+            warm_start_or_zero(op, rhs, self.p)
+            if self.mg:
+                r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)
+            else:
+                r = pcg(op, rhs, self.p, tol, 4 * n * n)
         for j in range(n):
             var jm = (j + n - 1) % n
             for i in range(n):
                 var im = (i + n - 1) % n
-                self.u[j * n + i] -= dt * (self.p[j * n + i] - self.p[j * n + im]) / self.dx
-                self.v[j * n + i] -= dt * (self.p[j * n + i] - self.p[jm * n + i]) / self.dx
+                var k = j * n + i
+                var kl = j * n + im
+                var kd = jm * n + i
+                # A face that touches a solid cell keeps its zero normal velocity.
+                if not masked or not (self.solid[k] or self.solid[kl]):
+                    self.u[k] -= dt * (self.p[k] - self.p[kl]) / self.dx
+                if not masked or not (self.solid[k] or self.solid[kd]):
+                    self.v[k] -= dt * (self.p[k] - self.p[kd]) / self.dx
         self.last = r
         return r
+
+    def _advect_flux(mut self, dt: Real):
+        """Flux-form (finite-volume) advection, first-order upwind (17.61).
+
+        Each face is advected through its own control volume: the u face at
+        (i, j + 1/2) owns [i - 1/2, i + 1/2] x [j, j + 1]; the v face at
+        (i + 1/2, j) owns [i, i + 1] x [j - 1/2, j + 1/2]. The advecting speed
+        on each side is the average of the two staggered components there, and
+        the advected value is taken upwind. The flux through a shared side is
+        computed once from the same arrays by both neighbours, so the periodic
+        sum over the grid telescopes: total momentum is conserved to rounding
+        with no correction term. The scheme is first order and therefore
+        diffusive: the upwind value is the cell value, not an interpolated
+        one, which dissipates small-scale swirl that semi-Lagrangian keeps.
+        Explicit and unsplit, so stability needs 2 |u|max h <= 1 (h = sub-step
+        dt / dx). The step is sub-cycled: the count is ceil(2 |u|max dt / dx),
+        and each sub-step is itself a conservative flux update, so the total is
+        still conserved. Without sub-cycling the 17.61 k = 5 run goes to NaN
+        within 3 steps (face speeds reach 1000 m/s against dx / dt = 3.75)."""
+        var umax = Real(0)
+        for c in range(self.n * self.n):
+            umax = max(umax, max(abs(self.u[c]), abs(self.v[c])))
+        var need = 2 * umax * dt / self.dx
+        var sub = 1
+        if need > 1:
+            sub = Int(ceil(need))
+        var h = dt / Real(sub) / self.dx
+        self.flux_substeps += sub
+        for _ in range(sub):
+            self._flux_once(h)
+
+    def _flux_once(mut self, h: Real):
+        """One conservative flux update with step h = sub-step / dx."""
+        var n = self.n
+        var u0 = self.u.copy()
+        var v0 = self.v.copy()
+        var nu_ = List[Real](length=n * n, fill=0)
+        var nv_ = List[Real](length=n * n, fill=0)
+        for j in range(n):
+            var jm = self._w(j - 1)
+            var jp = self._w(j + 1)
+            for i in range(n):
+                var im = self._w(i - 1)
+                var ip = self._w(i + 1)
+                # u face: east / west sides at x = i +- 1/2, speed from u
+                var c = j * n + i
+                var ue = 0.5 * (u0[c] + u0[j * n + ip])
+                var fe = ue * (u0[c] if ue > 0 else u0[j * n + ip])
+                var uw = 0.5 * (u0[j * n + im] + u0[c])
+                var fw = uw * (u0[j * n + im] if uw > 0 else u0[c])
+                # u face: north / south sides at y = j + 1, j, speed from v at x = i +- 1/2
+                var vn = 0.5 * (v0[jp * n + im] + v0[jp * n + i])
+                var fnorth = vn * (u0[c] if vn > 0 else u0[jp * n + i])
+                var vs = 0.5 * (v0[j * n + im] + v0[j * n + i])
+                var fs = vs * (u0[jm * n + i] if vs > 0 else u0[c])
+                nu_[c] = u0[c] - h * ((fe - fw) + (fnorth - fs))
+                # v face: east / west sides at x = i + 1, i, speed from u at y = j +- 1/2
+                var ve = 0.5 * (u0[jm * n + ip] + u0[j * n + ip])
+                var ge = ve * (v0[c] if ve > 0 else v0[j * n + ip])
+                var vw = 0.5 * (u0[jm * n + i] + u0[j * n + i])
+                var gw = vw * (v0[j * n + im] if vw > 0 else v0[c])
+                # v face: north / south sides at y = j + 1/2, j - 1/2, speed from v
+                var vv_n = 0.5 * (v0[c] + v0[jp * n + i])
+                var gn = vv_n * (v0[c] if vv_n > 0 else v0[jp * n + i])
+                var vv_s = 0.5 * (v0[jm * n + i] + v0[c])
+                var gs = vv_s * (v0[jm * n + i] if vv_s > 0 else v0[c])
+                nv_[c] = v0[c] - h * ((ge - gw) + (gn - gs))
+        self.u = nu_^
+        self.v = nv_^
 
     def step(mut self, dt: Real) raises:
         if not (dt > 0):
             raise Error("MacFluid2.step: dt must be > 0")
         if self.nu * dt / (self.dx * self.dx) > 0.25:
             raise Error("MacFluid2.step: nu dt / dx^2 > 1/4 (explicit viscosity limit)")
-        self._advect(dt)
+        var m0 = self.momentum() if self.fix_momentum else (Real(0), Real(0))
+        if self.flux_advect:
+            self._advect_flux(dt)
+        else:
+            self._advect(dt)
+        if self.fix_momentum:
+            # Semi-Lagrangian advection changes sum(u) and sum(v) by the
+            # interpolation residual, though the periodic box has no external
+            # momentum source. Shift every face by the same amount so the total
+            # matches m0. A constant has zero divergence on the periodic grid,
+            # so the projection is unaffected. This restores the total only:
+            # the local distribution keeps the advection error.
+            var m1 = self.momentum()
+            var cells = Real(self.n * self.n) * self.dx * self.dx
+            var du = (m0[0] - m1[0]) / cells
+            var dv = (m0[1] - m1[1]) / cells
+            for k in range(self.n * self.n):
+                self.u[k] += du
+                self.v[k] += dv
+            self.momentum_booked += abs(m0[0] - m1[0]) + abs(m0[1] - m1[1])
         if self.nu > 0:
             self._diffuse(dt)
         if self.fx != 0 or self.fy != 0:

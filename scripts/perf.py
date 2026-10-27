@@ -333,6 +333,13 @@ def selftest() -> int:
     ok("no change passes", rc == 0)
     rc, lines = compare_runs(base, {"fingerprint": fp, "rows": {k: [120.0, 121.0, 120.4]}})
     ok("injected +20% is caught", rc == 1 and "REGRESSION" in lines[0], str(lines))
+    # Detection levels at this row's 3 % noise floor (measured 2026-10-27): +10 % and +25 % are
+    # caught; +5 % is not. The +5 % check pins that boundary so a threshold change shows up here.
+    for pct, caught in ((10, True), (25, True), (5, False)):
+        f = 1 + pct / 100
+        rc, lines = compare_runs(base, {"fingerprint": fp, "rows": {k: [100.0 * f, 101.0 * f, 100.5 * f]}})
+        hit = rc == 1 and any("REGRESSION" in l for l in lines)
+        ok(f"injected +{pct}% at 3% noise is {'caught' if caught else 'not caught (measured boundary)'}", hit == caught, str(lines))
     rc, lines = compare_runs(base, {"fingerprint": fp, "rows": {k: [104.0, 105.0, 104.5]}})
     ok("+4% inside 3x noise floor is not reported", rc == 0, str(lines))
     noisy = {"fingerprint": fp, "rows": {k: [80.0, 140.0, 100.0]}}
@@ -376,7 +383,7 @@ def selftest() -> int:
     rc, _ = check_budgets({**run, "fingerprint": {**fp, "cpu": "Y"}}, book)
     ok("budgets of another host are refused", rc == 2)
 
-    total = 17
+    total = 20
     print(f"[{'PASS' if fails == 0 else 'FAIL'}] perf selftest - {total - fails} / {total} checks")
     return 1 if fails else 0
 

@@ -56,10 +56,22 @@ run_bench() {
     return 1
 }
 
+# `@host` is replaced by a fingerprint of the machine that produced the
+# numbers (CPU model, logical cores, accelerator device nodes). Without it a
+# report regenerated on another host reads as if it came from the old one.
+host_block() {
+    local cpu accel
+    cpu=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
+    if ls /dev/nvidia* >/dev/null 2>&1; then accel="present"; else accel="none detected"; fi
+    echo "Host: CPU \"$cpu\", $(nproc) logical cores, accelerator $accel (generated $(date -u +%Y-%m-%d) by scripts/run_benchmarks.sh). Absolute numbers and the parallel-scaling curves depend on these; rows from a host with a different fingerprint are not comparable."
+    echo
+}
+
 render() {
     local line
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
+            "@host") host_block ;;
             "@bench "*) run_bench "${line#@bench }" ;;
             *) printf '%s\n' "$line" ;;
         esac

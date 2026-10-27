@@ -22,21 +22,20 @@ from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.rigid6 import Inertia3, QuatBody6
 from physics.solver6 import ContactScene6
-from physics.solver_config import SolverConfig, CONTACT_GS, CONTACT_BLOCK
+from physics.solver_config import SolverConfig, CONTACT_GS, CONTACT_BLOCK, MASS_RATIO_DEFAULT
 
 comptime DT: Real = 1.0 / 60.0
 comptime G = Vec3(0, -9.8, 0, 0)
 comptime ZERO = Vec3(0, 0, 0, 0)
 
 
-def _cfg(kind: Int, iters: Int) -> SolverConfig:
+def _cfg(kind: Int, iters: Int, ratio: Real = 0) -> SolverConfig:
+    """`ratio` is `max_mass_ratio`: 0 (unscaled) by default, since the plain
+    cases test the block seam; scaled cases pass `MASS_RATIO_DEFAULT`."""
     var c = SolverConfig()
     c.contact_solver = kind
     c.iters = iters
-    # The block solve is gated off under mass scaling (`_block_normal` does not
-    # carry the scale), and `SolverConfig()` defaults to scaling since 17.19.
-    # These cases test the block seam itself, so they run unscaled.
-    c.max_mass_ratio = 0
+    c.max_mass_ratio = ratio
     return c
 
 
@@ -68,25 +67,25 @@ def _stack(kind: Int, n: Int, iters: Int) raises -> Tuple[Real, Real]:
     return (0.5 + Real(n - 1) - top[1], side)
 
 
-def _heavy(kind: Int, iters: Int) raises -> Real:
+def _heavy(kind: Int, iters: Int, ratio: Real = 0) raises -> Real:
     """Penetration of a 100 kg box into a 1 kg box after 3 s."""
     var sc = ContactScene6[QuatBody6]()
     _floor(sc)
     var lo = _box(sc, Vec3(0, 0.5, 0, 0), 1)
     var hi = _box(sc, Vec3(0, 1.5, 0, 0), 100)
-    var cfg = _cfg(kind, iters)
+    var cfg = _cfg(kind, iters, ratio)
     for _ in range(180):
         sc.step(DT, G, cfg)
     return 1.0 - (sc.bset.bodies[hi].pos[1] - sc.bset.bodies[lo].pos[1])
 
 
-def _spread(kind: Int) raises -> Real:
+def _spread(kind: Int, ratio: Real = 0) raises -> Real:
     """Largest / smallest normal impulse of a resting box's four points
     after one frame from rest at 1 iteration."""
     var sc = ContactScene6[QuatBody6]()
     _floor(sc)
     _ = _box(sc, Vec3(0, 0.5, 0, 0), 1)
-    var cfg = _cfg(kind, 1)
+    var cfg = _cfg(kind, 1, ratio)
     cfg.substeps = 1
     for _ in range(2):
         sc.step(DT, G, cfg)
@@ -149,6 +148,27 @@ def main() raises:
     s.check(drift_bl < 1e-5 and drift_gs > 1e-3, "block: the stack stays straight (no sideways creep); the sequential sweep creeps over 1 mm")
     for it in range(1, 5, 3):
         print("  100 kg on 1 kg, iters", it, ", 3 s: penetration GS", _heavy(CONTACT_GS, it), "m;  block", _heavy(CONTACT_BLOCK, it))
+
+    # ---- scaled (17.19 default mass ratio): the block solve applies the same per-side scale ----
+    var sp_sc_gs = _spread(CONTACT_GS, MASS_RATIO_DEFAULT)
+    var sp_sc_bl = _spread(CONTACT_BLOCK, MASS_RATIO_DEFAULT)
+    print("  scaled, resting box, 1 iteration: largest / smallest point impulse GS", sp_sc_gs, ";  block", sp_sc_bl)
+    s.check(abs(sp_sc_bl - 1) < 2e-3, "scaled block: four equal impulses under a uniform load")
+    var rest_sc = List[Real]()
+    for kind in range(2):
+        var sc = ContactScene6[QuatBody6]()
+        _floor(sc)
+        var b = _box(sc, Vec3(0, 0.5, 0, 0), 1)
+        var cfg = _cfg(CONTACT_GS if kind == 0 else CONTACT_BLOCK, 4, MASS_RATIO_DEFAULT)
+        for _ in range(120):
+            sc.step(DT, G, cfg)
+        rest_sc.append(sc.bset.bodies[b].pos[1])
+    print("  scaled, box at rest, 2 s: GS y", rest_sc[0], ";  block y", rest_sc[1])
+    s.check(abs(rest_sc[0] - rest_sc[1]) < 1e-5, "scaled: a resting box settles at the same height (1e-5 m)")
+    var hv_gs = _heavy(CONTACT_GS, 4, MASS_RATIO_DEFAULT)
+    var hv_bl = _heavy(CONTACT_BLOCK, 4, MASS_RATIO_DEFAULT)
+    print("  scaled, 100 kg on 1 kg, 4 iters, 3 s: penetration GS", hv_gs, "m;  block", hv_bl)
+    s.check(abs(hv_gs - hv_bl) < 1e-3, "scaled: the block solve does not change the heavy-on-light sag (1 mm; measured 0.085 mm)")
 
     # ---- extremes ---------------------------------------------------------------------------------------------
     var bad = SolverConfig()

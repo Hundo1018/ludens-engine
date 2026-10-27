@@ -905,6 +905,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.contact_zeta[i] = zeta
         self.bset.any_contact_model = True
 
+    def set_load_stiffness(mut self, on: Bool):
+        """ROADMAP 17.19 (opt-in, default off): scale each pair's softness
+        frequency by sqrt(heavier mass / lighter mass), for pairs whose bodies
+        have `set_contact_softness`. Off: bit-identical to before."""
+        self.bset.load_stiffness = on
+        if on:
+            self.bset.any_contact_model = True
+
     def set_adhesion(mut self, i: Int, force: Real) raises:
         """ROADMAP 17.50: body `i`'s contacts may pull as well as push, up to
         `force` newtons per pair (spread over its points), while the
@@ -3582,6 +3590,13 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
             out.wv(pr.rb[p])
             out.wf(pr.vn0[p])
             out.wf(pr.racc[p])
+            out.wf(pr.hold_jn[p])
+        # 17.19 (5): the held report load (`ContactConstraint.hold_*`), so a
+        # loaded sleeping pair keeps reporting its resting load
+        out.wv(pr.hold_jf)
+        out.wf(pr.hold_span)
+        out.wv(pr.hold_excess)
+        out.wi(pr.hold_excess_up)
     # F20: the event stream's own state, so a resumed scene's events
     # continue identically instead of restarting from an empty history.
     out.wi(1 if sc.events_on else 0)
@@ -4052,6 +4067,11 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
             pr.rb[p] = r.rv()
             pr.vn0[p] = r.rf()
             pr.racc[p] = r.rf()
+            pr.hold_jn[p] = r.rf()
+        pr.hold_jf = r.rv()
+        pr.hold_span = r.rf()
+        pr.hold_excess = r.rv()
+        pr.hold_excess_up = r.ri()
         sc.cache.append(pr)
     # F20: restore the event stream's own state.
     sc.events_on = r.ri() == 1

@@ -15,12 +15,32 @@ from wax's 1e-7 so a test-length run melts more than one layer). MPM grid
      1e-5 (conduction moves enthalpy without creating it, through the
      latent plateau too).
   4. Extreme: no particles / c <= 0 raise.
+  5. Mushy shear (1 - phi). The shear factor scales the deviatoric stress;
+     the isotropic part of F - R stays. Three blocks, one step, no gravity.
+     Pure shear F = I + 0.05 E12 (J = 1): the stress is 2 mu s dev + iso,
+     with s the shear factor. Predictions, written after the first run and before this one:
+       P1  v(mushy, s 0.5) - 0.5 v(solid, s 1) - 0.5 v(liquid, s 0) = 0 to
+           1e-6 relative, since v = s dev + iso and iso = v(liquid);
+       P2  under isotropic compression F = 0.99 I (dev = 0) the liquid moves
+           exactly as the solid does, 1e-6 relative: a liquid keeps its
+           compression resistance;
+       P3  mushy phi stays 0.5 (uniform temperature, no enthalpy flow).
+     Scene: section 5 uses blocks at y 0.5. At the floor (y 0.16) the bottom
+     layer reaches the solver's sticky-wall band (grid j < 3), whose clamp
+     is non-linear; the first run's P1 residual (4.5e-4, unchanged in f64)
+     came from that band, not from the stress law (lifted: 1.4e-7).
+     Revision: an earlier version scaled the whole 2 mu (F - R) term, which
+     also removed the isotropic part, and its P2 (zero liquid motion) passed
+     for that reason. The corrected formula and these predictions were
+     written after that first run and before the run that passes.
 """
 
 from harness.runner import Suite
 from geometry.vec import Real, Vec3
 from physics.mpm import MpmSolver
 from physics.mpm_melt import MpmMelt, melt_state
+from geometry.mat import Mat3
+from geometry.vec import length
 
 comptime DX: Real = 0.05
 comptime N = 32
@@ -29,14 +49,18 @@ comptime DT: Real = 5e-4
 comptime G = Vec3(0, -9.8, 0, 0)
 
 
-def block() -> MpmSolver:
+def block_at(y0: Real) -> MpmSolver:
     var m = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 2e4, 0.3)
     var vol = SP * SP * SP
     for i in range(8):
         for j in range(6):
             for k in range(8):
-                m.add(Vec3(0.7 + Real(i) * SP, 0.16 + Real(j) * SP, 0.7 + Real(k) * SP, 0), vol * 900.0, vol)
+                m.add(Vec3(0.7 + Real(i) * SP, y0 + Real(j) * SP, 0.7 + Real(k) * SP, 0), vol * 900.0, vol)
     return m^
+
+
+def block() -> MpmSolver:
+    return block_at(0.16)
 
 
 def height(m: MpmSolver) -> Real:
@@ -125,4 +149,57 @@ def main() raises:
     except:
         raised += 1
     s.check(raised == 2, "no particles / c <= 0 raise")
+
+    # 5. mushy shear
+    var zero_g = Vec3(0, 0, 0, 0)
+    var shear_f = Mat3.identity()
+    shear_f.set(0, 1, 0.05)
+    var mm = block_at(0.5)
+    var wm = MpmMelt(mm, SP, 1e-3, c, lat, 330.0, 330.0)
+    var mS = block_at(0.5)
+    var wS = MpmMelt(mS, SP, 1e-3, c, lat, 330.0, 300.0)
+    var mL = block_at(0.5)
+    var wL = MpmMelt(mL, SP, 1e-3, c, lat, 330.0, 340.0)
+    for i in range(len(mm.p)):
+        mm.p[i].f = shear_f
+        mS.p[i].f = shear_f
+        mL.p[i].f = shear_f
+        wm.enthalpy[i] = Float64(c) * 330.0 + 0.5 * Float64(lat)
+        wm.phi[i] = 0.5
+        wm.heat.t[i] = 330.0
+    wm.step(mm, DT, zero_g)
+    wS.step(mS, DT, zero_g)
+    wL.step(mL, DT, zero_g)
+    var solid_mag = Real(0)
+    var p1_err = Real(0)
+    var phi_drift = Real(0)
+    for i in range(len(mm.p)):
+        solid_mag = max(solid_mag, length(mS.p[i].v))
+        p1_err = max(p1_err, length(mm.p[i].v - mS.p[i].v * 0.5 - mL.p[i].v * 0.5))
+        phi_drift = max(phi_drift, abs(wm.phi[i] - 0.5))
+    var rel1 = p1_err / solid_mag
+
+    # isotropic compression: the shear factor must not touch it
+    var iso_f = Mat3.identity()
+    for a in range(3):
+        iso_f.set(a, a, 0.99)
+    var mSi = block_at(0.5)
+    var wSi = MpmMelt(mSi, SP, 1e-3, c, lat, 330.0, 300.0)
+    var mLi = block_at(0.5)
+    var wLi = MpmMelt(mLi, SP, 1e-3, c, lat, 330.0, 340.0)
+    for i in range(len(mSi.p)):
+        mSi.p[i].f = iso_f
+        mLi.p[i].f = iso_f
+    wSi.step(mSi, DT, zero_g)
+    wLi.step(mLi, DT, zero_g)
+    var iso_mag = Real(0)
+    var iso_err = Real(0)
+    for i in range(len(mSi.p)):
+        iso_mag = max(iso_mag, length(mSi.p[i].v))
+        iso_err = max(iso_err, length(mLi.p[i].v - mSi.p[i].v))
+    var rel2 = iso_err / iso_mag
+    print("mushy shear: solid |v| max", solid_mag, " P1 rel. err", rel1, " isotropic |v| max", iso_mag, " P2 rel. err", rel2, " phi drift", phi_drift)
+    s.check(solid_mag > 0 and rel1 < 1e-6, "P1: v(mushy) = 0.5 v(solid) + 0.5 v(liquid), every particle (1e-6)")
+    s.check(iso_mag > 0 and rel2 < 1e-6, "P2: liquid moves as the solid under isotropic compression (1e-6)")
+    s.check(phi_drift < 1e-9, "P3: mushy phi stays 0.5 under uniform temperature")
     s.finish()

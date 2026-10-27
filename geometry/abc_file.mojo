@@ -32,6 +32,10 @@ Objects: `add_mesh` (AbcGeom_PolyMesh_v1: P, .faceIndices, .faceCounts,
 Alembic's convention, so importers that flip back (Blender) see the input
 order.
 
+`abc_read(bytes)` reads back what `bytes()` writes: the objects with their
+per-frame positions, faces (counter-clockwise, as given), counts and ids. It
+reads this writer's layout only; a foreign Alembic file is not in scope.
+
 Checked against a real reader: `pixi run abc-check` imports the files
 `test_abc_file` writes with Blender's Alembic importer (`bpy`,
 `scripts/abc_check.py`) and compares every frame's positions and
@@ -441,3 +445,257 @@ struct AbcArchive(Movable):
         ]
         var root = og.group(archive)
         return og.finish(root)
+
+
+# --- reading (the inverse of `AbcArchive.bytes`) ---
+
+
+struct AbcObject(Copyable, Movable):
+    """One object read back by `abc_read`: per frame, the positions (x, y, z
+    per vertex), and for meshes the vertex count of each face and the face
+    vertex indices counter-clockwise (as `mesh_frame` was given them); for
+    curves the vertex count of each curve; for points the ids. Empty where the
+    kind has none."""
+
+    var name: String
+    var kind: Int
+    var pos: List[List[Float32]]
+    var counts: List[List[Int]]
+    var indices: List[List[Int]]
+
+    def __init__(out self, var name: String, kind: Int):
+        self.name = name^
+        self.kind = kind
+        self.pos = List[List[Float32]]()
+        self.counts = List[List[Int]]()
+        self.indices = List[List[Int]]()
+
+
+struct _RProp(Copyable, Movable):
+    var name: String
+    var n: Int
+    var is_array: Bool
+    var constant: Bool
+
+    def __init__(out self, var name: String, n: Int, is_array: Bool, constant: Bool):
+        self.name = name^
+        self.n = n
+        self.is_array = is_array
+        self.constant = constant
+
+
+def _ru(d: List[UInt8], at: Int, n: Int) raises -> UInt64:
+    """Little-endian unsigned read of `n` bytes at `at`."""
+    if at < 0 or at + n > len(d):
+        raise Error("abc_read: truncated file")
+    var v = UInt64(0)
+    for k in range(n):
+        v |= UInt64(d[at + k]) << UInt64(8 * k)
+    return v
+
+
+def _rsized(d: List[UInt8], mut at: Int, hint: Int) raises -> Int:
+    var n = 1 if hint == 0 else (2 if hint == 1 else 4)
+    var v = Int(_ru(d, at, n))
+    at += n
+    return v
+
+
+def _rstr(d: List[UInt8], mut at: Int, n: Int) raises -> String:
+    if at < 0 or at + n > len(d):
+        raise Error("abc_read: truncated file")
+    var s = String()
+    for k in range(n):
+        s += chr(Int(d[at + k]))
+    at += n
+    return s
+
+
+def _rchildren(d: List[UInt8], v: UInt64) raises -> List[UInt64]:
+    """The child values of the group at offset `v` (0 is the empty group)."""
+    var kids = List[UInt64]()
+    if v == 0:
+        return kids^
+    if v >= UInt64(len(d)):
+        raise Error("abc_read: group offset outside the file")
+    var off = Int(v)
+    var n = Int(_ru(d, off, 8))
+    if n > (len(d) - off - 8) // 8:
+        raise Error("abc_read: group larger than the file")
+    for i in range(n):
+        kids.append(_ru(d, off + 8 + 8 * i, 8))
+    return kids^
+
+
+def _rpayload(d: List[UInt8], v: UInt64) raises -> List[UInt8]:
+    """The bytes of the data child `v` (the empty data is offset 0)."""
+    var off64 = v & ~_DATA_BIT
+    var out = List[UInt8]()
+    if off64 == 0:
+        return out^
+    if off64 >= UInt64(len(d)):
+        raise Error("abc_read: data offset outside the file")
+    var off = Int(off64)
+    var size = Int(_ru(d, off, 8))
+    if size > len(d) - off - 8:
+        raise Error("abc_read: data larger than the file")
+    out.reserve(size)
+    for k in range(size):
+        out.append(d[off + 8 + k])
+    return out^
+
+
+def _rprop(hp: List[UInt8], mut at: Int) raises -> _RProp:
+    """One property header in a compound's header block (the writer's
+    `_write_prop` layout)."""
+    var info = Int(_ru(hp, at, 4))
+    at += 4
+    var hint = (info >> 2) & 3
+    var n = _rsized(hp, at, hint)
+    if info & 0x100 != 0:
+        _ = _rsized(hp, at, hint)  # time sampling index
+    var nl = _rsized(hp, at, hint)
+    var name = _rstr(hp, at, nl)
+    if (info >> 20) & 0xFF == 0xFF:
+        var ml = _rsized(hp, at, hint)
+        _ = _rstr(hp, at, ml)
+    return _RProp(name, n, info & 3 == 2, info & 0x800 != 0)
+
+
+def _rsamples(d: List[UInt8], group: UInt64, p: _RProp) raises -> List[List[UInt8]]:
+    """The values of each sample of a property group. Each stored sample is a
+    data block (a 16-byte key, then the values) and, for arrays, a dimensions
+    entry. A constant property stores one sample, repeated `n` times."""
+    var out = List[List[UInt8]]()
+    var kids = _rchildren(d, group)
+    var per = 2 if p.is_array else 1
+    var stored = min(1 if p.constant else p.n, p.n)
+    if len(kids) != stored * per:
+        raise Error("abc_read: property " + p.name + " has the wrong sample count")
+    var first = List[UInt8]()
+    for i in range(stored):
+        var payload = _rpayload(d, kids[i * per])
+        if len(payload) < 16:
+            raise Error("abc_read: sample without a key")
+        var values = List[UInt8]()
+        for k in range(16, len(payload)):
+            values.append(payload[k])
+        if i == 0:
+            first = values.copy()
+        out.append(values^)
+    if p.constant:
+        for _ in range(stored, p.n):
+            out.append(first.copy())
+    return out^
+
+
+def _rf32(b: List[UInt8], at: Int) raises -> Float32:
+    var u = UInt32(_ru(b, at, 4))
+    return Pointer(to=u).unsafe_bitcast[Float32]()[]
+
+
+def _ru32s(b: List[UInt8]) raises -> List[Int]:
+    var v = List[Int]()
+    for i in range(len(b) // 4):
+        v.append(Int(_ru(b, 4 * i, 4)))
+    return v^
+
+
+def _rpoints(b: List[UInt8]) raises -> List[Float32]:
+    var v = List[Float32]()
+    for i in range(len(b) // 4):
+        v.append(_rf32(b, 4 * i))
+    return v^
+
+
+def abc_read(d: List[UInt8]) raises -> List[AbcObject]:
+    """The objects of an archive `AbcArchive.bytes` wrote, frame by frame. It
+    walks the Ogawa container and the Alembic layout the writer emits; it does
+    not read foreign archives written by other tools (a different layout of
+    the same container raises, or reads a shape the checks below reject)."""
+    if len(d) < 16:
+        raise Error("abc_read: not an Ogawa file (too short)")
+    var magic_at = 0
+    if _rstr(d, magic_at, 5) != "Ogawa" or d[5] != 0xFF:
+        raise Error("abc_read: not an Ogawa file (header)")
+    var archive = _rchildren(d, _ru(d, 8, 8))
+    if len(archive) != 6:
+        raise Error("abc_read: archive group has the wrong shape")
+    var root_obj = _rchildren(d, archive[2])
+    if len(root_obj) < 2:
+        raise Error("abc_read: root object group has the wrong shape")
+    var nobj = len(root_obj) - 2
+    var hdr = _rpayload(d, root_obj[len(root_obj) - 1])
+    var out = List[AbcObject]()
+    var at = 0
+    for i in range(nobj):
+        var nl = Int(_ru(hdr, at, 4))
+        at += 4
+        var name = _rstr(hdr, at, nl)
+        at += 1  # metadata index
+        var ml = Int(_ru(hdr, at, 4))
+        at += 4
+        var meta = _rstr(hdr, at, ml)
+        var kind = -1
+        if "AbcGeom_PolyMesh_v1" in meta:
+            kind = ABC_MESH
+        elif "AbcGeom_Points_v1" in meta:
+            kind = ABC_POINTS
+        elif "AbcGeom_Curve_v2" in meta:
+            kind = ABC_CURVES
+        if kind < 0:
+            raise Error("abc_read: object " + name + " is not a mesh, points or curves")
+        out.append(AbcObject(name, kind))
+        var obj = _rchildren(d, root_obj[1 + i])
+        var top = _rchildren(d, obj[0])
+        var geom = _rchildren(d, top[0])
+        var ghdr = _rpayload(d, geom[len(geom) - 1])
+        var nprop = len(geom) - 1
+        var names = List[String]()
+        var samples = List[List[List[UInt8]]]()
+        var gat = 0
+        for j in range(nprop):
+            var p = _rprop(ghdr, gat)
+            names.append(p.name)
+            samples.append(_rsamples(d, geom[j], p))
+        # the .geom compound's own header is the last group's neighbour; the
+        # property order and count per kind is the writer's
+        var expect: List[String]
+        if kind == ABC_MESH:
+            expect = ["P", ".faceIndices", ".faceCounts", ".selfBnds"]
+        elif kind == ABC_POINTS:
+            expect = ["P", ".pointIds", ".selfBnds"]
+        else:
+            expect = ["P", "nVertices", "curveBasisAndType", ".selfBnds"]
+        if len(names) != len(expect):
+            raise Error("abc_read: object " + name + " has the wrong properties")
+        for j in range(len(expect)):
+            if names[j] != expect[j]:
+                raise Error("abc_read: object " + name + " has property " + names[j] + ", expected " + expect[j])
+        var frames = len(samples[0])
+        for j in range(len(expect)):
+            if len(samples[j]) != frames:
+                raise Error("abc_read: object " + name + " has properties with different frame counts")
+        for f in range(frames):
+            out[i].pos.append(_rpoints(samples[0][f]))
+            if kind == ABC_MESH:
+                var counts = _ru32s(samples[2][f])
+                var idx = _ru32s(samples[1][f])
+                # the writer stored each face clockwise; reverse each face back
+                var ccw = List[Int](capacity=len(idx))
+                var at2 = 0
+                for c in counts:
+                    for k in range(c):
+                        ccw.append(idx[at2 + c - 1 - k])
+                    at2 += c
+                out[i].counts.append(counts^)
+                out[i].indices.append(ccw^)
+            elif kind == ABC_POINTS:
+                var ids = List[Int]()
+                ref fb = samples[1][f]
+                for q in range(len(fb) // 8):
+                    ids.append(Int(_ru(fb, 8 * q, 8)))
+                out[i].indices.append(ids^)
+            else:
+                out[i].counts.append(_ru32s(samples[1][f]))
+    return out^

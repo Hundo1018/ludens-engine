@@ -8,6 +8,8 @@ performance-competitive. Timings are wall-clock ns via `perf_counter_ns`
 with `keep()` guarding against dead-code elimination; absolute numbers are
 machine-specific, so read the *relative* columns.
 
+@host
+
 ## Engine implementations — movement workload
 
 Note the two archetype rows: `archetype (handle)` is the ergonomic
@@ -2411,6 +2413,13 @@ scans the modifier list for overrides on every read, which is why it gains
 less than the dirty cache.
 
 @bench benchmarks/bench_rules.mojo
+
+Object baseline for the buff and damage-over-time subset (17.70 (b)).
+`oop/rules_oop.mojo` owns its effects per object; `gameplay/rules.mojo` keeps
+them in the actor. Same workload, same tick count, parity in
+`test_rules_oop`. Rows: cost per actor-tick, timing the tick loop only.
+
+@bench benchmarks/bench_rules_oop.mojo
 ## Gameplay — flow, objectives, inventory (17.72)
 
 `gameplay/flow.mojo` (state stack deciding what ticks; typed world flags

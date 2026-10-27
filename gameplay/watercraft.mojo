@@ -13,7 +13,7 @@ longer than a wave's slope scale sees the surface tilt; buoyancy stays vertical.
 Linear and angular damping act in proportion to the submerged fraction.
 """
 
-from std.math import sqrt
+from std.math import sqrt, sin, cos
 from geometry.vec import Real, Vec3
 from geometry.polytope import Polytope, polytope_split, convex_hull
 from physics.body_set import BodyId
@@ -21,6 +21,7 @@ from physics.rigid6 import QuatBody6
 from physics.solver6 import ContactScene6
 from physics.water import WaterSurface
 from .force_element import ForceElement
+from .aircraft import Wing
 
 
 struct HullBuoyancy[W: WaterSurface & Copyable & Deinitable](ForceElement, Movable):
@@ -98,3 +99,46 @@ struct HullBuoyancy[W: WaterSurface & Copyable & Deinitable](ForceElement, Movab
         sc.add_force(id, v * (-self.lin_drag * sub[0]))
         sc.add_torque(id, om * (-self.ang_drag * sub[0] * frac))
         return f
+
+
+struct Rudder[W: WaterSurface & Copyable & Deinitable](ForceElement, Movable):
+    """A vertical blade in the water (ROADMAP 17.74): a `Wing` at water
+    density whose chord and lift reference turn with `deflection`.
+
+    Rest frame: chord along the boat's forward axis (+x), lift reference along
+    its lateral axis (+z). The deflection rotates both in the x-z plane:
+    chord = (cos d, 0, -sin d), normal = (sin d, 0, cos d). At zero deflection
+    the flow is along the chord, so the lift is zero. The blade produces no
+    force while its centre is above the water surface, and the current is
+    taken from `water.velocity`.
+    """
+
+    var water: Self.W
+    var local_pos: Vec3
+    var area: Real
+    var rho: Real
+    var deflection: Real  # radians, positive turns the trailing edge toward +z
+
+    def __init__(out self, local_pos: Vec3, area: Real, var water: Self.W, rho: Real = 1000) raises:
+        if area <= 0:
+            raise Error("Rudder: area must be positive")
+        self.water = water^
+        self.local_pos = local_pos
+        self.area = area
+        self.rho = rho
+        self.deflection = 0
+
+    def set_deflection(mut self, angle: Real):
+        self.deflection = angle
+
+    def apply(mut self, mut sc: ContactScene6[QuatBody6], id: BodyId, t: Real) raises -> Vec3:
+        var pose = sc.pose(id)
+        var p = pose.pos + pose.rot.rotate(self.local_pos)
+        if p[1] >= self.water.height(p[0], p[2], t):
+            return Vec3(0, 0, 0, 0)
+        var c = cos(self.deflection)
+        var s = sin(self.deflection)
+        var chord = Vec3(c, 0, -s, 0)
+        var normal = Vec3(s, 0, c, 0)
+        var wing = Wing(self.local_pos, chord, normal, self.area, self.rho, self.water.velocity(p[0], p[2], t), 1, 0.26, 0.1, 0.02, 0.05, List[Real](), List[Real](), 0)
+        return wing.apply(sc, id, t)

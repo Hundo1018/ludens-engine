@@ -13,13 +13,20 @@ second order relaxed at rate 1).
   2. the second-order moments are the second-order cumulants: shear
      (xy, xz, yz and xx - yy, xx - zz) relax at `omega` = 1 / (3 nu + 1/2),
      the trace at `omega_b` toward 3 rho cs^2 = rho;
-  3. every higher cumulant is set to zero, the Gaussian closure: the
-     central moments of odd order vanish and the even ones follow from the
-     post-collision second moments S = m / rho by Wick's rule, e.g.
+  3. the third-order cumulants (the seven central moments m_abc with
+     a + b + c = 3 and a, b, c <= 2) relax at `omega3` toward zero:
+     m' = (1 - omega3) m. `omega3` = 1 (the default) is full relaxation,
+     which is what the Gaussian closure gives. Every higher cumulant is set
+     to zero: the even ones follow from the post-collision second moments
+     S = m / rho by Wick's rule, e.g.
      m220 = rho (Sxx Syy + 2 Sxy^2),
      m211 = rho (Sxx Syz + 2 Sxy Sxz),
      m222 = rho (Sxx Syy Szz + 2 Sxx Syz^2 + 2 Syy Sxz^2 + 2 Szz Sxy^2
-                 + 8 Sxy Syz Sxz);
+                 + 8 Sxy Syz Sxz).
+     The three cumulants with an exponent 3 (m300, m030, m003) are not
+     slots of this basis: along one axis the third raw moment equals the
+     first (c^3 = c), so they are functions of the second-order slots and
+     the density, and are set by the closure.
   4. the three transforms run backwards, then the populations stream.
 
 Galilean invariance: the lattice has no third central moment (c^3 = c
@@ -107,6 +114,11 @@ struct Lbm27(Movable):
     var omega_b: Real
     var smagorinsky: Real  # Smagorinsky constant for the shear rate (0 = off; 0.1-0.2 is usual)
     var galilean: Real  # strength of the Galilean correction of the diagonal relaxation (0 = off)
+    var omega3: Real  # relaxation rate of the third-order cumulants (1 = Gaussian closure)
+    var wall_z: Bool  # half-way bounce-back walls on the z = -1/2 and z = n - 1/2 planes (BGK path)
+    var fx: Real  # uniform body force (Guo forcing, `collide_bgk` only)
+    var fy: Real
+    var fz: Real
     var f: List[Real]  # [dir][cell]
     var g: List[Real]
 
@@ -117,7 +129,12 @@ struct Lbm27(Movable):
         self.omega = 1 / (3 * nu + Real(0.5))
         self.omega_b = 1
         self.galilean = 1
+        self.omega3 = 1
         self.smagorinsky = 0
+        self.wall_z = False
+        self.fx = 0
+        self.fy = 0
+        self.fz = 0
         var m = n * n * n
         self.f = List[Real](length=Q27 * m, fill=0)
         self.g = List[Real](length=Q27 * m, fill=0)
@@ -196,6 +213,11 @@ struct Lbm27(Movable):
             ux /= rho
             uy /= rho
             uz /= rho
+            # first-order shift: the cumulant path sets the post-collision
+            # momentum to rho * (u + F / rho) outright
+            ux += self.fx / rho
+            uy += self.fy / rho
+            uz += self.fz / rho
             _fwd(a, 1, ux)
             _fwd(a, 3, uy)
             _fwd(a, 9, uz)
@@ -248,8 +270,26 @@ struct Lbm27(Movable):
             var sxy = mxy / rho
             var sxz = mxz / rho
             var syz = myz / rho
+            # third-order cumulants relax at omega3 toward zero; omega3 = 1 writes
+            # the literal zero, so the default path is the Gaussian closure bit for bit
+            var keep = 1 - self.omega3
+            var o5 = a[5]
+            var o7 = a[7]
+            var o11 = a[11]
+            var o13 = a[13]
+            var o15 = a[15]
+            var o19 = a[19]
+            var o21 = a[21]
             for i in range(27):
                 a[i] = 0
+            if keep != 0:
+                a[5] = keep * o5
+                a[7] = keep * o7
+                a[11] = keep * o11
+                a[13] = keep * o13
+                a[15] = keep * o15
+                a[19] = keep * o19
+                a[21] = keep * o21
             a[0] = rho
             a[2] = mxx
             a[6] = myy
@@ -270,8 +310,22 @@ struct Lbm27(Movable):
             for i in range(Q27):
                 self.f[i * m + c] = a[i]
 
+    def set_walls_z(mut self, on: Bool):
+        """Half-way bounce-back on the two z planes (x and y stay periodic).
+        Applies to both `step` and `step_bgk`: the wall lives in the shared `stream`."""
+        self.wall_z = on
+
+    def set_force(mut self, fx: Real, fy: Real, fz: Real):
+        """Uniform body force per unit volume. `step_bgk` uses the Guo et al. (2002)
+        scheme; the cumulant `step` shifts the moment velocity by F / rho (first
+        order; see the 17.60 note for the measured accuracy)."""
+        self.fx = fx
+        self.fy = fy
+        self.fz = fz
+
     def collide_bgk(mut self):
         var m = self.cells()
+        var forced = self.fx != 0 or self.fy != 0 or self.fz != 0
         for c in range(m):
             var rho = Real(0)
             var ux = Real(0)
@@ -288,6 +342,11 @@ struct Lbm27(Movable):
             ux /= rho
             uy /= rho
             uz /= rho
+            if forced:
+                # Guo: the velocity that enters the equilibrium is shifted by F / (2 rho)
+                ux += self.fx / (2 * rho)
+                uy += self.fy / (2 * rho)
+                uz += self.fz / (2 * rho)
             var usq = ux * ux + uy * uy + uz * uz
             var omega = self.omega
             if self.smagorinsky > 0:
@@ -313,6 +372,12 @@ struct Lbm27(Movable):
                 var cu = Real(_cx(i)) * ux + Real(_cy(i)) * uy + Real(_cz(i)) * uz
                 var feq = _w(i) * rho * (1 + 3 * cu + Real(4.5) * cu * cu - Real(1.5) * usq)
                 self.f[i * m + c] += omega * (feq - self.f[i * m + c])
+                if forced:
+                    # Guo source: w (1 - omega / 2) [3 (c - u) . F + 9 (c . u) (c . F)]
+                    var cf = Real(_cx(i)) * self.fx + Real(_cy(i)) * self.fy + Real(_cz(i)) * self.fz
+                    var uf = ux * self.fx + uy * self.fy + uz * self.fz
+                    var src = _w(i) * (1 - omega / 2) * (3 * (cf - uf) + 9 * cu * cf)
+                    self.f[i * m + c] += src
 
     def stream(mut self):
         var n = self.n
@@ -322,12 +387,19 @@ struct Lbm27(Movable):
             var dy = _cy(i)
             var dz = _cz(i)
             for z in range(n):
-                var zs = (z - dz + n) % n
+                var zr = z - dz
+                var bounce = self.wall_z and (zr < 0 or zr >= n)
+                var zs = (zr + n) % n
                 for y in range(n):
                     var ys = (y - dy + n) % n
                     for x in range(n):
                         var xs = (x - dx + n) % n
-                        self.g[i * m + (z * n + y) * n + x] = self.f[i * m + (zs * n + ys) * n + xs]
+                        var dst = i * m + (z * n + y) * n + x
+                        if bounce:
+                            # the population leaving the wall returns reversed, from the same node
+                            self.g[dst] = self.f[(Q27 - 1 - i) * m + (z * n + y) * n + x]
+                        else:
+                            self.g[dst] = self.f[i * m + (zs * n + ys) * n + xs]
         var t = self.f^
         self.f = self.g^
         self.g = t^

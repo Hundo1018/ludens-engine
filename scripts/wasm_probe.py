@@ -11,6 +11,12 @@ and lists every reachable symbol that is only DECLARED (an import a wasm
 module would need), ignoring `llvm.*` intrinsics. Zero imports = a candidate
 leaf kernel. (The emitted module's `main` pulls in runtime start-up symbols;
 they are not reachable from the kernel and are not counted.)
+
+It also checks the core/shell split (ROADMAP 17.76): the import closure of
+each kernel, followed through engine source under `<pkg>/<mod>.mojo`, must not
+reach a shell package (`embed`, `harness`, `oop`, `benchmarks`, `examples`,
+`experiments`). A wasm core may not depend on the C-ABI shell or on the test
+harness; a violation names the module and the shell import it adds.
 """
 
 import argparse
@@ -81,6 +87,27 @@ def exported(src: str) -> list[str]:
     return names
 
 
+SHELL = frozenset({"embed", "harness", "oop", "benchmarks", "examples", "experiments"})
+IMPORT = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.M)
+
+
+def shell_reach(src_root: Path, kernel: Path) -> list[str]:
+    """Violations: 'module -> shell.import' for each shell import in the closure of kernel."""
+    seen, todo, out = set(), [kernel], []
+    while todo:
+        f = todo.pop()
+        if f in seen or not f.exists():
+            continue
+        seen.add(f)
+        for m in IMPORT.finditer(f.read_text(encoding="utf-8")):
+            mod = (m.group(1) or m.group(2)).split(".")
+            if mod[0] in SHELL:
+                out.append(f"{f.relative_to(src_root)} -> {'.'.join(mod)}")
+            elif mod[0] != "std" and len(mod) > 1:
+                todo.append(src_root / mod[0] / ("/".join(mod[1:]) + ".mojo"))
+    return sorted(out)
+
+
 def run(files: list[Path]) -> int:
     worst = 0
     for f in files:
@@ -100,6 +127,11 @@ def run(files: list[Path]) -> int:
             if name not in parse(ir)[0]:
                 print(f"wasm-probe:   (exported function not found in IR)")
                 worst = 1
+        bad = shell_reach(ROOT, f)
+        print(f"wasm-probe: {f.relative_to(ROOT)} core/shell split: "
+              f"{'OK' if not bad else 'VIOLATION ' + '; '.join(bad)}")
+        if bad:
+            worst = 1
     return worst
 
 
@@ -129,6 +161,21 @@ define float @k2(float %a) {
         ("direct external call counted", imports(ir, "k2") == ["ext_io"], imports(ir, "k2")),
         ("@export names found", exported("@export\ndef a(x: Int) abi(\"C\") -> Int:\n    return x\n") == ["a"], None),
     ]
+    with tempfile.TemporaryDirectory(prefix="wasm_split_") as d:
+        r = Path(d)
+        (r / "core").mkdir()
+        (r / "embed").mkdir()
+        (r / "core/a.mojo").write_text("from core.b import f\n")
+        (r / "core/b.mojo").write_text("from std.math import sqrt\nfrom embed.capi import x\n")
+        (r / "core/c.mojo").write_text("from std.math import sqrt\n")
+        (r / "embed/capi.mojo").write_text("")
+        (r / "k_bad.mojo").write_text("from core.a import f\n")
+        (r / "k_ok.mojo").write_text("from core.c import g\n")
+        bad = shell_reach(r, r / "k_bad.mojo")
+        checks.append(("shell import reached through two engine modules is reported",
+                       bad == ["core/b.mojo -> embed.capi"], bad))
+        ok_case = shell_reach(r, r / "k_ok.mojo")
+        checks.append(("a core kernel with no shell import reports no violation", ok_case == [], ok_case))
     for name, ok, detail in checks:
         print(f"  [{'PASS' if ok else 'FAIL'}] wasm-probe selftest - {name} {detail if detail is not None else ''}")
     n = sum(1 for _, ok, _ in checks if ok)

@@ -93,6 +93,45 @@ def ratio(q: List[Real]) -> Real:
     return q[2] / q[0]
 
 
+def _coupled_kkt(cs: ConstraintSet, q: List[Real]) raises -> List[Real]:
+    """Worst-case KKT residuals of the six coupled elliptic contacts, in the
+    order the Newton section checks them (penetration, negative normal,
+    complementarity, cone excess, stuck speed, slide against friction)."""
+    var pen = Real(0)
+    var neg = Real(0)
+    var comp = Real(0)
+    var excess = Real(0)
+    var stick = Real(0)
+    var against = Real(0)
+    for k in range(6):
+        var nr = (k * 3) % 18
+        var t1 = nr + 1
+        var t2 = nr + 2
+        var vn = _dot(cs, nr, q)
+        var v1 = _dot(cs, t1, q)
+        var v2 = _dot(cs, t2, q)
+        var fnor = cs.force[nr]
+        var f1 = cs.force[t1]
+        var f2 = cs.force[t2]
+        var ft = sqrt(f1 * f1 + f2 * f2)
+        pen = max(pen, -vn)
+        neg = max(neg, -fnor)
+        comp = max(comp, abs(fnor * vn))
+        excess = max(excess, ft - MU * fnor)
+        if ft < MU * fnor - 1e-6:
+            stick = max(stick, sqrt(v1 * v1 + v2 * v2))
+        elif ft > 1e-9:
+            against = max(against, (f1 * v1 + f2 * v2) / ft)
+    var out = List[Real]()
+    out.append(pen)
+    out.append(neg)
+    out.append(comp)
+    out.append(excess)
+    out.append(stick)
+    out.append(against)
+    return out^
+
+
 def main() raises:
     var s = Suite("constraints_newton")
 
@@ -222,6 +261,34 @@ def main() raises:
     s.check(pen < 1e-5 and neg < 1e-6 and comp < 1e-5, "coupled Newton: no penetration, non-negative normal impulse, complementarity")
     s.check(excess < 1e-6 and stick < 1e-5, "coupled Newton: inside the cone, stuck pairs have zero tangential speed")
     s.check(against < 1e-6, "coupled Newton: sliding friction opposes the tangential velocity")
+
+    # F2: PGS on the same coupled system. It stalls ~4e-3 away in force from
+    # the Newton point (measured: PGS 1024 iterations, 4.5e-3 max force gap,
+    # 4.8e-3 max velocity gap). Both points satisfy the KKT conditions to the
+    # same tolerance, so the coupled elliptic problem has more than one
+    # solution; PGS is not wrong. This pins the gap so a change shows as a
+    # diff; it is not a PGS fix (13.5 leaves the PGS solver as it is).
+    var cpg = ConstraintSet(nc)
+    cpg.cone = CONE_ELLIPTIC
+    for k in range(6):
+        var base = (k * 3) % nc
+        var nr = cpg.add_contact(unit(nc, base), 0)
+        _ = cpg.add_tangents(unit(nc, base + 1), unit(nc, base + 2), nr, MU)
+    var qpg = List[Real](length=nc, fill=0)
+    for i in range(nc):
+        qpg[i] = -1.0 + Real(i) * 0.13
+    cpg.solve(banded(nc), qpg, 1024)
+    var kpg = _coupled_kkt(cpg, qpg)
+    var fgap = Real(0)
+    for i in range(len(cc.force)):
+        fgap = max(fgap, abs(cc.force[i] - cpg.force[i]))
+    var vgap = Real(0)
+    for i in range(nc):
+        vgap = max(vgap, abs(qc[i] - qpg[i]))
+    print("  coupled PGS vs Newton: force gap", fgap, "velocity gap", vgap, "PGS KKT penetration", kpg[0], "complementarity", kpg[2], "cone excess", kpg[3])
+    s.check(kpg[0] < 1e-5 and kpg[1] < 1e-6 and kpg[2] < 1e-5, "coupled PGS point: penetration, normal sign and complementarity within tolerance")
+    s.check(kpg[3] < 1e-6 and kpg[4] < 1e-5 and kpg[5] < 1e-6, "coupled PGS point: inside the cone, stuck and sliding signs within tolerance")
+    s.check(fgap < 1e-2, "coupled elliptic: PGS and Newton differ by less than 1e-2 in force (both are KKT solutions)")
 
     # G: the same coupled system with the inner solve by BiCGStab (13.5 CG
     # column). Same active-set path, so the forces must agree with the dense LU
