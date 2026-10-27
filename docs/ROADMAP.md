@@ -207,6 +207,15 @@
 42. 17.73 營運邊界
 
 **第 7 層 GPU(延後)**
+> **分流(2026-10-27,第 7 層與 UI 收束)**:本節為 GPU 與 UI 延後項目的單一位置。狀態與延後理由:
+> - **GPU(第 7 層,延後)**:無加速器的主機無法執行裝置半段;裝置程式碼只以 `pixi run gpu-compile`(`--target-accelerator sm_86`)檢查可編譯。
+>   延後理由:需要 NVIDIA 裝置實跑;`has_accelerator` 在本環境為假,相關測試與 bench 自動跳過。條目 43–46 與 17.62 為此類。
+> - **AMD / Apple GPU 路徑**:需要 AMD / Apple 加速器(triage 列 GPU)。
+> - **GPU 拒絕 `max_mass_ratio`、GPU anchor / substep**:`physics/gpu_contact.mojo:351-352` 明確拒絕,屬第 7 層。
+> - **UI-editor 項目**:圖形化編輯器本體不在本 repo(見「邊界與排除」);triage 中無此類未做子句。
+> - **env-blocked**(非 GPU,但同為本階段不計):linux-aarch64 / osx-arm64 實測、wasm64、Godot / Unity 實機、固定主機基準線與牆鐘閘門、NanoVDB 參考檔。
+>
+> 結論:GPU / UI / env-blocked 不計入階段目標;階段目標只看 doable 列(見 `docs/design/stage-triage-2026-10-27.md`)。
 43. 17.17 收尾:在 GPU 主機實跑 `test_gpu_artic` 裝置半段與 bench 裝置列並記入進度註(`test_gpu_narrow` 已跑過,
     `94493c2`);「GPU 剛體 + CPU 軟體同幀」
 44. 第 0–6 層延後的 GPU 子項:17.50 GPU 摩擦模型對齊、17.53 GPU 批次查詢對真實形狀、17.56 網格版 GPU 求解與
