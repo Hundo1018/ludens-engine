@@ -12,7 +12,7 @@ Pixi task (test): bash scripts/run_tests.sh unit component integration system
 --- tests/test_abc_file.mojo ---
   cloth: bytes per extra frame 420 (positions 300 B)
   empty archive 276 bytes
-[PASS] abc_file - 10 / 10 checks
+[PASS] abc_file - 14 / 14 checks
 --- tests/test_ai_smart.mojo ---
 [PASS] ai_smart - 17 / 17 checks
 --- tests/test_ai_steering.mojo ---
