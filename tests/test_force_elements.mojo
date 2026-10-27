@@ -26,7 +26,7 @@ from physics.solver6 import ContactScene6
 from physics.fields import box_submerged_exact
 from physics.water import FlatWater, GerstnerWater, WaterSurface
 from gameplay.force_element import Thruster
-from gameplay.watercraft import HullBuoyancy
+from gameplay.watercraft import HullBuoyancy, Rudder
 from gameplay.aircraft import Wing
 
 comptime G = Vec3(0, -9.8, 0, 0)
@@ -185,4 +185,47 @@ def main() raises:
     except:
         raised = True
     s.check(raised, "a flat hull raises")
+
+    # ---- rudder ----------------------------------------------------------------------------------------
+    # Boat moving +x at u = 3 m/s, blade 0.3 m^2 at (0, -1, 0), water surface at y = 0 (submerged).
+    # Predictions (written before the run): (P1) delta = 0 gives no lateral force; (P2) at
+    # delta = +-10 deg the lateral force magnitude is q A 2 pi |delta| to 1e-4 relative (the
+    # flow stays in the x-z plane at alpha = -delta, so lift is exactly along z and the linear
+    # branch holds); (P3) the lateral force is odd in delta to 1e-6; (P4) a blade above the
+    # water gets no force; (P5) a boat at rest gets no lateral force at any deflection.
+    # The sign of the lateral force is measured, not predicted: it is whatever the Wing lift
+    # convention gives for this geometry.
+    var rs = ContactScene6[QuatBody6]()
+    var rb = QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(100, 1, 1, 1))
+    rb.vel = Vec3(3, 0, 0, 0)
+    var rid = rs.add(rb^, Vec3(1, 1, 1, 0), False)
+    var rq = Real(0.5) * 1000 * 9 * 0.3
+    var rud = Rudder(Vec3(0, 0, 0, 0), 0.3, FlatWater(0))
+    var f0 = rud.apply(rs, rid, 0)[2]
+    rud.set_deflection(Real(10.0 / 180.0) * Real(pi))
+    var fp = rud.apply(rs, rid, 0)
+    rud.set_deflection(-Real(10.0 / 180.0) * Real(pi))
+    var fm = rud.apply(rs, rid, 0)
+    var lat_want = rq * 2 * Real(pi) * Real(10.0 / 180.0) * Real(pi)
+    print("  rudder 0.3 m^2 at 3 m/s: lateral 0 deg", f0, " +10 deg", fp[2], " -10 deg", fm[2], " want |F_z| q A 2 pi d", lat_want)
+    s.check(abs(f0) < 1e-6 * rq, "P1: zero deflection gives no lateral force")
+    s.check(abs(abs(fp[2]) / lat_want - 1) < 1e-4, "P2: +10 deg lateral force = q A 2 pi d")
+    s.check(abs(abs(fm[2]) / lat_want - 1) < 1e-4, "P2: -10 deg lateral force = q A 2 pi d")
+    s.check(abs(fp[2] + fm[2]) < 1e-6 * rq, "P3: lateral force is odd in the deflection")
+
+    var rab = QuatBody6.at_rest(Vec3(0, 5, 0, 0), Inertia3.box(100, 1, 1, 1))
+    rab.vel = Vec3(3, 0, 0, 0)
+    var ras = ContactScene6[QuatBody6]()
+    var raid = ras.add(rab^, Vec3(1, 1, 1, 0), False)
+    var above = Rudder(Vec3(0, 0, 0, 0), 0.3, FlatWater(0))
+    above.set_deflection(Real(10.0 / 180.0) * Real(pi))
+    var fa = above.apply(ras, raid, 0)
+    s.check(fa[0] == 0 and fa[1] == 0 and fa[2] == 0, "P4: a blade above the water gets no force")
+
+    var rest = ContactScene6[QuatBody6]()
+    var restid = rest.add(QuatBody6.at_rest(Vec3(0, -1, 0, 0), Inertia3.box(100, 1, 1, 1)), Vec3(1, 1, 1, 0), False)
+    var rr = Rudder(Vec3(0, 0, 0, 0), 0.3, FlatWater(0))
+    rr.set_deflection(Real(10.0 / 180.0) * Real(pi))
+    var fr = rr.apply(rest, restid, 0)
+    s.check(abs(fr[2]) < 1e-6 * rq, "P5: a boat at rest gets no lateral force")
     s.finish()

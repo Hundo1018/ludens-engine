@@ -1239,7 +1239,8 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
   CL: 14.3 deg 1.5707964  stall 1.6329999 1.6324913  end of blend 0.6602086 0.65953505  30 deg 0.8624042
   half-throttle 100 N on 10 kg for 1 s: v 5.0
   boat with a 2 kN propeller on a 0.3 m swell, 10 s: x 32.359886  heave 0.9160427
-[PASS] force_elements - 13 / 13 checks
+  rudder 0.3 m^2 at 3 m/s: lateral 0 deg 0.0  +10 deg -1480.4408  -10 deg 1480.4408  want |F_z| q A 2 pi d 1480.4408
+[PASS] force_elements - 19 / 19 checks
 --- tests/test_fracture.mojo ---
   wall: 40 fragments 135 bonds 8 footing anchors
   shot: broke 114 bonds, thrown through 38 , left in line 0 , live bonds 29 of 143 , ball z -1.044369
