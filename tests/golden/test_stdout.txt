@@ -1649,6 +1649,15 @@ rigid in air, 0.3 s: v 0.13973519 0.18008693 -1.8569243e-09  w_z 3.7921658  max 
   rigid-link chain sag 1.0416659
   hanging crate y 2.9997272  rope load 19.6
 [PASS] rope - 12 / 12 checks
+--- tests/test_rules_ecs.mojo ---
+  reference speed at 150 / 300 / 301 (actor 0): 6000 5000 5000   health end: 0   dead: 1
+  backend sparse set  mismatched fields vs Rules: 0   of 2500
+  backend archetype  mismatched fields vs Rules: 0   of 2500
+  backend bitset  mismatched fields vs Rules: 0   of 2500
+  backend chunked  mismatched fields vs Rules: 0   of 2500
+  backend naive  mismatched fields vs Rules: 0   of 2500
+  backend reactive  mismatched fields vs Rules: 0   of 2500
+[PASS] rules_ecs - 12 / 12 checks
 --- tests/test_rules_oop.mojo ---
   speed 150 rules 6000 oop 6000   speed 301 rules 5000 oop 5000
   health end (sum over 500 actors) rules 0   mismatched fields 0
