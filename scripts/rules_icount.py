@@ -6,10 +6,10 @@ under `valgrind --tool=cachegrind --cache-sim=yes`. The difference of the two
 runs is the tick loop. Reports instructions (Ir), D1 read misses (D1mr) and
 last-level data read misses (DLmr) per actor-tick.
 
-    python3 scripts/rules_icount.py                      # N = 1000, 10000
-    python3 scripts/rules_icount.py --n 1000,2000,5000,10000,20000
-    python3 scripts/rules_icount.py --n 1000,10000 --ll 1048576   # LL forced to 1 MiB
-    python3 scripts/rules_icount.py --wall --n 1000,2000,5000,10000,20000
+    pixi run rules-icount                                # N = 1000, 10000
+    pixi run rules-icount -- --n 1000,2000,5000,10000,20000
+    pixi run rules-icount -- --n 1000,10000 --ll 1048576  # LL forced to 1 MiB
+    pixi run rules-icount -- --wall --n 1000,2000,5000,10000,20000
 
 Needs `pixi run build` first (the probe imports the precompiled packages).
 """
@@ -25,7 +25,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROBE = "benchmarks/probes/rules_oop_probe.mojo"
 TICKS = 400
-VARIANTS = {0: "rules (value struct)", 1: "oop (object)"}
+VARIANTS = {0: "rules (value struct)", 1: "oop (object)", 2: "ecs (archetype backend)"}
 FIELDS = {"Ir": r"I\s+refs:\s+([\d,]+)", "D1mr": r"D1\s+misses:\s+([\d,]+)", "DLmr": r"LLd\s+misses:\s+([\d,]+)"}
 
 

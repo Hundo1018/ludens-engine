@@ -62,6 +62,8 @@ changelog = "python3 scripts/changelog.py"
 repro-probe = "python3 scripts/repro_probe.py"
 # Instruction count of a fixed workload under cachegrind (scripts/icount.py; ROADMAP 17.83).
 icount = "python3 scripts/icount.py"
+# Cachegrind cost of the rules-vs-OOP tick loop (17.70 (b); scripts/rules_icount.py).
+rules-icount = "python3 scripts/rules_icount.py"
 # Which CPU target / optimisation factors change simulation bits (scripts/fp_probe.py; ROADMAP 17.76).
 fp-probe = "python3 scripts/fp_probe.py"
 alloc-probe = "python3 scripts/alloc_probe.py"

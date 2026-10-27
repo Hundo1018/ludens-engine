@@ -2,7 +2,8 @@
 
 Same buff + DoT subset as `benchmarks/bench_rules_oop.mojo`. Compile-time knobs:
 `-D VARIANT=0` runs `gameplay/rules.mojo` (value struct per actor),
-`-D VARIANT=1` runs `oop/rules_oop.mojo` (object per actor); `-D N=` population,
+`-D VARIANT=1` runs `oop/rules_oop.mojo` (object per actor), `-D VARIANT=2` runs
+`gameplay/rules_ecs.mojo` on the archetype backend (components, seam access); `-D N=` population,
 `-D TICKS=` tick count (0 gives setup only, so the difference of two runs is the
 tick loop). `scripts/rules_icount.py` drives this under cachegrind.
 
@@ -25,15 +26,30 @@ Predictions, written before the run:
       against about 0.6 MB for OOP, so rules spills the 1 MiB level and OOP
       does not.
 
+  P5. Instructions per actor-tick for VARIANT=2 are at least 1.5x those of
+      VARIANT=0. Each tick builds two query lists and does a `get` and a `set`
+      per entity through the `World` seam; `rules` does neither.
+  P6. With the last-level cache forced to 1 MiB, VARIANT=2's LL read misses per
+      actor-tick at N = 10000 are below 1.0 (rules 2.08, OOP 1.50). A
+      component layout stores about 100 bytes per actor against about 300 for
+      `Actor`, so its working set should fit the 1 MiB level at N = 10000.
+
 Measured (2026-10-27, default LL = host L3 33 MiB): Ir per actor-tick rules 87 vs OOP 114
 (P1 holds, ratio 0.76); D1mr 2.3 vs 1.7 flat in N (P2 fails: ratio 1.36, not 2x; P3 holds);
-DLmr about 0 at both N, so the default LL does not see the spill. P4 is run next.
+DLmr about 0 at both N, so the default LL does not see the spill. P4 (LL = 1 MiB): rules DLmr 0.02 / 2.08 at
+N = 1000 / 10000 (first clause holds), OOP 0.00 / 1.50 (second clause fails: ratio 1.39, not 2x).
+VARIANT=2 (ecs, archetype): Ir 509.6 / 545.5 (P5 holds: about 6x rules); DLmr at LL = 1 MiB 0.00 /
+3.46 (P6 fails: predicted below 1.0). See the design note for the wall-clock sweep.
 """
 
 from std.sys import get_defined_int
 from std.benchmark import keep
 from gameplay.rules import FX, OP_ADD, OP_MUL, KIND_DURATION, KIND_PERIODIC, STACK_REFRESH, Actor, Rules, EffectDef
 from oop.rules_oop import OopCharacter
+from gameplay.rules_ecs import Life, Stat, Buff, Dot, spawn_actor, tick_once, speed
+from ecs.world import World
+from ecs.archetype import ArchetypeBackend
+from ecs.entity import Entity
 
 comptime HEALTH = 0
 comptime SPEED = 1
@@ -76,13 +92,28 @@ def run_oop(n: Int, ticks: Int) -> Int:
     return acc
 
 
+def run_ecs(n: Int, ticks: Int) raises -> Int:
+    var w = World[ArchetypeBackend[Life, Stat, Buff, Dot]]()
+    var ents = List[Entity]()
+    for _ in range(n):
+        ents.append(spawn_actor(w, 5 * FX, 100 * FX, 200, 300, 10 * FX, 30, 300))
+    for t in range(1, ticks + 1):
+        tick_once(w, t)
+    var acc = 0
+    for k in range(n):
+        acc += speed(w, ents[k])
+    return acc
+
+
 def main() raises:
     comptime variant = get_defined_int["VARIANT", 0]()
     comptime n = get_defined_int["N", 1000]()
     comptime ticks = get_defined_int["TICKS", 400]()
-    var acc = 0
+    var acc: Int
     if variant == 0:
         acc = run_rules(n, ticks)
-    else:
+    elif variant == 1:
         acc = run_oop(n, ticks)
+    else:
+        acc = run_ecs(n, ticks)
     keep(acc)

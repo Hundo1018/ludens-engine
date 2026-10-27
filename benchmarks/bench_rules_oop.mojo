@@ -1,7 +1,8 @@
-"""Rules timing comparison (ROADMAP 17.70 (b)): value-struct `gameplay/rules.mojo`
-against the object baseline `oop/rules_oop.mojo`, on the subset both
-implement (a +20 % speed buff and a 10-per-30-tick damage effect, 300 ticks,
-400 ticks in all). Parity of the two is in `tests/test_rules_oop.mojo`; this
+"""Rules timing comparison (ROADMAP 17.70 (a), (b)): value-struct `gameplay/rules.mojo`,
+the object baseline `oop/rules_oop.mojo`, and the componentised variant
+`gameplay/rules_ecs.mojo` on the archetype backend. All three implement the
+same subset (a +20 % speed buff and a 10-per-30-tick damage effect, 400 ticks).
+Parity is in `tests/test_rules_oop.mojo` and `tests/test_rules_ecs.mojo`; this
 file only times them.
 
 Only the tick loop is timed (setup and the effect application are outside).
@@ -12,6 +13,10 @@ Each row is one population size; the unit is one actor-tick. Run with:
 from std.benchmark import keep
 from gameplay.rules import FX, OP_ADD, OP_MUL, KIND_DURATION, KIND_PERIODIC, STACK_REFRESH, Actor, Rules, EffectDef
 from oop.rules_oop import OopCharacter
+from gameplay.rules_ecs import Life, Stat, Buff, Dot, spawn_actor, tick_once
+from ecs.world import World
+from ecs.archetype import ArchetypeBackend
+from ecs.entity import Entity
 from harness.bench import BenchTable, now
 
 comptime HEALTH = 0
@@ -62,10 +67,24 @@ def run_oop(n: Int) -> Int:
     return t1 - t0
 
 
+def run_ecs(n: Int) raises -> Int:
+    var w = World[ArchetypeBackend[Life, Stat, Buff, Dot]]()
+    var ents = List[Entity]()
+    for _ in range(n):
+        ents.append(spawn_actor(w, 5 * FX, 100 * FX, 200, 300, 10 * FX, 30, 300))
+    var t0 = now()
+    for t in range(1, TICKS + 1):
+        tick_once(w, t)
+    var t1 = now()
+    keep(len(ents))
+    return t1 - t0
+
+
 def main() raises:
-    var t = BenchTable("Rules layout: buff + DoT, 400 ticks, value struct vs object (17.70 (b))")
-    for n in [1000, 10000]:
+    var t = BenchTable("Rules layouts: buff + DoT, 400 ticks, value struct vs object vs components (17.70 (a), (b))")
+    for n in [1000, 5000, 10000, 20000]:
         var ops = n * TICKS
         t.add("rules (value struct) N=" + String(n), n, "actor-tick", run_rules(n), ops)
         t.add("oop (object) N=" + String(n), n, "actor-tick", run_oop(n), ops)
+        t.add("ecs (archetype backend) N=" + String(n), n, "actor-tick", run_ecs(n), ops)
     t.print_report()

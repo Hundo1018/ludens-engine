@@ -5086,14 +5086,22 @@ Object baseline for the buff and damage-over-time subset (17.70 (b)).
 them in the actor. Same workload, same tick count, parity in
 `test_rules_oop`. Rows: cost per actor-tick, timing the tick loop only.
 
-### Rules layout: buff + DoT, 400 ticks, value struct vs object (17.70 (b))
+### Rules layouts: buff + DoT, 400 ticks, value struct vs object vs components (17.70 (a), (b))
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| rules (value struct) N=1000 | 1000 | actor-tick | 10.03 | 99.74 | 4.01 |
-| oop (object) N=1000 | 1000 | actor-tick | 10.82 | 92.40 | 4.33 |
-| rules (value struct) N=10000 | 10000 | actor-tick | 18.25 | 54.81 | 72.98 |
-| oop (object) N=10000 | 10000 | actor-tick | 11.64 | 85.88 | 46.58 |
+| rules (value struct) N=1000 | 1000 | actor-tick | 10.33 | 96.81 | 4.13 |
+| oop (object) N=1000 | 1000 | actor-tick | 11.49 | 87.07 | 4.59 |
+| ecs (archetype backend) N=1000 | 1000 | actor-tick | 89.56 | 11.17 | 35.82 |
+| rules (value struct) N=5000 | 5000 | actor-tick | 18.79 | 53.21 | 37.59 |
+| oop (object) N=5000 | 5000 | actor-tick | 11.52 | 86.80 | 23.04 |
+| ecs (archetype backend) N=5000 | 5000 | actor-tick | 71.73 | 13.94 | 143.47 |
+| rules (value struct) N=10000 | 10000 | actor-tick | 20.71 | 48.28 | 82.85 |
+| oop (object) N=10000 | 10000 | actor-tick | 11.86 | 84.33 | 47.43 |
+| ecs (archetype backend) N=10000 | 10000 | actor-tick | 75.14 | 13.31 | 300.56 |
+| rules (value struct) N=20000 | 20000 | actor-tick | 22.84 | 43.78 | 182.75 |
+| oop (object) N=20000 | 20000 | actor-tick | 11.50 | 86.93 | 92.02 |
+| ecs (archetype backend) N=20000 | 20000 | actor-tick | 76.17 | 13.13 | 609.35 |
 
 
 ## Gameplay — flow, objectives, inventory (17.72)
