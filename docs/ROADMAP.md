@@ -1564,6 +1564,15 @@
 > | 85° | 0.052 | 0.810 | 150.049 | 4.614 | 4.546 | +0.068 |
 >
 > 60° / 85° 的其餘項與 0° 對照同量級(|其餘| ≤ 0.2 J),回切即是那兩個柱全部的耗散。30° 的其餘 7.17 J 高於對照 40 倍,來源未分離:地板摩擦(μ 0.6)與推出都在此項內,本實驗不區分。4/4 checks 通過。
+> **進度註(2026-10-27,Tampubolon 體積修正,opt-in)**:`MpmSolver.volume_correction`(預設關)依 Tampubolon 2017 式 26–27 把每粒子 vc 併入試驗應變(vc/3 加在對角),投影後 vc += log J(投影後) − log J(試驗)。關閉時 `test_mpm_sand` 7/7 不變。`experiments/exp_sand_volume_correction.mojo`(3 摩擦角 × 開/關):
+>
+> | 摩擦角 | 砂柱頂高 關 / 開 (m) | 砂柱 x 寬 關 / 開 (m) | 堆積錐角 關 / 開 (°) |
+> |---|---|---|---|
+> | 30° | 0.1551 / 0.1569 | 0.4059 / 0.4084 | 27.8 / 19.7 |
+> | 60° | 0.2679 / 0.2682 | 0.3009 / 0.3009 | 52.1 / 51.1 |
+> | 85° | 0.3694 / 0.3704 | 0.2280 / 0.2273 | 74.4 / 74.5 |
+>
+> 砂柱變化在 0.2 cm 內。堆積錐只在 30° 有大變化(−8.1°),且方向與 60° / 85° 不同,單一場景、單次運行、未做收斂或 seed 掃描。結論:此實作下體積修正沒有一致的效應;不調參,記為負 / 混合結果。
 > **分流(2026-10-27)**:doable:沙 30° 砂柱 G2P 耗散、Tampubolon 體積修正 30 / 60 / 85° 重測;deferred:黏彈、XPBD 變體、域壁 μ 與 skin;stale-done:projective dynamics、neo-Hookean、四面體網格。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:本構模型 seam 先行。`physics/fem_material.mojo`:`Material` trait(`pk1(F, mu, lam)`,編譯期選擇)與三個實作
 > `Corotational`(與 `FemBody.elastic_forces` 逐位相同)/ `StableNeoHookean`(Smith 2018 去 log 項:λ_s = λ + μ、α = 1 + μ/λ_s,P = μF + λ_s(J − α) cof F,
