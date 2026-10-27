@@ -314,6 +314,8 @@ bone turned 90 deg about y: deviation from the turned rest shape 9.514859e-06
 [PASS] tree - 5 / 5 checks
 --- tests/test_tween.mojo ---
 [PASS] tween - 359 / 359 checks
+--- tests/test_vdb_zip.mojo ---
+[PASS] vdb_zip - 7 / 7 checks
 --- tests/test_vec.mojo ---
 [PASS] vec - 13 / 13 checks
 --- tests/test_workstealing.mojo ---
