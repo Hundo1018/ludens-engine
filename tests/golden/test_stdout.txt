@@ -1231,6 +1231,12 @@ recorder: bag at 240 20  at 130 18  first divergence -1  after editing tick 100 
 --- tests/test_fluid_momentum.mojo ---
   k 0.5 default: residual 0.045297187  k 5 default: 2.2711666  k 5 fixed: 1.3554726e-06  booked 234.62749  impulse 2.1986666
 [PASS] fluid_momentum - 3 / 3 checks
+--- tests/test_fluid_solid.mojo ---
+  solid face max |u| after 120 steps 0.0
+  fluid divergence max over the run 4.7683716e-05 (bound 0.032)
+  mean u in front 0.20709181 behind -0.034194194
+  all-fluid mask vs unmasked, max |du| after 10 steps 5.9604645e-08
+[PASS] fluid_solid - 7 / 7 checks
 --- tests/test_force_elements.mojo ---
   box hull density 500 after 10 s: centre y 0.0030862144 (waterline 0, draft 0.25)
   submerged volume: polytope cut 0.6  closed form 0.6  centroid y -0.075 -0.075

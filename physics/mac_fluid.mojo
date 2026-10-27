@@ -55,6 +55,72 @@ struct _NegLaplacian(LinearOperator, Movable):
             out[k] = 4
 
 
+struct _MaskedNegLaplacian(LinearOperator, Movable):
+    """-lap on the fluid cells of a periodic n x n grid (17.61 solid mask).
+
+    A face between two fluid cells couples them. A face to a solid cell
+    carries no flux (Neumann), so it leaves the stencil. Solid cells are
+    identity rows, which keeps the operator nonsingular there. Symmetric
+    positive semidefinite; its null space is the constant on each connected
+    fluid region."""
+
+    var n: Int
+    var solid: List[Bool]
+
+    def __init__(out self, n: Int, var solid: List[Bool]):
+        self.n = n
+        self.solid = solid^
+
+    def size(self) -> Int:
+        return self.n * self.n
+
+    def apply(self, x: List[Real], mut out: List[Real]):
+        var n = self.n
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                var k = j * n + i
+                if self.solid[k]:
+                    out[k] = x[k]
+                    continue
+                var acc = Real(0)
+                if not self.solid[j * n + im]:
+                    acc += x[k] - x[j * n + im]
+                if not self.solid[j * n + ip]:
+                    acc += x[k] - x[j * n + ip]
+                if not self.solid[jm * n + i]:
+                    acc += x[k] - x[jm * n + i]
+                if not self.solid[jp * n + i]:
+                    acc += x[k] - x[jp * n + i]
+                out[k] = acc
+
+    def diagonal(self, mut out: List[Real]):
+        var n = self.n
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                var k = j * n + i
+                if self.solid[k]:
+                    out[k] = 1
+                    continue
+                var cnt = 0
+                if not self.solid[j * n + im]:
+                    cnt += 1
+                if not self.solid[j * n + ip]:
+                    cnt += 1
+                if not self.solid[jm * n + i]:
+                    cnt += 1
+                if not self.solid[jp * n + i]:
+                    cnt += 1
+                out[k] = Real(cnt)
+
+
 def warm_start_or_zero[Op: LinearOperator](op: Op, rhs: List[Real], mut x: List[Real]):
     """Zero `x` when it is a worse start than zero, ||b - A x|| > ||b||
     (ROADMAP 17.60). A projection warm-started from the last pressure
@@ -110,6 +176,7 @@ struct MacFluid2(Movable):
     var momentum_booked: Real  # sum of |momentum corrections| applied (x and y)
     var flux_advect: Bool  # set by use_flux_advection
     var flux_substeps: Int  # sub-steps taken by `_advect_flux`, summed
+    var solid: List[Bool]  # set by set_solid; empty means no solid cell
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -128,6 +195,43 @@ struct MacFluid2(Movable):
         self.momentum_booked = 0
         self.flux_advect = False
         self.flux_substeps = 0
+        self.solid = List[Bool]()
+
+    def set_solid(mut self, var mask: List[Bool]) raises:
+        """Mark cells solid (opt-in; the default empty mask leaves the solver
+        unchanged). Faces that touch a solid cell carry no normal flux: they
+        are zeroed before each projection and the pressure solve treats them
+        as walls. Every fluid cell needs a fluid neighbour, so the operator has
+        no empty row. Not available with multigrid."""
+        var n = self.n
+        if len(mask) != n * n:
+            raise Error("MacFluid2.set_solid: mask length must be n * n")
+        if self.mg:
+            raise Error("MacFluid2.set_solid: the solid mask is not supported with multigrid")
+        var fluid = 0
+        for j in range(n):
+            var jm = (j + n - 1) % n
+            var jp = (j + 1) % n
+            for i in range(n):
+                var im = (i + n - 1) % n
+                var ip = (i + 1) % n
+                if mask[j * n + i]:
+                    continue
+                fluid += 1
+                var nb = 0
+                if not mask[j * n + im]:
+                    nb += 1
+                if not mask[j * n + ip]:
+                    nb += 1
+                if not mask[jm * n + i]:
+                    nb += 1
+                if not mask[jp * n + i]:
+                    nb += 1
+                if nb == 0:
+                    raise Error("MacFluid2.set_solid: a fluid cell has no fluid neighbour")
+        if fluid == 0:
+            raise Error("MacFluid2.set_solid: the mask leaves no fluid cell")
+        self.solid = mask^
 
     def use_momentum_fix(mut self):
         """Restore the total momentum after each advection (opt-in; off by
@@ -153,7 +257,10 @@ struct MacFluid2(Movable):
         return (a, b)
 
     def use_multigrid(mut self) raises:
-        """Project with MGPCG from now on; raises unless n is a power of two."""
+        """Project with MGPCG from now on; raises unless n is a power of two.
+        Not available once a solid mask is set."""
+        if len(self.solid) > 0:
+            raise Error("MacFluid2.use_multigrid: not supported with a solid mask")
         self.mg = PeriodicPoissonMG(self.n)
 
     def _w(self, i: Int) -> Int:
@@ -235,8 +342,28 @@ struct MacFluid2(Movable):
         self.u = nu_^
         self.v = nv_^
 
+    def _zero_solid_faces(mut self):
+        """Hold the normal velocity on every face that touches a solid cell at
+        zero (the u face on a cell's left and right, the v face below and
+        above it)."""
+        var n = self.n
+        for j in range(n):
+            var jp = (j + 1) % n
+            for i in range(n):
+                var k = j * n + i
+                if not self.solid[k]:
+                    continue
+                var ip = (i + 1) % n
+                self.u[k] = 0
+                self.u[j * n + ip] = 0
+                self.v[k] = 0
+                self.v[jp * n + i] = 0
+
     def project(mut self, dt: Real, tol: Real = 1e-6) -> CgResult:
         var n = self.n
+        var masked = len(self.solid) > 0
+        if masked:
+            self._zero_solid_faces()
         var div = self.divergence()
         # -lap p = -div / dt, in dx^2 = 1 units: rhs = -div dx^2 / dt
         var rhs = List[Real](length=n * n, fill=0)
@@ -244,27 +371,47 @@ struct MacFluid2(Movable):
         # sum over n^2 cells left a mean of ~n^2 eps |rhs| that CG cannot
         # reduce, so it never met tol, ran 4 n^2 iterations, and the constant
         # it piled into p cost f32 its pressure differences (a heated row
-        # under Smoke2 blew up to 1e11 m/s in 0.3 s; 17.61).
+        # under Smoke2 blew up to 1e11 m/s in 0.3 s; 17.61). With solid cells
+        # the mean runs over the fluid cells only, and solid rows stay zero.
+        var fluid = 0
+        for k in range(n * n):
+            if not masked or not self.solid[k]:
+                fluid += 1
         var mean = Float64(0)
         for k in range(n * n):
+            if masked and self.solid[k]:
+                continue
             rhs[k] = -div[k] * self.dx * self.dx / dt
             mean += Float64(rhs[k])
-        mean /= Float64(n * n)
+        mean /= Float64(fluid)
         for k in range(n * n):
+            if masked and self.solid[k]:
+                continue
             rhs[k] = Real(Float64(rhs[k]) - mean)
-        var op = _NegLaplacian(n)
-        warm_start_or_zero(op, rhs, self.p)
         var r: CgResult
-        if self.mg:
-            r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)
+        if masked:
+            var mop = _MaskedNegLaplacian(n, self.solid.copy())
+            warm_start_or_zero(mop, rhs, self.p)
+            r = pcg(mop, rhs, self.p, tol, 4 * n * n)
         else:
-            r = pcg(op, rhs, self.p, tol, 4 * n * n)
+            var op = _NegLaplacian(n)
+            warm_start_or_zero(op, rhs, self.p)
+            if self.mg:
+                r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)
+            else:
+                r = pcg(op, rhs, self.p, tol, 4 * n * n)
         for j in range(n):
             var jm = (j + n - 1) % n
             for i in range(n):
                 var im = (i + n - 1) % n
-                self.u[j * n + i] -= dt * (self.p[j * n + i] - self.p[j * n + im]) / self.dx
-                self.v[j * n + i] -= dt * (self.p[j * n + i] - self.p[jm * n + i]) / self.dx
+                var k = j * n + i
+                var kl = j * n + im
+                var kd = jm * n + i
+                # A face that touches a solid cell keeps its zero normal velocity.
+                if not masked or not (self.solid[k] or self.solid[kl]):
+                    self.u[k] -= dt * (self.p[k] - self.p[kl]) / self.dx
+                if not masked or not (self.solid[k] or self.solid[kd]):
+                    self.v[k] -= dt * (self.p[k] - self.p[kd]) / self.dx
         self.last = r
         return r
 

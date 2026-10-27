@@ -115,7 +115,7 @@
 | Projective dynamics(VBD 段) | stale-done | `physics/fem_pd.mojo:45` `FemPd`;`tests/test_fem_pd.mojo:50` | — |
 | 無 neo-Hookean / 無四面體網格生成(現況) | stale-done | `physics/fem_material.mojo:87` `StableNeoHookean`;`geometry/tetmesh.mojo:24` `TetMesh`;`tests/test_tetmesh.mojo` | — |
 | 沙子攤平、原因未知 | doable | `physics/mpm.mojo:151` `set_sand`;`tests/test_mpm_sand.mojo` | 30° 砂柱測試,記錄 G2P 耗散以切分成因 |
-| Tampubolon 體積修正未重測 | doable | ROADMAP:1633;`tests/test_mpm_sand.mojo` | 開啟修正後重跑 30 / 60 / 85° 掃描 |
+| Tampubolon 體積修正未重測 | doable(需先重建) | 重查:`grep -rn -i tampubolon physics/ tests/` 0 命中;ROADMAP:1617 記載的 log J 累積量實作已不在程式碼中,ROADMAP:1640 記為「修後未重測,不交付」 | 先依 ROADMAP:1617 重建每粒子 log J 累積量,再以 `tests/test_mpm_sand.mojo` 的 30 / 60 / 85° 掃描重測 |
 | 黏彈(塑性 / 黏彈範圍) | deferred | `physics/ fluid/ numerics/` 內 viscoelas / 黏彈 0 命中 | 需要速率相依固體響應的場景 |
 | XPBD-FEM 變體 | deferred | `physics/fem*` 內 xpbd 0 命中 | 約束求解器比較需求 |
 | 域壁 μ;skin 固定 dx/4 | deferred | ROADMAP:1642-1643;`tests/test_mpm_domain.mojo` | ROADMAP 標為「留待需要時」;0.3 dx 的接觸間隙量測 |
@@ -125,7 +125,7 @@
 | 子句 | 標籤 | 證據 | 下一步 |
 |---|---|---|---|
 | 3-D 點源(未做) | stale-done | `physics/mac_fluid3.mojo:480` `add_impulse`;`tests/test_fluid3_point.mojo:60` | — |
-| 固體不阻擋 MacFluid2 面 | doable | `physics/mac_fluid.mojo` 內 solid / obstacle / mask 0 命中 | 面更新加入固體格遮罩;32² 網格中放一個方塊的測試 |
+| 固體不阻擋 MacFluid2 面 | done(本輪) | 重查:`physics/mac_fluid.mojo` 原為 0 命中;本輪加入 `MacFluid2.set_solid`(opt-in)與 `_MaskedNegLaplacian`;`tests/test_fluid_solid.mojo` 7/7 | 已完成:固體面法向速度 0.0、流體散度 4.8e-5、全流體遮罩對照 6.0e-8 |
 | 股線 / 布料 ↔ Smoke2 雙向 | doable | `physics/strand_air.mojo`、`cloth_air.mojo` 內 Smoke2 / MacFluid2 0 命中(兩者皆用 `Lbm`) | 以 `MacFluid2.add_impulse`(`physics/mac_fluid.mojo:183`)為 −J,做 1 股線探針 |
 | 糊狀顆粒保持固體;剪應力未按 φ 縮放 | done(本輪) | commit 61382d8:`MpmParticle.shear` = 1 − φ,`step_ext` 只縮放偏差應力;`tests/test_mpm_melt.mojo` 11/11(section 5,相對誤差 1.4e-7) | 已完成;`test_mpm` golden 數字漂移未定,見 ROADMAP 17.61 進度註 |
 | 氣體容器壁;布料+空氣 2.8 % 動量缺口;多相假流 | unverified | ROADMAP:2014、2021、2025;`physics/multiphase.mojo:23-27` 有壁 | — |
@@ -154,11 +154,11 @@
 
 ## 17.19 / 17.58 / 17.61 / 17.63 的計數(子代理回報,未逐列重跑)
 
-- 33 列:stale-done 8、doable 10、unverified 5、deferred 7、GPU 1、env-blocked 1(部分列合併多個子句)。doable 由 11 減為 10:17.61 糊狀剪應力已於 61382d8 完成(本表 done(本輪))。
+- 33 列:stale-done 8、doable 9、unverified 5、deferred 7、GPU 1、env-blocked 1(部分列合併多個子句)。doable 由 11 減為 9:17.61 糊狀剪應力(61382d8)與固體遮罩(本輪)已完成。
 
 ## 結論
 
-- 階段目標未完成。doable 項目(依表):17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重測;17.61 固體遮罩、股線 / 布料 ↔ Smoke2;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 10 列,皆來自子代理回報(17.74 舵升力與 17.61 糊狀剪應力已於本輪完成)。
+- 階段目標未完成。doable 項目(依表):17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重建與重測;17.61 股線 / 布料 ↔ Smoke2;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 9 列(17.74 舵升力、17.61 糊狀剪應力、17.61 固體遮罩已完成)。
 - 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。
