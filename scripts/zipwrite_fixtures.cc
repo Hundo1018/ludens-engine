@@ -3,7 +3,8 @@
 // project environment. usage: zipwrite_fixtures <dir>
 //
 // Same grid four ways: smooth values with compression 0 (raw), 1 (zip),
-// 3 (zip | active mask), and hashed noise values with 1 (zip). Each grid also
+// 3 (zip | active mask), hashed noise values with 1 (zip), and blosc (4) with
+// and without the active mask (6). Each grid also
 // holds one active 8^3 tile (level 1) at (64,16,16) with value 2.5 and one
 // active 128^3 tile (level 2) at (0,128,0) with value 1.5. Coordinates
 // are non-negative; the value formulas are repeated in the Mojo test.
@@ -58,5 +59,7 @@ int main(int argc, char** argv)
     write(d + "/zip_smooth.vdb", 1, false);
     write(d + "/zip_mask_smooth.vdb", 3, false);
     write(d + "/zip_noise.vdb", 1, true);
+    write(d + "/blosc_smooth.vdb", 4, false);
+    write(d + "/blosc_mask_smooth.vdb", 6, false);
     return 0;
 }

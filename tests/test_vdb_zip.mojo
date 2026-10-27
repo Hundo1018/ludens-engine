@@ -1,9 +1,9 @@
 # tier: unit
 """Zip-compressed `.vdb` read (ROADMAP 17.63, `geometry.vdb_file.vdb_grid`).
 
-Four OpenVDB files in tests/data/vdb/, written by scripts/zipwrite_fixtures.cc:
-the same grid stored raw (the control), zip, zip with the active mask, and a
-hashed-noise grid under zip. Two balls of active voxels: radius 6 around
+Six OpenVDB files in tests/data/vdb/, written by scripts/zipwrite_fixtures.cc:
+the same grid stored raw (the control), zip, zip with the active mask, a
+hashed-noise grid under zip, and blosc (LZ4) with and without the active mask. Two balls of active voxels: radius 6 around
 (20,20,20) (925 voxels) and radius 2 around (200,20,20) (33 voxels), 958 in all.
 Each grid also has one active 8^3 tile at (64,16,16) with value 2.5 (512 voxels)
 and one active 128^3 tile at (0,128,0) with value 1.5 (2097152 voxels), so
@@ -101,6 +101,12 @@ def main() raises:
     var noise = _grid_ok(_read(root + "zip_noise.vdb"), True)
     s.check(noise[0], "zip of hashed noise: 2098622 active voxels, all values match (balls and tiles)")
 
+    var blosc = _grid_ok(_read(root + "blosc_smooth.vdb"), False)
+    s.check(blosc[0], "blosc: 2098622 active voxels, all values match (balls and tiles)")
+
+    var blosc_mask = _grid_ok(_read(root + "blosc_mask_smooth.vdb"), False)
+    s.check(blosc_mask[0], "blosc with active mask: 2098622 active voxels, all values match (balls and tiles)")
+
     var g = vdb_grid(_read(root + "zip_smooth.vdb"))
     s.check(g.name == "field", "zip grid keeps its name")
     s.almost(g.voxel_size, 0.1, "zip grid voxel size is 0.1", tol=1e-9)
@@ -116,4 +122,15 @@ def main() raises:
     except:
         raised = True
     s.check(raised, "a zip file one byte short raises")
+
+    var bcut = _read(root + "blosc_mask_smooth.vdb")
+    var bshort = List[UInt8]()
+    for i in range(len(bcut) - 1):
+        bshort.append(bcut[i])
+    var braised = False
+    try:
+        _ = vdb_grid(bshort)
+    except:
+        braised = True
+    s.check(braised, "a blosc file one byte short raises")
     s.finish()

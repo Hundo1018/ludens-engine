@@ -2225,7 +2225,7 @@
 > `geometry/vdb_file.mojo` 的 `vdb_grid` 現在讀 OpenVDB 13 的 zip(位元 1)與 zip + 活躍遮罩(位元 2)檔,版本 224 / 225 皆可;blosc(位元 4)仍拒絕。值串流格式以 OpenVDB 寫出的檔逐位元組核對:有號 int64 長度;正值 = zlib 串流(解開為 count × 4 bytes);零或負值 = 之後是原始 f32(負值為原始位元組數的負數,例如 −20 = 5 個值)。
 > `tests/data/vdb/` 四個 OpenVDB 13.1 檔(`scripts/zipwrite_fixtures.cc` 產生):同一球體 raw(對照組)、zip、zip + 遮罩、雜湊雜訊 zip;`tests/test_vdb_zip.mojo` 7/7:每檔 958 個球體活躍體素(925 + 33)逐一與產生公式比對,誤差 ≤ 1e-5;另有一個 8³ 活躍 tile(位於 (64,16,16),值 2.5,512 體素)與一個 128³ 活躍 tile(位於 (0,128,0),值 1.5,2 097 152 體素),總計 2 098 622。`tests/test_vdb_file.mojo` 26/26(版本 226 與 blosc 位元取代舊的 225 / zip 位元拒絕測試)。
 > **進度註(活躍 tile)**:`vdb_grid` 把 16³ 節點的值遮罩(8³ tile)與 32³ 節點的值遮罩(128³ tile)展開為體素;根層 tile 仍拒絕(未實作)。檔案由 `scripts/zipwrite_fixtures.cc` 以 `tree().addTile(1, ...)` 與 `addTile(2, ...)` 寫入,版本 225;`tests/test_vdb_zip.mojo` 7/7 逐體素核對兩種 tile。
-> **未完成(blosc)**:OpenVDB 13 預設寫出的檔為版本 225、壓縮字 6(blosc):`scratchpad/probe_zip.py` 所測的 `zip_default.vdb` 為 86 490 bytes、4169 個活躍體素。blosc 區塊解碼需另行實作並以參考檔驗證;列為 triage 的 doable 項目,尚未實作,不宣稱完成。
+> **blosc 讀回**:`geometry/blosc.mojo` 解 c-blosc 1 區塊(16 bytes 標頭、int32 區塊起點、每 typesize 一段的 int32 長度前綴、LZ4 區塊格式、逐區塊 byte unshuffle;memcpy 與 don't-split 旗標)。`vdb_grid` 讀壓縮字 4 / 6。`tests/test_vdb_zip.mojo` 10/10 含 `blosc_smooth.vdb`、`blosc_mask_smooth.vdb`(OpenVDB C++ 寫出,與公式逐體素核對;截斷檔 raise);`tests/test_blosc.mojo` 4/4(memcpy 區塊、重疊 LZ4 比對、兩種錯誤輸入 raise)。未實作的 blosc 編解碼器(blosclz、zstd 等)一律 raise。
 > **閘門**:`pixi run gate -- --update-golden` PASS(427/427、arch OK、tiers 428/428)。提交:`b3853b1`(inflate)、`46f4c16`(golden)、`a01cc43`(zip 讀回)、`4fd3cd6`(golden)。
 
 ---

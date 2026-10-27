@@ -25,8 +25,8 @@ written as f32.
 
 `vdb_grid(bytes)` reads the first grid back into a `SparseVolume` (both
 value layouts, every metadata byte kind); it raises on what it cannot hold
-or does not decode: zip / blosc, half floats, other grid types or
-transforms, active tiles, mismatched offsets, truncation.
+or does not decode: half floats, blosc codecs other than LZ4, other grid
+types or transforms, root-level tiles, mismatched offsets, truncation.
 
 Checked against the real reader: `pixi run vdb-check` opens the file with
 OpenVDB's Python module (`scripts/vdb_check.py`, conda-forge `openvdb`)
@@ -34,6 +34,7 @@ and compares every active voxel (`test_vdb_file` writes the files).
 """
 
 from geometry.inflate import zlib_inflate
+from geometry.blosc import blosc_decode
 from .vec import Real
 from .sparse_volume import SparseVolume, LEAF
 
@@ -396,14 +397,15 @@ def _skip_metadata(d: List[UInt8], mut at: Int) raises:
         at += size
 
 
-def _rd_stream_floats(d: List[UInt8], mut at: Int, count: Int, zip: Bool) raises -> List[Float32]:
-    """`count` floats as one value stream. Without zip the floats follow raw.
-    With zip, a signed int64 length first. Positive: that many bytes of zlib
-    stream, inflating to count * 4 bytes. Zero or negative: the floats follow
-    raw, and a negative length is the raw size as its negation (OpenVDB stores
-    a stream raw when zip does not shrink it; a count of 0 is a length of 0)."""
+def _rd_stream_floats(d: List[UInt8], mut at: Int, count: Int, codec: Int) raises -> List[Float32]:
+    """`count` floats as one value stream. `codec` 0 (raw): the floats follow
+    raw. Otherwise (1 zip, 2 blosc) a signed int64 length first. Positive: that
+    many bytes of compressed stream, decoding to count * 4 bytes. Zero or
+    negative: the floats follow raw, and a negative length is the raw size as
+    its negation (OpenVDB stores a stream raw when compression does not shrink
+    it; a count of 0 is a length of 0)."""
     var out = List[Float32]()
-    if not zip:
+    if codec == 0:
         for _ in range(count):
             out.append(_rd_f32(d, at))
         return out^
@@ -419,9 +421,9 @@ def _rd_stream_floats(d: List[UInt8], mut at: Int, count: Int, zip: Bool) raises
     for i in range(nbytes):
         comp[i] = d[at + i]
     at += nbytes
-    var raw = zlib_inflate(comp, count * 4)
+    var raw = zlib_inflate(comp, count * 4) if codec == 1 else blosc_decode(comp, count * 4)
     if len(raw) != count * 4:
-        raise Error("vdb_grid: zip value stream has the wrong size")
+        raise Error("vdb_grid: compressed value stream has the wrong size")
     var p = 0
     for _ in range(count):
         out.append(_rd_f32(raw, p))
@@ -434,12 +436,13 @@ def _rd_values(
     n: Int,
     active: List[Bool],
     mask_compressed: Bool,
-    zip: Bool,
+    codec: Int,
     background: Float32,
 ) raises -> List[Float32]:
     """A node's value array as `io::readCompressedValues` reads it (no blosc,
     no half floats): metadata byte, optional inactive values and selection
-    mask, then the active values only or all n, zip-framed when `zip`."""
+    mask, then the active values only or all n, framed by `codec` (0 raw, 1 zip,
+    2 blosc)."""
     _need(d, at, 1)
     var meta = Int(d[at])
     at += 1
@@ -465,7 +468,7 @@ def _rd_values(
         for i in range(n):
             if active[i]:
                 nact += 1
-        var vals = _rd_stream_floats(d, at, nact, zip)
+        var vals = _rd_stream_floats(d, at, nact, codec)
         var j = 0
         for i in range(n):
             if active[i]:
@@ -474,7 +477,7 @@ def _rd_values(
             elif len(sel) > 0 and sel[i]:
                 out[i] = in1
     else:
-        var vals = _rd_stream_floats(d, at, n, zip)
+        var vals = _rd_stream_floats(d, at, n, codec)
         for i in range(n):
             out[i] = vals[i]
     return out^
@@ -483,9 +486,9 @@ def _rd_values(
 def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
     """Read the first grid of a `.vdb` file (file version 224 or 225) into a
     `SparseVolume`: what `vdb_bytes` writes, and any FloatGrid in the 5-4-3
-    configuration stored raw or zip-compressed (with or without the active
-    mask) and without half floats. Raises on a wrong magic or version,
-    another grid type or transform, blosc compression, root-level tiles (not
+    configuration stored raw, zip-compressed, or blosc-compressed (LZ4), with
+    or without the active mask, and without half floats. Raises on a wrong
+    magic or version, another grid type or transform, root-level tiles (not
     implemented), offsets that do not match the
     stream, and truncation. Active tiles below the root (8^3 and 128^3) are
     expanded to their voxels. Inactive values read as the background (a level
@@ -517,10 +520,14 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
     if grid_pos != at or not (grid_pos < block_pos and block_pos <= end_pos and end_pos <= len(d)):
         raise Error("vdb_grid: grid offsets do not match the stream")
     var compression = _rd_u32(d, at)
-    if compression & ~3 != 0:
-        raise Error("vdb_grid: blosc compression is not supported")
     var mc = compression & 2 != 0
-    var zp = compression & 1 != 0
+    var codec = 0  # 0 raw, 1 zip, 2 blosc
+    if compression == 1 or compression == 3:
+        codec = 1
+    elif compression == 4 or compression == 6:
+        codec = 2
+    elif compression != 0 and compression != 2:
+        raise Error("vdb_grid: compression " + String(compression) + " is not supported")
     _skip_metadata(d, at)
     var map_type = _rd_string(d, at)
     if map_type != "UniformScaleMap":
@@ -561,7 +568,7 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
         for k in range(32768):
             if vm[k] and cm[k]:
                 raise Error("vdb_grid: a node is both a child and a tile")
-        var tv = _rd_values(d, at, 32768, vm, mc, zp, bg)
+        var tv = _rd_values(d, at, 32768, vm, mc, codec, bg)
         for k in range(32768):
             if vm[k]:
                 act_at.append(tx + (((k >> 10) & 31) << 7))
@@ -580,7 +587,7 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
             for q in range(4096):
                 if vm2[q] and cm2[q]:
                     raise Error("vdb_grid: a node is both a child and a tile")
-            var tv2 = _rd_values(d, at, 4096, vm2, mc, zp, bg)
+            var tv2 = _rd_values(d, at, 4096, vm2, mc, codec, bg)
             for q in range(4096):
                 if vm2[q]:
                     act_at.append(mx + (((q >> 8) & 15) << 3))
@@ -602,7 +609,7 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
         for o in range(512):
             if m[o] != lmasks[li][o]:
                 raise Error("vdb_grid: leaf buffer mask differs from its topology mask")
-        var vals = _rd_values(d, at, 512, m, mc, zp, bg)
+        var vals = _rd_values(d, at, 512, m, mc, codec, bg)
         for o in range(512):
             if m[o]:
                 vol.set(lo[3 * li] + (o >> 6), lo[3 * li + 1] + ((o >> 3) & 7), lo[3 * li + 2] + (o & 7), Real(vals[o]))
