@@ -1399,6 +1399,13 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   crossing vs shifted twin, 240 steps: force error 1.1002156e-05  torque error 1.0904011e-05  (of peak);  mass 13697.448 13697.449
   coupled body across the boundary, 0.2 s: v 0.00092939363  shifted twin 0.0009293971
 [PASS] lbm_periodic - 5 / 5 checks
+--- tests/test_levelset3.mojo ---
+  still water, 1 s: max face speed 1.2715658e-07  volume ratio 1.0
+  slab vs 2-D after 60 steps: max |dphi| / dx = 7.247925e-05
+  3-D dam break: Z at T = 1/6 s 1.625  far wall at 0.4166667 s  volume ratio range 0.84375 1.0625
+  2-D dam break at the same n: volume ratio range 0.84375 1.0625
+  corner column after 40 steps: max |phi(i,j,k) - phi(k,j,i)| / dx = 0.0001335144
+[PASS] levelset3 - 6 / 6 checks
 --- tests/test_levelset_particles.mojo ---
   volume: initial 0.07068584 plain 0.01171875 particles 0.07714844
 [PASS] levelset_particles - 2 / 2 checks
