@@ -640,6 +640,11 @@ CG n 16384 : serial 154 iterations, parallel 154
   onset omega_c (rad/m): twist compliance 0.1: 0.6593751   0.2: 1.315625   ratio 1.9952604
   Kirchhoff 2B/C for 0.1 ratio: 0.2 rad/m (not reproduced; see header)
 [PASS] rod_plectoneme - 3 / 3 checks
+--- tests/test_rod_strand_twist.mojo ---
+  one kink: rod tip - analytic 8.0789215e-09   StrandSet tip - analytic 3.7830503e-09
+  curl: rod tip - rigid rotation 2.526615e-07
+  curl: StrandSet tip - rigid rotation 0.14231527
+[PASS] rod_strand_twist - 3 / 3 checks
 --- tests/test_sap.mojo ---
 [PASS] sap - 7 / 7 checks
 --- tests/test_self_collide.mojo ---

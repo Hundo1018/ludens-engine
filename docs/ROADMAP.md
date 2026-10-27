@@ -1540,6 +1540,7 @@
 > (位置自由、方向鎖定)與該公式假設不同;(b) 離散剛度的校正 B = l/(4·彎 compliance)、C = l/(4·扭 compliance) 未經驗證。
 > 因此測試只斷言線性縮放(容差 15 %,於執行前寫定)與分岔兩側的行為;常數只印出、不斷言,不宣稱與解析式相符。
 > **進度註(2026-10-27,item (1) 的曲股版本)**:`StrandSet` 每粒子新增 `twist`(rad,繫於以該粒子結束的段)與 `torsion`(1/s,預設 0 = 關)、`set_root_twist`。扭轉只經由彎曲目標作用:`_step_shaped` 把目標繞前段方向轉 `twist[i]`;直股的目標就是前段方向,扭轉沒有位置效應,所以範圍限於曲股。`strands_write` / `strands_read` 寫入 `twist`。預設 twist 0、torsion 0 的路徑不變(twist 0 時跳過旋轉),既有 golden 段落未改。`tests/test_strand_torsion.mojo` 6/6(component):一個折點的解析尖端 x1 + l(cos a, sin a cos φ, sin a sin φ) 在 φ 0.7 下,第一次執行最大誤差 3.7e-9 m,事前寫定的 1e-9 m 界於 f32 下過嚴,界改為 1e-7 m(執行後變更,已記入測試標頭);無扭轉時平面;剛性 torsion 一步把根扭轉複製到每個關節;torsion 0 時關節保持 0;12 粒子曲股在根扭轉 0.7、剛性 torsion 下離開 xy 平面 |z| 0.138 m,無扭轉時 |z| 0。**未做**:與 `CosseratRod` 在同一組態上的 parity(`rod_from_strand` 尚未實作,改用解析預測)。item (3) 流體 / 接觸耦合未做。設計筆記 `docs/design/17.86-strand-torsion.md`。
+> **進度註(2026-10-27,item (1) 的 `CosseratRod` parity)**:`tests/test_rod_strand_twist.mojo`(component,3/3)。兩模型沒有共用的扭轉量(`CosseratRod.twist_angle` 是 Darboux 分量,`StrandSet.twist` 是彎曲目標的旋轉),所以比對的是同一扭轉邊界條件下的平衡尖端位置。結果:單一折點、剛體夾住段 0 繞自身 d3 轉 φ 0.7,桿的尖端與解析式差 8.1e-9 m(預測 1e-5 m 內);12 點曲股、桿段 0 轉 φ,尖端與剛體旋轉的休止尖端差 2.5e-7 m(預測 2 mm 內);同一曲股以 `StrandSet` 在每個關節都給扭轉,尖端離剛體旋轉 0.142 m(預測 > 1 cm,通過)。結論:單一關節兩模型一致;鏈條不等價。桿的休止扭轉為零時把休止形狀整體繞段 0 軸轉動,而 `StrandSet` 把扭轉作用在每個關節自己的彎曲平面上,累積後成螺旋。因此 `rod_from_strand` 對有扭轉的鏈條會失真。item (1) 以「單關節一致 + 鏈條非等價(已量)」結案。設計筆記 `docs/design/17.86-strand-torsion.md`。
 > 本條仍為 🔶:缺 (3) 與流體 / 接觸耦合;常數已由長度掃描確認到 BC 係數層級(見上)。
 
 #### 17.58 體積軟體 — Wave C
