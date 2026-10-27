@@ -101,6 +101,8 @@ lattice: 50 / 50  ring: 12
 [PASS] harness - 4 / 4 checks
 --- tests/test_hash_grid.mojo ---
 [PASS] hash_grid - 5 / 5 checks
+--- tests/test_inflate.mojo ---
+[PASS] inflate - 14 / 14 checks
 --- tests/test_interpolation.mojo ---
   screw: off-circle error  geodesic 1.1920929e-07  dq-nlerp 5.9604645e-08  lerp+nlerp 0.29289323
 [PASS] interpolation - 21 / 21 checks
