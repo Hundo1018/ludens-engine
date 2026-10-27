@@ -1406,6 +1406,12 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   2-D dam break at the same n: volume ratio range 0.84375 1.0625
   corner column after 40 steps: max |phi(i,j,k) - phi(k,j,i)| / dx = 0.0001335144
 [PASS] levelset3 - 6 / 6 checks
+--- tests/test_levelset_open.mojo ---
+  run A (outlet floor): V0 0.2489741  V(1 s) 0.0  outflow F 0.23552702
+  run A: largest rise 0.00065536797  identity mismatch / V0 0.05400994  all solves converged True
+  run A: first step with V = 0: 79  free fall plus lag: 79.0261
+  run B (closed box): V0 0.2489741  V(1 s) 0.2640987  relative drift 0.0607477
+[PASS] levelset_open - 5 / 5 checks
 --- tests/test_levelset_particles.mojo ---
   volume: initial 0.07068584 plain 0.01171875 particles 0.07714844
 [PASS] levelset_particles - 2 / 2 checks
