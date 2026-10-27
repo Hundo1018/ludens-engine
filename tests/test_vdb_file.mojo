@@ -17,7 +17,7 @@
   3. Extreme: a volume spread over four root children (x = -4097, -5,
      130 and 4100) and several 128^3 nodes; an empty volume (a grid with no
      children); voxel size 0 raises; a wrong magic, an unknown version,
-     nine truncation points, the zip bit and a block offset that does not
+     nine truncation points, the blosc bit and a block offset that does not
      match the stream raise; bytes after the grid's end are not read.
 """
 
@@ -160,7 +160,7 @@ def main() raises:
     bad[0] = 0
     s.check(_raises(bad), "wrong magic raises")
     bad = b.copy()
-    bad[8] = 225
+    bad[8] = 226
     s.check(_raises(bad), "unknown file version raises")
     var cuts = 0
     for cut in [0, 7, 40, 100, 200, 300, 5000, len(b) // 2, len(b) - 1]:
@@ -170,11 +170,12 @@ def main() raises:
         if _raises(t):
             cuts += 1
     s.check(cuts == 9, "9 truncation points all raise")
-    # the compression word follows the three offsets; set the zip bit
-    var zip = b.copy()
+    # the compression word follows the three offsets; set the blosc bit (zip
+    # is read by test_vdb_zip)
+    var blosc = b.copy()
     var cpos = 65 + 4 + len("sphere".as_bytes()) + 4 + 16 + 4 + 24
-    zip[cpos] = zip[cpos] | 1
-    s.check(_raises(zip), "zip compression raises (not supported)")
+    blosc[cpos] = blosc[cpos] | 4
+    s.check(_raises(blosc), "blosc compression raises (not supported)")
     var tail = b.copy()
     tail.append(0)
     s.check(not _raises(tail), "bytes after the grid's end offset are not read")
