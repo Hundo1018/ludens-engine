@@ -1646,6 +1646,10 @@ rigid in air, 0.3 s: v 0.13973519 0.18008693 -1.8569243e-09  w_z 3.7921658  max 
   rigid-link chain sag 1.0416659
   hanging crate y 2.9997272  rope load 19.6
 [PASS] rope - 12 / 12 checks
+--- tests/test_rules_oop.mojo ---
+  speed 150 rules 6000 oop 6000   speed 301 rules 5000 oop 5000
+  health end (sum over 500 actors) rules 0   mismatched fields 0
+[PASS] rules_oop - 4 / 4 checks
 --- tests/test_rules_records.mojo ---
 reflective effects: 3  burn grants 28  haste max_stacks 3
 turrets: gun 25500 2 3000 7  laser 10000 9 5000 2
