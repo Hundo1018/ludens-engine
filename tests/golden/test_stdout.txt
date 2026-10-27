@@ -1872,6 +1872,10 @@ after 0.4 s: mean tip shift +x  one-way 0.12034178  two-way 0.055488646
 --- tests/test_strand_rope_parity.mojo ---
 first mode T1 0.9441842 ;  rope 0.9637286 ;  strand ftl_damping 0.5 0.7913122  0.9 (default) 2.220425  1.0 -1.0
 [PASS] strand_rope_parity - 3 / 3 checks
+--- tests/test_strand_scene_twist.mojo ---
+  contacts twisted 1965  untwisted 1079   particles inside box 0
+  tip gap 0.18526804   |z| twisted 0.13958725  untwisted 0.0
+[PASS] strand_scene_twist - 4 / 4 checks
 --- tests/test_surface_material.mojo ---
   ray hits: x 50 -> material 0  x 200 -> 1  box -> -1
   heightfield: ray at cell (1, 1) -> triangle 6  material 8
