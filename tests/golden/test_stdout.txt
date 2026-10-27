@@ -1413,7 +1413,8 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   3-D volume: initial 0.07068584 plain 0.006944445 particles 0.06944445
   z invariance: max |phi(k) - phi(mid)| / dx = 5.1140785e-05
   middle plane liquid cells: 3-D 40  2-D 48  initial 40.715042
-[PASS] levelset_particles3 - 3 / 3 checks
+  reseed every 20 steps: volume 0.06944445  no reseed 0.06944445
+[PASS] levelset_particles3 - 5 / 5 checks
 --- tests/test_levelset_water.mojo ---
   still water, 1 s: max face speed 1.5646219e-07  volume ratio 1.0
   dam break front x: 0.453125 0.921875 0.984375 0.984375 0.984375 0.984375
