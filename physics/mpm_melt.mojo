@@ -21,7 +21,10 @@ enthalpy H (J/kg, f64), from which temperature and melt fraction follow
   4. T and phi from H; a liquid particle (phi = 1) forgets its shear
      memory, F <- J^(1/3) I, so it keeps resisting compression but flows.
      A particle that freezes again keeps that isotropic F as its new rest
-     state: the frozen shape is stress free. Mushy particles stay solid.
+     state: the frozen shape is stress free. A mushy particle keeps a
+     fraction 1 - phi of its shear modulus (`MpmParticle.shear`, set from
+     phi before the next mechanics step), so it softens continuously toward
+     the liquid; its volumetric stiffness is unchanged.
 
 `heat_in` sums the floor's heat (J); the total enthalpy sum m H changes by
 exactly that (up to rounding), which is what `test_mpm_melt` checks.
@@ -106,6 +109,8 @@ struct MpmMelt(Movable):
         var n = len(self.enthalpy)
         if len(mpm.p) != n:
             raise Error("MpmMelt.step: the solver's particle count changed")
+        for i in range(n):
+            mpm.p[i].shear = 1 - self.phi[i]
         mpm.step_ext(dt, gravity)
         for i in range(n):
             self.heat.x[i] = mpm.p[i].x

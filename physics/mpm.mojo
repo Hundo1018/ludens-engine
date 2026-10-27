@@ -86,6 +86,7 @@ struct MpmParticle(Copyable, ImplicitlyCopyable, Movable):
     var c: Mat3  # affine velocity field (APIC)
     var vol: Real
     var mass: Real
+    var shear: Real  # scales the shear modulus in step_ext (1 = full; 17.61 mushy particles: 1 - phi)
 
 
 struct MpmSolver(Movable):
@@ -141,7 +142,7 @@ struct MpmSolver(Movable):
 
     def add(mut self, pos: Vec3, mass: Real, vol: Real):
         self.p.append(
-            MpmParticle(pos, Vec3(0, 0, 0, 0), Mat3.identity(), Mat3(), vol, mass)
+            MpmParticle(pos, Vec3(0, 0, 0, 0), Mat3.identity(), Mat3(), vol, mass, 1)
         )
 
     def set_plastic(mut self, j_min: Real, j_max: Real):
@@ -607,7 +608,13 @@ struct MpmSolver(Movable):
             var stress = Mat3()
             for a in range(3):
                 for b in range(3):
-                    stress.set(a, b, 2 * self.mu * (q.f.get(a, b) - r.get(a, b)))
+                    stress.set(a, b, 2 * self.mu * q.shear * (q.f.get(a, b) - r.get(a, b)))
+            # the shear factor scales the deviatoric part only: the isotropic
+            # part of F - R, (tr(F - R) / 3) I, is compression resistance and
+            # stays (a liquid particle keeps it, 17.61)
+            var iso = 2 * self.mu * (1 - q.shear) * (q.f.get(0, 0) - r.get(0, 0) + q.f.get(1, 1) - r.get(1, 1) + q.f.get(2, 2) - r.get(2, 2)) / 3
+            for a in range(3):
+                stress.set(a, a, stress.get(a, a) + iso)
             # volumetric part: P_vol F^T = lambda (J-1) J F^-T F^T = lambda (J-1) J I,
             # so it joins the Kirchhoff stress P F^T after the product, not P
             # before it (before it, F^T would rotate the pressure)

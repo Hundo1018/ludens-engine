@@ -571,11 +571,12 @@ squash (1, 0.5, 1) about y = 1: heights 0.5 1.25 1.5
 --- tests/test_mpm_domain.mojo ---
 [PASS] mpm_domain - 9 / 9 checks
 --- tests/test_mpm_melt.mojo ---
-after 1.2 s: height solid 0.12160547  liquid 0.04250191  heated 0.10070474  (start 0.125 )
-  width solid 0.18309075  liquid 1.3477201  heated 0.29721826  (start 0.17500001 )
-  melted fraction: solid 0.0  liquid 1.0  heated 0.53906477
-  enthalpy change 1580818.4511198653 J  floor heat 1580819.3068518639 J  rel. error 5.413218290421935e-07
-[PASS] mpm_melt - 8 / 8 checks
+after 1.2 s: height solid 0.12160547  liquid 0.042501986  heated 0.09231778  (start 0.125 )
+  width solid 0.18309075  liquid 1.34772  heated 0.34004194  (start 0.17500001 )
+  melted fraction: solid 0.0  liquid 1.0  heated 0.6562791
+  enthalpy change 1865027.403863132 J  floor heat 1865028.9694149494 J  rel. error 8.394249328514457e-07
+mushy shear: solid |v| max 0.008365335  P1 rel. err 1.388272e-07  isotropic |v| max 0.012440799  P2 rel. err 0.0  phi drift 0.0
+[PASS] mpm_melt - 11 / 11 checks
 --- tests/test_mpm_sand.mojo ---
   block at 2 m/s on the obstacle floor: slides 0.3343084 m with mu 0.6 (v^2/2 mu g = 0.340); 0.82738733 m with mu 0
   sand poured on a box: particles deeper than half a cell inside 0  resting on its top 288 of 288
