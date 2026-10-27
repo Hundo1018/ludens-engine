@@ -1412,6 +1412,13 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
   run A: first step with V = 0: 79  free fall plus lag: 79.0261
   run B (closed box): V0 0.2489741  V(1 s) 0.2640987  relative drift 0.0607477
 [PASS] levelset_open - 5 / 5 checks
+--- tests/test_levelset_open3.mojo ---
+  initial: 3-D 0.24873555  2-D 0.2487353  (per unit depth) 0.24873555
+  z invariance max |dphi| / dx: 0.0
+  3-D mid plane against 2-D max |dphi| / dx: 0.0
+  V3 per unit depth 0.08251511  V2 0.08251515  relative 4.5146743e-07
+  V3(0.25 s) / V0: 0.33173832
+[PASS] levelset_open3 - 4 / 4 checks
 --- tests/test_levelset_particles.mojo ---
   volume: initial 0.07068584 plain 0.01171875 particles 0.07714844
 [PASS] levelset_particles - 2 / 2 checks
