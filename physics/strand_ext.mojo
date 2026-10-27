@@ -38,6 +38,7 @@ def strands_write[W: StateWriter](s: StrandSet, mut w: W):
     for i in range(len(s.x)):
         w.wv(s.x[i])
         w.wv(s.v[i])
+        w.wf(s.twist[i])
 
 
 def strands_read[R: StateReader](mut s: StrandSet, mut r: R) raises:
@@ -47,6 +48,7 @@ def strands_read[R: StateReader](mut s: StrandSet, mut r: R) raises:
     for i in range(n):
         s.x[i] = r.rv()
         s.v[i] = r.rv()
+        s.twist[i] = r.rf()
 
 
 def strands_collide[B: Body6](mut s: StrandSet, scene: ContactScene6[B], dt: Real, mu: Real = 0.3) raises -> Int:

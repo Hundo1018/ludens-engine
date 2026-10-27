@@ -41,10 +41,19 @@ Bending pulls toward the rest shape: straight along `dir_local` for `add`;
 by a fixed angle about an axis fixed in the bone frame. Its bending target
 is the segment's rest direction carried by the minimal rotation that takes
 the previous segment's rest direction onto its current direction (no twist
-is tracked: a planar curl keeps its plane only through the bone). Curled
-strands step through `_step_shaped`; straight ones keep `_step_strand`
+is tracked by default: a planar curl keeps its plane only through the bone).
+Curled strands step through `_step_shaped`; straight ones keep `_step_strand`
 untouched. `bend = 0` gives a free chain. A collision push can lengthen the segment
 it moves; `max_stretch` reports the worst segment for tests.
+
+Twist (17.86): `twist[i]` is an angle (rad) about the chord, carried by the
+segment ending at particle i. In `_step_shaped` it turns that segment's bending
+target about the previous segment's direction, so a curled rest shape rotates
+out of its plane. A straight strand has target == prev_dir, so twist has no
+positional effect there (only curled strands are affected). `torsion` (1/s)
+relaxes each joint's twist toward its predecessor's, root to tip; `torsion = 0`
+(default) leaves twist as set, and `twist = 0` skips the rotation, so the
+default path is unchanged. The root twist is set with `set_root_twist`.
 """
 
 from geometry.vec import Real, Vec3, length, normalize, dot
@@ -77,16 +86,18 @@ struct StrandSet(Movable):
     var dir_local: List[Vec3]  # rest direction in the bone frame (unit)
     var shaped: List[Bool]  # per strand: rest shape from rest_dir (add_curl)
     var rest_dir: List[Vec3]  # per particle: rest direction of the segment ending there (bone frame)
+    var twist: List[Real]  # per particle: twist (rad) of the segment ending there, about the chord (17.86)
     var bend: Real
     var drag: Real
     var ftl_damping: Real
     var inner_damping: Real  # 1/s: velocity relative to the predecessor decays at this rate
+    var torsion: Real  # 1/s: twist relaxes toward the predecessor's at this rate (0 = off)
     var radius: Real  # strand radius for collision
     var spheres: List[StrandSphere]
     var capsules: List[StrandCapsule]
     var _shift: List[Vec3]  # scratch: FTL displacement per particle
 
-    def __init__(out self, bend: Real = 0.2, drag: Real = 0.5, ftl_damping: Real = 0.9, radius: Real = 0.002, inner_damping: Real = 20.0):
+    def __init__(out self, bend: Real = 0.2, drag: Real = 0.5, ftl_damping: Real = 0.9, radius: Real = 0.002, inner_damping: Real = 20.0, torsion: Real = 0.0):
         self.x = List[Vec3]()
         self.v = List[Vec3]()
         self.start = List[Int]()
@@ -97,10 +108,12 @@ struct StrandSet(Movable):
         self.dir_local = List[Vec3]()
         self.shaped = List[Bool]()
         self.rest_dir = List[Vec3]()
+        self.twist = List[Real]()
         self.bend = bend
         self.drag = drag
         self.ftl_damping = ftl_damping
         self.inner_damping = inner_damping
+        self.torsion = torsion
         self.radius = radius
         self.spheres = List[StrandSphere]()
         self.capsules = List[StrandCapsule]()
@@ -126,7 +139,13 @@ struct StrandSet(Movable):
             self.v.append(Vec3(0, 0, 0, 0))
             self._shift.append(Vec3(0, 0, 0, 0))
             self.rest_dir.append(d)
+            self.twist.append(0)
         return len(self.start) - 1
+
+    def set_root_twist(mut self, s: Int, phi: Real):
+        """Twist (rad) at strand `s`'s root. With `torsion > 0` it propagates
+        to every joint of a curled strand (17.86)."""
+        self.twist[self.start[s]] = phi
 
     def add_curl(
         mut self, bone: Int, pose: Pose6, root_local: Vec3, dir_local: Vec3, axis_local: Vec3,
@@ -269,6 +288,8 @@ struct StrandSet(Movable):
                 var u = Vec3(a[1] * prev_dir[2] - a[2] * prev_dir[1], a[2] * prev_dir[0] - a[0] * prev_dir[2], a[0] * prev_dir[1] - a[1] * prev_dir[0], 0)
                 var uw = Vec3(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0], 0)
                 var target = w * c + uw + u * (dot(u, w) / (1 + c)) if c > -0.999 else w
+                if self.twist[i] != 0:
+                    target = Quat.from_axis_angle(prev_dir, self.twist[i]).rotate(target)
                 p = p + (prev + target * l - p) * self.bend
             var d = p - prev
             var dl = length(d)
@@ -293,6 +314,12 @@ struct StrandSet(Movable):
             for k in range(1, n):
                 var i = o + k
                 self.v[i] = self.v[i] - (self.v[i] - self.v[i - 1]) * kd
+        # twist relaxes toward the predecessor's, root to tip (17.86); off at 0
+        var kt = min(self.torsion * dt, Real(1))
+        if kt > 0:
+            for k in range(1, n):
+                var i = o + k
+                self.twist[i] = self.twist[i] + (self.twist[i - 1] - self.twist[i]) * kt
 
     def max_stretch(self) -> Real:
         """Worst |segment length / rest - 1| over all strands."""
