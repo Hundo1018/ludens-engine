@@ -40,6 +40,30 @@ from numerics.multigrid3 import PeriodicPoissonMG3, pcg_mg3
 from .mac_fluid import warm_start_or_zero
 
 
+def _spread3(mut f: List[Real], n: Int, dx: Real, x: Real, y: Real, z: Real, ox: Real, oy: Real, oz: Real, amount: Real):
+    """Adjoint of `MacFluid3.sample`: adds `amount` to the eight samples around
+    (x, y, z), weighted as the sampling weights, so the weights sum to one."""
+    var gx = x / dx - ox
+    var gy = y / dx - oy
+    var gz = z / dx - oz
+    var i0 = Int(floor(gx))
+    var j0 = Int(floor(gy))
+    var k0 = Int(floor(gz))
+    var ax = gx - Real(i0)
+    var ay = gy - Real(j0)
+    var az = gz - Real(k0)
+    for dk in range(2):
+        var wz = az if dk == 1 else 1 - az
+        var c = ((k0 + dk) % n + n) % n
+        for dj in range(2):
+            var wy = ay if dj == 1 else 1 - ay
+            var b = ((j0 + dj) % n + n) % n
+            for di in range(2):
+                var wx = ax if di == 1 else 1 - ax
+                var a = ((i0 + di) % n + n) % n
+                f[(c * n + b) * n + a] += amount * wx * wy * wz
+
+
 struct _NegLaplacian3(LinearOperator, Movable):
     """-lap on an n^3 periodic cell grid, scaled by dx^2 = 1."""
 
@@ -90,6 +114,7 @@ struct MacFluid3(Movable):
     var last: CgResult
     var mg: Optional[PeriodicPoissonMG3]  # set by use_multigrid
     var flux_advect: Bool  # set by use_flux_advection
+    var flux_substeps: Int  # sub-steps taken by `_advect_flux`, summed
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -109,6 +134,7 @@ struct MacFluid3(Movable):
         self.last = CgResult(True, False, 0, 0)
         self.mg = None
         self.flux_advect = False
+        self.flux_substeps = 0
 
     def cells(self) -> Int:
         return self.n * self.n * self.n
@@ -362,6 +388,7 @@ struct MacFluid3(Movable):
         if need > 1:
             sub = Int(ceil(need))
         var h = dt / Real(sub) / self.dx
+        self.flux_substeps += sub
         for _ in range(sub):
             self._flux_once(h)
 
@@ -449,6 +476,28 @@ struct MacFluid3(Movable):
         for c in range(self.cells()):
             e += 0.5 * (self.u[c] * self.u[c] + self.v[c] * self.v[c] + self.w[c] * self.w[c])
         return e * self.dx * self.dx * self.dx
+
+    def add_impulse(mut self, x: Real, y: Real, z: Real, ix: Real, iy: Real, iz: Real):
+        """Adds the momentum impulse (ix, iy, iz) per unit density at (x, y, z).
+        Spread onto the 8 nearest samples of each staggered component with the
+        velocity-sampling (trilinear) weights, so sum(u) dx^3 rises by exactly
+        ix, and likewise for v and w. Density is 1, as in `MacFluid2`."""
+        var inv = 1 / (self.dx * self.dx * self.dx)
+        _spread3(self.u, self.n, self.dx, x, y, z, 0, 0.5, 0.5, ix * inv)
+        _spread3(self.v, self.n, self.dx, x, y, z, 0.5, 0, 0.5, iy * inv)
+        _spread3(self.w, self.n, self.dx, x, y, z, 0.5, 0.5, 0, iz * inv)
+
+    def momentum(self) -> Tuple[Real, Real, Real]:
+        """Total (sum u dx^3, sum v dx^3, sum w dx^3), accumulated in f64."""
+        var sx = Float64(0)
+        var sy = Float64(0)
+        var sz = Float64(0)
+        for c in range(self.cells()):
+            sx += Float64(self.u[c])
+            sy += Float64(self.v[c])
+            sz += Float64(self.w[c])
+        var s = Float64(self.dx) * Float64(self.dx) * Float64(self.dx)
+        return (Real(sx * s), Real(sy * s), Real(sz * s))
 
 
 struct Smoke3(Movable):

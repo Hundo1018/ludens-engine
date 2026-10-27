@@ -109,6 +109,7 @@ struct MacFluid2(Movable):
     var fix_momentum: Bool  # set by use_momentum_fix
     var momentum_booked: Real  # sum of |momentum corrections| applied (x and y)
     var flux_advect: Bool  # set by use_flux_advection
+    var flux_substeps: Int  # sub-steps taken by `_advect_flux`, summed
 
     def __init__(out self, n: Int, dx: Real, nu: Real) raises:
         if n < 4 or not (dx > 0) or not (nu >= 0):
@@ -126,6 +127,7 @@ struct MacFluid2(Movable):
         self.fix_momentum = False
         self.momentum_booked = 0
         self.flux_advect = False
+        self.flux_substeps = 0
 
     def use_momentum_fix(mut self):
         """Restore the total momentum after each advection (opt-in; off by
@@ -292,6 +294,7 @@ struct MacFluid2(Movable):
         if need > 1:
             sub = Int(ceil(need))
         var h = dt / Real(sub) / self.dx
+        self.flux_substeps += sub
         for _ in range(sub):
             self._flux_once(h)
 
