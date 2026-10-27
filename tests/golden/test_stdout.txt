@@ -1925,6 +1925,12 @@ after 0.4 s: mean tip shift +x  one-way 0.12034178  two-way 0.055488646
   16 strands over a box, 2 s: contacts 6088  particles inside 0  max stretch 0.07186234
   voxel velocity spread before 0.10576733  after interaction 0.074037135
 [PASS] strand_ext - 5 / 5 checks
+--- tests/test_strand_gas.mojo ---
+  exact reaction: worst |dp_gas + J| / max|J| = 3.6013039235254735e-06  (max |J| = 2.1538458895520307e-05 )
+  tip shift +x after 0.4 s: one-way 0.11878948  two-way 0.11795409
+  gas u downstream (0.23, 0.40) 0.3922618  beside (0.23, 0.10) 0.40107682
+  largest |z| of the strand 0.0
+[PASS] strand_gas - 6 / 6 checks
 --- tests/test_strand_rope_parity.mojo ---
 first mode T1 0.9441842 ;  rope 0.9637286 ;  strand ftl_damping 0.5 0.7913122  0.9 (default) 2.220425  1.0 -1.0
 [PASS] strand_rope_parity - 3 / 3 checks
