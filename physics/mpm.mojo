@@ -111,7 +111,8 @@ struct MpmSolver(Movable):
     var gvy: List[Real]
     var gvz: List[Real]
     # opt-in sand accounting (off by default): energy the return map removes,
-    # sum over particles of vol * (psi(F before) - psi(F after))
+    # sum over particles of vol * (psi(F before) - psi(F after)), psi the
+    # corotated energy of elastic_energy
     var measure_loss: Bool
     var sand_loss: Real
 
@@ -172,8 +173,9 @@ struct MpmSolver(Movable):
         self.obstacle_mu.append(mu)
 
     def elastic_energy(self, f: Mat3) -> Real:
-        """Hencky elastic energy of F, the one the return map projects against:
-        mu * sum(eps_i^2) + lam / 2 * (sum eps_i)^2 with eps_i = log sigma_i."""
+        """Fixed-corotated elastic energy of F, the one whose stress step_ext
+        scatters: mu * sum((sigma_i - 1)^2) + lam / 2 * (J - 1)^2, sigma_i the
+        singular values of F and J = det F."""
         var c = f.transpose() * f
         var cs = Mat3x3()
         for a in range(3):
@@ -181,12 +183,11 @@ struct MpmSolver(Movable):
                 cs.set(a, b, c.get(a, b))
         var ev = sym_eigen3(cs)
         var e0 = Real(0)
-        var e1 = Real(0)
         for k in range(3):
-            var eps = log(max(sqrt(max(ev[0][k], Real(0))), Real(1e-12)))
-            e0 += eps * eps
-            e1 += eps
-        return self.mu * e0 + 0.5 * self.lam * e1 * e1
+            var d = sqrt(max(ev[0][k], Real(0))) - 1
+            e0 += d * d
+        var j = det3(f) - 1
+        return self.mu * e0 + 0.5 * self.lam * j * j
 
     def _sand(self, f: Mat3) -> Mat3:
         """Drucker-Prager return mapping of F (Klar et al. 2016)."""

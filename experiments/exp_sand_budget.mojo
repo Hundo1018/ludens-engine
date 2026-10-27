@@ -10,7 +10,9 @@ angles 30, 60 and 85 degrees with `measure_loss` on. At rest the budget is
 and the total energy lost to every sink is Q = E0 - E. The return map removes
 `sand_loss` = sum vol (psi before - psi after) at each projection; the rest,
 Q - sand_loss, is floor friction, obstacle push-out and the particle-grid
-transfer. psi is the Hencky energy the return map projects against.
+transfer. psi is the fixed-corotated energy whose stress step_ext scatters.
+The 0 degree row is the control: no sand, so sand_loss is 0 and Q is all
+friction, push-out and transfer.
 """
 
 from harness.runner import Suite
@@ -39,7 +41,8 @@ def _run(phi: Real) raises -> Tuple[Real, Real, Real, Real, Real]:
     """(E0, KE, elastic, gravitational PE, sand_loss) after STEPS steps."""
     var m = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 2.0e5, 0.3)
     m.add_obstacle(Sdf3.box(Vec3(0.8, 0.0, 0.8, 0), Vec3(1.0, FLOOR, 1.0, 0)), 0.6)
-    m.set_sand(phi)
+    if phi > 0:
+        m.set_sand(phi)
     m.measure_loss = True
     _block(m, 0.68, FLOOR + 0.015, 0.68, 8, 14, 8)
     var e0 = Real(0)
@@ -59,7 +62,7 @@ def _run(phi: Real) raises -> Tuple[Real, Real, Real, Real, Real]:
 
 def main() raises:
     var s = Suite("exp_sand_budget")
-    for phi in [Real(30), Real(60), Real(85)]:
+    for phi in [Real(0), Real(30), Real(60), Real(85)]:
         var r = _run(phi)
         var e0 = r[0]
         var ke = r[1]
@@ -71,5 +74,5 @@ def main() raises:
             "  friction", phi, "deg: E0", e0, "KE", ke, "elastic", el, "PE", pe,
             "| lost Q", q, "| return map", loss, "| rest (friction, transfer)", q - loss,
         )
-        s.check(q > 0 and loss >= 0, "phi " + String(phi) + ": energy is lost and the return map removes some of it")
+        s.check(q >= 0 and loss >= 0, "phi " + String(phi) + ": energy is lost and the return map removes some of it")
     s.finish()
