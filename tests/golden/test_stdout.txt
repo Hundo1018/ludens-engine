@@ -705,6 +705,9 @@ checksum DLB 3039826071626799574  LBS 11624641202192189416
 --- tests/test_sph_boundary.mojo ---
   after 1 s: centre of mass, clamped 0.0029529782  boundary particles 0.02483603
 [PASS] sph_boundary - 6 / 6 checks
+--- tests/test_strand_contact_twist.mojo ---
+  worst clearance twisted 0.0  untwisted 0.0   tip gap 0.20092468   |z| twisted 0.13669322  untwisted 0.0
+[PASS] strand_contact_twist - 4 / 4 checks
 --- tests/test_strand_torsion.mojo ---
   curl tip |z| with twist 0.13767009   without 0.0
 [PASS] strand_torsion - 6 / 6 checks
