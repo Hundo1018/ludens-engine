@@ -26,6 +26,27 @@ Predictions, written before the run:
       rule (order-independent here, sequential in 2-D). The bound is restated
       as 0.25, and the printed number is the record.
 
+  P4. Reseeding every 20 steps (`reseed`, per band cell up to 8 particles,
+      deletion of particles deeper than the band on their own side) keeps the
+      volume within 1 % of the run without reseeding, and the z invariance at
+      the solver floor (1e-4 dx). Honest provenance: a scratch probe (not in the
+      tree) had already run this setup and showed the volume unchanged before
+      P4 was added here; the bounds (1 %, 1e-4 dx) were not fitted to it.
+
+Measured with the final code (24^3, the same setup): plain 0.0069 (cell
+count x dx^3), particles 0.0694, particles with reseeding every 20 steps
+0.0694. The continuous phi differs between the two particle runs by a
+maximum of 0.08 dx (sum 3181.2 against 3180.5), so reseeding acts, but the
+cell-count volume does not change.
+
+P3 gap, measured as a diagnostic (2026-10-27): the middle-plane count is 40 here and 48
+in 2-D at the same grid. Plain level sets agree (2-D 4 cells, 3-D mid plane 4 cells),
+so the level set itself matches. The gap is not the combination rule (2-D with the
+order-independent rule is still 48), and not the seed density (2-D with 8 seeds per
+cell gives 53, not 40). It is not attributed. The remaining candidates are the 3-D
+particle geometry: out-of-plane corrections and the 5 x 5 x 5 reach stencil, which the
+2-D code does not have.
+
 The 2-D overshoot and the lack of convergence are recorded in the 17.60 note;
 these bounds test the 3-D code's consistency with its own 2-D counterpart, not
 volume conservation.
@@ -71,7 +92,7 @@ def _set3(mut ls: LevelSetWater3, amp: Real):
                 ls.phi[(k * n + j) * n + i] = sqrt(x * x + y * y) - 0.15
 
 
-def _run3(with_particles: Bool) raises -> LevelSetWater3:
+def _run3(with_particles: Bool, reseed_every: Int = 0) raises -> LevelSetWater3:
     var dx = Real(1) / Real(N)
     var dt = Real(1) / Real(180)
     var ls = LevelSetWater3(N, dx, 0.0)
@@ -79,10 +100,12 @@ def _run3(with_particles: Bool) raises -> LevelSetWater3:
     var parts = LevelSetParticles3(dx)
     if with_particles:
         parts.seed(ls, 3.0)
-    for _ in range(180):
+    for step_i in range(180):
         ls.step(dt)
         if with_particles:
             parts.advect(ls, dt)
+            if reseed_every > 0 and (step_i + 1) % reseed_every == 0:
+                parts.reseed(ls, 3.0, 8)
             _ = parts.correct(ls)
     return ls^
 
@@ -144,4 +167,17 @@ def main() raises:
     var v0 = PI * 0.15 * 0.15 / (dx * dx)
     print("  middle plane liquid cells: 3-D", c3, " 2-D", c2, " initial", v0)
     s.check(abs(Real(c3) - Real(c2)) / v0 < 0.25, "P3 middle plane within 25 % of the 2-D particle run (initial-disk units)")
+
+    var br = _run3(True, 20)
+    var vb = br.volume()
+    print("  reseed every 20 steps: volume", vb, " no reseed", v_corr)
+    s.check(abs(vb - v_corr) / v_corr < 0.01, "P4 reseeding keeps the volume within 1 % of the run without it")
+    var dr = Real(0)
+    for k in range(N):
+        for j in range(N):
+            for i in range(N):
+                var d = abs(br.phi[(k * N + j) * N + i] - br.phi[(N // 2 * N + j) * N + i])
+                if d > dr:
+                    dr = d
+    s.check(dr / dx < 1e-4, "P4 reseeded run stays z-invariant (max |dphi| < 1e-4 dx)")
     s.finish()
