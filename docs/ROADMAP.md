@@ -2826,7 +2826,8 @@
 > **邊界**:傷害公式與數值屬 17.70;VFX / 貼花 / 音效以事件交宿主;網路命中登錄與延遲補償屬 17.16(本條只保證查詢可吃外部位姿);瞄準輔助與後座力的鏡頭效果屬 17.68;動畫選擇屬 17.64。
 
 #### 17.74 載具家族 — Wave C
-> **分流(2026-10-27)**:doable:水上舵升力(以 `HullBuoyancy` 同形的力元件加 CL(α);repo 內無舵實作);stale-done:陡坡、履帶、浮力 / 推進器 / 翼面、Gerstner 波面、機車 / 直升機 / 座位;deferred:轎車元件拆分、Runtime 擁有 Vehicle、地形壓痕、懸浮 / RCS 陣列;deferred(子代理未重 grep):快照軸陣列、17.85 分級。詳 `docs/design/stage-triage-2026-10-27.md`。
+> **進度註(2026-10-27,水上舵升力)**:`gameplay/watercraft.mojo` `Rudder[W]`:以 `Wing` 實作,流體密度 1000,弦沿船前向 (1,0,0),升力參考沿船側向 (0,0,1),偏角 d 於 x-z 面旋轉弦與法線。位於水面以下才受力;水流取 `water.velocity`。`tests/test_force_elements.mojo` rudder 段 5 項事前寫定的預測(寫於測試區塊註解)全部通過,force_elements 19/19。量測(0.3 m²、船速 3 m/s、中心在水面下 1 m):d = ±10° 的側向力為 ∓1480.44 N,與 q A 2π d = 1480.44 N 相符(相對誤差 < 1e-4);d = 0 為 0 N;船靜止為 0 N;中心在水面上為 0。符號:正偏角(後緣朝 +z)的側向力朝 −z,與板把流體轉向時的反作用一致。未做:舵與船體的交互(尾流遮蔽)、螺旋槳後流。
+> **分流(2026-10-27)**:done(本輪):水上舵升力(`gameplay/watercraft.mojo` `Rudder`);stale-done:陡坡、履帶、浮力 / 推進器 / 翼面、Gerstner 波面、機車 / 直升機 / 座位;deferred:轎車元件拆分、Runtime 擁有 Vehicle、地形壓痕、懸浮 / RCS 陣列;deferred(子代理未重 grep):快照軸陣列、17.85 分級。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:力元件骨架先行。`gameplay/force_element.mojo`:`ForceElement` trait(`apply(scene, id, t)` 累積力並回傳)與 `Thruster`;
 > `gameplay/watercraft.mojo` `HullBuoyancy[W: WaterSurface]`(凸殼以水面高度的水平面 `polytope_split` 精確切割 → 體積 + 形心 → 浮力;阻尼依浸沒量;
 > 平面殼 raise);`gameplay/aircraft.mojo` `Wing`(攻角取自弦 – 法向平面內的相對風,CL = 2πα 至失速、平板 sin 2α / 2 sin²α,其間線性混合;±π 有限)。

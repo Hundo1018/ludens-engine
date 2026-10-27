@@ -45,7 +45,7 @@
 | Runtime 擁有 Vehicle | deferred | `gameplay/runtime.mojo` 內 Vehicle 0 命中 | 宿主要求經 Runtime 步進載具 |
 | 地形壓痕 | deferred | `gameplay/` 內壓痕 / deform 0 命中 | 17.30 地形變形消費者 |
 | 解析 Gerstner 波面 | stale-done | `physics/water.mojo:57` `GerstnerWave`、`:66` `GerstnerWater(WaterSurface)`;`tests/test_force_elements.mojo:27` 匯入 `GerstnerWater` | — |
-| 水上舵升力 | doable | `watercraft.mojo:26` `HullBuoyancy[W: WaterSurface]` 只含浮力;`gameplay/watercraft.mojo`、`physics/water.mojo` 內 rudder / 舵 0 命中 | 以 `Thruster` 同形的力元件加舵升力 CL(α),測試:舵角 0 無側力、舵角 ±10° 側力符號正確 |
+| 水上舵升力 | done(本輪) | 原:`watercraft.mojo:26` `HullBuoyancy` 只含浮力,rudder 0 命中。現:`gameplay/watercraft.mojo` `Rudder[W]`(`Wing` 於水密度);`tests/test_force_elements.mojo` rudder 段 19/19 | 舵角 0 側力 0;±10° 側力各 1480.44 N,與 q·A·2π·δ 相符 |
 | 懸浮 / RCS 陣列、操縱面、噴射推力、地面效應 | deferred | `hover` 僅見註解,無 RCS 配置器 | 規劃中的氣墊船或太空消費者 |
 | 狀態入快照、VehicleInput 軸陣列、多軸卡車、軌道車、零件脫落、17.85 分級 | deferred | ROADMAP:2838 列為未做;**子代理未重新 grep** | 各自的消費者 |
 
@@ -148,7 +148,7 @@
 
 ## 計數(上方 17.70 / 17.74 / 17.76 / 17.78 / 17.83 / 17.86 共 38 列,不含 17.19 / 17.58 / 17.61 / 17.63)
 
-- 38 列:stale-done 16、deferred 12、doable 1(17.74 舵升力)、env-blocked 5、GPU 1、unverified 1、done(本輪)2(17.76 wasm 切分、17.83 注入等級)。
+- 38 列:stale-done 16、deferred 12、doable 0、env-blocked 5、GPU 1、unverified 1、done(本輪)3(17.74 水上舵升力、17.76 wasm 切分、17.83 注入等級)。
 - 本輪勘誤(2026-10-27,作者複核後):17.74 Gerstner 波面(`physics/water.mojo:57` `GerstnerWave`)與 17.83 精確計數斷言(`tests/test_work_counters.mojo`)原被子代理標 doable,實際已存在;改為 stale-done。17.83 合成注入等級(commit 2c5bc9c)與 17.76 wasm 切分檢查(commit f0c2134)已於本輪完成。
 - 17.74 的「軸陣列 / 快照 / 17.85 分級」子代理以 ROADMAP 文字標為 deferred,未重新 grep;列為待複核。
 
@@ -158,7 +158,7 @@
 
 ## 結論
 
-- 階段目標未完成。doable 項目(依表):17.74 舵升力(1 列,作者未重跑);17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重測;17.61 固體遮罩、股線 / 布料 ↔ Smoke2、糊狀剪應力;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 12 列,其中 11 列來自子代理回報。
+- 階段目標未完成。doable 項目(依表):17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重測;17.61 固體遮罩、股線 / 布料 ↔ Smoke2、糊狀剪應力;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 11 列,皆來自子代理回報(17.74 舵升力已於本輪完成)。
 - 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。
