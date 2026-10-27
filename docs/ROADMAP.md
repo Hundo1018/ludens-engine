@@ -2943,6 +2943,7 @@
 
 #### 17.70 規則框架 — Wave C
 > **進度註(2026-10-27,`oop` 對照的 parity)**:`oop/rules_oop.mojo` 以物件擁有效果實作 `gameplay/rules.mojo` 的 buff 與週期傷害子集(`OopCharacter.advance` / `speed`,同一定點與 tick 順序)。`tests/test_rules_oop.mojo` 4/4:500 角色、同一負載(+20 % 速度 300 tick、每 30 tick 10 點傷害 300 tick、共 400 tick):兩邊在 tick 150 速度皆為 6.000、tick 301 皆為 5.000,血量皆於 0 並死亡,逐欄位 0 不一致。子集不含 tag、堆疊模式、抗性與護盾。**未做**:計時比較(測試不計時,報告中也沒有這對的 bench 列,故不作效能主張)與 (a) 元件化至 `ecs/` 的變體。
+> **進度註(2026-10-27,`oop` 對照的計時)**:`benchmarks/bench_rules_oop.mojo`(報告列於 `BENCHMARK_REPORT.md`「Rules paradigm」)只計 400 tick 迴圈,同一 buff + DoT 負載,ns 每 actor-tick,同一次執行內兩者交替。N = 1000:rules 10.1–16.3 ns、OOP 10.9–20.8 ns(四次執行重疊,無可分勝負)。N = 10000:rules 17.8–25.1 ns、OOP 11.5–14.1 ns,四次執行中 rules 皆慢(約 1.3–2 倍)。**原因未診斷**(推測:`Actor` 內 `List` 的指標追逐與每 tick 的 `step` 掃描,未以 icount / profile 驗證);本條不宣稱 SoA 較快或較慢。報告的快取列來自 2.10 GHz 主機,本次重跑的表頭為 2.80 GHz,兩組列不可跨列比較。
 > **進度註(2026-10-13)**:`gameplay/rules.mojo`:`Attributes`(定點 1/1000 整數、加 / 乘(千分比和)/ 覆寫(最高優先序)、夾限、三種求值器
 > `EVAL_FULL` / `EVAL_INCREMENTAL` / `EVAL_DIRTY`)、`TagRegistry`(階層名稱駐留、父 tag 位元一併設定、≤ 64 個)、`EffectDef` / `Rules`(瞬發 / 持續 / 無限 / 週期,
 > `STACK_REFRESH` / `STACK_COUNT`,授予 tag、免疫 tag 擋下,冷卻 = 授予自身擋 tag 的效果)、傷害管線(抗性 → 護盾 → 生命、死亡回報一次)、`actor_to_bytes` / `actor_from_bytes`

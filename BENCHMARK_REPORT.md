@@ -8,7 +8,7 @@ performance-competitive. Timings are wall-clock ns via `perf_counter_ns`
 with `keep()` guarding against dead-code elimination; absolute numbers are
 machine-specific, so read the *relative* columns.
 
-Host: CPU "Intel(R) Xeon(R) Processor @ 2.10GHz", 4 logical cores, accelerator none detected (generated 2026-10-26 by scripts/run_benchmarks.sh). Absolute numbers and the parallel-scaling curves depend on these; rows from a host with a different fingerprint are not comparable.
+Host: CPU "Intel(R) Xeon(R) Processor @ 2.80GHz", 4 logical cores, accelerator none detected (generated 2026-10-27 by scripts/run_benchmarks.sh). Absolute numbers and the parallel-scaling curves depend on these; rows from a host with a different fingerprint are not comparable.
 
 
 ## Engine implementations — movement workload
@@ -5078,6 +5078,22 @@ less than the dirty cache.
 | full K=256, 10 % changed per tick | 1000 | read | 1607.13 | 0.62 | 128.57 |
 | incremental K=256, 10 % changed per tick | 1000 | read | 76.73 | 13.03 | 6.14 |
 | dirty K=256, 10 % changed per tick | 1000 | read | 60.65 | 16.49 | 4.85 |
+
+
+
+Object-oriented baseline for the buff and damage-over-time subset (17.70 (b)).
+`oop/rules_oop.mojo` owns its effects per object; `gameplay/rules.mojo` keeps
+them in the actor. Same workload, same tick count, parity in
+`test_rules_oop`. Rows: cost per actor-tick, timing the tick loop only.
+
+### Rules paradigm: buff + DoT, 400 ticks, data-oriented vs object-oriented (17.70)
+
+| variant | N | op | ns/op | Mops/s | total ms |
+|---|---:|---|---:|---:|---:|
+| rules (data-oriented) N=1000 | 1000 | actor-tick | 10.14 | 98.61 | 4.06 |
+| oop (object-oriented) N=1000 | 1000 | actor-tick | 11.02 | 90.75 | 4.41 |
+| rules (data-oriented) N=10000 | 10000 | actor-tick | 18.90 | 52.90 | 75.62 |
+| oop (object-oriented) N=10000 | 10000 | actor-tick | 11.75 | 85.13 | 46.99 |
 
 
 ## Gameplay — flow, objectives, inventory (17.72)

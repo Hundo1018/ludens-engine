@@ -2413,6 +2413,13 @@ scans the modifier list for overrides on every read, which is why it gains
 less than the dirty cache.
 
 @bench benchmarks/bench_rules.mojo
+
+Object-oriented baseline for the buff and damage-over-time subset (17.70 (b)).
+`oop/rules_oop.mojo` owns its effects per object; `gameplay/rules.mojo` keeps
+them in the actor. Same workload, same tick count, parity in
+`test_rules_oop`. Rows: cost per actor-tick, timing the tick loop only.
+
+@bench benchmarks/bench_rules_oop.mojo
 ## Gameplay — flow, objectives, inventory (17.72)
 
 `gameplay/flow.mojo` (state stack deciding what ticks; typed world flags
