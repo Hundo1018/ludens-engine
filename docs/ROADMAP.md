@@ -304,7 +304,7 @@
 > **歷史**:原「現況」寫「`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接」。其中焊接(weld)後來由 17.5 交付(見上)。
 
 #### 17.19 生產級 solver 硬化
-> **分流(2026-10-27)**:doable:負載相依接觸剛度、會計熱點;refuted(本輪):睡眠堆疊零衝量(d)(見下方進度註 2026-10-27);stale-done:`max_mass_ratio` 暴露於 `step_soft`、力報告失真(A2)、六箱上限;unverified:事件讀原始衝量(a)、關節扭矩(b)、body 14 振盪、網格逐三角 SAT;deferred:預設開啟、支撐圖分割(c);GPU:anchor / substep。詳 `docs/design/stage-triage-2026-10-27.md`。
+> **分流(2026-10-27)**:doable:負載相依接觸剛度、會計熱點;stale-done:睡眠堆疊零衝量(d)(原子句不成立,持有負載由 `hold_jn` 處理,見下方進度註 2026-10-27);stale-done:`max_mass_ratio` 暴露於 `step_soft`、力報告失真(A2)、六箱上限;unverified:事件讀原始衝量(a)、關節扭矩(b)、body 14 振盪、網格逐三角 SAT;deferred:預設開啟、支撐圖分割(c);GPU:anchor / substep。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-27,睡眠堆疊零衝量不成立)**:以 `ContactScene6` 測 1000 kg 箱在 1 kg 箱上(地板靜止、預設 `SolverConfig`、600 步、DT 1/60):箱於第 150 步進入睡眠(`bset.sleeping`),睡眠中地板讀數 8408.548 N;同場景關閉睡眠(lin/ang tol 0)為 8408.463 N。兩者差 0.09 N,睡眠沒有把接觸衝量歸零,讀數是睡眠前最後一次的累積量。地板讀數比真值 9809.8 N 低 14 %,來自預設路徑的質量比縮放(17.19 A2 的 opt-in 修正);`max_mass_ratio = 10` 讀數 9813.0 N(0.03 %)。`test_stress_solver.mojo` 的 `lin_sleep_tol = 0` 因此不是迴避睡眠缺陷。預設路徑是否開啟 A2 修正會改動所有 golden,交 advisor 決定。
 
 > **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試 `test_stress_solver` 15/15 ✅ 2026-10-24)
