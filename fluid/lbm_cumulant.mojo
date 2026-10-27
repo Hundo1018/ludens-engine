@@ -13,13 +13,20 @@ second order relaxed at rate 1).
   2. the second-order moments are the second-order cumulants: shear
      (xy, xz, yz and xx - yy, xx - zz) relax at `omega` = 1 / (3 nu + 1/2),
      the trace at `omega_b` toward 3 rho cs^2 = rho;
-  3. every higher cumulant is set to zero, the Gaussian closure: the
-     central moments of odd order vanish and the even ones follow from the
-     post-collision second moments S = m / rho by Wick's rule, e.g.
+  3. the third-order cumulants (the seven central moments m_abc with
+     a + b + c = 3 and a, b, c <= 2) relax at `omega3` toward zero:
+     m' = (1 - omega3) m. `omega3` = 1 (the default) is full relaxation,
+     which is what the Gaussian closure gives. Every higher cumulant is set
+     to zero: the even ones follow from the post-collision second moments
+     S = m / rho by Wick's rule, e.g.
      m220 = rho (Sxx Syy + 2 Sxy^2),
      m211 = rho (Sxx Syz + 2 Sxy Sxz),
      m222 = rho (Sxx Syy Szz + 2 Sxx Syz^2 + 2 Syy Sxz^2 + 2 Szz Sxy^2
-                 + 8 Sxy Syz Sxz);
+                 + 8 Sxy Syz Sxz).
+     The three cumulants with an exponent 3 (m300, m030, m003) are not
+     slots of this basis: along one axis the third raw moment equals the
+     first (c^3 = c), so they are functions of the second-order slots and
+     the density, and are set by the closure.
   4. the three transforms run backwards, then the populations stream.
 
 Galilean invariance: the lattice has no third central moment (c^3 = c
@@ -107,6 +114,7 @@ struct Lbm27(Movable):
     var omega_b: Real
     var smagorinsky: Real  # Smagorinsky constant for the shear rate (0 = off; 0.1-0.2 is usual)
     var galilean: Real  # strength of the Galilean correction of the diagonal relaxation (0 = off)
+    var omega3: Real  # relaxation rate of the third-order cumulants (1 = Gaussian closure)
     var wall_z: Bool  # half-way bounce-back walls on the z = -1/2 and z = n - 1/2 planes (BGK path)
     var fx: Real  # uniform body force (Guo forcing, `collide_bgk` only)
     var fy: Real
@@ -121,6 +129,7 @@ struct Lbm27(Movable):
         self.omega = 1 / (3 * nu + Real(0.5))
         self.omega_b = 1
         self.galilean = 1
+        self.omega3 = 1
         self.smagorinsky = 0
         self.wall_z = False
         self.fx = 0
@@ -261,8 +270,26 @@ struct Lbm27(Movable):
             var sxy = mxy / rho
             var sxz = mxz / rho
             var syz = myz / rho
+            # third-order cumulants relax at omega3 toward zero; omega3 = 1 writes
+            # the literal zero, so the default path is the Gaussian closure bit for bit
+            var keep = 1 - self.omega3
+            var o5 = a[5]
+            var o7 = a[7]
+            var o11 = a[11]
+            var o13 = a[13]
+            var o15 = a[15]
+            var o19 = a[19]
+            var o21 = a[21]
             for i in range(27):
                 a[i] = 0
+            if keep != 0:
+                a[5] = keep * o5
+                a[7] = keep * o7
+                a[11] = keep * o11
+                a[13] = keep * o13
+                a[15] = keep * o15
+                a[19] = keep * o19
+                a[21] = keep * o21
             a[0] = rho
             a[2] = mxx
             a[6] = myy
