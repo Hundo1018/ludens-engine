@@ -161,6 +161,9 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
     var mass_ratio: Real
     var cscale: List[Real]
     var any_contact_model: Bool
+    # ROADMAP 17.19 opt-in: a pair's softness frequency is scaled by sqrt of its
+    # mass ratio, so the soft-contact sag (M g / (m_eff w^2)) stays load-independent
+    var load_stiffness: Bool
     var free: List[Int]
 
     def __init__(out self):
@@ -205,6 +208,7 @@ struct BodySet[B: Body6](Movable, Deinitable, Sized):
         self.mass_ratio = 0
         self.cscale = List[Real]()
         self.any_contact_model = False
+        self.load_stiffness = False
         self.free = List[Int]()
 
     def __len__(self) -> Int:

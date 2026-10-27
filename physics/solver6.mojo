@@ -905,6 +905,14 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         self.bset.contact_zeta[i] = zeta
         self.bset.any_contact_model = True
 
+    def set_load_stiffness(mut self, on: Bool):
+        """ROADMAP 17.19 (opt-in, default off): scale each pair's softness
+        frequency by sqrt(heavier mass / lighter mass), for pairs whose bodies
+        have `set_contact_softness`. Off: bit-identical to before."""
+        self.bset.load_stiffness = on
+        if on:
+            self.bset.any_contact_model = True
+
     def set_adhesion(mut self, i: Int, force: Real) raises:
         """ROADMAP 17.50: body `i`'s contacts may pull as well as push, up to
         `force` newtons per pair (spread over its points), while the

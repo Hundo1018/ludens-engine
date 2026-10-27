@@ -313,6 +313,18 @@
 > **歷史**:原「現況」寫「`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接」。其中焊接(weld)後來由 17.5 交付(見上)。
 
 #### 17.19 生產級 solver 硬化
+> **進度註(2026-10-27,負載相依接觸剛度,opt-in,負面結果)**:`ContactScene6.set_load_stiffness`(預設關)把一對接觸的軟度頻率乘上 √(較重 / 較輕質量比)(以 `inv_mass` 計),
+> 只作用於兩體皆有 `set_contact_softness` 的對。`experiments/exp_load_stiffness.mojo`:輕箱 1 kg 承重 M kg,地板靜態,兩體 60 Hz、ζ 1,5 s,重疊 = 最大之 |0.25 − y_輕| 與 |Δy − 0.5|。
+>
+> | 質量比 | 旗標關 (m) | 旗標開 (m) |
+> |---|---|---|
+> | 1:100 | 0.00081 | 0.00080 |
+> | 1:1000 | 0.00081 | 0.00181 |
+> | 1:10000 | 0.00081 | 0.00361 |
+>
+> 結論:每體軟度(17.50)在 60 Hz 下已使重疊與質量比無關(0.8 mm),17.19 所說的 1:1000 壓扁是全域 cfg.hertz 的情形,不是每體軟度的情形。
+> 依 √質量比 縮放的「負載相依剛度」反而讓重疊隨質量比增加(1.8 → 3.6 mm)。依規定記為負面結果:旗標保留為 opt-in、預設關(逐位不變),不調參。
+> 閘門:本項以上表為量測依據;`tests/test_solver_stress.mojo` 的 1:1000 case 仍以全域 hertz 斷言其限制。
 > **進度註(2026-10-27,會計熱點剖析,N ≈ 4096)**:`experiments/exp_solver_hotspot.mojo`(side 45,4050 動態體,20 步,`step_soft(broadphase=True)`),
 > 以 `valgrind --tool=callgrind`(基準 `--target-cpu x86-64`;skylake 的 AVX 指令 valgrind 3.22 無法解碼)量得 8.88e9 指令,每步約 4.4e8。
 > 含入(inclusive)占比:`solve_contact` 79.2 %;BVH `_build` 21.9 %;BVH `_query` 18.6 %;`_collect_pairs` 13.5 %;`warm_start_contacts` 4.1 %。

@@ -159,7 +159,7 @@
 
 ## 結論
 
-- 階段目標未完成。doable 項目(依表):17.19 負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重建與重測;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 7 列(17.74 舵升力、17.61 糊狀剪應力、17.61 固體遮罩、17.61 股線 / 布料 ↔ Smoke2 已完成;17.19 睡眠堆疊零衝量於本輪重測後不成立)。
+- 階段目標完成(2026-10-27)。doable 列 0。各列結果:17.19 會計熱點 → 已剖析(ROADMAP 17.19,接觸求解 79 %、BVH 建樹 22 %);17.19 負載相依剛度 → 已量測,負面結果(ROADMAP 17.19,旗標 opt-in 預設關);17.58 沙 30° 耗散 → 已量測(ROADMAP 17.58 能量帳);17.58 Tampubolon 重建與重測 → 已實作 opt-in 並量測,混合結果(ROADMAP 17.58);17.63 zlib 讀回、主動 tile、Alembic 讀回 → 已交付(`tests/test_vdb_zip.mojo` 14/14、`test_blosc` 4/4、`test_abc_file` 14/14)。GPU / UI / env-blocked 不計入,見 ROADMAP 第 7 層區段。
 - 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。

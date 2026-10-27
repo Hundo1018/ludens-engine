@@ -732,7 +732,13 @@ def solve_contact[B: Body6](
             var use_a = ha > 0 and (hb <= 0 or ha <= hb)
             var hz = ha if use_a else hb
             var zt = bset.contact_zeta[pr.a] if use_a else bset.contact_zeta[pr.b]
-            var om = Real(6.283185307179586) * hz
+            var om_scale = Real(1)
+            if bset.load_stiffness:
+                var ia = bset.bodies[pr.a].inv_mass()
+                var ib = bset.bodies[pr.b].inv_mass()
+                if ia > 0 and ib > 0:
+                    om_scale = sqrt(max(ia, ib) / min(ia, ib))  # heavier / lighter mass
+            var om = Real(6.283185307179586) * hz * om_scale
             var cc = h * om * (2 * zt + h * om)
             p_bias = om / (2 * zt + h * om)
             p_ms = cc / (1 + cc)
