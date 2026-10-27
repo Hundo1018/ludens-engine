@@ -145,6 +145,12 @@ lattice: 50 / 50  ring: 12
   double shear layer, nu 1e-4: BGK survives 472 steps, cumulant 1960 (of 3000)
   with Cs 0.05: energy ratio BGK 4.852474e+21 (diverged unless in (0, 1]) cumulant 0.866166 ; Cs 0.1: BGK 0.74198866 cumulant 0.8371647
 [PASS] lbm_cumulant - 11 / 11 checks
+--- tests/test_lbm_omega3.mojo ---
+  nu 0.02  ratio omega3 = 0.5 / 1 / 1.5: 0.85425294 0.8540428 0.85397345   continuum: 0.8570898
+  nu 0.05  ratio omega3 = 0.5 / 1 / 1.5: 0.67870283 0.67768914 0.67734843   continuum: 0.6800891
+  max |du| between omega3 = 0.5 and 1 after 200 steps: 1.0471791e-05
+  worst |ratio / continuum - 1| at omega3 = 1: 0.0035550594   worst omega3 spread: 0.0014958382
+[PASS] lbm_omega3 - 5 / 5 checks
 --- tests/test_lbm_force.mojo ---
   still fluid force: 2.2351742e-08 2.30968e-07 4.61936e-07
   sphere in tunnel — Fx 0.17174578  Fy -1.9092113e-08  Fz -1.8635765e-07
