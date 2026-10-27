@@ -5081,19 +5081,19 @@ less than the dirty cache.
 
 
 
-Object-oriented baseline for the buff and damage-over-time subset (17.70 (b)).
+Object baseline for the buff and damage-over-time subset (17.70 (b)).
 `oop/rules_oop.mojo` owns its effects per object; `gameplay/rules.mojo` keeps
 them in the actor. Same workload, same tick count, parity in
 `test_rules_oop`. Rows: cost per actor-tick, timing the tick loop only.
 
-### Rules paradigm: buff + DoT, 400 ticks, data-oriented vs object-oriented (17.70)
+### Rules layout: buff + DoT, 400 ticks, value struct vs object (17.70 (b))
 
 | variant | N | op | ns/op | Mops/s | total ms |
 |---|---:|---|---:|---:|---:|
-| rules (data-oriented) N=1000 | 1000 | actor-tick | 10.14 | 98.61 | 4.06 |
-| oop (object-oriented) N=1000 | 1000 | actor-tick | 11.02 | 90.75 | 4.41 |
-| rules (data-oriented) N=10000 | 10000 | actor-tick | 18.90 | 52.90 | 75.62 |
-| oop (object-oriented) N=10000 | 10000 | actor-tick | 11.75 | 85.13 | 46.99 |
+| rules (value struct) N=1000 | 1000 | actor-tick | 10.03 | 99.74 | 4.01 |
+| oop (object) N=1000 | 1000 | actor-tick | 10.82 | 92.40 | 4.33 |
+| rules (value struct) N=10000 | 10000 | actor-tick | 18.25 | 54.81 | 72.98 |
+| oop (object) N=10000 | 10000 | actor-tick | 11.64 | 85.88 | 46.58 |
 
 
 ## Gameplay — flow, objectives, inventory (17.72)

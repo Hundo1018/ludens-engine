@@ -1,5 +1,5 @@
-"""Rules paradigm comparison (ROADMAP 17.70 (b)): data-oriented `gameplay/rules.mojo`
-against the object-oriented baseline `oop/rules_oop.mojo`, on the subset both
+"""Rules timing comparison (ROADMAP 17.70 (b)): value-struct `gameplay/rules.mojo`
+against the object baseline `oop/rules_oop.mojo`, on the subset both
 implement (a +20 % speed buff and a 10-per-30-tick damage effect, 300 ticks,
 400 ticks in all). Parity of the two is in `tests/test_rules_oop.mojo`; this
 file only times them.
@@ -63,9 +63,9 @@ def run_oop(n: Int) -> Int:
 
 
 def main() raises:
-    var t = BenchTable("Rules paradigm: buff + DoT, 400 ticks, data-oriented vs object-oriented (17.70)")
+    var t = BenchTable("Rules layout: buff + DoT, 400 ticks, value struct vs object (17.70 (b))")
     for n in [1000, 10000]:
         var ops = n * TICKS
-        t.add("rules (data-oriented) N=" + String(n), n, "actor-tick", run_rules(n), ops)
-        t.add("oop (object-oriented) N=" + String(n), n, "actor-tick", run_oop(n), ops)
+        t.add("rules (value struct) N=" + String(n), n, "actor-tick", run_rules(n), ops)
+        t.add("oop (object) N=" + String(n), n, "actor-tick", run_oop(n), ops)
     t.print_report()

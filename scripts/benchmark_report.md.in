@@ -2414,7 +2414,7 @@ less than the dirty cache.
 
 @bench benchmarks/bench_rules.mojo
 
-Object-oriented baseline for the buff and damage-over-time subset (17.70 (b)).
+Object baseline for the buff and damage-over-time subset (17.70 (b)).
 `oop/rules_oop.mojo` owns its effects per object; `gameplay/rules.mojo` keeps
 them in the actor. Same workload, same tick count, parity in
 `test_rules_oop`. Rows: cost per actor-tick, timing the tick loop only.
