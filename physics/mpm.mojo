@@ -115,6 +115,9 @@ struct MpmSolver(Movable):
     # corotated energy of elastic_energy
     var measure_loss: Bool
     var sand_loss: Real
+    # Tampubolon volume correction (opt-in, default off): per-particle vc
+    var volume_correction: Bool
+    var sand_vc: List[Real]
 
     def __init__(out self, lo: Vec3, dx: Real, n: Int, young: Real, poisson: Real):
         self.p = List[MpmParticle]()
@@ -137,6 +140,8 @@ struct MpmSolver(Movable):
         self.gvz = List[Real]()
         self.measure_loss = False
         self.sand_loss = 0
+        self.volume_correction = False
+        self.sand_vc = List[Real]()
         var cells = n * n * n
         for _ in range(cells):
             self.gm.append(0)
@@ -151,6 +156,7 @@ struct MpmSolver(Movable):
         self.p.append(
             MpmParticle(pos, Vec3(0, 0, 0, 0), Mat3.identity(), Mat3(), vol, mass, 1)
         )
+        self.sand_vc.append(0)
 
     def set_plastic(mut self, j_min: Real, j_max: Real):
         self.j_min = j_min
@@ -189,8 +195,11 @@ struct MpmSolver(Movable):
         var j = det3(f) - 1
         return self.mu * e0 + 0.5 * self.lam * j * j
 
-    def _sand(self, f: Mat3) -> Mat3:
-        """Drucker-Prager return mapping of F (Klar et al. 2016)."""
+    def _sand(self, f: Mat3, vc: Real) -> Tuple[Mat3, Real]:
+        """Drucker-Prager return mapping of F (Klar et al. 2016). With
+        `volume_correction`, the volume term vc (Tampubolon et al. 2017, eq. 26
+        and 27) joins the trial strain, so a particle that expanded and was
+        projected to the tip can compress again. Returns F and the new vc."""
         var r = polar_rotation(f)
         var sm = r.transpose() * f
         var s3 = Mat3x3()
@@ -200,6 +209,8 @@ struct MpmSolver(Movable):
         var ev = sym_eigen3(s3)
         var sig = ev[0]
         var eps = Vec3(log(max(sig[0], Real(1e-6))), log(max(sig[1], Real(1e-6))), log(max(sig[2], Real(1e-6))), 0)
+        var shift = vc / 3 if self.volume_correction else Real(0)
+        eps = eps + Vec3(shift, shift, shift, 0)
         var tr = eps[0] + eps[1] + eps[2]
         var newsig: Vec3
         if tr >= 0:
@@ -209,9 +220,14 @@ struct MpmSolver(Movable):
             var dn = length(dev)
             var dgamma = dn + (3 * self.lam + 2 * self.mu) / (2 * self.mu) * tr * self.dp_alpha
             if dgamma <= 0 or dn < 1e-12:
-                return f
+                return (f, vc)
             var h = eps - dev * (dgamma / dn)
             newsig = Vec3(exp(h[0]), exp(h[1]), exp(h[2]), 0)
+        # eq. 26: vc gains the log-volume the projection removed from the trial
+        var new_vc = Real(0)
+        if self.volume_correction:
+            var logj_out = log(newsig[0]) + log(newsig[1]) + log(newsig[2])
+            new_vc = vc + logj_out - tr
         # F = U diag(sigma) V^T with U = R V
         var v = ev[1]
         var out = Mat3()
@@ -221,7 +237,7 @@ struct MpmSolver(Movable):
                 for k in range(3):
                     acc += v.get(a, k) * newsig[k] * v.get(b, k)
                 out.set(a, b, acc)
-        return r * out
+        return (r * out, new_vc)
 
     def _obstacle(mut self, i: Int, j: Int, k: Int, idx: Int):
         """Separate a grid node's velocity from every obstacle it is inside or
@@ -809,13 +825,17 @@ struct MpmSolver(Movable):
                                 q.f.set(a, b, q.f.get(a, b) * sc)
             self.p[pi] = q
         if self.dp_alpha > 0:
+            while len(self.sand_vc) < len(self.p):
+                self.sand_vc.append(0)
             for pi in range(len(self.p)):
+                var before = Real(0)
                 if self.measure_loss:
-                    var before = self.elastic_energy(self.p[pi].f)
-                    self.p[pi].f = self._sand(self.p[pi].f)
-                    self.sand_loss += self.p[pi].vol * (before - self.elastic_energy(self.p[pi].f))
-                else:
-                    self.p[pi].f = self._sand(self.p[pi].f)
+                    before = self.elastic_energy(self.p[pi].f)
+                var res = self._sand(self.p[pi].f, self.sand_vc[pi])
+                if self.measure_loss:
+                    self.sand_loss += self.p[pi].vol * (before - self.elastic_energy(res[0]))
+                self.p[pi].f = res[0]
+                self.sand_vc[pi] = res[1]
         if len(self.obstacles) > 0:
             for pi in range(len(self.p)):
                 self._push_out(pi)
