@@ -1864,6 +1864,11 @@ after 0.4 s: mean tip shift +x  one-way 0.12034178  two-way 0.055488646
   two-way: air momentum change x -0.010494236  air impulse -0.010492964  strand impulse 0.010492964
   air vx downstream of the brush 0.0684434  beside it 0.38641784   one-way air momentum change 7.4505806e-08
 [PASS] strand_air - 7 / 7 checks
+--- tests/test_strand_air_twist.mojo ---
+  x shift  twisted 0.10694914  untwisted 0.009018339
+  air impulse |I|  twisted 0.0029600863  untwisted 0.0027364907   momentum error (rel) 0.00043131097 0.00043407158   impulse error (rel) 0.0 0.0
+  tip gap 0.18928373   |z - z_root| twisted 0.13785334  untwisted 0.0
+[PASS] strand_air_twist - 5 / 5 checks
 --- tests/test_strand_ext.mojo ---
   guide blend 0.5 / 0.5, tip [0.29999998, -2.0, 0.1, 0.0]  (mean offset (0.3, -2, 0.1))
   16 strands over a box, 2 s: contacts 6088  particles inside 0  max stretch 0.07186234
