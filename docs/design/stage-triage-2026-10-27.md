@@ -98,7 +98,7 @@
 | `step_soft` 暴露 `max_mass_ratio` | stale-done | `physics/solver6.mojo:2614`;`tests/test_stress_solver.mojo:59` | — |
 | 開啟縮放時的力報告失真(A2) | stale-done | `physics/solver6.mojo:2636` `_own_excess`;`physics/contact6.mojo:107`;`tests/test_stress_solver.mojo:67` | — |
 | 「穩定堆疊只驗證到 6 箱」(現況) | stale-done | `tests/test_stress_solver.mojo:126` tower、`:219` 十箱斷言、`:23` 64 箱堆 | — |
-| 睡眠堆疊回報零接觸衝量(d) | doable | `physics/contact6.mojo:492` `accumulate_step_impulse`;測試以 `lin_sleep_tol = 0` 迴避(`test_stress_solver.mojo:74`) | 新增兩箱堆疊地板讀數約 9820 N 的測試(睡眠開啟),修前應失敗 |
+| 睡眠堆疊回報零接觸衝量(d) | refuted(本輪) | 重測(scratchpad `sleep_probe.mojo`,1000 kg 箱在 1 kg 箱上,600 步):睡眠於第 150 步成立;睡眠中的地板讀數 8408.548 N 與未睡眠時(sleep_off)8408.463 N 相同,不為零。原子句的零衝量未出現。地板讀數偏低 14 %(真值 9809.8 N)來自預設路徑的質量比縮放,與睡眠無關;opt-in `max_mass_ratio = 10` 讀數 9813.0 N(0.03 %) | 不再列為 doable。預設路徑是否改為開啟 A2 修正,屬設計決定,交 advisor |
 | 負載相依接觸剛度與質量分配 | doable | `physics/body_set.mojo:152` 只有逐物體 hertz,無負載項 | 以 `tests/test_stress_solver.mojo` 的 0.5 m 重箱穿透案例作為閘門 |
 | 會計熱點(coloring、逐幀 BVH、CCD 全配對) | doable | ROADMAP:375;BVH 移動後重建 `physics/solver6.mojo:1833` | 以既有 bench 於 N=4096 做剖析,一次只改一個熱點 |
 | 凸殼振盪(body 14,解除睡眠後) | unverified | 只有 ROADMAP:316 的重現描述,未找到測試 | — |
@@ -158,7 +158,7 @@
 
 ## 結論
 
-- 階段目標未完成。doable 項目(依表):17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重建與重測;17.61 股線 / 布料 ↔ Smoke2;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 9 列(17.74 舵升力、17.61 糊狀剪應力、17.61 固體遮罩已完成)。
+- 階段目標未完成。doable 項目(依表):17.19 負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重建與重測;17.61 股線 / 布料 ↔ Smoke2;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 8 列(17.74 舵升力、17.61 糊狀剪應力、17.61 固體遮罩已完成;17.19 睡眠堆疊零衝量於本輪重測後不成立)。
 - 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。
