@@ -110,6 +110,10 @@ struct MpmSolver(Movable):
     var gvx: List[Real]
     var gvy: List[Real]
     var gvz: List[Real]
+    # opt-in sand accounting (off by default): energy the return map removes,
+    # sum over particles of vol * (psi(F before) - psi(F after))
+    var measure_loss: Bool
+    var sand_loss: Real
 
     def __init__(out self, lo: Vec3, dx: Real, n: Int, young: Real, poisson: Real):
         self.p = List[MpmParticle]()
@@ -130,6 +134,8 @@ struct MpmSolver(Movable):
         self.gvx = List[Real]()
         self.gvy = List[Real]()
         self.gvz = List[Real]()
+        self.measure_loss = False
+        self.sand_loss = 0
         var cells = n * n * n
         for _ in range(cells):
             self.gm.append(0)
@@ -164,6 +170,23 @@ struct MpmSolver(Movable):
             raise Error("MpmSolver.add_obstacle: mu must be >= 0")
         self.obstacles.append(sdf)
         self.obstacle_mu.append(mu)
+
+    def elastic_energy(self, f: Mat3) -> Real:
+        """Hencky elastic energy of F, the one the return map projects against:
+        mu * sum(eps_i^2) + lam / 2 * (sum eps_i)^2 with eps_i = log sigma_i."""
+        var c = f.transpose() * f
+        var cs = Mat3x3()
+        for a in range(3):
+            for b in range(3):
+                cs.set(a, b, c.get(a, b))
+        var ev = sym_eigen3(cs)
+        var e0 = Real(0)
+        var e1 = Real(0)
+        for k in range(3):
+            var eps = log(max(sqrt(max(ev[0][k], Real(0))), Real(1e-12)))
+            e0 += eps * eps
+            e1 += eps
+        return self.mu * e0 + 0.5 * self.lam * e1 * e1
 
     def _sand(self, f: Mat3) -> Mat3:
         """Drucker-Prager return mapping of F (Klar et al. 2016)."""
@@ -786,7 +809,12 @@ struct MpmSolver(Movable):
             self.p[pi] = q
         if self.dp_alpha > 0:
             for pi in range(len(self.p)):
-                self.p[pi].f = self._sand(self.p[pi].f)
+                if self.measure_loss:
+                    var before = self.elastic_energy(self.p[pi].f)
+                    self.p[pi].f = self._sand(self.p[pi].f)
+                    self.sand_loss += self.p[pi].vol * (before - self.elastic_energy(self.p[pi].f))
+                else:
+                    self.p[pi].f = self._sand(self.p[pi].f)
         if len(self.obstacles) > 0:
             for pi in range(len(self.p)):
                 self._push_out(pi)
