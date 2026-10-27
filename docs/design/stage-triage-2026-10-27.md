@@ -64,7 +64,7 @@
 |---|---|---|---|
 | linux-aarch64 / osx-arm64 實測、ARM/macOS golden、跨架構 dump 比對 | env-blocked | `.github/workflows/ci.yml:59-67` 已有 ubuntu-24.04-arm 與 macos-14 矩陣;`tests/golden/` 僅有 `test_stdout.txt`,無分平台 golden | 需要 ARM / macOS 執行環境;若 CI 已跑,記錄其結果(未查) |
 | 跨目標容差表、降級矩陣 | stale-done | ROADMAP:3801-3805(2026-10-17) | — |
-| wasm 核心 / 殼切分的機器檢查 | doable | `scripts/wasm_probe.py:1-10` 只涵蓋葉核心;ROADMAP:3751-3752 說明無切分檢查 | 在 `wasm_probe --selftest` 加入「純核心 import 掃描」規則 |
+| wasm 核心 / 殼切分的機器檢查 | done(本輪,commit f0c2134) | `scripts/wasm_probe.py` `SHELL` / `shell_reach`;selftest 6/6;注入 `embed.capi` 的核心檔被報 VIOLATION | — |
 | wasm64 / 含指標模組 | env-blocked | 需要外部 llc;Modular LLVM 無 wasm 後端 | — |
 | AMD / Apple GPU 路徑 | GPU | ROADMAP:3744-3745 | 需要 AMD / Apple 加速器 |
 
@@ -83,7 +83,7 @@
 | 比較工具(依雜訊判定、指紋不符拒絕) | stale-done | `scripts/perf.py:172` compare_runs;selftest 於 perf.py:335 | — |
 | 漸近斜率閘門、影格預算表、報告治理、bisect、交錯 A/B | stale-done | `perf.py:202` fit_slope、`:249` check_budgets;`scripts/perf_slopes.toml`;`scripts/perf_budgets.json`;`scripts/bench_fresh.py` | — |
 | (a) 工作量計數器精確斷言 | stale-done | `diag/counters.mojo:171-175` 計數器;`tests/test_work_counters.mojo`(integration):`sc.counters.get(NARROWPHASE_PAIRS / CONTACT_MANIFOLDS / CONTACT_POINTS)` 精確斷言,N=1、N=4^k、無動態體 | — |
-| 注入 +5 / +10 / +25 % 偵測率 | stale-done(2026-10-27 本輪完成) | `scripts/perf.py` selftest 20 / 20;+10 %、+25 % 被判回歸,+5 % 不被判(3 % 雜訊下的量測邊界,以斷言固定) | 無(後續:CI 未執行 perf selftest) |
+| 注入 +5 / +10 / +25 % 偵測率 | done(本輪,commit 2c5bc9c) | `scripts/perf.py` selftest 20 / 20;+10 %、+25 % 被判回歸,+5 % 不被判(3 % 雜訊下的量測邊界,以斷言固定) | 無(後續:CI 未執行 perf selftest) |
 | (b) cachegrind 指令數代理 | unverified | `scripts/icount.py` 存在;未執行 | — |
 | (c) 每步配置次數 | deferred | tests/、scripts/、diag/ 內 AllocStats / dhat 0 命中 | 宿主或 CI 需要配置次數閘門 |
 | 基準線檔入 repo | env-blocked | repo 內無基準線;4 核容器無法產生固定主機基準 | 固定主機 |
@@ -146,14 +146,19 @@
 
 子代理回報的列數:stale-done 8、doable 11、unverified 5、deferred 7、GPU 1、env-blocked 1(共 33 列,部分列合併多個子句)。
 
-## 計數(上方 42 列,不含 17.19 / 17.58 / 17.61 / 17.63)
+## 計數(上方 17.70 / 17.74 / 17.76 / 17.78 / 17.83 / 17.86 共 38 列,不含 17.19 / 17.58 / 17.61 / 17.63)
 
-- stale-done 14、deferred 13、doable 4、env-blocked 5、GPU 1、unverified 1。
-- 本輪勘誤(2026-10-27,作者複核後):17.74 Gerstner 波面與 17.83 精確計數斷言原被標 doable,實際已存在(分別為 `physics/water.mojo:66` 與 `tests/test_work_counters.mojo`);改為 stale-done。17.83 合成注入等級與 17.76 wasm 切分檢查已於本輪完成。
-- 17.74 的「軸陣列 / 快照 / 17.85 分級」以 ROADMAP 文字標為 deferred,未重新 grep。
+- 38 列:stale-done 16、deferred 12、doable 1(17.74 舵升力)、env-blocked 5、GPU 1、unverified 1、done(本輪)2(17.76 wasm 切分、17.83 注入等級)。
+- 本輪勘誤(2026-10-27,作者複核後):17.74 Gerstner 波面(`physics/water.mojo:57` `GerstnerWave`)與 17.83 精確計數斷言(`tests/test_work_counters.mojo`)原被子代理標 doable,實際已存在;改為 stale-done。17.83 合成注入等級(commit 2c5bc9c)與 17.76 wasm 切分檢查(commit f0c2134)已於本輪完成。
+- 17.74 的「軸陣列 / 快照 / 17.85 分級」子代理以 ROADMAP 文字標為 deferred,未重新 grep;列為待複核。
+
+## 17.19 / 17.58 / 17.61 / 17.63 的計數(子代理回報,未逐列重跑)
+
+- 33 列:stale-done 8、doable 11、unverified 5、deferred 7、GPU 1、env-blocked 1(部分列合併多個子句)。
 
 ## 結論
 
-- 階段目標未完成:doable 項目存在(上列 4 項,加上 17.19 / 17.58 / 17.61 / 17.63 中子代理回報的 11 項待複核)。
+- 階段目標未完成。doable 項目(依表):17.74 舵升力(1 列,作者未重跑);17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重測;17.61 固體遮罩、股線 / 布料 ↔ Smoke2、糊狀剪應力;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 12 列,其中 11 列來自子代理回報。
+- 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。

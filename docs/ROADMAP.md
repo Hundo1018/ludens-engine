@@ -304,6 +304,7 @@
 > **歷史**:原「現況」寫「`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接」。其中焊接(weld)後來由 17.5 交付(見上)。
 
 #### 17.19 生產級 solver 硬化
+> **分流(2026-10-27)**:doable:睡眠堆疊零衝量(d)、負載相依接觸剛度、會計熱點;stale-done:`max_mass_ratio` 暴露於 `step_soft`、力報告失真(A2)、六箱上限;unverified:事件讀原始衝量(a)、關節扭矩(b)、body 14 振盪、網格逐三角 SAT;deferred:預設開啟、支撐圖分割(c);GPU:anchor / substep。詳 `docs/design/stage-triage-2026-10-27.md`。
 
 > **狀態**:🔶 部分完成(Wave B 持續工項;F22 第一批 ✅ 2026-09-29;滾動球錨點缺陷 ✅ 2026-10-13;靜止堆疊週期性踢動 ✅ 2026-10-13;壓力測試 `test_stress_solver` 15/15 ✅ 2026-10-24)
 > **進度註(2026-10-26,持有負載的存檔 17.19 (5))**:`ContactConstraint` 的 `hold_jn` / `hold_jf` / `hold_span` / `hold_excess` / `hold_excess_up` 隨快取序列化,snapshot format 6(`physics/serialize.mojo` `_VERSION = 6`)。載入後的休眠 pair 繼續回報靜止負載,不再歸零。
@@ -1532,6 +1533,7 @@
 > (對 OpenSim 資料)是 benchmark 軸,不是臨床宣稱;完整物理角色屬 17.66。
 
 #### 17.86 扭轉股線整合 — Wave C
+> **分流(2026-10-27)**:stale-done:StrandSet 扭轉、螺旋 / plectoneme 量測、球 / 盒 / 空氣耦合;deferred:Rope 扭轉整合、frame-reading 接觸 / 空氣模型、Greenhill 離散校正 B / C、`rod_from_strand` 鏈條 parity(量測為不等價)。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **來源**:17.57 收尾時的殘項(原為 17.57 的「未做」,17.41 已 ✅ 不再接收)。
 > **缺口**:(1)`CosseratRod` 的扭轉與 `StrandSet` / `Rope` 的整合,現為三個獨立型別;(2)扭轉驅動的螺旋 / plectoneme 屈曲量測(無量測即無結論);(3)與流體 / 接觸的耦合。
 > **邊界**:屈曲的解析對照與接觸耦合各需獨立設計筆記;本條只做 (1) 與 (2) 的最小可量測版本。
@@ -1551,6 +1553,7 @@
 > **進度註(2026-10-27,item (3) 的空氣部分)**:`tests/test_strand_air_twist.mojo`(integration,5/5):同一 12 點曲股在 `StrandAir` 的兩向耦合風場(0.4 m/s,600 步)中,根扭轉 0.7 對未扭轉。**偏移量 bend 改為 0.05**(首次執行用預設 1.0 失敗,並以兩個基準錯誤(根部位置、絕對 z)修正;見測試標頭的執行紀錄)。量測:扭轉曲股 x 位移 0.107 m、未扭轉 9 mm;空氣衝量 2.96e-3 與 2.74e-3 N·s(非零,耦合確實作用);動量誤差 4.3e-4(相對);衝量相反誤差 0.0;扭轉尖端離未扭轉者 0.189 m,|z − z_根| 0.138 m 對 0。**附帶發現**:bend 1.0 與 0.2 時形狀目標抵消風的位移(未扭轉 x 位移 −7e-9 與 −2.5 mm),bend 0 則扭轉無作用(無彎曲目標),故 0.05 是唯一能同時使風作用且扭轉有效的掃描值。17.86 item (3) 至此:球、盒、空氣三種耦合皆已量測。
 
 #### 17.58 體積軟體 — Wave C
+> **分流(2026-10-27)**:doable:沙 30° 砂柱 G2P 耗散、Tampubolon 體積修正 30 / 60 / 85° 重測;deferred:黏彈、XPBD 變體、域壁 μ 與 skin;stale-done:projective dynamics、neo-Hookean、四面體網格。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:本構模型 seam 先行。`physics/fem_material.mojo`:`Material` trait(`pk1(F, mu, lam)`,編譯期選擇)與三個實作
 > `Corotational`(與 `FemBody.elastic_forces` 逐位相同)/ `StableNeoHookean`(Smith 2018 去 log 項:λ_s = λ + μ、α = 1 + μ/λ_s,P = μF + λ_s(J − α) cof F,
 > 反轉時仍有定義)/ `StVK`;`material_forces[M]`、`step_material[M]`(與 `FemBody.step` 共用新拆出的 `FemBody.integrate`)、`inverted_count`。
@@ -2003,6 +2006,7 @@
 > 具體機制屬 17.59。
 
 #### 17.61 多物理 — Wave C
+> **分流(2026-10-27)**:doable:`MacFluid2` 固體格遮罩、股線 / 布料 ↔ Smoke2 雙向、糊狀顆粒剪應力乘 (1 − φ);unverified:氣體容器壁、布料+空氣 2.8 % 動量缺口、多相假流;deferred:火 / 燃燒;stale-done:3-D 點源。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:熱場先行。`physics/thermal.mojo`:`HeatGrid`(7 點有限差分、外表面絕熱、`fix` Dirichlet、dt ≤ dx²/(6α) 否則 raise)、
 > `HeatTets`(`FemBody` 四面體上的線性元素、集中熱容、靜止形梯度的傳導矩陣、建構時算 Gershgorin 步長上限)、`expand`(依四節點均溫縮放各四面體的靜止形與體積);
 > 溫度 ≤ 0 K、非有限值或 > `T_MAX`(1e5 K)在設定時 raise(1e9 K 的策略,2026-10-21);`HeatGrid.step` 遇到非有限的格子時以鄰格有限值的平均重設、計入 `HeatGrid.isolated`,不讓 NaN 擴散。`tests/test_thermal_guard.mojo` 10/10,既有 thermal 測試不變。量測(`tests/test_thermal.mojo` 7/7):α = 1e-5、端點 400 K、10 s 後:格網對 erf 解 0.014 K、300 個四面體 0.025 K、兩者互差 0.016 K;
@@ -2131,6 +2135,7 @@
 > 渲染 / 網格輸出屬 17.63。
 
 #### 17.63 輸出 / 快取 — Wave C(資產管線提供者)
+> **分流(2026-10-27)**:doable:讀回自寫 `.vdb`(zlib inflate)、主動 tile 讀取、Alembic 讀回;env-blocked:NanoVDB(需參考檔與規格);unverified:大小 vs 重算取捨;deferred:點數變化時強制 keyframe;stale-done:sim cache、Alembic / VDB 寫入。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:點快取先行。`physics/sim_cache.mojo`:`PointCacheWriter`(量化到 2·err、關鍵幀存 zig-zag varint、差分幀存整數差 → 無漂移;
 > 點數變動強制關鍵幀;含非有限值的幀與 err = 0 存原始 f32,NaN 保留)、`PointCacheReader`(魔數 "LDPC"、版本 1、幀偏移表、FNV-1a 64 校驗;
 > 截斷 / 校驗不符 / 未知版本 / 錯誤魔數 / 偏移越界一律 raise)、`CachePlayer`(17.55 `ContinuumSolver` 實作,建構時解碼全部幀驗證)。
@@ -2821,6 +2826,7 @@
 > **邊界**:傷害公式與數值屬 17.70;VFX / 貼花 / 音效以事件交宿主;網路命中登錄與延遲補償屬 17.16(本條只保證查詢可吃外部位姿);瞄準輔助與後座力的鏡頭效果屬 17.68;動畫選擇屬 17.64。
 
 #### 17.74 載具家族 — Wave C
+> **分流(2026-10-27)**:doable:水上舵升力(以 `HullBuoyancy` 同形的力元件加 CL(α);repo 內無舵實作);stale-done:陡坡、履帶、浮力 / 推進器 / 翼面、Gerstner 波面、機車 / 直升機 / 座位;deferred:轎車元件拆分、Runtime 擁有 Vehicle、地形壓痕、懸浮 / RCS 陣列;deferred(子代理未重 grep):快照軸陣列、17.85 分級。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:力元件骨架先行。`gameplay/force_element.mojo`:`ForceElement` trait(`apply(scene, id, t)` 累積力並回傳)與 `Thruster`;
 > `gameplay/watercraft.mojo` `HullBuoyancy[W: WaterSurface]`(凸殼以水面高度的水平面 `polytope_split` 精確切割 → 體積 + 形心 → 浮力;阻尼依浸沒量;
 > 平面殼 raise);`gameplay/aircraft.mojo` `Wing`(攻角取自弦 – 法向平面內的相對風,CL = 2πα 至失速、平板 sin 2α / 2 sin²α,其間線性混合;±π 有限)。
@@ -2960,6 +2966,7 @@
 > **歷史**:原標「部分 gated」—— 傳輸層 / 線路格式綁定平台整合(同 13.9 / 17.12);原缺口列有「lockstep 傳輸層」與「跨平台決定論(不同編譯器 / 架構 —— 目前只保證同工具鏈,16 章鎖版本是半個答案)」。2026-10-09 決定後兩者改為交宿主 / 不做。
 
 #### 17.70 規則框架 — Wave C
+> **分流(2026-10-27)**:stale-done:元件化子集(`rules_ecs`)、oop 對 rules 計時比較;deferred:完整框架元件化、Runtime 擁有 Rules。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-27,`oop` 對照的 parity)**:`oop/rules_oop.mojo` 以物件擁有效果實作 `gameplay/rules.mojo` 的 buff 與週期傷害子集(`OopCharacter.advance` / `speed`,同一定點與 tick 順序)。`tests/test_rules_oop.mojo` 4/4:500 角色、同一負載(+20 % 速度 300 tick、每 30 tick 10 點傷害 300 tick、共 400 tick):兩邊在 tick 150 速度皆為 6.000、tick 301 皆為 5.000,血量皆於 0 並死亡,逐欄位 0 不一致。子集不含 tag、堆疊模式、抗性與護盾。**未做**:計時比較(測試不計時,報告中也沒有這對的 bench 列,故不作效能主張)與 (a) 元件化至 `ecs/` 的變體。
 > **進度註(2026-10-27,`oop` 對照的計時)**:`benchmarks/bench_rules_oop.mojo`(報告列於 `BENCHMARK_REPORT.md`「Rules layout」)只計 400 tick 迴圈,同一 buff + DoT 負載,ns 每 actor-tick,同一次執行內兩者交替。N = 1000:rules 10.1–16.3 ns、OOP 10.9–20.8 ns(四次執行重疊,無可分勝負)。N = 10000:rules 17.8–25.1 ns、OOP 11.5–14.1 ns,四次執行中 rules 皆慢(約 1.3–2 倍)。**原因未診斷**(推測:`Actor` 內 `List` 的指標追逐與每 tick 的 `step` 掃描,未以 icount / profile 驗證);本條不宣稱 SoA 較快或較慢。報告的快取列來自 2.10 GHz 主機,本次重跑的表頭為 2.80 GHz,兩組列不可跨列比較。
 > **進度註(2026-10-27,計時差異的診斷)**:`scripts/rules_icount.py` 以 cachegrind(`benchmarks/probes/rules_oop_probe.mojo`,同一負載,TICKS=400 減 TICKS=0 得 tick 迴圈成本)與牆鐘掃描檢驗。預測寫在 probe 標頭。結果(每 actor-tick):Ir rules 87–89、OOP 113–114(P1 成立:rules 指令數較少);D1mr rules 2.3、OOP 1.7,不隨 N 變(P2 不成立:比值 1.36,非 ≥ 2x);LL 強制 1 MiB 時 DLmr:rules 0.03 / 0.06 / 0.79 / 2.08(N = 1000 / 2000 / 5000 / 10000),OOP 0.00 / 0.02 / 0.00 / 1.50。牆鐘(最小值 5 次,ns):rules 9.6 / 11.5 / 23.1 / 17.9 / 22.7,OOP 9.9 / 14.4 / 11.0 / 12.4 / 11.7(N = 1000 / 2000 / 5000 / 10000 / 20000)。**結論**:指令數不能解釋 N ≥ 5000 的差距;rules 的 LL 失誤在 N = 2000–5000 之間開始(與牆鐘交叉點吻合),OOP 要到 N ≈ 10000 才開始。這支持「佔用面積(footprint)」解讀,但未直接證實:模擬的 1 MiB LL 不是實測硬體,rules 的 actor 大小(約 3 MB 對 0.6 MB)是估計值、未量測。OOP 在 N = 2000 的 14.4 ns 為單次離群值,未查證。報告的計時標籤由「data-oriented / object-oriented」改為「value struct / object」:兩者都是 AoS,SoA 比較屬於 (a)。
@@ -3731,6 +3738,7 @@
 > tick 週期與逐 island 品質屬 17.85(`TieredScheduler`),本條只提供它可掛的派發器。
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
+> **分流(2026-10-27)**:done:wasm 核心 / 殼切分檢查(f0c2134);env-blocked:ARM / macOS 實測與分平台 golden、wasm64(需外部 llc);GPU:AMD / Apple 路徑;stale-done:跨目標容差表與降級矩陣。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣 2026-10-17 ✅;剩 ARM / macOS golden 與跨架構 dump 比對)。
 > - **2026-10-27 進度(wasm 核心 / 殼切分)**:`scripts/wasm_probe.py` 增加切分檢查:每個 kernel 的引擎匯入閉包不得抵達 `embed` / `harness` / `oop` / `benchmarks` / `examples` / `experiments`。selftest 6 / 6(含注入的兩層殼匯入);樹上三個 `tools/wasm` kernel 無違規;注入 `kernel_inject_probe` 匯入 `embed.capi` 時回報 `embed.capi`。此為靜態匯入掃描,不取代 llc 路徑的實測。
 > **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
@@ -3813,6 +3821,7 @@
 > - **待辦**:ARM / macOS golden 記錄並轉為阻擋式檢查;以 CI 印出的 aarch64 / macOS dump 執行 `--compare`(取代逐位元組 `write_state` 比對:兩架構 FMA 縮併不同,位元組必然不同,改以容差表比對)。
 
 #### 17.78 宿主整合 / 綁定 — Wave C
+> **分流(2026-10-27)**:env-blocked:Godot / Unity 實機適配層;stale-done:批量 SoA 交換、POD 事件緩衝、宿主元件與查詢、綁定產生。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **狀態**:🔶 部分完成(2026-10-13:批量姿態寫入、診斷計數器經 C 讀出、宿主定義元件、跨語言的逐物件 vs 批量量測 ✅;2026-10-17:宿主對映(layer、user 值)、
 > 多實例與執行緒契約、綁定產生(Rust)✅;2026-10-18:C 邊界的單位轉換、C# 綁定、宿主元件進查詢與存檔 ✅;剩 Godot / Unity 實機適配(需要宿主引擎,依本條計畫列發行檢查單、不入 CI))。
 > **進度註(2026-10-18)**:C-ABI 0.5:`ld_world_set_unit_scale(w, per_meter)`(`EmbedWorld.set_unit_scale`:以與上次值的比例套 `UnitScale`,可連續呼叫;設定、不入存檔),
@@ -4042,6 +4051,7 @@
 >   1e6 元素的 `List` 與刻意洩漏的 64 個 4 KiB 區塊都不改變 valgrind 的堆積統計(兩者皆 499 allocs),乾淨報告不構成證據,故不加 memcheck 閘門。
 
 #### 17.83 效能治理 — Wave A(工程)
+> **分流(2026-10-27)**:done:注入等級 +5 / +10 / +25 %(2c5bc9c);stale-done:比較工具、斜率閘門、預算表、精確計數斷言(`tests/test_work_counters.mojo`);unverified:cachegrind 指令數代理(`scripts/icount.py` 未執行);deferred:每步配置次數;env-blocked:基準線檔、夜間牆鐘閘門。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **狀態**:🔶 部分完成(2026-10-13:機器可讀輸出、比較工具、確定性計數器閘門、斜率閘門、影格預算表、報告治理、bisect 判定器、交錯 A/B harness ✅;cachegrind 指令數探針 ✅;夜間牆鐘閘門需固定主機)。
 > **現況**:
 > - 基準規模:`benchmarks/bench_*.mojo` 共 79 支,皆已登記於 `scripts/benchmark_report.md.in`(79 條 `@bench`;逐一核對無缺漏),報告 `BENCHMARK_REPORT.md` 4026 行。
