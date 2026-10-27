@@ -140,7 +140,7 @@
 | 大小 vs 重算取捨 | unverified | ROADMAP:2136 僅量測描述;bench 未查 | — |
 | NanoVDB | env-blocked | 無程式碼(`geometry/sparse_volume.mojo:18` 僅註解);需要參考 `.nvdb` 與規格 | 取得參考檔與規格 |
 | 讀回 `.vdb` 的 blosc 壓縮;讀外部 VDB SDF | doable | zip 讀回已完成(`tests/test_vdb_zip.mojo` 7/7,`geometry/inflate.mojo` 14/14;ROADMAP 17.63 進度註 2026-10-27);`geometry/vdb_file.mojo` `vdb_grid` 仍拒絕 blosc(位元 4);OpenVDB 13 預設寫 blosc(`zip_default.vdb` 壓縮字 6) | 實作 blosc 區塊解碼;以 OpenVDB 寫出的 blosc 檔驗證;讀外部 SDF 另列 |
-| 主動 tile 讀取 | doable | `geometry/vdb_file.mojo:427` raise | 於 `vdb_grid` 把 tile 展開為體素;以含 tile 的檔案測試 |
+| 主動 tile 讀取 | done | 8³ tile(16³ 節點的值遮罩)與 128³ tile(32³ 節點的值遮罩)於 `vdb_grid` 展開為體素;根層 tile 仍拒絕 | `tests/test_vdb_zip.mojo` 7/7:四個檔各含 (64,16,16) 的 8³ tile 與 (0,128,0) 的 128³ tile,計 2 098 622 個活躍體素,tile 體素逐一核對 |
 | Alembic 讀回 | doable | `geometry/abc_file.mojo` 只有寫入 `_Ogawa`;read / parse / decode / load 0 命中 | 加入讀取器;`tests/test_abc_file.mojo` 往返自身輸出 |
 | 點數變化時的強制 keyframe | deferred | `physics/sim_cache.mojo:206`;ROADMAP:2164 | 點快取場景的點數會變(拓撲已改走 Alembic) |
 

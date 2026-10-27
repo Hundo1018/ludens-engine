@@ -3,8 +3,10 @@
 // project environment. usage: zipwrite_fixtures <dir>
 //
 // Same grid four ways: smooth values with compression 0 (raw), 1 (zip),
-// 3 (zip | active mask), and hashed noise values with 1 (zip). Coordinates are
-// non-negative; the value formulas are repeated in the Mojo test.
+// 3 (zip | active mask), and hashed noise values with 1 (zip). Each grid also
+// holds one active 8^3 tile (level 1) at (64,16,16) with value 2.5 and one
+// active 128^3 tile (level 2) at (0,128,0) with value 1.5. Coordinates
+// are non-negative; the value formulas are repeated in the Mojo test.
 #include <openvdb/openvdb.h>
 #include <cstdint>
 #include <iostream>
@@ -35,6 +37,10 @@ static void write(const std::string& path, uint32_t mask, bool use_noise)
                         acc.setValueOn(openvdb::Coord(i, j, k),
                             use_noise ? noise(i, j, k) : smooth(i, j, k));
     }
+    // an active 8^3 tile outside the balls, in the same 128^3 block as the first
+    g->tree().addTile(1, openvdb::Coord(64, 16, 16), 2.5f, true);
+    // an active 128^3 tile (level 2) in a block with no balls
+    g->tree().addTile(2, openvdb::Coord(0, 128, 0), 1.5f, true);
     openvdb::io::File f(path);
     f.setCompression(mask);
     openvdb::GridPtrVec grids;

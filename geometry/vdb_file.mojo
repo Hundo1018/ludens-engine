@@ -485,9 +485,10 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
     `SparseVolume`: what `vdb_bytes` writes, and any FloatGrid in the 5-4-3
     configuration stored raw or zip-compressed (with or without the active
     mask) and without half floats. Raises on a wrong magic or version,
-    another grid type or transform, blosc compression, active tiles (a
-    constant region SparseVolume cannot hold), offsets that do not match the
-    stream, and truncation. Inactive values read as the background (a level
+    another grid type or transform, blosc compression, root-level tiles (not
+    implemented), offsets that do not match the
+    stream, and truncation. Active tiles below the root (8^3 and 128^3) are
+    expanded to their voxels. Inactive values read as the background (a level
     set's inside value is lost)."""
     var at = 0
     if _rd_u64(d, at) != 0x56444220:
@@ -546,8 +547,11 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
     # topology: collect the leaf origins and value masks in stream order
     var lo = List[Int]()  # x, y, z per leaf
     var lmasks = List[List[Bool]]()
-    var none32 = List[Bool](length=32768, fill=False)
-    var none16 = List[Bool](length=4096, fill=False)
+    # active tiles: a 128^3 tile (value mask of a root child's 32^3 node) or an
+    # 8^3 tile (value mask of a 128^3 node), expanded to voxels after the leaves
+    var act_at = List[Int]()  # x, y, z of each tile's origin, three per tile
+    var act_side = List[Int]()
+    var act_val = List[Float32]()
     for _ in range(kids):
         var tx = _rd_i32(d, at)
         var ty = _rd_i32(d, at)
@@ -555,9 +559,16 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
         var cm = _rd_mask(d, at, 32768)
         var vm = _rd_mask(d, at, 32768)
         for k in range(32768):
+            if vm[k] and cm[k]:
+                raise Error("vdb_grid: a node is both a child and a tile")
+        var tv = _rd_values(d, at, 32768, vm, mc, zp, bg)
+        for k in range(32768):
             if vm[k]:
-                raise Error("vdb_grid: active tiles are not supported")
-        _ = _rd_values(d, at, 32768, none32, mc, zp, bg)
+                act_at.append(tx + (((k >> 10) & 31) << 7))
+                act_at.append(ty + (((k >> 5) & 31) << 7))
+                act_at.append(tz + ((k & 31) << 7))
+                act_side.append(128)
+                act_val.append(tv[k])
         for k in range(32768):
             if not cm[k]:
                 continue
@@ -567,9 +578,16 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
             var cm2 = _rd_mask(d, at, 4096)
             var vm2 = _rd_mask(d, at, 4096)
             for q in range(4096):
+                if vm2[q] and cm2[q]:
+                    raise Error("vdb_grid: a node is both a child and a tile")
+            var tv2 = _rd_values(d, at, 4096, vm2, mc, zp, bg)
+            for q in range(4096):
                 if vm2[q]:
-                    raise Error("vdb_grid: active tiles are not supported")
-            _ = _rd_values(d, at, 4096, none16, mc, zp, bg)
+                    act_at.append(mx + (((q >> 8) & 15) << 3))
+                    act_at.append(my + (((q >> 4) & 15) << 3))
+                    act_at.append(mz + ((q & 15) << 3))
+                    act_side.append(8)
+                    act_val.append(tv2[q])
             for q in range(4096):
                 if not cm2[q]:
                     continue
@@ -588,6 +606,16 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
         for o in range(512):
             if m[o]:
                 vol.set(lo[3 * li] + (o >> 6), lo[3 * li + 1] + ((o >> 3) & 7), lo[3 * li + 2] + (o & 7), Real(vals[o]))
+    # active tiles: a constant cube of voxels, expanded to the voxels it covers
+    for t in range(len(act_side)):
+        var side = act_side[t]
+        var ox = act_at[3 * t]
+        var oy = act_at[3 * t + 1]
+        var oz = act_at[3 * t + 2]
+        for x in range(side):
+            for y in range(side):
+                for z in range(side):
+                    vol.set(ox + x, oy + y, oz + z, Real(act_val[t]))
     if at != end_pos:
         raise Error("vdb_grid: buffers do not end at the end offset")
     return VdbGrid(name^, voxel_size, vol^)
