@@ -127,7 +127,7 @@
 | 3-D 點源(未做) | stale-done | `physics/mac_fluid3.mojo:480` `add_impulse`;`tests/test_fluid3_point.mojo:60` | — |
 | 固體不阻擋 MacFluid2 面 | doable | `physics/mac_fluid.mojo` 內 solid / obstacle / mask 0 命中 | 面更新加入固體格遮罩;32² 網格中放一個方塊的測試 |
 | 股線 / 布料 ↔ Smoke2 雙向 | doable | `physics/strand_air.mojo`、`cloth_air.mojo` 內 Smoke2 / MacFluid2 0 命中(兩者皆用 `Lbm`) | 以 `MacFluid2.add_impulse`(`physics/mac_fluid.mojo:183`)為 −J,做 1 股線探針 |
-| 糊狀顆粒保持固體;剪應力未按 φ 縮放 | doable | `physics/mpm_melt.mojo:24` docstring「Mushy particles stay solid」 | 逐顆粒剪應力乘以 (1 − φ);於 `tests/test_mpm_melt.mojo` 測試 |
+| 糊狀顆粒保持固體;剪應力未按 φ 縮放 | done(本輪) | commit 61382d8:`MpmParticle.shear` = 1 − φ,`step_ext` 只縮放偏差應力;`tests/test_mpm_melt.mojo` 11/11(section 5,相對誤差 1.4e-7) | 已完成;`test_mpm` golden 數字漂移未定,見 ROADMAP 17.61 進度註 |
 | 氣體容器壁;布料+空氣 2.8 % 動量缺口;多相假流 | unverified | ROADMAP:2014、2021、2025;`physics/multiphase.mojo:23-27` 有壁 | — |
 | 火 / 燃燒(浮力驅動) | deferred | `physics/thermal.mojo:32` 僅註解 | 火場景(17.61 邊界:化學不在範圍) |
 
@@ -154,11 +154,11 @@
 
 ## 17.19 / 17.58 / 17.61 / 17.63 的計數(子代理回報,未逐列重跑)
 
-- 33 列:stale-done 8、doable 11、unverified 5、deferred 7、GPU 1、env-blocked 1(部分列合併多個子句)。
+- 33 列:stale-done 8、doable 10、unverified 5、deferred 7、GPU 1、env-blocked 1(部分列合併多個子句)。doable 由 11 減為 10:17.61 糊狀剪應力已於 61382d8 完成(本表 done(本輪))。
 
 ## 結論
 
-- 階段目標未完成。doable 項目(依表):17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重測;17.61 固體遮罩、股線 / 布料 ↔ Smoke2、糊狀剪應力;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 11 列,皆來自子代理回報(17.74 舵升力已於本輪完成)。
+- 階段目標未完成。doable 項目(依表):17.19 睡眠堆疊零衝量、負載相依剛度、會計熱點;17.58 沙 30° 耗散、Tampubolon 重測;17.61 固體遮罩、股線 / 布料 ↔ Smoke2;17.63 zlib 讀回、主動 tile、Alembic 讀回。共 10 列,皆來自子代理回報(17.74 舵升力與 17.61 糊狀剪應力已於本輪完成)。
 - 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。

@@ -2006,7 +2006,8 @@
 > 具體機制屬 17.59。
 
 #### 17.61 多物理 — Wave C
-> **分流(2026-10-27)**:doable:`MacFluid2` 固體格遮罩、股線 / 布料 ↔ Smoke2 雙向、糊狀顆粒剪應力乘 (1 − φ);unverified:氣體容器壁、布料+空氣 2.8 % 動量缺口、多相假流;deferred:火 / 燃燒;stale-done:3-D 點源。詳 `docs/design/stage-triage-2026-10-27.md`。
+> **分流(2026-10-27)**:doable:`MacFluid2` 固體格遮罩、股線 / 布料 ↔ Smoke2 雙向;done(本輪):糊狀顆粒剪應力乘 (1 − φ)(見下方進度註 2026-10-27);unverified:氣體容器壁、布料+空氣 2.8 % 動量缺口、多相假流;deferred:火 / 燃燒;stale-done:3-D 點源。詳 `docs/design/stage-triage-2026-10-27.md`。
+> **進度註(2026-10-27,糊狀剪應力)**:`MpmParticle.shear`(預設 1)由 `MpmMelt.step` 設為 1 − φ,於 `step_ext` 的 P2G 只縮放偏差應力 2μ·shear·(F − R) 的偏差部分,等向部分 2μ(1 − shear)·tr(F − R)/3 補回對角線,故液相粒子仍保有壓縮阻力;體積剛度不變。純 `step()` 未改。`tests/test_mpm_melt.mojo` 11/11,section 5 取三個 y = 0.5 的方塊(避開 sticky 地板的非線性夾制帶):糊狀粒子速度 = 0.5 固體 + 0.5 液體,相對誤差 1.4e-7(容差 1e-6);液體在 F = 0.99·I 下與固體同步移動(相對 0.0);φ 維持 0.5。首版在 y = 0.16 得 4.5e-4,f32 與 f64 殘差相同,追查為 sticky 夾制(`physics/mpm.mojo` 底層 3 格 `gvy = 0`)所致,非舍入。**未解**:`test_mpm` golden 的 elastic / plastic 兩行在本機與 df8f526 對照建置皆漂移至 `0.20095998`(舊 golden `0.2009601`)、`0.19851583`(舊 `0.19851571`),與 17.61 程式碼無關的對照已排除;以 CI run 40499458543 判定。commit 61382d8 的訊息寫「無其他 section 變動」有誤,以本註為準。
 > **進度註(2026-10-13)**:熱場先行。`physics/thermal.mojo`:`HeatGrid`(7 點有限差分、外表面絕熱、`fix` Dirichlet、dt ≤ dx²/(6α) 否則 raise)、
 > `HeatTets`(`FemBody` 四面體上的線性元素、集中熱容、靜止形梯度的傳導矩陣、建構時算 Gershgorin 步長上限)、`expand`(依四節點均溫縮放各四面體的靜止形與體積);
 > 溫度 ≤ 0 K、非有限值或 > `T_MAX`(1e5 K)在設定時 raise(1e9 K 的策略,2026-10-21);`HeatGrid.step` 遇到非有限的格子時以鄰格有限值的平均重設、計入 `HeatGrid.isolated`,不讓 NaN 擴散。`tests/test_thermal_guard.mojo` 10/10,既有 thermal 測試不變。量測(`tests/test_thermal.mojo` 7/7):α = 1e-5、端點 400 K、10 s 後:格網對 erf 解 0.014 K、300 個四面體 0.025 K、兩者互差 0.016 K;
