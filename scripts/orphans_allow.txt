@@ -75,6 +75,7 @@ physics.fsi  # [api] LBM-rigid coupler stepped by the host in place of ContactSc
 physics.sim_cache  # [api] point caches written / played by the host or tools (17.63)
 physics.thermal_smoke  # [api] heated plate / smoke parts for Coupler (17.61)
 geometry.morph  # [api] morph targets applied by the host before skinning (17.65)
+geometry.inflate  # [api] RFC 1951 / 1950 decoder (zlib_inflate); VDB zip-layer wiring pending (17.63; test_inflate)
 gameplay.phys_character  # [api] dynamic character body stepped by host gameplay code (17.66)
 gameplay.watercraft  # [api] exact hull buoyancy element (17.74)
 procedural.scatter  # [api] point distributions called by host / tools (17.69)
