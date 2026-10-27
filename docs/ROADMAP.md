@@ -16,7 +16,7 @@
 
 - **2026-10-27 階段分流**:🔶 列未做子句的標籤(doable / GPU / UI-editor / env-blocked / stale-done / deferred)
   見 `docs/design/stage-triage-2026-10-27.md`。17.70 / 17.74 / 17.76 / 17.78 / 17.83 / 17.86 已逐列列出;
-  17.19 / 17.58 / 17.61 / 17.63 尚待複核。doable 項目為階段目標的剩餘工作。
+  17.19 / 17.58 / 17.61 / 17.63 的列已收入同一文件(抽查成立)。doable 項目為階段目標的剩餘工作。
 
 - **物理與數值核心**:角動力學、sub-stepped soft solver、CCD、islands / sleeping / warm-start、軟體與雙向耦合、
   縮座標關節體(ABA / RNEA / 致動器 / 腱 / 感測器)、FEM / MPM / SPH / PBF / 布料、LBM 風洞、可微模擬
@@ -1824,6 +1824,7 @@
 > 流體渲染 / 泡沫著色屬宿主;載具浮筒 / 船體屬 17.74。
 
 #### 17.60 水面 / 網格流體 — Wave C
+> - **進度註(2026-10-27,階段分流後的剩餘 doable 項)**:(a) 2-D 逐格 Enright 重播種:`LevelSetParticles.reseed` 已移植為 opt-in;測試(`tests/test_levelset_particles.mojo`,3 / 3)量到:在目前採用的逐粒子 min / max 規則下,重播種不改變格數體積(0.0771 與 0.0771),粒子數 720 → 3708(界面拉長,帶寬增加;只印出不設界)。(b) 順序無關的 `correct`:以「逐格合併 min / max」與「逃逸判定用快照 phi」兩項各自量測,2-D 體積由 +9.1 % 變為 +14.7 %(只改判定時機)與 +24.3 %(再加逐格合併)。兩者皆使 2-D 偏離解析圓盤更遠,**未採用為 2-D 預設**;3-D 版維持兩者皆用(其中間面 40 格對 2-D 48 格的差距仍未歸因)。詳見 `docs/design/17.60-remainders.md` §3a。(c) 3-D 出流恆等式:`tests/test_levelset_open3.mojo` P5,與 2-D 同格(16²)的恆等式偏差差 3.6e-6(相對),3-D 偏差 4.7 %。
 > **進度註(2026-10-13)**:`WaterSurface` seam 先行。`physics/water.mojo`:`WaterSurface` trait(`height(x, z, t)`、`velocity`)與
 > `FlatWater` / `GerstnerWater`(深水色散 ω² = g k,陡度 Q 的水平位移以 4 次定點迭代反解,t 為閉式參數、免步進)/ `ShallowWaterGrid`
 > (線性淺水波動方程、蛙跳 + 阻尼、反射壁、`disturb`、CFL 超限 raise);`float_body[W]` 以 n³ 取樣點對任一水面施浮力(含力矩)與相對水速阻力。
@@ -3731,6 +3732,7 @@
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
 > **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣 2026-10-17 ✅;剩 ARM / macOS golden 與跨架構 dump 比對)。
+> - **2026-10-27 進度(wasm 核心 / 殼切分)**:`scripts/wasm_probe.py` 增加切分檢查:每個 kernel 的引擎匯入閉包不得抵達 `embed` / `harness` / `oop` / `benchmarks` / `examples` / `experiments`。selftest 6 / 6(含注入的兩層殼匯入);樹上三個 `tools/wasm` kernel 無違規;注入 `kernel_inject_probe` 匯入 `embed.capi` 時回報 `embed.capi`。此為靜態匯入掃描,不取代 llc 路徑的實測。
 > **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
 > (同參數的純函數兩次呼叫被合併 → 每個閉包自帶呼叫計數)、`test_python_binding`(`build_wheel.py` 靠 `ldd` 與 ELF RUNPATH,非 Linux 改為明確拒絕,
 > 測試檢查該訊息;wheel tag 改隨建置機器 `linux_<machine>`,aarch64 不再標成 x86_64)。ubuntu-24.04-arm:`test_fracture` 碎片堆 48 塊中 6 塊入睡、
@@ -4063,6 +4065,7 @@
 > - **影格預算表**:規範場景(箱塔、碎石堆、ragdoll、載具、mesh 地形)在宣告 N 與宣告主機上的 ms/step 預算,隨程式碼審查;超出預算帶雜訊帶才失敗。
 > - **報告治理**:範本 ↔ bench 檔 ↔ 報告三方一致性檢查(現在 79 = 79 是人工維持)、報告新鮮度(commit 距上次重產的門檻)。
 > - **回歸定位**:閘門紅燈時以 `git bisect run` 自動定位的腳本(同一個比較工具當判定器)。
+> - **2026-10-27 進度**:`scripts/perf.py selftest` 增加注入等級 +5 / +10 / +25 %(20 / 20)。於 selftest 的列雜訊 3 % 下,+10 % 與 +25 % 被判為回歸,**+5 % 不被判為回歸**;該邊界以斷言固定,閾值改動會在此處顯現。CI 未執行 `perf selftest`(grep `.github/workflows/ci.yml` 零命中),此項只在本機驗證。「無工作量計數器」一句已過時:`diag/counters.mojo:171-175` 已有 `narrowphase_pairs`、`contact_manifolds`;精確斷言已存在:`tests/test_work_counters.mojo`(N=1、N=4^k、無動態體的精確計數)。
 > **對照組**:Box2D / Jolt 的效能測試場景與跨版本比較表、Bevy 的 benchmark CI(`critcmp` 式比較)、Chromium / Firefox 的 perf alert 雜訊模型、LLVM 的 `llvm-lit` 指令數追蹤。
 > **優勢區**:不適用(工程)。可說的優勢:本專案已有 comptime 計數器與 trace 可直接當確定性指標,多數引擎的回歸偵測只能靠牆鐘。
 > **規模軸**:閘門自身 —— 偵測率與誤報率 vs 注入回歸大小(特別是**貼近雜訊底的小回歸**,這是方法的理論弱點,依優勢區規則必須測它);bench 數(79)× 每支耗時;基準線儲存大小;確定性閘門覆蓋的規範場景數。
