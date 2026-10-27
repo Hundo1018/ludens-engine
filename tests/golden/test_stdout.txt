@@ -933,6 +933,12 @@ pinned sheet in 0.4 m/s upward flow, 0.2 s: vy above it 0.18906029  beside 0.414
   last reaction / (M g dt) 0.00010362107
   snapshot 2920 bytes
 [PASS] cloth_anchor - 8 / 8 checks
+--- tests/test_cloth_gas.mojo ---
+  exact reaction: worst |dP_gas + J| / max|J| = 6.218311976940513e-07  (max |J| = 4.8425492423120886e-05 )
+  tip shift +x after 0.4 s: one-way 0.14963378  two-way 0.10679363
+  gas u downstream (0.23, 0.40) 0.30942833  beside (0.23, 0.10) 0.4123701
+  largest |z_ij + z_i,N-j| after the run 0.001548212
+[PASS] cloth_gas - 8 / 8 checks
 --- tests/test_cloth_mesh.mojo ---
   10 x 10 sheet: vertices 121  mass 0.19999993  edges 320  bending 280
   hung by two corners, 2 s: lowest y 0.25313997  worst edge stretch 0.009618878
