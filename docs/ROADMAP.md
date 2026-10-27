@@ -14,6 +14,10 @@
 
 ## 目前位置(2026-10-24)
 
+- **2026-10-27 階段分流**:🔶 列未做子句的標籤(doable / GPU / UI-editor / env-blocked / stale-done / deferred)
+  見 `docs/design/stage-triage-2026-10-27.md`。17.70 / 17.74 / 17.76 / 17.78 / 17.83 / 17.86 已逐列列出;
+  17.19 / 17.58 / 17.61 / 17.63 尚待複核。doable 項目為階段目標的剩餘工作。
+
 - **物理與數值核心**:角動力學、sub-stepped soft solver、CCD、islands / sleeping / warm-start、軟體與雙向耦合、
   縮座標關節體(ABA / RNEA / 致動器 / 腱 / 感測器)、FEM / MPM / SPH / PBF / 布料、LBM 風洞、可微模擬
   (reverse tape、comptime 伴隨)皆已交付,各附 parity 測試與 benchmark 列。
