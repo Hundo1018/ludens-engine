@@ -140,7 +140,7 @@
 | 大小 vs 重算取捨 | unverified | ROADMAP:2136 僅量測描述;bench 未查 | — |
 | NanoVDB | env-blocked | 無程式碼(`geometry/sparse_volume.mojo:18` 僅註解);需要參考 `.nvdb` 與規格 | 取得參考檔與規格 |
 | 讀回 `.vdb` 的 blosc 壓縮 | done | LZ4 blosc 區塊由 `geometry/blosc.mojo` 解碼,`vdb_grid` 讀壓縮字 4 / 6 | `tests/test_vdb_zip.mojo` 10/10(OpenVDB 寫出的 blosc 檔逐體素核對)、`tests/test_blosc.mojo` 4/4;ROADMAP 17.63 進度註 |
-| 讀外部 VDB SDF 的內部值(level set 非活躍值) | doable | `vdb_grid` 讀入的非活躍體素一律為背景值(`geometry/vdb_file.mojo` docstring);OpenVDB 的 level set 內部值於 metadata 中,SparseVolume 目前只存一個背景值 | 讓 SparseVolume 能帶非活躍內部值,或在 `VdbGrid` 保留;以 OpenVDB 寫出的 SDF 檔驗證 |
+| 讀外部 VDB SDF 的內部值(level set 非活躍值) | done | `vdb_grid(d, keep_inactive=True)` 保留與背景不同的非活躍值(葉與 8³ / 128³ tile) | `tests/test_vdb_zip.mojo` 14/14:`createLevelSetSphere` 寫出的檔,內部讀為 -3(預設讀為背景 +3),表面近 0,遠處仍為背景 |
 | 主動 tile 讀取 | done | 8³ tile(16³ 節點的值遮罩)與 128³ tile(32³ 節點的值遮罩)於 `vdb_grid` 展開為體素;根層 tile 仍拒絕 | `tests/test_vdb_zip.mojo` 7/7:四個檔各含 (64,16,16) 的 8³ tile 與 (0,128,0) 的 128³ tile,計 2 098 622 個活躍體素,tile 體素逐一核對 |
 | Alembic 讀回 | doable | `geometry/abc_file.mojo` 只有寫入 `_Ogawa`;read / parse / decode / load 0 命中 | 加入讀取器;`tests/test_abc_file.mojo` 往返自身輸出 |
 | 點數變化時的強制 keyframe | deferred | `physics/sim_cache.mojo:206`;ROADMAP:2164 | 點快取場景的點數會變(拓撲已改走 Alembic) |

@@ -3,7 +3,8 @@
 
 Six OpenVDB files in tests/data/vdb/, written by scripts/zipwrite_fixtures.cc:
 the same grid stored raw (the control), zip, zip with the active mask, a
-hashed-noise grid under zip, and blosc (LZ4) with and without the active mask. Two balls of active voxels: radius 6 around
+hashed-noise grid under zip, and blosc (LZ4) with and without the active mask. A level set sphere
+(levelset_sphere.vdb, written with createLevelSetSphere) checks `keep_inactive`. Two balls of active voxels: radius 6 around
 (20,20,20) (925 voxels) and radius 2 around (200,20,20) (33 voxels), 958 in all.
 Each grid also has one active 8^3 tile at (64,16,16) with value 2.5 (512 voxels)
 and one active 128^3 tile at (0,128,0) with value 1.5 (2097152 voxels), so
@@ -133,4 +134,14 @@ def main() raises:
     except:
         braised = True
     s.check(braised, "a blosc file one byte short raises")
+
+    # a level set sphere (radius 10 about (30,30,30), half width 3). Inactive
+    # voxels read as the background unless keep_inactive: the inside is -3.
+    var ls = _read(root + "levelset_sphere.vdb")
+    var plain = vdb_grid(ls)
+    s.almost(Float64(plain.volume.get(30, 30, 30)), 3.0, "level set: default read gives the background inside", tol=1e-6)
+    var kept = vdb_grid(ls, True)
+    s.almost(Float64(kept.volume.get(30, 30, 30)), -3.0, "level set: keep_inactive reads the inside as -3", tol=1e-6)
+    s.almost(Float64(kept.volume.get(0, 0, 0)), 3.0, "level set: far outside stays the background", tol=1e-6)
+    s.check(abs(Float64(kept.volume.get(40, 30, 30))) < 1.0, "level set: the surface (radius 10) is near zero")
     s.finish()

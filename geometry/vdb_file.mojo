@@ -483,7 +483,7 @@ def _rd_values(
     return out^
 
 
-def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
+def vdb_grid(d: List[UInt8], keep_inactive: Bool = False) raises -> VdbGrid:
     """Read the first grid of a `.vdb` file (file version 224 or 225) into a
     `SparseVolume`: what `vdb_bytes` writes, and any FloatGrid in the 5-4-3
     configuration stored raw, zip-compressed, or blosc-compressed (LZ4), with
@@ -491,8 +491,11 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
     magic or version, another grid type or transform, root-level tiles (not
     implemented), offsets that do not match the
     stream, and truncation. Active tiles below the root (8^3 and 128^3) are
-    expanded to their voxels. Inactive values read as the background (a level
-    set's inside value is lost)."""
+    expanded to their voxels. By default inactive values read as the background,
+    so a level set's inside value is lost. With `keep_inactive` the inactive
+    values that differ from the background are kept as voxels too (inactive
+    8^3 and 128^3 tiles are expanded as well, so an interior region costs its
+    voxel count: up to 2097152 per 128^3 tile)."""
     var at = 0
     if _rd_u64(d, at) != 0x56444220:
         raise Error("vdb_grid: not a .vdb file (magic)")
@@ -570,7 +573,7 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
                 raise Error("vdb_grid: a node is both a child and a tile")
         var tv = _rd_values(d, at, 32768, vm, mc, codec, bg)
         for k in range(32768):
-            if vm[k]:
+            if vm[k] or (keep_inactive and not cm[k] and tv[k] != bg):
                 act_at.append(tx + (((k >> 10) & 31) << 7))
                 act_at.append(ty + (((k >> 5) & 31) << 7))
                 act_at.append(tz + ((k & 31) << 7))
@@ -589,7 +592,7 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
                     raise Error("vdb_grid: a node is both a child and a tile")
             var tv2 = _rd_values(d, at, 4096, vm2, mc, codec, bg)
             for q in range(4096):
-                if vm2[q]:
+                if vm2[q] or (keep_inactive and not cm2[q] and tv2[q] != bg):
                     act_at.append(mx + (((q >> 8) & 15) << 3))
                     act_at.append(my + (((q >> 4) & 15) << 3))
                     act_at.append(mz + ((q & 15) << 3))
@@ -611,7 +614,7 @@ def vdb_grid(d: List[UInt8]) raises -> VdbGrid:
                 raise Error("vdb_grid: leaf buffer mask differs from its topology mask")
         var vals = _rd_values(d, at, 512, m, mc, codec, bg)
         for o in range(512):
-            if m[o]:
+            if m[o] or (keep_inactive and vals[o] != bg):
                 vol.set(lo[3 * li] + (o >> 6), lo[3 * li + 1] + ((o >> 3) & 7), lo[3 * li + 2] + (o & 7), Real(vals[o]))
     # active tiles: a constant cube of voxels, expanded to the voxels it covers
     for t in range(len(act_side)):

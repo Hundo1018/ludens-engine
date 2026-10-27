@@ -9,6 +9,7 @@
 // active 128^3 tile (level 2) at (0,128,0) with value 1.5. Coordinates
 // are non-negative; the value formulas are repeated in the Mojo test.
 #include <openvdb/openvdb.h>
+#include <openvdb/tools/LevelSetSphere.h>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -61,5 +62,17 @@ int main(int argc, char** argv)
     write(d + "/zip_noise.vdb", 1, true);
     write(d + "/blosc_smooth.vdb", 4, false);
     write(d + "/blosc_mask_smooth.vdb", 6, false);
+
+    // a level set sphere (radius 10, voxel size 1, half width 3): its inside
+    // is -3 beyond the narrow band, which only an inactive-value read keeps
+    openvdb::FloatGrid::Ptr ls = openvdb::tools::createLevelSetSphere<openvdb::FloatGrid>(
+        10.0f, openvdb::Vec3f(30.0f, 30.0f, 30.0f), 1.0f, 3.0f);
+    ls->setName("level_set");
+    openvdb::io::File lf(d + "/levelset_sphere.vdb");
+    lf.setCompression(6);
+    openvdb::GridPtrVec lv;
+    lv.push_back(ls);
+    lf.write(lv);
+    lf.close();
     return 0;
 }
