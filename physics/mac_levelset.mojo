@@ -26,6 +26,17 @@ centres is a signed distance, negative in the liquid. u on the x faces
 
 A level set loses volume where the surface is under-resolved; `volume()`
 (cells with phi < 0, times dx^2) is measured in `test_levelset_water`.
+
+Open walls (`set_open`, ROADMAP 17.60) replace a solid wall on chosen sides
+by an outlet: the boundary face takes the zero-gradient value of its interior
+neighbour before the projection, the liquid cells next to it get a Dirichlet
+p = 0 at dx / 2 (ghost fluid with theta = 1/2), and the face is updated by the
+same pressure gradient as an interior face. Nothing forces inflow through an
+open wall; the sign of the flux is whatever the pressure gives. Phi is
+advected with the same clamped back-trace as before, so liquid that reaches
+an open wall leaves through the level set's own motion; the level set does
+not conserve volume, and `test_levelset_open` measures how far its volume
+loss departs from the boundary flux.
 """
 
 from std.math import floor, sqrt
@@ -44,7 +55,7 @@ struct _LiquidPoisson(LinearOperator, Movable):
     var diag: List[Real]
     var nb: List[Int]  # per unknown: 4 neighbour unknowns (-1: none / not liquid)
 
-    def __init__(out self, n: Int, phi: List[Real]):
+    def __init__(out self, n: Int, phi: List[Real], open: List[Bool]):
         self.n = n
         self.unk = List[Int](length=n * n, fill=-1)
         self.cells = List[Int]()
@@ -64,7 +75,12 @@ struct _LiquidPoisson(LinearOperator, Movable):
                 var ii = i + (1 if s == 0 else (-1 if s == 1 else 0))
                 var jj = j + (1 if s == 2 else (-1 if s == 3 else 0))
                 if ii < 0 or ii >= n or jj < 0 or jj >= n:
-                    continue  # wall: no flux
+                    # solid wall: no flux. Open wall: Dirichlet p = 0 at
+                    # dx / 2, so 1 / theta = 2. Side index: 0 left, 1 right,
+                    # 2 bottom, 3 top; s ^ 1 maps the neighbour step to it.
+                    if open[s ^ 1]:
+                        d += 2
+                    continue
                 var o = jj * n + ii
                 if phi[o] < 0:
                     d += 1
@@ -103,6 +119,7 @@ struct LevelSetWater2(Movable):
     var extrap: Int
     var reinit_every: Int
     var steps: Int
+    var open: List[Bool]  # per side: left (x = 0), right, bottom, top; True: outlet
 
     def __init__(out self, n: Int, dx: Real, gravity: Real = 9.81) raises:
         if n < 4 or not (dx > 0):
@@ -118,6 +135,15 @@ struct LevelSetWater2(Movable):
         self.extrap = 4
         self.reinit_every = 5
         self.steps = 0
+        self.open = List[Bool](length=4, fill=False)
+
+    def set_open(mut self, left: Bool, right: Bool, bottom: Bool, top: Bool):
+        """Turns the walls on the given sides into outlets (see the module
+        note). All False, the default, is the closed box."""
+        self.open[0] = left
+        self.open[1] = right
+        self.open[2] = bottom
+        self.open[3] = top
 
     def set_box(mut self, x0: Real, y0: Real, x1: Real, y1: Real):
         """Liquid where (x, y) is inside [x0, x1] x [y0, y1] (metres);
@@ -195,6 +221,19 @@ struct LevelSetWater2(Movable):
             for i in range(n):
                 var b = self._back((Real(i) + 0.5) * dx, Real(j) * dx, dt)
                 nv_[j * n + i] = self._sample(self.v, n, n + 1, b[0], b[1], 0.5, 0)
+        # outlet faces start from their interior neighbour (zero gradient)
+        if self.open[0] or self.open[1]:
+            for j in range(n):
+                if self.open[0]:
+                    nu_[j * (n + 1)] = nu_[j * (n + 1) + 1]
+                if self.open[1]:
+                    nu_[j * (n + 1) + n] = nu_[j * (n + 1) + n - 1]
+        if self.open[2] or self.open[3]:
+            for i in range(n):
+                if self.open[2]:
+                    nv_[i] = nv_[n + i]
+                if self.open[3]:
+                    nv_[n * n + i] = nv_[(n - 1) * n + i]
         self.phi = nphi^
         self.u = nu_^
         self.v = nv_^
@@ -209,11 +248,17 @@ struct LevelSetWater2(Movable):
             for i in range(n):
                 if self._liquid(i, j) or self._liquid(i, j - 1):
                     self.v[j * n + i] -= self.gravity * dt
+        # outlet faces are not interior faces above; give them the same rule
+        for i in range(n):
+            if self.open[2] and self._liquid(i, 0):
+                self.v[i] -= self.gravity * dt
+            if self.open[3] and self._liquid(i, n - 1):
+                self.v[n * n + i] -= self.gravity * dt
 
     def _project(mut self, dt: Real) -> CgResult:
         var n = self.n
         var dx = self.dx
-        var op = _LiquidPoisson(n, self.phi)
+        var op = _LiquidPoisson(n, self.phi, self.open)
         var m = op.size()
         var rhs = List[Real](length=m, fill=0)
         for k in range(m):
@@ -265,6 +310,18 @@ struct LevelSetWater2(Movable):
                     pa = 0
                     dist = th * dx
                 self.v[j * n + i] -= dt * (pb - pa) / dist
+        # outlet faces: Dirichlet p = 0 at dx / 2 from the liquid cell
+        var half = 0.5 * dx
+        for j in range(n):
+            if self.open[0] and self._liquid(0, j):
+                self.u[j * (n + 1)] -= dt * self.p[j * n] / half
+            if self.open[1] and self._liquid(n - 1, j):
+                self.u[j * (n + 1) + n] += dt * self.p[j * n + n - 1] / half
+        for i in range(n):
+            if self.open[2] and self._liquid(i, 0):
+                self.v[i] -= dt * self.p[i] / half
+            if self.open[3] and self._liquid(i, n - 1):
+                self.v[n * n + i] += dt * self.p[(n - 1) * n + i] / half
         return r
 
     def _extrapolate(mut self):
@@ -274,10 +331,12 @@ struct LevelSetWater2(Movable):
         var kv = List[Bool](length=n * (n + 1), fill=False)
         for j in range(n):
             for i in range(n + 1):
-                ku[j * (n + 1) + i] = i == 0 or i == n or self._liquid(i - 1, j) or self._liquid(i, j)
+                var wall = (i == 0 and not self.open[0]) or (i == n and not self.open[1])
+                ku[j * (n + 1) + i] = wall or self._liquid(i - 1, j) or self._liquid(i, j)
         for j in range(n + 1):
             for i in range(n):
-                kv[j * n + i] = j == 0 or j == n or self._liquid(i, j - 1) or self._liquid(i, j)
+                var wall = (j == 0 and not self.open[2]) or (j == n and not self.open[3])
+                kv[j * n + i] = wall or self._liquid(i, j - 1) or self._liquid(i, j)
         for _ in range(self.extrap):
             var nku = ku.copy()
             for j in range(n):
