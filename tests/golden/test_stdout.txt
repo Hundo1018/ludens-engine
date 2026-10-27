@@ -145,12 +145,6 @@ lattice: 50 / 50  ring: 12
   double shear layer, nu 1e-4: BGK survives 472 steps, cumulant 1960 (of 3000)
   with Cs 0.05: energy ratio BGK 4.852474e+21 (diverged unless in (0, 1]) cumulant 0.866166 ; Cs 0.1: BGK 0.74198866 cumulant 0.8371647
 [PASS] lbm_cumulant - 11 / 11 checks
---- tests/test_lbm_omega3.mojo ---
-  nu 0.02  ratio omega3 = 0.5 / 1 / 1.5: 0.85425294 0.8540428 0.85397345   continuum: 0.8570898
-  nu 0.05  ratio omega3 = 0.5 / 1 / 1.5: 0.67870283 0.67768914 0.67734843   continuum: 0.6800891
-  max |du| between omega3 = 0.5 and 1 after 200 steps: 1.0471791e-05
-  worst |ratio / continuum - 1| at omega3 = 1: 0.0035550594   worst omega3 spread: 0.0014958382
-[PASS] lbm_omega3 - 5 / 5 checks
 --- tests/test_lbm_force.mojo ---
   still fluid force: 2.2351742e-08 2.30968e-07 4.61936e-07
   sphere in tunnel — Fx 0.17174578  Fy -1.9092113e-08  Fz -1.8635765e-07
@@ -173,6 +167,12 @@ lattice: 50 / 50  ring: 12
   spinning sphere: torque -0.5363823  rotlet -8 pi mu R^3 w -0.5147186  ratio 1.0420885
   sphere jumping 0.3 cells/step for 40 steps: mass 13712.001 -> 13614.35  last force -5.8822236
 [PASS] lbm_moving - 6 / 6 checks
+--- tests/test_lbm_omega3.mojo ---
+  nu 0.02  ratio omega3 = 0.5 / 1 / 1.5: 0.85425294 0.8540428 0.85397345   continuum: 0.8570898
+  nu 0.05  ratio omega3 = 0.5 / 1 / 1.5: 0.67870283 0.67768914 0.67734843   continuum: 0.6800891
+  max |du| between omega3 = 0.5 and 1 after 200 steps: 1.0471791e-05
+  worst |ratio / continuum - 1| at omega3 = 1: 0.0035550594   worst omega3 spread: 0.0014958382
+[PASS] lbm_omega3 - 5 / 5 checks
 --- tests/test_lbm_tau_field.mojo ---
   uniform field vs plain lattice, 200 steps: worst population difference 0.0
   two-layer channel: peak 0.0010047683 at y 11 (centre 15 , zero shear y0 10.645588 );  worst |u - analytic| 2.628722e-05  = 0.02616247 of the peak
@@ -1409,6 +1409,11 @@ sphere SDF: open edges 0  volume 2.1380854  ( 2.1446605 )
 --- tests/test_levelset_particles.mojo ---
   volume: initial 0.07068584 plain 0.01171875 particles 0.07714844
 [PASS] levelset_particles - 2 / 2 checks
+--- tests/test_levelset_particles3.mojo ---
+  3-D volume: initial 0.07068584 plain 0.006944445 particles 0.06944445
+  z invariance: max |phi(k) - phi(mid)| / dx = 5.1140785e-05
+  middle plane liquid cells: 3-D 40  2-D 48  initial 40.715042
+[PASS] levelset_particles3 - 3 / 3 checks
 --- tests/test_levelset_water.mojo ---
   still water, 1 s: max face speed 1.5646219e-07  volume ratio 1.0
   dam break front x: 0.453125 0.921875 0.984375 0.984375 0.984375 0.984375
