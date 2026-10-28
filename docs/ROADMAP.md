@@ -213,7 +213,7 @@
 > - **AMD / Apple GPU 路徑**:需要 AMD / Apple 加速器(triage 列 GPU)。
 > - **GPU 拒絕 `max_mass_ratio`、GPU anchor / substep**:`physics/gpu_contact.mojo:351-352` 明確拒絕,屬第 7 層。
 > - **UI-editor 項目**:圖形化編輯器本體不在本 repo(見「邊界與排除」);triage 中無此類未做子句。
-> - **env-blocked**(非 GPU,但同為本階段不計):linux-aarch64 / osx-arm64 實測、wasm64、Godot / Unity 實機、固定主機基準線與牆鐘閘門、NanoVDB 參考檔。
+> - **env-blocked**(非 GPU,但同為本階段不計):wasm64、Godot / Unity 實機、固定主機基準線與牆鐘閘門、NanoVDB 參考檔。
 >
 > 結論:GPU / UI / env-blocked 不計入階段目標;階段目標只看 doable 列(見 `docs/design/stage-triage-2026-10-27.md`)。
 43. 17.17 收尾:在 GPU 主機實跑 `test_gpu_artic` 裝置半段與 bench 裝置列並記入進度註(`test_gpu_narrow` 已跑過,
@@ -3804,7 +3804,7 @@
 > tick 週期與逐 island 品質屬 17.85(`TieredScheduler`),本條只提供它可掛的派發器。
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
-> **分流(2026-10-27)**:done:wasm 核心 / 殼切分檢查(f0c2134);done(2026-10-28):ARM / macOS 分平台 golden 入庫與跨目標 fp-probe 比對(見進度註);env-blocked:wasm64(需外部 llc);GPU:AMD / Apple 路徑;stale-done:跨目標容差表與降級矩陣。詳 `docs/design/stage-triage-2026-10-27.md`。
+> **分流(2026-10-27)**:done:wasm 核心 / 殼切分檢查(f0c2134);done(2026-10-28):ARM / macOS 分平台 golden 入庫與跨目標 fp-probe 比對(見進度註);wasm64 子句未解(需外部 llc,見 `docs/design/stage-triage-2026-10-27.md` 17.76 表;此條不標 env-blocked);GPU:AMD / Apple 路徑;stale-done:跨目標容差表與降級矩陣。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣 2026-10-17 ✅;2026-10-28 起 ARM / macOS golden 與跨架構 dump 比對 ✅;剩 `portability` 阻擋式化)。
 > - **2026-10-27 進度(wasm 核心 / 殼切分)**:`scripts/wasm_probe.py` 增加切分檢查:每個 kernel 的引擎匯入閉包不得抵達 `embed` / `harness` / `oop` / `benchmarks` / `examples` / `experiments`。selftest 6 / 6(含注入的兩層殼匯入);樹上三個 `tools/wasm` kernel 無違規;注入 `kernel_inject_probe` 匯入 `embed.capi` 時回報 `embed.capi`。此為靜態匯入掃描,不取代 llc 路徑的實測。
 > **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
