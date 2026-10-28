@@ -14,7 +14,8 @@ A chain is converted when
 `case == NAME:` (a bare `case NAME:` would bind a new variable and match
 everything), `else:` becomes `case _:`. A `comptime if` chain becomes
 `comptime match`. Run until stable: an inner chain is converted on the pass after
-its outer chain.
+its outer chain. A comment containing "if/elif on purpose" within the four lines
+above a chain keeps it as it is.
 """
 
 import argparse
@@ -102,6 +103,8 @@ def convert_once(text):
     out = []
     while i < len(lines):
         parsed = parse_chain(lines, i)
+        if parsed and any("if/elif on purpose" in ln for ln in lines[max(0, i - 4) : i]):
+            parsed = None  # opt-out: the chain's rounding differs as a match (see the comment at the chain)
         if parsed:
             arms, els, end, m = parsed
             bodies = [lines[a:b] for _, a, b, _ in arms] + ([lines[els[0] : els[1]]] if els else [])
@@ -169,6 +172,8 @@ def selftest():
     assert "case _:  # last" in convert(commented)[0], convert(commented)[0]
     odd = "    if k == A:\n        x = 1\n    elif k == B:\n        x = 2\n    elif k == C and j:\n        x = 3\n    else:\n        x = 4\n"
     assert convert(odd) == (odd, 0), "an unparsed elif must abort the whole chain, not split it"
+    kept = "    # if/elif on purpose: rounding\n    if k == A:\n        x = 1\n    elif k == B:\n        x = 2\n    else:\n        x = 3\n"
+    assert convert(kept) == (kept, 0), "the opt-out comment keeps the chain"
     print("selftest ok")
 
 
