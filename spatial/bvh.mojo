@@ -30,7 +30,7 @@ struct _Node[dim: Int](Copyable, ImplicitlyCopyable, Movable):
         return self.left < 0
 
 
-struct BVH[dim: Int](Copyable, Movable):
+struct BVH[dim: Int](Copyable, Defaultable, Movable):
     var nodes: List[_Node[Self.dim]]
     var root: Int
 

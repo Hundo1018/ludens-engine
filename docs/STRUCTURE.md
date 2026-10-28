@@ -731,7 +731,7 @@ counted, not listed.
 ## spatial (layer 2) — 6 modules, 13 public declarations
 
 ### `spatial/bvh.mojo`
-- struct `BVH` — 9 methods
+- struct `BVH` : Defaultable — 9 methods
 - `def morton_order[D: Int](boxes: List[AABB[D]]) -> List[Int]`
 - aliases: `SAH_BINS`
 
