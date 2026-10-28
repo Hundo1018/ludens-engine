@@ -42,6 +42,14 @@ wheel = { cmd = "python3 python/build_wheel.py", depends-on = ["build"] }
 # Dead file references in README / CLAUDE / ROADMAP / ARCHITECTURE (scripts/doclint.py; ROADMAP 17.82).
 doclint = "python3 scripts/doclint.py"
 roadmap-status = "python3 scripts/roadmap_status.py"
+# docs/STRUCTURE.md from the architecture index; `-- --check` fails when stale (scripts/gen_structure.py; ROADMAP 17.87).
+structure = { cmd = "python3 scripts/gen_structure.py" }
+# CLAUDE.md / docs/ARCHITECTURE.md package-layer tables against scripts/arch_layers.toml (scripts/layers_sync.py; ROADMAP 17.87).
+layers-sync = "python3 scripts/layers_sync.py"
+# Point git at the versioned hooks in .githooks/ (rules: scripts/hooks.py; ROADMAP 17.87).
+install-hooks = "git config core.hooksPath .githooks"
+# Selftests of the hook rules and the doc generators (ROADMAP 17.87).
+hooks-selftest = "python3 scripts/hooks.py --selftest && python3 scripts/gen_structure.py --selftest && python3 scripts/layers_sync.py --selftest && python3 scripts/roadmap_status.py --selftest"
 # Floating-point flag policy: exact toolchain pins, pinned target, no fast-math / -O (scripts/flag_policy.py; ROADMAP 17.84).
 flag-policy = "python3 scripts/flag_policy.py"
 # Engine modules nothing in the engine or examples imports, gated by scripts/orphans_allow.txt (ROADMAP 17.82).

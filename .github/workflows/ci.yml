@@ -33,6 +33,14 @@ jobs:
         run: pixi run doclint
       - name: unwired modules (scripts/orphans_allow.txt)
         run: pixi run orphans
+      - name: hook rules and doc generator selftests (17.87)
+        run: pixi run hooks-selftest
+      - name: package-layer tables match arch_layers.toml (17.87)
+        run: pixi run layers-sync
+      - name: ROADMAP subsystem table matches the index (17.87)
+        run: pixi run roadmap-status -- --check
+      - name: docs/STRUCTURE.md is current (17.87)
+        run: pixi run structure -- --check
       - name: floating-point flag policy (docs/ARCHITECTURE.md §6)
         run: pixi run flag-policy
       - name: benchmark template / files / report consistency

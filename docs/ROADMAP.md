@@ -53,17 +53,17 @@
 |---|---|--:|--:|--:|--:|
 | [幾何代數與數值基礎](#幾何代數與數值基礎) | geometry、numerics、AD 係數場、exact predicates | 2 | 0 | 0 | 0 |
 | [剛體動力學、接觸與關節](#剛體動力學接觸與關節) | physics:solver6、接觸、最大座標關節、islands / sleeping、材質 | 22 | 1 | 0 | 0 |
-| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 14 | 1 | 0 | 0 |
-| [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 10 | 1 | 0 | 0 |
-| [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 15 | 5 | 1 | 1 |
-| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 6 | 1 | 0 | 1 |
+| [碰撞形狀、寬窄相與世界查詢](#碰撞形狀寬窄相與世界查詢) | collision、spatial | 15 | 0 | 0 | 0 |
+| [縮座標關節體與致動](#縮座標關節體與致動) | chain(ABA / RNEA)、致動器、腱、感測器、統一約束 | 11 | 0 | 0 | 0 |
+| [軟體、布料、連續體與流體](#軟體布料連續體與流體) | softbody、cloth、FEM / MPM / SPH / PBF、LBM、繩索 | 16 | 5 | 1 | 1 |
+| [可微模擬、批次世界與數值深化](#可微模擬批次世界與數值深化) | diffsim、diffsolver、tape、批次、稀疏線代 | 7 | 0 | 0 | 1 |
 | [GPU 計算](#gpu-計算) | GPU kernels 與單一 device context | 2 | 1 | 0 | 0 |
 | [動畫與程序化](#動畫與程序化) | procedural:anim / IK / tween / spline / noise / FSM / PCG | 10 | 0 | 0 | 0 |
 | [角色、載具、破壞與 gameplay 物理](#角色載具破壞與-gameplay-物理) | gameplay:character / ragdoll / vehicle / fracture / interpolation | 10 | 1 | 0 | 1 |
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 5 | 1 | 0 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 20 | 0 | 0 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 4 | 2 | 0 | 0 |
-| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 10 | 1 | 0 | 0 |
+| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 11 | 1 | 0 | 0 |
 
 ## 原則與決策
 
@@ -3986,6 +3986,7 @@
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | ✅ | A | CI 工作流、golden 跨機決定論探針、授權、發行管線、衛生、工具鏈升版金絲雀 |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | ✅ | A | 格式 / 靜態檢查決策、孤島 / 接線報告、路線圖 / 文件引用 linter、執行緒 / 記憶體檢查、種子掃描 fuzz、穩定性 / 決定論重跑 |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 🔶 | A | 基準結果的機器可讀輸出、比較工具、確定性閘門、牆鐘閘門、漸近斜率閘門、影格預算表 |
+| 17.87 | [Hook 與文件生成](#1787-hook-與文件生成--wave-a工程) | ✅ | A | git hook(commit-msg / pre-commit / pre-push)、Claude Code hook(PreToolUse / PostToolUse)、`docs/STRUCTURE.md` 由架構索引產生、分層表與 ROADMAP 子系統表的同步檢查 |
 
 ### 已完成條目的遺留待辦
 
@@ -4189,6 +4190,36 @@
 
 ---
 
+#### 17.87 Hook 與文件生成 — Wave A(工程)
+> **狀態**:✅ 完成(2026-10-28)。設計筆記 `docs/design/17.87-hooks.md`。
+> **起因**:專案沒有任何 hook(`.claude/` 為空、`.git/hooks/` 只有範本),CI 的文件與治理檢查要到 PR 才失敗;
+> 程式結構沒有產生的文件,`CHANGELOG.md` 最後一次產生是 10/12(落後 HEAD 652 個 commit)。
+> **交付**:
+> - `scripts/hooks.py`:全部 hook 規則(一個檔、有 selftest),`.githooks/{commit-msg,pre-commit,pre-push}` 與 `.claude/settings.json` 只呼叫它。
+>   `pixi run install-hooks` 設 `core.hooksPath=.githooks`。
+> - git hook:`commit-msg` 檢查 Conventional Commit 主旨;`pre-commit` 依暫存檔案選 `arch check` / tier 標頭 / `doclint` / `layers-sync` /
+>   ROADMAP 子系統表 / 浮點旗標政策 / 孤島檢查;`pre-push` 跑 CI 的快速檢查,`CHANGELOG.md` 落後超過 150 個 commit 只警告。
+> - Claude Code hook:PreToolUse 擋直接編輯產生檔(`BENCHMARK_REPORT.md`、`CHANGELOG.md`、`docs/STRUCTURE.md`、`bindings/`、`tests/golden/`)、
+>   Bash 指令中帶 `--no-verify` 的 `git commit` / `git push`、`git add -f` 加入 `build/` 等不入庫目錄;PostToolUse 檢查 `tests/test_*.mojo` 的 `# tier:` 首行,
+>   編輯引擎 `.mojo` 後跑 `arch check`。
+> - `scripts/gen_structure.py`(`pixi run structure`):由 `build/archindex.json`(`mojo doc` 的宣告)產生 `docs/STRUCTURE.md`(套件依層序 → 模組 →
+>   公開 struct / trait / 函式簽名 / alias,方法只計數;無行號、行數、時間戳,輸出與輸入順序無關);`--check` 供 pre-push 與 CI。
+> - `scripts/layers_sync.py`(`pixi run layers-sync`):CLAUDE.md 與 `docs/ARCHITECTURE.md` 的 (層, 套件) 對 `scripts/arch_layers.toml`。
+>   散文欄位是手寫的,所以只檢查不生成。
+> - `scripts/roadmap_status.py --check`:子系統表計數對編號索引,不符則失敗。
+> - CI `gate` 工作新增四步:`hooks-selftest`、`layers-sync`、`roadmap-status -- --check`、`structure -- --check`。
+> **量測**(本機,x86-64):`pre-commit` 無 `.mojo` 暫存 0.82 s;`pre-push` 11 項檢查 25.8 s;`hooks-selftest` 4 個腳本全過;
+> 暫存 diff 含宣告行的 commit 因重建索引(`mojo doc`)多 85 s,所以 `pre-commit` 只在宣告行(`def` / `struct` / `trait` / `alias` / `comptime`)
+> 變動時重新產生 `docs/STRUCTURE.md`;`docs/STRUCTURE.md` 2150 行。
+> **發現並修正**:(1) ROADMAP 子系統表有 4 列與編號索引不符(碰撞 14/1 → 15/0、縮座標 10/1 → 11/0、軟體 15 → 16、可微 6/1 → 7/0);
+> 內文各表與索引的 152 條狀態全部一致,所以改的是摘要表。(2) 首版 Bash 護欄對整段指令文字比對,把 heredoc 內的說明文字誤判為 `--no-verify`,
+> 實際擋掉兩次;改為只看實際執行的指令(去掉 heredoc 本文與引號內文字)。(3) 首版 `CHANGELOG.md` 落後計算取檔內最後一個 hash(回報 663),
+> 改為取 `git log` 順序中第一個出現在檔內的 commit。(4) `CHANGELOG.md` 已重新產生一次。
+> **不做**:hook 內跑完整 `pixi run gate`(CI 4 並行近 2 小時);自動 `--update-golden`;`CHANGELOG.md` 的 `--check`(內容含 commit hash,PR 自己的
+> commit 永遠不在其中),改為落後警告。
+> **遺留**:多行簽名只改續行時不觸發 `pre-commit` 重新產生(`pre-push` 的 `--check` 會抓到);Bash 護欄可被 `bash -c "..."` 繞過,定位為護欄而非安全邊界;
+> `hooks.py` 的 Claude hook 用系統 `python3`(只用標準庫),git hook 用 `pixi run python3`。
+
 ## 編號索引
 
 所有編號依數字排序。已完成者的完整紀錄在 [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md)。
@@ -4345,5 +4376,6 @@
 | 17.81 | [CI / 授權 / 發行](#1781-ci--授權--發行--wave-a工程先於其他各項) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
+| 17.87 | [Hook 與文件生成](#1787-hook-與文件生成--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | ✅ |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | ✅ |
