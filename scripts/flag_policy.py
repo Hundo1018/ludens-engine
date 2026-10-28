@@ -66,12 +66,12 @@ def check(root: Path) -> list[str]:
 
 
 def selftest() -> int:
-    good_pixi = 'mojo = "==1.1.0"\nmodular = "==26.6.0"\n'
+    good_pixi = 'mojo = "==1.2.0"\nmodular = "==26.7.0"\n'
     good_rt = 'elif [ "$(uname -m)" = "x86_64" ]; then\n    TARGET_CPU=skylake\nfi\n'
     good_doc = "## 6. Precision\n\nThe pinned x86-64 target: `skylake`.\n"
     cases = {
         "clean": (good_pixi, good_rt, good_doc, "", None),
-        "range pin": ('mojo = ">=1.1.0"\nmodular = "==26.6.0"\n', good_rt, good_doc, "", "R1"),
+        "range pin": ('mojo = ">=1.2.0"\nmodular = "==26.7.0"\n', good_rt, good_doc, "", "R1"),
         "no target": (good_pixi, "echo\n", good_doc, "", "R2"),
         "doc drift": (good_pixi, good_rt, good_doc.replace("skylake", "haswell"), "", "R2"),
         "fast math": (good_pixi, good_rt, good_doc, "mojo build --fast-math tests/x.mojo\n", "R3"),

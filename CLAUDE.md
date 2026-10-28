@@ -5,8 +5,8 @@ ludens-engine:以 Mojo 寫的遊戲引擎核心(ECS、碰撞、6-DOF 剛體、�
 
 ## 工具鏈
 
-- Linux x86-64 + pixi。版本以 `pixi.toml` 為準(目前精確鎖定 `mojo ==1.1.0`、`modular ==26.6.0`);
-  README 與 ROADMAP 中的 1.0.0 / 26.5.0 是舊紀錄。升版是刻意變更,需重跑整套 test + benchmark。
+- Linux x86-64 + pixi。版本以 `pixi.toml` 為準(目前精確鎖定 `mojo ==1.2.0`、`modular ==26.7.0`);
+  ROADMAP 中的 1.0.0 / 1.1.0 / 26.5.0 / 26.6.0 是舊紀錄。升版是刻意變更,需重跑整套 test + benchmark。
 - 跨檔 import 只透過 `build/*.mojoc` 預編譯套件解析(原始碼目錄不會被搜尋),
   所以任何 run/test 之前都要先 `pixi run build`。
 - GPU host API 在 `max.*`(`max.gpu.host`、`max.algorithm.parallelize`),不在 `std.*`。

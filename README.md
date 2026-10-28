@@ -40,7 +40,7 @@ float-roundoff over 20k chaotic-tumble steps.
 ## Build & run
 
 Linux x86-64 + [pixi](https://pixi.sh). Built on the **stable** toolchain
-(Mojo 1.1.0 / modular 26.6.0, pinned exactly in `pixi.toml`); every package
+(Mojo 1.2.0 / modular 26.7.0, pinned exactly in `pixi.toml`); every package
 precompiles into `build/` first, because cross-file imports resolve only
 through precompiled packages.
 

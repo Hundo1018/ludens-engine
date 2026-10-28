@@ -526,7 +526,7 @@ struct ColliderSet(Movable, Deinitable):
         var i = self.add(h, at)
         self.shape[i] = SHAPE_HULL
         self.hull_id[i] = len(self.hulls)
-        self.hulls.append(HullShape(verts^))
+        self.hulls.append(HullShape(verts))
         return i
 
     def add_trimesh(
