@@ -594,7 +594,7 @@ counted, not listed.
 - `def zeros(n: Int) -> List[Float32]`
 - `def zeros64(n: Int) -> List[Float64]`
 
-## procedural (layer 2) — 16 modules, 142 public declarations
+## procedural (layer 2) — 16 modules, 151 public declarations
 
 ### `procedural/anim.mojo`
 - struct `AnimClip` — 5 methods
@@ -721,12 +721,17 @@ counted, not listed.
 - `def thermal_erosion(mut h: List[Float32], nx: Int, nz: Int, cell: Float32, talus: Float32, rate: Float32, passes: Int)`
 
 ### `procedural/tween.mojo`
+- trait `Interpolator` — 0 methods
+- struct `GeodesicMotor2` : Interpolator — 1 methods
+- struct `GeodesicMotor3` : Interpolator — 1 methods
+- struct `LerpReal` : Interpolator — 1 methods
+- struct `LerpVec3` : Interpolator — 1 methods
 - struct `Tween` — 6 methods
 - `def ease[kind: Int](t: Float32) -> Real`
 - `def ease_dyn(kind: Int, t: Float32) -> Real`
 - `def lerp_real(a: Float32, b: Float32, t: Float32) -> Real`
 - `def lerp_vec3(a: SIMD[.float32, 4], b: SIMD[.float32, 4], t: Float32) -> Vec3`
-- aliases: `EASE_BACK_IN`, `EASE_BACK_INOUT`, `EASE_BACK_OUT`, `EASE_BOUNCE_IN`, `EASE_BOUNCE_INOUT`, `EASE_BOUNCE_OUT`, `EASE_CIRC_IN`, `EASE_CIRC_INOUT`, `EASE_CIRC_OUT`, `EASE_COUNT`, `EASE_CUBIC_IN`, `EASE_CUBIC_INOUT`, `EASE_CUBIC_OUT`, `EASE_ELASTIC_IN`, `EASE_ELASTIC_INOUT`, `EASE_ELASTIC_OUT`, `EASE_EXPO_IN`, `EASE_EXPO_INOUT`, `EASE_EXPO_OUT`, `EASE_LINEAR`, `EASE_QUAD_IN`, `EASE_QUAD_INOUT`, `EASE_QUAD_OUT`, `EASE_QUART_IN`, `EASE_QUART_INOUT`, `EASE_QUART_OUT`, `EASE_QUINT_IN`, `EASE_QUINT_INOUT`, `EASE_QUINT_OUT`, `EASE_SINE_IN`, `EASE_SINE_INOUT`, `EASE_SINE_OUT`, `PI`
+- aliases: `EASE_BACK_IN`, `EASE_BACK_INOUT`, `EASE_BACK_OUT`, `EASE_BOUNCE_IN`, `EASE_BOUNCE_INOUT`, `EASE_BOUNCE_OUT`, `EASE_CIRC_IN`, `EASE_CIRC_INOUT`, `EASE_CIRC_OUT`, `EASE_COUNT`, `EASE_CUBIC_IN`, `EASE_CUBIC_INOUT`, `EASE_CUBIC_OUT`, `EASE_ELASTIC_IN`, `EASE_ELASTIC_INOUT`, `EASE_ELASTIC_OUT`, `EASE_EXPO_IN`, `EASE_EXPO_INOUT`, `EASE_EXPO_OUT`, `EASE_LINEAR`, `EASE_QUAD_IN`, `EASE_QUAD_INOUT`, `EASE_QUAD_OUT`, `EASE_QUART_IN`, `EASE_QUART_INOUT`, `EASE_QUART_OUT`, `EASE_QUINT_IN`, `EASE_QUINT_INOUT`, `EASE_QUINT_OUT`, `EASE_SINE_IN`, `EASE_SINE_INOUT`, `EASE_SINE_OUT`, `PI`, `Value`
 
 ## spatial (layer 2) — 6 modules, 13 public declarations
 

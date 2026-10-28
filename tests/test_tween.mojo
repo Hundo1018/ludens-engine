@@ -8,6 +8,10 @@ behavior for `Real`, `Vec3` and PGA motors (screw-interpolated via
 from harness.runner import Suite
 from procedural.tween import (
     Tween,
+    LerpReal,
+    LerpVec3,
+    GeodesicMotor3,
+    GeodesicMotor2,
     ease,
     ease_dyn,
     lerp_real,
@@ -61,16 +65,16 @@ def _dyn_matches_comptime(mut s: Suite):
 
 
 def _tween_real(mut s: Suite):
-    var tw = Tween[Real, type_of(lerp_real), EASE_LINEAR](0.0, 10.0, 2.0, lerp_real)
+    var tw = Tween[LerpReal, EASE_LINEAR](0.0, 10.0, 2.0, LerpReal())
     s.almost(Float64(tw.value_at(0.0)), 0.0, "real linear @0")
     s.almost(Float64(tw.value_at(1.0)), 10.0, "real linear @1")
     s.almost(Float64(tw.value_at(0.5)), 5.0, "real linear @0.5")
 
-    var tq = Tween[Real, type_of(lerp_real), EASE_QUAD_IN](0.0, 4.0, 1.0, lerp_real)
+    var tq = Tween[LerpReal, EASE_QUAD_IN](0.0, 4.0, 1.0, LerpReal())
     s.almost(Float64(tq.value_at(0.5)), 1.0, "real quad_in @0.5 = 4*0.25")
 
     # stateful advance/done
-    var stateful = Tween[Real, type_of(lerp_real), EASE_LINEAR](0.0, 1.0, 1.0, lerp_real)
+    var stateful = Tween[LerpReal, EASE_LINEAR](0.0, 1.0, 1.0, LerpReal())
     s.check(not stateful.done(), "fresh tween not done")
     _ = stateful.advance(0.5)
     s.almost(Float64(stateful.u()), 0.5, "u() after half elapsed")
@@ -79,8 +83,8 @@ def _tween_real(mut s: Suite):
 
 
 def _tween_vec3(mut s: Suite):
-    var tv = Tween[Vec3, type_of(lerp_vec3), EASE_LINEAR](
-        Vec3(0, 0, 0, 0), Vec3(10, 20, 30, 0), 1.0, lerp_vec3
+    var tv = Tween[LerpVec3, EASE_LINEAR](
+        Vec3(0, 0, 0, 0), Vec3(10, 20, 30, 0), 1.0, LerpVec3()
     )
     var mid = tv.value_at(0.5)
     s.almost(Float64(mid[0]), 5.0, "vec3 @0.5 x")
@@ -99,7 +103,7 @@ def _tween_motor3(mut s: Suite):
     var qb = Quat.from_axis_angle(Vec3(0, 0, 1, 0), Real(1.5707963))
     var ma = Motor3.from_quat_translation(qa, Vec3(0, 0, 0, 0))
     var mb = Motor3.from_quat_translation(qb, Vec3(10, 0, 0, 0))
-    var tm = Tween[Motor3, type_of(geodesic3), EASE_LINEAR](ma, mb, 1.0, geodesic3)
+    var tm = Tween[GeodesicMotor3, EASE_LINEAR](ma, mb, 1.0, GeodesicMotor3())
 
     var p = Vec3(1, 0, 0, 0)
     # endpoints equal the geodesic endpoints BY ACTION, not by coefficient.
@@ -116,7 +120,7 @@ def _tween_motor3(mut s: Suite):
 def _tween_motor2(mut s: Suite):
     var ma = Motor2.from_angle_translation(0.0, Vec2(0, 0))
     var mb = Motor2.from_angle_translation(Real(1.5707963), Vec2(5, 0))
-    var tm = Tween[Motor2, type_of(geodesic2), EASE_LINEAR](ma, mb, 1.0, geodesic2)
+    var tm = Tween[GeodesicMotor2, EASE_LINEAR](ma, mb, 1.0, GeodesicMotor2())
     var p = Vec2(1, 0)
     var d0 = tm.value_at(0.0).apply_point(p) - ma.apply_point(p)
     var d1 = tm.value_at(1.0).apply_point(p) - mb.apply_point(p)
@@ -128,23 +132,23 @@ def _tween_motor2(mut s: Suite):
 
 def _extreme(mut s: Suite):
     # zero-duration tween: done immediately, value is `end`.
-    var tz = Tween[Real, type_of(lerp_real), EASE_LINEAR](1.0, 9.0, 0.0, lerp_real)
+    var tz = Tween[LerpReal, EASE_LINEAR](1.0, 9.0, 0.0, LerpReal())
     s.check(tz.done(), "zero-duration tween done before any advance")
     s.almost(Float64(tz.value()), 9.0, "zero-duration tween value == end")
 
     # t outside [0,1] clamps -- documented, not an error.
-    var t = Tween[Real, type_of(lerp_real), EASE_LINEAR](0.0, 10.0, 1.0, lerp_real)
+    var t = Tween[LerpReal, EASE_LINEAR](0.0, 10.0, 1.0, LerpReal())
     s.almost(Float64(t.value_at(-5.0)), 0.0, "t<0 clamps to start")
     s.almost(Float64(t.value_at(5.0)), 10.0, "t>1 clamps to end")
 
     # overshoot via advance() also clamps u() to 1, not >1.
-    var t2 = Tween[Real, type_of(lerp_real), EASE_LINEAR](0.0, 10.0, 1.0, lerp_real)
+    var t2 = Tween[LerpReal, EASE_LINEAR](0.0, 10.0, 1.0, LerpReal())
     _ = t2.advance(100.0)
     s.almost(Float64(t2.u()), 1.0, "advance() overshoot clamps u to 1")
     s.check(t2.done(), "overshoot tween is done")
 
     # negative elapsed (e.g. a caller decrementing time) clamps u to 0.
-    var t3 = Tween[Real, type_of(lerp_real), EASE_LINEAR](0.0, 10.0, 1.0, lerp_real)
+    var t3 = Tween[LerpReal, EASE_LINEAR](0.0, 10.0, 1.0, LerpReal())
     _ = t3.advance(-5.0)
     s.almost(Float64(t3.u()), 0.0, "negative elapsed clamps u to 0")
 
