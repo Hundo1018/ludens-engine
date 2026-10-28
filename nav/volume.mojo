@@ -223,18 +223,19 @@ struct VolumeNav(Movable):
                         var x: Int
                         var y: Int
                         var z: Int
-                        if axis == 0:
-                            x = x0 + s
-                            y = y0 + u
-                            z = z0 + w
-                        elif axis == 1:
-                            x = x0 + u
-                            y = y0 + s
-                            z = z0 + w
-                        else:
-                            x = x0 + u
-                            y = y0 + w
-                            z = z0 + s
+                        match axis:
+                            case 0:
+                                x = x0 + s
+                                y = y0 + u
+                                z = z0 + w
+                            case 1:
+                                x = x0 + u
+                                y = y0 + s
+                                z = z0 + w
+                            case _:
+                                x = x0 + u
+                                y = y0 + w
+                                z = z0 + s
                         if not self.is_free(x, y, z):
                             continue
                         var m = self.locate(x, y, z)

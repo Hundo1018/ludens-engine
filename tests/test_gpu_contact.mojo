@@ -79,20 +79,21 @@ def _max_diff(a: ContactScene6[QuatBody6], b: ContactScene6[QuatBody6]) -> Real:
 
 def _build(kind: Int) raises -> ContactScene6[QuatBody6]:
     var sc = ContactScene6[QuatBody6]()
-    if kind == 0:  # 5-box stack
-        _ground(sc, 5)
-        _stack(sc, 0, 5, 1)
-    elif kind == 1:  # two islands + materials + a rolling sphere, events on
-        _two_islands(sc)
-    elif kind == 2:  # 10:1 mass ratio stack
-        _ground(sc, 5)
-        _stack(sc, 0, 3, 10)
-    else:  # 400-box field
-        _ground(sc, 40)
-        for i in range(20):
-            for j in range(20):
-                var p = Vec3(Real(i) * 1.2 - 12, 0.3 + Real((i + j) % 3) * 0.05, Real(j) * 1.2 - 12, 0)
-                _ = sc.add(QuatBody6.at_rest(p, Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
+    match kind:
+        case 0:  # 5-box stack
+            _ground(sc, 5)
+            _stack(sc, 0, 5, 1)
+        case 1:  # two islands + materials + a rolling sphere, events on
+            _two_islands(sc)
+        case 2:  # 10:1 mass ratio stack
+            _ground(sc, 5)
+            _stack(sc, 0, 3, 10)
+        case _:  # 400-box field
+            _ground(sc, 40)
+            for i in range(20):
+                for j in range(20):
+                    var p = Vec3(Real(i) * 1.2 - 12, 0.3 + Real((i + j) % 3) * 0.05, Real(j) * 1.2 - 12, 0)
+                    _ = sc.add(QuatBody6.at_rest(p, Inertia3.box(1, 0.25, 0.25, 0.25)), Vec3(0.25, 0.25, 0.25, 0), False)
     return sc^
 
 

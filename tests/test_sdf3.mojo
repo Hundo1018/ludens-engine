@@ -60,12 +60,13 @@ def main() raises:
         )
         for k in range(4):
             var f = sph
-            if k == 1:
-                f = bx
-            elif k == 2:
-                f = cap
-            elif k == 3:
-                f = pl
+            match k:
+                case 1:
+                    f = bx
+                case 2:
+                    f = cap
+                case 3:
+                    f = pl
             if abs(f.distance(p)) < 0.05:
                 continue  # skip the surface band, where CD is noisiest
             var e = abs(length(f.gradient(p)) - 1.0)

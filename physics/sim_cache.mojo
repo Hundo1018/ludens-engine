@@ -272,35 +272,36 @@ struct PointCacheReader(Movable):
             raise Error("PointCacheReader: truncated frame")
         var n = Int(self._u(at + 1, 4))
         at += 5
-        if kind == _KEY:
-            q = List[Int](length=3 * n, fill=0)
-            for k in range(3 * n):
-                q[k] = self._varint(at)
-        elif kind == _DELTA:
-            if len(q) != 3 * n:
-                raise Error("PointCacheReader: delta frame without its keyframe")
-            for k in range(3 * n):
-                q[k] += self._varint(at)
-        elif kind == _PACKED:
-            if len(q) != 3 * n:
-                raise Error("PointCacheReader: delta frame without its keyframe")
-            if at >= self.end:
-                raise Error("PointCacheReader: truncated packed frame")
-            var bits = Int(self.data[at])
-            at += 1
-            if bits > 64 or at + (3 * n * bits + 7) // 8 > self.end:
-                raise Error("PointCacheReader: truncated packed frame")
-            var bitpos = 0
-            for k in range(3 * n):
-                var z = UInt64(0)
-                for b in range(bits):
-                    var p = bitpos + b
-                    if (self.data[at + p // 8] >> UInt8(p % 8)) & 1 == 1:
-                        z |= UInt64(1) << UInt64(b)
-                bitpos += bits
-                q[k] += Int(z >> 1) ^ -Int(z & 1)
-        else:
-            raise Error("PointCacheReader: unknown frame kind")
+        match kind:
+            case == _KEY:
+                q = List[Int](length=3 * n, fill=0)
+                for k in range(3 * n):
+                    q[k] = self._varint(at)
+            case == _DELTA:
+                if len(q) != 3 * n:
+                    raise Error("PointCacheReader: delta frame without its keyframe")
+                for k in range(3 * n):
+                    q[k] += self._varint(at)
+            case == _PACKED:
+                if len(q) != 3 * n:
+                    raise Error("PointCacheReader: delta frame without its keyframe")
+                if at >= self.end:
+                    raise Error("PointCacheReader: truncated packed frame")
+                var bits = Int(self.data[at])
+                at += 1
+                if bits > 64 or at + (3 * n * bits + 7) // 8 > self.end:
+                    raise Error("PointCacheReader: truncated packed frame")
+                var bitpos = 0
+                for k in range(3 * n):
+                    var z = UInt64(0)
+                    for b in range(bits):
+                        var p = bitpos + b
+                        if (self.data[at + p // 8] >> UInt8(p % 8)) & 1 == 1:
+                            z |= UInt64(1) << UInt64(b)
+                    bitpos += bits
+                    q[k] += Int(z >> 1) ^ -Int(z & 1)
+            case _:
+                raise Error("PointCacheReader: unknown frame kind")
         return n
 
     def frame(self, f: Int) raises -> List[Vec3]:

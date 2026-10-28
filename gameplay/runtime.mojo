@@ -309,12 +309,13 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         var half = self.scene.colliders.half[i]
         var body = self.scene.bset.bodies[i].copy()
         var out: Entity
-        if kind == SHAPE_BOX:
-            out = dst.spawn_body(body^, half, False)
-        elif kind == SHAPE_SPHERE:
-            out = dst.spawn_sphere(body^, half[0], False)
-        else:
-            raise Error("Runtime.carry_to: only box and sphere bodies are carried")
+        match kind:
+            case == SHAPE_BOX:
+                out = dst.spawn_body(body^, half, False)
+            case == SHAPE_SPHERE:
+                out = dst.spawn_sphere(body^, half[0], False)
+            case _:
+                raise Error("Runtime.carry_to: only box and sphere bodies are carried")
         ref bs = self.scene.bset
         var j = dst.body_of(out).index()
         dst.set_damping(out, bs.lin_damping[i], bs.ang_damping[i])

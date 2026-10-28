@@ -127,17 +127,18 @@ struct _Obj(Copyable, Movable):
         self.name = name
         self.kind = kind
         self.props = List[_Prop]()
-        if kind == ABC_MESH:
-            self.props.append(_Prop("P", "geoScope=vtx;interpretation=point", True, _POD_F32, 3))
-            self.props.append(_Prop(".faceIndices", "", True, _POD_I32, 1))
-            self.props.append(_Prop(".faceCounts", "", True, _POD_I32, 1))
-        elif kind == ABC_POINTS:
-            self.props.append(_Prop("P", "geoScope=var;interpretation=point", True, _POD_F32, 3))
-            self.props.append(_Prop(".pointIds", "geoScope=var", True, _POD_U64, 1))
-        else:
-            self.props.append(_Prop("P", "geoScope=vtx;interpretation=point", True, _POD_F32, 3))
-            self.props.append(_Prop("nVertices", "", True, _POD_I32, 1))
-            self.props.append(_Prop("curveBasisAndType", "", False, _POD_U8, 4))
+        match kind:
+            case == ABC_MESH:
+                self.props.append(_Prop("P", "geoScope=vtx;interpretation=point", True, _POD_F32, 3))
+                self.props.append(_Prop(".faceIndices", "", True, _POD_I32, 1))
+                self.props.append(_Prop(".faceCounts", "", True, _POD_I32, 1))
+            case == ABC_POINTS:
+                self.props.append(_Prop("P", "geoScope=var;interpretation=point", True, _POD_F32, 3))
+                self.props.append(_Prop(".pointIds", "geoScope=var", True, _POD_U64, 1))
+            case _:
+                self.props.append(_Prop("P", "geoScope=vtx;interpretation=point", True, _POD_F32, 3))
+                self.props.append(_Prop("nVertices", "", True, _POD_I32, 1))
+                self.props.append(_Prop("curveBasisAndType", "", False, _POD_U8, 4))
         self.props.append(_Prop(".selfBnds", "interpretation=box", False, _POD_F64, 6))
 
     def schema(self) -> String:
@@ -661,12 +662,13 @@ def abc_read(d: List[UInt8]) raises -> List[AbcObject]:
         # the .geom compound's own header is the last group's neighbour; the
         # property order and count per kind is the writer's
         var expect: List[String]
-        if kind == ABC_MESH:
-            expect = ["P", ".faceIndices", ".faceCounts", ".selfBnds"]
-        elif kind == ABC_POINTS:
-            expect = ["P", ".pointIds", ".selfBnds"]
-        else:
-            expect = ["P", "nVertices", "curveBasisAndType", ".selfBnds"]
+        match kind:
+            case == ABC_MESH:
+                expect = ["P", ".faceIndices", ".faceCounts", ".selfBnds"]
+            case == ABC_POINTS:
+                expect = ["P", ".pointIds", ".selfBnds"]
+            case _:
+                expect = ["P", "nVertices", "curveBasisAndType", ".selfBnds"]
         if len(names) != len(expect):
             raise Error("abc_read: object " + name + " has the wrong properties")
         for j in range(len(expect)):
@@ -678,24 +680,25 @@ def abc_read(d: List[UInt8]) raises -> List[AbcObject]:
                 raise Error("abc_read: object " + name + " has properties with different frame counts")
         for f in range(frames):
             out[i].pos.append(_rpoints(samples[0][f]))
-            if kind == ABC_MESH:
-                var counts = _ru32s(samples[2][f])
-                var idx = _ru32s(samples[1][f])
-                # the writer stored each face clockwise; reverse each face back
-                var ccw = List[Int](capacity=len(idx))
-                var at2 = 0
-                for c in counts:
-                    for k in range(c):
-                        ccw.append(idx[at2 + c - 1 - k])
-                    at2 += c
-                out[i].counts.append(counts^)
-                out[i].indices.append(ccw^)
-            elif kind == ABC_POINTS:
-                var ids = List[Int]()
-                ref fb = samples[1][f]
-                for q in range(len(fb) // 8):
-                    ids.append(Int(_ru(fb, 8 * q, 8)))
-                out[i].indices.append(ids^)
-            else:
-                out[i].counts.append(_ru32s(samples[1][f]))
+            match kind:
+                case == ABC_MESH:
+                    var counts = _ru32s(samples[2][f])
+                    var idx = _ru32s(samples[1][f])
+                    # the writer stored each face clockwise; reverse each face back
+                    var ccw = List[Int](capacity=len(idx))
+                    var at2 = 0
+                    for c in counts:
+                        for k in range(c):
+                            ccw.append(idx[at2 + c - 1 - k])
+                        at2 += c
+                    out[i].counts.append(counts^)
+                    out[i].indices.append(ccw^)
+                case == ABC_POINTS:
+                    var ids = List[Int]()
+                    ref fb = samples[1][f]
+                    for q in range(len(fb) // 8):
+                        ids.append(Int(_ru(fb, 8 * q, 8)))
+                    out[i].indices.append(ids^)
+                case _:
+                    out[i].counts.append(_ru32s(samples[1][f]))
     return out^

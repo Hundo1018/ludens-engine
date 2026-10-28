@@ -107,15 +107,16 @@ def main() raises:
     for i in range(4):
         var pose = rese[0]
         var w = rese[1]
-        if i == 1:
-            pose = resr[0]
-            w = resr[1]
-        elif i == 2:
-            pose = resm[0]
-            w = resm[1]
-        elif i == 3:
-            pose = resv[0]
-            w = resv[1]
+        match i:
+            case 1:
+                pose = resr[0]
+                w = resr[1]
+            case 2:
+                pose = resm[0]
+                w = resm[1]
+            case 3:
+                pose = resv[0]
+                w = resv[1]
         var lv = spin_momentum_world(pose, w, ibox)
         var l = Float64(sqrt(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]))
         print(

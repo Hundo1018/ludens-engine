@@ -65,12 +65,13 @@ def main() raises:
     var r = Lcg(17)
     for i in range(60):
         var k = i % 3
-        if k == SHAPE_BOX:
-            _ = cs.add(Vec3(r.range(0.2, 0.7), r.range(0.2, 0.7), r.range(0.2, 0.7), 0))
-        elif k == SHAPE_SPHERE:
-            _ = cs.add_sphere(r.range(0.2, 0.6))
-        else:
-            _ = cs.add_capsule(r.range(0.15, 0.4), r.range(0.2, 0.6))
+        match k:
+            case == SHAPE_BOX:
+                _ = cs.add(Vec3(r.range(0.2, 0.7), r.range(0.2, 0.7), r.range(0.2, 0.7), 0))
+            case == SHAPE_SPHERE:
+                _ = cs.add_sphere(r.range(0.2, 0.6))
+            case _:
+                _ = cs.add_capsule(r.range(0.15, 0.4), r.range(0.2, 0.6))
         kinds.append(k)
     var nb = NarrowBatch(2000)
     var pi = List[Int]()

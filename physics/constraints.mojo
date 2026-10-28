@@ -675,12 +675,13 @@ def _loop_rows(ch: Chain, loops: List[LoopClosure], bias_scale: Real) raises -> 
 
 
 def _solve_rows(mut cs: ConstraintSet, var h: List[Real], mut qd: List[Real], mode: Int, iters: Int) raises:
-    if mode == SOLVE_DIRECT:
-        _ = cs.solve_active_set(h^, qd)
-    elif mode == SOLVE_CG:
-        _ = cs.solve_cg(h^, qd, iters)
-    else:
-        cs.solve(h^, qd, iters)
+    match mode:
+        case == SOLVE_DIRECT:
+            _ = cs.solve_active_set(h^, qd)
+        case == SOLVE_CG:
+            _ = cs.solve_cg(h^, qd, iters)
+        case _:
+            cs.solve(h^, qd, iters)
 
 
 def resolve_loops(

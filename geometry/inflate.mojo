@@ -170,15 +170,16 @@ struct _Inflater(Movable):
             else:
                 var val = 0
                 var rep: Int
-                if sym == 16:
-                    if index == 0:
-                        raise Error("inflate: repeat with no previous length")
-                    val = ls[index - 1]
-                    rep = 3 + self.bits(d, 2)
-                elif sym == 17:
-                    rep = 3 + self.bits(d, 3)
-                else:
-                    rep = 11 + self.bits(d, 7)
+                match sym:
+                    case 16:
+                        if index == 0:
+                            raise Error("inflate: repeat with no previous length")
+                        val = ls[index - 1]
+                        rep = 3 + self.bits(d, 2)
+                    case 17:
+                        rep = 3 + self.bits(d, 3)
+                    case _:
+                        rep = 11 + self.bits(d, 7)
                 if index + rep > total:
                     raise Error("inflate: code lengths overrun")
                 for _ in range(rep):
@@ -197,14 +198,15 @@ def _inflate_blocks(d: List[UInt8], start: Int, max_out: Int) raises -> _Inflate
     while last == 0:
         last = st.bits(d, 1)
         var typ = st.bits(d, 2)
-        if typ == 0:
-            st.stored(d)
-        elif typ == 1:
-            st.fixed(d)
-        elif typ == 2:
-            st.dynamic(d)
-        else:
-            raise Error("inflate: reserved block type")
+        match typ:
+            case 0:
+                st.stored(d)
+            case 1:
+                st.fixed(d)
+            case 2:
+                st.dynamic(d)
+            case _:
+                raise Error("inflate: reserved block type")
     return st^
 
 

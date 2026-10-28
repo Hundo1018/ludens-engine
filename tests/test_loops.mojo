@@ -107,14 +107,15 @@ def main() raises:
             e[k] = 1
             _ = cs.add_equality(c.point_jacobian(9, tip_local, e), 0)
         var qd = c.qd.copy()
-        if mode == 0:
-            cs.solve(c.mass_matrix(), qd, 20)
-        elif mode == 1:
-            cs.solve(c.mass_matrix(), qd, 100)
-        elif mode == 2:
-            _ = cs.solve_active_set(c.mass_matrix(), qd)
-        else:
-            _ = cs.solve_cg(c.mass_matrix(), qd, 50)
+        match mode:
+            case 0:
+                cs.solve(c.mass_matrix(), qd, 20)
+            case 1:
+                cs.solve(c.mass_matrix(), qd, 100)
+            case 2:
+                _ = cs.solve_active_set(c.mass_matrix(), qd)
+            case _:
+                _ = cs.solve_cg(c.mass_matrix(), qd, 50)
         res.append(cs.residual(qd))
     print("  1:100 closed chain, loop-breaking twist: velocity residual PGS 20", res[0], " PGS 100", res[1], " direct", res[2], " CG", res[3])
     s.check(res[2] < 1e-5 and res[3] < 1e-5 and res[0] > 10 * res[2], "direct and CG solves reach the f32 floor (< 1e-5); PGS 20 leaves over 10x that")

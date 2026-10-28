@@ -124,9 +124,9 @@ struct SystemActorScheduler[
                         for j in range(len(produced)):
                             outboxes[k].append(rebind[Envelope[M]](produced[j]))
 
-            if self.host:
+            if case .Some(host) = self.host:
                 var st = _SystemTask[Self.B, *Self.Systems](world, inboxes, outboxes, run_all)
-                dispatch_for(self.host.value(), st, K)
+                dispatch_for(host, st, K)
                 _ = len(inboxes)  # keep alive past the untracked-pointer use
                 _ = len(outboxes)
             else:

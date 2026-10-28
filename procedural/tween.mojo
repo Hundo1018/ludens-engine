@@ -132,37 +132,38 @@ def _ease_in[fam: Int](t: Real) -> Real:
     """The one hand-written formula per family; `ease[kind]` derives out/
     in-out from this. Domain `[0, 1]` (guaranteed by how `ease[kind]`
     composes calls to this function -- see module docstring)."""
-    comptime if fam == _FAM_QUAD:
-        return t * t
-    elif fam == _FAM_CUBIC:
-        return t * t * t
-    elif fam == _FAM_QUART:
-        var t2 = t * t
-        return t2 * t2
-    elif fam == _FAM_QUINT:
-        var t2 = t * t
-        return t2 * t2 * t
-    elif fam == _FAM_SINE:
-        return 1 - cos(t * PI * 0.5)
-    elif fam == _FAM_EXPO:
-        if t <= 0:
-            return 0
-        return pow(Real(2), 10 * t - 10)
-    elif fam == _FAM_CIRC:
-        return 1 - sqrt(1 - t * t)
-    elif fam == _FAM_BACK:
-        comptime c1: Real = 1.70158
-        comptime c3: Real = c1 + 1
-        return c3 * t * t * t - c1 * t * t
-    elif fam == _FAM_ELASTIC:
-        if t <= 0:
-            return 0
-        elif t >= 1:
-            return 1
-        comptime c4: Real = 2 * PI / 3
-        return -pow(Real(2), 10 * t - 10) * sin((t * 10 - 10.75) * c4)
-    else:  # _FAM_BOUNCE
-        return 1 - _bounce_out_raw(1 - t)
+    comptime match fam:
+        case == _FAM_QUAD:
+            return t * t
+        case == _FAM_CUBIC:
+            return t * t * t
+        case == _FAM_QUART:
+            var t2 = t * t
+            return t2 * t2
+        case == _FAM_QUINT:
+            var t2 = t * t
+            return t2 * t2 * t
+        case == _FAM_SINE:
+            return 1 - cos(t * PI * 0.5)
+        case == _FAM_EXPO:
+            if t <= 0:
+                return 0
+            return pow(Real(2), 10 * t - 10)
+        case == _FAM_CIRC:
+            return 1 - sqrt(1 - t * t)
+        case == _FAM_BACK:
+            comptime c1: Real = 1.70158
+            comptime c3: Real = c1 + 1
+            return c3 * t * t * t - c1 * t * t
+        case == _FAM_ELASTIC:
+            if t <= 0:
+                return 0
+            elif t >= 1:
+                return 1
+            comptime c4: Real = 2 * PI / 3
+            return -pow(Real(2), 10 * t - 10) * sin((t * 10 - 10.75) * c4)
+        case _:  # _FAM_BOUNCE
+            return 1 - _bounce_out_raw(1 - t)
 
 
 def ease[kind: Int](t: Real) -> Real:
@@ -174,15 +175,16 @@ def ease[kind: Int](t: Real) -> Real:
     else:
         comptime fam = (kind - 1) // 3
         comptime variant = (kind - 1) % 3  # 0 = in, 1 = out, 2 = in-out
-        comptime if variant == 0:
-            return _ease_in[fam](t)
-        elif variant == 1:
-            return 1 - _ease_in[fam](1 - t)
-        else:
-            if t < 0.5:
-                return _ease_in[fam](2 * t) * 0.5
-            else:
-                return 1 - _ease_in[fam](2 - 2 * t) * 0.5
+        comptime match variant:
+            case 0:
+                return _ease_in[fam](t)
+            case 1:
+                return 1 - _ease_in[fam](1 - t)
+            case _:
+                if t < 0.5:
+                    return _ease_in[fam](2 * t) * 0.5
+                else:
+                    return 1 - _ease_in[fam](2 - 2 * t) * 0.5
 
 
 def ease_dyn(kind: Int, t: Real) -> Real:

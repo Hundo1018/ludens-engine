@@ -135,60 +135,61 @@ def counter_name(id: Int) -> String:
 
 
 def _name(id: Int) -> String:
-    if id == NAN_QUARANTINED:
-        return "nan_quarantined"
-    elif id == CCD_BUDGET_EXCEEDED:
-        return "ccd_budget_exceeded"
-    elif id == LOG_DROPPED:
-        return "log_dropped"
-    elif id == DRAW_DROPPED:
-        return "draw_dropped"
-    elif id == TRACE_DROPPED:
-        return "trace_dropped"
-    elif id == ARENA_OVERFLOW:
-        return "arena_overflow"
-    elif id == POOL_GROWN:
-        return "pool_grown"
-    elif id == POOL_EXHAUSTED:
-        return "pool_exhausted"
-    elif id == EVENT_DROPPED_UNREAD:
-        return "event_dropped_unread"
-    elif id == PARALLEL_FALLBACK_SERIAL:
-        return "parallel_fallback_serial"
-    elif id == COLOR_OVERFLOW:
-        return "color_overflow"
-    elif id == CG_NOT_CONVERGED:
-        return "cg_not_converged"
-    elif id == GAMELOOP_DEBT_DROPPED:
-        return "gameloop_debt_dropped"
-    elif id == FRAGMENT_EVICTED:
-        return "fragment_evicted"
-    elif id == VEHICLE_FORCE_DROPPED:
-        return "vehicle_force_dropped"
-    elif id == TIER_FALLBACK:
-        return "tier_fallback"
-    elif id == NARROWPHASE_PAIRS:
-        return "narrowphase_pairs"
-    elif id == CONTACT_MANIFOLDS:
-        return "contact_manifolds"
-    elif id == CONTACT_POINTS:
-        return "contact_points"
-    elif id == VELOCITY_CLAMPED:
-        return "velocity_clamped"
-    elif id == CONTACT_DROPPED:
-        return "contact_dropped"
-    elif id == CONTINUUM_NAN:
-        return "continuum_nan"
-    elif id == CONTINUUM_ESCAPED:
-        return "continuum_escaped"
-    elif id == OUTBOX_DROPPED:
-        return "outbox_dropped"
-    elif id == COUPLING_REJECTED:
-        return "coupling_rejected"
-    elif id == TIMER_FIRES_DROPPED:
-        return "timer_fires_dropped"
-    else:
-        return "counter_" + String(id)
+    match id:
+        case == NAN_QUARANTINED:
+            return "nan_quarantined"
+        case == CCD_BUDGET_EXCEEDED:
+            return "ccd_budget_exceeded"
+        case == LOG_DROPPED:
+            return "log_dropped"
+        case == DRAW_DROPPED:
+            return "draw_dropped"
+        case == TRACE_DROPPED:
+            return "trace_dropped"
+        case == ARENA_OVERFLOW:
+            return "arena_overflow"
+        case == POOL_GROWN:
+            return "pool_grown"
+        case == POOL_EXHAUSTED:
+            return "pool_exhausted"
+        case == EVENT_DROPPED_UNREAD:
+            return "event_dropped_unread"
+        case == PARALLEL_FALLBACK_SERIAL:
+            return "parallel_fallback_serial"
+        case == COLOR_OVERFLOW:
+            return "color_overflow"
+        case == CG_NOT_CONVERGED:
+            return "cg_not_converged"
+        case == GAMELOOP_DEBT_DROPPED:
+            return "gameloop_debt_dropped"
+        case == FRAGMENT_EVICTED:
+            return "fragment_evicted"
+        case == VEHICLE_FORCE_DROPPED:
+            return "vehicle_force_dropped"
+        case == TIER_FALLBACK:
+            return "tier_fallback"
+        case == NARROWPHASE_PAIRS:
+            return "narrowphase_pairs"
+        case == CONTACT_MANIFOLDS:
+            return "contact_manifolds"
+        case == CONTACT_POINTS:
+            return "contact_points"
+        case == VELOCITY_CLAMPED:
+            return "velocity_clamped"
+        case == CONTACT_DROPPED:
+            return "contact_dropped"
+        case == CONTINUUM_NAN:
+            return "continuum_nan"
+        case == CONTINUUM_ESCAPED:
+            return "continuum_escaped"
+        case == OUTBOX_DROPPED:
+            return "outbox_dropped"
+        case == COUPLING_REJECTED:
+            return "coupling_rejected"
+        case == TIMER_FIRES_DROPPED:
+            return "timer_fires_dropped"
+        case _:
+            return "counter_" + String(id)
 
 
 struct Counters(Movable):

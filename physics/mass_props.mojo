@@ -174,18 +174,19 @@ def child_mass(spec: CompoundSpec, k: Int, density: Real) -> Tuple[Real, Vec3, M
         return hull_mass(spec.child_verts(k), density)
     var m: Real
     var i: Inertia3
-    if kind == SHAPE_BOX:
-        m = density * 8 * h[0] * h[1] * h[2]
-        i = Inertia3.box(m, h[0], h[1], h[2])
-    elif kind == SHAPE_SPHERE:
-        m = density * Real(4.0 / 3.0) * _PI * h[0] * h[0] * h[0]
-        i = Inertia3.sphere(m, h[0])
-    elif kind == SHAPE_CAPSULE:
-        m = density * (_PI * h[0] * h[0] * 2 * h[1] + Real(4.0 / 3.0) * _PI * h[0] * h[0] * h[0])
-        i = Inertia3.capsule(m, h[0], h[1])
-    else:
-        m = density * Real(4.0 / 3.0) * _PI * h[0] * h[1] * h[2]
-        i = Inertia3.ellipsoid(m, h[0], h[1], h[2])
+    match kind:
+        case == SHAPE_BOX:
+            m = density * 8 * h[0] * h[1] * h[2]
+            i = Inertia3.box(m, h[0], h[1], h[2])
+        case == SHAPE_SPHERE:
+            m = density * Real(4.0 / 3.0) * _PI * h[0] * h[0] * h[0]
+            i = Inertia3.sphere(m, h[0])
+        case == SHAPE_CAPSULE:
+            m = density * (_PI * h[0] * h[0] * 2 * h[1] + Real(4.0 / 3.0) * _PI * h[0] * h[0] * h[0])
+            i = Inertia3.capsule(m, h[0], h[1])
+        case _:
+            m = density * Real(4.0 / 3.0) * _PI * h[0] * h[1] * h[2]
+            i = Inertia3.ellipsoid(m, h[0], h[1], h[2])
     return (m, Vec3(0, 0, 0, 0), _diag(i.ix, i.iy, i.iz))
 
 

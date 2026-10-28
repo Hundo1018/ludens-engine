@@ -385,26 +385,27 @@ def main() raises:
         var scw = _road()
         var cfgw = VehicleConfig()
         var idw = spawn_chassis(scw, cfgw, Vec3(0, REST_Y, 0, 0))
-        if variant == 0:
-            var vw = Vehicle[RayWheel].attach(scw, idw, cfgw^, RayWheel())
-            _run(vw, scw, VehicleInput.idle(), 90)
-            _run(vw, scw, VehicleInput(0.7, 0, 0.3, 0), 240)
-            xs.append(scw.bset.bodies[idw.index()].pos[0])
-            xs.append(scw.bset.bodies[idw.index()].pos[2])
-        elif variant == 1:
-            var vw = Vehicle[SphereWheel].attach(scw, idw, cfgw^, SphereWheel())
-            for kk in range(330):
-                vw.update(scw, VehicleInput.idle() if kk < 90 else VehicleInput(0.7, 0, 0.3, 0), DT)
-                scw.step_soft(DT, G)
-            xs.append(scw.bset.bodies[idw.index()].pos[0])
-            xs.append(scw.bset.bodies[idw.index()].pos[2])
-        else:
-            var vw = Vehicle[CapsuleWheel].attach(scw, idw, cfgw^, CapsuleWheel())
-            for kk in range(330):
-                vw.update(scw, VehicleInput.idle() if kk < 90 else VehicleInput(0.7, 0, 0.3, 0), DT)
-                scw.step_soft(DT, G)
-            xs.append(scw.bset.bodies[idw.index()].pos[0])
-            xs.append(scw.bset.bodies[idw.index()].pos[2])
+        match variant:
+            case 0:
+                var vw = Vehicle[RayWheel].attach(scw, idw, cfgw^, RayWheel())
+                _run(vw, scw, VehicleInput.idle(), 90)
+                _run(vw, scw, VehicleInput(0.7, 0, 0.3, 0), 240)
+                xs.append(scw.bset.bodies[idw.index()].pos[0])
+                xs.append(scw.bset.bodies[idw.index()].pos[2])
+            case 1:
+                var vw = Vehicle[SphereWheel].attach(scw, idw, cfgw^, SphereWheel())
+                for kk in range(330):
+                    vw.update(scw, VehicleInput.idle() if kk < 90 else VehicleInput(0.7, 0, 0.3, 0), DT)
+                    scw.step_soft(DT, G)
+                xs.append(scw.bset.bodies[idw.index()].pos[0])
+                xs.append(scw.bset.bodies[idw.index()].pos[2])
+            case _:
+                var vw = Vehicle[CapsuleWheel].attach(scw, idw, cfgw^, CapsuleWheel())
+                for kk in range(330):
+                    vw.update(scw, VehicleInput.idle() if kk < 90 else VehicleInput(0.7, 0, 0.3, 0), DT)
+                    scw.step_soft(DT, G)
+                xs.append(scw.bset.bodies[idw.index()].pos[0])
+                xs.append(scw.bset.bodies[idw.index()].pos[2])
     s.almost(Float64(xs[2]), Float64(xs[0]), "wheel-cast seam: sphere sweep drives the same path as the ray (x)", Float64(xs[0]) * 0.01)
     s.almost(Float64(xs[4]), Float64(xs[0]), "wheel-cast seam: capsule sweep drives the same path as the ray (x)", Float64(xs[0]) * 0.01)
     s.almost(Float64(xs[3]), Float64(xs[1]), "wheel-cast seam: sphere sweep, lateral", 0.05 + Float64(abs(xs[1])) * 0.01)

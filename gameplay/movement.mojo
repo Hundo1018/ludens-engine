@@ -460,42 +460,43 @@ struct Mover(Copyable, Movable):
         var walk = self.vel + self.cc._h(self.ext)
         var g = gravity
         var jump = Real(0)
-        if self.mode == MODE_SWIM:
-            g = gravity * (1 - self.cfg.buoyancy)
-            var vy = self._vy(self.cc.velocity) * exp(-self.cfg.water_drag * dt) + self._vy(wish) * (1 - exp(-self.cfg.water_drag * dt))
-            self.cc.velocity = self._with_vy(self.cc.velocity, vy)
-            self.rising_jump = False
-        elif self.mode == MODE_GLIDE:
-            # gravity integrated here and the sink speed clamped, so the
-            # controller (given no gravity) never exceeds it
-            var vy = max(self._vy(self.cc.velocity) + self._vy(gravity) * dt, -self.glide_sink)
-            self.cc.velocity = self._with_vy(self.cc.velocity, vy)
-            g = Vec3(0, 0, 0, 0)
-        elif self.mode == MODE_FLY:
-            g = Vec3(0, 0, 0, 0)
-            self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(wish))
-            if grounded and self._vy(wish) > 0:
-                jump = self._vy(wish)
-        else:
-            var ground_ok = grounded or self.air_ticks <= self.cfg.coyote_ticks
-            var pending = self.press_ticks <= self.cfg.buffer_ticks
-            var fire = False
-            if pending and self.jumps == 0 and ground_ok:
-                self.jumps = 1  # from the ground, or within coyote time
-                fire = True
-            elif jump_pressed and (self.jumps >= 1 or not ground_ok) and max(self.jumps, 1) < self.cfg.max_jumps:
-                self.jumps = max(self.jumps, 1) + 1  # an air jump needs a fresh press
-                fire = True
-            if fire:
-                self.press_ticks = 1 << 30
-                self.rising_jump = True
-                if grounded:
-                    jump = self.cfg.jump_speed
-                else:
-                    self.cc.velocity = self._with_vy(self.cc.velocity, self.cfg.jump_speed)
-            elif self.rising_jump and not jump_held and self._vy(self.cc.velocity) > 0:
-                self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(self.cc.velocity) * self.cfg.jump_cut)
+        match self.mode:
+            case == MODE_SWIM:
+                g = gravity * (1 - self.cfg.buoyancy)
+                var vy = self._vy(self.cc.velocity) * exp(-self.cfg.water_drag * dt) + self._vy(wish) * (1 - exp(-self.cfg.water_drag * dt))
+                self.cc.velocity = self._with_vy(self.cc.velocity, vy)
                 self.rising_jump = False
+            case == MODE_GLIDE:
+                # gravity integrated here and the sink speed clamped, so the
+                # controller (given no gravity) never exceeds it
+                var vy = max(self._vy(self.cc.velocity) + self._vy(gravity) * dt, -self.glide_sink)
+                self.cc.velocity = self._with_vy(self.cc.velocity, vy)
+                g = Vec3(0, 0, 0, 0)
+            case == MODE_FLY:
+                g = Vec3(0, 0, 0, 0)
+                self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(wish))
+                if grounded and self._vy(wish) > 0:
+                    jump = self._vy(wish)
+            case _:
+                var ground_ok = grounded or self.air_ticks <= self.cfg.coyote_ticks
+                var pending = self.press_ticks <= self.cfg.buffer_ticks
+                var fire = False
+                if pending and self.jumps == 0 and ground_ok:
+                    self.jumps = 1  # from the ground, or within coyote time
+                    fire = True
+                elif jump_pressed and (self.jumps >= 1 or not ground_ok) and max(self.jumps, 1) < self.cfg.max_jumps:
+                    self.jumps = max(self.jumps, 1) + 1  # an air jump needs a fresh press
+                    fire = True
+                if fire:
+                    self.press_ticks = 1 << 30
+                    self.rising_jump = True
+                    if grounded:
+                        jump = self.cfg.jump_speed
+                    else:
+                        self.cc.velocity = self._with_vy(self.cc.velocity, self.cfg.jump_speed)
+                elif self.rising_jump and not jump_held and self._vy(self.cc.velocity) > 0:
+                    self.cc.velocity = self._with_vy(self.cc.velocity, self._vy(self.cc.velocity) * self.cfg.jump_cut)
+                    self.rising_jump = False
         # external vertical velocity
         var ev = self._vy(self.ext)
         if ev != 0:

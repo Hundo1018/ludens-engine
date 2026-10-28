@@ -37,12 +37,13 @@ def _channel(axis_wall: Int, axis_force: Int) -> List[Real]:
                 if c[axis_wall] == 0 or c[axis_wall] == N - 1:
                     l.flag[l.idx(x, y, z)] = CELL_SOLID
     l.init_uniform(1.0, 0, 0, 0)
-    if axis_force == 0:
-        l.force_x = F
-    elif axis_force == 1:
-        l.force_y = F
-    else:
-        l.force_z = F
+    match axis_force:
+        case 0:
+            l.force_x = F
+        case 1:
+            l.force_y = F
+        case _:
+            l.force_z = F
     for _ in range(8000):
         l.step()
     var out = List[Real]()

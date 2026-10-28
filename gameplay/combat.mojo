@@ -164,16 +164,17 @@ struct Swing(Copyable, Movable):
             var u = Real(i) / Real(n)
             var a: Vec3
             var b: Vec3
-            if self.mode == DETECT_ARC:
-                var e = self.blade(self.pivot + (pivot - self.pivot) * u, slerp(self.rot, rot, u).normalized())
-                a = e[0]
-                b = e[1]
-            elif self.mode == DETECT_LINEAR:
-                a = e0[0] + (e1[0] - e0[0]) * u
-                b = e0[1] + (e1[1] - e0[1]) * u
-            else:
-                a = e1[0]
-                b = e1[1]
+            match self.mode:
+                case == DETECT_ARC:
+                    var e = self.blade(self.pivot + (pivot - self.pivot) * u, slerp(self.rot, rot, u).normalized())
+                    a = e[0]
+                    b = e[1]
+                case == DETECT_LINEAR:
+                    a = e0[0] + (e1[0] - e0[0]) * u
+                    b = e0[1] + (e1[1] - e0[1]) * u
+                case _:
+                    a = e1[0]
+                    b = e1[1]
             self._test(a, b, motion, boxes, out)
         self.pivot = pivot
         self.rot = rot

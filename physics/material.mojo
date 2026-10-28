@@ -40,11 +40,12 @@ def combine(a: Real, b: Real, mode_a: Int, mode_b: Int) -> Real:
     `COMBINE_AVERAGE`, where `(mu + mu) * 0.5 == mu` bit-exactly (IEEE 754
     doubling then halving is exact for any finite float)."""
     var mode = max(mode_a, mode_b)
-    if mode == COMBINE_MIN:
-        return min(a, b)
-    elif mode == COMBINE_MULTIPLY:
-        return a * b
-    elif mode == COMBINE_MAX:
-        return max(a, b)
-    else:
-        return (a + b) * Real(0.5)
+    match mode:
+        case == COMBINE_MIN:
+            return min(a, b)
+        case == COMBINE_MULTIPLY:
+            return a * b
+        case == COMBINE_MAX:
+            return max(a, b)
+        case _:
+            return (a + b) * Real(0.5)

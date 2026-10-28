@@ -59,12 +59,13 @@ def mesh[P: NetPeer](mut a: P, mut b: P, mut c: P, lat: Int, mut behind: Int, mu
             for dst in range(NP):
                 if src != dst:
                     for m in ls[src * NP + dst].deliver(f):
-                        if dst == 0:
-                            a.receive(src, m)
-                        elif dst == 1:
-                            b.receive(src, m)
-                        else:
-                            c.receive(src, m)
+                        match dst:
+                            case 0:
+                                a.receive(src, m)
+                            case 1:
+                                b.receive(src, m)
+                            case _:
+                                c.receive(src, m)
         var target = min(f + 1, T)
         a.update(target)
         b.update(target)

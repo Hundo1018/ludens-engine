@@ -1507,20 +1507,21 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         var k = self.colliders.shape[i]
         var h = self.colliders.half[i]
         var inertia: Inertia3
-        if k == SHAPE_BOX:
-            inertia = Inertia3.box(density * 8 * h[0] * h[1] * h[2], h[0], h[1], h[2])
-        elif k == SHAPE_SPHERE:
-            var r = h[0]
-            inertia = Inertia3.sphere(density * Real(4.18879020478639) * r * r * r, r)
-        elif k == SHAPE_CAPSULE:
-            var r = h[0]
-            var hl = h[1]
-            var vol = Real(3.14159265358979) * r * r * (2 * hl) + Real(4.18879020478639) * r * r * r
-            inertia = Inertia3.capsule(density * vol, r, hl)
-        elif k == SHAPE_ELLIPSOID:
-            inertia = Inertia3.ellipsoid(density * Real(4.18879020478639) * h[0] * h[1] * h[2], h[0], h[1], h[2])
-        else:
-            raise Error("ContactScene6.set_mass_from_density: only box, sphere, capsule and ellipsoid colliders")
+        match k:
+            case == SHAPE_BOX:
+                inertia = Inertia3.box(density * 8 * h[0] * h[1] * h[2], h[0], h[1], h[2])
+            case == SHAPE_SPHERE:
+                var r = h[0]
+                inertia = Inertia3.sphere(density * Real(4.18879020478639) * r * r * r, r)
+            case == SHAPE_CAPSULE:
+                var r = h[0]
+                var hl = h[1]
+                var vol = Real(3.14159265358979) * r * r * (2 * hl) + Real(4.18879020478639) * r * r * r
+                inertia = Inertia3.capsule(density * vol, r, hl)
+            case == SHAPE_ELLIPSOID:
+                inertia = Inertia3.ellipsoid(density * Real(4.18879020478639) * h[0] * h[1] * h[2], h[0], h[1], h[2])
+            case _:
+                raise Error("ContactScene6.set_mass_from_density: only box, sphere, capsule and ellipsoid colliders")
         self.bset.bodies[i].set_inertia(inertia)
 
     def _touch(mut self, i: Int):
@@ -1544,16 +1545,17 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
             return
         self._touch(i)
         var m = Real(1) / self.bset.bodies[i].inv_mass()
-        if mode == FORCE_MODE_FORCE:
-            self.bset.force[i] = self.bset.force[i] + f
-            self.bset.any_props = True
-        elif mode == FORCE_MODE_ACCELERATION:
-            self.bset.force[i] = self.bset.force[i] + f * m
-            self.bset.any_props = True
-        elif mode == FORCE_MODE_IMPULSE:
-            self.bset.bodies[i].apply_impulse(f, self.bset.bodies[i].position())
-        else:
-            self.bset.bodies[i].apply_impulse(f * m, self.bset.bodies[i].position())
+        match mode:
+            case == FORCE_MODE_FORCE:
+                self.bset.force[i] = self.bset.force[i] + f
+                self.bset.any_props = True
+            case == FORCE_MODE_ACCELERATION:
+                self.bset.force[i] = self.bset.force[i] + f * m
+                self.bset.any_props = True
+            case == FORCE_MODE_IMPULSE:
+                self.bset.bodies[i].apply_impulse(f, self.bset.bodies[i].position())
+            case _:
+                self.bset.bodies[i].apply_impulse(f * m, self.bset.bodies[i].position())
 
     def add_force_at(mut self, id: BodyId, f: Vec3, at: Vec3, mode: Int = FORCE_MODE_FORCE) raises:
         """Force at world point `at`: the force plus its torque about the
@@ -1562,14 +1564,15 @@ struct ContactScene6[B: Body6, BP: BroadPhase = BVHBroadPhase[3]](Movable, Deini
         if not self.bset.is_dynamic(i):
             return
         self._touch(i)
-        if mode == FORCE_MODE_FORCE:
-            self.bset.force[i] = self.bset.force[i] + f
-            self.bset.torque[i] = self.bset.torque[i] + cross(at - self.bset.bodies[i].position(), f)
-            self.bset.any_props = True
-        elif mode == FORCE_MODE_IMPULSE:
-            self.bset.bodies[i].apply_impulse(f, at)
-        else:
-            raise Error("ContactScene6.add_force_at: only FORCE and IMPULSE modes")
+        match mode:
+            case == FORCE_MODE_FORCE:
+                self.bset.force[i] = self.bset.force[i] + f
+                self.bset.torque[i] = self.bset.torque[i] + cross(at - self.bset.bodies[i].position(), f)
+                self.bset.any_props = True
+            case == FORCE_MODE_IMPULSE:
+                self.bset.bodies[i].apply_impulse(f, at)
+            case _:
+                raise Error("ContactScene6.add_force_at: only FORCE and IMPULSE modes")
 
     def add_torque(mut self, id: BodyId, t: Vec3) raises:
         """Torque (N m), accumulated for the next step."""
@@ -3485,57 +3488,58 @@ def write_state[W: StateWriter](sc: ContactScene6[QuatBody6], mut out: W):
         # next contact, so the geometry travels with the body even though a
         # level mesh can be large: this format is a full state snapshot,
         # not an asset reference.
-        if sc.colliders.shape[i] == SHAPE_HULL:
-            ref hl = sc.colliders.hulls[sc.colliders.hull_id[i]]
-            out.wi(len(hl.v))
-            for k in range(len(hl.v)):
-                out.wf(hl.v[k])
-        elif sc.colliders.shape[i] == SHAPE_TRIMESH:
-            ref ms = sc.colliders.meshes[sc.colliders.mesh_id[i]]
-            out.wi(len(ms.v))
-            for k in range(len(ms.v)):
-                out.wf(ms.v[k])
-            out.wi(len(ms.idx))
-            for k in range(len(ms.idx)):
-                out.wi(ms.idx[k])
-        elif sc.colliders.shape[i] == SHAPE_HEIGHTFIELD:
-            ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
-            out.wi(hf.nx)
-            out.wi(hf.nz)
-            out.wf(hf.cell)
-            out.wf(hf.ox)
-            out.wf(hf.oz)
-            out.wi(len(hf.h))
-            for k in range(len(hf.h)):
-                out.wf(hf.h[k])
-        elif sc.colliders.shape[i] == SHAPE_SDF:
-            ref sg = sc.colliders.sdfs[sc.colliders.mesh_id[i]]
-            out.wi(sg.res)
-            out.wv(sg.origin)
-            out.wf(sg.cell)
-            for k in range(len(sg.values)):
-                out.wf(sg.values[k])
-        elif sc.colliders.shape[i] == SHAPE_COMPOUND:
-            # 17.44: every child (kind, size, local pose, hull vertices)
-            var cid = sc.colliders.mesh_id[i]
-            var f0 = sc.colliders.comp_first[cid]
-            var nk = sc.colliders.comp_n[cid]
-            out.wi(nk)
-            for k in range(nk):
-                var d = sc.colliders.kid_desc[f0 + k]
-                var q = sc.colliders.kid_rot[f0 + k]
-                out.wi(d.kind)
-                out.wv(d.half)
-                out.wv(sc.colliders.kid_pos[f0 + k])
-                out.wf(q.x)
-                out.wf(q.y)
-                out.wf(q.z)
-                out.wf(q.w)
-                if d.kind == SHAPE_HULL:
-                    ref kh = sc.colliders.hulls[d.hid]
-                    out.wi(len(kh.v))
-                    for v in range(len(kh.v)):
-                        out.wf(kh.v[v])
+        match sc.colliders.shape[i]:
+            case == SHAPE_HULL:
+                ref hl = sc.colliders.hulls[sc.colliders.hull_id[i]]
+                out.wi(len(hl.v))
+                for k in range(len(hl.v)):
+                    out.wf(hl.v[k])
+            case == SHAPE_TRIMESH:
+                ref ms = sc.colliders.meshes[sc.colliders.mesh_id[i]]
+                out.wi(len(ms.v))
+                for k in range(len(ms.v)):
+                    out.wf(ms.v[k])
+                out.wi(len(ms.idx))
+                for k in range(len(ms.idx)):
+                    out.wi(ms.idx[k])
+            case == SHAPE_HEIGHTFIELD:
+                ref hf = sc.colliders.fields[sc.colliders.mesh_id[i]]
+                out.wi(hf.nx)
+                out.wi(hf.nz)
+                out.wf(hf.cell)
+                out.wf(hf.ox)
+                out.wf(hf.oz)
+                out.wi(len(hf.h))
+                for k in range(len(hf.h)):
+                    out.wf(hf.h[k])
+            case == SHAPE_SDF:
+                ref sg = sc.colliders.sdfs[sc.colliders.mesh_id[i]]
+                out.wi(sg.res)
+                out.wv(sg.origin)
+                out.wf(sg.cell)
+                for k in range(len(sg.values)):
+                    out.wf(sg.values[k])
+            case == SHAPE_COMPOUND:
+                # 17.44: every child (kind, size, local pose, hull vertices)
+                var cid = sc.colliders.mesh_id[i]
+                var f0 = sc.colliders.comp_first[cid]
+                var nk = sc.colliders.comp_n[cid]
+                out.wi(nk)
+                for k in range(nk):
+                    var d = sc.colliders.kid_desc[f0 + k]
+                    var q = sc.colliders.kid_rot[f0 + k]
+                    out.wi(d.kind)
+                    out.wv(d.half)
+                    out.wv(sc.colliders.kid_pos[f0 + k])
+                    out.wf(q.x)
+                    out.wf(q.y)
+                    out.wf(q.z)
+                    out.wf(q.w)
+                    if d.kind == SHAPE_HULL:
+                        ref kh = sc.colliders.hulls[d.hid]
+                        out.wi(len(kh.v))
+                        for v in range(len(kh.v)):
+                            out.wf(kh.v[v])
     out.wi(len(sc.joints))
     for j in range(len(sc.joints)):
         var jt = sc.joints[j]
@@ -3887,92 +3891,93 @@ def read_state[R: StateReader](mut sc: ContactScene6[QuatBody6], mut r: R) raise
         sc.colliders.world_aabb.append(
             AABB[3](Vec3(0, 0, 0, 0), Vec3(0, 0, 0, 0))
         )
-        if kind == SHAPE_HULL:
-            var nv = r.ri()
-            if nv < 0:
-                raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
-            var hv = List[Real](capacity=nv)
-            for _ in range(nv):
-                hv.append(r.rf())
-            sc.colliders.hull_id[bi] = len(sc.colliders.hulls)
-            sc.colliders.hulls.append(HullShape(hv))
-        elif kind == SHAPE_TRIMESH:
-            var nv = r.ri()
-            if nv < 0:
-                raise Error("physics.serialize: corrupt snapshot (negative mesh vertex count)")
-            var mv = List[Real](capacity=nv)
-            for _ in range(nv):
-                mv.append(r.rf())
-            var ni = r.ri()
-            if ni < 0:
-                raise Error("physics.serialize: corrupt snapshot (negative mesh index count)")
-            var mi = List[Int](capacity=ni)
-            for _ in range(ni):
-                mi.append(r.ri())
-            sc.colliders.mesh_id[bi] = len(sc.colliders.meshes)
-            var tm = TriMesh(mv, mi)
-            sc.colliders.world_aabb[bi] = tm.bounds()
-            sc.colliders.meshes.append(tm^)
-        elif kind == SHAPE_HEIGHTFIELD:
-            var nx = r.ri()
-            var nz = r.ri()
-            var cell = r.rf()
-            var ox = r.rf()
-            var oz = r.rf()
-            var nh = r.ri()
-            if nh < 0:
-                raise Error("physics.serialize: corrupt snapshot (negative heightfield sample count)")
-            var hh = List[Real](capacity=nh)
-            for _ in range(nh):
-                hh.append(r.rf())
-            sc.colliders.mesh_id[bi] = len(sc.colliders.fields)
-            var hfld = HeightField(hh, nx, nz, cell, ox, oz)
-            sc.colliders.world_aabb[bi] = hfld.bounds()
-            sc.colliders.fields.append(hfld^)
-        elif kind == SHAPE_SDF:
-            var res = r.ri()
-            if res < 1 or res > 512:
-                raise Error("physics.serialize: corrupt snapshot (sdf resolution)")
-            var org = r.rv()
-            var cl = r.rf()
-            var grid = SdfGrid(res, org, cl)
-            for k in range(res * res * res):
-                grid.values[k] = r.rf()
-            var span = cl * Real(res - 1)
-            sc.colliders.mesh_id[bi] = len(sc.colliders.sdfs)
-            sc.colliders.world_aabb[bi] = AABB[3](org, org + Vec3(span, span, span, 0))
-            sc.colliders.sdfs.append(grid^)
-        elif kind == SHAPE_COMPOUND:
-            var nk = r.ri()
-            if nk < 1 or nk > COMPOUND_MAX_CHILDREN:
-                raise Error("physics.serialize: corrupt snapshot (compound child count)")
-            var f0 = len(sc.colliders.kid_desc)
-            for _ in range(nk):
-                var ck = r.ri()
-                if ck != SHAPE_BOX and ck != SHAPE_SPHERE and ck != SHAPE_CAPSULE and ck != SHAPE_HULL and ck != SHAPE_ELLIPSOID:
-                    raise Error("physics.serialize: corrupt snapshot (compound child kind)")
-                var ch = r.rv()
-                var cp = r.rv()
-                var qx = r.rf()
-                var qy = r.rf()
-                var qz = r.rf()
-                var qw = r.rf()
-                var hid = -1
-                if ck == SHAPE_HULL:
-                    var nv = r.ri()
-                    if nv < 0:
-                        raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
-                    var hv = List[Real](capacity=nv)
-                    for _ in range(nv):
-                        hv.append(r.rf())
-                    hid = len(sc.colliders.hulls)
-                    sc.colliders.hulls.append(HullShape(hv))
-                sc.colliders.kid_desc.append(ShapeDesc(ck, ch, hid))
-                sc.colliders.kid_pos.append(cp)
-                sc.colliders.kid_rot.append(Quat(qx, qy, qz, qw))
-            sc.colliders.mesh_id[bi] = len(sc.colliders.comp_first)
-            sc.colliders.comp_first.append(f0)
-            sc.colliders.comp_n.append(nk)
+        match kind:
+            case == SHAPE_HULL:
+                var nv = r.ri()
+                if nv < 0:
+                    raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
+                var hv = List[Real](capacity=nv)
+                for _ in range(nv):
+                    hv.append(r.rf())
+                sc.colliders.hull_id[bi] = len(sc.colliders.hulls)
+                sc.colliders.hulls.append(HullShape(hv))
+            case == SHAPE_TRIMESH:
+                var nv = r.ri()
+                if nv < 0:
+                    raise Error("physics.serialize: corrupt snapshot (negative mesh vertex count)")
+                var mv = List[Real](capacity=nv)
+                for _ in range(nv):
+                    mv.append(r.rf())
+                var ni = r.ri()
+                if ni < 0:
+                    raise Error("physics.serialize: corrupt snapshot (negative mesh index count)")
+                var mi = List[Int](capacity=ni)
+                for _ in range(ni):
+                    mi.append(r.ri())
+                sc.colliders.mesh_id[bi] = len(sc.colliders.meshes)
+                var tm = TriMesh(mv, mi)
+                sc.colliders.world_aabb[bi] = tm.bounds()
+                sc.colliders.meshes.append(tm^)
+            case == SHAPE_HEIGHTFIELD:
+                var nx = r.ri()
+                var nz = r.ri()
+                var cell = r.rf()
+                var ox = r.rf()
+                var oz = r.rf()
+                var nh = r.ri()
+                if nh < 0:
+                    raise Error("physics.serialize: corrupt snapshot (negative heightfield sample count)")
+                var hh = List[Real](capacity=nh)
+                for _ in range(nh):
+                    hh.append(r.rf())
+                sc.colliders.mesh_id[bi] = len(sc.colliders.fields)
+                var hfld = HeightField(hh, nx, nz, cell, ox, oz)
+                sc.colliders.world_aabb[bi] = hfld.bounds()
+                sc.colliders.fields.append(hfld^)
+            case == SHAPE_SDF:
+                var res = r.ri()
+                if res < 1 or res > 512:
+                    raise Error("physics.serialize: corrupt snapshot (sdf resolution)")
+                var org = r.rv()
+                var cl = r.rf()
+                var grid = SdfGrid(res, org, cl)
+                for k in range(res * res * res):
+                    grid.values[k] = r.rf()
+                var span = cl * Real(res - 1)
+                sc.colliders.mesh_id[bi] = len(sc.colliders.sdfs)
+                sc.colliders.world_aabb[bi] = AABB[3](org, org + Vec3(span, span, span, 0))
+                sc.colliders.sdfs.append(grid^)
+            case == SHAPE_COMPOUND:
+                var nk = r.ri()
+                if nk < 1 or nk > COMPOUND_MAX_CHILDREN:
+                    raise Error("physics.serialize: corrupt snapshot (compound child count)")
+                var f0 = len(sc.colliders.kid_desc)
+                for _ in range(nk):
+                    var ck = r.ri()
+                    if ck != SHAPE_BOX and ck != SHAPE_SPHERE and ck != SHAPE_CAPSULE and ck != SHAPE_HULL and ck != SHAPE_ELLIPSOID:
+                        raise Error("physics.serialize: corrupt snapshot (compound child kind)")
+                    var ch = r.rv()
+                    var cp = r.rv()
+                    var qx = r.rf()
+                    var qy = r.rf()
+                    var qz = r.rf()
+                    var qw = r.rf()
+                    var hid = -1
+                    if ck == SHAPE_HULL:
+                        var nv = r.ri()
+                        if nv < 0:
+                            raise Error("physics.serialize: corrupt snapshot (negative hull vertex count)")
+                        var hv = List[Real](capacity=nv)
+                        for _ in range(nv):
+                            hv.append(r.rf())
+                        hid = len(sc.colliders.hulls)
+                        sc.colliders.hulls.append(HullShape(hv))
+                    sc.colliders.kid_desc.append(ShapeDesc(ck, ch, hid))
+                    sc.colliders.kid_pos.append(cp)
+                    sc.colliders.kid_rot.append(Quat(qx, qy, qz, qw))
+                sc.colliders.mesh_id[bi] = len(sc.colliders.comp_first)
+                sc.colliders.comp_first.append(f0)
+                sc.colliders.comp_n.append(nk)
     var nj = r.ri()
     if nj < 0:
         raise Error("physics.serialize: corrupt snapshot (negative joint count)")

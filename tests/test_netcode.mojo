@@ -83,12 +83,13 @@ def exchange[P: NetPeer](mut a: P, mut b: P, mut c: P, mut ls: List[SimLink], f:
             if src == dst:
                 continue
             var msg: List[UInt8]
-            if src == 0:
-                msg = a.outgoing(dst)
-            elif src == 1:
-                msg = b.outgoing(dst)
-            else:
-                msg = c.outgoing(dst)
+            match src:
+                case 0:
+                    msg = a.outgoing(dst)
+                case 1:
+                    msg = b.outgoing(dst)
+                case _:
+                    msg = c.outgoing(dst)
             ls[src * NP + dst].send(f, msg^)
     for src in range(NP):
         for dst in range(NP):
@@ -96,12 +97,13 @@ def exchange[P: NetPeer](mut a: P, mut b: P, mut c: P, mut ls: List[SimLink], f:
                 continue
             var got = ls[src * NP + dst].deliver(f)
             for m in got:
-                if dst == 0:
-                    a.receive(src, m)
-                elif dst == 1:
-                    b.receive(src, m)
-                else:
-                    c.receive(src, m)
+                match dst:
+                    case 0:
+                        a.receive(src, m)
+                    case 1:
+                        b.receive(src, m)
+                    case _:
+                        c.receive(src, m)
 
 
 def run_mesh[P: NetPeer](mut a: P, mut b: P, mut c: P, mut ls: List[SimLink]) raises -> Int:

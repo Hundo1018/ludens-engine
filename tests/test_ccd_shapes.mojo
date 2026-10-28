@@ -62,16 +62,17 @@ def _shoot(kind: Int, ccd: Bool, speed: Real = 60, mode: Int = -1) raises -> Rea
     _wall(sc)
     var b = QuatBody6.at_rest(Vec3(-2.5, 0, 0, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
     b.vel = Vec3(speed, 0, 0, 0)
-    if kind == 0:
-        _ = sc.add_hull(b^, _cube_verts(0.1), False)
-    elif kind == 1:
-        _ = sc.add_ellipsoid(b^, Vec3(0.1, 0.08, 0.12, 0), False)
-    else:
-        var sp = CompoundSpec()
-        sp.box(Vec3(0.1, 0.1, 0.1, 0), ZERO)
-        sp.sphere(0.08, Vec3(0, 0.15, 0, 0))
-        _ = sc.add_compound(b^, sp, 100, False)
-        sc.bset.bodies[1].vel = Vec3(speed, 0, 0, 0)
+    match kind:
+        case 0:
+            _ = sc.add_hull(b^, _cube_verts(0.1), False)
+        case 1:
+            _ = sc.add_ellipsoid(b^, Vec3(0.1, 0.08, 0.12, 0), False)
+        case _:
+            var sp = CompoundSpec()
+            sp.box(Vec3(0.1, 0.1, 0.1, 0), ZERO)
+            sp.sphere(0.08, Vec3(0, 0.15, 0, 0))
+            _ = sc.add_compound(b^, sp, 100, False)
+            sc.bset.bodies[1].vel = Vec3(speed, 0, 0, 0)
     if mode >= 0:
         sc.set_ccd_mode(sc.bset.id_of(1), mode)
     var mx = Real(-1e9)

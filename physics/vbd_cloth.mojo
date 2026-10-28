@@ -195,14 +195,15 @@ def vbd_solve_kernel[LT: TensorLayout](
     for k in range(4):
         var rr = r
         var cc = c
-        if k == 0:
-            cc = c - 1
-        elif k == 1:
-            cc = c + 1
-        elif k == 2:
-            rr = r - 1
-        else:
-            rr = r + 1
+        match k:
+            case 0:
+                cc = c - 1
+            case 1:
+                cc = c + 1
+            case 2:
+                rr = r - 1
+            case _:
+                rr = r + 1
         if rr < 0 or rr >= grid_h_ or cc < 0 or cc >= grid_w_:
             continue
         var j = rr * grid_w_ + cc
@@ -322,14 +323,15 @@ def cpu_vbd_run[W: Int, H: Int](
                     for k in range(4):
                         var rr = r
                         var cc = c
-                        if k == 0:
-                            cc = c - 1
-                        elif k == 1:
-                            cc = c + 1
-                        elif k == 2:
-                            rr = r - 1
-                        else:
-                            rr = r + 1
+                        match k:
+                            case 0:
+                                cc = c - 1
+                            case 1:
+                                cc = c + 1
+                            case 2:
+                                rr = r - 1
+                            case _:
+                                rr = r + 1
                         if rr < 0 or rr >= H or cc < 0 or cc >= W:
                             continue
                         var j = rr * W + cc

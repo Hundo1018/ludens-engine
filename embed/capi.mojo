@@ -436,10 +436,9 @@ def ld_world_get_bodies(h: Optional[Handle], handles: Optional[I64Ptr], poses7: 
     for i in range(len(bset.bodies)):
         if bset.is_removed(i):
             continue
-        if handles:
-            handles.value()[unsafe_offset=j] = pack_body(bset.id_of(i))
-        if poses7:
-            var d = poses7.value()
+        if case .Some(hp) = handles:
+            hp[unsafe_offset=j] = pack_body(bset.id_of(i))
+        if case .Some(d) = poses7:
             var pos = bset.bodies[i].position()
             var q = bset.bodies[i].rotation()
             d[unsafe_offset=7 * j] = Float32(pos[0])
@@ -474,13 +473,13 @@ def ld_world_raycast(
         var r = p[].w.raycast(_v(ox, oy, oz), _v(dx, dy, dz), Real(max_t))
         if r.body < 0:
             return Int32(0)
-        if out_body:
-            out_body.value()[] = r.body
-        if out_hit7:
-            out_hit7.value()[unsafe_offset=0] = Float32(r.t)
+        if case .Some(ob) = out_body:
+            ob[] = r.body
+        if case .Some(oh) = out_hit7:
+            oh[unsafe_offset=0] = Float32(r.t)
             for k in range(3):
-                out_hit7.value()[unsafe_offset=1 + k] = Float32(r.point[k])
-                out_hit7.value()[unsafe_offset=4 + k] = Float32(r.normal[k])
+                oh[unsafe_offset=1 + k] = Float32(r.point[k])
+                oh[unsafe_offset=4 + k] = Float32(r.normal[k])
         return Int32(1)
     except e:
         return Int32(_fail(p, LD_ERR_ARG, String(e)))
@@ -777,8 +776,8 @@ def ld_nav_bake(verts_xyz: Optional[F32Ptr], nverts: Int64, tris: Optional[I32Pt
     for i in range(Int(nidx)):
         ts.append(Int(tris.value()[unsafe_offset=i]))
     var cfg = NavBakeConfig.default()
-    if cfg7:
-        cfg = NavBakeConfig(Real(cfg7.value()[unsafe_offset=0]), Real(cfg7.value()[unsafe_offset=1]), Real(cfg7.value()[unsafe_offset=2]), Real(cfg7.value()[unsafe_offset=3]), Real(cfg7.value()[unsafe_offset=4]), Real(cfg7.value()[unsafe_offset=5]), Int(cfg7.value()[unsafe_offset=6]))
+    if case .Some(c7) = cfg7:
+        cfg = NavBakeConfig(Real(c7[unsafe_offset=0]), Real(c7[unsafe_offset=1]), Real(c7[unsafe_offset=2]), Real(c7[unsafe_offset=3]), Real(c7[unsafe_offset=4]), Real(c7[unsafe_offset=5]), Int(c7[unsafe_offset=6]))
     try:
         var nav = EmbedNav(vs, ts, cfg)
         var p = alloc[_CNav](Layout[_CNav](count=1)).unsafe_leak()
@@ -961,13 +960,13 @@ def ld_world_raycast_mask(
         var r = p[].w.raycast(_v(ox, oy, oz), _v(dx, dy, dz), Real(max_t), mask)
         if r.body < 0:
             return Int32(0)
-        if out_body:
-            out_body.value()[] = r.body
-        if out_hit7:
-            out_hit7.value()[unsafe_offset=0] = Float32(r.t)
+        if case .Some(ob) = out_body:
+            ob[] = r.body
+        if case .Some(oh) = out_hit7:
+            oh[unsafe_offset=0] = Float32(r.t)
             for k in range(3):
-                out_hit7.value()[unsafe_offset=1 + k] = Float32(r.point[k])
-                out_hit7.value()[unsafe_offset=4 + k] = Float32(r.normal[k])
+                oh[unsafe_offset=1 + k] = Float32(r.point[k])
+                oh[unsafe_offset=4 + k] = Float32(r.normal[k])
         return Int32(1)
     except e:
         return Int32(_fail(p, LD_ERR_ARG, String(e)))
