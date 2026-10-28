@@ -97,7 +97,7 @@ def _setup_mixed[BP: BroadPhase](mut sc: ContactScene6[QuatBody6, BP]) raises:
     idx.append(0); idx.append(1); idx.append(2)
     idx.append(0); idx.append(2); idx.append(3)
     _ = sc.add_trimesh(
-        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 20, 1, 20)), v^, idx^
+        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 20, 1, 20)), v, idx
     )
     _ = sc.add_hull(
         QuatBody6.at_rest(Vec3(-6, 3, 0, 0), Inertia3.box(1, 0.3, 0.3, 0.3)),

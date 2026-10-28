@@ -132,7 +132,7 @@ def case_field_vs_mesh(as_field: Bool) raises -> Real:
         var hs2 = List[Real](capacity=25)
         for i in range(len(f.h)):
             hs2.append(f.h[i])
-        _ = sc.add_heightfield(_floor_body(), hs2^, 5, 5, 4.0, -8.0, -8.0)
+        _ = sc.add_heightfield(_floor_body(), hs2, 5, 5, 4.0, -8.0, -8.0)
     else:
         var m = f.to_trimesh()
         var vv = List[Real](capacity=len(m.v))
@@ -141,7 +141,7 @@ def case_field_vs_mesh(as_field: Bool) raises -> Real:
         var ii = List[Int](capacity=len(m.idx))
         for i in range(len(m.idx)):
             ii.append(m.idx[i])
-        _ = sc.add_trimesh(_floor_body(), vv^, ii^)
+        _ = sc.add_trimesh(_floor_body(), vv, ii)
     var b = sc.add(_crate(1.2), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(300):
         sc.step_soft(DT, G)
@@ -203,7 +203,7 @@ def case_empty_mesh() raises -> Real:
     var v = List[Real]()
     var i = List[Int]()
     var sc = ContactScene6[QuatBody6]()
-    _ = sc.add_trimesh(_floor_body(), v^, i^)
+    _ = sc.add_trimesh(_floor_body(), v, i)
     var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(60):
         sc.step_soft(DT, G)
@@ -222,7 +222,7 @@ def case_degenerate_tri() raises -> Real:
     i.append(0); i.append(1); i.append(2)
     i.append(0); i.append(1); i.append(3)
     var sc = ContactScene6[QuatBody6]()
-    _ = sc.add_trimesh(_floor_body(), v^, i^)
+    _ = sc.add_trimesh(_floor_body(), v, i)
     var b = sc.add(_crate(0.6), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(60):
         sc.step_soft(DT, G)
@@ -276,7 +276,7 @@ def case_valley() raises -> List[Real]:
     i.append(1); i.append(2); i.append(5)
     i.append(1); i.append(5); i.append(4)
     var sc = ContactScene6[QuatBody6]()
-    _ = sc.add_trimesh(_floor_body(), v^, i^)
+    _ = sc.add_trimesh(_floor_body(), v, i)
     var b = sc.add(_crate(2.0), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(400):
         sc.step_soft(DT, G)

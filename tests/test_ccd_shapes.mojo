@@ -140,7 +140,7 @@ def main() raises:
     var mw = ContactScene6[QuatBody6]()
     var v: List[Real] = [0, -2, -2, 0, 2, -2, 0, -2, 2, 0, 2, 2]
     var ix: List[Int] = [0, 2, 1, 1, 2, 3]
-    _ = mw.add_trimesh(QuatBody6.at_rest(ZERO, Inertia3.box(1, 1, 1, 1)), v^, ix^)
+    _ = mw.add_trimesh(QuatBody6.at_rest(ZERO, Inertia3.box(1, 1, 1, 1)), v, ix)
     var bb = QuatBody6.at_rest(Vec3(-2.5, 0.1, 0.05, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
     bb.vel = Vec3(60, 0, 0, 0)
     _ = mw.add(bb^, Vec3(0.1, 0.1, 0.1, 0), False)

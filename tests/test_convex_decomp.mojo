@@ -159,7 +159,7 @@ def case_hull_manifold(mut s: Suite) raises:
                 var hr = List[Real](capacity=len(hv))
                 for k in range(len(hv)):
                     hr.append(Real(hv[k]))
-                var hs = HullShape(hr^)
+                var hs = HullShape(hr)
                 var pc = Vec3(Real(cases[3 * c]), Real(cases[3 * c + 1]), Real(cases[3 * c + 2]), 0)
                 var man = hull_manifold(
                     hs.world(Vec3(0, 0, 0, 0), ex, ey, ez),
