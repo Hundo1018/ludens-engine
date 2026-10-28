@@ -4255,8 +4255,13 @@
 >   `flag-policy` PASS。`gpu-compile`(`sm_86`,只編譯)15 / 15。
 > - `pixi run benchmark` 全部重跑 45 分 49 秒(4 核雲端主機),`BENCHMARK_REPORT.md` 重新產生;`perf -- governance` PASS。
 >   牆鐘數字與先前報告的主機不同,不做逐列前後比較;確定性的前後對照用 `icount`(上)。
-> **遺留**:`tests/golden/test_stdout.linux-aarch64.txt` 與 `test_stdout.darwin-arm64.txt` 是 1.1.0 的記錄,升級後需由 CI `portability` 工作重新記錄;
-> 1.2.0 對 `match` 與浮點捨入的敏感度(`mass_props`)只由 `test_compound` 的逐位元檢查守住,其他鏈的轉換靠 golden 不變(歸因見上)。
+> **ARM 目標(PR #70 的 CI,`01875f7`)**:`gate`、`portability (ubuntu-24.04-arm)`、`portability (macos-14)` 全部成功;兩份分平台 golden 以 1.2.0 重新記錄
+> (各 2167 行,由 `scripts/ci_log_extract.py` 取自工作日誌)。`fp-probe --compare`(x86 對兩個 ARM 傾印):pile 9.22e-04(容許 2e-2)、roll 2.35e-07 / 2.45e-07
+> (容許 1e-5)、tower 1.24e-07(容許 1e-5)。第一次 CI 兩個 ARM 工作都停在 `test_fft_ocean`「單一 FFT 模式等於 Gerstner 波」:垂直速度差 1.366e-03 對容許 1e-3
+> (x86 為 8.1e-04,1.1.0 時三個目標都是 8.1e-04)。原因是 `GerstnerWater.velocity` 為 float32 中央差分(`h = 1e-3`),相位捨入(64 rad 處 ulp 7.6e-6)被 `1/(2h)` 放大;
+> 本機實測 skylake / haswell / avx512 8.09e-04、無 FMA 9.07e-04;上界 A u / h = 1.5e-3(每個實作),差值 3e-3,所以容許值改為 3e-3(高度檢查維持 1e-4)。
+> **遺留**:1.2.0 對 `match` 與浮點捨入的敏感度(`mass_props`)只由 `test_compound` 的逐位元檢查守住,其他鏈的轉換靠 golden 不變(歸因見上);
+> `portability` 仍為非阻擋式(`continue-on-error`)。
 
 ## 編號索引
 

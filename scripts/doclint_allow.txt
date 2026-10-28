@@ -8,5 +8,3 @@ scheduler/fsm.mojo  # historical: a misplaced path, the FSM is procedural/fsm.mo
 examples/08_wgpu_motor_skinning.mojo  # historical: removed with the wgpu demo (3.4)
 examples/20_contact_solver_2d.mojo  # historical: removed with the 2D physics path (2026-09-29)
 physics/solver.mojo  # historical: removed with the 2D physics path (2026-09-29)
-tests/golden/test_stdout.linux-aarch64.txt  # removed by 17.88 (1.1.0 output); the CI portability job re-records it
-tests/golden/test_stdout.darwin-arm64.txt  # removed by 17.88 (1.1.0 output); the CI portability job re-records it
