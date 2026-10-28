@@ -81,7 +81,11 @@ def main() raises:
         dh = max(dh, abs(o.height(x, z, t) - g.height(x, z, t)))
         dv = max(dv, abs(o.velocity(x, z, t)[1] - g.velocity(x, z, t)[1]))
     print("  one mode vs Gerstner Q = 0, 200 samples: worst height diff", dh, " vertical velocity diff", dv)
-    s.check(dh < 1e-4 and dv < 1e-3, "a single FFT mode is the Gerstner wave (seam parity)")
+    # GerstnerWater.velocity is a central difference with h = 1e-3 in float32, so the rounding of the phase
+    # (ulp 7.6e-6 rad up to 64 rad, half of it per rounding) is divided by 2h: noise up to A u / h = 0.4 * 3.8e-6 / 1e-3
+    # = 1.5e-3 per implementation, 3e-3 for the difference. Measured: 8.1e-4 (skylake, haswell, avx512), 9.1e-4 (no FMA),
+    # 1.37e-3 (aarch64 and macOS, Mojo 1.2.0). The height has no such division, so it keeps 1e-4.
+    s.check(dh < 1e-4 and dv < 3e-3, "a single FFT mode is the Gerstner wave (seam parity)")
 
     # ---- Phillips sea ---------------------------------------------------------------------------
     var sea = FftOcean(64, 200, 0)
