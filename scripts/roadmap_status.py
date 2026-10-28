@@ -2,6 +2,7 @@
 
     pixi run roadmap-status            # per-subsystem counts + open entries
     pixi run roadmap-status -- --open  # only the open entries, one per line
+    pixi run roadmap-status -- --check # exit 1 when a subsystem row differs from the index
     python3 scripts/roadmap_status.py --selftest
 
 The index table (`## 編號索引`) is the single source for statuses: one row per
@@ -47,6 +48,22 @@ def parse(text):
     return index, summary
 
 
+def mismatches(index, summary):
+    """Subsystem rows whose summary counts differ from the index: [(name, index counts, summary counts)]."""
+    by_sub = defaultdict(Counter)
+    for _, _, sub, status in index:
+        by_sub[sub][status] += 1
+    bad = []
+    for row in summary:
+        sub = re.sub(r"\[([^]]*)\]\([^)]*\)", r"\1", row[0])
+        got = by_sub.get(sub, Counter())
+        mine = [got["✅"], got["🔶"], got["⬜"], got["⏸"] + got["不排"]]
+        want = [int(w.replace("**", "").strip()) for w in row[2:]]
+        if mine != want:
+            bad.append((sub, mine, want))
+    return bad
+
+
 def report(index, summary, open_only):
     by_sub = defaultdict(Counter)
     for _, _, sub, status in index:
@@ -81,12 +98,15 @@ def selftest():
     assert parse(sample.replace("⬜ |", "不排 |"))[0][2][3] == "不排"
     assert index[0][1] == "a", index
     assert len(summary) == 2 and summary[0][2:] == ["1", "1", "0", "0"], summary
+    assert mismatches(index, summary) == [], mismatches(index, summary)
+    assert [m[0] for m in mismatches(index, parse(sample.replace("| r | 1 | 1 |", "| r | 2 | 0 |"))[1])] == ["S"]
     print("selftest ok")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--open", action="store_true")
+    ap.add_argument("--check", action="store_true", help="exit 1 when a subsystem row differs from the index")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -96,6 +116,13 @@ def main():
     if not index:
         print("no index rows found", file=sys.stderr)
         return 1
+    if args.check:
+        bad = mismatches(index, summary)
+        for sub, mine, want in bad:
+            print(f"{sub}: index counts {mine} (✅ 🔶 ⬜ ⏸+不排), subsystem table says {want}", file=sys.stderr)
+        if not bad:
+            print(f"roadmap-status: {len(summary)} subsystem rows match the index ({len(index)} entries)")
+        return 1 if bad else 0
     report(index, summary, args.open)
     return 0
 

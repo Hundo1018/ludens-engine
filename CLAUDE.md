@@ -37,6 +37,11 @@ pixi run capi              # 建 C-ABI 共享庫 build/libludens.so(embed/capi.m
 pixi run build-f64         # 以 f64 世界純量建全部套件到 build64/(scripts/build_f64.sh,約 1 分鐘;17.8)
 pixi run wheel             # 建 Python wheel build/dist/ludens-*.whl(python/;ctypes 包 C-ABI,內含 Mojo runtime)
 pixi run bindings          # 由 embed/ludens.h 產生 bindings/rust/ludens_sys.rs(--check 檢查是否過時;test_capi 以 rustc 編譯並比對雜湊)
+pixi run structure         # 由架構索引產生 docs/STRUCTURE.md(--check 檢查是否過時;17.87)
+pixi run layers-sync       # CLAUDE.md / ARCHITECTURE.md 的套件分層表對 scripts/arch_layers.toml
+pixi run roadmap-status -- --check   # ROADMAP 子系統表的計數對編號索引
+pixi run install-hooks     # git config core.hooksPath .githooks(啟用 pre-commit / commit-msg / pre-push)
+pixi run hooks-selftest    # hook 規則與文件產生器的 selftest
 pixi run examples | experiments | spikes
 ```
 
@@ -114,9 +119,30 @@ def main() raises:
   新 bench 要在範本加一行 `@bench`,否則不會進報告。
 - 不要手改 `BENCHMARK_REPORT.md`,一律 `pixi run benchmark` 重新產生。
 
+## Hook
+
+規則都在 `scripts/hooks.py`(一個檔、有 selftest);`.githooks/*` 與 `.claude/settings.json` 只是呼叫它。
+
+- git hook(`pixi run install-hooks` 啟用,人工 `--no-verify` 可略過一次):
+  - `commit-msg`:主旨須為 Conventional Commit(`type(scope): subject`)。
+  - `pre-commit`:依暫存檔案選檢查:`.mojo` → `arch check` + tier 標頭;`.md` → `doclint` + `layers-sync`;
+    `docs/ROADMAP.md` → 子系統表對索引;`pixi.toml` / `scripts/*.sh` → 浮點旗標政策;新增 `.mojo` → 孤島檢查。
+    暫存 diff 動到引擎 `.mojo` 的宣告行(`def` / `struct` / `trait` / `alias` / `comptime`)時,重新產生 `docs/STRUCTURE.md` 並加入本次 commit
+    (`mojo doc` 重建索引約 85 秒;只改函式本體不觸發)。
+  - `pre-push`:CI 的快速檢查(gate selftest、arch、doclint、layers-sync、roadmap-status、orphans、flag-policy、perf governance、bench-fresh、`structure --check`),約 26 秒;
+    `CHANGELOG.md` 落後 HEAD 超過 150 個 commit 時只警告。完整 `pixi run gate` 不在 hook 內。
+- Claude Code hook(`.claude/settings.json`):
+  - PreToolUse 擋:直接編輯產生檔(`BENCHMARK_REPORT.md`、`CHANGELOG.md`、`docs/STRUCTURE.md`、`bindings/` 下的產物、`tests/golden/`);
+    Bash 指令中的 `git commit` / `git push` 帶 `--no-verify`;`git add -f` 加入 `build/`、`build64/`、`.pixi/`、`.campaign/`。
+    只看實際執行的指令(heredoc 本文與引號內文字不算);這是護欄,不是安全邊界。
+  - PostToolUse:編輯 `tests/test_*.mojo` 後檢查第一行 `# tier:`;編輯引擎 `.mojo` 後跑 `arch check`。
+- 產生檔不手改:`docs/STRUCTURE.md`(`pixi run structure`)、`CHANGELOG.md`(`pixi run changelog`)、`BENCHMARK_REPORT.md`(`pixi run benchmark`)、
+  `bindings/`(`pixi run bindings`)。CI 對 `STRUCTURE.md`、分層表、ROADMAP 子系統表各有一步檢查。
+
 ## 文件
 
 - `docs/ARCHITECTURE.md`:分層、錯誤政策、測試架構、archindex(`arch-check` 執行的契約)。
+- `docs/STRUCTURE.md`:套件 → 模組 → 公開 struct / trait / 函式簽名的清單,由 `pixi run structure` 產生,不手改。
 - `docs/CATEGORY.md`:seam 與 parity 測試的範疇論對應表;新增 seam 時補一列。
 - `docs/ROADMAP.md`:原則、邊界、優先序,以及依子系統分組的現況與待辦。編號是永久 ID(程式碼與 commit 引用它),
   不改、不重用;新條目取下一個未用的編號放進對應子系統。完成一項工作時:把進度註(做了什麼、通過的 gate、
