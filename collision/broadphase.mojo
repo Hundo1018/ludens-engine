@@ -44,9 +44,6 @@ struct BruteForce[D: Int](BroadPhase):
     comptime dim: Int = Self.D
     var items: List[BoxProxy[Self.D]]
 
-    def __init__(out self):
-        self.items = List[BoxProxy[Self.D]]()
-
     def rebuild(mut self, items: List[BoxProxy[Self.D]]) raises:
         self.items = items.copy()
 

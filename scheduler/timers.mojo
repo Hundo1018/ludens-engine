@@ -152,12 +152,6 @@ struct TimerHeap(TimerQueue):
     var next_seq: Int
     var tick: Int
 
-    def __init__(out self):
-        self.entries = List[_HeapEntry]()
-        self.canceled = Dict[Int, Bool]()
-        self.next_seq = 0
-        self.tick = 0
-
     def current_tick(self) -> Int:
         return self.tick
 

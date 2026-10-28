@@ -30,9 +30,6 @@ def _bits_to_f32(u: UInt64) -> Float32:
 struct SplitMix64(Rng):
     var state: UInt64
 
-    def __init__(out self):
-        self.state = 0
-
     @staticmethod
     def seeded(seed: UInt64) -> Self:
         return Self(seed)

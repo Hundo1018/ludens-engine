@@ -102,9 +102,6 @@ struct BruteForceQuery[D: Int](SceneQuery):
     comptime dim = Self.D
     var boxes: List[AABB[Self.D]]
 
-    def __init__(out self):
-        self.boxes = List[AABB[Self.D]]()
-
     def rebuild(mut self, items: List[BoxProxy[Self.D]]) raises:
         self.boxes = _index_boxes(items)
 
@@ -128,10 +125,6 @@ struct BvhQuery[D: Int](SceneQuery):
     comptime dim = Self.D
     var bvh: BVH[Self.D]
     var boxes: List[AABB[Self.D]]
-
-    def __init__(out self):
-        self.bvh = BVH[Self.D]()
-        self.boxes = List[AABB[Self.D]]()
 
     def rebuild(mut self, items: List[BoxProxy[Self.D]]) raises:
         self.boxes = _index_boxes(items)
