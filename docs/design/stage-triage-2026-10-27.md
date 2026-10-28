@@ -62,7 +62,7 @@
 
 | 子句 | 標籤 | 證據 | 下一步 |
 |---|---|---|---|
-| linux-aarch64 / osx-arm64 實測、ARM/macOS golden、跨架構 dump 比對 | env-blocked | `.github/workflows/ci.yml:59-67` 已有 ubuntu-24.04-arm 與 macos-14 矩陣;`tests/golden/` 僅有 `test_stdout.txt`,無分平台 golden | 需要 ARM / macOS 執行環境;若 CI 已跑,記錄其結果(未查) |
+| linux-aarch64 / osx-arm64 實測、ARM/macOS golden、跨架構 dump 比對 | done(2026-10-28) | `.github/workflows/ci.yml:59-67` 已有 ubuntu-24.04-arm 與 macos-14 矩陣;`tests/golden/` 僅有 `test_stdout.txt`,無分平台 golden | 需要 ARM / macOS 執行環境;若 CI 已跑,記錄其結果(未查) |
 | 跨目標容差表、降級矩陣 | stale-done | ROADMAP:3801-3805(2026-10-17) | — |
 | wasm 核心 / 殼切分的機器檢查 | done(本輪,commit f0c2134) | `scripts/wasm_probe.py` `SHELL` / `shell_reach`;selftest 6/6;注入 `embed.capi` 的核心檔被報 VIOLATION | — |
 | wasm64 / 含指標模組 | env-blocked | 需要外部 llc;Modular LLVM 無 wasm 後端 | — |
@@ -163,3 +163,23 @@
 - 17.19 / 17.58 / 17.61 / 17.63 的 doable 列由子代理回報,實作前須先重跑其 grep 證據。
 - GPU / UI / env-blocked 項目不計入階段目標。
 - stale-done 項目應在 ROADMAP 對應子句註明已完成,以免重複列為未做。
+
+## 第二輪(2026-10-28):6 個 unverified 列的終態
+
+每列的實跑證據已寫入 ROADMAP 對應條目的進度註(2026-10-28)。
+
+| 列 | 終態 | 實跑證據 |
+|---|---|---|
+| 17.19 凸殼振盪(body 14) | deferred | grep `body 14\|body14\|rocking` 於 tests / experiments / benchmarks 無重現;需先寫重現場景 |
+| 17.19 `_emit_events` 原始衝量 | stale-done(接觸部分) | `collision/contact_events.mojo:36-41` 的 `impulse`;`tests/test_impact_report.mojo` 24/24 |
+| 17.19 關節力矩進事件 | deferred | `collision/contact_events.mojo` 與 `tests/test_impact_report.mojo` 無 joint / torque 欄位 |
+| 17.19 網格窄相逐三角 SAT 成本 | deferred(midphase 已量測) | `benchmarks/bench_trimesh.mojo`:brute 207.8 µs、BVH 711 ns、heightfield 121 ns(N = 1922);逐三角 SAT 單獨成本未隔離 |
+| 17.61 氣體容器壁 / 布料+空氣 / 多相假流 | stale-done | `tests/test_multiphase.mojo` 3/3;`tests/test_cloth_air.mojo` 9/9(動量相對差 3.5e-4;ROADMAP 的 2.8 % 未重新量測) |
+| 17.63 大小 vs 重算取捨 | done | `benchmarks/bench_sim_cache.mojo`:1 cm 誤差 3.05 bytes/點幀;第 200 幀快取 22.2 µs 對快照加重算 8.22 ms |
+| 17.83 (b) cachegrind 指令數 | done | `pixi run icount -- --selftest` PASS(+10.54 % 偵測);`pixi run icount` 446 573 667 條指令,散佈 9.3e-4 |
+
+第二輪的工程項目:
+
+- 17.19 會計熱點(BVH SAH 建樹):交錯 5 組量測,基線中位數 39.82 ms/step,SAH 中位數 40.71 ms/step,無改善,已還原(負面結果,見 ROADMAP 17.19)。
+- 17.76 分平台 golden 入庫與 fp-probe 跨目標比對:見 ROADMAP 17.76 進度註。`scripts/fp_probe.py --compare` 修正 `drift` 遮蔽錯誤。
+- 17.60 三項已實作的校正:見 ROADMAP 17.60 進度註。

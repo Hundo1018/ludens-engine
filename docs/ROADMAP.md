@@ -213,7 +213,7 @@
 > - **AMD / Apple GPU 路徑**:需要 AMD / Apple 加速器(triage 列 GPU)。
 > - **GPU 拒絕 `max_mass_ratio`、GPU anchor / substep**:`physics/gpu_contact.mojo:351-352` 明確拒絕,屬第 7 層。
 > - **UI-editor 項目**:圖形化編輯器本體不在本 repo(見「邊界與排除」);triage 中無此類未做子句。
-> - **env-blocked**(非 GPU,但同為本階段不計):linux-aarch64 / osx-arm64 實測、wasm64、Godot / Unity 實機、固定主機基準線與牆鐘閘門、NanoVDB 參考檔。
+> - **env-blocked**(非 GPU,但同為本階段不計):wasm64、Godot / Unity 實機、固定主機基準線與牆鐘閘門、NanoVDB 參考檔。
 >
 > 結論:GPU / UI / env-blocked 不計入階段目標;階段目標只看 doable 列(見 `docs/design/stage-triage-2026-10-27.md`)。
 43. 17.17 收尾:在 GPU 主機實跑 `test_gpu_artic` 裝置半段與 bench 裝置列並記入進度註(`test_gpu_narrow` 已跑過,
@@ -313,6 +313,12 @@
 > **歷史**:原「現況」寫「`Joint6` 僅 ball / distance / hinge **等式約束**;無限制/馬達/彈簧/滑軌/焊接」。其中焊接(weld)後來由 17.5 交付(見上)。
 
 #### 17.19 生產級 solver 硬化
+> **進度註(2026-10-28,第二輪分流:未核對列的終態與實跑證據)**:
+> - **會計熱點(coloring / 逐幀 BVH / CCD)**:`experiments/exp_solver_hotspot.mojo`(N = 4050,20 步)。BVH 建樹改用 SAH(`collision/bp_bvh.mojo:25`,`build_boxes(sah=True)`)做了一次交錯量測,5 組各一次,每步毫秒:基線 38.68 / 38.76 / 39.82 / 40.56 / 41.71(中位數 39.82);SAH 38.38 / 39.28 / 40.71 / 41.33 / 42.76(中位數 40.71)。無改善(+2.2 %,在雜訊內),**已還原**。負面結果。**cachegrind 前後(2026-10-28,`pixi run icount`,各 3 次)**:SAH 446 980 896 / 446 995 538 / 446 997 394(均值 446 991 276);還原後的基線 446 970 570 / 446 992 110 / 446 973 280(均值 446 978 653)。差 12 623 條,2.8e-5 相對,落在單次散佈(4.8e-5 相對)內。讀法:`icount_probe` 不經寬相,預期無變化,量測與之相符;這不是 SAH 的效能證據,只說明本 probe 看不見此改動。同一原始碼在本次建置為 446.97 M,與 17.83 注記的 446.57 M 相差 0.09 %,表示跨建置的指令數有此量級的漂移,差異小於 0.1 % 時不作為訊號。
+> - **凸殼振盪(body 14,未入睡)**:`tests/` 與 `experiments/` 內無此重現(grep `body 14|body14|rocking` 只命中 `test_ellipsoid.mojo` 的橢球搖擺與 `test_solver6.mojo` 的注釋)。終態 **deferred**:先寫重現場景與逐步接觸夥伴的實驗,之後才能判定是接觸翻動或軟體節點推動。
+> - **`_emit_events` 原始衝量**:接觸部分 **stale-done**。`collision/contact_events.mojo:36-41` 的 `ContactEvent` 含 `impulse`、`force`、`point`、`peak`;`tests/test_impact_report.mojo` 24/24,四三角網格中心頂點的衝量總和 0.16333365,m g dt = 0.16333334。
+> - **關節力矩進事件**:**deferred**。`collision/contact_events.mojo` 與 `tests/test_impact_report.mojo` 無 joint 或 torque 相關欄位,17.49 的範圍只有接觸。
+> - **網格窄相逐三角 SAT 成本**:`benchmarks/bench_trimesh.mojo` 的 midphase 量測(每查詢):brute 207.8 µs(N = 1922)、3 565 513.6 ns(N = 32258,候選 3278);BVH 711 ns 到 1350 ns;heightfield 121 ns 到 147 ns。逐三角 SAT 本身的成本未隔離量測。終態 **deferred**(midphase 已量測,SAT 單獨成本待量)。
 > **進度註(2026-10-27,負載相依接觸剛度,opt-in,負面結果)**:`ContactScene6.set_load_stiffness`(預設關)把一對接觸的軟度頻率乘上 √(較重 / 較輕質量比)(以 `inv_mass` 計),
 > 只作用於兩體皆有 `set_contact_softness` 的對。`experiments/exp_load_stiffness.mojo`:輕箱 1 kg 承重 M kg,地板靜態,兩體 60 Hz、ζ 1,5 s,重疊 = 最大之 |0.25 − y_輕| 與 |Δy − 0.5|。
 >
@@ -1873,6 +1879,12 @@
 > 流體渲染 / 泡沫著色屬宿主;載具浮筒 / 船體屬 17.74。
 
 #### 17.60 水面 / 網格流體 — Wave C
+> **進度註(2026-10-28,第二輪分流:已實作項的校正)**:本條列的三項未做皆已在程式碼中,設計與範圍見 `docs/design/17.60-remainders.md`:
+> (1) ω3 / 三階 cumulant:`fluid/lbm_cumulant.mojo` `Lbm27.omega3`(1937bc1),`tests/test_lbm_omega3.mojo` 5/5。
+> (2) MAC 網格 3-D 水位:`physics/mac_levelset3.mojo` `LevelSetWater3`,`tests/test_levelset3.mojo` 6/6(閉合箱)。
+> (3) 3-D 粒子與逐格重播種:`physics/mac_levelset_particles3.mojo` `LevelSetParticles3`,`tests/test_levelset_particles3.mojo` 3/3。
+> 閉合箱 3-D 自由表面另有 `FlipWater3`(`tests/test_flip3.mojo` 4/4,stale-done)。上方「未做」句中的「3-D 自由表面」與「現況」段落中「沒有自由表面,也沒有網格投影法」已過時。
+> 仍未做、未歸因:`LevelSetWater3` 的開放邊界(2-D 已有 `set_open`);2-D 粒子過衝 +9.1 % 的來源;3-D 中間面 40 格對 2-D 48 格的差距。因此本條維持 🔶。
 > - **進度註(2026-10-27,階段分流後的剩餘 doable 項)**:(a) 2-D 逐格 Enright 重播種:`LevelSetParticles.reseed` 已移植為 opt-in;測試(`tests/test_levelset_particles.mojo`,3 / 3)量到:在目前採用的逐粒子 min / max 規則下,重播種不改變格數體積(0.0771 與 0.0771),粒子數 720 → 3708(界面拉長,帶寬增加;只印出不設界)。(b) 順序無關的 `correct`:以「逐格合併 min / max」與「逃逸判定用快照 phi」兩項各自量測,2-D 體積由 +9.1 % 變為 +14.7 %(只改判定時機)與 +24.3 %(再加逐格合併)。兩者皆使 2-D 偏離解析圓盤更遠,**未採用為 2-D 預設**;3-D 版維持兩者皆用(其中間面 40 格對 2-D 48 格的差距仍未歸因)。詳見 `docs/design/17.60-remainders.md` §3a。(c) 3-D 出流恆等式:`tests/test_levelset_open3.mojo` P5,與 2-D 同格(16²)的恆等式偏差差 3.6e-6(相對),3-D 偏差 4.7 %。
 > **進度註(2026-10-13)**:`WaterSurface` seam 先行。`physics/water.mojo`:`WaterSurface` trait(`height(x, z, t)`、`velocity`)與
 > `FlatWater` / `GerstnerWater`(深水色散 ω² = g k,陡度 Q 的水平位移以 4 次定點迭代反解,t 為閉式參數、免步進)/ `ShallowWaterGrid`
@@ -1998,28 +2010,21 @@
 > **進度註(2026-10-27,3-D 點拖曳,通量形式)**:`MacFluid3.add_impulse(x, y, z, ix, iy, iz)`(三線性伴隨,逐面撒到 u、v、w,每面除以 dx³)與 `momentum()`(Σ 速度 · dx³,f64 累加)。`MacFluid3.flux_substeps` 計數次級步。`tests/test_fluid3_point.mojo` 2/2:16³、dx 1/16、dt 1/120、120 步,中心點以 +x 1 m/s 出發、以 k 5 向空氣速度拖曳,每步的衝量以 `add_impulse` 施加。事前寫定:通量路徑殘差 < 1e-4、半拉格朗日殘差 > 0.10。量到:通量殘差 2.3e-7、次級步 8398(約每步 70)、半拉格朗日殘差 1.69;兩項預測皆成立。半拉格朗日殘差小於 2-D 在同 k 下的 2.27,但兩者 n、dx、維度不同,不歸因於單一原因;這是一次量測,不是尺度律。
 > **進度註(2026-10-27,ω3 三階 cumulant 鬆弛)**:`Lbm27.omega3`(預設 1 = 高斯閉合,與舊行為位元相同)。七個三階中心矩 m_abc(a + b + c = 3、各指數 ≤ 2)以 (1 − ω3) 鬆弛到零;指數為 3 的 m300 / m030 / m003 不是此基底的槽位(沿單軸 c³ = c,由二階槽與密度決定),仍由閉合設為零。`tests/test_lbm_cumulant.mojo` 11/11 與 golden 位元不變(ω3 = 1 寫字面零)。`tests/test_lbm_omega3.mojo` 5/5:32³ 剪切波 A = 0.05、200 步、ν 0.02 與 0.05。振幅比(ω3 = 0.5 / 1 / 1.5):ν 0.02 為 0.85425 / 0.85404 / 0.85397(連續解 0.85709),ν 0.05 為 0.67870 / 0.67769 / 0.67735(連續解 0.68009);ω3 = 1 對連續解的最大誤差 0.36 %。事前寫定的 P2(ω3 的散佈 < 1e-3)在 ν 0.05 失敗(1.50e-3;ν 0.02 為 2.6e-4),門檻改為 A² = 2.5e-3 並在檔頭記錄。ω3 讓場改變(max |du| 1.0e-5),旋鈕有效。ω3 對線性剪切衰減的影響很小,只量到二階量級的散佈;它對非線性與穩定性的效應未量。
 > **進度註(2026-10-27,3-D MAC 水位 level set)**:`physics/mac_levelset3.mojo` `LevelSetWater3`(n³ MAC、phi 於格心、壁面六面、重力沿 -y;RK2 三線性回溯、三向 ghost fluid 的表面壓力、外推 `extrap` 圈、八序快速掃描重新初始化,3-D Godunov 以 min / max 排序取中位數)。`tests/test_levelset3.mojo` 6/6、16³、dt 1/120 s:靜水 1 s 最大面速 1.3e-7 m/s、體積不變、解收斂;與 `LevelSetWater2` 同格的延伸板(z 方向延伸到箱外)60 步後中間 z 面的最大 |Δφ| 為 7.2e-5 dx(事前寫定 < 1e-2 dx);潰壩在 T = 1/6 s 的 Z = 1.625;體積範圍 0.844–1.063,與同 n 的 2-D 範圍逐位相同(0.844 不滿足事前寫定的 15 % 界,2-D 亦然,故改為與 2-D 的對等);角柱 x ↔ z 對稱 1.3e-4 dx。兩個缺陷在測試檔頭記錄:(a) 三值排序以 a + b + c − min − max 計算,遇大哨兵值在單精度抵消為零,使板偏離 2-D 達 12 dx,改為 min / max 取中位數後為 6e-5 dx;(b) 箱子在 z = 0、1 結束的板不是 z 不變的(z 面在壁附近最近),測試改為箱子在 z 方向延伸到域外。**僅封閉箱**;開放邊界未做。
-> **未做(尚餘)**:2-D 粒子的逐格 Enright 重播種(3-D 已有,見下方;2-D 仍只有整批重播);3-D 中間面 40 格對 2-D 48 格的差距未歸因(見下方);cumulant 高階體力修正:延後(目前無量測動機,見上)。ω3、MAC 3-D 水位與其開放邊界已於上方進度註實作,本條仍為 🔶。
+> **未做(尚餘)**(2026-10-28 校正;舊句「2-D 逐格重播種」「3-D 水位未做」已過時):(1)3-D 中間面 40 格對 2-D 48 格的差距未歸因(見 2026-10-27 注記);(2)cumulant 高階體力修正延後,目前無量測動機;(3)2-D `LevelSetParticles` 的過衝來源未定位,收斂探針顯示沒有方案隨解析度收斂;2-D 逐格重播種為負結果,未採用為預設(見上)。ω3、3-D 水位(含開放邊界)、3-D 粒子與其逐格重播種已實作,各自測試與量測見上方進度註。本條仍為 🔶。
 >
 > **進度註(2026-10-27,3-D 開放邊界)**:`LevelSetWater3.set_open(left, right, bottom, top, back, front)`,規則與 2-D 相同(邊界面取內側鄰面的零梯度值;鄰近液格 Dirichlet p = 0 於 dx / 2;重力作用於出口面)。全部旗標 False 時逐項同舊程式。`tests/test_levelset_open3.mojo` 4/4(integration):16³、dt 1/240 s、0.25 s、底面出口、箱子在 z 方向延伸到域外,並與同格、同 dt、同牆設定的 2-D 出口(`test_levelset_open` 的同一路徑)比較。量測:z 不變性 0.0 dx;中間面與 2-D 的最大 |Δφ| 0.0 dx(印出精度下逐位相同);單位深度體積相對差 4.5e-7;V(0.25 s)/V0 = 0.332(出口確實作用,非空跑)。事前寫定的 P1(< 1e-4 dx)、P2(< 1e-3 dx)、P3(< 1e-3)、P4(V < 0.9 V0)全部通過。測試標頭記錄了精確零的量測,而非假設。仍未做:出口的流量守恆等式(3-D 版,2-D 版在 test_levelset_open 中的 P3 已量過)。本條仍為 🔶。
 >
 > **進度註(2026-10-27,2-D 開放邊界)**:`LevelSetWater2.set_open(left, right, bottom, top)`。被選的壁面成為出口:邊界面以內側鄰面的零梯度值開始,鄰近液格以 Dirichlet p = 0 置於 dx / 2(ghost fluid,θ = 1/2),該面以同一壓力梯度更新;重力亦作用於出口面。所有旗標為 False 時逐項同舊程式,封閉箱路徑不變。`tests/test_levelset_open.mojo` 5/5(integration):32²、dt 1/240 s、1 s,液柱落在出口底面。量測:1 s 內液體排空(V(1 s) = 0);排空於第 79 步,自由落體為 76.7 步,落後 2.3 步,與 dx / v_final = 2.4 步相符(此比對於執行後推得,非事前預測)。出口流量與體積減少的不符為 5.4 % V0,封閉箱自身在 1 s 內增加 6.1 % V0。事前寫定的 5 項中 3 項未過,已記入測試標頭:單步體積只在再初始化步上升(步 5,+6.6e-4,0.26 % V0),界改為「僅於再初始化步上升,且 < 0.5 % V0」;不符界改為「不超過封閉箱自身漂移」;封閉箱 5 % 界未過,數字記為 level set 在 n = 32 的誤差。level set 本身不守恆,出口流量與體積的等式是量測值,不是精確恆等式。3-D 開放邊界未做。
 > **進度註(2026-10-27,17.60 剩餘項的設計與範圍校正)**:設計筆記 `docs/design/17.60-remainders.md`。兩處校正:(1)「3-D 自由表面」一句過寬。`physics/flip3.mojo` `FlipWater3` 已是閉合箱中的 3-D 自由表面(粒子法,`test_flip3` 4/4);未做的是 MAC 格網上的 3-D 水位(level set 或體積分率,`MacFluid3` 沒有)與開放邊界。(2)上方「現況」段落寫「沒有自由表面,也沒有網格投影法」已過時:`MacFluid3` 有投影(7 點 PCG 與 multigrid),自由表面見 `FlipWater3` 與 2-D `LevelSetWater2`。三項未做的狀態:ω3 / 三階 cumulant、MAC 3-D 水位、3-D 粒子與逐格 Enright 重播種,**設計已寫、未實作**,依序實作(ω3 → MAC 3-D 水位 → 3-D 粒子,順序與各自測試見設計筆記「Decision」);在三項實作並記入量測前,本條維持 🔶。
 
-> **現況**:流體只有三種,**沒有自由表面,也沒有網格投影法**。LBM(D3Q19 BGK,`fluid/lbm.mojo:48`)只有
-> 週期 / 風洞兩種邊界(`BC_PERIODIC`、`BC_TUNNEL` `:42-43`),**體力只有 x 分量**(`force_x` `:69`、
-> `:314-315`)——沒有重力方向的體力,所以無法做重力驅動的水;`d3q19.mojo:5-8` 自述「無全域壓力求解、無
-> Poisson」。粒子流體 PBF / SPH 只有盒狀容器夾制(`physics/pbf.mojo:84-85`、`:211-224`),核半徑是全域
-> comptime 常數(`:37`)。`grep -iE "free.?surface|level.?set|\bvof\b|volume.of.fluid|ocean|gerstner|fft\b|shallow.?water"`
-> 於全部引擎套件只命中 `physics/pbf.mojo:16` 一句註解;`grep -iE "marching|isosurface|surfacing"` **零**;
-> `grep -iE "foam|spray|whitewater"` **零**;`grep -iE "mrt|cumulant|trt"` 於 `fluid/` **零**(只有 BGK,`d3q19.mojo:12-14`
-> 提到 D3Q27 的取捨)。遊戲用水是平面 AABB 水體(`physics/fields.mojo:181`),17.30 地形 heightfield 是固體
-> 不是水。數值底座已在:`numerics` 有 `pcg`(`numerics/cg.mojo:73`)、`CsrMatrix`(`numerics/sparse.mojo:54`)、
-> `poisson_1d`(`:163`),Phase 15 建議順序也明記「若日後要做投影法 Navier-Stokes,15.1 是前提」
-> (ROADMAP「Phase 15 建議順序」)。
-> **架構陷阱(實查)**:`fluid` 與 `numerics` 同為第 2 層、互引禁止(`scripts/arch_layers.toml:4-13`、
-> `docs/ARCHITECTURE.md:21`,且該表列 `fluid` 不得擁有粒子流體),所以**網格投影法流體不能放在 `fluid`
-> 裡用 `numerics.pcg`**——須放 `physics`(第 4 層)或調整層級,並同一 commit 修改 `arch_layers.toml` 與
-> `docs/ARCHITECTURE.md` §1。
+> **現況(2026-10-28 校正)**:舊版「只有三種流體、沒有自由表面、沒有網格投影法」已過時。以檔案為準:
+> - LBM:D3Q19 BGK(`fluid/lbm.mojo`)、D3Q27 cumulant 與 ω3(`fluid/lbm_cumulant.mojo`,`Lbm27.omega3`)、MRT(`fluid/lbm_mrt.mojo`)。
+> - 網格投影 NS:2-D `physics/mac_fluid.mojo` `MacFluid2`、3-D `physics/mac_fluid3.mojo` `MacFluid3`。投影解算用 `numerics/cg.mojo` 的 PCG,或 opt-in 的 multigrid(`numerics/multigrid.mojo`、`numerics/multigrid3.mojo`)。3-D 另有渦度約束(opt-in)與點拖曳 `add_impulse`。
+> - 網格水位 level set:2-D `physics/mac_levelset.mojo` `LevelSetWater2`(含 `set_open`)、3-D `physics/mac_levelset3.mojo` `LevelSetWater3`(閉合箱與 `set_open`);粒子修正 `physics/mac_levelset_particles.mojo`、`physics/mac_levelset_particles3.mojo`。
+> - 粒子自由表面:`physics/flip3.mojo` `FlipWater3`(閉合箱,`tests/test_flip3.mojo` 4/4);2-D FLIP 系列在 `physics/flip.mojo`、`flip_apic.mojo`、`flip_diffuse.mojo`。
+> - 粒子流體 PBF / SPH:`physics/pbf.mojo`,盒狀容器夾制(`:84-85`、`:211-224`),核半徑為全域常數(`:37`)。
+> **架構**:網格投影法位於 `physics`(第 4 層),可引用第 2 層的 `numerics`;`fluid` 保留 LBM。舊的「網格投影流體不能放在 `fluid`」陷阱因此不存在。
+> 仍開放:下方「缺口」的 `WaterSurface` 水面查詢與其變體(Gerstner / 頻譜海洋)。
 > 已交付且**不重複主張**:LBM 核心 / 障礙 / 進出口 / 測力 / LES / 驗證套件(14.1–14.6)、17.42 的 GPU 與插值
 > bounce-back、PBF / SPH 與其對照(自由表面、潰壩正是它們的優勢區:ROADMAP「Phase 14」)。
 > **缺口**:
@@ -2052,6 +2057,7 @@
 > 具體機制屬 17.59。
 
 #### 17.61 多物理 — Wave C
+> **進度註(2026-10-28,第二輪分流:未核對列)**:(1)氣體容器壁:`tests/test_multiphase.mojo` 3/3(靜水壓力與容器壁作用的檢查通過;底部兩層平均壓力 2833.9 Pa,靜水估計 2528.4 Pa)。終態 **stale-done**。(2)布料 + 空氣動量缺口:`tests/test_cloth_air.mojo` 9/9;釘住的布料在 0.4 m/s 上升氣流中,空氣動量變化 −0.0045566 對衝量 −0.0045550,相對差 3.5e-4。此數與 ROADMAP 上方的「2.8 %」不同,後者未重新量測;在這個測試的量測下,缺口已遠小於 2.8 %。終態 **stale-done**(以本測試為準,ROADMAP 的 2.8 % 數字應另行核對)。(3)多相假流:終態 **stale-done**,由 (1) 的測試覆蓋。
 > **分流(2026-10-27)**:doable:股線 / 布料 ↔ Smoke2 雙向;done(本輪):糊狀顆粒剪應力乘 (1 − φ)、`MacFluid2` 固體格遮罩(見下方進度註 2026-10-27);unverified:氣體容器壁、布料+空氣 2.8 % 動量缺口、多相假流;deferred:火 / 燃燒;stale-done:3-D 點源。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-27,固體格遮罩)**:`MacFluid2.set_solid(mask)`(opt-in;預設空表不變)。被固體格碰到的面在每次投影前把法向速度歸零(`_zero_solid_faces`),投影的 Laplacian 換成 `_MaskedNegLaplacian`:兩個流體格之間的面才耦合,固體格為單位列,平均只對流體格取。拒絕:遮罩長度不為 n²、流體格沒有流體鄰格、全固體、與多重網格併用。`tests/test_fluid_solid.mojo` 7/7(integration,32² 週期格、dx 1/32、dt 1/120、1 s,8×8 固體方塊,入流 u = 1 + 0.3 sin(2πi/n)、v = 0.3 sin(2πj/n))。量測:固體相鄰面的最大法向速度 0.0(120 步);流體格散度最大 4.8e-5(預先寫的界 0.032);方塊前後平均 u 0.207 與 −0.034(界只要求 < 1,即方塊有阻擋);全流體遮罩對無遮罩路徑,10 步最大 |Δu| 6.0e-8(界 1e-5)。**作廢的第一次執行**:入流為均勻 u = 1,散度為零,投影解的是零右端項,全流體對照得 0.0,未測到運算子,故改為有散度的入流重跑。動量不守恆於有固體的情況,未量測;格子為階梯式,未做無滑移邊界。
 > **進度註(2026-10-27,布料 ↔ 2-D 氣流)**:`physics/cloth_gas.mojo` 的 `ClothGas2`,即 `ClothAir` 的 2-D 版:每頂點沿法向做隱式阻力 F = k A n·(u − v),u 取 `MacFluid2.velocity`(z 分量為 0);布料得完整 3-D 衝量 J,氣體得 −J 的面內部分(每單位深度,經 `add_impulse`),故 depth · Σu dx² 的變化等於布料面內衝量的相反數。`tests/test_cloth_gas.mojo` 8/8(integration,32² 週期格、dx 0.02、1/240 s、u = 0.4 m/s、4×4 格的旗子在 x = 0.2、深 0.1 m、密度 0.1 kg/m²、頂邊釘住、k = 2)。量測:動量相對誤差 6.2e-7(界 1e-3);尖端向 +x 位移 0.150 m(單向)對 0.107 m(雙向);旗子下游 (0.23, 0.40) 的氣體 u 0.309 m/s,旁邊 (0.23, 0.10) 為 0.412 m/s;z 衝量為 0。**修正的預測**:鏡像對稱(z_ij 與 z_i,N−j)原預測 < 1e-6,實測 1.5e-3;無氣體的純布料探針(面內重力 9.8 m/s²、96 步)同樣給 3.1e-3,故這是布料求解器的約束順序所致,不是耦合造成。檢查的界 5e-3 是在探針之後定的,測試標頭已記錄。`ClothGas2` 只在 `step` 內用 `advance`;布料的 `drag` 與 `wind` 預設 0,未設。未做:布料與 `MacFluid2` 經 `Coupler` 排程(目前手動 `step`);3-D `ClothAir` 的 2.8 % 動量缺口(triage 標 unverified,未量)。
@@ -2186,6 +2192,7 @@
 > 渲染 / 網格輸出屬 17.63。
 
 #### 17.63 輸出 / 快取 — Wave C(資產管線提供者)
+> **進度註(2026-10-28,第二輪分流:大小與重算取捨)**:`benchmarks/bench_sim_cache.mojo` 實跑。256 點布料 × 240 幀:誤差上限 1 cm 時 3.05 bytes/點幀,1 mm 時 3.21,0.1 mm 時 3.80,無損(0 m)時 12.05(原始 12)。取第 200 幀:快取解碼(關鍵幀 192 + 8 個差分)22.2 µs;快照 192 + 重算 9 幀 8.22 ms。快取約快 370 倍。終態 **done**(量測完成;取捨的建議值仍由宿主決定)。
 > **分流(2026-10-27)**:doable:讀回自寫 `.vdb`(zlib inflate)、主動 tile 讀取、Alembic 讀回;env-blocked:NanoVDB(需參考檔與規格);unverified:大小 vs 重算取捨;deferred:點數變化時強制 keyframe;stale-done:sim cache、Alembic / VDB 寫入。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **進度註(2026-10-13)**:點快取先行。`physics/sim_cache.mojo`:`PointCacheWriter`(量化到 2·err、關鍵幀存 zig-zag varint、差分幀存整數差 → 無漂移;
 > 點數變動強制關鍵幀;含非有限值的幀與 err = 0 存原始 f32,NaN 保留)、`PointCacheReader`(魔數 "LDPC"、版本 1、幀偏移表、FNV-1a 64 校驗;
@@ -3797,8 +3804,8 @@
 > tick 週期與逐 island 品質屬 17.85(`TieredScheduler`),本條只提供它可掛的派發器。
 
 #### 17.76 平台可攜 — Wave B(平台方向 C 前提)
-> **分流(2026-10-27)**:done:wasm 核心 / 殼切分檢查(f0c2134);env-blocked:ARM / macOS 實測與分平台 golden、wasm64(需外部 llc);GPU:AMD / Apple 路徑;stale-done:跨目標容差表與降級矩陣。詳 `docs/design/stage-triage-2026-10-27.md`。
-> **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣 2026-10-17 ✅;剩 ARM / macOS golden 與跨架構 dump 比對)。
+> **分流(2026-10-27)**:done:wasm 核心 / 殼切分檢查(f0c2134);done(2026-10-28):ARM / macOS 分平台 golden 入庫與跨目標 fp-probe 比對(見進度註);wasm64 子句未解(需外部 llc,見 `docs/design/stage-triage-2026-10-27.md` 17.76 表;此條不標 env-blocked);GPU:AMD / Apple 路徑;stale-done:跨目標容差表與降級矩陣。詳 `docs/design/stage-triage-2026-10-27.md`。
+> **狀態**:🔶 部分完成(2026-10-13:目標矩陣、per-platform golden 機制、CI 可攜工作、wasm leaf kernel 探針 ✅;ARM / macOS golden 待 CI 首跑記錄,浮點位元因子探針 ✅;跨目標容差表、降級矩陣 2026-10-17 ✅;2026-10-28 起 ARM / macOS golden 與跨架構 dump 比對 ✅;剩 `portability` 阻擋式化)。
 > - **2026-10-27 進度(wasm 核心 / 殼切分)**:`scripts/wasm_probe.py` 增加切分檢查:每個 kernel 的引擎匯入閉包不得抵達 `embed` / `harness` / `oop` / `benchmarks` / `examples` / `experiments`。selftest 6 / 6(含注入的兩層殼匯入);樹上三個 `tools/wasm` kernel 無違規;注入 `kernel_inject_probe` 匯入 `embed.capi` 時回報 `embed.capi`。此為靜態匯入掃描,不取代 llc 路徑的實測。
 > **進度註(2026-10-13,CI 可攜工作首輪失敗清單)**:macos-14 依序修掉 `test_capi`(Mach-O 無動態符號表 → `nm -g -U`)、`test_bench_ab`
 > (同參數的純函數兩次呼叫被合併 → 每個閉包自帶呼叫計數)、`test_python_binding`(`build_wheel.py` 靠 `ldd` 與 ELF RUNPATH,非 Linux 改為明確拒絕,
@@ -3877,7 +3884,14 @@
 >   其餘 5 個變體逐位相同,`--check` 通過。`tests/test_degrade.mojo` 3/3:40 個 island × 120 tick,island fan-out 以 1 個 worker == 預設寬度 == 串行派發;
 >   同色 fan-out 與並行 narrowphase 以 1 個 worker == 串行 step(快照位元組相同)。降級矩陣其餘兩列在本引擎無可比對對象:沒有自動 GPU → CPU 切換(GPU 解算器是宿主明選的型別),
 >   SIMD 寬度不是旋鈕(`PadW` 依維度固定;探針顯示 x86-64 各寬度逐位相同)。
-> - **待辦**:ARM / macOS golden 記錄並轉為阻擋式檢查;以 CI 印出的 aarch64 / macOS dump 執行 `--compare`(取代逐位元組 `write_state` 比對:兩架構 FMA 縮併不同,位元組必然不同,改以容差表比對)。
+> - **待辦**:轉為阻擋式檢查(golden 入庫與 `--compare` 已於 2026-10-28 完成);以 CI 印出的 aarch64 / macOS dump 執行 `--compare`(取代逐位元組 `write_state` 比對:兩架構 FMA 縮併不同,位元組必然不同,改以容差表比對)。
+> **進度註(2026-10-28,分平台 golden 入庫與 fp-probe 跨目標比對)**:CI `4b83fb7`(run 40572758002)的 `portability` 兩個工作首跑結果,golden 與 `fp_dump.json` 皆取自 job log,以 `scripts/ci_log_extract.py` 擷取:
+> - `tests/golden/test_stdout.linux-aarch64.txt`(2167 行)、`tests/golden/test_stdout.darwin-arm64.txt`(2167 行;名稱與 `scripts/agent_gate.sh` 的 `uname` 規則一致)。
+> - 與 x86 golden(2170 行)比對:3 行是 x86 的 pixi 任務標頭(CI 擷取不含);另有 23 行數值不同,屬跨目標差異,由容差表管理。
+> - `pixi run fp-probe -- --compare`(本機 x86 dump 為參考):aarch64 與 darwin-arm64 的結果相同:pile 9.22e-4(容差 2e-2)、roll 1.80e-7(1e-5)、tower 1.24e-7(1e-5),三場景皆在容差內。
+> - 修正 `scripts/fp_probe.py` 的 `--compare`:區域變數 `drift` 遮蔽同名函式,執行時 UnboundLocalError,比對從未完成。
+> **未做**:把 `portability` 改為阻擋式(`.github/workflows/ci.yml` 仍為 `continue-on-error: true`)。理由:兩平台的首跑 golden 尚未經過第二次比對,測試 `test_fracture` 的睡眠比例在 ARM 與 x86 不同(5 / 48 對 47 / 48),改為阻擋式前需先確認連續兩次綠燈。
+> **env-blocked 標籤移除**:CI 矩陣已可執行 ARM 與 macOS,此項不再需要外部主機。
 
 #### 17.78 宿主整合 / 綁定 — Wave C
 > **分流(2026-10-27)**:env-blocked:Godot / Unity 實機適配層;stale-done:批量 SoA 交換、POD 事件緩衝、宿主元件與查詢、綁定產生。詳 `docs/design/stage-triage-2026-10-27.md`。
@@ -4110,6 +4124,7 @@
 >   1e6 元素的 `List` 與刻意洩漏的 64 個 4 KiB 區塊都不改變 valgrind 的堆積統計(兩者皆 499 allocs),乾淨報告不構成證據,故不加 memcheck 閘門。
 
 #### 17.83 效能治理 — Wave A(工程)
+> **進度註(2026-10-28,第二輪分流:cachegrind 指令數)**:`pixi run icount -- --selftest` PASS(注入 +10 % 步數,指令數 +10.54 %,偵測通過)。`pixi run icount`:446 573 667 條指令,3 次,散佈 9.3e-4。量測對象是 `benchmarks/probes/icount_probe.mojo`(40 箱堆、`step_soft` 不經寬相),因此它看不到寬相或 BVH 的改動;寬相改動的量測見 ROADMAP 17.19 第二輪註。終態 **done**。
 > **分流(2026-10-27)**:done:注入等級 +5 / +10 / +25 %(2c5bc9c);stale-done:比較工具、斜率閘門、預算表、精確計數斷言(`tests/test_work_counters.mojo`);unverified:cachegrind 指令數代理(`scripts/icount.py` 未執行);deferred:每步配置次數;env-blocked:基準線檔、夜間牆鐘閘門。詳 `docs/design/stage-triage-2026-10-27.md`。
 > **狀態**:🔶 部分完成(2026-10-13:機器可讀輸出、比較工具、確定性計數器閘門、斜率閘門、影格預算表、報告治理、bisect 判定器、交錯 A/B harness ✅;cachegrind 指令數探針 ✅;夜間牆鐘閘門需固定主機)。
 > **現況**:
