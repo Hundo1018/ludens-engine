@@ -139,8 +139,8 @@ def main():
                 if h == rh:
                     cells.append("identical")
                 else:
-                    drift = max(abs(a - b) for a, b in zip(vals, rvals))
-                    cells.append("differs, max drift %.2e" % drift)
+                    dr = max(abs(a - b) for a, b in zip(vals, rvals))
+                    cells.append("differs, max drift %.2e" % dr)
             print("| %s | %s |" % (name, " | ".join(cells)))
         if check and failed:
             sys.exit("fp-probe: over tolerance: " + "; ".join(failed))
