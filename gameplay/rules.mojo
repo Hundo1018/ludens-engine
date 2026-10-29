@@ -183,12 +183,13 @@ struct Attributes(Copyable, Movable):
         self.next_handle += 1
         self.slot[h] = len(self.mods)
         self.mods.append(Modifier(attr, op, value, h, priority))
-        if op == OP_ADD:
-            self.add_sum[attr] += value
-        elif op == OP_MUL:
-            self.mul_sum[attr] += value
-        else:
-            self.ov_count[attr] += 1
+        match op:
+            case == OP_ADD:
+                self.add_sum[attr] += value
+            case == OP_MUL:
+                self.mul_sum[attr] += value
+            case _:
+                self.ov_count[attr] += 1
         self.dirty[attr] = True
         return h
 
@@ -199,12 +200,13 @@ struct Attributes(Copyable, Movable):
             return False
         _ = self.slot.pop(handle, -1)
         var m = self.mods[i]
-        if m.op == OP_ADD:
-            self.add_sum[m.attr] -= m.value
-        elif m.op == OP_MUL:
-            self.mul_sum[m.attr] -= m.value
-        else:
-            self.ov_count[m.attr] -= 1
+        match m.op:
+            case == OP_ADD:
+                self.add_sum[m.attr] -= m.value
+            case == OP_MUL:
+                self.mul_sum[m.attr] -= m.value
+            case _:
+                self.ov_count[m.attr] -= 1
         self.dirty[m.attr] = True
         self.mods[i].attr = -1  # tombstone: matches no attribute
         self.dead += 1
@@ -457,12 +459,13 @@ def actor_from_bytes(b: List[UInt8]) raises -> Actor:
     a.attrs.lo = lo^
     a.attrs.hi = hi^
     for m in mods:
-        if m.op == OP_ADD:
-            a.attrs.add_sum[m.attr] += m.value
-        elif m.op == OP_MUL:
-            a.attrs.mul_sum[m.attr] += m.value
-        else:
-            a.attrs.ov_count[m.attr] += 1
+        match m.op:
+            case == OP_ADD:
+                a.attrs.add_sum[m.attr] += m.value
+            case == OP_MUL:
+                a.attrs.mul_sum[m.attr] += m.value
+            case _:
+                a.attrs.ov_count[m.attr] += 1
     a.attrs.mods = mods^
     a.attrs._reindex()
     a.attrs.next_handle = nh

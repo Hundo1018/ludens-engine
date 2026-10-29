@@ -38,6 +38,9 @@ from geometry.quat import Quat
 from geometry.galie import geodesic3
 from procedural.tween import (
     Tween,
+    LerpReal,
+    LerpVec3,
+    GeodesicMotor3,
     ease,
     ease_dyn,
     lerp_real,
@@ -78,11 +81,11 @@ def _sizes() -> List[Int]:
 
 
 def _bench_tween_real(mut table: BenchTable, n: Int):
-    var tws = List[Tween[Real, type_of(lerp_real), EASE_QUAD_INOUT]]()
+    var tws = List[Tween[LerpReal, EASE_QUAD_INOUT]]()
     for i in range(n):
         var d = 1.0 + Real(i % 7) * 0.1
         tws.append(
-            Tween[Real, type_of(lerp_real), EASE_QUAD_INOUT](0.0, 10.0, d, lerp_real)
+            Tween[LerpReal, EASE_QUAD_INOUT](0.0, 10.0, d, LerpReal())
         )
     for i in range(n):
         _ = tws[i].advance(0.05)
@@ -96,12 +99,12 @@ def _bench_tween_real(mut table: BenchTable, n: Int):
 
 
 def _bench_tween_vec3(mut table: BenchTable, n: Int):
-    var tws = List[Tween[Vec3, type_of(lerp_vec3), EASE_QUAD_INOUT]]()
+    var tws = List[Tween[LerpVec3, EASE_QUAD_INOUT]]()
     for i in range(n):
         var d = 1.0 + Real(i % 7) * 0.1
         tws.append(
-            Tween[Vec3, type_of(lerp_vec3), EASE_QUAD_INOUT](
-                Vec3(0, 0, 0, 0), Vec3(10, 20, 30, 0), d, lerp_vec3
+            Tween[LerpVec3, EASE_QUAD_INOUT](
+                Vec3(0, 0, 0, 0), Vec3(10, 20, 30, 0), d, LerpVec3()
             )
         )
     for i in range(n):
@@ -119,11 +122,11 @@ def _bench_tween_motor(mut table: BenchTable, n: Int):
     var qb = Quat.from_axis_angle(Vec3(0, 0, 1, 0), Real(1.0))
     var mb = Motor3.from_quat_translation(qb, Vec3(5, 0, 0, 0))
     var ma = Motor3.identity()
-    var tws = List[Tween[Motor3, type_of(geodesic3), EASE_QUAD_INOUT]]()
+    var tws = List[Tween[GeodesicMotor3, EASE_QUAD_INOUT]]()
     for i in range(n):
         var d = 1.0 + Real(i % 7) * 0.1
         tws.append(
-            Tween[Motor3, type_of(geodesic3), EASE_QUAD_INOUT](ma, mb, d, geodesic3)
+            Tween[GeodesicMotor3, EASE_QUAD_INOUT](ma, mb, d, GeodesicMotor3())
         )
     for i in range(n):
         _ = tws[i].advance(0.05)

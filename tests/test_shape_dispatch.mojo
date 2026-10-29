@@ -288,7 +288,7 @@ def case_f4c_mesh_bbox() raises -> Real:
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(
         QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 40, 15, 40)),
-        v^, idx^,
+        v, idx,
     )
     var fast = QuatBody6.at_rest(Vec3(-10, 3, 10, 0), Inertia3.box(1, 0.1, 0.1, 0.1))
     fast.vel = Vec3(0, -20, 0, 0)
@@ -312,7 +312,7 @@ def case_extreme_degenerate_seam(broadphase: Bool) raises -> List[Real]:
     idx.append(0); idx.append(4); idx.append(3)  # zero-area: collinear
     var sc = ContactScene6[QuatBody6]()
     _ = sc.add_trimesh(
-        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)), v^, idx^,
+        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)), v, idx,
     )
     var b = sc.add(_crate(20, 2, 20), Vec3(0.25, 0.25, 0.25, 0), False).index()
     for _ in range(200):

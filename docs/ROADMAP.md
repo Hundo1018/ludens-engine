@@ -63,7 +63,7 @@
 | [gameplay 服務、AI、導航與網路](#gameplay-服務ai導航與網路) | 規則框架、AI、導航、rollback | 5 | 1 | 0 | 0 |
 | [ECS、排程、執行期與診斷](#ecs排程執行期與診斷) | ecs、scheduler、diag、runtime、存檔 / 回放 | 20 | 0 | 0 | 2 |
 | [嵌入、腳本與平台](#嵌入腳本與平台) | C-ABI、Python 綁定、宿主整合、平台 | 4 | 2 | 0 | 0 |
-| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 11 | 1 | 0 | 0 |
+| [工程、測試、效能與工具鏈](#工程測試效能與工具鏈) | gate、benchmark、CI、Mojo 版本搬遷、範例 | 12 | 1 | 0 | 0 |
 
 ## 原則與決策
 
@@ -3987,6 +3987,7 @@
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | ✅ | A | 格式 / 靜態檢查決策、孤島 / 接線報告、路線圖 / 文件引用 linter、執行緒 / 記憶體檢查、種子掃描 fuzz、穩定性 / 決定論重跑 |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 🔶 | A | 基準結果的機器可讀輸出、比較工具、確定性閘門、牆鐘閘門、漸近斜率閘門、影格預算表 |
 | 17.87 | [Hook 與文件生成](#1787-hook-與文件生成--wave-a工程) | ✅ | A | git hook(commit-msg / pre-commit / pre-push)、Claude Code hook(PreToolUse / PostToolUse)、`docs/STRUCTURE.md` 由架構索引產生、分層表與 ROADMAP 子系統表的同步檢查 |
+| 17.88 | [工具鏈升級:Mojo 1.2.0 / modular 26.7.0 與新語言特性](#1788-工具鏈升級mojo-120--modular-267-與新語言特性--wave-a工程) | ✅ | A | 精確鎖定 1.2.0 / 26.7.0、`match` / `if case` / `Defaultable` 採用、golden 逐段歸因、函式型參數結構體的編譯器問題與 `Tween` 改寫 |
 
 ### 已完成條目的遺留待辦
 
@@ -4220,6 +4221,48 @@
 > **遺留**:多行簽名只改續行時不觸發 `pre-commit` 重新產生(`pre-push` 的 `--check` 會抓到);Bash 護欄可被 `bash -c "..."` 繞過,定位為護欄而非安全邊界;
 > `hooks.py` 的 Claude hook 用系統 `python3`(只用標準庫),git hook 用 `pixi run python3`。
 
+#### 17.88 工具鏈升級:Mojo 1.2.0 / modular 26.7.0 與新語言特性 — Wave A(工程)
+> **狀態**:✅ 完成(2026-10-28,issue #67)。設計筆記 `docs/design/17.88-mojo-1.2.md`。
+> **交付**:
+> - `pixi.toml` 精確鎖定 `mojo ==1.2.0`、`modular ==26.7.0`;`pixi update modular mojo` 只動這兩者與其依賴(`max-*`、`mblack`、`mojo-*`;
+>   `opentelemetry-exporter-otlp-proto-grpc` 新增、`llguidance` / `pyinstrument` 移除),python 仍為 3.14(整包 `pixi update` 會降到 3.13,故不用)。
+>   版本字面值(README、CLAUDE.md、`flag_policy.py` 自檢用例、`pixi.toml` 註解)同步更新。
+> - 新特性採用(每項以 gate golden 不變 + 逐段歸因為證):
+>   - `match` / `comptime match`:61 條對同一個無函式呼叫運算式的 `if/elif` 鏈(`scripts/chain_to_match.py`,有 selftest)。具名常數必須寫 `case == NAME`:
+>     裸 `case NAME` 是綁定新變數、會比對任何值(探針:`by_alias(0/1/7)` 全回 10,編譯器只警告 unreachable)。
+>     `physics/mass_props.mojo` 的一條鏈保留 `if/elif`:改成 `match` 後同一算式最後幾位捨入不同,`test_compound`「單一子體 compound == 普通 box,逐位元」18/19,
+>     `test_ccd_shapes` 無 CCD 最大角速度 253.33833 → 253.49503;分組還原二分(8 檔 → 單檔)定位。
+>   - `if case .Some(v) = opt`:16 處「先檢查再 `.value()`」(`embed/capi.mojo`、`physics/contact6.mojo`、`scheduler/entity_actor.mojo`、`system_actor.mojo`、
+>     `mac_fluid.mojo`、`mac_fluid3.mojo`;可變的多重網格運算元用 `ref` 綁定)。
+>   - `Defaultable` 合成預設 `__init__`:移除 8 個只賦零值的手寫初始化(`BVHBroadPhase`、`BruteForce`、`BruteForceQuery`、`BvhQuery`、`Channel`、`PushChannel`、
+>     `SplitMix64`、`TimerHeap`;`scripts/defaultable_scan.py`);`BVH` 補宣告 `Defaultable`(保留 `root = -1` 的明確初始化)。`bp_tree` / `bp_hashgrid` /
+>     `hash_grid` 的預設值非零,保留手寫。
+>   - 33 個「沒有作用的 `^`」警告(10 個測試檔、`collider_set`)改為移除(`scripts/fix_noop_transfers.py`);否則警告含絕對路徑會被記進 golden。
+> - 未採用(附原因):`Tuple.first_of`(按型別取 tuple 元素;`_slot_of` 是在型別清單按 `ID` 找索引)、`comptime match T`(`WorldType` 是 `DType` 值)、
+>   `where ... else` / `not Movable`(repo 內無舊寫法)、GPU 上的 `std.math`(沒有手寫替代實作可移除;本機無 GPU,只做 `gpu-compile`)。
+> - **編譯器問題**:1.2.0 無法編譯「存放函式型參數」的結構體:`Tween[Real, type_of(lerp_real), K]` →
+>   `'kgen.call' op callee argument #4 expected type ... but operation argument has type ...`(兩邊型別文字相同;20 行獨立程式可重現,升級前的匯出同樣失敗;
+>   調換欄位順序、換 `T` 界限、加欄位、改引數形式皆無效)。`Tween` 改為 `Tween[L: Interpolator, ease_kind]`(API 變更,允許),新增 `LerpReal`、`LerpVec3`、
+>   `GeodesicMotor3`、`GeodesicMotor2` 四個空結構體(空結構體欄位可編譯)。
+> **驗證**(x86-64,本機,最終樹):
+> - `pixi run build`:0 警告。`pixi run gate`:428 個檔案全過、0 警告、golden 81 段變動(2170 行不變)。
+> - golden 歸因:gate 報 92 段變動的每個測試,各在「只升級工具鏈的匯出(`89311e9`)」與重構後的樹上跑一次:90 段輸出完全相同,`test_ccd_shapes` 只差警告行號、
+>   `test_fem_pd` 只差 `ms/step`;其餘 11 段只因警告文字,警告移除後與舊 golden 相同。即 81 段變動全部來自 1.2.0 把 `std.math` 的 `atan2` / `log` / `tan` /
+>   `atan` / `erf` 從系統 libm 改為 Mojo 實作。最大可見變動:`test_pbf_unified` 吃水比例 0.5926 → 0.6035(混沌粒子運行,7 項檢查仍過)。
+> - `fp-probe`:只有「無 FMA(`x86-64`)」與 `-O0` 改變模擬位元(pile 最大漂移 6.65e-03 / 5.65e-03,roll 1.07e-06 / 9.55e-07,tower 3.00e-07 / 2.00e-07);
+>   `haswell`、`skylake-avx512`、`native`、`-O1`、`-O2` 與參考逐位元相同。`repro-probe`:16 個預編譯套件連建兩次 16 same、0 differ。
+> - `icount`:443 430 986 條指令(3 次散佈 6.35e-05),1.1.0 時約 446.6–447.0 M,少約 0.7 %;自檢注入 +10 % 步數得 +10.57 %(149 倍散佈),PASS。
+>   `flag-policy` PASS。`gpu-compile`(`sm_86`,只編譯)15 / 15。
+> - `pixi run benchmark` 全部重跑 45 分 49 秒(4 核雲端主機),`BENCHMARK_REPORT.md` 重新產生;`perf -- governance` PASS。
+>   牆鐘數字與先前報告的主機不同,不做逐列前後比較;確定性的前後對照用 `icount`(上)。
+> **ARM 目標(PR #70 的 CI,`01875f7`)**:`gate`、`portability (ubuntu-24.04-arm)`、`portability (macos-14)` 全部成功;兩份分平台 golden 以 1.2.0 重新記錄
+> (各 2167 行,由 `scripts/ci_log_extract.py` 取自工作日誌)。`fp-probe --compare`(x86 對兩個 ARM 傾印):pile 9.22e-04(容許 2e-2)、roll 2.35e-07 / 2.45e-07
+> (容許 1e-5)、tower 1.24e-07(容許 1e-5)。第一次 CI 兩個 ARM 工作都停在 `test_fft_ocean`「單一 FFT 模式等於 Gerstner 波」:垂直速度差 1.366e-03 對容許 1e-3
+> (x86 為 8.1e-04,1.1.0 時三個目標都是 8.1e-04)。原因是 `GerstnerWater.velocity` 為 float32 中央差分(`h = 1e-3`),相位捨入(64 rad 處 ulp 7.6e-6)被 `1/(2h)` 放大;
+> 本機實測 skylake / haswell / avx512 8.09e-04、無 FMA 9.07e-04;上界 A u / h = 1.5e-3(每個實作),差值 3e-3,所以容許值改為 3e-3(高度檢查維持 1e-4)。
+> **遺留**:1.2.0 對 `match` 與浮點捨入的敏感度(`mass_props`)只由 `test_compound` 的逐位元檢查守住,其他鏈的轉換靠 golden 不變(歸因見上);
+> `portability` 仍為非阻擋式(`continue-on-error`)。
+
 ## 編號索引
 
 所有編號依數字排序。已完成者的完整紀錄在 [ROADMAP_HISTORY.md](ROADMAP_HISTORY.md)。
@@ -4377,5 +4420,6 @@
 | 17.82 | [品質工具](#1782-品質工具--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.83 | [效能治理](#1783-效能治理--wave-a工程) | 工程、測試、效能與工具鏈 | 🔶 |
 | 17.87 | [Hook 與文件生成](#1787-hook-與文件生成--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
+| 17.88 | [工具鏈升級:Mojo 1.2.0 / modular 26.7.0 與新語言特性](#1788-工具鏈升級mojo-120--modular-267-與新語言特性--wave-a工程) | 工程、測試、效能與工具鏈 | ✅ |
 | 17.84 | [數值 / 可微深化](#1784-數值--可微深化--wave-c) | 可微模擬、批次世界與數值深化 | ✅ |
 | 17.85 | [分級模擬:依因果可達性分配時間 / 空間解析度](#1785-分級模擬依因果可達性分配時間--空間解析度--wave-c架構) | ECS、排程、執行期與診斷 | ✅ |

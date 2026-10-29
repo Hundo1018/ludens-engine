@@ -436,12 +436,13 @@ def _is_row(mut m: List[Float64], p: Vec3, which: Int):
     m.append(x)
     m.append(y)
     m.append(z)
-    if which == 0:
-        m.append(x * x)
-    elif which == 1:
-        m.append(y * y)
-    else:
-        m.append(z * z)
+    match which:
+        case 0:
+            m.append(x * x)
+        case 1:
+            m.append(y * y)
+        case _:
+            m.append(z * z)
     m.append(1.0)
 
 

@@ -29,18 +29,19 @@ def _chain(kind: Int) raises -> ContactScene6[QuatBody6]:
         var la = Vec3(0, -0.05, 0, 0)
         var lb = Vec3(0, 0.05, 0, 0)
         var j: Int
-        if kind == 0:
-            j = sc.add_joint(Joint6.ball(prev.index(), id.index(), la, lb))
-        elif kind == 1:
-            j = sc.add_joint(Joint6.hinge(prev.index(), id.index(), la, lb, Vec3(0, 0, 1, 0)))
-            sc.set_joint_limits(j, -0.3, 0.3)
-        elif kind == 2:
-            j = sc.add_joint(Joint6.cone_twist(prev.index(), id.index(), la, lb, Vec3(0, -1, 0, 0), Vec3(0, -1, 0, 0)))
-            sc.set_cone_limit(j, 0.5)
-            sc.set_joint_limits(j, -0.2, 0.2)
-        else:
-            j = sc.add_joint(Joint6.slider(prev.index(), id.index(), la, lb, Vec3(0, -1, 0, 0)))
-            sc.set_joint_limits(j, -0.02, 0.02)
+        match kind:
+            case 0:
+                j = sc.add_joint(Joint6.ball(prev.index(), id.index(), la, lb))
+            case 1:
+                j = sc.add_joint(Joint6.hinge(prev.index(), id.index(), la, lb, Vec3(0, 0, 1, 0)))
+                sc.set_joint_limits(j, -0.3, 0.3)
+            case 2:
+                j = sc.add_joint(Joint6.cone_twist(prev.index(), id.index(), la, lb, Vec3(0, -1, 0, 0), Vec3(0, -1, 0, 0)))
+                sc.set_cone_limit(j, 0.5)
+                sc.set_joint_limits(j, -0.2, 0.2)
+            case _:
+                j = sc.add_joint(Joint6.slider(prev.index(), id.index(), la, lb, Vec3(0, -1, 0, 0)))
+                sc.set_joint_limits(j, -0.02, 0.02)
         sc.set_collide_connected(j, False)
         prev = id
     # a sideways push so limits engage

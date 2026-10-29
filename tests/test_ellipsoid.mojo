@@ -153,7 +153,7 @@ def main() raises:
             v.append(z)
     var idx: List[Int] = [0, 1, 3, 0, 3, 2]
     var ms = ContactScene6[QuatBody6]()
-    _ = ms.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 10, 1, 10)), v^, idx^)
+    _ = ms.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 10, 1, 10)), v, idx)
     var me = ms.add_ellipsoid(QuatBody6.at_rest(Vec3(0.3, 0.6, 0.1, 0), Inertia3.ellipsoid(1, 1, 0.5, 0.7)), Vec3(1, 0.5, 0.7, 0), False)
     ms.set_can_sleep(me, False)
     var sd = ContactScene6[QuatBody6]()

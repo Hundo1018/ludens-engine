@@ -54,7 +54,7 @@ def _wall_kind_scene(kind: Int) raises -> ContactScene6[QuatBody6]:
             v.append(Real(q[0]))
             v.append(Real(q[1]))
         var ix: List[Int] = [0, 1, 2, 1, 3, 2]  # faces -x (toward the cube)
-        _ = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), v^, ix^)
+        _ = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), v, ix)
     var sb = SoftBody.box_lattice(
         Vec3(-1, 1, 0, 0), Vec3(0.3, 0.3, 0.3, 0), 4, 2.0, 1e-4
     )

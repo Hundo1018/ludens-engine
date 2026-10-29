@@ -396,8 +396,8 @@ struct MacFluid2(Movable):
         else:
             var op = _NegLaplacian(n)
             warm_start_or_zero(op, rhs, self.p)
-            if self.mg:
-                r = pcg_mg(op, self.mg.value(), rhs, self.p, tol, 4 * n * n)
+            if case .Some(ref mg) = self.mg:
+                r = pcg_mg(op, mg, rhs, self.p, tol, 4 * n * n)
             else:
                 r = pcg(op, rhs, self.p, tol, 4 * n * n)
         for j in range(n):

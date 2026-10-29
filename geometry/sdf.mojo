@@ -82,12 +82,13 @@ struct SdfShape(Copyable, ImplicitlyCopyable, Movable):
         return Self(2, c, half, angle)
 
     def distance(self, p: Vec2) -> Real:
-        if self.kind == 0:
-            return sdf_circle(p, self.center, self.half[0])
-        elif self.kind == 1:
-            return sdf_box(p, self.center, self.half)
-        else:
-            return sdf_obb(p, self.center, self.half, self.angle)
+        match self.kind:
+            case 0:
+                return sdf_circle(p, self.center, self.half[0])
+            case 1:
+                return sdf_box(p, self.center, self.half)
+            case _:
+                return sdf_obb(p, self.center, self.half, self.angle)
 
     def gradient(self, p: Vec2) -> Vec2:
         """Outward unit normal estimated by central differences of `distance`."""

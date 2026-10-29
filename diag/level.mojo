@@ -56,17 +56,18 @@ def level_name(level: Int) -> String:
     """Render a `Level` constant for `LogRing.dump()`. Engine code never prints
     directly (`docs/ARCHITECTURE.md` §2 rule 1) -- this only formats a String
     for a test/example/dump to print."""
-    if level == Level.OFF:
-        return "OFF"
-    elif level == Level.ERROR:
-        return "ERROR"
-    elif level == Level.WARN:
-        return "WARN"
-    elif level == Level.INFO:
-        return "INFO"
-    elif level == Level.DEBUG:
-        return "DEBUG"
-    elif level == Level.TRACE:
-        return "TRACE"
-    else:
-        return "UNKNOWN(" + String(level) + ")"
+    match level:
+        case == Level.OFF:
+            return "OFF"
+        case == Level.ERROR:
+            return "ERROR"
+        case == Level.WARN:
+            return "WARN"
+        case == Level.INFO:
+            return "INFO"
+        case == Level.DEBUG:
+            return "DEBUG"
+        case == Level.TRACE:
+            return "TRACE"
+        case _:
+            return "UNKNOWN(" + String(level) + ")"

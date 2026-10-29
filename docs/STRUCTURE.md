@@ -594,7 +594,7 @@ counted, not listed.
 - `def zeros(n: Int) -> List[Float32]`
 - `def zeros64(n: Int) -> List[Float64]`
 
-## procedural (layer 2) — 16 modules, 142 public declarations
+## procedural (layer 2) — 16 modules, 151 public declarations
 
 ### `procedural/anim.mojo`
 - struct `AnimClip` — 5 methods
@@ -721,23 +721,28 @@ counted, not listed.
 - `def thermal_erosion(mut h: List[Float32], nx: Int, nz: Int, cell: Float32, talus: Float32, rate: Float32, passes: Int)`
 
 ### `procedural/tween.mojo`
+- trait `Interpolator` — 0 methods
+- struct `GeodesicMotor2` : Interpolator — 1 methods
+- struct `GeodesicMotor3` : Interpolator — 1 methods
+- struct `LerpReal` : Interpolator — 1 methods
+- struct `LerpVec3` : Interpolator — 1 methods
 - struct `Tween` — 6 methods
 - `def ease[kind: Int](t: Float32) -> Real`
 - `def ease_dyn(kind: Int, t: Float32) -> Real`
 - `def lerp_real(a: Float32, b: Float32, t: Float32) -> Real`
 - `def lerp_vec3(a: SIMD[.float32, 4], b: SIMD[.float32, 4], t: Float32) -> Vec3`
-- aliases: `EASE_BACK_IN`, `EASE_BACK_INOUT`, `EASE_BACK_OUT`, `EASE_BOUNCE_IN`, `EASE_BOUNCE_INOUT`, `EASE_BOUNCE_OUT`, `EASE_CIRC_IN`, `EASE_CIRC_INOUT`, `EASE_CIRC_OUT`, `EASE_COUNT`, `EASE_CUBIC_IN`, `EASE_CUBIC_INOUT`, `EASE_CUBIC_OUT`, `EASE_ELASTIC_IN`, `EASE_ELASTIC_INOUT`, `EASE_ELASTIC_OUT`, `EASE_EXPO_IN`, `EASE_EXPO_INOUT`, `EASE_EXPO_OUT`, `EASE_LINEAR`, `EASE_QUAD_IN`, `EASE_QUAD_INOUT`, `EASE_QUAD_OUT`, `EASE_QUART_IN`, `EASE_QUART_INOUT`, `EASE_QUART_OUT`, `EASE_QUINT_IN`, `EASE_QUINT_INOUT`, `EASE_QUINT_OUT`, `EASE_SINE_IN`, `EASE_SINE_INOUT`, `EASE_SINE_OUT`, `PI`
+- aliases: `EASE_BACK_IN`, `EASE_BACK_INOUT`, `EASE_BACK_OUT`, `EASE_BOUNCE_IN`, `EASE_BOUNCE_INOUT`, `EASE_BOUNCE_OUT`, `EASE_CIRC_IN`, `EASE_CIRC_INOUT`, `EASE_CIRC_OUT`, `EASE_COUNT`, `EASE_CUBIC_IN`, `EASE_CUBIC_INOUT`, `EASE_CUBIC_OUT`, `EASE_ELASTIC_IN`, `EASE_ELASTIC_INOUT`, `EASE_ELASTIC_OUT`, `EASE_EXPO_IN`, `EASE_EXPO_INOUT`, `EASE_EXPO_OUT`, `EASE_LINEAR`, `EASE_QUAD_IN`, `EASE_QUAD_INOUT`, `EASE_QUAD_OUT`, `EASE_QUART_IN`, `EASE_QUART_INOUT`, `EASE_QUART_OUT`, `EASE_QUINT_IN`, `EASE_QUINT_INOUT`, `EASE_QUINT_OUT`, `EASE_SINE_IN`, `EASE_SINE_INOUT`, `EASE_SINE_OUT`, `PI`, `Value`
 
 ## spatial (layer 2) — 6 modules, 13 public declarations
 
 ### `spatial/bvh.mojo`
-- struct `BVH` — 9 methods
+- struct `BVH` : Defaultable — 9 methods
 - `def morton_order[D: Int](boxes: List[AABB[D]]) -> List[Int]`
 - aliases: `SAH_BINS`
 
 ### `spatial/gpu_lbvh.mojo`
 - `def bitonic_kernel[LT: TensorLayout](codes: TileTensor[.uint32, LT, MutAnyOrigin], idx: TileTensor[.uint32, LT, MutAnyOrigin], npad: Int32, k: Int32, j: Int32)`
-- `def gpu_morton_order_ctx[N: Int, NPAD: Int](mut ctx: DeviceContext, boxes: List[AABB[Int(3)]], mut out_order: List[Int])`
+- `def gpu_morton_order_ctx[N: Int, NPAD: Int](mut ctx: DeviceContextBase, boxes: List[AABB[Int(3)]], mut out_order: List[Int])`
 - `def morton_kernel[LT: TensorLayout](cx: TileTensor[.float32, LT, MutAnyOrigin], cy: TileTensor[.float32, LT, MutAnyOrigin], cz: TileTensor[.float32, LT, MutAnyOrigin], codes: TileTensor[.uint32, LT, MutAnyOrigin], idx: TileTensor[.uint32, LT, MutAnyOrigin], n: Int32, npad: Int32, minx: Float32, miny: Float32, minz: Float32, invx: Float32, invy: Float32, invz: Float32)`
 - aliases: `fdt`, `udt`
 
@@ -765,7 +770,7 @@ counted, not listed.
 - aliases: `dim`
 
 ### `collision/bp_gpu.mojo`
-- `def gpu_pairs_ctx[N: Int, CAP: Int](mut ctx: DeviceContext, items: List[BoxProxy[Int(3)]], mut out: List[Pair]) -> Bool`
+- `def gpu_pairs_ctx[N: Int, CAP: Int](mut ctx: DeviceContextBase, items: List[BoxProxy[Int(3)]], mut out: List[Pair]) -> Bool`
 - `def pair_kernel[LT: TensorLayout, ILT: TensorLayout, CLT: TensorLayout](lox: TileTensor[.float32, LT, MutAnyOrigin], loy: TileTensor[.float32, LT, MutAnyOrigin], loz: TileTensor[.float32, LT, MutAnyOrigin], hix: TileTensor[.float32, LT, MutAnyOrigin], hiy: TileTensor[.float32, LT, MutAnyOrigin], hiz: TileTensor[.float32, LT, MutAnyOrigin], out_a: TileTensor[.int32, ILT, MutAnyOrigin], out_b: TileTensor[.int32, ILT, MutAnyOrigin], cursor: TileTensor[.int32, CLT, MutAnyOrigin], n: Int32, cap: Int32)`
 - aliases: `fdt`, `idt`
 
@@ -824,7 +829,7 @@ counted, not listed.
 - `def narrow_kernel(inp: Pointer[Float32, MutAnyOrigin], res: Pointer[Float32, MutAnyOrigin], count: Int32)`
 
 ### `collision/gpu_raycast.mojo`
-- `def gpu_raycast_ctx[NB: Int, NR: Int](mut ctx: DeviceContext, items: List[BoxProxy[Int(3)]], rays: List[Ray[Int(3)]], mut out_proxy: List[Int], mut out_t: List[Float32], max_t: Float32)`
+- `def gpu_raycast_ctx[NB: Int, NR: Int](mut ctx: DeviceContextBase, items: List[BoxProxy[Int(3)]], rays: List[Ray[Int(3)]], mut out_proxy: List[Int], mut out_t: List[Float32], max_t: Float32)`
 - `def raycast_kernel[BLT: TensorLayout, RLT: TensorLayout](blox: TileTensor[.float32, BLT, MutAnyOrigin], bloy: TileTensor[.float32, BLT, MutAnyOrigin], bloz: TileTensor[.float32, BLT, MutAnyOrigin], bhix: TileTensor[.float32, BLT, MutAnyOrigin], bhiy: TileTensor[.float32, BLT, MutAnyOrigin], bhiz: TileTensor[.float32, BLT, MutAnyOrigin], rox: TileTensor[.float32, RLT, MutAnyOrigin], roy: TileTensor[.float32, RLT, MutAnyOrigin], roz: TileTensor[.float32, RLT, MutAnyOrigin], rdx: TileTensor[.float32, RLT, MutAnyOrigin], rdy: TileTensor[.float32, RLT, MutAnyOrigin], rdz: TileTensor[.float32, RLT, MutAnyOrigin], out_p: TileTensor[.int32, RLT, MutAnyOrigin], out_t: TileTensor[.float32, RLT, MutAnyOrigin], nb: Int32, nr: Int32, max_t: Float32)`
 - aliases: `fdt`, `idt`
 
@@ -1392,8 +1397,8 @@ counted, not listed.
 - `def apply_kernel[LT: TensorLayout](px: TileTensor[.float32, LT, MutAnyOrigin], py: TileTensor[.float32, LT, MutAnyOrigin], pz: TileTensor[.float32, LT, MutAnyOrigin], dx: TileTensor[.float32, LT, MutAnyOrigin], dy: TileTensor[.float32, LT, MutAnyOrigin], dz: TileTensor[.float32, LT, MutAnyOrigin], n: Int32)`
 - `def cpu_cloth_run[W: Int, H: Int](steps: Int, iters: Int, dt: Float32, rest: Float32, self_thickness: Float32 = Float32("0")) -> ClothState`
 - `def finalize_kernel[LT: TensorLayout](x: TileTensor[.float32, LT, MutAnyOrigin], y: TileTensor[.float32, LT, MutAnyOrigin], z: TileTensor[.float32, LT, MutAnyOrigin], px: TileTensor[.float32, LT, MutAnyOrigin], py: TileTensor[.float32, LT, MutAnyOrigin], pz: TileTensor[.float32, LT, MutAnyOrigin], vx: TileTensor[.float32, LT, MutAnyOrigin], vy: TileTensor[.float32, LT, MutAnyOrigin], vz: TileTensor[.float32, LT, MutAnyOrigin], n: Int32, inv_dt: Float32)`
-- `def gpu_cloth_run_ctx[W: Int, H: Int](mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32) -> ClothState`
-- `def gpu_cloth_run_ctx_timed[W: Int, H: Int](mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32, readback_every: Int, mut timing: GpuClothTiming) -> ClothState`
+- `def gpu_cloth_run_ctx[W: Int, H: Int](mut ctx: DeviceContextBase, steps: Int, iters: Int, dt: Float32, rest: Float32) -> ClothState`
+- `def gpu_cloth_run_ctx_timed[W: Int, H: Int](mut ctx: DeviceContextBase, steps: Int, iters: Int, dt: Float32, rest: Float32, readback_every: Int, mut timing: GpuClothTiming) -> ClothState`
 - `def init_grid[W: Int, H: Int](mut s: ClothState, rest: Float32)`
 - `def jacobi_kernel[LT: TensorLayout](px: TileTensor[.float32, LT, MutAnyOrigin], py: TileTensor[.float32, LT, MutAnyOrigin], pz: TileTensor[.float32, LT, MutAnyOrigin], w: TileTensor[.float32, LT, MutAnyOrigin], dx: TileTensor[.float32, LT, MutAnyOrigin], dy: TileTensor[.float32, LT, MutAnyOrigin], dz: TileTensor[.float32, LT, MutAnyOrigin], grid_w: Int32, grid_h: Int32, rest: Float32)`
 - `def predict_kernel[LT: TensorLayout](x: TileTensor[.float32, LT, MutAnyOrigin], y: TileTensor[.float32, LT, MutAnyOrigin], z: TileTensor[.float32, LT, MutAnyOrigin], vy: TileTensor[.float32, LT, MutAnyOrigin], px: TileTensor[.float32, LT, MutAnyOrigin], py: TileTensor[.float32, LT, MutAnyOrigin], pz: TileTensor[.float32, LT, MutAnyOrigin], vx: TileTensor[.float32, LT, MutAnyOrigin], vz: TileTensor[.float32, LT, MutAnyOrigin], w: TileTensor[.float32, LT, MutAnyOrigin], n: Int32, dt: Float32)`
@@ -1674,7 +1679,7 @@ counted, not listed.
 
 ### `physics/vbd_cloth.mojo`
 - `def cpu_vbd_run[W: Int, H: Int](steps: Int, iters: Int, dt: Float32, rest: Float32, self_thickness: Float32 = Float32("0")) -> ClothState`
-- `def gpu_vbd_run_ctx[W: Int, H: Int](mut ctx: DeviceContext, steps: Int, iters: Int, dt: Float32, rest: Float32) -> ClothState`
+- `def gpu_vbd_run_ctx[W: Int, H: Int](mut ctx: DeviceContextBase, steps: Int, iters: Int, dt: Float32, rest: Float32) -> ClothState`
 - `def vbd_finalize_kernel[LT: TensorLayout](x: TileTensor[.float32, LT, MutAnyOrigin], y: TileTensor[.float32, LT, MutAnyOrigin], z: TileTensor[.float32, LT, MutAnyOrigin], ox: TileTensor[.float32, LT, MutAnyOrigin], oy: TileTensor[.float32, LT, MutAnyOrigin], oz: TileTensor[.float32, LT, MutAnyOrigin], vx: TileTensor[.float32, LT, MutAnyOrigin], vy: TileTensor[.float32, LT, MutAnyOrigin], vz: TileTensor[.float32, LT, MutAnyOrigin], n: Int32, inv_dt: Float32)`
 - `def vbd_predict_kernel[LT: TensorLayout](x: TileTensor[.float32, LT, MutAnyOrigin], y: TileTensor[.float32, LT, MutAnyOrigin], z: TileTensor[.float32, LT, MutAnyOrigin], vx: TileTensor[.float32, LT, MutAnyOrigin], vy: TileTensor[.float32, LT, MutAnyOrigin], vz: TileTensor[.float32, LT, MutAnyOrigin], tx: TileTensor[.float32, LT, MutAnyOrigin], ty: TileTensor[.float32, LT, MutAnyOrigin], tz: TileTensor[.float32, LT, MutAnyOrigin], ox: TileTensor[.float32, LT, MutAnyOrigin], oy: TileTensor[.float32, LT, MutAnyOrigin], oz: TileTensor[.float32, LT, MutAnyOrigin], w: TileTensor[.float32, LT, MutAnyOrigin], n: Int32, dt: Float32)`
 - `def vbd_solve_kernel[LT: TensorLayout](x: TileTensor[.float32, LT, MutAnyOrigin], y: TileTensor[.float32, LT, MutAnyOrigin], z: TileTensor[.float32, LT, MutAnyOrigin], tx: TileTensor[.float32, LT, MutAnyOrigin], ty: TileTensor[.float32, LT, MutAnyOrigin], tz: TileTensor[.float32, LT, MutAnyOrigin], w: TileTensor[.float32, LT, MutAnyOrigin], grid_w: Int32, grid_h: Int32, rest: Float32, mh2: Float32, color: Int32)`

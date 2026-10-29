@@ -67,16 +67,17 @@ def main() raises:
             else:
                 cfg.colored = True
                 cfg.parallel = True
-            if k == 0:
-                cfg.dispatch = Dispatch.parallel()
-            elif k == 1:
-                cfg.dispatch = Dispatch.serial()
-            elif k == 2:
-                cfg.dispatch = Dispatch.reverse()
-            elif k == 3:
-                cfg.dispatch = Dispatch.from_host(host_reverse, None)
-            else:
-                cfg.dispatch = Dispatch.work_stealing()
+            match k:
+                case 0:
+                    cfg.dispatch = Dispatch.parallel()
+                case 1:
+                    cfg.dispatch = Dispatch.serial()
+                case 2:
+                    cfg.dispatch = Dispatch.reverse()
+                case 3:
+                    cfg.dispatch = Dispatch.from_host(host_reverse, None)
+                case _:
+                    cfg.dispatch = Dispatch.work_stealing()
             var got = run(cfg)
             if mode == 0 and k == 1:
                 island_ref = got.copy()

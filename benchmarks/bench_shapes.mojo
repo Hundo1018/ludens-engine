@@ -46,16 +46,17 @@ def _scene(kind: Int, n: Int) raises -> ContactScene6[QuatBody6]:
     for k in range(n):
         var p = Vec3(Real(k % side) * 1.6 - Real(side) * 0.8, 0.8, Real(k // side) * 1.6 - Real(side) * 0.8, 0)
         var id: Int
-        if kind == 0:
-            id = sc.add_sphere(QuatBody6.at_rest(p, Inertia3.sphere(1, 0.5)), 0.5, False).index()
-        elif kind == 1:
-            id = sc.add_ellipsoid(QuatBody6.at_rest(p, Inertia3.sphere(1, 0.5)), Vec3(0.5, 0.5, 0.5, 0), False).index()
-        elif kind == 2:
-            id = sc.add_ellipsoid(QuatBody6.at_rest(p, Inertia3.ellipsoid(1, 0.6, 0.5, 0.4)), Vec3(0.6, 0.5, 0.4, 0), False).index()
-        elif kind == 3:
-            id = sc.add_cylinder(QuatBody6.at_rest(p, Inertia3.cylinder(1, 0.4, 0.5)), 0.4, 0.5, False).index()
-        else:
-            id = sc.add(QuatBody6.at_rest(p, Inertia3.box(1, 0.4, 0.4, 0.4)), Vec3(0.4, 0.4, 0.4, 0), False).index()
+        match kind:
+            case 0:
+                id = sc.add_sphere(QuatBody6.at_rest(p, Inertia3.sphere(1, 0.5)), 0.5, False).index()
+            case 1:
+                id = sc.add_ellipsoid(QuatBody6.at_rest(p, Inertia3.sphere(1, 0.5)), Vec3(0.5, 0.5, 0.5, 0), False).index()
+            case 2:
+                id = sc.add_ellipsoid(QuatBody6.at_rest(p, Inertia3.ellipsoid(1, 0.6, 0.5, 0.4)), Vec3(0.6, 0.5, 0.4, 0), False).index()
+            case 3:
+                id = sc.add_cylinder(QuatBody6.at_rest(p, Inertia3.cylinder(1, 0.4, 0.5)), 0.4, 0.5, False).index()
+            case _:
+                id = sc.add(QuatBody6.at_rest(p, Inertia3.box(1, 0.4, 0.4, 0.4)), Vec3(0.4, 0.4, 0.4, 0), False).index()
         _ = id
     for i in range(len(sc.bset.bodies)):
         sc.set_can_sleep(sc.bset.id_of(i), False)

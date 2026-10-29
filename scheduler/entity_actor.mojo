@@ -183,9 +183,9 @@ struct EntityActorScheduler[
         def wake(i: Int) {mut world, imm actors, mut outboxes}:
             Self.H.update[Self.B](world, actors[i], outboxes[i])
 
-        if self.host:
+        if case .Some(host) = self.host:
             var wt = _WakeTask[Self.B, Self.H](world, actors, outboxes)
-            dispatch_for(self.host.value(), wt, n)
+            dispatch_for(host, wt, n)
             # the task's pointers are untracked: without these uses Mojo may
             # end the lists' lifetime right after building the task (the
             # `_LevelTask` lesson, measured again here as garbage hp)
@@ -210,9 +210,9 @@ struct EntityActorScheduler[
                         world, actors[i], inboxes[i], next_out[i]
                     )
 
-            if self.host:
+            if case .Some(host) = self.host:
                 var dt = _DeliverTask[Self.B, Self.H](world, actors, inboxes, next_out)
-                dispatch_for(self.host.value(), dt, n)
+                dispatch_for(host, dt, n)
                 _ = len(actors)
                 _ = len(inboxes)
                 _ = len(next_out)

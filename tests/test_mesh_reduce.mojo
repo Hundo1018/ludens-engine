@@ -39,7 +39,7 @@ def flat(mut sc: ContactScene6[QuatBody6]) raises -> BodyId:
     var hs = List[Real]()
     for _ in range(81 * 81):
         hs.append(0)
-    var id = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs^, 81, 81, 0.25, -10, -10)
+    var id = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs, 81, 81, 0.25, -10, -10)
     sc.set_mesh_active_angle(id, 0.1)
     return id
 
@@ -89,7 +89,7 @@ def valley(reduce: Bool) raises -> Tuple[Int, Real]:
     for _ in range(41):
         for i in range(41):
             hs.append(abs(Real(i) * 0.25 - 5) * 0.57735)
-    var vid = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs^, 41, 41, 0.25, -5, -5)
+    var vid = sc.add_heightfield(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), hs, 41, 41, 0.25, -5, -5)
     sc.set_mesh_active_angle(vid, 0.1)
     var b = sc.add(QuatBody6.at_rest(Vec3(0.3, 1.2, 0.1, 0), Inertia3.box(1, 0.3, 0.3, 0.3)), Vec3(0.3, 0.3, 0.3, 0), False)
     var cfg = SolverConfig()
@@ -129,7 +129,7 @@ def trimesh_slide(guard: Bool) raises -> Real:
     for i in range(len(m.idx)):
         ii.append(m.idx[i])
     var sc = ContactScene6[QuatBody6]()
-    var mid = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), vv^, ii^)
+    var mid = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), vv, ii)
     if guard:
         sc.set_mesh_active_angle(mid, 0.1)
     var b = QuatBody6.at_rest(Vec3(-3, 0.3, 0.13, 0), Inertia3.box(1, 0.4, 0.3, 0.4))

@@ -410,23 +410,24 @@ struct _Pseudo(Movable):
             if w[k] < EPS:
                 zeros += 1
         var pn: Vec3
-        if zeros == 0:
-            pn = self.face[t]
-        elif zeros == 1:
-            # on the edge opposite the vertex whose weight vanished
-            var k0 = 0
-            for k in range(3):
-                if w[k] < EPS:
-                    k0 = k
-            var u = ids[(k0 + 1) % 3]
-            var v2 = ids[(k0 + 2) % 3]
-            pn = self.enorm[self.edge.get(min(u, v2) * self.nv + max(u, v2), 0)]
-        else:
-            var kv = 0
-            for k in range(3):
-                if w[k] >= EPS:
-                    kv = k
-            pn = self.vert[ids[kv]]
+        match zeros:
+            case 0:
+                pn = self.face[t]
+            case 1:
+                # on the edge opposite the vertex whose weight vanished
+                var k0 = 0
+                for k in range(3):
+                    if w[k] < EPS:
+                        k0 = k
+                var u = ids[(k0 + 1) % 3]
+                var v2 = ids[(k0 + 2) % 3]
+                pn = self.enorm[self.edge.get(min(u, v2) * self.nv + max(u, v2), 0)]
+            case _:
+                var kv = 0
+                for k in range(3):
+                    if w[k] >= EPS:
+                        kv = k
+                pn = self.vert[ids[kv]]
         var s = dot(p - q, pn)
         if s == 0:
             return 0

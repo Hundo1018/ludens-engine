@@ -97,11 +97,11 @@ golden = "bash scripts/golden.sh"
 gate = "bash scripts/agent_gate.sh"
 
 [dependencies]
-# Pinned to the current latest stable release (mojo 1.1.0 / modular 26.6.0,
-# both dated 2026-09-10). Exact pins, not a floor: a toolchain bump is a
+# Pinned to the current latest stable release (mojo 1.2.0 dated 2026-10-16,
+# modular 26.7.0 dated 2026-10-15). Exact pins, not a floor: a toolchain bump is a
 # deliberate change that reruns the whole test + benchmark gate.
-modular = "==26.6.0"
-mojo = "==1.1.0"
+modular = "==26.7.0"
+mojo = "==1.2.0"
 
 # valgrind has no osx-arm64 build (ROADMAP 17.76): Linux targets only.
 [target.linux-64.dependencies]

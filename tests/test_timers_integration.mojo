@@ -33,7 +33,7 @@ from scheduler.scheduler import System
 from scheduler.sequential import SequentialScheduler
 from scheduler.gameloop import FixedLoop
 from scheduler.timers import TimerQueue, TimerHeap, TimerWheel, TimerFire
-from procedural.tween import Tween, EASE_LINEAR
+from procedural.tween import Tween, GeodesicMotor3, EASE_LINEAR
 from geometry.vec import Real, Vec3
 from geometry.quat import Quat
 from geometry.motor import Motor3
@@ -152,7 +152,7 @@ def _part_b(mut s: Suite) raises:
     var ma = Motor3.from_quat_translation(qa, Vec3(0, 0, 0, 0))
     var mb = Motor3.from_quat_translation(qb, Vec3(10, 0, 0, 0))
     comptime DURATION: Real = 0.5  # seconds
-    var tw = Tween[Motor3, type_of(geodesic3), EASE_LINEAR](ma, mb, DURATION, geodesic3)
+    var tw = Tween[GeodesicMotor3, EASE_LINEAR](ma, mb, DURATION, GeodesicMotor3())
 
     var p = Vec3(1, 0, 0, 0)
     var start = ma.apply_point(p)

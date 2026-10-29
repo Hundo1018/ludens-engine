@@ -294,18 +294,19 @@ struct NavMesh(Movable):
                             # close run [run_i0, i - 1]
                             var a: Vec3
                             var b: Vec3
-                            if d == 0:
-                                a = self._edge_point(run_s0, run_n0, x1 + 1, z0 + run_i0)
-                                b = self._edge_point(prev_s, prev_n, x1 + 1, z0 + i)
-                            elif d == 2:
-                                a = self._edge_point(run_s0, run_n0, x0, z0 + run_i0)
-                                b = self._edge_point(prev_s, prev_n, x0, z0 + i)
-                            elif d == 1:
-                                a = self._edge_point(run_s0, run_n0, x0 + run_i0, z1 + 1)
-                                b = self._edge_point(prev_s, prev_n, x0 + i, z1 + 1)
-                            else:
-                                a = self._edge_point(run_s0, run_n0, x0 + run_i0, z0)
-                                b = self._edge_point(prev_s, prev_n, x0 + i, z0)
+                            match d:
+                                case 0:
+                                    a = self._edge_point(run_s0, run_n0, x1 + 1, z0 + run_i0)
+                                    b = self._edge_point(prev_s, prev_n, x1 + 1, z0 + i)
+                                case 2:
+                                    a = self._edge_point(run_s0, run_n0, x0, z0 + run_i0)
+                                    b = self._edge_point(prev_s, prev_n, x0, z0 + i)
+                                case 1:
+                                    a = self._edge_point(run_s0, run_n0, x0 + run_i0, z1 + 1)
+                                    b = self._edge_point(prev_s, prev_n, x0 + i, z1 + 1)
+                                case _:
+                                    a = self._edge_point(run_s0, run_n0, x0 + run_i0, z0)
+                                    b = self._edge_point(prev_s, prev_n, x0 + i, z0)
                             # store (left, right) as seen crossing in direction d:
                             # left = positive XZ cross product with the crossing
                             var mid = (a + b) * 0.5

@@ -110,10 +110,11 @@ def main() raises:
     comptime n = get_defined_int["N", 1000]()
     comptime ticks = get_defined_int["TICKS", 400]()
     var acc: Int
-    if variant == 0:
-        acc = run_rules(n, ticks)
-    elif variant == 1:
-        acc = run_oop(n, ticks)
-    else:
-        acc = run_ecs(n, ticks)
+    match variant:
+        case 0:
+            acc = run_rules(n, ticks)
+        case 1:
+            acc = run_oop(n, ticks)
+        case _:
+            acc = run_ecs(n, ticks)
     keep(acc)

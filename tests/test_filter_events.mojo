@@ -204,7 +204,7 @@ def case_mesh_events() raises -> List[Real]:
     var sc = ContactScene6[QuatBody6]()
     sc.events_on = True
     _ = sc.add_trimesh(
-        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)), v^, idx^
+        QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 30, 1, 30)), v, idx
     )
     # straddling the diagonal seam, so it touches both triangles
     _ = sc.add(_crate(0.0, 0.6), Vec3(0.25, 0.25, 0.25, 0), False)

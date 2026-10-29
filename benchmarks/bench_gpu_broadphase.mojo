@@ -49,22 +49,23 @@ def _cpu_row(mut t: BenchTable, name: String, items: List[BoxProxy[3]], n: Int, 
     for _ in range(REPS):
         var t0 = Int(perf_counter_ns())
         var out = List[Pair]()
-        if kind == 0:
-            var bp = BruteForce[3]()
-            bp.rebuild(items)
-            bp.pairs(out)
-        elif kind == 1:
-            var bp = SpatialHashBroadPhase[3](2.0)
-            bp.rebuild(items)
-            bp.pairs(out)
-        elif kind == 2:
-            var bp = BVHBroadPhase[3]()
-            bp.rebuild(items)
-            bp.pairs(out)
-        else:
-            var bp = SapBroadPhase[3]()
-            bp.rebuild(items)
-            bp.pairs(out)
+        match kind:
+            case 0:
+                var bp = BruteForce[3]()
+                bp.rebuild(items)
+                bp.pairs(out)
+            case 1:
+                var bp = SpatialHashBroadPhase[3](2.0)
+                bp.rebuild(items)
+                bp.pairs(out)
+            case 2:
+                var bp = BVHBroadPhase[3]()
+                bp.rebuild(items)
+                bp.pairs(out)
+            case _:
+                var bp = SapBroadPhase[3]()
+                bp.rebuild(items)
+                bp.pairs(out)
         var dt = Int(perf_counter_ns()) - t0
         count = len(out)
         if dt < best:

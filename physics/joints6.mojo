@@ -280,86 +280,87 @@ def joint_sweep[B: Body6](
                         h, bias_rate, ms, isc, use_bias, jt.acc[ax], True,
                     )
                     jt.acc[ax] += dl
-                if jt.kind == JOINT_HINGE:
-                    var oa = bset.bodies[jt.a].act(jt.axis_a) - bset.bodies[
-                        jt.a
-                    ].act(Vec3(0, 0, 0, 0))
-                    var ob = bset.bodies[jt.b].act(jt.axis_b) - bset.bodies[
-                        jt.b
-                    ].act(Vec3(0, 0, 0, 0))
-                    var er = cross(oa, ob)  # small-angle axis error
-                    var wa = Vec3(0, 0, 0, 0)
-                    var wb2 = Vec3(0, 0, 0, 0)
-                    if bset.moves(jt.a):
-                        wa = bset.bodies[jt.a].omega_world()
-                    if bset.moves(jt.b):
-                        wb2 = bset.bodies[jt.b].omega_world()
-                    var tb = tangent_basis(oa)
-                    for ti in range(2):
-                        var t = tb[0] if ti == 0 else tb[1]
-                        var kaa = Real(0)
-                        var kbb = Real(0)
-                        if bset.is_dynamic(jt.a):
-                            kaa = bset.bodies[jt.a].angular_only_factor(t) * _js(bset, jt.a)
-                        if bset.is_dynamic(jt.b):
-                            kbb = bset.bodies[jt.b].angular_only_factor(t) * _js(bset, jt.b)
-                        var den = kaa + kbb
-                        if den <= 0:
-                            continue
-                        var vr = dot(wb2 - wa, t)
-                        var bias = (
-                            bias_rate * dot(er, t) if use_bias else Real(0)
-                        )
-                        var acc_t = dot(jt.acc_ang, t)
-                        var dl = -ms * (vr + bias) / den - isc * acc_t
-                        jt.acc_ang = jt.acc_ang + t * dl
-                        var limp = t * dl
-                        if bset.is_dynamic(jt.a):
-                            bset.bodies[jt.a].apply_angular_impulse(-limp * _js(bset, jt.a))
-                        if bset.is_dynamic(jt.b):
-                            bset.bodies[jt.b].apply_angular_impulse(limp * _js(bset, jt.b))
-                        wa = Vec3(0, 0, 0, 0)
-                        wb2 = Vec3(0, 0, 0, 0)
-                        if bset.moves(jt.a):
-                            wa = bset.bodies[jt.a].omega_world()
-                        if bset.moves(jt.b):
-                            wb2 = bset.bodies[jt.b].omega_world()
-                elif jt.kind == JOINT_UNIVERSAL:
-                    _universal_row(bset, jt, bias_rate, ms, isc, use_bias)
-                elif jt.kind == JOINT_WELD:
-                    # angular lock about the three world axes. `er` is the
-                    # rotation vector by which b leads its reference pose
-                    # rotation(a) * ref (`drive_error` points the other way).
-                    var er = drive_error(
-                        bset.bodies[jt.a].rotation(),
-                        bset.bodies[jt.b].rotation(),
-                        jt.ref_rotation(),
-                    ) * Real(-1)
-                    for k in range(3):
-                        var ax = Vec3(0, 0, 0, 0)
-                        ax[k] = 1
-                        var den = Real(0)
-                        if bset.is_dynamic(jt.a):
-                            den += bset.bodies[jt.a].angular_only_factor(ax) * _js(bset, jt.a)
-                        if bset.is_dynamic(jt.b):
-                            den += bset.bodies[jt.b].angular_only_factor(ax) * _js(bset, jt.b)
-                        if den <= 0:
-                            continue
+                match jt.kind:
+                    case == JOINT_HINGE:
+                        var oa = bset.bodies[jt.a].act(jt.axis_a) - bset.bodies[
+                            jt.a
+                        ].act(Vec3(0, 0, 0, 0))
+                        var ob = bset.bodies[jt.b].act(jt.axis_b) - bset.bodies[
+                            jt.b
+                        ].act(Vec3(0, 0, 0, 0))
+                        var er = cross(oa, ob)  # small-angle axis error
                         var wa = Vec3(0, 0, 0, 0)
                         var wb2 = Vec3(0, 0, 0, 0)
                         if bset.moves(jt.a):
                             wa = bset.bodies[jt.a].omega_world()
                         if bset.moves(jt.b):
                             wb2 = bset.bodies[jt.b].omega_world()
-                        var vr = dot(wb2 - wa, ax)
-                        var bias = bias_rate * er[k] if use_bias else Real(0)
-                        var dl = -ms * (vr + bias) / den - isc * jt.acc_ang[k]
-                        jt.acc_ang[k] += dl
-                        var limp = ax * dl
-                        if bset.is_dynamic(jt.a):
-                            bset.bodies[jt.a].apply_angular_impulse(-limp * _js(bset, jt.a))
-                        if bset.is_dynamic(jt.b):
-                            bset.bodies[jt.b].apply_angular_impulse(limp * _js(bset, jt.b))
+                        var tb = tangent_basis(oa)
+                        for ti in range(2):
+                            var t = tb[0] if ti == 0 else tb[1]
+                            var kaa = Real(0)
+                            var kbb = Real(0)
+                            if bset.is_dynamic(jt.a):
+                                kaa = bset.bodies[jt.a].angular_only_factor(t) * _js(bset, jt.a)
+                            if bset.is_dynamic(jt.b):
+                                kbb = bset.bodies[jt.b].angular_only_factor(t) * _js(bset, jt.b)
+                            var den = kaa + kbb
+                            if den <= 0:
+                                continue
+                            var vr = dot(wb2 - wa, t)
+                            var bias = (
+                                bias_rate * dot(er, t) if use_bias else Real(0)
+                            )
+                            var acc_t = dot(jt.acc_ang, t)
+                            var dl = -ms * (vr + bias) / den - isc * acc_t
+                            jt.acc_ang = jt.acc_ang + t * dl
+                            var limp = t * dl
+                            if bset.is_dynamic(jt.a):
+                                bset.bodies[jt.a].apply_angular_impulse(-limp * _js(bset, jt.a))
+                            if bset.is_dynamic(jt.b):
+                                bset.bodies[jt.b].apply_angular_impulse(limp * _js(bset, jt.b))
+                            wa = Vec3(0, 0, 0, 0)
+                            wb2 = Vec3(0, 0, 0, 0)
+                            if bset.moves(jt.a):
+                                wa = bset.bodies[jt.a].omega_world()
+                            if bset.moves(jt.b):
+                                wb2 = bset.bodies[jt.b].omega_world()
+                    case == JOINT_UNIVERSAL:
+                        _universal_row(bset, jt, bias_rate, ms, isc, use_bias)
+                    case == JOINT_WELD:
+                        # angular lock about the three world axes. `er` is the
+                        # rotation vector by which b leads its reference pose
+                        # rotation(a) * ref (`drive_error` points the other way).
+                        var er = drive_error(
+                            bset.bodies[jt.a].rotation(),
+                            bset.bodies[jt.b].rotation(),
+                            jt.ref_rotation(),
+                        ) * Real(-1)
+                        for k in range(3):
+                            var ax = Vec3(0, 0, 0, 0)
+                            ax[k] = 1
+                            var den = Real(0)
+                            if bset.is_dynamic(jt.a):
+                                den += bset.bodies[jt.a].angular_only_factor(ax) * _js(bset, jt.a)
+                            if bset.is_dynamic(jt.b):
+                                den += bset.bodies[jt.b].angular_only_factor(ax) * _js(bset, jt.b)
+                            if den <= 0:
+                                continue
+                            var wa = Vec3(0, 0, 0, 0)
+                            var wb2 = Vec3(0, 0, 0, 0)
+                            if bset.moves(jt.a):
+                                wa = bset.bodies[jt.a].omega_world()
+                            if bset.moves(jt.b):
+                                wb2 = bset.bodies[jt.b].omega_world()
+                            var vr = dot(wb2 - wa, ax)
+                            var bias = bias_rate * er[k] if use_bias else Real(0)
+                            var dl = -ms * (vr + bias) / den - isc * jt.acc_ang[k]
+                            jt.acc_ang[k] += dl
+                            var limp = ax * dl
+                            if bset.is_dynamic(jt.a):
+                                bset.bodies[jt.a].apply_angular_impulse(-limp * _js(bset, jt.a))
+                            if bset.is_dynamic(jt.b):
+                                bset.bodies[jt.b].apply_angular_impulse(limp * _js(bset, jt.b))
             joints[c] = jt
 
 

@@ -73,14 +73,15 @@ struct Native:
         var vx: Real = 0
         var vz: Real = 0
         var k = (self.w.tick // 60) % 4
-        if k == 0:
-            vx = 3
-        elif k == 1:
-            vz = 3
-        elif k == 2:
-            vx = -3
-        else:
-            vz = -3
+        match k:
+            case 0:
+                vx = 3
+            case 1:
+                vz = 3
+            case 2:
+                vx = -3
+            case _:
+                vz = -3
         var st = self.w.state(self.player)
         self.w.set_velocity(self.player, _v(vx, st.vel[1], vz), _v(0, 0, 0))
         self.w.physics_tick()

@@ -354,8 +354,8 @@ struct MacFluid3(Movable):
         var op = _NegLaplacian3(n)
         warm_start_or_zero(op, rhs, self.p)
         var r: CgResult
-        if self.mg:
-            r = pcg_mg3(op, self.mg.value(), rhs, self.p, tol, 4 * m)
+        if case .Some(ref mg) = self.mg:
+            r = pcg_mg3(op, mg, rhs, self.p, tol, 4 * m)
         else:
             r = pcg(op, rhs, self.p, tol, 4 * m)
         for k in range(n):

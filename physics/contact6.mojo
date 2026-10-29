@@ -178,17 +178,19 @@ def island_color(label: Int) -> SIMD[DType.float32, 4]:
     label mod 6 (white for -1). Shared by the scene's debug draw and
     `physics.capture.draw_frame`."""
     var lbl = label % 6 if label >= 0 else 5
-    if lbl == 0:
-        return SIMD[DType.float32, 4](1, 0, 0, 1)
-    elif lbl == 1:
-        return SIMD[DType.float32, 4](0, 1, 0, 1)
-    elif lbl == 2:
-        return SIMD[DType.float32, 4](0, 0, 1, 1)
-    elif lbl == 3:
-        return SIMD[DType.float32, 4](1, 1, 0, 1)
-    elif lbl == 4:
-        return SIMD[DType.float32, 4](0, 1, 1, 1)
-    return SIMD[DType.float32, 4](1, 1, 1, 1)
+    match lbl:
+        case 0:
+            return SIMD[DType.float32, 4](1, 0, 0, 1)
+        case 1:
+            return SIMD[DType.float32, 4](0, 1, 0, 1)
+        case 2:
+            return SIMD[DType.float32, 4](0, 0, 1, 1)
+        case 3:
+            return SIMD[DType.float32, 4](1, 1, 0, 1)
+        case 4:
+            return SIMD[DType.float32, 4](0, 1, 1, 1)
+        case _:
+            return SIMD[DType.float32, 4](1, 1, 1, 1)
 
 
 def make_sensor_contact(rc: RawContact) -> ContactConstraint:
@@ -397,20 +399,20 @@ def make_contact[B: Body6](
         if ca or cb:
             var n = rc.m.normal
             var target = Real(0)
-            if ca:
-                target = dot(bset.bodies[rc.a].act(ca.value()), n) + round_reach(bset, colliders, rc.a, n, kid_a)
-            if cb:
-                var sb = dot(bset.bodies[rc.b].act(cb.value()), n) - round_reach(bset, colliders, rc.b, n, kid_b)
+            if case .Some(wa) = ca:
+                target = dot(bset.bodies[rc.a].act(wa), n) + round_reach(bset, colliders, rc.a, n, kid_a)
+            if case .Some(wb) = cb:
+                var sb = dot(bset.bodies[rc.b].act(wb), n) - round_reach(bset, colliders, rc.b, n, kid_b)
                 target = (target + sb) * 0.5 if ca else sb
             p = p + n * (target - dot(p, n))
-        if ca:
-            pr.ra[k] = ca.value()
-            pr.oa[k] = p - bset.bodies[rc.a].act(ca.value())
+        if case .Some(wa) = ca:
+            pr.ra[k] = wa
+            pr.oa[k] = p - bset.bodies[rc.a].act(wa)
         else:
             pr.ra[k] = bset.bodies[rc.a].to_local(p)
-        if cb:
-            pr.rb[k] = cb.value()
-            pr.ob[k] = p - bset.bodies[rc.b].act(cb.value())
+        if case .Some(wb) = cb:
+            pr.rb[k] = wb
+            pr.ob[k] = p - bset.bodies[rc.b].act(wb)
         else:
             pr.rb[k] = bset.bodies[rc.b].to_local(p)
         var va0 = Vec3(0, 0, 0, 0)
@@ -1291,25 +1293,26 @@ def apply_rules[B: Body6](
             var on_b = pr.b == ru.body
             if not on_a and not on_b:
                 continue
-            if ru.kind == RULE_ONE_WAY:
-                # normal from the platform toward the other body
-                var n = pr.m.normal if on_a else -pr.m.normal
-                var other = pr.b if on_a else pr.a
-                var up_v = Real(0)
-                if bset.moves(other):
-                    up_v = dot(bset.bodies[other].linear_velocity(), ru.dir)
-                var deepest = Real(0)
-                for k in range(pr.m.count):
-                    deepest = max(deepest, pr.m.depths[k])
-                if dot(n, ru.dir) < 0.5 or up_v > 0.1 or deepest > ru.value:
-                    keep = False
-            elif ru.kind == RULE_CONVEYOR:
-                # relative surface velocity of b w.r.t. a, tangential part
-                var u = ru.dir if on_b else -ru.dir
-                var nn = pr.m.normal
-                pr.vsurf = pr.vsurf + (u - nn * dot(u, nn))
-            elif ru.kind == RULE_FRICTION:
-                pr.mu_override = ru.value
+            match ru.kind:
+                case == RULE_ONE_WAY:
+                    # normal from the platform toward the other body
+                    var n = pr.m.normal if on_a else -pr.m.normal
+                    var other = pr.b if on_a else pr.a
+                    var up_v = Real(0)
+                    if bset.moves(other):
+                        up_v = dot(bset.bodies[other].linear_velocity(), ru.dir)
+                    var deepest = Real(0)
+                    for k in range(pr.m.count):
+                        deepest = max(deepest, pr.m.depths[k])
+                    if dot(n, ru.dir) < 0.5 or up_v > 0.1 or deepest > ru.value:
+                        keep = False
+                case == RULE_CONVEYOR:
+                    # relative surface velocity of b w.r.t. a, tangential part
+                    var u = ru.dir if on_b else -ru.dir
+                    var nn = pr.m.normal
+                    pr.vsurf = pr.vsurf + (u - nn * dot(u, nn))
+                case == RULE_FRICTION:
+                    pr.mu_override = ru.value
         if keep:
             kept.append(pr)
     pairs = kept^

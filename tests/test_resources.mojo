@@ -49,7 +49,7 @@ def main() raises:
     var v: List[Real] = [-50, 0, -50, 50, 0, -50, -50, 0, 50, 50, 0, 50]
     var ix: List[Int] = [0, 2, 1, 1, 2, 3]
     var before = resource_report(sc).shapes
-    _ = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), v^, ix^)
+    _ = sc.add_trimesh(QuatBody6.at_rest(Vec3(0, 0, 0, 0), Inertia3.box(1, 1, 1, 1)), v, ix)
     var after = resource_report(sc).shapes
     print("  one 2-triangle mesh: shapes", before, "->", after, "bytes")
     s.check(after > before, "a triangle mesh adds to shapes")

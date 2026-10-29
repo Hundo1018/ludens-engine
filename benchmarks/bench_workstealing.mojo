@@ -37,13 +37,14 @@ comptime COST_SPIKY = 2
 
 def _cost(i: Int, kind: Int) -> Int:
     """Iteration count for task `i` under a cost distribution."""
-    if kind == COST_UNIFORM:
-        return 4000
-    elif kind == COST_SKEWED:
-        return 40 + i * 30  # triangular: last task ~380x the first
-    else:
-        # spiky: ~3% of tasks are 60x the rest
-        return 60000 if (i % 32) == 0 else 1000
+    match kind:
+        case == COST_UNIFORM:
+            return 4000
+        case == COST_SKEWED:
+            return 40 + i * 30  # triangular: last task ~380x the first
+        case _:
+            # spiky: ~3% of tasks are 60x the rest
+            return 60000 if (i % 32) == 0 else 1000
 
 
 def _spin(i: Int, kind: Int) -> Int:

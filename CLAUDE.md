@@ -5,8 +5,8 @@ ludens-engine:以 Mojo 寫的遊戲引擎核心(ECS、碰撞、6-DOF 剛體、�
 
 ## 工具鏈
 
-- Linux x86-64 + pixi。版本以 `pixi.toml` 為準(目前精確鎖定 `mojo ==1.1.0`、`modular ==26.6.0`);
-  README 與 ROADMAP 中的 1.0.0 / 26.5.0 是舊紀錄。升版是刻意變更,需重跑整套 test + benchmark。
+- Linux x86-64 + pixi。版本以 `pixi.toml` 為準(目前精確鎖定 `mojo ==1.2.0`、`modular ==26.7.0`);
+  ROADMAP 中的 1.0.0 / 1.1.0 / 26.5.0 / 26.6.0 是舊紀錄。升版是刻意變更,需重跑整套 test + benchmark。
 - 跨檔 import 只透過 `build/*.mojoc` 預編譯套件解析(原始碼目錄不會被搜尋),
   所以任何 run/test 之前都要先 `pixi run build`。
 - GPU host API 在 `max.*`(`max.gpu.host`、`max.algorithm.parallelize`),不在 `std.*`。
@@ -88,6 +88,9 @@ GPU 測試與 bench 在無加速器的主機上自動跳過(`has_accelerator`);�
   - 數值失敗(NaN、發散)→ 求解器在步末隔離該物體並記入 `diag.counters`
   - 容量溢出 → 丟最新一筆並記入 `diag.counters`(例:`LOG_DROPPED`)
 - 引擎套件不 `print`;內層迴圈不 raise;`raises` 必須是真的會 raise。
+- `match` 比對具名常數要寫 `case == NAME:`;裸 `case NAME:` 是綁定新變數、會比對任何值。同一算式改成 `match` 可能使最後幾位捨入不同
+  (`physics/mass_props.mojo` 為此保留 `if/elif`),所以改寫後要看 gate golden。`Defaultable` 結構若沒有手寫 `__init__`,會由欄位逐一預設建構,
+  欄位型別必須都是 `Defaultable`。Mojo 1.2.0 無法編譯存放函式型參數的結構體,用 trait + 空結構體(例:`procedural.tween.Interpolator`)。
 - 被恢復的數值失敗要有測試:強制注入失敗,斷言模擬繼續且 counter 有變動。
 - GPU:每個 process 只用一個 `DeviceContext`(共用 context 的 `*_run_ctx` driver),多個 context 會 hang。
 

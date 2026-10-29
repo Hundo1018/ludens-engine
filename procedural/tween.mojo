@@ -29,10 +29,10 @@ not as a proof of algebra already guaranteed by this file's own structure.
 can produce large excursions for back/elastic). Clamping happens one layer
 up, in `Tween`.
 
-`Tween[T, F, ease_kind]` tweens a value of type `T` from `start` to `end`
+`Tween[L, ease_kind]` tweens a value of type `L.Value` from `start` to `end`
 over `duration` (a `Real`, same unit as whatever drives `advance` -- seconds
 if driven by wall/frame time, ticks if driven by `scheduler.timers`), with
-`F: def(T, T, Real) -> T` supplying the interpolation itself and `ease_kind`
+`L: Interpolator` (`LerpReal`, `LerpVec3`, `GeodesicMotor3`, `GeodesicMotor2`) supplying the interpolation itself and `ease_kind`
 selecting the easing (again a comptime parameter, so the whole per-frame
 `value()` call is fully monomorphized). `T` is deliberately NOT constrained
 by a shared "Tweenable" trait: `Real` and `Vec3` are stdlib/alias types this
@@ -132,37 +132,38 @@ def _ease_in[fam: Int](t: Real) -> Real:
     """The one hand-written formula per family; `ease[kind]` derives out/
     in-out from this. Domain `[0, 1]` (guaranteed by how `ease[kind]`
     composes calls to this function -- see module docstring)."""
-    comptime if fam == _FAM_QUAD:
-        return t * t
-    elif fam == _FAM_CUBIC:
-        return t * t * t
-    elif fam == _FAM_QUART:
-        var t2 = t * t
-        return t2 * t2
-    elif fam == _FAM_QUINT:
-        var t2 = t * t
-        return t2 * t2 * t
-    elif fam == _FAM_SINE:
-        return 1 - cos(t * PI * 0.5)
-    elif fam == _FAM_EXPO:
-        if t <= 0:
-            return 0
-        return pow(Real(2), 10 * t - 10)
-    elif fam == _FAM_CIRC:
-        return 1 - sqrt(1 - t * t)
-    elif fam == _FAM_BACK:
-        comptime c1: Real = 1.70158
-        comptime c3: Real = c1 + 1
-        return c3 * t * t * t - c1 * t * t
-    elif fam == _FAM_ELASTIC:
-        if t <= 0:
-            return 0
-        elif t >= 1:
-            return 1
-        comptime c4: Real = 2 * PI / 3
-        return -pow(Real(2), 10 * t - 10) * sin((t * 10 - 10.75) * c4)
-    else:  # _FAM_BOUNCE
-        return 1 - _bounce_out_raw(1 - t)
+    comptime match fam:
+        case == _FAM_QUAD:
+            return t * t
+        case == _FAM_CUBIC:
+            return t * t * t
+        case == _FAM_QUART:
+            var t2 = t * t
+            return t2 * t2
+        case == _FAM_QUINT:
+            var t2 = t * t
+            return t2 * t2 * t
+        case == _FAM_SINE:
+            return 1 - cos(t * PI * 0.5)
+        case == _FAM_EXPO:
+            if t <= 0:
+                return 0
+            return pow(Real(2), 10 * t - 10)
+        case == _FAM_CIRC:
+            return 1 - sqrt(1 - t * t)
+        case == _FAM_BACK:
+            comptime c1: Real = 1.70158
+            comptime c3: Real = c1 + 1
+            return c3 * t * t * t - c1 * t * t
+        case == _FAM_ELASTIC:
+            if t <= 0:
+                return 0
+            elif t >= 1:
+                return 1
+            comptime c4: Real = 2 * PI / 3
+            return -pow(Real(2), 10 * t - 10) * sin((t * 10 - 10.75) * c4)
+        case _:  # _FAM_BOUNCE
+            return 1 - _bounce_out_raw(1 - t)
 
 
 def ease[kind: Int](t: Real) -> Real:
@@ -174,15 +175,16 @@ def ease[kind: Int](t: Real) -> Real:
     else:
         comptime fam = (kind - 1) // 3
         comptime variant = (kind - 1) % 3  # 0 = in, 1 = out, 2 = in-out
-        comptime if variant == 0:
-            return _ease_in[fam](t)
-        elif variant == 1:
-            return 1 - _ease_in[fam](1 - t)
-        else:
-            if t < 0.5:
-                return _ease_in[fam](2 * t) * 0.5
-            else:
-                return 1 - _ease_in[fam](2 - 2 * t) * 0.5
+        comptime match variant:
+            case 0:
+                return _ease_in[fam](t)
+            case 1:
+                return 1 - _ease_in[fam](1 - t)
+            case _:
+                if t < 0.5:
+                    return _ease_in[fam](2 * t) * 0.5
+                else:
+                    return 1 - _ease_in[fam](2 - 2 * t) * 0.5
 
 
 def ease_dyn(kind: Int, t: Real) -> Real:
@@ -211,17 +213,60 @@ def lerp_vec3(a: Vec3, b: Vec3, t: Real) -> Vec3:
     return a + (b - a) * t
 
 
-# `geodesic2`/`geodesic3` (geometry/galie.mojo) already have the exact
-# `def(T, T, Real) -> T` shape `Tween` wants -- passed straight through as
-# `F`, no wrapper needed.
+trait Interpolator(Copyable, Movable, Deinitable):
+    """What `Tween` interpolates with: `lerp(a, b, t)` for `t` in `[0, 1]` over
+    `Value`. It is a trait implemented by empty structs rather than a
+    function-typed parameter because Mojo 1.2.0 fails to compile a struct
+    that stores one (`Tween[T, type_of(f), K]` -> "'kgen.call' op callee
+    argument #4 expected type ... but operation argument has type ...");
+    an empty struct field compiles and is as free."""
+
+    comptime Value: Copyable & Deinitable
+
+    def lerp(self, a: Self.Value, b: Self.Value, t: Real) -> Self.Value:
+        ...
+
+
+@fieldwise_init
+struct LerpReal(Interpolator):
+    comptime Value = Real
+
+    def lerp(self, a: Real, b: Real, t: Real) -> Real:
+        return lerp_real(a, b, t)
+
+
+@fieldwise_init
+struct LerpVec3(Interpolator):
+    comptime Value = Vec3
+
+    def lerp(self, a: Vec3, b: Vec3, t: Real) -> Vec3:
+        return lerp_vec3(a, b, t)
+
+
+@fieldwise_init
+struct GeodesicMotor3(Interpolator):
+    """Screw interpolation of `Motor3` (`geometry.galie.geodesic3`)."""
+
+    comptime Value = Motor3
+
+    def lerp(self, a: Motor3, b: Motor3, t: Real) -> Motor3:
+        return geodesic3(a, b, t)
+
+
+@fieldwise_init
+struct GeodesicMotor2(Interpolator):
+    """Screw interpolation of `Motor2` (`geometry.galie.geodesic2`)."""
+
+    comptime Value = Motor2
+
+    def lerp(self, a: Motor2, b: Motor2, t: Real) -> Motor2:
+        return geodesic2(a, b, t)
 
 
 # ---------------------------------------------------------------- Tween
-struct Tween[
-    T: Copyable & Deinitable, F: def (T, T, Real) -> T, ease_kind: Int
-](Movable, Deinitable):
+struct Tween[L: Interpolator, ease_kind: Int](Movable, Deinitable):
     """`start` -> `end` over `duration`, eased by `ease_kind`, interpolated by
-    `F`. Stateful (`advance`/`done`/`reset`) for the common "drive it every
+    `L`. Stateful (`advance`/`done`/`reset`) for the common "drive it every
     frame" use; `value_at(t)` is the stateless counterpart for scrubbing or
     one-shot evaluation. `duration <= 0` is a valid, deliberately-supported
     degenerate case ("zero-duration tween"): `u()` reports 1 immediately, so
@@ -230,14 +275,14 @@ struct Tween[
     tween's duration to 0 (or an animation curve collapsing to a snap) is a
     normal authoring choice, not invalid input."""
 
-    var start: Self.T
-    var end: Self.T
+    var start: Self.L.Value
+    var end: Self.L.Value
     var duration: Real
     var elapsed: Real
-    var f: Self.F
+    var f: Self.L
 
     def __init__(
-        out self, var start: Self.T, var end: Self.T, duration: Real, var f: Self.F
+        out self, var start: Self.L.Value, var end: Self.L.Value, duration: Real, var f: Self.L
     ):
         self.start = start^
         self.end = end^
@@ -271,10 +316,10 @@ struct Tween[
             return 1
         return raw
 
-    def value(self) -> Self.T:
-        return self.f(self.start, self.end, ease[Self.ease_kind](self.u()))
+    def value(self) -> Self.L.Value:
+        return self.f.lerp(self.start, self.end, ease[Self.ease_kind](self.u()))
 
-    def value_at(self, t: Real) -> Self.T:
+    def value_at(self, t: Real) -> Self.L.Value:
         """Stateless evaluation at an explicit, CLAMPED `t` -- ignores
         `elapsed`. `t` outside `[0, 1]` is the other half of the documented
         extreme case: clamped here too, same as `u()`."""
@@ -283,4 +328,4 @@ struct Tween[
             tc = 0
         if tc > 1:
             tc = 1
-        return self.f(self.start, self.end, ease[Self.ease_kind](tc))
+        return self.f.lerp(self.start, self.end, ease[Self.ease_kind](tc))

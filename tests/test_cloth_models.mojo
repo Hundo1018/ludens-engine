@@ -187,12 +187,13 @@ def _colored_hang(mode: Int, model: Int) raises -> MeshCloth:
     c.set_bend_model(model)
     c.pin(0)
     c.pin(16)
-    if mode == 1:
-        c.set_colored(True, 1, Dispatch.serial())
-    elif mode == 2:
-        c.set_colored(True, 4, Dispatch.parallel())
-    elif mode == 3:
-        c.set_colored(True, 4, Dispatch.reverse())
+    match mode:
+        case 1:
+            c.set_colored(True, 1, Dispatch.serial())
+        case 2:
+            c.set_colored(True, 4, Dispatch.parallel())
+        case 3:
+            c.set_colored(True, 4, Dispatch.reverse())
     for _ in range(90):
         c.advance(DT, G)
     return c^

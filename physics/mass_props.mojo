@@ -174,6 +174,9 @@ def child_mass(spec: CompoundSpec, k: Int, density: Real) -> Tuple[Real, Vec3, M
         return hull_mass(spec.child_verts(k), density)
     var m: Real
     var i: Inertia3
+    # if/elif on purpose: as a `match` (Mojo 1.2.0) the same arithmetic rounds
+    # differently in the last bits, which breaks test_compound's bit-for-bit
+    # single-child == plain-box check and moves test_ccd_shapes (issue #67).
     if kind == SHAPE_BOX:
         m = density * 8 * h[0] * h[1] * h[2]
         i = Inertia3.box(m, h[0], h[1], h[2])

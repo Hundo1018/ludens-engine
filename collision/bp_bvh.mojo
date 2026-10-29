@@ -11,10 +11,6 @@ struct BVHBroadPhase[D: Int](BroadPhase):
     var bvh: BVH[Self.D]
     var items: List[BoxProxy[Self.D]]
 
-    def __init__(out self):
-        self.bvh = BVH[Self.D]()
-        self.items = List[BoxProxy[Self.D]]()
-
     def rebuild(mut self, items: List[BoxProxy[Self.D]]) raises:
         self.items = items.copy()
         var boxes = List[AABB[Self.D]](capacity=len(items))

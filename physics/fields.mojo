@@ -171,14 +171,15 @@ def apply_fields[B: Body6](
                 continue
             if not _inside(p, fd.lo, fd.hi):
                 continue
-            if fd.kind == FIELD_GRAVITY:
-                sc.bset.grav_on[i] = True
-                sc.bset.grav[i] = fd.vec
-            elif fd.kind == FIELD_WIND:
-                var w = fd.vec if fd.grid < 0 else grids[fd.grid].sample(p)
-                f = f + (w - sc.bset.bodies[i].linear_velocity()) * fd.strength
-            elif fd.kind == FIELD_DRAG:
-                f = f - sc.bset.bodies[i].linear_velocity() * (fd.strength * m)
+            match fd.kind:
+                case == FIELD_GRAVITY:
+                    sc.bset.grav_on[i] = True
+                    sc.bset.grav[i] = fd.vec
+                case == FIELD_WIND:
+                    var w = fd.vec if fd.grid < 0 else grids[fd.grid].sample(p)
+                    f = f + (w - sc.bset.bodies[i].linear_velocity()) * fd.strength
+                case == FIELD_DRAG:
+                    f = f - sc.bset.bodies[i].linear_velocity() * (fd.strength * m)
         if f[0] == 0 and f[1] == 0 and f[2] == 0:
             continue
         if sc.bset.sleeping[i]:

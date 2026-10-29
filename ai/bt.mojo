@@ -235,20 +235,21 @@ def bt_tick[H: BtHost](tree: BehaviorTree, mut st: BtState, mut host: H, agent: 
         var done = -1  # this frame's result when it finishes now
         var push = -1  # child to descend into
         if k >= BT_ACTION:
-            if k == BT_ACTION:
-                st.leaves_run.append(tree.a[n])
-                done = host.run(agent, tree.a[n], bb)
-            elif k == BT_CONDITION:
-                done = SUCCESS if bb.test(tree.a[n], tree.b[n], tree.v[n]) else FAILURE
-            elif k == BT_CHECK:
-                done = SUCCESS if host.check(agent, tree.a[n], bb) else FAILURE
-            else:
-                st.counter[n] += 1
-                if st.counter[n] >= tree.a[n]:
-                    st.counter[n] = 0
-                    done = SUCCESS
-                else:
-                    done = RUNNING
+            match k:
+                case == BT_ACTION:
+                    st.leaves_run.append(tree.a[n])
+                    done = host.run(agent, tree.a[n], bb)
+                case == BT_CONDITION:
+                    done = SUCCESS if bb.test(tree.a[n], tree.b[n], tree.v[n]) else FAILURE
+                case == BT_CHECK:
+                    done = SUCCESS if host.check(agent, tree.a[n], bb) else FAILURE
+                case _:
+                    st.counter[n] += 1
+                    if st.counter[n] >= tree.a[n]:
+                        st.counter[n] = 0
+                        done = SUCCESS
+                    else:
+                        done = RUNNING
         elif k == BT_SEQUENCE or k == BT_SELECTOR:
             var stop_on = FAILURE if k == BT_SEQUENCE else SUCCESS
             var nc = len(tree.children[n])
@@ -321,29 +322,31 @@ def bt_tick[H: BtHost](tree: BehaviorTree, mut st: BtState, mut host: H, agent: 
                     push = 0
             else:
                 var r = ret
-                if k == BT_INVERTER:
-                    done = r if r == RUNNING else (FAILURE if r == SUCCESS else SUCCESS)
-                elif k == BT_SUCCEEDER:
-                    done = RUNNING if r == RUNNING else SUCCESS
-                elif k == BT_REPEAT:
-                    if r == RUNNING:
-                        done = RUNNING
-                    elif r == FAILURE:
-                        st.counter[n] = 0
-                        done = FAILURE
-                    else:
-                        st.counter[n] += 1
-                        if tree.a[n] > 0 and st.counter[n] >= tree.a[n]:
-                            st.counter[n] = 0
-                            done = SUCCESS
-                        else:
-                            done = RUNNING
-                elif k == BT_COOLDOWN:
-                    if r != RUNNING:
-                        st.ready_at[n] = st.tick + tree.a[n]
-                    done = r
-                else:
-                    done = r  # guard, service: pass through
+                match k:
+                    case == BT_INVERTER:
+                        done = r if r == RUNNING else (FAILURE if r == SUCCESS else SUCCESS)
+                    case == BT_SUCCEEDER:
+                        done = RUNNING if r == RUNNING else SUCCESS
+                    case == BT_REPEAT:
+                        match r:
+                            case == RUNNING:
+                                done = RUNNING
+                            case == FAILURE:
+                                st.counter[n] = 0
+                                done = FAILURE
+                            case _:
+                                st.counter[n] += 1
+                                if tree.a[n] > 0 and st.counter[n] >= tree.a[n]:
+                                    st.counter[n] = 0
+                                    done = SUCCESS
+                                else:
+                                    done = RUNNING
+                    case == BT_COOLDOWN:
+                        if r != RUNNING:
+                            st.ready_at[n] = st.tick + tree.a[n]
+                        done = r
+                    case _:
+                        done = r  # guard, service: pass through
         if push >= 0:
             st._fi[top] = push
             st._fnode.append(tree.children[n][push])

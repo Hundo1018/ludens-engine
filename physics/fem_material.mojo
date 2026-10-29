@@ -406,21 +406,22 @@ def nh_forces_averaged(body: FemBody, mut fx: List[Real], mut fy: List[Real], mu
             var g2 = -w * h.get(k, 1)
             var g3 = -w * h.get(k, 2)
             var g0 = -(g1 + g2 + g3)
-            if k == 0:
-                fx[tt.a] += g0
-                fx[tt.b] += g1
-                fx[tt.c] += g2
-                fx[tt.d] += g3
-            elif k == 1:
-                fy[tt.a] += g0
-                fy[tt.b] += g1
-                fy[tt.c] += g2
-                fy[tt.d] += g3
-            else:
-                fz[tt.a] += g0
-                fz[tt.b] += g1
-                fz[tt.c] += g2
-                fz[tt.d] += g3
+            match k:
+                case 0:
+                    fx[tt.a] += g0
+                    fx[tt.b] += g1
+                    fx[tt.c] += g2
+                    fx[tt.d] += g3
+                case 1:
+                    fy[tt.a] += g0
+                    fy[tt.b] += g1
+                    fy[tt.c] += g2
+                    fy[tt.d] += g3
+                case _:
+                    fz[tt.a] += g0
+                    fz[tt.b] += g1
+                    fz[tt.c] += g2
+                    fz[tt.d] += g3
 
 
 def step_nh_averaged(mut body: FemBody, dt: Real, gravity: Vec3, floor_y: Real = -1e30):

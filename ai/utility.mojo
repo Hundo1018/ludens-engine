@@ -48,20 +48,21 @@ struct Consideration(Copyable, ImplicitlyCopyable, Movable):
         var x = (bb.get(self.key) - self.lo) / span if span != 0 else Real(0)
         x = min(max(x, 0), 1)
         var y: Real
-        if self.curve == CURVE_LINEAR:
-            y = self.m * x + self.b
-        elif self.curve == CURVE_POLY:
-            var d = x - self.c
-            var p = Real(1)
-            for _ in range(Int(self.k)):
-                p *= d
-            y = self.m * p + self.b
-        elif self.curve == CURVE_LOGISTIC:
-            y = self.k / (1 + exp(-self.m * (x - self.c))) + self.b
-        elif self.curve == CURVE_STEP:
-            y = (Real(1) if x >= self.c else Real(0)) + self.b
-        else:
-            y = (Real(1) if x < self.c else Real(0)) + self.b
+        match self.curve:
+            case == CURVE_LINEAR:
+                y = self.m * x + self.b
+            case == CURVE_POLY:
+                var d = x - self.c
+                var p = Real(1)
+                for _ in range(Int(self.k)):
+                    p *= d
+                y = self.m * p + self.b
+            case == CURVE_LOGISTIC:
+                y = self.k / (1 + exp(-self.m * (x - self.c))) + self.b
+            case == CURVE_STEP:
+                y = (Real(1) if x >= self.c else Real(0)) + self.b
+            case _:
+                y = (Real(1) if x < self.c else Real(0)) + self.b
         return min(max(y, 0), 1)
 
 

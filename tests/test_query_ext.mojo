@@ -224,12 +224,13 @@ def main() raises:
     for k in range(300):
         var p = Vec3(Real(rng.next_f32()) * 40 - 20, Real(rng.next_f32()) * 10, Real(rng.next_f32()) * 40 - 20, 0)
         var kind = k % 3
-        if kind == 0:
-            _ = big.add(_st(p), Vec3(0.2 + Real(rng.next_f32()), 0.3, 0.5, 0), True)
-        elif kind == 1:
-            _ = big.add_sphere(_st(p), 0.3 + Real(rng.next_f32()), True)
-        else:
-            _ = big.add_capsule(_st(p), 0.3, 0.8, True)
+        match kind:
+            case 0:
+                _ = big.add(_st(p), Vec3(0.2 + Real(rng.next_f32()), 0.3, 0.5, 0), True)
+            case 1:
+                _ = big.add_sphere(_st(p), 0.3 + Real(rng.next_f32()), True)
+            case _:
+                _ = big.add_capsule(_st(p), 0.3, 0.8, True)
     var idx = big.query_index()
     var poses = big.query_poses()
     var same = 0

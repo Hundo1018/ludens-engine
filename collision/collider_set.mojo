@@ -526,7 +526,7 @@ struct ColliderSet(Movable, Deinitable):
         var i = self.add(h, at)
         self.shape[i] = SHAPE_HULL
         self.hull_id[i] = len(self.hulls)
-        self.hulls.append(HullShape(verts^))
+        self.hulls.append(HullShape(verts))
         return i
 
     def add_trimesh(
@@ -607,27 +607,28 @@ struct ColliderSet(Movable, Deinitable):
         self.epoch += 1  # 17.85: invalidates the narrowphase reuse cache
         for i in range(len(self.shape)):
             var k = self.shape[i]
-            if k == SHAPE_TRIMESH:
-                var mi = self.mesh_id[i]
-                var v = self.meshes[mi].v.copy()
-                for j in range(len(v) // 3):
-                    v[3 * j] -= d[0]
-                    v[3 * j + 1] -= d[1]
-                    v[3 * j + 2] -= d[2]
-                self.meshes[mi] = TriMesh(v, self.meshes[mi].idx)
-                self.world_aabb[i] = self.meshes[mi].bounds()
-            elif k == SHAPE_HEIGHTFIELD:
-                var fi = self.mesh_id[i]
-                ref f = self.fields[fi]
-                var h = f.h.copy()
-                for j in range(len(h)):
-                    h[j] -= d[1]
-                self.fields[fi] = HeightField(h, f.nx, f.nz, f.cell, f.ox - d[0], f.oz - d[2])
-                self.world_aabb[i] = self.fields[fi].bounds()
-            elif k == SHAPE_SDF:
-                var si = self.mesh_id[i]
-                self.sdfs[si].origin = self.sdfs[si].origin - d
-                self.world_aabb[i] = AABB[3](self.world_aabb[i].min - d, self.world_aabb[i].max - d)
+            match k:
+                case == SHAPE_TRIMESH:
+                    var mi = self.mesh_id[i]
+                    var v = self.meshes[mi].v.copy()
+                    for j in range(len(v) // 3):
+                        v[3 * j] -= d[0]
+                        v[3 * j + 1] -= d[1]
+                        v[3 * j + 2] -= d[2]
+                    self.meshes[mi] = TriMesh(v, self.meshes[mi].idx)
+                    self.world_aabb[i] = self.meshes[mi].bounds()
+                case == SHAPE_HEIGHTFIELD:
+                    var fi = self.mesh_id[i]
+                    ref f = self.fields[fi]
+                    var h = f.h.copy()
+                    for j in range(len(h)):
+                        h[j] -= d[1]
+                    self.fields[fi] = HeightField(h, f.nx, f.nz, f.cell, f.ox - d[0], f.oz - d[2])
+                    self.world_aabb[i] = self.fields[fi].bounds()
+                case == SHAPE_SDF:
+                    var si = self.mesh_id[i]
+                    self.sdfs[si].origin = self.sdfs[si].origin - d
+                    self.world_aabb[i] = AABB[3](self.world_aabb[i].min - d, self.world_aabb[i].max - d)
 
     def deform_heightfield(
         mut self, i: Int, cx: Real, cz: Real, radius: Real, delta: Real,
@@ -719,22 +720,24 @@ struct ColliderSet(Movable, Deinitable):
         """Active-edge guard of mesh / heightfield collider `i` (ROADMAP
         17.45 / 17.19): seams flatter than `angle` radians stop producing
         edge normals; negative = every edge active (the default)."""
-        if self.shape[i] == SHAPE_TRIMESH:
-            self.meshes[self.mesh_id[i]].set_active_angle(angle)
-        elif self.shape[i] == SHAPE_HEIGHTFIELD:
-            self.fields[self.mesh_id[i]].set_active_angle(angle)
-        else:
-            raise Error("ColliderSet.set_active_angle: collider is not a mesh or heightfield")
+        match self.shape[i]:
+            case == SHAPE_TRIMESH:
+                self.meshes[self.mesh_id[i]].set_active_angle(angle)
+            case == SHAPE_HEIGHTFIELD:
+                self.fields[self.mesh_id[i]].set_active_angle(angle)
+            case _:
+                raise Error("ColliderSet.set_active_angle: collider is not a mesh or heightfield")
 
     def set_materials(mut self, i: Int, ids: List[Int]) raises:
         """Per-triangle surface material ids of mesh / heightfield collider
         `i` (ROADMAP 17.53); raises for any other kind."""
-        if self.shape[i] == SHAPE_TRIMESH:
-            self.meshes[self.mesh_id[i]].set_materials(ids)
-        elif self.shape[i] == SHAPE_HEIGHTFIELD:
-            self.fields[self.mesh_id[i]].set_materials(ids)
-        else:
-            raise Error("ColliderSet.set_materials: collider is not a mesh or heightfield")
+        match self.shape[i]:
+            case == SHAPE_TRIMESH:
+                self.meshes[self.mesh_id[i]].set_materials(ids)
+            case == SHAPE_HEIGHTFIELD:
+                self.fields[self.mesh_id[i]].set_materials(ids)
+            case _:
+                raise Error("ColliderSet.set_materials: collider is not a mesh or heightfield")
 
     def material(self, i: Int, t: Int) -> Int:
         """Surface material id of triangle `t` of collider `i`; -1 when none

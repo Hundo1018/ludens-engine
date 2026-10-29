@@ -140,13 +140,6 @@ struct Channel[E: EventPayload](EventChannel):
     """Local tally, `LogRing`-style (see module docstring). Folded into a
     shared `diag.counters.Counters` bank by `sync_counters`."""
 
-    def __init__(out self):
-        self.cur = List[_Seq[Self.E]]()
-        self.prev = List[_Seq[Self.E]]()
-        self.next_seq = 0
-        self.cursors = List[Int64]()
-        self.dropped_unread = 0
-
     def send(mut self, var e: Self.E):
         self.cur.append(_Seq[Self.E](self.next_seq, e^))
         self.next_seq += 1
@@ -204,9 +197,6 @@ struct PushChannel[E: EventPayload](EventChannel):
     comptime Payload: EventPayload = Self.E
 
     var inboxes: List[List[Self.E]]
-
-    def __init__(out self):
-        self.inboxes = List[List[Self.E]]()
 
     def send(mut self, var e: Self.E):
         if len(self.inboxes) == 0:
