@@ -3884,13 +3884,13 @@
 >   其餘 5 個變體逐位相同,`--check` 通過。`tests/test_degrade.mojo` 3/3:40 個 island × 120 tick,island fan-out 以 1 個 worker == 預設寬度 == 串行派發;
 >   同色 fan-out 與並行 narrowphase 以 1 個 worker == 串行 step(快照位元組相同)。降級矩陣其餘兩列在本引擎無可比對對象:沒有自動 GPU → CPU 切換(GPU 解算器是宿主明選的型別),
 >   SIMD 寬度不是旋鈕(`PadW` 依維度固定;探針顯示 x86-64 各寬度逐位相同)。
-> - **待辦**:轉為阻擋式檢查(golden 入庫與 `--compare` 已於 2026-10-28 完成);以 CI 印出的 aarch64 / macOS dump 執行 `--compare`(取代逐位元組 `write_state` 比對:兩架構 FMA 縮併不同,位元組必然不同,改以容差表比對)。
+> - **待辦**:已完成(阻擋式檢查見 2026-10-31 進度註;golden 入庫與 `--compare` 於 2026-10-28 完成)。
 > **進度註(2026-10-28,分平台 golden 入庫與 fp-probe 跨目標比對)**:CI `4b83fb7`(run 40572758002)的 `portability` 兩個工作首跑結果,golden 與 `fp_dump.json` 皆取自 job log,以 `scripts/ci_log_extract.py` 擷取:
 > - `tests/golden/test_stdout.linux-aarch64.txt`(2167 行)、`tests/golden/test_stdout.darwin-arm64.txt`(2167 行;名稱與 `scripts/agent_gate.sh` 的 `uname` 規則一致)。
 > - 與 x86 golden(2170 行)比對:3 行是 x86 的 pixi 任務標頭(CI 擷取不含);另有 23 行數值不同,屬跨目標差異,由容差表管理。
 > - `pixi run fp-probe -- --compare`(本機 x86 dump 為參考):aarch64 與 darwin-arm64 的結果相同:pile 9.22e-4(容差 2e-2)、roll 1.80e-7(1e-5)、tower 1.24e-7(1e-5),三場景皆在容差內。
 > - 修正 `scripts/fp_probe.py` 的 `--compare`:區域變數 `drift` 遮蔽同名函式,執行時 UnboundLocalError,比對從未完成。
-> **未做**:把 `portability` 改為阻擋式(`.github/workflows/ci.yml` 仍為 `continue-on-error: true`)。理由:兩平台的首跑 golden 尚未經過第二次比對,測試 `test_fracture` 的睡眠比例在 ARM 與 x86 不同(5 / 48 對 47 / 48),改為阻擋式前需先確認連續兩次綠燈。
+> **進度註(2026-10-31,portability 改為阻擋式)**:`.github/workflows/ci.yml` 移除 `portability` 的 `continue-on-error`。依據(GitHub Actions 實查):入庫 golden 後的 PR run 40687113939(`d9799f3`)與 main push run 40864900292(`7cb300a`),`portability (ubuntu-24.04-arm)` 與 `portability (macos-14)` 四個工作全部 success(含 `gate` 對各自 golden 的比對與 `fp probe dump`),滿足「連續兩次綠燈」。`test_fracture` 睡眠比例的 ARM / x86 差異(5 / 48 對 47 / 48)在這兩次比對中未造成失敗。**未量測**:阻擋式後的假陽性率(只有兩次樣本);排程 run 不跑 portability(`if: github.event_name != 'schedule'`),夜間不覆蓋 ARM / macOS。
 > **env-blocked 標籤移除**:CI 矩陣已可執行 ARM 與 macOS,此項不再需要外部主機。
 
 #### 17.78 宿主整合 / 綁定 — Wave C

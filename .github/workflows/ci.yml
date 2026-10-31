@@ -64,9 +64,9 @@ jobs:
           name: gate-log
           path: build/agent_gate.log
 
-  # ROADMAP 17.76: the same gate on linux-aarch64 and osx-arm64. A probe
-  # until each platform has its own golden (tests/golden/test_stdout.<os>-<arch>.txt):
-  # failures are reported, not blocking.
+  # ROADMAP 17.76: the same gate on linux-aarch64 and osx-arm64, each against
+  # its own golden (tests/golden/test_stdout.<os>-<arch>.txt). Blocking since
+  # the goldens passed two consecutive runs (PR run 40687113939, push run 40864900292).
   portability:
     if: github.event_name != 'schedule'
     strategy:
@@ -74,7 +74,6 @@ jobs:
       matrix:
         os: [ubuntu-24.04-arm, macos-14]
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
