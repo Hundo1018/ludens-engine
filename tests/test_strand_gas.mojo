@@ -19,6 +19,12 @@ Predictions, written before the run:
      is slower than the gas beside it at the same x (y 0.10).
   4. The strand stays in the gas plane: largest |z| after the run below 1e-9.
   5. Extreme: particle_mass <= 0 raises.
+  6. Bundle (ROADMAP 17.61 "multi-strand not compared"): K strands side by
+     side, roots 0.01 m apart in x (inside one 0.02 m grid cell column), each
+     with the single strand's parameters. Predictions: the reaction stays exact
+     with K = 8 for the drag step alone (< 1e-3; a full `step` also advects and projects the gas, so its momentum change is not exactly the impulse: 2.7e-3 at K = 1); the relative gap (one-way tip shift - two-way tip
+     shift) / one-way, mean over the K tips, is larger for K = 8 than for
+     K = 1 (the single strand's gap was 0.7 %), by a factor of at least 3.
 
 Measured: recorded in the run output and the ROADMAP 17.61 progress note.
 """
@@ -62,6 +68,39 @@ def gas_momentum(f: MacFluid2) -> Tuple[Float64, Float64]:
 
 def tip_x(ss: StrandSet) -> Real:
     return ss.tip(0)[0]
+
+
+def _bundle(k: Int, bones: List[Pose6]) raises -> StrandSet:
+    var ss = StrandSet(0.0, 20.0)
+    for i in range(k):
+        _ = ss.add(0, bones[0], Vec3(0.20 + 0.01 * Real(i), 0.50, 0, 0), Vec3(0, -1, 0, 0), 8, 0.03)
+    return ss^
+
+
+def _bundle_gap(k: Int) raises -> Float64:
+    """Relative gap between the one-way and two-way mean tip shift for a
+    bundle of `k` strands over 96 steps."""
+    var bones: List[Pose6] = [Pose6(Vec3(0, 0, 0, 0), Quat.identity())]
+    var f2 = gas()
+    var f3 = gas()
+    var s2 = _bundle(k, bones)
+    var s3 = _bundle(k, bones)
+    var c2 = StrandGas2(1e-4, True)
+    var c3 = StrandGas2(1e-4, False)
+    var x2 = List[Real]()
+    var x3 = List[Real]()
+    for i in range(k):
+        x2.append(s2.tip(i)[0])
+        x3.append(s3.tip(i)[0])
+    for _ in range(96):
+        c2.step(f2, s2, G, List[Pose6](bones), DT)
+        c3.step(f3, s3, G, List[Pose6](bones), DT)
+    var shift2 = Float64(0)
+    var shift3 = Float64(0)
+    for i in range(k):
+        shift2 += Float64(s2.tip(i)[0] - x2[i])
+        shift3 += Float64(s3.tip(i)[0] - x3[i])
+    return (shift3 - shift2) / shift3
 
 
 def main() raises:
@@ -118,6 +157,28 @@ def main() raises:
         zmax = max(zmax, abs(ss2.x[k][2]))
     print("  largest |z| of the strand", zmax)
     s.check(zmax < 1e-9, "the strand stays in the gas plane")
+
+    # 6. bundle of K strands in the same cells
+    var k1 = _bundle_gap(1)
+    var k8 = _bundle_gap(8)
+    var fb = gas()
+    var sb = _bundle(8, bones)
+    var cb = StrandGas2(1e-4)
+    var bad = Float64(0)
+    var bj = Float64(0)
+    for _ in range(40):
+        var before = gas_momentum(fb)
+        var j0x = cb.strand_impulse[0]
+        var j0y = cb.strand_impulse[1]
+        cb.couple(fb, sb, DT)
+        var after = gas_momentum(fb)
+        var jx = Float64(cb.strand_impulse[0] - j0x)
+        var jy = Float64(cb.strand_impulse[1] - j0y)
+        bad = max(bad, max(abs(after[0] - before[0] + jx), abs(after[1] - before[1] + jy)))
+        bj = max(bj, max(abs(jx), abs(jy)))
+    print("  bundle: relative gap K = 1", k1, " K = 8", k8, " (x", k8 / k1, "); K = 8 drag-only reaction", bad / bj)
+    s.check(bad / bj < 1e-3, "bundle of 8: each drag step still moves the gas by minus the impulse")
+    s.check(k8 > 3 * k1, "bundle of 8: the two-way gap is at least 3 times the single strand's")
 
     # 5. extreme
     var raised = False

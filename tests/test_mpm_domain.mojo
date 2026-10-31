@@ -83,6 +83,20 @@ def _wall_acc(theta_deg: Real) -> Real:
     return 2 * (_mean_x(m) - x0) / (t * t)
 
 
+def _wall_acc_mu(theta_deg: Real, mu: Real) -> Real:
+    """As `_wall_acc` with `wall_mu` set, and `step_ext` when `ext`."""
+    var m = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 2.0e5, 0.3)
+    m.wall_mu = mu
+    _block(m, 0.6, 0.06, 0.6, 4, 2, 4)
+    var th = theta_deg * DEG
+    var g = Vec3(G0 * sin(th), -G0 * cos(th), 0, 0)
+    var x0 = _mean_x(m)
+    for _ in range(400):
+        m.step_ext(DT, g)
+    var t = Real(400) * DT
+    return 2 * (_mean_x(m) - x0) / (t * t)
+
+
 def _box_acc(theta_deg: Real, mu: Real) raises -> Real:
     var m = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 2.0e5, 0.3)
     m.add_obstacle(Sdf3.box(Vec3(0.8, 0.1, 0.8, 0), Vec3(0.8, 0.1, 0.8, 0)), mu)
@@ -118,5 +132,25 @@ def main() raises:
     var slide = _box_acc(40, 0.6)
     var ref40 = G0 * (sin(40 * DEG) - 0.6 * cos(40 * DEG))
     s.check(abs(slide - ref40) / ref40 < 0.05, "box mu 0.6: slides at 40 deg within 5 % of g (sin - mu cos)")
+
+    # 4. Domain wall friction (`wall_mu`, ROADMAP 17.58). Predictions, written
+    #    before the run: wall_mu = 0 gives the same acceleration as the default
+    #    (bit-equal); wall_mu 0.6 sticks at 20 deg (|a| < 0.05) and slides at
+    #    40 deg within 10 % of g (sin - mu cos) (a grid-node rule, so looser
+    #    than the 5 % the obstacle path meets).
+    var a_def = _wall_acc_mu(40, 0)
+    var m0 = MpmSolver(Vec3(0, 0, 0, 0), DX, N, 2.0e5, 0.3)
+    _block(m0, 0.6, 0.06, 0.6, 4, 2, 4)
+    var g40 = Vec3(G0 * sin(40 * DEG), -G0 * cos(40 * DEG), 0, 0)
+    var x00 = _mean_x(m0)
+    for _ in range(400):
+        m0.step_ext(DT, g40)
+    var a_ext0 = 2 * (_mean_x(m0) - x00) / (Real(400) * DT * Real(400) * DT)
+    s.check(a_def == a_ext0, "wall_mu = 0 equals the default (bit-equal acceleration " + String(a_def) + ")")
+    var w_stick = _wall_acc_mu(20, 0.6)
+    var w_slide = _wall_acc_mu(40, 0.6)
+    print("  wall_mu 0.6: 20 deg a =", w_stick, "; 40 deg a =", w_slide, "vs", ref40)
+    s.check(abs(w_stick) < 0.05, "wall_mu 0.6: sticks at 20 deg (|a| < 0.05 m/s^2)")
+    s.check(abs(w_slide - ref40) / ref40 < 0.10, "wall_mu 0.6: slides at 40 deg within 10 % of g (sin - mu cos)")
 
     s.finish()

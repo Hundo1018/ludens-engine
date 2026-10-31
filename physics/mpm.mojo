@@ -42,8 +42,10 @@ is within mu times the normal one), and a particle closer than `skin`
 (dx / 4) to the surface is put back at that distance with the same friction
 on the velocity removed. Both are needed so that contact does not depend on
 where the surface falls between grid nodes (`test_mpm_contact`). The domain
-walls only remove the velocity into them (frictionless), so sand needs an
-obstacle as its floor to pile instead of spreading.
+walls only remove the velocity into them unless `wall_mu` > 0 (default 0:
+frictionless, bit-identical to before), which adds the same Coulomb rule on the
+grid nodes of the 3-cell wall band; without it, sand needs an obstacle as its
+floor to pile instead of spreading.
 """
 
 from std.math import sqrt, log, exp, sin
@@ -105,6 +107,7 @@ struct MpmSolver(Movable):
     var skin: Real  # particles keep this far from an obstacle surface (dx / 4)
     var node_margin: Real  # grid nodes this close to a surface (or inside) are projected (dx * 3 / 4)
     var rigids: List[MpmRigid]  # moving rigid obstacles (step_ext)
+    var wall_mu: Real  # Coulomb friction of the domain walls (0 = frictionless, the default)
     # grid scratch (SoA, rebuilt each step)
     var gm: List[Real]
     var gvx: List[Real]
@@ -134,6 +137,7 @@ struct MpmSolver(Movable):
         self.skin = dx * 0.25
         self.node_margin = dx * 0.75
         self.rigids = List[MpmRigid]()
+        self.wall_mu = 0
         self.gm = List[Real]()
         self.gvx = List[Real]()
         self.gvy = List[Real]()
@@ -361,6 +365,68 @@ struct MpmSolver(Movable):
                 else:
                     self.p[pi].v = vt * (1 + mu * vn / tl)
 
+    def _wall_face(self, idx: Int, normal: Int, mut vx: Real, mut vy: Real, mut vz: Real):
+        """Remove the velocity into a wall whose outward axis is `normal`
+        (0 / 1 / 2) and, when `wall_mu` > 0, Coulomb-reduce the tangential
+        speed by `wall_mu` times the normal speed removed (sticks when the
+        tangential speed is smaller)."""
+        var vn = vx
+        if normal == 1:
+            vn = vy
+        elif normal == 2:
+            vn = vz
+        if self.wall_mu > 0:
+            var t0 = vy
+            var t1 = vz
+            if normal == 1:
+                t0 = vx
+                t1 = vz
+            elif normal == 2:
+                t0 = vx
+                t1 = vy
+            var tl = sqrt(t0 * t0 + t1 * t1)
+            var dv = self.wall_mu * abs(vn)
+            var f = Real(0)
+            if tl > dv:
+                f = (tl - dv) / tl
+            if normal == 0:
+                vy *= f
+                vz *= f
+            elif normal == 1:
+                vx *= f
+                vz *= f
+            else:
+                vx *= f
+                vy *= f
+        if normal == 0:
+            vx = 0
+        elif normal == 1:
+            vy = 0
+        else:
+            vz = 0
+
+    def _wall_band(mut self, i: Int, j: Int, k: Int, idx: Int):
+        """Sticky walls in a 3-cell boundary band: velocity into a wall is
+        removed (ROADMAP 17.58 `wall_mu` adds Coulomb friction on the rest)."""
+        var vx = self.gvx[idx]
+        var vy = self.gvy[idx]
+        var vz = self.gvz[idx]
+        if i < 3 and vx < 0:
+            self._wall_face(idx, 0, vx, vy, vz)
+        if i > self.n - 4 and vx > 0:
+            self._wall_face(idx, 0, vx, vy, vz)
+        if j < 3 and vy < 0:
+            self._wall_face(idx, 1, vx, vy, vz)
+        if j > self.n - 4 and vy > 0:
+            self._wall_face(idx, 1, vx, vy, vz)
+        if k < 3 and vz < 0:
+            self._wall_face(idx, 2, vx, vy, vz)
+        if k > self.n - 4 and vz > 0:
+            self._wall_face(idx, 2, vx, vy, vz)
+        self.gvx[idx] = vx
+        self.gvy[idx] = vy
+        self.gvz[idx] = vz
+
     def _gi(self, i: Int, j: Int, k: Int) -> Int:
         return (k * self.n + j) * self.n + i
 
@@ -494,19 +560,7 @@ struct MpmSolver(Movable):
                     self.gvx[idx] += gravity[0] * dt
                     self.gvy[idx] += gravity[1] * dt
                     self.gvz[idx] += gravity[2] * dt
-                    # sticky walls in a 3-cell boundary band
-                    if i < 3 and self.gvx[idx] < 0:
-                        self.gvx[idx] = 0
-                    if i > self.n - 4 and self.gvx[idx] > 0:
-                        self.gvx[idx] = 0
-                    if j < 3 and self.gvy[idx] < 0:
-                        self.gvy[idx] = 0
-                    if j > self.n - 4 and self.gvy[idx] > 0:
-                        self.gvy[idx] = 0
-                    if k < 3 and self.gvz[idx] < 0:
-                        self.gvz[idx] = 0
-                    if k > self.n - 4 and self.gvz[idx] > 0:
-                        self.gvz[idx] = 0
+                    self._wall_band(i, j, k, idx)
 
         # ---- G2P ----
         for pi in range(len(self.p)):
@@ -725,19 +779,7 @@ struct MpmSolver(Movable):
                     self._obstacle(i, j, k, idx)
                     if len(self.rigids) > 0:
                         self._rigid_node(i, j, k, idx, dt)
-                    # sticky walls in a 3-cell boundary band
-                    if i < 3 and self.gvx[idx] < 0:
-                        self.gvx[idx] = 0
-                    if i > self.n - 4 and self.gvx[idx] > 0:
-                        self.gvx[idx] = 0
-                    if j < 3 and self.gvy[idx] < 0:
-                        self.gvy[idx] = 0
-                    if j > self.n - 4 and self.gvy[idx] > 0:
-                        self.gvy[idx] = 0
-                    if k < 3 and self.gvz[idx] < 0:
-                        self.gvz[idx] = 0
-                    if k > self.n - 4 and self.gvz[idx] > 0:
-                        self.gvz[idx] = 0
+                    self._wall_band(i, j, k, idx)
 
         # ---- G2P ----
         for pi in range(len(self.p)):

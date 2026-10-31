@@ -47,6 +47,15 @@ after it: pause N ticks, resume, run M == run M (`test_runtime_flow`).
 Systems passed to `advance_with` and coupled ports are the caller's; the
 mask does not reach them.
 
+RULES AND VEHICLES (ROADMAP 17.70 / 17.74): `rules` + `actors` and `vehicles`
++ `vehicle_inputs` are stepped by `_tick` under `TICK_SIM`, before the scene
+step: `rules.step(actors)` (deaths of the tick are appended to `died` for
+`take_died`), then `vehicles.update(scene, vehicle_inputs, dt)` (the vehicle
+forces must be on the chassis when the scene steps). Both are empty by
+default and then add no work. A vehicle input is held: it applies every tick
+until `set_vehicle_input` replaces it. Rules state is not part of any scene
+snapshot (`actor_to_bytes` / `actor_from_bytes` serialise an actor).
+
 OPERATIONS (ROADMAP 17.73): at the start of every frame the runtime takes
 the host's queued config (`inbox`, `gameplay.host_inbox`), stamps it with
 the frame's first tick and applies it to `config` (key -> value); data the
@@ -84,6 +93,9 @@ from .interpolation import PoseHistory, PoseQT, PoseInterpolator, DqNlerp
 from .tiers import TierPolicy, Tier
 from .flow import FlowStack, TICK_SIM, TICK_TIMERS, TICK_EVENTS
 from .host_inbox import ConfigInbox
+from .rules import Rules, Actor
+from .vehicle import VehicleSet, Vehicle, VehicleConfig, VehicleInput
+from .vehicle_wheel import RayWheel
 
 
 @fieldwise_init
@@ -139,6 +151,11 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
     var config: Dict[Int, Int]
     var fired: List[TimerFire]  # ROADMAP 17.72: this frame's timer fires, for `take_fired`
     var fired_capacity: Int
+    var rules: Rules  # ROADMAP 17.70: effect definitions + tick driver
+    var actors: List[Actor]
+    var died: List[Int]  # actor indices that reached 0 health since `take_died`
+    var vehicles: VehicleSet[RayWheel]  # ROADMAP 17.74
+    var vehicle_inputs: List[VehicleInput]
 
     def __init__(out self, dt: Real, gravity: Vec3, max_steps: Int = 8, outbox_capacity: Int = 4096, fired_capacity: Int = 4096):
         self.world = World[Self.B]()
@@ -166,6 +183,11 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         self.config = Dict[Int, Int]()
         self.fired = List[TimerFire]()
         self.fired_capacity = fired_capacity
+        self.rules = Rules(0)
+        self.actors = List[Actor]()
+        self.died = List[Int]()
+        self.vehicles = VehicleSet[RayWheel]()
+        self.vehicle_inputs = List[VehicleInput]()
 
     # ------------------------------------------------------------ lifecycle
 
@@ -524,6 +546,45 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
         """Whether the flow state lets `what` (a `TICK_*` bit) tick."""
         return self.flow.depth() == 0 or self.flow.ticks(what)
 
+    # ---- rules and vehicles (ROADMAP 17.70 / 17.74) ----
+
+    def set_rules(mut self, var r: Rules) raises:
+        """Replace the effect definitions / driver. Refused once actors exist:
+        their effect ids index `rules.defs`."""
+        if len(self.actors) > 0:
+            raise Error("Runtime.set_rules: actors already exist")
+        self.rules = r^
+
+    def add_actor(mut self, var a: Actor) -> Int:
+        """Add an actor to the rule step; returns its index (the one `died`
+        and `rules.damage` / `rules.apply` use)."""
+        self.actors.append(a^)
+        return len(self.actors) - 1
+
+    def take_died(mut self) -> List[Int]:
+        """Actor indices that reached 0 health since the last call, in tick
+        order (each actor once: a dead actor is not reported again)."""
+        var out = self.died^
+        self.died = List[Int]()
+        return out^
+
+    def add_vehicle(mut self, e: Entity, var cfg: VehicleConfig) raises -> Int:
+        """Attach a raycast vehicle to `e`'s dynamic body (`Vehicle.attach`
+        validates `cfg` and keeps the chassis awake); returns the vehicle
+        index. Its input starts idle. Despawning the chassis leaves the vehicle
+        in place: it counts `VEHICLE_FORCE_DROPPED` each tick and applies
+        nothing."""
+        if self.in_flight:
+            raise Error("Runtime: scene changed while a step is in flight (begin_advance without finish)")
+        var v = Vehicle[RayWheel].attach(self.scene, self.body_of(e), cfg^, RayWheel())
+        self.vehicle_inputs.append(VehicleInput.idle())
+        return self.vehicles.add(v^)
+
+    def set_vehicle_input(mut self, k: Int, inp: VehicleInput) raises:
+        if k < 0 or k >= len(self.vehicles.items):
+            raise Error("Runtime.set_vehicle_input: no such vehicle")
+        self.vehicle_inputs[k] = inp
+
     def _tick(mut self) raises:
         if self.runs(TICK_TIMERS):
             var fired = List[TimerFire]()
@@ -535,6 +596,11 @@ struct Runtime[B: StorageBackend, Body: Body6](Movable, Deinitable):
                     self.loop.counters.incr(TIMER_FIRES_DROPPED)
         if not self.runs(TICK_SIM):
             return
+        self.rules.step(self.actors)
+        for d in self.rules.deaths:
+            self.died.append(d)
+        if len(self.vehicles.items) > 0:
+            self.vehicles.update(self.scene, self.vehicle_inputs, Real(self.loop.dt))
         self.scene.step(Real(self.loop.dt), self.gravity, self.cfg)
         if self.runs(TICK_EVENTS):
             for i in range(len(self.scene.events)):

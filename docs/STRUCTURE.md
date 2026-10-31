@@ -1949,7 +1949,7 @@ counted, not listed.
 
 ### `gameplay/runtime.mojo`
 - struct `RigidBodyRef` : ComponentType — 0 methods
-- struct `Runtime` — 32 methods
+- struct `Runtime` — 37 methods
 - struct `StepHandle` — 0 methods
 - aliases: `ID`
 

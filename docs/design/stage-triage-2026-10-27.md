@@ -183,3 +183,20 @@
 - 17.19 會計熱點(BVH SAH 建樹):交錯 5 組量測,基線中位數 39.82 ms/step,SAH 中位數 40.71 ms/step,無改善,已還原(負面結果,見 ROADMAP 17.19)。
 - 17.76 分平台 golden 入庫與 fp-probe 跨目標比對:見 ROADMAP 17.76 進度註。`scripts/fp_probe.py --compare` 修正 `drift` 遮蔽錯誤。
 - 17.60 三項已實作的校正:見 ROADMAP 17.60 進度註。
+
+## 第三輪(2026-10-31):deferred / unverified 列の再檢
+
+| 列 | 終態 | 實跑證據 |
+|---|---|---|
+| 17.76 portability 阻擋式 | done | PR run 40687113939 與 push run 40864900292 的 `portability (ubuntu-24.04-arm)`、`portability (macos-14)` 皆 success;`ci.yml` 移除 `continue-on-error` |
+| 17.63 點數變化時強制 keyframe | stale-done | `physics/sim_cache.mojo:141` `n != self.prev_n`;`tests/test_sim_cache.mojo` 10/10 含 "point count changes: both sides decode" |
+| 17.70 Runtime 擁有 Rules | done | `Runtime.rules` / `actors` / `take_died`;`tests/test_runtime_gameplay.mojo` 與裸 `Rules` 同結果 |
+| 17.74 Runtime 擁有 Vehicle | done | `Runtime.add_vehicle` / `set_vehicle_input`;`tests/test_runtime_gameplay.mojo` 與裸 `ContactScene6` 逐位元相同 |
+| 17.58 域壁 μ | done | `MpmSolver.wall_mu`;`tests/test_mpm_domain.mojo` 12/12(40° 加速度 1.7996 對 1.7950) |
+| 17.19 網格窄相逐三角 SAT 成本 | done(量測) | `hull_manifold` 箱對三角形:命中約 3.5 µs/次,分離 0.43 µs/次;見 ROADMAP 17.19 |
+| 17.61 多股耦合 | done(量測) | `tests/test_strand_gas.mojo` 8/8:K = 8 的雙向差 6.16 % 對 K = 1 的 0.703 % |
+| 17.86 Rope 扭轉整合 | deferred(不做) | `Rope` 是無姿態的 XPBD 質點鏈(`physics/rope.mojo`),加扭轉需每段姿態與 Cosserat 約束,等同重寫;無消費者,理由不變 |
+| 17.61 火 / 燃燒 | deferred(不做) | ROADMAP 17.61 邊界:化學不在範圍 |
+| 17.63 NanoVDB | env-blocked | 無參考 `.nvdb` 與規格可對照,不寫無法驗證的格式 |
+| 17.74 轎車元件拆分、地形壓痕、懸浮 / RCS | deferred(不做) | 無第二種載具或地形變形消費者 |
+| 17.70 完整框架元件化 | deferred(不做) | `rules_ecs` 已量測約 6 倍指令成本,無宿主要求 |
