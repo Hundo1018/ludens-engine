@@ -10,20 +10,7 @@ MA="${MINIAUDIO_MOJO:-../miniaudio-mojo/miniaudio-mojo}"
 OUT="${1:-build/app.wasm}"
 mkdir -p build
 
-# wgpu-mojo's manifest may still list its own runtime shim (ffi/wasm/wasm_rt.c), which duplicates
-# ludens-wasm-rt's runtime and breaks the combined link. Link against a copy of the manifest without it.
-# Remove this block once wgpu-mojo drops the line.
-WGPU_LIB="$WGPU"
-if grep -q 'wasm_rt\.c' "$WGPU/wasm.toml"; then
-  WGPU_LIB="build/wgpu-lib"
-  rm -rf "$WGPU_LIB"; mkdir -p "$WGPU_LIB"
-  for f in "$WGPU"/* "$WGPU"/.[!.]*; do
-    b=$(basename "$f"); [ "$b" = wasm.toml ] || [ "$b" = .git ] || ln -s "$(cd "$WGPU" && pwd)/$b" "$WGPU_LIB/$b"
-  done
-  grep -v '^c_sources' "$WGPU/wasm.toml" > "$WGPU_LIB/wasm.toml"
-fi
-
 python3 -m ludens_wasm_rt.build_wasm \
-  --lib "$ENGINE" --lib "$WGPU_LIB" --lib "$MA" --lib . \
+  --lib "$ENGINE" --lib "$WGPU" --lib "$MA" --lib . \
   -I "$ENGINE" -I "$WGPU" -I "$MA" -I "$MA/examples/web" \
   app/main.mojo -o "$OUT" --export 'app_*'
