@@ -2,7 +2,7 @@
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from embed.world import EmbedWorld
-from geometry.vec import Vec3
+from geometry.vec import Real, Vec3
 from scene import Scene
 from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
 from wgpu._ffi.structs import WGPUColor
@@ -26,6 +26,8 @@ struct App(Movable):
     var pcm: List[Float32]
     var input: InputState
     var frames: Int
+    var contacts: Int
+    var tone_gain: Float32
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-shell")
@@ -40,6 +42,17 @@ struct App(Movable):
         self.pcm = List[Float32]()
         self.input = InputState()
         self.frames = 0
+        self.contacts = 0
+        self.tone_gain = 0.0
+        self._populate()
+
+    def _populate(mut self) raises:
+        """A floor and a column of boxes that fall onto it."""
+        _ = self.world.add_box(Vec3(0.0, -1.0, 0.0), Vec3(20.0, 1.0, 20.0), 0.0, True)
+        for i in range(16):
+            var x = Real(i % 4) * 1.2 - 1.8
+            var y = Real(2 + i) * 1.1
+            _ = self.world.add_box(Vec3(x, y, 0.0), Vec3(0.5, 0.5, 0.5), 1.0, False)
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -52,11 +65,20 @@ struct App(Movable):
         self.pcm = move.pcm^
         self.input = move.input^
         self.frames = move.frames
+        self.contacts = move.contacts
+        self.tone_gain = move.tone_gain
 
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
         for _ in range(self.world.ticks_due(dt)):
             self.world.physics_tick()
+        var hits = len(self.world.frame_events)
+        if hits > 0:
+            self.contacts += hits
+            self.tone_gain = 0.35
+        else:
+            self.tone_gain *= 0.85
+        self.scene.set_tone(Float32(330.0 + 20.0 * Float64(min(hits, 20))), self.tone_gain)
         if not self.boot.step():
             return 0
         if not self.configured:
@@ -144,3 +166,14 @@ def app_destroy(app: UInt64) abi("C"):
     var p = _app(app)
     _ = p.unsafe_take_pointee()
     p.unsafe_free()
+
+
+@export
+def app_contacts(app: UInt64) abi("C") -> Int32:
+    """Contact events seen since init."""
+    return Int32(_app(app)[].contacts)
+
+
+@export
+def app_body_count(app: UInt64) abi("C") -> Int32:
+    return Int32(len(_app(app)[].world.bodies()))
