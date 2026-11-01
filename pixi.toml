@@ -23,6 +23,9 @@ ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "b
 [feature.wasm.tasks]
 parity = "python3 scripts/parity.py"
 build-wasm = "bash scripts/build_wasm.sh"
+build-web = { cmd = "python3 scripts/build_web.py", depends-on = ["build-wasm"] }
+test-web = { cmd = "bash scripts/test_web.sh", depends-on = ["build-web"] }
+serve-web = { cmd = "python3 shell/web/serve.py 8000 build/web", depends-on = ["build-web"] }
 # B1 acceptance: app_init + 1 frame under node must not trap.
 smoke-node = { cmd = "python3 scripts/smoke_node.py", depends-on = ["build-wasm"] }
 
