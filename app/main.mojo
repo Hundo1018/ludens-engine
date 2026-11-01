@@ -48,7 +48,7 @@ struct App(Movable):
         self.width = width
         self.height = height
         self.configured = False
-        self.world = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0))
+        self.world = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
         self.scene = Scene(SAMPLE_RATE)
         self.pcm = List[Float32]()
         self.input = InputState()
@@ -67,11 +67,11 @@ struct App(Movable):
 
     def _populate(mut self) raises:
         """A floor and a column of boxes that fall onto it."""
-        self._box(Vec3(0.0, -1.0, 0.0), Vec3(20.0, 1.0, 20.0), 0.0, True)
+        self._box(Vec3(0.0, -1.0, 0.0, 0.0), Vec3(20.0, 1.0, 20.0, 0.0), 0.0, True)
         for i in range(16):
             var x = Real(i % 4) * 1.2 - 1.8
             var y = Real(2 + i) * 1.1
-            self._box(Vec3(x, y, 0.0), Vec3(0.5, 0.5, 0.5), 1.0, False)
+            self._box(Vec3(x, y, 0.0, 0.0), Vec3(0.5, 0.5, 0.5, 0.0), 1.0, False)
 
     def _box(mut self, pos: Vec3, half: Vec3, mass: Real, is_static: Bool) raises:
         self.handles.append(self.world.add_box(pos, half, mass, is_static))

@@ -18,6 +18,7 @@ interface Stats {
   frames: number;
   contacts: number;
   bodies: number;
+  boundary?: { exports: number; imports: number; webgpu: number; names: Record<string, number> };
   played: number;
   underruns: number;
   rendered: number;
@@ -32,16 +33,41 @@ const stats: Window["shell"] = (window.shell = {
   started: false, frames: 0, contacts: 0, bodies: 0, played: 0, underruns: 0, rendered: 0, error: "",
 });
 
+// ?selftest only: count what crosses the JS boundary. `imports` are wasm -> JS calls (wgpu* entries into the
+// translator), `webgpu` are the browser WebGPU API calls the translator makes in turn.
+const SELFTEST = location.search.includes("selftest");
+const calls = { imports: 0, webgpu: 0, names: {} as Record<string, number> };
+function countImports(env: Record<string, (...a: unknown[]) => unknown>) {
+  if (!SELFTEST) return env;
+  for (const [k, fn] of Object.entries(env)) {
+    env[k] = (...a: unknown[]) => { calls.imports++; calls.names[k] = (calls.names[k] ?? 0) + 1; return fn(...a); };
+  }
+  return env;
+}
+function countWebGPU() {
+  if (!SELFTEST) return;
+  for (const name of ["GPU", "GPUAdapter", "GPUDevice", "GPUQueue", "GPUCommandEncoder", "GPURenderPassEncoder", "GPUComputePassEncoder", "GPUCanvasContext", "GPUTexture", "GPUBuffer"]) {
+    const proto = (globalThis as any)[name]?.prototype;
+    if (!proto) continue;
+    for (const k of Object.getOwnPropertyNames(proto)) {
+      const d = Object.getOwnPropertyDescriptor(proto, k);
+      if (k === "constructor" || typeof d?.value !== "function") continue;
+      proto[k] = function (this: unknown, ...a: unknown[]) { calls.webgpu++; return d.value.apply(this, a); };
+    }
+  }
+}
+
 const json = async (u: string) => (await fetch(u)).json();
 
 async function boot(canvas: HTMLCanvasElement) {
+  countWebGPU();
   const [layout, enums, bytes] = await Promise.all([
     json("./webgpu_layout.json"), json("./webgpu_enum_strings.json"),
     fetch("./app.wasm").then((r) => r.arrayBuffer()),
   ]);
   const wrt = new Runtime(layout, enums);
   // wgpu's createImports returns the flat env table; the shared host wants {namespace: table}.
-  const rt = await instantiate(bytes, { libs: [() => ({ env: wgpuImports(wrt) }), miniaudio, net] });
+  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(wgpuImports(wrt)) }), miniaudio, net] });
   wrt.attach(rt);
   const x = rt.exports as unknown as AppExports;
   const [sel, len] = rt.str_in("#" + canvas.id);
@@ -126,10 +152,14 @@ async function main() {
   const frame = (now: number) => {
     try {
       const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1); last = now;
+      calls.imports = 0; calls.webgpu = 0; calls.names = {};
       const r = x.app_frame(app, dt);
       if (r < 0) throw new Error("app_frame returned " + r);
-      if (r === 1) stats.frames++;
-      stats.contacts = x.app_contacts(app); stats.bodies = x.app_body_count(app);
+      if (r === 1) {
+        stats.frames++;
+        if (SELFTEST) stats.boundary = { exports: 1, imports: calls.imports, webgpu: calls.webgpu, names: { ...calls.names } };
+      }
+      if (SELFTEST) { stats.contacts = x.app_contacts(app); stats.bodies = x.app_body_count(app); }
       fillAudio?.();
       stats.started = true;
       requestAnimationFrame(frame);
@@ -154,6 +184,9 @@ function selftest(x: AppExports, rt: any, app: bigint) {
       if (stats.frames < 120 || stats.contacts === 0) return;
       clearInterval(timer);
       log.push(`frames ${stats.frames}, contacts ${stats.contacts}, bodies ${stats.bodies}`);
+      const bd = stats.boundary!;
+      log.push(`boundary per frame: ${bd.exports} export call (app_frame), ${bd.imports} wgpu* imports, ${bd.webgpu} browser WebGPU calls`);
+      log.push(`imports: ${JSON.stringify(bd.names)}`);
       if (stats.bodies < 2) return fail("expected the floor and falling boxes");
       const p = rt.alloc(256 * 8);
       let rms = 0;
