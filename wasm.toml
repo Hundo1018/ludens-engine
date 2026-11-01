@@ -1,0 +1,7 @@
+# Passive manifest read by ludens-wasm-rt's build driver.
+# ludens-shell provides no JS imports of its own beyond net_* (B5).
+[lib]
+name = "ludens-shell"
+include = ["app"]
+js = "shell/web/net_host.mjs"
+host_imports = ["net_*"]
