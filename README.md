@@ -105,3 +105,24 @@ Pixel tolerance (max channel delta of any pixel, fraction of pixels over 8 and o
 
 Chrome's differences are a few edge pixels. The limits are for this GPU; CI renders on lavapipe, so the rows may need
 re-measuring there (`.github/workflows/parity.yml`, not yet run on GitHub).
+
+## B5: recording and the WebSocket bridge
+
+**Recording** (`shell/web/record.ts`): `record(canvas, seconds, audio?)` takes `canvas.captureStream(60)`, adds the
+AudioWorklet output through a `MediaStreamAudioDestinationNode`, and lets `MediaRecorder` mux one WebM (VP9 / VP8 /
+AV1 with Opus, first supported). MediaRecorder is used instead of WebCodecs because it muxes natively; a WebCodecs
+path would need its own WebM muxer. `?selftest=record` records 5 s in Firefox, uploads the file to the dev server
+(`PUT /upload/recorded.webm` -> `build/recorded.webm`), and `scripts/check_webm.py` decodes it end to end with ffmpeg.
+
+**Network** (`app/net.mojo`, `shell/web/net_host.mjs`): two scalar imports, declared in `wasm.toml` as `net_*`.
+
+| Import | Meaning |
+|---|---|
+| `net_send(ptr, len) -> i32` | one WebSocket binary message; 0 sent or queued until the socket opens, -1 no socket |
+| `net_poll(buf, cap) -> i64` | next received message copied to `buf`: its length, 0 if none, -1 if it exceeds `cap` (stays queued) |
+
+The socket opens from `?ws=<url>`. `app_frame` drains up to 16 packets per frame into a 64 KiB buffer
+(one `net_poll` import call per frame when idle, not counted in the wgpu table above); `app_net_send`,
+`app_net_packets`, `app_net_last_ptr`, `app_net_last_len` are the JS-facing exports. Empty messages cannot be told
+from "none" and are not delivered. `scripts/echo_server.py` is a stdlib RFC 6455 echo server for the round trip
+(`?selftest=net:<port>`, both browsers).

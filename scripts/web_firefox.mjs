@@ -30,7 +30,7 @@ for (let i = 0; i < 100; i++) {
 const s = await call('POST', '/session', { capabilities: { alwaysMatch: {
   'moz:firefoxOptions': {
     args: ['-headless'],
-    prefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.ignore-blocklist': true },
+    prefs: { 'dom.webgpu.enabled': true, 'gfx.webgpu.ignore-blocklist': true, 'media.autoplay.default': 0, 'media.autoplay.blocking_policy': 0 },
   },
 } } });
 session = s.sessionId;

@@ -5,6 +5,7 @@ import { createImports as wgpuImports } from "./webgpu_host.mjs";
 import { Runtime } from "./webgpu_runtime.mjs";
 import * as miniaudio from "./miniaudio_host.mjs";
 import * as net from "./net_host.mjs";
+import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
 import type { AppExports } from "./exports";
 
@@ -59,8 +60,13 @@ function countWebGPU() {
 
 const json = async (u: string) => (await fetch(u)).json();
 
+// ?ws=<url> opens the net_* WebSocket; ?selftest=net:<port> opens ws://127.0.0.1:<port>.
+const params = new URLSearchParams(location.search);
+const wsUrl = params.get("ws") ?? (/^net.*:(\d+)$/.exec(params.get("selftest") ?? "") ? "ws://127.0.0.1:" + /:(\d+)$/.exec(params.get("selftest")!)![1] : "");
+
 async function boot(canvas: HTMLCanvasElement) {
   countWebGPU();
+  if (wsUrl) net.connect(wsUrl);
   const [layout, enums, bytes] = await Promise.all([
     json("./webgpu_layout.json"), json("./webgpu_enum_strings.json"),
     fetch("./app.wasm").then((r) => r.arrayBuffer()),
@@ -135,6 +141,7 @@ async function startAudio(rt: any, x: AppExports, app: bigint) {
   };
   node.port.onmessage = () => { try { fill(); } catch (e) { stats.error = String(e); } };
   await ctx.resume();
+  Object.defineProperty(stats, "audio", { value: { ctx, node }, enumerable: false, configurable: true });
   return fill;
 }
 
@@ -202,6 +209,8 @@ async function pixelParity(x: AppExports, rt: any, app: bigint) {
 // Headless Chrome destroys the GPUDevice after a canvas draw, so ?canvas-lost skips the pixel check there.
 function selftest(x: AppExports, rt: any, app: bigint) {
   const mode = new URLSearchParams(location.search).get("selftest") ?? "";
+  if (mode.startsWith("net")) return selftestNet(x, rt, app);
+  if (mode.startsWith("record")) return selftestRecord(x, rt, app);
   if (mode === "parity-offscreen") x.app_offscreen(app, 1); // Chrome: never draw to the canvas
   const log: string[] = [];
   const fail = (m: string) => { log.push("FAIL: " + m); finish(false); };
@@ -241,6 +250,59 @@ function selftest(x: AppExports, rt: any, app: bigint) {
       }
       finish(true);
     } catch (e) { clearInterval(timer); fail(String(e)); }
+  }, 250);
+}
+// ?selftest=net:<port>: one packet out through net_send, back through net_poll into Mojo, compared byte for byte.
+function selftestNet(x: AppExports, rt: any, app: bigint) {
+  x.app_offscreen(app, 1); // no canvas draw: the point here is the socket, and headless Chrome loses the device
+  const report = (ok: boolean, text: string) => { document.getElementById("log")!.textContent = text; document.title = ok ? "PASS" : "FAIL"; };
+  const payload = new TextEncoder().encode("ludens-b5 echo " + Math.random().toString(36).slice(2) + " \u00e9\u0000\u00ff");
+  let sent = false;
+  const timer = setInterval(() => {
+    try {
+      if (stats.error) { clearInterval(timer); return report(false, "FAIL: " + stats.error); }
+      if (!sent && stats.frames > 5 && net.status.opened) {
+        const p = rt.alloc(payload.length);
+        rt.put(p, payload);
+        const r = x.app_net_send(app, p, BigInt(payload.length));
+        rt.free(p);
+        if (r !== 0) { clearInterval(timer); return report(false, "FAIL: net_send returned " + r); }
+        sent = true;
+      }
+      if (sent && x.app_net_packets(app) > 0) {
+        clearInterval(timer);
+        const len = x.app_net_last_len(app);
+        const got = (rt.bytes(x.app_net_last_ptr(app), len) as Uint8Array).slice();
+        const same = len === payload.length && got.every((b, i) => b === payload[i]);
+        report(same, `sent ${payload.length} bytes, Mojo received ${len} bytes via net_poll, ${same ? "identical" : "DIFFERENT"}\n` +
+          `socket opened ${net.status.opened}, sent ${net.status.sent}, received ${net.status.received}\nselftest: ${same ? "PASS" : "FAIL"}`);
+      }
+    } catch (e) { clearInterval(timer); report(false, "FAIL: " + e); }
+  }, 100);
+}
+
+// ?selftest=record: 5 s of canvas + audio into a WebM, uploaded to the dev server (PUT /upload/recorded.webm) for ffmpeg.
+function selftestRecord(x: AppExports, rt: any, app: bigint) {
+  const report = (ok: boolean, text: string) => { document.getElementById("log")!.textContent = text; document.title = ok ? "PASS" : "FAIL"; };
+  const timer = setInterval(async () => {
+    try {
+      if (stats.error) { clearInterval(timer); return report(false, "FAIL: " + stats.error); }
+      if (stats.frames < 30) return;
+      clearInterval(timer);
+      const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+      let audio: any;
+      try { await startAudio(rt, x, app).then((f) => { (window as any).__fill = f; }); audio = (stats as any).audio; } catch (e) { stats.error = ""; audio = undefined; }
+      const rec = await record(canvas, 5, audio);
+      const buf = new Uint8Array(await rec.blob.arrayBuffer());
+      const ebml = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
+      const put = await fetch("./upload/recorded.webm", { method: "PUT", body: buf });
+      const v = document.createElement("video");
+      v.muted = true; v.src = URL.createObjectURL(rec.blob);
+      await new Promise((res, rej) => { v.onloadedmetadata = () => res(null); v.onerror = () => rej(new Error("<video> cannot load the recording")); });
+      const ok = ebml && buf.length > 10000 && put.ok && v.videoWidth === canvas.width && v.videoHeight === canvas.height;
+      report(ok, `recorded ${rec.seconds.toFixed(2)} s, ${buf.length} bytes, ${rec.mime}, video ${rec.video}, audio ${rec.audio}\n` +
+        `EBML header ${ebml}, uploaded ${put.status}, <video> ${v.videoWidth}x${v.videoHeight}\nselftest: ${ok ? "PASS" : "FAIL"}`);
+    } catch (e) { clearInterval(timer); report(false, "FAIL: " + e); }
   }, 250);
 }
 main().catch((e) => { stats.error = String(e); });

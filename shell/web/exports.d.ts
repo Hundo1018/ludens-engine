@@ -18,4 +18,8 @@ export interface AppExports {
   app_reference_ptr(app: bigint): bigint;
   app_reference_pitch(app: bigint): number;
   app_offscreen(app: bigint, on: number): void;
+  app_net_send(app: bigint, ptr: bigint, length: bigint): number;
+  app_net_packets(app: bigint): number;
+  app_net_last_ptr(app: bigint): bigint;
+  app_net_last_len(app: bigint): number;
 }

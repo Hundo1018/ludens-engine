@@ -31,7 +31,7 @@ def main() -> None:
         shutil.copy(native_px, OUT / "pixels_native.rgba")
     shutil.copy(WGPU / "scripts/webgpu_enum_strings.json", OUT / "webgpu_enum_strings.json")
     shutil.copy(MA / "web/miniaudio_host.mjs", OUT / "miniaudio_host.mjs")
-    for ts, js in (("app.ts", "app.js"), ("keys.ts", "keys.js")):
+    for ts, js in (("app.ts", "app.js"), ("keys.ts", "keys.js"), ("record.ts", "record.js")):
         subprocess.run(["node", "--input-type=module", "-e", STRIP, str(ROOT / "shell/web" / ts), str(OUT / js)], check=True)
     print(f"build_web: {OUT} ({sum(1 for _ in OUT.iterdir())} files)")
 

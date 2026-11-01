@@ -1,6 +1,7 @@
 """Shell entry: one Mojo program, the C-ABI below is only the JS face.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
+from net import net_poll, net_send
 from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
@@ -13,6 +14,9 @@ from wgpu.rendercanvas.glfw import MojoInputEvent
 from wgpu.rendercanvas.input import InputState
 from wgpu.surface import Surface, create_surface_canvas
 from wgpu.web.boot import GPUBoot
+
+comptime NET_CAP = 65536
+comptime NET_PER_FRAME = 16
 
 
 struct App(Movable):
@@ -34,6 +38,9 @@ struct App(Movable):
     var reference_frames: Int
     var reference_ptr: UInt64
     var offscreen: Bool
+    var net_rx: List[UInt8]
+    var net_len: Int
+    var net_packets: Int
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-shell")
@@ -56,6 +63,9 @@ struct App(Movable):
         self.reference_frames = -1
         self.reference_ptr = 0
         self.offscreen = False
+        self.net_rx = List[UInt8](length=NET_CAP, fill=0)
+        self.net_len = 0
+        self.net_packets = 0
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -76,6 +86,18 @@ struct App(Movable):
         self.reference_frames = move.reference_frames
         self.reference_ptr = move.reference_ptr
         self.offscreen = move.offscreen
+        self.net_rx = move.net_rx^
+        self.net_len = move.net_len
+        self.net_packets = move.net_packets
+
+    def _net(mut self):
+        """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
+        for _ in range(NET_PER_FRAME):
+            var n = net_poll(UInt64(Int(self.net_rx.unsafe_ptr())), UInt64(NET_CAP))
+            if n <= 0:
+                break
+            self.net_len = Int(n)
+            self.net_packets += 1
 
     def _reference(mut self) raises:
         if self.reference_frames >= 0 and not self.reference:
@@ -86,6 +108,7 @@ struct App(Movable):
 
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
+        self._net()
         self.sim.step(dt)
         if not self.boot.step():
             return 0
@@ -260,3 +283,26 @@ def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
 def app_offscreen(app: UInt64, on: Int32) abi("C"):
     """On: frames only render the reference, nothing is drawn to the canvas."""
     _app(app)[].offscreen = on != 0
+
+
+@export
+def app_net_send(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Send `length` bytes at `ptr` as one packet through the host's net_send. 0 = ok."""
+    return net_send(ptr, length)
+
+
+@export
+def app_net_packets(app: UInt64) abi("C") -> Int32:
+    """Packets received so far through net_poll."""
+    return Int32(_app(app)[].net_packets)
+
+
+@export
+def app_net_last_ptr(app: UInt64) abi("C") -> UInt64:
+    """Address of the newest received packet (app_net_last_len bytes)."""
+    return UInt64(Int(_app(app)[].net_rx.unsafe_ptr()))
+
+
+@export
+def app_net_last_len(app: UInt64) abi("C") -> Int32:
+    return Int32(_app(app)[].net_len)
