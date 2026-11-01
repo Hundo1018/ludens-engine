@@ -1,10 +1,9 @@
 """Shell entry: one Mojo program, the C-ABI below is only the JS face.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
-from embed.world import EmbedWorld
-from geometry.vec import Real, Vec3
+from reference import Reference, fill
 from render import Renderer
-from scene import Scene
+from sim import Sim, SAMPLE_RATE
 from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
 from wgpu._ffi.types import WGPUTextureUsage
 from wgpu.buffer import MapRequest
@@ -15,8 +14,6 @@ from wgpu.rendercanvas.input import InputState
 from wgpu.surface import Surface, create_surface_canvas
 from wgpu.web.boot import GPUBoot
 
-comptime SAMPLE_RATE: UInt32 = 48000
-
 
 struct App(Movable):
     var boot: GPUBoot
@@ -24,21 +21,19 @@ struct App(Movable):
     var width: UInt32
     var height: UInt32
     var configured: Bool
-    var world: EmbedWorld
-    var scene: Scene
-    var pcm: List[Float32]
+    var sim: Sim
     var input: InputState
     var renderer: Optional[Renderer]
-    var handles: List[Int64]
-    var halves: List[Float64]
     var capture: Optional[FrameCapture]
     var capture_target: Optional[Texture]
     var capture_req: Optional[MapRequest]
     var capture_ptr: UInt64
     var want_capture: Bool
     var frames: Int
-    var contacts: Int
-    var tone_gain: Float32
+    var reference: Optional[Reference]
+    var reference_frames: Int
+    var reference_ptr: UInt64
+    var offscreen: Bool
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-shell")
@@ -48,36 +43,19 @@ struct App(Movable):
         self.width = width
         self.height = height
         self.configured = False
-        self.world = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
-        self.scene = Scene(SAMPLE_RATE)
-        self.pcm = List[Float32]()
+        self.sim = Sim()
         self.input = InputState()
         self.renderer = None
-        self.handles = List[Int64]()
-        self.halves = List[Float64]()
         self.capture = None
         self.capture_target = None
         self.capture_req = None
         self.capture_ptr = 0
         self.want_capture = False
         self.frames = 0
-        self.contacts = 0
-        self.tone_gain = 0.0
-        self._populate()
-
-    def _populate(mut self) raises:
-        """A floor and a column of boxes that fall onto it."""
-        self._box(Vec3(0.0, -1.0, 0.0, 0.0), Vec3(20.0, 1.0, 20.0, 0.0), 0.0, True)
-        for i in range(16):
-            var x = Real(i % 4) * 1.2 - 1.8
-            var y = Real(2 + i) * 1.1
-            self._box(Vec3(x, y, 0.0, 0.0), Vec3(0.5, 0.5, 0.5, 0.0), 1.0, False)
-
-    def _box(mut self, pos: Vec3, half: Vec3, mass: Real, is_static: Bool) raises:
-        self.handles.append(self.world.add_box(pos, half, mass, is_static))
-        self.halves.append(Float64(half[0]))
-        self.halves.append(Float64(half[1]))
-        self.halves.append(Float64(half[2]))
+        self.reference = None
+        self.reference_frames = -1
+        self.reference_ptr = 0
+        self.offscreen = False
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -85,35 +63,36 @@ struct App(Movable):
         self.width = move.width
         self.height = move.height
         self.configured = move.configured
-        self.world = move.world^
-        self.scene = move.scene^
-        self.pcm = move.pcm^
+        self.sim = move.sim^
         self.input = move.input^
         self.renderer = move.renderer^
-        self.handles = move.handles^
-        self.halves = move.halves^
         self.capture = move.capture^
         self.capture_target = move.capture_target^
         self.capture_req = move.capture_req^
         self.capture_ptr = move.capture_ptr
         self.want_capture = move.want_capture
         self.frames = move.frames
-        self.contacts = move.contacts
-        self.tone_gain = move.tone_gain
+        self.reference = move.reference^
+        self.reference_frames = move.reference_frames
+        self.reference_ptr = move.reference_ptr
+        self.offscreen = move.offscreen
+
+    def _reference(mut self) raises:
+        if self.reference_frames >= 0 and not self.reference:
+            self.reference = Reference(self.boot.device(), self.width, self.height)
+            self.reference.value().start(self.boot.device(), self.reference_frames)
+        if self.reference and self.reference_ptr == 0:
+            self.reference_ptr = self.reference.value().poll()
 
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
-        for _ in range(self.world.ticks_due(dt)):
-            self.world.physics_tick()
-        var hits = len(self.world.frame_events)
-        if hits > 0:
-            self.contacts += hits
-            self.tone_gain = 0.35
-        else:
-            self.tone_gain *= 0.85
-        self.scene.set_tone(Float32(330.0 + 20.0 * Float64(min(hits, 20))), self.tone_gain)
+        self.sim.step(dt)
         if not self.boot.step():
             return 0
+        if self.offscreen:
+            # Never touch the canvas: headless Chrome loses the device after a canvas draw.
+            self._reference()
+            return 1
         if not self.configured:
             self.surface.configure(
                 self.boot.adapter().handle(), self.boot.device().handle().raw,
@@ -124,14 +103,7 @@ struct App(Movable):
         if tex.is_renderable():
             if not self.renderer:
                 self.renderer = Renderer(self.boot.device(), self.surface.format())
-            self.renderer.value().begin(Float32(self.width) / Float32(self.height))
-            for i in range(len(self.handles)):
-                var st = self.world.state(self.handles[i])
-                self.renderer.value().push(
-                    Float64(st.pos[0]), Float64(st.pos[1]), Float64(st.pos[2]),
-                    Float64(st.rot.x), Float64(st.rot.y), Float64(st.rot.z), Float64(st.rot.w),
-                    self.halves[3 * i], self.halves[3 * i + 1], self.halves[3 * i + 2],
-                )
+            fill(self.renderer.value(), self.sim, Float32(self.width) / Float32(self.height))
             self.renderer.value().draw(self.boot.device(), tex.texture)
             if self.want_capture and not self.capture_req:
                 # Frames are read back from an app-owned target: headless Chrome cannot read a canvas texture.
@@ -148,6 +120,7 @@ struct App(Movable):
                 self.want_capture = False
             self.surface.present()
             self.frames += 1
+        self._reference()
         if self.capture_req and self.capture_req.value().ready():
             var req = self.capture_req.take()
             self.capture_ptr = UInt64(Int(req.take()))
@@ -206,10 +179,10 @@ def app_audio_render(app: UInt64, dst_ptr: UInt64, frames: UInt32) abi("C") -> I
     """Mix `frames` stereo f32 frames into `dst_ptr`. 0 = ok."""
     try:
         var a = _app(app)
-        a[].scene.render(a[].pcm, UInt64(frames))
+        a[].sim.render_audio(Int(frames))
         var dst = Pointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(dst_ptr))
         for i in range(Int(frames) * 2):
-            dst[i] = a[].pcm[i]
+            dst[i] = a[].sim.pcm[i]
         return 0
     except e:
         print("app_audio_render:", e)
@@ -226,12 +199,12 @@ def app_destroy(app: UInt64) abi("C"):
 @export
 def app_contacts(app: UInt64) abi("C") -> Int32:
     """Contact events seen since init."""
-    return Int32(_app(app)[].contacts)
+    return Int32(_app(app)[].sim.contacts)
 
 
 @export
 def app_body_count(app: UInt64) abi("C") -> Int32:
-    return Int32(len(_app(app)[].world.bodies()))
+    return Int32(len(_app(app)[].sim.world.bodies()))
 
 
 @export
@@ -264,3 +237,26 @@ def app_capture_release(app: UInt64) abi("C"):
 def app_format(app: UInt64) abi("C") -> UInt32:
     """The surface's texture format (WGPUTextureFormat); the capture has the same layout."""
     return _app(app)[].surface.format()
+
+
+@export
+def app_reference_request(app: UInt64, frames: Int32) abi("C"):
+    """Render the reproducible reference frame (fresh sim, `frames` steps) for the native/web pixel parity."""
+    _app(app)[].reference_frames = Int(frames)
+
+
+@export
+def app_reference_ptr(app: UInt64) abi("C") -> UInt64:
+    """Address of the reference pixels (RGBA8, rows of app_reference_pitch bytes), 0 until ready."""
+    return _app(app)[].reference_ptr
+
+
+@export
+def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
+    return _app(app)[].reference.value().pitch()
+
+
+@export
+def app_offscreen(app: UInt64, on: Int32) abi("C"):
+    """On: frames only render the reference, nothing is drawn to the canvas."""
+    _app(app)[].offscreen = on != 0

@@ -14,4 +14,8 @@ export interface AppExports {
   app_capture_pitch(app: bigint): number;
   app_capture_release(app: bigint): void;
   app_format(app: bigint): number;
+  app_reference_request(app: bigint, frames: number): void;
+  app_reference_ptr(app: bigint): bigint;
+  app_reference_pitch(app: bigint): number;
+  app_offscreen(app: bigint, on: number): void;
 }

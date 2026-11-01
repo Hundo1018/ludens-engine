@@ -22,8 +22,8 @@ def build(*args: str) -> None:
 
 def main() -> int:
     BUILD.mkdir(exist_ok=True)
-    from ludens_wasm_rt import native_math
-    native_math.build(BUILD / "libwasmrt_math.a")  # the native side of the shared sinf / cosf
+    import native_libs
+    native_libs.build_all()  # the native side of the shared sinf / cosf, and miniaudio's shim
     build("--target", "native", "-o", str(BUILD / "shell"))
     build("--target", "wasm64", "-o", str(BUILD / "shell.wasm"), "--export", "shell_*")
     native = subprocess.run([str(BUILD / "shell")], capture_output=True, text=True, check=True).stdout.strip()

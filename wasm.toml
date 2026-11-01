@@ -11,6 +11,7 @@ host_imports = ["net_*"]
 # Native reference build: same entry, same manifest. Add wgpu-mojo's native archive here once the
 # shell draws ("build/libwgpu_native.a", mojo_defines = ["WGPU_LINK=static"]).
 [native]
-static_libs = ["build/libwasmrt_math.a"]   # python -m ludens_wasm_rt.native_math (scripts/parity.py)
-link_flags = ["-lm"]
-mojo_defines = []
+# libwasmrt_math.a: the musl sinf / cosf wasm uses; libma_shim.a: miniaudio's C (scripts/native_libs.py builds both).
+static_libs = ["build/libwasmrt_math.a", "build/deps/miniaudio-mojo/build/libma_shim.a"]
+link_flags = ["-lm", "-lpthread", "-ldl", "-latomic"]
+mojo_defines = ["MINIAUDIO_LINK=static"]

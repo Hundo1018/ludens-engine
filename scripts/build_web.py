@@ -25,6 +25,10 @@ def main() -> None:
     shutil.copy(ludens_wasm_rt.HOST_MJS, OUT / "host.mjs")
     for f in ("webgpu_host.mjs", "webgpu_impl.mjs", "webgpu_runtime.mjs", "webgpu_layout.json"):
         shutil.copy(WGPU / "web" / f, OUT / f)
+    shutil.copy(ROOT / "shell/web/pixel_tolerance.json", OUT / "pixel_tolerance.json")
+    native_px = ROOT / "build/pixels_native.rgba"
+    if native_px.exists():  # the native reference for ?selftest=parity (scripts/parity_pixels_native.py)
+        shutil.copy(native_px, OUT / "pixels_native.rgba")
     shutil.copy(WGPU / "scripts/webgpu_enum_strings.json", OUT / "webgpu_enum_strings.json")
     shutil.copy(MA / "web/miniaudio_host.mjs", OUT / "miniaudio_host.mjs")
     for ts, js in (("app.ts", "app.js"), ("keys.ts", "keys.js")):

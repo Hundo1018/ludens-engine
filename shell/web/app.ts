@@ -169,9 +169,40 @@ async function main() {
   if (location.search.includes("selftest")) selftest(x, rt, app);
 }
 
+// Native/web pixel parity: the reference frame (app/reference.mojo) rendered here against the one wgpu-native
+// rendered headless (build/pixels_native.rgba). Tolerances are per browser, see shell/web/pixel_tolerance.json.
+async function pixelParity(x: AppExports, rt: any, app: bigint) {
+  const W = 960, H = 540;
+  x.app_reference_request(app, 240);
+  for (let i = 0; i < 1200 && x.app_reference_ptr(app) === 0n; i++) await new Promise((r) => requestAnimationFrame(r));
+  const ptr = x.app_reference_ptr(app);
+  if (ptr === 0n) throw new Error("reference frame never completed");
+  const pitch = x.app_reference_pitch(app);
+  const web = rt.bytes(ptr, pitch * H).slice() as Uint8Array;
+  const native = new Uint8Array(await (await fetch("./pixels_native.rgba")).arrayBuffer());
+  if (native.length !== W * H * 4) throw new Error("pixels_native.rgba has the wrong size " + native.length);
+  let maxDelta = 0, over8 = 0, over32 = 0;
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+    const a = y * pitch + xx * 4, b = (y * W + xx) * 4;
+    let d = 0;
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(web[a + c] - native[b + c]));
+    if (d > maxDelta) maxDelta = d;
+    if (d > 8) over8++;
+    if (d > 32) over32++;
+  }
+  const browser = navigator.userAgent.includes("Firefox") ? "firefox" : "chrome";
+  const table = await (await fetch("./pixel_tolerance.json")).json();
+  const limits = table[browser];
+  const stats = { maxDelta, fracOver8: over8 / (W * H), fracOver32: over32 / (W * H) };
+  const ok = maxDelta <= limits.maxDelta && stats.fracOver8 <= limits.fracOver8 && stats.fracOver32 <= limits.fracOver32;
+  return { browser, stats, limits, ok };
+}
+
 // ?selftest[&canvas-lost]: report PASS/FAIL in document.title and #log (the protocol of scripts/web_*.mjs).
 // Headless Chrome destroys the GPUDevice after a canvas draw, so ?canvas-lost skips the pixel check there.
 function selftest(x: AppExports, rt: any, app: bigint) {
+  const mode = new URLSearchParams(location.search).get("selftest") ?? "";
+  if (mode === "parity-offscreen") x.app_offscreen(app, 1); // Chrome: never draw to the canvas
   const log: string[] = [];
   const fail = (m: string) => { log.push("FAIL: " + m); finish(false); };
   const finish = (ok: boolean) => {
@@ -197,11 +228,16 @@ function selftest(x: AppExports, rt: any, app: bigint) {
       }
       log.push(`audio rms ${rms.toFixed(4)}`);
       if (!(rms > 0.001)) return fail("no contact tone in the audio output");
-      if (location.search.includes("canvas-lost")) log.push("pixel check skipped (canvas-lost)");
+      if (mode === "canvas-lost" || mode === "parity-offscreen") log.push("canvas pixel check skipped (" + mode + ")");
       else {
         const cap = await (window.shell as any).capturePixels();
         log.push(`capture ${JSON.stringify(cap)}`);
         if (cap.other < 2000) return fail("the frame holds only the clear colour");
+      }
+      if (mode.startsWith("parity")) {
+        const pp = await pixelParity(x, rt, app);
+        log.push(`pixel parity vs native (${pp.browser}): ${JSON.stringify(pp.stats)} limits ${JSON.stringify(pp.limits)}`);
+        if (!pp.ok) return fail("pixels differ from the native render beyond the tolerance row");
       }
       finish(true);
     } catch (e) { clearInterval(timer); fail(String(e)); }

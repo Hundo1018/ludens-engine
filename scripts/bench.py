@@ -42,8 +42,8 @@ def build(*extra: str, engine: Path = D / "ludens-engine") -> None:
 def main() -> int:
     subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True)
     (ROOT / "build").mkdir(exist_ok=True)
-    from ludens_wasm_rt import native_math
-    native_math.build(ROOT / "build/libwasmrt_math.a")
+    import native_libs
+    native_libs.build_all()
     build("--target", "native", "-o", "build/bench")  # the engine's own native config (parallel dispatch)
     build("--target", "native", "-o", "build/bench_serial", engine=serial_engine())
     build("--target", "wasm64", "-o", "build/bench.wasm", "--export", "bench_*")

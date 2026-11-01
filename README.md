@@ -78,3 +78,30 @@ not GPU time. The hash column compares the final pose array bit for bit.
 
 Pins when measured: ludens-engine `61a7bfd86f93`, wgpu-mojo `57d28106cd15`, miniaudio-mojo `fc84c21d045d`,
 ludens-wasm-rt `b23d53d`.
+
+## B4: native / web parity gate
+
+```
+pixi run -e wasm parity-gate    # scripts/parity_gate.py; exit 1 if any comparison fails
+```
+
+| Comparison | Native side | Web side | Rule |
+|---|---|---|---|
+| World hash | `app/parity.mojo` built `--target native` (serial engine, `x86-64`, no FMA) | same source, wasm64 under node | equal |
+| PCM hash (FNV over f32 bits) | same run | same | equal |
+| Pixels (960x540 RGBA8, 240 frames) | `app/pixels.mojo` through wgpu-native, headless offscreen | `app_reference_*` in Firefox, Chrome | per-browser row of `shell/web/pixel_tolerance.json` |
+
+The same `Sim` drives all three (16 boxes falling on a floor, a contact-driven tone). The pixel target is a pinned
+RGBA8Unorm texture the app owns, read back with `FrameCapture`; the canvas is not read. Chrome is measured in
+offscreen mode (`?selftest=parity-offscreen`) because headless Chrome loses its device after a canvas draw.
+
+Pixel tolerance (max channel delta of any pixel, fraction of pixels over 8 and over 32), measured on an Intel Iris Xe
+(Vulkan) against wgpu-native on the same GPU, and the limits set just above:
+
+| Browser | Measured | Limit |
+|---|---|---|
+| Firefox 157 | 0 / 0 / 0 | 2 / 0 / 0 |
+| Chrome | 113 / 8.7e-5 / 8.3e-5 | 160 / 3e-4 / 3e-4 |
+
+Chrome's differences are a few edge pixels. The limits are for this GPU; CI renders on lavapipe, so the rows may need
+re-measuring there (`.github/workflows/parity.yml`, not yet run on GitHub).

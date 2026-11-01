@@ -1,0 +1,5 @@
+{
+  "_comment": "Max channel delta of any pixel, and the fraction of pixels whose delta exceeds 8 / 32, between the browser's render of the reference frame and wgpu-native's. Measured on Intel Iris Xe (Vulkan): firefox 0 / 0 / 0, chrome 113 / 8.7e-5 / 8.3e-5. Limits sit just above those; re-measure per CI rasterizer (lavapipe, SwiftShader).",
+  "firefox": {"maxDelta": 2, "fracOver8": 0, "fracOver32": 0},
+  "chrome": {"maxDelta": 160, "fracOver8": 0.0003, "fracOver32": 0.0003}
+}
