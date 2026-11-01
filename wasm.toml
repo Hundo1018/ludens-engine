@@ -1,7 +1,16 @@
-# Passive manifest read by ludens-wasm-rt's build driver.
+# Passive manifest read by ludens-wasm-rt's build driver, for both targets:
+#   python3 -m ludens_wasm_rt.build_wasm --lib . app/shell.mojo --target wasm64 -o build/shell.wasm --export 'shell_*'
+#   python3 -m ludens_wasm_rt.build_wasm --lib . app/shell.mojo --target native -o build/shell
 # ludens-shell provides no JS imports of its own beyond net_* (B5).
 [lib]
 name = "ludens-shell"
 include = ["app"]
 js = "shell/web/net_host.mjs"
 host_imports = ["net_*"]
+
+# Native reference build: same entry, same manifest. Add wgpu-mojo's native archive here once the
+# shell draws ("build/libwgpu_native.a", mojo_defines = ["WGPU_LINK=static"]).
+[native]
+static_libs = ["build/libwasmrt_math.a"]   # python -m ludens_wasm_rt.native_math (scripts/parity.py)
+link_flags = ["-lm"]
+mojo_defines = []
