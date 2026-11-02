@@ -15,7 +15,16 @@ const done = async (code) => {
   try { driver.kill(); } catch {}  // snap-confined geckodriver may refuse the signal
   process.exit(code);
 };
-setTimeout(() => { console.log('web_firefox: timed out'); done(1); }, Number(timeoutS) * 1000);
+setTimeout(async () => {
+  console.log('web_firefox: timed out');
+  if (session) {  // what the page last said, to tell a hang from a slow start
+    const r = await fetch(`${base}/session/${session}/execute/sync`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ script: 'return [document.title, document.getElementById("log")?.textContent ?? "", JSON.stringify(window.shell ?? null)]', args: [] }) })
+      .then((x) => x.json()).catch((e) => ({ value: String(e) }));
+    console.log('page state:', JSON.stringify(r.value));
+  }
+  done(1);
+}, Number(timeoutS) * 1000);
 
 const call = async (method, path, body) => {
   const r = await fetch(base + path, {

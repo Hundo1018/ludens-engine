@@ -296,7 +296,9 @@ function selftestRecord(x: AppExports, rt: any, app: bigint) {
         await Promise.race([startAudio(rt, x, app), new Promise((_, rej) => setTimeout(() => rej(new Error("audio start timed out")), 5000))]);
         audio = (stats as any).audio;
       } catch (e) { stats.error = ""; audio = undefined; }
+      document.getElementById("log")!.textContent = `recording (audio ${!!audio}, frames ${stats.frames})`;
       const rec = await record(canvas, 5, audio);
+      document.getElementById("log")!.textContent = "recorded, checking";
       const buf = new Uint8Array(await rec.blob.arrayBuffer());
       const ebml = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
       const put = await fetch("./upload/recorded.webm", { method: "PUT", body: buf });
