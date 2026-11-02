@@ -19,7 +19,7 @@ setTimeout(async () => {
   console.log('web_firefox: timed out');
   if (session) {  // what the page last said, to tell a hang from a slow start
     const r = await fetch(`${base}/session/${session}/execute/sync`, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ script: 'return [document.title, document.getElementById("log")?.textContent ?? "", JSON.stringify(window.shell ?? null)]', args: [] }) })
+      body: JSON.stringify({ script: 'return [document.title, document.getElementById("log")?.textContent ?? "", JSON.stringify(window.__rec ?? null)]', args: [] }) })
       .then((x) => x.json()).catch((e) => ({ value: String(e) }));
     console.log('page state:', JSON.stringify(r.value));
   }

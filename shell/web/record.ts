@@ -18,13 +18,18 @@ export async function record(
   if (!mime) throw new Error("MediaRecorder supports none of " + MIMES.join(", "));
   const rec = new MediaRecorder(stream, { mimeType: mime });
   const chunks: Blob[] = [];
-  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const trace: any = ((window as any).__rec = { mime, chunks: 0, state: "new", error: "" });
+  rec.ondataavailable = (e) => { trace.chunks++; if (e.data.size) chunks.push(e.data); };
+  rec.onerror = (e: any) => { trace.error = String(e.error ?? e.type); };
   const stopped = new Promise<void>((res) => { rec.onstop = () => res(); });
   const t0 = performance.now();
   rec.start(250);
+  trace.state = "started";
   await new Promise((r) => setTimeout(r, seconds * 1000));
+  trace.state = "stopping";
   rec.stop();
   await stopped;
+  trace.state = "stopped";
   for (const t of stream.getTracks()) t.stop();
   if (sink) audio!.node.disconnect(sink);
   return {
