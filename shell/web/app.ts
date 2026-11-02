@@ -291,7 +291,11 @@ function selftestRecord(x: AppExports, rt: any, app: bigint) {
       clearInterval(timer);
       const canvas = document.getElementById("canvas") as HTMLCanvasElement;
       let audio: any;
-      try { await startAudio(rt, x, app).then((f) => { (window as any).__fill = f; }); audio = (stats as any).audio; } catch (e) { stats.error = ""; audio = undefined; }
+      // A runner without a sound device can leave AudioContext.resume() pending forever: give it 5 s, then record video only.
+      try {
+        await Promise.race([startAudio(rt, x, app), new Promise((_, rej) => setTimeout(() => rej(new Error("audio start timed out")), 5000))]);
+        audio = (stats as any).audio;
+      } catch (e) { stats.error = ""; audio = undefined; }
       const rec = await record(canvas, 5, audio);
       const buf = new Uint8Array(await rec.blob.arrayBuffer());
       const ebml = buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
