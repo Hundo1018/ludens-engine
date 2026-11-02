@@ -31,7 +31,7 @@ jobs:
 
       - name: Native wgpu runtime (libwgpu_native, callback bridge)
         run: |
-          pixi run -e wasm scripts/deps.sh
+          bash scripts/deps.sh
           pixi run -e wasm bash -c 'CONDA_PREFIX="$CONDA_PREFIX" bash build/deps/wgpu-mojo/scripts/setup-native.sh'
 
       - name: Parity gate
