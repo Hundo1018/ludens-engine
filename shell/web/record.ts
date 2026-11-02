@@ -2,7 +2,8 @@
 // muxed into one WebM by MediaRecorder. WebCodecs would need a hand-written muxer; MediaRecorder muxes natively.
 export interface Recording { blob: Blob; mime: string; seconds: number; video: boolean; audio: boolean }
 
-const MIMES = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm;codecs=av01,opus", "video/webm"];
+const MIMES_AV = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm;codecs=av01,opus"];
+const MIMES_V = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm;codecs=av01"];
 
 export async function record(
   canvas: HTMLCanvasElement, seconds: number, audio?: { ctx: AudioContext; node: AudioNode },
@@ -14,8 +15,9 @@ export async function record(
     audio.node.connect(sink);
     for (const t of sink.stream.getAudioTracks()) stream.addTrack(t);
   }
-  const mime = MIMES.find((m) => MediaRecorder.isTypeSupported(m));
-  if (!mime) throw new Error("MediaRecorder supports none of " + MIMES.join(", "));
+  const mimes = [...(sink ? MIMES_AV : MIMES_V), "video/webm"];
+  const mime = mimes.find((m) => MediaRecorder.isTypeSupported(m));
+  if (!mime) throw new Error("MediaRecorder supports none of " + mimes.join(", "));
   const rec = new MediaRecorder(stream, { mimeType: mime });
   const chunks: Blob[] = [];
   const trace: any = ((window as any).__rec = { mime, chunks: 0, state: "new", error: "" });
@@ -28,7 +30,7 @@ export async function record(
   await new Promise((r) => setTimeout(r, seconds * 1000));
   trace.state = "stopping";
   rec.stop();
-  await stopped;
+  await Promise.race([stopped, new Promise((_, rej) => setTimeout(() => rej(new Error("MediaRecorder never stopped (chunks " + trace.chunks + ")")), 10000))]);
   trace.state = "stopped";
   for (const t of stream.getTracks()) t.stop();
   if (sink) audio!.node.disconnect(sink);
