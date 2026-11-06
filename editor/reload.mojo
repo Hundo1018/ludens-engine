@@ -12,7 +12,6 @@ database's rebuild log (`editor.assets`), code through `embed.transfer` (ludens-
 from editor.scene_text import scene_rows_from_text
 from editor.state import Editor
 from embed.scene_io import import_scene, scene_from_fields
-from embed.undo import UndoLog
 from embed.world import EmbedWorld
 
 
@@ -38,6 +37,6 @@ def reload_scene(mut ed: Editor, text: String) raises:
         ed.messages.append("reload failed: " + String(e))
         raise Error("reload failed: " + String(e))
     ed.world = w^
-    ed.log = UndoLog()
+    ed.reset_history()
     ed.prune_selection()
     ed.messages.append("reloaded the scene at tick " + String(ed.world.tick))

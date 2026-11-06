@@ -5,8 +5,10 @@ transaction, tells the editor which bodies it is about to change, changes them, 
 body's record from before and after, so one mechanism covers every kind of edit. Commands do not touch the log
 directly; they use `begin`, `touch`, `created` and `commit` here, and `Registry.run` aborts an open transaction when
 a command fails, so a failed command leaves the world and the history as they were."""
+from editor.curve import CurveStep
 from embed.undo import UndoLog
 from embed.world import EmbedWorld
+from geometry.vec import Vec3
 
 
 struct Editor(Movable):
@@ -16,6 +18,12 @@ struct Editor(Movable):
     var play_blob: List[UInt8]  # the world as it was when play started
     var selection: List[Int64]  # selected body handles, in selection order
     var messages: List[String]  # errors and notices for the log panel, oldest first
+    var curve: List[Vec3]  # the curve being edited (#19)
+    var curve_past: List[CurveStep]
+    var curve_future: List[CurveStep]
+    var order: List[Int]  # kind of each undo step, oldest first: 0 = world (UndoLog), 1 = curve
+    var redo_order: List[Int]
+    var steps_at_begin: Int
 
     def __init__(out self, var world: EmbedWorld):
         self.world = world^
@@ -24,6 +32,12 @@ struct Editor(Movable):
         self.play_blob = List[UInt8]()
         self.selection = List[Int64]()
         self.messages = List[String]()
+        self.curve = List[Vec3]()
+        self.curve_past = List[CurveStep]()
+        self.curve_future = List[CurveStep]()
+        self.order = List[Int]()
+        self.redo_order = List[Int]()
+        self.steps_at_begin = 0
 
     def __init__(out self, *, deinit move: Self):
         self.world = move.world^
@@ -32,6 +46,12 @@ struct Editor(Movable):
         self.play_blob = move.play_blob^
         self.selection = move.selection^
         self.messages = move.messages^
+        self.curve = move.curve^
+        self.curve_past = move.curve_past^
+        self.curve_future = move.curve_future^
+        self.order = move.order^
+        self.redo_order = move.redo_order^
+        self.steps_at_begin = move.steps_at_begin
 
     # ---- play in editor: run the world, then put it back exactly as it was
 
@@ -92,6 +112,8 @@ struct Editor(Movable):
     def begin(mut self, name: String, merge_key: Int = 0) raises:
         if self.playing:
             raise Error("edit refused while playing; stop first")
+        if self.log.depth == 0:
+            self.steps_at_begin = self.log.steps()
         self.log.begin(name, merge_key)
 
     def touch(mut self, h: Int64) raises:
@@ -104,23 +126,111 @@ struct Editor(Movable):
 
     def commit(mut self) raises:
         self.log.commit(self.world)
+        if self.log.depth == 0 and self.log.steps() > self.steps_at_begin:
+            self._new_step(0)  # a merged or empty transaction leaves the count as it was and adds no step
 
     def abort(mut self) raises:
         if self.log.depth > 0:
             self.log.abort(self.world)
 
+    def _new_step(mut self, kind: Int):
+        self.order.append(kind)
+        self.redo_order = List[Int]()
+        self.curve_future = List[CurveStep]()
+
+    def reset_history(mut self):
+        """Forget every undo and redo step (a reload replaced the world; the steps name bodies of the old one)."""
+        self.log = UndoLog()
+        self.curve_past = List[CurveStep]()
+        self.curve_future = List[CurveStep]()
+        self.order = List[Int]()
+        self.redo_order = List[Int]()
+
+    # ---- the curve (#19): every edit is one step in the same history as the world's
+
+    def curve_edit(mut self, op: Int, idx: Int, point: Vec3, key: Int = 0) raises:
+        """Insert (op 0) a point at `idx`, move (1) point `idx` to `point`, or remove (2) point `idx`."""
+        if self.playing:
+            raise Error("edit refused while playing; stop first")
+        var n = len(self.curve)
+        if op == 0:
+            if idx < 0 or idx > n:
+                raise Error("curve: insert index " + String(idx) + " is outside 0.." + String(n))
+            self.curve.insert(idx, point)
+            self.curve_past.append(CurveStep(0, idx, Vec3(0, 0, 0, 0), point, key))
+        elif op == 1:
+            if idx < 0 or idx >= n:
+                raise Error("curve: point " + String(idx) + " does not exist (" + String(n) + " points)")
+            var before = self.curve[idx]
+            if before == point:
+                return
+            self.curve[idx] = point
+            var merge = (
+                key != 0 and len(self.order) > 0 and self.order[len(self.order) - 1] == 1 and len(self.curve_past) > 0
+                and self.curve_past[len(self.curve_past) - 1].op == 1 and self.curve_past[len(self.curve_past) - 1].idx == idx
+                and self.curve_past[len(self.curve_past) - 1].key == key and len(self.redo_order) == 0
+            )
+            if merge:
+                self.curve_past[len(self.curve_past) - 1].after = point
+                if self.curve_past[len(self.curve_past) - 1].before == point:  # dragged back to where it started
+                    _ = self.curve_past.pop()
+                    _ = self.order.pop()
+                return
+            self.curve_past.append(CurveStep(1, idx, before, point, key))
+        else:
+            if idx < 0 or idx >= n:
+                raise Error("curve: point " + String(idx) + " does not exist (" + String(n) + " points)")
+            var before = self.curve[idx]
+            _ = self.curve.pop(idx)
+            self.curve_past.append(CurveStep(2, idx, before, Vec3(0, 0, 0, 0), key))
+        self._new_step(1)
+
+    def _curve_apply(mut self, st: CurveStep, forward: Bool) raises:
+        if st.op == 1:
+            self.curve[st.idx] = st.after if forward else st.before
+        elif (st.op == 0) == forward:
+            self.curve.insert(st.idx, st.after if st.op == 0 else st.before)
+        else:
+            _ = self.curve.pop(st.idx)
+
     def undo(mut self) raises -> Bool:
-        """Undo the latest step. False when there is nothing to undo."""
-        return self.log.undo(self.world)
+        """Undo the latest step of either history. False when there is nothing to undo."""
+        if len(self.order) == 0:
+            return False
+        var kind = self.order[len(self.order) - 1]
+        if kind == 0:
+            if not self.log.undo(self.world):
+                return False
+        else:
+            var st = self.curve_past.pop()
+            self._curve_apply(st, False)
+            self.curve_future.append(st^)
+        _ = self.order.pop()
+        self.redo_order.append(kind)
+        return True
 
     def redo(mut self) raises -> Bool:
-        return self.log.redo(self.world)
+        if len(self.redo_order) == 0:
+            return False
+        var kind = self.redo_order[len(self.redo_order) - 1]
+        if kind == 0:
+            if not self.log.redo(self.world):
+                return False
+        else:
+            var st = self.curve_future.pop()
+            self._curve_apply(st, True)
+            self.curve_past.append(st^)
+        _ = self.redo_order.pop()
+        self.order.append(kind)
+        return True
 
     def can_undo(self) -> Bool:
-        return self.log.can_undo()
+        return len(self.order) > 0
 
     def can_redo(self) -> Bool:
-        return self.log.can_redo()
+        return len(self.redo_order) > 0
 
     def undo_name(self) -> String:
-        return self.log.undo_name()
+        if len(self.order) == 0:
+            return String()
+        return self.log.undo_name() if self.order[len(self.order) - 1] == 0 else String("curve")
