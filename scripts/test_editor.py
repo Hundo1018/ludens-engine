@@ -9,4 +9,4 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_native  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(test_native.main(["editor_command", "editor_ext", "editor_assets", "editor_play", "editor_reload", "editor_curve", "editor_graph", "eventsheet"]))
+    sys.exit(test_native.main(["editor_command", "editor_ext", "editor_assets", "editor_play", "editor_reload", "editor_curve", "editor_graph", "editor_graph_cmd", "eventsheet"]))
