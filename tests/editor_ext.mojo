@@ -7,7 +7,7 @@ from editor.entry import cli_run
 from editor.ext import Command, DrawerRegistry, DOCK_LEFT, DOCK_RIGHT, Importer, ImporterRegistry, Panel, PanelRegistry, Registry, TypeDrawer
 from ui.geom import Rect
 from ui.immediate import Theme, Ui
-from editor.state import Editor, Inverse
+from editor.state import Editor
 from embed.world import EmbedWorld
 from geometry.vec import Real, Vec3
 
@@ -30,8 +30,10 @@ struct Lift(Command):
             raise Error("lift: expected <handle> <dy>")
         var h = Int64(Int(args[0]))
         var before = ed.world.state(h)
+        ed.begin("lift")
+        ed.touch(h)
         ed.world.teleport(h, Vec3(before.pos[0], before.pos[1] + Real(Float64(args[1])), before.pos[2], 0.0), before.rot)
-        ed.undo_stack.append(Inverse(h, before.pos, before.rot))
+        ed.commit()
 
 
 struct ShadowMove(Command):
@@ -174,7 +176,7 @@ def main() raises:
     var via_builtin = Editor(make_world(h2))
     cli_run[MoveBody, Lift](via_builtin, argv("move_body", String(h2[1]), "0", "3.5", "0"))
     c.ok(via_plugin.world.hash() == via_builtin.world.hash(), "lift 1.5 gives the world of move_body to y + 1.5 (same hash)")
-    c.ok(len(via_plugin.undo_stack) == 1 and via_plugin.undo(), "the plugin's inverse is on the editor's undo stack and undo works")
+    c.ok(via_plugin.log.steps() == 1 and via_plugin.undo(), "the plugin's edit is one undo step and undo works")
 
     # 4. A registry without the plugin refuses its command, and the world is unchanged.
     var h3 = List[Int64]()
@@ -196,7 +198,7 @@ def main() raises:
         cli_run[MoveBody, Lift](ed, argv("lift", String(h4[1])))
     except:
         raised = True
-    c.ok(raised and ed.world.hash() == before4 and len(ed.undo_stack) == 0, "a plugin error leaves the world and the undo stack unchanged")
+    c.ok(raised and ed.world.hash() == before4 and ed.log.steps() == 0, "a plugin error leaves the world and the undo stack unchanged")
 
     # 6. Panels, type drawers and importers: they appear, in registration order, and do their job headless.
     comptime P = PanelRegistry[Outliner, Inspector]

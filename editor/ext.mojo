@@ -28,7 +28,7 @@ trait Command(Defaultable, Deinitable):
         ...
 
     def run(self, mut ed: Editor, args: List[String]) raises:
-        """Execute. Errors must leave the world and the undo stack unchanged."""
+        """Execute. Errors must leave the world unchanged (use `ed.begin` / `touch` / `commit`: an open transaction is aborted when the command raises)."""
         ...
 
 
@@ -61,7 +61,11 @@ struct Registry[*Cmds: Command]:
     def run(mut ed: Editor, name: String, args: List[String]) raises:
         comptime for i in range(len(Self.Cmds)):
             if Self.Cmds[i].name() == name:
-                Self.Cmds[i]().run(ed, args)
+                try:
+                    Self.Cmds[i]().run(ed, args)
+                except e:
+                    ed.abort()  # a transaction the command left open is rolled back
+                    raise e^
                 return
         raise Error("unknown command: " + name)
 

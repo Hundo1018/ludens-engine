@@ -1,7 +1,7 @@
 """Built-in commands. They are plugins like any other: they conform to `editor.ext.Command` and nothing else
 reaches them (ludens-shell #18)."""
 from editor.ext import Command
-from editor.state import Editor, Inverse
+from editor.state import Editor
 from geometry.vec import Real, Vec3
 
 
@@ -23,6 +23,8 @@ struct MoveBody(Command):
             raise Error("move_body: expected <handle> <x> <y> <z>, got " + String(len(args)) + " arguments")
         var handle = Int64(Int(args[0]))
         var pos = Vec3(Real(Float64(args[1])), Real(Float64(args[2])), Real(Float64(args[3])), 0.0)
-        var before = ed.world.state(handle)
-        ed.world.teleport(handle, pos, before.rot)
-        ed.undo_stack.append(Inverse(handle, before.pos, before.rot))
+        var rot = ed.world.state(handle).rot
+        ed.begin("move_body")
+        ed.touch(handle)
+        ed.world.teleport(handle, pos, rot)
+        ed.commit()

@@ -133,7 +133,7 @@ def main() raises:
     except:
         raised += 1
     c.ok(raised == 3, "unknown command, wrong argument count and a non-number all raise")
-    c.ok(bad.world.hash() == before and len(bad.undo_stack) == 0, "failed commands leave the world and the undo stack unchanged")
+    c.ok(bad.world.hash() == before and bad.log.steps() == 0, "failed commands leave the world and the undo stack unchanged")
 
     print("editor-command:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

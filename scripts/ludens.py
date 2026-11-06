@@ -5,7 +5,7 @@
     ludens hash | list | check          the world hash, the bodies (index, handle, position), validate the scene
     ludens run <ticks> [-o OUT]         step the scene and print the world hash
     ludens cmd [-o OUT] <name> <args>   run one editor command on the scene, in place
-    ludens script <file> [-o OUT]       run a file of commands (one per line, `#` comments, `undo`)
+    ludens script <file> [-o OUT]       run a file of commands (one per line, `#` comments, `undo`, `redo`)
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
 these do. Nothing is written when a command fails. Subcommands for assets, builds and replay follow with their

@@ -172,6 +172,9 @@ def run_command(args: List[String]) raises:
                 if w[0] == "undo":
                     if not ed.undo():
                         raise Error("nothing to undo")
+                elif w[0] == "redo":
+                    if not ed.redo():
+                        raise Error("nothing to redo")
                 else:
                     cli_run[MoveBody](ed, w)
             except e:
