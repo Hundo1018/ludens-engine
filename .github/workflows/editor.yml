@@ -44,6 +44,12 @@ jobs:
           environments: wasm
       - name: ludens new / cmd / script / run across processes
         run: pixi run -e wasm test-cli
+      - name: World hand-over between two modules (native == wasm64 == across modules)
+        run: |
+          bash scripts/deps.sh
+          pixi run -e wasm xfer-parity
+      - name: ui/ layout and widgets, native == wasm64
+        run: pixi run -e wasm ui-parity
 
   ui:
     name: ui/ toolkit (standard library only)

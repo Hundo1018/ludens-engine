@@ -38,6 +38,7 @@ build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
 ui-parity = "python3 scripts/ui_parity.py"
+xfer-parity = "python3 scripts/xfer_parity.py"
 ludens = "python3 scripts/ludens.py"
 test-cli = "python3 tests/test_cli.py"
 
