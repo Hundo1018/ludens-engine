@@ -52,6 +52,8 @@ jobs:
         run: pixi run -e wasm sheet-parity
       - name: ui/ layout and widgets, native == wasm64
         run: pixi run -e wasm ui-parity
+      - name: ludens build --target web twice, byte-identical manifests
+        run: pixi run -e wasm test-build
 
   ui:
     name: ui/ toolkit (standard library only)
