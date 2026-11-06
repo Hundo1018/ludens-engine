@@ -6,6 +6,7 @@
     ludens run <ticks> [-o OUT]         step the scene and print the world hash
     ludens cmd [-o OUT] <name> <args>   run one editor command on the scene, in place
     ludens script <file> [-o OUT]       run a file of commands (one per line, `#` comments, `undo`, `redo`)
+    ludens trace <ticks> -o OUT.json    step the scene with profiling spans on and write a Chrome trace (Perfetto) file
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
 these do. Nothing is written when a command fails. Subcommands for assets, builds and replay follow with their
@@ -17,6 +18,7 @@ import argparse
 import os
 import subprocess
 import sys
+import json
 import tomllib
 from pathlib import Path
 
@@ -67,6 +69,19 @@ def cmd_run(a) -> int:
     return run_core("run", scene_of(find_project(a.project)), str(a.ticks), *extra)
 
 
+def cmd_trace(a) -> int:
+    """Step the scene with the engine's profiling spans on and write a Chrome Trace / Perfetto JSON file."""
+    import build_core
+    out = Path(a.output)
+    rc = subprocess.run([str(build_core.core_trace()), "trace", scene_of(find_project(a.project)), str(a.ticks), str(out)]).returncode
+    if rc:
+        return rc
+    events = json.loads(out.read_text(encoding="utf-8"))
+    names = sorted({e["name"] for e in events})
+    print(f"trace: {len(events)} events, {len(names)} span names ({', '.join(names)}) -> {out}")
+    return 0
+
+
 def cmd_cmd(a) -> int:
     rest = a.rest[1:] if a.rest[:1] == ["--"] else a.rest
     if not rest:
@@ -99,6 +114,10 @@ def main() -> int:
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output")
     p.set_defaults(f=cmd_run)
+    p = sp.add_parser("trace", help="step the scene and write a Chrome trace (Perfetto) JSON")
+    p.add_argument("ticks", type=int)
+    p.add_argument("-o", "--output", required=True)
+    p.set_defaults(f=cmd_trace)
     p = sp.add_parser("cmd", help="run one editor command (in place)")
     p.add_argument("-o", "--output")
     p.add_argument("rest", nargs=argparse.REMAINDER, metavar="name args")

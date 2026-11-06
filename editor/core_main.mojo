@@ -144,6 +144,16 @@ def run_command(args: List[String]) raises:
         var o = out_path(args, len(args), String())
         if o.byte_length() > 0:
             save(ed, o)
+    elif sub == "trace":
+        if len(args) != 4:
+            raise Error("usage: trace <scene> <ticks> <out.json>")
+        var ed = load(args[1])
+        var n = Int(real_arg(args[2], "ticks"))
+        if n < 0:
+            raise Error("ticks must be >= 0")
+        run_ticks(ed, n)
+        report(ed)
+        write_file(args[3], ed.world.scene.trace.to_chrome_json())
     elif sub == "cmd":
         var dash = -1
         for i in range(len(args)):
@@ -191,7 +201,7 @@ def run_command(args: List[String]) raises:
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:
-        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, cmd, script, gui-move)")
+        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, cmd, script, gui-move)")
 
 
 def main():
@@ -200,7 +210,7 @@ def main():
     for i in range(1, len(a)):
         args.append(String(a[i]))
     if len(args) == 0:
-        print("ludens-core: expected a subcommand (demo, hash, list, check, run, cmd, script, gui-move)")
+        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, cmd, script, gui-move)")
         exit(1)
     try:
         run_command(args)
