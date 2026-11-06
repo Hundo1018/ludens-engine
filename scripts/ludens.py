@@ -6,6 +6,7 @@
     ludens run <ticks> [-o OUT]         step the scene and print the world hash
     ludens cmd [-o OUT] <name> <args>   run one editor command on the scene, in place
     ludens script <file> [-o OUT]       run a file of commands (one per line, `#` comments, `undo`, `redo`)
+    ludens build --target web           build build/web (wasm64 module + JS) and MANIFEST.sha256
     ludens trace <ticks> -o OUT.json    step the scene with profiling spans on and write a Chrome trace (Perfetto) file
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
@@ -82,6 +83,34 @@ def cmd_trace(a) -> int:
     return 0
 
 
+def cmd_build(a) -> int:
+    """`ludens build --target web`: the wasm64 module and the shell's JS assembled in build/web, with MANIFEST.sha256
+    (one `sha256  size  path` line per file, sorted) so two builds of the same commit can be compared."""
+    import hashlib
+    if a.target != "web":
+        print(f"ludens: build --target {a.target} is not implemented yet (web only); native needs the wgpu native libraries and an app entry (ludens-shell #15)", file=sys.stderr)
+        return 2
+    rc = subprocess.run(["bash", str(ROOT / "scripts/build_wasm.sh")], cwd=ROOT).returncode
+    if rc:
+        return rc
+    rc = subprocess.run([sys.executable, str(ROOT / "scripts/build_web.py")], cwd=ROOT).returncode
+    if rc:
+        return rc
+    out = ROOT / "build/web"
+    lines = []
+    total = 0
+    for f in sorted(p for p in out.rglob("*") if p.is_file() and p.name != "MANIFEST.sha256"):
+        data = f.read_bytes()
+        total += len(data)
+        lines.append(f"{hashlib.sha256(data).hexdigest()}  {len(data)}  {f.relative_to(out).as_posix()}")
+    (out / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"build: {len(lines)} files, {total} bytes in {out} (config {a.config}); manifest {out / 'MANIFEST.sha256'}")
+    for l in lines:
+        h, n, name = l.split("  ")
+        print(f"  {int(n):>10}  {name}")
+    return 0
+
+
 def cmd_cmd(a) -> int:
     rest = a.rest[1:] if a.rest[:1] == ["--"] else a.rest
     if not rest:
@@ -114,6 +143,10 @@ def main() -> int:
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output")
     p.set_defaults(f=cmd_run)
+    p = sp.add_parser("build", help="build the game: --target web writes build/web (module, JS, manifest)")
+    p.add_argument("--target", choices=["web", "native", "android"], default="web")
+    p.add_argument("--config", choices=["debug", "release"], default="release")
+    p.set_defaults(f=cmd_build)
     p = sp.add_parser("trace", help="step the scene and write a Chrome trace (Perfetto) JSON")
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output", required=True)

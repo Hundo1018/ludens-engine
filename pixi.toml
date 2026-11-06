@@ -41,6 +41,7 @@ ui-parity = "python3 scripts/ui_parity.py"
 xfer-parity = "python3 scripts/xfer_parity.py"
 ludens = "python3 scripts/ludens.py"
 test-cli = "python3 tests/test_cli.py"
+test-build = "python3 tests/test_build.py"
 
 [environments]
 wasm = { features = ["wasm"] }
