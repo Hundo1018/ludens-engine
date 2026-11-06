@@ -132,6 +132,16 @@ def main() -> int:
         r = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "-3", str(root / "x.json")], capture_output=True, text=True)
         check(r.returncode == 1 and not (root / "x.json").exists(), "trace: negative ticks are refused and write nothing")
 
+        # ---- overlay: the physics debug-draw (one arrow per contact point), without changing the simulation
+        ov = root / "overlay.json"
+        ovr = subprocess.run([str(build_core.core_overlay()), "overlay", str(root / "copy.scene"), "120", str(ov)], capture_output=True, text=True)
+        check(ovr.returncode == 0 and world_hash(ovr) is not None and world_hash(ovr) == world_hash(traced), "overlay: the world hash after 120 ticks equals a run without the overlay")
+        total = int(next(l for l in ovr.stdout.splitlines() if l.startswith("overlay commands:")).split(":")[1])
+        arrows = json.loads(ov.read_text(encoding="utf-8"))
+        check(total > 0 and isinstance(arrows, list) and all(a["kind"] == 3 and len(a["p0"]) == 3 and len(a["color"]) == 4 for a in arrows), f"overlay: arrows were drawn ({total} over 120 ticks, {len(arrows)} in the last frame), each with kind ARROW, a point and an rgba colour")
+        plain_ov = subprocess.run([str(build_core.core_overlay().parent / "ludens-core"), "overlay", str(root / "copy.scene"), "120", str(root / "plain.json")], capture_output=True, text=True)
+        check(plain_ov.returncode == 0 and "overlay commands: 0" in plain_ov.stdout, "overlay: the plain build draws nothing (control)")
+
         # ---- capture and replay: a recording can be checked against a re-simulation
         import struct
         cap = root / "run.cap"

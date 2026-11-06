@@ -165,6 +165,37 @@ def run_command(args: List[String]) raises:
         run_ticks(ed, n)
         report(ed)
         write_file(args[3], ed.world.scene.trace.to_chrome_json())
+    elif sub == "overlay":
+        if len(args) != 4:
+            raise Error("usage: overlay <scene> <ticks> <out.json>")
+        var ed = load(args[1])
+        var n = Int(real_arg(args[2], "ticks"))
+        if n < 0:
+            raise Error("ticks must be >= 0")
+        # the physics overlay: one arrow per contact point per step, read and aged once per frame
+        var total = 0
+        var last = String("[")
+        for _ in range(n):
+            for _ in range(ed.world.ticks_due(ed.world.dt)):
+                ed.world.physics_tick()
+            total += ed.world.scene.draw.count()
+            var items = String("[")
+            var first = True
+            for ref c in ed.world.scene.draw.commands:
+                if not first:
+                    items += ","
+                first = False
+                items += (
+                    "{\"kind\":" + String(c.kind)
+                    + ",\"p0\":[" + String(Float64(c.p0[0])) + "," + String(Float64(c.p0[1])) + "," + String(Float64(c.p0[2])) + "]"
+                    + ",\"p1\":[" + String(Float64(c.p1[0])) + "," + String(Float64(c.p1[1])) + "," + String(Float64(c.p1[2])) + "]"
+                    + ",\"color\":[" + String(Float64(c.color[0])) + "," + String(Float64(c.color[1])) + "," + String(Float64(c.color[2])) + "," + String(Float64(c.color[3])) + "]}"
+                )
+            last = items + "]"
+            ed.world.scene.draw.tick()
+        report(ed)
+        print("overlay commands:", total)
+        write_file(args[3], last)
     elif sub == "capture":
         if len(args) != 4:
             raise Error("usage: capture <scene> <ticks> <out.cap>")
@@ -235,7 +266,7 @@ def run_command(args: List[String]) raises:
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:
-        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, capture, replay, cmd, script, gui-move)")
+        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, overlay, capture, replay, cmd, script, gui-move)")
 
 
 def main():
@@ -244,7 +275,7 @@ def main():
     for i in range(1, len(a)):
         args.append(String(a[i]))
     if len(args) == 0:
-        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, capture, replay, cmd, script, gui-move)")
+        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, overlay, capture, replay, cmd, script, gui-move)")
         exit(1)
     try:
         run_command(args)
