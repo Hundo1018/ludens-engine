@@ -27,7 +27,8 @@ def build(entry: str, eng: Path, *extra: str) -> None:
 
 def main() -> int:
     subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True)
-    import native_libs  # noqa: F401
+    import native_libs
+    native_libs.build_all()  # libwasmrt_math.a etc., which wasm.toml's [native] section names
     (ROOT / "build").mkdir(exist_ok=True)
     eng = serial_engine()
     build("app/xfer.mojo", eng, "--target", "native", "-o", "build/xfer")

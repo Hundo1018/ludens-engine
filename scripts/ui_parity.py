@@ -19,7 +19,8 @@ def build(*args: str) -> None:
 
 def main() -> int:
     sys.path.insert(0, str(ROOT / "scripts"))
-    import native_libs  # noqa: F401  (native_env keeps the system linker visible)
+    import native_libs
+    native_libs.build_all()  # libwasmrt_math.a etc., which wasm.toml's [native] section names
     build("app/ui_parity.mojo", "--target", "native", "-o", "build/ui_parity")
     build("app/ui_parity.mojo", "--target", "wasm64", "-o", "build/ui_parity.wasm", "--export", "ui_parity_*")
     out = subprocess.run([str(ROOT / "build/ui_parity")], capture_output=True, text=True, check=True).stdout
