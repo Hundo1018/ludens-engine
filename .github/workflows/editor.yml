@@ -12,10 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Selftest, then the repo
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: Selftest, then the repo (the project's own environment)
         run: |
-          python3 scripts/check_layout.py --selftest
-          python3 scripts/check_layout.py
+          pixi run -e wasm check-layout --selftest
+          pixi run -e wasm check-layout
 
   command-layer:
     name: GUI/CLI command parity

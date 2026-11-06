@@ -8,7 +8,8 @@ Rules (README "Rules"):
   R1  shell/ implements imports only: no editor / ui symbols, no path into editor/ or ui/, and the module
       exports it uses (shell/web/exports.d.ts) are the generic `app_*` entry points.
   R2  ui/ imports only the standard library, wgpu-mojo and itself. Never engine packages, app/ or editor/.
-  R3  editor/ and ui/ hold Mojo (and Markdown) only: no TS / JS / HTML / CSS.
+  R3  editor/ and ui/ hold Mojo and Markdown only (allowlist: .mojo, .md). Anything else, web files or
+      Python or C, is a violation. If ui/ ever needs .wgsl files, add the suffix here with the decision.
   R4  editor/ built-ins call the extension API (#18) instead of editor internals. Pending until #18 lands:
       flip EXTENSION_API_ENFORCED once the registration points exist.
 """
@@ -23,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 UI_ALLOWED_IMPORTS = {"std", "wgpu", "ui"}
 EXTENSION_API_ENFORCED = False  # R4, see issue #18
 SHELL_SOURCE_SUFFIXES = {".ts", ".tsx", ".js", ".mjs", ".html", ".css", ".py"}
-MOJO_ONLY_FORBIDDEN_SUFFIXES = {".ts", ".tsx", ".js", ".mjs", ".html", ".css", ".jsx"}
+MOJO_ONLY_ALLOWED_SUFFIXES = {".mojo", ".md"}
 
 EDITOR_SYMBOL = re.compile(r"\b(?:editor|ed|ui)_[A-Za-z0-9_]*")
 EDITOR_PATH = re.compile(r"(?:^|[/'\"])(?:editor|ui)/")
@@ -69,8 +70,10 @@ def check(root: Path) -> list[str]:
 
     # R3: editor/ and ui/ are Mojo.
     for sub in ("editor", "ui"):
-        for p in files(root, sub, MOJO_ONLY_FORBIDDEN_SUFFIXES):
-            problems.append(f"R3 {p.relative_to(root)}: {sub}/ holds Mojo only, not `{p.suffix}`")
+        for p in files(root, sub):
+            if p.name.startswith(".") or p.suffix in MOJO_ONLY_ALLOWED_SUFFIXES:
+                continue
+            problems.append(f"R3 {p.relative_to(root)}: {sub}/ holds Mojo and Markdown only, not `{p.suffix or p.name}`")
 
     # R4: pending the extension API.
     if EXTENSION_API_ENFORCED:
@@ -109,6 +112,9 @@ def selftest() -> int:
     expect("ui imports app", {**clean, "ui/bad.mojo": "from app.sim import Sim\n"}, ["R2"])
     expect("typescript inside editor", {**clean, "editor/panel.ts": "export {}\n"}, ["R3"])
     expect("html inside ui", {**clean, "ui/index.html": "<html></html>\n"}, ["R3"])
+    expect("python inside editor", {**clean, "editor/helper.py": "x = 1\n"}, ["R3"])
+    expect("C inside ui", {**clean, "ui/glue.c": "int x;\n"}, ["R3"])
+    expect("markdown and a dotfile are fine", {**clean, "editor/NOTES.md": "# n\n", "ui/.gitkeep": ""}, [])
     print(f"layout selftest: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
