@@ -197,9 +197,11 @@ struct AssetEntry(Copyable, Movable):
 
 struct AssetDb(Movable):
     var entries: List[AssetEntry]  # sorted by path
+    var errors: List[String]  # `path: reason` for imports that failed in the last build and kept the old artifact
 
     def __init__(out self):
         self.entries = List[AssetEntry]()
+        self.errors = List[String]()
 
     def find(self, path: String) -> Int:
         for i in range(len(self.entries)):
@@ -219,8 +221,11 @@ struct AssetDb(Movable):
             out += e.path + " " + e.key + " " + (e.artifact_hash if e.status == STATUS_OK else String("FAILED")) + "\n"
         return out^
 
-    def build[*Is: Importer](mut self, var sources: List[SourceFile]) raises -> List[String]:
-        """Import what changed and drop what is gone. Returns the paths imported this time, in order."""
+    def build[*Is: Importer](mut self, var sources: List[SourceFile], keep_on_failure: Bool = False) raises -> List[String]:
+        """Import what changed and drop what is gone. Returns the paths imported this time, in order. With
+        `keep_on_failure` (hot reload, ludens-shell #14) an asset whose import fails keeps its previous good artifact
+        and the reason goes to `errors`, so the running game never loses an asset to a bad edit."""
+        self.errors = List[String]()
         # sort sources by path (insertion sort: deterministic, the lists are small)
         var order = List[Int]()
         for i in range(len(sources)):
@@ -259,7 +264,7 @@ struct AssetDb(Movable):
                         raise Error("assets: `" + src.path + "` depends on `" + d + "`, which is not a source")
                 if not ready:
                     continue
-                self._build_one[*Is](src, next, log)
+                self._build_one[*Is](src, next, log, keep_on_failure)
                 done[oi] = True
                 remaining -= 1
                 progressed = True
@@ -275,7 +280,7 @@ struct AssetDb(Movable):
         self.entries = sorted_entries^
         return log^
 
-    def _build_one[*Is: Importer](self, src: SourceFile, mut built: List[AssetEntry], mut log: List[String]) raises:
+    def _build_one[*Is: Importer](mut self, src: SourceFile, mut built: List[AssetEntry], mut log: List[String], keep: Bool) raises:
         var blob = src.data.copy()
         for c in ("\0" + src.settings).as_bytes():
             blob.append(c)
@@ -305,4 +310,8 @@ struct AssetDb(Movable):
                 entry.status = STATUS_OK
             except e:
                 entry.error = String(e)
+        if keep and entry.status == STATUS_FAILED and old >= 0 and self.entries[old].status == STATUS_OK:
+            self.errors.append(src.path + ": " + entry.error)
+            built.append(self.entries[old].copy())
+            return
         built.append(entry^)
