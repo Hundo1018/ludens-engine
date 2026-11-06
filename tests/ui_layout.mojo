@@ -17,6 +17,7 @@ from ui.layout import (
     Node,
     Tree,
 )
+from ui.testing import Lcg, box, hash_tree, random_tree
 
 
 struct Check:
@@ -48,64 +49,6 @@ struct Check:
         self.near(r.y, y, label + ".y")
         self.near(r.w, w, label + ".w")
         self.near(r.h, h, label + ".h")
-
-
-def box(direction: Int = ROW, width: Float32 = -1, height: Float32 = -1, grow: Float32 = 0) -> Node:
-    var n = Node()
-    n.direction = direction
-    n.width = width
-    n.height = height
-    n.grow = grow
-    return n^
-
-
-def fnv(h: UInt64, v: Float32) -> UInt64:
-    return (h ^ UInt64(v.to_bits())) * UInt64(0x100000001B3)
-
-
-def hash_tree(t: Tree) -> UInt64:
-    var h = UInt64(0xCBF29CE484222325)
-    for i in range(len(t.nodes)):
-        var r = t.nodes[i].rect
-        h = fnv(h, r.x)
-        h = fnv(h, r.y)
-        h = fnv(h, r.w)
-        h = fnv(h, r.h)
-    return h
-
-
-struct Lcg:
-    var s: UInt64
-
-    def __init__(out self, seed: UInt64):
-        self.s = seed
-
-    def next(mut self) -> UInt64:
-        self.s = self.s * 6364136223846793005 + 1442695040888963407
-        return self.s >> 33
-
-    def below(mut self, n: Int) -> Int:
-        return Int(self.next() % UInt64(n))
-
-
-def random_tree(mut rng: Lcg, mut t: Tree, parent: Int, depth: Int) raises:
-    var count = 1 + rng.below(4)
-    for _ in range(count):
-        var n = box(ROW if rng.below(2) == 0 else COLUMN)
-        if rng.below(3) == 0:
-            n.width = Float32(20 + rng.below(80))
-        if rng.below(3) == 0:
-            n.height = Float32(20 + rng.below(60))
-        n.grow = Float32(rng.below(3))
-        n.gap = Float32(rng.below(4))
-        n.padding = Insets.all(Float32(rng.below(4)))
-        n.align = rng.below(4)
-        n.justify = rng.below(4)
-        n.content_w = Float32(rng.below(40))
-        n.content_h = Float32(rng.below(30))
-        var id = t.add(n^, parent)
-        if depth > 0 and rng.below(2) == 0:
-            random_tree(rng, t, id, depth - 1)
 
 
 def inside(inner: Rect, outer: Rect) -> Bool:

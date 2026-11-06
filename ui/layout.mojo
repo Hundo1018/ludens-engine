@@ -1,9 +1,9 @@
 """A small flex-style layout: rows and columns of boxes (ludens-shell #17).
 
 One pass to measure, one to arrange, both plain `Float32` arithmetic in a fixed order: laying the same tree out
-twice gives identical bits (tested). Agreement between native x86-64 and wasm64 follows from both being built
-without FMA contraction but has not been measured yet (ludens-shell #17); a target that contracts to FMA (aarch64)
-may differ in the last bit.
+twice gives identical bits (tested). Measured: 200 generated trees (seed 12345) hash to 13514690443309195779 on native
+x86-64 and on wasm64 (`pixi run -e wasm ui-parity`, scripts/ui_parity.py). Neither build contracts to FMA; a target
+that does (aarch64) may differ in the last bit and has not been measured.
 
 A node is a box with a direction (`ROW` or `COLUMN`), an optional fixed `width` / `height` (< 0 = size to content),
 `grow` (its share of the space left on the main axis), `padding`, a `gap` between children, and how children sit on
