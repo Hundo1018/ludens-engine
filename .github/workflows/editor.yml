@@ -1,0 +1,64 @@
+name: editor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# #6 (E1): the directory rules and the command-layer test. Neither needs a GPU.
+jobs:
+  layout:
+    name: directory rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: Selftest, then the repo (the project's own environment)
+        run: |
+          pixi run -e wasm check-layout --selftest
+          pixi run -e wasm check-layout
+
+  command-layer:
+    name: GUI/CLI command parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: Command-layer test (GUI entry vs CLI entry give the same world hash)
+        run: pixi run -e wasm test-editor
+
+  cli:
+    name: ludens command line
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: ludens new / cmd / script / run across processes
+        run: pixi run -e wasm test-cli
+      - name: World hand-over between two modules (native == wasm64 == across modules)
+        run: |
+          bash scripts/deps.sh
+          pixi run -e wasm xfer-parity
+      - name: ui/ layout and widgets, native == wasm64
+        run: pixi run -e wasm ui-parity
+
+  ui:
+    name: ui/ toolkit (standard library only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: Layout and focus tests, built without the engine on the include path
+        run: pixi run -e wasm test-ui

@@ -15,20 +15,35 @@ D = ROOT / "build/deps"
 SIZES = {1000: 30, 10000: 10}
 
 
-def serial_engine() -> Path:
-    """A copy of the pinned engine whose [native] section also says LUDENS_SERIAL=True, so native runs the same
-    single-threaded code path as wasm. (The engine's own native build is the parallel one.)"""
-    dst = ROOT / "build/deps/ludens-engine-serial"
+def _engine_variant(name: str, serial: bool) -> Path:
+    """A copy of the pinned engine whose [native] section says LUDENS_SERIAL=<serial>. Older engine revs built native
+    parallel (LUDENS_SERIAL=False in [native]); newer ones build the serial no-FMA reference. Either way this gives
+    the variant asked for, so the comparison does not depend on which one the pin has."""
+    dst = ROOT / "build/deps" / name
     subprocess.run(["rm", "-rf", str(dst)], check=True)
     dst.mkdir(parents=True)
     src = D / "ludens-engine"
     for f in src.iterdir():
         if f.name != "wasm.toml":
             (dst / f.name).symlink_to(f)
-    toml = (src / "wasm.toml").read_text()
-    assert 'LUDENS_SERIAL=False' in toml
-    (dst / "wasm.toml").write_text(toml.replace("LUDENS_SERIAL=False", "LUDENS_SERIAL=True"))
+    head, sep, native = (src / "wasm.toml").read_text().partition("[native]")
+    assert sep, "wasm.toml has no [native] section"
+    want, other = ("True", "False") if serial else ("False", "True")
+    native = native.replace(f"LUDENS_SERIAL={other}", f"LUDENS_SERIAL={want}")
+    if f"LUDENS_SERIAL={want}" not in native:  # the section had no LUDENS_SERIAL define at all
+        native = native.replace("mojo_defines = [", f'mojo_defines = ["LUDENS_SERIAL={want}", ', 1) if "mojo_defines = [" in native else native + f'\nmojo_defines = ["LUDENS_SERIAL={want}"]\n'
+    (dst / "wasm.toml").write_text(head + sep + native)
     return dst
+
+
+def serial_engine() -> Path:
+    """The pinned engine with native built single-threaded, the same code path as wasm."""
+    return _engine_variant("ludens-engine-serial", True)
+
+
+def parallel_engine() -> Path:
+    """The pinned engine with native built with parallel dispatch (what an engine's own native build used to be)."""
+    return _engine_variant("ludens-engine-parallel", False)
 
 
 def build(*extra: str, engine: Path = D / "ludens-engine") -> None:
@@ -44,7 +59,7 @@ def main() -> int:
     (ROOT / "build").mkdir(exist_ok=True)
     import native_libs
     native_libs.build_all()
-    build("--target", "native", "-o", "build/bench")  # the engine's own native config (parallel dispatch)
+    build("--target", "native", "-o", "build/bench", engine=parallel_engine())  # parallel dispatch
     build("--target", "native", "-o", "build/bench_serial", engine=serial_engine())
     build("--target", "wasm64", "-o", "build/bench.wasm", "--export", "bench_*")
     native = subprocess.run([str(ROOT / "build/bench_serial")], capture_output=True, text=True, check=True).stdout
