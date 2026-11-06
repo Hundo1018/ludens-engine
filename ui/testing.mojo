@@ -125,4 +125,26 @@ def widget_parity_hash() raises -> UInt64:
         sel = tf.list_box(Rect(0, 40, 100, 72), items, sel, top)
         acc = (acc ^ tf.list.hash()) * UInt64(0x100000001B3)
         acc = (acc ^ UInt64(sel + 1) ^ UInt64(top << 8) ^ UInt64(text.byte_length() << 16) ^ UInt64(tf.caret << 24)) * UInt64(0x100000001B3)
+    # touch gestures: a tap, a drag and a pinch from scripted fingers
+    from ui.gesture import GestureRecognizer, Touch
+    var gr = GestureRecognizer()
+    var t = 0
+    var script = [(1, 50, 50, 0, 0), (1, 52, 51, 0, 0), (0, 0, 0, 0, 0), (1, 100, 100, 0, 0), (1, 131, 100, 0, 0),
+                  (1, 137, 109, 0, 0), (0, 0, 0, 0, 0), (2, 100, 100, 200, 100), (2, 75, 100, 225, 100), (2, 85, 110, 235, 110),
+                  (1, 85, 110, 0, 0), (0, 0, 0, 0, 0), (1, 10, 10, 0, 0)]
+    for k in range(len(script)):
+        var f = script[k]
+        var touches = List[Touch]()
+        if f[0] >= 1:
+            touches.append(Touch(Float32(f[1]), Float32(f[2])))
+        if f[0] == 2:
+            touches.append(Touch(Float32(f[3]), Float32(f[4])))
+        t += 16 if k < 12 else 700
+        for e in gr.feed(touches, t):
+            acc = fnv(acc, Float32(e.kind))
+            acc = fnv(acc, e.x)
+            acc = fnv(acc, e.y)
+            acc = fnv(acc, e.dx)
+            acc = fnv(acc, e.dy)
+            acc = fnv(acc, e.scale)
     return acc
