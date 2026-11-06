@@ -104,4 +104,25 @@ def widget_parity_hash() raises -> UInt64:
         acc = (acc ^ ui.list.hash()) * UInt64(0x100000001B3)
         acc = fnv(acc, volume)
         acc = (acc ^ UInt64(clicked) ^ (UInt64(1) if music else UInt64(0))) * UInt64(0x100000001B3)
+    # text field and list box: typed text (ASCII and CJK), edit keys, selection and a scrolling view
+    var tf = Ui(Theme.dark())
+    var text = String("ab")
+    var items = List[String]()
+    for i in range(8):
+        items.append("row " + String(i))
+    var sel = -1
+    var top = 0
+    var steps = [(10, 10, 0, 0, 0), (10, 10, 1, 0, 0), (10, 10, 0, 0, 0), (600, 600, 0, 0, 0x63), (600, 600, 0, 3, 0),
+                 (600, 600, 0, 0, 0x4E2D), (600, 600, 0, 7, 0), (600, 600, 0, 8, 0), (10, 60, 0, 0, 0), (10, 60, 1, 0, 0),
+                 (600, 600, 0, 6, 0), (600, 600, 0, 6, 0), (600, 600, 0, 6, 0), (600, 600, 0, 10, 0), (600, 600, 0, 9, 0)]
+    for k in range(len(steps)):
+        var st = steps[k]
+        var typed = List[Int]()
+        if st[4] != 0:
+            typed.append(st[4])
+        tf.begin_frame_typed(Float32(st[0]), Float32(st[1]), st[2] == 1, st[3], typed)
+        text = tf.text_field(Rect(0, 0, 200, 24), text)
+        sel = tf.list_box(Rect(0, 40, 100, 72), items, sel, top)
+        acc = (acc ^ tf.list.hash()) * UInt64(0x100000001B3)
+        acc = (acc ^ UInt64(sel + 1) ^ UInt64(top << 8) ^ UInt64(text.byte_length() << 16) ^ UInt64(tf.caret << 24)) * UInt64(0x100000001B3)
     return acc
