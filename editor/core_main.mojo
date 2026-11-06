@@ -15,7 +15,8 @@ layer and `cmd` through the CLI entry, so a test can compare the two across proc
 
 Exit code: 0 ok, 1 error (message on stderr)."""
 from std.sys import argv, exit, stderr
-from editor.command import Editor
+from editor.builtin import MoveBody
+from editor.state import Editor
 from editor.entry import cli_run, gui_move_body
 from editor.scene_text import scene_rows_from_text, scene_rows_to_text
 from embed.scene_io import export_scene, import_scene, scene_from_fields, scene_to_fields
@@ -154,7 +155,7 @@ def run_command(args: List[String]) raises:
         var argv_ = List[String]()
         for i in range(dash + 1, len(args)):
             argv_.append(args[i])
-        cli_run(ed, argv_)
+        cli_run[MoveBody](ed, argv_)
         report(ed)
         save(ed, out_path(args, dash, args[1]))
     elif sub == "script":
@@ -172,7 +173,7 @@ def run_command(args: List[String]) raises:
                     if not ed.undo():
                         raise Error("nothing to undo")
                 else:
-                    cli_run(ed, w)
+                    cli_run[MoveBody](ed, w)
             except e:
                 raise Error(args[2] + ":" + String(i + 1) + ": " + String(e))
         report(ed)
@@ -183,7 +184,7 @@ def run_command(args: List[String]) raises:
         var ed = load(args[1])
         var h = Int64(Int(real_arg(args[2], "handle")))
         var p = Vec3(Real(real_arg(args[3], "x")), Real(real_arg(args[4], "y")), Real(real_arg(args[5], "z")), 0.0)
-        gui_move_body(ed, h, p)
+        gui_move_body[MoveBody](ed, h, p)
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:

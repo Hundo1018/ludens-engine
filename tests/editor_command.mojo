@@ -1,7 +1,9 @@
 """Command layer test (ludens-shell #6): GUI and CLI entry points give the same world, and undo works.
 
 Native only, no GPU. Build and run: `pixi run -e wasm test-editor`."""
-from editor.command import Editor
+from editor.builtin import MoveBody
+from editor.ext import Registry
+from editor.state import Editor
 from editor.entry import cli_run, gui_move_body
 from embed.world import EmbedWorld
 from geometry.vec import Real, Vec3
@@ -50,14 +52,14 @@ def main() raises:
     var cli = Editor(make_world(hb))
     var untouched = make_world(hc)
     var target = ha[3]
-    gui_move_body(gui, target, Vec3(0.7, 3.0, -0.3, 0.0))
+    gui_move_body[MoveBody](gui, target, Vec3(0.7, 3.0, -0.3, 0.0))
     var argv = List[String]()
     argv.append("move_body")
     argv.append(String(hb[3]))
     argv.append("0.7")
     argv.append("3.0")
     argv.append("-0.3")
-    cli_run(cli, argv)
+    cli_run[MoveBody](cli, argv)
     c.ok(gui.world.hash() == cli.world.hash(), "GUI and CLI entries: same world hash right after the command")
     c.ok(gui.world.hash() != untouched.hash(), "the command changed the world")
     # Control: a CLI argument that differs by 1e-7 must give a different hash, or the equality above proves nothing.
@@ -69,7 +71,7 @@ def main() raises:
     argv2.append("0.7000001")
     argv2.append("3.0")
     argv2.append("-0.3")
-    cli_run(off_by_a_bit, argv2)
+    cli_run[MoveBody](off_by_a_bit, argv2)
     c.ok(off_by_a_bit.world.hash() != gui.world.hash(), "control: an argument 1e-7 away gives a different hash")
     run_ticks(gui.world, 120)
     run_ticks(cli.world, 120)
@@ -81,7 +83,7 @@ def main() raises:
     var via_text = Editor(make_world(h1))
     var direct = make_world(h2)
     var p = Vec3(Real(1.0 / 3.0), Real(2.0 / 7.0), Real(-0.1), 0.0)
-    gui_move_body(via_text, h1[2], p)
+    gui_move_body[MoveBody](via_text, h1[2], p)
     var st = direct.state(h2[2])
     direct.teleport(h2[2], p, st.rot)
     c.ok(via_text.world.hash() == direct.hash(), "text round trip equals a direct teleport (1/3, 2/7, -0.1)")
@@ -91,7 +93,7 @@ def main() raises:
     var ed = Editor(make_world(h3))
     var pose0 = ed.world.state(h3[2])
     var hash0 = ed.world.hash()
-    gui_move_body(ed, h3[2], Vec3(5.0, 6.0, 7.0, 0.0))
+    gui_move_body[MoveBody](ed, h3[2], Vec3(5.0, 6.0, 7.0, 0.0))
     var moved = ed.world.state(h3[2])
     c.ok(Float64(moved.pos[0]) == 5.0 and Float64(moved.pos[1]) == 6.0 and Float64(moved.pos[2]) == 7.0, "move_body placed the body")
     c.ok(ed.undo(), "undo reports it undid something")
@@ -112,13 +114,13 @@ def main() raises:
     var before = bad.world.hash()
     var raised = 0
     try:
-        bad.execute("no_such_command", List[String]())
+        Registry[MoveBody].run(bad, "no_such_command", List[String]())
     except:
         raised += 1
     var short = List[String]()
     short.append("1")
     try:
-        bad.execute("move_body", short)
+        Registry[MoveBody].run(bad, "move_body", short)
     except:
         raised += 1
     var not_a_number = List[String]()
@@ -127,7 +129,7 @@ def main() raises:
     not_a_number.append("0")
     not_a_number.append("0")
     try:
-        bad.execute("move_body", not_a_number)
+        Registry[MoveBody].run(bad, "move_body", not_a_number)
     except:
         raised += 1
     c.ok(raised == 3, "unknown command, wrong argument count and a non-number all raise")
