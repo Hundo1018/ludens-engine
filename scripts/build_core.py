@@ -28,7 +28,7 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
     """Build `entry` (relative to the repo) to `out`. Raises SystemExit with the compiler output on failure.
 
     `engine=False` builds with the standard library only (the `ui/` tests: that directory must stand alone)."""
-    sources = [*ROOT.glob("editor/**/*.mojo"), *ROOT.glob("ui/**/*.mojo"), ROOT / entry]
+    sources = [*ROOT.glob("editor/**/*.mojo"), *ROOT.glob("ui/**/*.mojo"), *ROOT.glob("game/**/*.mojo"), ROOT / entry]
     includes = ["-I", "."]
     if engine:
         if "LUDENS_ENGINE" not in os.environ:

@@ -48,6 +48,8 @@ jobs:
         run: |
           bash scripts/deps.sh
           pixi run -e wasm xfer-parity
+      - name: Event sheet, native == wasm64
+        run: pixi run -e wasm sheet-parity
       - name: ui/ layout and widgets, native == wasm64
         run: pixi run -e wasm ui-parity
 
