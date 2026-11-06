@@ -23,6 +23,7 @@ from embed.scene_io import export_scene, import_scene, scene_from_fields, scene_
 from embed.world import EmbedWorld, pack_body
 from geometry.quat import Quat
 from geometry.vec import Real, Vec3
+from physics.capture import CaptureReader, verify
 
 comptime DEMO_DT = 1.0 / 60.0
 
@@ -40,6 +41,16 @@ def hex16(v: UInt64) -> String:
 def read_file(path: String) raises -> String:
     with open(path, "r") as f:
         return f.read()
+
+
+def read_bytes(path: String) raises -> List[UInt8]:
+    with open(path, "r") as f:
+        return f.read_bytes()
+
+
+def write_bytes(path: String, data: List[UInt8]) raises:
+    with open(path, "w") as f:
+        f.write_bytes(data)
 
 
 def write_file(path: String, text: String) raises:
@@ -154,6 +165,29 @@ def run_command(args: List[String]) raises:
         run_ticks(ed, n)
         report(ed)
         write_file(args[3], ed.world.scene.trace.to_chrome_json())
+    elif sub == "capture":
+        if len(args) != 4:
+            raise Error("usage: capture <scene> <ticks> <out.cap>")
+        var ed = load(args[1])
+        var n = Int(real_arg(args[2], "ticks"))
+        if n < 1:
+            raise Error("ticks must be >= 1")
+        ed.world.capture_begin(30)
+        run_ticks(ed, n)
+        ed.world.capture_end()
+        write_bytes(args[3], ed.world.capture.to_bytes())
+        print("captured", ed.world.capture.frame_count(), "frames")
+        report(ed)
+    elif sub == "replay":
+        if len(args) != 3:
+            raise Error("usage: replay <scene> <capture>")
+        var ed = load(args[1])
+        var rd = CaptureReader(read_bytes(args[2]))
+        var first_bad = verify(rd, 0, rd.frame_count(), Real(ed.world.dt), ed.world.gravity, ed.world.cfg)
+        if first_bad >= 0:
+            print("mismatch at frame", first_bad, "of", rd.frame_count())
+            exit(1)
+        print("verified", rd.frame_count(), "frames")
     elif sub == "cmd":
         var dash = -1
         for i in range(len(args)):
@@ -201,7 +235,7 @@ def run_command(args: List[String]) raises:
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:
-        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, cmd, script, gui-move)")
+        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, capture, replay, cmd, script, gui-move)")
 
 
 def main():
@@ -210,7 +244,7 @@ def main():
     for i in range(1, len(a)):
         args.append(String(a[i]))
     if len(args) == 0:
-        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, cmd, script, gui-move)")
+        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, capture, replay, cmd, script, gui-move)")
         exit(1)
     try:
         run_command(args)

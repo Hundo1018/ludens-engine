@@ -7,6 +7,7 @@
     ludens cmd [-o OUT] <name> <args>   run one editor command on the scene, in place
     ludens script <file> [-o OUT]       run a file of commands (one per line, `#` comments, `undo`, `redo`)
     ludens build --target web           build build/web (wasm64 module + JS) and MANIFEST.sha256
+    ludens capture <ticks> -o OUT.cap   record every tick;  ludens replay <file.cap>  verify it, naming the first bad frame
     ludens trace <ticks> -o OUT.json    step the scene with profiling spans on and write a Chrome trace (Perfetto) file
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
@@ -111,6 +112,15 @@ def cmd_build(a) -> int:
     return 0
 
 
+def cmd_capture(a) -> int:
+    return run_core("capture", scene_of(find_project(a.project)), str(a.ticks), a.output)
+
+
+def cmd_replay(a) -> int:
+    """Check a capture file against a re-simulation of the project's scene; exit 1 and name the first frame that differs."""
+    return run_core("replay", scene_of(find_project(a.project)), a.capture)
+
+
 def cmd_cmd(a) -> int:
     rest = a.rest[1:] if a.rest[:1] == ["--"] else a.rest
     if not rest:
@@ -147,6 +157,13 @@ def main() -> int:
     p.add_argument("--target", choices=["web", "native", "android"], default="web")
     p.add_argument("--config", choices=["debug", "release"], default="release")
     p.set_defaults(f=cmd_build)
+    p = sp.add_parser("capture", help="step the scene and record every tick to a capture file")
+    p.add_argument("ticks", type=int)
+    p.add_argument("-o", "--output", required=True)
+    p.set_defaults(f=cmd_capture)
+    p = sp.add_parser("replay", help="verify a capture file against a re-simulation; names the first frame that differs")
+    p.add_argument("capture")
+    p.set_defaults(f=cmd_replay)
     p = sp.add_parser("trace", help="step the scene and write a Chrome trace (Perfetto) JSON")
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output", required=True)
