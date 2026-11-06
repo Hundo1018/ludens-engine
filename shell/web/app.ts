@@ -5,6 +5,7 @@ import { createImports as wgpuImports } from "./webgpu_host.mjs";
 import { Runtime } from "./webgpu_runtime.mjs";
 import * as miniaudio from "./miniaudio_host.mjs";
 import * as net from "./net_host.mjs";
+import { createOsImports, opfsStorage } from "./os_host.mjs";
 import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
 import type { AppExports } from "./exports";
@@ -73,7 +74,7 @@ async function boot(canvas: HTMLCanvasElement) {
   ]);
   const wrt = new Runtime(layout, enums);
   // wgpu's createImports returns the flat env table; the shared host wants {namespace: table}.
-  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(wgpuImports(wrt)) }), miniaudio, net] });
+  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(wgpuImports(wrt)) }), miniaudio, net, (r) => createOsImports(r, { storage: opfsStorage() })] });
   wrt.attach(rt);
   const x = rt.exports as unknown as AppExports;
   const [sel, len] = rt.str_in("#" + canvas.id);
