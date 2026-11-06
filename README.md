@@ -1,9 +1,13 @@
 # ludens-shell
 
-A shell puts one general core (a single wasm64 module) into a platform's host program. The browser is the first shell
-(`shell/web/`); `shell/desktop/` and `shell/mobile/` would sit beside it. Every shell does one thing: implement the
-same imports (`host_*` belongs to [ludens-wasm-rt](https://github.com/Hundo1018/ludens-wasm-rt), `wgpu*` mirrors
-`webgpu.h`, `net_*` is the WebSocket pair).
+ludens-shell is three things around one general core, a single wasm64 module:
+
+- **Platform shells** (`shell/web/`; `shell/desktop/` and `shell/mobile/` would sit beside it) put the module into a
+  platform's host program. A shell does one thing: implement the module's imports (`host_*` belongs to
+  [ludens-wasm-rt](https://github.com/Hundo1018/ludens-wasm-rt), `wgpu*` mirrors `webgpu.h`, `net_*` is the
+  WebSocket pair, `os_*` is the platform services planned in #8). It knows no application.
+- **Shared UI** (`ui/`): text, layout, input and widgets for both the game and the editor. Mojo, drawn through wgpu.
+- **Applications**: the game (`app/`) and the editor (`editor/`). Both are Mojo, compiled into the same module.
 
 Dependency direction: ludens-shell → {ludens-engine, wgpu-mojo, miniaudio-mojo} → ludens-wasm-rt.
 
@@ -14,9 +18,34 @@ Dependency direction: ludens-shell → {ludens-engine, wgpu-mojo, miniaudio-mojo
 | `app/main.mojo` | The one Mojo entry. Calls `EmbedWorld`, wgpu and miniaudio Mojo to Mojo; the `app_*` exports are only the JS face. |
 | `app/render.mojo` | Draws the bodies as boxes: one storage buffer, vertex pulling, no vertex buffer. |
 | `app/bench.mojo` | The B3 bench entry (same source for native and wasm64). |
+| `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Empty until #17. |
+| `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
+| `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
+| `scripts/check_layout.py` | The directory rules below, as a check with a selftest. |
 | `shell/web/` | `app.ts`, `index.html`, `worklet.js` (AudioWorklet ring), `serve.py` (COOP/COEP), `exports.d.ts` (generated). |
 | `deps.lock` | Pinned revs of the three libraries; `scripts/deps.sh` exports them to `build/deps/`. |
 | `wasm.toml` | Passive manifest for ludens-wasm-rt's driver (declares `net_*`, native section). |
+
+## Rules
+
+Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selftest` injects one violation per rule).
+
+1. **Directories.**
+   - `shell/<platform>/` implements imports only. It holds no editor or UI symbol (`editor_*`, `ed_*`, `ui_*`),
+     no path into `editor/` or `ui/`, and uses only generic `app_*` exports.
+   - `ui/` imports the standard library, `wgpu` and itself. It never imports engine packages, `app/` or `editor/`,
+     so it can be split out as a library unchanged.
+   - `editor/` and `ui/` hold Mojo (and Markdown) only: no TS, JS, HTML or CSS.
+   - Game-specific UI (HUD, menu flow, gamepad navigation, styling) is written by the game's author in `app/` on top
+     of `ui/`. This repo provides `ui/` and the sample game's demo HUD.
+2. **Commands.** Every editing operation is a command in `editor/`: a name, text arguments and an inverse. The GUI and
+   the CLI (#11) call the same commands, so what the GUI does can be scripted and replayed in CI. The test
+   `pixi run -e wasm test-editor` moves a body once through the GUI entry and once through the CLI entry and compares
+   `EmbedWorld.hash()`.
+3. **Scene format.** Defined by this repo (#9). The engine provides schema read/write, diffs and parity with the
+   deterministic snapshot (ludens-engine #82).
+4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
+   `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
 
 ## Build and run
 

@@ -30,6 +30,9 @@ parity-gate = "python3 scripts/parity_gate.py"
 serve-web = { cmd = "python3 shell/web/serve.py 8000 build/web", depends-on = ["build-web"] }
 # B1 acceptance: app_init + 1 frame under node must not trap.
 smoke-node = { cmd = "python3 scripts/smoke_node.py", depends-on = ["build-wasm"] }
+# #6 (E1): the directory rules (selftest: `pixi run -e wasm check-layout --selftest`) and the command-layer test.
+check-layout = "python3 scripts/check_layout.py"
+test-editor = "python3 scripts/test_editor.py"
 
 [environments]
 wasm = { features = ["wasm"] }
