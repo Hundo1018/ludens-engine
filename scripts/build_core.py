@@ -24,7 +24,7 @@ def newest(paths) -> float:
     return max((p.stat().st_mtime for p in paths), default=0.0)
 
 
-def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = False, engine: bool = True) -> Path:
+def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = False, engine: bool = True, defines: tuple = ()) -> Path:
     """Build `entry` (relative to the repo) to `out`. Raises SystemExit with the compiler output on failure.
 
     `engine=False` builds with the standard library only (the `ui/` tests: that directory must stand alone)."""
@@ -39,7 +39,7 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
         return out
     out.parent.mkdir(exist_ok=True)
     mojo = Path(os.environ["CONDA_PREFIX"]) / "bin/mojo"
-    cmd = [str(mojo), "build", *(["-D", "ASSERT=all"] if asserts else []), *includes, entry, "-o", str(out)]
+    cmd = [str(mojo), "build", *(["-D", "ASSERT=all"] if asserts else []), *[x for d in defines for x in ("-D", d)], *includes, entry, "-o", str(out)]
     proc = subprocess.run(cmd, cwd=ROOT, env=native_libs.native_env(), capture_output=True, text=True)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
@@ -48,6 +48,11 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
 
 def core() -> Path:
     return build_native("editor/core_main.mojo", ROOT / "build/ludens-core")
+
+
+def core_trace() -> Path:
+    """The same core built with `-D LUDENS_TRACE=True`: the engine's profiling spans are recorded (`ludens trace`)."""
+    return build_native("editor/core_main.mojo", ROOT / "build/ludens-core-trace", defines=("LUDENS_TRACE=True",))
 
 
 if __name__ == "__main__":

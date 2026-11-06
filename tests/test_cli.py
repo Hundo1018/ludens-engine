@@ -11,6 +11,7 @@ Checks, each across process boundaries and through text scene files:
   - run -o writes the scene back byte for byte when nothing happened (text round trip);
   - errors exit non-zero, name what is wrong and write nothing.
 """
+import json
 import os
 import re
 import subprocess
@@ -115,6 +116,21 @@ def main() -> int:
         undo_script.write_text(" ".join(move) + "\nundo\n")
         re_ = core_run("script", str(e), str(undo_script))
         check(re_.returncode == 0 and world_hash(re_) == h0 and e.read_bytes() == original, "script: an edit followed by undo restores the original scene bytes")
+
+        # ---- trace: the engine's profiling spans as Chrome trace JSON, without changing the simulation
+        tr = root / "trace.json"
+        plain = core_run("run", str(root / "copy.scene"), "120")
+        traced = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "120", str(tr)], capture_output=True, text=True)
+        check(traced.returncode == 0 and world_hash(traced) is not None and world_hash(traced) == world_hash(plain), "trace: the world hash after 120 ticks equals a run without tracing")
+        events = json.loads(tr.read_text(encoding="utf-8"))
+        names = {e["name"] for e in events}
+        check(isinstance(events, list) and len(events) > 0 and {"broadphase", "narrowphase"} <= names, f"trace: a JSON array of events that includes broadphase and narrowphase ({sorted(names)})")
+        check(all(e["ph"] in ("X", "C") and isinstance(e["ts"], int) and e["pid"] == 0 for e in events) and all(e["dur"] >= 0 for e in events if e["ph"] == "X"), "trace: every event has a phase, an integer timestamp, a pid and a non-negative duration")
+        zero = root / "zero.json"
+        subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "0", str(zero)], check=True, capture_output=True)
+        check(json.loads(zero.read_text(encoding="utf-8")) == [], "trace: zero ticks give an empty array")
+        r = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "-3", str(root / "x.json")], capture_output=True, text=True)
+        check(r.returncode == 1 and not (root / "x.json").exists(), "trace: negative ticks are refused and write nothing")
 
         # ---- errors write nothing
         f = root / "f.scene"
