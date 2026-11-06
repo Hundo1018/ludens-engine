@@ -282,6 +282,24 @@ def main() raises:
     lb_frame(lb, empty, es, et, 10, 10, True, KEY_NONE)
     c.ok(es == -1 and et == 0, "an empty list selects nothing")
 
+    # 9. The wheel scrolls a list without changing its selection and clamps at both ends.
+    var wl = Ui(Theme.dark())
+    var wsel = 1
+    var wtop = 0
+    var no_keys = List[Int]()
+    wl.begin_frame_input(10, 30, False, KEY_NONE, no_keys, 2)
+    wsel = wl.list_box(Rect(0, 0, 100, 72), items, wsel, wtop)
+    c.ok(wtop == 2 and wsel == 1, "two notches down scroll the view by two rows, the selection stays")
+    wl.begin_frame_input(10, 30, False, KEY_NONE, no_keys, 50)
+    wsel = wl.list_box(Rect(0, 0, 100, 72), items, wsel, wtop)
+    c.eq(wtop, 7, "a long scroll clamps at the last full page (10 rows, 3 visible)")
+    wl.begin_frame_input(10, 30, False, KEY_NONE, no_keys, -50)
+    wsel = wl.list_box(Rect(0, 0, 100, 72), items, wsel, wtop)
+    c.eq(wtop, 0, "...and at the top")
+    wl.begin_frame_input(600, 600, False, KEY_NONE, no_keys, 3)
+    wsel = wl.list_box(Rect(0, 0, 100, 72), items, wsel, wtop)
+    c.eq(wtop, 0, "the wheel over another place does nothing to this list")
+
     print("ui_widgets:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
         raise Error("ui_widgets: " + String(c.failed) + " checks failed")

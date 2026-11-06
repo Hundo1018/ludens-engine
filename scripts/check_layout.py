@@ -10,8 +10,9 @@ Rules (README "Rules"):
   R2  ui/ imports only the standard library, wgpu-mojo and itself. Never engine packages, app/ or editor/.
   R3  editor/ and ui/ hold Mojo and Markdown only (allowlist: .mojo, .md). Anything else, web files or
       Python or C, is a violation. If ui/ ever needs .wgsl files, add the suffix here with the decision.
-  R4  editor/ built-ins call the extension API (#18) instead of editor internals. Pending until #18 lands:
-      flip EXTENSION_API_ENFORCED once the registration points exist.
+  R4  editor/ built-ins (editor/builtin*.mojo) reach the rest of editor/ only through the extension API: they may
+      import `editor.ext` (the registration traits) and `editor.state` (the `Editor` a command is handed), and no
+      other editor module (not the entry points, the CLI core, the command facade or the scene text).
 """
 import argparse
 import re
@@ -22,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 UI_ALLOWED_IMPORTS = {"std", "wgpu", "ui"}
-EXTENSION_API_ENFORCED = False  # R4, see issue #18
+BUILTIN_EDITOR_ALLOWED = {"editor.ext", "editor.state"}  # R4, see issue #18
 SHELL_SOURCE_SUFFIXES = {".ts", ".tsx", ".js", ".mjs", ".html", ".css", ".py"}
 MOJO_ONLY_ALLOWED_SUFFIXES = {".mojo", ".md"}
 
@@ -75,9 +76,16 @@ def check(root: Path) -> list[str]:
                 continue
             problems.append(f"R3 {p.relative_to(root)}: {sub}/ holds Mojo and Markdown only, not `{p.suffix or p.name}`")
 
-    # R4: pending the extension API.
-    if EXTENSION_API_ENFORCED:
-        problems.append("R4 enabled but not implemented: add the check together with the registration points (#18)")
+    # R4: built-ins use the extension API only.
+    for p in files(root, "editor", {".mojo"}):
+        if not p.name.startswith("builtin"):
+            continue
+        text = p.read_text(encoding="utf-8")
+        for m in IMPORT.finditer(text):
+            mod = m.group(1) or m.group(2)
+            if mod.split(".")[0] == "editor" and mod not in BUILTIN_EDITOR_ALLOWED:
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append(f"R4 {p.relative_to(root)}:{line}: built-in imports `{mod}` (allowed from editor/: {', '.join(sorted(BUILTIN_EDITOR_ALLOWED))})")
     return problems
 
 
@@ -114,6 +122,10 @@ def selftest() -> int:
     expect("html inside ui", {**clean, "ui/index.html": "<html></html>\n"}, ["R3"])
     expect("python inside editor", {**clean, "editor/helper.py": "x = 1\n"}, ["R3"])
     expect("C inside ui", {**clean, "ui/glue.c": "int x;\n"}, ["R3"])
+    expect("built-in uses the extension API", {**clean, "editor/builtin.mojo": "from editor.ext import Command\nfrom editor.state import Editor\nfrom embed.world import EmbedWorld\n"}, [])
+    expect("built-in reaches into the entry points", {**clean, "editor/builtin.mojo": "from editor.entry import cli_run\n"}, ["R4"])
+    expect("built-in imports the command facade", {**clean, "editor/builtin_panels.mojo": "import editor.command\n"}, ["R4"])
+    expect("a non-built-in module may import editor internals", {**clean, "editor/entry.mojo": "from editor.command import Standard\n"}, [])
     expect("markdown and a dotfile are fine", {**clean, "editor/NOTES.md": "# n\n", "ui/.gitkeep": ""}, [])
     print(f"layout selftest: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
@@ -129,8 +141,6 @@ def main() -> int:
     problems = check(args.root)
     for p in problems:
         print(p)
-    if not EXTENSION_API_ENFORCED:
-        print("note: R4 (editor/ built-ins use only the extension API) is pending #18")
     print(f"layout: {'FAIL' if problems else 'PASS'} ({len(problems)} problems)")
     return 1 if problems else 0
 

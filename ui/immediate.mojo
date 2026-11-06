@@ -76,6 +76,7 @@ struct Ui(Movable):
     var prev_sliders: List[Int]
     var vlists: List[Int]  # ids of this frame's list boxes: they keep Up / Down for themselves
     var prev_vlists: List[Int]
+    var wheel: Float32  # scroll wheel notches this frame, > 0 = down (`begin_frame_input`)
     var typed: List[Int]  # code points typed this frame (`begin_frame_typed`)
     var caret: Int  # in code points, for the focused text field
 
@@ -100,13 +101,20 @@ struct Ui(Movable):
         self.prev_sliders = List[Int]()
         self.vlists = List[Int]()
         self.prev_vlists = List[Int]()
+        self.wheel = 0
         self.typed = List[Int]()
         self.caret = 0
+
+    def begin_frame_input(mut self, mx: Float32, my: Float32, down: Bool, key: Int, typed: List[Int], wheel: Float32):
+        """`begin_frame_typed` plus the scroll wheel: notches since the last frame, positive = scroll down."""
+        self.begin_frame_typed(mx, my, down, key, typed)
+        self.wheel = wheel
 
     def begin_frame_typed(mut self, mx: Float32, my: Float32, down: Bool, key: Int, typed: List[Int]):
         """`begin_frame` plus the code points the user typed since the last frame (what a text field inserts)."""
         self.begin_frame(mx, my, down, key)
         self.typed = typed.copy()
+        self.wheel = 0
 
     def begin_frame(mut self, mx: Float32, my: Float32, down: Bool, key: Int):
         self.typed = List[Int]()
@@ -342,11 +350,15 @@ struct Ui(Movable):
                 next = len(items) - 1
         if next >= len(items):
             next = len(items) - 1
-        if next >= 0:
+        if enabled and self.hot == id and self.wheel != 0:
+            top += Int(self.wheel)  # the wheel moves the view without changing the selection
+        elif next >= 0 and next != selected:
             if next < top:
                 top = next
             elif next >= top + visible:
                 top = next - visible + 1
+        elif next >= 0 and (next < top or next >= top + visible) and self.wheel == 0 and self.focus == id:
+            top = next if next < top else next - visible + 1
         if top > len(items) - visible:
             top = len(items) - visible
         if top < 0:
