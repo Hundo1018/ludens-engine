@@ -1,6 +1,7 @@
 """Deterministic helpers for testing ui/ (ludens-shell #17): a seeded generator, random layout trees and a hash of
 the rectangles they lay out to. Standard library only. The unit tests and the native / wasm64 parity program
 (`app/ui_parity.mojo`) share them, so both look at the same trees."""
+from ui.batch import build_batch
 from ui.geom import Insets, Rect
 from ui.layout import COLUMN, ROW, Node, Tree
 
@@ -124,6 +125,10 @@ def widget_parity_hash() raises -> UInt64:
         text = tf.text_field(Rect(0, 0, 200, 24), text)
         sel = tf.list_box(Rect(0, 40, 100, 72), items, sel, top)
         acc = (acc ^ tf.list.hash()) * UInt64(0x100000001B3)
+        var batch = build_batch(tf.list)
+        for v in batch.verts:
+            acc = fnv(acc, v)
+        acc = fnv(acc, Float32(len(batch.segments)))
         acc = (acc ^ UInt64(sel + 1) ^ UInt64(top << 8) ^ UInt64(text.byte_length() << 16) ^ UInt64(tf.caret << 24)) * UInt64(0x100000001B3)
     # touch gestures: a tap, a drag and a pinch from scripted fingers
     from ui.gesture import GestureRecognizer, Touch
