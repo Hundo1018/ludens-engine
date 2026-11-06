@@ -245,6 +245,43 @@ def main() raises:
     tf_frame(other, untouched, 600, 600, False, KEY_NONE, z)
     c.ok(untouched == "hi", "an unfocused field ignores typed text")
 
+    # 8. List box: click selects, Up / Down move the selection (and keep focus in the list), the view follows it.
+    var lb = Ui(Theme.dark())
+    var items = List[String]()
+    for i in range(10):
+        items.append("row " + String(i))
+    var sel = -1
+    var top = 0
+
+    def lb_frame(mut ui: Ui, items: List[String], mut sel: Int, mut top: Int, x: Float32, y: Float32, down: Bool, key: Int):
+        ui.begin_frame(x, y, down, key)
+        sel = ui.list_box(Rect(0, 0, 100, 72), items, sel, top)  # 72 px / 24 px rows = 3 visible
+
+    lb_frame(lb, items, sel, top, 10, 30, False, KEY_NONE)
+    lb_frame(lb, items, sel, top, 10, 30, True, KEY_NONE)
+    lb_frame(lb, items, sel, top, 10, 30, False, KEY_NONE)
+    c.eq(sel, 1, "a click on the second row selects it")
+    c.eq(lb.focus, 0, "...and focuses the list")
+    lb_frame(lb, items, sel, top, 600, 600, False, KEY_DOWN)
+    lb_frame(lb, items, sel, top, 600, 600, False, KEY_DOWN)
+    c.eq(sel, 3, "Down twice selects row 3")
+    c.eq(top, 1, "the view scrolled by one row to keep row 3 visible")
+    c.eq(lb.focus, 0, "Down moved the selection, not the focus")
+    lb_frame(lb, items, sel, top, 600, 600, False, KEY_END)
+    c.ok(sel == 9 and top == 7, "End selects the last row and shows it")
+    lb_frame(lb, items, sel, top, 600, 600, False, KEY_DOWN)
+    c.eq(sel, 9, "Down at the last row stays")
+    lb_frame(lb, items, sel, top, 600, 600, False, KEY_HOME)
+    c.ok(sel == 0 and top == 0, "Home returns to the first row")
+    lb_frame(lb, items, sel, top, 10, 60, False, KEY_NONE)
+    lb_frame(lb, items, sel, top, 10, 60, True, KEY_NONE)
+    c.eq(sel, 2, "with the view at the top, a click at y = 60 selects row 2")
+    var empty = List[String]()
+    var es = -1
+    var et = 0
+    lb_frame(lb, empty, es, et, 10, 10, True, KEY_NONE)
+    c.ok(es == -1 and et == 0, "an empty list selects nothing")
+
     print("ui_widgets:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
         raise Error("ui_widgets: " + String(c.failed) + " checks failed")

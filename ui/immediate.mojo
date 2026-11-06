@@ -74,6 +74,8 @@ struct Ui(Movable):
     var prev_ids: List[Int]
     var sliders: List[Int]  # ids of this frame's sliders: they keep Left / Right for themselves
     var prev_sliders: List[Int]
+    var vlists: List[Int]  # ids of this frame's list boxes: they keep Up / Down for themselves
+    var prev_vlists: List[Int]
     var typed: List[Int]  # code points typed this frame (`begin_frame_typed`)
     var caret: Int  # in code points, for the focused text field
 
@@ -96,6 +98,8 @@ struct Ui(Movable):
         self.prev_ids = List[Int]()
         self.sliders = List[Int]()
         self.prev_sliders = List[Int]()
+        self.vlists = List[Int]()
+        self.prev_vlists = List[Int]()
         self.typed = List[Int]()
         self.caret = 0
 
@@ -117,6 +121,8 @@ struct Ui(Movable):
         self.prev_rects = self.rects^
         self.prev_ids = self.ids^
         self.prev_sliders = self.sliders^
+        self.prev_vlists = self.vlists^
+        self.vlists = List[Int]()
         self.rects = List[Rect]()
         self.ids = List[Int]()
         self.sliders = List[Int]()
@@ -135,6 +141,9 @@ struct Ui(Movable):
                 on_slider = True
         if on_slider and (dir == DIR_LEFT or dir == DIR_RIGHT):
             dir = -1  # a focused slider takes Left / Right as steps
+        for i in range(len(self.prev_vlists)):
+            if self.prev_vlists[i] == self.focus and (dir == DIR_UP or dir == DIR_DOWN):
+                dir = -1  # a focused list box takes Up / Down to move its selection
         if dir >= 0 and len(self.prev_rects) > 0:
             var at = -1
             for i in range(len(self.prev_ids)):
@@ -304,6 +313,55 @@ struct Ui(Movable):
             # caret: a thin bar after `caret` characters, 0.6 em per character (the real advance is the renderer's job)
             var cx = rect.x + 4 + Float32(self.caret) * self.theme.font_size * 0.6
             self.list.fill(Rect(cx, rect.y + 3, 1, rect.h - 6), self.theme.accent)
+        return next
+
+    def list_box(mut self, rect: Rect, items: List[String], selected: Int, mut top: Int, row_h: Float32 = 24, enabled: Bool = True) -> Int:
+        """Returns the selected row (-1 = none). `top` is the first visible row, kept by the caller; it follows the
+        selection so the selected row stays visible. A click on a row selects it; Up / Down move the selection when
+        the list has focus. Rows that do not fit are clipped, not drawn."""
+        var id = self._begin_widget(rect, enabled)
+        if enabled:
+            self.vlists.append(id)
+        _ = self._clicked(id, rect, enabled)
+        var visible = Int(rect.h / row_h)
+        if visible < 1:
+            visible = 1
+        var next = selected
+        if enabled:
+            if self.pressed() and self.hot == id:
+                var row = top + Int((self.my - rect.y) / row_h)
+                if row >= 0 and row < len(items):
+                    next = row
+            elif self.focus == id and self.key == KEY_DOWN and next < len(items) - 1:
+                next += 1
+            elif self.focus == id and self.key == KEY_UP and next > 0:
+                next -= 1
+            elif self.focus == id and self.key == KEY_HOME and len(items) > 0:
+                next = 0
+            elif self.focus == id and self.key == KEY_END and len(items) > 0:
+                next = len(items) - 1
+        if next >= len(items):
+            next = len(items) - 1
+        if next >= 0:
+            if next < top:
+                top = next
+            elif next >= top + visible:
+                top = next - visible + 1
+        if top > len(items) - visible:
+            top = len(items) - visible
+        if top < 0:
+            top = 0
+        self._chrome(id, rect, enabled)
+        self.list.push_clip(rect)
+        for k in range(visible):
+            var i = top + k
+            if i >= len(items):
+                break
+            var r = Rect(rect.x, rect.y + Float32(k) * row_h, rect.w, row_h)
+            if i == next:
+                self.list.fill(r, self.theme.accent)
+            self.list.text(Rect(r.x + 4, r.y, r.w - 8, r.h), items[i], self.theme.text if enabled else self.theme.text_disabled, self.theme.font_size)
+        self.list.pop_clip()
         return next
 
     def label(mut self, rect: Rect, text: String):
