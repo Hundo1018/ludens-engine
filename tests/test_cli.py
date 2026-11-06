@@ -132,6 +132,34 @@ def main() -> int:
         r = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "-3", str(root / "x.json")], capture_output=True, text=True)
         check(r.returncode == 1 and not (root / "x.json").exists(), "trace: negative ticks are refused and write nothing")
 
+        # ---- capture and replay: a recording can be checked against a re-simulation
+        import struct
+        cap = root / "run.cap"
+        rc_ = core_run("capture", str(root / "copy.scene"), "120", str(cap))
+        check(rc_.returncode == 0 and "captured 120 frames" in rc_.stdout and cap.exists(), "capture: 120 frames recorded")
+        rp = core_run("replay", str(root / "copy.scene"), str(cap))
+        check(rp.returncode == 0 and "verified 120 frames" in rp.stdout, "replay: the recording verifies against a re-simulation")
+        raw = bytearray(cap.read_bytes())
+        _, _, _, nframes = struct.unpack_from("<4q", raw, 0)
+        frame_at, p_ = [], 32
+        for _ in range(nframes):
+            ln = struct.unpack_from("<q", raw, p_)[0]
+            frame_at.append((p_ + 8, ln))
+            p_ += 8 + ln
+        for k in (45, 100):
+            bad = bytearray(raw)
+            bad[frame_at[k][0] + 32] ^= 0x01  # one bit inside frame k's payload
+            tampered = root / f"tamper{k}.cap"
+            tampered.write_bytes(bad)
+            r = core_run("replay", str(root / "copy.scene"), str(tampered))
+            check(r.returncode == 1 and f"mismatch at frame {k} of 120" in r.stdout, f"replay: one flipped bit in frame {k} is reported as frame {k}")
+        cut = root / "cut.cap"
+        cut.write_bytes(bytes(raw[: len(raw) // 2]))
+        r = core_run("replay", str(root / "copy.scene"), str(cut))
+        check(r.returncode == 1 and "mismatch" not in r.stdout and r.stderr.strip() != "", "replay: a truncated file is an error, not a verdict")
+        r = core_run("capture", str(root / "copy.scene"), "0", str(root / "z.cap"))
+        check(r.returncode == 1 and not (root / "z.cap").exists(), "capture: zero ticks is refused and writes nothing")
+
         # ---- errors write nothing
         f = root / "f.scene"
         f.write_bytes(original)
