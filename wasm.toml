@@ -6,7 +6,7 @@
 name = "ludens-shell"
 include = ["app"]
 js = "shell/web/net_host.mjs"
-host_imports = ["net_*"]
+host_imports = ["net_*", "os_*"]
 
 # Native reference build: same entry, same manifest. Add wgpu-mojo's native archive here once the
 # shell draws ("build/libwgpu_native.a", mojo_defines = ["WGPU_LINK=static"]).

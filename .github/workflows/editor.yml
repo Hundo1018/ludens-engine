@@ -52,6 +52,8 @@ jobs:
         run: pixi run -e wasm sheet-parity
       - name: ui/ layout and widgets, native == wasm64
         run: pixi run -e wasm ui-parity
+      - name: os_* imports through a wasm64 module, node
+        run: pixi run -e wasm test-os
       - name: ludens build --target web twice, byte-identical manifests
         run: pixi run -e wasm test-build
 
