@@ -8,12 +8,16 @@ A sheet is text, one block per event:
       when exists 4               body handle 4 is alive
       when below 4 -2.0           the y of body 4 is below -2.0
       when on go                  the signal `go` was emitted earlier in this tick
+      when key fire               the host reports input `fire` held (`Sheet.set_input`)
+      when pressed fire           `fire` went down since the previous tick
       do add score 1              score += 1
       do set lives 3              lives = 3
       do velocity 4 0 5 0         set the linear velocity of body 4
       do impulse 4 0 5 0          apply a velocity change to body 4
       do remove 4                 remove body 4
       do emit go                  raise the signal `go`
+      do spawn_box b 0 5 0 .4 .4 .4 1   add a box, its handle goes into variable b
+      do spawn_sphere b 0 5 0 .3 1      add a sphere (at most 1000 per sheet, the rest counted in `spawn_cut`)
     event 2 parent 1              runs only in a tick where event 1's conditions held
 
 An event runs when all its `when` lines hold (none = always). The tables of conditions and actions are fixed: each
@@ -37,6 +41,7 @@ comptime C_VAR = 1
 comptime C_EXISTS = 2
 comptime C_BELOW = 3
 comptime C_ON = 4
+comptime C_KEY = 5  # n = 0: held, 1: went down this tick
 
 comptime A_ADD = 0
 comptime A_SET = 1
@@ -44,6 +49,10 @@ comptime A_VELOCITY = 2
 comptime A_IMPULSE = 3
 comptime A_REMOVE = 4
 comptime A_EMIT = 5
+comptime A_SPAWN_BOX = 6
+comptime A_SPAWN_SPHERE = 7
+
+comptime MAX_SPAWNS = 1000  # per sheet; further spawns are dropped and counted in `spawn_cut`
 
 comptime OP_EQ = 0
 comptime OP_NE = 1
@@ -70,6 +79,8 @@ struct Act(Copyable, Movable):
     var handle: Int64
     var n: Int
     var v: Vec3
+    var h: Vec3  # spawn_box half extents (x), spawn_sphere radius (x)
+    var m: Real  # spawn mass
 
 
 @fieldwise_init
@@ -114,6 +125,11 @@ struct Sheet(Movable):
     var signals: List[String]  # emitted this tick
     var cut: Int  # emits dropped because their target had already run this tick
     var tick: Int
+    var input_names: List[String]
+    var input_down: List[Bool]
+    var input_prev: List[Bool]  # state at the previous step, for `pressed`
+    var spawned: Int
+    var spawn_cut: Int
 
     def __init__(out self):
         self.events = List[Event]()
@@ -125,6 +141,11 @@ struct Sheet(Movable):
         self.signals = List[String]()
         self.cut = 0
         self.tick = 0
+        self.input_names = List[String]()
+        self.input_down = List[Bool]()
+        self.input_prev = List[Bool]()
+        self.spawned = 0
+        self.spawn_cut = 0
 
     @staticmethod
     def parse(text: String) raises -> Sheet:
@@ -235,7 +256,11 @@ struct Sheet(Movable):
             if len(w) != 3:
                 raise Error("on needs a signal name")
             return Cond(C_ON, w[2], 0, 0, 0, 0)
-        raise Error("unknown condition `" + k + "` (tick_mod, var, exists, below, on)")
+        if k == "key" or k == "pressed":
+            if len(w) != 3:
+                raise Error(k + " needs an input name")
+            return Cond(C_KEY, w[2], 0, 0 if k == "key" else 1, 0, 0)
+        raise Error("unknown condition `" + k + "` (tick_mod, var, exists, below, on, key, pressed)")
 
     @staticmethod
     def _act(w: List[String]) raises -> Act:
@@ -244,20 +269,38 @@ struct Sheet(Movable):
         if k == "add" or k == "set":
             if len(w) != 4:
                 raise Error(k + " needs <name> <number>")
-            return Act(A_ADD if k == "add" else A_SET, w[2], 0, _int(w[3], "value"), zero)
+            return Act(A_ADD if k == "add" else A_SET, w[2], 0, _int(w[3], "value"), zero, zero, 0)
         if k == "velocity" or k == "impulse":
             if len(w) != 6:
                 raise Error(k + " needs <handle> <x> <y> <z>")
-            return Act(A_VELOCITY if k == "velocity" else A_IMPULSE, String(), Int64(_int(w[2], "handle")), 0, Vec3(_num(w[3], "x"), _num(w[4], "y"), _num(w[5], "z"), 0))
+            return Act(A_VELOCITY if k == "velocity" else A_IMPULSE, String(), Int64(_int(w[2], "handle")), 0, Vec3(_num(w[3], "x"), _num(w[4], "y"), _num(w[5], "z"), 0), zero, 0)
         if k == "remove":
             if len(w) != 3:
                 raise Error("remove needs a body handle")
-            return Act(A_REMOVE, String(), Int64(_int(w[2], "handle")), 0, zero)
+            return Act(A_REMOVE, String(), Int64(_int(w[2], "handle")), 0, zero, zero, 0)
         if k == "emit":
             if len(w) != 3:
                 raise Error("emit needs a signal name")
-            return Act(A_EMIT, w[2], 0, 0, zero)
-        raise Error("unknown action `" + k + "` (add, set, velocity, impulse, remove, emit)")
+            return Act(A_EMIT, w[2], 0, 0, zero, zero, 0)
+        if k == "spawn_box":
+            if len(w) != 10:
+                raise Error("spawn_box needs <var> <x> <y> <z> <hx> <hy> <hz> <mass>")
+            var hx = _num(w[6], "hx")
+            var hy = _num(w[7], "hy")
+            var hz = _num(w[8], "hz")
+            var m = _num(w[9], "mass")
+            if not (hx > 0 and hy > 0 and hz > 0) or not (m > 0):
+                raise Error("spawn_box: half extents and mass must be > 0")
+            return Act(A_SPAWN_BOX, w[2], 0, 0, Vec3(_num(w[3], "x"), _num(w[4], "y"), _num(w[5], "z"), 0), Vec3(hx, hy, hz, 0), m)
+        if k == "spawn_sphere":
+            if len(w) != 8:
+                raise Error("spawn_sphere needs <var> <x> <y> <z> <radius> <mass>")
+            var r = _num(w[6], "radius")
+            var m = _num(w[7], "mass")
+            if not (r > 0) or not (m > 0):
+                raise Error("spawn_sphere: radius and mass must be > 0")
+            return Act(A_SPAWN_SPHERE, w[2], 0, 0, Vec3(_num(w[3], "x"), _num(w[4], "y"), _num(w[5], "z"), 0), Vec3(r, 0, 0, 0), m)
+        raise Error("unknown action `" + k + "` (add, set, velocity, impulse, remove, emit, spawn_box, spawn_sphere)")
 
     # ------------------------------------------------------------ running
 
@@ -274,6 +317,22 @@ struct Sheet(Movable):
                 return
         self.var_names.append(name)
         self.var_values.append(v)
+
+    def set_input(mut self, name: String, down: Bool):
+        """The host reports an input (key, button, touch zone) before `step`. The sheet only reads this table."""
+        for i in range(len(self.input_names)):
+            if self.input_names[i] == name:
+                self.input_down[i] = down
+                return
+        self.input_names.append(name)
+        self.input_down.append(down)
+        self.input_prev.append(False)
+
+    def _input(self, name: String, edge: Bool) -> Bool:
+        for i in range(len(self.input_names)):
+            if self.input_names[i] == name:
+                return self.input_down[i] and (not edge or not self.input_prev[i])
+        return False
 
     def _signalled(self, name: String) -> Bool:
         for s in self.signals:
@@ -301,6 +360,8 @@ struct Sheet(Movable):
             return world.is_alive(c.handle)
         if c.kind == C_BELOW:
             return world.is_alive(c.handle) and world.state(c.handle).pos[1] < c.y
+        if c.kind == C_KEY:
+            return self._input(c.name, c.n == 1)
         return self._signalled(c.name)
 
     def _is_target_of(self, name: String, idx: Int) -> Bool:
@@ -346,10 +407,23 @@ struct Sheet(Movable):
                 elif a.kind == A_REMOVE:
                     if world.is_alive(a.handle):
                         world.remove(a.handle)
+                elif a.kind == A_SPAWN_BOX or a.kind == A_SPAWN_SPHERE:
+                    if self.spawned >= MAX_SPAWNS:
+                        self.spawn_cut += 1
+                    else:
+                        var h: Int64
+                        if a.kind == A_SPAWN_BOX:
+                            h = world.add_box(a.v, a.h, a.m, False)
+                        else:
+                            h = world.add_sphere(a.v, a.h[0], a.m, False)
+                        self.spawned += 1
+                        self._set(a.name, Int(h))
                 else:
                     # a signal reaches events later in the sheet; for one that already ran this tick it is cut
                     for j in range(len(self.events)):
                         if self._is_target_of(a.name, j) and self.ran[j]:
                             self.cut += 1
                     self.signals.append(a.name)
+        for i in range(len(self.input_down)):
+            self.input_prev[i] = self.input_down[i]
         self.tick += 1
