@@ -21,6 +21,9 @@ Dependency direction: ludens-shell → {ludens-engine, wgpu-mojo, miniaudio-mojo
 | `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Empty until #17. |
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
+| `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |
+| `scripts/ludens.py`, `scripts/build_core.py` | The `ludens` command line and the build of the native core. |
+| `tests/test_cli.py` | The command line end to end, across processes. |
 | `scripts/check_layout.py` | The directory rules below, as a check with a selftest. |
 | `shell/web/` | `app.ts`, `index.html`, `worklet.js` (AudioWorklet ring), `serve.py` (COOP/COEP), `exports.d.ts` (generated). |
 | `deps.lock` | Pinned revs of the three libraries; `scripts/deps.sh` exports them to `build/deps/`. |
@@ -46,6 +49,25 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
    deterministic snapshot (ludens-engine #82).
 4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
    `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
+
+## Command line
+
+`ludens` edits and runs a scene without a GUI, through the same Mojo command layer the editor uses (`ludens-core`,
+a native build of `editor/`).
+
+```
+pixi run -e wasm ludens new demo         # demo/ludens.toml + demo/world.scene
+cd demo
+pixi run -e wasm ludens list             # index, handle, position of every body
+pixi run -e wasm ludens cmd move_body 2 0.7 3.0 -0.3     # edit the scene in place
+pixi run -e wasm ludens run 120          # step 120 ticks, print the world hash
+pixi run -e wasm ludens script edits.txt # a file of commands, one per line (`undo` allowed)
+pixi run -e wasm test-cli                # this section, end to end
+```
+
+A scene file is `path = value` rows (`embed.scene_io` in ludens-engine); it holds the authored state, not the
+deterministic snapshot. A failed command exits 1, names what is wrong (a script error names its line) and writes
+nothing. Subcommands for assets, builds and replay arrive with #12, #15 and #13.
 
 ## Build and run
 
