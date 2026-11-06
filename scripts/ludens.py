@@ -9,6 +9,7 @@
     ludens build --target web           build build/web (wasm64 module + JS) and MANIFEST.sha256
     ludens capture <ticks> -o OUT.cap   record every tick;  ludens replay <file.cap>  verify it, naming the first bad frame
     ludens trace <ticks> -o OUT.json    step the scene with profiling spans on and write a Chrome trace (Perfetto) file
+    ludens sheet <file>                 validate an event sheet (errors name the line and the event)
     ludens overlay <ticks> -o OUT.json  step the scene with the physics debug-draw on; prints the arrow count, writes the last frame as JSON
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
@@ -89,6 +90,11 @@ def cmd_overlay(a) -> int:
     """Step the scene with the physics debug-draw compiled in: one arrow per contact point per step."""
     import build_core
     return subprocess.run([str(build_core.core_overlay()), "overlay", scene_of(find_project(a.project)), str(a.ticks), a.output]).returncode
+
+
+def cmd_sheet(a) -> int:
+    """Validate an event sheet file (ludens-shell #24): parse errors name the line and the event."""
+    return run_core("sheet", a.file)
 
 
 def cmd_build(a) -> int:
@@ -179,6 +185,9 @@ def main() -> int:
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output", required=True)
     p.set_defaults(f=cmd_overlay)
+    p = sp.add_parser("sheet", help="validate an event sheet file")
+    p.add_argument("file")
+    p.set_defaults(f=cmd_sheet)
     p = sp.add_parser("cmd", help="run one editor command (in place)")
     p.add_argument("-o", "--output")
     p.add_argument("rest", nargs=argparse.REMAINDER, metavar="name args")

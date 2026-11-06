@@ -16,6 +16,7 @@ layer and `cmd` through the CLI entry, so a test can compare the two across proc
 Exit code: 0 ok, 1 error (message on stderr)."""
 from std.sys import argv, exit, stderr
 from editor.builtin import MoveBody
+from game.eventsheet import Sheet
 from editor.state import Editor
 from editor.entry import cli_run, gui_move_body
 from editor.scene_text import scene_rows_from_text, scene_rows_to_text
@@ -196,6 +197,12 @@ def run_command(args: List[String]) raises:
         report(ed)
         print("overlay commands:", total)
         write_file(args[3], last)
+    elif sub == "sheet":
+        # validate an event sheet file: every error names the line and the event (ludens check)
+        if len(args) != 2:
+            raise Error("usage: sheet <file>")
+        var sh = Sheet.parse(read_file(args[1]))
+        print("sheet ok:", len(sh.events), "events")
     elif sub == "capture":
         if len(args) != 4:
             raise Error("usage: capture <scene> <ticks> <out.cap>")
@@ -266,7 +273,7 @@ def run_command(args: List[String]) raises:
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:
-        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, overlay, capture, replay, cmd, script, gui-move)")
+        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, overlay, sheet, capture, replay, cmd, script, gui-move)")
 
 
 def main():
@@ -275,7 +282,7 @@ def main():
     for i in range(1, len(a)):
         args.append(String(a[i]))
     if len(args) == 0:
-        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, overlay, capture, replay, cmd, script, gui-move)")
+        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, overlay, sheet, capture, replay, cmd, script, gui-move)")
         exit(1)
     try:
         run_command(args)

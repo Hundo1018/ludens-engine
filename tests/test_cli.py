@@ -142,6 +142,18 @@ def main() -> int:
         plain_ov = subprocess.run([str(build_core.core_overlay().parent / "ludens-core"), "overlay", str(root / "copy.scene"), "120", str(root / "plain.json")], capture_output=True, text=True)
         check(plain_ov.returncode == 0 and "overlay commands: 0" in plain_ov.stdout, "overlay: the plain build draws nothing (control)")
 
+        # ---- sheet: an event sheet file is validated; errors name the line and the event
+        good = root / "good.sheet"
+        good.write_text("event 1\n  when tick_mod 30\n  do add n 1\nevent 2 parent 1\n  when key fire\n  do spawn_sphere b 0 5 0 0.3 1\n", encoding="utf-8")
+        sg = core_run("sheet", str(good))
+        check(sg.returncode == 0 and "sheet ok: 2 events" in sg.stdout, "sheet: a valid sheet is accepted and its events counted")
+        bad = root / "bad.sheet"
+        bad.write_text("event 1\n  when tick_mod 30\nevent 7\n  when sometimes\n", encoding="utf-8")
+        sb = core_run("sheet", str(bad))
+        check(sb.returncode == 1 and "line 4" in sb.stderr and "event 7" in sb.stderr, f"sheet: an unknown condition exits 1 and names line 4 and event 7 ({sb.stderr.strip()[:80]})")
+        sm = core_run("sheet", str(root / "missing.sheet"))
+        check(sm.returncode == 1, "sheet: a missing file exits 1")
+
         # ---- capture and replay: a recording can be checked against a re-simulation
         import struct
         cap = root / "run.cap"
