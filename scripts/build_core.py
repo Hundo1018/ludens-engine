@@ -55,5 +55,10 @@ def core_trace() -> Path:
     return build_native("editor/core_main.mojo", ROOT / "build/ludens-core-trace", defines=("LUDENS_TRACE=True",))
 
 
+def core_overlay() -> Path:
+    """The same core built with `-D LUDENS_DEBUG_DRAW=True`: the solver pushes one arrow per contact point (`ludens overlay`)."""
+    return build_native("editor/core_main.mojo", ROOT / "build/ludens-core-overlay", defines=("LUDENS_DEBUG_DRAW=True",))
+
+
 if __name__ == "__main__":
     print(core())

@@ -9,6 +9,7 @@
     ludens build --target web           build build/web (wasm64 module + JS) and MANIFEST.sha256
     ludens capture <ticks> -o OUT.cap   record every tick;  ludens replay <file.cap>  verify it, naming the first bad frame
     ludens trace <ticks> -o OUT.json    step the scene with profiling spans on and write a Chrome trace (Perfetto) file
+    ludens overlay <ticks> -o OUT.json  step the scene with the physics debug-draw on; prints the arrow count, writes the last frame as JSON
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
 these do. Nothing is written when a command fails. Subcommands for assets, builds and replay follow with their
@@ -82,6 +83,12 @@ def cmd_trace(a) -> int:
     names = sorted({e["name"] for e in events})
     print(f"trace: {len(events)} events, {len(names)} span names ({', '.join(names)}) -> {out}")
     return 0
+
+
+def cmd_overlay(a) -> int:
+    """Step the scene with the physics debug-draw compiled in: one arrow per contact point per step."""
+    import build_core
+    return subprocess.run([str(build_core.core_overlay()), "overlay", scene_of(find_project(a.project)), str(a.ticks), a.output]).returncode
 
 
 def cmd_build(a) -> int:
@@ -168,6 +175,10 @@ def main() -> int:
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output", required=True)
     p.set_defaults(f=cmd_trace)
+    p = sp.add_parser("overlay", help="step the scene with the physics debug-draw on; write the last frame's arrows as JSON")
+    p.add_argument("ticks", type=int)
+    p.add_argument("-o", "--output", required=True)
+    p.set_defaults(f=cmd_overlay)
     p = sp.add_parser("cmd", help="run one editor command (in place)")
     p.add_argument("-o", "--output")
     p.add_argument("rest", nargs=argparse.REMAINDER, metavar="name args")
