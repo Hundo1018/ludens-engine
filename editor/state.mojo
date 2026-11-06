@@ -15,6 +15,7 @@ struct Editor(Movable):
     var playing: Bool
     var play_blob: List[UInt8]  # the world as it was when play started
     var selection: List[Int64]  # selected body handles, in selection order
+    var messages: List[String]  # errors and notices for the log panel, oldest first
 
     def __init__(out self, var world: EmbedWorld):
         self.world = world^
@@ -22,6 +23,7 @@ struct Editor(Movable):
         self.playing = False
         self.play_blob = List[UInt8]()
         self.selection = List[Int64]()
+        self.messages = List[String]()
 
     def __init__(out self, *, deinit move: Self):
         self.world = move.world^
@@ -29,6 +31,7 @@ struct Editor(Movable):
         self.playing = move.playing
         self.play_blob = move.play_blob^
         self.selection = move.selection^
+        self.messages = move.messages^
 
     # ---- play in editor: run the world, then put it back exactly as it was
 
