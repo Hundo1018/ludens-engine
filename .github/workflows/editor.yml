@@ -1,0 +1,30 @@
+name: editor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# #6 (E1): the directory rules and the command-layer test. Neither needs a GPU.
+jobs:
+  layout:
+    name: directory rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Selftest, then the repo
+        run: |
+          python3 scripts/check_layout.py --selftest
+          python3 scripts/check_layout.py
+
+  command-layer:
+    name: GUI/CLI command parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: Command-layer test (GUI entry vs CLI entry give the same world hash)
+        run: pixi run -e wasm test-editor
