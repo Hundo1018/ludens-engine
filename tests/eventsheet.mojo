@@ -107,6 +107,36 @@ def main() raises:
     run(sh5, w5, 5)
     c.ok(not w5.is_alive(crate) and sh5.get("ticks") == 5, "velocity and impulse on a removed body do nothing and the sheet keeps running")
 
+    # input conditions: held vs went down; the sheet reads only the table the host fills
+    var w6 = make(ball, crate)
+    var sh6 = Sheet.parse("event 1\n  when key fire\n  do add held 1\nevent 2\n  when pressed fire\n  do add edges 1\n")
+    sh6.step(w6)
+    sh6.set_input("fire", True)
+    sh6.step(w6)
+    sh6.step(w6)
+    sh6.set_input("fire", False)
+    sh6.step(w6)
+    sh6.set_input("fire", True)
+    sh6.step(w6)
+    c.ok(sh6.get("held") == 3 and sh6.get("edges") == 2, "key held for 3 ticks, pressed fired on 2 down-edges (held " + String(sh6.get("held")) + ", edges " + String(sh6.get("edges")) + ")")
+    var sh6b = Sheet.parse("event 1\n  when key never_reported\n  do add x 1\n")
+    run(sh6b, w6, 5)
+    c.ok(sh6b.get("x") == 0, "an input the host never reported is not down")
+
+    # spawn actions: handle goes into a variable; the new body is alive and falls; capped
+    var w7 = make(ball, crate)
+    var sh7 = Sheet.parse("event 1 once\n  do spawn_box b 5 8 0 0.2 0.2 0.2 1\n  do spawn_sphere s -5 8 0 0.25 1\n")
+    run(sh7, w7, 30)
+    var hb = Int64(sh7.get("b"))
+    var hs = Int64(sh7.get("s"))
+    c.ok(hb != hs and w7.is_alive(hb) and w7.is_alive(hs) and w7.state(hb).pos[1] < 8.0 and w7.state(hs).pos[1] < 8.0 and w7.state(hb).pos[0] == 5.0, "spawn_box and spawn_sphere add bodies whose handles are in b and s, and they fall")
+    var sh8 = Sheet.parse("event 1\n  do spawn_sphere s 0 50 0 0.1 1\n")
+    var w8 = make(ball, crate)
+    for _ in range(1010):
+        sh8.step(w8)
+    c.ok(sh8.spawned == 1000 and sh8.spawn_cut == 10, "spawns stop at 1000 per sheet, the 10 more are counted (" + String(sh8.spawned) + ", " + String(sh8.spawn_cut) + ")")
+    c.ok(parse_fails("event 1\n  do spawn_box b 0 0 0 0 1 1 1\n", "must be > 0") and parse_fails("event 1\n  do spawn_sphere s 0 0 0 1\n", "needs"), "bad spawn arguments are refused with the event named")
+
     # errors name the line and the event
     c.ok(parse_fails("event 1\n  when sometimes\n", "line 2") and parse_fails("event 1\n  when sometimes\n", "event 1"), "unknown condition: line and event named")
     c.ok(parse_fails("event 1\n  do explode 3\n", "unknown action `explode`"), "unknown action named")
