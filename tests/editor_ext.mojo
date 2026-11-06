@@ -4,7 +4,9 @@ The plugin here is a struct in this file that conforms to `Command` and touches 
 which is all a package outside the repository can do. Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody
 from editor.entry import cli_run
-from editor.ext import Command, Registry
+from editor.ext import Command, DrawerRegistry, DOCK_LEFT, DOCK_RIGHT, Importer, ImporterRegistry, Panel, PanelRegistry, Registry, TypeDrawer
+from ui.geom import Rect
+from ui.immediate import Theme, Ui
 from editor.state import Editor, Inverse
 from embed.world import EmbedWorld
 from geometry.vec import Real, Vec3
@@ -65,6 +67,67 @@ struct Check:
             self.failed += 1
             print("  [FAIL]", label)
 
+
+
+struct Inspector(Panel):
+    def __init__(out self):
+        pass
+
+    @staticmethod
+    def name() -> String:
+        return "inspector"
+
+    @staticmethod
+    def dock() -> Int:
+        return DOCK_RIGHT
+
+    def draw(self, mut ui: Ui, area: Rect, mut ed: Editor) raises:
+        _ = ui.button(Rect(area.x, area.y, 80, 20), "Inspector")
+
+
+struct Outliner(Panel):
+    def __init__(out self):
+        pass
+
+    @staticmethod
+    def name() -> String:
+        return "outliner"
+
+    @staticmethod
+    def dock() -> Int:
+        return DOCK_LEFT
+
+    def draw(self, mut ui: Ui, area: Rect, mut ed: Editor) raises:
+        _ = ui.button(Rect(area.x, area.y, 80, 20), "Outliner")
+        _ = ui.button(Rect(area.x, area.y + 24, 80, 20), "Body 1")
+
+
+struct ColorDrawer(TypeDrawer):
+    def __init__(out self):
+        pass
+
+    @staticmethod
+    def type_name() -> String:
+        return "Color"
+
+    def draw(self, mut ui: Ui, area: Rect, value: String) raises -> String:
+        _ = ui.button(area, value)
+        return value
+
+
+struct Upper(Importer):
+    def __init__(out self):
+        pass
+
+    @staticmethod
+    def extension() -> String:
+        return "txt"
+
+    def import_file(self, data: List[UInt8]) raises -> List[UInt8]:
+        var out = List[UInt8]()
+        for b in data:
+            out.append(b - 32 if b >= 97 and b <= 122 else b)
+        return out^
 
 def make_world(mut handles: List[Int64]) raises -> EmbedWorld:
     var w = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
@@ -134,6 +197,47 @@ def main() raises:
     except:
         raised = True
     c.ok(raised and ed.world.hash() == before4 and len(ed.undo_stack) == 0, "a plugin error leaves the world and the undo stack unchanged")
+
+    # 6. Panels, type drawers and importers: they appear, in registration order, and do their job headless.
+    comptime P = PanelRegistry[Outliner, Inspector]
+    P.check()
+    c.ok(P.names()[0] == "outliner" and P.names()[1] == "inspector" and P.docks()[0] == DOCK_LEFT and P.docks()[1] == DOCK_RIGHT, "panels listed in registration order with their default docks")
+    var ui = Ui(Theme.dark())
+    ui.begin_frame(-1, -1, False, 0)
+    var ed6 = Editor(make_world(h4))
+    var areas = List[Rect]()
+    areas.append(Rect(0, 0, 200, 400))
+    areas.append(Rect(600, 0, 200, 400))
+    P.draw_all(ui, areas, ed6)
+    c.ok(ui.list.count() == 9, "two panels drew 3 buttons, 3 commands each: " + String(ui.list.count()))
+    var dup = False
+    try:
+        PanelRegistry[Outliner, Outliner].check()
+    except:
+        dup = True
+    c.ok(dup, "a repeated panel name fails the check")
+    comptime DR = DrawerRegistry[ColorDrawer]
+    c.ok(DR.has("Color") and not DR.has("Vec3") and DR.type_names()[0] == "Color", "drawer registered by type name")
+    var shown = DR.draw("Color", ui, Rect(0, 0, 60, 20), "#ff0000")
+    c.ok(shown == "#ff0000", "an unedited drawer returns the value unchanged")
+    var no_drawer = False
+    try:
+        _ = DR.draw("Vec3", ui, Rect(0, 0, 60, 20), "0 0 0")
+    except:
+        no_drawer = True
+    c.ok(no_drawer, "a type without a drawer is reported")
+    comptime I = ImporterRegistry[Upper]
+    var src = List[UInt8]()
+    for ch in "abc xyz".as_bytes():
+        src.append(ch)
+    var imported = I.import_file("notes/readme.TXT", src)
+    c.ok(String(unsafe_from_utf8=imported) == "ABC XYZ", "importer chosen by extension (case-insensitive)")
+    var no_imp = False
+    try:
+        _ = I.import_file("model.fbx", src)
+    except:
+        no_imp = True
+    c.ok(no_imp, "an unknown extension is reported")
 
     print("editor-ext:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
