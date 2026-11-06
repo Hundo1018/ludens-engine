@@ -6,7 +6,7 @@ reports: clicks, values, focus, and the draw list's hash.
 Build and run: `pixi run -e wasm test-ui`."""
 from ui.draw import CMD_FILL, CMD_STROKE, CMD_TEXT, Color, DrawList
 from ui.geom import Rect
-from ui.immediate import KEY_ENTER, KEY_DOWN, KEY_LEFT, KEY_NONE, KEY_RIGHT, KEY_SPACE, KEY_UP, Theme, Ui
+from ui.immediate import KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_ENTER, KEY_DOWN, KEY_LEFT, KEY_NONE, KEY_RIGHT, KEY_SPACE, KEY_UP, Theme, Ui
 
 
 struct Check:
@@ -191,6 +191,59 @@ def main() raises:
     w11.music = True
     _ = frame(u11, w11, 600, 600, False)
     c.ok(u11.list.hash() != h_idle and u11.list.count() == 17, "a checked box adds a command and changes the hash")
+
+    # 7. Text field: click focuses, typed code points insert at the caret, edit keys, UTF-8, Left / Right stay in the field.
+    var tf = Ui(Theme.dark())
+    var text = String("ab")
+    var field = Rect(0, 0, 200, 24)
+    var none = List[Int]()
+
+    def tf_frame(mut ui: Ui, mut text: String, x: Float32, y: Float32, down: Bool, key: Int, typed: List[Int]):
+        ui.begin_frame_typed(x, y, down, key, typed)
+        text = ui.text_field(Rect(0, 0, 200, 24), text)
+
+    tf_frame(tf, text, 10, 10, False, KEY_NONE, none)
+    tf_frame(tf, text, 10, 10, True, KEY_NONE, none)
+    tf_frame(tf, text, 10, 10, False, KEY_NONE, none)
+    c.eq(tf.focus, 0, "a click focuses the text field")
+    c.eq(tf.caret, 2, "...and puts the caret at the end")
+    var typed = List[Int]()
+    typed.append(0x63)
+    tf_frame(tf, text, 600, 600, False, KEY_NONE, typed)
+    c.ok(text == "abc" and tf.caret == 3, "typing c appends")
+    tf_frame(tf, text, 600, 600, False, KEY_LEFT, none)
+    tf_frame(tf, text, 600, 600, False, KEY_LEFT, none)
+    c.eq(tf.caret, 1, "Left twice moves the caret and keeps focus in the field")
+    c.eq(tf.focus, 0, "...focus did not move")
+    var z = List[Int]()
+    z.append(0x7A)
+    tf_frame(tf, text, 600, 600, False, KEY_NONE, z)
+    c.ok(text == "azbc" and tf.caret == 2, "typing z inserts at the caret")
+    tf_frame(tf, text, 600, 600, False, KEY_BACKSPACE, none)
+    c.ok(text == "abc" and tf.caret == 1, "Backspace removes the character before the caret")
+    tf_frame(tf, text, 600, 600, False, KEY_DELETE, none)
+    c.ok(text == "ac" and tf.caret == 1, "Delete removes the character at the caret")
+    tf_frame(tf, text, 600, 600, False, KEY_HOME, none)
+    tf_frame(tf, text, 600, 600, False, KEY_BACKSPACE, none)
+    c.ok(text == "ac" and tf.caret == 0, "Backspace at the start does nothing")
+    tf_frame(tf, text, 600, 600, False, KEY_END, none)
+    c.eq(tf.caret, 2, "End moves the caret to the end")
+    var cjk = List[Int]()
+    cjk.append(0x4E2D)  # U+4E2D, 3 bytes in UTF-8
+    cjk.append(0x6587)
+    tf_frame(tf, text, 600, 600, False, KEY_NONE, cjk)
+    c.ok(text == "ac中文" and tf.caret == 4, "CJK code points insert as whole characters")
+    tf_frame(tf, text, 600, 600, False, KEY_BACKSPACE, none)
+    c.ok(text == "ac中" and tf.caret == 3, "Backspace removes a whole 3-byte character")
+    var ctl = List[Int]()
+    ctl.append(0x07)
+    ctl.append(0x7F)
+    tf_frame(tf, text, 600, 600, False, KEY_NONE, ctl)
+    c.ok(text == "ac中", "control characters are not inserted")
+    var other = Ui(Theme.dark())
+    var untouched = String("hi")
+    tf_frame(other, untouched, 600, 600, False, KEY_NONE, z)
+    c.ok(untouched == "hi", "an unfocused field ignores typed text")
 
     print("ui_widgets:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

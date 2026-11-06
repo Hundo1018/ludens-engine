@@ -18,6 +18,7 @@ is skipped by focus movement."""
 from ui.draw import Color, DrawList
 from ui.focus import DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, focus_next
 from ui.geom import Rect
+from ui.text import decode_utf8
 
 comptime KEY_NONE = 0
 comptime KEY_ENTER = 1
@@ -26,6 +27,10 @@ comptime KEY_LEFT = 3
 comptime KEY_RIGHT = 4
 comptime KEY_UP = 5
 comptime KEY_DOWN = 6
+comptime KEY_BACKSPACE = 7
+comptime KEY_DELETE = 8
+comptime KEY_HOME = 9
+comptime KEY_END = 10
 
 
 @fieldwise_init
@@ -69,6 +74,8 @@ struct Ui(Movable):
     var prev_ids: List[Int]
     var sliders: List[Int]  # ids of this frame's sliders: they keep Left / Right for themselves
     var prev_sliders: List[Int]
+    var typed: List[Int]  # code points typed this frame (`begin_frame_typed`)
+    var caret: Int  # in code points, for the focused text field
 
     def __init__(out self, var theme: Theme):
         self.list = DrawList()
@@ -89,8 +96,16 @@ struct Ui(Movable):
         self.prev_ids = List[Int]()
         self.sliders = List[Int]()
         self.prev_sliders = List[Int]()
+        self.typed = List[Int]()
+        self.caret = 0
+
+    def begin_frame_typed(mut self, mx: Float32, my: Float32, down: Bool, key: Int, typed: List[Int]):
+        """`begin_frame` plus the code points the user typed since the last frame (what a text field inserts)."""
+        self.begin_frame(mx, my, down, key)
+        self.typed = typed.copy()
 
     def begin_frame(mut self, mx: Float32, my: Float32, down: Bool, key: Int):
+        self.typed = List[Int]()
         self.was_down = self.down
         self.mx = mx
         self.my = my
@@ -216,6 +231,79 @@ struct Ui(Movable):
         self._chrome(id, rect, enabled)
         var t = (next - lo) / (hi - lo) if hi > lo else Float32(0)
         self.list.fill(Rect(rect.x, rect.y, rect.w * t, rect.h), self.theme.accent)
+        return next
+
+    def text_field(mut self, rect: Rect, value: String, enabled: Bool = True) -> String:
+        """Returns the new text: `name = ui.text_field(r, name)`. A click focuses it and puts the caret at the end;
+        typed code points insert at the caret; Backspace / Delete remove; Left / Right / Home / End move the caret
+        (the field keeps Left / Right for itself, like a slider). Enter and Space are not inserted: Space arrives as
+        a typed code point, Enter is for the caller."""
+        var id = self._begin_widget(rect, enabled)
+        if enabled:
+            self.sliders.append(id)
+        var was_focus = self.focus == id
+        _ = self._clicked(id, rect, enabled)
+        var cps = decode_utf8(value)
+        if enabled and self.focus == id and not was_focus:
+            self.caret = len(cps)
+        var next = value
+        if enabled and self.focus == id:
+            if self.caret > len(cps):
+                self.caret = len(cps)
+            var bytes = List[UInt8]()
+            for b in value.as_bytes():
+                bytes.append(b)
+            var at = cps[self.caret].start if self.caret < len(cps) else len(bytes)
+            if self.key == KEY_BACKSPACE and self.caret > 0:
+                var from_b = cps[self.caret - 1].start
+                var out = List[UInt8]()
+                for i in range(len(bytes)):
+                    if i < from_b or i >= at:
+                        out.append(bytes[i])
+                bytes = out^
+                self.caret -= 1
+            elif self.key == KEY_DELETE and self.caret < len(cps):
+                var to_b = cps[self.caret].end
+                var out = List[UInt8]()
+                for i in range(len(bytes)):
+                    if i < at or i >= to_b:
+                        out.append(bytes[i])
+                bytes = out^
+            elif self.key == KEY_LEFT and self.caret > 0:
+                self.caret -= 1
+            elif self.key == KEY_RIGHT and self.caret < len(cps):
+                self.caret += 1
+            elif self.key == KEY_HOME:
+                self.caret = 0
+            elif self.key == KEY_END:
+                self.caret = len(cps)
+            if len(self.typed) > 0:
+                var ins = List[UInt8]()
+                var added = 0
+                for cp in self.typed:
+                    if cp >= 0x20 and cp != 0x7F:
+                        for b in String(chr(cp)).as_bytes():
+                            ins.append(b)
+                        added += 1
+                var out = List[UInt8]()
+                for i in range(at):
+                    out.append(bytes[i])
+                for b in ins:
+                    out.append(b)
+                for i in range(at, len(bytes)):
+                    out.append(bytes[i])
+                if self.key == KEY_BACKSPACE or self.key == KEY_DELETE:
+                    pass  # an edit key and typed text in one frame: keep the edit, ignore the text
+                else:
+                    bytes = out^
+                    self.caret += added
+            next = String(unsafe_from_utf8=bytes)
+        self._chrome(id, rect, enabled)
+        self.list.text(Rect(rect.x + 4, rect.y, rect.w - 8, rect.h), next, self.theme.text if enabled else self.theme.text_disabled, self.theme.font_size)
+        if enabled and self.focus == id:
+            # caret: a thin bar after `caret` characters, 0.6 em per character (the real advance is the renderer's job)
+            var cx = rect.x + 4 + Float32(self.caret) * self.theme.font_size * 0.6
+            self.list.fill(Rect(cx, rect.y + 3, 1, rect.h - 6), self.theme.accent)
         return next
 
     def label(mut self, rect: Rect, text: String):
