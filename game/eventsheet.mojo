@@ -10,6 +10,7 @@ A sheet is text, one block per event:
       when on go                  the signal `go` was emitted earlier in this tick
       when key fire               the host reports input `fire` held (`Sheet.set_input`)
       when pressed fire           `fire` went down since the previous tick
+      when touching 4 7           bodies 4 and 7 were in contact after the latest physics tick (either order)
       do add score 1              score += 1
       do set lives 3              lives = 3
       do velocity 4 0 5 0         set the linear velocity of body 4
@@ -42,6 +43,7 @@ comptime C_EXISTS = 2
 comptime C_BELOW = 3
 comptime C_ON = 4
 comptime C_KEY = 5  # n = 0: held, 1: went down this tick
+comptime C_TOUCHING = 6  # handle = body a, n = body b
 
 comptime A_ADD = 0
 comptime A_SET = 1
@@ -260,7 +262,15 @@ struct Sheet(Movable):
             if len(w) != 3:
                 raise Error(k + " needs an input name")
             return Cond(C_KEY, w[2], 0, 0 if k == "key" else 1, 0, 0)
-        raise Error("unknown condition `" + k + "` (tick_mod, var, exists, below, on, key, pressed)")
+        if k == "touching":
+            if len(w) != 4:
+                raise Error("touching needs two body handles")
+            var a = _int(w[2], "handle")
+            var b = _int(w[3], "handle")
+            if a == b:
+                raise Error("touching needs two different bodies")
+            return Cond(C_TOUCHING, String(), Int64(a), b, 0, 0)
+        raise Error("unknown condition `" + k + "` (tick_mod, var, exists, below, on, key, pressed, touching)")
 
     @staticmethod
     def _act(w: List[String]) raises -> Act:
@@ -362,6 +372,8 @@ struct Sheet(Movable):
             return world.is_alive(c.handle) and world.state(c.handle).pos[1] < c.y
         if c.kind == C_KEY:
             return self._input(c.name, c.n == 1)
+        if c.kind == C_TOUCHING:
+            return world.touching(c.handle, Int64(c.n))
         return self._signalled(c.name)
 
     def _is_target_of(self, name: String, idx: Int) -> Bool:
