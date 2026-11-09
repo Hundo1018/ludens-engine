@@ -104,11 +104,29 @@ async function boot(canvas: HTMLCanvasElement) {
 
 function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number, action: number, mods: number, x: number, y: number) => void) {
   const mods = (e: KeyboardEvent | MouseEvent) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
-  addEventListener("keydown", (e) => { const k = keyCode(e.code); if (k >= 0) send(EV.KEY, k, e.repeat ? ACTION.REPEAT : ACTION.DOWN, mods(e), 0, 0); });
-  addEventListener("keyup", (e) => { const k = keyCode(e.code); if (k >= 0) send(EV.KEY, k, ACTION.UP, mods(e), 0, 0); });
+  // Keys and buttons that are down, so a lost focus can let go of them: the release happens in another window and never arrives.
+  const down = new Set<number>();
+  const buttons = new Set<number>();
+  // Space, the arrows and Tab scroll or move focus in a page; the game owns them while the page has focus.
+  const GAME_CODES = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"]);
+  addEventListener("keydown", (e) => {
+    const k = keyCode(e.code);
+    if (k < 0) return;
+    if (GAME_CODES.has(e.code)) e.preventDefault();
+    down.add(k);
+    send(EV.KEY, k, e.repeat ? ACTION.REPEAT : ACTION.DOWN, mods(e), 0, 0);
+  });
+  addEventListener("keyup", (e) => { const k = keyCode(e.code); if (k >= 0) { down.delete(k); send(EV.KEY, k, ACTION.UP, mods(e), 0, 0); } });
+  const releaseAll = () => {
+    for (const k of down) send(EV.KEY, k, ACTION.UP, 0, 0, 0);
+    for (const b of buttons) send(EV.MOUSE_BUTTON, b, ACTION.UP, 0, 0, 0);
+    down.clear(); buttons.clear();
+  };
+  addEventListener("blur", releaseAll);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
   canvas.addEventListener("pointermove", (e) => send(EV.CURSOR_POS, 0, 0, mods(e), e.offsetX, e.offsetY));
-  canvas.addEventListener("pointerdown", (e) => send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), e.offsetX, e.offsetY));
-  canvas.addEventListener("pointerup", (e) => send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), e.offsetX, e.offsetY));
+  canvas.addEventListener("pointerdown", (e) => { buttons.add(BUTTONS[e.button] ?? 0); send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), e.offsetX, e.offsetY); });
+  canvas.addEventListener("pointerup", (e) => { buttons.delete(BUTTONS[e.button] ?? 0); send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), e.offsetX, e.offsetY); });
   canvas.addEventListener("wheel", (e) => send(EV.SCROLL, 0, 0, mods(e), 0, -e.deltaY / 100), { passive: true });
 }
 
