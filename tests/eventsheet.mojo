@@ -137,6 +137,26 @@ def main() raises:
     c.ok(sh8.spawned == 1000 and sh8.spawn_cut == 10, "spawns stop at 1000 per sheet, the 10 more are counted (" + String(sh8.spawned) + ", " + String(sh8.spawn_cut) + ")")
     c.ok(parse_fails("event 1\n  do spawn_box b 0 0 0 0 1 1 1\n", "must be > 0") and parse_fails("event 1\n  do spawn_sphere s 0 0 0 1\n", "needs"), "bad spawn arguments are refused with the event named")
 
+    # touching: a box dropped 1.1 m lands at about tick 28 (free fall sqrt(2 * 1.1 / 9.81) = 0.47 s), then rests
+    var wt = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
+    var ground = wt.add_box(Vec3(0.0, -10.0, 0.0, 0.0), Vec3(20.0, 0.5, 20.0, 0.0), 0.0, True)
+    var box = wt.add_box(Vec3(0.0, -8.0, 0.0, 0.0), Vec3(0.4, 0.4, 0.4, 0.0), 1.0, False)
+    var far = wt.add_box(Vec3(10.0, -8.0, 0.0, 0.0), Vec3(0.4, 0.4, 0.4, 0.0), 1.0, False)
+    var tsrc = String(
+        "event 1 once\n  when touching BOX GROUND\n  do set landed 1\n"
+        "event 2\n  when touching GROUND BOX\n  do add contact_ticks 1\n"
+        "event 3\n  when touching BOX FAR\n  do add wrong 1\n"
+    )
+    var tsheet = Sheet.parse(tsrc.replace("BOX", String(box)).replace("GROUND", String(ground)).replace("FAR", String(far)))
+    run(tsheet, wt, 10)
+    c.ok(tsheet.get("landed") == 0 and tsheet.get("contact_ticks") == 0, "no contact while the box is still falling (tick 10)")
+    run(tsheet, wt, 80)
+    var ct = tsheet.get("contact_ticks")
+    c.ok(tsheet.get("landed") == 1, "touching box ground held once the box landed")
+    c.ok(ct > 50 and ct < 70, "touching ground box (other order) held on every tick after landing at about tick 28: " + String(ct) + " of 90")
+    c.ok(tsheet.get("wrong") == 0, "two bodies that never meet are never touching")
+    c.ok(parse_fails("event 1\n  when touching 3\n", "two body handles") and parse_fails("event 1\n  when touching 3 3\n", "two different"), "touching needs two different handles")
+
     # errors name the line and the event
     c.ok(parse_fails("event 1\n  when sometimes\n", "line 2") and parse_fails("event 1\n  when sometimes\n", "event 1"), "unknown condition: line and event named")
     c.ok(parse_fails("event 1\n  do explode 3\n", "unknown action `explode`"), "unknown action named")
