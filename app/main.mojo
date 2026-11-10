@@ -1,12 +1,21 @@
 """Shell entry: one Mojo program, the C-ABI below is only the JS face.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
+from controls import read_keys
+from game.arena import Arena
+from geometry.vec import Real
+from game.camera_view import View
+from game.controls import Controls
+from game.hud_layout import build_hud
+from game.sfx import Sfx
+from hud import Hud
 from net import net_poll, net_send
+from render3d import ArenaRenderer
 from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
 from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
-from wgpu._ffi.types import WGPUTextureUsage
+from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureHandle, WGPUTextureUsage
 from wgpu.buffer import MapRequest
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
@@ -17,6 +26,8 @@ from wgpu.web.boot import GPUBoot
 
 comptime NET_CAP = 65536
 comptime NET_PER_FRAME = 16
+comptime MODE_DEMO = 0  # the physics demo the parity gates and selftests compare
+comptime MODE_GAME = 1  # the arena game
 
 
 struct App(Movable):
@@ -41,6 +52,14 @@ struct App(Movable):
     var net_rx: List[UInt8]
     var net_len: Int
     var net_packets: Int
+    var mode: Int
+    var arena: Optional[Arena]
+    var controls: Controls
+    var sfx: Optional[Sfx]
+    var arena_renderer: Optional[ArenaRenderer]
+    var hud: Optional[Hud]
+    var game_pcm: List[Float32]
+    var game_format: UInt32
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-shell")
@@ -66,6 +85,14 @@ struct App(Movable):
         self.net_rx = List[UInt8](length=NET_CAP, fill=0)
         self.net_len = 0
         self.net_packets = 0
+        self.mode = MODE_DEMO
+        self.arena = None
+        self.controls = Controls()
+        self.sfx = None
+        self.arena_renderer = None
+        self.hud = None
+        self.game_pcm = List[Float32]()
+        self.game_format = 0
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -89,6 +116,14 @@ struct App(Movable):
         self.net_rx = move.net_rx^
         self.net_len = move.net_len
         self.net_packets = move.net_packets
+        self.mode = move.mode
+        self.arena = move.arena^
+        self.controls = move.controls^
+        self.sfx = move.sfx^
+        self.arena_renderer = move.arena_renderer^
+        self.hud = move.hud^
+        self.game_pcm = move.game_pcm^
+        self.game_format = move.game_format
 
     def _net(mut self):
         """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
@@ -106,15 +141,80 @@ struct App(Movable):
         if self.reference and self.reference_ptr == 0:
             self.reference_ptr = self.reference.value().poll()
 
+    def start_game(mut self) raises:
+        if not self.arena:
+            self.arena = Arena()
+            self.sfx = Sfx(Int(SAMPLE_RATE))
+        self.mode = MODE_GAME
+
+    def _game_step(mut self, dt: Float64) raises:
+        """One frame of the game: read the keys, step the arena (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
+        var intent = self.controls.poll(read_keys(self.input))
+        self.input.begin_frame()  # the edges and the pointer movement are read: the next frame starts clean, drawn or not
+        ref arena = self.arena.value()
+        arena.update(intent, min(dt, 0.1))
+        for cue in arena.take_cues():
+            self.sfx.value().trigger(cue)
+
+    def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
+        var aspect = Float32(self.width) / Float32(self.height)
+        if self.mode == MODE_GAME:
+            ref arena = self.arena.value()
+            var view = View(arena.cam, Real(aspect))
+            if self.game_format != format:  # the pipelines are built for one target format
+                self.hud = None
+                self.arena_renderer = None
+                self.game_format = format
+            if not self.hud:
+                self.hud = Hud(self.boot.device(), format)
+            if not self.arena_renderer:
+                self.arena_renderer = ArenaRenderer(self.boot.device(), format, view)
+            self.arena_renderer.value().begin(view)
+            for it in arena.draw_items():
+                self.arena_renderer.value().push(it)
+            self.hud.value().set(build_hud(arena, Float32(self.width), Float32(self.height)), Float32(self.width), Float32(self.height))
+            self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+            return
+        if not self.renderer:
+            self.renderer = Renderer(self.boot.device(), format)
+        fill(self.renderer.value(), self.sim, aspect)
+        self.renderer.value().draw(self.boot.device(), target)
+
+    def _capture(mut self, format: UInt32) raises:
+        if self.want_capture and not self.capture_req:
+            # Frames are read back from an app-owned target: headless Chrome cannot read a canvas texture.
+            if not self.capture:
+                self.capture = FrameCapture(self.boot.device(), self.width, self.height)
+                self.capture_target = self.boot.device().create_texture(
+                    self.width, self.height, 1, format,
+                    WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.COPY_SRC,
+                    label="capture_target",
+                )
+            var target = self.capture_target.value().handle().raw
+            self._draw_scene(target, format)
+            self.capture_req = self.capture.value().capture(self.boot.device(), target)
+            self.want_capture = False
+
+    def _finish_capture(mut self) raises:
+        if self.capture_req and self.capture_req.value().ready():
+            var req = self.capture_req.take()
+            self.capture_ptr = UInt64(Int(req.take()))
+
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
         self._net()
-        self.sim.step(dt)
+        if self.mode == MODE_GAME:
+            self._game_step(dt)
+        else:
+            self.sim.step(dt)
         if not self.boot.step():
             return 0
         if self.offscreen:
             # Never touch the canvas: headless Chrome loses the device after a canvas draw.
+            if self.mode == MODE_GAME:
+                self._capture(WGPUTextureFormat.RGBA8Unorm)  # the game still can be looked at, with no canvas draw
             self._reference()
+            self._finish_capture()
             return 1
         if not self.configured:
             self.surface.configure(
@@ -124,29 +224,12 @@ struct App(Movable):
             self.configured = True
         var tex = self.surface.get_current_texture()
         if tex.is_renderable():
-            if not self.renderer:
-                self.renderer = Renderer(self.boot.device(), self.surface.format())
-            fill(self.renderer.value(), self.sim, Float32(self.width) / Float32(self.height))
-            self.renderer.value().draw(self.boot.device(), tex.texture)
-            if self.want_capture and not self.capture_req:
-                # Frames are read back from an app-owned target: headless Chrome cannot read a canvas texture.
-                if not self.capture:
-                    self.capture = FrameCapture(self.boot.device(), self.width, self.height)
-                    self.capture_target = self.boot.device().create_texture(
-                        self.width, self.height, 1, self.surface.format(),
-                        WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.COPY_SRC,
-                        label="capture_target",
-                    )
-                var target = self.capture_target.value().handle().raw
-                self.renderer.value().draw(self.boot.device(), target)
-                self.capture_req = self.capture.value().capture(self.boot.device(), target)
-                self.want_capture = False
+            self._draw_scene(tex.texture, self.surface.format())
+            self._capture(self.surface.format())
             self.surface.present()
             self.frames += 1
         self._reference()
-        if self.capture_req and self.capture_req.value().ready():
-            var req = self.capture_req.take()
-            self.capture_ptr = UInt64(Int(req.take()))
+        self._finish_capture()
         self.input.begin_frame()
         return 1
 
@@ -202,8 +285,13 @@ def app_audio_render(app: UInt64, dst_ptr: UInt64, frames: UInt32) abi("C") -> I
     """Mix `frames` stereo f32 frames into `dst_ptr`. 0 = ok."""
     try:
         var a = _app(app)
-        a[].sim.render_audio(Int(frames))
         var dst = Pointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(dst_ptr))
+        if a[].mode == MODE_GAME and a[].sfx:
+            a[].sfx.value().render(a[].game_pcm, Int(frames))
+            for i in range(Int(frames) * 2):
+                dst[i] = a[].game_pcm[i]
+            return 0
+        a[].sim.render_audio(Int(frames))
         for i in range(Int(frames) * 2):
             dst[i] = a[].sim.pcm[i]
         return 0
@@ -306,3 +394,46 @@ def app_net_last_ptr(app: UInt64) abi("C") -> UInt64:
 @export
 def app_net_last_len(app: UInt64) abi("C") -> Int32:
     return Int32(_app(app)[].net_len)
+
+
+@export
+def app_set_mode(app: UInt64, mode: Int32) abi("C") -> Int32:
+    """0 = the physics demo (what the selftests and parity gates compare), 1 = the arena game. 0 = ok."""
+    try:
+        var a = _app(app)
+        if mode == MODE_GAME:
+            a[].start_game()
+        else:
+            a[].mode = MODE_DEMO
+        return 0
+    except e:
+        print("app_set_mode:", e)
+        return -1
+
+
+@export
+def app_game_status(app: UInt64) abi("C") -> Int32:
+    """The game's state: 0 playing, 1 won, 2 lost; -1 when no game is running."""
+    var a = _app(app)
+    if not a[].arena:
+        return -1
+    return Int32(a[].arena.value().status())
+
+
+@export
+def app_game_score(app: UInt64) abi("C") -> Int32:
+    var a = _app(app)
+    return Int32(a[].arena.value().score) if a[].arena else -1
+
+
+@export
+def app_game_collected(app: UInt64) abi("C") -> Int32:
+    var a = _app(app)
+    return Int32(a[].arena.value().collected()) if a[].arena else -1
+
+
+@export
+def app_game_hash(app: UInt64) abi("C") -> UInt64:
+    """The game state's hash, for comparing runs."""
+    var a = _app(app)
+    return a[].arena.value().hash() if a[].arena else 0
