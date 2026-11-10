@@ -30,7 +30,7 @@ struct Keys(Copyable, ImplicitlyCopyable, Movable):
         self.restart = False
 
 
-struct Controls:
+struct Controls(Movable):
     # The first pointer event reports a move from (0, 0) to wherever the pointer is. It is not a camera turn.
     var primed: Bool
 
