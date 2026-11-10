@@ -15,7 +15,7 @@ from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
 from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
-from wgpu._ffi.types import WGPUTextureHandle, WGPUTextureUsage
+from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureHandle, WGPUTextureUsage
 from wgpu.buffer import MapRequest
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
@@ -59,6 +59,7 @@ struct App(Movable):
     var arena_renderer: Optional[ArenaRenderer]
     var hud: Optional[Hud]
     var game_pcm: List[Float32]
+    var game_format: UInt32
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-shell")
@@ -91,6 +92,7 @@ struct App(Movable):
         self.arena_renderer = None
         self.hud = None
         self.game_pcm = List[Float32]()
+        self.game_format = 0
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -121,6 +123,7 @@ struct App(Movable):
         self.arena_renderer = move.arena_renderer^
         self.hud = move.hud^
         self.game_pcm = move.game_pcm^
+        self.game_format = move.game_format
 
     def _net(mut self):
         """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
@@ -153,25 +156,49 @@ struct App(Movable):
         for cue in arena.take_cues():
             self.sfx.value().trigger(cue)
 
-    def _draw_scene(mut self, target: WGPUTextureHandle) raises:
+    def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
         if self.mode == MODE_GAME:
             ref arena = self.arena.value()
             var view = View(arena.cam, Real(aspect))
+            if self.game_format != format:  # the pipelines are built for one target format
+                self.hud = None
+                self.arena_renderer = None
+                self.game_format = format
             if not self.hud:
-                self.hud = Hud(self.boot.device(), self.surface.format())
+                self.hud = Hud(self.boot.device(), format)
             if not self.arena_renderer:
-                self.arena_renderer = ArenaRenderer(self.boot.device(), self.surface.format(), view)
+                self.arena_renderer = ArenaRenderer(self.boot.device(), format, view)
             self.arena_renderer.value().begin(view)
             for it in arena.draw_items():
                 self.arena_renderer.value().push(it)
             self.hud.value().set(build_hud(arena, Float32(self.width), Float32(self.height)), Float32(self.width), Float32(self.height))
-            self.arena_renderer.value().draw(self.boot.device(), target, self.hud.value())
+            self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
             return
         if not self.renderer:
-            self.renderer = Renderer(self.boot.device(), self.surface.format())
+            self.renderer = Renderer(self.boot.device(), format)
         fill(self.renderer.value(), self.sim, aspect)
         self.renderer.value().draw(self.boot.device(), target)
+
+    def _capture(mut self, format: UInt32) raises:
+        if self.want_capture and not self.capture_req:
+            # Frames are read back from an app-owned target: headless Chrome cannot read a canvas texture.
+            if not self.capture:
+                self.capture = FrameCapture(self.boot.device(), self.width, self.height)
+                self.capture_target = self.boot.device().create_texture(
+                    self.width, self.height, 1, format,
+                    WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.COPY_SRC,
+                    label="capture_target",
+                )
+            var target = self.capture_target.value().handle().raw
+            self._draw_scene(target, format)
+            self.capture_req = self.capture.value().capture(self.boot.device(), target)
+            self.want_capture = False
+
+    def _finish_capture(mut self) raises:
+        if self.capture_req and self.capture_req.value().ready():
+            var req = self.capture_req.take()
+            self.capture_ptr = UInt64(Int(req.take()))
 
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
@@ -184,7 +211,10 @@ struct App(Movable):
             return 0
         if self.offscreen:
             # Never touch the canvas: headless Chrome loses the device after a canvas draw.
+            if self.mode == MODE_GAME:
+                self._capture(WGPUTextureFormat.RGBA8Unorm)  # the game still can be looked at, with no canvas draw
             self._reference()
+            self._finish_capture()
             return 1
         if not self.configured:
             self.surface.configure(
@@ -194,26 +224,12 @@ struct App(Movable):
             self.configured = True
         var tex = self.surface.get_current_texture()
         if tex.is_renderable():
-            self._draw_scene(tex.texture)
-            if self.want_capture and not self.capture_req:
-                # Frames are read back from an app-owned target: headless Chrome cannot read a canvas texture.
-                if not self.capture:
-                    self.capture = FrameCapture(self.boot.device(), self.width, self.height)
-                    self.capture_target = self.boot.device().create_texture(
-                        self.width, self.height, 1, self.surface.format(),
-                        WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.COPY_SRC,
-                        label="capture_target",
-                    )
-                var target = self.capture_target.value().handle().raw
-                self._draw_scene(target)
-                self.capture_req = self.capture.value().capture(self.boot.device(), target)
-                self.want_capture = False
+            self._draw_scene(tex.texture, self.surface.format())
+            self._capture(self.surface.format())
             self.surface.present()
             self.frames += 1
         self._reference()
-        if self.capture_req and self.capture_req.value().ready():
-            var req = self.capture_req.take()
-            self.capture_ptr = UInt64(Int(req.take()))
+        self._finish_capture()
         self.input.begin_frame()
         return 1
 

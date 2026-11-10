@@ -1,8 +1,8 @@
 """Draws the arena: boxes and spheres by vertex pulling, lit and coloured per instance, from a chase camera.
 
-No depth buffer: wgpu-mojo's pass and pipeline helpers carry no depth attachment. Instead the floor is drawn first and every
-other item is sorted far to near by its centre, with long axis-aligned boxes (the walls) cut into 2 m pieces so a centre is a
-fair stand-in for a piece. `app/render.mojo` stays as it was: the parity gates compare its pixels.
+A Depth32Float buffer does the hidden-surface work. wgpu-mojo's helpers carry no depth state, so the pipeline and the render
+pass are built from the raw descriptors here (copied from `Device.create_render_pipeline` and
+`CommandEncoder.begin_render_pass_clear` with the depth parts filled in). `app/render.mojo` stays as it was: the parity gates compare its pixels.
 
 Buffer layout (vec4<f32> elements): [0] eye.xyz + sx, [1] right.xyz + sy, [2] up.xyz + near, [3] fwd.xyz + far, [4] (count);
 instance i is four elements at 5 + 4 i: position + kind (0 box, 1 sphere), rotation xyzw, half extents, colour.
@@ -22,12 +22,25 @@ from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
+from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu._ffi.nulls import null_ptr
+from wgpu._ffi.structs import (
+    WGPUStringView, str_to_sv, WGPUVertexState, WGPUColorTargetState, WGPUFragmentState, WGPUPrimitiveState,
+    WGPUMultisampleState, WGPURenderPipelineDescriptor, WGPUDepthStencilState, WGPUStencilFaceState,
+    WGPUConstantEntry, WGPUBlendState, WGPUVertexBufferLayout, WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
+    WGPURenderPassDepthStencilAttachment, WGPUPassTimestampWrites,
+)
+from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu.shader import ShaderModule
+from wgpu.pipeline_layout import PipelineLayout
+from wgpu.texture import Texture, TextureView
+from depth_pipeline import depth_pipeline, DEPTH_FORMAT
 from hud import Hud
 
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
 comptime MAX_INSTANCES = 2048
 comptime VERTS_PER_INSTANCE = 1152
-comptime CHUNK = 2.0
+
 
 comptime WGSL = """
 @group(0) @binding(0) var<storage, read> data : array<vec4<f32>>;
@@ -127,6 +140,10 @@ struct ArenaRenderer(Movable):
     var view: View
     var floor: List[DrawItem]
     var items: List[DrawItem]
+    var depth: Optional[Texture]
+    var depth_view: Optional[TextureView]
+    var depth_w: UInt32
+    var depth_h: UInt32
 
     def __init__(out self, device: Device, color_format: UInt32, view: View) raises:
         var shader = device.create_shader_module_wgsl(WGSL, "arena")
@@ -141,9 +158,7 @@ struct ArenaRenderer(Movable):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "arena_layout")
-        self.pipeline = device.create_render_pipeline(
-            shader, "vs_main", "fs_main", color_format, layout, primitive_topology=UInt32(4)
-        )
+        self.pipeline = depth_pipeline(device, shader, layout, color_format, True, UInt32(4))
         var bytes = UInt64((5 + 4 * MAX_INSTANCES) * 16)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
         var bg_entries: List[WGPUBindGroupEntry] = [
@@ -154,6 +169,10 @@ struct ArenaRenderer(Movable):
         self.view = view.copy()
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
+        self.depth = None
+        self.depth_view = None
+        self.depth_w = 0
+        self.depth_h = 0
 
     def __init__(out self, *, deinit move: Self):
         self.pipeline = move.pipeline^
@@ -163,6 +182,10 @@ struct ArenaRenderer(Movable):
         self.view = move.view^
         self.floor = move.floor^
         self.items = move.items^
+        self.depth = move.depth^
+        self.depth_view = move.depth_view^
+        self.depth_w = move.depth_w
+        self.depth_h = move.depth_h
 
     def begin(mut self, view: View):
         self.view = view.copy()
@@ -170,46 +193,20 @@ struct ArenaRenderer(Movable):
         self.items.clear()
 
     def push(mut self, it: DrawItem):
-        """One item. The floor goes first; an axis-aligned box longer than a chunk is cut into pieces."""
-        var big = it.kind == 0 and it.half[0] >= 10.0 and it.half[2] >= 10.0 and it.half[1] <= 0.6
-        if big:
-            self.floor.append(it.copy())
-            return
-        var upright = it.kind == 0 and abs(it.qx) < 1e-4 and abs(it.qy) < 1e-4 and abs(it.qz) < 1e-4
-        var nx = 1
-        var nz = 1
-        if upright:
-            nx = Int(it.half[0] / (CHUNK * 0.5)) + 1 if it.half[0] > CHUNK * 0.5 else 1
-            nz = Int(it.half[2] / (CHUNK * 0.5)) + 1 if it.half[2] > CHUNK * 0.5 else 1
-        if nx == 1 and nz == 1:
-            self.items.append(it.copy())
-            return
-        var hx = it.half[0] / Real(nx)
-        var hz = it.half[2] / Real(nz)
-        for i in range(nx):
-            for k in range(nz):
-                var off = Vec3(-it.half[0] + hx * Real(2 * i + 1), 0.0, -it.half[2] + hz * Real(2 * k + 1), 0.0)
-                self.items.append(DrawItem(it.kind, it.pos + off, it.qx, it.qy, it.qz, it.qw, Vec3(hx, it.half[1], hz, 0.0), it.color))
+        """One item; the depth buffer sorts them out."""
+        self.items.append(it.copy())
 
-    def _sort(self) -> List[Int]:
-        """Item indices, farthest first (insertion sort: a few hundred items)."""
-        var order = List[Int]()
-        var key = List[Real]()
-        for i in range(len(self.items)):
-            var d = self.items[i].pos - self.view.eye
-            var k = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
-            var j = len(order)
-            order.append(i)
-            key.append(k)
-            while j > 0 and key[j - 1] < k:
-                key[j] = key[j - 1]
-                order[j] = order[j - 1]
-                j -= 1
-            key[j] = k
-            order[j] = i
-        return order^
+    def _depth_view(mut self, device: Device, width: UInt32, height: UInt32) raises:
+        if not self.depth_view or self.depth_w != width or self.depth_h != height:
+            self.depth_view = None
+            self.depth = device.create_texture(
+                width, height, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_depth",
+            )
+            self.depth_view = self.depth.value().create_view_default()
+            self.depth_w = width
+            self.depth_h = height
 
-    def draw(mut self, device: Device, target: WGPUTextureHandle, hud: Hud) raises:
+    def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:
         var v = self.view.copy()
         self.staging.clear()
         for e in [v.eye, v.right, v.up, v.fwd]:
@@ -220,26 +217,32 @@ struct ArenaRenderer(Movable):
         self.staging[7] = Float32(v.sy)
         self.staging[11] = Float32(v.near)
         self.staging[15] = Float32(v.far)
-        var count = len(self.floor) + len(self.items)
-        if count > MAX_INSTANCES:
-            count = MAX_INSTANCES
+        var count = min(len(self.items), MAX_INSTANCES)
         for _ in range(4):
             self.staging.append(0.0)
         self.staging[16] = Float32(count)
-        var n = 0
-        for i in range(len(self.floor)):
-            if n < MAX_INSTANCES:
-                _put(self.staging, self.floor[i])
-                n += 1
-        var order = self._sort()
-        for k in range(len(order)):
-            if n < MAX_INSTANCES:
-                _put(self.staging, self.items[order[k]])
-                n += 1
+        for i in range(count):
+            _put(self.staging, self.items[i])
         device.queue_write_data(self.buffer, UInt64(0), self.staging)
         hud.upload(device)
+        self._depth_view(device, width, height)
+        var color_view = device.create_texture_view(target)
+        var color_p = raw_alloc[WGPURenderPassColorAttachment](1)
+        color_p[unsafe_offset=0] = WGPURenderPassColorAttachment(
+            null_opaque(), color_view.handle().raw, UInt32(0xFFFFFFFF), null_opaque(), UInt32(2), UInt32(1), CLEAR,
+        )
+        var depth_att_p = raw_alloc[WGPURenderPassDepthStencilAttachment](1)
+        depth_att_p[unsafe_offset=0] = WGPURenderPassDepthStencilAttachment(
+            null_opaque(), self.depth_view.value().handle().raw, UInt32(2), UInt32(1), Float32(1.0), UInt32(0),
+            UInt32(0), UInt32(0), UInt32(0), UInt32(0),
+        )
+        var pass_p = raw_alloc[WGPURenderPassDescriptor](1)
+        pass_p[unsafe_offset=0] = WGPURenderPassDescriptor(
+            null_opaque(), str_to_sv("arena_pass"), UInt(1), color_p, depth_att_p, null_opaque(),
+            null_ptr[WGPUPassTimestampWrites](),
+        )
         var enc = device.create_command_encoder("frame")
-        var rpass = enc.begin_surface_clear_pass(target, CLEAR, "frame_pass")
+        var rpass = enc.begin_render_pass(pass_p)
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(count), UInt32(0), UInt32(0))
@@ -247,3 +250,7 @@ struct ArenaRenderer(Movable):
         rpass^.end()
         var cmd = enc^.finish()
         device.queue_submit(cmd^)
+        _ = color_view^
+        color_p.unsafe_free()
+        depth_att_p.unsafe_free()
+        pass_p.unsafe_free()

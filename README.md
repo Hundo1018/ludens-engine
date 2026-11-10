@@ -30,8 +30,9 @@ Each hit costs 25 of 100 health and gives one second of immunity. Win by collect
 Where it lives: rules in `game/arena.mojo` (no window, no GPU), input in `game/controls.mojo` and `app/controls.mojo`,
 drawing in `app/render3d.mojo` and `app/hud.mojo` (text from `ui/font.mojo`), sound in `game/sfx.mojo`.
 Tests: `pixi run -e wasm test-game` plays whole games from scripts; `python3 scripts/game_parity.py` compares native with the
-wasm64 app driven through its `app_*` exports. Drawing has no depth buffer (see the issue list): items are sorted far to near.
-Nobody has looked at the rendering from this repo's CI; play it in a browser to check how it looks and feels.
+wasm64 app driven through its `app_*` exports. `pixi run -e wasm game-shot` plays it in headless Chrome on a software WebGPU
+adapter and writes PNG frames to `build/shots/`. Drawing uses a Depth32Float buffer built from raw descriptors
+(`app/depth_pipeline.mojo`), because wgpu-mojo's helpers have no depth state.
 
 ## Layout
 

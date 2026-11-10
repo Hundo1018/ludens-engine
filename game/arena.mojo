@@ -347,9 +347,9 @@ struct Arena(Movable):
         self._prop(h, half, color)
 
     def _build(mut self) raises:
-        var wall = Vec3(0.42, 0.44, 0.52, 0.0)
+        var wall = Vec3(0.62, 0.64, 0.76, 0.0)
         # the floor and the four outer walls
-        self._static_box(Vec3(0.0, -0.5, 0.0, 0.0), Vec3(20.0, 0.5, 20.0, 0.0), Vec3(0.30, 0.34, 0.40, 0.0))
+        self._static_box(Vec3(0.0, -0.5, 0.0, 0.0), Vec3(20.0, 0.5, 20.0, 0.0), Vec3(0.42, 0.56, 0.42, 0.0))
         self._static_box(Vec3(0.0, 1.5, -20.5, 0.0), Vec3(21.0, 1.5, 0.5, 0.0), wall)
         self._static_box(Vec3(0.0, 1.5, 20.5, 0.0), Vec3(21.0, 1.5, 0.5, 0.0), wall)
         self._static_box(Vec3(-20.5, 1.5, 0.0, 0.0), Vec3(0.5, 1.5, 20.0, 0.0), wall)
