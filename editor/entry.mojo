@@ -1,4 +1,4 @@
-"""The two ways into the command layer (ludens-shell #6): a GUI action and the CLI.
+"""The two ways into the command layer (ludens-engine #6): a GUI action and the CLI.
 
 Both end in `Registry.run` with text arguments, so the same operation gives the same world either way."""
 from editor.ext import Command, Registry

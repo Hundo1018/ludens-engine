@@ -1,4 +1,4 @@
-"""Native / wasm64 parity probe for ui/ (ludens-shell #17): layout hash and widget draw-list hash.
+"""Native / wasm64 parity probe for ui/ (ludens-engine #17): layout hash and widget draw-list hash.
 
 `main` prints the hashes for the native build; `ui_parity_run` is exported for wasm64. Both call the same
 functions in `ui/testing.mojo`."""

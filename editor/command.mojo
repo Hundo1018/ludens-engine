@@ -1,4 +1,4 @@
-"""Editor command layer (ludens-shell #6, E1; registration #18).
+"""Editor command layer (ludens-engine #6, E1; registration #18).
 
 Every editing operation is a command: a name plus text arguments. Text is the one canonical form. The CLI
 passes argv as it is and the GUI formats its typed values to text, so both reach the same parser and the same

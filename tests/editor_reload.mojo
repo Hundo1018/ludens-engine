@@ -1,4 +1,4 @@
-"""Scene hot reload (ludens-shell #14): the new scene replaces the world at the current tick, a bad file changes
+"""Scene hot reload (ludens-engine #14): the new scene replaces the world at the current tick, a bad file changes
 nothing. Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody
 from editor.reload import reload_scene, world_from_text

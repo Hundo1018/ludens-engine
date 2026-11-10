@@ -1,4 +1,4 @@
-"""Node graphs: one data model for every graph type (ludens-shell #20, data layer).
+"""Node graphs: one data model for every graph type (ludens-engine #20, data layer).
 
 A `GraphType` is a table: node kinds, each with named input and output ports and a signal type per port. A graph type
 is data, so adding one (an animation graph, a behaviour tree, a navmesh preview) is registering a table; nothing in this

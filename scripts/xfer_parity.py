@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ludens-engine 17.91 / ludens-shell #14: hand a world between two separately built modules, native and wasm64.
+"""ludens-core 17.91 / ludens-engine #14: hand a world between two separately built modules, native and wasm64.
 
 Four numbers must be equal: native uninterrupted, native after the swap, wasm64 uninterrupted, wasm64 after a swap
 from module A into module B (B has extra code). Run: pixi run -e wasm xfer-parity"""
@@ -33,7 +33,7 @@ def main() -> int:
     eng = serial_engine()
     build("app/xfer.mojo", eng, "--target", "native", "-o", "build/xfer")
     for m in ("a", "b"):
-        build(f"app/xfer_{m}.mojo", D / "ludens-engine", "--target", "wasm64", "-o", f"build/xfer_{m}.wasm", "--export", "xfer_*")
+        build(f"app/xfer_{m}.mojo", D / "ludens-core", "--target", "wasm64", "-o", f"build/xfer_{m}.wasm", "--export", "xfer_*")
     out = subprocess.run([str(ROOT / "build/xfer")], capture_output=True, text=True, check=True).stdout
     nat = re.search(r"blob (\d+) uninterrupted (\d+) after swap (\d+)", out)
     js = f"""import('{ludens_wasm_rt.HOST_MJS}').then(async m => {{

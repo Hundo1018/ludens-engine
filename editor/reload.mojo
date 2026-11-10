@@ -1,4 +1,4 @@
-"""Hot reload of a scene (ludens-shell #14): replace the world with a changed scene file without restarting.
+"""Hot reload of a scene (ludens-engine #14): replace the world with a changed scene file without restarting.
 
 `reload_scene(ed, text)` builds the new world from the scene text first. If that fails (a malformed row, a bad
 value, a missing field) nothing changes: the old world keeps running, the error is appended to `ed.messages` for the
@@ -8,7 +8,7 @@ the old one. The undo history is cleared (it refers to bodies of the old scene) 
 handles that are alive in the new world. A reload is refused while playing: stop first.
 
 Assets and code reload use the same boundary rule (the swap happens between ticks): assets through the asset
-database's rebuild log (`editor.assets`), code through `embed.transfer` (ludens-engine 17.91)."""
+database's rebuild log (`editor.assets`), code through `embed.transfer` (ludens-core 17.91)."""
 from editor.scene_text import scene_rows_from_text
 from editor.state import Editor
 from embed.scene_io import import_scene, scene_from_fields

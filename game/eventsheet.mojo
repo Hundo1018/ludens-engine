@@ -1,4 +1,4 @@
-"""Event sheets: deterministic, data-driven game logic (ludens-shell #24, first slice).
+"""Event sheets: deterministic, data-driven game logic (ludens-engine #24, first slice).
 
 A sheet is text, one block per event:
 

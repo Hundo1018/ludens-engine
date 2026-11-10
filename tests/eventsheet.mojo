@@ -1,4 +1,4 @@
-"""Event sheets (ludens-shell #24): parsing, the fixed tables of conditions and actions, bounded execution, determinism.
+"""Event sheets (ludens-engine #24): parsing, the fixed tables of conditions and actions, bounded execution, determinism.
 Native only, no GPU. `pixi run -e wasm test-editor`."""
 from game.eventsheet import Sheet
 from embed.world import EmbedWorld

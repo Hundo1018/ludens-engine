@@ -29,7 +29,7 @@ def main() -> int:
     native_libs.build_all()
     (ROOT / "build").mkdir(exist_ok=True)
     build(serial_engine(), "--target", "native", "-o", "build/sheet_parity")
-    build(D / "ludens-engine", "--target", "wasm64", "-o", "build/sheet_parity.wasm", "--export", "sheet_parity_*")
+    build(D / "ludens-core", "--target", "wasm64", "-o", "build/sheet_parity.wasm", "--export", "sheet_parity_*")
     out = subprocess.run([str(ROOT / "build/sheet_parity")], capture_output=True, text=True, check=True).stdout
     nat = re.search(r"hash (\d+) kicks (\d+) fell (\d+) cut (\d+)", out).groups()
     js = f"""import('{ludens_wasm_rt.HOST_MJS}').then(async m => {{

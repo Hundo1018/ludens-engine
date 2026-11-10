@@ -1,6 +1,6 @@
-# ludens-shell
+# ludens-engine
 
-ludens-shell is three things around one general core, a single wasm64 module:
+ludens-engine is three things around one general core, a single wasm64 module:
 
 - **Platform shells** (`shell/web/`; `shell/desktop/` and `shell/mobile/` would sit beside it) put the module into a
   platform's host program. A shell does one thing: implement the module's imports (`host_*` belongs to
@@ -9,7 +9,7 @@ ludens-shell is three things around one general core, a single wasm64 module:
 - **Shared UI** (`ui/`): text, layout, input and widgets for both the game and the editor. Mojo, drawn through wgpu.
 - **Applications**: the game (`app/`) and the editor (`editor/`). Both are Mojo, compiled into the same module.
 
-Dependency direction: ludens-shell → {ludens-engine, wgpu-mojo, miniaudio-mojo} → ludens-wasm-rt.
+Dependency direction: ludens-engine → {ludens-core, wgpu-mojo, miniaudio-mojo} → ludens-wasm-rt.
 
 ## The arena game
 
@@ -73,7 +73,7 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
    `pixi run -e wasm test-editor` moves a body once through the GUI entry and once through the CLI entry and compares
    `EmbedWorld.hash()`.
 3. **Scene format.** Defined by this repo (#9). The engine provides schema read/write, diffs and parity with the
-   deterministic snapshot (ludens-engine #82).
+   deterministic snapshot (ludens-core #82).
 4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
    `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
 
@@ -92,7 +92,7 @@ pixi run -e wasm ludens script edits.txt # a file of commands, one per line (`un
 pixi run -e wasm test-cli                # this section, end to end
 ```
 
-A scene file is `path = value` rows (`embed.scene_io` in ludens-engine); it holds the authored state, not the
+A scene file is `path = value` rows (`embed.scene_io` in ludens-core); it holds the authored state, not the
 deterministic snapshot. A failed command exits 1, names what is wrong (a script error names its line) and writes
 nothing. Subcommands for assets, builds and replay arrive with #12, #15 and #13.
 
@@ -134,7 +134,7 @@ from the main thread into the shared ring.
 
 Poses leave Mojo as one contiguous `f32` array (12 floats per body) and go to `wgpuQueueWriteBuffer(ptr, size)`;
 the translator passes the browser a view of wasm memory (`rt.bytes(ptr, size)`, no `.slice()`; wgpu-mojo
-`57d2810`), so JS copies nothing. ludens-engine stores bodies as an array of structs (`QuatBody6`), not as SoA
+`57d2810`), so JS copies nothing. ludens-core stores bodies as an array of structs (`QuatBody6`), not as SoA
 buffers, so there is still a gather per frame inside Mojo; it costs 0.01 ms at 1e3 bodies and 0.15 ms at 1e4
 (`gather` below).
 
@@ -154,7 +154,7 @@ Numbers in parentheses are physics + gather. Caveats: one run, on a shared machi
 x86-64 baseline target (no FMA); native "parallel" is no faster than serial at these sizes; this is CPU work only,
 not GPU time. The hash column compares the final pose array bit for bit.
 
-Pins when measured: ludens-engine `61a7bfd86f93`, wgpu-mojo `57d28106cd15`, miniaudio-mojo `fc84c21d045d`,
+Pins when measured: ludens-core `61a7bfd86f93`, wgpu-mojo `57d28106cd15`, miniaudio-mojo `fc84c21d045d`,
 ludens-wasm-rt `b23d53d`.
 
 ## B4: native / web parity gate

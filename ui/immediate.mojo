@@ -1,4 +1,4 @@
-"""Immediate-mode widgets (ludens-shell #17): the caller describes the UI again every frame.
+"""Immediate-mode widgets (ludens-engine #17): the caller describes the UI again every frame.
 
     ui.begin_frame(pointer_x, pointer_y, pointer_down, key)
     if ui.button(Rect(10, 10, 120, 32), "Play"):

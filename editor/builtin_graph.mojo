@@ -1,4 +1,4 @@
-"""Node graph editing commands (ludens-shell #20): registered through `editor.ext` like any plugin's commands.
+"""Node graph editing commands (ludens-engine #20): registered through `editor.ext` like any plugin's commands.
 
 Each command edits a copy of the graph and hands it to `Editor.graph_commit`, so an argument error leaves the graph
 and the undo history untouched."""

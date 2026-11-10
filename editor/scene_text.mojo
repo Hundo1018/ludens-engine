@@ -1,4 +1,4 @@
-"""The flat text form of a scene (ludens-shell #9, slice 1): one `path = value` row per line.
+"""The flat text form of a scene (ludens-engine #9, slice 1): one `path = value` row per line.
 
 `#` starts a comment, blank lines are ignored, and a path appears once. The rows are the engine's
 (`scene_to_fields`), so a new scene property is a new row and this module does not change. Prefabs, nested scenes

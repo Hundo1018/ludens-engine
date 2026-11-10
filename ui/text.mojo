@@ -1,4 +1,4 @@
-"""Line breaking for UI text (ludens-shell #17): UTF-8 decoding and greedy wrapping with CJK rules.
+"""Line breaking for UI text (ludens-engine #17): UTF-8 decoding and greedy wrapping with CJK rules.
 
 `break_lines` wraps `text` to `max_width` using glyph advances from a `GlyphMetrics` (the font's job, supplied by the
 caller, so layout is testable without a font and the same code serves any renderer). Break opportunities:

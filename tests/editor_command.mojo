@@ -1,4 +1,4 @@
-"""Command layer test (ludens-shell #6): GUI and CLI entry points give the same world, and undo works.
+"""Command layer test (ludens-engine #6): GUI and CLI entry points give the same world, and undo works.
 
 Native only, no GPU. Build and run: `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody

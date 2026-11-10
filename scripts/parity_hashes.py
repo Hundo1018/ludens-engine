@@ -33,7 +33,7 @@ def main() -> int:
     inc = [ma, ma / "examples/web", ROOT / "app"]
     eng = serial_engine()
     entry_build("app/parity.mojo", [eng, ma, Path(".")], [eng, *inc], "--target", "native", "-o", "build/parity")
-    entry_build("app/parity.mojo", [D / "ludens-engine", ma, Path(".")], [D / "ludens-engine", *inc],
+    entry_build("app/parity.mojo", [D / "ludens-core", ma, Path(".")], [D / "ludens-core", *inc],
                 "--target", "wasm64", "-o", "build/parity.wasm", "--export", "parity_*")
     out = subprocess.run([str(ROOT / "build/parity")], capture_output=True, text=True, check=True).stdout
     nat = re.search(r"world (\d+) pcm (\d+) contacts (\d+)", out)

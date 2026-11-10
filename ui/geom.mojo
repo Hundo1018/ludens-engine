@@ -1,4 +1,4 @@
-"""Rectangles and insets for the shared UI toolkit (ludens-shell #17)."""
+"""Rectangles and insets for the shared UI toolkit (ludens-engine #17)."""
 
 
 @fieldwise_init

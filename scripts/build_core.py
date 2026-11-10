@@ -5,7 +5,8 @@
 
 The pixi env's conda cc does not link on every system, so the build runs with that env's bin dir off PATH
 (native_libs.native_env); mojo itself is called by absolute path so it still finds its standard library.
-LUDENS_ENGINE points at an engine source tree instead of the pinned build/deps/ludens-engine (development)."""
+LUDENS_CORE_SRC points at a ludens-core source tree instead of the pinned build/deps/ludens-core (development);
+LUDENS_ENGINE is still read, as its old name. (LUDENS_CORE is something else: the editor core binary, scripts/ludens.py.)"""
 import os
 import subprocess
 import sys
@@ -17,7 +18,8 @@ import native_libs  # noqa: E402
 
 
 def engine_dir() -> Path:
-    return Path(os.environ.get("LUDENS_ENGINE", ROOT / "build/deps/ludens-engine"))
+    override = os.environ.get("LUDENS_CORE_SRC") or os.environ.get("LUDENS_ENGINE")
+    return Path(override) if override else ROOT / "build/deps/ludens-core"
 
 
 def newest(paths) -> float:
@@ -31,7 +33,7 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
     sources = [*ROOT.glob("editor/**/*.mojo"), *ROOT.glob("ui/**/*.mojo"), *ROOT.glob("game/**/*.mojo"), ROOT / entry]
     includes = ["-I", "."]
     if engine:
-        if "LUDENS_ENGINE" not in os.environ:
+        if "LUDENS_CORE_SRC" not in os.environ and "LUDENS_ENGINE" not in os.environ:
             subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         sources += list(engine_dir().glob("embed/*.mojo"))
         # app/ too, with wgpu-mojo: a test can drive the shell's own device code (InputState -> Keys) natively.

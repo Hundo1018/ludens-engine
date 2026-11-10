@@ -1,10 +1,10 @@
 [workspace]
-name = "ludens-shell"
+name = "ludens-engine"
 channels = ["https://conda.modular.com/max", "conda-forge"]
 platforms = ["linux-64", "osx-arm64"]
 
 [dependencies]
-# Same exact pins as ludens-engine: the engine imports `max` (parallelize), which the
+# Same exact pins as ludens-core: the engine imports `max` (parallelize), which the
 # standalone compiler package does not carry.
 modular = "==26.7.0"
 mojo = "==1.2.0"

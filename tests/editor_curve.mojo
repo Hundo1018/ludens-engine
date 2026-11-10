@@ -1,4 +1,4 @@
-"""Curve editor (ludens-shell #19): commands through the registry, one undo history with the world's, drag merging,
+"""Curve editor (ludens-engine #19): commands through the registry, one undo history with the world's, drag merging,
 byte round trip and the preview equal to the engine's own evaluation. Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody
 from editor.builtin_curve import CurveAdd, CurveDelete, CurveMove

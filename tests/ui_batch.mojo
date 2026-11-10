@@ -1,4 +1,4 @@
-"""Draw list to batches (ludens-shell #17): vertex counts, positions, strokes, nested clips, text runs.
+"""Draw list to batches (ludens-engine #17): vertex counts, positions, strokes, nested clips, text runs.
 Standard library only. `pixi run -e wasm test-ui`."""
 from ui.batch import FLOATS_PER_VERTEX, build_batch
 from ui.draw import Color, DrawList

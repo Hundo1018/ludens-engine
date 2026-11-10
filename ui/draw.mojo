@@ -1,4 +1,4 @@
-"""The draw list: what the widgets produce and a renderer consumes (ludens-shell #17).
+"""The draw list: what the widgets produce and a renderer consumes (ludens-engine #17).
 
 A flat list of commands (fill a rectangle, stroke one, draw a text run, push / pop a clip). It holds no GPU object
 and no font, so the widgets can be tested without a device and the same list can be drawn by wgpu, by a software

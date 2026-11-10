@@ -1,6 +1,6 @@
-"""The editor's state: the world being edited and its undo history (ludens-shell #6, #10).
+"""The editor's state: the world being edited and its undo history (ludens-engine #6, #10).
 
-Undo and redo are the engine's transaction layer (`embed.undo.UndoLog`, ludens-engine 17.43): a command opens a
+Undo and redo are the engine's transaction layer (`embed.undo.UndoLog`, ludens-core 17.43): a command opens a
 transaction, tells the editor which bodies it is about to change, changes them, and commits; the log keeps each
 body's record from before and after, so one mechanism covers every kind of edit. Commands do not touch the log
 directly; they use `begin`, `touch`, `created` and `commit` here, and `Registry.run` aborts an open transaction when

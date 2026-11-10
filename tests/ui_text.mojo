@@ -1,4 +1,4 @@
-"""The ui/text.mojo checks: UTF-8 decoding and line breaking with CJK rules (ludens-shell #17). Standard library only.
+"""The ui/text.mojo checks: UTF-8 decoding and line breaking with CJK rules (ludens-engine #17). Standard library only.
 
 The metrics are fixed-width: 10 for everything narrow, 20 for the wide ranges. Expected lines are worked out by hand
 in the comments; the last case is a property test over generated text.

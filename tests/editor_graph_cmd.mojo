@@ -1,4 +1,4 @@
-"""Node graph commands (ludens-shell #20): through the registry, one undo history with the world's and the curve's,
+"""Node graph commands (ludens-engine #20): through the registry, one undo history with the world's and the curve's,
 drag merging, failures leave graph and history alone. Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody
 from editor.builtin_curve import CurveAdd, CurveDelete, CurveMove

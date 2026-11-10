@@ -1,4 +1,4 @@
-"""Extension API, command registration (ludens-shell #18): registry order, duplicate names, a plugin command.
+"""Extension API, command registration (ludens-engine #18): registry order, duplicate names, a plugin command.
 
 The plugin here is a struct in this file that conforms to `Command` and touches only the `Editor` it is handed,
 which is all a package outside the repository can do. Native only, no GPU. `pixi run -e wasm test-editor`."""

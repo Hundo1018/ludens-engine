@@ -1,4 +1,4 @@
-"""Touch gestures from raw touch points (ludens-shell #17): tap, long press, drag and pinch.
+"""Touch gestures from raw touch points (ludens-engine #17): tap, long press, drag and pinch.
 
 Standard library only. The host calls `feed` once per frame with the touches that are down and the time in
 milliseconds; `feed` returns the gestures recognized in that frame. Recognition is a small state machine, so it can

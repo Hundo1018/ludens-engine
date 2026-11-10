@@ -1,4 +1,4 @@
-"""Node graph data layer (ludens-shell #20): a table-driven graph type, canonical text, validation that names nodes,
+"""Node graph data layer (ludens-engine #20): a table-driven graph type, canonical text, validation that names nodes,
 snapshot undo with drag merging, and a second graph type added by registration only. Native only, no GPU.
 `pixi run -e wasm test-editor`."""
 from editor.graph import Graph, GraphHistory, GraphType, PortDef, graph_from_text, graph_to_text, validate

@@ -1,4 +1,4 @@
-"""A small flex-style layout: rows and columns of boxes (ludens-shell #17).
+"""A small flex-style layout: rows and columns of boxes (ludens-engine #17).
 
 One pass to measure, one to arrange, both plain `Float32` arithmetic in a fixed order: laying the same tree out
 twice gives identical bits (tested). Measured: 200 generated trees (seed 12345) hash to 13514690443309195779 on native

@@ -1,9 +1,9 @@
 # Passive manifest read by ludens-wasm-rt's build driver, for both targets:
 #   python3 -m ludens_wasm_rt.build_wasm --lib . app/shell.mojo --target wasm64 -o build/shell.wasm --export 'shell_*'
 #   python3 -m ludens_wasm_rt.build_wasm --lib . app/shell.mojo --target native -o build/shell
-# ludens-shell provides no JS imports of its own beyond net_* (B5).
+# ludens-engine provides no JS imports of its own beyond net_* (B5).
 [lib]
-name = "ludens-shell"
+name = "ludens-engine"
 include = ["app"]
 js = "shell/web/net_host.mjs"
 host_imports = ["net_*", "os_*"]

@@ -1,4 +1,4 @@
-"""Curve editing commands (ludens-shell #19): registered through `editor.ext` like any plugin's commands."""
+"""Curve editing commands (ludens-engine #19): registered through `editor.ext` like any plugin's commands."""
 from editor.ext import Command
 from editor.state import Editor
 from geometry.vec import Real, Vec3

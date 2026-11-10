@@ -1,4 +1,4 @@
-"""From draw list to GPU-ready batches (ludens-shell #17): the part of the wgpu draw path that needs no device.
+"""From draw list to GPU-ready batches (ludens-engine #17): the part of the wgpu draw path that needs no device.
 
 `build_batch` turns a `DrawList` into one vertex array of coloured triangles (6 vertices per rectangle, each
 `x y r g b a`), cut into segments wherever the clip rectangle changes (each segment is one scissored draw call), and

@@ -1,4 +1,4 @@
-"""The arena game (ludens-shell sample game), played by scripts: no window, no GPU, no sound.
+"""The arena game (ludens-engine sample game), played by scripts: no window, no GPU, no sound.
 Native only. `pixi run -e wasm test-game`.
 
 What a person does is an `Intent` per frame, so a test can play the whole game: walk to the spheres along the

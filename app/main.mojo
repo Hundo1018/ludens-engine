@@ -61,7 +61,7 @@ struct App(Movable):
     var game_format: UInt32
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
-        self.boot = GPUBoot("ludens-shell")
+        self.boot = GPUBoot("ludens-engine")
         self.surface = create_surface_canvas(
             self.boot.instance.lib(), self.boot.instance.handle(), selector
         )

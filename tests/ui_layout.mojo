@@ -1,4 +1,4 @@
-"""ui/ layout and focus navigation (ludens-shell #17). Standard library only: `ui/` stands alone.
+"""ui/ layout and focus navigation (ludens-engine #17). Standard library only: `ui/` stands alone.
 
 Expected rectangles in the first cases are worked out by hand; the last cases are properties over generated trees
 (inside the parent, siblings do not overlap, the same tree gives the same bits) and a pinned hash.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""os_* imports (ludens-shell #8): build app/os_probe.mojo to wasm64 and drive it from node (tests/test_os.mjs).
+"""os_* imports (ludens-engine #8): build app/os_probe.mojo to wasm64 and drive it from node (tests/test_os.mjs).
 
     pixi run -e wasm test-os"""
 import subprocess

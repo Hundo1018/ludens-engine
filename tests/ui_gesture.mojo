@@ -1,4 +1,4 @@
-"""Touch gestures (ludens-shell #17): a scripted finger sequence in, the recognized gestures out. Standard library only.
+"""Touch gestures (ludens-engine #17): a scripted finger sequence in, the recognized gestures out. Standard library only.
 
 Build and run: `pixi run -e wasm test-ui`."""
 from ui.gesture import (
