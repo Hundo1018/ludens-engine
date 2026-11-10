@@ -22,4 +22,9 @@ export interface AppExports {
   app_net_packets(app: bigint): number;
   app_net_last_ptr(app: bigint): bigint;
   app_net_last_len(app: bigint): number;
+  app_set_mode(app: bigint, mode: number): number;
+  app_game_status(app: bigint): number;
+  app_game_score(app: bigint): number;
+  app_game_collected(app: bigint): number;
+  app_game_hash(app: bigint): bigint;
 }

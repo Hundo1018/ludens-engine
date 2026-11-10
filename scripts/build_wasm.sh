@@ -13,5 +13,5 @@ mkdir -p build
 
 python3 -m ludens_wasm_rt.build_wasm \
   --lib "$ENGINE" --lib "$WGPU" --lib "$MA" --lib . \
-  -I "$ENGINE" -I "$WGPU" -I "$MA" -I "$MA/examples/web" \
+  -I "$ENGINE" -I "$WGPU" -I "$MA" -I "$MA/examples/web" -I . \
   app/main.mojo -o "$OUT" --export 'app_*'

@@ -80,6 +80,8 @@ async function boot(canvas: HTMLCanvasElement) {
   const [sel, len] = rt.str_in("#" + canvas.id);
   const app = x.app_init(sel, len, canvas.width, canvas.height);
   if (app === 0n) throw new Error("app_init failed");
+  // The arena game is the app; ?selftest keeps the physics demo that the parity gates and selftests measure.
+  if (!location.search.includes("selftest") && !location.search.includes("demo")) x.app_set_mode(app, 1);
   // Non-enumerable: bigint is not JSON-serialisable and the automated checks stringify window.shell.
   // Read one frame back through wgpu's FrameCapture (rendered into an app-owned target; see app/main.mojo).
   const capturePixels = async () => {
