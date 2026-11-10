@@ -92,6 +92,7 @@ def source() -> str:
         "comptime GLYPH_H = 7",
         f'comptime _CHARS = "{chars}"',
         "# seven rows per character, in _CHARS order, one ASCII character per row: its value plus 48. The low 5 bits are the dots, bit 4 the leftmost.",
+        "# A string, not an InlineArray: Mojo 1.2.0 has no importable InlineArray (std.collections, std.memory and std.utils were tried).",
         f'comptime _ROWS = "{body}"',
         f'comptime _UNKNOWN = "{unk}"',
         "",

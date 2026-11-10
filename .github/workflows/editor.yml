@@ -60,6 +60,8 @@ jobs:
         run: pixi run -e wasm test-game
       - name: Arena game, native == wasm64 through the app exports
         run: pixi run -e wasm game-parity
+      - name: Gamepad and touch mapping, node
+        run: pixi run -e wasm test-pad
 
   ui:
     name: ui/ toolkit (standard library only)

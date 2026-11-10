@@ -1,6 +1,8 @@
 // Play the arena game in headless Chrome (SwiftShader WebGPU) and save frames as PNG, so the renderer and HUD get looked at.
 // usage: node scripts/game_screenshot.mjs <chrome> <url> <out-prefix> [timeout_s]
-// Writes <out-prefix>_start.png, _moved.png ... and prints the game state after each step.
+// Writes <out-prefix>_start.png, _moved.png, _paused.png and prints the game state after each step.
+// Exits non-zero unless every frame was captured, shows a scene (many colours), the frames differ from each other
+// after input, and the browser reported no WebGPU error.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,11 +22,17 @@ const target = await (await fetch(`http://127.0.0.1:${port}/json/new?${url}`, { 
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener('open', r));
 let id = 0; const pending = new Map();
+const problems = [];
+const shots = {};
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
-  if (m.method === 'Runtime.consoleAPICalled') console.log('console:', m.params.args.map((a) => a.value ?? a.description).join(' '));
-  if (m.method === 'Runtime.exceptionThrown') console.log('exception:', m.params.exceptionDetails.exception?.description);
+  if (m.method === 'Runtime.consoleAPICalled') {
+    const text = m.params.args.map((a) => a.value ?? a.description).join(' ');
+    console.log('console:', text);
+    if (/wgpu uncaptured error|app_frame:/.test(text)) problems.push('browser console: ' + text.split('\n')[0]);
+  }
+  if (m.method === 'Runtime.exceptionThrown') { console.log('exception:', m.params.exceptionDetails.exception?.description); problems.push('page exception'); }
 });
 const send = (method, params = {}) => new Promise((r) => { pending.set(++id, r); ws.send(JSON.stringify({ id, method, params })); });
 const js = async (expression) => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }))?.result?.value;
@@ -53,7 +61,7 @@ const GRAB = `(async () => {
 })()`;
 async function shot(name) {
   const r = await js(GRAB);
-  if (!r) { console.log(`${name}: capture never completed`); return; }
+  if (!r) { console.log(`${name}: capture never completed`); problems.push(`${name}: capture never completed`); return; }
   const bytes = Buffer.from(r.b64, 'base64'); const rgba = new Uint8Array(r.w * r.h * 4);
   for (let y = 0; y < r.h; y++) for (let xx = 0; xx < r.w; xx++) {
     const o = y * r.pitch + xx * 4, q = (y * r.w + xx) * 4;
@@ -61,7 +69,11 @@ async function shot(name) {
     rgba[q] = bytes[o + (bgr ? 2 : 0)]; rgba[q + 1] = bytes[o + 1]; rgba[q + 2] = bytes[o + (bgr ? 0 : 2)]; rgba[q + 3] = 255;
   }
   writeFileSync(`${prefix}_${name}.png`, png(r.w, r.h, rgba));
-  console.log(`${name}: ${r.w}x${r.h} format ${r.format} status ${r.status} score ${r.score} collected ${r.collected}`);
+  const colours = new Set();
+  for (let q = 0; q < rgba.length; q += 4) colours.add((rgba[q] >> 3) << 10 | (rgba[q + 1] >> 3) << 5 | rgba[q + 2] >> 3);
+  shots[name] = { rgba, colours: colours.size };
+  if (colours.size < 50) problems.push(`${name}: only ${colours.size} colours, not a scene`);
+  console.log(`${name}: ${r.w}x${r.h} format ${r.format} status ${r.status} score ${r.score} collected ${r.collected}, ${colours.size} colours`);
 }
 const key = (type, code) => js(`window.dispatchEvent(new KeyboardEvent('${type}', { code: '${code}', bubbles: true }))`);
 // wait for the app to have drawn frames
@@ -73,4 +85,17 @@ await key('keydown', 'KeyD'); await key('keydown', 'KeyW'); await sleep(2500); a
 await shot('moved');
 await key('keydown', 'KeyP'); await key('keyup', 'KeyP'); await sleep(500);
 await shot('paused');
-done(0);
+const differ = (a, b) => { let n = 0; for (let q = 0; q < a.length; q += 4) if (Math.abs(a[q] - b[q]) + Math.abs(a[q + 1] - b[q + 1]) + Math.abs(a[q + 2] - b[q + 2]) > 30) n++; return n; };
+if (shots.start && shots.moved) {
+  const n = differ(shots.start.rgba, shots.moved.rgba);
+  console.log(`start vs moved: ${n} pixels differ`);
+  if (n < 5000) problems.push(`holding W+D changed only ${n} pixels: the game did not react to the keys`);
+}
+if (shots.moved && shots.paused) {
+  const n = differ(shots.moved.rgba, shots.paused.rgba);
+  console.log(`moved vs paused: ${n} pixels differ`);
+  if (n < 2000) problems.push(`pressing P changed only ${n} pixels: no pause banner`);
+}
+for (const p of problems) console.log('PROBLEM:', p);
+console.log('game-shot:', problems.length ? 'FAIL' : 'PASS');
+done(problems.length ? 1 : 0);

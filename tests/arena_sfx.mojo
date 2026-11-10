@@ -1,7 +1,7 @@
 """The sound effects (game/sfx.mojo): silence with no cue, sound with one, every cue ends, the output stays inside
 [-1, 1], and the same cues give the same samples. Native only: `pixi run -e wasm test-game`."""
 from game.arena import CUE_PICKUP, CUE_HIT, CUE_JUMP, CUE_WIN, CUE_LOSE, CUE_RAIN
-from game.sfx import Sfx, cue_seconds
+from game.sfx import Sfx, cue_seconds, cue_clip, CUE_COUNT
 from std.math import sqrt
 
 comptime RATE = 48000
@@ -91,6 +91,19 @@ def main() raises:
     var pd = List[Float32]()
     d.render(pd, 3000)
     c.ok(checksum(pd) != checksum(pa), "different cues give different samples")
+
+    # clips: what the shell registers with the audio scene, one per cue
+    var clips_ok = True
+    for cue in range(1, CUE_COUNT + 1):
+        var clip = cue_clip(cue, RATE)
+        var want = (Int(cue_seconds(cue) * Float64(RATE)) + 1) * 2
+        var tail = abs(Float64(clip[len(clip) - 1]))
+        if len(clip) != want or rms(clip) < 0.02 or peak(clip) > 1.0 or tail > 0.001:
+            clips_ok = False
+            print("  clip", cue, "length", len(clip), "want", want, "rms", rms(clip), "last sample", tail)
+    c.ok(clips_ok and CUE_COUNT == len(cues), "every cue renders to a clip of its own length that is audible and ends in silence")
+    c.ok(checksum(cue_clip(CUE_PICKUP, RATE)) == checksum(cue_clip(CUE_PICKUP, RATE)), "a cue's clip is the same every time")
+    c.ok(len(cue_clip(99, RATE)) == 2 and peak(cue_clip(99, RATE)) == 0.0, "an unknown cue is one silent frame")
 
     print("arena_sfx:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

@@ -3,7 +3,6 @@ of the 3D scene in the same render pass. Positions are in pixels, origin top-lef
 blend state, so panels are solid.
 
 Buffer (f32): 4 header floats (width, height, 0, 0), then 6 per vertex: x y r g b a. Vertices come from `ui.batch.build_batch`."""
-from depth_pipeline import depth_pipeline
 from ui.batch import FLOATS_PER_VERTEX, build_batch
 from ui.draw import DrawList
 from wgpu import (
@@ -16,7 +15,8 @@ from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
-from wgpu.render_pass import RenderPassEncoder
+from wgpu._ffi.types import WGPUTextureFormat
+from wgpu.render_pass import FrameRenderPass
 
 comptime MAX_VERTS = 65536
 
@@ -61,7 +61,11 @@ struct Hud(Movable):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "hud_layout")
-        self.pipeline = depth_pipeline(device, shader, layout, color_format, False, UInt32(8))
+        # Drawn in the arena pass, which has a depth attachment: same depth format, always passes, writes nothing.
+        self.pipeline = device.create_render_pipeline(
+            shader, "vs_main", "fs_main", color_format, layout,
+            depth_format=WGPUTextureFormat.Depth32Float, depth_write=False, depth_compare=UInt32(8),
+        )
         var bytes = UInt64((4 + MAX_VERTS * FLOATS_PER_VERTEX) * 4)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="hud")
         var bg_entries: List[WGPUBindGroupEntry] = [
@@ -94,7 +98,7 @@ struct Hud(Movable):
         if len(self.staging) > 0:
             device.queue_write_data(self.buffer, UInt64(0), self.staging)
 
-    def record(self, rpass: RenderPassEncoder):
+    def record(self, rpass: FrameRenderPass):
         if self.verts > 0:
             rpass.set_pipeline(self.pipeline)
             rpass.set_bind_group(UInt32(0), self.group)

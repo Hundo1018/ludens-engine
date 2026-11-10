@@ -1,8 +1,7 @@
 """Draws the arena: boxes and spheres by vertex pulling, lit and coloured per instance, from a chase camera.
 
-A Depth32Float buffer does the hidden-surface work. wgpu-mojo's helpers carry no depth state, so the pipeline and the render
-pass are built from the raw descriptors here (copied from `Device.create_render_pipeline` and
-`CommandEncoder.begin_render_pass_clear` with the depth parts filled in). `app/render.mojo` stays as it was: the parity gates compare its pixels.
+A Depth32Float buffer does the hidden-surface work (wgpu-mojo's `create_render_pipeline(depth_format=)` and
+`begin_surface_clear_pass_depth`). `app/render.mojo` stays as it was: the parity gates compare its pixels.
 
 Buffer layout (vec4<f32> elements): [0] eye.xyz + sx, [1] right.xyz + sy, [2] up.xyz + near, [3] fwd.xyz + far, [4] (count);
 instance i is four elements at 5 + 4 i: position + kind (0 box, 1 sphere), rotation xyzw, half extents, colour.
@@ -22,21 +21,11 @@ from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
-from wgpu._ffi.nulls import null_ptr
-from wgpu._ffi.structs import (
-    WGPUStringView, str_to_sv, WGPUVertexState, WGPUColorTargetState, WGPUFragmentState, WGPUPrimitiveState,
-    WGPUMultisampleState, WGPURenderPipelineDescriptor, WGPUDepthStencilState, WGPUStencilFaceState,
-    WGPUConstantEntry, WGPUBlendState, WGPUVertexBufferLayout, WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
-    WGPURenderPassDepthStencilAttachment, WGPUPassTimestampWrites,
-)
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
-from wgpu.shader import ShaderModule
-from wgpu.pipeline_layout import PipelineLayout
 from wgpu.texture import Texture, TextureView
-from depth_pipeline import depth_pipeline, DEPTH_FORMAT
 from hud import Hud
 
+comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
 comptime MAX_INSTANCES = 2048
 comptime VERTS_PER_INSTANCE = 1152
@@ -158,7 +147,9 @@ struct ArenaRenderer(Movable):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "arena_layout")
-        self.pipeline = depth_pipeline(device, shader, layout, color_format, True, UInt32(4))
+        self.pipeline = device.create_render_pipeline(
+            shader, "vs_main", "fs_main", color_format, layout, depth_format=DEPTH_FORMAT
+        )
         var bytes = UInt64((5 + 4 * MAX_INSTANCES) * 16)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
         var bg_entries: List[WGPUBindGroupEntry] = [
@@ -226,23 +217,8 @@ struct ArenaRenderer(Movable):
         device.queue_write_data(self.buffer, UInt64(0), self.staging)
         hud.upload(device)
         self._depth_view(device, width, height)
-        var color_view = device.create_texture_view(target)
-        var color_p = raw_alloc[WGPURenderPassColorAttachment](1)
-        color_p[unsafe_offset=0] = WGPURenderPassColorAttachment(
-            null_opaque(), color_view.handle().raw, UInt32(0xFFFFFFFF), null_opaque(), UInt32(2), UInt32(1), CLEAR,
-        )
-        var depth_att_p = raw_alloc[WGPURenderPassDepthStencilAttachment](1)
-        depth_att_p[unsafe_offset=0] = WGPURenderPassDepthStencilAttachment(
-            null_opaque(), self.depth_view.value().handle().raw, UInt32(2), UInt32(1), Float32(1.0), UInt32(0),
-            UInt32(0), UInt32(0), UInt32(0), UInt32(0),
-        )
-        var pass_p = raw_alloc[WGPURenderPassDescriptor](1)
-        pass_p[unsafe_offset=0] = WGPURenderPassDescriptor(
-            null_opaque(), str_to_sv("arena_pass"), UInt(1), color_p, depth_att_p, null_opaque(),
-            null_ptr[WGPUPassTimestampWrites](),
-        )
         var enc = device.create_command_encoder("frame")
-        var rpass = enc.begin_render_pass(pass_p)
+        var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(count), UInt32(0), UInt32(0))
@@ -250,7 +226,3 @@ struct ArenaRenderer(Movable):
         rpass^.end()
         var cmd = enc^.finish()
         device.queue_submit(cmd^)
-        _ = color_view^
-        color_p.unsafe_free()
-        depth_att_p.unsafe_free()
-        pass_p.unsafe_free()

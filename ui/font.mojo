@@ -9,6 +9,7 @@ comptime GLYPH_W = 5
 comptime GLYPH_H = 7
 comptime _CHARS = " !#%'()*+,-./0123456789:<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_"
 # seven rows per character, in _CHARS order, one ASCII character per row: its value plus 48. The low 5 bits are the dots, bit 4 the leftmost.
+# A string, not an InlineArray: Mojo 1.2.0 has no importable InlineArray (std.collections, std.memory and std.utils were tried).
 comptime _ROWS = "00000004444404::O:O::II248CC4480000248884284222480E>O>E0044O4400000<48000O00000000<<11248@@>ACEIA>4<4444>>A1248OO2421A>26:BO22O@N11A>68@NAA>O124888>AA>AA>>AA?12<0<<0<<0248@84200O0O008421248>A12404>AAOAAANAANAAN>A@@@A>NAAAAANO@@N@@OO@@N@@@>A@GAA?AAAOAAA>44444>72222B<ABDHDBA@@@@@@OAKEEAAAAAIECAA>AAAAA>NAAN@@@>AAAEB=NAANDBA?@@>11NO444444AAAAAA>AAAAA:4AAAEEKAAA:4:AAAA:4444O1248@O>88888>>22222>000000O"
 comptime _UNKNOWN = "OAAAAAO"
 
