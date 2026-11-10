@@ -187,6 +187,23 @@ def main() raises:
     c.ok(count_cue(gcues, CUE_PICKUP) == N_ITEMS and count_cue(gcues, CUE_WIN) == 1, "a cue per sphere and one win cue")
     c.ok(count_cue(gcues, CUE_RAIN) == 1 and g.sheet.get("rain_on") == 1, "the event sheet rained crates after the 4th sphere (its counter reads " + String(g.sheet.get("collected")) + ": it sees a pickup one tick later)")
 
+    # --- difficulty: the same bot with the chasers and the bar on, over several runs of the same game --------------------
+    var wins = 0
+    var total_hits = 0
+    var best = 0
+    for run_no in range(3):
+        var d = Arena()
+        for _ in range(run_no * 7):  # a different start moment each run: the chasers are in a different place
+            d.update(Intent.idle(), FRAME)
+        var fr = play_bot(d, 60 * 85)
+        total_hits += d.hits
+        if d.status() == STATUS_WON:
+            wins += 1
+            best = max(best, d.score)
+        print("  run", run_no, ": status", d.status(), "collected", d.collected(), "hits", d.hits, "after", Real(fr) / 60.0, "s")
+    c.ok(total_hits > 0, "the chasers and the bar do hit a bot that walks past them (" + String(total_hits) + " hits in 3 runs)")
+    print("  info: bot wins", wins, "of 3 with chasers on")
+
     # --- determinism: the same play gives the same hash ------------------------------------------------
     var r1 = Arena()
     r1.chasers_on = False
