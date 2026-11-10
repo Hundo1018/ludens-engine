@@ -56,6 +56,10 @@ jobs:
         run: pixi run -e wasm test-os
       - name: ludens build --target web twice, byte-identical manifests
         run: pixi run -e wasm test-build
+      - name: Arena game, scripted games natively
+        run: pixi run -e wasm test-game
+      - name: Arena game, native == wasm64 through the app exports
+        run: pixi run -e wasm game-parity
 
   ui:
     name: ui/ toolkit (standard library only)

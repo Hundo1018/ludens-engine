@@ -11,6 +11,28 @@ ludens-shell is three things around one general core, a single wasm64 module:
 
 Dependency direction: ludens-shell → {ludens-engine, wgpu-mojo, miniaudio-mojo} → ludens-wasm-rt.
 
+## The arena game
+
+Open the page (`pixi run -e wasm serve-web`, Chrome 133+ or Firefox 134+) and you are in a walled arena. Collect the 8 gold spheres
+within 90 seconds; two red chasers walk the navmesh after you, a bar sweeps the middle, and after the 4th sphere crates rain.
+Each hit costs 25 of 100 health and gives one second of immunity. Win by collecting all 8, lose at 0 health or when time is up.
+
+| Input | Action |
+|---|---|
+| W A S D / arrows | move |
+| Space | jump |
+| left mouse button + drag | turn the camera |
+| P / Esc | pause |
+| R | restart |
+
+`?demo` or any `?selftest` loads the old physics demo instead; the parity gates and selftests measure that one.
+
+Where it lives: rules in `game/arena.mojo` (no window, no GPU), input in `game/controls.mojo` and `app/controls.mojo`,
+drawing in `app/render3d.mojo` and `app/hud.mojo` (text from `ui/font.mojo`), sound in `game/sfx.mojo`.
+Tests: `pixi run -e wasm test-game` plays whole games from scripts; `python3 scripts/game_parity.py` compares native with the
+wasm64 app driven through its `app_*` exports. Drawing has no depth buffer (see the issue list): items are sorted far to near.
+Nobody has looked at the rendering from this repo's CI; play it in a browser to check how it looks and feels.
+
 ## Layout
 
 | Path | What |
