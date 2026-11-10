@@ -1,4 +1,4 @@
-"""Native / wasm64 parity probe for event sheets (ludens-shell #24): one sheet, one world, 300 ticks, hashed.
+"""Native / wasm64 parity probe for event sheets (ludens-engine #24): one sheet, one world, 300 ticks, hashed.
 
 `main` prints the hashes for the native build; `sheet_parity_run` is exported for wasm64."""
 from embed.world import EmbedWorld

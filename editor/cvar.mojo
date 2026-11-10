@@ -1,4 +1,4 @@
-"""Live tuning: typed, range-checked settings applied at a tick boundary (ludens-shell #14, live tuning).
+"""Live tuning: typed, range-checked settings applied at a tick boundary (ludens-engine #14, live tuning).
 
 Same rules as the engine's Python `ludens.cvar`: a variable has a name, an integer or float type, a default and optional
 bounds. `set` parses text (so a console line and `ludens cmd` use it), refuses a value that is not of the type, not

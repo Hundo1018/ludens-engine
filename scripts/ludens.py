@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ludens: the command line of the editor core (ludens-shell #11).
+"""ludens: the command line of the editor core (ludens-engine #11).
 
     ludens new <dir>                    create a project: ludens.toml + a demo scene
     ludens hash | list | check          the world hash, the bodies (index, handle, position), validate the scene
@@ -93,7 +93,7 @@ def cmd_overlay(a) -> int:
 
 
 def cmd_sheet(a) -> int:
-    """Validate an event sheet file (ludens-shell #24): parse errors name the line and the event."""
+    """Validate an event sheet file (ludens-engine #24): parse errors name the line and the event."""
     return run_core("sheet", a.file)
 
 
@@ -102,7 +102,7 @@ def cmd_build(a) -> int:
     (one `sha256  size  path` line per file, sorted) so two builds of the same commit can be compared."""
     import hashlib
     if a.target != "web":
-        print(f"ludens: build --target {a.target} is not implemented yet (web only); native needs the wgpu native libraries and an app entry (ludens-shell #15)", file=sys.stderr)
+        print(f"ludens: build --target {a.target} is not implemented yet (web only); native needs the wgpu native libraries and an app entry (ludens-engine #15)", file=sys.stderr)
         return 2
     rc = subprocess.run(["bash", str(ROOT / "scripts/build_wasm.sh")], cwd=ROOT).returncode
     if rc:

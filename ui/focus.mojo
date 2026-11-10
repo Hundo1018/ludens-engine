@@ -1,4 +1,4 @@
-"""Directional focus navigation for a set of focusable rectangles (ludens-shell #17).
+"""Directional focus navigation for a set of focusable rectangles (ludens-engine #17).
 
 Arrow keys, a gamepad d-pad or a swipe all say "move focus that way": `focus_next` picks, among the rectangles that
 lie that way from the current one, the one with the lowest weighted distance: 13 x (the gap along the direction)^2

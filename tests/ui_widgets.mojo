@@ -1,4 +1,4 @@
-"""The ui/ draw list and immediate-mode widgets (ludens-shell #17). Standard library only.
+"""The ui/ draw list and immediate-mode widgets (ludens-engine #17). Standard library only.
 
 Every case feeds the toolkit a scripted sequence of frames (pointer position, button, key) and checks what it
 reports: clicks, values, focus, and the draw list's hash.

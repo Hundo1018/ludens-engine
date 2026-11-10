@@ -1,4 +1,4 @@
-"""A curve asset: Catmull-Rom control points (ludens-shell #19, engine 17.36).
+"""A curve asset: Catmull-Rom control points (ludens-engine #19, engine 17.36).
 
 The data model is a list of `Vec3` control points through which `geometry.spline.CatmullRom[3]` (centripetal)
 passes. This file has what is not a command: the byte format of a curve asset (little-endian, a count then 3 x f32

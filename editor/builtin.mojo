@@ -1,5 +1,5 @@
 """Built-in commands. They are plugins like any other: they conform to `editor.ext.Command` and nothing else
-reaches them (ludens-shell #18)."""
+reaches them (ludens-engine #18)."""
 from editor.ext import Command
 from editor.state import Editor
 from geometry.vec import Real, Vec3

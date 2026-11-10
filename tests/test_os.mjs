@@ -1,4 +1,4 @@
-// os_* imports (ludens-shell #8) driven through a real wasm module (build/os_probe.wasm), with injected backends.
+// os_* imports (ludens-engine #8) driven through a real wasm module (build/os_probe.wasm), with injected backends.
 // usage: node test_os.mjs os_probe.wasm <ludens-wasm-rt host.mjs>
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";

@@ -39,7 +39,7 @@ def main(argv: list[str]) -> int:
     nat = re.search(pat, out).groups()
     if "--native-only" in argv:
         return 0
-    build(D / "ludens-engine", "--target", "wasm64", "-o", "build/spike_probe.wasm", "--export", "spike_probe_*")
+    build(D / "ludens-core", "--target", "wasm64", "-o", "build/spike_probe.wasm", "--export", "spike_probe_*")
     js = f"""import('{ludens_wasm_rt.HOST_MJS}').then(async m => {{
       const rt = await m.instantiate(require('fs').readFileSync('{ROOT / 'build/spike_probe.wasm'}'));
       const p = rt.alloc(8 * {len(NAMES)});

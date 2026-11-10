@@ -1,4 +1,4 @@
-"""Deterministic helpers for testing ui/ (ludens-shell #17): a seeded generator, random layout trees and a hash of
+"""Deterministic helpers for testing ui/ (ludens-engine #17): a seeded generator, random layout trees and a hash of
 the rectangles they lay out to. Standard library only. The unit tests and the native / wasm64 parity program
 (`app/ui_parity.mojo`) share them, so both look at the same trees."""
 from ui.batch import build_batch

@@ -1,4 +1,4 @@
-"""The asset database (ludens-shell #12): sources, import settings, artifacts, identified by content hash.
+"""The asset database (ludens-engine #12): sources, import settings, artifacts, identified by content hash.
 
 An asset is a source file plus the settings it is imported with. Its key is the SHA-256 of both; the importer chosen by
 the file extension (`editor.ext.ImporterRegistry`, #18) turns the source into an artifact, and the artifact is
@@ -223,7 +223,7 @@ struct AssetDb(Movable):
 
     def build[*Is: Importer](mut self, var sources: List[SourceFile], keep_on_failure: Bool = False) raises -> List[String]:
         """Import what changed and drop what is gone. Returns the paths imported this time, in order. With
-        `keep_on_failure` (hot reload, ludens-shell #14) an asset whose import fails keeps its previous good artifact
+        `keep_on_failure` (hot reload, ludens-engine #14) an asset whose import fails keeps its previous good artifact
         and the reason goes to `errors`, so the running game never loses an asset to a bad edit."""
         self.errors = List[String]()
         # sort sources by path (insertion sort: deterministic, the lists are small)

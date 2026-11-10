@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Directory-rule check for ludens-shell (issue #6, E1).
+"""Directory-rule check for ludens-engine (issue #6, E1).
 
     python3 scripts/check_layout.py              # check the repo, exit 1 on a violation
     python3 scripts/check_layout.py --selftest   # inject one violation per rule, expect it reported

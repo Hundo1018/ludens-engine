@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The `ludens` command line (ludens-shell #11), end to end through real processes.
+"""The `ludens` command line (ludens-engine #11), end to end through real processes.
 
     pixi run -e wasm test-cli
 

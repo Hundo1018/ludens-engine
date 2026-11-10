@@ -1,4 +1,4 @@
-"""World hand-over between two modules (ludens-engine 17.91, ludens-shell #14): the program both sides share.
+"""World hand-over between two modules (ludens-core 17.91, ludens-engine #14): the program both sides share.
 
 `xfer_save` builds a world, runs `before` ticks, writes the transfer blob to a host buffer, runs `after` more ticks and
 reports the world hash. `xfer_load` starts from an empty world, loads a blob and runs `after` ticks. The native

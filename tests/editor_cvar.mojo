@@ -1,4 +1,4 @@
-"""Live tuning (ludens-shell #14): typed, range-checked variables applied at a tick boundary. Native only, no GPU.
+"""Live tuning (ludens-engine #14): typed, range-checked variables applied at a tick boundary. Native only, no GPU.
 `pixi run -e wasm test-editor`."""
 from editor.cvar import CVarSet
 from embed.world import EmbedWorld

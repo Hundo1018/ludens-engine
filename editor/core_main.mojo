@@ -1,4 +1,4 @@
-"""The native entry of the editor core (`ludens-core`), the process `scripts/ludens.py` drives (ludens-shell #11).
+"""The native entry of the editor core (`ludens-core`), the process `scripts/ludens.py` drives (ludens-engine #11).
 
     ludens-core demo   <out.scene>
     ludens-core hash   <scene>

@@ -1,4 +1,4 @@
-"""Module A of the hand-over test: exactly the shared program (ludens-engine 17.91)."""
+"""Module A of the hand-over test: exactly the shared program (ludens-core 17.91)."""
 from xfer import xfer_load_impl, xfer_save_impl
 
 

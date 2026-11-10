@@ -1,4 +1,4 @@
-"""Play in editor and selection (ludens-shell #10): run the world, stop, and it is exactly as it was.
+"""Play in editor and selection (ludens-engine #10): run the world, stop, and it is exactly as it was.
 Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody, Play, Select, Stop, Tick
 from editor.entry import cli_run

@@ -1,6 +1,6 @@
 # ui/
 
-Shared UI toolkit for the game and the editor (ludens-shell #17).
+Shared UI toolkit for the game and the editor (ludens-engine #17).
 
 | Module | What |
 |---|---|

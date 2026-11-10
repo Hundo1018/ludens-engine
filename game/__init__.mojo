@@ -1,1 +1,1 @@
-"""Game-side runtime logic that ships with a game (ludens-shell #24): event sheets."""
+"""Game-side runtime logic that ships with a game (ludens-engine #24): event sheets."""

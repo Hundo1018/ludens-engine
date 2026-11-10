@@ -22,7 +22,7 @@ def _engine_variant(name: str, serial: bool) -> Path:
     dst = ROOT / "build/deps" / name
     subprocess.run(["rm", "-rf", str(dst)], check=True)
     dst.mkdir(parents=True)
-    src = D / "ludens-engine"
+    src = D / "ludens-core"
     for f in src.iterdir():
         if f.name != "wasm.toml":
             (dst / f.name).symlink_to(f)
@@ -38,15 +38,15 @@ def _engine_variant(name: str, serial: bool) -> Path:
 
 def serial_engine() -> Path:
     """The pinned engine with native built single-threaded, the same code path as wasm."""
-    return _engine_variant("ludens-engine-serial", True)
+    return _engine_variant("ludens-core-serial", True)
 
 
 def parallel_engine() -> Path:
     """The pinned engine with native built with parallel dispatch (what an engine's own native build used to be)."""
-    return _engine_variant("ludens-engine-parallel", False)
+    return _engine_variant("ludens-core-parallel", False)
 
 
-def build(*extra: str, engine: Path = D / "ludens-engine") -> None:
+def build(*extra: str, engine: Path = D / "ludens-core") -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(engine), "--lib", ".",
            "-I", str(engine), "app/bench.mojo", *extra]
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ludens build --target web (ludens-shell #15): reproducible output and the failure paths.
+"""ludens build --target web (ludens-engine #15): reproducible output and the failure paths.
 
     pixi run -e wasm test-build
 

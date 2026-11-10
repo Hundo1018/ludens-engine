@@ -1,4 +1,4 @@
-"""Extension API, first registration point: commands (ludens-shell #18, E13).
+"""Extension API, first registration point: commands (ludens-engine #18, E13).
 
 A plugin is a Mojo package linked into the same module at build time (the module is statically linked and Mojo
 cannot load code at run time). A command is an empty struct that conforms to `Command`; a build lists the commands

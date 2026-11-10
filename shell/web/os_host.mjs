@@ -1,4 +1,4 @@
-// os_* imports (ludens-shell #8): the platform services a game or an editor needs, as generic imports.
+// os_* imports (ludens-engine #8): the platform services a game or an editor needs, as generic imports.
 //   os_clipboard_write(ptr, len)            -> 0 queued, -1 refused
 //   os_clipboard_read_request()             -> 0 queued
 //   os_file_write(path_ptr, path_len, data_ptr, data_len) -> 0 queued, -1 invalid path / too large
@@ -7,7 +7,7 @@
 // A result packet is [kind u8][id u32 LE][status u8][payload]: kind 1 = clipboard text (id 0), kind 2 = file read
 // (id of the request; status 0 ok, 1 not found, 2 error). Asynchronous work never calls back into wasm: its result
 // is queued and the game takes it with os_poll inside a frame (ludens-wasm-rt's re-entry rule).
-// What it cannot do, on purpose (Play policy, ludens-shell #23): load code, run commands, install anything, or touch a
+// What it cannot do, on purpose (Play policy, ludens-engine #23): load code, run commands, install anything, or touch a
 // path outside the app's own storage. File paths are relative, `/`-separated, with no `.` / `..` / empty segment.
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 export const MAX_CLIPBOARD_BYTES = 1024 * 1024;

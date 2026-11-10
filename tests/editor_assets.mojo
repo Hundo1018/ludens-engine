@@ -1,4 +1,4 @@
-"""Asset database (ludens-shell #12): SHA-256 vectors, determinism, incremental rebuild, dependencies, bad input.
+"""Asset database (ludens-engine #12): SHA-256 vectors, determinism, incremental rebuild, dependencies, bad input.
 Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.assets import AssetDb, SourceFile, STATUS_FAILED, STATUS_OK, sha256, sha256_text
 from editor.ext import Importer
