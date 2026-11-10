@@ -27,4 +27,5 @@ export interface AppExports {
   app_game_score(app: bigint): number;
   app_game_collected(app: bigint): number;
   app_game_hash(app: bigint): bigint;
+  app_release_input(app: bigint): void;
 }

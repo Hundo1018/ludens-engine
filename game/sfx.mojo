@@ -6,6 +6,7 @@ from game.arena import CUE_PICKUP, CUE_HIT, CUE_JUMP, CUE_WIN, CUE_LOSE, CUE_RAI
 from geometry.trig import sin
 
 comptime VOICES = 8
+comptime CUE_COUNT = 6  # cues are numbered 1 .. CUE_COUNT (game/arena.mojo)
 comptime TAU: Float64 = 6.283185307179586
 comptime MASTER: Float64 = 0.6
 
@@ -135,3 +136,13 @@ struct Sfx(Movable):
                 out = -1.0
             pcm[2 * i] = Float32(out)
             pcm[2 * i + 1] = Float32(out)
+
+
+def cue_clip(cue: Int, rate: Int) -> List[Float32]:
+    """One cue from start to silence as interleaved stereo samples: what a clip-based mixer registers once and plays
+    on every trigger. The same samples a fresh `Sfx` renders for that cue."""
+    var sfx = Sfx(rate)
+    sfx.trigger(cue)
+    var pcm = List[Float32]()
+    sfx.render(pcm, Int(cue_seconds(cue) * Float64(rate)) + 1)
+    return pcm^

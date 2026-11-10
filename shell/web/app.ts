@@ -8,6 +8,7 @@ import * as net from "./net_host.mjs";
 import { createOsImports, opfsStorage } from "./os_host.mjs";
 import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
+import { PadInput, TouchInput, type Sink } from "./pad.js";
 import type { AppExports } from "./exports";
 
 const SAMPLE_RATE = 48000;
@@ -105,32 +106,67 @@ async function boot(canvas: HTMLCanvasElement) {
   return { rt, x, app };
 }
 
-function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number, action: number, mods: number, x: number, y: number) => void) {
+// Keyboard, mouse, touch and gamepads, all as the GLFW-coded events app_input takes. Returns the per-frame gamepad poll.
+function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number, action: number, mods: number, x: number, y: number) => void,
+                     releaseHeld: () => void): (dtMs: number) => void {
   const mods = (e: KeyboardEvent | MouseEvent) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
-  // Keys and buttons that are down, so a lost focus can let go of them: the release happens in another window and never arrives.
-  const down = new Set<number>();
-  const buttons = new Set<number>();
   // Space, the arrows and Tab scroll or move focus in a page; the game owns them while the page has focus.
   const GAME_CODES = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"]);
   addEventListener("keydown", (e) => {
     const k = keyCode(e.code);
     if (k < 0) return;
     if (GAME_CODES.has(e.code)) e.preventDefault();
-    down.add(k);
     send(EV.KEY, k, e.repeat ? ACTION.REPEAT : ACTION.DOWN, mods(e), 0, 0);
   });
-  addEventListener("keyup", (e) => { const k = keyCode(e.code); if (k >= 0) { down.delete(k); send(EV.KEY, k, ACTION.UP, mods(e), 0, 0); } });
-  const releaseAll = () => {
-    for (const k of down) send(EV.KEY, k, ACTION.UP, 0, 0, 0);
-    for (const b of buttons) send(EV.MOUSE_BUTTON, b, ACTION.UP, 0, 0, 0);
-    down.clear(); buttons.clear();
+  addEventListener("keyup", (e) => { const k = keyCode(e.code); if (k >= 0) send(EV.KEY, k, ACTION.UP, mods(e), 0, 0); });
+
+  // Touch and gamepad camera turns are a drag of a virtual cursor with the left button held: what the game already reads.
+  // The virtual cursor starts where the real pointer last was, so taking over from the mouse adds no jump.
+  let vx = 0, vy = 0, turning = false;
+  const sink: Sink = {
+    key: (code, down) => send(EV.KEY, code, down ? ACTION.DOWN : ACTION.UP, 0, 0, 0),
+    look: (dx, dy) => {
+      if (!turning) { turning = true; send(EV.MOUSE_BUTTON, 0, ACTION.DOWN, 0, vx, vy); }
+      vx += dx; vy += dy;
+      send(EV.CURSOR_POS, 0, 0, 0, vx, vy);
+    },
+    lookEnd: () => { if (turning) { turning = false; send(EV.MOUSE_BUTTON, 0, ACTION.UP, 0, vx, vy); } },
   };
+  const touch = new TouchInput();
+  const pads = new Map<number, PadInput>();
+  canvas.style.touchAction = "none"; // a drag on the canvas is input, not a page scroll
+  const isTouch = (e: PointerEvent) => e.pointerType === "touch";
+  canvas.addEventListener("pointermove", (e) => {
+    if (isTouch(e)) return touch.move(e.pointerId, e.offsetX, e.offsetY, sink);
+    vx = e.offsetX; vy = e.offsetY;
+    send(EV.CURSOR_POS, 0, 0, mods(e), e.offsetX, e.offsetY);
+  });
+  canvas.addEventListener("pointerdown", (e) => {
+    if (isTouch(e)) { canvas.setPointerCapture(e.pointerId); return touch.start(e.pointerId, e.offsetX, e.offsetY, canvas.clientWidth, e.timeStamp); }
+    send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), e.offsetX, e.offsetY);
+  });
+  const up = (e: PointerEvent) => {
+    if (isTouch(e)) return touch.end(e.pointerId, e.timeStamp, sink);
+    send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), e.offsetX, e.offsetY);
+  };
+  canvas.addEventListener("pointerup", up);
+  canvas.addEventListener("pointercancel", up);
+  canvas.addEventListener("wheel", (e) => send(EV.SCROLL, 0, 0, mods(e), 0, -e.deltaY / 100), { passive: true });
+
+  // Focus lost: releases happen in another window and never arrive, so let go of everything, here and in the app.
+  const releaseAll = () => { touch.release(sink); for (const p of pads.values()) p.release(sink); pads.clear(); releaseHeld(); };
   addEventListener("blur", releaseAll);
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
-  canvas.addEventListener("pointermove", (e) => send(EV.CURSOR_POS, 0, 0, mods(e), e.offsetX, e.offsetY));
-  canvas.addEventListener("pointerdown", (e) => { buttons.add(BUTTONS[e.button] ?? 0); send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), e.offsetX, e.offsetY); });
-  canvas.addEventListener("pointerup", (e) => { buttons.delete(BUTTONS[e.button] ?? 0); send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), e.offsetX, e.offsetY); });
-  canvas.addEventListener("wheel", (e) => send(EV.SCROLL, 0, 0, mods(e), 0, -e.deltaY / 100), { passive: true });
+
+  return (dtMs) => {
+    const list = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const [i, p] of pads) if (!list[i]) { p.release(sink); pads.delete(i); }
+    for (const g of list) {
+      if (!g || g.mapping !== "standard") continue;
+      if (!pads.has(g.index)) pads.set(g.index, new PadInput());
+      pads.get(g.index)!.poll(g.axes, g.buttons.map((b) => b.pressed), dtMs, sink);
+    }
+  };
 }
 
 async function startAudio(rt: any, x: AppExports, app: bigint) {
@@ -170,7 +206,7 @@ async function startAudio(rt: any, x: AppExports, app: bigint) {
 async function main() {
   const canvas = document.getElementById("canvas") as HTMLCanvasElement;
   const { rt, x, app } = await boot(canvas);
-  attachInput(canvas, (k, key, a, m, px, py) => x.app_input(app, k, key, a, m, px, py));
+  const pollPads = attachInput(canvas, (k, key, a, m, px, py) => x.app_input(app, k, key, a, m, px, py), () => x.app_release_input(app));
   let fillAudio: (() => void) | null = null;
   const start = async () => {
     if (fillAudio) return;
@@ -182,6 +218,7 @@ async function main() {
     try {
       const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1); last = now;
       calls.imports = 0; calls.webgpu = 0; calls.names = {};
+      pollPads(dt * 1000);
       const r = x.app_frame(app, dt);
       if (r < 0) throw new Error("app_frame returned " + r);
       if (r === 1) {

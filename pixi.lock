@@ -1099,7 +1099,7 @@ environments:
       - conda: https://conda.modular.com/max/noarch/mblack-26.7.0-release.conda
       - conda: https://conda.modular.com/max/noarch/modular-26.7.0-release.conda
       - conda: https://conda.modular.com/max/noarch/mojo-python-1.2.0-release.conda
-      - pypi: git+https://github.com/Hundo1018/ludens-wasm-rt?rev=b23d53d6ad8627fb19fa1f48424921867946945b#b23d53d6ad8627fb19fa1f48424921867946945b
+      - pypi: git+https://github.com/Hundo1018/ludens-wasm-rt?rev=0845b4280f3dbd6ab7666cd312f236e747cfd31c#0845b4280f3dbd6ab7666cd312f236e747cfd31c
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/aiofiles-25.1.0-pyhcf101f3_1.conda
@@ -1444,7 +1444,7 @@ environments:
       - conda: https://conda.modular.com/max/osx-arm64/max-core-26.7.0-release.conda
       - conda: https://conda.modular.com/max/osx-arm64/mojo-1.2.0-release.conda
       - conda: https://conda.modular.com/max/osx-arm64/mojo-compiler-1.2.0-release.conda
-      - pypi: git+https://github.com/Hundo1018/ludens-wasm-rt?rev=b23d53d6ad8627fb19fa1f48424921867946945b#b23d53d6ad8627fb19fa1f48424921867946945b
+      - pypi: git+https://github.com/Hundo1018/ludens-wasm-rt?rev=0845b4280f3dbd6ab7666cd312f236e747cfd31c#0845b4280f3dbd6ab7666cd312f236e747cfd31c
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -11499,7 +11499,7 @@ packages:
   run_exports: {}
   size: 63449264
   timestamp: 1792188854801
-- pypi: git+https://github.com/Hundo1018/ludens-wasm-rt?rev=b23d53d6ad8627fb19fa1f48424921867946945b#b23d53d6ad8627fb19fa1f48424921867946945b
+- pypi: git+https://github.com/Hundo1018/ludens-wasm-rt?rev=0845b4280f3dbd6ab7666cd312f236e747cfd31c#0845b4280f3dbd6ab7666cd312f236e747cfd31c
   name: ludens-wasm-rt
   version: 0.1.0
   requires_python: '>=3.9'

@@ -18,7 +18,7 @@ llvm-tools = "23.1.4.*"
 nodejs = "24.*"
 
 [feature.wasm.pypi-dependencies]
-ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "b23d53d6ad8627fb19fa1f48424921867946945b" }
+ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "0845b4280f3dbd6ab7666cd312f236e747cfd31c" }
 
 [feature.wasm.tasks]
 parity = "python3 scripts/parity.py"
@@ -37,12 +37,13 @@ test-editor = "python3 scripts/test_editor.py"
 build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
-test-game = "python3 scripts/test_native.py arena arena_controls arena_camera arena_sfx arena_hud"
+test-game = "python3 scripts/test_native.py arena arena_controls arena_camera arena_sfx arena_hud arena_input"
 ui-parity = "python3 scripts/ui_parity.py"
 xfer-parity = "python3 scripts/xfer_parity.py"
 sheet-parity = "python3 scripts/sheet_parity.py"
 game-parity = "python3 scripts/game_parity.py"
 game-shot = "python3 scripts/game_shot.py"
+test-pad = "node --experimental-strip-types --no-warnings scripts/test_pad.mjs"
 ludens = "python3 scripts/ludens.py"
 test-cli = "python3 tests/test_cli.py"
 test-os = "python3 scripts/test_os.py"

@@ -4,7 +4,6 @@ WASD or the arrow keys move, Space jumps, R restarts, P or Esc pauses, the mouse
 button is held. The mapping from `Keys` to `Intent` is `game/controls.mojo`."""
 from game.controls import Keys
 from geometry.vec import Real
-from wgpu.rendercanvas.glfw import MojoInputEvent
 from wgpu.rendercanvas.input import InputState
 
 comptime KEY_SPACE: Int32 = 32
@@ -35,13 +34,3 @@ def read_keys(input: InputState) -> Keys:
     k.pause = input.is_key_just_pressed(KEY_P) or input.is_key_just_pressed(KEY_ESCAPE)
     k.restart = input.is_key_just_pressed(KEY_R)
     return k^
-
-
-def release_all(mut input: InputState):
-    """The window lost focus: a key released elsewhere never reports its release, so let go of every one."""
-    for key in range(512):
-        if input.is_key_pressed(Int32(key)):
-            input.process_event(MojoInputEvent(1, Int32(key), 0, 0, 0.0, 0.0))
-    for b in range(8):
-        if input.is_mouse_button_pressed(Int32(b)):
-            input.process_event(MojoInputEvent(2, Int32(b), 0, 0, 0.0, 0.0))

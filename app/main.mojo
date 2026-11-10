@@ -7,7 +7,7 @@ from geometry.vec import Real
 from game.camera_view import View
 from game.controls import Controls
 from game.hud_layout import build_hud
-from game.sfx import Sfx
+from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
 from render3d import ArenaRenderer
@@ -55,10 +55,9 @@ struct App(Movable):
     var mode: Int
     var arena: Optional[Arena]
     var controls: Controls
-    var sfx: Optional[Sfx]
+    var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
     var arena_renderer: Optional[ArenaRenderer]
     var hud: Optional[Hud]
-    var game_pcm: List[Float32]
     var game_format: UInt32
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
@@ -88,10 +87,9 @@ struct App(Movable):
         self.mode = MODE_DEMO
         self.arena = None
         self.controls = Controls()
-        self.sfx = None
+        self.cue_clips = List[Int]()
         self.arena_renderer = None
         self.hud = None
-        self.game_pcm = List[Float32]()
         self.game_format = 0
 
     def __init__(out self, *, deinit move: Self):
@@ -119,10 +117,9 @@ struct App(Movable):
         self.mode = move.mode
         self.arena = move.arena^
         self.controls = move.controls^
-        self.sfx = move.sfx^
+        self.cue_clips = move.cue_clips^
         self.arena_renderer = move.arena_renderer^
         self.hud = move.hud^
-        self.game_pcm = move.game_pcm^
         self.game_format = move.game_format
 
     def _net(mut self):
@@ -144,17 +141,21 @@ struct App(Movable):
     def start_game(mut self) raises:
         if not self.arena:
             self.arena = Arena()
-            self.sfx = Sfx(Int(SAMPLE_RATE))
+            # The game's sounds go through the audio scene: each cue is synthesised once and registered as a clip.
+            self.cue_clips.append(-1)  # cue numbers start at 1
+            for cue in range(1, CUE_COUNT + 1):
+                self.cue_clips.append(self.sim.scene.add_clip_pcm(cue_clip(cue, Int(SAMPLE_RATE))))
+        self.sim.scene.set_tone(330.0, 0.0)  # the demo's contact tone is silent while the game plays
         self.mode = MODE_GAME
 
     def _game_step(mut self, dt: Float64) raises:
         """One frame of the game: read the keys, step the arena (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
         var intent = self.controls.poll(read_keys(self.input))
-        self.input.begin_frame()  # the edges and the pointer movement are read: the next frame starts clean, drawn or not
         ref arena = self.arena.value()
         arena.update(intent, min(dt, 0.1))
         for cue in arena.take_cues():
-            self.sfx.value().trigger(cue)
+            if cue > 0 and cue < len(self.cue_clips):
+                self.sim.scene.play(self.cue_clips[cue])
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
@@ -202,6 +203,12 @@ struct App(Movable):
 
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
+        var rc = self._frame(dt)
+        # Every frame ends here, drawn or not: a key edge or a pointer movement lasts exactly one frame.
+        self.input.begin_frame()
+        return rc
+
+    def _frame(mut self, dt: Float64) raises -> Int32:
         self._net()
         if self.mode == MODE_GAME:
             self._game_step(dt)
@@ -230,7 +237,6 @@ struct App(Movable):
             self.frames += 1
         self._reference()
         self._finish_capture()
-        self.input.begin_frame()
         return 1
 
 
@@ -286,11 +292,6 @@ def app_audio_render(app: UInt64, dst_ptr: UInt64, frames: UInt32) abi("C") -> I
     try:
         var a = _app(app)
         var dst = Pointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(dst_ptr))
-        if a[].mode == MODE_GAME and a[].sfx:
-            a[].sfx.value().render(a[].game_pcm, Int(frames))
-            for i in range(Int(frames) * 2):
-                dst[i] = a[].game_pcm[i]
-            return 0
         a[].sim.render_audio(Int(frames))
         for i in range(Int(frames) * 2):
             dst[i] = a[].sim.pcm[i]
@@ -437,3 +438,9 @@ def app_game_hash(app: UInt64) abi("C") -> UInt64:
     """The game state's hash, for comparing runs."""
     var a = _app(app)
     return a[].arena.value().hash() if a[].arena else 0
+
+
+@export
+def app_release_input(app: UInt64) abi("C"):
+    """The page lost focus: let go of every held key and button (their releases happen elsewhere and never arrive)."""
+    _app(app)[].input.release_all()

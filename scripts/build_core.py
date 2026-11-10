@@ -34,7 +34,9 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
         if "LUDENS_ENGINE" not in os.environ:
             subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
         sources += list(engine_dir().glob("embed/*.mojo"))
-        includes = ["-I", str(engine_dir()), "-I", "."]
+        # app/ too, with wgpu-mojo: a test can drive the shell's own device code (InputState -> Keys) natively.
+        sources += list(ROOT.glob("app/controls.mojo"))
+        includes = ["-I", str(engine_dir()), "-I", str(ROOT / "build/deps/wgpu-mojo"), "-I", "app", "-I", "."]
     if not force and out.exists() and out.stat().st_mtime >= newest(sources):
         return out
     out.parent.mkdir(exist_ok=True)

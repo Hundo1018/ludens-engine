@@ -39,3 +39,6 @@ jobs:
           export GECKODRIVER="${GECKOWEBDRIVER:+$GECKOWEBDRIVER/geckodriver}"
           export CHROME="$(command -v google-chrome)"
           pixi run -e wasm parity-gate
+
+      - name: Arena game in headless Chrome (software WebGPU), frames checked
+        run: pixi run -e wasm game-shot
