@@ -221,6 +221,7 @@ struct Sheet(Movable):
             s.ran.append(False)
             s.held.append(False)
             s.fired_once.append(False)
+        s._resolve()
         return s^
 
     @staticmethod
@@ -335,19 +336,34 @@ struct Sheet(Movable):
         self.sounds.clear()
         return out^
 
+    def _slot(mut self, name: String) -> Int:
+        """The index of a variable, registered at 0 if new."""
+        for i in range(len(self.var_names)):
+            if self.var_names[i] == name:
+                return i
+        self.var_names.append(name)
+        self.var_values.append(0)
+        return len(self.var_names) - 1
+
+    def _resolve(mut self):
+        """After parsing: every variable a condition or an action names gets its index, kept in the otherwise unused
+        `handle` field, so a tick does no name lookups (they made a sheet with one variable per event quadratic)."""
+        for e in range(len(self.events)):
+            for k in range(len(self.events[e].conds)):
+                if self.events[e].conds[k].kind == C_VAR:
+                    var name = self.events[e].conds[k].name.copy()
+                    self.events[e].conds[k].handle = Int64(self._slot(name))
+            for k in range(len(self.events[e].acts)):
+                var kind = self.events[e].acts[k].kind
+                if kind == A_ADD or kind == A_SET or kind == A_SPAWN_BOX or kind == A_SPAWN_SPHERE:
+                    var name = self.events[e].acts[k].name.copy()
+                    self.events[e].acts[k].handle = Int64(self._slot(name))
+
     def get(self, name: String) -> Int:
         for i in range(len(self.var_names)):
             if self.var_names[i] == name:
                 return self.var_values[i]
         return 0
-
-    def _set(mut self, name: String, v: Int):
-        for i in range(len(self.var_names)):
-            if self.var_names[i] == name:
-                self.var_values[i] = v
-                return
-        self.var_names.append(name)
-        self.var_values.append(v)
 
     def set_input(mut self, name: String, down: Bool):
         """The host reports an input (key, button, touch zone) before `step`. The sheet only reads this table."""
@@ -375,7 +391,7 @@ struct Sheet(Movable):
         if c.kind == C_TICK_MOD:
             return self.tick % c.n == 0
         if c.kind == C_VAR:
-            var v = self.get(c.name)
+            var v = self.var_values[Int(c.handle)]
             if c.op == OP_EQ:
                 return v == c.n
             if c.op == OP_NE:
@@ -427,9 +443,9 @@ struct Sheet(Movable):
             self.fired_once[i] = True
             for a in ev.acts:
                 if a.kind == A_ADD:
-                    self._set(a.name, self.get(a.name) + a.n)
+                    self.var_values[Int(a.handle)] += a.n
                 elif a.kind == A_SET:
-                    self._set(a.name, a.n)
+                    self.var_values[Int(a.handle)] = a.n
                 elif a.kind == A_VELOCITY:
                     if world.is_alive(a.handle):
                         var st = world.state(a.handle)
@@ -450,7 +466,7 @@ struct Sheet(Movable):
                         else:
                             h = world.add_sphere(a.v, a.h[0], a.m, False)
                         self.spawned += 1
-                        self._set(a.name, Int(h))
+                        self.var_values[Int(a.handle)] = Int(h)
                 elif a.kind == A_SOUND:
                     if len(self.sounds) >= MAX_PENDING_SOUNDS:
                         self.sound_cut += 1
