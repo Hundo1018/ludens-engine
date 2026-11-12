@@ -8,7 +8,9 @@ import * as net from "./net_host.mjs";
 import { createOsImports, opfsStorage } from "./os_host.mjs";
 import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
-import { PadInput, TouchInput, type Sink } from "./pad.js";
+import { KEY, PadInput, type Sink } from "./pad.js";
+import type { PadLayout } from "./vpad.js";
+import { mountVirtualPad } from "./vpad_view.js";
 import type { AppExports } from "./exports";
 
 const SAMPLE_RATE = 48000;
@@ -26,6 +28,7 @@ interface Stats {
   underruns: number;
   rendered: number;
   audioStarts: number;
+  padLog: string[]; // what the virtual pad last sent (the newest 64 events), for the touch check
   error: string;
 }
 declare global {
@@ -34,7 +37,7 @@ declare global {
   }
 }
 const stats: Window["shell"] = (window.shell = {
-  started: false, frames: 0, contacts: 0, bodies: 0, played: 0, underruns: 0, rendered: 0, audioStarts: 0, error: "",
+  started: false, frames: 0, contacts: 0, bodies: 0, played: 0, underruns: 0, rendered: 0, audioStarts: 0, padLog: [], error: "",
 });
 
 // ?selftest only: count what crosses the JS boundary. `imports` are wasm -> JS calls (wgpu* entries into the
@@ -108,6 +111,18 @@ async function boot(canvas: HTMLCanvasElement) {
 }
 
 // Keyboard, mouse, touch and gamepads, all as the GLFW-coded events app_input takes. Returns the per-frame gamepad poll.
+// The arena game's touch controls, as data for the virtual pad kit (vpad.ts): a move stick under the left thumb, Jump
+// under the right, Pause and Restart out of the way at the top. A drag anywhere else on the canvas turns the camera.
+const ARENA_PAD: PadLayout = {
+  sticks: [{ id: "move", radius: 56, dead: 0.2, at: { left: 36, bottom: 36 }, keys: { up: KEY.W, down: KEY.S, left: KEY.A, right: KEY.D } }],
+  buttons: [
+    { id: "jump", key: KEY.SPACE, label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
+    { id: "pause", key: KEY.P, label: "II", size: 44, at: { right: 12, top: 12 } },
+    { id: "restart", key: KEY.R, label: "R", size: 44, at: { right: 68, top: 12 } },
+  ],
+  look: {},
+};
+
 function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number, action: number, mods: number, x: number, y: number) => void,
                      releaseHeld: () => void): (dtMs: number) => void {
   const mods = (e: KeyboardEvent | MouseEvent) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
@@ -133,21 +148,26 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
     },
     lookEnd: () => { if (turning) { turning = false; send(EV.MOUSE_BUTTON, 0, ACTION.UP, 0, vx, vy); } },
   };
-  const touch = new TouchInput();
+  const logged = (what: string) => { stats.padLog.push(what); if (stats.padLog.length > 64) stats.padLog.shift(); };
+  const touch = mountVirtualPad(canvas, ARENA_PAD, {
+    key: (code, down) => { logged(`${down ? "+" : "-"}${code}`); sink.key(code, down); },
+    look: (dx, dy) => { logged("look"); sink.look(dx, dy); },
+    lookEnd: () => { logged("end"); sink.lookEnd(); },
+  }, location.search.includes("touch"));
   const pads = new Map<number, PadInput>();
   canvas.style.touchAction = "none"; // a drag on the canvas is input, not a page scroll
   const isTouch = (e: PointerEvent) => e.pointerType === "touch";
   canvas.addEventListener("pointermove", (e) => {
-    if (isTouch(e)) return touch.move(e.pointerId, e.offsetX, e.offsetY, sink);
+    if (isTouch(e)) return; // the virtual pad has it
     vx = e.offsetX; vy = e.offsetY;
     send(EV.CURSOR_POS, 0, 0, mods(e), e.offsetX, e.offsetY);
   });
   canvas.addEventListener("pointerdown", (e) => {
-    if (isTouch(e)) { canvas.setPointerCapture(e.pointerId); return touch.start(e.pointerId, e.offsetX, e.offsetY, canvas.clientWidth, e.timeStamp); }
+    if (isTouch(e)) return;
     send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), e.offsetX, e.offsetY);
   });
   const up = (e: PointerEvent) => {
-    if (isTouch(e)) return touch.end(e.pointerId, e.timeStamp, sink);
+    if (isTouch(e)) return;
     send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), e.offsetX, e.offsetY);
   };
   canvas.addEventListener("pointerup", up);
@@ -155,7 +175,7 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
   canvas.addEventListener("wheel", (e) => send(EV.SCROLL, 0, 0, mods(e), 0, -e.deltaY / 100), { passive: true });
 
   // Focus lost: releases happen in another window and never arrive, so let go of everything, here and in the app.
-  const releaseAll = () => { touch.release(sink); for (const p of pads.values()) p.release(sink); pads.clear(); releaseHeld(); };
+  const releaseAll = () => { touch.release(); for (const p of pads.values()) p.release(sink); pads.clear(); releaseHeld(); };
   addEventListener("blur", releaseAll);
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
 
@@ -230,8 +250,10 @@ async function startAudio(rt: any, x: AppExports, app: bigint) {
     topUp(0);
   }
   node.connect(ctx.destination);
-  await ctx.resume();
+  // Published before the wait: a context made on a gesture the browser does not count (a touch going down) stays
+  // suspended, and a later gesture has to find it to resume it.
   Object.defineProperty(stats, "audio", { value: { ctx, node, shared }, enumerable: false, configurable: true });
+  await ctx.resume();
   return fill;
 }
 
@@ -259,11 +281,16 @@ async function main() {
   // Two keys pressed before the first start resolves must not start two contexts: both would render the same mixer.
   let starting = false;
   const start = async () => {
-    if (starting) return;
+    if (starting) {
+      const a = (stats as any).audio;
+      if (a && a.ctx.state !== "running") a.ctx.resume().catch(() => {});
+      return;
+    }
     starting = true;
     try { fillAudio = await startAudio(rt, x, app); } catch (e) { stats.error = String(e); }
   };
-  addEventListener("pointerdown", start); addEventListener("keydown", start);
+  // A touch counts as a user gesture when it is lifted, not when it lands, so the lift is listened for as well.
+  for (const ev of ["pointerdown", "pointerup", "touchend", "keydown"]) addEventListener(ev, start);
   let last = performance.now();
   const frame = (now: number) => {
     try {
