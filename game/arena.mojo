@@ -95,6 +95,7 @@ event 2 once
   do spawn_box rain3 0 11 -6 0.45 0.45 0.45 4
   do set rain_on 1
   do emit rain
+  do sound 6
 """
 
 
@@ -592,10 +593,9 @@ struct Arena(Movable):
         # the event sheet sees the pickup of the previous tick, then the world steps
         self.sheet.set_input("pickup", self.pickup_pulse)
         self.pickup_pulse = False
-        var rain_before = self.sheet.get("rain_on")
         self.sheet.step(self.world)
-        if rain_before == 0 and self.sheet.get("rain_on") == 1:
-            self.cues.append(CUE_RAIN)
+        for cue in self.sheet.take_sounds():  # the sheet's `do sound N`: N is one of the CUE_ numbers
+            self.cues.append(cue)
         self.world.physics_tick()
         self.rules.step(self.actors)
 
