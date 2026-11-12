@@ -209,17 +209,20 @@ async function startAudio(rt: any, x: AppExports, app: bigint) {
     node.port.onmessage = () => { try { fill(); } catch (e) { stats.error = String(e); } };
   } else {
     node = new AudioWorkletNode(ctx, "ring-player", { outputChannelCount: [2], processorOptions: { capacity: CAPACITY } });
-    // The worklet reports how many frames it holds; top it up to the same target. Only on its reports: between two of
-    // them this side does not know how much was played.
-    const topUp = (available: number) => {
-      const blocks = Math.floor((TARGET_FRAMES - available) / BLOCK);
+    // The worklet reports how many frames it has played. What it holds, plus what is still on its way to it, is
+    // everything sent minus that; topping up from the worklet's own count of what it holds would send the blocks in
+    // flight a second time, and the worklet drops what does not fit.
+    let sent = 0;
+    const topUp = (played: number) => {
+      const blocks = Math.floor((TARGET_FRAMES - (sent - played)) / BLOCK);
       if (blocks <= 0) return;
       const out = new Float32Array(blocks * BLOCK * 2);
       for (let b = 0; b < blocks; b++) out.set(render(), b * BLOCK * 2);
+      sent += blocks * BLOCK;
       node.port.postMessage(out, [out.buffer]);
     };
     node.port.onmessage = (e) => {
-      try { stats.played = e.data.played; stats.underruns = e.data.underruns; topUp(e.data.available); } catch (err) { stats.error = String(err); }
+      try { stats.played = e.data.played; stats.underruns = e.data.underruns; topUp(e.data.played); } catch (err) { stats.error = String(err); }
     };
     fill = () => {};
     topUp(0);

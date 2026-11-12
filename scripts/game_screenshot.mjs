@@ -93,6 +93,7 @@ if (audio) {
   console.log(`audio: isolated ${a.isolated}, path ${a.shared === null ? 'not started' : a.shared ? 'shared' : 'posted'}, rendered ${a.rendered}, played ${a.played}, underruns ${a.underruns}`);
   if (a.error) problems.push('page error: ' + a.error);
   if (a.shared !== (audio === 'shared')) problems.push(`audio path is not ${audio}`);
+  if (a.rendered - a.played > 8192 + 1024) problems.push(`rendered ${a.rendered} frames but played ${a.played}: more than a ring (8192) apart, so frames were dropped`);
   if (!(a.played > 24000)) problems.push(`only ${a.played} frames played (48000 a second; keys were held for 2.5 s)`);
 }
 const differ = (a, b) => { let n = 0; for (let q = 0; q < a.length; q += 4) if (Math.abs(a[q] - b[q]) + Math.abs(a[q + 1] - b[q + 1]) + Math.abs(a[q + 2] - b[q + 2]) > 30) n++; return n; };
