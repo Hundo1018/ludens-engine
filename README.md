@@ -96,6 +96,10 @@ A scene file is `path = value` rows (`embed.scene_io` in ludens-core); it holds 
 deterministic snapshot. A failed command exits 1, names what is wrong (a script error names its line) and writes
 nothing. Subcommands for assets, builds and replay arrive with #12, #15 and #13.
 
+A scene can carry its event sheet as rows `sheet.<n> = <one sheet line>`, read in the order of `n`. A body is written
+`@<i>` there (the scene's i-th body). `ludens run` steps the sheet before each physics tick, and the action
+`do scene <name>` loads `<name>.scene` from the same directory in place of the current scene.
+
 ## Build and run
 
 ```

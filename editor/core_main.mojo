@@ -19,7 +19,9 @@ from editor.builtin import MoveBody
 from game.eventsheet import Sheet
 from editor.state import Editor
 from editor.entry import cli_run, gui_move_body
-from editor.scene_text import scene_rows_from_text, scene_rows_to_text
+from editor.scene_text import (
+    scene_rows_from_text, scene_rows_to_text, scene_sheet_from_text, scene_sheet_rows, sheet_to_rows, sheet_with_handles,
+)
 from embed.scene_io import export_scene, import_scene, scene_from_fields, scene_to_fields
 from embed.world import EmbedWorld, pack_body
 from geometry.quat import Quat
@@ -69,13 +71,82 @@ def load(path: String) raises -> Editor:
         var doc = scene_from_fields(scene_rows_from_text(text))
         var w = EmbedWorld(doc.dt, doc.gravity)
         import_scene(w, doc)
-        return Editor(w^)
+        var ed = Editor(w^)
+        ed.sheet_text = scene_sheet_from_text(text)
+        if ed.sheet_text.byte_length() > 0:
+            try:
+                _ = scene_sheet(ed)  # a scene with a broken sheet does not load
+            except e:
+                raise Error(sheet_error(String(e), text))
+        return ed^
     except e:
         raise Error(path + ": " + String(e))
 
 
+def scene_sheet(ed: Editor) raises -> Sheet:
+    """The scene's event sheet, ready to step: `@<i>` replaced by the handle of the scene's i-th body."""
+    return Sheet.parse(sheet_with_handles(ed.sheet_text, ed.world.bodies()))
+
+
+def sheet_error(msg: String, scene_text: String) raises -> String:
+    """A sheet error says `line K` of the sheet; name the scene row that line came from."""
+    var at = msg.find("line ")
+    if at < 0:
+        return "event sheet: " + msg
+    var k = 0
+    var i = at + 5
+    var bytes = msg.as_bytes()
+    while i < len(bytes) and bytes[i] >= 48 and bytes[i] <= 57:
+        k = k * 10 + Int(bytes[i]) - 48
+        i += 1
+    var rows = scene_sheet_rows(scene_text)
+    if k < 1 or k > len(rows):
+        return "event sheet: " + msg
+    return "event sheet, row `" + rows[k - 1].path + "`: " + msg
+
+
+def scene_dir(path: String) -> String:
+    var cut = -1
+    var bytes = path.as_bytes()
+    for i in range(len(bytes)):
+        if bytes[i] == 47:
+            cut = i
+    return String(path[byte = : cut + 1]) if cut >= 0 else String()
+
+
+def run_scene(mut ed: Editor, path: String, n: Int) raises -> String:
+    """Run n ticks. A scene with an event sheet steps it before each physics tick, and a `scene <name>` action loads
+    `<name>.scene` from the same directory in place of the current scene (its sheet starts fresh). Returns the path of
+    the scene that is loaded at the end."""
+    var here = path.copy()
+    if ed.sheet_text.byte_length() == 0:
+        run_ticks(ed, n)
+        return here^
+    var sheet = scene_sheet(ed)
+    var changes = 0
+    var sounds = 0
+    for t in range(n):
+        if ed.sheet_text.byte_length() > 0:
+            sheet.step(ed.world)
+        for _ in range(ed.world.ticks_due(ed.world.dt)):
+            ed.world.physics_tick()
+        sounds += len(sheet.take_sounds())
+        var next = sheet.take_scene()
+        if next.byte_length() > 0:
+            here = scene_dir(here) + next + ".scene"
+            ed = load(here)
+            sheet = scene_sheet(ed) if ed.sheet_text.byte_length() > 0 else Sheet()
+            changes += 1
+            print("scene", next, "after tick", t)
+    print("sheet scene-changes", changes, "sounds", sounds)
+    return here^
+
+
 def save(ed: Editor, path: String) raises:
-    write_file(path, scene_rows_to_text(scene_to_fields(export_scene(ed.world))))
+    var rows = scene_to_fields(export_scene(ed.world))
+    for r in sheet_to_rows(ed.sheet_text):  # the scene's event sheet goes back out as authored
+        rows.append(r.copy())
+    write_file(path, scene_rows_to_text(rows))
 
 
 def demo() raises -> Editor:
@@ -151,7 +222,7 @@ def run_command(args: List[String]) raises:
         var n = Int(real_arg(args[2], "ticks"))
         if n < 0:
             raise Error("ticks must be >= 0")
-        run_ticks(ed, n)
+        _ = run_scene(ed, args[1], n)
         report(ed)
         var o = out_path(args, len(args), String())
         if o.byte_length() > 0:

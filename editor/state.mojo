@@ -27,6 +27,7 @@ struct Editor(Movable):
     var order: List[Int]  # kind of each undo step, oldest first: 0 = world (UndoLog), 1 = curve, 2 = graph
     var redo_order: List[Int]
     var steps_at_begin: Int
+    var sheet_text: String  # the scene's event sheet as authored (bodies as `@<i>`); empty = none
 
     def __init__(out self, var world: EmbedWorld):
         self.world = world^
@@ -43,6 +44,7 @@ struct Editor(Movable):
         self.order = List[Int]()
         self.redo_order = List[Int]()
         self.steps_at_begin = 0
+        self.sheet_text = String()
 
     def __init__(out self, *, deinit move: Self):
         self.world = move.world^
@@ -59,6 +61,7 @@ struct Editor(Movable):
         self.order = move.order^
         self.redo_order = move.redo_order^
         self.steps_at_begin = move.steps_at_begin
+        self.sheet_text = move.sheet_text^
 
     # ---- play in editor: run the world, then put it back exactly as it was
 
