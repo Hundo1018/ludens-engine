@@ -1,0 +1,44 @@
+name: pages
+
+# The arena game as a static site: https://hundo1018.github.io/ludens-engine/
+# Needs, once: repository Settings -> Pages -> Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build the site and play it without COOP/COEP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+          environments: wasm
+      - name: Build build/pages and check it in headless Chrome, served as Pages serves it
+        run: pixi run -e wasm build-pages --check
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+
+  deploy:
+    name: deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

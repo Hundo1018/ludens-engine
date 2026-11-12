@@ -13,6 +13,14 @@ Dependency direction: ludens-engine → {ludens-core, wgpu-mojo, miniaudio-mojo}
 
 ## The arena game
 
+Play it in the browser: https://hundo1018.github.io/ludens-engine/ (Chrome 133+ or Firefox 134+ on a desktop; the page
+says so if the browser lacks WebGPU or 64-bit WebAssembly memory). The site is `pixi run -e wasm build-pages`
+(`ludens build --target web`, minus the files only self-tests read), deployed by `.github/workflows/pages.yml` on every
+push to main. GitHub Pages cannot send COOP/COEP headers, so there is no SharedArrayBuffer there: the page then posts
+audio blocks to the worklet instead of sharing a ring with it. `build-pages --check` serves the site without those
+headers and plays it in headless Chrome, sound included.
+
+
 Open the page (`pixi run -e wasm serve-web`, Chrome 133+ or Firefox 134+) and you are in a walled arena. Collect the 8 gold spheres
 within 90 seconds; two red chasers walk the navmesh after you, a bar sweeps the middle, and after the 4th sphere crates rain.
 Each hit costs 25 of 100 health and gives one second of immunity. Win by collecting all 8, lose at 0 health or when time is up.

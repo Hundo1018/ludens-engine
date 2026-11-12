@@ -169,42 +169,85 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
   };
 }
 
+// Audio out. With cross-origin isolation (COOP/COEP headers, as shell/web/serve.py sends) the rendered frames go to the
+// worklet through a SharedArrayBuffer ring. A static host that cannot set headers (GitHub Pages) has no
+// SharedArrayBuffer: there the same frames are posted to the worklet block by block, which keeps its own ring.
 async function startAudio(rt: any, x: AppExports, app: bigint) {
-  if (!crossOriginIsolated) throw new Error("not cross-origin isolated: serve with shell/web/serve.py");
-  const sab = new SharedArrayBuffer(16 + CAPACITY * 2 * 4);
-  const ctl = new Int32Array(sab, 0, 4);
-  const ring = new Float32Array(sab, 16, CAPACITY * 2);
+  const shared = crossOriginIsolated;
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
   await ctx.audioWorklet.addModule("./worklet.js");
-  const node = new AudioWorkletNode(ctx, "ring-player", {
-    outputChannelCount: [2], processorOptions: { sab, capacity: CAPACITY },
-  });
-  node.connect(ctx.destination);
   const scratch = rt.alloc(BLOCK * 2 * 4);
-  const fill = () => {
-    let w = Atomics.load(ctl, 0);
-    const r = Atomics.load(ctl, 1);
-    let buffered = (w - r + CAPACITY) % CAPACITY;
-    while (buffered + BLOCK <= TARGET_FRAMES) {
-      if (x.app_audio_render(app, scratch, BLOCK) !== 0) throw new Error("app_audio_render failed");
-      const block = rt.f32(scratch, BLOCK * 2); // memory may have grown
-      for (let i = 0; i < BLOCK; i++) {
-        ring[2 * w] = block[2 * i]; ring[2 * w + 1] = block[2 * i + 1];
-        w = (w + 1) % CAPACITY;
-      }
-      buffered += BLOCK; stats.rendered += BLOCK;
-    }
-    Atomics.store(ctl, 0, w);
-    stats.played = Atomics.load(ctl, 3); stats.underruns = Atomics.load(ctl, 2);
+  const render = () => {
+    if (x.app_audio_render(app, scratch, BLOCK) !== 0) throw new Error("app_audio_render failed");
+    stats.rendered += BLOCK;
+    return rt.f32(scratch, BLOCK * 2); // memory may have grown
   };
-  node.port.onmessage = () => { try { fill(); } catch (e) { stats.error = String(e); } };
+  let node: AudioWorkletNode;
+  let fill: () => void;
+  if (shared) {
+    const sab = new SharedArrayBuffer(16 + CAPACITY * 2 * 4);
+    const ctl = new Int32Array(sab, 0, 4);
+    const ring = new Float32Array(sab, 16, CAPACITY * 2);
+    node = new AudioWorkletNode(ctx, "ring-player", {
+      outputChannelCount: [2], processorOptions: { sab, capacity: CAPACITY },
+    });
+    fill = () => {
+      let w = Atomics.load(ctl, 0);
+      const r = Atomics.load(ctl, 1);
+      let buffered = (w - r + CAPACITY) % CAPACITY;
+      while (buffered + BLOCK <= TARGET_FRAMES) {
+        const block = render();
+        for (let i = 0; i < BLOCK; i++) {
+          ring[2 * w] = block[2 * i]; ring[2 * w + 1] = block[2 * i + 1];
+          w = (w + 1) % CAPACITY;
+        }
+        buffered += BLOCK;
+      }
+      Atomics.store(ctl, 0, w);
+      stats.played = Atomics.load(ctl, 3); stats.underruns = Atomics.load(ctl, 2);
+    };
+    node.port.onmessage = () => { try { fill(); } catch (e) { stats.error = String(e); } };
+  } else {
+    node = new AudioWorkletNode(ctx, "ring-player", { outputChannelCount: [2], processorOptions: { capacity: CAPACITY } });
+    // The worklet reports how many frames it holds; top it up to the same target. Only on its reports: between two of
+    // them this side does not know how much was played.
+    const topUp = (available: number) => {
+      const blocks = Math.floor((TARGET_FRAMES - available) / BLOCK);
+      if (blocks <= 0) return;
+      const out = new Float32Array(blocks * BLOCK * 2);
+      for (let b = 0; b < blocks; b++) out.set(render(), b * BLOCK * 2);
+      node.port.postMessage(out, [out.buffer]);
+    };
+    node.port.onmessage = (e) => {
+      try { stats.played = e.data.played; stats.underruns = e.data.underruns; topUp(e.data.available); } catch (err) { stats.error = String(err); }
+    };
+    fill = () => {};
+    topUp(0);
+  }
+  node.connect(ctx.destination);
   await ctx.resume();
-  Object.defineProperty(stats, "audio", { value: { ctx, node }, enumerable: false, configurable: true });
+  Object.defineProperty(stats, "audio", { value: { ctx, node, shared }, enumerable: false, configurable: true });
   return fill;
+}
+
+// What the page needs from the browser, checked before anything is loaded so a visitor gets a sentence, not a blank canvas.
+function unsupported(): string {
+  if (!("gpu" in navigator)) return "This page needs WebGPU, which this browser does not offer.";
+  // A module with one 64-bit memory: (module (memory i64 1)). Browsers without memory64 reject it.
+  const memory64 = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 1]);
+  if (!WebAssembly.validate(memory64)) return "This page needs 64-bit WebAssembly memory (memory64), which this browser does not offer.";
+  return "";
 }
 
 async function main() {
   const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+  const why = unsupported();
+  if (why) {
+    stats.error = why;
+    const note = document.getElementById("log");
+    if (note) note.textContent = why + " Chrome 133 or later, or Firefox 134 or later, on a desktop.";
+    return;
+  }
   const { rt, x, app } = await boot(canvas);
   const pollPads = attachInput(canvas, (k, key, a, m, px, py) => x.app_input(app, k, key, a, m, px, py), () => x.app_release_input(app));
   let fillAudio: (() => void) | null = null;

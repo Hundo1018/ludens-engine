@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Static server with COOP/COEP so SharedArrayBuffer (audio ring) works."""
+"""Static server with COOP/COEP so SharedArrayBuffer (audio ring) works.
+
+    serve.py [port] [root] [plain]     `plain` leaves the two headers out: what a static host such as GitHub Pages does."""
 import sys
 from functools import partial
 from pathlib import Path
@@ -22,9 +24,12 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    isolate = True
+
     def end_headers(self):
-        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        if self.isolate:
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -32,6 +37,7 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     root = sys.argv[2] if len(sys.argv) > 2 else "."
+    Handler.isolate = not (len(sys.argv) > 3 and sys.argv[3] == "plain")
     srv = ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, directory=root))
     print(f"serving {root} on http://127.0.0.1:{port}", flush=True)
     srv.serve_forever()

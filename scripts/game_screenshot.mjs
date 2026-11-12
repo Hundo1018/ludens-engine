@@ -1,5 +1,7 @@
 // Play the arena game in headless Chrome (SwiftShader WebGPU) and save frames as PNG, so the renderer and HUD get looked at.
-// usage: node scripts/game_screenshot.mjs <chrome> <url> <out-prefix> [timeout_s]
+// usage: node scripts/game_screenshot.mjs <chrome> <url> <out-prefix> [timeout_s] [shared|posted]
+// With `shared` or `posted` it also requires sound: frames played through the SharedArrayBuffer ring (an isolated
+// page) or through posted blocks (a page with no COOP/COEP headers, as on GitHub Pages).
 // Writes <out-prefix>_start.png, _moved.png, _paused.png and prints the game state after each step.
 // Exits non-zero unless every frame was captured, shows a scene (many colours), the frames differ from each other
 // after input, and the browser reported no WebGPU error.
@@ -9,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
-const [chrome, url, prefix, timeoutS = '120'] = process.argv.slice(2);
+const [chrome, url, prefix, timeoutS = '120', audio = ''] = process.argv.slice(2);
 const profile = mkdtempSync(join(tmpdir(), 'game-shot-'));
 const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu-sandbox', `--user-data-dir=${profile}`,
   '--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-webgpu-adapter=swiftshader',
@@ -85,6 +87,14 @@ await key('keydown', 'KeyD'); await key('keydown', 'KeyW'); await sleep(2500); a
 await shot('moved');
 await key('keydown', 'KeyP'); await key('keyup', 'KeyP'); await sleep(500);
 await shot('paused');
+if (audio) {
+  await sleep(1000);
+  const a = JSON.parse(await js('JSON.stringify({ isolated: crossOriginIsolated, played: window.shell.played, rendered: window.shell.rendered, underruns: window.shell.underruns, shared: window.shell.audio ? window.shell.audio.shared : null, error: window.shell.error })'));
+  console.log(`audio: isolated ${a.isolated}, path ${a.shared === null ? 'not started' : a.shared ? 'shared' : 'posted'}, rendered ${a.rendered}, played ${a.played}, underruns ${a.underruns}`);
+  if (a.error) problems.push('page error: ' + a.error);
+  if (a.shared !== (audio === 'shared')) problems.push(`audio path is not ${audio}`);
+  if (!(a.played > 24000)) problems.push(`only ${a.played} frames played (48000 a second; keys were held for 2.5 s)`);
+}
 const differ = (a, b) => { let n = 0; for (let q = 0; q < a.length; q += 4) if (Math.abs(a[q] - b[q]) + Math.abs(a[q + 1] - b[q + 1]) + Math.abs(a[q + 2] - b[q + 2]) > 30) n++; return n; };
 if (shots.start && shots.moved) {
   const n = differ(shots.start.rgba, shots.moved.rgba);
