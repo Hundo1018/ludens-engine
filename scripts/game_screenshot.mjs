@@ -89,10 +89,11 @@ await key('keydown', 'KeyP'); await key('keyup', 'KeyP'); await sleep(500);
 await shot('paused');
 if (audio) {
   await sleep(1000);
-  const a = JSON.parse(await js('JSON.stringify({ isolated: crossOriginIsolated, played: window.shell.played, rendered: window.shell.rendered, underruns: window.shell.underruns, shared: window.shell.audio ? window.shell.audio.shared : null, error: window.shell.error })'));
-  console.log(`audio: isolated ${a.isolated}, path ${a.shared === null ? 'not started' : a.shared ? 'shared' : 'posted'}, rendered ${a.rendered}, played ${a.played}, underruns ${a.underruns}`);
+  const a = JSON.parse(await js('JSON.stringify({ isolated: crossOriginIsolated, played: window.shell.played, rendered: window.shell.rendered, starts: window.shell.audioStarts, underruns: window.shell.underruns, shared: window.shell.audio ? window.shell.audio.shared : null, error: window.shell.error })'));
+  console.log(`audio: isolated ${a.isolated}, path ${a.shared === null ? 'not started' : a.shared ? 'shared' : 'posted'}, starts ${a.starts}, rendered ${a.rendered}, played ${a.played}, underruns ${a.underruns}`);
   if (a.error) problems.push('page error: ' + a.error);
   if (a.shared !== (audio === 'shared')) problems.push(`audio path is not ${audio}`);
+  if (a.starts !== 1) problems.push(`audio was started ${a.starts} times, not once`);
   if (a.rendered - a.played > 8192 + 1024) problems.push(`rendered ${a.rendered} frames but played ${a.played}: more than a ring (8192) apart, so frames were dropped`);
   if (!(a.played > 24000)) problems.push(`only ${a.played} frames played (48000 a second; keys were held for 2.5 s)`);
 }
