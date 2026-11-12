@@ -157,6 +157,22 @@ def main() raises:
     c.ok(tsheet.get("wrong") == 0, "two bodies that never meet are never touching")
     c.ok(parse_fails("event 1\n  when touching 3\n", "two body handles") and parse_fails("event 1\n  when touching 3 3\n", "two different"), "touching needs two different handles")
 
+    # sound: a cue number for the host, in order, taken once
+    var ws = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
+    var snd = Sheet.parse(String("event 1\n  when tick_mod 3\n  do sound 2\n  do sound 5\nevent 2 once\n  do sound 9\n"))
+    run(snd, ws, 4)  # ticks 0..3: event 1 at 0 and 3, event 2 once at 0
+    var wq = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
+    var quiet = Sheet.parse(String("event 1\n  when tick_mod 3\n  do add n 1\n"))
+    run(quiet, wq, 4)
+    var got = snd.take_sounds()
+    c.ok(len(got) == 5 and got[0] == 2 and got[1] == 5 and got[2] == 9 and got[3] == 2 and got[4] == 5, "sound cues come out in the order the actions ran (" + String(len(got)) + ")")
+    c.ok(len(snd.take_sounds()) == 0, "taken cues are gone")
+    c.ok(ws.hash() == wq.hash(), "sound actions leave the world as a sheet without them does (same hash after 4 ticks)")
+    var loud = Sheet.parse(String("event 1\n  do sound 1\n"))
+    run(loud, ws, 100)
+    c.ok(len(loud.take_sounds()) == 64 and loud.sound_cut == 36, "a host that never takes them keeps 64 pending cues, the rest are counted (" + String(loud.sound_cut) + ")")
+    c.ok(parse_fails("event 1\n  do sound\n", "cue number") and parse_fails("event 1\n  do sound -1\n", ">= 0") and parse_fails("event 1\n  do sound x\n", "whole number"), "sound needs one cue number >= 0")
+
     # errors name the line and the event
     c.ok(parse_fails("event 1\n  when sometimes\n", "line 2") and parse_fails("event 1\n  when sometimes\n", "event 1"), "unknown condition: line and event named")
     c.ok(parse_fails("event 1\n  do explode 3\n", "unknown action `explode`"), "unknown action named")
