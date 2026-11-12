@@ -25,6 +25,7 @@ interface Stats {
   played: number;
   underruns: number;
   rendered: number;
+  audioStarts: number;
   error: string;
 }
 declare global {
@@ -33,7 +34,7 @@ declare global {
   }
 }
 const stats: Window["shell"] = (window.shell = {
-  started: false, frames: 0, contacts: 0, bodies: 0, played: 0, underruns: 0, rendered: 0, error: "",
+  started: false, frames: 0, contacts: 0, bodies: 0, played: 0, underruns: 0, rendered: 0, audioStarts: 0, error: "",
 });
 
 // ?selftest only: count what crosses the JS boundary. `imports` are wasm -> JS calls (wgpu* entries into the
@@ -174,6 +175,7 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
 // SharedArrayBuffer: there the same frames are posted to the worklet block by block, which keeps its own ring.
 async function startAudio(rt: any, x: AppExports, app: bigint) {
   const shared = crossOriginIsolated;
+  stats.audioStarts += 1;
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
   await ctx.audioWorklet.addModule("./worklet.js");
   const scratch = rt.alloc(BLOCK * 2 * 4);
@@ -254,8 +256,11 @@ async function main() {
   const { rt, x, app } = await boot(canvas);
   const pollPads = attachInput(canvas, (k, key, a, m, px, py) => x.app_input(app, k, key, a, m, px, py), () => x.app_release_input(app));
   let fillAudio: (() => void) | null = null;
+  // Two keys pressed before the first start resolves must not start two contexts: both would render the same mixer.
+  let starting = false;
   const start = async () => {
-    if (fillAudio) return;
+    if (starting) return;
+    starting = true;
     try { fillAudio = await startAudio(rt, x, app); } catch (e) { stats.error = String(e); }
   };
   addEventListener("pointerdown", start); addEventListener("keydown", start);
