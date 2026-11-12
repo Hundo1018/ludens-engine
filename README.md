@@ -33,18 +33,47 @@ Each hit costs 25 of 100 health and gives one second of immunity. Win by collect
 | P / Esc | pause |
 | R | restart |
 | gamepad (standard mapping) | left stick or d-pad moves, right stick turns the camera, A jumps, Start pauses, Y restarts |
-| touch | drag on the left half moves, drag on the right half turns the camera, tap on the right half jumps |
+| touch | on-screen pad: a stick under the left thumb moves, Jump is on the right, II pauses, R restarts, a drag anywhere else turns the camera |
 
 `?demo` or any `?selftest` loads the old physics demo instead; the parity gates and selftests measure that one.
 
 Where it lives: rules in `game/arena.mojo` (no window, no GPU), input in `game/controls.mojo`, `app/controls.mojo` and
-`shell/web/pad.ts` (gamepad and touch become the same key and pointer events), drawing in `app/render3d.mojo` and
+`shell/web/pad.ts` (gamepad) and the virtual pad kit below (touch), which become the same key and pointer events, drawing in `app/render3d.mojo` and
 `app/hud.mojo` (text from `ui/font.mojo`), sound synthesised in `game/sfx.mojo` and played as clips by the audio scene.
 
-Tests: `pixi run -e wasm test-game` plays whole games from scripts and drives the real `InputState`; `test-pad` checks the
-gamepad and touch mapping under node; `game-parity` compares native with the wasm64 app driven through its `app_*` exports;
+Tests: `pixi run -e wasm test-game` plays whole games from scripts and drives the real `InputState`; `test-pad` and `test-vpad` check the
+gamepad mapping and the virtual pad under node; `game-parity` compares native with the wasm64 app driven through its `app_*` exports;
 `game-shot` plays it in headless Chrome on a software WebGPU adapter, writes PNG frames to `build/shots/` and fails unless the
-frames show a scene that reacts to the keys. Gamepad and touch are tested as event mapping only, not on real hardware.
+frames show a scene that reacts to the keys. `build-pages --check` also plays the site by touch only on an emulated phone
+(`scripts/touch_check.mjs`). Neither gamepad nor touch has been tested on real hardware.
+
+### Virtual pad kit
+
+On-screen controls for touch players, in two files with no dependency on the rest of the shell:
+
+- `shell/web/vpad.ts`: the core. No DOM. A game describes its controls as data and gets key, camera-turn and stick-vector
+  events. Each finger belongs to the control it went down on; a stick centres where the thumb lands; keys are held by the
+  pad as a whole, so a stick and a button mapped to the same key do not release each other.
+- `shell/web/vpad_view.ts`: draws that layout as DOM elements over the page (the app's rendering and read-back are not
+  touched), placed from the viewport edges plus the safe-area inset. Hidden until the page sees a touch or the device's
+  main pointer is coarse; `?touch` forces it.
+
+The arena's layout is `ARENA_PAD` in `shell/web/app.ts`:
+
+```ts
+const ARENA_PAD: PadLayout = {
+  sticks: [{ id: "move", radius: 56, dead: 0.2, at: { left: 36, bottom: 36 }, keys: { up: KEY.W, down: KEY.S, left: KEY.A, right: KEY.D } }],
+  buttons: [
+    { id: "jump", key: KEY.SPACE, label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
+    { id: "pause", key: KEY.P, label: "II", size: 44, at: { right: 12, top: 12 } },
+    { id: "restart", key: KEY.R, label: "R", size: 44, at: { right: 68, top: 12 } },
+  ],
+  look: {},
+};
+```
+
+A stick reports its vector (`PadSink.stick(id, x, y)`, -1..1), but the arena reads it as eight directions: the game's
+input is keys, and an analog axis needs a new event kind through `app_input`.
 
 ## Layout
 

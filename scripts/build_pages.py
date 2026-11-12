@@ -7,7 +7,8 @@ COOP/COEP the page posts audio blocks to the worklet instead of sharing a buffer
 
 Run: pixi run -e wasm build-pages [--check]
   --check   also serve build/pages the way Pages does (no COOP/COEP) and play it in headless Chrome on a software
-            WebGPU adapter: frames, reaction to keys, and sound through the posted-block path must all work."""
+            WebGPU adapter: frames, reaction to keys, and sound through the posted-block path must all work;
+            then again by touch only on an emulated phone, through the virtual pad."""
 import shutil
 import subprocess
 import sys
@@ -45,11 +46,13 @@ def check() -> int:
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         time.sleep(2)
-        r = subprocess.run(["node", "scripts/game_screenshot.mjs", chrome, f"http://127.0.0.1:{PORT}/index.html?offscreen",
-                            str(shots / "pages"), "150", "posted"], cwd=ROOT)
+        base = f"http://127.0.0.1:{PORT}/index.html?offscreen"
+        r = subprocess.run(["node", "scripts/game_screenshot.mjs", chrome, base, str(shots / "pages"), "150", "posted"], cwd=ROOT)
+        # the same site played by touch only, on an emulated phone (scripts/touch_check.mjs)
+        t = subprocess.run(["node", "scripts/touch_check.mjs", chrome, base, str(shots / "touch"), "150"], cwd=ROOT)
     finally:
         server.kill()
-    return r.returncode
+    return r.returncode or t.returncode
 
 
 def main(argv: list[str]) -> int:

@@ -1,6 +1,6 @@
-// Gamepad and touch mapping (shell/web/pad.ts) under node: sticks, buttons and touches become key and look events.
+// Gamepad mapping (shell/web/pad.ts) under node: sticks and buttons become key and look events.
 // usage: node --experimental-strip-types scripts/test_pad.mjs
-import { HeldKeys, KEY, PadInput, TouchInput, padKeys, padLook } from "../shell/web/pad.ts";
+import { HeldKeys, KEY, PadInput, padKeys, padLook } from "../shell/web/pad.ts";
 
 let passed = 0, failed = 0;
 const ok = (cond, label) => { cond ? passed++ : failed++; console.log(`  [${cond ? "PASS" : "FAIL"}] ${label}`); };
@@ -33,46 +33,6 @@ s = sink();
 pad.poll([1, 0, 1, 0], btn(), 10, s);
 pad.release(s);
 ok(s.log.join(" ") === `+${KEY.D} look 9 0 -${KEY.D} end`, "a pad that disconnects lets go of everything");
-
-// touch: left half is the move stick
-s = sink();
-const touch = new TouchInput();
-touch.start(1, 100, 300, 960, 0);
-touch.move(1, 104, 300, s);
-ok(s.log.length === 0, "a small move of the left thumb does nothing yet");
-touch.move(1, 100, 250, s);
-touch.move(1, 140, 250, s);
-touch.end(1, 500, s);
-ok(s.log.join(" ") === `+${KEY.W} +${KEY.D} -${KEY.W} -${KEY.D}`, `left thumb up, then up-right, then lifted: ${s.log.join(" ")}`);
-
-// touch: right half turns the camera, a tap jumps
-s = sink();
-touch.start(2, 700, 300, 960, 1000);
-touch.move(2, 715, 290, s);
-touch.move(2, 725, 290, s);
-touch.end(2, 1100, s);
-ok(s.log.join(" ") === "look 15 -10 look 10 0 end", `a right-half drag turns and does not jump: ${s.log.join(" ")}`);
-s = sink();
-touch.start(3, 700, 300, 960, 2000);
-touch.end(3, 2100, s);
-ok(s.log.join(" ") === `end +${KEY.SPACE} -${KEY.SPACE}`, `a short tap on the right half jumps: ${s.log.join(" ")}`);
-s = sink();
-touch.start(4, 700, 300, 960, 3000);
-touch.end(4, 3600, s);
-ok(s.log.join(" ") === "end", "a long press on the right half does not jump");
-
-// both thumbs at once, then focus is lost
-s = sink();
-touch.start(5, 100, 300, 960, 0);
-touch.start(6, 800, 300, 960, 0);
-touch.move(5, 100, 360, s);
-touch.move(6, 790, 300, s);
-touch.release(s);
-ok(s.log.join(" ") === `+${KEY.S} look -10 0 -${KEY.S} end`, `two thumbs, then focus lost: ${s.log.join(" ")}`);
-s = sink();
-touch.move(5, 0, 0, s);
-touch.end(6, 10, s);
-ok(s.log.length === 0, "events for forgotten touches are ignored");
 
 const hk = new HeldKeys();
 s = sink();
