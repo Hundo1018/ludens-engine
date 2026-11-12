@@ -154,6 +154,43 @@ def main() -> int:
         sm = core_run("sheet", str(root / "missing.sheet"))
         check(sm.returncode == 1, "sheet: a missing file exits 1")
 
+        # ---- a scene that carries its event sheet (`sheet.<n>` rows), and the `scene` action
+        level1, level2 = root / "level1.scene", root / "level2.scene"
+        core_run("demo", str(level2))
+        sheet_rows = ("sheet.1 = event 1\nsheet.2 = when tick_mod 10\nsheet.3 = do impulse @1 0 3 0\nsheet.4 = do add kicks 1\n"
+                      "sheet.5 = do sound 2\nsheet.10 = event 2 once\nsheet.11 = when var kicks >= 3\nsheet.12 = do scene level2\n")
+        level1.write_text(level2.read_text() + sheet_rows)
+        plain = core_run("check", str(level2)).stdout.strip()
+        check(core_run("check", str(level1)).stdout.strip() == plain, "scene sheet: the sheet rows are not world rows (same hash as the scene without them)")
+        kept = root / "kept.scene"
+        r5 = core_run("run", str(level1), "5", "-o", str(kept))
+        rows = [l for l in kept.read_text().splitlines() if l.startswith("sheet.")]
+        check(r5.returncode == 0 and len(rows) == 8 and rows[0] == "sheet.1 = event 1" and rows[7] == "sheet.8 = do scene level2",
+              f"scene sheet: saving keeps the sheet, renumbered 1..8 ({len(rows)} rows)")
+        no_sheet = root / "no_sheet.scene"
+        no_sheet.write_text("\n".join(l for l in level1.read_text().splitlines() if not l.startswith("sheet.")) + "\n")
+        check(core_run("run", str(level1), "5").stdout.splitlines()[-1] != core_run("run", str(no_sheet), "5").stdout.splitlines()[-1],
+              "scene sheet: the sheet runs (its impulse at tick 0 changes the world)")
+        r60 = core_run("run", str(level1), "60")
+        after = core_run("run", str(level2), "39").stdout.strip()
+        check(r60.returncode == 0 and "scene level2 after tick 20" in r60.stdout and "scene-changes 1 sounds 3" in r60.stdout,
+              f"scene sheet: the third kick (tick 20) changes the scene ({r60.stdout.strip()[:70]})")
+        check(r60.stdout.strip().splitlines()[-1] == after, "scene sheet: after the change the world is level2 run for the 39 ticks left")
+        bad_body = root / "bad_body.scene"
+        bad_body.write_text(level1.read_text().replace("@1", "@99"))
+        bb = core_run("check", str(bad_body))
+        check(bb.returncode == 1 and "row `sheet.3`" in bb.stderr and "@99" in bb.stderr, "scene sheet: a body that is not in the scene names the row")
+        bad_act = root / "bad_act.scene"
+        bad_act.write_text(level1.read_text().replace("do sound 2", "do explode 2"))
+        ba = core_run("check", str(bad_act))
+        check(ba.returncode == 1 and "row `sheet.5`" in ba.stderr and "unknown action `explode`" in ba.stderr, "scene sheet: a sheet error names the scene row")
+        gone = root / "gone.scene"
+        gone.write_text(level1.read_text().replace("do scene level2", "do scene nowhere"))
+        check(core_run("run", str(gone), "60").returncode == 1, "scene sheet: changing to a scene that does not exist exits 1")
+        bad_row = root / "bad_row.scene"
+        bad_row.write_text(level2.read_text() + "sheet.x = event 1\n")
+        check(core_run("check", str(bad_row)).returncode == 1, "scene sheet: `sheet.x` is refused")
+
         # ---- capture and replay: a recording can be checked against a re-simulation
         import struct
         cap = root / "run.cap"

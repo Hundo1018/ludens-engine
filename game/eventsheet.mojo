@@ -20,12 +20,14 @@ A sheet is text, one block per event:
       do spawn_box b 0 5 0 .4 .4 .4 1   add a box, its handle goes into variable b
       do spawn_sphere b 0 5 0 .3 1      add a sphere (at most 1000 per sheet, the rest counted in `spawn_cut`)
       do sound 3                  ask the host to play its sound cue 3 (`Sheet.take_sounds`)
+      do scene level2             ask the host to change to the scene `level2` (`Sheet.take_scene`)
     event 2 parent 1              runs only in a tick where event 1's conditions held
 
 An event runs when all its `when` lines hold (none = always). The tables of conditions and actions are fixed: each
 action is one call on `EmbedWorld` or on the sheet's own variables, and a sheet has no other way out (no host calls, no
 files, no network), which is what lets it ship in a game that must not download code. `sound` is no exception: it only
 appends a number to a list the host reads; which sound that number means, and whether one plays, is the host's.
+`scene` likewise only records a name (letters, digits, `_` and `-`: it cannot be a path); loading is the host's.
 
 Bounded: every event runs at most once per tick, signals are seen in the same tick by events later in the sheet, and an
 `emit` for an event that already ran this tick is dropped and counted in `cut` (a chain A -> B -> A stops at once and
@@ -56,6 +58,7 @@ comptime A_EMIT = 5
 comptime A_SPAWN_BOX = 6
 comptime A_SPAWN_SPHERE = 7
 comptime A_SOUND = 8  # n = the host's cue number
+comptime A_SCENE = 9  # name = the scene asked for
 
 comptime MAX_SPAWNS = 1000  # per sheet; further spawns are dropped and counted in `spawn_cut`
 comptime MAX_PENDING_SOUNDS = 64  # cues not yet taken by the host; further ones are dropped and counted in `sound_cut`
@@ -138,6 +141,7 @@ struct Sheet(Movable):
     var spawn_cut: Int
     var sounds: List[Int]  # cues asked for and not yet taken, oldest first
     var sound_cut: Int
+    var next_scene: String  # the scene asked for and not yet taken; the latest request wins
 
     def __init__(out self):
         self.events = List[Event]()
@@ -156,6 +160,7 @@ struct Sheet(Movable):
         self.spawn_cut = 0
         self.sounds = List[Int]()
         self.sound_cut = 0
+        self.next_scene = String()
 
     @staticmethod
     def parse(text: String) raises -> Sheet:
@@ -326,7 +331,15 @@ struct Sheet(Movable):
             if cue < 0:
                 raise Error("sound: the cue number must be >= 0")
             return Act(A_SOUND, String(), 0, cue, zero, zero, 0)
-        raise Error("unknown action `" + k + "` (add, set, velocity, impulse, remove, emit, spawn_box, spawn_sphere, sound)")
+        if k == "scene":
+            if len(w) != 3:
+                raise Error("scene needs a scene name")
+            for b in w[2].as_bytes():
+                var ok = (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95 or b == 45
+                if not ok:
+                    raise Error("scene: the name `" + w[2] + "` may only have letters, digits, `_` and `-`")
+            return Act(A_SCENE, w[2], 0, 0, zero, zero, 0)
+        raise Error("unknown action `" + k + "` (add, set, velocity, impulse, remove, emit, spawn_box, spawn_sphere, sound, scene)")
 
     # ------------------------------------------------------------ running
 
@@ -358,6 +371,12 @@ struct Sheet(Movable):
                 if kind == A_ADD or kind == A_SET or kind == A_SPAWN_BOX or kind == A_SPAWN_SPHERE:
                     var name = self.events[e].acts[k].name.copy()
                     self.events[e].acts[k].handle = Int64(self._slot(name))
+
+    def take_scene(mut self) -> String:
+        """The scene a `scene` action asked for since the last call, or an empty string."""
+        var out = self.next_scene.copy()
+        self.next_scene = String()
+        return out^
 
     def get(self, name: String) -> Int:
         for i in range(len(self.var_names)):
@@ -472,6 +491,8 @@ struct Sheet(Movable):
                         self.sound_cut += 1
                     else:
                         self.sounds.append(a.n)
+                elif a.kind == A_SCENE:
+                    self.next_scene = a.name.copy()
                 else:
                     # a signal reaches events later in the sheet; for one that already ran this tick it is cut
                     for j in range(len(self.events)):

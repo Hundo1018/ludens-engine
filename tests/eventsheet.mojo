@@ -173,6 +173,17 @@ def main() raises:
     c.ok(len(loud.take_sounds()) == 64 and loud.sound_cut == 36, "a host that never takes them keeps 64 pending cues, the rest are counted (" + String(loud.sound_cut) + ")")
     c.ok(parse_fails("event 1\n  do sound\n", "cue number") and parse_fails("event 1\n  do sound -1\n", ">= 0") and parse_fails("event 1\n  do sound x\n", "whole number"), "sound needs one cue number >= 0")
 
+    # scene: the name of the scene asked for, taken once; the latest request wins
+    var w_scene = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
+    var sheet_sc = Sheet.parse(String("event 1 once\n  do scene level-2\nevent 2\n  when tick_mod 5\n  do scene boss_1\n"))
+    c.ok(sheet_sc.take_scene().byte_length() == 0, "no scene is asked for before the sheet runs")
+    run(sheet_sc, w_scene, 1)
+    c.ok(sheet_sc.take_scene() == "boss_1", "two requests in one tick: the later event wins")
+    c.ok(sheet_sc.take_scene().byte_length() == 0, "a taken scene request is gone")
+    run(sheet_sc, w_scene, 3)
+    c.ok(sheet_sc.take_scene().byte_length() == 0, "no request on ticks where no scene action runs")
+    c.ok(parse_fails("event 1\n  do scene ../etc\n", "may only have") and parse_fails("event 1\n  do scene a/b\n", "may only have") and parse_fails("event 1\n  do scene\n", "scene name"), "a scene name cannot be a path")
+
     # errors name the line and the event
     c.ok(parse_fails("event 1\n  when sometimes\n", "line 2") and parse_fails("event 1\n  when sometimes\n", "event 1"), "unknown condition: line and event named")
     c.ok(parse_fails("event 1\n  do explode 3\n", "unknown action `explode`"), "unknown action named")
