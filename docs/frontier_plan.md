@@ -23,6 +23,8 @@
 | 2026-11-13 | 可以用多個 wasm |
 | 2026-11-13 | 畫面不要太素;貼圖用免費素材,不自己畫 |
 | 2026-11-13 | 前置作業完成後先停,後續可能交給較低階的模型 |
+| 2026-11-13 | 城鎮的 24 名群眾不足以顯示 ECS 的效能;要有一個大量實體的場面(階段 3b) |
+| 2026-11-13 | T0(wgpu-mojo 網頁貼圖支援)由強模型先做 |
 
 ### 兩個 checkout 的對應(每次開工先確認)
 
@@ -45,6 +47,7 @@
 | T 貼圖 | 免費 CC0 貼圖、triplanar 貼圖取樣、逐像素光照、天空與霧 | 貼圖來源只用 CC0;下載清單與雜湊進版控,圖檔在建置時下載並轉成固定大小;方塊與球沒有 UV,所以用世界座標的 triplanar 取樣 | 原生與網頁都畫出貼圖;每張圖的來源與授權列在 `assets/CREDITS.md`;像素檢查確認畫面不是單色 |
 | 2 物理區 | 採石場:可破壞牆 + 關節機具;營地:布料旗、軟體、繩索 | 每區是一個 `Zone` 模組,先在主 wasm 內跑,量到超過預算再搬進 Worker;`EmbedWorld` 只允許一個破壞物體,所以牆只有一面 | 牆被撞後碎片數增加;旗的頂點位移;繩長守恆;離區後該區停止 tick |
 | 3 AI 區 | 城鎮:navmesh、ORCA 群眾、行為樹居民、感知 | navmesh 在進區時烘一次並快取;群眾數量由預算決定 | 到達率、最小間距不小於 0;行為樹狀態轉換;預設頁面切到 frontier |
+| 3b 大遷徙(ECS) | 城鎮外的平原上 2 萬到 10 萬個以 `ecs.World` 管理的行人,HUD 顯示每個 system 的耗時,可即時切換儲存後端與 OOP 基準 | 數量由量測決定,不預先承諾;導航用預先取樣的流場格,不用逐人尋路;只有最近的幾十人用 ORCA 與行為樹;放在自己的 wasm Worker | 同輸入下各後端與 OOP 基準的位置雜湊相同;每個 system 的 ns/實體有原生與 wasm 的數字;HUD 的數字與量測一致 |
 | 4 動畫區 | 訓練場:程式產生的骨架與動作、motion matching、腳步 IK、混合 | 無 skinning 管線前,骨頭以方塊繪製;skinning 留到渲染階段 | 特徵查詢命中預期片段;腳踝離地誤差上限;混合權重連續 |
 | 5 網路區 | 靶場:`server.wasm`(Worker)權威伺服器、主模組兩個客戶端、`SimLink` 可調 | 封包格式即 `NetPeer.outgoing/receive` 的位元組;UI 滑桿調延遲、抖動、掉包 | 150 ms 延遲下預測客戶端誤差上限;延遲補償命中而未補償未命中;雜湊收斂 |
 | 6 渲染 A | 3 級 LOD、shadow map、半球環境光、每格探針 | 先補 wgpu-mojo 網頁轉譯層(跨 repo PR),再用 | 各級三角形數;陰影像素檢查;原生與網頁像素差在容忍內 |
@@ -132,6 +135,47 @@ trait Zone(Movable):
   - N 由 `BudgetTiers` 或簡單規則決定:量到的 tick ms 超過目標就減少啟用的 agent。
 - 測試 `tests/frontier_town.mojo`。
 - 把頁面預設改成 frontier(`shell/web/app.ts` 的模式選擇;`?arena` 保留舊遊戲);同步改 `game_screenshot.mjs` / `touch_check.mjs` 的網址為 `?arena`。
+
+## 階段 3b 大遷徙:用大量實體顯示 ECS 的效能
+
+**為什麼城鎮的群眾不夠**(`BENCHMARK_REPORT.md` 的實測,原生):
+
+| 做法 | 規模 | 每實體每 tick |
+|---|---:|---:|
+| `Crowd[Orca]` | 64 人 | 270 ns |
+| `Crowd[Orca]` | 1024 人 | 1173 ns(整步 1.2 ms,且隨人數超線性成長) |
+| ECS archetype `for_each2`(位置 += 速度) | 4000 個 | 0.72 ns |
+| ECS archetype SIMD 積分 | 4000 個 | 0.18 ns |
+| OOP 基準,同一個精簡更新 | 4000 個 | 0.83 ns |
+| OOP 基準,物件帶約 2 KB 冷資料、只讀位置 | 4000 個 | 3.91 ns(ECS SoA 為 0.82 ns) |
+
+從這張表得到兩個設計結論:
+1. ORCA 的成本是每人 0.3 到 1.2 µs,24 人或 1024 人都只是在量 ORCA,不是在量 ECS。要顯示 ECS,實體數要到數萬,而且每個 system 只碰少數欄位。
+2. 在「每個實體都更新、資料很精簡」的工作上,OOP 基準與 ECS 一樣快(0.83 對 0.76 ns)。ECS 的優勢出現在實體帶有大量用不到的資料、system 只讀其中幾欄,以及能用 SIMD 的欄位運算。所以示範的實體必須帶有真實份量的冷資料(名字、背包、狀態),比較才誠實;HUD 上兩種情況都要能切換來看。
+
+**設計**
+
+- 位置:城鎮與樞紐之間的平原(x 48 到 96、z 48 到 160 一帶),一大群行人在數個集結點之間遷徙。
+- 元件(`ecs` 的 `ComponentType`):`Pos`(x, z)、`Vel`(x, z)、`Goal`(集結點編號、到達計數)、`Look`(顏色、大小)、`Cold`(約 200 bytes 的填充資料,代表 system 不碰的狀態)。
+- Systems,每個都用 `World.for_each2` / `for_each3`:
+  1. `steer`:讀 `Pos`、`Goal`,寫 `Vel`。方向取自預先取樣的流場格:進區時對每個集結點呼叫一次 `FlowField.build(mesh, goal)`,再把 `FlowField.direction(mesh, p)` 取樣成 1 m 一格的二維陣列,之後每個實體只做一次陣列查表。
+  2. `separate`:用均勻格計數做密度排斥(每格人數超過門檻就沿密度梯度推開)。不用 ORCA。
+  3. `integrate`:`Pos += Vel * dt`。
+  4. `arrive`:到集結點就換下一個。
+  5. `pack`:把視錐內的實體寫進繪製陣列。
+- 分層(顯示排程與預算):距玩家 30 m 內最多 64 人交給 `Crowd[Orca]` 與行為樹(就是階段 3 的城鎮居民那套);30 到 150 m 每 tick 跑全部 system;更遠的每 4 tick 跑一次。層的分界由 `BudgetTiers` 依量到的時間調整。
+- 可切換的實作(HUD 按鍵或頁面按鈕):`archetype for_each`、`sparse for_each`、`handle 迴圈(query + get/set)`、`oop` 套件的基準。四者跑同一份輸入,HUD 顯示各 system 的 ms 與每實體 ns。這是一個 seam,要有 parity 測試:同輸入 600 tick 後四者的位置雜湊相同。
+- 執行位置:自己的 `sim.wasm` Worker(沿用 `zone_worker.ts` 的協定,`app/zone_main.mojo` 增加區種類),每 tick 以可轉移的 `Float32Array` 送回視錐內的位置。主執行緒不付模擬成本。
+- 繪製:現有渲染器每個實例畫 1152 個頂點、上限 2048 個實例,不能用來畫數萬人。新增一條「群眾 pass」:每人一個 36 頂點的方塊(之後換成低面數人形),實例資料只有位置、朝向、顏色、大小;依距離剔除與 LOD(遠處每人一個 6 頂點的面片)。這等於把階段 6 的 LOD 工作提前一部分。
+
+**先量再定數量(第一步,不可省略)**
+
+寫 `app/crowd_probe.mojo` 與 `scripts/crowd_probe.py`(仿 `app/bench.mojo` 與 `scripts/bench.py`):N = 1e4、5e4、1e5,量每個 system 的 ns/實體,原生與 wasm 各一份,四種實作各一份。然後用下面的規則定 N,並把表格寫進 PR:
+
+- Worker 內整個 tick 不超過 8 ms(留一半給 60 Hz 的排程抖動)→ N 的上限。
+- 繪製:視錐內實例數 × 頂點數在 SwiftShader 上不超過檢查的時限;真實 GPU 的上限我無法量,預設值取保守的一半,並提供網址參數 `?crowd=<N>` 讓使用者在自己的機器上調。
+
+**測試** `tests/frontier_migration.mojo`:實體數不變;600 tick 後所有座標有限且在平原範圍內;至少 30 % 的實體到達過一次集結點;四種實作雜湊相同;關掉分層與開著分層時「30 到 150 m」那一層的結果相同。瀏覽器:`scripts/migration_check.mjs` 讀 `window.shell.migration`(實體數、各 system ms、目前實作),切換實作後數字改變而實體數不變。
 
 ## 階段 4 動畫區
 
@@ -323,6 +367,27 @@ comptime G = Vec3(0.0, -9.81, 0.0, 0.0)
 | 守衛 | 完整複製 `game/arena.mojo` 的 `ChaserHost`(第 125 到 162 行)與 `_think`(第 608 到 655 行)的寫法,數量 2 |
 | 測試斷言 | 1200 tick 內至少 12 名到達過一次目的地;`self.crowd.min_separation() > -0.05`;沒有 agent 的位置落在任何建築的 AABB 內;玩家站在守衛前 5 m 時 60 tick 內守衛與玩家距離縮短;雜湊相同 |
 
+### 卡 3b 大遷徙 `game/zone_migration.mojo`(先做 3b-0,再做其餘)
+
+**3b-0 量測(這一步的輸出決定後面的數字,做完先回報)**
+
+1. 複製 `app/bench.mojo` 為 `app/crowd_probe.mojo`,複製 `scripts/bench.py` 為 `scripts/crowd_probe.py`;在 `pixi.toml` 加 `crowd-probe = "python3 scripts/crowd_probe.py"`。
+2. 元件照 `build/deps/ludens-core/tests/test_ecs_query.mojo` 開頭定義元件的寫法,定義 `Pos`、`Vel`、`Cold`(`Cold` 放 25 個 `Float64` 欄位)。
+3. 世界:`World[<後端>]`,後端名稱先用 `grep -n "^struct .*Backend\|^struct Archetype\|^struct SparseSet" build/deps/ludens-core/ecs/*.mojo` 找出來;照 `build/deps/ludens-core/benchmarks/` 下檔名含 `ecs` 的 bench 的建構方式。
+4. 生成:`for i in range(N): _ = w.spawn2(Pos(...), Vel(...))`(三個元件的生成函式名稱以 `grep -n "def spawn" build/deps/ludens-core/ecs/world.mojo` 的結果為準)。
+5. 量 `integrate`:
+   ```mojo
+   def step(mut p: Pos, v: Vel):
+       p.x += v.x * DT
+       p.z += v.z * DT
+   w.for_each2[Pos, Vel](step)
+   ```
+   每個 N 跑 200 次取中位數,印 `| 實作 | N | system | ns/實體 |` 的 markdown 表格列。
+6. 同一個工作用 handle 迴圈(`for e in w.query2[Pos, Vel](): var p = w.get[Pos](e) ...`)與 `oop` 套件各做一次(`oop` 的用法看 `build/deps/ludens-core/benchmarks/` 中含 `oop` 的檔案)。
+7. 執行 `pixi run -e wasm crowd-probe`。**把印出的表格原樣回報,然後停**。N 由上一層模型或使用者依第二層的規則決定。
+
+**其餘步驟**在 3b-0 的數字出來後,由第二層以上的模型補寫(格子大小、分層距離、群眾 pass 的頂點格式都取決於量到的數字)。
+
 ### 卡 4 訓練場 `game/mocap.mojo` + `game/zone_training.mojo`
 
 | 項目 | 內容 |
@@ -384,8 +449,9 @@ ls tests | grep -i web
 
 ## 風險
 
-- 階段 1 的擷取失敗原因未知;四個實驗都無結果時需要上層模型接手。
 - `EmbedWorld.physics_tick` 是否推進軟體未確認(卡 2b 有查核步驟)。
 - `ray_cast_batch` 自由函式在 `f` 之後的參數未抄錄;階段 6 使用前要先讀 `collision/world_query.mojo:756`。
 - 卡 4 的四元數建構函式名稱未確認(卡內有 grep 步驟)。
 - 第三層對階段 6、7 只寫到查核,因為轉譯層現況未確認;我沒有把不確定的內容寫成可照抄的步驟。
+- 階段 3b 的實體數沒有預先承諾的數字;wasm 與真實 GPU 上能跑多少要等 3b-0 的量測。報告中的 ECS 數字是原生、N = 4000 的,不能直接外推到 wasm 與 10 萬個。
+- 在精簡的全量更新上 OOP 基準與 ECS 一樣快(實測 0.83 對 0.76 ns);示範若只做這種工作,切換實作時看不出差別。階段 3b 用帶冷資料的實體與只讀少數欄位的 system 來避免這個誤導,HUD 上兩種情況都列出。
