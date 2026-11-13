@@ -17,7 +17,9 @@ const proc = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu-san
 const done = (c) => { proc.kill(); try { rmSync(profile, { recursive: true, force: true }); } catch {} process.exit(c); };
 setTimeout(() => { console.log('frontier_check: timed out'); done(1); }, Number(timeoutS) * 1000);
 const port = await new Promise((res) => { let b = ''; proc.stderr.on('data', (d) => { b += d; const m = b.match(/DevTools listening on ws:\/\/[^:]+:(\d+)\//); if (m) res(m[1]); }); });
-const target = await (await fetch(`http://127.0.0.1:${port}/json/new?${url}`, { method: 'PUT' })).json();
+// about:blank first, then Page.navigate: /json/new?<url> drops everything after an '&' in <url>, and a page that lost
+// its `offscreen` switch draws to the canvas, after which headless Chrome loses the GPU device.
+const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener('open', r));
 let id = 0; const pending = new Map();
@@ -29,13 +31,15 @@ ws.addEventListener('message', (e) => {
   if (m.method === 'Runtime.consoleAPICalled') {
     const text = m.params.args.map((a) => a.value ?? a.description).join(' ');
     console.log('console:', text.slice(0, 600));
-    if (/wgpu uncaptured error|app_frame:|app_frontier/.test(text)) problems.push('browser console: ' + text.split('\n')[0]);
+    if (/wgpu uncaptured error|app_frame:|app_frontier|mapAsync refused/.test(text)) problems.push('browser console: ' + text.split('\n')[0]);
   }
   if (m.method === 'Runtime.exceptionThrown') { console.log('exception:', m.params.exceptionDetails.exception?.description); problems.push('page exception'); }
 });
 const send = (method, params = {}) => new Promise((r) => { pending.set(++id, r); ws.send(JSON.stringify({ id, method, params })); });
 const js = async (expression) => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }))?.result?.value;
 await send('Runtime.enable');
+await send('Page.enable');
+await send('Page.navigate', { url });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const key = (type, code) => js(`window.dispatchEvent(new KeyboardEvent('${type}', { code: '${code}', bubbles: true }))`);
 const stat = async () => JSON.parse(await js('JSON.stringify(window.shell.frontier || null)'));
@@ -79,15 +83,21 @@ const differ = (a, b) => { let n = 0; for (let q = 0; q < a.length; q += 4) if (
 
 for (let i = 0; i < 240; i++) { if ((await js('window.shell && window.shell.frames')) > 10 && (await stat())) break; await sleep(250); }
 console.log('frames', await js('window.shell && window.shell.frames'), 'error', await js('window.shell && window.shell.error'));
+// say why, if a buffer map is refused: the app only reports that it was
+await js(`(() => { const o = GPUBuffer.prototype.mapAsync; GPUBuffer.prototype.mapAsync = function (...a) {
+  return o.apply(this, a).catch((e) => { console.log('mapAsync refused: ' + e + ' (buffer ' + this.size + ' bytes, usage ' + this.usage + ', ' + this.mapState + ')'); throw e; }); }; })()`);
 const s0 = await stat();
+need((await js('location.search')).includes('offscreen'), 'the page was opened with its whole query string');
 need(!!s0, 'the page publishes the world\'s numbers');
 if (!s0) done(1);
 console.log('start:', JSON.stringify(s0));
 need(s0.cellsTotal === 256 && s0.cells > 4 && s0.cells < 40, `part of the map is loaded: ${s0.cells} of ${s0.cellsTotal} cells`);
 need(s0.bodies > 0 && s0.bodies * 5 < s0.bodiesTotal, `${s0.bodies} of ${s0.bodiesTotal} props are in the scene`);
 need(s0.zone === 0, 'the player starts in the hub');
-need(s0.culled > 0 && s0.drawn > 10, `culling: ${s0.drawn} drawn, ${s0.culled} culled`);
 await shot('hub');
+// drawn and culled are counted when a frame is drawn; with ?offscreen that is when one is captured
+const sd = await stat();
+need(sd.culled > 0 && sd.drawn > 10, `culling: ${sd.drawn} drawn, ${sd.culled} culled`);
 
 // walk: W held (yaw 0 looks along -z)
 await key('keydown', 'KeyW');
@@ -99,7 +109,6 @@ console.log('walked:', JSON.stringify(s1));
 need(s1.tick > s0.tick + 60, `the world ticked (${s1.tick - s0.tick} ticks)`);
 need(s1.loads > s0.loads, `walking loaded cells (${s0.loads} -> ${s1.loads})`);
 need(peak * 4 < s1.bodiesTotal, `the scene stayed small while walking (peak ${peak} props)`);
-if (shots.hub) { const r = await js(GRAB); }
 await shot('walked');
 if (shots.hub && shots.walked) { const n = differ(shots.hub, shots.walked); need(n > 5000, `walking changed the picture (${n} pixels)`); }
 
@@ -119,7 +128,7 @@ const s2 = await stat();
 need(s2.unloads > 10, `cells left behind were unloaded (${s2.unloads} unloads)`);
 if (shots.quarry && shots.town) { const n = differ(shots.quarry, shots.town); need(n > 5000, `the zones look different (${n} pixels between quarry and town)`); }
 times.sort((a, b) => a - b);
-console.log(`frame time while walking (app_frame on the CPU, software GPU excluded): median ${times[times.length >> 1].toFixed(2)} ms, max ${times[times.length - 1].toFixed(2)} ms`);
+console.log(`app_frame while walking, CPU only and without drawing (?offscreen draws only captured frames): median ${times[times.length >> 1].toFixed(2)} ms, max ${times[times.length - 1].toFixed(2)} ms`);
 need((await js('window.shell.error')) === '', 'no page error');
 
 console.log(problems.length ? `frontier-check: FAIL\n  ${problems.join('\n  ')}` : 'frontier-check: PASS');
