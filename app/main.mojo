@@ -2,13 +2,12 @@
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from controls import read_keys
-from game.arena import Arena
-from game.frontier import Frontier
-from game.frontier_hud import build_frontier_hud
+from game.arena_mode import ArenaMode
+from game.frontier_mode import FrontierMode
+from game.mode import GameMode
 from geometry.vec import Real
 from game.camera_view import View
 from game.controls import Controls
-from game.hud_layout import build_hud
 from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
@@ -56,8 +55,8 @@ struct App(Movable):
     var net_len: Int
     var net_packets: Int
     var mode: Int
-    var arena: Optional[Arena]
-    var frontier: Optional[Frontier]
+    var arena: Optional[ArenaMode]  # the arena game, behind the GameMode seam (game/mode.mojo)
+    var frontier: Optional[FrontierMode]
     var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
@@ -149,7 +148,7 @@ struct App(Movable):
 
     def start_game(mut self) raises:
         if not self.arena:
-            self.arena = Arena()
+            self.arena = ArenaMode()
             # The game's sounds go through the audio scene: each cue is synthesised once and registered as a clip.
             self.cue_clips.append(-1)  # cue numbers start at 1
             for cue in range(1, CUE_COUNT + 1):
@@ -159,58 +158,45 @@ struct App(Movable):
 
     def start_frontier(mut self) raises:
         if not self.frontier:
-            self.frontier = Frontier()
+            self.frontier = FrontierMode()
         self.sim.scene.set_tone(330.0, 0.0)
         self.mode = MODE_FRONTIER
 
-    def _frontier_step(mut self, dt: Float64) raises:
+    def _step_mode[M: GameMode](mut self, mut m: M, dt: Float64) raises:
+        """One frame of a game: read the keys, step it (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
         var intent = self.controls.poll(read_keys(self.input))
-        self.frontier.value().update(intent, min(dt, 0.1))
-
-    def _game_step(mut self, dt: Float64) raises:
-        """One frame of the game: read the keys, step the arena (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
-        var intent = self.controls.poll(read_keys(self.input))
-        ref arena = self.arena.value()
-        arena.update(intent, min(dt, 0.1))
-        for cue in arena.take_cues():
+        m.step(intent, min(dt, 0.1))
+        for cue in m.cues():
             if cue > 0 and cue < len(self.cue_clips):
                 self.sim.scene.play(self.cue_clips[cue])
+
+    def _draw_mode[M: GameMode](mut self, mut m: M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
+        var view = View(m.camera(), Real(aspect))
+        if self.game_format != format:  # the pipelines are built for one target format
+            self.hud = None
+            self.arena_renderer = None
+            self.game_format = format
+        if not self.hud:
+            self.hud = Hud(self.boot.device(), format)
+        if not self.arena_renderer:
+            self.arena_renderer = ArenaRenderer(self.boot.device(), format, view)
+        self.arena_renderer.value().begin(view)
+        for it in m.scene():
+            self.arena_renderer.value().push(it)
+        self.hud.value().set(m.hud(Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
+        self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
         if self.mode == MODE_FRONTIER:
-            ref world = self.frontier.value()
-            var fview = View(world.cam, Real(aspect))
-            if self.game_format != format:  # the pipelines are built for one target format
-                self.hud = None
-                self.arena_renderer = None
-                self.game_format = format
-            if not self.hud:
-                self.hud = Hud(self.boot.device(), format)
-            if not self.arena_renderer:
-                self.arena_renderer = ArenaRenderer(self.boot.device(), format, fview)
-            self.arena_renderer.value().begin(fview)
-            for it in world.draw_items():
-                self.arena_renderer.value().push(it)
-            self.hud.value().set(build_frontier_hud(world, Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
-            self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+            var m = self.frontier.take()
+            self._draw_mode(m, target, format, aspect)
+            self.frontier = m^
             return
         if self.mode == MODE_GAME:
-            ref arena = self.arena.value()
-            var view = View(arena.cam, Real(aspect))
-            if self.game_format != format:  # the pipelines are built for one target format
-                self.hud = None
-                self.arena_renderer = None
-                self.game_format = format
-            if not self.hud:
-                self.hud = Hud(self.boot.device(), format)
-            if not self.arena_renderer:
-                self.arena_renderer = ArenaRenderer(self.boot.device(), format, view)
-            self.arena_renderer.value().begin(view)
-            for it in arena.draw_items():
-                self.arena_renderer.value().push(it)
-            self.hud.value().set(build_hud(arena, Float32(self.width), Float32(self.height)), Float32(self.width), Float32(self.height))
-            self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+            var m = self.arena.take()
+            self._draw_mode(m, target, format, aspect)
+            self.arena = m^
             return
         if not self.renderer:
             self.renderer = Renderer(self.boot.device(), format)
@@ -247,9 +233,13 @@ struct App(Movable):
     def _frame(mut self, dt: Float64) raises -> Int32:
         self._net()
         if self.mode == MODE_FRONTIER:
-            self._frontier_step(dt)
+            var m = self.frontier.take()
+            self._step_mode(m, dt)
+            self.frontier = m^
         elif self.mode == MODE_GAME:
-            self._game_step(dt)
+            var m = self.arena.take()
+            self._step_mode(m, dt)
+            self.arena = m^
         else:
             self.sim.step(dt)
         if not self.boot.step():
@@ -458,26 +448,26 @@ def app_game_status(app: UInt64) abi("C") -> Int32:
     var a = _app(app)
     if not a[].arena:
         return -1
-    return Int32(a[].arena.value().status())
+    return Int32(a[].arena.value().arena.status())
 
 
 @export
 def app_game_score(app: UInt64) abi("C") -> Int32:
     var a = _app(app)
-    return Int32(a[].arena.value().score) if a[].arena else -1
+    return Int32(a[].arena.value().arena.score) if a[].arena else -1
 
 
 @export
 def app_game_collected(app: UInt64) abi("C") -> Int32:
     var a = _app(app)
-    return Int32(a[].arena.value().collected()) if a[].arena else -1
+    return Int32(a[].arena.value().arena.collected()) if a[].arena else -1
 
 
 @export
 def app_game_hash(app: UInt64) abi("C") -> UInt64:
     """The game state's hash, for comparing runs."""
     var a = _app(app)
-    return a[].arena.value().hash() if a[].arena else 0
+    return a[].arena.value().arena.hash() if a[].arena else 0
 
 
 @export
@@ -489,7 +479,7 @@ def app_frontier_stat(app: UInt64, which: Int32) abi("C") -> Int32:
     if not a[].frontier:
         return -1
     try:
-        return Int32(a[].frontier.value().stat(Int(which)))
+        return Int32(a[].frontier.value().world.stat(Int(which)))
     except e:
         return -1
 
@@ -507,7 +497,7 @@ def app_frontier_teleport(app: UInt64, x: Float64, z: Float64) abi("C") -> Int32
     if not a[].frontier:
         return -1
     try:
-        a[].frontier.value().teleport(Real(x), Real(z))
+        a[].frontier.value().world.teleport(Real(x), Real(z))
         return 0
     except e:
         print("app_frontier_teleport:", e)
