@@ -12,6 +12,8 @@
 
 - 已合併:PR #53 虛擬搖桿套件;PR #54 多 wasm 探針(`app/zone_main.mojo`、`shell/web/zone_worker.ts`、`scripts/multi_wasm_probe.py`)。探針量到:Worker 內 wasm64 可載入、雜湊與原生相同、該場景每 tick 約 12 ms、每實例記憶體 38 MiB。
 - PR #55(階段 1 的主體):`game/frontier.mojo`、`game/frontier_hud.mojo`、`tests/frontier.mojo`(26 項)、`scripts/frontier_check.mjs`(31 項,已接進 `build-pages --check`)。
+- T0 已完成:wgpu-mojo#30 已合併(`e781b8b`),網頁上可用 `wgpuDeviceCreateSampler`、`wgpuSamplerRelease`、`wgpuQueueWriteTexture`;`deps.lock` 已指到這個版本。T1(素材管線)與 T2(貼圖渲染)可以開始。
+- 階段 3b(大量群眾)已規劃,第一步是量測探針 3b-0。
 - 階段 1 還沒做的:S1-5(原生對 wasm 的雜湊)、S1-6(觸控配置)。這兩步可以直接照第三層做。
 - 之前記錄的「擷取失敗」已解決,原因在檢查腳本而不在遊戲,見「已知陷阱」表最後一列。
 
@@ -75,9 +77,13 @@
 
 ## 階段 T 貼圖(排在階段 1 之後、階段 2 之前)
 
-分三段。T0 需要較強的模型;T1、T2 可照第三層做。
+分三段。T0 已完成(2026-11-13);T1 可照第三層做;T2 的步驟要由第二層以上的模型依下面的介面補寫。
 
-**T0 wgpu-mojo 網頁轉譯層(另一個 repo:`Hundo1018/wgpu-mojo`)**
+**T0 wgpu-mojo 網頁轉譯層(另一個 repo:`Hundo1018/wgpu-mojo`)— 已完成,以下留作紀錄**
+
+結果:只缺三個函式,已補上並有瀏覽器測試(`examples/web/texture_web.mojo`:2 層、2 級 mip 的陣列貼圖,重複取樣)。bind group 的 sampler / texture entry、陣列貼圖、`2d-array` view 原本就可用。T2 可直接照該範例的寫法:`device.create_texture(w, h, layers, RGBA8Unorm, TEXTURE_BINDING | COPY_DST, 2, mips, 1, label)`、每層每級一次 `device.queue_write_texture(tex, mip, WGPUOrigin3D(0, 0, layer), WGPUTextureAspect.All, bytes, bytes_per_row, rows, w, h, 1)`、`WGPUTextureViewDescriptor(..., WGPUTextureViewDimension.D2Array, ...)`、`device.create_sampler(Repeat, Repeat, Repeat, Linear, Linear, Linear)`。注意 `create_sampler` 的預設濾波是 Nearest,要線性過濾必須明確傳 `WGPUFilterMode.Linear`(值 2)。尚未在網頁上測過的:比較取樣、各向異性大於 1、`CopyBufferToTexture`(仍會 trap)。
+
+原始工作項目:
 
 現況(已查):`web/implemented.txt` 列出的 63 個函式中沒有 `wgpuDeviceCreateSampler` 與 `wgpuQueueWriteTexture`;沒列的函式在網頁上會 trap。
 
@@ -273,6 +279,7 @@ trait Zone(Movable):
 | 把玩家傳送到建築物內部 | 城鎮的街道在每格的 x0+16、z0+16;用 (112, 112) |
 | 新 `.ts` 檔沒進 `scripts/build_web.py` 的清單 | 加進那個 tuple,否則網站載入時 404 |
 | 需要原生靜態庫的腳本在乾淨機器失敗 | 先 `import native_libs; native_libs.build_all()` |
+| 截圖檢查的顏色數門檻設在量測值附近 | 暫停畫面量到 49 到 52 種顏色,門檻 50 會碰運氣失敗。門檻要離兩邊的量測值都遠(現為 30;清空的畫面是 1) |
 | 用 `/json/new?<網址>` 開分頁,而網址含 `&` | `&` 之後會被丟掉(頁面少了 `offscreen` 就會畫到 canvas,headless Chrome 隨即失去 GPU 裝置,症狀是 `Buffer map failed, status=3`)。先開 `about:blank`,再用 `Page.navigate` |
 | 在 `?offscreen` 下讀 `drawn` / `culled` | 這兩個數字在畫一幀時才更新;先擷取一幀再讀 |
 
@@ -294,7 +301,7 @@ README 的「Frontier」一節已存在;把「Not in yet」那句裡已完成的
 
 ## 階段 T 的步驟
 
-**T0** 不在第三層:交給第二層以上的模型(跨 repo,要讀 `web/webgpu_impl.mjs` 的既有寫法)。T0 沒合併前不要開始 T2。
+**T0** 已完成,不用做。
 
 **T1-1 清單與下載腳本**
 

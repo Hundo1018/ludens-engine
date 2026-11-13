@@ -77,7 +77,7 @@ async function shot(name) {
   const colours = new Set();
   for (let q = 0; q < rgba.length; q += 4) colours.add((rgba[q] >> 3) << 10 | (rgba[q + 1] >> 3) << 5 | rgba[q + 2] >> 3);
   shots[name] = rgba;
-  need(colours.size >= 40, `${name}: the frame shows a scene (${colours.size} colours)`);
+  need(colours.size >= 30, `${name}: the frame shows a scene (${colours.size} colours)`);  // measured 54 to 82; a cleared frame has one
 }
 const differ = (a, b) => { let n = 0; for (let q = 0; q < a.length; q += 4) if (Math.abs(a[q] - b[q]) + Math.abs(a[q + 1] - b[q + 1]) + Math.abs(a[q + 2] - b[q + 2]) > 30) n++; return n; };
 
