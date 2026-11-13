@@ -24,6 +24,8 @@ jobs:
           environments: wasm
       - name: Build build/pages and check it in headless Chrome, served as Pages serves it
         run: pixi run -e wasm build-pages --check
+      - name: Several wasm modules in Web Workers, without COOP/COEP (hashes against the native build, and what it costs)
+        run: pixi run -e wasm multi-wasm-probe
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/pages

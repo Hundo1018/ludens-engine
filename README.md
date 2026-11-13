@@ -47,6 +47,27 @@ gamepad mapping and the virtual pad under node; `game-parity` compares native wi
 frames show a scene that reacts to the keys. `build-pages --check` also plays the site by touch only on an emulated phone
 (`scripts/touch_check.mjs`). Neither gamepad nor touch has been tested on real hardware.
 
+### Zones as separate wasm modules
+
+Groundwork for the Frontier sample (a streamed world whose zones simulate in parallel). A wasm module is one thread, and
+a static host has no SharedArrayBuffer, so there are no wasm threads on GitHub Pages. A zone is therefore its own module
+(`app/zone_main.mojo` -> `zone.wasm`) in its own Web Worker (`shell/web/zone_worker.ts`), stepped at a fixed 60 Hz; each
+tick it posts its item array (8 f32 per body) to the page as a transferable buffer.
+
+`pixi run -e wasm multi-wasm-probe` builds it, serves it without COOP/COEP and measures it in headless Chrome. It fails
+unless every worker reproduces the native build's world hash. On the 4-core development machine, 1000 boxes per zone:
+
+| workers | tick ms, median | ticks/s reached of 60 | page frame ms, median |
+|---:|---:|---:|---:|
+| 1 | 4.6 | 53 | 16.7 |
+| 2 | 5.1 to 5.3 | 53 to 54 | 16.7 |
+| 3 | 5.4 to 5.6 | 53 to 56 | 16.7 |
+| 4 | 4.9 to 5.4 | 50 to 53 | 16.7 |
+
+A buffer of 10 000 items (80 000 f32) takes a median 0.1 ms from the worker's `postMessage` to the page (max 0.7 ms of
+50). Each module's linear memory was 37 to 69 MiB. Ticks fall short of 60 a second because single ticks reach about
+40 ms while the boxes land, and the worker drops time when more than 4 ticks are due. Not measured: a phone.
+
 ### Virtual pad kit
 
 On-screen controls for touch players, in two files with no dependency on the rest of the shell:
