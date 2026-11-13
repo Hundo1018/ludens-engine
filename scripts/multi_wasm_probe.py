@@ -56,6 +56,8 @@ def main() -> int:
     if not chrome:
         sys.exit("multi-wasm-probe: no Chrome found")
     subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True)
+    import native_libs  # the static libraries wasm.toml [native] links (a clean checkout has none)
+    native_libs.build_all()
     (ROOT / "build").mkdir(exist_ok=True)
     build_zone(serial_engine(), "--target", "native", "-o", "build/zone_native")
     native = subprocess.run([str(ROOT / "build/zone_native")], capture_output=True, text=True, check=True).stdout
