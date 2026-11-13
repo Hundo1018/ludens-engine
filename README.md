@@ -68,6 +68,24 @@ A buffer of 10 000 items (80 000 f32) takes a median 0.1 ms from the worker's `p
 50). Each module's linear memory was 37 to 69 MiB. Ticks fall short of 60 a second because single ticks reach about
 40 ms while the boxes land, and the worker drops time when more than 4 ticks are due. Not measured: a phone.
 
+### Frontier: the streamed world (in progress)
+
+`?frontier` on the page loads a second sample, `game/frontier.mojo`: a 512 m by 512 m map in 32 m cells (256 of them),
+a hub in the middle and four zones around it (quarry, camp, town, training). It is being built in stages; what is in:
+
+- Streaming: every prop is a `gameplay.large_world.BodySpec`. `WorldPartition` puts a cell's bodies into the physics
+  scene when the player is within 56 m of the cell and takes them out, keeping pose and velocity, at 72 m. At the start
+  16 of 256 cells and 112 of 2032 props are in the scene.
+- Culling: what is loaded is cut again by the camera frustum (`procedural.camera_math.Frustum`).
+- The HUD shows the zone, cells loaded, bodies in the scene, items drawn and culled, cell loads and unloads, and the CPU
+  time of the previous frame as the page measured it. The page publishes the same numbers in `window.shell.frontier`.
+
+Checks: `tests/frontier.mojo` (in `test-game`: streaming, a body comes back where it was left, culling drops nothing
+that is ahead, determinism) and `scripts/frontier_check.mjs` (in `build-pages --check`: headless Chrome walks, visits
+every zone, compares frames). Not in yet: each zone's own simulation (destruction, cloth, crowds, animation, netcode),
+textures and lighting, the native-against-wasm hash comparison for this mode, and a touch layout of its own (it uses the
+arena's).
+
 ### Virtual pad kit
 
 On-screen controls for touch players, in two files with no dependency on the rest of the shell:

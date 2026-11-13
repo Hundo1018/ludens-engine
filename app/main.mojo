@@ -3,6 +3,8 @@
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from controls import read_keys
 from game.arena import Arena
+from game.frontier import Frontier
+from game.frontier_hud import build_frontier_hud
 from geometry.vec import Real
 from game.camera_view import View
 from game.controls import Controls
@@ -28,6 +30,7 @@ comptime NET_CAP = 65536
 comptime NET_PER_FRAME = 16
 comptime MODE_DEMO = 0  # the physics demo the parity gates and selftests compare
 comptime MODE_GAME = 1  # the arena game
+comptime MODE_FRONTIER = 2  # the streamed world (game/frontier.mojo)
 
 
 struct App(Movable):
@@ -54,6 +57,8 @@ struct App(Movable):
     var net_packets: Int
     var mode: Int
     var arena: Optional[Arena]
+    var frontier: Optional[Frontier]
+    var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
     var arena_renderer: Optional[ArenaRenderer]
@@ -86,6 +91,8 @@ struct App(Movable):
         self.net_packets = 0
         self.mode = MODE_DEMO
         self.arena = None
+        self.frontier = None
+        self.frame_ms = 0
         self.controls = Controls()
         self.cue_clips = List[Int]()
         self.arena_renderer = None
@@ -116,6 +123,8 @@ struct App(Movable):
         self.net_packets = move.net_packets
         self.mode = move.mode
         self.arena = move.arena^
+        self.frontier = move.frontier^
+        self.frame_ms = move.frame_ms
         self.controls = move.controls^
         self.cue_clips = move.cue_clips^
         self.arena_renderer = move.arena_renderer^
@@ -148,6 +157,16 @@ struct App(Movable):
         self.sim.scene.set_tone(330.0, 0.0)  # the demo's contact tone is silent while the game plays
         self.mode = MODE_GAME
 
+    def start_frontier(mut self) raises:
+        if not self.frontier:
+            self.frontier = Frontier()
+        self.sim.scene.set_tone(330.0, 0.0)
+        self.mode = MODE_FRONTIER
+
+    def _frontier_step(mut self, dt: Float64) raises:
+        var intent = self.controls.poll(read_keys(self.input))
+        self.frontier.value().update(intent, min(dt, 0.1))
+
     def _game_step(mut self, dt: Float64) raises:
         """One frame of the game: read the keys, step the arena (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
         var intent = self.controls.poll(read_keys(self.input))
@@ -159,6 +178,23 @@ struct App(Movable):
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
+        if self.mode == MODE_FRONTIER:
+            ref world = self.frontier.value()
+            var fview = View(world.cam, Real(aspect))
+            if self.game_format != format:  # the pipelines are built for one target format
+                self.hud = None
+                self.arena_renderer = None
+                self.game_format = format
+            if not self.hud:
+                self.hud = Hud(self.boot.device(), format)
+            if not self.arena_renderer:
+                self.arena_renderer = ArenaRenderer(self.boot.device(), format, fview)
+            self.arena_renderer.value().begin(fview)
+            for it in world.draw_items():
+                self.arena_renderer.value().push(it)
+            self.hud.value().set(build_frontier_hud(world, Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
+            self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+            return
         if self.mode == MODE_GAME:
             ref arena = self.arena.value()
             var view = View(arena.cam, Real(aspect))
@@ -210,7 +246,9 @@ struct App(Movable):
 
     def _frame(mut self, dt: Float64) raises -> Int32:
         self._net()
-        if self.mode == MODE_GAME:
+        if self.mode == MODE_FRONTIER:
+            self._frontier_step(dt)
+        elif self.mode == MODE_GAME:
             self._game_step(dt)
         else:
             self.sim.step(dt)
@@ -218,7 +256,7 @@ struct App(Movable):
             return 0
         if self.offscreen:
             # Never touch the canvas: headless Chrome loses the device after a canvas draw.
-            if self.mode == MODE_GAME:
+            if self.mode != MODE_DEMO:
                 self._capture(WGPUTextureFormat.RGBA8Unorm)  # the game still can be looked at, with no canvas draw
             self._reference()
             self._finish_capture()
@@ -399,10 +437,12 @@ def app_net_last_len(app: UInt64) abi("C") -> Int32:
 
 @export
 def app_set_mode(app: UInt64, mode: Int32) abi("C") -> Int32:
-    """0 = the physics demo (what the selftests and parity gates compare), 1 = the arena game. 0 = ok."""
+    """0 = the physics demo (what the selftests and parity gates compare), 1 = the arena game, 2 = the Frontier world. 0 = ok."""
     try:
         var a = _app(app)
-        if mode == MODE_GAME:
+        if mode == MODE_FRONTIER:
+            a[].start_frontier()
+        elif mode == MODE_GAME:
             a[].start_game()
         else:
             a[].mode = MODE_DEMO
@@ -438,6 +478,46 @@ def app_game_hash(app: UInt64) abi("C") -> UInt64:
     """The game state's hash, for comparing runs."""
     var a = _app(app)
     return a[].arena.value().hash() if a[].arena else 0
+
+
+@export
+def app_frontier_stat(app: UInt64, which: Int32) abi("C") -> Int32:
+    """One of the Frontier world's numbers (game/frontier.mojo STAT_*): 0 cells loaded, 1 cells in the map, 2 bodies in
+    the scene, 3 bodies in the map, 4 items drawn, 5 items culled, 6 cell loads, 7 cell unloads, 8 zone, 9 tick.
+    -1 when that world is not running."""
+    var a = _app(app)
+    if not a[].frontier:
+        return -1
+    try:
+        return Int32(a[].frontier.value().stat(Int(which)))
+    except e:
+        return -1
+
+
+@export
+def app_frontier_hash(app: UInt64) abi("C") -> UInt64:
+    var a = _app(app)
+    return a[].frontier.value().hash() if a[].frontier else 0
+
+
+@export
+def app_frontier_teleport(app: UInt64, x: Float64, z: Float64) abi("C") -> Int32:
+    """Move the player at once (a fast-travel point, or a check that wants to be in a zone). 0 = ok."""
+    var a = _app(app)
+    if not a[].frontier:
+        return -1
+    try:
+        a[].frontier.value().teleport(Real(x), Real(z))
+        return 0
+    except e:
+        print("app_frontier_teleport:", e)
+        return -1
+
+
+@export
+def app_set_frame_ms(app: UInt64, ms: Float64) abi("C"):
+    """The CPU time the host measured around the previous `app_frame`, shown on the HUD."""
+    _app(app)[].frame_ms = Float32(ms)
 
 
 @export
