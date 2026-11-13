@@ -74,7 +74,9 @@ async function shot(name) {
   const colours = new Set();
   for (let q = 0; q < rgba.length; q += 4) colours.add((rgba[q] >> 3) << 10 | (rgba[q + 1] >> 3) << 5 | rgba[q + 2] >> 3);
   shots[name] = { rgba, colours: colours.size };
-  if (colours.size < 50) problems.push(`${name}: only ${colours.size} colours, not a scene`);
+  // A cleared frame has one colour. The paused frame has measured 49 to 52
+  // across runs, so the old limit of 50 failed by chance; 30 is well clear of both.
+  if (colours.size < 30) problems.push(`${name}: only ${colours.size} colours, not a scene`);
   console.log(`${name}: ${r.w}x${r.h} format ${r.format} status ${r.status} score ${r.score} collected ${r.collected}, ${colours.size} colours`);
 }
 const key = (type, code) => js(`window.dispatchEvent(new KeyboardEvent('${type}', { code: '${code}', bubbles: true }))`);
