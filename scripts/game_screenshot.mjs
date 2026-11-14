@@ -122,6 +122,17 @@ if (shots.moved && shots.paused) {
   console.log(`moved vs paused: ${n} pixels differ`);
   if (n < 2000) problems.push(`pressing P changed only ${n} pixels: no pause banner`);
 }
+// B2 on the web: the synthetic skinning scene through the CPU reference and the GPU compute path. The page polls
+// app_skin_result (-1 while the map is pending, -2 on failure) and asserts the max difference is below 1e-5.
+await js('window.shell.x.app_skin_start(window.shell.app)');
+let skinErr = -1;
+for (let i = 0; i < 400; i++) {
+  skinErr = await js('window.shell.x.app_skin_result(window.shell.app)');
+  if (skinErr !== -1) break;
+  await sleep(25);
+}
+console.log(`skinning B2 on web: max |GPU - CPU| = ${skinErr}`);
+if (!(skinErr >= 0 && skinErr < 1e-5)) problems.push(`skinning B2 on web: max |GPU - CPU| is ${skinErr}, not below 1e-5`);
 for (const p of problems) console.log('PROBLEM:', p);
 console.log('game-shot:', problems.length ? 'FAIL' : 'PASS');
 done(problems.length ? 1 : 0);

@@ -6,13 +6,15 @@ weights, all-zero weights leave the rest position, and the palette is column-maj
 from wgpu import (
     Instance, WGPUBufferUsage, WGPUShaderStage, WGPUBufferBindingType, WGPUBindGroupLayoutEntry,
     WGPUBufferBindingLayout, WGPUSamplerBindingLayout, WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout,
-    WGPUBindGroupEntry,
+    WGPUBindGroupEntry, WGPUMapMode,
 )
 from wgpu._ffi.nulls import null_opaque
 from wgpu.bind_group import BindGroupLayout
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import ComputePipeline
+from wgpu.buffer import MapRequest
+from wgpu.bind_group import BindGroup
 from geometry.vec import Real, Vec3
 from app.skin_pass import Skinning
 
@@ -64,6 +66,53 @@ def _entry(binding: UInt32, buffer: Buffer, bytes: UInt64) -> WGPUBindGroupEntry
     return WGPUBindGroupEntry(null_opaque(), binding, buffer.handle().raw, UInt64(0), bytes, null_opaque(), null_opaque())
 
 
+struct SkinJob(Movable):
+    """A skinning dispatch in flight. ready() turns true once the result is mapped; collect() then reads it and
+    unmaps. The buffers and the bind group stay alive in here until collect() returns."""
+
+    var n: Int
+    var request: MapRequest
+    var readback: Buffer
+    var bg: BindGroup
+    var pal: Buffer
+    var rst: Buffer
+    var jnt: Buffer
+    var wgt: Buffer
+    var out: Buffer
+
+    def __init__(
+        out self, n: Int, var request: MapRequest, var readback: Buffer, var bg: BindGroup, var pal: Buffer,
+        var rst: Buffer, var jnt: Buffer, var wgt: Buffer, var out_buf: Buffer,
+    ):
+        self.n = n
+        self.request = request^
+        self.readback = readback^
+        self.bg = bg^
+        self.pal = pal^
+        self.rst = rst^
+        self.jnt = jnt^
+        self.wgt = wgt^
+        self.out = out_buf^
+
+    def ready(self) -> Bool:
+        return self.request.ready()
+
+    def collect(mut self) raises -> List[Vec3]:
+        """The skinned positions. Raises if the map is still pending or failed."""
+        var raw = self.request.take()
+        var f = Pointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(raw))
+        var result = List[Vec3]()
+        for v in range(self.n):
+            result.append(Vec3(
+                Real(Float64(f[4 * v])),
+                Real(Float64(f[4 * v + 1])),
+                Real(Float64(f[4 * v + 2])),
+                Real(0),
+            ))
+        self.readback.unmap()
+        return result^
+
+
 struct GpuSkinning(Movable, Skinning):
     """The compute pipeline, built once per device. Buffers are made per call: the palette and vertex data change
     every frame in the game, and the pipeline is what is worth keeping."""
@@ -84,12 +133,14 @@ struct GpuSkinning(Movable, Skinning):
         var pl = device.create_pipeline_layout(self.layout, "skin_layout")
         self.pipeline = device.create_compute_pipeline(shader, "skin_cs", pl, "skin_cs")
 
-    def skin(
-        mut self, device: Device, palette: List[Float32], rest: List[Vec3], joints: List[Int], weights: List[Real]
-    ) raises -> List[Vec3]:
+    def submit(
+        self, device: Device, palette: List[Float32], rest: List[Vec3], joints: List[Int], weights: List[Real]
+    ) raises -> SkinJob:
+        """Upload the inputs, record and submit the compute pass, and start mapping the result. Nothing waits here:
+        poll the job's request, then collect(). The job holds every buffer the GPU reads, until the map is taken."""
         var n = len(rest)
         if n == 0:
-            return List[Vec3]()
+            raise Error("gpu skinning: no vertices")
         if len(joints) != 4 * n or len(weights) != 4 * n:
             raise Error("gpu skinning: joints and weights take 4 entries per vertex")
         if len(palette) == 0 or len(palette) % 16 != 0:
@@ -138,22 +189,12 @@ struct GpuSkinning(Movable, Skinning):
         enc.copy_buffer_to_buffer(out, UInt64(0), readback, UInt64(0), vertex_bytes)
         var cmd = enc^.finish("skin_cmd")
         device.queue_submit(cmd)
+        var request = readback.map_async(WGPUMapMode.READ, UInt64(0), vertex_bytes)
+        return SkinJob(n, request^, readback^, bg^, pal^, rst^, jnt^, wgt^, out^)
 
-        var raw = readback.map_read()
-        var f = Pointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(raw))
-        var result = List[Vec3]()
-        for v in range(n):
-            result.append(Vec3(
-                Real(Float64(f[4 * v])),
-                Real(Float64(f[4 * v + 1])),
-                Real(Float64(f[4 * v + 2])),
-                Real(0),
-            ))
-        readback.unmap()
-        _ = bg^
-        _ = pal^
-        _ = rst^
-        _ = jnt^
-        _ = wgt^
-        _ = out^
-        return result^
+    def skin(
+        mut self, device: Device, palette: List[Float32], rest: List[Vec3], joints: List[Int], weights: List[Real]
+    ) raises -> List[Vec3]:
+        var job = self.submit(device, palette, rest, joints, weights)
+        job.request.wait()
+        return job.collect()

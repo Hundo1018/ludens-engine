@@ -2,26 +2,11 @@
 # Skinning parity (step 5 PR B). B1: the CPU reference on a synthetic 2-joint chain, and the palette layout. The GPU
 # side (B2) is added with the compute path.
 from harness.runner import Suite
-from app.skin_pass import build_palette, cpu_skin, CpuSkinning, Skinning
+from app.skin_pass import build_palette, cpu_skin, CpuSkinning, Skinning, rot_y, synthetic_scene
 from app.skin_gpu import GpuSkinning
 from wgpu import Instance
 from geometry.mat import Mat4
 from geometry.vec import Real, Vec3
-
-
-def _rot_y(deg: Float64) -> Mat4:
-    """Rotation about +Y by deg degrees: (1,0,0) maps to (cos, 0, -sin)."""
-    from std.math import cos, sin
-    from std.math.constants import pi
-    var t = deg * pi / 180.0
-    var c = Real(cos(t))
-    var s = Real(sin(t))
-    var m = Mat4.identity()
-    m.set(0, 0, c)
-    m.set(0, 2, s)
-    m.set(2, 0, -s)
-    m.set(2, 2, c)
-    return m^
 
 
 def main() raises:
@@ -31,7 +16,7 @@ def main() raises:
     var ident = Mat4.identity()
     var locals = List[Mat4]()
     locals.append(ident.copy())
-    locals.append(_rot_y(90.0))
+    locals.append(rot_y(90.0))
     var parents = List[Int]()
     parents.append(-1)
     parents.append(0)
@@ -45,7 +30,7 @@ def main() raises:
 
     var palette = List[Mat4]()
     palette.append(Mat4.identity())
-    palette.append(_rot_y(90.0))
+    palette.append(rot_y(90.0))
     var rest = List[Vec3]()
     rest.append(Vec3(Real(1.0), Real(0.0), Real(0.0), Real(0.0)))
     var joints = List[Int]()
@@ -75,40 +60,12 @@ def main() raises:
     # B2: GPU against CPU on a synthetic mesh: 300 vertices, 4 joints each, some with all-zero weights (rest position).
     var instance = Instance()
     var device = instance.request_adapter().request_device()
-    var pal_locals = List[Mat4]()
-    pal_locals.append(Mat4.identity())
-    pal_locals.append(_rot_y(90.0))
-    pal_locals.append(_rot_y(-30.0))
-    var pal_parents = List[Int]()
-    pal_parents.append(-1)
-    pal_parents.append(0)
-    pal_parents.append(0)
-    var pal_ibm = List[Mat4]()
-    for _ in range(3):
-        pal_ibm.append(Mat4.identity())
-    var pal_floats = build_palette(pal_locals, pal_parents, pal_ibm)
-    var n = 300
-    var mesh_rest = List[Vec3]()
-    var mesh_joints = List[Int]()
-    var mesh_weights = List[Real]()
-    for v in range(n):
-        mesh_rest.append(Vec3(Real(Float64(v % 17) * 0.13 - 1.0), Real(Float64(v % 11) * 0.09), Real(Float64(v % 13) * 0.21 - 1.4), Real(0)))
-        for j in range(4):
-            mesh_joints.append((v + j) % 3)
-        if v % 7 == 0:
-            for _ in range(4):
-                mesh_weights.append(Real(0))
-        else:
-            var a = Float64((v * 3) % 10) / 10.0
-            var b = Float64((v * 5) % 10) / 10.0
-            mesh_weights.append(Real(a))
-            mesh_weights.append(Real(b))
-            mesh_weights.append(Real(0.25))
-            mesh_weights.append(Real(0))
+    var scene = synthetic_scene()
+    var n = len(scene.rest)
     var cpu = CpuSkinning()
     var gpu = GpuSkinning(device)
-    var c_out = cpu.skin(device, pal_floats, mesh_rest, mesh_joints, mesh_weights)
-    var g_out = gpu.skin(device, pal_floats, mesh_rest, mesh_joints, mesh_weights)
+    var c_out = cpu.skin(device, scene.palette, scene.rest, scene.joints, scene.weights)
+    var g_out = gpu.skin(device, scene.palette, scene.rest, scene.joints, scene.weights)
     var worst = 0.0
     for v in range(n):
         for a in range(3):

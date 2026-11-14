@@ -18,6 +18,8 @@ export interface AppExports {
   app_reference_ptr(app: bigint): bigint;
   app_reference_pitch(app: bigint): number;
   app_probe_cube(app: bigint, on: number): void;
+  app_skin_start(app: bigint): void;
+  app_skin_result(app: bigint): number;
   app_offscreen(app: bigint, on: number): void;
   app_net_send(app: bigint, ptr: bigint, length: bigint): number;
   app_net_packets(app: bigint): number;
