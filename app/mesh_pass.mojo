@@ -221,6 +221,9 @@ struct MeshPass(Movable):
     var vbufs: List[Buffer]  # three per mesh: positions, normals, uv
     var ibufs: List[Buffer]  # one per mesh
     var uploaded: Int
+    var order: List[Int]
+    var counts: List[Int]
+    var base: List[Int]
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32) raises:
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
@@ -250,6 +253,9 @@ struct MeshPass(Movable):
         self.vbufs = List[Buffer]()
         self.ibufs = List[Buffer]()
         self.uploaded = 0
+        self.order = List[Int]()
+        self.counts = List[Int]()
+        self.base = List[Int]()
 
     def upload(mut self, device: Device, registry: MeshRegistry) raises:
         """Create the GPU vertex and index buffers for every mesh not yet uploaded. Meshes are never freed here."""
@@ -269,27 +275,28 @@ struct MeshPass(Movable):
             self.ibufs.append(ib^)
             self.uploaded += 1
 
-    def draw(mut self, device: Device, mut rpass: FrameRenderPass, items: List[DrawItem], registry: MeshRegistry, v: View) raises:
-        """Draw the items with mesh_id >= 0 into the render pass that is already open (same depth buffer)."""
-        var order = List[Int]()
-        var counts = List[Int]()
+    def prepare(mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, v: View) raises:
+        """Everything that can fail, done before the render pass opens: upload the meshes, group the mesh items by
+        mesh, write the camera header and the instance records. record() then only sets state and draws."""
+        self.upload(device, registry)
+        self.order = List[Int]()
+        self.counts = List[Int]()
+        self.base = List[Int]()
         for it in items:
             if it.mesh_id < 0:
                 continue
             var found = -1
-            for k in range(len(order)):
-                if order[k] == it.mesh_id:
+            for k in range(len(self.order)):
+                if self.order[k] == it.mesh_id:
                     found = k
             if found < 0:
-                order.append(it.mesh_id)
-                counts.append(0)
-                found = len(order) - 1
-            counts[found] += 1
+                self.order.append(it.mesh_id)
+                self.counts.append(0)
+                found = len(self.order) - 1
+            self.counts[found] += 1
         var total = 0
-        for c in counts:
+        for c in self.counts:
             total += c
-        if total == 0:
-            return
         if total > MAX_MESH_INSTANCES:
             raise Error("mesh pass: more instances than MAX_MESH_INSTANCES")
         # the camera header, the arena's layout: eye.w = sx, right.w = sy, up.w = near, fwd.w = far
@@ -303,30 +310,35 @@ struct MeshPass(Movable):
         cam[11] = Float32(v.near)
         cam[15] = Float32(v.far)
         device.queue_write_data(self.camera, UInt64(0), cam)
-        # instances grouped by mesh, in order
+        # instances grouped by mesh, in group order
         var floats = List[Float32]()
-        var base = List[Int]()
         var running = 0
-        for k in range(len(order)):
-            base.append(running)
+        for k in range(len(self.order)):
+            self.base.append(running)
             for it in items:
-                if it.mesh_id == order[k]:
+                if it.mesh_id == self.order[k]:
                     _model_floats(it, floats)
                     running += 1
-        device.queue_write_data(self.instances, UInt64(0), floats)
+        if total > 0:
+            device.queue_write_data(self.instances, UInt64(0), floats)
+
+    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry):
+        """Set state and draw the groups prepared by prepare(). Nothing here can fail: an invariant that prepare()
+        guarantees is a debug_assert, not an error."""
+        if len(self.order) == 0:
+            return
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.set_vertex_buffer(UInt32(3), self.instances)
-        for k in range(len(order)):
-            var mid = order[k]
-            if mid >= self.uploaded:
-                raise Error("mesh pass: a mesh was drawn before upload()")
+        for k in range(len(self.order)):
+            var mid = self.order[k]
+            debug_assert(mid < self.uploaded, "mesh pass: a mesh is drawn before upload()")
             rpass.set_vertex_buffer(UInt32(0), self.vbufs[3 * mid])
             rpass.set_vertex_buffer(UInt32(1), self.vbufs[3 * mid + 1])
             rpass.set_vertex_buffer(UInt32(2), self.vbufs[3 * mid + 2])
             rpass.set_index_buffer(self.ibufs[mid], WGPUIndexFormat.Uint32)
             rpass.draw_indexed(
-                UInt32(len(registry.meshes[mid].indices)), UInt32(counts[k]), UInt32(0), Int32(0), UInt32(base[k]),
+                UInt32(len(registry.meshes[mid].indices)), UInt32(self.counts[k]), UInt32(0), Int32(0), UInt32(self.base[k]),
             )
 
 
