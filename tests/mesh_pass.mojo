@@ -2,7 +2,7 @@
 # The mesh pass's CPU side (app/mesh_pass.mojo): the registry's checks, and the draw-list hash. The GPU side is checked
 # by the parity gates (a cube drawn natively and on the web), not here.
 from harness.runner import Suite
-from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash
+from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash, unit_cube_arrays
 from game.arena import DrawItem
 from geometry.vec import Real, Vec3
 
@@ -109,5 +109,26 @@ def main() raises:
     s.check(cube_id == 0 and len(cube_reg.meshes[0].positions) == 72 and len(cube_reg.meshes[0].indices) == 36,
             "the unit cube has 24 vertices and 36 indices")
     s.check(mesh_probe_hash() == mesh_probe_hash(), "the probe hash is the same on every call")
+
+    # skinned meshes: 4 joints and 4 weights per vertex, refused otherwise
+    var sk_reg = MeshRegistry()
+    var sc = unit_cube_arrays()
+    var nv = len(sc[0]) // 3
+    var sj = List[UInt16]()
+    var sw = List[Float32]()
+    for _ in range(nv):
+        for j in range(4):
+            sj.append(0)
+            sw.append(Float32(1.0) if j == 0 else Float32(0.0))
+    var sid = sk_reg.add_skinned(sc[0].copy(), sc[1].copy(), sc[2].copy(), sj.copy(), sw.copy(), sc[3].copy())
+    s.check(sid == 0 and len(sk_reg.skinned) == 1 and len(sk_reg.meshes) == 0, "a skinned mesh goes to the skinned list")
+    var short_joints = List[UInt16]()
+    short_joints.append(0)
+    var sk_raised = False
+    try:
+        _ = sk_reg.add_skinned(sc[0].copy(), sc[1].copy(), sc[2].copy(), short_joints^, sw.copy(), sc[3].copy())
+    except:
+        sk_raised = True
+    s.check(sk_raised, "a skinned mesh without 4 joints per vertex is refused")
 
     s.finish()

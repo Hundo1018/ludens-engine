@@ -53,7 +53,7 @@ struct App(Movable):
     var reference_frames: Int
     var reference_ptr: UInt64
     var offscreen: Bool
-    var probe_cube: Bool
+    var probe_cube: Int
     var skin_job: Optional[SkinJob]
     var skin_cpu: List[Vec3]
     var skin_max: Float64  # -1 pending, -2 failed, else max |GPU - CPU|
@@ -90,7 +90,7 @@ struct App(Movable):
         self.reference_frames = -1
         self.reference_ptr = 0
         self.offscreen = False
-        self.probe_cube = False
+        self.probe_cube = 0
         self.skin_job = None
         self.skin_cpu = List[Vec3]()
         self.skin_max = -1.0
@@ -394,9 +394,10 @@ def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
 
 
 @export
-def app_probe_cube(app: UInt64, on: Int32) abi("C"):
-    """On: the arena draws one unit cube at the centre of the view, for the frame check (A.2)."""
-    _app(app)[].probe_cube = on != 0
+def app_probe_cube(app: UInt64, mode: Int32) abi("C"):
+    """The arena's centre probe, for the frame check: 0 off, 1 a rigid unit cube (A.2), 2 a skinned cube with the
+    identity joint, 3 a skinned cube with its joint turned 20 degrees about Y (B3)."""
+    _app(app)[].probe_cube = Int(mode)
 
 
 @export

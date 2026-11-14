@@ -19,16 +19,28 @@ from geometry.vec import Real, Vec3
 from app.skin_pass import Skinning
 
 comptime SKIN_FN = """
-fn skin_position(p: vec3<f32>, j: vec4<u32>, w: vec4<f32>) -> vec3<f32> {
+fn skin_position(p: vec3<f32>, j: vec4<u32>, w: vec4<f32>, base: u32) -> vec3<f32> {
   let sw = w.x + w.y + w.z + w.w;
   if sw == 0.0 {
     return p;
   }
   var acc = mat4x4<f32>(vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0));
   for (var k = 0u; k < 4u; k = k + 1u) {
-    acc = acc + palette[j[k]] * (w[k] / sw);
+    acc = acc + palette[base + j[k]] * (w[k] / sw);
   }
   return (acc * vec4<f32>(p, 1.0)).xyz;
+}
+
+fn skin_normal(n: vec3<f32>, j: vec4<u32>, w: vec4<f32>, base: u32) -> vec3<f32> {
+  let sw = w.x + w.y + w.z + w.w;
+  if sw == 0.0 {
+    return n;
+  }
+  var acc = mat4x4<f32>(vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0));
+  for (var k = 0u; k < 4u; k = k + 1u) {
+    acc = acc + palette[base + j[k]] * (w[k] / sw);
+  }
+  return (acc * vec4<f32>(n, 0.0)).xyz;
 }
 """
 
@@ -46,7 +58,7 @@ fn skin_cs(@builtin(global_invocation_id) gid : vec3<u32>) {
   if i >= arrayLength(&rest) {
     return;
   }
-  skinned[i] = vec4<f32>(skin_position(rest[i].xyz, joints[i], weights[i]), 1.0);
+  skinned[i] = vec4<f32>(skin_position(rest[i].xyz, joints[i], weights[i], 0u), 1.0);
 }
 """
 

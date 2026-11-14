@@ -24,7 +24,10 @@ from wgpu.bind_group import BindGroup
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.texture import Texture, TextureView
 from hud import Hud
-from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube
+from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, unit_cube_arrays
+from app.skin_draw import SkinnedPass
+from app.skin_pass import build_palette, rot_y
+from geometry.mat import Mat4
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
@@ -127,7 +130,11 @@ struct ArenaRenderer(Movable):
     var mesh: MeshPass
     var meshes: MeshRegistry
     var cube: Int  # the unit cube's mesh id, for the centre probe
-    var probe: Bool  # on: one cube at the view's centre, so the centre pixel can be checked
+    var probe: Int  # 0 off; 1 a rigid cube at the view's centre; 2 / 3 a skinned cube at the centre, identity / joint turned 20 deg
+    var skin: SkinnedPass
+    var skin_palette: List[Float32]
+    var skin_ident: Int  # skinned mesh ids
+    var skin_turn: Int
     var buffer: Buffer
     var group: BindGroup
     var staging: List[Float32]
@@ -158,7 +165,30 @@ struct ArenaRenderer(Movable):
         self.mesh = MeshPass(device, color_format, DEPTH_FORMAT)
         self.meshes = MeshRegistry()
         self.cube = add_unit_cube(self.meshes)
-        self.probe = False
+        self.probe = 0
+        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT)
+        var c = unit_cube_arrays()
+        var nv = len(c[0]) // 3
+        var jt_id = List[UInt16]()
+        var jt_turn = List[UInt16]()
+        var wt = List[Float32]()
+        for _ in range(nv):
+            for j in range(4):
+                jt_id.append(0)
+                jt_turn.append(1)
+                wt.append(Float32(1.0) if j == 0 else Float32(0.0))
+        self.skin_ident = self.meshes.add_skinned(c[0].copy(), c[1].copy(), c[2].copy(), jt_id^, wt.copy(), c[3].copy())
+        self.skin_turn = self.meshes.add_skinned(c[0].copy(), c[1].copy(), c[2].copy(), jt_turn^, wt^, c[3].copy())
+        var pal_locals = List[Mat4]()
+        pal_locals.append(Mat4.identity())
+        pal_locals.append(rot_y(20.0))
+        var pal_parents = List[Int]()
+        pal_parents.append(-1)
+        pal_parents.append(0)
+        var pal_ibm = List[Mat4]()
+        pal_ibm.append(Mat4.identity())
+        pal_ibm.append(Mat4.identity())
+        self.skin_palette = build_palette(pal_locals, pal_parents, pal_ibm)
         var bytes = UInt64((5 + 4 * MAX_INSTANCES) * 16)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
         var bg_entries: List[WGPUBindGroupEntry] = [
@@ -180,6 +210,10 @@ struct ArenaRenderer(Movable):
         self.meshes = move.meshes^
         self.cube = move.cube
         self.probe = move.probe
+        self.skin = move.skin^
+        self.skin_palette = move.skin_palette^
+        self.skin_ident = move.skin_ident
+        self.skin_turn = move.skin_turn
         self.buffer = move.buffer^
         self.group = move.group^
         self.staging = move.staging^
@@ -212,10 +246,16 @@ struct ArenaRenderer(Movable):
 
     def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:
         var v = self.view.copy()
-        if self.probe:
-            # the centre of the view: 4 units ahead, unit-sized, colour (0.8, 0.2, 0.2)
-            var t = Real(4.0)
-            var at = Vec3(v.eye[0] + v.fwd[0] * t, v.eye[1] + v.fwd[1] * t, v.eye[2] + v.fwd[2] * t, Real(0.0))
+        # the centre of the view: 4 units ahead, unit-sized, colour (0.8, 0.2, 0.2)
+        var t = Real(4.0)
+        var at = Vec3(v.eye[0] + v.fwd[0] * t, v.eye[1] + v.fwd[1] * t, v.eye[2] + v.fwd[2] * t, Real(0.0))
+        if self.probe == 2 or self.probe == 3:
+            self.items.append(DrawItem(
+                -1, at, 0.0, 0.0, 0.0, 1.0,
+                Vec3(Real(1.0), Real(1.0), Real(1.0), Real(0.0)), Vec3(Real(0.8), Real(0.2), Real(0.2), Real(0.0)),
+                self.skin_ident if self.probe == 2 else self.skin_turn, 0, 0,
+            ))
+        if self.probe == 1:
             self.items.append(
                 DrawItem(-1, at, 0.0, 0.0, 0.0, 1.0, Vec3(Real(1.0), Real(1.0), Real(1.0), Real(0.0)),
                          Vec3(Real(0.8), Real(0.2), Real(0.2), Real(0.0)), self.cube, -1, 0)
@@ -248,12 +288,14 @@ struct ArenaRenderer(Movable):
         hud.upload(device)
         self._depth_view(device, width, height)
         self.mesh.prepare(device, self.items, self.meshes, v)
+        self.skin.prepare(device, self.items, self.meshes, self.skin_palette, v)
         var enc = device.create_command_encoder("frame")
         var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(count), UInt32(0), UInt32(0))
         self.mesh.record(rpass, self.meshes)
+        self.skin.record(rpass, self.meshes)
         hud.record(rpass)
         rpass^.end()
         var cmd = enc^.finish()
