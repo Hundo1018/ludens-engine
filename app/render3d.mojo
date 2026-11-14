@@ -27,6 +27,7 @@ from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, unit_cube_arrays
 from app.skin_draw import SkinnedPass
 from app.skin_pass import build_palette, rot_y
+from app.textures import TextureArray, box_levels, checker_base
 from geometry.mat import Mat4
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
@@ -128,6 +129,7 @@ def _put(mut staging: List[Float32], it: DrawItem):
 struct ArenaRenderer(Movable):
     var pipeline: RenderPipeline
     var mesh: MeshPass
+    var textures: TextureArray  # layer 0 white, layer 1 the placeholder wall (PR D loads the real one)
     var meshes: MeshRegistry
     var cube: Int  # the unit cube's mesh id, for the centre probe
     var probe: Int  # 0 off; 1 a rigid cube at the view's centre; 2 / 3 a skinned cube at the centre, identity / joint turned 20 deg
@@ -162,7 +164,10 @@ struct ArenaRenderer(Movable):
         self.pipeline = device.create_render_pipeline(
             shader, "vs_main", "fs_main", color_format, layout, depth_format=DEPTH_FORMAT
         )
-        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT)
+        var tex = TextureArray(device, UInt32(2))
+        tex.load_layer(device, UInt32(1), box_levels(checker_base()))
+        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex)
+        self.textures = tex^
         self.meshes = MeshRegistry()
         self.cube = add_unit_cube(self.meshes)
         self.probe = 0
@@ -207,6 +212,7 @@ struct ArenaRenderer(Movable):
     def __init__(out self, *, deinit move: Self):
         self.pipeline = move.pipeline^
         self.mesh = move.mesh^
+        self.textures = move.textures^
         self.meshes = move.meshes^
         self.cube = move.cube
         self.probe = move.probe
