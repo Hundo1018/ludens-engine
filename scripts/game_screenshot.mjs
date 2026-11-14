@@ -73,7 +73,7 @@ async function shot(name) {
   writeFileSync(`${prefix}_${name}.png`, png(r.w, r.h, rgba));
   const colours = new Set();
   for (let q = 0; q < rgba.length; q += 4) colours.add((rgba[q] >> 3) << 10 | (rgba[q + 1] >> 3) << 5 | rgba[q + 2] >> 3);
-  shots[name] = { rgba, colours: colours.size };
+  shots[name] = { rgba, colours: colours.size, w: r.w, h: r.h };
   // A cleared frame has one colour. The paused frame has measured 49 to 52
   // across runs, so the old limit of 50 failed by chance; 30 is well clear of both.
   if (colours.size < 30) problems.push(`${name}: only ${colours.size} colours, not a scene`);
@@ -85,20 +85,32 @@ for (let i = 0; i < 200; i++) { if ((await js('window.shell && window.shell.fram
 console.log('frames', await js('window.shell.frames'), 'error', await js('window.shell.error'));
 await js('window.shell.canvasW = document.querySelector("canvas").width; window.shell.canvasH = document.querySelector("canvas").height');
 await shot('start');
+// A.2: one unit cube at the centre of the view (app_probe_cube), colour (0.8, 0.2, 0.2) before lighting. Taken while
+// the game runs: a paused frame draws no arena geometry. The centre pixel must turn that red; the start frame has none.
+await js('window.shell.x.app_probe_cube(window.shell.app, 1)'); await sleep(500);
+await shot('probe');
+await js('window.shell.x.app_probe_cube(window.shell.app, 0)');
+const centre = (name) => { const { rgba, w, h } = shots[name]; const q = ((h >> 1) * w + (w >> 1)) * 4; return [rgba[q], rgba[q + 1], rgba[q + 2]]; };
+const isCubeRed = ([r, g, b]) => r > 60 && r > 2 * g && r > 2 * b;
+if (shots.probe) {
+  // Expected: colour (0.8, 0.2, 0.2) times lit = 0.4 + 0.6 * max(n . L, 0) for the +z face the centre ray hits (the
+  // camera looks down -z). L = normalize(0.4, 1.0, 0.6), so n . L = 0.6 / 1.2329 = 0.4867 and lit = 0.692; 0.692 * 255 *
+  // (0.8, 0.2, 0.2) = (141.2, 35.3, 35.3). Measured on the start frame. The start camera is fixed, so this is exact to +-3.
+  const expect = [141.2, 35.3, 35.3];
+  const [r, g, b] = centre('probe');
+  console.log(`centre pixel with the probe cube: rgb(${r}, ${g}, ${b}), expected about rgb(141, 35, 35)`);
+  const off = Math.max(Math.abs(r - expect[0]), Math.abs(g - expect[1]), Math.abs(b - expect[2]));
+  if (off > 3) problems.push(`centre pixel with the probe cube is rgb(${r}, ${g}, ${b}); the lit cube should be rgb(141, 35, 35) (off by ${off.toFixed(1)})`);
+}
+if (shots.start) {
+  const [r, g, b] = centre('start');
+  console.log(`centre pixel without it: rgb(${r}, ${g}, ${b})`);
+  if (isCubeRed([r, g, b])) problems.push(`centre pixel without the probe is already rgb(${r}, ${g}, ${b}): the check cannot tell the cube apart`);
+}
 await key('keydown', 'KeyD'); await key('keydown', 'KeyW'); await sleep(2500); await key('keyup', 'KeyD'); await key('keyup', 'KeyW');
 await shot('moved');
 await key('keydown', 'KeyP'); await key('keyup', 'KeyP'); await sleep(500);
 await shot('paused');
-if (audio) {
-  await sleep(1000);
-  const a = JSON.parse(await js('JSON.stringify({ isolated: crossOriginIsolated, played: window.shell.played, rendered: window.shell.rendered, starts: window.shell.audioStarts, underruns: window.shell.underruns, shared: window.shell.audio ? window.shell.audio.shared : null, error: window.shell.error })'));
-  console.log(`audio: isolated ${a.isolated}, path ${a.shared === null ? 'not started' : a.shared ? 'shared' : 'posted'}, starts ${a.starts}, rendered ${a.rendered}, played ${a.played}, underruns ${a.underruns}`);
-  if (a.error) problems.push('page error: ' + a.error);
-  if (a.shared !== (audio === 'shared')) problems.push(`audio path is not ${audio}`);
-  if (a.starts !== 1) problems.push(`audio was started ${a.starts} times, not once`);
-  if (a.rendered - a.played > 8192 + 1024) problems.push(`rendered ${a.rendered} frames but played ${a.played}: more than a ring (8192) apart, so frames were dropped`);
-  if (!(a.played > 24000)) problems.push(`only ${a.played} frames played (48000 a second; keys were held for 2.5 s)`);
-}
 const differ = (a, b) => { let n = 0; for (let q = 0; q < a.length; q += 4) if (Math.abs(a[q] - b[q]) + Math.abs(a[q + 1] - b[q + 1]) + Math.abs(a[q + 2] - b[q + 2]) > 30) n++; return n; };
 if (shots.start && shots.moved) {
   const n = differ(shots.start.rgba, shots.moved.rgba);

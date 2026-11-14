@@ -11,6 +11,7 @@ from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
 from render3d import ArenaRenderer
+from app.mesh_pass import mesh_probe_hash
 from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
@@ -49,6 +50,7 @@ struct App(Movable):
     var reference_frames: Int
     var reference_ptr: UInt64
     var offscreen: Bool
+    var probe_cube: Bool
     var net_rx: List[UInt8]
     var net_len: Int
     var net_packets: Int
@@ -82,6 +84,7 @@ struct App(Movable):
         self.reference_frames = -1
         self.reference_ptr = 0
         self.offscreen = False
+        self.probe_cube = False
         self.net_rx = List[UInt8](length=NET_CAP, fill=0)
         self.net_len = 0
         self.net_packets = 0
@@ -113,6 +116,7 @@ struct App(Movable):
         self.reference_frames = move.reference_frames
         self.reference_ptr = move.reference_ptr
         self.offscreen = move.offscreen
+        self.probe_cube = move.probe_cube
         self.net_rx = move.net_rx^
         self.net_len = move.net_len
         self.net_packets = move.net_packets
@@ -170,6 +174,7 @@ struct App(Movable):
         if not self.arena_renderer:
             self.arena_renderer = ArenaRenderer(self.boot.device(), format, view)
         self.arena_renderer.value().begin(view)
+        self.arena_renderer.value().probe = self.probe_cube
         for it in m.scene():
             self.arena_renderer.value().push(it)
         self.hud.value().set(m.hud(Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
@@ -377,6 +382,12 @@ def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
 
 
 @export
+def app_probe_cube(app: UInt64, on: Int32) abi("C"):
+    """On: the arena draws one unit cube at the centre of the view, for the frame check (A.2)."""
+    _app(app)[].probe_cube = on != 0
+
+
+@export
 def app_offscreen(app: UInt64, on: Int32) abi("C"):
     """On: frames only render the reference, nothing is drawn to the canvas."""
     _app(app)[].offscreen = on != 0
@@ -439,6 +450,16 @@ def app_game_score(app: UInt64) abi("C") -> Int32:
 def app_game_collected(app: UInt64) abi("C") -> Int32:
     var a = _app(app)
     return Int32(a[].arena.value().arena.collected()) if a[].arena else -1
+
+
+@export
+def app_mesh_hash() abi("C") -> UInt64:
+    """The mesh draw-list hash of the fixed probe scene (app/mesh_pass.mojo mesh_probe_hash). No app handle needed."""
+    try:
+        return mesh_probe_hash()
+    except e:
+        print("app_mesh_hash:", e)
+        return 0
 
 
 @export

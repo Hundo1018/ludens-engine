@@ -32,16 +32,17 @@ def main() -> int:
         sys.exit(proc.stdout + proc.stderr)
     out = subprocess.run([str(ROOT / "build/game_parity")], capture_output=True, text=True, check=True).stdout
     nat = dict(zip(("hash", "score", "collected", "status"), re.search(r"hash (\d+) score (\d+) collected (\d+) status (\d+)", out).groups()))
+    nat["mesh_hash"] = re.search(r"mesh_hash (\d+)", out).group(1)
     r = subprocess.run(["node", str(ROOT / "scripts/game_node.mjs"), str(ROOT / "build/app.wasm"), str(ludens_wasm_rt.HOST_MJS),
                         str(D / "wgpu-mojo"), str(D / "miniaudio-mojo")], capture_output=True, text=True)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-2000:])
     wasm = json.loads(r.stdout.strip().splitlines()[-1])
     ok = True
-    for k in ("hash", "score", "collected", "status"):
-        same = str(wasm[k]) == nat[k]
+    for k in ("mesh_hash", "hash", "score", "collected", "status"):
+        same = str(wasm[{"mesh_hash": "meshHash"}.get(k, k)]) == nat[k]
         ok &= same
-        print(f"{k:10} native {nat[k]:>22}  wasm64 {str(wasm[k]):>22}  {'equal' if same else 'DIFFERENT'}")
+        print(f"{k:10} native {nat[k]:>22}  wasm64 {str(wasm[{'mesh_hash': 'meshHash'}.get(k, k)]):>22}  {'equal' if same else 'DIFFERENT'}")
     sound = wasm["rmsAfterJump"] > 0.01
     ok &= sound
     print(f"jump sound rms {wasm['rmsAfterJump']:.4f}  {'audible' if sound else 'SILENT'}")
