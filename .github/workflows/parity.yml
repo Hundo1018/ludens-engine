@@ -43,6 +43,9 @@ jobs:
       - name: Texture checks (mip levels and triplanar, exact texels) on lavapipe
         run: pixi run -e wasm test-texture
 
+      - name: Triplanar box face (C3) on lavapipe
+        run: pixi run -e wasm test-texture-c3
+
       - name: Parity gate
         run: |
           export GECKODRIVER="${GECKOWEBDRIVER:+$GECKOWEBDRIVER/geckodriver}"
