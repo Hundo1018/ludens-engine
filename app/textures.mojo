@@ -93,9 +93,10 @@ struct TextureArray(Movable):
         if layers == 0:
             raise Error("TextureArray: at least one layer")
         self.layers = layers
+        # COPY_SRC: the playground's C2 check reads the levels back to compare them with the converted files.
         self.texture = device.create_texture(
             TEX_SIZE, TEX_SIZE, layers, WGPUTextureFormat.RGBA8Unorm,
-            WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.COPY_DST,
+            WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.COPY_DST | WGPUTextureUsage.COPY_SRC,
             dimension=2, mip_level_count=TEX_LEVELS, label="arena_textures",
         )
         self.view = self.texture.create_view_default()
