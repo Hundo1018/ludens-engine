@@ -2,7 +2,7 @@
 # Skinning parity (step 5 PR B). B1: the CPU reference on a synthetic 2-joint chain, and the palette layout. The GPU
 # side (B2) is added with the compute path.
 from harness.runner import Suite
-from app.skin_pass import build_palette, cpu_skin, CpuSkinning, Skinning, rot_y, synthetic_scene
+from app.skin_pass import build_palette, build_palette_root, cpu_skin, CpuSkinning, Skinning, rot_y, synthetic_scene, palette_to_mats
 from app.skin_gpu import GpuSkinning
 from wgpu import Instance
 from geometry.mat import Mat4
@@ -45,6 +45,39 @@ def main() raises:
     s.almost(Float64(out[0][0]), 0.0, "B1: the CPU reference puts (1,0,0) at x = 0", tol=1e-6)
     s.almost(Float64(out[0][1]), 0.0, "B1: the CPU reference puts (1,0,0) at y = 0", tol=1e-6)
     s.almost(Float64(out[0][2]), -1.0, "B1: the CPU reference puts (1,0,0) at z = -1", tol=1e-6)
+
+    # the ancestor transform: one joint, root = rotation 90 deg about +X. A vertex at rest (0,1,0) with weight 1 lands
+    # at R_x(90) (0,1,0) = (0, cos 90, sin 90) = (0,0,1).
+    var rx = Mat4.identity()
+    rx.set(1, 1, Real(0.0))
+    rx.set(1, 2, Real(-1.0))
+    rx.set(2, 1, Real(1.0))
+    rx.set(2, 2, Real(0.0))
+    var root_locals = List[Mat4]()
+    root_locals.append(Mat4.identity())
+    var root_parents = List[Int]()
+    root_parents.append(-1)
+    var root_ibm = List[Mat4]()
+    root_ibm.append(Mat4.identity())
+    var root_pal = build_palette_root(root_locals, root_parents, root_ibm, rx)
+    var root_rest = List[Vec3]()
+    root_rest.append(Vec3(Real(0.0), Real(1.0), Real(0.0), Real(0.0)))
+    var root_j = List[Int]()
+    root_j.append(0)
+    root_j.append(0)
+    root_j.append(0)
+    root_j.append(0)
+    var root_w = List[Real]()
+    root_w.append(Real(1.0))
+    root_w.append(Real(0.0))
+    root_w.append(Real(0.0))
+    root_w.append(Real(0.0))
+    var root_out = List[Vec3]()
+    root_out.append(Vec3(Real(0.0), Real(0.0), Real(0.0), Real(0.0)))
+    cpu_skin(palette_to_mats(root_pal), root_rest, root_j, root_w, 4, root_out)
+    s.almost(Float64(root_out[0][0]), 0.0, "the ancestor transform: (0,1,0) keeps x = 0", tol=1e-6)
+    s.almost(Float64(root_out[0][1]), 0.0, "the ancestor transform: (0,1,0) goes to y = 0", tol=1e-6)
+    s.almost(Float64(root_out[0][2]), 1.0, "the ancestor transform: (0,1,0) goes to z = 1", tol=1e-6)
 
     # a parent listed after its child is refused at the boundary
     var raised = False
