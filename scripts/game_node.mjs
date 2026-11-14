@@ -39,6 +39,7 @@ for (let f = 0; f < 240; f++) {
 }
 const g = (n) => rt.call(n, app);
 console.log(JSON.stringify({
+  meshHash: BigInt.asUintN(64, rt.call("app_mesh_hash")).toString(),
   hash: BigInt.asUintN(64, g("app_game_hash")).toString(), score: Number(g("app_game_score")),
   collected: Number(g("app_game_collected")), status: Number(g("app_game_status")), rmsAfterJump,
 }));

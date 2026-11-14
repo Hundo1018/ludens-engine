@@ -17,6 +17,7 @@ export interface AppExports {
   app_reference_request(app: bigint, frames: number): void;
   app_reference_ptr(app: bigint): bigint;
   app_reference_pitch(app: bigint): number;
+  app_probe_cube(app: bigint, on: number): void;
   app_offscreen(app: bigint, on: number): void;
   app_net_send(app: bigint, ptr: bigint, length: bigint): number;
   app_net_packets(app: bigint): number;
@@ -26,6 +27,7 @@ export interface AppExports {
   app_game_status(app: bigint): number;
   app_game_score(app: bigint): number;
   app_game_collected(app: bigint): number;
+  app_mesh_hash(): bigint;
   app_game_hash(app: bigint): bigint;
   app_release_input(app: bigint): void;
 }

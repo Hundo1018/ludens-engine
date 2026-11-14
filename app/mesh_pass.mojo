@@ -11,7 +11,7 @@ Instances of one mesh are contiguous in the instance buffer; the draw uses first
 """
 from game.arena import DrawItem
 from game.camera_view import View
-from geometry.vec import Real
+from geometry.vec import Real, Vec3
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPU_WHOLE_SIZE, WGPUBufferBindingType,
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
@@ -163,6 +163,52 @@ def mesh_draw_hash(items: List[DrawItem], registry: MeshRegistry) -> UInt64:
         _fnv_word(h, _round4(Float64(items[first].pos[1])))
         _fnv_word(h, _round4(Float64(items[first].pos[2])))
     return h
+
+
+def add_unit_cube(mut registry: MeshRegistry) raises -> Int:
+    """A cube of half-extent 0.5 centred on the origin: 6 faces, 4 vertices each, outward normals, uv per corner."""
+    var pos = List[Float32]()
+    var nrm = List[Float32]()
+    var uv = List[Float32]()
+    var idx = List[UInt32]()
+    for a in range(3):
+        for s in [-1.0, 1.0]:
+            var u = (a + 1) % 3
+            var v = (a + 2) % 3
+            var base = UInt32(len(pos) // 3)
+            var corners = [(-1.0, -1.0, 0.0, 0.0), (1.0, -1.0, 1.0, 0.0), (1.0, 1.0, 1.0, 1.0), (-1.0, 1.0, 0.0, 1.0)]
+            for c in corners:
+                var p = [0.0, 0.0, 0.0]
+                p[a] = s * 0.5
+                p[u] = c[0] * 0.5
+                p[v] = c[1] * 0.5
+                for k in range(3):
+                    pos.append(Float32(p[k]))
+                    nrm.append(Float32(s if k == a else 0.0))
+                uv.append(Float32(c[2]))
+                uv.append(Float32(c[3]))
+            idx.append(base)
+            idx.append(base + 1)
+            idx.append(base + 2)
+            idx.append(base)
+            idx.append(base + 2)
+            idx.append(base + 3)
+    return registry.add_static(pos^, nrm^, uv^, idx^)
+
+
+def mesh_probe_hash() raises -> UInt64:
+    """The draw-list hash of a fixed probe: one unit cube, three instances at non-integer positions (so the rounding
+    runs). Native and wasm64 run this same code, so equal values show that both agree on the hash's inputs."""
+    var reg = MeshRegistry()
+    var cube = add_unit_cube(reg)
+    var items = List[DrawItem]()
+    items.append(DrawItem(-1, Vec3(Real(0.25), Real(-1.5), Real(0.1), Real(0.0)), 0.0, 0.0, 0.0, 1.0,
+                          Vec3(Real(1.0), Real(1.0), Real(1.0), Real(0.0)), Vec3(Real(0.5), Real(0.5), Real(0.5), Real(0.0)), cube, -1, 0))
+    items.append(DrawItem(-1, Vec3(Real(-2.75), Real(0.3), Real(0.6), Real(0.0)), 0.0, 0.0, 0.0, 1.0,
+                          Vec3(Real(1.0), Real(1.0), Real(1.0), Real(0.0)), Vec3(Real(0.5), Real(0.5), Real(0.5), Real(0.0)), cube, -1, 0))
+    items.append(DrawItem(-1, Vec3(Real(0.33333), Real(1.0), Real(-0.7), Real(0.0)), 0.0, 0.0, 0.0, 1.0,
+                          Vec3(Real(1.0), Real(1.0), Real(1.0), Real(0.0)), Vec3(Real(0.5), Real(0.5), Real(0.5), Real(0.0)), cube, -1, 0))
+    return mesh_draw_hash(items, reg)
 
 
 def _model_floats(it: DrawItem, mut out: List[Float32]):
@@ -324,21 +370,26 @@ struct MeshPass(Movable):
 
     def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry):
         """Set state and draw the groups prepared by prepare(). Nothing here can fail: an invariant that prepare()
-        guarantees is a debug_assert, not an error."""
+        guarantees is a debug_assert, not an error. Each bind passes its exact byte size: the wrapper's default size
+        of 0 binds nothing, and WGPU_WHOLE_SIZE does not survive the web translation (setVertexBuffer rejects it)."""
         if len(self.order) == 0:
             return
+        var total = 0
+        for c in self.counts:
+            total += c
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
-        rpass.set_vertex_buffer(UInt32(3), self.instances)
+        rpass.set_vertex_buffer(UInt32(3), self.instances, UInt64(0), UInt64(total * FLOATS_PER_INSTANCE * 4))
         for k in range(len(self.order)):
             var mid = self.order[k]
             debug_assert(mid < self.uploaded, "mesh pass: a mesh is drawn before upload()")
-            rpass.set_vertex_buffer(UInt32(0), self.vbufs[3 * mid])
-            rpass.set_vertex_buffer(UInt32(1), self.vbufs[3 * mid + 1])
-            rpass.set_vertex_buffer(UInt32(2), self.vbufs[3 * mid + 2])
-            rpass.set_index_buffer(self.ibufs[mid], WGPUIndexFormat.Uint32)
+            var m = registry.meshes[mid].copy()
+            rpass.set_vertex_buffer(UInt32(0), self.vbufs[3 * mid], UInt64(0), UInt64(len(m.positions) * 4))
+            rpass.set_vertex_buffer(UInt32(1), self.vbufs[3 * mid + 1], UInt64(0), UInt64(len(m.normals) * 4))
+            rpass.set_vertex_buffer(UInt32(2), self.vbufs[3 * mid + 2], UInt64(0), UInt64(len(m.uv) * 4))
+            rpass.set_index_buffer(self.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(len(m.indices) * 4))
             rpass.draw_indexed(
-                UInt32(len(registry.meshes[mid].indices)), UInt32(self.counts[k]), UInt32(0), Int32(0), UInt32(self.base[k]),
+                UInt32(len(m.indices)), UInt32(self.counts[k]), UInt32(0), Int32(0), UInt32(self.base[k]),
             )
 
 

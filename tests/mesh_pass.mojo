@@ -2,7 +2,7 @@
 # The mesh pass's CPU side (app/mesh_pass.mojo): the registry's checks, and the draw-list hash. The GPU side is checked
 # by the parity gates (a cube drawn natively and on the web), not here.
 from harness.runner import Suite
-from app.mesh_pass import MeshRegistry, mesh_draw_hash
+from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash
 from game.arena import DrawItem
 from geometry.vec import Real, Vec3
 
@@ -102,5 +102,12 @@ def main() raises:
     more.append(_item(0, 1.0))
     more.append(_item(0, 1.0))
     s.check(mesh_draw_hash(more, reg) != mesh_draw_hash(List[DrawItem](), reg), "one more instance changes the hash")
+
+    # the unit cube the probe and the arena use: 6 faces of 4 vertices, 12 triangles
+    var cube_reg = MeshRegistry()
+    var cube_id = add_unit_cube(cube_reg)
+    s.check(cube_id == 0 and len(cube_reg.meshes[0].positions) == 72 and len(cube_reg.meshes[0].indices) == 36,
+            "the unit cube has 24 vertices and 36 indices")
+    s.check(mesh_probe_hash() == mesh_probe_hash(), "the probe hash is the same on every call")
 
     s.finish()
