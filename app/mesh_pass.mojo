@@ -31,7 +31,7 @@ from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
-from wgpu.render_pass import RenderPassEncoder
+from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 
@@ -50,7 +50,7 @@ struct VIn {
   @location(5) m2 : vec4<f32>,
   @location(6) m3 : vec4<f32>,
   @location(7) color : vec4<f32>,
-  @location(8) meta : vec4<f32>,
+  @location(8) info : vec4<f32>,
 };
 struct VOut { @builtin(position) pos : vec4<f32>, @location(0) color : vec3<f32> };
 
@@ -269,7 +269,7 @@ struct MeshPass(Movable):
             self.ibufs.append(ib^)
             self.uploaded += 1
 
-    def draw(mut self, device: Device, mut rpass: RenderPassEncoder, items: List[DrawItem], registry: MeshRegistry, v: View) raises:
+    def draw(mut self, device: Device, mut rpass: FrameRenderPass, items: List[DrawItem], registry: MeshRegistry, v: View) raises:
         """Draw the items with mesh_id >= 0 into the render pass that is already open (same depth buffer)."""
         var order = List[Int]()
         var counts = List[Int]()
@@ -335,6 +335,9 @@ def _build_pipeline(
     color_format: UInt32, depth_format: UInt32,
 ) raises -> RenderPipeline:
     """The mesh pipeline: vertex buffers 0-2 per vertex, 3 per instance, the arena's depth state."""
+    var vs_name = String("vs_main")
+    var fs_name = String("fs_main")
+    var label_name = String("mesh_pipeline")
     # one attribute array per buffer: positions, normals, uv; then the six instance attributes
     var a0 = raw_alloc[WGPUVertexAttribute](1)
     a0[unsafe_offset=0] = WGPUVertexAttribute(null_opaque(), WGPUVertexFormat.Float32x3, UInt64(0), UInt32(0))
@@ -355,7 +358,7 @@ def _build_pipeline(
     vb[unsafe_offset=2] = WGPUVertexBufferLayout(null_opaque(), WGPUVertexStepMode.Vertex, UInt64(8), UInt(1), a2)
     vb[unsafe_offset=3] = WGPUVertexBufferLayout(null_opaque(), WGPUVertexStepMode.Instance, UInt64(96), UInt(6), ai)
     var vertex_state = WGPUVertexState(
-        null_opaque(), shader.handle().raw, str_to_sv(String("vs_main")),
+        null_opaque(), shader.handle().raw, str_to_sv(vs_name),
         UInt(0), null_ptr[WGPUConstantEntry](),
         UInt(4), vb,
     )
@@ -363,7 +366,7 @@ def _build_pipeline(
     target_p[unsafe_offset=0] = WGPUColorTargetState(null_opaque(), color_format, null_ptr[WGPUBlendState](), UInt64(0xF))
     var fragment_p = raw_alloc[WGPUFragmentState](1)
     fragment_p[unsafe_offset=0] = WGPUFragmentState(
-        null_opaque(), shader.handle().raw, str_to_sv(String("fs_main")),
+        null_opaque(), shader.handle().raw, str_to_sv(fs_name),
         UInt(0), null_ptr[WGPUConstantEntry](),
         UInt(1), target_p,
     )
@@ -376,10 +379,12 @@ def _build_pipeline(
         UInt32(0xFFFFFFFF), UInt32(0xFFFFFFFF), Int32(0), Float32(0.0), Float32(0.0),
     )
     var desc = WGPURenderPipelineDescriptor(
-        null_opaque(), str_to_sv(String("mesh_pipeline")), layout.handle().raw,
+        null_opaque(), str_to_sv(label_name), layout.handle().raw,
         vertex_state, primitive, dp, multisample, fragment_p,
     )
     var result = device.create_render_pipeline(desc^)
+    # the names are read by create_render_pipeline; keep them alive past that call
+    _ = vs_name.byte_length() + fs_name.byte_length() + label_name.byte_length()
     a0.unsafe_free()
     a1.unsafe_free()
     a2.unsafe_free()
