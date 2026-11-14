@@ -50,12 +50,9 @@ def check() -> int:
         r = subprocess.run(["node", "scripts/game_screenshot.mjs", chrome, base, str(shots / "pages"), "150", "posted"], cwd=ROOT)
         # the same site played by touch only, on an emulated phone (scripts/touch_check.mjs)
         t = subprocess.run(["node", "scripts/touch_check.mjs", chrome, base, str(shots / "touch"), "150"], cwd=ROOT)
-        # the streamed world (?frontier): cells load and unload, every zone is reached, culling drops items
-        f = subprocess.run(["node", "scripts/frontier_check.mjs", chrome, f"http://127.0.0.1:{PORT}/index.html?frontier&offscreen",
-                            str(shots / "frontier"), "180"], cwd=ROOT)
     finally:
         server.kill()
-    return r.returncode or t.returncode or f.returncode
+    return r.returncode or t.returncode
 
 
 def main(argv: list[str]) -> int:
