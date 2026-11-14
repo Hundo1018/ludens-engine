@@ -12,6 +12,15 @@ from geometry.vec import Real, Vec3
 
 
 def build_palette(locals: List[Mat4], parents: List[Int], inverse_bind: List[Mat4]) raises -> List[Float32]:
+    """build_palette_root with no ancestor transform."""
+    return build_palette_root(locals, parents, inverse_bind, Mat4.identity())
+
+
+def build_palette_root(
+    locals: List[Mat4], parents: List[Int], inverse_bind: List[Mat4], root: Mat4,
+) raises -> List[Float32]:
+    """As build_palette, with `root` applied above every root joint: a non-joint ancestor transform, such as the
+    Armature and Z_UP rotation CesiumMan's inverse bind matrices exclude (U2). Without it the character lies on its side."""
     """16 floats per joint, column-major. parents[j] is -1 for a root, else an index below j. Raises on a bad parent
     list (the caller's data, at the boundary)."""
     var n = len(locals)
@@ -23,7 +32,7 @@ def build_palette(locals: List[Mat4], parents: List[Int], inverse_bind: List[Mat
         if p >= j:
             raise Error("build_palette: a parent must come before its child")
         if p < 0:
-            world.append(locals[j].copy())
+            world.append(root.copy() * locals[j].copy())
         else:
             world.append(world[p].copy() * locals[j].copy())
     var out = List[Float32]()
