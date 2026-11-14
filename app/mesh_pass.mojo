@@ -12,7 +12,6 @@ Instances of one mesh are contiguous in the instance buffer; the draw uses first
 from game.arena import DrawItem
 from game.camera_view import View
 from geometry.vec import Real, Vec3
-from app.textures import TextureArray, TRI_WGSL
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPU_WHOLE_SIZE, WGPUBufferBindingType,
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
@@ -41,7 +40,6 @@ comptime FLOATS_PER_INSTANCE = 24
 comptime MESH_WGSL = """
 struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
 @group(0) @binding(0) var<uniform> cam : Cam;
-""" + TRI_WGSL + """
 
 struct VIn {
   @location(0) pos : vec3<f32>,
@@ -54,18 +52,7 @@ struct VIn {
   @location(7) color : vec4<f32>,
   @location(8) info : vec4<f32>,
 };
-// info: x unused by static meshes, y the material (0 colour, 1 uv, 2 triplanar), z the texture layer
-struct VOut {
-  @builtin(position) pos : vec4<f32>,
-  @location(0) color : vec3<f32>,
-  @location(1) wpos : vec3<f32>,
-  @location(2) wnrm : vec3<f32>,
-  @location(3) uv : vec2<f32>,
-  @location(4) base : vec3<f32>,
-  @location(5) lit : f32,
-  @location(6) @interpolate(flat) mat : u32,
-  @location(7) @interpolate(flat) layer : u32,
-};
+struct VOut { @builtin(position) pos : vec4<f32>, @location(0) color : vec3<f32> };
 
 @vertex
 fn vs_main(v : VIn) -> VOut {
@@ -82,29 +69,12 @@ fn vs_main(v : VIn) -> VOut {
   out.pos = vec4<f32>(x * cam.eye.w, y * cam.right.w, far * (z - near) / (far - near), z);
   let lit = 0.4 + 0.6 * max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   out.color = v.color.rgb * lit;
-  out.wpos = world;
-  out.wnrm = n;
-  out.uv = v.uv;
-  out.base = v.color.rgb;
-  out.lit = lit;
-  out.mat = u32(v.info.y);
-  out.layer = u32(v.info.z);
   return out;
 }
 
 @fragment
 fn fs_main(in : VOut) -> @location(0) vec4<f32> {
-  // material 0 is the colour-only look: the same output as before textures existed
-  if in.mat == 0u {
-    return vec4<f32>(in.color, 1.0);
-  }
-  var t : vec4<f32>;
-  if in.mat == 1u {
-    t = textureSampleLevel(tex, samp, in.uv, in.layer, 0.0);
-  } else {
-    t = triplanar(in.wpos, in.wnrm, in.layer, 0.0);
-  }
-  return vec4<f32>(in.base * t.rgb * in.lit, 1.0);
+  return vec4<f32>(in.color, 1.0);
 }
 """
 
@@ -347,27 +317,13 @@ struct MeshPass(Movable):
     var counts: List[Int]
     var base: List[Int]
 
-    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
+    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32) raises:
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
                 WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
                 WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
-                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
-                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
-            ),
-            WGPUBindGroupLayoutEntry(
-                null_opaque(), UInt32(1), WGPUShaderStage.FRAGMENT.value, UInt32(0),
-                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
-                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
-                WGPUTextureBindingLayout(null_opaque(), UInt32(2), UInt32(3), UInt32(0)),
-                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
-            ),
-            WGPUBindGroupLayoutEntry(
-                null_opaque(), UInt32(2), WGPUShaderStage.FRAGMENT.value, UInt32(0),
-                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
-                WGPUSamplerBindingLayout(null_opaque(), UInt32(2)),
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
@@ -382,9 +338,7 @@ struct MeshPass(Movable):
             label="mesh_instances",
         )
         var bg_entries: List[WGPUBindGroupEntry] = [
-            WGPUBindGroupEntry(null_opaque(), 0, self.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 1, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
-            WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 0, self.camera.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
         self.staging = List[Float32]()
@@ -455,10 +409,7 @@ struct MeshPass(Movable):
             self.base.append(running)
             for it in items:
                 if it.mesh_id == self.order[k] and it.pose_id < 0:
-                    var rec = len(floats)
                     model_floats(it, floats)
-                    floats[rec + 21] = Float32(it.material)  # info.y: material
-                    floats[rec + 22] = 1.0 if it.material > 0 else 0.0  # info.z: the texture layer (the one layer loaded)
                     running += 1
         if total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)

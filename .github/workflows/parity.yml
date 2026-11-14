@@ -40,9 +40,6 @@ jobs:
       - name: Arena centre probe on native wgpu (rigid and skinned, lavapipe)
         run: pixi run -e wasm test-arena-probe
 
-      - name: Texture checks (mip levels and triplanar, exact texels) on lavapipe
-        run: pixi run -e wasm test-texture
-
       - name: Parity gate
         run: |
           export GECKODRIVER="${GECKOWEBDRIVER:+$GECKOWEBDRIVER/geckodriver}"
