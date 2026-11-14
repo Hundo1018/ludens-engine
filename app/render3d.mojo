@@ -24,7 +24,6 @@ from wgpu.bind_group import BindGroup
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.texture import Texture, TextureView
 from hud import Hud
-from app.mesh_pass import MeshPass, MeshRegistry
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
@@ -124,8 +123,6 @@ def _put(mut staging: List[Float32], it: DrawItem):
 
 struct ArenaRenderer(Movable):
     var pipeline: RenderPipeline
-    var mesh: MeshPass
-    var meshes: MeshRegistry
     var buffer: Buffer
     var group: BindGroup
     var staging: List[Float32]
@@ -153,8 +150,6 @@ struct ArenaRenderer(Movable):
         self.pipeline = device.create_render_pipeline(
             shader, "vs_main", "fs_main", color_format, layout, depth_format=DEPTH_FORMAT
         )
-        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT)
-        self.meshes = MeshRegistry()
         var bytes = UInt64((5 + 4 * MAX_INSTANCES) * 16)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
         var bg_entries: List[WGPUBindGroupEntry] = [
@@ -172,8 +167,6 @@ struct ArenaRenderer(Movable):
 
     def __init__(out self, *, deinit move: Self):
         self.pipeline = move.pipeline^
-        self.mesh = move.mesh^
-        self.meshes = move.meshes^
         self.buffer = move.buffer^
         self.group = move.group^
         self.staging = move.staging^
@@ -215,31 +208,20 @@ struct ArenaRenderer(Movable):
         self.staging[7] = Float32(v.sy)
         self.staging[11] = Float32(v.near)
         self.staging[15] = Float32(v.far)
-        # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
-        var count = 0
-        for i in range(len(self.items)):
-            if self.items[i].mesh_id >= 0 or count >= MAX_INSTANCES:
-                continue
-            count += 1
+        var count = min(len(self.items), MAX_INSTANCES)
         for _ in range(4):
             self.staging.append(0.0)
         self.staging[16] = Float32(count)
-        var put = 0
-        for i in range(len(self.items)):
-            if self.items[i].mesh_id >= 0 or put >= count:
-                continue
+        for i in range(count):
             _put(self.staging, self.items[i])
-            put += 1
         device.queue_write_data(self.buffer, UInt64(0), self.staging)
         hud.upload(device)
         self._depth_view(device, width, height)
-        self.mesh.upload(device, self.meshes)
         var enc = device.create_command_encoder("frame")
         var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(count), UInt32(0), UInt32(0))
-        self.mesh.draw(device, rpass, self.items, self.meshes, v)
         hud.record(rpass)
         rpass^.end()
         var cmd = enc^.finish()
