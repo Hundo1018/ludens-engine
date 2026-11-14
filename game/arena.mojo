@@ -108,9 +108,13 @@ struct Prop(Copyable, Movable):
     var color: Vec3
 
 
-@fieldwise_init
 struct DrawItem(Copyable, Movable):
-    """One thing to draw: a box (kind 0) or a sphere (kind 1, radius in half[0])."""
+    """One thing to draw: a box (kind 0) or a sphere (kind 1, radius in half[0]).
+
+    mesh_id >= 0 draws an indexed mesh from the mesh registry instead of the primitive path (step 5, PR A);
+    -1 keeps the primitive path, so existing producers are unchanged. pose_id and material are read by the
+    skinned and texture passes (PRs B and C); PR A ignores them.
+    """
 
     var kind: Int
     var pos: Vec3
@@ -120,6 +124,35 @@ struct DrawItem(Copyable, Movable):
     var qw: Float64
     var half: Vec3
     var color: Vec3
+    var mesh_id: Int
+    var pose_id: Int
+    var material: Int
+
+    def __init__(
+        out self,
+        kind: Int,
+        pos: Vec3,
+        qx: Float64,
+        qy: Float64,
+        qz: Float64,
+        qw: Float64,
+        half: Vec3,
+        color: Vec3,
+        mesh_id: Int = -1,
+        pose_id: Int = -1,
+        material: Int = 0,
+    ):
+        self.kind = kind
+        self.pos = pos
+        self.qx = qx
+        self.qy = qy
+        self.qz = qz
+        self.qw = qw
+        self.half = half
+        self.color = color
+        self.mesh_id = mesh_id
+        self.pose_id = pose_id
+        self.material = material
 
 
 struct ChaserHost(BtHost):
