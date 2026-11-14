@@ -89,13 +89,64 @@ struct MeshData(Copyable, Movable):
     var indices: List[UInt32]
 
 
+def _check_mesh(positions: List[Float32], normals: List[Float32], uv: List[Float32], indices: List[UInt32]) raises:
+    """The boundary check for every mesh: arrays that agree, and indices inside the vertex range."""
+    var nv = len(positions) // 3
+    if len(positions) % 3 != 0 or nv == 0:
+        raise Error("mesh: positions must be a non-empty multiple of 3 floats")
+    if len(normals) != len(positions):
+        raise Error("mesh: normals must have one vector per position")
+    if len(uv) != nv * 2:
+        raise Error("mesh: uv must have one pair per position")
+    if len(indices) == 0 or len(indices) % 3 != 0:
+        raise Error("mesh: indices must be a non-empty list of triangles")
+    for i in indices:
+        if Int(i) >= nv:
+            raise Error("mesh: an index is outside the vertex range")
+
+
+@fieldwise_init
+struct SkinnedMeshData(Copyable, Movable):
+    """A mesh with joints: 4 joint indices (u16) and 4 weights per vertex. The joint indices are relative to the pose's
+    palette base (the draw item's pose_id)."""
+
+    var positions: List[Float32]
+    var normals: List[Float32]
+    var uv: List[Float32]
+    var joints: List[UInt16]
+    var weights: List[Float32]
+    var indices: List[UInt32]
+
+
 struct MeshRegistry(Movable):
-    """The meshes a game registers, by id. The ids are the mesh_id values draw items carry."""
+    """The meshes a game registers. Static meshes are indexed by the mesh_id a draw item carries; skinned meshes by the
+    id add_skinned returns. A draw item with pose_id >= 0 refers to a skinned mesh."""
 
     var meshes: List[MeshData]
+    var skinned: List[SkinnedMeshData]
 
     def __init__(out self):
         self.meshes = List[MeshData]()
+        self.skinned = List[SkinnedMeshData]()
+
+    def add_skinned(
+        mut self,
+        var positions: List[Float32],
+        var normals: List[Float32],
+        var uv: List[Float32],
+        var joints: List[UInt16],
+        var weights: List[Float32],
+        var indices: List[UInt32],
+    ) raises -> Int:
+        """As add_static, plus 4 joints and 4 weights per vertex. Returns the skinned id."""
+        _check_mesh(positions, normals, uv, indices)
+        if len(joints) != 4 * (len(positions) // 3) or len(weights) != 4 * (len(positions) // 3):
+            raise Error("mesh: a skinned mesh needs 4 joints and 4 weights per vertex")
+        for w in weights:
+            if w < 0.0:
+                raise Error("mesh: skinning weights are not negative")
+        self.skinned.append(SkinnedMeshData(positions^, normals^, uv^, joints^, weights^, indices^))
+        return len(self.skinned) - 1
 
     def add_static(
         mut self,
@@ -105,18 +156,7 @@ struct MeshRegistry(Movable):
         var indices: List[UInt32],
     ) raises -> Int:
         """Check the arrays at the boundary (an invalid mesh raises), then keep it. Returns its id."""
-        var nv = len(positions) // 3
-        if len(positions) % 3 != 0 or nv == 0:
-            raise Error("mesh: positions must be a non-empty multiple of 3 floats")
-        if len(normals) != len(positions):
-            raise Error("mesh: normals must have one vector per position")
-        if len(uv) != nv * 2:
-            raise Error("mesh: uv must have one pair per position")
-        if len(indices) == 0 or len(indices) % 3 != 0:
-            raise Error("mesh: indices must be a non-empty list of triangles")
-        for i in indices:
-            if Int(i) >= nv:
-                raise Error("mesh: an index is outside the vertex range")
+        _check_mesh(positions, normals, uv, indices)
         self.meshes.append(MeshData(positions^, normals^, uv^, indices^))
         return len(self.meshes) - 1
 
@@ -165,7 +205,7 @@ def mesh_draw_hash(items: List[DrawItem], registry: MeshRegistry) -> UInt64:
     return h
 
 
-def add_unit_cube(mut registry: MeshRegistry) raises -> Int:
+def unit_cube_arrays() -> Tuple[List[Float32], List[Float32], List[Float32], List[UInt32]]:
     """A cube of half-extent 0.5 centred on the origin: 6 faces, 4 vertices each, outward normals, uv per corner."""
     var pos = List[Float32]()
     var nrm = List[Float32]()
@@ -193,7 +233,13 @@ def add_unit_cube(mut registry: MeshRegistry) raises -> Int:
             idx.append(base)
             idx.append(base + 2)
             idx.append(base + 3)
-    return registry.add_static(pos^, nrm^, uv^, idx^)
+    return (pos^, nrm^, uv^, idx^)
+
+
+def add_unit_cube(mut registry: MeshRegistry) raises -> Int:
+    """The unit cube as a static mesh."""
+    var c = unit_cube_arrays()
+    return registry.add_static(c[0].copy(), c[1].copy(), c[2].copy(), c[3].copy())
 
 
 def mesh_probe_hash() raises -> UInt64:
@@ -211,7 +257,7 @@ def mesh_probe_hash() raises -> UInt64:
     return mesh_draw_hash(items, reg)
 
 
-def _model_floats(it: DrawItem, mut out: List[Float32]):
+def model_floats(it: DrawItem, mut out: List[Float32]):
     """Four columns of pos + rotation(q) * scale(half); then colour rgb,1; then four zeros (meta)."""
     var x = it.qx
     var y = it.qy
@@ -329,7 +375,7 @@ struct MeshPass(Movable):
         self.counts = List[Int]()
         self.base = List[Int]()
         for it in items:
-            if it.mesh_id < 0:
+            if it.mesh_id < 0 or it.pose_id >= 0:
                 continue
             var found = -1
             for k in range(len(self.order)):
@@ -362,8 +408,8 @@ struct MeshPass(Movable):
         for k in range(len(self.order)):
             self.base.append(running)
             for it in items:
-                if it.mesh_id == self.order[k]:
-                    _model_floats(it, floats)
+                if it.mesh_id == self.order[k] and it.pose_id < 0:
+                    model_floats(it, floats)
                     running += 1
         if total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)

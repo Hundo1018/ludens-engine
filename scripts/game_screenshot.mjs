@@ -90,6 +90,14 @@ await shot('start');
 await js('window.shell.x.app_probe_cube(window.shell.app, 1)'); await sleep(500);
 await shot('probe');
 await js('window.shell.x.app_probe_cube(window.shell.app, 0)');
+// B3: a skinned cube at the centre, its vertices weighted to the identity joint (mode 2), then to a joint turned 20 deg
+// about Y (mode 3). The rigid colour is (141, 35, 35); the turned face's lit value is 0.4 + 0.6 * 0.5684 = 0.741, so
+// (0.8, 0.2, 0.2) * 0.741 * 255 = (151.2, 37.8, 37.8).
+await js('window.shell.x.app_probe_cube(window.shell.app, 2)'); await sleep(500);
+await shot('skin_id');
+await js('window.shell.x.app_probe_cube(window.shell.app, 3)'); await sleep(500);
+await shot('skin_turn');
+await js('window.shell.x.app_probe_cube(window.shell.app, 0)');
 const centre = (name) => { const { rgba, w, h } = shots[name]; const q = ((h >> 1) * w + (w >> 1)) * 4; return [rgba[q], rgba[q + 1], rgba[q + 2]]; };
 const isCubeRed = ([r, g, b]) => r > 60 && r > 2 * g && r > 2 * b;
 if (shots.probe) {
@@ -122,6 +130,31 @@ if (shots.moved && shots.paused) {
   console.log(`moved vs paused: ${n} pixels differ`);
   if (n < 2000) problems.push(`pressing P changed only ${n} pixels: no pause banner`);
 }
+const near = (name, want) => {
+  const [r, g, b] = centre(name);
+  const off = Math.max(Math.abs(r - want[0]), Math.abs(g - want[1]), Math.abs(b - want[2]));
+  console.log(`centre pixel of ${name}: rgb(${r}, ${g}, ${b}), expected about rgb(${want.map(Math.round).join(', ')})`);
+  return off;
+};
+if (shots.skin_id) {
+  const off = near('skin_id', [141.2, 35.3, 35.3]);
+  if (off > 3) problems.push(`skinned cube, identity joint: centre off by ${off.toFixed(1)} from the rigid colour`);
+}
+if (shots.skin_turn) {
+  const off = near('skin_turn', [151.2, 37.8, 37.8]);
+  if (off > 3) problems.push(`skinned cube, joint turned 20 deg: centre off by ${off.toFixed(1)} from the derived colour`);
+}
+// B2 on the web: the synthetic skinning scene through the CPU reference and the GPU compute path. The page polls
+// app_skin_result (-1 while the map is pending, -2 on failure) and asserts the max difference is below 1e-5.
+await js('window.shell.x.app_skin_start(window.shell.app)');
+let skinErr = -1;
+for (let i = 0; i < 400; i++) {
+  skinErr = await js('window.shell.x.app_skin_result(window.shell.app)');
+  if (skinErr !== -1) break;
+  await sleep(25);
+}
+console.log(`skinning B2 on web: max |GPU - CPU| = ${skinErr}`);
+if (!(skinErr >= 0 && skinErr < 1e-5)) problems.push(`skinning B2 on web: max |GPU - CPU| is ${skinErr}, not below 1e-5`);
 for (const p of problems) console.log('PROBLEM:', p);
 console.log('game-shot:', problems.length ? 'FAIL' : 'PASS');
 done(problems.length ? 1 : 0);

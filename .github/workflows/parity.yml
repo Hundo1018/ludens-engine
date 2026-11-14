@@ -34,6 +34,12 @@ jobs:
           bash scripts/deps.sh
           pixi run -e wasm bash -c 'CONDA_PREFIX="$CONDA_PREFIX" bash build/deps/wgpu-mojo/scripts/setup-native.sh'
 
+      - name: Skinning parity (B1 CPU and GPU, B2 GPU against CPU) on lavapipe
+        run: pixi run -e wasm test-skinning
+
+      - name: Arena centre probe on native wgpu (rigid and skinned, lavapipe)
+        run: pixi run -e wasm test-arena-probe
+
       - name: Parity gate
         run: |
           export GECKODRIVER="${GECKOWEBDRIVER:+$GECKOWEBDRIVER/geckodriver}"

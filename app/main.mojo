@@ -12,6 +12,9 @@ from hud import Hud
 from net import net_poll, net_send
 from render3d import ArenaRenderer
 from app.mesh_pass import mesh_probe_hash
+from app.skin_gpu import GpuSkinning, SkinJob
+from app.skin_pass import CpuSkinning, Skinning, synthetic_scene
+from geometry.vec import Vec3
 from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
@@ -50,7 +53,10 @@ struct App(Movable):
     var reference_frames: Int
     var reference_ptr: UInt64
     var offscreen: Bool
-    var probe_cube: Bool
+    var probe_cube: Int
+    var skin_job: Optional[SkinJob]
+    var skin_cpu: List[Vec3]
+    var skin_max: Float64  # -1 pending, -2 failed, else max |GPU - CPU|
     var net_rx: List[UInt8]
     var net_len: Int
     var net_packets: Int
@@ -84,7 +90,10 @@ struct App(Movable):
         self.reference_frames = -1
         self.reference_ptr = 0
         self.offscreen = False
-        self.probe_cube = False
+        self.probe_cube = 0
+        self.skin_job = None
+        self.skin_cpu = List[Vec3]()
+        self.skin_max = -1.0
         self.net_rx = List[UInt8](length=NET_CAP, fill=0)
         self.net_len = 0
         self.net_packets = 0
@@ -117,6 +126,9 @@ struct App(Movable):
         self.reference_ptr = move.reference_ptr
         self.offscreen = move.offscreen
         self.probe_cube = move.probe_cube
+        self.skin_job = move.skin_job^
+        self.skin_cpu = move.skin_cpu^
+        self.skin_max = move.skin_max
         self.net_rx = move.net_rx^
         self.net_len = move.net_len
         self.net_packets = move.net_packets
@@ -382,9 +394,55 @@ def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
 
 
 @export
-def app_probe_cube(app: UInt64, on: Int32) abi("C"):
-    """On: the arena draws one unit cube at the centre of the view, for the frame check (A.2)."""
-    _app(app)[].probe_cube = on != 0
+def app_probe_cube(app: UInt64, mode: Int32) abi("C"):
+    """The arena's centre probe, for the frame check: 0 off, 1 a rigid unit cube (A.2), 2 a skinned cube with the
+    identity joint, 3 a skinned cube with its joint turned 20 degrees about Y (B3)."""
+    _app(app)[].probe_cube = Int(mode)
+
+
+@export
+def app_skin_start(app: UInt64) abi("C"):
+    """B2 on the web: the synthetic scene through the CPU reference and through the GPU compute path. The GPU result
+    is collected by app_skin_result, which the page polls."""
+    var a = _app(app)
+    try:
+        var scene = synthetic_scene()
+        var cpu = CpuSkinning()
+        a[].skin_cpu = cpu.skin(a[].boot.device(), scene.palette, scene.rest, scene.joints, scene.weights)
+        var gpu = GpuSkinning(a[].boot.device())
+        a[].skin_job = gpu.submit(a[].boot.device(), scene.palette, scene.rest, scene.joints, scene.weights)
+        a[].skin_max = -1.0
+    except e:
+        print("app_skin_start:", e)
+        a[].skin_max = -2.0
+
+
+@export
+def app_skin_result(app: UInt64) abi("C") -> Float64:
+    """-1 while the GPU job is pending, -2 if it failed, else max |GPU - CPU| over the B2 scene."""
+    var a = _app(app)
+    if a[].skin_max != -1.0:
+        return a[].skin_max
+    if not a[].skin_job:
+        return -2.0
+    if not a[].skin_job.value().ready():
+        return -1.0
+    try:
+        var job = a[].skin_job.take()
+        var gpu = job.collect()
+        var worst = 0.0
+        for v in range(len(gpu)):
+            for c in range(3):
+                var d = Float64(a[].skin_cpu[v][c] - gpu[v][c])
+                if d < 0.0:
+                    d = -d
+                if d > worst:
+                    worst = d
+        a[].skin_max = worst
+    except e:
+        print("app_skin_result:", e)
+        a[].skin_max = -2.0
+    return a[].skin_max
 
 
 @export
