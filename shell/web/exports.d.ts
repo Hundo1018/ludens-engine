@@ -27,9 +27,5 @@ export interface AppExports {
   app_game_score(app: bigint): number;
   app_game_collected(app: bigint): number;
   app_game_hash(app: bigint): bigint;
-  app_frontier_stat(app: bigint, which: number): number;
-  app_frontier_hash(app: bigint): bigint;
-  app_frontier_teleport(app: bigint, x: number, z: number): number;
-  app_set_frame_ms(app: bigint, ms: number): void;
   app_release_input(app: bigint): void;
 }

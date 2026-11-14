@@ -28,7 +28,6 @@ interface Stats {
   underruns: number;
   rendered: number;
   audioStarts: number;
-  frontier?: { cells: number; cellsTotal: number; bodies: number; bodiesTotal: number; drawn: number; culled: number; loads: number; unloads: number; zone: number; tick: number; frameMs: number };
   padLog: string[]; // what the virtual pad last sent (the newest 64 events), for the touch check
   error: string;
 }
@@ -87,9 +86,7 @@ async function boot(canvas: HTMLCanvasElement) {
   const app = x.app_init(sel, len, canvas.width, canvas.height);
   if (app === 0n) throw new Error("app_init failed");
   // The arena game is the app; ?selftest keeps the physics demo that the parity gates and selftests measure.
-  // ?frontier is the streamed world (game/frontier.mojo), which will become the default page once its zones are in.
-  if (location.search.includes("frontier")) x.app_set_mode(app, 2);
-  else if (!location.search.includes("selftest") && !location.search.includes("demo")) x.app_set_mode(app, 1);
+  if (!location.search.includes("selftest") && !location.search.includes("demo")) x.app_set_mode(app, 1);
   if (location.search.includes("offscreen") && !location.search.includes("selftest")) x.app_offscreen(app, 1); // headless Chrome: never draw to the canvas
   // Non-enumerable: bigint is not JSON-serialisable and the automated checks stringify window.shell.
   // Read one frame back through wgpu's FrameCapture (rendered into an app-owned target; see app/main.mojo).
@@ -294,21 +291,13 @@ async function main() {
   };
   // A touch counts as a user gesture when it is lifted, not when it lands, so the lift is listened for as well.
   for (const ev of ["pointerdown", "pointerup", "touchend", "keydown"]) addEventListener(ev, start);
-  const FRONTIER = location.search.includes("frontier");
   let last = performance.now();
   const frame = (now: number) => {
     try {
       const dt = Math.min(Math.max((now - last) / 1000, 0), 0.1); last = now;
       calls.imports = 0; calls.webgpu = 0; calls.names = {};
       pollPads(dt * 1000);
-      const t0 = performance.now();
       const r = x.app_frame(app, dt);
-      if (FRONTIER) {
-        const ms = performance.now() - t0;
-        x.app_set_frame_ms(app, ms);
-        const st = (i: number) => x.app_frontier_stat(app, i);
-        stats.frontier = { cells: st(0), cellsTotal: st(1), bodies: st(2), bodiesTotal: st(3), drawn: st(4), culled: st(5), loads: st(6), unloads: st(7), zone: st(8), tick: st(9), frameMs: ms };
-      }
       if (r < 0) throw new Error("app_frame returned " + r);
       if (r === 1) {
         stats.frames++;
