@@ -41,6 +41,7 @@ from wgpu.shader import ShaderModule
 
 comptime MAX_MESH_INSTANCES = 2048
 comptime SHADOW_MAP_SIZE = 1024  # the mesh pass's shadow map, square; 4 MB of depth
+comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime FLOATS_PER_INSTANCE = 24
 comptime MESH_WGSL = """
 struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
@@ -50,6 +51,18 @@ struct Shadow { vp : mat4x4<f32>, params : vec4<f32> };
 @group(0) @binding(3) var shadow_map : texture_depth_2d;
 @group(0) @binding(4) var shadow_cmp : sampler_comparison;
 @group(0) @binding(5) var<uniform> shadow : Shadow;
+// ao: a grid of ambient occlusion over the floor, 1 open and 0 occluded, row-major by z; ext is (x0, z0, sx, sz) in
+// metres, dims is (nx, ny), params.x 1 turns it on. Outside the grid the factor is 1.
+struct Ao { ext : vec4<f32>, dims : vec4<f32>, params : vec4<f32> };
+@group(0) @binding(6) var<storage, read> ao_cells : array<f32>;
+@group(0) @binding(7) var<uniform> ao : Ao;
+fn ao_factor(p : vec3<f32>) -> f32 {
+  let uv = (p.xz - ao.ext.xy) / ao.ext.zw;
+  if uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0 { return 1.0; }
+  let n = vec2<u32>(ao.dims.xy);
+  let c = min(vec2<u32>(uv * vec2<f32>(n)), n - vec2<u32>(1u));
+  return ao_cells[c.y * n.x + c.x];
+}
 """ + TRI_WGSL + """
 
 struct VIn {
@@ -126,7 +139,8 @@ fn vs_main(v : VIn) -> VOut {
 fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0, so the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
-  let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
+  // the AO factor multiplies the shadow factor; with AO off it is exactly 1.0, so the colour is unchanged bit for bit
+  let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5);
   // material 0 is the colour-only look: the same output as before textures existed
   if in.mat == 0u {
     return vec4<f32>(in.color * sf, 1.0);
@@ -383,6 +397,8 @@ struct MeshPass(Movable):
     var shadow_view: TextureView
     var shadow_sampler: Sampler  # comparison sampler, LessEqual
     var shadow_ubo: Buffer  # light view-projection (64 bytes) and params (16 bytes): params.x 1 turns the shadow on
+    var ao_cells: Buffer  # the AO grid: AO_MAX_CELLS floats, all 1 (open) until set_ao
+    var ao_ubo: Buffer  # AO extent, dims and the on-flag (48 bytes)
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
@@ -403,6 +419,18 @@ struct MeshPass(Movable):
         for c in range(4):
             off.append(0.0)
         device.queue_write_data(self.shadow_ubo, UInt64(0), off)
+        self.ao_cells = device.create_buffer(
+            UInt64(AO_MAX_CELLS * 4), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="mesh_ao_cells",
+        )
+        self.ao_ubo = device.create_buffer(UInt64(48), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_ao_ubo")
+        var ones = List[Float32]()
+        for _ in range(AO_MAX_CELLS):
+            ones.append(1.0)
+        device.queue_write_data(self.ao_cells, UInt64(0), ones)
+        var ao_off = List[Float32]()  # AO off: extent, dims and params all zero, the factor is 1
+        for _ in range(12):
+            ao_off.append(0.0)
+        device.queue_write_data(self.ao_ubo, UInt64(0), ao_off)
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
@@ -446,6 +474,20 @@ struct MeshPass(Movable):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(6), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.ReadOnlyStorage, UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(7), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "mesh_layout")
@@ -463,6 +505,8 @@ struct MeshPass(Movable):
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), self.shadow_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), self.shadow_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 5, self.shadow_ubo.handle().raw, 0, UInt64(80), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 6, self.ao_cells.handle().raw, 0, UInt64(AO_MAX_CELLS * 4), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 7, self.ao_ubo.handle().raw, 0, UInt64(48), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
         # the view, sampler and buffer are kept as fields, alive past the bind group call
@@ -488,6 +532,22 @@ struct MeshPass(Movable):
         data.append(0.0)
         data.append(0.0)
         device.queue_write_data(self.shadow_ubo, UInt64(0), data)
+
+    def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
+               sx: Float32, sz: Float32, on: Bool) raises:
+        """Set the ambient-occlusion grid: nx by ny cells (row-major by z, 1 open, 0 occluded) over the floor rectangle
+        (x0, z0) to (x0 + sx, z0 + sz) in metres, and whether it multiplies the lit colour. Off by default: the colour is
+        then unchanged bit for bit. The grid is uploaded whole; a grid larger than AO_MAX_CELLS is refused."""
+        if nx < 1 or ny < 1 or nx * ny > AO_MAX_CELLS or len(cells) != nx * ny:
+            raise Error("mesh pass: the AO grid needs nx * ny cells, at most AO_MAX_CELLS, one per cell")
+        if sx <= 0.0 or sz <= 0.0:
+            raise Error("mesh pass: the AO grid's extent must be positive")
+        device.queue_write_data(self.ao_cells, UInt64(0), cells)
+        var u = List[Float32]()
+        u.append(x0); u.append(z0); u.append(sx); u.append(sz)
+        u.append(Float32(nx)); u.append(Float32(ny)); u.append(0.0); u.append(0.0)
+        u.append(Float32(1.0) if on else Float32(0.0)); u.append(0.0); u.append(0.0); u.append(0.0)
+        device.queue_write_data(self.ao_ubo, UInt64(0), u)
 
     def upload(mut self, device: Device, registry: MeshRegistry) raises:
         """Create the GPU vertex and index buffers for every mesh not yet uploaded. Meshes are never freed here."""
