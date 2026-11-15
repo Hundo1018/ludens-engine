@@ -148,7 +148,7 @@ struct ArenaRenderer(Movable):
     var depth_w: UInt32
     var depth_h: UInt32
 
-    def __init__(out self, device: Device, color_format: UInt32, view: View) raises:
+    def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2) raises:
         var shader = device.create_shader_module_wgsl(WGSL, "arena")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
@@ -164,7 +164,8 @@ struct ArenaRenderer(Movable):
         self.pipeline = device.create_render_pipeline(
             shader, "vs_main", "fs_main", color_format, layout, depth_format=DEPTH_FORMAT
         )
-        var tex = TextureArray(device, UInt32(2))
+        # layer 0 white, layer 1 the placeholder checker; a game that loads more textures asks for more layers
+        var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
         self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex)
         self.textures = tex^
