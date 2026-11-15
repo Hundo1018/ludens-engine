@@ -39,7 +39,7 @@ from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 
-comptime MAX_MESH_INSTANCES = 2048
+comptime MAX_MESH_INSTANCES = 8192  # mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
 comptime SHADOW_MAP_SIZE = 1024  # the mesh pass's shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime FLOATS_PER_INSTANCE = 24
