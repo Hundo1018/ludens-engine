@@ -127,6 +127,7 @@ struct DrawItem(Copyable, Movable):
     var mesh_id: Int
     var pose_id: Int
     var material: Int
+    var layer: Int  # the texture array layer a textured item samples (material > 0); 1 is the placeholder wall
 
     def __init__(
         out self,
@@ -141,6 +142,7 @@ struct DrawItem(Copyable, Movable):
         mesh_id: Int = -1,
         pose_id: Int = -1,
         material: Int = 0,
+        layer: Int = 1,
     ):
         self.kind = kind
         self.pos = pos
@@ -153,6 +155,7 @@ struct DrawItem(Copyable, Movable):
         self.mesh_id = mesh_id
         self.pose_id = pose_id
         self.material = material
+        self.layer = layer
 
 
 struct ChaserHost(BtHost):

@@ -458,7 +458,7 @@ struct MeshPass(Movable):
                     var rec = len(floats)
                     model_floats(it, floats)
                     floats[rec + 21] = Float32(it.material)  # info.y: material
-                    floats[rec + 22] = 1.0 if it.material > 0 else 0.0  # info.z: the texture layer (the one layer loaded)
+                    floats[rec + 22] = Float32(it.layer) if it.material > 0 else 0.0  # info.z: the texture layer
                     running += 1
         if total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
