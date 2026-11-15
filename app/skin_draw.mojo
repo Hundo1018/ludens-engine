@@ -28,6 +28,8 @@ from wgpu.bind_group import BindGroup
 from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
+from wgpu.texture import TextureView
+from wgpu.sampler import Sampler
 from game.arena import DrawItem
 from game.camera_view import View
 from app.mesh_pass import MeshRegistry, model_floats, MAX_MESH_INSTANCES, FLOATS_PER_INSTANCE
@@ -42,6 +44,11 @@ struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32>
 @group(0) @binding(1) var<storage, read> palette : array<mat4x4<f32>>;
 @group(0) @binding(2) var tex : texture_2d_array<f32>;
 @group(0) @binding(3) var samp : sampler;
+// the sun's shadow map and its light (the mesh pass's bindings 3 to 5): the characters receive shadows too
+@group(0) @binding(4) var shadow_map : texture_depth_2d;
+@group(0) @binding(5) var shadow_cmp : sampler_comparison;
+struct Shadow { vp : mat4x4<f32>, params : vec4<f32> };
+@group(0) @binding(6) var<uniform> shadow : Shadow;
 """ + SKIN_FN + """
 
 struct SVIn {
@@ -63,7 +70,26 @@ struct VOut {
   @location(1) uv : vec2<f32>,
   @location(2) @interpolate(flat) layer : u32,
   @location(3) @interpolate(flat) mat : u32,
+  @location(4) lpos : vec3<f32>,
+  @location(5) wnrm : vec3<f32>,
 };
+
+fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
+  // uv: NDC +y is the top row of the depth texture
+  let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+  // a constant bias scaled by (1 - N.L) against acne on the faces turned from the light
+  let ref_z = p.z - 0.003 * (1.0 - ndl);
+  let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
+  // 3x3 percentage-closer filter; every tap is uniform control flow, so textureSampleCompareLevel is valid
+  var acc = 0.0;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      acc += textureSampleCompareLevel(shadow_map, shadow_cmp, uv + vec2<f32>(f32(i), f32(j)) * texel, ref_z);
+    }
+  }
+  let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && p.z <= 1.0;
+  return select(1.0, acc / 9.0, inside);
+}
 
 @vertex
 fn vs_skin(v : SVIn) -> VOut {
@@ -86,16 +112,22 @@ fn vs_skin(v : SVIn) -> VOut {
   out.uv = v.uv;
   out.layer = u32(v.info.z);
   out.mat = u32(v.info.y);
+  let lp = shadow.vp * vec4<f32>(world, 1.0);
+  out.lpos = lp.xyz / lp.w;
+  out.wnrm = n;
   return out;
 }
 
 @fragment
 fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
+  // with the shadow off the factor is exactly 1.0: the colour is unchanged bit for bit
+  let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
+  let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
   if in.mat == 0u {
-    return vec4<f32>(in.color, 1.0);
+    return vec4<f32>(in.color * sf, 1.0);
   }
   let t = textureSampleLevel(tex, samp, in.uv, in.layer, 0.0);
-  return vec4<f32>(in.color * t.rgb, 1.0);
+  return vec4<f32>(in.color * t.rgb * sf, 1.0);
 }
 """
 
@@ -188,7 +220,10 @@ struct SkinnedPass(Movable):
     var counts: List[Int]
     var base: List[Int]
 
-    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
+    def __init__(
+        out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref shadow_view: TextureView, ref shadow_sampler: Sampler, ref shadow_ubo: Buffer,
+    ) raises:
         var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL, "skin_draw")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
@@ -219,6 +254,27 @@ struct SkinnedPass(Movable):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(4), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(4), UInt32(2), UInt32(0)),  # depth, 2D
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(5), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(4)),  # comparison
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(6), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "skin_layout")
@@ -239,6 +295,9 @@ struct SkinnedPass(Movable):
             ),
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), null_opaque(), shadow_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), shadow_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 6, shadow_ubo.handle().raw, 0, UInt64(80), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.vbufs = List[Buffer]()
