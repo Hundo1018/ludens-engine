@@ -13,6 +13,9 @@ from game.arena import DrawItem
 from game.camera_view import View
 from geometry.vec import Real, Vec3
 from app.textures import TextureArray, TRI_WGSL
+from wgpu.texture import Texture, TextureView
+from wgpu.sampler import Sampler
+from wgpu._ffi.types import WGPUTextureUsage
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPU_WHOLE_SIZE, WGPUBufferBindingType,
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
@@ -37,10 +40,16 @@ from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 
 comptime MAX_MESH_INSTANCES = 2048
+comptime SHADOW_MAP_SIZE = 1024  # the mesh pass's shadow map, square; 4 MB of depth
 comptime FLOATS_PER_INSTANCE = 24
 comptime MESH_WGSL = """
 struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
 @group(0) @binding(0) var<uniform> cam : Cam;
+// shadow: the light's view-projection (orthographic, z in [0, 1]); params.x 1 turns the shadow factor on
+struct Shadow { vp : mat4x4<f32>, params : vec4<f32> };
+@group(0) @binding(3) var shadow_map : texture_depth_2d;
+@group(0) @binding(4) var shadow_cmp : sampler_comparison;
+@group(0) @binding(5) var<uniform> shadow : Shadow;
 """ + TRI_WGSL + """
 
 struct VIn {
@@ -65,7 +74,26 @@ struct VOut {
   @location(5) lit : f32,
   @location(6) @interpolate(flat) mat : u32,
   @location(7) @interpolate(flat) layer : u32,
+  @location(8) lpos : vec3<f32>,
 };
+
+// the light-space position of a world point: NDC xy in [-1, 1], z in [0, 1]
+fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
+  // uv: NDC +y is the top row of the depth texture
+  let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+  // a constant bias scaled by (1 - N.L) against acne on the faces turned from the light
+  let ref_z = p.z - 0.003 * (1.0 - ndl);
+  let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
+  // 3x3 percentage-closer filter; every tap is uniform control flow, so textureSampleCompareLevel is valid
+  var acc = 0.0;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      acc += textureSampleCompareLevel(shadow_map, shadow_cmp, uv + vec2<f32>(f32(i), f32(j)) * texel, ref_z);
+    }
+  }
+  let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && p.z <= 1.0;
+  return select(1.0, acc / 9.0, inside);
+}
 
 @vertex
 fn vs_main(v : VIn) -> VOut {
@@ -89,14 +117,19 @@ fn vs_main(v : VIn) -> VOut {
   out.lit = lit;
   out.mat = u32(v.info.y);
   out.layer = u32(v.info.z);
+  let lp = shadow.vp * vec4<f32>(world, 1.0);
+  out.lpos = lp.xyz / lp.w;
   return out;
 }
 
 @fragment
 fn fs_main(in : VOut) -> @location(0) vec4<f32> {
+  // with the shadow off the factor is exactly 1.0, so the colour is unchanged bit for bit
+  let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
+  let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
   // material 0 is the colour-only look: the same output as before textures existed
   if in.mat == 0u {
-    return vec4<f32>(in.color, 1.0);
+    return vec4<f32>(in.color * sf, 1.0);
   }
   var t : vec4<f32>;
   if in.mat == 1u {
@@ -104,7 +137,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   } else {
     t = triplanar(in.wpos, in.wnrm, in.layer, 0.0);
   }
-  return vec4<f32>(in.base * t.rgb * in.lit, 1.0);
+  return vec4<f32>(in.base * t.rgb * in.lit * sf, 1.0);
 }
 """
 
@@ -346,9 +379,30 @@ struct MeshPass(Movable):
     var order: List[Int]
     var counts: List[Int]
     var base: List[Int]
+    var shadow_tex: Texture  # the shadow map: a shadow pass renders depth into it (shadow_tex.create_view_default())
+    var shadow_view: TextureView
+    var shadow_sampler: Sampler  # comparison sampler, LessEqual
+    var shadow_ubo: Buffer  # light view-projection (64 bytes) and params (16 bytes): params.x 1 turns the shadow on
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
+        # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
+        self.shadow_tex = device.create_texture(
+            UInt32(SHADOW_MAP_SIZE), UInt32(SHADOW_MAP_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
+            WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
+            dimension=2, mip_level_count=1, label="mesh_shadow_map",
+        )
+        self.shadow_view = self.shadow_tex.create_view_default()
+        self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
+        self.shadow_ubo = device.create_buffer(
+            UInt64(80), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_shadow_ubo",
+        )
+        var off = List[Float32]()  # identity light matrix, shadow off
+        for c in range(16):
+            off.append(Float32(1.0) if c % 5 == 0 else Float32(0.0))
+        for c in range(4):
+            off.append(0.0)
+        device.queue_write_data(self.shadow_ubo, UInt64(0), off)
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
@@ -371,6 +425,27 @@ struct MeshPass(Movable):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(3), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(4), UInt32(2), UInt32(0)),  # depth, 2D
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(4), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(4)),  # comparison
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(5), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "mesh_layout")
@@ -385,8 +460,12 @@ struct MeshPass(Movable):
             WGPUBindGroupEntry(null_opaque(), 0, self.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 1, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), self.shadow_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), self.shadow_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 5, self.shadow_ubo.handle().raw, 0, UInt64(80), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
+        # the view, sampler and buffer are kept as fields, alive past the bind group call
         self.staging = List[Float32]()
         self.vbufs = List[Buffer]()
         self.ibufs = List[Buffer]()
@@ -394,6 +473,21 @@ struct MeshPass(Movable):
         self.order = List[Int]()
         self.counts = List[Int]()
         self.base = List[Int]()
+
+    def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
+        """Set the light's view-projection (16 floats, column-major, NDC z in [0, 1]) and whether the shadow factor is
+        applied. The shadow map itself is rendered by the caller into shadow_tex. Off by default: the colour is then
+        unchanged bit for bit."""
+        if len(light_vp) != 16:
+            raise Error("mesh pass: the light view-projection has 16 floats")
+        var data = List[Float32]()
+        for c in range(16):
+            data.append(light_vp[c])
+        data.append(Float32(1.0) if on else Float32(0.0))
+        data.append(0.0)
+        data.append(0.0)
+        data.append(0.0)
+        device.queue_write_data(self.shadow_ubo, UInt64(0), data)
 
     def upload(mut self, device: Device, registry: MeshRegistry) raises:
         """Create the GPU vertex and index buffers for every mesh not yet uploaded. Meshes are never freed here."""
