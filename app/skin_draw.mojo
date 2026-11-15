@@ -31,6 +31,7 @@ from wgpu.shader import ShaderModule
 from game.arena import DrawItem
 from game.camera_view import View
 from app.mesh_pass import MeshRegistry, model_floats, MAX_MESH_INSTANCES, FLOATS_PER_INSTANCE
+from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
 
 comptime MAX_PALETTE_MATRICES = 4096  # 64 instances x 64 joints: 256 KB of mat4x4<f32>
@@ -39,6 +40,8 @@ comptime SKIN_DRAW_WGSL = """
 struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
 @group(0) @binding(0) var<uniform> cam : Cam;
 @group(0) @binding(1) var<storage, read> palette : array<mat4x4<f32>>;
+@group(0) @binding(2) var tex : texture_2d_array<f32>;
+@group(0) @binding(3) var samp : sampler;
 """ + SKIN_FN + """
 
 struct SVIn {
@@ -54,7 +57,13 @@ struct SVIn {
   @location(9) joints : vec4<u32>,
   @location(10) weights : vec4<f32>,
 };
-struct VOut { @builtin(position) pos : vec4<f32>, @location(0) color : vec3<f32> };
+struct VOut {
+  @builtin(position) pos : vec4<f32>,
+  @location(0) color : vec3<f32>,
+  @location(1) uv : vec2<f32>,
+  @location(2) @interpolate(flat) layer : u32,
+  @location(3) @interpolate(flat) mat : u32,
+};
 
 @vertex
 fn vs_skin(v : SVIn) -> VOut {
@@ -74,12 +83,19 @@ fn vs_skin(v : SVIn) -> VOut {
   out.pos = vec4<f32>(x * cam.eye.w, y * cam.right.w, far * (z - near) / (far - near), z);
   let lit = 0.4 + 0.6 * max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   out.color = v.color.rgb * lit;
+  out.uv = v.uv;
+  out.layer = u32(v.info.z);
+  out.mat = u32(v.info.y);
   return out;
 }
 
 @fragment
 fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.color, 1.0);
+  if in.mat == 0u {
+    return vec4<f32>(in.color, 1.0);
+  }
+  let t = textureSampleLevel(tex, samp, in.uv, in.layer, 0.0);
+  return vec4<f32>(in.color * t.rgb, 1.0);
 }
 """
 
@@ -172,7 +188,7 @@ struct SkinnedPass(Movable):
     var counts: List[Int]
     var base: List[Int]
 
-    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32) raises:
+    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
         var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL, "skin_draw")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
@@ -186,6 +202,20 @@ struct SkinnedPass(Movable):
                 null_opaque(), UInt32(1), WGPUShaderStage.VERTEX.value, UInt32(0),
                 WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.ReadOnlyStorage, UInt32(0), UInt64(0)),
                 WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(2), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(2), UInt32(3), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(3), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(2)),
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
@@ -207,6 +237,8 @@ struct SkinnedPass(Movable):
             WGPUBindGroupEntry(
                 null_opaque(), 1, self.palette.handle().raw, 0, UInt64(MAX_PALETTE_MATRICES * 64), null_opaque(), null_opaque(),
             ),
+            WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.vbufs = List[Buffer]()
@@ -293,6 +325,8 @@ struct SkinnedPass(Movable):
                     var rec = len(floats)
                     model_floats(it, floats)
                     floats[rec + 20] = Float32(it.pose_id)  # info.x: the palette base of this instance
+                    floats[rec + 21] = Float32(it.material)  # info.y: material (0 colour, 1 uv)
+                    floats[rec + 22] = Float32(it.layer) if it.material > 0 else 0.0  # info.z: the texture layer
                     running += 1
         if total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
