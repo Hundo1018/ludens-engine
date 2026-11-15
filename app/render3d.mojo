@@ -32,7 +32,7 @@ from geometry.mat import Mat4
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
-comptime MAX_INSTANCES = 2048
+comptime MAX_INSTANCES = 8192  # arena items per frame: (5 + 4 x 8192) x 16 bytes = 512 KB of storage
 comptime VERTS_PER_INSTANCE = 1152
 
 
