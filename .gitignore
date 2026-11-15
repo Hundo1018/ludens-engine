@@ -1,3 +1,4 @@
 build/
 .pixi/
 __pycache__/
+build64/
