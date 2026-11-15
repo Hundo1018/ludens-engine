@@ -168,11 +168,11 @@ struct ArenaRenderer(Movable):
         var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
         self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex)
+        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex)  # before the move: it reads the array's views
         self.textures = tex^
         self.meshes = MeshRegistry()
         self.cube = add_unit_cube(self.meshes)
         self.probe = 0
-        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT)
         var c = unit_cube_arrays()
         var nv = len(c[0]) // 3
         var jt_id = List[UInt16]()
