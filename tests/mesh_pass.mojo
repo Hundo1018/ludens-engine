@@ -2,7 +2,7 @@
 # The mesh pass's CPU side (app/mesh_pass.mojo): the registry's checks, and the draw-list hash. The GPU side is checked
 # by the parity gates (a cube drawn natively and on the web), not here.
 from harness.runner import Suite
-from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash, unit_cube_arrays
+from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash, unit_cube_arrays, RenderCaps
 from game.arena import DrawItem
 from geometry.vec import Real, Vec3
 
@@ -131,4 +131,18 @@ def main() raises:
         sk_raised = True
     s.check(sk_raised, "a skinned mesh without 4 joints per vertex is refused")
 
+    # ludens-engine#71: the capacities are chosen at creation; the defaults are the former constants
+    var d = RenderCaps.default()
+    s.check(d.arena_instances == 8192 and d.mesh_instances == 8192 and d.palette_matrices == 4096,
+            "RenderCaps defaults: 8192 arena items, 8192 mesh instances, 4096 palette matrices")
+    var bad = 0
+    try:
+        RenderCaps(8192, 0, 4096).check()
+    except:
+        bad += 1
+    try:
+        RenderCaps(8192, 8192, 16384).check()
+    except:
+        bad += 10
+    s.check(bad == 1, "a zero capacity raises, a larger one is accepted")
     s.finish()

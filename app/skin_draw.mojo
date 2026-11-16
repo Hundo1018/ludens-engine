@@ -32,12 +32,11 @@ from wgpu.texture import TextureView
 from wgpu.sampler import Sampler
 from game.arena import DrawItem
 from game.camera_view import View
-from app.mesh_pass import MeshRegistry, model_floats, MAX_MESH_INSTANCES, FLOATS_PER_INSTANCE
+from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
 from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
 from app.textures import ATMO_WGSL
 
-comptime MAX_PALETTE_MATRICES = 4096  # 64 instances x 64 joints: 256 KB of mat4x4<f32>
 
 comptime SKIN_DRAW_WGSL = """
 struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
@@ -228,11 +227,17 @@ struct SkinnedPass(Movable):
     var order: List[Int]
     var counts: List[Int]
     var base: List[Int]
+    var max_instances: Int  # RenderCaps.mesh_instances
+    var max_palette: Int  # RenderCaps.palette_matrices
 
     def __init__(
         out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
         ref shadow_view: TextureView, ref shadow_sampler: Sampler, ref shadow_ubo: Buffer,
+        caps: RenderCaps = RenderCaps.default(),
     ) raises:
+        caps.check()
+        self.max_instances = caps.mesh_instances
+        self.max_palette = caps.palette_matrices
         var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL, "skin_draw")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
@@ -290,17 +295,17 @@ struct SkinnedPass(Movable):
         self.pipeline = _build_skin_pipeline(device, shader, layout, color_format, depth_format)
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="skin_cam")
         self.palette = device.create_buffer(
-            UInt64(MAX_PALETTE_MATRICES * 64), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="skin_palette_vs",
+            UInt64(caps.palette_matrices * 64), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="skin_palette_vs",
         )
         self.instances = device.create_buffer(
-            UInt64(MAX_MESH_INSTANCES * FLOATS_PER_INSTANCE * 4),
+            UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4),
             WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="skin_instances",
         )
         var bg_entries: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(
-                null_opaque(), 1, self.palette.handle().raw, 0, UInt64(MAX_PALETTE_MATRICES * 64), null_opaque(), null_opaque(),
+                null_opaque(), 1, self.palette.handle().raw, 0, UInt64(caps.palette_matrices * 64), null_opaque(), null_opaque(),
             ),
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
@@ -366,10 +371,10 @@ struct SkinnedPass(Movable):
         var total = 0
         for c in self.counts:
             total += c
-        if total > MAX_MESH_INSTANCES:
-            raise Error("skinned draw: more instances than MAX_MESH_INSTANCES")
-        if len(palette) > MAX_PALETTE_MATRICES * 16:
-            raise Error("skinned draw: the palette is larger than 4096 matrices")
+        if total > self.max_instances:
+            raise Error("skinned draw: " + String(total) + " instances, more than its capacity " + String(self.max_instances))
+        if len(palette) > self.max_palette * 16:
+            raise Error("skinned draw: the palette is larger than its capacity of " + String(self.max_palette) + " matrices")
         if len(palette) % 16 != 0:
             raise Error("skinned draw: a palette is 16 floats per joint")
         var cam = List[Float32]()

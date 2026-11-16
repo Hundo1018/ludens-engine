@@ -24,7 +24,7 @@ from wgpu.bind_group import BindGroup
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.texture import Texture, TextureView
 from hud import Hud
-from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays
+from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
 from app.skin_draw import SkinnedPass
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
@@ -33,7 +33,6 @@ from geometry.mat import Mat4
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
-comptime MAX_INSTANCES = 8192  # arena items per frame: (5 + 4 x 8192) x 16 bytes = 512 KB of storage
 comptime VERTS_PER_INSTANCE = 1152
 
 
@@ -134,6 +133,7 @@ struct ArenaRenderer(Movable):
     var meshes: MeshRegistry
     var cube: Int  # the unit cube's mesh id, for the centre probe and textured boxes
     var sphere: Int  # the unit sphere's mesh id, for textured spheres
+    var max_items: Int  # RenderCaps.arena_instances: primitives drawn per frame (the rest are dropped)
     var debug_view: Int  # DEBUG_NONE / DEBUG_FLAT / DEBUG_SKY (app/debug_view.mojo), for visual tests
     var probe: Int  # 0 off; 1 a rigid cube at the view's centre; 2 / 3 a skinned cube at the centre, identity / joint turned 20 deg
     var skin: SkinnedPass
@@ -151,7 +151,10 @@ struct ArenaRenderer(Movable):
     var depth_w: UInt32
     var depth_h: UInt32
 
-    def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2) raises:
+    def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
+                 caps: RenderCaps = RenderCaps.default()) raises:
+        caps.check()
+        self.max_items = caps.arena_instances
         var shader = device.create_shader_module_wgsl(WGSL, "arena")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
@@ -170,8 +173,8 @@ struct ArenaRenderer(Movable):
         # layer 0 white, layer 1 the placeholder checker; a game that loads more textures asks for more layers
         var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
-        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex)
-        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.mesh.shadow_view, self.mesh.shadow_sampler, self.mesh.shadow_ubo)  # before the move: it reads the array's views
+        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex, caps)
+        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.mesh.shadow_view, self.mesh.shadow_sampler, self.mesh.shadow_ubo, caps)  # before the move: it reads the array's views
         self.textures = tex^
         self.meshes = MeshRegistry()
         self.cube = add_unit_cube(self.meshes)
@@ -200,7 +203,7 @@ struct ArenaRenderer(Movable):
         pal_ibm.append(Mat4.identity())
         pal_ibm.append(Mat4.identity())
         self.skin_palette = build_palette(pal_locals, pal_parents, pal_ibm)
-        var bytes = UInt64((5 + 4 * MAX_INSTANCES) * 16)
+        var bytes = UInt64((5 + 4 * caps.arena_instances) * 16)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
         var bg_entries: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.buffer.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),
@@ -223,6 +226,7 @@ struct ArenaRenderer(Movable):
         self.cube = move.cube
         self.sphere = move.sphere
         self.debug_view = move.debug_view
+        self.max_items = move.max_items
         self.probe = move.probe
         self.skin = move.skin^
         self.skin_palette = move.skin_palette^
@@ -300,7 +304,7 @@ struct ArenaRenderer(Movable):
         # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
         var count = 0
         for i in range(len(self.items)):
-            if self.items[i].mesh_id >= 0 or count >= MAX_INSTANCES:
+            if self.items[i].mesh_id >= 0 or count >= self.max_items:
                 continue
             count += 1
         for _ in range(4):

@@ -40,7 +40,28 @@ from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 
-comptime MAX_MESH_INSTANCES = 8192  # mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
+comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
+comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
+comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
+
+
+@fieldwise_init
+struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
+    """Per-frame capacities, chosen when the renderer is made (ludens-engine#71): arena items, mesh and skinned instances
+    (each pass's instance buffer) and skinning matrices (the palette buffers of the skinned and the shadow pass). The
+    buffers are sized from these; a frame past one raises in the pass that holds it."""
+
+    var arena_instances: Int
+    var mesh_instances: Int
+    var palette_matrices: Int
+
+    @staticmethod
+    def default() -> Self:
+        return Self(DEFAULT_ARENA_INSTANCES, MAX_MESH_INSTANCES, DEFAULT_PALETTE_MATRICES)
+
+    def check(self) raises:
+        if self.arena_instances < 1 or self.mesh_instances < 1 or self.palette_matrices < 1:
+            raise Error("RenderCaps: every capacity must be at least 1")
 comptime SHADOW_MAP_SIZE = 1024  # the mesh pass's shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime FLOATS_PER_INSTANCE = 24
@@ -452,8 +473,12 @@ struct MeshPass(Movable):
     var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
     var atmo_linear: Bool
     var sky_overridden: Bool
+    var max_instances: Int  # RenderCaps.mesh_instances
 
-    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
+    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+                 caps: RenderCaps = RenderCaps.default()) raises:
+        caps.check()
+        self.max_instances = caps.mesh_instances
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
@@ -550,7 +575,7 @@ struct MeshPass(Movable):
         self.pipeline = _build_pipeline(device, shader, layout, color_format, depth_format)
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         self.instances = device.create_buffer(
-            UInt64(MAX_MESH_INSTANCES * FLOATS_PER_INSTANCE * 4),
+            UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4),
             WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="mesh_instances",
         )
@@ -687,8 +712,8 @@ struct MeshPass(Movable):
         var total = 0
         for c in self.counts:
             total += c
-        if total > MAX_MESH_INSTANCES:
-            raise Error("mesh pass: more instances than MAX_MESH_INSTANCES")
+        if total > self.max_instances:
+            raise Error("mesh pass: " + String(total) + " instances, more than its capacity " + String(self.max_instances))
         # the camera header, the arena's layout: eye.w = sx, right.w = sy, up.w = near, fwd.w = far
         var cam = List[Float32]()
         for e in [v.eye, v.right, v.up, v.fwd]:
