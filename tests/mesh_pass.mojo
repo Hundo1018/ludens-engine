@@ -2,7 +2,7 @@
 # The mesh pass's CPU side (app/mesh_pass.mojo): the registry's checks, and the draw-list hash. The GPU side is checked
 # by the parity gates (a cube drawn natively and on the web), not here.
 from harness.runner import Suite
-from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash, unit_cube_arrays, RenderCaps
+from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash, unit_cube_arrays, RenderCaps, vertex_normals
 from game.arena import DrawItem
 from geometry.vec import Real, Vec3
 
@@ -145,4 +145,42 @@ def main() raises:
     except:
         bad += 10
     s.check(bad == 1, "a zero capacity raises, a larger one is accepted")
+    # ludens-engine#73: a dynamic mesh (a 2 x 2 quad grid that bends), normals from vertex_normals
+    var gp = List[Float32]()
+    var guv = List[Float32]()
+    for j in range(3):
+        for i2 in range(3):
+            gp.append(Float32(i2)); gp.append(0.0); gp.append(Float32(j))
+            guv.append(Float32(i2) / 2.0); guv.append(Float32(j) / 2.0)
+    var gi = List[UInt32]()
+    for j in range(2):
+        for i2 in range(2):
+            var a = UInt32(j * 3 + i2)
+            gi.append(a); gi.append(a + 3); gi.append(a + 1)
+            gi.append(a + 1); gi.append(a + 3); gi.append(a + 4)
+    var gn = vertex_normals(gp, gi)
+    var up = True
+    for v in range(9):
+        up = up and gn[3 * v] == 0.0 and gn[3 * v + 1] == 1.0 and gn[3 * v + 2] == 0.0
+    s.check(up, "vertex_normals of a flat grid in y = 0 wound counter-clockwise from above: every normal (0, 1, 0)")
+    var dreg = MeshRegistry()
+    var still = dreg.add_static(gp.copy(), gn.copy(), guv.copy(), gi.copy())
+    var dyn = dreg.add_dynamic(gp.copy(), gn.copy(), guv.copy(), gi.copy())
+    s.check(dreg.versions[still] == 0 and dreg.versions[dyn] == 1, "add_static is version 0, add_dynamic starts at 1")
+    var bent = gp.copy()
+    bent[3 * 4 + 1] = 0.5  # lift the centre
+    dreg.update_dynamic(dyn, bent.copy(), vertex_normals(bent, gi))
+    s.check(dreg.versions[dyn] == 2 and dreg.meshes[dyn].positions[13] == 0.5, "update_dynamic replaces the positions and bumps the version")
+    var refused = 0
+    try:
+        dreg.update_dynamic(still, bent.copy(), gn.copy())
+    except:
+        refused += 1
+    try:
+        var short = List[Float32]()
+        short.append(0.0); short.append(0.0); short.append(0.0)
+        dreg.update_dynamic(dyn, short.copy(), short.copy())
+    except:
+        refused += 1
+    s.check(refused == 2, "update_dynamic refuses a static mesh and a different vertex count")
     s.finish()

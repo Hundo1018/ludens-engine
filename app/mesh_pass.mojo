@@ -183,6 +183,38 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
 """
 
 
+def vertex_normals(positions: List[Float32], indices: List[UInt32]) -> List[Float32]:
+    """Per-vertex normals of a triangle mesh: each triangle's (unnormalised, so area-weighted) normal added to its three
+    vertices, then normalised; a vertex no triangle uses gets (0, 1, 0). For a dynamic mesh's update_dynamic."""
+    var n = List[Float32](length=len(positions), fill=Float32(0))
+    for t in range(len(indices) // 3):
+        var a = Int(indices[3 * t])
+        var b = Int(indices[3 * t + 1])
+        var c = Int(indices[3 * t + 2])
+        var ux = positions[3 * b] - positions[3 * a]
+        var uy = positions[3 * b + 1] - positions[3 * a + 1]
+        var uz = positions[3 * b + 2] - positions[3 * a + 2]
+        var vx = positions[3 * c] - positions[3 * a]
+        var vy = positions[3 * c + 1] - positions[3 * a + 1]
+        var vz = positions[3 * c + 2] - positions[3 * a + 2]
+        var nx = uy * vz - uz * vy
+        var ny = uz * vx - ux * vz
+        var nz = ux * vy - uy * vx
+        for k in [a, b, c]:
+            n[3 * k] += nx
+            n[3 * k + 1] += ny
+            n[3 * k + 2] += nz
+    for v in range(len(positions) // 3):
+        var l = (n[3 * v] * n[3 * v] + n[3 * v + 1] * n[3 * v + 1] + n[3 * v + 2] * n[3 * v + 2]) ** Float32(0.5)
+        if l > Float32(1e-12):
+            n[3 * v] /= l
+            n[3 * v + 1] /= l
+            n[3 * v + 2] /= l
+        else:
+            n[3 * v + 1] = 1.0
+    return n^
+
+
 @fieldwise_init
 struct MeshData(Copyable, Movable):
     """One static mesh on the CPU: positions, normals, uv and a triangle index list."""
@@ -228,10 +260,12 @@ struct MeshRegistry(Movable):
 
     var meshes: List[MeshData]
     var skinned: List[SkinnedMeshData]
+    var versions: List[Int]  # per static mesh: 0 static; a dynamic mesh starts at 1 and counts its updates
 
     def __init__(out self):
         self.meshes = List[MeshData]()
         self.skinned = List[SkinnedMeshData]()
+        self.versions = List[Int]()
 
     def add_skinned(
         mut self,
@@ -262,7 +296,32 @@ struct MeshRegistry(Movable):
         """Check the arrays at the boundary (an invalid mesh raises), then keep it. Returns its id."""
         _check_mesh(positions, normals, uv, indices)
         self.meshes.append(MeshData(positions^, normals^, uv^, indices^))
+        self.versions.append(0)
         return len(self.meshes) - 1
+
+    def add_dynamic(
+        mut self,
+        var positions: List[Float32],
+        var normals: List[Float32],
+        var uv: List[Float32],
+        var indices: List[UInt32],
+    ) raises -> Int:
+        """A mesh whose positions and normals change (cloth, a rope; ludens-engine#73): as add_static, and
+        update_dynamic replaces them each frame; the passes re-upload a mesh whose version changed. The vertex count,
+        uv and indices stay fixed."""
+        var id = self.add_static(positions^, normals^, uv^, indices^)
+        self.versions[id] = 1
+        return id
+
+    def update_dynamic(mut self, id: Int, var positions: List[Float32], var normals: List[Float32]) raises:
+        """Replace a dynamic mesh's positions and normals (same vertex count)."""
+        if id < 0 or id >= len(self.meshes) or self.versions[id] == 0:
+            raise Error("mesh: update_dynamic needs a mesh made by add_dynamic")
+        if len(positions) != len(self.meshes[id].positions) or len(normals) != len(positions):
+            raise Error("mesh: update_dynamic keeps the vertex count (3 floats per position and per normal)")
+        self.meshes[id].positions = positions^
+        self.meshes[id].normals = normals^
+        self.versions[id] += 1
 
     def count(self) -> Int:
         return len(self.meshes)
@@ -461,6 +520,7 @@ struct MeshPass(Movable):
     var vbufs: List[Buffer]  # three per mesh: positions, normals, uv
     var ibufs: List[Buffer]  # one per mesh
     var uploaded: Int
+    var seen: List[Int]  # per uploaded mesh: the registry version its buffers hold
     var order: List[Int]
     var counts: List[Int]
     var base: List[Int]
@@ -595,6 +655,7 @@ struct MeshPass(Movable):
         self.vbufs = List[Buffer]()
         self.ibufs = List[Buffer]()
         self.uploaded = 0
+        self.seen = List[Int]()
         self.order = List[Int]()
         self.counts = List[Int]()
         self.base = List[Int]()
@@ -688,7 +749,14 @@ struct MeshPass(Movable):
             self.vbufs.append(vb_nrm^)
             self.vbufs.append(vb_uv^)
             self.ibufs.append(ib^)
+            self.seen.append(registry.versions[self.uploaded])
             self.uploaded += 1
+        # dynamic meshes whose positions changed since the last upload
+        for i in range(self.uploaded):
+            if registry.versions[i] != self.seen[i]:
+                device.queue_write_data(self.vbufs[3 * i], UInt64(0), registry.meshes[i].positions)
+                device.queue_write_data(self.vbufs[3 * i + 1], UInt64(0), registry.meshes[i].normals)
+                self.seen[i] = registry.versions[i]
 
     def prepare(mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, v: View) raises:
         """Everything that can fail, done before the render pass opens: upload the meshes, group the mesh items by
