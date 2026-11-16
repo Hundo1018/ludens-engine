@@ -1,7 +1,7 @@
 // Asset loader (shell/web/assets.mjs) under node: a served file loads when its sha256 matches, and every other case is
 // refused. usage: node scripts/test_assets.mjs
 import http from "node:http";
-import { loadAsset, stageAsset, sha256Hex, MAX_ASSET_BYTES } from "../shell/web/assets.mjs";
+import { loadAsset, stageAsset, sha256Hex, MAX_ASSET_BYTES, lsoundToStereo } from "../shell/web/assets.mjs";
 
 let passed = 0, failed = 0;
 const ok = (cond, label) => { cond ? passed++ : failed++; console.log(`  [${cond ? "PASS" : "FAIL"}] ${label}`); };
@@ -50,6 +50,22 @@ ok(calls[calls.length - 1][0] === "free" && calls[calls.length - 1][1] === 4242,
 const empty = stageAsset(rt, new Uint8Array(0));
 ok(calls.some((c) => c[0] === "alloc" && c[1] === 1), "an empty asset still allocates one byte, so the pointer is valid");
 empty.free();
+
+// .lsound decoding: a header with a JSON part of 5 bytes, then three int16 samples; each comes out twice, scaled by 1/32768
+const head = new TextEncoder().encode('{"a":1}'.slice(0, 5));
+const snd = new Uint8Array(12 + head.length + 6);
+const sv = new DataView(snd.buffer);
+snd.set([76, 83, 78, 68]);
+sv.setUint32(4, 1, true);
+sv.setUint32(8, head.length, true);
+snd.set(head, 12);
+[16384, -32768, 32767].forEach((v, i) => sv.setInt16(12 + head.length + 2 * i, v, true));
+const pcm = lsoundToStereo(snd);
+ok(pcm.length === 6 && pcm[0] === 0.5 && pcm[1] === 0.5 && pcm[2] === -1 && pcm[3] === -1 && pcm[4] === 32767 / 32768,
+  "lsoundToStereo: three mono samples become six interleaved stereo values, scaled by 1/32768");
+let refused = false;
+try { lsoundToStereo(new Uint8Array(16)); } catch (e) { refused = /not an \.lsound/.test(String(e.message)); }
+ok(refused, "lsoundToStereo refuses a file without the LSND magic");
 
 server.close();
 console.log(`test_assets: ${passed} / ${passed + failed} checks`);
