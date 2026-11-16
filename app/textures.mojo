@@ -126,11 +126,13 @@ struct TextureArray(Movable):
     var main_sampler: Sampler  # linear, linear mips, repeat
     var test_sampler: Sampler  # nearest, no mip filtering: the test's exact texel reads
     var layers: UInt32
+    var loaded: List[Bool]  # per layer: filled by load_layer (layer 0, white, from the start)
 
     def __init__(out self, device: Device, layers: UInt32) raises:
         if layers == 0:
             raise Error("TextureArray: at least one layer")
         self.layers = layers
+        self.loaded = List[Bool](length=Int(layers), fill=False)
         # COPY_SRC: the playground's C2 check reads the levels back to compare them with the converted files.
         self.texture = device.create_texture(
             TEX_SIZE, TEX_SIZE, layers, WGPUTextureFormat.RGBA8Unorm,
@@ -167,3 +169,8 @@ struct TextureArray(Movable):
                 self.texture, UInt32(level), WGPUOrigin3D(UInt32(0), UInt32(0), layer), WGPUTextureAspect.All,
                 levels[level].copy(), UInt32(s * 4), UInt32(s), UInt32(s), UInt32(s), UInt32(1),
             )
+        self.loaded[Int(layer)] = True
+
+    def is_loaded(self, layer: Int) -> Bool:
+        """Whether `layer` holds a texture (load_layer has run for it). Layer 0 is white from the start."""
+        return layer >= 0 and layer < len(self.loaded) and self.loaded[layer]
