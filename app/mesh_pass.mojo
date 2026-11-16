@@ -449,6 +449,9 @@ struct MeshPass(Movable):
     var shadow_ubo: Buffer  # light view-projection (64 bytes) and params (16 bytes): params.x 1 turns the shadow on
     var ao_cells: Buffer  # the AO grid: AO_MAX_CELLS floats, all 1 (open) until set_ao
     var ao_ubo: Buffer  # AO extent, dims and the on-flag (48 bytes)
+    var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
+    var atmo_linear: Bool
+    var sky_overridden: Bool
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
@@ -459,6 +462,9 @@ struct MeshPass(Movable):
             dimension=2, mip_level_count=1, label="mesh_shadow_map",
         )
         self.shadow_view = self.shadow_tex.create_view_default()
+        self.atmo_fog = False
+        self.atmo_linear = False
+        self.sky_overridden = False
         self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
         self.shadow_ubo = device.create_buffer(
             UInt64(128), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_shadow_ubo",
@@ -601,6 +607,9 @@ struct MeshPass(Movable):
         data.append(exposure)
         data.append(sky_curve)
         device.queue_write_data(self.shadow_ubo, UInt64(80), data)
+        self.atmo_fog = fog
+        self.atmo_linear = linear
+        self.sky_overridden = False
 
     def set_fog_linear(mut self, device: Device, fog: Bool, linear: Bool) raises:
         """Override the atmosphere's fog and linear-workflow flags for the next draw, leaving its colours and density
@@ -611,6 +620,16 @@ struct MeshPass(Movable):
         var f = List[Float32]()
         f.append(Float32(1.0) if fog else Float32(0.0))
         device.queue_write_data(self.shadow_ubo, UInt64(112), f)
+
+    def debug_sky(mut self, device: Device, on: Bool) raises:
+        """For app/debug_view.mojo's DEBUG_SKY: with `on`, fog and the linear workflow off for this draw; on the first
+        draw without it, the flags of the latest set_atmosphere back (a host that sets the atmosphere once keeps it)."""
+        if on:
+            self.set_fog_linear(device, False, False)
+            self.sky_overridden = True
+        elif self.sky_overridden:
+            self.set_fog_linear(device, self.atmo_fog, self.atmo_linear)
+            self.sky_overridden = False
 
     def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
                sx: Float32, sz: Float32, on: Bool) raises:
