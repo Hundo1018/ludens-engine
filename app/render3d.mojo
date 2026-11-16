@@ -28,6 +28,7 @@ from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere
 from app.skin_draw import SkinnedPass
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
+from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
 from geometry.mat import Mat4
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
@@ -133,6 +134,7 @@ struct ArenaRenderer(Movable):
     var meshes: MeshRegistry
     var cube: Int  # the unit cube's mesh id, for the centre probe and textured boxes
     var sphere: Int  # the unit sphere's mesh id, for textured spheres
+    var debug_view: Int  # DEBUG_NONE / DEBUG_FLAT / DEBUG_SKY (app/debug_view.mojo), for visual tests
     var probe: Int  # 0 off; 1 a rigid cube at the view's centre; 2 / 3 a skinned cube at the centre, identity / joint turned 20 deg
     var skin: SkinnedPass
     var skin_palette: List[Float32]
@@ -174,6 +176,7 @@ struct ArenaRenderer(Movable):
         self.meshes = MeshRegistry()
         self.cube = add_unit_cube(self.meshes)
         self.sphere = add_unit_sphere(self.meshes)
+        self.debug_view = DEBUG_NONE
         self.probe = 0
         var c = unit_cube_arrays()
         var nv = len(c[0]) // 3
@@ -219,6 +222,7 @@ struct ArenaRenderer(Movable):
         self.meshes = move.meshes^
         self.cube = move.cube
         self.sphere = move.sphere
+        self.debug_view = move.debug_view
         self.probe = move.probe
         self.skin = move.skin^
         self.skin_palette = move.skin_palette^
@@ -291,6 +295,9 @@ struct ArenaRenderer(Movable):
         self.staging[7] = Float32(v.sy)
         self.staging[11] = Float32(v.near)
         self.staging[15] = Float32(v.far)
+        debug_recolor(self.items, self.debug_view)
+        if self.debug_view == DEBUG_SKY:
+            self.mesh.set_fog_linear(device, False, False)
         # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
         var count = 0
         for i in range(len(self.items)):
