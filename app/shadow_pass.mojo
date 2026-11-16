@@ -203,6 +203,7 @@ struct ShadowPass(Movable):
     var vbufs: List[Buffer]
     var ibufs: List[Buffer]
     var uploaded: Int
+    var seen: List[Int]  # per uploaded mesh: the registry version its buffer holds
     var depth_format: UInt32
     var skin_pipeline: RenderPipeline
     var skin_group: BindGroup
@@ -243,6 +244,7 @@ struct ShadowPass(Movable):
         self.vbufs = List[Buffer]()
         self.ibufs = List[Buffer]()
         self.uploaded = 0
+        self.seen = List[Int]()
         self.depth_format = depth_format
         var skin_shader = device.create_shader_module_wgsl(SKIN_SHADOW_WGSL, "shadow_skin_vs")
         var skin_entries: List[WGPUBindGroupLayoutEntry] = [
@@ -291,7 +293,12 @@ struct ShadowPass(Movable):
             device.queue_write_data(ib, UInt64(0), m.indices)
             self.vbufs.append(vb_pos^)
             self.ibufs.append(ib^)
+            self.seen.append(registry.versions[self.uploaded])
             self.uploaded += 1
+        for i in range(self.uploaded):
+            if registry.versions[i] != self.seen[i]:
+                device.queue_write_data(self.vbufs[i], UInt64(0), registry.meshes[i].positions)
+                self.seen[i] = registry.versions[i]
 
     def upload_skinned(mut self, device: Device, registry: MeshRegistry) raises:
         """Upload the skinned meshes this pass does not hold yet: positions, joints (u16 x 4) and weights per vertex."""
