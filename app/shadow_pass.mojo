@@ -43,7 +43,7 @@ from wgpu.pipeline_layout import PipelineLayout
 from wgpu.render_pass import RenderPassEncoder
 from wgpu.command import CommandEncoder
 from wgpu.texture import TextureView
-from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, MAX_MESH_INSTANCES
+from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
 from app.skin_gpu import SKIN_FN
 
 comptime SHADOW_WGSL = """
@@ -98,7 +98,6 @@ fn vs_skin(i : SkVsIn) -> @builtin(position) vec4<f32> {
 """
 
 # the palette holds at most this many matrices (the engine's skinned limit); the storage buffer is sized for it
-comptime MAX_PALETTE_MATRICES = 4096
 
 
 def _build_pipeline(
@@ -212,8 +211,13 @@ struct ShadowPass(Movable):
     var skin_vbufs: List[Buffer]  # per skinned mesh: positions, joints, weights
     var skin_ibufs: List[Buffer]
     var skin_uploaded: Int
+    var max_instances: Int  # RenderCaps.mesh_instances
+    var max_palette: Int  # RenderCaps.palette_matrices
 
-    def __init__(out self, device: Device, depth_format: UInt32) raises:
+    def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
+        caps.check()
+        self.max_instances = caps.mesh_instances
+        self.max_palette = caps.palette_matrices
         var shader = device.create_shader_module_wgsl(SHADOW_WGSL, "shadow_vs")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
@@ -233,7 +237,7 @@ struct ShadowPass(Movable):
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "shadow_group")
         self.instances = device.create_buffer(
-            UInt64(MAX_MESH_INSTANCES * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
+            UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="shadow_instances",
         )
         self.vbufs = List[Buffer]()
@@ -261,15 +265,15 @@ struct ShadowPass(Movable):
         var skin_pl = device.create_pipeline_layout(skin_bgl, "shadow_skin_layout")
         self.skin_pipeline = _build_skin_pipeline(device, skin_shader, skin_pl, depth_format)
         self.palette_buf = device.create_buffer(
-            UInt64(MAX_PALETTE_MATRICES * 64), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="shadow_palette",
+            UInt64(caps.palette_matrices * 64), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="shadow_palette",
         )
         var skin_bg_entries: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), UInt32(0), self.light.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), UInt32(1), self.palette_buf.handle().raw, UInt64(0), UInt64(MAX_PALETTE_MATRICES * 64), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), UInt32(1), self.palette_buf.handle().raw, UInt64(0), UInt64(caps.palette_matrices * 64), null_opaque(), null_opaque()),
         ]
         self.skin_group = device.create_bind_group(skin_bgl, skin_bg_entries, "shadow_skin_group")
         self.skin_instances = device.create_buffer(
-            UInt64(MAX_MESH_INSTANCES * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
+            UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="shadow_skin_instances",
         )
         self.skin_vbufs = List[Buffer]()
@@ -336,11 +340,11 @@ struct ShadowPass(Movable):
         var skin_total = 0
         for c in skin_counts:
             skin_total += c
-        if skin_total > MAX_MESH_INSTANCES:
-            raise Error("shadow pass: more skinned instances than MAX_MESH_INSTANCES")
+        if skin_total > self.max_instances:
+            raise Error("shadow pass: more skinned instances than its capacity " + String(self.max_instances))
         if skin_total > 0:
-            if len(palette) == 0 or len(palette) % 16 != 0 or len(palette) // 16 > MAX_PALETTE_MATRICES:
-                raise Error("shadow pass: the skinned palette is 16 floats per matrix, at most MAX_PALETTE_MATRICES matrices")
+            if len(palette) == 0 or len(palette) % 16 != 0 or len(palette) // 16 > self.max_palette:
+                raise Error("shadow pass: the skinned palette is 16 floats per matrix, at most " + String(self.max_palette) + " matrices")
             device.queue_write_data(self.palette_buf, UInt64(0), palette)
         var order = List[Int]()
         var counts = List[Int]()
@@ -359,8 +363,8 @@ struct ShadowPass(Movable):
         var total = 0
         for c in counts:
             total += c
-        if total > MAX_MESH_INSTANCES:
-            raise Error("shadow pass: more instances than MAX_MESH_INSTANCES")
+        if total > self.max_instances:
+            raise Error("shadow pass: more instances than its capacity " + String(self.max_instances))
         var floats = List[Float32]()
         var base = List[Int]()
         var running = 0
