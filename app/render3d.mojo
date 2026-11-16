@@ -24,7 +24,7 @@ from wgpu.bind_group import BindGroup
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.texture import Texture, TextureView
 from hud import Hud
-from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, unit_cube_arrays
+from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays
 from app.skin_draw import SkinnedPass
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
@@ -131,7 +131,8 @@ struct ArenaRenderer(Movable):
     var mesh: MeshPass
     var textures: TextureArray  # layer 0 white, layer 1 the placeholder wall (PR D loads the real one)
     var meshes: MeshRegistry
-    var cube: Int  # the unit cube's mesh id, for the centre probe
+    var cube: Int  # the unit cube's mesh id, for the centre probe and textured boxes
+    var sphere: Int  # the unit sphere's mesh id, for textured spheres
     var probe: Int  # 0 off; 1 a rigid cube at the view's centre; 2 / 3 a skinned cube at the centre, identity / joint turned 20 deg
     var skin: SkinnedPass
     var skin_palette: List[Float32]
@@ -172,6 +173,7 @@ struct ArenaRenderer(Movable):
         self.textures = tex^
         self.meshes = MeshRegistry()
         self.cube = add_unit_cube(self.meshes)
+        self.sphere = add_unit_sphere(self.meshes)
         self.probe = 0
         var c = unit_cube_arrays()
         var nv = len(c[0]) // 3
@@ -216,6 +218,7 @@ struct ArenaRenderer(Movable):
         self.textures = move.textures^
         self.meshes = move.meshes^
         self.cube = move.cube
+        self.sphere = move.sphere
         self.probe = move.probe
         self.skin = move.skin^
         self.skin_palette = move.skin_palette^
@@ -238,8 +241,20 @@ struct ArenaRenderer(Movable):
         self.items.clear()
 
     def push(mut self, it: DrawItem):
-        """One item; the depth buffer sorts them out."""
-        self.items.append(it.copy())
+        """One item; the depth buffer sorts them out. A textured primitive (material > 0, no mesh, not skinned) is drawn on
+        the mesh pass: a box on the unit cube, a sphere (radius half[0]) on the unit sphere, both 1 across, so the half
+        extents double. A textured item whose layer is not loaded yet samples white (layer 0) until it is."""
+        var item = it.copy()
+        if item.material > 0 and item.mesh_id < 0 and item.pose_id < 0:
+            if item.kind == 1:
+                item.half = Vec3(item.half[0], item.half[0], item.half[0], Real(0.0))
+                item.mesh_id = self.sphere
+            else:
+                item.mesh_id = self.cube
+            item.half = item.half * Real(2.0)
+        if item.material > 0 and item.material != 3 and not self.textures.is_loaded(item.layer):
+            item.layer = 0
+        self.items.append(item^)
 
     def _depth_view(mut self, device: Device, width: UInt32, height: UInt32) raises:
         if not self.depth_view or self.depth_w != width or self.depth_h != height:
