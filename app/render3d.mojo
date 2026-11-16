@@ -296,8 +296,7 @@ struct ArenaRenderer(Movable):
         self.staging[11] = Float32(v.near)
         self.staging[15] = Float32(v.far)
         debug_recolor(self.items, self.debug_view)
-        if self.debug_view == DEBUG_SKY:
-            self.mesh.set_fog_linear(device, False, False)
+        self.mesh.debug_sky(device, self.debug_view == DEBUG_SKY)
         # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
         var count = 0
         for i in range(len(self.items)):
