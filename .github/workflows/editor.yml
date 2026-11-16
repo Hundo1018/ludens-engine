@@ -64,6 +64,10 @@ jobs:
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node
         run: pixi run -e wasm test-vpad
+      - name: Asset loader and .lsound decoding, node
+        run: pixi run -e wasm test-assets
+      - name: Asset converters and readers on synthetic inputs (#12)
+        run: pixi run -e wasm test-asset-formats
 
   ui:
     name: ui/ toolkit (standard library only)

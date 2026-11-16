@@ -3,6 +3,8 @@
 //
 //   loadAsset(url, sha256Hex, { maxBytes })  -> Promise<Uint8Array>   rejects if the status, size or hash is wrong
 //   stageAsset(rt, bytes)                    -> { ptr, len, free() }  bytes copied into wasm memory via rt.alloc/put
+//   lsoundToStereo(bytes)                    -> Float32Array          an .lsound (scripts/assets/convert_wav.py) as
+//                                                                      interleaved stereo f32, the mono channel twice
 //
 // Two rules the caller cannot turn off: the hash must match (the manifest is the licence record, so a changed file
 // is a changed asset), and the size is capped. Assets are data: nothing here runs code from them.
@@ -38,4 +40,21 @@ export function stageAsset(rt, bytes) {
   const ptr = rt.alloc(Math.max(1, bytes.length));
   rt.put(ptr, bytes);
   return { ptr, len: bytes.length, free: () => rt.free(ptr) };
+}
+
+// .lsound (scripts/assets/convert_wav.py): "LSND", u32 version, u32 header length, JSON header, then int16 mono frames.
+// Moved from ludens-playground's page/app.js (issue #12).
+export function lsoundToStereo(bytes) {
+  const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (magic !== "LSND") throw new Error("not an .lsound file");
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const off = 12 + dv.getUint32(8, true);
+  const n = (bytes.byteLength - off) >> 1;
+  const out = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    const v = dv.getInt16(off + 2 * i, true) / 32768;
+    out[2 * i] = v;
+    out[2 * i + 1] = v;
+  }
+  return out;
 }

@@ -16,6 +16,8 @@ clang = "23.1.4.*"
 lld = "23.1.4.*"
 llvm-tools = "23.1.4.*"
 nodejs = "24.*"
+# scripts/assets/convert_texture.py resizes with Lanczos; the output bytes are only stable for a fixed Pillow (issue #12).
+pillow = "==13.0.0"
 
 [feature.wasm.pypi-dependencies]
 ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "0845b4280f3dbd6ab7666cd312f236e747cfd31c" }
@@ -53,6 +55,8 @@ sheet-cost = "python3 scripts/sheet_cost.py"
 test-pad = "node --experimental-strip-types --no-warnings scripts/test_pad.mjs"
 test-vpad = "node --experimental-strip-types --no-warnings scripts/test_vpad.mjs"
 test-assets = "node --no-warnings scripts/test_assets.mjs"
+# #12: the asset converters (scripts/assets/) and readers (app/assets.mojo) on synthetic inputs.
+test-asset-formats = "python3 scripts/test_asset_formats.py"
 ludens = "python3 scripts/ludens.py"
 test-cli = "python3 tests/test_cli.py"
 test-os = "python3 scripts/test_os.py"
