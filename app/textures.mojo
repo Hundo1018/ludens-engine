@@ -7,6 +7,7 @@ no mip filtering.
 Materials, read in the fragment shader (see MATERIAL_WGSL):
   0  colour only (the old look)
   1  mesh uv, with a layer
+  3  the sky (ATMO_WGSL): a gradient by view direction, no light
   2  triplanar with a layer: the per-axis uv is world.zy, world.xz, world.xy times 0.25 per metre, blended by |n|^4
      (normalised). Triplanar lives in TRI_WGSL and uses explicit lod 0 (textureSampleLevel: textureSample needs
      uniform control flow, and the blend branches on the material)."""
@@ -34,6 +35,42 @@ fn triplanar(world : vec3<f32>, n : vec3<f32>, layer : u32, lod : f32) -> vec4<f
   let cy = textureSampleLevel(tex, samp, world.xz * 0.25, layer, lod);
   let cz = textureSampleLevel(tex, samp, world.xy * 0.25, layer, lod);
   return cx * ws.x + cy * ws.y + cz * ws.z;
+}
+"""
+
+
+# The atmosphere (sky, fog, linear lighting and tone mapping), shared by the mesh and skinned passes. It reads the passes'
+# `shadow` uniform (three vec4 after vp and params) and `cam`. Every function returns its input unchanged while the
+# switches are 0, so the output is bit for bit the same as before the atmosphere existed:
+#   shadow.atmo.x    1 turns fog on; atmo.y the fog density per metre (fog = 1 - exp(-distance * density))
+#   shadow.sky_top.w 1 turns the linear workflow on: colours and texels are decoded from sRGB (2.2), lit, tone mapped
+#                    (ACES, Narkowicz's fit) at exposure atmo.z, and encoded again
+#   material 3       the sky: a gradient from sky_hor (at and below the horizon) to sky_top (straight up) by view direction
+comptime ATMO_WGSL = """
+fn atmo_lin(c : vec3<f32>) -> vec3<f32> {
+  return select(c, pow(max(c, vec3<f32>(0.0)), vec3<f32>(2.2)), shadow.sky_top.w > 0.5);
+}
+fn atmo_aces(x : vec3<f32>) -> vec3<f32> {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+fn atmo_out(c_in : vec3<f32>) -> vec4<f32> {
+  var c = c_in;
+  if shadow.sky_top.w > 0.5 {
+    c = pow(atmo_aces(c * shadow.atmo.z), vec3<f32>(1.0 / 2.2));
+  }
+  return vec4<f32>(c, 1.0);
+}
+fn atmo_fog(c : vec3<f32>, wpos : vec3<f32>) -> vec3<f32> {
+  if shadow.atmo.x < 0.5 {
+    return c;
+  }
+  let f = 1.0 - exp(-length(wpos - cam.eye.xyz) * shadow.atmo.y);
+  return mix(c, atmo_lin(shadow.sky_hor.rgb), f);
+}
+fn atmo_sky(wpos : vec3<f32>) -> vec3<f32> {
+  let dir = normalize(wpos - cam.eye.xyz);
+  let t = pow(clamp(dir.y, 0.0, 1.0), 0.5);
+  return mix(atmo_lin(shadow.sky_hor.rgb), atmo_lin(shadow.sky_top.rgb), t);
 }
 """
 

@@ -12,7 +12,7 @@ Instances of one mesh are contiguous in the instance buffer; the draw uses first
 from game.arena import DrawItem
 from game.camera_view import View
 from geometry.vec import Real, Vec3
-from app.textures import TextureArray, TRI_WGSL
+from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
 from wgpu._ffi.types import WGPUTextureUsage
@@ -46,8 +46,9 @@ comptime FLOATS_PER_INSTANCE = 24
 comptime MESH_WGSL = """
 struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
 @group(0) @binding(0) var<uniform> cam : Cam;
-// shadow: the light's view-projection (orthographic, z in [0, 1]); params.x 1 turns the shadow factor on
-struct Shadow { vp : mat4x4<f32>, params : vec4<f32> };
+// shadow: the light's view-projection (orthographic, z in [0, 1]); params.x 1 turns the shadow factor on. sky_top, sky_hor
+// and atmo are the atmosphere (app/textures.mojo ATMO_WGSL), all zero (off) until set_atmosphere.
+struct Shadow { vp : mat4x4<f32>, params : vec4<f32>, sky_top : vec4<f32>, sky_hor : vec4<f32>, atmo : vec4<f32> };
 @group(0) @binding(3) var shadow_map : texture_depth_2d;
 @group(0) @binding(4) var shadow_cmp : sampler_comparison;
 @group(0) @binding(5) var<uniform> shadow : Shadow;
@@ -63,7 +64,7 @@ fn ao_factor(p : vec3<f32>) -> f32 {
   let c = min(vec2<u32>(uv * vec2<f32>(n)), n - vec2<u32>(1u));
   return ao_cells[c.y * n.x + c.x];
 }
-""" + TRI_WGSL + """
+""" + TRI_WGSL + ATMO_WGSL + """
 
 struct VIn {
   @location(0) pos : vec3<f32>,
@@ -76,7 +77,7 @@ struct VIn {
   @location(7) color : vec4<f32>,
   @location(8) info : vec4<f32>,
 };
-// info: x unused by static meshes, y the material (0 colour, 1 uv, 2 triplanar), z the texture layer
+// info: x unused by static meshes, y the material (0 colour, 1 uv, 2 triplanar, 3 sky), z the texture layer
 struct VOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) color : vec3<f32>,
@@ -141,9 +142,13 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   // the AO factor multiplies the shadow factor; with AO off it is exactly 1.0, so the colour is unchanged bit for bit
   let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5);
-  // material 0 is the colour-only look: the same output as before textures existed
+  if in.mat == 3u {
+    return atmo_out(atmo_sky(in.wpos));
+  }
+  // material 0 is the colour-only look: the same output as before textures existed (the atmosphere off)
   if in.mat == 0u {
-    return vec4<f32>(in.color * sf, 1.0);
+    let c0 = select(in.color, atmo_lin(in.base) * in.lit, shadow.sky_top.w > 0.5);
+    return atmo_out(atmo_fog(c0 * sf, in.wpos));
   }
   var t : vec4<f32>;
   if in.mat == 1u {
@@ -151,7 +156,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   } else {
     t = triplanar(in.wpos, in.wnrm, in.layer, 0.0);
   }
-  return vec4<f32>(in.base * t.rgb * in.lit * sf, 1.0);
+  return atmo_out(atmo_fog(atmo_lin(in.base) * atmo_lin(t.rgb) * in.lit * sf, in.wpos));
 }
 """
 
@@ -411,12 +416,12 @@ struct MeshPass(Movable):
         self.shadow_view = self.shadow_tex.create_view_default()
         self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
         self.shadow_ubo = device.create_buffer(
-            UInt64(80), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_shadow_ubo",
+            UInt64(128), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_shadow_ubo",
         )
         var off = List[Float32]()  # identity light matrix, shadow off
         for c in range(16):
             off.append(Float32(1.0) if c % 5 == 0 else Float32(0.0))
-        for c in range(4):
+        for c in range(16):  # params, then the atmosphere's three vec4: all off
             off.append(0.0)
         device.queue_write_data(self.shadow_ubo, UInt64(0), off)
         self.ao_cells = device.create_buffer(
@@ -504,7 +509,7 @@ struct MeshPass(Movable):
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), self.shadow_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), self.shadow_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 5, self.shadow_ubo.handle().raw, 0, UInt64(80), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 5, self.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 6, self.ao_cells.handle().raw, 0, UInt64(AO_MAX_CELLS * 4), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 7, self.ao_ubo.handle().raw, 0, UInt64(48), null_opaque(), null_opaque()),
         ]
@@ -532,6 +537,24 @@ struct MeshPass(Movable):
         data.append(0.0)
         data.append(0.0)
         device.queue_write_data(self.shadow_ubo, UInt64(0), data)
+
+    def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
+                       fog: Bool, linear: Bool) raises:
+        """The atmosphere for this pass and the skinned pass (they share the uniform): the sky's colours (sRGB, as the
+        draw items' colours), fog toward the horizon colour with this density per metre, and the linear workflow with
+        ACES tone mapping at this exposure. Both off by default: the colour is then unchanged bit for bit."""
+        if not (fog_density >= 0) or not (exposure > 0):
+            raise Error("mesh pass: the fog density must be >= 0 and the exposure > 0")
+        var data = List[Float32]()
+        data.append(Float32(sky_top[0])); data.append(Float32(sky_top[1])); data.append(Float32(sky_top[2]))
+        data.append(Float32(1.0) if linear else Float32(0.0))
+        data.append(Float32(sky_horizon[0])); data.append(Float32(sky_horizon[1])); data.append(Float32(sky_horizon[2]))
+        data.append(0.0)
+        data.append(Float32(1.0) if fog else Float32(0.0))
+        data.append(fog_density)
+        data.append(exposure)
+        data.append(0.0)
+        device.queue_write_data(self.shadow_ubo, UInt64(80), data)
 
     def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
                sx: Float32, sz: Float32, on: Bool) raises:

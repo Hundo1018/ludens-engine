@@ -35,6 +35,7 @@ from game.camera_view import View
 from app.mesh_pass import MeshRegistry, model_floats, MAX_MESH_INSTANCES, FLOATS_PER_INSTANCE
 from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
+from app.textures import ATMO_WGSL
 
 comptime MAX_PALETTE_MATRICES = 4096  # 64 instances x 64 joints: 256 KB of mat4x4<f32>
 
@@ -47,9 +48,9 @@ struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32>
 // the sun's shadow map and its light (the mesh pass's bindings 3 to 5): the characters receive shadows too
 @group(0) @binding(4) var shadow_map : texture_depth_2d;
 @group(0) @binding(5) var shadow_cmp : sampler_comparison;
-struct Shadow { vp : mat4x4<f32>, params : vec4<f32> };
+struct Shadow { vp : mat4x4<f32>, params : vec4<f32>, sky_top : vec4<f32>, sky_hor : vec4<f32>, atmo : vec4<f32> };
 @group(0) @binding(6) var<uniform> shadow : Shadow;
-""" + SKIN_FN + """
+""" + SKIN_FN + ATMO_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -72,6 +73,9 @@ struct VOut {
   @location(3) @interpolate(flat) mat : u32,
   @location(4) lpos : vec3<f32>,
   @location(5) wnrm : vec3<f32>,
+  @location(6) wpos : vec3<f32>,
+  @location(7) base : vec3<f32>,
+  @location(8) lit : f32,
 };
 
 fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
@@ -115,6 +119,9 @@ fn vs_skin(v : SVIn) -> VOut {
   let lp = shadow.vp * vec4<f32>(world, 1.0);
   out.lpos = lp.xyz / lp.w;
   out.wnrm = n;
+  out.wpos = world;
+  out.base = v.color.rgb;
+  out.lit = lit;
   return out;
 }
 
@@ -123,11 +130,13 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0: the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
+  // the atmosphere (app/textures.mojo): unchanged bit for bit while it is off
+  let c0 = select(in.color, atmo_lin(in.base) * in.lit, shadow.sky_top.w > 0.5);
   if in.mat == 0u {
-    return vec4<f32>(in.color * sf, 1.0);
+    return atmo_out(atmo_fog(c0 * sf, in.wpos));
   }
   let t = textureSampleLevel(tex, samp, in.uv, in.layer, 0.0);
-  return vec4<f32>(in.color * t.rgb * sf, 1.0);
+  return atmo_out(atmo_fog(c0 * atmo_lin(t.rgb) * sf, in.wpos));
 }
 """
 
@@ -297,7 +306,7 @@ struct SkinnedPass(Movable):
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), null_opaque(), shadow_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), shadow_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 6, shadow_ubo.handle().raw, 0, UInt64(80), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 6, shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.vbufs = List[Buffer]()
