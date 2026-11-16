@@ -602,6 +602,16 @@ struct MeshPass(Movable):
         data.append(sky_curve)
         device.queue_write_data(self.shadow_ubo, UInt64(80), data)
 
+    def set_fog_linear(mut self, device: Device, fog: Bool, linear: Bool) raises:
+        """Override the atmosphere's fog and linear-workflow flags for the next draw, leaving its colours and density
+        (the sky mask of app/debug_view.mojo turns both off)."""
+        var lin = List[Float32]()
+        lin.append(Float32(1.0) if linear else Float32(0.0))
+        device.queue_write_data(self.shadow_ubo, UInt64(92), lin)
+        var f = List[Float32]()
+        f.append(Float32(1.0) if fog else Float32(0.0))
+        device.queue_write_data(self.shadow_ubo, UInt64(112), f)
+
     def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
                sx: Float32, sz: Float32, on: Bool) raises:
         """Set the ambient-occlusion grid: nx by ny cells (row-major by z, 1 open, 0 occluded) over the floor rectangle
