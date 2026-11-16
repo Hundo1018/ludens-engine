@@ -111,11 +111,19 @@ def count_cue(cues: List[Int], cue: Int) -> Int:
     return n
 
 
+comptime ARENA_POLYS = 116
+comptime ARENA_AREA_CM2 = 14365000
+
+
 def main() raises:
     var c = Check()
 
     # --- standing: the player settles at the ride height, the game is on --------------------------------
     var a = Arena()
+    # the navmesh baked from the floor and the two walls (game/arena.mojo _make_mesh): pinned to the values measured before
+    # its input was built with ludens-core's nav.nav_input, whose box sides face outward (the old _nav_box's faced in)
+    var area_cm2 = Int(a.mesh.walkable_area() * Real(10000.0) + Real(0.5))
+    c.ok(a.mesh.poly_count() == ARENA_POLYS and area_cm2 == ARENA_AREA_CM2, "the arena navmesh: " + String(a.mesh.poly_count()) + " polygons, " + String(area_cm2) + " cm2 (pinned " + String(ARENA_POLYS) + ", " + String(ARENA_AREA_CM2) + ")")
     c.ok(a.status() == STATUS_PLAYING and a.health() == MAX_HEALTH and a.collected() == 0, "a new game: playing, full health, nothing collected")
     run(a, Intent.idle(), 120)
     var y = a.player_pos()[1]
