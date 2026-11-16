@@ -539,11 +539,12 @@ struct MeshPass(Movable):
         device.queue_write_data(self.shadow_ubo, UInt64(0), data)
 
     def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
-                       fog: Bool, linear: Bool) raises:
+                       fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
         """The atmosphere for this pass and the skinned pass (they share the uniform): the sky's colours (sRGB, as the
         draw items' colours), fog toward the horizon colour with this density per metre, and the linear workflow with
-        ACES tone mapping at this exposure. Both off by default: the colour is then unchanged bit for bit."""
-        if not (fog_density >= 0) or not (exposure > 0):
+        ACES tone mapping at this exposure. sky_curve shapes the sky's gradient (pow of the view's up component; below 1
+        the colour leaves the horizon sooner). Both off by default: the colour is then unchanged bit for bit."""
+        if not (fog_density >= 0) or not (exposure > 0) or not (sky_curve > 0):
             raise Error("mesh pass: the fog density must be >= 0 and the exposure > 0")
         var data = List[Float32]()
         data.append(Float32(sky_top[0])); data.append(Float32(sky_top[1])); data.append(Float32(sky_top[2]))
@@ -553,7 +554,7 @@ struct MeshPass(Movable):
         data.append(Float32(1.0) if fog else Float32(0.0))
         data.append(fog_density)
         data.append(exposure)
-        data.append(0.0)
+        data.append(sky_curve)
         device.queue_write_data(self.shadow_ubo, UInt64(80), data)
 
     def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,

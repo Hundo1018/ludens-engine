@@ -45,7 +45,8 @@ fn triplanar(world : vec3<f32>, n : vec3<f32>, layer : u32, lod : f32) -> vec4<f
 #   shadow.atmo.x    1 turns fog on; atmo.y the fog density per metre (fog = 1 - exp(-distance * density))
 #   shadow.sky_top.w 1 turns the linear workflow on: colours and texels are decoded from sRGB (2.2), lit, tone mapped
 #                    (ACES, Narkowicz's fit) at exposure atmo.z, and encoded again
-#   material 3       the sky: a gradient from sky_hor (at and below the horizon) to sky_top (straight up) by view direction
+#   material 3       the sky: a gradient from sky_hor (at and below the horizon) to sky_top (straight up) by view direction,
+#                    pow(up, atmo.w); atmo.w 0 means 0.5
 comptime ATMO_WGSL = """
 fn atmo_lin(c : vec3<f32>) -> vec3<f32> {
   return select(c, pow(max(c, vec3<f32>(0.0)), vec3<f32>(2.2)), shadow.sky_top.w > 0.5);
@@ -69,7 +70,7 @@ fn atmo_fog(c : vec3<f32>, wpos : vec3<f32>) -> vec3<f32> {
 }
 fn atmo_sky(wpos : vec3<f32>) -> vec3<f32> {
   let dir = normalize(wpos - cam.eye.xyz);
-  let t = pow(clamp(dir.y, 0.0, 1.0), 0.5);
+  let t = pow(clamp(dir.y, 0.0, 1.0), select(0.5, shadow.atmo.w, shadow.atmo.w > 0.0));
   return mix(atmo_lin(shadow.sky_hor.rgb), atmo_lin(shadow.sky_top.rgb), t);
 }
 """
