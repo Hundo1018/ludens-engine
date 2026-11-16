@@ -438,7 +438,7 @@ struct MeshPass(Movable):
         device.queue_write_data(self.ao_ubo, UInt64(0), ao_off)
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
-                null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
+                null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),  # the fragment reads the eye (fog, sky)
                 WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
                 WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
