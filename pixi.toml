@@ -38,7 +38,7 @@ test-editor = "python3 scripts/test_editor.py"
 build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
-test-game = "python3 scripts/test_native.py arena arena_controls arena_camera arena_sfx arena_hud arena_input game_mode mesh_pass debug_view ao_bake"
+test-game = "python3 scripts/test_native.py arena arena_controls arena_camera arena_sfx arena_hud arena_input game_mode mesh_pass debug_view ao_bake palette_table"
 test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-arena-probe = "python3 scripts/test_native.py arena_probe_native"
 test-texture = "python3 scripts/test_native.py texture_native"
