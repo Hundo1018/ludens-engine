@@ -17,6 +17,28 @@ from app.gpu_mesh import cam_floats
 
 comptime SHADOW_MAP_SIZE = 1024  # the shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
+comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
+comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
+comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
+
+
+@fieldwise_init
+struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
+    """Per-frame capacities, chosen when the renderer is made (ludens-engine#71): arena items, mesh and skinned instances
+    (each pass's instance buffer) and skinning matrices (the palette buffers of the skinned and the shadow pass). The
+    buffers are sized from these; a frame past one raises in the pass that holds it."""
+
+    var arena_instances: Int
+    var mesh_instances: Int
+    var palette_matrices: Int
+
+    @staticmethod
+    def default() -> Self:
+        return Self(DEFAULT_ARENA_INSTANCES, MAX_MESH_INSTANCES, DEFAULT_PALETTE_MATRICES)
+
+    def check(self) raises:
+        if self.arena_instances < 1 or self.mesh_instances < 1 or self.palette_matrices < 1:
+            raise Error("RenderCaps: every capacity must be at least 1")
 
 
 struct RenderResources(Movable):

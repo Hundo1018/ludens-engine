@@ -1,0 +1,78 @@
+"""The renderer's passes as a compile-time list (plan 2.4, issue #90).
+
+A RenderPass is made once per device by `create`, then each frame `prepare` does everything that can fail (uploads,
+grouping, capacity checks, buffer writes) before the render pass opens, and `record_color` only sets state and draws
+into the frame's colour pass. `Then[P, Q]` is itself a RenderPass that runs P, then Q, so any list of passes is a nested
+`Then`, chosen at compile time:
+
+    comptime MyPasses = Then[PrimitivePass, Then[MeshPass, Then[SkinnedPass, MyOutlinePass]]]
+    var r = ArenaRendererOf[MyPasses](device, format, view)
+
+The renderer (app/render3d.mojo) owns what the passes share and hands it to them: the draw items, the mesh registry and
+its GPU copies (GpuMeshCache), the skinning palette, the view, the textures and RenderResources (camera, shadow map and
+uniform, atmosphere, AO). The camera header is written by the renderer before `prepare`.
+
+Why a binary composite and not `Pipeline[*Ps]`: the renderer must build its passes itself (`ArenaRenderer(device,
+format, view)`), and Mojo 1.2.0 has no safe way to build the elements of a `Tuple[*Ps]` one by one inside a
+`comptime for`; `Then.create` builds both halves with ordinary calls.
+"""
+from wgpu.device import Device
+from wgpu.render_pass import FrameRenderPass
+from game.arena import DrawItem
+from game.camera_view import View
+from app.mesh_data import MeshRegistry
+from app.gpu_mesh import GpuMeshCache
+from app.render_res import RenderResources, RenderCaps
+from app.textures import TextureArray
+
+
+trait RenderPass(Movable, Deinitable):
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        """Build the pass's pipelines and buffers for this device and these formats."""
+        ...
+
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View,
+    ) raises:
+        """Everything that can fail this frame, before the colour pass opens."""
+        ...
+
+    def record_color(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
+        """Set state and draw into the frame's colour pass. Nothing here can fail."""
+        pass
+
+
+struct Then[P: RenderPass, Q: RenderPass](RenderPass):
+    """P, then Q: prepared and recorded in that order."""
+
+    var first: Self.P
+    var second: Self.Q
+
+    def __init__(out self, var first: Self.P, var second: Self.Q):
+        self.first = first^
+        self.second = second^
+
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        var p = Self.P.create(device, color_format, depth_format, textures, res, caps)
+        var q = Self.Q.create(device, color_format, depth_format, textures, res, caps)
+        return Self(p^, q^)
+
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View,
+    ) raises:
+        self.first.prepare(device, items, meshes, gpu, palette, view)
+        self.second.prepare(device, items, meshes, gpu, palette, view)
+
+    def record_color(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
+        self.first.record_color(rpass, meshes, gpu)
+        self.second.record_color(rpass, meshes, gpu)

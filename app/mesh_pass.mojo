@@ -15,7 +15,7 @@ from geometry.vec import Real, Vec3
 from std.math import sin, cos
 from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
-from app.render_res import RenderResources, SHADOW_MAP_SIZE, AO_MAX_CELLS
+from app.render_res import RenderResources, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_ARENA_INSTANCES, DEFAULT_PALETTE_MATRICES
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
 from wgpu._ffi.types import WGPUTextureUsage
@@ -42,30 +42,9 @@ from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
+from app.render_pass import RenderPass
 from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
 
-comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
-comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
-comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
-
-
-@fieldwise_init
-struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
-    """Per-frame capacities, chosen when the renderer is made (ludens-engine#71): arena items, mesh and skinned instances
-    (each pass's instance buffer) and skinning matrices (the palette buffers of the skinned and the shadow pass). The
-    buffers are sized from these; a frame past one raises in the pass that holds it."""
-
-    var arena_instances: Int
-    var mesh_instances: Int
-    var palette_matrices: Int
-
-    @staticmethod
-    def default() -> Self:
-        return Self(DEFAULT_ARENA_INSTANCES, MAX_MESH_INSTANCES, DEFAULT_PALETTE_MATRICES)
-
-    def check(self) raises:
-        if self.arena_instances < 1 or self.mesh_instances < 1 or self.palette_matrices < 1:
-            raise Error("RenderCaps: every capacity must be at least 1")
 comptime FLOATS_PER_INSTANCE = 24
 comptime MESH_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(3) var shadow_map : texture_depth_2d;
@@ -370,7 +349,7 @@ def model_floats(it: DrawItem, mut out: List[Float32]):
     out.append(0.0)
 
 
-struct MeshPass(Movable):
+struct MeshPass(RenderPass):
     """The indexed mesh pass. Built once per device. The camera, shadow, atmosphere and AO uniforms it binds are the
     renderer's RenderResources (app/render_res.mojo); the GPU copies of the meshes are the renderer's GpuMeshCache."""
 
@@ -466,7 +445,17 @@ struct MeshPass(Movable):
         self.staging = List[Float32]()
         self.batches = MeshBatches[False]()
 
-    def prepare(mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache) raises:
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        return Self(device, color_format, depth_format, textures, res, caps)
+
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View,
+    ) raises:
         """Everything that can fail, done before the render pass opens: sync the meshes' GPU copies, group the mesh
         items by mesh, write the instance records. record() then only sets state and draws. The camera header is
         written by the renderer (RenderResources.write_camera)."""
@@ -484,7 +473,7 @@ struct MeshPass(Movable):
         if self.batches.total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
 
-    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
+    def record_color(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
         """Set state and draw the groups prepared by prepare(). Nothing here can fail: an invariant that prepare()
         guarantees is a debug_assert, not an error. Each bind passes its exact byte size: the wrapper's default size
         of 0 binds nothing, and WGPU_WHOLE_SIZE does not survive the web translation (setVertexBuffer rejects it)."""

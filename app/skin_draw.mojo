@@ -39,6 +39,7 @@ from app.skin_gpu import SKIN_FN
 from app.textures import ATMO_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
 from app.render_res import RenderResources
+from app.render_pass import RenderPass
 
 
 comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
@@ -189,7 +190,7 @@ def _build_skin_pipeline(
     return result^
 
 
-struct SkinnedPass(Movable):
+struct SkinnedPass(RenderPass):
     """The skinned pass. Built once per device; prepare() syncs the shared GpuMeshCache and writes the palette and the
     instance records; record() draws, in the arena's render pass. The camera, shadow and atmosphere uniforms are the
     renderer's RenderResources."""
@@ -287,9 +288,16 @@ struct SkinnedPass(Movable):
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.batches = MeshBatches[True]()
 
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        return Self(device, color_format, depth_format, textures, res, caps)
+
     def prepare(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
-        palette: List[Float32],
+        palette: List[Float32], view: View,
     ) raises:
         """Everything that can fail: sync the meshes' GPU copies, group the skinned items by mesh, check the palette
         and instance limits, write the palette and the instance records. record() then only draws."""
@@ -316,7 +324,7 @@ struct SkinnedPass(Movable):
         if self.batches.total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
 
-    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
+    def record_color(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
         """Draw the groups prepared by prepare(). Nothing here can fail. Each bind passes its exact byte size."""
         if len(self.batches.order) == 0:
             return
