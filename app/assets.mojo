@@ -65,6 +65,19 @@ def _blob(b: List[UInt8], kind: Int) raises -> Tuple[Int, Int]:
     raise Error("lcharacter: no blob of kind " + String(kind))
 
 
+def _has_blob(b: List[UInt8], kind: Int) raises -> Bool:
+    """Whether the directory lists this kind. Raises on a bad header or a directory that runs past the data."""
+    if len(b) < 12 or b[0] != UInt8(76) or b[1] != UInt8(67) or b[2] != UInt8(72) or b[3] != UInt8(82):
+        raise Error("lcharacter: bad magic (want LCHR)")
+    var count = Int(_u32(b, 8))
+    if 12 + 12 * count > len(b):
+        raise Error("lcharacter: the directory (" + String(count) + " entries) runs past the data")
+    for i in range(count):
+        if Int(_u32(b, 12 + 12 * i)) == kind:
+            return True
+    return False
+
+
 def _fps(b: List[UInt8]) raises -> Int:
     """The "fps" number of the JSON header, found by its key (the header is written with no spaces)."""
     var count = Int(_u32(b, 8))
@@ -93,12 +106,9 @@ def motion_clips(b: List[UInt8]) raises -> List[List[Float32]]:
     """Every clip from kind 101 up, in kind order, until the first missing kind. Kind 100 is the rest clip."""
     var out = List[List[Float32]]()
     var kind = 101
-    while True:
-        try:
-            var blob = _blob(b, kind)
-            out.append(_floats(b, blob[0], blob[1] // 4))
-        except:
-            break
+    while _has_blob(b, kind):  # a missing kind ends the list; a corrupt blob raises (it used to end the list too)
+        var blob = _blob(b, kind)
+        out.append(_floats(b, blob[0], blob[1] // 4))
         kind += 1
     return out^
 

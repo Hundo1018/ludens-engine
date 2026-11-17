@@ -72,4 +72,19 @@ def main() raises:
     except:
         short = True
     s.check(short, "a truncated .lcharacter raises")
+    # the directory entry of motion clip 101 claims more bytes than the file has: an error, not "no motion clips"
+    var over = b.copy()
+    var count = Int(over[8]) | (Int(over[9]) << 8)
+    var patched = False
+    for i in range(count):
+        var at = 12 + 12 * i
+        if Int(over[at]) == 101 and Int(over[at + 1]) == 0:
+            over[at + 10] = UInt8(255)  # byte 2 of the length: + 16 MB
+            patched = True
+    var corrupt = False
+    try:
+        _ = parse_character(over, 100)
+    except:
+        corrupt = True
+    s.check(patched and corrupt, "a motion clip whose length runs past the file raises (it used to end the clip list silently)")
     s.finish()
