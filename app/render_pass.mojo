@@ -17,7 +17,7 @@ format, view)`), and Mojo 1.2.0 has no safe way to build the elements of a `Tupl
 `comptime for`; `Then.create` builds both halves with ordinary calls.
 """
 from wgpu.device import Device
-from wgpu.render_pass import FrameRenderPass
+from wgpu.render_pass import FrameRenderPass, RenderPassEncoder
 from game.arena import DrawItem
 from game.camera_view import View
 from app.mesh_data import MeshRegistry
@@ -27,6 +27,9 @@ from app.textures import TextureArray
 
 
 trait RenderPass(Movable, Deinitable):
+    comptime SHADOW: Bool
+    """True if the pass records into the shadow map (record_shadow); the renderer opens the depth pass only then."""
+
     @staticmethod
     def create(
         device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
@@ -37,7 +40,7 @@ trait RenderPass(Movable, Deinitable):
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
-        palette: List[Float32], view: View,
+        palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         """Everything that can fail this frame, before the colour pass opens."""
         ...
@@ -46,9 +49,15 @@ trait RenderPass(Movable, Deinitable):
         """Set state and draw into the frame's colour pass. Nothing here can fail."""
         pass
 
+    def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
+        """Draw into the shadow map's depth pass, opened before the colour pass while the renderer's shadow is on."""
+        pass
+
 
 struct Then[P: RenderPass, Q: RenderPass](RenderPass):
     """P, then Q: prepared and recorded in that order."""
+
+    comptime SHADOW: Bool = Self.P.SHADOW or Self.Q.SHADOW
 
     var first: Self.P
     var second: Self.Q
@@ -68,11 +77,15 @@ struct Then[P: RenderPass, Q: RenderPass](RenderPass):
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
-        palette: List[Float32], view: View,
+        palette: List[Float32], view: View, res: RenderResources,
     ) raises:
-        self.first.prepare(device, items, meshes, gpu, palette, view)
-        self.second.prepare(device, items, meshes, gpu, palette, view)
+        self.first.prepare(device, items, meshes, gpu, palette, view, res)
+        self.second.prepare(device, items, meshes, gpu, palette, view, res)
 
     def record_color(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.first.record_color(rpass, meshes, gpu)
         self.second.record_color(rpass, meshes, gpu)
+
+    def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
+        self.first.record_shadow(rpass, meshes, gpu)
+        self.second.record_shadow(rpass, meshes, gpu)

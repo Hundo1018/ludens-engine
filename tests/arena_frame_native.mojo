@@ -9,6 +9,8 @@
 #     shading.
 #   - "frame hash", an FNV-1a of every pixel. It is printed, not checked: it is exact only for one driver build. A
 #     change that claims to leave the renderer's output unchanged quotes this line before and after, from one machine.
+# A third result: the pass list is customisable. ArenaRendererOf[Then[ShadowPass, DefaultPasses]] renders the shadow map
+# itself, in its own command buffer; its frame must equal the default renderer's after a separate ShadowPass.draw.
 # `arena_frame_native --record` rewrites the tile file (a deliberate change of the picture);
 # `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at.
 # The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
@@ -19,6 +21,7 @@ from wgpu import Instance
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
+from wgpu.device import Device
 from game.arena import DrawItem
 from game.camera_view import View
 from geometry.aabb import AABB
@@ -28,7 +31,8 @@ from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
 from app.ao_bake import ao_bake
-from app.render3d import ArenaRenderer
+from app.render3d import ArenaRenderer, ArenaRendererOf, DefaultPasses
+from app.render_pass import RenderPass, Then
 from app.shadow_pass import ShadowPass
 
 comptime W: UInt32 = 960
@@ -64,6 +68,33 @@ def _keep(t: Texture):
     """A last use: Mojo destroys a value after its last use, and `target.handle().raw` alone does not keep the texture
     alive until the readback."""
     pass
+
+
+def _capture_hash(device: Device, mut cap: FrameCapture, target: Texture) raises -> UInt64:
+    """FNV-1a of the target's pixels (960 x 540 RGBA8)."""
+    var req = cap.capture(device, target.handle().raw)
+    req.wait()
+    var px = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(req.take()))
+    var pitch = Int(padded_row_pitch(W))
+    var h = UInt64(0xCBF29CE484222325)
+    for y in range(Int(H)):
+        for x in range(Int(W)):
+            for c in range(4):
+                h = (h ^ UInt64(px[unsafe_offset=y * pitch + x * 4 + c])) * UInt64(0x100000001B3)
+    cap.unmap()
+    return h
+
+
+def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: List[Float32], ao: List[Float32]) raises:
+    """Every option on, as frame 0 of the reference; no probe cube (it is added inside draw(), after a separate shadow
+    pass has run, so only a shadow pass inside the list would see it)."""
+    r.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.02, 1.0, True, True)
+    r.set_shadow(device, light, True)
+    r.set_ao(device, ao, 32, 32, -8.0, -8.0, 16.0, 16.0, True)
+    r.probe = 0
+    r.begin(r.view.copy())
+    for it in scene():
+        r.push(it)
 
 
 def scene() -> List[DrawItem]:
@@ -158,8 +189,31 @@ def main() raises:
             print(names[k], "changes", changed, "of", Int(W) * Int(H), "pixels")
             s.check(changed > 500, names[k] + ": the option is visible in the reference frame (more than 500 pixels change)")
         cap.unmap()
-    _keep(target)
     print("frame hash", hash, "(exact for one driver build; printed, not checked)")
+
+    # the pass list: a shadow pass inside the renderer gives the frame of a separate shadow pass
+    _options(device, renderer, light, ao)
+    var casters = List[DrawItem]()
+    for it in renderer.items:
+        if it.mesh_id >= 0 and it.material != 3:
+            casters.append(it.copy())
+    shadow.draw(device, casters, renderer.meshes, light, renderer.shadow_target(), renderer.skin_palette.copy())
+    renderer.draw(device, target.handle().raw, W, H, hud)
+    var h_separate = _capture_hash(device, cap, target)
+    var inside = ArenaRendererOf[Then[ShadowPass, DefaultPasses]](device, format, view)
+    _options(device, inside, light, ao)
+    inside.draw(device, target.handle().raw, W, H, hud)
+    var h_inside = _capture_hash(device, cap, target)
+    inside.set_shadow(device, light, False)
+    inside.begin(inside.view.copy())
+    for it in scene():
+        inside.push(it)
+    inside.draw(device, target.handle().raw, W, H, hud)
+    var h_off = _capture_hash(device, cap, target)
+    _keep(target)
+    print("pass list: separate shadow pass", h_separate, "; shadow pass in the list", h_inside, "; in the list, shadow off", h_off)
+    s.check(h_inside == h_separate, "ArenaRendererOf[Then[ShadowPass, DefaultPasses]] draws the frame of a separate ShadowPass.draw")
+    s.check(h_off != h_inside, "with the renderer's shadow off, the listed shadow pass does not draw (the frame changes)")
 
     var lines = List[String]()
     for t in range(tx * ty):

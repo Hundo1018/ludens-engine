@@ -118,6 +118,7 @@ def _put(mut staging: List[Float32], it: DrawItem):
 
 
 struct PrimitivePass(RenderPass):
+    comptime SHADOW: Bool = False
     var pipeline: RenderPipeline
     var buffer: Buffer
     var group: BindGroup
@@ -161,7 +162,7 @@ struct PrimitivePass(RenderPass):
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
-        palette: List[Float32], view: View,
+        palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         """The camera header, the count and one record per primitive (items with a mesh are the mesh passes')."""
         self.staging.clear()

@@ -353,6 +353,8 @@ struct MeshPass(RenderPass):
     """The indexed mesh pass. Built once per device. The camera, shadow, atmosphere and AO uniforms it binds are the
     renderer's RenderResources (app/render_res.mojo); the GPU copies of the meshes are the renderer's GpuMeshCache."""
 
+    comptime SHADOW: Bool = False
+
     var pipeline: RenderPipeline
     var instances: Buffer
     var group: BindGroup
@@ -454,7 +456,7 @@ struct MeshPass(RenderPass):
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
-        palette: List[Float32], view: View,
+        palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         """Everything that can fail, done before the render pass opens: sync the meshes' GPU copies, group the mesh
         items by mesh, write the instance records. record() then only sets state and draws. The camera header is

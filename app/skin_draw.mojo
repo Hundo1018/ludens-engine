@@ -195,6 +195,8 @@ struct SkinnedPass(RenderPass):
     instance records; record() draws, in the arena's render pass. The camera, shadow and atmosphere uniforms are the
     renderer's RenderResources."""
 
+    comptime SHADOW: Bool = False
+
     var pipeline: RenderPipeline
     var palette: Buffer
     var instances: Buffer
@@ -297,7 +299,7 @@ struct SkinnedPass(RenderPass):
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
-        palette: List[Float32], view: View,
+        palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         """Everything that can fail: sync the meshes' GPU copies, group the skinned items by mesh, check the palette
         and instance limits, write the palette and the instance records. record() then only draws."""

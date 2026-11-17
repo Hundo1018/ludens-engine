@@ -28,6 +28,7 @@ from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere
 from app.skin_draw import SkinnedPass
 from app.primitive_pass import PrimitivePass
 from app.render_pass import RenderPass, Then
+from app.shadow_pass import begin_depth_pass
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources
 from app.skin_pass import build_palette, rot_y
@@ -198,8 +199,13 @@ struct ArenaRendererOf[P: RenderPass](Movable):
         hud.upload(device)
         self._depth_view(device, width, height)
         self.res.write_camera(device, v)
-        self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v)
+        self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
         var enc = device.create_command_encoder("frame")
+        comptime if Self.P.SHADOW:  # a shadow pass in the list: the depth pass first, in this command buffer
+            if self.res.shadow_on:
+                var srp = begin_depth_pass(enc, self.res.shadow_view)
+                self.passes.record_shadow(srp, self.meshes, self.gpu)
+                srp^.end()
         var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
         self.passes.record_color(rpass, self.meshes, self.gpu)
         hud.record(rpass)

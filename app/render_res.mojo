@@ -52,8 +52,12 @@ struct RenderResources(Movable):
     var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
     var atmo_linear: Bool
     var sky_overridden: Bool
+    var light_vp: List[Float32]  # the latest set_shadow's light view-projection (a shadow pass in the pass list draws with it)
+    var shadow_on: Bool  # the latest set_shadow's on-flag
 
     def __init__(out self, device: Device) raises:
+        self.light_vp = List[Float32]()
+        self.shadow_on = False
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
@@ -110,6 +114,8 @@ struct RenderResources(Movable):
         data.append(0.0)
         data.append(0.0)
         device.queue_write_data(self.shadow_ubo, UInt64(0), data)
+        self.light_vp = light_vp.copy()
+        self.shadow_on = on
 
     def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
                        fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
