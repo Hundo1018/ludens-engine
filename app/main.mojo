@@ -47,6 +47,8 @@ struct App(Movable):
     var capture_target: Optional[Texture]
     var capture_req: Optional[MapRequest]
     var capture_ptr: UInt64
+    var capture_width: UInt32  # the size the capture buffer and target were made for (app_resize can change width)
+    var capture_height: UInt32
     var want_capture: Bool
     var frames: Int
     var reference: Optional[Reference]
@@ -84,6 +86,8 @@ struct App(Movable):
         self.capture_target = None
         self.capture_req = None
         self.capture_ptr = 0
+        self.capture_width = 0
+        self.capture_height = 0
         self.want_capture = False
         self.frames = 0
         self.reference = None
@@ -119,6 +123,8 @@ struct App(Movable):
         self.capture_target = move.capture_target^
         self.capture_req = move.capture_req^
         self.capture_ptr = move.capture_ptr
+        self.capture_width = move.capture_width
+        self.capture_height = move.capture_height
         self.want_capture = move.want_capture
         self.frames = move.frames
         self.reference = move.reference^
@@ -196,8 +202,15 @@ struct App(Movable):
         var aspect = Float32(self.width) / Float32(self.height)
         if self.mode == MODE_GAME:
             var m = self.arena.take()
-            self._draw_mode(m, target, format, aspect)
+            # the mode goes back into its slot even when the call raises: the next frame takes it again
+            var failed = String()
+            try:
+                self._draw_mode(m, target, format, aspect)
+            except e:
+                failed = String(e)
             self.arena = m^
+            if failed.byte_length() > 0:
+                raise Error(failed)
             return
         if not self.renderer:
             self.renderer = Renderer(self.boot.device(), format)
@@ -207,7 +220,12 @@ struct App(Movable):
     def _capture(mut self, format: UInt32) raises:
         if self.want_capture and not self.capture_req:
             # Frames are read back from an app-owned target: headless Chrome cannot read a canvas texture.
+            if self.capture and (self.capture_width != self.width or self.capture_height != self.height):
+                self.capture = None  # resized since the last capture: the readback buffer and target are the old size
+                self.capture_target = None
             if not self.capture:
+                self.capture_width = self.width
+                self.capture_height = self.height
                 self.capture = FrameCapture(self.boot.device(), self.width, self.height)
                 self.capture_target = self.boot.device().create_texture(
                     self.width, self.height, 1, format,
@@ -235,8 +253,15 @@ struct App(Movable):
         self._net()
         if self.mode == MODE_GAME:
             var m = self.arena.take()
-            self._step_mode(m, dt)
+            # the mode goes back into its slot even when the call raises: the next frame takes it again
+            var failed = String()
+            try:
+                self._step_mode(m, dt)
+            except e:
+                failed = String(e)
             self.arena = m^
+            if failed.byte_length() > 0:
+                raise Error(failed)
         else:
             self.sim.step(dt)
         if not self.boot.step():
@@ -358,7 +383,9 @@ def app_capture_ptr(app: UInt64) abi("C") -> UInt64:
 
 @export
 def app_capture_pitch(app: UInt64) abi("C") -> UInt32:
-    return padded_row_pitch(_app(app)[].width)
+    """Bytes per row of the captured frame: of the size it was captured at, not the current one."""
+    var a = _app(app)
+    return padded_row_pitch(a[].capture_width if a[].capture_width > 0 else a[].width)
 
 
 @export
@@ -390,7 +417,11 @@ def app_reference_ptr(app: UInt64) abi("C") -> UInt64:
 
 @export
 def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
-    return _app(app)[].reference.value().pitch()
+    """Bytes per row of the reference frame; 0 before app_reference_request has started one."""
+    var a = _app(app)
+    if not a[].reference:
+        return 0
+    return a[].reference.value().pitch()
 
 
 @export

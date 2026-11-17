@@ -26,19 +26,31 @@ def newest(paths) -> float:
     return max((p.stat().st_mtime for p in paths), default=0.0)
 
 
+def native_sources(entry: str, engine: bool = True) -> list:
+    """Every file a native build of `entry` can read: the binary is rebuilt when any of them is newer. With `engine`,
+    that is all of this repo's packages (app/ included: tests import app.mesh_pass, app.ao_bake, ...), every package of
+    the ludens-core checkout and wgpu-mojo's sources, since the include path is `-I <core> -I wgpu-mojo -I app -I .`."""
+    sources = [ROOT / entry]
+    for d in ("editor", "ui", "game"):
+        sources += ROOT.glob(d + "/**/*.mojo")
+    if engine:
+        sources += ROOT.glob("app/**/*.mojo")
+        sources += engine_dir().glob("*/*.mojo")
+        sources += (ROOT / "build/deps/wgpu-mojo/wgpu").glob("**/*.mojo")
+    return sources
+
+
 def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = False, engine: bool = True, defines: tuple = ()) -> Path:
     """Build `entry` (relative to the repo) to `out`. Raises SystemExit with the compiler output on failure.
 
     `engine=False` builds with the standard library only (the `ui/` tests: that directory must stand alone)."""
-    sources = [*ROOT.glob("editor/**/*.mojo"), *ROOT.glob("ui/**/*.mojo"), *ROOT.glob("game/**/*.mojo"), ROOT / entry]
     includes = ["-I", "."]
     if engine:
         if "LUDENS_CORE_SRC" not in os.environ and "LUDENS_ENGINE" not in os.environ:
             subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
-        sources += list(engine_dir().glob("embed/*.mojo"))
         # app/ too, with wgpu-mojo: a test can drive the shell's own device code (InputState -> Keys) natively.
-        sources += list(ROOT.glob("app/controls.mojo"))
         includes = ["-I", str(engine_dir()), "-I", str(ROOT / "build/deps/wgpu-mojo"), "-I", "app", "-I", "."]
+    sources = native_sources(entry, engine)
     if not force and out.exists() and out.stat().st_mtime >= newest(sources):
         return out
     out.parent.mkdir(exist_ok=True)
@@ -64,5 +76,25 @@ def core_overlay() -> Path:
     return build_native("editor/core_main.mojo", ROOT / "build/ludens-core-overlay", defines=("LUDENS_DEBUG_DRAW=True",))
 
 
+def selftest() -> int:
+    """The freshness list covers what a native test can import (a test binary was once kept after app/mesh_pass.mojo
+    changed, because only app/controls.mojo was watched)."""
+    with_engine = {str(p) for p in native_sources("tests/mesh_pass.mojo")}
+    alone = {str(p) for p in native_sources("tests/ui_layout.mojo", engine=False)}
+    checks = {
+        "an app/ module a test imports is watched": str(ROOT / "app/mesh_pass.mojo") in with_engine,
+        "the entry itself is watched": str(ROOT / "tests/mesh_pass.mojo") in with_engine,
+        "ludens-core's packages are watched": any(p.endswith("/embed/world.mojo") for p in with_engine)
+        and any(p.endswith("/physics/solver6.mojo") for p in with_engine),
+        "wgpu-mojo's sources are watched": any("/wgpu-mojo/wgpu/" in p for p in with_engine),
+        "a ui test watches no app/ file": not any("/app/" in p for p in alone),
+    }
+    for label, ok in checks.items():
+        print("  [PASS]" if ok else "  [FAIL]", label)
+    return 0 if all(checks.values()) else 1
+
+
 if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        sys.exit(selftest())
     print(core())
