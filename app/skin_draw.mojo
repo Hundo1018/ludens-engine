@@ -33,6 +33,7 @@ from wgpu.sampler import Sampler
 from game.arena import DrawItem
 from game.camera_view import View
 from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
+from app.gpu_mesh import GpuMeshCache, MeshBatches, SKINNED_BUFFERS, K_POS, K_NRM, K_UV, K_JNT, K_WGT
 from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
 from app.textures import ATMO_WGSL
@@ -213,26 +214,21 @@ def _build_skin_pipeline(
 
 
 struct SkinnedPass(Movable):
-    """The skinned pass. Built once per device; upload() makes the skinned meshes' GPU copies; prepare() writes the
-    camera, the palette and the instance records; record() draws, in the arena's render pass."""
+    """The skinned pass. Built once per device; prepare() syncs the shared GpuMeshCache and writes the palette and the
+    instance records; record() draws, in the arena's render pass. The camera header is the mesh pass's buffer, written
+    by its prepare()."""
 
     var pipeline: RenderPipeline
-    var camera: Buffer
     var palette: Buffer
     var instances: Buffer
     var group: BindGroup
-    var vbufs: List[Buffer]  # five per skinned mesh: positions, normals, uv, joints, weights
-    var ibufs: List[Buffer]  # one per skinned mesh
-    var uploaded: Int
-    var order: List[Int]
-    var counts: List[Int]
-    var base: List[Int]
+    var batches: MeshBatches[True]  # this frame's skinned items by mesh (prepare)
     var max_instances: Int  # RenderCaps.mesh_instances
     var max_palette: Int  # RenderCaps.palette_matrices
 
     def __init__(
         out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
-        ref shadow_view: TextureView, ref shadow_sampler: Sampler, ref shadow_ubo: Buffer,
+        ref camera: Buffer, ref shadow_view: TextureView, ref shadow_sampler: Sampler, ref shadow_ubo: Buffer,
         caps: RenderCaps = RenderCaps.default(),
     ) raises:
         caps.check()
@@ -293,7 +289,6 @@ struct SkinnedPass(Movable):
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "skin_layout")
         self.pipeline = _build_skin_pipeline(device, shader, layout, color_format, depth_format)
-        self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="skin_cam")
         self.palette = device.create_buffer(
             UInt64(caps.palette_matrices * 64), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="skin_palette_vs",
         )
@@ -303,7 +298,7 @@ struct SkinnedPass(Movable):
             label="skin_instances",
         )
         var bg_entries: List[WGPUBindGroupEntry] = [
-            WGPUBindGroupEntry(null_opaque(), 0, self.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 0, camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(
                 null_opaque(), 1, self.palette.handle().raw, 0, UInt64(caps.palette_matrices * 64), null_opaque(), null_opaque(),
             ),
@@ -314,121 +309,55 @@ struct SkinnedPass(Movable):
             WGPUBindGroupEntry(null_opaque(), 6, shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
-        self.vbufs = List[Buffer]()
-        self.ibufs = List[Buffer]()
-        self.uploaded = 0
-        self.order = List[Int]()
-        self.counts = List[Int]()
-        self.base = List[Int]()
-
-    def upload(mut self, device: Device, registry: MeshRegistry) raises:
-        """Make the GPU copies of every skinned mesh not yet uploaded. Meshes are never freed here."""
-        while self.uploaded < len(registry.skinned):
-            var idx = self.uploaded
-            var pos = device.create_buffer(UInt64(len(registry.skinned[idx].positions) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="skin_pos")
-            device.queue_write_data(pos, UInt64(0), registry.skinned[idx].positions)
-            var nrm = device.create_buffer(UInt64(len(registry.skinned[idx].normals) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="skin_nrm")
-            device.queue_write_data(nrm, UInt64(0), registry.skinned[idx].normals)
-            var uv = device.create_buffer(UInt64(len(registry.skinned[idx].uv) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="skin_uv")
-            device.queue_write_data(uv, UInt64(0), registry.skinned[idx].uv)
-            var jnt = device.create_buffer(UInt64(len(registry.skinned[idx].joints) * 2), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="skin_joints")
-            device.queue_write_data(jnt, UInt64(0), registry.skinned[idx].joints)
-            var wgt = device.create_buffer(UInt64(len(registry.skinned[idx].weights) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="skin_weights")
-            device.queue_write_data(wgt, UInt64(0), registry.skinned[idx].weights)
-            var ib = device.create_buffer(UInt64(len(registry.skinned[idx].indices) * 4), WGPUBufferUsage.INDEX | WGPUBufferUsage.COPY_DST, label="skin_idx")
-            device.queue_write_data(ib, UInt64(0), registry.skinned[idx].indices)
-            self.vbufs.append(pos^)
-            self.vbufs.append(nrm^)
-            self.vbufs.append(uv^)
-            self.vbufs.append(jnt^)
-            self.vbufs.append(wgt^)
-            self.ibufs.append(ib^)
-            self.uploaded += 1
+        self.batches = MeshBatches[True]()
 
     def prepare(
-        mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, palette: List[Float32], v: View,
+        mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32],
     ) raises:
-        """Everything that can fail: upload, group the skinned items by mesh, check the palette and instance limits,
-        write the camera, the palette and the instance records. record() then only draws."""
-        self.upload(device, registry)
-        self.order = List[Int]()
-        self.counts = List[Int]()
-        self.base = List[Int]()
+        """Everything that can fail: sync the meshes' GPU copies, group the skinned items by mesh, check the palette
+        and instance limits, write the palette and the instance records. record() then only draws."""
+        gpu.sync(device, registry)
         for it in items:
-            if it.pose_id < 0:
-                continue
-            if it.mesh_id < 0 or it.mesh_id >= len(registry.skinned):
+            if it.pose_id >= 0 and (it.mesh_id < 0 or it.mesh_id >= len(registry.skinned)):
                 raise Error("skinned draw: an item names a skinned mesh that is not registered")
-            var found = -1
-            for k in range(len(self.order)):
-                if self.order[k] == it.mesh_id:
-                    found = k
-            if found < 0:
-                self.order.append(it.mesh_id)
-                self.counts.append(0)
-                found = len(self.order) - 1
-            self.counts[found] += 1
-        var total = 0
-        for c in self.counts:
-            total += c
-        if total > self.max_instances:
-            raise Error("skinned draw: " + String(total) + " instances, more than its capacity " + String(self.max_instances))
+        self.batches = MeshBatches[True](items)
+        if self.batches.total > self.max_instances:
+            raise Error("skinned draw: " + String(self.batches.total) + " instances, more than its capacity " + String(self.max_instances))
         if len(palette) > self.max_palette * 16:
             raise Error("skinned draw: the palette is larger than its capacity of " + String(self.max_palette) + " matrices")
         if len(palette) % 16 != 0:
             raise Error("skinned draw: a palette is 16 floats per joint")
-        var cam = List[Float32]()
-        for e in [v.eye, v.right, v.up, v.fwd]:
-            for c in range(3):
-                cam.append(Float32(e[c]))
-            cam.append(0.0)
-        cam[3] = Float32(v.sx)
-        cam[7] = Float32(v.sy)
-        cam[11] = Float32(v.near)
-        cam[15] = Float32(v.far)
-        device.queue_write_data(self.camera, UInt64(0), cam)
         if len(palette) > 0:
             device.queue_write_data(self.palette, UInt64(0), palette)
         var floats = List[Float32]()
-        var running = 0
-        for k in range(len(self.order)):
-            self.base.append(running)
-            for it in items:
-                if it.pose_id >= 0 and it.mesh_id == self.order[k]:
-                    var rec = len(floats)
-                    model_floats(it, floats)
-                    floats[rec + 20] = Float32(it.pose_id)  # info.x: the palette base of this instance
-                    floats[rec + 21] = Float32(it.material)  # info.y: material (0 colour, 1 uv)
-                    floats[rec + 22] = Float32(it.layer) if it.material > 0 else 0.0  # info.z: the texture layer
-                    running += 1
-        if total > 0:
+        for i in self.batches.members:
+            var rec = len(floats)
+            model_floats(items[i], floats)
+            floats[rec + 20] = Float32(items[i].pose_id)  # info.x: the palette base of this instance
+            floats[rec + 21] = Float32(items[i].material)  # info.y: material (0 colour, 1 uv)
+            floats[rec + 22] = Float32(items[i].layer) if items[i].material > 0 else 0.0  # info.z: the texture layer
+        if self.batches.total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
 
-    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry):
+    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
         """Draw the groups prepared by prepare(). Nothing here can fail. Each bind passes its exact byte size."""
-        if len(self.order) == 0:
+        if len(self.batches.order) == 0:
             return
-        var total = 0
-        for c in self.counts:
-            total += c
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
-        rpass.set_vertex_buffer(UInt32(3), self.instances, UInt64(0), UInt64(total * FLOATS_PER_INSTANCE * 4))
-        for k in range(len(self.order)):
-            var mid = self.order[k]
-            debug_assert(mid < self.uploaded, "skinned draw: a mesh is drawn before upload()")
-            var pos_bytes = UInt64(len(registry.skinned[mid].positions) * 4)
-            var nrm_bytes = UInt64(len(registry.skinned[mid].normals) * 4)
-            var uv_bytes = UInt64(len(registry.skinned[mid].uv) * 4)
-            var jnt_bytes = UInt64(len(registry.skinned[mid].joints) * 2)
-            var wgt_bytes = UInt64(len(registry.skinned[mid].weights) * 4)
-            var idx_bytes = UInt64(len(registry.skinned[mid].indices) * 4)
-            rpass.set_vertex_buffer(UInt32(0), self.vbufs[5 * mid], UInt64(0), pos_bytes)
-            rpass.set_vertex_buffer(UInt32(1), self.vbufs[5 * mid + 1], UInt64(0), nrm_bytes)
-            rpass.set_vertex_buffer(UInt32(2), self.vbufs[5 * mid + 2], UInt64(0), uv_bytes)
-            rpass.set_vertex_buffer(UInt32(4), self.vbufs[5 * mid + 3], UInt64(0), jnt_bytes)
-            rpass.set_vertex_buffer(UInt32(5), self.vbufs[5 * mid + 4], UInt64(0), wgt_bytes)
-            rpass.set_index_buffer(self.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), idx_bytes)
+        rpass.set_vertex_buffer(UInt32(3), self.instances, UInt64(0), UInt64(self.batches.total * FLOATS_PER_INSTANCE * 4))
+        for k in range(len(self.batches.order)):
+            var mid = self.batches.order[k]
+            debug_assert(mid < gpu.skinned_uploaded(), "skinned draw: a mesh is drawn before its GPU copy exists")
+            var vb = SKINNED_BUFFERS * mid
+            rpass.set_vertex_buffer(UInt32(0), gpu.skin_vbufs[vb + K_POS], UInt64(0), UInt64(len(registry.skinned[mid].positions) * 4))
+            rpass.set_vertex_buffer(UInt32(1), gpu.skin_vbufs[vb + K_NRM], UInt64(0), UInt64(len(registry.skinned[mid].normals) * 4))
+            rpass.set_vertex_buffer(UInt32(2), gpu.skin_vbufs[vb + K_UV], UInt64(0), UInt64(len(registry.skinned[mid].uv) * 4))
+            rpass.set_vertex_buffer(UInt32(4), gpu.skin_vbufs[vb + K_JNT], UInt64(0), UInt64(len(registry.skinned[mid].joints) * 2))
+            rpass.set_vertex_buffer(UInt32(5), gpu.skin_vbufs[vb + K_WGT], UInt64(0), UInt64(len(registry.skinned[mid].weights) * 4))
+            var n_idx = len(registry.skinned[mid].indices)
+            rpass.set_index_buffer(gpu.skin_ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
             rpass.draw_indexed(
-                UInt32(len(registry.skinned[mid].indices)), UInt32(self.counts[k]), UInt32(0), Int32(0), UInt32(self.base[k]),
+                UInt32(n_idx), UInt32(self.batches.counts[k]), UInt32(0), Int32(0), UInt32(self.batches.base[k]),
             )

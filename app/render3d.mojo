@@ -26,6 +26,7 @@ from wgpu.texture import Texture, TextureView
 from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
 from app.skin_draw import SkinnedPass
+from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
 from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
@@ -131,6 +132,7 @@ struct ArenaRenderer(Movable):
     var mesh: MeshPass
     var textures: TextureArray  # layer 0 white, layer 1 the placeholder wall (PR D loads the real one)
     var meshes: MeshRegistry
+    var gpu: GpuMeshCache  # the GPU copies of `meshes`, shared by the mesh and skinned passes
     var cube: Int  # the unit cube's mesh id, for the centre probe and textured boxes
     var sphere: Int  # the unit sphere's mesh id, for textured spheres
     var max_items: Int  # RenderCaps.arena_instances: primitives drawn per frame (the rest are dropped)
@@ -174,9 +176,10 @@ struct ArenaRenderer(Movable):
         var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
         self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex, caps)
-        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.mesh.shadow_view, self.mesh.shadow_sampler, self.mesh.shadow_ubo, caps)  # before the move: it reads the array's views
+        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.mesh.camera, self.mesh.shadow_view, self.mesh.shadow_sampler, self.mesh.shadow_ubo, caps)  # before the move: it reads the array's views
         self.textures = tex^
         self.meshes = MeshRegistry()
+        self.gpu = GpuMeshCache()
         self.cube = add_unit_cube(self.meshes)
         self.sphere = add_unit_sphere(self.meshes)
         self.debug_view = DEBUG_NONE
@@ -223,6 +226,7 @@ struct ArenaRenderer(Movable):
         self.mesh = move.mesh^
         self.textures = move.textures^
         self.meshes = move.meshes^
+        self.gpu = move.gpu^
         self.cube = move.cube
         self.sphere = move.sphere
         self.debug_view = move.debug_view
@@ -291,14 +295,8 @@ struct ArenaRenderer(Movable):
                          Vec3(Real(0.8), Real(0.2), Real(0.2), Real(0.0)), self.cube, -1, 0)
             )
         self.staging.clear()
-        for e in [v.eye, v.right, v.up, v.fwd]:
-            for c in range(3):
-                self.staging.append(Float32(e[c]))
-            self.staging.append(0.0)
-        self.staging[3] = Float32(v.sx)
-        self.staging[7] = Float32(v.sy)
-        self.staging[11] = Float32(v.near)
-        self.staging[15] = Float32(v.far)
+        for f in cam_floats(v):  # the camera header, then the primitive count and records
+            self.staging.append(f)
         debug_recolor(self.items, self.debug_view)
         self.mesh.debug_sky(device, self.debug_view == DEBUG_SKY)
         # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
@@ -319,15 +317,15 @@ struct ArenaRenderer(Movable):
         device.queue_write_data(self.buffer, UInt64(0), self.staging)
         hud.upload(device)
         self._depth_view(device, width, height)
-        self.mesh.prepare(device, self.items, self.meshes, v)
-        self.skin.prepare(device, self.items, self.meshes, self.skin_palette, v)
+        self.mesh.prepare(device, self.items, self.meshes, self.gpu, v)
+        self.skin.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette)
         var enc = device.create_command_encoder("frame")
         var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(count), UInt32(0), UInt32(0))
-        self.mesh.record(rpass, self.meshes)
-        self.skin.record(rpass, self.meshes)
+        self.mesh.record(rpass, self.meshes, self.gpu)
+        self.skin.record(rpass, self.meshes, self.gpu)
         hud.record(rpass)
         rpass^.end()
         var cmd = enc^.finish()

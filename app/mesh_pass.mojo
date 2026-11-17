@@ -39,6 +39,8 @@ from wgpu.bind_group import BindGroup
 from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
+from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
+from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
 
 comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
 comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
@@ -213,118 +215,6 @@ def vertex_normals(positions: List[Float32], indices: List[UInt32]) -> List[Floa
         else:
             n[3 * v + 1] = 1.0
     return n^
-
-
-@fieldwise_init
-struct MeshData(Copyable, Movable):
-    """One static mesh on the CPU: positions, normals, uv and a triangle index list."""
-
-    var positions: List[Float32]
-    var normals: List[Float32]
-    var uv: List[Float32]
-    var indices: List[UInt32]
-
-
-def _check_mesh(positions: List[Float32], normals: List[Float32], uv: List[Float32], indices: List[UInt32]) raises:
-    """The boundary check for every mesh: arrays that agree, and indices inside the vertex range."""
-    var nv = len(positions) // 3
-    if len(positions) % 3 != 0 or nv == 0:
-        raise Error("mesh: positions must be a non-empty multiple of 3 floats")
-    if len(normals) != len(positions):
-        raise Error("mesh: normals must have one vector per position")
-    if len(uv) != nv * 2:
-        raise Error("mesh: uv must have one pair per position")
-    if len(indices) == 0 or len(indices) % 3 != 0:
-        raise Error("mesh: indices must be a non-empty list of triangles")
-    for i in indices:
-        if Int(i) >= nv:
-            raise Error("mesh: an index is outside the vertex range")
-
-
-@fieldwise_init
-struct SkinnedMeshData(Copyable, Movable):
-    """A mesh with joints: 4 joint indices (u16) and 4 weights per vertex. The joint indices are relative to the pose's
-    palette base (the draw item's pose_id)."""
-
-    var positions: List[Float32]
-    var normals: List[Float32]
-    var uv: List[Float32]
-    var joints: List[UInt16]
-    var weights: List[Float32]
-    var indices: List[UInt32]
-
-
-struct MeshRegistry(Movable):
-    """The meshes a game registers. Static meshes are indexed by the mesh_id a draw item carries; skinned meshes by the
-    id add_skinned returns. A draw item with pose_id >= 0 refers to a skinned mesh."""
-
-    var meshes: List[MeshData]
-    var skinned: List[SkinnedMeshData]
-    var versions: List[Int]  # per static mesh: 0 static; a dynamic mesh starts at 1 and counts its updates
-
-    def __init__(out self):
-        self.meshes = List[MeshData]()
-        self.skinned = List[SkinnedMeshData]()
-        self.versions = List[Int]()
-
-    def add_skinned(
-        mut self,
-        var positions: List[Float32],
-        var normals: List[Float32],
-        var uv: List[Float32],
-        var joints: List[UInt16],
-        var weights: List[Float32],
-        var indices: List[UInt32],
-    ) raises -> Int:
-        """As add_static, plus 4 joints and 4 weights per vertex. Returns the skinned id."""
-        _check_mesh(positions, normals, uv, indices)
-        if len(joints) != 4 * (len(positions) // 3) or len(weights) != 4 * (len(positions) // 3):
-            raise Error("mesh: a skinned mesh needs 4 joints and 4 weights per vertex")
-        for w in weights:
-            if w < 0.0:
-                raise Error("mesh: skinning weights are not negative")
-        self.skinned.append(SkinnedMeshData(positions^, normals^, uv^, joints^, weights^, indices^))
-        return len(self.skinned) - 1
-
-    def add_static(
-        mut self,
-        var positions: List[Float32],
-        var normals: List[Float32],
-        var uv: List[Float32],
-        var indices: List[UInt32],
-    ) raises -> Int:
-        """Check the arrays at the boundary (an invalid mesh raises), then keep it. Returns its id."""
-        _check_mesh(positions, normals, uv, indices)
-        self.meshes.append(MeshData(positions^, normals^, uv^, indices^))
-        self.versions.append(0)
-        return len(self.meshes) - 1
-
-    def add_dynamic(
-        mut self,
-        var positions: List[Float32],
-        var normals: List[Float32],
-        var uv: List[Float32],
-        var indices: List[UInt32],
-    ) raises -> Int:
-        """A mesh whose positions and normals change (cloth, a rope; ludens-engine#73): as add_static, and
-        update_dynamic replaces them each frame; the passes re-upload a mesh whose version changed. The vertex count,
-        uv and indices stay fixed."""
-        var id = self.add_static(positions^, normals^, uv^, indices^)
-        self.versions[id] = 1
-        return id
-
-    def update_dynamic(mut self, id: Int, var positions: List[Float32], var normals: List[Float32]) raises:
-        """Replace a dynamic mesh's positions and normals (same vertex count)."""
-        if id < 0 or id >= len(self.meshes) or self.versions[id] == 0:
-            raise Error("mesh: update_dynamic needs a mesh made by add_dynamic")
-        if len(positions) != len(self.meshes[id].positions) or len(normals) != len(positions):
-            raise Error("mesh: update_dynamic keeps the vertex count (3 floats per position and per normal)")
-        self.meshes[id].positions = positions^
-        self.meshes[id].normals = normals^
-        self.versions[id] += 1
-
-    def count(self) -> Int:
-        return len(self.meshes)
 
 
 def _fnv_word(mut h: UInt64, v: Int):
@@ -510,20 +400,15 @@ def model_floats(it: DrawItem, mut out: List[Float32]):
 
 
 struct MeshPass(Movable):
-    """The indexed mesh pass. Built once per device; the GPU copies of the meshes are made by upload()."""
+    """The indexed mesh pass. Built once per device; the GPU copies of the meshes are a GpuMeshCache the caller owns
+    and shares with the other mesh passes."""
 
     var pipeline: RenderPipeline
     var camera: Buffer
     var instances: Buffer
     var group: BindGroup
     var staging: List[Float32]
-    var vbufs: List[Buffer]  # three per mesh: positions, normals, uv
-    var ibufs: List[Buffer]  # one per mesh
-    var uploaded: Int
-    var seen: List[Int]  # per uploaded mesh: the registry version its buffers hold
-    var order: List[Int]
-    var counts: List[Int]
-    var base: List[Int]
+    var batches: MeshBatches[False]  # this frame's static mesh items by mesh (prepare)
     var shadow_tex: Texture  # the shadow map: a shadow pass renders depth into it (shadow_tex.create_view_default())
     var shadow_view: TextureView
     var shadow_sampler: Sampler  # comparison sampler, LessEqual
@@ -652,13 +537,7 @@ struct MeshPass(Movable):
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
         # the view, sampler and buffer are kept as fields, alive past the bind group call
         self.staging = List[Float32]()
-        self.vbufs = List[Buffer]()
-        self.ibufs = List[Buffer]()
-        self.uploaded = 0
-        self.seen = List[Int]()
-        self.order = List[Int]()
-        self.counts = List[Int]()
-        self.base = List[Int]()
+        self.batches = MeshBatches[False]()
 
     def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
         """Set the light's view-projection (16 floats, column-major, NDC z in [0, 1]) and whether the shadow factor is
@@ -733,105 +612,45 @@ struct MeshPass(Movable):
         u.append(Float32(1.0) if on else Float32(0.0)); u.append(0.0); u.append(0.0); u.append(0.0)
         device.queue_write_data(self.ao_ubo, UInt64(0), u)
 
-    def upload(mut self, device: Device, registry: MeshRegistry) raises:
-        """Create the GPU vertex and index buffers for every mesh not yet uploaded. Meshes are never freed here."""
-        while self.uploaded < registry.count():
-            var m = registry.meshes[self.uploaded].copy()
-            var vb_pos = device.create_buffer(UInt64(len(m.positions) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="mesh_pos")
-            device.queue_write_data(vb_pos, UInt64(0), m.positions)
-            var vb_nrm = device.create_buffer(UInt64(len(m.normals) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="mesh_nrm")
-            device.queue_write_data(vb_nrm, UInt64(0), m.normals)
-            var vb_uv = device.create_buffer(UInt64(len(m.uv) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="mesh_uv")
-            device.queue_write_data(vb_uv, UInt64(0), m.uv)
-            var ib = device.create_buffer(UInt64(len(m.indices) * 4), WGPUBufferUsage.INDEX | WGPUBufferUsage.COPY_DST, label="mesh_idx")
-            device.queue_write_data(ib, UInt64(0), m.indices)
-            self.vbufs.append(vb_pos^)
-            self.vbufs.append(vb_nrm^)
-            self.vbufs.append(vb_uv^)
-            self.ibufs.append(ib^)
-            self.seen.append(registry.versions[self.uploaded])
-            self.uploaded += 1
-        # dynamic meshes whose positions changed since the last upload
-        for i in range(self.uploaded):
-            if registry.versions[i] != self.seen[i]:
-                device.queue_write_data(self.vbufs[3 * i], UInt64(0), registry.meshes[i].positions)
-                device.queue_write_data(self.vbufs[3 * i + 1], UInt64(0), registry.meshes[i].normals)
-                self.seen[i] = registry.versions[i]
-
-    def prepare(mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, v: View) raises:
-        """Everything that can fail, done before the render pass opens: upload the meshes, group the mesh items by
-        mesh, write the camera header and the instance records. record() then only sets state and draws."""
-        self.upload(device, registry)
-        self.order = List[Int]()
-        self.counts = List[Int]()
-        self.base = List[Int]()
-        for it in items:
-            if it.mesh_id < 0 or it.pose_id >= 0:
-                continue
-            var found = -1
-            for k in range(len(self.order)):
-                if self.order[k] == it.mesh_id:
-                    found = k
-            if found < 0:
-                self.order.append(it.mesh_id)
-                self.counts.append(0)
-                found = len(self.order) - 1
-            self.counts[found] += 1
-        var total = 0
-        for c in self.counts:
-            total += c
-        if total > self.max_instances:
-            raise Error("mesh pass: " + String(total) + " instances, more than its capacity " + String(self.max_instances))
-        # the camera header, the arena's layout: eye.w = sx, right.w = sy, up.w = near, fwd.w = far
-        var cam = List[Float32]()
-        for e in [v.eye, v.right, v.up, v.fwd]:
-            for c in range(3):
-                cam.append(Float32(e[c]))
-            cam.append(0.0)
-        cam[3] = Float32(v.sx)
-        cam[7] = Float32(v.sy)
-        cam[11] = Float32(v.near)
-        cam[15] = Float32(v.far)
-        device.queue_write_data(self.camera, UInt64(0), cam)
+    def prepare(mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache, v: View) raises:
+        """Everything that can fail, done before the render pass opens: sync the meshes' GPU copies, group the mesh
+        items by mesh, write the camera header and the instance records. record() then only sets state and draws."""
+        gpu.sync(device, registry)
+        self.batches = MeshBatches[False](items)
+        if self.batches.total > self.max_instances:
+            raise Error("mesh pass: " + String(self.batches.total) + " instances, more than its capacity " + String(self.max_instances))
+        device.queue_write_data(self.camera, UInt64(0), cam_floats(v))
         # instances grouped by mesh, in group order
         var floats = List[Float32]()
-        var running = 0
-        for k in range(len(self.order)):
-            self.base.append(running)
-            for it in items:
-                if it.mesh_id == self.order[k] and it.pose_id < 0:
-                    var rec = len(floats)
-                    model_floats(it, floats)
-                    floats[rec + 21] = Float32(it.material)  # info.y: material
-                    floats[rec + 22] = Float32(it.layer) if it.material > 0 else 0.0  # info.z: the texture layer
-                    running += 1
-        if total > 0:
+        for i in self.batches.members:
+            var rec = len(floats)
+            model_floats(items[i], floats)
+            floats[rec + 21] = Float32(items[i].material)  # info.y: material
+            floats[rec + 22] = Float32(items[i].layer) if items[i].material > 0 else 0.0  # info.z: the texture layer
+        if self.batches.total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
 
-    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry):
+    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
         """Set state and draw the groups prepared by prepare(). Nothing here can fail: an invariant that prepare()
         guarantees is a debug_assert, not an error. Each bind passes its exact byte size: the wrapper's default size
         of 0 binds nothing, and WGPU_WHOLE_SIZE does not survive the web translation (setVertexBuffer rejects it)."""
-        if len(self.order) == 0:
+        if len(self.batches.order) == 0:
             return
-        var total = 0
-        for c in self.counts:
-            total += c
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
-        rpass.set_vertex_buffer(UInt32(3), self.instances, UInt64(0), UInt64(total * FLOATS_PER_INSTANCE * 4))
-        for k in range(len(self.order)):
-            var mid = self.order[k]
-            debug_assert(mid < self.uploaded, "mesh pass: a mesh is drawn before upload()")
-            var m = registry.meshes[mid].copy()
-            rpass.set_vertex_buffer(UInt32(0), self.vbufs[3 * mid], UInt64(0), UInt64(len(m.positions) * 4))
-            rpass.set_vertex_buffer(UInt32(1), self.vbufs[3 * mid + 1], UInt64(0), UInt64(len(m.normals) * 4))
-            rpass.set_vertex_buffer(UInt32(2), self.vbufs[3 * mid + 2], UInt64(0), UInt64(len(m.uv) * 4))
-            rpass.set_index_buffer(self.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(len(m.indices) * 4))
+        rpass.set_vertex_buffer(UInt32(3), self.instances, UInt64(0), UInt64(self.batches.total * FLOATS_PER_INSTANCE * 4))
+        for k in range(len(self.batches.order)):
+            var mid = self.batches.order[k]
+            debug_assert(mid < gpu.uploaded(), "mesh pass: a mesh is drawn before its GPU copy exists")
+            var vb = STATIC_BUFFERS * mid
+            rpass.set_vertex_buffer(UInt32(0), gpu.vbufs[vb + S_POS], UInt64(0), UInt64(len(registry.meshes[mid].positions) * 4))
+            rpass.set_vertex_buffer(UInt32(1), gpu.vbufs[vb + S_NRM], UInt64(0), UInt64(len(registry.meshes[mid].normals) * 4))
+            rpass.set_vertex_buffer(UInt32(2), gpu.vbufs[vb + S_UV], UInt64(0), UInt64(len(registry.meshes[mid].uv) * 4))
+            var n_idx = len(registry.meshes[mid].indices)
+            rpass.set_index_buffer(gpu.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
             rpass.draw_indexed(
-                UInt32(len(m.indices)), UInt32(self.counts[k]), UInt32(0), Int32(0), UInt32(self.base[k]),
+                UInt32(n_idx), UInt32(self.batches.counts[k]), UInt32(0), Int32(0), UInt32(self.batches.base[k]),
             )
-
 
 def _build_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout,
