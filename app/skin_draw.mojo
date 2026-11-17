@@ -36,7 +36,8 @@ from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, Rende
 from app.gpu_mesh import GpuMeshCache, MeshBatches, SKINNED_BUFFERS, K_POS, K_NRM, K_UV, K_JNT, K_WGT
 from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
-from app.textures import ATMO_WGSL
+from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
+from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
 from app.render_res import RenderResources
 from app.render_pass import RenderPass
@@ -50,7 +51,7 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(4) var shadow_map : texture_depth_2d;
 @group(0) @binding(5) var shadow_cmp : sampler_comparison;
 @group(0) @binding(6) var<uniform> shadow : Shadow;
-""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + """
+""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -107,13 +108,8 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0: the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
-  // the atmosphere (app/textures.mojo): unchanged bit for bit while it is off
-  let c0 = select(in.color, atmo_lin(in.base) * in.lit, shadow.sky_top.w > 0.5);
-  if in.mat == 0u {
-    return atmo_out(atmo_fog(c0 * sf, in.wpos));
-  }
-  let t = textureSampleLevel(tex, samp, in.uv, in.layer, 0.0);
-  return atmo_out(atmo_fog(c0 * atmo_lin(t.rgb) * sf, in.wpos));
+  // the item's material, shaded as on the mesh pass (app/material.mojo; the same pack)
+  return shade(in.mat, Surface(in.base, in.color, in.lit, in.uv, in.layer, in.wpos, in.wnrm, sf));
 }
 """
 
@@ -190,7 +186,7 @@ def _build_skin_pipeline(
     return result^
 
 
-struct SkinnedPass(RenderPass):
+struct SkinnedPassOf[*Ms: Material](RenderPass):
     """The skinned pass. Built once per device; prepare() syncs the shared GpuMeshCache and writes the palette and the
     instance records; record() draws, in the arena's render pass. The camera, shadow and atmosphere uniforms are the
     renderer's RenderResources."""
@@ -213,7 +209,7 @@ struct SkinnedPass(RenderPass):
         caps.check()
         self.max_instances = caps.mesh_instances
         self.max_palette = caps.palette_matrices
-        var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL, "skin_draw")
+        var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL + Materials[*Self.Ms].wgsl(), "skin_draw")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),  # the fragment reads the eye (fog)
@@ -347,3 +343,7 @@ struct SkinnedPass(RenderPass):
             rpass.draw_indexed(
                 UInt32(n_idx), UInt32(self.batches.counts[k]), UInt32(0), Int32(0), UInt32(self.batches.base[k]),
             )
+
+
+comptime SkinnedPass = SkinnedPassOf[MatColor, MatUv, MatTriplanar, MatSky]
+"""The skinned pass with the built-in materials (the mesh pass's set)."""

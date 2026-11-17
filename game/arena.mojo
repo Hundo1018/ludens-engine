@@ -109,6 +109,13 @@ struct Prop(Copyable, Movable):
     var color: Vec3
 
 
+# DrawItem.material: the built-in materials (app/material.mojo has their shading; a game may add more IDs there)
+comptime MAT_COLOR = 0  # colour only
+comptime MAT_UV = 1  # a texture array layer at the mesh's uv
+comptime MAT_TRIPLANAR = 2  # a layer projected along the world axes
+comptime MAT_SKY = 3  # the sky gradient (unlit, casts no shadow)
+
+
 struct DrawItem(Copyable, Movable):
     """One thing to draw: a box (kind 0) or a sphere (kind 1, radius in half[0]).
 
@@ -127,7 +134,7 @@ struct DrawItem(Copyable, Movable):
     var color: Vec3
     var mesh_id: Int
     var pose_id: Int
-    var material: Int
+    var material: Int  # MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY or a game's own material ID
     var layer: Int  # the texture array layer a textured item samples (material > 0); 1 is the placeholder wall
 
     def __init__(

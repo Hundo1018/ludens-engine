@@ -11,6 +11,9 @@
 #     change that claims to leave the renderer's output unchanged quotes this line before and after, from one machine.
 # A third result: the pass list is customisable. ArenaRendererOf[Then[ShadowPass, DefaultPasses]] renders the shadow map
 # itself, in its own command buffer; its frame must equal the default renderer's after a separate ShadowPass.draw.
+# A fourth: materials (app/material.mojo) shade the same on both mesh passes. A skinned cube at the identity pose in each
+# built-in material gives the frame of the static unit cube in that material (shadow and AO off: the skinned pass has
+# no AO).
 # `arena_frame_native --record` rewrites the tile file (a deliberate change of the picture);
 # `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at.
 # The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
@@ -22,7 +25,7 @@ from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
 from wgpu.device import Device
-from game.arena import DrawItem
+from game.arena import DrawItem, MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
 from game.camera_view import View
 from geometry.aabb import AABB
 from geometry.quat import Quat
@@ -95,6 +98,18 @@ def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: Li
     r.begin(r.view.copy())
     for it in scene():
         r.push(it)
+
+
+def _one_cube_hash(
+    device: Device, mut r: ArenaRenderer, mut cap: FrameCapture, target: Texture, hud: Hud, material: Int, skinned: Bool,
+) raises -> UInt64:
+    """A unit cube (half 1) turned 30 degrees about y in front of the camera, on texture layer 1, alone."""
+    r.probe = 0
+    r.begin(r.view.copy())
+    var mesh = r.skin_ident if skinned else r.cube
+    r.push(DrawItem(0, _v(0, 1.2, 3), 0.0, 0.25881905, 0.0, 0.96592583, _v(1, 1, 1), _v(0.9, 0.7, 0.5), mesh, 0 if skinned else -1, material, 1))
+    r.draw(device, target.handle().raw, W, H, hud)
+    return _capture_hash(device, cap, target)
 
 
 def scene() -> List[DrawItem]:
@@ -214,6 +229,19 @@ def main() raises:
     print("pass list: separate shadow pass", h_separate, "; shadow pass in the list", h_inside, "; in the list, shadow off", h_off)
     s.check(h_inside == h_separate, "ArenaRendererOf[Then[ShadowPass, DefaultPasses]] draws the frame of a separate ShadowPass.draw")
     s.check(h_off != h_inside, "with the renderer's shadow off, the listed shadow pass does not draw (the frame changes)")
+
+    # materials: the skinned pass shades each built-in material as the mesh pass does
+    renderer.set_shadow(device, light, False)
+    renderer.set_ao(device, ao, 32, 32, -8.0, -8.0, 16.0, 16.0, False)
+    var names_m: List[String] = ["MAT_COLOR", "MAT_UV", "MAT_TRIPLANAR", "MAT_SKY"]
+    var seen = List[UInt64]()
+    for m in [MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY]:
+        var h_static = _one_cube_hash(device, renderer, cap, target, hud, m, False)
+        var h_skin = _one_cube_hash(device, renderer, cap, target, hud, m, True)
+        print("material", names_m[m], "static", h_static, "skinned", h_skin)
+        s.check(h_skin == h_static, "a skinned cube in " + names_m[m] + " gives the static cube's frame")
+        seen.append(h_static)
+    s.check(seen[0] != seen[1] and seen[1] != seen[2] and seen[2] != seen[3], "the four materials give four different frames")
 
     var lines = List[String]()
     for t in range(tx * ty):

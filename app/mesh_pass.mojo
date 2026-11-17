@@ -43,6 +43,7 @@ from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
 from app.render_pass import RenderPass
+from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky
 from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
 
 comptime FLOATS_PER_INSTANCE = 24
@@ -116,21 +117,8 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   // the AO factor multiplies the shadow factor; with AO off it is exactly 1.0, so the colour is unchanged bit for bit
   let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5);
-  if in.mat == 3u {
-    return atmo_out(atmo_sky(in.wpos));
-  }
-  // material 0 is the colour-only look: the same output as before textures existed (the atmosphere off)
-  if in.mat == 0u {
-    let c0 = select(in.color, atmo_lin(in.base) * in.lit, shadow.sky_top.w > 0.5);
-    return atmo_out(atmo_fog(c0 * sf, in.wpos));
-  }
-  var t : vec4<f32>;
-  if in.mat == 1u {
-    t = textureSampleLevel(tex, samp, in.uv, in.layer, 0.0);
-  } else {
-    t = triplanar(in.wpos, in.wnrm, in.layer, 0.0);
-  }
-  return atmo_out(atmo_fog(atmo_lin(in.base) * atmo_lin(t.rgb) * in.lit * sf, in.wpos));
+  // the item's material (app/material.mojo): shade() is generated from the pass's material pack
+  return shade(in.mat, Surface(in.base, in.color, in.lit, in.uv, in.layer, in.wpos, in.wnrm, sf));
 }
 """
 
@@ -349,7 +337,7 @@ def model_floats(it: DrawItem, mut out: List[Float32]):
     out.append(0.0)
 
 
-struct MeshPass(RenderPass):
+struct MeshPassOf[*Ms: Material](RenderPass):
     """The indexed mesh pass. Built once per device. The camera, shadow, atmosphere and AO uniforms it binds are the
     renderer's RenderResources (app/render_res.mojo); the GPU copies of the meshes are the renderer's GpuMeshCache."""
 
@@ -366,7 +354,7 @@ struct MeshPass(RenderPass):
                  ref res: RenderResources, caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
         self.max_instances = caps.mesh_instances
-        var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
+        var shader = device.create_shader_module_wgsl(MESH_WGSL + Materials[*Self.Ms].wgsl(), "mesh")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),  # the fragment reads the eye (fog, sky)
@@ -496,6 +484,10 @@ struct MeshPass(RenderPass):
             rpass.draw_indexed(
                 UInt32(n_idx), UInt32(self.batches.counts[k]), UInt32(0), Int32(0), UInt32(self.batches.base[k]),
             )
+
+
+comptime MeshPass = MeshPassOf[MatColor, MatUv, MatTriplanar, MatSky]
+"""The mesh pass with the built-in materials."""
 
 def _build_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout,
