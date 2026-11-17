@@ -6,7 +6,7 @@ passes names its own list, e.g. `ArenaRendererOf[Then[DefaultPasses, MyPass]]`.
 
 A Depth32Float buffer does the hidden-surface work (wgpu-mojo's `create_render_pipeline(depth_format=)` and
 `begin_surface_clear_pass_depth`). `app/render.mojo` stays as it was: the parity gates compare its pixels."""
-from game.arena import DrawItem
+from game.arena import DrawItem, MAT_COLOR, MAT_SKY
 from game.camera_view import View
 from geometry.vec import Real, Vec3
 from wgpu import (
@@ -164,7 +164,7 @@ struct ArenaRendererOf[P: RenderPass](Movable):
             else:
                 item.mesh_id = self.cube
             item.half = item.half * Real(2.0)
-        if item.material > 0 and item.material != 3 and not self.textures.is_loaded(item.layer):
+        if item.material != MAT_COLOR and item.material != MAT_SKY and not self.textures.is_loaded(item.layer):
             item.layer = 0
         self.items.append(item^)
 

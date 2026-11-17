@@ -9,7 +9,7 @@ Moved here from ludens-playground (its app/shadow_pass.mojo): the mesh pass owns
 (MeshPass.shadow_tex, set_shadow), so the pass that fills the map belongs beside it. A game supplies the light's
 view-projection and the items that cast.
 """
-from game.arena import DrawItem
+from game.arena import DrawItem, MAT_COLOR, MAT_SKY
 from game.camera_view import View
 from geometry.vec import Real, Vec3
 from app.textures import TextureArray, TRI_WGSL
@@ -365,7 +365,7 @@ struct ShadowCaster(Movable):
 def casts_shadow(it: DrawItem) -> Bool:
     """The pipeline's caster rule: every item with a mesh except the sky (material 3), a sphere around the camera that
     would shadow the whole frame."""
-    return it.mesh_id >= 0 and it.material != 3
+    return it.mesh_id >= 0 and it.material != MAT_SKY
 
 
 struct ShadowPass(RenderPass):

@@ -11,7 +11,7 @@ tell apart.
 DEBUG_SKY, overrides the atmosphere's fog and linear flags.
 """
 from geometry.vec import Real, Vec3
-from game.arena import DrawItem
+from game.arena import DrawItem, MAT_COLOR, MAT_SKY
 
 comptime DEBUG_NONE = 0
 comptime DEBUG_FLAT = 1
@@ -22,10 +22,10 @@ comptime MARK = Vec3(Real(1.0), Real(0.0), Real(1.0), Real(0.0))
 def debug_recolor(mut items: List[DrawItem], view: Int):
     if view == DEBUG_FLAT:
         for i in range(len(items)):
-            if items[i].material == 0:
+            if items[i].material == MAT_COLOR:
                 items[i].color = MARK
     elif view == DEBUG_SKY:
         for i in range(len(items)):
-            if items[i].material == 3:
+            if items[i].material == MAT_SKY:
                 items[i].color = MARK
-                items[i].material = 0
+                items[i].material = MAT_COLOR

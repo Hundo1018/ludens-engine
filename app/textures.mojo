@@ -24,10 +24,8 @@ comptime TEX_SIZE: UInt32 = 256
 comptime TEX_LEVELS: UInt32 = 9
 comptime TEX_LAYER_WHITE: UInt32 = 0
 
-comptime TRI_WGSL = """
-@group(0) @binding(1) var tex : texture_2d_array<f32>;
-@group(0) @binding(2) var samp : sampler;
-
+# triplanar() alone, for a shader that declares `tex` and `samp` at its own bindings (the skinned pass)
+comptime TRIPLANAR_FN_WGSL = """
 fn triplanar(world : vec3<f32>, n : vec3<f32>, layer : u32, lod : f32) -> vec4<f32> {
   let w = pow(abs(n), vec3<f32>(4.0));
   let ws = w / (w.x + w.y + w.z);
@@ -37,6 +35,10 @@ fn triplanar(world : vec3<f32>, n : vec3<f32>, layer : u32, lod : f32) -> vec4<f
   return cx * ws.x + cy * ws.y + cz * ws.z;
 }
 """
+comptime TRI_WGSL = """
+@group(0) @binding(1) var tex : texture_2d_array<f32>;
+@group(0) @binding(2) var samp : sampler;
+""" + TRIPLANAR_FN_WGSL
 
 
 # The atmosphere (sky, fog, linear lighting and tone mapping), shared by the mesh and skinned passes. It reads the passes'
