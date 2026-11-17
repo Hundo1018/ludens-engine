@@ -46,12 +46,9 @@ from wgpu.texture import TextureView
 from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
 from app.gpu_mesh import GpuMeshCache, MeshBatches, STATIC_BUFFERS, S_POS, SKINNED_BUFFERS, K_POS, K_JNT, K_WGT
 from app.skin_gpu import SKIN_FN
+from app.wgsl import LIGHT_WGSL
 
-comptime SHADOW_WGSL = """
-struct Light {
-  vp : mat4x4<f32>,
-}
-@group(0) @binding(0) var<uniform> light : Light;
+comptime SHADOW_WGSL = LIGHT_WGSL + """
 
 struct VsIn {
   @location(0) pos : vec3<f32>,
@@ -70,11 +67,7 @@ fn vs_main(i : VsIn) -> @builtin(position) vec4<f32> {
 
 # the skinned casters: the engine's skinning arithmetic (SKIN_FN, the source the drawn character uses), at the palette
 # base the instance carries in info.x. Only positions are needed for depth.
-comptime SKIN_SHADOW_WGSL = """
-struct Light {
-  vp : mat4x4<f32>,
-}
-@group(0) @binding(0) var<uniform> light : Light;
+comptime SKIN_SHADOW_WGSL = LIGHT_WGSL + """
 @group(0) @binding(1) var<storage, read> palette : array<mat4x4<f32>>;
 """ + SKIN_FN + """
 
