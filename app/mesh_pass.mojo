@@ -15,6 +15,7 @@ from geometry.vec import Real, Vec3
 from std.math import sin, cos
 from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
+from app.render_res import RenderResources, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_ARENA_INSTANCES, DEFAULT_PALETTE_MATRICES
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
 from wgpu._ffi.types import WGPUTextureUsage
@@ -41,32 +42,9 @@ from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
+from app.render_pass import RenderPass
 from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
 
-comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
-comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
-comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
-
-
-@fieldwise_init
-struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
-    """Per-frame capacities, chosen when the renderer is made (ludens-engine#71): arena items, mesh and skinned instances
-    (each pass's instance buffer) and skinning matrices (the palette buffers of the skinned and the shadow pass). The
-    buffers are sized from these; a frame past one raises in the pass that holds it."""
-
-    var arena_instances: Int
-    var mesh_instances: Int
-    var palette_matrices: Int
-
-    @staticmethod
-    def default() -> Self:
-        return Self(DEFAULT_ARENA_INSTANCES, MAX_MESH_INSTANCES, DEFAULT_PALETTE_MATRICES)
-
-    def check(self) raises:
-        if self.arena_instances < 1 or self.mesh_instances < 1 or self.palette_matrices < 1:
-            raise Error("RenderCaps: every capacity must be at least 1")
-comptime SHADOW_MAP_SIZE = 1024  # the mesh pass's shadow map, square; 4 MB of depth
-comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime FLOATS_PER_INSTANCE = 24
 comptime MESH_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(3) var shadow_map : texture_depth_2d;
@@ -371,64 +349,24 @@ def model_floats(it: DrawItem, mut out: List[Float32]):
     out.append(0.0)
 
 
-struct MeshPass(Movable):
-    """The indexed mesh pass. Built once per device; the GPU copies of the meshes are a GpuMeshCache the caller owns
-    and shares with the other mesh passes."""
+struct MeshPass(RenderPass):
+    """The indexed mesh pass. Built once per device. The camera, shadow, atmosphere and AO uniforms it binds are the
+    renderer's RenderResources (app/render_res.mojo); the GPU copies of the meshes are the renderer's GpuMeshCache."""
+
+    comptime SHADOW: Bool = False
 
     var pipeline: RenderPipeline
-    var camera: Buffer
     var instances: Buffer
     var group: BindGroup
     var staging: List[Float32]
     var batches: MeshBatches[False]  # this frame's static mesh items by mesh (prepare)
-    var shadow_tex: Texture  # the shadow map: a shadow pass renders depth into it (shadow_tex.create_view_default())
-    var shadow_view: TextureView
-    var shadow_sampler: Sampler  # comparison sampler, LessEqual
-    var shadow_ubo: Buffer  # light view-projection (64 bytes) and params (16 bytes): params.x 1 turns the shadow on
-    var ao_cells: Buffer  # the AO grid: AO_MAX_CELLS floats, all 1 (open) until set_ao
-    var ao_ubo: Buffer  # AO extent, dims and the on-flag (48 bytes)
-    var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
-    var atmo_linear: Bool
-    var sky_overridden: Bool
     var max_instances: Int  # RenderCaps.mesh_instances
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
-                 caps: RenderCaps = RenderCaps.default()) raises:
+                 ref res: RenderResources, caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
         self.max_instances = caps.mesh_instances
         var shader = device.create_shader_module_wgsl(MESH_WGSL, "mesh")
-        # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
-        self.shadow_tex = device.create_texture(
-            UInt32(SHADOW_MAP_SIZE), UInt32(SHADOW_MAP_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
-            WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
-            dimension=2, mip_level_count=1, label="mesh_shadow_map",
-        )
-        self.shadow_view = self.shadow_tex.create_view_default()
-        self.atmo_fog = False
-        self.atmo_linear = False
-        self.sky_overridden = False
-        self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
-        self.shadow_ubo = device.create_buffer(
-            UInt64(128), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_shadow_ubo",
-        )
-        var off = List[Float32]()  # identity light matrix, shadow off
-        for c in range(16):
-            off.append(Float32(1.0) if c % 5 == 0 else Float32(0.0))
-        for c in range(16):  # params, then the atmosphere's three vec4: all off
-            off.append(0.0)
-        device.queue_write_data(self.shadow_ubo, UInt64(0), off)
-        self.ao_cells = device.create_buffer(
-            UInt64(AO_MAX_CELLS * 4), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="mesh_ao_cells",
-        )
-        self.ao_ubo = device.create_buffer(UInt64(48), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_ao_ubo")
-        var ones = List[Float32]()
-        for _ in range(AO_MAX_CELLS):
-            ones.append(1.0)
-        device.queue_write_data(self.ao_cells, UInt64(0), ones)
-        var ao_off = List[Float32]()  # AO off: extent, dims and params all zero, the factor is 1
-        for _ in range(12):
-            ao_off.append(0.0)
-        device.queue_write_data(self.ao_ubo, UInt64(0), ao_off)
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),  # the fragment reads the eye (fog, sky)
@@ -490,108 +428,43 @@ struct MeshPass(Movable):
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "mesh_layout")
         self.pipeline = _build_pipeline(device, shader, layout, color_format, depth_format)
-        self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         self.instances = device.create_buffer(
             UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4),
             WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="mesh_instances",
         )
         var bg_entries: List[WGPUBindGroupEntry] = [
-            WGPUBindGroupEntry(null_opaque(), 0, self.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 0, res.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 1, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), self.shadow_view.handle().raw),
-            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), self.shadow_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 5, self.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 6, self.ao_cells.handle().raw, 0, UInt64(AO_MAX_CELLS * 4), null_opaque(), null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 7, self.ao_ubo.handle().raw, 0, UInt64(48), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), res.shadow_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), res.shadow_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 5, res.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 6, res.ao_cells.handle().raw, 0, UInt64(AO_MAX_CELLS * 4), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 7, res.ao_ubo.handle().raw, 0, UInt64(48), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
-        # the view, sampler and buffer are kept as fields, alive past the bind group call
         self.staging = List[Float32]()
         self.batches = MeshBatches[False]()
 
-    def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
-        """Set the light's view-projection (16 floats, column-major, NDC z in [0, 1]) and whether the shadow factor is
-        applied. The shadow map itself is rendered by the caller into shadow_tex. Off by default: the colour is then
-        unchanged bit for bit."""
-        if len(light_vp) != 16:
-            raise Error("mesh pass: the light view-projection has 16 floats")
-        var data = List[Float32]()
-        for c in range(16):
-            data.append(light_vp[c])
-        data.append(Float32(1.0) if on else Float32(0.0))
-        data.append(0.0)
-        data.append(0.0)
-        data.append(0.0)
-        device.queue_write_data(self.shadow_ubo, UInt64(0), data)
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        return Self(device, color_format, depth_format, textures, res, caps)
 
-    def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
-                       fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
-        """The atmosphere for this pass and the skinned pass (they share the uniform): the sky's colours (sRGB, as the
-        draw items' colours), fog toward the horizon colour with this density per metre, and the linear workflow with
-        ACES tone mapping at this exposure. sky_curve shapes the sky's gradient (pow of the view's up component; below 1
-        the colour leaves the horizon sooner). Both off by default: the colour is then unchanged bit for bit."""
-        if not (fog_density >= 0) or not (exposure > 0) or not (sky_curve > 0):
-            raise Error("mesh pass: the fog density must be >= 0 and the exposure > 0")
-        var data = List[Float32]()
-        data.append(Float32(sky_top[0])); data.append(Float32(sky_top[1])); data.append(Float32(sky_top[2]))
-        data.append(Float32(1.0) if linear else Float32(0.0))
-        data.append(Float32(sky_horizon[0])); data.append(Float32(sky_horizon[1])); data.append(Float32(sky_horizon[2]))
-        data.append(0.0)
-        data.append(Float32(1.0) if fog else Float32(0.0))
-        data.append(fog_density)
-        data.append(exposure)
-        data.append(sky_curve)
-        device.queue_write_data(self.shadow_ubo, UInt64(80), data)
-        self.atmo_fog = fog
-        self.atmo_linear = linear
-        self.sky_overridden = False
-
-    def set_fog_linear(mut self, device: Device, fog: Bool, linear: Bool) raises:
-        """Override the atmosphere's fog and linear-workflow flags for the next draw, leaving its colours and density
-        (the sky mask of app/debug_view.mojo turns both off)."""
-        var lin = List[Float32]()
-        lin.append(Float32(1.0) if linear else Float32(0.0))
-        device.queue_write_data(self.shadow_ubo, UInt64(92), lin)
-        var f = List[Float32]()
-        f.append(Float32(1.0) if fog else Float32(0.0))
-        device.queue_write_data(self.shadow_ubo, UInt64(112), f)
-
-    def debug_sky(mut self, device: Device, on: Bool) raises:
-        """For app/debug_view.mojo's DEBUG_SKY: with `on`, fog and the linear workflow off for this draw; on the first
-        draw without it, the flags of the latest set_atmosphere back (a host that sets the atmosphere once keeps it)."""
-        if on:
-            self.set_fog_linear(device, False, False)
-            self.sky_overridden = True
-        elif self.sky_overridden:
-            self.set_fog_linear(device, self.atmo_fog, self.atmo_linear)
-            self.sky_overridden = False
-
-    def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
-               sx: Float32, sz: Float32, on: Bool) raises:
-        """Set the ambient-occlusion grid: nx by ny cells (row-major by z, 1 open, 0 occluded) over the floor rectangle
-        (x0, z0) to (x0 + sx, z0 + sz) in metres, and whether it multiplies the lit colour. Off by default: the colour is
-        then unchanged bit for bit. The grid is uploaded whole; a grid larger than AO_MAX_CELLS is refused."""
-        if nx < 1 or ny < 1 or nx * ny > AO_MAX_CELLS or len(cells) != nx * ny:
-            raise Error("mesh pass: the AO grid needs nx * ny cells, at most AO_MAX_CELLS, one per cell")
-        if sx <= 0.0 or sz <= 0.0:
-            raise Error("mesh pass: the AO grid's extent must be positive")
-        device.queue_write_data(self.ao_cells, UInt64(0), cells)
-        var u = List[Float32]()
-        u.append(x0); u.append(z0); u.append(sx); u.append(sz)
-        u.append(Float32(nx)); u.append(Float32(ny)); u.append(0.0); u.append(0.0)
-        u.append(Float32(1.0) if on else Float32(0.0)); u.append(0.0); u.append(0.0); u.append(0.0)
-        device.queue_write_data(self.ao_ubo, UInt64(0), u)
-
-    def prepare(mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache, v: View) raises:
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View, res: RenderResources,
+    ) raises:
         """Everything that can fail, done before the render pass opens: sync the meshes' GPU copies, group the mesh
-        items by mesh, write the camera header and the instance records. record() then only sets state and draws."""
+        items by mesh, write the instance records. record() then only sets state and draws. The camera header is
+        written by the renderer (RenderResources.write_camera)."""
         gpu.sync(device, registry)
         self.batches = MeshBatches[False](items)
         if self.batches.total > self.max_instances:
             raise Error("mesh pass: " + String(self.batches.total) + " instances, more than its capacity " + String(self.max_instances))
-        device.queue_write_data(self.camera, UInt64(0), cam_floats(v))
         # instances grouped by mesh, in group order
         var floats = List[Float32]()
         for i in self.batches.members:
@@ -602,7 +475,7 @@ struct MeshPass(Movable):
         if self.batches.total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
 
-    def record(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
+    def record_color(self, mut rpass: FrameRenderPass, registry: MeshRegistry, gpu: GpuMeshCache):
         """Set state and draw the groups prepared by prepare(). Nothing here can fail: an invariant that prepare()
         guarantees is a debug_assert, not an error. Each bind passes its exact byte size: the wrapper's default size
         of 0 binds nothing, and WGPU_WHOLE_SIZE does not survive the web translation (setVertexBuffer rejects it)."""

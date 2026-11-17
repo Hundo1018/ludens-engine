@@ -1,11 +1,11 @@
-"""Draws the arena: boxes and spheres by vertex pulling, lit and coloured per instance, from a chase camera.
+"""The arena renderer: the frame's draw items through a compile-time list of passes (app/render_pass.mojo).
+
+`ArenaRenderer` is `ArenaRendererOf[DefaultPasses]`: the primitives (app/primitive_pass.mojo), the indexed meshes
+(app/mesh_pass.mojo) and the skinned meshes (app/skin_draw.mojo), in that order, then the HUD. A game that wants other
+passes names its own list, e.g. `ArenaRendererOf[Then[DefaultPasses, MyPass]]`.
 
 A Depth32Float buffer does the hidden-surface work (wgpu-mojo's `create_render_pipeline(depth_format=)` and
-`begin_surface_clear_pass_depth`). `app/render.mojo` stays as it was: the parity gates compare its pixels.
-
-Buffer layout (vec4<f32> elements): [0] eye.xyz + sx, [1] right.xyz + sy, [2] up.xyz + near, [3] fwd.xyz + far, [4] (count);
-instance i is four elements at 5 + 4 i: position + kind (0 box, 1 sphere), rotation xyzw, half extents, colour.
-1152 vertices per instance (a 16 x 12 sphere); a box uses the first 36 and collapses the rest."""
+`begin_surface_clear_pass_depth`). `app/render.mojo` stays as it was: the parity gates compare its pixels."""
 from game.arena import DrawItem
 from game.camera_view import View
 from geometry.vec import Real, Vec3
@@ -26,7 +26,11 @@ from wgpu.texture import Texture, TextureView
 from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
 from app.skin_draw import SkinnedPass
+from app.primitive_pass import PrimitivePass
+from app.render_pass import RenderPass, Then
+from app.shadow_pass import begin_depth_pass
 from app.gpu_mesh import GpuMeshCache, cam_floats
+from app.render_res import RenderResources
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
 from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
@@ -34,117 +38,23 @@ from geometry.mat import Mat4
 
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
-comptime VERTS_PER_INSTANCE = 1152
+comptime DefaultPasses = Then[PrimitivePass, Then[MeshPass, SkinnedPass]]
+comptime ArenaRenderer = ArenaRendererOf[DefaultPasses]
 
 
-comptime WGSL = """
-@group(0) @binding(0) var<storage, read> data : array<vec4<f32>>;
-
-struct VOut { @builtin(position) pos : vec4<f32>, @location(0) color : vec3<f32> };
-
-const NORMAL = array<vec3<f32>, 6>(
-  vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(-1.0, 0.0, 0.0),
-  vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, -1.0, 0.0),
-  vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, -1.0));
-const TAN1 = array<vec3<f32>, 6>(
-  vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0),
-  vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 1.0),
-  vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0));
-const TAN2 = array<vec3<f32>, 6>(
-  vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 1.0),
-  vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0),
-  vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0));
-const QUAD = array<u32, 6>(0u, 1u, 2u, 2u, 1u, 3u);
-const PI = 3.14159265;
-
-fn rotate(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
-  let t = 2.0 * cross(q.xyz, v);
-  return v + q.w * t + cross(q.xyz, t);
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -> VOut {
-  let b = 5u + ii * 4u;
-  let p = data[b].xyz;
-  let kind = data[b].w;
-  let q = data[b + 1u];
-  let h = data[b + 2u].xyz;
-  let base = data[b + 3u].xyz;
-  var local = vec3<f32>(0.0);
-  var normal = vec3<f32>(0.0, 1.0, 0.0);
-  var live = true;
-  if (kind < 0.5) {
-    if (vi >= 36u) { live = false; }
-    let face = (vi / 6u) % 6u;
-    let k = QUAD[vi % 6u];
-    local = (NORMAL[face] + (f32(k & 1u) * 2.0 - 1.0) * TAN1[face] + (f32(k >> 1u) * 2.0 - 1.0) * TAN2[face]) * h;
-    normal = rotate(q, NORMAL[face]);
-  } else {
-    let quad = vi / 6u;
-    let k = QUAD[vi % 6u];
-    let seg = quad % 16u;
-    let ring = quad / 16u;
-    let a = f32(seg + (k & 1u)) / 16.0 * 2.0 * PI;
-    let t = f32(ring + (k >> 1u)) / 12.0 * PI;
-    let u = vec3<f32>(sin(t) * cos(a), cos(t), sin(t) * sin(a));
-    local = u * h.x;
-    normal = u;
-  }
-  let world = p + rotate(q, local);
-  let eye = data[0].xyz;
-  let d = world - eye;
-  let x = dot(d, data[1].xyz);
-  let y = dot(d, data[2].xyz);
-  let z = dot(d, data[3].xyz);
-  let near = data[2].w;
-  let far = data[3].w;
-  var out : VOut;
-  if (live) {
-    out.pos = vec4<f32>(x * data[0].w, y * data[1].w, far * (z - near) / (far - near), z);
-  } else {
-    out.pos = vec4<f32>(2.0, 2.0, 2.0, 1.0);
-  }
-  let lit = 0.4 + 0.6 * max(dot(normal, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
-  out.color = base * lit;
-  return out;
-}
-
-@fragment
-fn fs_main(in : VOut) -> @location(0) vec4<f32> {
-  return vec4<f32>(in.color, 1.0);
-}
-"""
-
-
-def _put(mut staging: List[Float32], it: DrawItem):
-    for v in [it.pos[0], it.pos[1], it.pos[2], Real(it.kind)]:
-        staging.append(Float32(v))
-    for v in [it.qx, it.qy, it.qz, it.qw]:
-        staging.append(Float32(v))
-    for v in [it.half[0], it.half[1], it.half[2], Real(0)]:
-        staging.append(Float32(v))
-    for v in [it.color[0], it.color[1], it.color[2], Real(0)]:
-        staging.append(Float32(v))
-
-
-struct ArenaRenderer(Movable):
-    var pipeline: RenderPipeline
-    var mesh: MeshPass
+struct ArenaRendererOf[P: RenderPass](Movable):
+    var passes: Self.P
+    var res: RenderResources  # camera, shadow map and uniform, atmosphere, AO: bound by the passes, set by the host
     var textures: TextureArray  # layer 0 white, layer 1 the placeholder wall (PR D loads the real one)
     var meshes: MeshRegistry
     var gpu: GpuMeshCache  # the GPU copies of `meshes`, shared by the mesh and skinned passes
     var cube: Int  # the unit cube's mesh id, for the centre probe and textured boxes
     var sphere: Int  # the unit sphere's mesh id, for textured spheres
-    var max_items: Int  # RenderCaps.arena_instances: primitives drawn per frame (the rest are dropped)
     var debug_view: Int  # DEBUG_NONE / DEBUG_FLAT / DEBUG_SKY (app/debug_view.mojo), for visual tests
     var probe: Int  # 0 off; 1 a rigid cube at the view's centre; 2 / 3 a skinned cube at the centre, identity / joint turned 20 deg
-    var skin: SkinnedPass
     var skin_palette: List[Float32]
     var skin_ident: Int  # skinned mesh ids
     var skin_turn: Int
-    var buffer: Buffer
-    var group: BindGroup
-    var staging: List[Float32]
     var view: View
     var floor: List[DrawItem]
     var items: List[DrawItem]
@@ -156,27 +66,11 @@ struct ArenaRenderer(Movable):
     def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
                  caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
-        self.max_items = caps.arena_instances
-        var shader = device.create_shader_module_wgsl(WGSL, "arena")
-        var entries: List[WGPUBindGroupLayoutEntry] = [
-            WGPUBindGroupLayoutEntry(
-                null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
-                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.ReadOnlyStorage, UInt32(0), UInt64(0)),
-                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
-                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
-                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
-            ),
-        ]
-        var bgl = device.create_bind_group_layout(entries)
-        var layout = device.create_pipeline_layout(bgl, "arena_layout")
-        self.pipeline = device.create_render_pipeline(
-            shader, "vs_main", "fs_main", color_format, layout, depth_format=DEPTH_FORMAT
-        )
         # layer 0 white, layer 1 the placeholder checker; a game that loads more textures asks for more layers
         var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
-        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex, caps)
-        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.mesh.camera, self.mesh.shadow_view, self.mesh.shadow_sampler, self.mesh.shadow_ubo, caps)  # before the move: it reads the array's views
+        self.res = RenderResources(device)
+        self.passes = Self.P.create(device, color_format, DEPTH_FORMAT, tex, self.res, caps)  # before the move: they read the array's views
         self.textures = tex^
         self.meshes = MeshRegistry()
         self.gpu = GpuMeshCache()
@@ -206,13 +100,6 @@ struct ArenaRenderer(Movable):
         pal_ibm.append(Mat4.identity())
         pal_ibm.append(Mat4.identity())
         self.skin_palette = build_palette(pal_locals, pal_parents, pal_ibm)
-        var bytes = UInt64((5 + 4 * caps.arena_instances) * 16)
-        self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
-        var bg_entries: List[WGPUBindGroupEntry] = [
-            WGPUBindGroupEntry(null_opaque(), 0, self.buffer.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),
-        ]
-        self.group = device.create_bind_group(bgl, bg_entries, "arena_group")
-        self.staging = List[Float32]()
         self.view = view.copy()
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
@@ -222,23 +109,18 @@ struct ArenaRenderer(Movable):
         self.depth_h = 0
 
     def __init__(out self, *, deinit move: Self):
-        self.pipeline = move.pipeline^
-        self.mesh = move.mesh^
+        self.passes = move.passes^
+        self.res = move.res^
         self.textures = move.textures^
         self.meshes = move.meshes^
         self.gpu = move.gpu^
         self.cube = move.cube
         self.sphere = move.sphere
         self.debug_view = move.debug_view
-        self.max_items = move.max_items
         self.probe = move.probe
-        self.skin = move.skin^
         self.skin_palette = move.skin_palette^
         self.skin_ident = move.skin_ident
         self.skin_turn = move.skin_turn
-        self.buffer = move.buffer^
-        self.group = move.group^
-        self.staging = move.staging^
         self.view = move.view^
         self.floor = move.floor^
         self.items = move.items^
@@ -246,6 +128,24 @@ struct ArenaRenderer(Movable):
         self.depth_view = move.depth_view^
         self.depth_w = move.depth_w
         self.depth_h = move.depth_h
+
+    def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
+        """RenderResources.set_shadow: the light's view-projection and whether the shadow factor is applied."""
+        self.res.set_shadow(device, light_vp, on)
+
+    def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
+                       fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
+        """RenderResources.set_atmosphere: sky colours, fog, the linear workflow and its exposure."""
+        self.res.set_atmosphere(device, sky_top, sky_horizon, fog_density, exposure, fog, linear, sky_curve)
+
+    def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
+               sx: Float32, sz: Float32, on: Bool) raises:
+        """RenderResources.set_ao: the ambient-occlusion grid over the floor."""
+        self.res.set_ao(device, cells, nx, ny, x0, z0, sx, sz, on)
+
+    def shadow_target(self) raises -> TextureView:
+        """A view of the shadow map, for a shadow pass to render depth into."""
+        return self.res.shadow_target()
 
     def begin(mut self, view: View):
         self.view = view.copy()
@@ -294,38 +194,20 @@ struct ArenaRenderer(Movable):
                 DrawItem(-1, at, 0.0, 0.0, 0.0, 1.0, Vec3(Real(1.0), Real(1.0), Real(1.0), Real(0.0)),
                          Vec3(Real(0.8), Real(0.2), Real(0.2), Real(0.0)), self.cube, -1, 0)
             )
-        self.staging.clear()
-        for f in cam_floats(v):  # the camera header, then the primitive count and records
-            self.staging.append(f)
         debug_recolor(self.items, self.debug_view)
-        self.mesh.debug_sky(device, self.debug_view == DEBUG_SKY)
-        # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
-        var count = 0
-        for i in range(len(self.items)):
-            if self.items[i].mesh_id >= 0 or count >= self.max_items:
-                continue
-            count += 1
-        for _ in range(4):
-            self.staging.append(0.0)
-        self.staging[16] = Float32(count)
-        var put = 0
-        for i in range(len(self.items)):
-            if self.items[i].mesh_id >= 0 or put >= count:
-                continue
-            _put(self.staging, self.items[i])
-            put += 1
-        device.queue_write_data(self.buffer, UInt64(0), self.staging)
+        self.res.debug_sky(device, self.debug_view == DEBUG_SKY)
         hud.upload(device)
         self._depth_view(device, width, height)
-        self.mesh.prepare(device, self.items, self.meshes, self.gpu, v)
-        self.skin.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette)
+        self.res.write_camera(device, v)
+        self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
         var enc = device.create_command_encoder("frame")
+        comptime if Self.P.SHADOW:  # a shadow pass in the list: the depth pass first, in this command buffer
+            if self.res.shadow_on:
+                var srp = begin_depth_pass(enc, self.res.shadow_view)
+                self.passes.record_shadow(srp, self.meshes, self.gpu)
+                srp^.end()
         var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
-        rpass.set_pipeline(self.pipeline)
-        rpass.set_bind_group(UInt32(0), self.group)
-        rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(count), UInt32(0), UInt32(0))
-        self.mesh.record(rpass, self.meshes, self.gpu)
-        self.skin.record(rpass, self.meshes, self.gpu)
+        self.passes.record_color(rpass, self.meshes, self.gpu)
         hud.record(rpass)
         rpass^.end()
         var cmd = enc^.finish()
