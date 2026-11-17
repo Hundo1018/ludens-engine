@@ -44,6 +44,7 @@ from wgpu.render_pass import RenderPassEncoder
 from wgpu.command import CommandEncoder
 from wgpu.texture import TextureView
 from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
+from app.gpu_mesh import GpuMeshCache, MeshBatches, STATIC_BUFFERS, S_POS, SKINNED_BUFFERS, K_POS, K_JNT, K_WGT
 from app.skin_gpu import SKIN_FN
 
 comptime SHADOW_WGSL = """
@@ -194,24 +195,19 @@ def _build_skin_pipeline(
 
 
 struct ShadowPass(Movable):
-    """The depth-only pipeline, the light's uniform, and the per-mesh buffers uploaded from a MeshRegistry."""
+    """The depth-only pipeline, the light's uniform, and the GPU copies of a MeshRegistry's meshes (its own
+    GpuMeshCache until the pass shares the renderer's, plan 2.4)."""
 
     var pipeline: RenderPipeline
     var group: BindGroup
     var light: Buffer
     var instances: Buffer
-    var vbufs: List[Buffer]
-    var ibufs: List[Buffer]
-    var uploaded: Int
-    var seen: List[Int]  # per uploaded mesh: the registry version its buffer holds
+    var gpu: GpuMeshCache
     var depth_format: UInt32
     var skin_pipeline: RenderPipeline
     var skin_group: BindGroup
     var palette_buf: Buffer  # the skinned casters' palette, uploaded per draw (the skin pass's buffer is written later)
     var skin_instances: Buffer
-    var skin_vbufs: List[Buffer]  # per skinned mesh: positions, joints, weights
-    var skin_ibufs: List[Buffer]
-    var skin_uploaded: Int
     var max_instances: Int  # RenderCaps.mesh_instances
     var max_palette: Int  # RenderCaps.palette_matrices
 
@@ -241,10 +237,7 @@ struct ShadowPass(Movable):
             UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="shadow_instances",
         )
-        self.vbufs = List[Buffer]()
-        self.ibufs = List[Buffer]()
-        self.uploaded = 0
-        self.seen = List[Int]()
+        self.gpu = GpuMeshCache()
         self.depth_format = depth_format
         var skin_shader = device.create_shader_module_wgsl(SKIN_SHADOW_WGSL, "shadow_skin_vs")
         var skin_entries: List[WGPUBindGroupLayoutEntry] = [
@@ -278,45 +271,6 @@ struct ShadowPass(Movable):
             UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="shadow_skin_instances",
         )
-        self.skin_vbufs = List[Buffer]()
-        self.skin_ibufs = List[Buffer]()
-        self.skin_uploaded = 0
-
-    def upload(mut self, device: Device, registry: MeshRegistry) raises:
-        """Upload any mesh the registry has that this pass does not hold yet: positions and indices (the shadow pass
-        needs no normals or uv)."""
-        while self.uploaded < registry.count():
-            var m = registry.meshes[self.uploaded].copy()
-            var vb_pos = device.create_buffer(UInt64(len(m.positions) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_pos")
-            device.queue_write_data(vb_pos, UInt64(0), m.positions)
-            var ib = device.create_buffer(UInt64(len(m.indices) * 4), WGPUBufferUsage.INDEX | WGPUBufferUsage.COPY_DST, label="shadow_idx")
-            device.queue_write_data(ib, UInt64(0), m.indices)
-            self.vbufs.append(vb_pos^)
-            self.ibufs.append(ib^)
-            self.seen.append(registry.versions[self.uploaded])
-            self.uploaded += 1
-        for i in range(self.uploaded):
-            if registry.versions[i] != self.seen[i]:
-                device.queue_write_data(self.vbufs[i], UInt64(0), registry.meshes[i].positions)
-                self.seen[i] = registry.versions[i]
-
-    def upload_skinned(mut self, device: Device, registry: MeshRegistry) raises:
-        """Upload the skinned meshes this pass does not hold yet: positions, joints (u16 x 4) and weights per vertex."""
-        while self.skin_uploaded < len(registry.skinned):
-            var m = registry.skinned[self.skin_uploaded].copy()
-            var vb_pos = device.create_buffer(UInt64(len(m.positions) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_skin_pos")
-            device.queue_write_data(vb_pos, UInt64(0), m.positions)
-            var vb_jt = device.create_buffer(UInt64(len(m.joints) * 2), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_skin_jt")
-            device.queue_write_data(vb_jt, UInt64(0), m.joints)
-            var vb_w = device.create_buffer(UInt64(len(m.weights) * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_skin_w")
-            device.queue_write_data(vb_w, UInt64(0), m.weights)
-            var ib = device.create_buffer(UInt64(len(m.indices) * 4), WGPUBufferUsage.INDEX | WGPUBufferUsage.COPY_DST, label="shadow_skin_idx")
-            device.queue_write_data(ib, UInt64(0), m.indices)
-            self.skin_vbufs.append(vb_pos^)
-            self.skin_vbufs.append(vb_jt^)
-            self.skin_vbufs.append(vb_w^)
-            self.skin_ibufs.append(ib^)
-            self.skin_uploaded += 1
 
     def draw(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry,
@@ -326,76 +280,31 @@ struct ShadowPass(Movable):
         and draw them into the depth view, cleared to 1.0 on load."""
         if len(light_vp) != 16:
             raise Error("shadow pass: the light's view-projection is 16 floats")
-        self.upload(device, registry)
-        self.upload_skinned(device, registry)
+        self.gpu.sync(device, registry)
         device.queue_write_data(self.light, UInt64(0), light_vp)
         # the skinned casters: their palette goes to this pass's own buffer, so the shadow reads this frame's pose
-        var skin_order = List[Int]()
-        var skin_counts = List[Int]()
-        for it in items:
-            if it.mesh_id < 0 or it.pose_id < 0:
-                continue
-            var sfound = -1
-            for k in range(len(skin_order)):
-                if skin_order[k] == it.mesh_id:
-                    sfound = k
-            if sfound < 0:
-                skin_order.append(it.mesh_id)
-                skin_counts.append(0)
-                sfound = len(skin_order) - 1
-            skin_counts[sfound] += 1
-        var skin_total = 0
-        for c in skin_counts:
-            skin_total += c
-        if skin_total > self.max_instances:
+        var skin = MeshBatches[True](items)
+        if skin.total > self.max_instances:
             raise Error("shadow pass: more skinned instances than its capacity " + String(self.max_instances))
-        if skin_total > 0:
+        if skin.total > 0:
             if len(palette) == 0 or len(palette) % 16 != 0 or len(palette) // 16 > self.max_palette:
                 raise Error("shadow pass: the skinned palette is 16 floats per matrix, at most " + String(self.max_palette) + " matrices")
             device.queue_write_data(self.palette_buf, UInt64(0), palette)
-        var order = List[Int]()
-        var counts = List[Int]()
-        for it in items:
-            if it.mesh_id < 0 or it.pose_id >= 0:
-                continue
-            var found = -1
-            for k in range(len(order)):
-                if order[k] == it.mesh_id:
-                    found = k
-            if found < 0:
-                order.append(it.mesh_id)
-                counts.append(0)
-                found = len(order) - 1
-            counts[found] += 1
-        var total = 0
-        for c in counts:
-            total += c
-        if total > self.max_instances:
+        var stat = MeshBatches[False](items)
+        if stat.total > self.max_instances:
             raise Error("shadow pass: more instances than its capacity " + String(self.max_instances))
         var floats = List[Float32]()
-        var base = List[Int]()
-        var running = 0
-        for k in range(len(order)):
-            base.append(running)
-            for it in items:
-                if it.mesh_id == order[k] and it.pose_id < 0:
-                    model_floats(it, floats)
-                    running += 1
-        if total > 0:
+        for i in stat.members:
+            model_floats(items[i], floats)
+        if stat.total > 0:
             device.queue_write_data(self.instances, UInt64(0), floats)
         # skinned instance records: the mesh pass's layout, with the palette base in info.x (record float 20)
         var skin_floats = List[Float32]()
-        var skin_base = List[Int]()
-        var skin_running = 0
-        for k in range(len(skin_order)):
-            skin_base.append(skin_running)
-            for it in items:
-                if it.mesh_id == skin_order[k] and it.pose_id >= 0:
-                    var rec = len(skin_floats)
-                    model_floats(it, skin_floats)
-                    skin_floats[rec + 20] = Float32(it.pose_id)
-                    skin_running += 1
-        if skin_total > 0:
+        for i in skin.members:
+            var rec = len(skin_floats)
+            model_floats(items[i], skin_floats)
+            skin_floats[rec + 20] = Float32(items[i].pose_id)
+        if skin.total > 0:
             device.queue_write_data(self.skin_instances, UInt64(0), skin_floats)
 
         var depth_att_p = raw_alloc[WGPURenderPassDepthStencilAttachment](1)
@@ -424,28 +333,29 @@ struct ShadowPass(Movable):
         var rpass = enc.begin_render_pass(rp_desc_p)
         rp_desc_p.unsafe_free()
         depth_att_p.unsafe_free()
-        if len(order) > 0:
+        if len(stat.order) > 0:
             rpass.set_pipeline(self.pipeline)
             rpass.set_bind_group(UInt32(0), self.group)
-            rpass.set_vertex_buffer(UInt32(1), self.instances, UInt64(0), UInt64(total * FLOATS_PER_INSTANCE * 4))
-            for k in range(len(order)):
-                var mid = order[k]
-                var m = registry.meshes[mid].copy()
-                rpass.set_vertex_buffer(UInt32(0), self.vbufs[mid], UInt64(0), UInt64(len(m.positions) * 4))
-                rpass.set_index_buffer(self.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(len(m.indices) * 4))
-                rpass.draw_indexed(UInt32(len(m.indices)), UInt32(counts[k]), UInt32(0), Int32(0), UInt32(base[k]))
-        if len(skin_order) > 0:
+            rpass.set_vertex_buffer(UInt32(1), self.instances, UInt64(0), UInt64(stat.total * FLOATS_PER_INSTANCE * 4))
+            for k in range(len(stat.order)):
+                var mid = stat.order[k]
+                var n_idx = len(registry.meshes[mid].indices)
+                rpass.set_vertex_buffer(UInt32(0), self.gpu.vbufs[STATIC_BUFFERS * mid + S_POS], UInt64(0), UInt64(len(registry.meshes[mid].positions) * 4))
+                rpass.set_index_buffer(self.gpu.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
+                rpass.draw_indexed(UInt32(n_idx), UInt32(stat.counts[k]), UInt32(0), Int32(0), UInt32(stat.base[k]))
+        if len(skin.order) > 0:
             rpass.set_pipeline(self.skin_pipeline)
             rpass.set_bind_group(UInt32(0), self.skin_group)
-            rpass.set_vertex_buffer(UInt32(3), self.skin_instances, UInt64(0), UInt64(skin_total * FLOATS_PER_INSTANCE * 4))
-            for k in range(len(skin_order)):
-                var smid = skin_order[k]
-                var sm = registry.skinned[smid].copy()
-                rpass.set_vertex_buffer(UInt32(0), self.skin_vbufs[3 * smid], UInt64(0), UInt64(len(sm.positions) * 4))
-                rpass.set_vertex_buffer(UInt32(1), self.skin_vbufs[3 * smid + 1], UInt64(0), UInt64(len(sm.joints) * 2))
-                rpass.set_vertex_buffer(UInt32(2), self.skin_vbufs[3 * smid + 2], UInt64(0), UInt64(len(sm.weights) * 4))
-                rpass.set_index_buffer(self.skin_ibufs[smid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(len(sm.indices) * 4))
-                rpass.draw_indexed(UInt32(len(sm.indices)), UInt32(skin_counts[k]), UInt32(0), Int32(0), UInt32(skin_base[k]))
+            rpass.set_vertex_buffer(UInt32(3), self.skin_instances, UInt64(0), UInt64(skin.total * FLOATS_PER_INSTANCE * 4))
+            for k in range(len(skin.order)):
+                var smid = skin.order[k]
+                var vb = SKINNED_BUFFERS * smid
+                var n_idx = len(registry.skinned[smid].indices)
+                rpass.set_vertex_buffer(UInt32(0), self.gpu.skin_vbufs[vb + K_POS], UInt64(0), UInt64(len(registry.skinned[smid].positions) * 4))
+                rpass.set_vertex_buffer(UInt32(1), self.gpu.skin_vbufs[vb + K_JNT], UInt64(0), UInt64(len(registry.skinned[smid].joints) * 2))
+                rpass.set_vertex_buffer(UInt32(2), self.gpu.skin_vbufs[vb + K_WGT], UInt64(0), UInt64(len(registry.skinned[smid].weights) * 4))
+                rpass.set_index_buffer(self.gpu.skin_ibufs[smid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
+                rpass.draw_indexed(UInt32(n_idx), UInt32(skin.counts[k]), UInt32(0), Int32(0), UInt32(skin.base[k]))
         rpass^.end()
         var cmd = enc^.finish("shadow_cmd")
         device.queue_submit(cmd)
