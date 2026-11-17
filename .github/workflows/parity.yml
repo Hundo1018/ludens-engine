@@ -39,6 +39,8 @@ jobs:
 
       - name: Arena centre probe on native wgpu (rigid and skinned, lavapipe)
         run: pixi run -e wasm test-arena-probe
+      - name: Whole arena frame, every pass and option on (#90), on lavapipe
+        run: pixi run -e wasm test-arena-frame
 
       - name: Texture checks (mip levels and triplanar, exact texels) on lavapipe
         run: pixi run -e wasm test-texture
