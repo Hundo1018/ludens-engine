@@ -38,6 +38,7 @@ from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
 from app.textures import ATMO_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
+from app.render_res import RenderResources
 
 
 comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
@@ -190,8 +191,8 @@ def _build_skin_pipeline(
 
 struct SkinnedPass(Movable):
     """The skinned pass. Built once per device; prepare() syncs the shared GpuMeshCache and writes the palette and the
-    instance records; record() draws, in the arena's render pass. The camera header is the mesh pass's buffer, written
-    by its prepare()."""
+    instance records; record() draws, in the arena's render pass. The camera, shadow and atmosphere uniforms are the
+    renderer's RenderResources."""
 
     var pipeline: RenderPipeline
     var palette: Buffer
@@ -203,7 +204,7 @@ struct SkinnedPass(Movable):
 
     def __init__(
         out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
-        ref camera: Buffer, ref shadow_view: TextureView, ref shadow_sampler: Sampler, ref shadow_ubo: Buffer,
+        ref res: RenderResources,
         caps: RenderCaps = RenderCaps.default(),
     ) raises:
         caps.check()
@@ -273,15 +274,15 @@ struct SkinnedPass(Movable):
             label="skin_instances",
         )
         var bg_entries: List[WGPUBindGroupEntry] = [
-            WGPUBindGroupEntry(null_opaque(), 0, camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 0, res.camera.handle().raw, 0, UInt64(64), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(
                 null_opaque(), 1, self.palette.handle().raw, 0, UInt64(caps.palette_matrices * 64), null_opaque(), null_opaque(),
             ),
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), textures.view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), null_opaque(), shadow_view.handle().raw),
-            WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), shadow_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 6, shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), null_opaque(), res.shadow_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), res.shadow_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 6, res.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.batches = MeshBatches[True]()

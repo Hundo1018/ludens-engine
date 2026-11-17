@@ -115,9 +115,9 @@ def main() raises:
     # frame 0 has everything on (the reference); frames 1..3 turn one option off each
     var names: List[String] = ["all on", "shadow off", "AO off", "atmosphere off"]
     for k in range(4):
-        renderer.mesh.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.02, 1.0, k != 3, k != 3)
-        renderer.mesh.set_shadow(device, light, k != 1)
-        renderer.mesh.set_ao(device, ao, 32, 32, -8.0, -8.0, 16.0, 16.0, k != 2)
+        renderer.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.02, 1.0, k != 3, k != 3)
+        renderer.set_shadow(device, light, k != 1)
+        renderer.set_ao(device, ao, 32, 32, -8.0, -8.0, 16.0, 16.0, k != 2)
         renderer.probe = 3  # the skinned cube with its joint turned 20 degrees, at the centre of the view
         renderer.begin(view)
         for it in scene():
@@ -126,7 +126,7 @@ def main() raises:
         for it in renderer.items:
             if it.mesh_id >= 0 and it.material != 3:
                 casters.append(it.copy())
-        shadow.draw(device, casters, renderer.meshes, light, renderer.mesh.shadow_tex.create_view_default(), renderer.skin_palette.copy())
+        shadow.draw(device, casters, renderer.meshes, light, renderer.shadow_target(), renderer.skin_palette.copy())
         renderer.draw(device, target.handle().raw, W, H, hud)
         var req = cap.capture(device, target.handle().raw)
         req.wait()

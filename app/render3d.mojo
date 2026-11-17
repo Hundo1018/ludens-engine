@@ -27,6 +27,7 @@ from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
 from app.skin_draw import SkinnedPass
 from app.gpu_mesh import GpuMeshCache, cam_floats
+from app.render_res import RenderResources
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
 from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
@@ -129,6 +130,7 @@ def _put(mut staging: List[Float32], it: DrawItem):
 
 struct ArenaRenderer(Movable):
     var pipeline: RenderPipeline
+    var res: RenderResources  # camera, shadow map and uniform, atmosphere, AO: bound by the passes, set by the host
     var mesh: MeshPass
     var textures: TextureArray  # layer 0 white, layer 1 the placeholder wall (PR D loads the real one)
     var meshes: MeshRegistry
@@ -175,8 +177,9 @@ struct ArenaRenderer(Movable):
         # layer 0 white, layer 1 the placeholder checker; a game that loads more textures asks for more layers
         var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
-        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex, caps)
-        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.mesh.camera, self.mesh.shadow_view, self.mesh.shadow_sampler, self.mesh.shadow_ubo, caps)  # before the move: it reads the array's views
+        self.res = RenderResources(device)
+        self.mesh = MeshPass(device, color_format, DEPTH_FORMAT, tex, self.res, caps)
+        self.skin = SkinnedPass(device, color_format, DEPTH_FORMAT, tex, self.res, caps)  # before the move: it reads the array's views
         self.textures = tex^
         self.meshes = MeshRegistry()
         self.gpu = GpuMeshCache()
@@ -223,6 +226,7 @@ struct ArenaRenderer(Movable):
 
     def __init__(out self, *, deinit move: Self):
         self.pipeline = move.pipeline^
+        self.res = move.res^
         self.mesh = move.mesh^
         self.textures = move.textures^
         self.meshes = move.meshes^
@@ -246,6 +250,24 @@ struct ArenaRenderer(Movable):
         self.depth_view = move.depth_view^
         self.depth_w = move.depth_w
         self.depth_h = move.depth_h
+
+    def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
+        """RenderResources.set_shadow: the light's view-projection and whether the shadow factor is applied."""
+        self.res.set_shadow(device, light_vp, on)
+
+    def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
+                       fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
+        """RenderResources.set_atmosphere: sky colours, fog, the linear workflow and its exposure."""
+        self.res.set_atmosphere(device, sky_top, sky_horizon, fog_density, exposure, fog, linear, sky_curve)
+
+    def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
+               sx: Float32, sz: Float32, on: Bool) raises:
+        """RenderResources.set_ao: the ambient-occlusion grid over the floor."""
+        self.res.set_ao(device, cells, nx, ny, x0, z0, sx, sz, on)
+
+    def shadow_target(self) raises -> TextureView:
+        """A view of the shadow map, for a shadow pass to render depth into."""
+        return self.res.shadow_target()
 
     def begin(mut self, view: View):
         self.view = view.copy()
@@ -298,7 +320,7 @@ struct ArenaRenderer(Movable):
         for f in cam_floats(v):  # the camera header, then the primitive count and records
             self.staging.append(f)
         debug_recolor(self.items, self.debug_view)
-        self.mesh.debug_sky(device, self.debug_view == DEBUG_SKY)
+        self.res.debug_sky(device, self.debug_view == DEBUG_SKY)
         # primitives only: items with a mesh (mesh_id >= 0) are drawn by the mesh pass, once
         var count = 0
         for i in range(len(self.items)):
@@ -317,7 +339,8 @@ struct ArenaRenderer(Movable):
         device.queue_write_data(self.buffer, UInt64(0), self.staging)
         hud.upload(device)
         self._depth_view(device, width, height)
-        self.mesh.prepare(device, self.items, self.meshes, self.gpu, v)
+        self.res.write_camera(device, v)
+        self.mesh.prepare(device, self.items, self.meshes, self.gpu)
         self.skin.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette)
         var enc = device.create_command_encoder("frame")
         var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")

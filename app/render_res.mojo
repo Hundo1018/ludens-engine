@@ -1,0 +1,148 @@
+"""What every pass of the arena renderer binds and the host sets (plan 2.4a): the camera header, the sun's shadow map
+and its uniform (light view-projection, on-flag, atmosphere), and the ambient-occlusion grid. One per renderer; the
+mesh and skinned passes bind these buffers, a shadow pass renders into `shadow_tex`.
+
+Everything here is off by default (identity light, shadow off, atmosphere off, AO off): a pass bound to it draws the
+colour it drew before the option existed, bit for bit.
+"""
+from wgpu import WGPUBufferUsage
+from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu.buffer import Buffer
+from wgpu.device import Device
+from wgpu.sampler import Sampler
+from wgpu.texture import Texture, TextureView
+from game.camera_view import View
+from geometry.vec import Vec3
+from app.gpu_mesh import cam_floats
+
+comptime SHADOW_MAP_SIZE = 1024  # the shadow map, square; 4 MB of depth
+comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
+
+
+struct RenderResources(Movable):
+    var camera: Buffer  # the camera header (64 bytes, app/gpu_mesh.mojo cam_floats), written once per frame
+    var shadow_tex: Texture  # the shadow map: a shadow pass renders depth into it (shadow_target())
+    var shadow_view: TextureView
+    var shadow_sampler: Sampler  # comparison sampler, LessEqual
+    var shadow_ubo: Buffer  # light view-projection (64 bytes), params (16 bytes; params.x 1 turns the shadow on), atmosphere (48 bytes)
+    var ao_cells: Buffer  # the AO grid: AO_MAX_CELLS floats, all 1 (open) until set_ao
+    var ao_ubo: Buffer  # AO extent, dims and the on-flag (48 bytes)
+    var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
+    var atmo_linear: Bool
+    var sky_overridden: Bool
+
+    def __init__(out self, device: Device) raises:
+        self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
+        # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
+        self.shadow_tex = device.create_texture(
+            UInt32(SHADOW_MAP_SIZE), UInt32(SHADOW_MAP_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
+            WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
+            dimension=2, mip_level_count=1, label="mesh_shadow_map",
+        )
+        self.shadow_view = self.shadow_tex.create_view_default()
+        self.atmo_fog = False
+        self.atmo_linear = False
+        self.sky_overridden = False
+        self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
+        self.shadow_ubo = device.create_buffer(
+            UInt64(128), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_shadow_ubo",
+        )
+        var off = List[Float32]()  # identity light matrix, shadow off
+        for c in range(16):
+            off.append(Float32(1.0) if c % 5 == 0 else Float32(0.0))
+        for c in range(16):  # params, then the atmosphere's three vec4: all off
+            off.append(0.0)
+        device.queue_write_data(self.shadow_ubo, UInt64(0), off)
+        self.ao_cells = device.create_buffer(
+            UInt64(AO_MAX_CELLS * 4), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="mesh_ao_cells",
+        )
+        self.ao_ubo = device.create_buffer(UInt64(48), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_ao_ubo")
+        var ones = List[Float32]()
+        for _ in range(AO_MAX_CELLS):
+            ones.append(1.0)
+        device.queue_write_data(self.ao_cells, UInt64(0), ones)
+        var ao_off = List[Float32]()  # AO off: extent, dims and params all zero, the factor is 1
+        for _ in range(12):
+            ao_off.append(0.0)
+        device.queue_write_data(self.ao_ubo, UInt64(0), ao_off)
+
+    def write_camera(self, device: Device, v: View) raises:
+        """The camera header for this frame (every pass that binds `camera` reads it)."""
+        device.queue_write_data(self.camera, UInt64(0), cam_floats(v))
+
+    def shadow_target(self) raises -> TextureView:
+        """A view of the shadow map to render depth into (ShadowPass.draw's depth_view)."""
+        return self.shadow_tex.create_view_default()
+
+    def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
+        """Set the light's view-projection (16 floats, column-major, NDC z in [0, 1]) and whether the shadow factor is
+        applied. The shadow map itself is rendered by the caller into shadow_tex. Off by default: the colour is then
+        unchanged bit for bit."""
+        if len(light_vp) != 16:
+            raise Error("renderer: the light view-projection has 16 floats")
+        var data = List[Float32]()
+        for c in range(16):
+            data.append(light_vp[c])
+        data.append(Float32(1.0) if on else Float32(0.0))
+        data.append(0.0)
+        data.append(0.0)
+        data.append(0.0)
+        device.queue_write_data(self.shadow_ubo, UInt64(0), data)
+
+    def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
+                       fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
+        """The atmosphere for this pass and the skinned pass (they share the uniform): the sky's colours (sRGB, as the
+        draw items' colours), fog toward the horizon colour with this density per metre, and the linear workflow with
+        ACES tone mapping at this exposure. sky_curve shapes the sky's gradient (pow of the view's up component; below 1
+        the colour leaves the horizon sooner). Both off by default: the colour is then unchanged bit for bit."""
+        if not (fog_density >= 0) or not (exposure > 0) or not (sky_curve > 0):
+            raise Error("renderer: the fog density must be >= 0 and the exposure > 0")
+        var data = List[Float32]()
+        data.append(Float32(sky_top[0])); data.append(Float32(sky_top[1])); data.append(Float32(sky_top[2]))
+        data.append(Float32(1.0) if linear else Float32(0.0))
+        data.append(Float32(sky_horizon[0])); data.append(Float32(sky_horizon[1])); data.append(Float32(sky_horizon[2]))
+        data.append(0.0)
+        data.append(Float32(1.0) if fog else Float32(0.0))
+        data.append(fog_density)
+        data.append(exposure)
+        data.append(sky_curve)
+        device.queue_write_data(self.shadow_ubo, UInt64(80), data)
+        self.atmo_fog = fog
+        self.atmo_linear = linear
+        self.sky_overridden = False
+
+    def set_fog_linear(mut self, device: Device, fog: Bool, linear: Bool) raises:
+        """Override the atmosphere's fog and linear-workflow flags for the next draw, leaving its colours and density
+        (the sky mask of app/debug_view.mojo turns both off)."""
+        var lin = List[Float32]()
+        lin.append(Float32(1.0) if linear else Float32(0.0))
+        device.queue_write_data(self.shadow_ubo, UInt64(92), lin)
+        var f = List[Float32]()
+        f.append(Float32(1.0) if fog else Float32(0.0))
+        device.queue_write_data(self.shadow_ubo, UInt64(112), f)
+
+    def debug_sky(mut self, device: Device, on: Bool) raises:
+        """For app/debug_view.mojo's DEBUG_SKY: with `on`, fog and the linear workflow off for this draw; on the first
+        draw without it, the flags of the latest set_atmosphere back (a host that sets the atmosphere once keeps it)."""
+        if on:
+            self.set_fog_linear(device, False, False)
+            self.sky_overridden = True
+        elif self.sky_overridden:
+            self.set_fog_linear(device, self.atmo_fog, self.atmo_linear)
+            self.sky_overridden = False
+
+    def set_ao(mut self, device: Device, cells: List[Float32], nx: Int, ny: Int, x0: Float32, z0: Float32,
+               sx: Float32, sz: Float32, on: Bool) raises:
+        """Set the ambient-occlusion grid: nx by ny cells (row-major by z, 1 open, 0 occluded) over the floor rectangle
+        (x0, z0) to (x0 + sx, z0 + sz) in metres, and whether it multiplies the lit colour. Off by default: the colour is
+        then unchanged bit for bit. The grid is uploaded whole; a grid larger than AO_MAX_CELLS is refused."""
+        if nx < 1 or ny < 1 or nx * ny > AO_MAX_CELLS or len(cells) != nx * ny:
+            raise Error("renderer: the AO grid needs nx * ny cells, at most AO_MAX_CELLS, one per cell")
+        if sx <= 0.0 or sz <= 0.0:
+            raise Error("renderer: the AO grid's extent must be positive")
+        device.queue_write_data(self.ao_cells, UInt64(0), cells)
+        var u = List[Float32]()
+        u.append(x0); u.append(z0); u.append(sx); u.append(sz)
+        u.append(Float32(nx)); u.append(Float32(ny)); u.append(0.0); u.append(0.0)
+        u.append(Float32(1.0) if on else Float32(0.0)); u.append(0.0); u.append(0.0); u.append(0.0)
+        device.queue_write_data(self.ao_ubo, UInt64(0), u)
