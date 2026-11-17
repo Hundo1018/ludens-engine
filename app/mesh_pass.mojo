@@ -14,6 +14,7 @@ from game.camera_view import View
 from geometry.vec import Real, Vec3
 from std.math import sin, cos
 from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
+from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
 from wgpu._ffi.types import WGPUTextureUsage
@@ -67,12 +68,7 @@ struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
 comptime SHADOW_MAP_SIZE = 1024  # the mesh pass's shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime FLOATS_PER_INSTANCE = 24
-comptime MESH_WGSL = """
-struct Cam { eye : vec4<f32>, right : vec4<f32>, up : vec4<f32>, fwd : vec4<f32> };
-@group(0) @binding(0) var<uniform> cam : Cam;
-// shadow: the light's view-projection (orthographic, z in [0, 1]); params.x 1 turns the shadow factor on. sky_top, sky_hor
-// and atmo are the atmosphere (app/textures.mojo ATMO_WGSL), all zero (off) until set_atmosphere.
-struct Shadow { vp : mat4x4<f32>, params : vec4<f32>, sky_top : vec4<f32>, sky_hor : vec4<f32>, atmo : vec4<f32> };
+comptime MESH_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(3) var shadow_map : texture_depth_2d;
 @group(0) @binding(4) var shadow_cmp : sampler_comparison;
 @group(0) @binding(5) var<uniform> shadow : Shadow;
@@ -88,7 +84,7 @@ fn ao_factor(p : vec3<f32>) -> f32 {
   let c = min(vec2<u32>(uv * vec2<f32>(n)), n - vec2<u32>(1u));
   return ao_cells[c.y * n.x + c.x];
 }
-""" + TRI_WGSL + ATMO_WGSL + """
+""" + TRI_WGSL + ATMO_WGSL + PCF_WGSL + """
 
 struct VIn {
   @location(0) pos : vec3<f32>,
@@ -115,37 +111,13 @@ struct VOut {
   @location(8) lpos : vec3<f32>,
 };
 
-// the light-space position of a world point: NDC xy in [-1, 1], z in [0, 1]
-fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
-  // uv: NDC +y is the top row of the depth texture
-  let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
-  // a constant bias scaled by (1 - N.L) against acne on the faces turned from the light
-  let ref_z = p.z - 0.003 * (1.0 - ndl);
-  let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
-  // 3x3 percentage-closer filter; every tap is uniform control flow, so textureSampleCompareLevel is valid
-  var acc = 0.0;
-  for (var j = -1; j <= 1; j++) {
-    for (var i = -1; i <= 1; i++) {
-      acc += textureSampleCompareLevel(shadow_map, shadow_cmp, uv + vec2<f32>(f32(i), f32(j)) * texel, ref_z);
-    }
-  }
-  let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && p.z <= 1.0;
-  return select(1.0, acc / 9.0, inside);
-}
-
 @vertex
 fn vs_main(v : VIn) -> VOut {
   let m = mat4x4<f32>(v.m0, v.m1, v.m2, v.m3);
   let world = (m * vec4<f32>(v.pos, 1.0)).xyz;
   let n = normalize((m * vec4<f32>(v.nrm, 0.0)).xyz);
-  let d = world - cam.eye.xyz;
-  let x = dot(d, cam.right.xyz);
-  let y = dot(d, cam.up.xyz);
-  let z = dot(d, cam.fwd.xyz);
-  let near = cam.up.w;
-  let far = cam.fwd.w;
   var out : VOut;
-  out.pos = vec4<f32>(x * cam.eye.w, y * cam.right.w, far * (z - near) / (far - near), z);
+  out.pos = cam_clip(world);
   let lit = 0.4 + 0.6 * max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   out.color = v.color.rgb * lit;
   out.wpos = world;
