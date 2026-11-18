@@ -9,6 +9,7 @@ comptime MAT_COLOR = 0  # colour only
 comptime MAT_UV = 1  # a texture array layer at the mesh's uv
 comptime MAT_TRIPLANAR = 2  # a layer projected along the world axes
 comptime MAT_SKY = 3  # the sky gradient (unlit, casts no shadow)
+comptime MAT_PBR = 4  # metallic-roughness: the item's roughness and metallic, GGX specular from the sun and the point lights
 
 
 struct DrawItem(Copyable, Movable):
@@ -30,6 +31,8 @@ struct DrawItem(Copyable, Movable):
     var mesh_id: Int
     var pose_id: Int
     var material: Int  # MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY or a game's own material ID
+    var roughness: Float32  # MAT_PBR: 0 mirror-like .. 1 matte
+    var metallic: Float32  # MAT_PBR: 0 dielectric .. 1 metal
     var layer: Int  # the texture array layer a textured item samples (material > 0); 1 is the placeholder wall
 
     def __init__(
@@ -46,6 +49,8 @@ struct DrawItem(Copyable, Movable):
         pose_id: Int = -1,
         material: Int = 0,
         layer: Int = 1,
+        roughness: Float32 = 0.5,
+        metallic: Float32 = 0.0,
     ):
         self.kind = kind
         self.pos = pos
@@ -59,3 +64,5 @@ struct DrawItem(Copyable, Movable):
         self.pose_id = pose_id
         self.material = material
         self.layer = layer
+        self.roughness = roughness
+        self.metallic = metallic

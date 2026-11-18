@@ -43,7 +43,7 @@ from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
 from app.render_pass import RenderPass
-from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky
+from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
 
 comptime FLOATS_PER_INSTANCE = 24
@@ -64,7 +64,7 @@ fn ao_factor(p : vec3<f32>) -> f32 {
   let c = min(vec2<u32>(uv * vec2<f32>(n)), n - vec2<u32>(1u));
   return ao_cells[c.y * n.x + c.x];
 }
-""" + TRI_WGSL + ATMO_WGSL + PCF_WGSL + POINT_LIGHTS_WGSL + """
+""" + TRI_WGSL + ATMO_WGSL + PCF_WGSL + POINT_LIGHTS_WGSL + PBR_WGSL + """
 
 struct VIn {
   @location(0) pos : vec3<f32>,
@@ -89,6 +89,7 @@ struct VOut {
   @location(6) @interpolate(flat) mat : u32,
   @location(7) @interpolate(flat) layer : u32,
   @location(8) lpos : vec3<f32>,
+  @location(9) @interpolate(flat) rm : vec2<f32>,
 };
 
 @vertex
@@ -109,6 +110,7 @@ fn vs_main(v : VIn) -> VOut {
   out.layer = u32(v.info.z);
   let lp = shadow.vp * vec4<f32>(world, 1.0);
   out.lpos = lp.xyz / lp.w;
+  out.rm = vec2<f32>(floor(v.info.w / 256.0) / 255.0, (v.info.w - floor(v.info.w / 256.0) * 256.0) / 255.0);  // MAT_PBR: roughness, metallic
   return out;
 }
 
@@ -126,7 +128,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
     lit3 = lit3 + point_lights(in.wpos, normalize(in.wnrm));
     color = in.base * lit3;
   }
-  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf));
+  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf, in.rm.x, in.rm.y));
 }
 """
 
@@ -342,7 +344,10 @@ def model_floats(it: DrawItem, mut out: List[Float32]):
     out.append(0.0)
     out.append(0.0)
     out.append(0.0)
-    out.append(0.0)
+    # info.w: MAT_PBR's roughness and metallic, 8 bits each: round(r * 255) * 256 + round(m * 255)
+    var r = Int(min(max(it.roughness, Float32(0)), Float32(1)) * 255.0 + 0.5)
+    var m = Int(min(max(it.metallic, Float32(0)), Float32(1)) * 255.0 + 0.5)
+    out.append(Float32(r * 256 + m))
 
 
 struct MeshPassOf[*Ms: Material](RenderPass):
@@ -502,7 +507,7 @@ struct MeshPassOf[*Ms: Material](RenderPass):
             )
 
 
-comptime MeshPass = MeshPassOf[MatColor, MatUv, MatTriplanar, MatSky]
+comptime MeshPass = MeshPassOf[MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
 """The mesh pass with the built-in materials."""
 
 def _build_pipeline(

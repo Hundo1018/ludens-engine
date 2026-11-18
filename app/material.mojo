@@ -12,13 +12,14 @@ A body may use what both passes declare: `Surface` (below), `tex` / `samp` (the 
 atmosphere functions (app/textures.mojo ATMO_WGSL), `shadow` and `cam`. An ID that no material in the pack has shades
 as the pack's first material.
 """
-from game.draw_item import MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
+from game.draw_item import MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY, MAT_PBR
 
 # What a material reads, filled by the fragment shader of each pass:
 #   base  the item's colour (sRGB), color = base * lit, lit the light reaching the point (rgb): the sun's diffuse term
 #         (0.4 .. 1.0, per vertex) plus the point lights (per pixel, RenderResources.set_lights)
 #   uv / layer: the texture coordinates and array layer; wpos / wnrm: world position and normal
 #   sf    the light factor: shadow (and AO on the mesh pass), exactly 1.0 when they are off
+#   rough / metal: the item's roughness and metallic (DrawItem; read by MatPbr)
 comptime SURFACE_WGSL = """
 struct Surface {
   base : vec3<f32>,
@@ -29,6 +30,8 @@ struct Surface {
   wpos : vec3<f32>,
   wnrm : vec3<f32>,
   sf : f32,
+  rough : f32,
+  metal : f32,
 };
 """
 
@@ -73,6 +76,56 @@ struct MatSky(Material):
     comptime ID: Int = MAT_SKY
     comptime BODY: StaticString = """
   return atmo_out(atmo_sky(s.wpos));"""
+
+
+# Cook-Torrance for one light (GGX distribution, Schlick Fresnel, Smith-Schlick geometry), shared by MatPbr. l is the
+# unit direction to the light and radiance what arrives from it; the diffuse lobe is Lambert / pi, so a white matte
+# surface under radiance pi * k reflects k, the scale of the old lit term.
+comptime PBR_WGSL = """
+const PBR_PI = 3.14159265;
+fn pbr_light(n : vec3<f32>, v : vec3<f32>, l : vec3<f32>, radiance : vec3<f32>, albedo : vec3<f32>, f0 : vec3<f32>, a : f32, metal : f32) -> vec3<f32> {
+  let ndl = max(dot(n, l), 0.0);
+  if ndl <= 0.0 {
+    return vec3<f32>(0.0);
+  }
+  let h = normalize(v + l);
+  let ndv = max(dot(n, v), 1e-4);
+  let ndh = max(dot(n, h), 0.0);
+  let vdh = max(dot(v, h), 0.0);
+  let a2 = a * a;
+  let dd = ndh * ndh * (a2 - 1.0) + 1.0;
+  let d = a2 / (PBR_PI * dd * dd);
+  let k = a * 0.5;
+  let g = (ndv / (ndv * (1.0 - k) + k)) * (ndl / (ndl * (1.0 - k) + k));
+  let f = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vdh, 5.0);
+  let spec = d * g * f / max(4.0 * ndv * ndl, 1e-4);
+  let kd = (vec3<f32>(1.0) - f) * (1.0 - metal);
+  return (kd * albedo / PBR_PI + spec) * radiance * ndl;
+}
+"""
+
+
+struct MatPbr(Material):
+    """Metallic-roughness from the item's roughness and metallic: the sun (the old 0.6 diffuse scale, shadowed) and the
+    point lights through pbr_light, plus the old 0.4 ambient on the diffuse part."""
+
+    comptime ID: Int = MAT_PBR
+    comptime BODY: StaticString = """
+  let n = normalize(s.wnrm);
+  let v = normalize(cam.eye.xyz - s.wpos);
+  let albedo = atmo_lin(s.base);
+  let f0 = mix(vec3<f32>(0.04), albedo, s.metal);
+  let a = max(s.rough * s.rough, 0.002);
+  var c = albedo * 0.4 * (1.0 - s.metal);
+  c += pbr_light(n, v, normalize(vec3<f32>(0.4, 1.0, 0.6)), vec3<f32>(0.6 * PBR_PI) * s.sf, albedo, f0, a, s.metal);
+  let count = min(u32(lights.n.x), 16u);
+  for (var i = 0u; i < count; i++) {
+    let d = lights.l[i].pos_range.xyz - s.wpos;
+    let dist = max(length(d), 1e-4);
+    let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
+    c += pbr_light(n, v, d / dist, lights.l[i].color.rgb * lights.l[i].color.w * PBR_PI * x * x, albedo, f0, a, s.metal);
+  }
+  return atmo_out(atmo_fog(c, s.wpos));"""
 
 
 struct Materials[*Ms: Material]:
