@@ -1,17 +1,25 @@
-"""Post-processing as a compile-time list of stages, beside the pass list (app/render_pass.mojo).
+"""Post-processing as a compile-time graph of stages, beside the pass list (app/render_pass.mojo).
 
-`ArenaRendererOf[P, F]` draws its passes P into an offscreen colour and depth target when F is not `NoPost`, then runs
-F over them into the frame. A stage is `Stage[S]` for a `Style` S: one full-screen fragment shader. `ThenPost[A, B]`
-runs A into a texture of its own, then B from that texture into wherever the composite is pointed:
+`ArenaRendererOf[P, F, A]` draws its passes P into an offscreen colour and depth target when F is not `NoPost`, then
+runs F over them into the frame. The pieces of F:
+
+    Stage[S]          one full-screen fragment shader, the `Style` S
+    ThenPost[A, B]    A into a texture of the composite's own, then B reading it as `src`
+    Join[A, B, C]     A and B side by side from the same input, then C reading A's output as `src` and B's as `src2`
+    Scaled[A, D]      A at 1 / D of the size (a wide blur for the price of a small one; the next stage filters it up)
+    History[A]        A, with the renderer keeping the finished frame for the next one to read as `prev`
 
     struct Sepia(Style):
         comptime NAME: StaticString = "sepia"
+        comptime AFTER: StaticString = "..."
         comptime WGSL: StaticString = "fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> { ... }"
-    var r = ArenaRendererOf[DefaultPasses, ThenPost[Stage[Blur], Stage[Sepia]]](device, format, view)
+    var r = ArenaRendererOf[DefaultPasses, Join[Stage[Sepia], Scaled[Stage[Blur], 4], Stage[Add]]](device, format, view)
 
-What a style's `style(uv, px)` can read (POST_WGSL below): `src` (the previous stage's output; the scene for the first
-stage), `scene` (always the scene's colour), the scene's depth, and the camera, so view depth, world position and a
-normal from depth are available to every stage. uv is 0..1 with y down, px the pixel centre.
+What a style's `style(uv, px)` can read (POST_WGSL below): `src` and `src2`, `scene` (always the scene's colour),
+`prev` (History), the scene's depth, `aux` (what the renderer's A drew: by convention the surface normals, see
+`Aux` in app/render_pass.mojo), and the camera, so view depth and world position are available to every stage. uv is
+0..1 with y down, px the pixel centre in the stage's own target. An input that the pipeline does not provide reads
+the scene's colour.
 
 With `NoPost` the renderer's frame is the frame from before this module: `comptime if` leaves the direct path as it was.
 """
@@ -21,7 +29,14 @@ from wgpu import (
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
 )
 from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.structs import WGPUColor
+from wgpu._ffi.nulls import null_ptr
+from wgpu._ffi.structs import (
+    WGPUColor, WGPURenderPassColorAttachment, WGPURenderPassDepthStencilAttachment, WGPURenderPassDescriptor,
+    WGPUPassTimestampWrites,
+)
+from wgpu._backend.wgpu_native.structs import WGPUStringView
+from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu.render_pass import FrameRenderPass
 from wgpu._ffi.types import WGPUTextureUsage
 from wgpu.buffer import Buffer
 from wgpu.device import Device
@@ -49,6 +64,9 @@ struct Frame {
 @group(0) @binding(2) var scene : texture_2d<f32>;
 @group(0) @binding(3) var zbuf : texture_depth_2d;
 @group(0) @binding(4) var lin : sampler;
+@group(0) @binding(5) var src2 : texture_2d<f32>;
+@group(0) @binding(6) var aux : texture_2d<f32>;
+@group(0) @binding(7) var prev : texture_2d<f32>;
 
 const SUN = vec3<f32>(0.3244, 0.8111, 0.4867);  // the passes' light direction, normalize(0.4, 1.0, 0.6)
 const TAU = 6.2831853;
@@ -66,10 +84,16 @@ fn vs_main(@builtin(vertex_index) vi : u32) -> PostV {
 
 fn src_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(src, lin, uv, 0.0).rgb; }
 fn scene_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(scene, lin, uv, 0.0).rgb; }
+fn src2_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(src2, lin, uv, 0.0).rgb; }
+fn prev_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(prev, lin, uv, 0.0).rgb; }
+// the texel of the scene's full-size targets (depth, aux) under uv, whatever this stage's own size
 fn texel(uv : vec2<f32>) -> vec2<i32> {
-  return clamp(vec2<i32>(uv * frame.res.xy), vec2<i32>(0), vec2<i32>(frame.res.xy) - vec2<i32>(1));
+  let d = vec2<i32>(textureDimensions(zbuf));
+  return clamp(vec2<i32>(uv * vec2<f32>(d)), vec2<i32>(0), d - vec2<i32>(1));
 }
-fn src_px(uv : vec2<f32>) -> vec3<f32> { return textureLoad(src, texel(uv), 0).rgb; }
+// the aux target (app/render_pass.mojo Aux): a = 1 where a surface was drawn; with the normal convention, rgb = 0.5 + 0.5 n
+fn aux_at(uv : vec2<f32>) -> vec4<f32> { return textureLoad(aux, texel(uv), 0); }
+fn gnormal(uv : vec2<f32>) -> vec3<f32> { return normalize(aux_at(uv).xyz * 2.0 - 1.0); }
 // the uv of the centre of the `cell`-pixel block that holds px: a lower-resolution grid over the frame
 fn cell_uv(px : vec2<f32>, cell : vec2<f32>) -> vec2<f32> { return (floor(px / cell) + 0.5) * cell * frame.res.zw; }
 fn luma(c : vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.299, 0.587, 0.114)); }
@@ -150,6 +174,16 @@ fn edge(uv : vec2<f32>, w : f32) -> f32 {
   let dn = 2.0 - dot(n, normal_at(uv + vec2<f32>(e.x, 0.0))) - dot(n, normal_at(uv + vec2<f32>(0.0, e.y)));
   return clamp(max(smoothstep(0.02, 0.06, dz), smoothstep(0.25, 0.6, dn)), 0.0, 1.0);
 }
+// `edge` with the aux target's normals in place of the ones rebuilt from depth: smooth on a curved surface
+fn gedge(uv : vec2<f32>, w : f32) -> f32 {
+  let e = frame.res.zw * w;
+  let z = view_z(uv);
+  let dz = (abs(view_z(uv + e) + view_z(uv - e) - 2.0 * z) + abs(view_z(uv + vec2<f32>(e.x, -e.y)) + view_z(uv - vec2<f32>(e.x, -e.y)) - 2.0 * z)) / z;
+  let n = gnormal(uv);
+  let dn = 2.0 - dot(n, gnormal(uv + vec2<f32>(e.x, 0.0))) - dot(n, gnormal(uv + vec2<f32>(0.0, e.y)));
+  let da = abs(aux_at(uv).a - aux_at(uv + vec2<f32>(e.x, 0.0)).a) + abs(aux_at(uv).a - aux_at(uv + vec2<f32>(0.0, e.y)).a);
+  return clamp(max(max(smoothstep(0.02, 0.06, dz), smoothstep(0.25, 0.6, dn)), da), 0.0, 1.0);
+}
 // the Sobel gradient of the source's luminance, `w` pixels wide: xy the direction, z the magnitude
 fn sobel(uv : vec2<f32>, w : f32) -> vec3<f32> {
   let e = frame.res.zw * w;
@@ -203,6 +237,35 @@ trait Style:
     """WGSL declaring `fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32>` (and any helpers), after POST_WGSL."""
 
 
+struct PostInputs(Movable):
+    """The textures a stage can read. Views are shared (reference counted), so a copy is cheap."""
+
+    var src: TextureView
+    var src2: TextureView
+    var scene: TextureView
+    var depth: TextureView
+    var aux: TextureView
+    var prev: TextureView
+
+    def __init__(out self, src: TextureView, scene: TextureView, depth: TextureView, aux: TextureView, prev: TextureView):
+        self.src = src.clone()
+        self.src2 = scene.clone()
+        self.scene = scene.clone()
+        self.depth = depth.clone()
+        self.aux = aux.clone()
+        self.prev = prev.clone()
+
+    def with_src(self, src: TextureView) -> Self:
+        var o = Self(src, self.scene, self.depth, self.aux, self.prev)
+        o.src2 = self.src2.clone()
+        return o^
+
+    def with_src2(self, src: TextureView, src2: TextureView) -> Self:
+        var o = Self(src, self.scene, self.depth, self.aux, self.prev)
+        o.src2 = src2.clone()
+        return o^
+
+
 trait PostEffect(Movable, Deinitable):
     comptime NAME: StaticString
     """The name of the look: the last stage's."""
@@ -210,16 +273,18 @@ trait PostEffect(Movable, Deinitable):
     comptime STAGES: Int
     comptime ON: Bool
     """False only for NoPost: the renderer then draws straight into the frame."""
+    comptime DIV: Int = 1
+    """The effect's output is 1 / DIV of the size it is given (Scaled)."""
+    comptime HISTORY: Bool = False
+    """True if a stage reads `prev`: the renderer then keeps each finished frame for the next (History)."""
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
         ...
 
-    def bind(
-        mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32,
-        src: TextureView, scene: TextureView, depth: TextureView,
-    ) raises:
-        """(Re)build what depends on the targets: called when they are created or resized."""
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        """(Re)build what depends on the targets: called when they are created or resized. width and height are the
+        size of the target the effect's last stage draws into, times DIV."""
         ...
 
     def update(self, device: Device, frame: List[Float32]) raises:
@@ -244,10 +309,7 @@ struct NoPost(PostEffect):
     def create(device: Device, color_format: UInt32) raises -> Self:
         return Self()
 
-    def bind(
-        mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32,
-        src: TextureView, scene: TextureView, depth: TextureView,
-    ) raises:
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         pass
 
     def update(self, device: Device, frame: List[Float32]) raises:
@@ -264,6 +326,17 @@ def _tex_entry(binding: UInt32, sample_type: UInt32) -> WGPUBindGroupLayoutEntry
         WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
         WGPUTextureBindingLayout(null_opaque(), sample_type, UInt32(2), UInt32(0)),
         WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+    )
+
+
+def _view_entry(binding: UInt32, v: TextureView) -> WGPUBindGroupEntry:
+    return WGPUBindGroupEntry(null_opaque(), binding, null_opaque(), 0, UInt64(0), null_opaque(), v.handle().raw)
+
+
+def _target(device: Device, color_format: UInt32, width: UInt32, height: UInt32) raises -> Texture:
+    return device.create_texture(
+        max(width, 1), max(height, 1), 1, color_format,
+        WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING, label="post_target",
     )
 
 
@@ -300,6 +373,9 @@ struct Stage[S: Style](PostEffect):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            _tex_entry(UInt32(5), UInt32(2)),
+            _tex_entry(UInt32(6), UInt32(2)),
+            _tex_entry(UInt32(7), UInt32(2)),
         ]
         self.layout = device.create_bind_group_layout(entries)
         var pl = device.create_pipeline_layout(self.layout, "post_layout")
@@ -312,16 +388,16 @@ struct Stage[S: Style](PostEffect):
     def create(device: Device, color_format: UInt32) raises -> Self:
         return Self(device, color_format)
 
-    def bind(
-        mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32,
-        src: TextureView, scene: TextureView, depth: TextureView,
-    ) raises:
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         var e: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.ubo.handle().raw, 0, UInt64(FRAME_BYTES), null_opaque(), null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 1, null_opaque(), 0, UInt64(0), null_opaque(), src.handle().raw),
-            WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), scene.handle().raw),
-            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), depth.handle().raw),
+            _view_entry(1, inp.src),
+            _view_entry(2, inp.scene),
+            _view_entry(3, inp.depth),
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), self.sampler.handle().raw, null_opaque()),
+            _view_entry(5, inp.src2),
+            _view_entry(6, inp.aux),
+            _view_entry(7, inp.prev),
         ]
         self.group = device.create_bind_group(self.layout, e, "post_group")
 
@@ -343,6 +419,8 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
     comptime AFTER: StaticString = Self.B.AFTER
     comptime STAGES: Int = Self.A.STAGES + Self.B.STAGES
     comptime ON: Bool = True
+    comptime DIV: Int = Self.B.DIV
+    comptime HISTORY: Bool = Self.A.HISTORY or Self.B.HISTORY
     var first: Self.A
     var second: Self.B
     var mid: Optional[Texture]
@@ -360,17 +438,12 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
         var b = Self.B.create(device, color_format)
         return Self(a^, b^)
 
-    def bind(
-        mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32,
-        src: TextureView, scene: TextureView, depth: TextureView,
-    ) raises:
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         self.mid_view = None
-        self.mid = device.create_texture(
-            width, height, 1, color_format, WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING, label="post_mid",
-        )
+        self.mid = _target(device, color_format, width // UInt32(Self.A.DIV), height // UInt32(Self.A.DIV))
         self.mid_view = self.mid.value().create_view_default()
-        self.first.bind(device, color_format, width, height, src, scene, depth)
-        self.second.bind(device, color_format, width, height, self.mid_view.value(), scene, depth)
+        self.first.bind(device, color_format, width, height, inp)
+        self.second.bind(device, color_format, width, height, inp.with_src(self.mid_view.value()))
 
     def update(self, device: Device, frame: List[Float32]) raises:
         self.first.update(device, frame)
@@ -379,3 +452,154 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
     def record(self, enc: CommandEncoder, var dst: TextureView):
         self.first.record(enc, self.mid_view.value().clone())
         self.second.record(enc, dst^)
+
+
+struct Join[A: PostEffect, B: PostEffect, C: PostEffect](PostEffect):
+    """A and B, each from this composite's input into a texture of its own; then C, reading A's output as `src` and
+    B's as `src2`. The shape of a glow (the picture and its blurred highlights), a difference, a mask."""
+
+    comptime NAME: StaticString = Self.C.NAME
+    comptime AFTER: StaticString = Self.C.AFTER
+    comptime STAGES: Int = Self.A.STAGES + Self.B.STAGES + Self.C.STAGES
+    comptime ON: Bool = True
+    comptime DIV: Int = Self.C.DIV
+    comptime HISTORY: Bool = Self.A.HISTORY or Self.B.HISTORY or Self.C.HISTORY
+    var a: Self.A
+    var b: Self.B
+    var c: Self.C
+    var ta: Optional[Texture]
+    var tb: Optional[Texture]
+    var va: Optional[TextureView]
+    var vb: Optional[TextureView]
+
+    def __init__(out self, var a: Self.A, var b: Self.B, var c: Self.C):
+        self.a = a^
+        self.b = b^
+        self.c = c^
+        self.ta = None
+        self.tb = None
+        self.va = None
+        self.vb = None
+
+    @staticmethod
+    def create(device: Device, color_format: UInt32) raises -> Self:
+        var a = Self.A.create(device, color_format)
+        var b = Self.B.create(device, color_format)
+        var c = Self.C.create(device, color_format)
+        return Self(a^, b^, c^)
+
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        self.va = None
+        self.vb = None
+        self.ta = _target(device, color_format, width // UInt32(Self.A.DIV), height // UInt32(Self.A.DIV))
+        self.tb = _target(device, color_format, width // UInt32(Self.B.DIV), height // UInt32(Self.B.DIV))
+        self.va = self.ta.value().create_view_default()
+        self.vb = self.tb.value().create_view_default()
+        self.a.bind(device, color_format, width, height, inp)
+        self.b.bind(device, color_format, width, height, inp)
+        self.c.bind(device, color_format, width, height, inp.with_src2(self.va.value(), self.vb.value()))
+
+    def update(self, device: Device, frame: List[Float32]) raises:
+        self.a.update(device, frame)
+        self.b.update(device, frame)
+        self.c.update(device, frame)
+
+    def record(self, enc: CommandEncoder, var dst: TextureView):
+        self.a.record(enc, self.va.value().clone())
+        self.b.record(enc, self.vb.value().clone())
+        self.c.record(enc, dst^)
+
+
+struct Scaled[A: PostEffect, D: Int](PostEffect):
+    """A at 1 / D of the size: its stages see a frame that much smaller (Frame.res), and the composite around it makes
+    the target that small. For an inner stage; the last stage of a renderer's effect draws the frame at full size."""
+
+    comptime NAME: StaticString = Self.A.NAME
+    comptime AFTER: StaticString = Self.A.AFTER
+    comptime STAGES: Int = Self.A.STAGES
+    comptime ON: Bool = True
+    comptime DIV: Int = Self.A.DIV * Self.D
+    comptime HISTORY: Bool = Self.A.HISTORY
+    var inner: Self.A
+
+    def __init__(out self, var inner: Self.A):
+        self.inner = inner^
+
+    @staticmethod
+    def create(device: Device, color_format: UInt32) raises -> Self:
+        return Self(Self.A.create(device, color_format))
+
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        self.inner.bind(device, color_format, width // UInt32(Self.D), height // UInt32(Self.D), inp)
+
+    def update(self, device: Device, frame: List[Float32]) raises:
+        var f = frame.copy()
+        f[0] = Float32(Int(frame[0]) // Self.D)
+        f[1] = Float32(Int(frame[1]) // Self.D)
+        f[2] = Float32(1.0) / f[0]
+        f[3] = Float32(1.0) / f[1]
+        self.inner.update(device, f)
+
+    def record(self, enc: CommandEncoder, var dst: TextureView):
+        self.inner.record(enc, dst^)
+
+
+struct History[A: PostEffect](PostEffect):
+    """A, whose stages may read `prev`: the frame this effect finished last time (black before the first)."""
+
+    comptime NAME: StaticString = Self.A.NAME
+    comptime AFTER: StaticString = Self.A.AFTER
+    comptime STAGES: Int = Self.A.STAGES
+    comptime ON: Bool = True
+    comptime DIV: Int = Self.A.DIV
+    comptime HISTORY: Bool = True
+    var inner: Self.A
+
+    def __init__(out self, var inner: Self.A):
+        self.inner = inner^
+
+    @staticmethod
+    def create(device: Device, color_format: UInt32) raises -> Self:
+        return Self(Self.A.create(device, color_format))
+
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        self.inner.bind(device, color_format, width, height, inp)
+
+    def update(self, device: Device, frame: List[Float32]) raises:
+        self.inner.update(device, frame)
+
+    def record(self, enc: CommandEncoder, var dst: TextureView):
+        self.inner.record(enc, dst^)
+
+
+struct Copy(Style):
+    """The source unchanged: the renderer's blit of a kept frame (History) into the frame and into `prev`."""
+
+    comptime NAME: StaticString = "copy"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = "fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> { return src_at(uv); }"
+
+
+def begin_load_pass(device: Device, enc: CommandEncoder, var view: TextureView, depth_view: TextureView) -> FrameRenderPass:
+    """A render pass over `view` that keeps what is there (load, not clear), with `depth_view` attached and kept too:
+    for what is drawn on top of a finished frame, the HUD after the stages."""
+    var color_att_p = raw_alloc[WGPURenderPassColorAttachment](1)
+    color_att_p[unsafe_offset=0] = WGPURenderPassColorAttachment(
+        null_opaque(), view.handle().raw, UInt32(0xFFFFFFFF), null_opaque(), UInt32(1), UInt32(1),
+        WGPUColor(0.0, 0.0, 0.0, 1.0),
+    )
+    var depth_att_p = raw_alloc[WGPURenderPassDepthStencilAttachment](1)
+    depth_att_p[unsafe_offset=0] = WGPURenderPassDepthStencilAttachment(
+        null_opaque(), depth_view.handle().raw, UInt32(1), UInt32(1), Float32(1.0), UInt32(0),
+        UInt32(0), UInt32(0), UInt32(0), UInt32(0),
+    )
+    var rp_desc_p = raw_alloc[WGPURenderPassDescriptor](1)
+    rp_desc_p[unsafe_offset=0] = WGPURenderPassDescriptor(
+        null_opaque(), WGPUStringView.null_view(), UInt(1), color_att_p, depth_att_p, null_opaque(),
+        null_ptr[WGPUPassTimestampWrites](),
+    )
+    var result = device.lib()[].command_encoder_begin_render_pass(enc.handle().raw, rp_desc_p)
+    color_att_p.unsafe_free()
+    depth_att_p.unsafe_free()
+    rp_desc_p.unsafe_free()
+    return FrameRenderPass(device.lib(), result, view^)

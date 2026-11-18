@@ -89,3 +89,77 @@ struct Then[P: RenderPass, Q: RenderPass](RenderPass):
     def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.first.record_shadow(rpass, meshes, gpu)
         self.second.record_shadow(rpass, meshes, gpu)
+
+
+trait AuxTarget(Movable, Deinitable):
+    """A second picture of the frame's items for the post stages to read (app/post.mojo `aux`), drawn by a pass list
+    of its own into an RGBA8 target the size of the frame, with its own depth buffer."""
+
+    comptime ON: Bool
+
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        ...
+
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View, res: RenderResources,
+    ) raises:
+        ...
+
+    def record(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
+        ...
+
+
+struct NoAux(AuxTarget):
+    comptime ON: Bool = False
+
+    def __init__(out self):
+        pass
+
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        return Self()
+
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View, res: RenderResources,
+    ) raises:
+        pass
+
+    def record(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
+        pass
+
+
+struct Aux[G: RenderPass](AuxTarget):
+    """The pass list G drawn into the aux target. What it holds is G's choice; the convention the post prelude's
+    `gnormal` and `gedge` read is rgb = 0.5 + 0.5 world normal, a = 1 on a surface (the target is cleared to a = 0):
+    `Aux[NormalPasses]` (app/gbuffer.mojo)."""
+
+    comptime ON: Bool = True
+    var passes: Self.G
+
+    def __init__(out self, var passes: Self.G):
+        self.passes = passes^
+
+    @staticmethod
+    def create(
+        device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
+        ref res: RenderResources, caps: RenderCaps,
+    ) raises -> Self:
+        return Self(Self.G.create(device, color_format, depth_format, textures, res, caps))
+
+    def prepare(
+        mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,
+        palette: List[Float32], view: View, res: RenderResources,
+    ) raises:
+        self.passes.prepare(device, items, meshes, gpu, palette, view, res)
+
+    def record(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
+        self.passes.record_color(rpass, meshes, gpu)
