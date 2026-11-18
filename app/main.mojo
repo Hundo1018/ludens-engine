@@ -1,5 +1,9 @@
 """Shell entry: one Mojo program, the C-ABI below is only the JS face.
 
+`App` is `AppOf[ArenaMode, DefaultPasses]`: the shell around one game (a `GameMode`, game/mode.mojo) drawn through one
+pass list (app/render_pass.mojo). Another game reuses this shell by naming its own types, e.g.
+`AppOf[MyMode, Then[ShadowPass, DefaultPasses]]`; the C-ABI below exports the default instance.
+
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from controls import read_keys
 from game.arena_mode import ArenaMode
@@ -10,7 +14,8 @@ from game.controls import Controls
 from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
-from render3d import ArenaRenderer
+from render3d import ArenaRendererOf, DefaultPasses
+from app.render_pass import RenderPass
 from app.mesh_pass import mesh_probe_hash
 from app.skin_gpu import GpuSkinning, SkinJob
 from app.skin_pass import CpuSkinning, Skinning, synthetic_scene
@@ -34,7 +39,7 @@ comptime MODE_DEMO = 0  # the physics demo the parity gates and selftests compar
 comptime MODE_GAME = 1  # the arena game
 
 
-struct App(Movable):
+struct AppOf[M: GameMode, P: RenderPass](Movable):
     var boot: GPUBoot
     var surface: Surface
     var width: UInt32
@@ -63,11 +68,11 @@ struct App(Movable):
     var net_len: Int
     var net_packets: Int
     var mode: Int
-    var arena: Optional[ArenaMode]  # the arena game, behind the GameMode seam (game/mode.mojo)
+    var arena: Optional[Self.M]  # the game, behind the GameMode seam (game/mode.mojo)
     var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
-    var arena_renderer: Optional[ArenaRenderer]
+    var arena_renderer: Optional[ArenaRendererOf[Self.P]]
     var hud: Optional[Hud]
     var game_format: UInt32
 
@@ -165,7 +170,7 @@ struct App(Movable):
 
     def start_game(mut self) raises:
         if not self.arena:
-            self.arena = ArenaMode()
+            self.arena = Self.M.create()
             # The game's sounds go through the audio scene: each cue is synthesised once and registered as a clip.
             self.cue_clips.append(-1)  # cue numbers start at 1
             for cue in range(1, CUE_COUNT + 1):
@@ -173,7 +178,7 @@ struct App(Movable):
         self.sim.scene.set_tone(330.0, 0.0)  # the demo's contact tone is silent while the game plays
         self.mode = MODE_GAME
 
-    def _step_mode[M: GameMode](mut self, mut m: M, dt: Float64) raises:
+    def _step_mode(mut self, mut m: Self.M, dt: Float64) raises:
         """One frame of a game: read the keys, step it (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
         var intent = self.controls.poll(read_keys(self.input))
         m.step(intent, min(dt, 0.1))
@@ -181,7 +186,7 @@ struct App(Movable):
             if cue > 0 and cue < len(self.cue_clips):
                 self.sim.scene.play(self.cue_clips[cue])
 
-    def _draw_mode[M: GameMode](mut self, mut m: M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
+    def _draw_mode(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
         var view = View(m.camera(), Real(aspect))
         if self.game_format != format:  # the pipelines are built for one target format
             self.hud = None
@@ -190,7 +195,7 @@ struct App(Movable):
         if not self.hud:
             self.hud = Hud(self.boot.device(), format)
         if not self.arena_renderer:
-            self.arena_renderer = ArenaRenderer(self.boot.device(), format, view)
+            self.arena_renderer = ArenaRendererOf[Self.P](self.boot.device(), format, view)
         self.arena_renderer.value().begin(view)
         self.arena_renderer.value().probe = self.probe_cube
         for it in m.scene():
@@ -288,6 +293,10 @@ struct App(Movable):
         self._reference()
         self._finish_capture()
         return 1
+
+
+comptime App = AppOf[ArenaMode, DefaultPasses]
+"""The shell the C-ABI exports: the arena game, the default passes."""
 
 
 def _app(handle: UInt64) -> Pointer[App, MutUntrackedOrigin]:

@@ -1,6 +1,6 @@
 """The seam between a game and the host that runs it: what a game must provide each frame, as a compile-time trait.
 
-A host (`app/`) is generic over a `GameMode` (`struct Host[M: GameMode]`), so the call to the game is resolved when the
+A host (`app/`) is generic over a `GameMode` (`app/main.mojo` `AppOf[M, P]`), so the call to the game is resolved when the
 program is built and nothing is looked up at run time. A game conforms by wrapping its state in a struct that implements
 these methods; see `game/arena_mode.mojo`. The game's own rules never import this file."""
 from game.intent import Intent
@@ -10,6 +10,11 @@ from ui.draw import DrawList
 
 
 trait GameMode(Movable, Deinitable):
+    @staticmethod
+    def create() raises -> Self:
+        """The game at its start; the host calls this when the game is first selected."""
+        ...
+
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
         """Advance by one frame of wall time (the game decides how many fixed ticks that is)."""
         ...
