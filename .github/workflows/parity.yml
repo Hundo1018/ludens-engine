@@ -41,6 +41,10 @@ jobs:
         run: pixi run -e wasm test-arena-probe
       - name: Whole arena frame, every pass and option on (#90), on lavapipe
         run: pixi run -e wasm test-arena-frame
+      - name: Render pipelines (a user-defined one, the 53 style pipelines, their listing) on lavapipe
+        run: |
+          pixi run -e wasm python3 scripts/test_native.py style_own custom_pipeline_native
+          pixi run -e wasm style-gallery --doc --check
 
       - name: Texture checks (mip levels and triplanar, exact texels) on lavapipe
         run: pixi run -e wasm test-texture

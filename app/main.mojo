@@ -1,8 +1,10 @@
 """Shell entry: one Mojo program, the C-ABI below is only the JS face.
 
 `App` is `AppOf[ArenaMode, DefaultPasses]`: the shell around one game (a `GameMode`, game/mode.mojo) drawn through one
-pass list (app/render_pass.mojo). Another game reuses this shell by naming its own types, e.g.
-`AppOf[MyMode, Then[ShadowPass, DefaultPasses]]`; the C-ABI below exports the default instance.
+render pipeline: a pass list (app/render_pass.mojo), a graph of post stages (app/post.mojo) and an aux pass list.
+Another game reuses this shell by naming its own types, e.g.
+`AppOf[MyMode, Then[ShadowPass, DefaultPasses], History[Stage[MyStyle]], Aux[NormalPasses]]` (docs/PIPELINES.md);
+the C-ABI below exports the default instance.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from controls import read_keys
@@ -15,7 +17,8 @@ from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
 from render3d import ArenaRendererOf, DefaultPasses
-from app.render_pass import RenderPass
+from app.render_pass import RenderPass, AuxTarget, NoAux
+from app.post import PostEffect, NoPost, scene_aspect
 from app.mesh_pass import mesh_probe_hash
 from app.skin_gpu import GpuSkinning, SkinJob
 from app.skin_pass import CpuSkinning, Skinning, synthetic_scene
@@ -39,7 +42,7 @@ comptime MODE_DEMO = 0  # the physics demo the parity gates and selftests compar
 comptime MODE_GAME = 1  # the arena game
 
 
-struct AppOf[M: GameMode, P: RenderPass](Movable):
+struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux](Movable):
     var boot: GPUBoot
     var surface: Surface
     var width: UInt32
@@ -72,7 +75,7 @@ struct AppOf[M: GameMode, P: RenderPass](Movable):
     var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
-    var arena_renderer: Optional[ArenaRendererOf[Self.P]]
+    var arena_renderer: Optional[ArenaRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
     var game_format: UInt32
 
@@ -187,7 +190,8 @@ struct AppOf[M: GameMode, P: RenderPass](Movable):
                 self.sim.scene.play(self.cue_clips[cue])
 
     def _draw_mode(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
-        var view = View(m.camera(), Real(aspect))
+        # a pipeline that draws the scene for a picture of its own proportions (SceneSize) sets the camera's
+        var view = View(m.camera(), Real(scene_aspect[Self.F](Float64(aspect))))
         if self.game_format != format:  # the pipelines are built for one target format
             self.hud = None
             self.arena_renderer = None
@@ -195,7 +199,7 @@ struct AppOf[M: GameMode, P: RenderPass](Movable):
         if not self.hud:
             self.hud = Hud(self.boot.device(), format)
         if not self.arena_renderer:
-            self.arena_renderer = ArenaRendererOf[Self.P](self.boot.device(), format, view)
+            self.arena_renderer = ArenaRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
         self.arena_renderer.value().begin(view)
         self.arena_renderer.value().probe = self.probe_cube
         for it in m.scene():
