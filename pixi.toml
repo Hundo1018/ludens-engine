@@ -20,7 +20,7 @@ nodejs = "24.*"
 pillow = "==13.0.0"
 
 [feature.wasm.pypi-dependencies]
-ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "0845b4280f3dbd6ab7666cd312f236e747cfd31c" }
+ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "1034e60e3ee4acf08970c7f48f2fd46eadea344c" }
 
 [feature.wasm.tasks]
 parity = "python3 scripts/parity.py"
