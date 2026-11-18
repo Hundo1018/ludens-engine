@@ -4,7 +4,7 @@ items with no mesh (mesh_id < 0), up to RenderCaps.arena_instances per frame (th
 Buffer layout (vec4<f32> elements): [0] eye.xyz + sx, [1] right.xyz + sy, [2] up.xyz + near, [3] fwd.xyz + far, [4] (count);
 instance i is four elements at 5 + 4 i: position + kind (0 box, 1 sphere), rotation xyzw, half extents, colour.
 1152 vertices per instance (a 16 x 12 sphere); a box uses the first 36 and collapses the rest."""
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from game.camera_view import View
 from geometry.vec import Real
 from wgpu import (

@@ -3,7 +3,7 @@
 # by the parity gates (a cube drawn natively and on the web), not here.
 from harness.runner import Suite
 from app.mesh_pass import MeshRegistry, add_unit_cube, mesh_draw_hash, mesh_probe_hash, unit_cube_arrays, RenderCaps, vertex_normals
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from geometry.vec import Real, Vec3
 
 

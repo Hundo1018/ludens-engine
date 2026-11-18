@@ -9,7 +9,7 @@ from wgpu import Instance
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from game.camera_view import View
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
