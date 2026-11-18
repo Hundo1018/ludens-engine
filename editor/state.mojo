@@ -5,7 +5,12 @@ transaction, tells the editor which bodies it is about to change, changes them, 
 body's record from before and after, so one mechanism covers every kind of edit. Commands do not touch the log
 directly; they use `begin`, `touch`, `created` and `commit` here, and `Registry.run` aborts an open transaction when
 a command fails, so a failed command leaves the world and the history as they were."""
-from editor.curve import CurveStep
+from editor.curve import CurveStep, CURVE_INSERT, CURVE_MOVE, CURVE_REMOVE  # the ops re-exported for the built-ins (R4)
+
+# Editor.order / redo_order: which history the latest step belongs to
+comptime STEP_WORLD = 0  # an undo transaction on the world (UndoLog)
+comptime STEP_CURVE = 1  # a curve edit (CurveStep)
+comptime STEP_GRAPH = 2  # a node-graph snapshot (GraphHistory)
 from editor.graph import Graph, GraphHistory
 from embed.undo import UndoLog
 from embed.world import EmbedWorld
@@ -137,7 +142,7 @@ struct Editor(Movable):
     def commit(mut self) raises:
         self.log.commit(self.world)
         if self.log.depth == 0 and self.log.steps() > self.steps_at_begin:
-            self._new_step(0)  # a merged or empty transaction leaves the count as it was and adds no step
+            self._new_step(STEP_WORLD)  # a merged or empty transaction leaves the count as it was and adds no step
 
     def abort(mut self) raises:
         if self.log.depth > 0:
@@ -147,7 +152,7 @@ struct Editor(Movable):
         self.order.append(kind)
         self.redo_order = List[Int]()
         self.curve_future = List[CurveStep]()
-        if kind != 2:
+        if kind != STEP_GRAPH:
             self.graph_hist.future = List[String]()
             self.graph_hist.last_key = String()  # a drag does not merge across an unrelated step
 
@@ -163,16 +168,16 @@ struct Editor(Movable):
     # ---- the curve (#19): every edit is one step in the same history as the world's
 
     def curve_edit(mut self, op: Int, idx: Int, point: Vec3, key: Int = 0) raises:
-        """Insert (op 0) a point at `idx`, move (1) point `idx` to `point`, or remove (2) point `idx`."""
+        """Insert (CURVE_INSERT) a point at `idx`, move (CURVE_MOVE) point `idx` to `point`, or remove (CURVE_REMOVE) point `idx`."""
         if self.playing:
             raise Error("edit refused while playing; stop first")
         var n = len(self.curve)
-        if op == 0:
+        if op == CURVE_INSERT:
             if idx < 0 or idx > n:
                 raise Error("curve: insert index " + String(idx) + " is outside 0.." + String(n))
             self.curve.insert(idx, point)
-            self.curve_past.append(CurveStep(0, idx, Vec3(0, 0, 0, 0), point, key))
-        elif op == 1:
+            self.curve_past.append(CurveStep(CURVE_INSERT, idx, Vec3(0, 0, 0, 0), point, key))
+        elif op == CURVE_MOVE:
             if idx < 0 or idx >= n:
                 raise Error("curve: point " + String(idx) + " does not exist (" + String(n) + " points)")
             var before = self.curve[idx]
@@ -180,8 +185,8 @@ struct Editor(Movable):
                 return
             self.curve[idx] = point
             var merge = (
-                key != 0 and len(self.order) > 0 and self.order[len(self.order) - 1] == 1 and len(self.curve_past) > 0
-                and self.curve_past[len(self.curve_past) - 1].op == 1 and self.curve_past[len(self.curve_past) - 1].idx == idx
+                key != 0 and len(self.order) > 0 and self.order[len(self.order) - 1] == STEP_CURVE and len(self.curve_past) > 0
+                and self.curve_past[len(self.curve_past) - 1].op == CURVE_MOVE and self.curve_past[len(self.curve_past) - 1].idx == idx
                 and self.curve_past[len(self.curve_past) - 1].key == key and len(self.redo_order) == 0
             )
             if merge:
@@ -190,14 +195,14 @@ struct Editor(Movable):
                     _ = self.curve_past.pop()
                     _ = self.order.pop()
                 return
-            self.curve_past.append(CurveStep(1, idx, before, point, key))
+            self.curve_past.append(CurveStep(CURVE_MOVE, idx, before, point, key))
         else:
             if idx < 0 or idx >= n:
                 raise Error("curve: point " + String(idx) + " does not exist (" + String(n) + " points)")
             var before = self.curve[idx]
             _ = self.curve.pop(idx)
-            self.curve_past.append(CurveStep(2, idx, before, Vec3(0, 0, 0, 0), key))
-        self._new_step(1)
+            self.curve_past.append(CurveStep(CURVE_REMOVE, idx, before, Vec3(0, 0, 0, 0), key))
+        self._new_step(STEP_CURVE)
 
     # ---- the node graph (#20): snapshot steps in the same history; an edit is made on a copy first, so a failing
     # command leaves the graph and the history as they were
@@ -207,15 +212,15 @@ struct Editor(Movable):
         self.graph_hist.record(self.graph, merge_key)
         self.graph = edited^
         if len(self.graph_hist.past) > before:  # a merged drag adds no step
-            self.order.append(2)
+            self.order.append(STEP_GRAPH)
             self.redo_order = List[Int]()
             self.curve_future = List[CurveStep]()
 
     def _curve_apply(mut self, st: CurveStep, forward: Bool) raises:
-        if st.op == 1:
+        if st.op == CURVE_MOVE:
             self.curve[st.idx] = st.after if forward else st.before
-        elif (st.op == 0) == forward:
-            self.curve.insert(st.idx, st.after if st.op == 0 else st.before)
+        elif (st.op == CURVE_INSERT) == forward:
+            self.curve.insert(st.idx, st.after if st.op == CURVE_INSERT else st.before)
         else:
             _ = self.curve.pop(st.idx)
 
@@ -224,10 +229,10 @@ struct Editor(Movable):
         if len(self.order) == 0:
             return False
         var kind = self.order[len(self.order) - 1]
-        if kind == 0:
+        if kind == STEP_WORLD:
             if not self.log.undo(self.world):
                 return False
-        elif kind == 2:
+        elif kind == STEP_GRAPH:
             if not self.graph_hist.undo(self.graph):
                 return False
         else:
@@ -242,10 +247,10 @@ struct Editor(Movable):
         if len(self.redo_order) == 0:
             return False
         var kind = self.redo_order[len(self.redo_order) - 1]
-        if kind == 0:
+        if kind == STEP_WORLD:
             if not self.log.redo(self.world):
                 return False
-        elif kind == 2:
+        elif kind == STEP_GRAPH:
             if not self.graph_hist.redo(self.graph):
                 return False
         else:
