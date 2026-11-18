@@ -18,6 +18,9 @@ fn cam_clip(world : vec3<f32>) -> vec4<f32> {
   let z = dot(d, cam.fwd.xyz);
   let near = cam.up.w;
   let far = cam.fwd.w;
+  if cam.eye.w < 0.0 {  // a parallel projection (View.orthographic)
+    return vec4<f32>(-x * cam.eye.w, y * cam.right.w, (z - near) / (far - near), 1.0);
+  }
   return vec4<f32>(x * cam.eye.w, y * cam.right.w, far * (z - near) / (far - near), z);
 }
 """

@@ -119,14 +119,19 @@ fn view_z(uv : vec2<f32>) -> f32 {
   let d = textureLoad(zbuf, texel(uv), 0);
   let n = frame.up.w;
   let f = frame.fwd.w;
+  if frame.eye.w < 0.0 { return n + d * (f - n); }  // a parallel projection
   return f * n / (f - d * (f - n));
 }
 // 1 where nothing nearer than `far` metres was drawn (the sky sphere, the clear colour)
 fn is_far(uv : vec2<f32>, far : f32) -> f32 { return step(far, view_z(uv)); }
 fn world_at(uv : vec2<f32>) -> vec3<f32> {
   let z = view_z(uv);
-  let nx = (uv.x * 2.0 - 1.0) * z / frame.eye.w;
-  let ny = (1.0 - uv.y * 2.0) * z / frame.right.w;
+  var nx = (uv.x * 2.0 - 1.0) * z / frame.eye.w;
+  var ny = (1.0 - uv.y * 2.0) * z / frame.right.w;
+  if frame.eye.w < 0.0 {
+    nx = (uv.x * 2.0 - 1.0) / -frame.eye.w;
+    ny = (1.0 - uv.y * 2.0) / frame.right.w;
+  }
   return frame.eye.xyz + frame.right.xyz * nx + frame.up.xyz * ny + frame.fwd.xyz * z;
 }
 // the surface normal from depth: the cross product of the nearer of the two one-pixel steps along each axis

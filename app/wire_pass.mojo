@@ -86,6 +86,7 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   var out : WOut;
   if live {
     out.pos = vec4<f32>(x * data[0].w, y * data[1].w, far * (z - near) / (far - near), z);
+    if data[0].w < 0.0 { out.pos = vec4<f32>(-x * data[0].w, y * data[1].w, (z - near) / (far - near), 1.0); }
   } else {
     out.pos = vec4<f32>(2.0, 2.0, 2.0, 1.0);
   }
