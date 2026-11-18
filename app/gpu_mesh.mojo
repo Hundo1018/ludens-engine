@@ -10,7 +10,7 @@ View into the 16-float camera header the mesh shaders read.
 from wgpu import WGPUBufferUsage
 from wgpu.buffer import Buffer
 from wgpu.device import Device
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from game.camera_view import View
 from app.mesh_data import MeshRegistry
 

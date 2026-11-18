@@ -9,7 +9,7 @@ Moved here from ludens-playground (its app/shadow_pass.mojo): the mesh pass owns
 (MeshPass.shadow_tex, set_shadow), so the pass that fills the map belongs beside it. A game supplies the light's
 view-projection and the items that cast.
 """
-from game.arena import DrawItem, MAT_COLOR, MAT_SKY
+from game.draw_item import DrawItem, MAT_COLOR, MAT_SKY
 from game.camera_view import View
 from geometry.vec import Real, Vec3
 from app.textures import TextureArray, TRI_WGSL

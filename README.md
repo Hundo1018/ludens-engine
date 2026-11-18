@@ -136,6 +136,9 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
    deterministic snapshot (ludens-core #82).
 4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
    `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
+5. **The renderer knows no game** (#90). The render modules in `app/` (`RENDER_MODULES` in `check_layout.py`) import from
+   `game/` only `game.draw_item` (the draw items and material IDs) and `game.camera_view`. `game.arena` re-exports
+   `DrawItem` for existing hosts.
 
 ## Command line
 

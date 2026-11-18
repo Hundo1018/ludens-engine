@@ -18,7 +18,7 @@ format, view)`), and Mojo 1.2.0 has no safe way to build the elements of a `Tupl
 """
 from wgpu.device import Device
 from wgpu.render_pass import FrameRenderPass, RenderPassEncoder
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from game.camera_view import View
 from app.mesh_data import MeshRegistry
 from app.gpu_mesh import GpuMeshCache

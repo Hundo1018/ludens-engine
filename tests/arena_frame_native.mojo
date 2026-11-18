@@ -25,7 +25,7 @@ from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
 from wgpu.device import Device
-from game.arena import DrawItem, MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
+from game.draw_item import DrawItem, MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
 from game.camera_view import View
 from geometry.aabb import AABB
 from geometry.quat import Quat
