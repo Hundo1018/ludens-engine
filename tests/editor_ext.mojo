@@ -4,7 +4,7 @@ The plugin here is a struct in this file that conforms to `Command` and touches 
 which is all a package outside the repository can do. Native only, no GPU. `pixi run -e wasm test-editor`."""
 from editor.builtin import MoveBody
 from editor.entry import cli_run
-from editor.ext import Command, DrawerRegistry, DOCK_LEFT, DOCK_RIGHT, Importer, ImporterRegistry, Panel, PanelRegistry, Registry, TypeDrawer
+from editor.ext import Command, DrawerRegistry, DOCK_CENTER, DOCK_LEFT, DOCK_RIGHT, Importer, ImporterRegistry, Panel, PanelRegistry, Registry, TypeDrawer
 from ui.geom import Rect
 from ui.immediate import Theme, Ui
 from editor.state import Editor
@@ -85,6 +85,20 @@ struct Inspector(Panel):
 
     def draw(self, mut ui: Ui, area: Rect, mut ed: Editor) raises:
         _ = ui.button(Rect(area.x, area.y, 80, 20), "Inspector")
+
+
+struct Viewport(Panel):
+    """A panel that does not choose a dock: Panel.dock()'s default places it in the centre."""
+
+    def __init__(out self):
+        pass
+
+    @staticmethod
+    def name() -> String:
+        return "viewport"
+
+    def draw(self, mut ui: Ui, area: Rect, mut ed: Editor) raises:
+        pass
 
 
 struct Outliner(Panel):
@@ -204,6 +218,7 @@ def main() raises:
     comptime P = PanelRegistry[Outliner, Inspector]
     P.check()
     c.ok(P.names()[0] == "outliner" and P.names()[1] == "inspector" and P.docks()[0] == DOCK_LEFT and P.docks()[1] == DOCK_RIGHT, "panels listed in registration order with their default docks")
+    c.ok(PanelRegistry[Outliner, Viewport].docks()[1] == DOCK_CENTER, "a panel without dock() docks in the centre (the trait's default)")
     var ui = Ui(Theme.dark())
     ui.begin_frame(-1, -1, False, 0)
     var ed6 = Editor(make_world(h4))
