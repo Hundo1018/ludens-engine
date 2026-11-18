@@ -31,6 +31,21 @@ from app.styles_display import (
     VectorScopePasses, VectorScope, Console32Passes, Console32, LedWall,
 )
 from app.primitive_pass import PrimitivePass
+from app.styles_film import (
+    Daguerreotype, FilmNoirPasses, FilmNoir, TwoStrip, Vhs, Anaglyph, Aerochrome, AerochromeAux, TiltShift, Anamorphic,
+    InstantPrint, NightVision, ThermalPasses, Thermal, RadiographPasses, Radiograph,
+)
+from app.styles_own import ScrewAxisPass, ScrewLook, FingerprintPass, FingerprintLook, MatGeometricProduct, MatVoid, ProductKey
+from app.styles_paint import (
+    Pointillism, Impasto, SwirlStrokes, Watercolour, SumiEPasses, SumiE, DeStijl, DeStijlAux, StainedGlass,
+    StainedGlassAux, Mosaic, CrossStitch, PencilSketch, PencilSketchAux, ChalkboardPasses, Chalkboard,
+    ChiaroscuroPasses, Chiaroscuro, PaperCutPasses, PaperCut, PorcelainPasses, CelPasses,
+)
+from app.styles_print import (
+    NewsHalftone, ComicPasses, ComicCmyk, Risograph, RisographAux, EngravingPasses, CrossHatchPasses, WoodcutPasses,
+    Woodcut, BlueprintPasses, Blueprint, UkiyoEPasses, UkiyoE, Constructivist, ConstructivistAux, PopArtPasses, PopArt,
+    LigneClairePasses, TopoMapPasses,
+)
 from app.styles_own import frame_hash, hash_user
 from geometry.quat import Quat
 from app.mesh_pass import MeshPassOf
@@ -103,6 +118,7 @@ struct Gallery(Movable):
     var target: Texture
     var hud: Hud
     var counted: Int  # pipelines whose structure is not the default
+    var frames: List[List[UInt8]]  # every frame drawn, by index in `names`
     var dump: Bool
     var only: String
     var names: List[String]
@@ -123,12 +139,19 @@ struct Gallery(Movable):
         self.tiles = List[List[Int]]()
         self.plain = List[UInt8]()
         self.counted = 0
+        self.frames = List[List[UInt8]]()
 
     def shot[P: RenderPass, F: PostEffect, A: AuxTarget = NoAux](mut self, mut s: Suite, frames: Int = 1) raises:
         """One pipeline: passes P, stages F, aux list A. Renders the gallery scene and records its tile means.
         `frames` > 1 draws the scene's motion in that many steps (for a pipeline that reads the last frame, or compares
         poses); the last one is kept."""
-        var name = String(F.NAME)
+        self.run[P, F, A](s, String(F.NAME), String(F.AFTER), frames)
+
+    def named[P: RenderPass](mut self, mut s: Suite, name: String, after: String) raises:
+        """A pipeline that is its passes alone (no stage): its name and what it is after are given here."""
+        self.run[P, NoPost, NoAux](s, name, after, 1)
+
+    def run[P: RenderPass, F: PostEffect, A: AuxTarget](mut self, mut s: Suite, name: String, after: String, frames: Int) raises:
         if self.only.byte_length() > 0 and self.only not in name and name != "plain":
             return
         var aspect = Real(scene_aspect[F](Float64(W) / Float64(H)))
@@ -178,10 +201,10 @@ struct Gallery(Movable):
                 if abs(Int(out[i]) - Int(self.plain[i])) + abs(Int(out[i + 1]) - Int(self.plain[i + 1])) + abs(Int(out[i + 2]) - Int(self.plain[i + 2])) > 24:
                     changed += 1
         var own = P.sig() != Lit.sig() or not F.PLAIN or A.ON
-        print("style", name, "| passes:", P.sig(), "| aux:", A.sig() if A.ON else String("-"), "| stages:", F.sig(), "| after:", String(F.AFTER))
+        print("style", name, "| passes:", P.sig(), "| aux:", A.sig() if A.ON else String("-"), "| stages:", F.sig(), "| after:", after)
         print("      tile range", lo, hi, "changed", changed * 100 // (Int(W) * Int(H)), "%")
         s.check(hi - lo > 40, name + ": the frame is not flat")
-        if F.ON:
+        if name != "plain":
             s.check(own, name + ": the pipeline's structure is its own (passes, aux or stage graph), not one shader over the default")
             s.check(changed * 10 > Int(W) * Int(H), name + ": differs from the plain frame on more than a tenth of the pixels")
             if own:
@@ -191,6 +214,7 @@ struct Gallery(Movable):
                 f.write_bytes(out)
         self.names.append(name)
         self.tiles.append(t^)
+        self.frames.append(out^)
 
     def distinct(self, mut s: Suite):
         """No two pipelines give the same picture: the least mean tile difference over all pairs."""
@@ -211,6 +235,119 @@ struct Gallery(Movable):
             s.check(worst > 16 * 9 * 3 * 2, "every two pipelines differ by more than 2 / 255 per tile channel on average")
 
 
+def _rgb(f: List[UInt8], x: Int, y: Int) -> Int:
+    var o = (min(max(y, 0), Int(H) - 1) * Int(W) + min(max(x, 0), Int(W) - 1)) * 4
+    return (Int(f[o]) << 16) | (Int(f[o + 1]) << 8) | Int(f[o + 2])
+
+
+def _find(g: Gallery, name: String) -> Int:
+    for i in range(len(g.names)):
+        if g.names[i] == name:
+            return i
+    return -1
+
+
+def properties(g: Gallery, mut s: Suite):
+    """What a pipeline's structure promises, measured on its frame."""
+    # spectrum: the display is 256 x 192 inside a 320 x 240 screen shown 1.5 times; every 8 x 8 attribute cell holds at
+    # most two colours, because its pixels are forced to the two the 32 x 24 target stores
+    var i = _find(g, "spectrum")
+    if i >= 0:
+        var bad = 0
+        for cy in range(24):
+            for cx in range(32):
+                var c0 = -1
+                var c1 = -1
+                var more = False
+                for py in range(8):
+                    for px in range(8):
+                        var x = Int(80.0 + 1.5 * (32.0 + Float64(cx * 8 + px) + 0.5))
+                        var y = Int(1.5 * (24.0 + Float64(cy * 8 + py) + 0.5))
+                        var c = _rgb(g.frames[i], x, y)
+                        if c0 < 0 or c == c0:
+                            c0 = c
+                        elif c1 < 0 or c == c1:
+                            c1 = c
+                        else:
+                            more = True
+                if more:
+                    bad += 1
+        print("spectrum: attribute cells with more than two colours:", bad, "of 768")
+        s.eqi(bad, 0, "spectrum: every 8 x 8 cell has at most two colours")
+    # c64: 160 x 200 double-wide pixels inside a 384 x 272 screen; a 4 x 8 cell has at most 4 colours (3 of its own
+    # and the background)
+    i = _find(g, "c64")
+    if i >= 0:
+        var k = 360.0 / 272.0
+        var x0 = (640.0 - 384.0 * k) / 2.0
+        var bad = 0
+        for cy in range(25):
+            for cx in range(40):
+                var seen = List[Int]()
+                for py in range(8):
+                    for px in range(4):
+                        var x = Int(x0 + k * (32.0 + (Float64(cx * 4 + px) + 0.5) * 2.0))
+                        var y = Int(k * (36.0 + Float64(cy * 8 + py) + 0.5))
+                        var c = _rgb(g.frames[i], x, y)
+                        if c not in seen:
+                            seen.append(c)
+                if len(seen) > 4:
+                    bad += 1
+        print("c64: cells with more than four colours:", bad, "of 1000")
+        s.eqi(bad, 0, "c64: every 4 x 8 cell has at most four colours")
+    # one_bit: two colours in the whole frame
+    i = _find(g, "one_bit")
+    if i >= 0:
+        var seen = List[Int]()
+        for y in range(Int(H)):
+            for x in range(Int(W)):
+                var c = _rgb(g.frames[i], x, y)
+                if c not in seen and len(seen) < 8:
+                    seen.append(c)
+        print("one_bit: distinct colours in the frame:", len(seen))
+        s.eqi(len(seen), 2, "one_bit: the frame is black and white only")
+    # blueprint: the reversed-depth line pass drew something: pixels in the hidden-edge colour (115, 158, 230 before
+    # the sheet's grain) exist, and none of them is in the visible-edge colour's range
+    i = _find(g, "blueprint")
+    if i >= 0:
+        var hidden = 0
+        var visible = 0
+        for y in range(Int(H)):
+            for x in range(Int(W)):
+                var c = _rgb(g.frames[i], x, y)
+                var r = c >> 16
+                var b = c & 255
+                if r > 200:
+                    visible += 1
+                elif r > 85 and b > 170:
+                    hidden += 1
+        print("blueprint: visible-edge pixels", visible, "; hidden-edge (dashed) pixels", hidden)
+        s.check(hidden > 150 and visible > 1000, "blueprint: both line passes drew: visible edges and the edges behind surfaces")
+    # anaglyph: the two eyes are different pictures: where the red channel (left eye) and the green (right eye) both
+    # show an edge they are not at the same place. Measured as the columns' red and green sums disagreeing.
+    i = _find(g, "anaglyph")
+    if i >= 0:
+        var diff = 0
+        for y in range(Int(H)):
+            for x in range(Int(W)):
+                var c = _rgb(g.frames[i], x, y)
+                if abs((c >> 16) - ((c >> 8) & 255)) > 60:
+                    diff += 1
+        print("anaglyph: pixels where the left and right eye differ by more than 60 / 255:", diff)
+        s.check(diff > 3000, "anaglyph: the eyes see different pictures (fringes round near objects)")
+    # radiograph: the ball on the arch (item 13) is in front of the far wall; in an added picture the pixel at its
+    # centre is denser than the wall beside it, and the wall still shows through the pillars
+    i = _find(g, "radiograph")
+    if i >= 0:
+        var through = 0
+        for y in range(Int(H)):
+            for x in range(Int(W)):
+                if (_rgb(g.frames[i], x, y) >> 8) & 255 > 150:
+                    through += 1
+        print("radiograph: pixels denser than one surface could make them:", through)
+        s.check(through > 2000, "radiograph: surfaces add up where they overlap")
+
+
 def pipelines(mut g: Gallery, mut s: Suite) raises:
     g.shot[Lit, NoPost](s)
     # display hardware (app/styles_display.mojo)
@@ -225,6 +362,52 @@ def pipelines(mut g: Gallery, mut s: Suite) raises:
     g.shot[VectorScopePasses, VectorScope](s, 4)
     g.shot[Console32Passes, Console32](s)
     g.shot[Lit, LedWall](s)
+    # printing and drawing (app/styles_print.mojo)
+    g.shot[Lit, NewsHalftone](s)
+    g.shot[ComicPasses, ComicCmyk](s)
+    g.shot[Lit, Risograph, Aux[RisographAux]](s)
+    g.named[EngravingPasses](s, "engraving", "copperplate engraving: Albrecht Duerer's prints, banknote portraits")
+    g.named[CrossHatchPasses](s, "cross_hatch", "pen-and-ink cross-hatching: Gustave Dore's illustrations")
+    g.shot[WoodcutPasses, Woodcut](s)
+    g.shot[BlueprintPasses, Blueprint](s)
+    g.shot[UkiyoEPasses, UkiyoE](s)
+    g.shot[Lit, Constructivist, Aux[ConstructivistAux]](s)
+    g.shot[PopArtPasses, PopArt](s)
+    g.named[LigneClairePasses](s, "ligne_claire", "the ligne claire of Herge's Tintin albums")
+    g.named[TopoMapPasses](s, "topo_map", "USGS topographic quadrangle maps")
+    # painting and craft (app/styles_paint.mojo)
+    g.shot[Lit, Pointillism](s)
+    g.shot[Lit, Impasto](s)
+    g.shot[Lit, SwirlStrokes](s)
+    g.shot[Lit, Watercolour](s)
+    g.shot[SumiEPasses, SumiE](s)
+    g.shot[Lit, DeStijl, Aux[DeStijlAux]](s)
+    g.shot[Lit, StainedGlass, Aux[StainedGlassAux]](s)
+    g.shot[Lit, Mosaic](s)
+    g.shot[Lit, CrossStitch](s)
+    g.shot[Lit, PencilSketch, Aux[PencilSketchAux]](s)
+    g.shot[ChalkboardPasses, Chalkboard](s)
+    g.shot[ChiaroscuroPasses, Chiaroscuro](s)
+    g.shot[PaperCutPasses, PaperCut](s)
+    g.named[PorcelainPasses](s, "porcelain", "Ming blue-and-white porcelain (qinghua)")
+    g.named[CelPasses](s, "cel_animation", "hand-painted animation cels: two tones of paint per colour under an ink line")
+    # film, photography, imaging (app/styles_film.mojo)
+    g.shot[Lit, Daguerreotype](s, 8)
+    g.shot[FilmNoirPasses, FilmNoir](s)
+    g.shot[Lit, TwoStrip](s)
+    g.shot[Lit, Vhs](s, 3)
+    g.shot[Lit, Anaglyph](s)
+    g.shot[Lit, Aerochrome, Aux[AerochromeAux]](s)
+    g.shot[Lit, TiltShift](s)
+    g.shot[Lit, Anamorphic](s)
+    g.shot[Lit, InstantPrint](s)
+    g.shot[Lit, NightVision](s, 4)
+    g.shot[ThermalPasses, Thermal](s)
+    g.shot[RadiographPasses, Radiograph](s)
+    # the engine's own three (app/styles_own.mojo)
+    g.shot[Then[Lit, ScrewAxisPass], Stage[ScrewLook]](s, 2)
+    g.shot[FingerprintPass, Stage[FingerprintLook]](s)
+    g.shot[Then[ShadowPass, MeshPassOf[MatGeometricProduct, MatVoid]], Stage[ProductKey]](s)
 
 
 def main() raises:
@@ -237,5 +420,6 @@ def main() raises:
     pipelines(g, s)
     if only.byte_length() == 0:
         g.distinct(s)
+    properties(g, s)
     print("pipelines with a structure of their own:", g.counted)
     s.finish()

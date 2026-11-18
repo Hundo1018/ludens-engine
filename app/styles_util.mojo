@@ -45,7 +45,7 @@ fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
 
 
 struct StreakH(Style):
-    """A 121-pixel horizontal smear with a long tail."""
+    """A 61-texel horizontal smear with a long tail (inside Scaled[.., 4]: 240 pixels of the frame)."""
 
     comptime NAME: StaticString = "streak_h"
     comptime AFTER: StaticString = ""
@@ -55,7 +55,7 @@ fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
   var wsum = 0.0;
   for (var i = -30; i <= 30; i++) {
     let w = exp(-abs(f32(i)) / 11.0);
-    s += src_at(uv + vec2<f32>(f32(i) * 2.0 * frame.res.z, 0.0)) * w;
+    s += src_at(uv + vec2<f32>(f32(i) * frame.res.z, 0.0)) * w;
     wsum += w;
   }
   return s / wsum;

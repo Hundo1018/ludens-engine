@@ -81,6 +81,8 @@ fn fs_main(in : SV) -> @location(0) vec4<f32> {
 
 trait StrokeKind:
     comptime NAME: StaticString
+    comptime WHAT: StaticString
+    """What the strokes are, in a few words, for listing a pipeline's structure."""
     comptime AFTER: StaticString
     comptime WGSL: StaticString
     """`fn place(cell : vec2<f32>, layer : u32) -> Stroke` and `fn shape(q, color, seed) -> vec4<f32>` (rgb and
@@ -116,7 +118,7 @@ struct Strokes[K: StrokeKind](PostEffect):
 
     @staticmethod
     def sig() -> String:
-        return "Strokes[" + String(Self.K.NAME) + "]"
+        return "Strokes[" + String(Self.K.WHAT) + "]"
 
     var pipeline: RenderPipeline
     var layout: BindGroupLayout

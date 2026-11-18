@@ -7,7 +7,6 @@ puts in the aux target for the post stages, and the outline hull.
 from game.draw_item import MAT_COLOR, MAT_SKY
 from app.material import Material
 from app.mesh_pass import MeshPassOf
-from app.gpu_blend import CULL_FRONT
 
 
 struct MatNormalOut(Material):
@@ -43,15 +42,16 @@ comptime AlbedoPasses = MeshPassOf[MatAlbedoOut, MatNothing]
 
 struct MatHull(Material):
     """The outline as geometry: every mesh again, pushed out from its item's centre by 0.5 % of its distance to the
-    eye (so the line keeps its width on screen), front faces culled, in ink. What shows is the shell's inside, only
-    where it sticks out past the mesh itself: a line round each form, in front of what is behind it and behind what is
-    in front, with the depth buffer deciding. A filter over the finished frame cannot tell those apart."""
+    eye (so the line keeps its width on screen), in ink, with the faces that look toward the eye dropped (by their
+    normal, so the mesh's winding does not matter). What shows is the shell's inside, only where it sticks out past
+    the mesh itself: a line round each form, in front of what is behind it and behind what is in front, with the depth
+    buffer deciding. A filter over the finished frame cannot tell those apart."""
 
-    comptime NAME: StaticString = "hull, front culled"
     comptime ID: Int = MAT_COLOR
-    comptime CULL: Int = CULL_FRONT
+    comptime NAME: StaticString = "hull, back faces"
     comptime VERT_WORLD: StaticString = "world = world + normalize(world - m[3].xyz) * 0.005 * length(world - cam.eye.xyz);"
     comptime BODY: StaticString = """
+  if dot(s.wnrm, cam.eye.xyz - s.wpos) > 0.0 { discard; }
   return vec4<f32>(0.05, 0.04, 0.07, 1.0);"""
 
 

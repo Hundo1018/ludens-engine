@@ -1,166 +1,302 @@
-"""Post styles after printing and drawing techniques (app/post.mojo Style)."""
-from app.post import Style
+"""Pipelines after printing and drawing techniques. What makes each one is in its passes: an ink line that is geometry
+(a hull, or line segments tested against depth), tone drawn on the surface in the surface's own coordinates, plates
+that are separate targets, dots that are separate quads."""
+from game.draw_item import MAT_COLOR, MAT_SKY
+from app.post import Style, Stage, ThenPost, Join, Scaled, Sized, Copy
+from app.render_pass import Then
+from app.shadow_pass import ShadowPass
+from app.mesh_pass import MeshPassOf
+from app.material import Material
+from app.wire_pass import WireKind, WirePassOf
+from app.strokes import StrokeKind, Strokes
+from app.gpu_blend import BLEND_MULTIPLY, BLEND_ALPHA, DEPTH_GREATER, DEPTH_LESS_EQUAL
+from app.gbuffer import HullPass, AlbedoPasses, MatNothing
+from app.styles_material import MatFlat, MatFlatShadow, MatSkyPale, MatSkyPaper, MatHullThick
 
 
-struct NewsHalftone(Style):
-    """One black ink on newsprint: a 45-degree screen of dots whose size carries the tone."""
+# ---------------------------------------------------------------- 12. newspaper halftone
+struct HalftoneDots(StrokeKind):
+    comptime NAME: StaticString = "halftone_dots"
+    comptime WHAT: StaticString = "halftone dots, 45 degrees"
+    comptime AFTER: StaticString = ""
+    comptime CELL: Int = 4
+    comptime CANVAS_R: Float64 = 0.90
+    comptime CANVAS_G: Float64 = 0.87
+    comptime CANVAS_B: Float64 = 0.78
+    comptime WGSL: StaticString = """
+fn place(cell : vec2<f32>, layer : u32) -> Stroke {
+  let c0 = frame.res.xy * 0.5;
+  let p = (cell * STROKE_CELL - c0) * 1.45;
+  let centre = c0 + vec2<f32>(p.x - p.y, p.x + p.y) * 0.7071;
+  let l = smoothstep(0.1, 0.95, luma(src_at(centre * frame.res.zw)));
+  var s : Stroke;
+  s.centre = centre;
+  s.half = vec2<f32>(STROKE_CELL * 1.45 * 0.74 * sqrt(1.0 - l) + 0.01);
+  s.angle = 0.0;
+  s.color = vec4<f32>(0.09, 0.08, 0.08, 1.0);
+  s.seed = 0.0;
+  return s;
+}
+fn shape(q : vec2<f32>, color : vec4<f32>, seed : f32) -> vec4<f32> {
+  return vec4<f32>(color.rgb, smoothstep(1.0, 0.8, length(q)));
+}
+"""
 
+
+struct Newsprint(Style):
     comptime NAME: StaticString = "news_halftone"
     comptime AFTER: StaticString = "newspaper halftone photographs"
     comptime WGSL: StaticString = """
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let r = vec2<f32>(px.x + px.y, px.y - px.x) * 0.7071 / 5.0;
-  let centre = (floor(r) + 0.5) * 5.0;
-  let cpx = vec2<f32>(centre.x - centre.y, centre.x + centre.y) * 0.7071;
-  let l = smoothstep(0.1, 0.95, luma(src_at(cpx * frame.res.zw)));
-  let d = length(fract(r) - 0.5);
-  let ink = smoothstep(0.06, -0.06, d - 0.72 * sqrt(1.0 - l));
-  let paper = vec3<f32>(0.90, 0.87, 0.78) * (0.95 + 0.07 * vnoise(px * 0.35));
-  return mix(paper, vec3<f32>(0.09, 0.08, 0.08), ink);
+  return blur9(uv, 0.6) * (0.95 + 0.07 * vnoise(px * 0.35)) * (0.97 + 0.03 * vnoise(vec2<f32>(px.x * 0.02, px.y * 0.6)));
+}
+"""
+
+# Not a filter: every dot is one quad, sized once from the tone at its centre. Dots larger than their cell overlap
+# their neighbours and join into the solid of the darks, as ink does; then the sheet takes the ink (a second stage).
+comptime NewsHalftone = ThenPost[Strokes[HalftoneDots], Stage[Newsprint]]
+
+
+# ---------------------------------------------------------------- 13. four-colour comic
+struct CmyPlates(StrokeKind):
+    comptime NAME: StaticString = "cmy_plates"
+    comptime WHAT: StaticString = "three dot plates, multiplied"
+    comptime AFTER: StaticString = "four-colour comic-book printing with Ben-Day dots, as Roy Lichtenstein enlarged it"
+    comptime CELL: Int = 6
+    comptime LAYERS: Int = 3
+    comptime BLEND: Int = BLEND_MULTIPLY
+    comptime CANVAS_R: Float64 = 0.97
+    comptime CANVAS_G: Float64 = 0.95
+    comptime CANVAS_B: Float64 = 0.88
+    comptime WGSL: StaticString = """
+fn place(cell : vec2<f32>, layer : u32) -> Stroke {
+  let ang = array<f32, 3>(0.26, 1.31, 0.0)[layer];
+  let c0 = frame.res.xy * 0.5;
+  let p = (cell * STROKE_CELL - c0) * 1.45;
+  let centre = c0 + vec2<f32>(cos(ang) * p.x - sin(ang) * p.y, sin(ang) * p.x + cos(ang) * p.y);
+  let c = src_at(centre * frame.res.zw);
+  let k = 1.0 - max(c.r, max(c.g, c.b));
+  let cmy = (vec3<f32>(1.0) - c - k) / max(1.0 - k, 1e-3);
+  var s : Stroke;
+  s.centre = centre;
+  s.half = vec2<f32>(STROKE_CELL * 1.45 * 0.70 * sqrt(clamp(cmy[layer] + 0.6 * k, 0.0, 1.0)) + 0.01);
+  s.angle = 0.0;
+  s.color = vec4<f32>(array<vec3<f32>, 3>(vec3<f32>(0.0, 0.68, 0.93), vec3<f32>(0.93, 0.0, 0.55), vec3<f32>(1.0, 0.92, 0.0))[layer], 1.0);
+  s.seed = 0.0;
+  return s;
+}
+fn shape(q : vec2<f32>, color : vec4<f32>, seed : f32) -> vec4<f32> {
+  return vec4<f32>(mix(vec3<f32>(1.0), color.rgb, smoothstep(1.0, 0.82, length(q))), 1.0);
 }
 """
 
 
-struct ComicCmyk(Style):
-    """Four process inks, each a dot screen at its own angle, under a black key line."""
-
+struct KeyPlate(Style):
     comptime NAME: StaticString = "comic_cmyk"
     comptime AFTER: StaticString = "four-colour comic-book printing with Ben-Day dots, as Roy Lichtenstein enlarged it"
     comptime WGSL: StaticString = """
-fn screen(px : vec2<f32>, ang : f32, amount : f32) -> f32 {
-  let c = cos(ang);
-  let s = sin(ang);
-  let r = vec2<f32>(c * px.x + s * px.y, -s * px.x + c * px.y) / 6.0;
-  return smoothstep(0.08, -0.08, length(fract(r) - 0.5) - 0.68 * sqrt(amount));
-}
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  var c = src_at(uv);
-  let g = luma(c);
-  c = clamp(mix(vec3<f32>(g), c, 1.6), vec3<f32>(0.0), vec3<f32>(1.0));
-  c = floor(c * 4.0 + 0.5) / 4.0;
-  let k = 1.0 - max(c.r, max(c.g, c.b));
-  let cmy = (vec3<f32>(1.0) - c - k) / max(1.0 - k, 1e-3);
-  var paper = vec3<f32>(0.97, 0.95, 0.88);
-  paper *= mix(vec3<f32>(1.0), vec3<f32>(0.0, 0.68, 0.93), screen(px, 0.26, cmy.x));
-  paper *= mix(vec3<f32>(1.0), vec3<f32>(0.93, 0.0, 0.55), screen(px, 1.31, cmy.y));
-  paper *= mix(vec3<f32>(1.0), vec3<f32>(1.0, 0.92, 0.0), screen(px, 0.0, cmy.z));
-  paper *= 1.0 - 0.85 * screen(px, 0.785, k * 0.8);
-  return paper * (1.0 - step(0.4, edge(uv, 1.6)));
+  let k = scene_at(uv);
+  return src_at(uv) * mix(1.0, 0.04, step(max(k.r, max(k.g, k.b)), 0.12));
+}
+"""
+
+# Not a filter: the passes draw flat colour (no light) and the black line as a hull, so the black plate is geometry.
+# The three colour plates are three layers of dot quads, each at its screen angle, printed by multiplying: where a
+# cyan and a yellow dot overlap the paper is green, and the overlap is where the dots happen to cross.
+comptime ComicPasses = Then[ShadowPass, Then[MeshPassOf[MatFlatShadow, MatSkyPale], HullPass]]
+comptime ComicCmyk = ThenPost[Strokes[CmyPlates], Stage[KeyPlate]]
+
+
+# ---------------------------------------------------------------- 14. risograph
+struct RisoWarmDrum(Style):
+    comptime NAME: StaticString = "riso_drum_pink"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
+  let a = aux_at(uv);
+  let warm = smoothstep(-0.05, 0.25, a.r - a.b) * a.a;
+  let tone = 1.0 - luma(src_at(uv));
+  return vec3<f32>(step(hash21(px + 3.0) * 0.9 + 0.05, clamp(tone * 1.5 * warm + 0.15 * warm, 0.0, 1.0)));
 }
 """
 
 
-struct Risograph(Style):
-    """Two soy inks, pink and blue, printed one after the other a few pixels out of register, with a grainy laydown."""
+struct RisoCoolDrum(Style):
+    comptime NAME: StaticString = "riso_drum_blue"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
+  let a = aux_at(uv);
+  let cool = mix(1.0, smoothstep(0.25, -0.05, a.r - a.b), a.a);
+  let tone = 1.0 - luma(src_at(uv));
+  return vec3<f32>(step(hash21(px * 1.3 + 11.0) * 0.9 + 0.05, clamp(tone * 1.4 * cool, 0.0, 1.0)));
+}
+"""
 
+
+struct RisoPrint(Style):
     comptime NAME: StaticString = "risograph"
     comptime AFTER: StaticString = "two-colour Risograph prints"
     comptime WGSL: StaticString = """
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let a = src_at(uv);
-  let b = src_at(uv + vec2<f32>(5.0, -3.0) * frame.res.zw);
-  let warm = clamp(1.0 - (a.g + a.b) * 0.55 + (a.r - a.g) * 0.8, 0.0, 1.0);
-  let cool = clamp(1.0 - (b.r + b.g) * 0.55 + (b.b - b.r) * 0.8, 0.0, 1.0);
-  let g1 = step(hash21(px + 3.0) * 0.9 + 0.05, warm);
-  let g2 = step(hash21(px * 1.3 + 11.0) * 0.9 + 0.05, cool);
-  var paper = vec3<f32>(0.95, 0.93, 0.87);
-  paper *= mix(vec3<f32>(1.0), vec3<f32>(1.0, 0.28, 0.47), g1);
-  paper *= mix(vec3<f32>(1.0), vec3<f32>(0.0, 0.42, 0.72), g2);
+  var paper = vec3<f32>(0.95, 0.93, 0.87) * (0.97 + 0.04 * vnoise(px * 0.5));
+  paper *= mix(vec3<f32>(1.0), vec3<f32>(1.0, 0.28, 0.47), src_at(uv).r);
+  paper *= mix(vec3<f32>(1.0), vec3<f32>(0.0, 0.42, 0.72), src2_at(uv + vec2<f32>(5.0, -3.0) * frame.res.zw).r);
   return paper;
 }
 """
 
-
-struct Engraving(Style):
-    """Parallel swelling lines: one set whose width follows the tone and bends with it, a crossing set in the darks."""
-
-    comptime NAME: StaticString = "engraving"
-    comptime AFTER: StaticString = "copperplate engraving: Albrecht Duerer's prints, banknote portraits"
-    comptime WGSL: StaticString = """
-fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let l = smoothstep(0.08, 0.95, luma(blur9(uv, 1.5)));
-  let n = normal_at(uv);
-  let t1 = (px.y + px.x * 0.25 + 26.0 * l + 9.0 * n.x) * 1.15;
-  let t2 = (px.x - px.y * 0.6 + 14.0 * l) * 1.15;
-  let w1 = 0.5 + 0.5 * sin(t1);
-  let w2 = 0.5 + 0.5 * sin(t2);
-  var ink = smoothstep(0.12, -0.12, w1 - (1.0 - l) * 1.05);
-  ink = max(ink, smoothstep(0.12, -0.12, w2 - (0.55 - l) * 1.6));
-  ink = max(ink, step(0.5, edge(uv, 1.0)));
-  return mix(vec3<f32>(0.93, 0.90, 0.80), vec3<f32>(0.13, 0.10, 0.08), ink);
-}
-"""
+# Not a filter: which drum prints an object is decided by the object's own colour, read from an aux target of unlit
+# colours, so a warm object is pink in its shadow too; a lit frame cannot tell a red thing in shade from a brown one.
+# Each drum is its own target, and the second is laid down 5 pixels out of register.
+comptime Risograph = Join[Stage[RisoWarmDrum], Stage[RisoCoolDrum], Stage[RisoPrint]]
+comptime RisographAux = AlbedoPasses
 
 
-struct CrossHatch(Style):
-    """Pen strokes in up to four directions, one more direction for each step darker, and a contour line."""
+# ---------------------------------------------------------------- 15. engraving
+struct MatEngrave(Material):
+    comptime ID: Int = MAT_COLOR
+    comptime NAME: StaticString = "engraved lines on the surface"
+    comptime BODY: StaticString = """
+  let n = normalize(s.wnrm);
+  let tone = clamp((0.25 + 0.75 * max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0) * s.sf) * (0.55 + 0.45 * dot(s.base, vec3<f32>(0.333))), 0.0, 1.0);
+  // a direction lying in the surface: lines run round the form, 46 to the metre, and swell as the tone falls
+  let a = normalize(cross(n, vec3<f32>(0.37, 0.21, 0.90)));
+  let b = cross(n, a);
+  // the line count halves each time the distance doubles, so the lines keep their spacing on the page
+  let f = 290.0 / exp2(floor(log2(max(length(s.wpos - cam.eye.xyz), 2.0) / 5.0)));
+  let w1 = 0.5 + 0.5 * sin(dot(s.wpos, a) * f);
+  let w2 = 0.5 + 0.5 * sin(dot(s.wpos, b) * f);
+  var ink = smoothstep(0.15, -0.15, w1 - (1.0 - tone) * 1.05);
+  ink = max(ink, smoothstep(0.15, -0.15, w2 - (0.5 - tone) * 1.7));
+  return vec4<f32>(mix(vec3<f32>(0.93, 0.90, 0.80), vec3<f32>(0.13, 0.10, 0.08), ink), 1.0);"""
 
-    comptime NAME: StaticString = "cross_hatch"
-    comptime AFTER: StaticString = "pen-and-ink cross-hatching: Gustave Dore's illustrations"
-    comptime WGSL: StaticString = """
-fn hatch(px : vec2<f32>, ang : f32, gap : f32) -> f32 {
-  let d = px.x * cos(ang) + px.y * sin(ang) + 2.5 * vnoise(px * 0.05 + ang);
-  let run = vnoise(vec2<f32>(floor(d / gap) * 7.0 + ang, (px.x * sin(ang) - px.y * cos(ang)) * 0.03));
-  return smoothstep(0.32, 0.12, abs(fract(d / gap) - 0.5)) * step(0.22, run);
-}
-fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let l = luma(blur9(uv, 1.0));
-  var ink = step(0.45, edge(uv, 1.2));
-  ink = max(ink, hatch(px, 0.6, 6.0) * step(l, 0.78) * (1.0 - is_far(uv, 60.0)));
-  ink = max(ink, hatch(px, 2.2, 6.0) * step(l, 0.60));
-  ink = max(ink, hatch(px, 1.4, 5.0) * step(l, 0.44));
-  ink = max(ink, hatch(px, 0.0, 4.0) * step(l, 0.30));
-  let paper = vec3<f32>(0.96, 0.95, 0.91) * (0.97 + 0.05 * vnoise(px * 0.2));
-  return mix(paper, vec3<f32>(0.10, 0.10, 0.16), ink);
-}
-"""
+# Not a filter, and no stage at all: the lines are drawn in each surface's own plane, in metres. They foreshorten
+# with the face, run round a sphere, stay on an object when it moves, and their width comes from the real light and
+# the shadow map.
+comptime EngravingPasses = Then[ShadowPass, Then[MeshPassOf[MatEngrave, MatSkyPaper], HullPass]]
 
 
-struct Woodcut(Style):
-    """Black and paper only. The darks are solid; the lights are cut along the tone's contour lines, as a gouge
-    follows a form."""
+# ---------------------------------------------------------------- 16. cross-hatching
+struct MatHatch(Material):
+    comptime ID: Int = MAT_COLOR
+    comptime NAME: StaticString = "hatching on the surface"
+    comptime BODY: StaticString = """
+  let n = normalize(s.wnrm);
+  let tone = clamp((0.2 + 0.8 * max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0) * s.sf) * (0.6 + 0.4 * dot(s.base, vec3<f32>(0.333))), 0.0, 1.0);
+  let w = pow(abs(n), vec3<f32>(6.0));
+  let ws = w / (w.x + w.y + w.z);
+  var ink = 0.0;
+  for (var k = 0; k < 4; k++) {
+    let ang = 0.6 + 0.8 * f32(k);
+    let dir = vec2<f32>(cos(ang), sin(ang));
+    let gap = (26.0 + 5.0 * f32(k)) / exp2(floor(log2(max(length(s.wpos - cam.eye.xyz), 2.0) / 5.0)));
+    let hx = smoothstep(0.30, 0.12, abs(fract(dot(s.wpos.zy, dir) * gap) - 0.5));
+    let hy = smoothstep(0.30, 0.12, abs(fract(dot(s.wpos.xz, dir) * gap) - 0.5));
+    let hz = smoothstep(0.30, 0.12, abs(fract(dot(s.wpos.xy, dir) * gap) - 0.5));
+    ink = max(ink, (hx * ws.x + hy * ws.y + hz * ws.z) * step(tone, 0.80 - 0.19 * f32(k)));
+  }
+  ink *= smoothstep(26.0, 13.0, length(s.wpos - cam.eye.xyz));
+  return vec4<f32>(mix(vec3<f32>(0.96, 0.95, 0.91), vec3<f32>(0.10, 0.10, 0.16), clamp(ink, 0.0, 1.0)), 1.0);"""
 
+# Not a filter: four directions of strokes fixed to the surfaces (projected along the world axes), one more direction
+# for each step into shade. The strokes are on the things, so they do not slide over them when the camera moves.
+comptime CrossHatchPasses = Then[ShadowPass, Then[MeshPassOf[MatHatch, MatSkyPaper], HullPass]]
+
+
+# ---------------------------------------------------------------- 17. woodcut
+struct MatWoodcut(Material):
+    comptime ID: Int = MAT_COLOR
+    comptime NAME: StaticString = "cut lights, solid darks"
+    comptime BODY: StaticString = """
+  let n = normalize(s.wnrm);
+  let lit = max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0) * s.sf;
+  // the gouge follows the form: cuts run along the surface, across the direction the light comes from
+  let across = normalize(cross(n, normalize(vec3<f32>(0.4, 1.0, 0.6))) + vec3<f32>(1e-3, 0.0, 0.0));
+  let cut = 0.5 + 0.5 * sin(dot(s.wpos, cross(n, across)) * 70.0 + 3.0 * sin(dot(s.wpos, across) * 9.0));
+  let ink = max(step(lit, 0.22), step(cut, 0.9 - lit * 1.3));
+  return vec4<f32>(mix(vec3<f32>(0.91, 0.86, 0.74), vec3<f32>(0.07, 0.06, 0.05), ink), 1.0);"""
+
+
+struct BlockPrint(Style):
     comptime NAME: StaticString = "woodcut"
     comptime AFTER: StaticString = "German Expressionist woodcuts (Die Bruecke)"
     comptime WGSL: StaticString = """
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let l = smoothstep(0.15, 0.95, luma(blur9(uv, 2.5)));
+  let c = src_at(uv);
   let grain = fbm(vec2<f32>(px.x * 0.02, px.y * 0.25));
-  let cut = 0.5 + 0.5 * sin(l * 46.0 + grain * 5.0 + px.y * 0.06);
-  var ink = step(l, 0.34);
-  ink = max(ink, step(cut, (0.95 - l) * 0.9));
-  ink = max(ink, step(0.4, edge(uv, 2.0)));
-  ink *= step(0.12, vnoise(px * 0.9) + 0.25 * grain);
-  return mix(vec3<f32>(0.91, 0.86, 0.74), vec3<f32>(0.07, 0.06, 0.05), ink);
+  let starved = step(vnoise(px * 0.9) + 0.25 * grain, 0.12) * step(luma(c), 0.3);
+  return mix(c, vec3<f32>(0.91, 0.86, 0.74), starved) * (0.96 + 0.06 * grain);
 }
 """
 
+# Not a filter: black is what the knife left standing. The darks are decided by the shadow map, the cuts in the lights
+# follow each surface across the light's direction, and the contour is a thick hull; the stage only prints the block
+# (ink that did not take along the wood's grain).
+comptime WoodcutPasses = Then[ShadowPass, Then[MeshPassOf[MatWoodcut, MatSkyPaper], MeshPassOf[MatHullThick, MatNothing]]]
+comptime Woodcut = Stage[BlockPrint]
 
-struct Blueprint(Style):
-    """White construction lines on Prussian blue, a drafting grid behind, the shaded faces hatched."""
 
+# ---------------------------------------------------------------- 18. blueprint
+struct MatBlueFill(Material):
+    comptime ID: Int = MAT_COLOR
+    comptime NAME: StaticString = "blue fill"
+    comptime BODY: StaticString = """
+  return vec4<f32>(0.05, 0.20, 0.52, 1.0);"""
+
+
+struct MatBlueSky(Material):
+    comptime ID: Int = MAT_SKY
+    comptime NAME: StaticString = "blue sky"
+    comptime BODY: StaticString = """
+  return vec4<f32>(0.045, 0.18, 0.49, 1.0);"""
+
+
+struct VisibleEdges(WireKind):
+    comptime NAME: StaticString = "visible edges"
+    comptime FRAG: StaticString = """
+  return vec4<f32>(0.92, 0.96, 1.0, 1.0);"""
+
+
+struct HiddenEdges(WireKind):
+    comptime NAME: StaticString = "hidden edges, depth test reversed, dashed"
+    comptime DEPTH_COMPARE: Int = DEPTH_GREATER
+    comptime FRAG: StaticString = """
+  if fract(in.t / 0.24) > 0.5 { discard; }
+  return vec4<f32>(0.45, 0.62, 0.90, 1.0);"""
+
+
+struct DraftingSheet(Style):
     comptime NAME: StaticString = "blueprint"
-    comptime AFTER: StaticString = "cyanotype architectural blueprints"
+    comptime AFTER: StaticString = "cyanotype architectural blueprints, with hidden edges dashed as in technical drawing"
     comptime WGSL: StaticString = """
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let l = luma(src_at(uv));
-  var w = edge(uv, 1.0);
-  let g1 = step(fract(px.x / 40.0), 1.0 / 40.0) + step(fract(px.y / 40.0), 1.0 / 40.0);
-  let g2 = step(fract(px.x / 8.0), 1.0 / 8.0) + step(fract(px.y / 8.0), 1.0 / 8.0);
-  w = max(w, 0.22 * min(g1, 1.0) + 0.07 * min(g2, 1.0));
-  let far = is_far(uv, 60.0);
-  let hatching = step(fract((px.x + px.y) / 6.0), 0.2) * step(l, 0.5) * (1.0 - far);
-  w = max(w, 0.45 * hatching);
-  let blue = vec3<f32>(0.05, 0.20, 0.52) * (0.85 + 0.3 * fbm(px * 0.01));
-  return mix(blue, vec3<f32>(0.90, 0.95, 1.0), clamp(w, 0.0, 1.0));
+  let g1 = min(step(fract(px.x / 40.0), 1.0 / 40.0) + step(fract(px.y / 40.0), 1.0 / 40.0), 1.0);
+  let g2 = min(step(fract(px.x / 8.0), 1.0 / 8.0) + step(fract(px.y / 8.0), 1.0 / 8.0), 1.0);
+  let c = src_at(uv) * (0.85 + 0.3 * fbm(px * 0.01));
+  return c + vec3<f32>(0.85, 0.9, 1.0) * (0.16 * g1 + 0.05 * g2);
 }
 """
 
+# Not a filter: the dashed lines are the edges that are behind something. A second line pass runs with the depth test
+# reversed, so it draws exactly the segments the solids hide; a finished frame holds no trace of them.
+comptime BlueprintPasses = Then[MeshPassOf[MatBlueFill, MatBlueSky], Then[WirePassOf[VisibleEdges], WirePassOf[HiddenEdges]]]
+comptime Blueprint = Stage[DraftingSheet]
 
-struct UkiyoE(Style):
-    """Flat blocks of a few pigments, a black key block, the sky printed as a graded band from the top (bokashi), the
-    paper's fibre under all of it."""
 
+# ---------------------------------------------------------------- 19. ukiyo-e
+struct MatBokashiSky(Material):
+    """The sky as a graded band from the top of the sheet (bokashi), by view direction."""
+
+    comptime ID: Int = MAT_SKY
+    comptime NAME: StaticString = "bokashi sky"
+    comptime BODY: StaticString = """
+  let up = normalize(s.wpos - cam.eye.xyz).y;
+  return vec4<f32>(mix(vec3<f32>(0.90, 0.85, 0.70), vec3<f32>(0.10, 0.20, 0.42), smoothstep(0.04, 0.26, up)), 1.0);"""
+
+
+struct WoodblockInks(Style):
     comptime NAME: StaticString = "ukiyo_e"
     comptime AFTER: StaticString = "Edo woodblock prints: Hokusai, Hiroshige"
     comptime WGSL: StaticString = """
@@ -168,53 +304,71 @@ const UKI = array<vec3<f32>, 7>(
   vec3<f32>(0.10, 0.20, 0.42), vec3<f32>(0.30, 0.47, 0.60), vec3<f32>(0.86, 0.80, 0.63), vec3<f32>(0.76, 0.30, 0.20),
   vec3<f32>(0.45, 0.55, 0.42), vec3<f32>(0.72, 0.62, 0.40), vec3<f32>(0.20, 0.19, 0.20));
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  var c = blur9(uv, 1.5);
-  let g = luma(c);
-  c = mix(vec3<f32>(g), c, 1.4) * (floor(g * 4.0 + 0.5) / 4.0) / max(g, 0.05);
-  var best = 0u;
-  var bd = 1e9;
-  for (var i = 0u; i < 7u; i++) {
-    let d = UKI[i] - c;
-    let dd = dot(d, d);
-    if dd < bd { bd = dd; best = i; }
+  let c = src_at(uv);
+  var o = c;
+  if is_far(uv, 60.0) < 0.5 && max(c.r, max(c.g, c.b)) > 0.12 {
+    var bd = 1e9;
+    for (var i = 0u; i < 7u; i++) {
+      let d = UKI[i] - c;
+      if dot(d, d) < bd { bd = dot(d, d); o = UKI[i]; }
+    }
   }
-  var o = UKI[best];
-  if is_far(uv, 60.0) > 0.5 {
-    o = mix(vec3<f32>(0.10, 0.20, 0.42), vec3<f32>(0.90, 0.85, 0.70), smoothstep(0.0, 0.22, uv.y));
-  }
-  o = mix(o, vec3<f32>(0.08, 0.07, 0.08), step(0.4, edge(uv, 1.3)));
-  let fibre = 0.93 + 0.1 * vnoise(vec2<f32>(px.x * 0.9, px.y * 0.08)) + 0.04 * vnoise(px * 0.6);
-  return o * fibre;
+  return o * (0.93 + 0.1 * vnoise(vec2<f32>(px.x * 0.9, px.y * 0.08)) + 0.04 * vnoise(px * 0.6));
 }
 """
 
+# Not a filter: each block prints one flat colour, so the passes draw the items' own colours with no light, a shadow
+# only where the shadow map casts one, and the key block as a hull. The stage maps what was printed onto seven
+# pigments and lays the paper's fibre over it.
+comptime UkiyoEPasses = Then[ShadowPass, Then[MeshPassOf[MatFlatShadow, MatBokashiSky], HullPass]]
+comptime UkiyoE = Stage[WoodblockInks]
 
-struct Constructivist(Style):
-    """Three inks: black, red and the paper. A diagonal divides the sheet and the red changes sides across it."""
 
+# ---------------------------------------------------------------- 20. constructivist poster
+struct Photomontage(Style):
     comptime NAME: StaticString = "constructivist"
-    comptime AFTER: StaticString = "1920s Soviet Constructivist posters: Rodchenko, El Lissitzky"
+    comptime AFTER: StaticString = "1920s Soviet Constructivist photomontage posters: Rodchenko, El Lissitzky"
     comptime WGSL: StaticString = """
 fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let l = smoothstep(0.2, 0.95, luma(src_at(uv)));
-  let side = step(0.0, uv.x * 0.9 + uv.y * 1.6 - 1.25);
-  let bars = step(fract((px.x * 0.6 - px.y) / 9.0), 0.45);
   let red = vec3<f32>(0.80, 0.12, 0.09);
   let cream = vec3<f32>(0.92, 0.87, 0.74);
-  let black = vec3<f32>(0.09, 0.08, 0.08);
+  let side = step(0.0, uv.x * 0.9 + uv.y * 1.6 - 1.25);
+  let a = aux_at(uv);
   var o = mix(cream, red, side);
-  if l < 0.62 { o = mix(mix(red, cream, side), o, bars * step(0.5, l)); }
-  if l < 0.32 { o = black; }
-  if is_far(uv, 60.0) > 0.5 { o = mix(cream, red, side); }
-  o = mix(o, black, step(abs(uv.x * 0.9 + uv.y * 1.6 - 1.25), 0.012));
+  if a.a > 0.5 {
+    let l = smoothstep(0.15, 0.9, luma(src_at(uv)));
+    let photo = vec3<f32>(step(bayer4(px), l * 0.95 + 0.02)) * vec3<f32>(0.93, 0.90, 0.84) + vec3<f32>(0.07);
+    let warm = step(0.18, a.r - max(a.g, a.b));
+    o = mix(photo, mix(red, vec3<f32>(0.08), step(l, 0.35)), warm);
+    if a.g > a.r && a.g > a.b * 0.98 && luma(a.rgb) > 0.58 { o = mix(cream, red, 1.0 - side) * (0.75 + 0.25 * l); }
+  }
+  o = mix(o, vec3<f32>(0.08), step(abs(uv.x * 0.9 + uv.y * 1.6 - 1.25), 0.012) * (1.0 - a.a));
   return o * (0.94 + 0.08 * vnoise(px * 0.5));
 }
 """
 
+# Not a filter: a montage is cut from different materials. Which treatment a thing gets (a screened photograph, a
+# flat red shape, part of the ground) is chosen by what the thing is: its own colour and whether anything is there at
+# all, both read from an aux target of unlit colour and coverage. The lit frame only supplies the photograph's tone.
+comptime Constructivist = Stage[Photomontage]
+comptime ConstructivistAux = AlbedoPasses
 
-struct PopArt(Style):
-    """The frame four times, each a three-level silkscreen in its own trio of inks."""
 
+# ---------------------------------------------------------------- 21. pop-art panels
+struct Posterize3(Style):
+    comptime NAME: StaticString = "three-level screen"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
+  let c = src_at(uv);
+  if max(c.r, max(c.g, c.b)) < 0.12 { return vec3<f32>(0.0, 1.0, 0.0); }
+  let l = smoothstep(0.2, 0.9, luma(c));
+  return vec3<f32>(select(select(0.5, 0.0, l < 0.38), 1.0, l > 0.72), 0.0, 0.0);
+}
+"""
+
+
+struct FourUp(Style):
     comptime NAME: StaticString = "pop_art"
     comptime AFTER: StaticString = "Andy Warhol's repeated silkscreen panels"
     comptime WGSL: StaticString = """
@@ -227,59 +381,51 @@ fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
   let p = floor(uv * 2.0);
   let u = fract(uv * 2.0);
   let k = u32(p.x + 2.0 * p.y) * 3u;
-  let l = smoothstep(0.2, 0.9, luma(src_at(u)));
-  var o = POP[k + 1u];
-  if l < 0.38 { o = POP[k]; }
-  if l > 0.72 { o = POP[k + 2u]; }
-  let frame_line = step(u.x, 0.008) + step(u.y, 0.012) + step(0.992, u.x) + step(0.988, u.y);
-  return mix(o, vec3<f32>(0.05), clamp(step(0.5, edge(u, 2.0)) + frame_line, 0.0, 1.0));
+  // each pull of the screen lands a little off: the panel's registration
+  let off = (hash22(p + 3.0) - 0.5) * 0.012;
+  let s = src_texel(u + off);
+  var o = POP[k + u32(s.r * 2.0 + 0.5)];
+  if src_texel(u).g > 0.5 { o = vec3<f32>(0.05); }
+  let border = step(u.x, 0.008) + step(u.y, 0.012) + step(0.992, u.x) + step(0.988, u.y);
+  return mix(o, vec3<f32>(0.05), clamp(border, 0.0, 1.0));
 }
 """
 
-
-struct LigneClaire(Style):
-    """One even black line around every form, flat local colour inside it, no shading and no hatching."""
-
-    comptime NAME: StaticString = "ligne_claire"
-    comptime AFTER: StaticString = "the ligne claire of Herge's Tintin albums"
-    comptime WGSL: StaticString = """
-fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  var hsv = rgb2hsv(src_at(uv));
-  hsv.x = floor(hsv.x * 18.0 + 0.5) / 18.0;
-  hsv.y = min(floor(hsv.y * 3.0 + 0.7) / 3.0 * 0.85, 0.8);
-  hsv.z = mix(0.9, 0.72, step(hsv.z, 0.33));
-  var o = hsv2rgb(hsv);
-  if is_far(uv, 60.0) > 0.5 { o = vec3<f32>(0.70, 0.85, 0.95); }
-  return mix(o, vec3<f32>(0.06), step(0.35, edge(uv, 1.1)));
-}
-"""
+# Not a filter: one screen is made once, at a quarter of the frame, holding only which of three tones each point is
+# and where the line is (the line is a hull in the passes); the four panels are the same small screen pulled four
+# times in different inks, each pull slightly off register against its own line.
+comptime PopArtPasses = Then[ShadowPass, Then[MeshPassOf[MatFlatShadow, MatSkyPale], HullPass]]
+comptime PopArt = ThenPost[Scaled[Stage[Posterize3], 2], Stage[FourUp]]
 
 
-struct TopoMap(Style):
-    """The scene as a survey sheet: height above the floor as brown contour lines (every 0.25 m, heavier every
-    metre) over a height tint, with a blue 2-metre grid."""
+# ---------------------------------------------------------------- 22. ligne claire
+# Not a filter, and no stage: flat local colour from the items themselves, a cast shadow as one flat darker tone from
+# the shadow map, and one even line that is a hull, so it passes behind what stands in front of it.
+comptime LigneClairePasses = Then[ShadowPass, Then[MeshPassOf[MatFlatShadow, MatSkyPale], HullPass]]
 
-    comptime NAME: StaticString = "topo_map"
-    comptime AFTER: StaticString = "USGS topographic quadrangle maps"
-    comptime WGSL: StaticString = """
-fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
-  let paper = vec3<f32>(0.96, 0.94, 0.86);
-  if is_far(uv, 60.0) > 0.5 { return paper * (0.97 + 0.04 * vnoise(px * 0.3)); }
-  let w = world_at(uv);
-  let wx = world_at(uv + vec2<f32>(frame.res.z, 0.0));
-  let wy = world_at(uv + vec2<f32>(0.0, frame.res.w));
-  let dh = max(abs(wx.y - w.y), abs(wy.y - w.y)) + 1e-4;
-  let h = w.y + 0.02;
+
+# ---------------------------------------------------------------- 23. topographic map
+struct MatContour(Material):
+    comptime ID: Int = MAT_COLOR
+    comptime NAME: StaticString = "height contours and grid on the surface"
+    comptime BODY: StaticString = """
+  let h = s.wpos.y + 0.02;
+  let dist = length(s.wpos - cam.eye.xyz);
+  let n = normalize(s.wnrm);
   var o = mix(vec3<f32>(0.78, 0.88, 0.70), vec3<f32>(0.93, 0.86, 0.66), smoothstep(0.0, 1.5, h));
   o = mix(o, vec3<f32>(0.99, 0.98, 0.95), smoothstep(1.5, 3.5, h));
-  o *= 0.82 + 0.18 * luma(src_at(uv));
-  let minor = 1.0 - smoothstep(0.0, 1.2, abs(fract(h / 0.25 + 0.5) - 0.5) * 0.25 / dh);
-  let major = 1.0 - smoothstep(0.0, 2.4, abs(fract(h + 0.5) - 0.5) / dh);
-  o = mix(o, vec3<f32>(0.62, 0.38, 0.20), clamp(0.7 * minor + major, 0.0, 1.0) * step(dh, 0.2));
-  let dg = max(length(wx.xz - w.xz), length(wy.xz - w.xz)) + 1e-4;
-  let gx = abs(fract(w.x / 2.0 + 0.5) - 0.5) * 2.0 / dg;
-  let gz = abs(fract(w.z / 2.0 + 0.5) - 0.5) * 2.0 / dg;
-  o = mix(o, vec3<f32>(0.20, 0.45, 0.75), 0.6 * (1.0 - smoothstep(0.0, 1.0, min(gx, gz))));
-  return o;
-}
-"""
+  o *= 0.80 + 0.20 * max(dot(n, normalize(vec3<f32>(-0.5, 0.6, 0.6))), 0.0);
+  // a line's width in metres grows with distance so it stays about a pixel wide; none on level ground
+  let steep = sqrt(max(1.0 - n.y * n.y, 0.0));
+  let w = 0.0016 * dist;
+  let minor = step(abs(fract(h / 0.25 + 0.5) - 0.5) * 0.25, w * steep) * step(0.05, steep);
+  let major = step(abs(fract(h + 0.5) - 0.5), 2.2 * w * steep) * step(0.05, steep);
+  o = mix(o, vec3<f32>(0.62, 0.38, 0.20), clamp(0.75 * minor + major, 0.0, 1.0));
+  let gx = step(abs(fract(s.wpos.x / 2.0 + 0.5) - 0.5) * 2.0, w * 1.2);
+  let gz = step(abs(fract(s.wpos.z / 2.0 + 0.5) - 0.5) * 2.0, w * 1.2);
+  o = mix(o, vec3<f32>(0.20, 0.45, 0.75), 0.6 * max(gx, gz) * step(0.7, n.y));
+  return vec4<f32>(o, 1.0);"""
+
+# Not a filter, and no stage: the contours are lines of equal height drawn on the surfaces themselves, from the
+# interpolated world position, every 0.25 m and heavier every metre, with the survey grid on level ground.
+comptime TopoMapPasses = Then[MeshPassOf[MatContour, MatSkyPaper], HullPass]
