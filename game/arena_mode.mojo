@@ -13,6 +13,10 @@ struct ArenaMode(GameMode):
     def __init__(out self) raises:
         self.arena = Arena()
 
+    @staticmethod
+    def create() raises -> Self:
+        return Self()
+
     def __init__(out self, *, deinit move: Self):
         self.arena = move.arena^
 
