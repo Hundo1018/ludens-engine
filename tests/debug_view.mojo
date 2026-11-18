@@ -2,7 +2,7 @@
 items into colour-only marked ones, DEBUG_NONE changes nothing."""
 from harness.runner import Suite
 from app.debug_view import DEBUG_NONE, DEBUG_FLAT, DEBUG_SKY, debug_recolor, MARK
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from geometry.vec import Real, Vec3
 
 

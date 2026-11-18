@@ -9,7 +9,7 @@ column-major), colour (4 floats: rgb, 1), meta (4 floats, zero in PR A; material
 Model matrix: rotation from the quaternion, scaled per axis by `half` (per-axis scale for meshes), then translated by `pos`.
 Instances of one mesh are contiguous in the instance buffer; the draw uses first_instance to address the group.
 """
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from game.camera_view import View
 from geometry.vec import Real, Vec3
 from std.math import sin, cos

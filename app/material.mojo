@@ -12,7 +12,7 @@ A body may use what both passes declare: `Surface` (below), `tex` / `samp` (the 
 atmosphere functions (app/textures.mojo ATMO_WGSL), `shadow` and `cam`. An ID that no material in the pack has shades
 as the pack's first material.
 """
-from game.arena import MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
+from game.draw_item import MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
 
 # What a material reads, filled by the fragment shader of each pass:
 #   base  the item's colour (sRGB), color = base * lit, lit the sun's diffuse term (0.4 .. 1.0)
