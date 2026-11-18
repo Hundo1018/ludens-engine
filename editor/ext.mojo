@@ -96,8 +96,8 @@ trait Panel(Defaultable, Deinitable):
 
     @staticmethod
     def dock() -> Int:
-        """Default dock position (`DOCK_*`)."""
-        ...
+        """Default dock position (`DOCK_*`); a panel that does not say docks in the centre."""
+        return DOCK_CENTER
 
     def draw(self, mut ui: Ui, area: Rect, mut ed: Editor) raises:
         """Draw into `ui` inside `area` with `ui/` widgets. Edits go through `Registry.run`, not around it."""
