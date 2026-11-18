@@ -12,15 +12,21 @@ from wgpu.device import Device
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 from game.camera_view import View
-from geometry.vec import Vec3
+from std.math import cos
+from geometry.vec import Real, Vec3
 from app.gpu_mesh import cam_floats
+from app.lights import (
+    SpotLight, DirLight, AreaLight, Environment, unit, spot_vp, point_face_vp, ATLAS_SIZE, ATLAS_TILES,
+    MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS,
+    L_POINTS, L_SUN_DIR, L_SUN_COLOR, L_AMB, L_SH, L_ENV_TOP, L_ENV_HOR, L_ENV_GND, L_PSHADOW, L_SPOTS, L_DIRS, L_AREAS, L_TILES,
+)
 
 comptime SHADOW_MAP_SIZE = 1024  # the shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
 comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
 comptime MAX_POINT_LIGHTS = 16  # app/wgsl.mojo POINT_LIGHTS_WGSL's array size
-comptime LIGHTS_BYTES = 16 + MAX_POINT_LIGHTS * 32  # count vec4, then (pos + range, rgb + intensity) per light
+comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4  # the `Lights` uniform (app/lights.mojo): the point lights first, as before
 comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
 
 
@@ -43,15 +49,23 @@ struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
             raise Error("RenderCaps: every capacity must be at least 1")
 
 
-@fieldwise_init
 struct PointLight(Copyable, ImplicitlyCopyable, Movable):
     """A point light: position (m), range (m; no light beyond it, falling off as (1 - (d / range)^2)^2), colour (linear
-    0..1 per channel) and intensity (a multiplier on the colour, at the light)."""
+    0..1 per channel) and intensity (a multiplier on the colour, at the light). With `shadow` it takes six tiles of the
+    shadow atlas (app/lights.mojo)."""
 
     var pos: Vec3
     var range: Float32
     var color: Vec3
     var intensity: Float32
+    var shadow: Bool
+
+    def __init__(out self, pos: Vec3, range: Float32, color: Vec3, intensity: Float32, shadow: Bool = False):
+        self.pos = pos
+        self.range = range
+        self.color = color
+        self.intensity = intensity
+        self.shadow = shadow
 
 
 struct RenderResources(Movable):
@@ -68,12 +82,30 @@ struct RenderResources(Movable):
     var sky_overridden: Bool
     var light_vp: List[Float32]  # the latest set_shadow's light view-projection (a shadow pass in the pass list draws with it)
     var shadow_on: Bool  # the latest set_shadow's on-flag
+    var rig: List[Float32]  # the `Lights` uniform as last written (LIGHTS_FLOATS)
+    var points: List[PointLight]  # the lights as last set: the atlas tiles are assigned from these
+    var spots: List[SpotLight]
+    var atlas_tex: Texture  # the spot and point lights' shadow atlas: 4 x 4 tiles of depth
+    var atlas_view: TextureView
+    var tiles: Int  # atlas tiles in use this frame; a shadow pass draws tile k with tile_vp(k)
 
     def __init__(out self, device: Device) raises:
         self.light_vp = List[Float32]()
         self.shadow_on = False
         self.lights = device.create_buffer(UInt64(LIGHTS_BYTES), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="lights")
-        device.queue_write_data(self.lights, UInt64(0), List[Float32](length=LIGHTS_BYTES // 4, fill=Float32(0)))
+        self.rig = List[Float32](length=LIGHTS_FLOATS, fill=Float32(0))
+        for c in range(3):
+            self.rig[L_SUN_COLOR + c] = 0.6
+        device.queue_write_data(self.lights, UInt64(0), self.rig)
+        self.points = List[PointLight]()
+        self.spots = List[SpotLight]()
+        self.tiles = 0
+        self.atlas_tex = device.create_texture(
+            UInt32(ATLAS_SIZE), UInt32(ATLAS_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
+            WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
+            dimension=2, mip_level_count=1, label="shadow_atlas",
+        )
+        self.atlas_view = self.atlas_tex.create_view_default()
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
@@ -108,24 +140,147 @@ struct RenderResources(Movable):
             ao_off.append(0.0)
         device.queue_write_data(self.ao_ubo, UInt64(0), ao_off)
 
+    def _put3(mut self, at: Int, v: Vec3, w: Float32):
+        for c in range(3):
+            self.rig[at + c] = Float32(v[c])
+        self.rig[at + 3] = w
+
+    def _upload(mut self, device: Device) raises:
+        """Assign the atlas tiles (point lights first, six each; then spot lights) and write the uniform."""
+        var next = 0
+        for i in range(16):
+            self.rig[L_PSHADOW + i] = 0.0
+        for i in range(len(self.points)):
+            if self.points[i].shadow:
+                if next + 6 > ATLAS_TILES:
+                    raise Error("renderer: the shadow atlas has " + String(ATLAS_TILES) + " tiles (a point light takes 6, a spot light 1)")
+                self.rig[L_PSHADOW + i] = Float32(next + 1)
+                for f in range(6):
+                    var m = point_face_vp(self.points[i].pos, f, Float64(self.points[i].range))
+                    for k in range(16):
+                        self.rig[L_TILES + 16 * (next + f) + k] = m[k]
+                next += 6
+        for i in range(len(self.spots)):
+            self.rig[L_SPOTS + 16 * i + 13] = 0.0
+            if self.spots[i].shadow:
+                if next + 1 > ATLAS_TILES:
+                    raise Error("renderer: the shadow atlas has " + String(ATLAS_TILES) + " tiles (a point light takes 6, a spot light 1)")
+                self.rig[L_SPOTS + 16 * i + 13] = Float32(next + 1)
+                var m = spot_vp(self.spots[i])
+                for k in range(16):
+                    self.rig[L_TILES + 16 * next + k] = m[k]
+                next += 1
+        self.tiles = next
+        device.queue_write_data(self.lights, UInt64(0), self.rig)
+
+    def tile_vp(self, k: Int) -> List[Float32]:
+        """The view-projection of atlas tile k (16 floats)."""
+        var m = List[Float32]()
+        for i in range(16):
+            m.append(self.rig[L_TILES + 16 * k + i])
+        return m^
+
     def set_lights(mut self, device: Device, lights: List[PointLight]) raises:
         """Replace the point lights (at most MAX_POINT_LIGHTS; an empty list turns them off). They light the
         primitives, the meshes and the skinned meshes per pixel, on top of the sun."""
         if len(lights) > MAX_POINT_LIGHTS:
             raise Error("renderer: at most " + String(MAX_POINT_LIGHTS) + " point lights, got " + String(len(lights)))
-        var data = List[Float32](length=LIGHTS_BYTES // 4, fill=Float32(0))
-        data[0] = Float32(len(lights))
+        for i in range(len(lights)):
+            if not (lights[i].range > 0) or not (lights[i].intensity >= 0):
+                raise Error("renderer: a point light needs range > 0 and intensity >= 0")
+        for i in range(8 * MAX_POINT_LIGHTS):
+            self.rig[L_POINTS + i] = 0.0
+        self.rig[0] = Float32(len(lights))
+        self.points = lights.copy()
+        for i in range(len(lights)):
+            self._put3(L_POINTS + 8 * i, lights[i].pos, lights[i].range)
+            self._put3(L_POINTS + 8 * i + 4, lights[i].color, lights[i].intensity)
+        self._upload(device)
+
+    def set_spot_lights(mut self, device: Device, lights: List[SpotLight]) raises:
+        """Replace the spot lights (at most MAX_SPOT_LIGHTS)."""
+        if len(lights) > MAX_SPOT_LIGHTS:
+            raise Error("renderer: at most " + String(MAX_SPOT_LIGHTS) + " spot lights, got " + String(len(lights)))
         for i in range(len(lights)):
             ref l = lights[i]
-            if not (l.range > 0) or not (l.intensity >= 0):
-                raise Error("renderer: a point light needs range > 0 and intensity >= 0")
-            var o = 4 + 8 * i
+            if not (l.range > 0) or not (l.intensity >= 0) or not (l.inner >= 0) or not (l.outer > l.inner) or not (l.outer < 1.5):
+                raise Error("renderer: a spot light needs range > 0, intensity >= 0 and 0 <= inner < outer < 1.5 rad")
+        self.rig[1] = Float32(len(lights))
+        self.spots = lights.copy()
+        for i in range(len(lights)):
+            var o = L_SPOTS + 16 * i
+            self._put3(o, lights[i].pos, lights[i].range)
+            self._put3(o + 4, lights[i].color, lights[i].intensity)
+            self._put3(o + 8, unit(lights[i].dir), Float32(cos(lights[i].outer)))
+            self.rig[o + 12] = Float32(cos(lights[i].inner))
+        self._upload(device)
+
+    def set_dir_lights(mut self, device: Device, lights: List[DirLight]) raises:
+        """Replace the directional lights other than the sun (at most MAX_DIR_LIGHTS). They cast no shadow."""
+        if len(lights) > MAX_DIR_LIGHTS:
+            raise Error("renderer: at most " + String(MAX_DIR_LIGHTS) + " directional lights, got " + String(len(lights)))
+        self.rig[2] = Float32(len(lights))
+        for i in range(len(lights)):
+            if not (lights[i].intensity >= 0):
+                raise Error("renderer: a directional light needs intensity >= 0")
+            self._put3(L_DIRS + 8 * i, unit(lights[i].dir), 0.0)
+            self._put3(L_DIRS + 8 * i + 4, lights[i].color, lights[i].intensity)
+        self._upload(device)
+
+    def set_area_lights(mut self, device: Device, lights: List[AreaLight]) raises:
+        """Replace the rectangular area lights (at most MAX_AREA_LIGHTS). They cast no shadow."""
+        if len(lights) > MAX_AREA_LIGHTS:
+            raise Error("renderer: at most " + String(MAX_AREA_LIGHTS) + " area lights, got " + String(len(lights)))
+        self.rig[3] = Float32(len(lights))
+        for i in range(len(lights)):
+            if not (lights[i].intensity >= 0):
+                raise Error("renderer: an area light needs intensity >= 0")
+            _ = unit(lights[i].ex)
+            _ = unit(lights[i].ey)
+            var o = L_AREAS + 16 * i
+            self._put3(o, lights[i].pos, 0.0)
+            self._put3(o + 4, lights[i].ex, 0.0)
+            self._put3(o + 8, lights[i].ey, 0.0)
+            self._put3(o + 12, lights[i].color, lights[i].intensity)
+        self._upload(device)
+
+    def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32) raises:
+        """The sun's direction (toward it), colour and intensity, in place of the fixed (0.4, 1.0, 0.6) white at 0.6.
+        The shadow map follows only if set_shadow is given a matching view (app/lights.mojo sun_shadow_vp)."""
+        if not (intensity >= 0):
+            raise Error("renderer: the sun's intensity must be >= 0")
+        self._put3(L_SUN_DIR, unit(to_sun), 1.0)
+        self._put3(L_SUN_COLOR, color * Real(intensity), 0.0)
+        self._upload(device)
+
+    def reset_sun(mut self, device: Device) raises:
+        """The fixed sun again."""
+        self._put3(L_SUN_DIR, Vec3(0, 0, 0, 0), 0.0)
+        self._put3(L_SUN_COLOR, Vec3(Real(0.6), Real(0.6), Real(0.6), Real(0)), 0.0)
+        self._upload(device)
+
+    def set_environment(mut self, device: Device, env: Environment) raises:
+        """The ambient light from an environment (app/lights.mojo: uniform_environment, sky_environment,
+        equirect_environment) in place of the fixed 0.4, and the reflections of MatPbr. From here on the sun's shadow
+        darkens the sun's light only: the ambient and the point lights are no longer inside it."""
+        if len(env.sh) != 27:
+            raise Error("renderer: an environment has 27 spherical-harmonic floats")
+        for k in range(9):
             for c in range(3):
-                data[o + c] = Float32(l.pos[c])
-                data[o + 4 + c] = Float32(l.color[c])
-            data[o + 3] = l.range
-            data[o + 7] = l.intensity
-        device.queue_write_data(self.lights, UInt64(0), data)
+                self.rig[L_SH + 4 * k + c] = env.sh[3 * k + c]
+        self._put3(L_ENV_TOP, env.top, 0.0)
+        self._put3(L_ENV_HOR, env.horizon, 0.0)
+        self._put3(L_ENV_GND, env.ground, 0.0)
+        self.rig[L_AMB + 3] = 1.0
+        self._upload(device)
+
+    def reset_environment(mut self, device: Device) raises:
+        """The fixed 0.4 ambient again."""
+        self.rig[L_AMB + 3] = 0.0
+        self._upload(device)
+
+    def atlas_target(self) raises -> TextureView:
+        return self.atlas_tex.create_view_default()
 
     def write_camera(self, device: Device, v: View) raises:
         """The camera header for this frame (every pass that binds `camera` reads it)."""

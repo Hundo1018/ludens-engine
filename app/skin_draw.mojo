@@ -39,7 +39,7 @@ from app.textures import TextureArray
 from app.skin_blend import SkinBlend, LinearBlend, MotorBlend
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
-from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL
+from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL
 from app.render_res import RenderResources, LIGHTS_BYTES
 from app.render_pass import RenderPass
 
@@ -53,7 +53,8 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(5) var shadow_cmp : sampler_comparison;
 @group(0) @binding(6) var<uniform> shadow : Shadow;
 @group(0) @binding(7) var<uniform> lights : Lights;
-""" + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + PBR_WGSL + """
+@group(0) @binding(8) var atlas_map : texture_depth_2d;
+""" + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + PBR_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -110,17 +111,23 @@ fn vs_skin(v : SVIn) -> VOut {
 @fragment
 fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0: the colour is unchanged bit for bit
-  let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
+  let ndl = max(dot(normalize(in.wnrm), sun_dir()), 0.0);
   let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
   // the item's material, shaded as on the mesh pass (app/material.mojo; the same pack)
   // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
   var lit3 = vec3<f32>(in.lit);
   var color = in.color;
-  if has_point_lights() {
+  var extra = vec3<f32>(0.0);
+  if rig_on() {
+    let r = rig(in.lit, in.wpos, normalize(in.wnrm));
+    lit3 = r.lit;
+    extra = r.extra;
+    color = in.base * lit3;
+  } else if has_point_lights() {
     lit3 = lit3 + point_lights(in.wpos, normalize(in.wnrm));
     color = in.base * lit3;
   }
-  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf, in.rm.x, in.rm.y));
+  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf, in.rm.x, in.rm.y, extra));
 }
 """
 
@@ -282,6 +289,13 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(8), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(4), UInt32(2), UInt32(0)),  # depth, 2D: the shadow atlas
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "skin_layout")
@@ -305,6 +319,7 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), res.shadow_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 6, res.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 7, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 8, null_opaque(), 0, UInt64(0), null_opaque(), res.atlas_view.handle().raw),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.batches = MeshBatches[True]()

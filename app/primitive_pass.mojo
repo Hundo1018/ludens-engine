@@ -21,7 +21,7 @@ from wgpu.render_pass import FrameRenderPass
 from app.mesh_data import MeshRegistry
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, RenderCaps, LIGHTS_BYTES
-from app.wgsl import POINT_LIGHTS_WGSL
+from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL
 from app.render_pass import RenderPass
 from app.textures import TextureArray
 
@@ -115,12 +115,16 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
 @fragment
 fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
+  if rig_on() {
+    let r = rig(in.lit, in.wpos, normalize(in.wnrm));
+    return vec4<f32>(in.base * (r.lit + r.extra), 1.0);
+  }
   if has_point_lights() {
     return vec4<f32>(in.base * (vec3<f32>(in.lit) + point_lights(in.wpos, normalize(in.wnrm))), 1.0);
   }
   return vec4<f32>(in.color, 1.0);
 }
-""" + POINT_LIGHTS_WGSL
+""" + POINT_LIGHTS_WGSL + NO_LOCAL_SHADOW_WGSL
 
 
 def _put(mut staging: List[Float32], it: DrawItem):

@@ -53,6 +53,10 @@ trait RenderPass(Movable, Deinitable):
         """Draw into the shadow map's depth pass, opened before the colour pass while the renderer's shadow is on."""
         pass
 
+    def record_local_shadow(self, mut rpass: RenderPassEncoder, tile: Int, meshes: MeshRegistry, gpu: GpuMeshCache):
+        """Draw into tile `tile` of the shadow atlas (the spot and point lights' shadows; the viewport is set)."""
+        pass
+
     @staticmethod
     def sig() -> String:
         """A short name of the pass (and of what configures it), for listing a pipeline's structure."""
@@ -98,6 +102,10 @@ struct Then[P: RenderPass, Q: RenderPass](RenderPass):
     def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.first.record_shadow(rpass, meshes, gpu)
         self.second.record_shadow(rpass, meshes, gpu)
+
+    def record_local_shadow(self, mut rpass: RenderPassEncoder, tile: Int, meshes: MeshRegistry, gpu: GpuMeshCache):
+        self.first.record_local_shadow(rpass, tile, meshes, gpu)
+        self.second.record_local_shadow(rpass, tile, meshes, gpu)
 
 
 trait AuxTarget(Movable, Deinitable):
