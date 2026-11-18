@@ -20,6 +20,8 @@ from game.draw_item import MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY, MAT_PBR
 #   uv / layer: the texture coordinates and array layer; wpos / wnrm: world position and normal
 #   sf    the light factor: shadow (and AO on the mesh pass), exactly 1.0 when they are off
 #   rough / metal: the item's roughness and metallic (DrawItem; read by MatPbr)
+#   extra light the sun's shadow does not touch (app/wgsl.mojo rig): spot, directional and area lights, and with an
+#         environment set the ambient and the point lights. Zero until one of those is set.
 comptime SURFACE_WGSL = """
 struct Surface {
   base : vec3<f32>,
@@ -32,6 +34,7 @@ struct Surface {
   sf : f32,
   rough : f32,
   metal : f32,
+  extra : vec3<f32>,
 };
 """
 
@@ -63,7 +66,7 @@ struct MatColor(Material):
     comptime ID: Int = MAT_COLOR
     comptime BODY: StaticString = """
   let c0 = select(s.color, atmo_lin(s.base) * s.lit, shadow.sky_top.w > 0.5);
-  return atmo_out(atmo_fog(c0 * s.sf, s.wpos));"""
+  return atmo_out(atmo_fog(c0 * s.sf + select(s.base, atmo_lin(s.base), shadow.sky_top.w > 0.5) * s.extra, s.wpos));"""
 
 
 struct MatUv(Material):
@@ -72,7 +75,7 @@ struct MatUv(Material):
     comptime ID: Int = MAT_UV
     comptime BODY: StaticString = """
   let t = textureSampleLevel(tex, samp, s.uv, s.layer, 0.0);
-  return atmo_out(atmo_fog(atmo_lin(s.base) * atmo_lin(t.rgb) * s.lit * s.sf, s.wpos));"""
+  return atmo_out(atmo_fog(atmo_lin(s.base) * atmo_lin(t.rgb) * (s.lit * s.sf + s.extra), s.wpos));"""
 
 
 struct MatTriplanar(Material):
@@ -81,7 +84,7 @@ struct MatTriplanar(Material):
     comptime ID: Int = MAT_TRIPLANAR
     comptime BODY: StaticString = """
   let t = triplanar(s.wpos, s.wnrm, s.layer, 0.0);
-  return atmo_out(atmo_fog(atmo_lin(s.base) * atmo_lin(t.rgb) * s.lit * s.sf, s.wpos));"""
+  return atmo_out(atmo_fog(atmo_lin(s.base) * atmo_lin(t.rgb) * (s.lit * s.sf + s.extra), s.wpos));"""
 
 
 struct MatSky(Material):
@@ -131,13 +134,25 @@ struct MatPbr(Material):
   let f0 = mix(vec3<f32>(0.04), albedo, s.metal);
   let a = max(s.rough * s.rough, 0.002);
   var c = albedo * 0.4 * (1.0 - s.metal);
-  c += pbr_light(n, v, normalize(vec3<f32>(0.4, 1.0, 0.6)), vec3<f32>(0.6 * PBR_PI) * s.sf, albedo, f0, a, s.metal);
+  var sun = vec3<f32>(0.6 * PBR_PI);
+  if ambient_set() {
+    // the environment: its irradiance on the diffuse part, and its reflection through the split-sum fit
+    let ndv = max(dot(n, v), 1e-4);
+    c = albedo * sh_lit(n) * (1.0 - s.metal) + env_radiance(reflect(-v, n), s.rough) * env_brdf(f0, s.rough, ndv);
+  }
+  if sun_custom() { sun = lights.sun_color.rgb * PBR_PI; }
+  c += pbr_light(n, v, sun_dir(), sun * s.sf, albedo, f0, a, s.metal);
   let count = min(u32(lights.n.x), 16u);
   for (var i = 0u; i < count; i++) {
     let d = lights.l[i].pos_range.xyz - s.wpos;
     let dist = max(length(d), 1e-4);
     let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
-    c += pbr_light(n, v, d / dist, lights.l[i].color.rgb * lights.l[i].color.w * PBR_PI * x * x, albedo, f0, a, s.metal);
+    c += pbr_light(n, v, d / dist, lights.l[i].color.rgb * lights.l[i].color.w * PBR_PI * x * x * point_shadow(i, s.wpos, n), albedo, f0, a, s.metal);
+  }
+  let more = extra_count();
+  for (var k = 0u; k < more; k++) {
+    let ls = extra_sample(k, s.wpos, n);
+    c += pbr_light(n, v, ls.l, ls.e * PBR_PI, albedo, f0, a, s.metal);
   }
   return atmo_out(atmo_fog(c, s.wpos));"""
 

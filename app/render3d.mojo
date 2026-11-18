@@ -29,9 +29,12 @@ from app.skin_draw import SkinnedPass
 from app.primitive_pass import PrimitivePass
 from app.render_pass import RenderPass, Then, AuxTarget, NoAux
 from app.post import PostEffect, NoPost, PostInputs, Stage, Copy, begin_load_pass
-from app.shadow_pass import begin_depth_pass
+from app.shadow_pass import begin_depth_pass, record_atlas
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, PointLight
+from app.lights import SpotLight, DirLight, AreaLight, Environment, L_SUN_DIR
+from app.cull import MeshBounds, ShadowReach, visible_items
+from app.lens import coc_scale
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
 from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
@@ -88,6 +91,17 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var depth_view: Optional[TextureView]
     var depth_w: UInt32
     var depth_h: UInt32
+    var cull: Bool  # drop the items that cannot change a pixel of the view before the passes see them (app/cull.mojo)
+    var culled: Int  # how many the latest draw() dropped
+    var cull_shadow_reach: Float64  # how far (m) a caster's sun shadow is followed when deciding to keep it
+    var bounds: MeshBounds
+    # the lens (app/lens.mojo's stages read these through the Frame uniform)
+    var lens_focus: Float32  # the distance in focus, metres
+    var lens_fstop: Float32  # the aperture as an f-number; 0 is a pinhole (everything sharp)
+    var lens_sensor: Float32  # the sensor's height, metres (0.024: a 35 mm frame)
+    var lens_max_coc: Float32  # the largest blur circle drawn, pixels across
+    var shutter: Float32  # the part of the time between two frames the shutter is open, 0 .. 1 (0: no motion blur)
+    var prev_cam: List[Float32]  # the previous draw()'s camera (cam_floats), empty before the first
 
     def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
                  caps: RenderCaps = RenderCaps.default()) raises:
@@ -154,6 +168,16 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         pal_ibm.append(Mat4.identity())
         self.skin_palette = build_palette(pal_locals, pal_parents, pal_ibm)
         self.view = view.copy()
+        self.cull = False
+        self.culled = 0
+        self.cull_shadow_reach = 100.0
+        self.bounds = MeshBounds()
+        self.lens_focus = 5.0
+        self.lens_fstop = 0.0
+        self.lens_sensor = 0.024
+        self.lens_max_coc = 24.0
+        self.shutter = 0.0
+        self.prev_cam = List[Float32]()
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
         self.depth = None
@@ -200,6 +224,16 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.skin_ident = move.skin_ident
         self.skin_turn = move.skin_turn
         self.view = move.view^
+        self.cull = move.cull
+        self.culled = move.culled
+        self.cull_shadow_reach = move.cull_shadow_reach
+        self.bounds = move.bounds^
+        self.lens_focus = move.lens_focus
+        self.lens_fstop = move.lens_fstop
+        self.lens_sensor = move.lens_sensor
+        self.lens_max_coc = move.lens_max_coc
+        self.shutter = move.shutter
+        self.prev_cam = move.prev_cam^
         self.floor = move.floor^
         self.items = move.items^
         self.depth = move.depth^
@@ -224,6 +258,24 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     def set_lights(mut self, device: Device, lights: List[PointLight]) raises:
         """RenderResources.set_lights: point lights, per pixel, on top of the sun (at most MAX_POINT_LIGHTS)."""
         self.res.set_lights(device, lights)
+
+    def set_spot_lights(mut self, device: Device, lights: List[SpotLight]) raises:
+        """RenderResources.set_spot_lights: cones of light, each with a shadow if asked (app/lights.mojo)."""
+        self.res.set_spot_lights(device, lights)
+
+    def set_dir_lights(mut self, device: Device, lights: List[DirLight]) raises:
+        self.res.set_dir_lights(device, lights)
+
+    def set_area_lights(mut self, device: Device, lights: List[AreaLight]) raises:
+        self.res.set_area_lights(device, lights)
+
+    def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32) raises:
+        """The sun's direction, colour and intensity (RenderResources.set_sun)."""
+        self.res.set_sun(device, to_sun, color, intensity)
+
+    def set_environment(mut self, device: Device, env: Environment) raises:
+        """The ambient light and MatPbr's reflections from an environment (RenderResources.set_environment)."""
+        self.res.set_environment(device, env)
 
     def shadow_target(self) raises -> TextureView:
         """A view of the shadow map, for a shadow pass to render depth into."""
@@ -331,6 +383,13 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             f.append(x)
         for i in range(4):
             f.append(self.post_user[i])
+        f.append(self.lens_focus)
+        f.append(coc_scale(v, self.lens_focus, self.lens_fstop, self.lens_sensor, Float32(height)))
+        f.append(self.lens_max_coc)
+        f.append(self.shutter)
+        var now = cam_floats(v)
+        for i in range(16):
+            f.append(self.prev_cam[i] if len(self.prev_cam) == 16 else now[i])
         return f^
 
     def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:
@@ -350,6 +409,25 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                          Vec3(Real(0.8), Real(0.2), Real(0.2), Real(0.0)), self.cube, -1, 0)
             )
         debug_recolor(self.items, self.debug_view)
+        self.culled = 0
+        if self.cull:
+            var sun = Vec3(Real(0.4), Real(1.0), Real(0.6), Real(0)) * Real(1.0 / 1.2328828)
+            if self.res.rig[L_SUN_DIR + 3] > 0.5:
+                sun = Vec3(Real(self.res.rig[L_SUN_DIR]), Real(self.res.rig[L_SUN_DIR + 1]), Real(self.res.rig[L_SUN_DIR + 2]), Real(0))
+            var casting = List[Vec3]()
+            for l in self.res.points:
+                if l.shadow:
+                    casting.append(Vec3(l.pos[0], l.pos[1], l.pos[2], Real(l.range)))
+            for l in self.res.spots:
+                if l.shadow:
+                    casting.append(Vec3(l.pos[0], l.pos[1], l.pos[2], Real(l.range)))
+            var reach = ShadowReach(self.res.shadow_on, sun, self.cull_shadow_reach, casting^)
+            var pad = 0.0
+            comptime if Self.F.VIEWS == 2:
+                pad = Float64(self.eye_sep) * 0.5
+            var kept = visible_items(self.items, v, self.meshes, self.bounds, reach, pad)
+            self.culled = len(self.items) - len(kept)
+            self.items = kept^
         self.res.debug_sky(device, self.debug_view == DEBUG_SKY)
         hud.upload(device)
         self._depth_view(device, width, height)
@@ -366,6 +444,8 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                     var rsp = begin_depth_pass(renc, self.res.shadow_view)
                     self.passes.record_shadow(rsp, self.meshes, self.gpu)
                     rsp^.end()
+                if self.res.tiles > 0:
+                    record_atlas(self.passes, renc, self.res, self.meshes, self.gpu)
             var rpass2 = renc.begin_render_pass_clear_depth(
                 self.scene2_view.value().clone(), self.depth2_view.value(), CLEAR, 1.0, "arena_pass_right",
             )
@@ -378,6 +458,7 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         comptime if Self.F.ON:
             var pf = self._post_frame(v, width, height)
             self.post.update(device, pf)
+            self.prev_cam = cam_floats(v)
             comptime if Self.F.HISTORY:
                 self.blit.value().update(device, pf)
             comptime if Self.A.ON:
@@ -389,6 +470,8 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 var srp = begin_depth_pass(enc, self.res.shadow_view)
                 self.passes.record_shadow(srp, self.meshes, self.gpu)
                 srp^.end()
+            if self.res.tiles > 0:
+                record_atlas(self.passes, enc, self.res, self.meshes, self.gpu)
         comptime if Self.F.ON:  # the passes into the scene target, the aux list into its own, then the stages
             var spass = enc.begin_render_pass_clear_depth(
                 self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "arena_pass",

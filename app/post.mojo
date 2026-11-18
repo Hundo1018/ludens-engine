@@ -51,7 +51,7 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 
-comptime FRAME_FLOATS = 28  # res (4), camera (16), t (4), user (4)
+comptime FRAME_FLOATS = 48  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16)
 comptime FRAME_BYTES = FRAME_FLOATS * 4
 
 comptime POST_WGSL = """
@@ -63,6 +63,11 @@ struct Frame {
   fwd : vec4<f32>,    // xyz, w = far
   t : vec4<f32>,      // time (s), frame number, seed, unused
   user : vec4<f32>,   // the host's four numbers (ArenaRendererOf.post_user)
+  lens : vec4<f32>,   // focus distance (m), blur circle scale (pixels across), largest blur circle (pixels), shutter
+  peye : vec4<f32>,   // the previous frame's camera, as eye / right / up / fwd (this frame's on the first)
+  pright : vec4<f32>,
+  pup : vec4<f32>,
+  pfwd : vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> frame : Frame;
 @group(0) @binding(1) var src : texture_2d<f32>;
@@ -119,14 +124,19 @@ fn view_z(uv : vec2<f32>) -> f32 {
   let d = textureLoad(zbuf, texel(uv), 0);
   let n = frame.up.w;
   let f = frame.fwd.w;
+  if frame.eye.w < 0.0 { return n + d * (f - n); }  // a parallel projection
   return f * n / (f - d * (f - n));
 }
 // 1 where nothing nearer than `far` metres was drawn (the sky sphere, the clear colour)
 fn is_far(uv : vec2<f32>, far : f32) -> f32 { return step(far, view_z(uv)); }
 fn world_at(uv : vec2<f32>) -> vec3<f32> {
   let z = view_z(uv);
-  let nx = (uv.x * 2.0 - 1.0) * z / frame.eye.w;
-  let ny = (1.0 - uv.y * 2.0) * z / frame.right.w;
+  var nx = (uv.x * 2.0 - 1.0) * z / frame.eye.w;
+  var ny = (1.0 - uv.y * 2.0) * z / frame.right.w;
+  if frame.eye.w < 0.0 {
+    nx = (uv.x * 2.0 - 1.0) / -frame.eye.w;
+    ny = (1.0 - uv.y * 2.0) / frame.right.w;
+  }
   return frame.eye.xyz + frame.right.xyz * nx + frame.up.xyz * ny + frame.fwd.xyz * z;
 }
 // the surface normal from depth: the cross product of the nearer of the two one-pixel steps along each axis

@@ -32,6 +32,7 @@ struct View(Copyable, Movable):
     var sy: Real  # 1 / tan(fov / 2)
     var near: Real
     var far: Real
+    var ortho: Bool  # parallel projection: sx and sy are then 1 / half-width and 1 / half-height in metres
 
     def __init__(out self, cam: CameraPose, aspect: Real):
         var half = cam.fov_y * 0.5
@@ -44,6 +45,17 @@ struct View(Copyable, Movable):
         self.sy = 1.0 / t
         self.near = cam.near
         self.far = cam.far
+        self.ortho = False
+
+    @staticmethod
+    def orthographic(cam: CameraPose, half_height: Real, aspect: Real) -> Self:
+        """The camera's pose with a parallel projection: 2 half_height metres from the bottom of the picture to the
+        top, whatever the distance (the pose's field of view is not used)."""
+        var v = Self(cam, aspect)
+        v.sx = 1.0 / (half_height * aspect)
+        v.sy = 1.0 / half_height
+        v.ortho = True
+        return v^
 
     def depth(self, p: Vec3) -> Real:
         """Distance along the view direction; negative behind the camera."""
@@ -55,4 +67,6 @@ struct View(Copyable, Movable):
         var x = d[0] * self.right[0] + d[1] * self.right[1] + d[2] * self.right[2]
         var y = d[0] * self.up[0] + d[1] * self.up[1] + d[2] * self.up[2]
         var z = self.depth(p)
+        if self.ortho:
+            return Clip(x * self.sx, y * self.sy, (z - self.near) / (self.far - self.near), 1.0)
         return Clip(x * self.sx, y * self.sy, self.far * (z - self.near) / (self.far - self.near), z)

@@ -48,6 +48,8 @@ test-arena-frame = "python3 scripts/test_native.py arena_frame_native"
 # The style pipelines (app/styles_*.mojo): every one renders, differs from the plain frame and from the others.
 test-styles = "python3 scripts/test_native.py style_own custom_pipeline_native style_gallery_native"
 style-gallery = "python3 scripts/style_gallery.py"
+# The lights, the camera's projection / culling / viewports and the lens stages, each against worked values, on lavapipe.
+test-lights-camera = "python3 scripts/test_native.py lights_native camera_native lens_native"
 test-texture = "python3 scripts/test_native.py texture_native"
 test-texture-c3 = "python3 scripts/test_native.py texture_c3_native"
 ui-parity = "python3 scripts/ui_parity.py"

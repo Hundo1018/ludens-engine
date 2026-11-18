@@ -1,0 +1,82 @@
+# Lights and camera
+
+What the renderer (`ArenaRendererOf`, app/render3d.mojo) offers for lighting a scene and for looking at it. Every
+number below is printed by a test: `pixi run -e wasm test-lights-camera` (tests/lights_native.mojo, camera_native.mojo,
+lens_native.mojo), on lavapipe.
+
+With nothing set the renderer is as it was: a fixed white sun toward (0.4, 1.0, 0.6) at 0.6 on a 0.4 ambient, a
+perspective view, no culling. `tests/arena_frame_native.mojo` prints the same frame hash (6884648193079427197) before
+and after this file's features were added.
+
+## Lights
+
+| light | call | limit | shadow |
+|---|---|---:|---|
+| the sun | `set_sun(device, to_sun, color, intensity)`; `set_shadow(device, sun_shadow_vp(to_sun, centre, half_extent, depth), True)` | 1 | a 1024 x 1024 map |
+| directional | `set_dir_lights(device, [DirLight(dir, color, intensity)])` | 4 | none |
+| point | `set_lights(device, [PointLight(pos, range, color, intensity, shadow=True)])` | 16 | six atlas tiles (a cube) |
+| spot | `set_spot_lights(device, [SpotLight(pos, dir, range, inner, outer, color, intensity, True)])` | 8 | one atlas tile |
+| area (rectangle) | `set_area_lights(device, [AreaLight(centre, half_x, half_y, color, intensity)])` | 4 | none |
+| environment | `set_environment(device, sky_environment(top, horizon, ground))`, `uniform_environment(color)`, `equirect_environment(pixels, w, h)` | 1 | - |
+
+Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL` in app/wgsl.mojo.
+
+- **Units.** A light's colour times intensity is what a white matte surface facing it reflects: at the light for a point
+  or spot light, with the panel filling its view for an area light, anywhere for a directional light.
+- **Falloff.** Point and spot lights: `(1 - (d / range)^2)^2`, nothing beyond `range`. A spot is full inside `inner`
+  radians of its axis and none beyond `outer` (smoothstep between).
+- **Area lights** are nine samples of the rectangle (3 x 3 Gauss-Legendre). Against the closed-form form factor of a
+  2 x 2 m panel: 0.17 % off at 2 m, 5.4 % at 1 m, 44 % too dark at 0.5 m. They are accurate from about one panel width.
+- **Environment.** Its radiance as order-2 spherical harmonics gives the ambient by the surface's normal. For a sky
+  gradient the harmonics are within 0.03 of the exact irradiance facing up and facing down. `MatPbr` also reflects it:
+  the gradient for a smooth surface, the irradiance for a rough one, through the split-sum fit. There is no cube map:
+  a mirror reflects the three-colour gradient, not the scene.
+- **Shadow atlas.** 2048 x 2048, 4 x 4 tiles of 512: 16 tiles, so two point lights and four spot lights, or sixteen
+  spots. A pipeline needs `ShadowPass` in its pass list (as for the sun). Only items with a mesh cast, and primitives
+  do not receive shadows, as for the sun.
+- **What the sun's shadow darkens.** Until an environment is set, the fixed 0.4 ambient and the point lights are inside
+  the sun's shadow factor, as before. After `set_environment` the factor applies to the sun's light only. Spot,
+  directional and area lights are never inside it.
+- **Custom materials.** `Surface` has a new field `extra` (light outside the sun's shadow factor). The built-in
+  materials add it; a material that reads only `s.lit` shows the sun and, before an environment is set, the point
+  lights.
+
+## Camera
+
+| feature | how |
+|---|---|
+| perspective | `View(pose, aspect)` |
+| orthographic | `View.orthographic(pose, half_height, aspect)` |
+| frustum culling | `r.cull = True`; `r.culled` is the number dropped by the latest draw |
+| viewports | `SplitScreen(device, format, w, h, split_rects(n, w, h))`, `draw` into `split.target(i)`, `split.compose(device, frame, hud)` |
+| depth of field | `Stage[DepthOfField]` in the stage graph; `r.lens_focus`, `r.lens_fstop`, `r.lens_sensor`, `r.lens_max_coc` |
+| motion blur | `Stage[MotionBlur]`; `r.shutter` (0 .. 1) |
+| two eyes | `Stereo[...]`, `r.eye_sep` (docs/PIPELINES.md) |
+| fixed raster size | `SceneSize[...]` (docs/PIPELINES.md) |
+
+Pose helpers (springs, shake, framing, rails, the simulation's frustum tests) are in ludens-core's
+`procedural/camera_math.mojo`.
+
+- **Orthographic.** A 2 m box is 67 pixels wide at 5 m and at 25 m (the scale gives 68); in perspective 170 and 1.
+  Shadows, point lights and the stages' `world_at` work in it. Depth of field does nothing in a parallel view.
+- **Culling** drops an item whose bounding sphere is outside the view (app/cull.mojo). It keeps one whose sun shadow,
+  followed `cull_shadow_reach` metres (100 by default), crosses the view, and one within range of a shadow-casting
+  spot or point light. Measured: 209 of 305 items dropped in a perspective view and 279 in a parallel one, 0 pixels
+  changed. Skinned items are never dropped.
+- **Viewports.** Each view is drawn into a texture of its rectangle's size and copied texel for texel: 2 and 4 views
+  composed differ from the views drawn alone in 0 pixels. At most four; a pipeline with `History` needs a renderer per
+  view.
+- **Depth of field** is the thin lens: disc diameter `f^2 / (N (zf - f)) * |1 - zf / z|` on the sensor. Focused at
+  8 m: a box at 3 m (disc 17.6 px) has an edge 9 px wide, one at 25 m (7.2 px) 5 px, the one in focus 0 px. One gather
+  pass of 48 samples; discs are flat and round, and no larger than twice the disc of a point at infinity.
+- **Motion blur** follows the camera only: the camera turned 0.05 rad moves the picture 19 px, and a vertical edge is
+  16 px wide (a 19 px ramp measures 15.2); the edge along the motion stays 1 px. A body moving in front of a still
+  camera is not blurred: there is no per-object velocity.
+
+## Not here
+
+- Shadows from directional lights other than the sun, and from area lights.
+- A cube-map environment (reflections of the scene), light probes, global illumination.
+- Per-object motion blur; bokeh shapes.
+- More than 16 shadow tiles; cascaded sun shadows.
+- All of this has run on lavapipe only (native wgpu); none of it has been run in a browser.

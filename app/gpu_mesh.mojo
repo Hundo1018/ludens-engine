@@ -140,13 +140,14 @@ struct MeshBatches[SKINNED: Bool](Movable):
 
 def cam_floats(v: View) -> List[Float32]:
     """The camera header of the mesh shaders' `Cam` (16 floats): eye, right, up, fwd as vec4, with eye.w = sx,
-    right.w = sy, up.w = near and fwd.w = far (the arena's projection)."""
+    right.w = sy, up.w = near and fwd.w = far (the arena's projection). A parallel projection (View.orthographic) is
+    marked by a negative sx: the shaders then scale by |sx| and sy without dividing by depth."""
     var cam = List[Float32]()
     for e in [v.eye, v.right, v.up, v.fwd]:
         for c in range(3):
             cam.append(Float32(e[c]))
         cam.append(0.0)
-    cam[3] = Float32(v.sx)
+    cam[3] = Float32(-v.sx) if v.ortho else Float32(v.sx)
     cam[7] = Float32(v.sy)
     cam[11] = Float32(v.near)
     cam[15] = Float32(v.far)

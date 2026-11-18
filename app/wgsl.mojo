@@ -18,6 +18,9 @@ fn cam_clip(world : vec3<f32>) -> vec4<f32> {
   let z = dot(d, cam.fwd.xyz);
   let near = cam.up.w;
   let far = cam.fwd.w;
+  if cam.eye.w < 0.0 {  // a parallel projection (View.orthographic)
+    return vec4<f32>(-x * cam.eye.w, y * cam.right.w, (z - near) / (far - near), 1.0);
+  }
   return vec4<f32>(x * cam.eye.w, y * cam.right.w, far * (z - near) / (far - near), z);
 }
 """
@@ -55,12 +58,51 @@ struct Light {
 @group(0) @binding(0) var<uniform> light : Light;
 """
 
-# The point lights (issue #90 step 3), per pixel, added to the per-vertex sun term. `lights` is declared by each shader
-# at its own binding (RenderResources.lights). n.x is the light count (0 .. MAX_POINT_LIGHTS); with 0 the shaders use
-# their per-vertex colour unchanged, so a frame without point lights is the same as before they existed.
+# The lights (issue #90 step 3 and app/lights.mojo). `lights` is declared by each shader at its own binding
+# (RenderResources.lights); the layout is app/lights.mojo's (L_* offsets). Three states:
+#   nothing set     the shaders use their per-vertex colour unchanged: the frame is the one from before lights existed
+#   point lights    per pixel, added to the per-vertex sun term (the first form of this file)
+#   a light rig     any of: a sun of the host's (set_sun), an ambient / environment (set_ambient, set_environment),
+#                   spot, directional or area lights. Then `rig()` computes the light per pixel.
+# A shader that includes this declares `local_shadow` (LOCAL_SHADOW_WGSL with the atlas bound, or NO_LOCAL_SHADOW_WGSL).
 comptime POINT_LIGHTS_WGSL = """
 struct PointLight { pos_range : vec4<f32>, color : vec4<f32> };
-struct Lights { n : vec4<f32>, l : array<PointLight, 16> };
+struct SpotLight { pos_range : vec4<f32>, color : vec4<f32>, dir_cos : vec4<f32>, cone : vec4<f32> };
+struct DirLight { dir : vec4<f32>, color : vec4<f32> };
+struct AreaLight { pos : vec4<f32>, ex : vec4<f32>, ey : vec4<f32>, color : vec4<f32> };
+struct Lights {
+  n : vec4<f32>,                    // counts: point, spot, directional, area
+  l : array<PointLight, 16>,
+  sun_dir : vec4<f32>,              // xyz toward the sun; w 1 when the host set it (set_sun)
+  sun_color : vec4<f32>,            // rgb times intensity (0.6 white until set)
+  amb : vec4<f32>,                  // w 1: the ambient is `sh` (set_ambient / set_environment), not the fixed 0.4
+  sh : array<vec4<f32>, 9>,         // the environment's radiance, order-2 spherical harmonics (rgb)
+  env_top : vec4<f32>,              // the environment for reflections: zenith, horizon, nadir (rgb)
+  env_hor : vec4<f32>,
+  env_gnd : vec4<f32>,
+  pshadow : array<vec4<f32>, 4>,    // per point light: its first atlas tile + 1 (six tiles), 0 for no shadow
+  spots : array<SpotLight, 8>,      // cone.x cos(inner), dir_cos.w cos(outer), cone.y atlas tile + 1 or 0
+  dirs : array<DirLight, 4>,
+  areas : array<AreaLight, 4>,      // a rectangle: centre, two half-edge vectors; it emits toward cross(ex, ey)
+  tiles : array<mat4x4<f32>, 16>,   // the atlas tiles' view-projections
+};
+const L_PI = 3.14159265;
+fn falloff(dist : f32, range : f32) -> f32 {
+  let x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
+  return x * x;
+}
+// the shadow of point light i at a world point: the cube face the point lies in
+fn point_shadow(i : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 {
+  let base = lights.pshadow[i / 4u][i % 4u];
+  if base < 0.5 { return 1.0; }
+  let d = wpos - lights.l[i].pos_range.xyz;
+  let a = abs(d);
+  var face = 0.0;
+  if a.x >= a.y && a.x >= a.z { face = select(1.0, 0.0, d.x > 0.0); }
+  else if a.y >= a.z { face = select(3.0, 2.0, d.y > 0.0); }
+  else { face = select(5.0, 4.0, d.z > 0.0); }
+  return local_shadow(base + face, wpos, nrm, length(d));
+}
 // the point lights' diffuse term at a world point with unit normal nrm: colour * intensity * N.L * (1 - (d / r)^2)^2
 fn point_lights(wpos : vec3<f32>, nrm : vec3<f32>) -> vec3<f32> {
   var sum = vec3<f32>(0.0);
@@ -69,11 +111,138 @@ fn point_lights(wpos : vec3<f32>, nrm : vec3<f32>) -> vec3<f32> {
     let d = lights.l[i].pos_range.xyz - wpos;
     let dist = max(length(d), 1e-4);
     let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
-    sum += lights.l[i].color.rgb * lights.l[i].color.w * max(dot(nrm, d / dist), 0.0) * x * x;
+    sum += lights.l[i].color.rgb * lights.l[i].color.w * max(dot(nrm, d / dist), 0.0) * x * x * point_shadow(i, wpos, nrm);
   }
   return sum;
 }
 fn has_point_lights() -> bool {
   return lights.n.x > 0.5;
 }
+fn sun_custom() -> bool { return lights.sun_dir.w > 0.5; }
+fn ambient_set() -> bool { return lights.amb.w > 0.5; }
+// true when the light must be computed per pixel by rig()
+fn rig_on() -> bool {
+  return lights.n.y + lights.n.z + lights.n.w > 0.5 || sun_custom() || ambient_set();
+}
+fn sun_dir() -> vec3<f32> {
+  if sun_custom() { return lights.sun_dir.xyz; }
+  return normalize(vec3<f32>(0.4, 1.0, 0.6));
+}
+// the environment's irradiance over pi on a surface facing n (Ramamoorthi and Hanrahan 2001): a white matte surface
+// under a uniform environment of radiance c reflects c
+fn sh_lit(n : vec3<f32>) -> vec3<f32> {
+  let e = 0.429043 * lights.sh[8].rgb * (n.x * n.x - n.y * n.y) + 0.743125 * lights.sh[6].rgb * n.z * n.z
+        + 0.886227 * lights.sh[0].rgb - 0.247708 * lights.sh[6].rgb
+        + 2.0 * 0.429043 * (lights.sh[4].rgb * n.x * n.y + lights.sh[7].rgb * n.x * n.z + lights.sh[5].rgb * n.y * n.z)
+        + 2.0 * 0.511664 * (lights.sh[3].rgb * n.x + lights.sh[1].rgb * n.y + lights.sh[2].rgb * n.z);
+  return max(e, vec3<f32>(0.0)) / L_PI;
+}
+// the environment seen along r by a surface of this roughness: the gradient for a mirror, the irradiance for a matte one
+fn env_radiance(r : vec3<f32>, rough : f32) -> vec3<f32> {
+  let up = pow(clamp(r.y, 0.0, 1.0), 0.5);
+  let down = pow(clamp(-r.y, 0.0, 1.0), 0.5);
+  let sky = mix(mix(lights.env_hor.rgb, lights.env_top.rgb, up), lights.env_gnd.rgb, down);
+  return mix(sky, sh_lit(r), clamp(rough, 0.0, 1.0));
+}
+// the split-sum environment BRDF, Karis's analytic fit (Unreal Engine 4 on mobile, 2014)
+fn env_brdf(f0 : vec3<f32>, rough : f32, ndv : f32) -> vec3<f32> {
+  let r = rough * vec4<f32>(-1.0, -0.0275, -0.572, 0.022) + vec4<f32>(1.0, 0.0425, 1.04, -0.04);
+  let a004 = min(r.x * r.x, exp2(-9.28 * ndv)) * r.x + r.y;
+  let ab = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
+  return f0 * ab.x + ab.y;
+}
+// One light sample: the unit direction to it and what arrives from it (before N.L), in the units of the lit term.
+struct LSample { l : vec3<f32>, e : vec3<f32> };
+const AREA_TAPS = 9u;
+fn extra_count() -> u32 {
+  return min(u32(lights.n.y), 8u) + min(u32(lights.n.z), 4u) + min(u32(lights.n.w), 4u) * AREA_TAPS;
+}
+// sample k of the spot, directional and area lights. An area light is AREA_TAPS samples: the 3 x 3 Gauss-Legendre
+// points of the rectangle, each a patch of its area (by the point's weight) that emits by the cosine of its normal:
+// e = colour * intensity * cos(at the light) * patch area / (pi d^2), so the sum times N.L is colour * intensity times
+// the rectangle's form factor (within 0.5 % from one panel width away, 6 % at half a width, too dark nearer; tests/lights_native.mojo).
+fn extra_sample(k : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> LSample {
+  let ns = min(u32(lights.n.y), 8u);
+  let nd = min(u32(lights.n.z), 4u);
+  if k < ns {
+    let s = lights.spots[k];
+    let d = s.pos_range.xyz - wpos;
+    let dist = max(length(d), 1e-4);
+    let l = d / dist;
+    let cone = smoothstep(s.dir_cos.w, s.cone.x, dot(-l, s.dir_cos.xyz));
+    var e = s.color.rgb * s.color.w * falloff(dist, s.pos_range.w) * cone;
+    if cone > 0.0 { e *= local_shadow(s.cone.y, wpos, nrm, dist); }
+    return LSample(l, e);
+  }
+  if k < ns + nd {
+    let dl = lights.dirs[k - ns];
+    return LSample(dl.dir.xyz, dl.color.rgb * dl.color.w);
+  }
+  let j = k - ns - nd;
+  let a = lights.areas[j / AREA_TAPS];
+  let t = j % AREA_TAPS;
+  let ti = t % 3u;
+  let tj = t / 3u;
+  let w = select(0.55555556, 0.88888889, ti == 1u) * select(0.55555556, 0.88888889, tj == 1u);  // sums to 4
+  let p = a.pos.xyz + a.ex.xyz * (f32(ti) - 1.0) * 0.77459667 + a.ey.xyz * (f32(tj) - 1.0) * 0.77459667;
+  let d = p - wpos;
+  let d2 = max(dot(d, d), 1e-6);
+  let l = d / sqrt(d2);
+  let c = cross(a.ex.xyz, a.ey.xyz);
+  let quarter = length(c);   // |ex| |ey|: a quarter of the rectangle
+  let cl = max(dot(-l, c / max(quarter, 1e-9)), 0.0);
+  // a patch closer than its own size would send more than everything it emits: its factor is capped at its share
+  return LSample(l, a.color.rgb * a.color.w * min(cl * w * quarter / (L_PI * d2), w * 0.25));
+}
+// Rig.lit is the light a material multiplies by the sun's shadow factor (the sun, and what the first form put with it:
+// the fixed 0.4 ambient and the point lights); Rig.extra is light the sun's shadow does not touch.
+struct Rig { lit : vec3<f32>, extra : vec3<f32> };
+fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
+  var lit = vec3<f32>(vlit);
+  var extra = vec3<f32>(0.0);
+  if ambient_set() {
+    lit = lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0);
+    extra = sh_lit(n) + point_lights(wpos, n);
+  } else {
+    if sun_custom() { lit = vec3<f32>(0.4) + lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0); }
+    lit += point_lights(wpos, n);
+  }
+  let count = extra_count();
+  for (var k = 0u; k < count; k++) {
+    let s = extra_sample(k, wpos, n);
+    extra += s.e * max(dot(n, s.l), 0.0);
+  }
+  return Rig(lit, extra);
+}
+"""
+
+# The spot and point lights' shadows: a depth atlas of 4 x 4 tiles, one view per tile (lights.tiles). `tile1` is the
+# tile + 1 (0: the light casts none). The lookup is at the point moved along its normal by a length that grows with the
+# distance to the light (a texel of the tile covers more there), then a 3 x 3 percentage-closer filter inside the tile.
+comptime LOCAL_SHADOW_WGSL = """
+fn local_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>, dist : f32) -> f32 {
+  if tile1 < 0.5 { return 1.0; }
+  let t = u32(tile1) - 1u;
+  let c = lights.tiles[t] * vec4<f32>(wpos + nrm * (0.02 + 0.012 * dist), 1.0);
+  if c.w <= 0.0 { return 1.0; }
+  let p = c.xyz / c.w;
+  if abs(p.x) > 1.0 || abs(p.y) > 1.0 || p.z > 1.0 { return 1.0; }
+  let size = vec2<f32>(textureDimensions(atlas_map));
+  let org = vec2<f32>(f32(t % 4u), f32(t / 4u)) * 0.25;
+  let half_texel = 0.5 / size;
+  let lo = org + half_texel;
+  let hi = org + vec2<f32>(0.25) - half_texel;
+  let uv = org + vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5) * 0.25;
+  var acc = 0.0;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      acc += textureSampleCompareLevel(atlas_map, shadow_cmp, clamp(uv + vec2<f32>(f32(i), f32(j)) / size, lo, hi), p.z);
+    }
+  }
+  return acc / 9.0;
+}
+"""
+
+comptime NO_LOCAL_SHADOW_WGSL = """
+fn local_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>, dist : f32) -> f32 { return 1.0; }
 """

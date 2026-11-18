@@ -48,6 +48,7 @@ from app.gpu_mesh import GpuMeshCache, MeshBatches, STATIC_BUFFERS, S_POS, SKINN
 from app.skin_gpu import SKIN_FN
 from app.wgsl import LIGHT_WGSL
 from app.render_res import RenderResources
+from app.lights import ATLAS_TILES, ATLAS_SIZE
 from app.render_pass import RenderPass
 
 comptime SHADOW_WGSL = LIGHT_WGSL + """
@@ -237,6 +238,11 @@ struct ShadowCaster(Movable):
     var skin_instances: Buffer
     var max_instances: Int  # RenderCaps.mesh_instances
     var max_palette: Int  # RenderCaps.palette_matrices
+    # the shadow atlas (app/lights.mojo): one light uniform and one pair of bind groups per tile; the casters' buffers
+    # are the sun's
+    var tile_lights: List[Buffer]
+    var tile_groups: List[BindGroup]
+    var tile_skin_groups: List[BindGroup]
 
     def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
@@ -299,6 +305,26 @@ struct ShadowCaster(Movable):
             UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
             label="shadow_skin_instances",
         )
+        self.tile_lights = List[Buffer]()
+        self.tile_groups = List[BindGroup]()
+        self.tile_skin_groups = List[BindGroup]()
+        for _ in range(ATLAS_TILES):
+            var lb = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="shadow_tile_light")
+            var te: List[WGPUBindGroupEntry] = [
+                WGPUBindGroupEntry(null_opaque(), UInt32(0), lb.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
+            ]
+            self.tile_groups.append(device.create_bind_group(bgl, te, "shadow_tile_group"))
+            var tse: List[WGPUBindGroupEntry] = [
+                WGPUBindGroupEntry(null_opaque(), UInt32(0), lb.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
+                WGPUBindGroupEntry(null_opaque(), UInt32(1), self.palette_buf.handle().raw, UInt64(0), UInt64(caps.palette_matrices * 64), null_opaque(), null_opaque()),
+            ]
+            self.tile_skin_groups.append(device.create_bind_group(skin_bgl, tse, "shadow_tile_skin_group"))
+            self.tile_lights.append(lb^)
+
+    def prepare_tiles(self, device: Device, res: RenderResources) raises:
+        """Write the view-projection of every atlas tile in use (after prepare, which writes the casters)."""
+        for k in range(res.tiles):
+            device.queue_write_data(self.tile_lights[k], UInt64(0), res.tile_vp(k))
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
@@ -337,9 +363,16 @@ struct ShadowCaster(Movable):
 
     def record(self, mut rpass: RenderPassEncoder, registry: MeshRegistry, gpu: GpuMeshCache):
         """Draw the casters prepared by prepare() into a depth pass. Nothing here can fail."""
+        self._record(rpass, self.group, self.skin_group, registry, gpu)
+
+    def record_tile(self, mut rpass: RenderPassEncoder, tile: Int, registry: MeshRegistry, gpu: GpuMeshCache):
+        """The same casters from atlas tile `tile`'s view; the caller has set the tile's viewport."""
+        self._record(rpass, self.tile_groups[tile], self.tile_skin_groups[tile], registry, gpu)
+
+    def _record(self, mut rpass: RenderPassEncoder, group: BindGroup, skin_group: BindGroup, registry: MeshRegistry, gpu: GpuMeshCache):
         if len(self.stat.order) > 0:
             rpass.set_pipeline(self.pipeline)
-            rpass.set_bind_group(UInt32(0), self.group)
+            rpass.set_bind_group(UInt32(0), group)
             rpass.set_vertex_buffer(UInt32(1), self.instances, UInt64(0), UInt64(self.stat.total * FLOATS_PER_INSTANCE * 4))
             for k in range(len(self.stat.order)):
                 var mid = self.stat.order[k]
@@ -349,7 +382,7 @@ struct ShadowCaster(Movable):
                 rpass.draw_indexed(UInt32(n_idx), UInt32(self.stat.counts[k]), UInt32(0), Int32(0), UInt32(self.stat.base[k]))
         if len(self.skin.order) > 0:
             rpass.set_pipeline(self.skin_pipeline)
-            rpass.set_bind_group(UInt32(0), self.skin_group)
+            rpass.set_bind_group(UInt32(0), skin_group)
             rpass.set_vertex_buffer(UInt32(3), self.skin_instances, UInt64(0), UInt64(self.skin.total * FLOATS_PER_INSTANCE * 4))
             for k in range(len(self.skin.order)):
                 var smid = self.skin.order[k]
@@ -360,6 +393,17 @@ struct ShadowCaster(Movable):
                 rpass.set_vertex_buffer(UInt32(2), gpu.skin_vbufs[vb + K_WGT], UInt64(0), UInt64(len(registry.skinned[smid].weights) * 4))
                 rpass.set_index_buffer(gpu.skin_ibufs[smid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
                 rpass.draw_indexed(UInt32(n_idx), UInt32(self.skin.counts[k]), UInt32(0), Int32(0), UInt32(self.skin.base[k]))
+
+
+def record_atlas[P: RenderPass](passes: P, enc: CommandEncoder, res: RenderResources, meshes: MeshRegistry, gpu: GpuMeshCache):
+    """The spot and point lights' shadow views (res.tiles of them), each into its tile of the atlas. Cannot fail."""
+    var rp = begin_depth_pass(enc, res.atlas_view)
+    var t = ATLAS_SIZE // 4
+    for k in range(res.tiles):
+        rp.set_viewport(Float32((k % 4) * t), Float32((k // 4) * t), Float32(t), Float32(t))
+        rp.set_scissor_rect(UInt32((k % 4) * t), UInt32((k // 4) * t), UInt32(t), UInt32(t))
+        passes.record_local_shadow(rp, k, meshes, gpu)
+    rp^.end()
 
 
 def casts_shadow(it: DrawItem) -> Bool:
@@ -419,14 +463,21 @@ struct ShadowPass(RenderPass):
         palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         self.active = res.shadow_on
-        if not self.active:
+        if not self.active and res.tiles == 0:
             return
         var casters = List[DrawItem]()
         for it in items:
             if casts_shadow(it):
                 casters.append(it.copy())
-        self.caster.prepare(device, casters, meshes, gpu, res.light_vp, palette)
+        var vp = res.light_vp.copy()
+        if len(vp) != 16:  # the sun's shadow was never set: only the atlas is drawn
+            vp = List[Float32](length=16, fill=Float32(0))
+        self.caster.prepare(device, casters, meshes, gpu, vp, palette)
+        self.caster.prepare_tiles(device, res)
 
     def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
         if self.active:
             self.caster.record(rpass, meshes, gpu)
+
+    def record_local_shadow(self, mut rpass: RenderPassEncoder, tile: Int, meshes: MeshRegistry, gpu: GpuMeshCache):
+        self.caster.record_tile(rpass, tile, meshes, gpu)
