@@ -45,6 +45,9 @@ test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-arena-probe = "python3 scripts/test_native.py arena_probe_native"
 # #90: a whole ArenaRenderer frame with every pass and option on (tile means against tests/golden/arena_frame_tiles.txt).
 test-arena-frame = "python3 scripts/test_native.py arena_frame_native"
+# The style pipelines (app/styles_*.mojo): every one renders, differs from the plain frame and from the others.
+test-styles = "python3 scripts/test_native.py style_gallery_native"
+style-gallery = "python3 scripts/style_gallery.py"
 test-texture = "python3 scripts/test_native.py texture_native"
 test-texture-c3 = "python3 scripts/test_native.py texture_c3_native"
 ui-parity = "python3 scripts/ui_parity.py"
