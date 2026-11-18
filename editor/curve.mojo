@@ -10,6 +10,11 @@ from geometry.vec import Real, Vec3
 comptime CURVE_MAGIC = 0x5643444C  # "LDCV"
 
 
+comptime CURVE_INSERT = 0  # CurveStep.op: a point inserted at idx
+comptime CURVE_MOVE = 1  # point idx moved from before to after
+comptime CURVE_REMOVE = 2  # point idx removed
+
+
 @fieldwise_init
 struct CurveStep(Copyable, Movable):
     """One undoable curve edit. op 0 = a point inserted at `idx` (`after`), 1 = point `idx` moved, 2 = point `idx`
