@@ -34,6 +34,7 @@ from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, PointLight
 from app.lights import SpotLight, DirLight, AreaLight, Environment, L_SUN_DIR
 from app.cull import MeshBounds, ShadowReach, visible_items
+from app.lens import coc_scale
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
 from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
@@ -382,6 +383,13 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             f.append(x)
         for i in range(4):
             f.append(self.post_user[i])
+        f.append(self.lens_focus)
+        f.append(coc_scale(v, self.lens_focus, self.lens_fstop, self.lens_sensor, Float32(height)))
+        f.append(self.lens_max_coc)
+        f.append(self.shutter)
+        var now = cam_floats(v)
+        for i in range(16):
+            f.append(self.prev_cam[i] if len(self.prev_cam) == 16 else now[i])
         return f^
 
     def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:
@@ -450,6 +458,7 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         comptime if Self.F.ON:
             var pf = self._post_frame(v, width, height)
             self.post.update(device, pf)
+            self.prev_cam = cam_floats(v)
             comptime if Self.F.HISTORY:
                 self.blit.value().update(device, pf)
             comptime if Self.A.ON:

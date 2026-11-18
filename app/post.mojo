@@ -51,7 +51,7 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 
-comptime FRAME_FLOATS = 28  # res (4), camera (16), t (4), user (4)
+comptime FRAME_FLOATS = 48  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16)
 comptime FRAME_BYTES = FRAME_FLOATS * 4
 
 comptime POST_WGSL = """
@@ -63,6 +63,11 @@ struct Frame {
   fwd : vec4<f32>,    // xyz, w = far
   t : vec4<f32>,      // time (s), frame number, seed, unused
   user : vec4<f32>,   // the host's four numbers (ArenaRendererOf.post_user)
+  lens : vec4<f32>,   // focus distance (m), blur circle scale (pixels across), largest blur circle (pixels), shutter
+  peye : vec4<f32>,   // the previous frame's camera, as eye / right / up / fwd (this frame's on the first)
+  pright : vec4<f32>,
+  pup : vec4<f32>,
+  pfwd : vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> frame : Frame;
 @group(0) @binding(1) var src : texture_2d<f32>;
