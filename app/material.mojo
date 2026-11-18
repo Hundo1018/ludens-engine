@@ -15,14 +15,15 @@ as the pack's first material.
 from game.draw_item import MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
 
 # What a material reads, filled by the fragment shader of each pass:
-#   base  the item's colour (sRGB), color = base * lit, lit the sun's diffuse term (0.4 .. 1.0)
+#   base  the item's colour (sRGB), color = base * lit, lit the light reaching the point (rgb): the sun's diffuse term
+#         (0.4 .. 1.0, per vertex) plus the point lights (per pixel, RenderResources.set_lights)
 #   uv / layer: the texture coordinates and array layer; wpos / wnrm: world position and normal
 #   sf    the light factor: shadow (and AO on the mesh pass), exactly 1.0 when they are off
 comptime SURFACE_WGSL = """
 struct Surface {
   base : vec3<f32>,
   color : vec3<f32>,
-  lit : f32,
+  lit : vec3<f32>,
   uv : vec2<f32>,
   layer : u32,
   wpos : vec3<f32>,

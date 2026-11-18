@@ -54,3 +54,26 @@ struct Light {
 }
 @group(0) @binding(0) var<uniform> light : Light;
 """
+
+# The point lights (issue #90 step 3), per pixel, added to the per-vertex sun term. `lights` is declared by each shader
+# at its own binding (RenderResources.lights). n.x is the light count (0 .. MAX_POINT_LIGHTS); with 0 the shaders use
+# their per-vertex colour unchanged, so a frame without point lights is the same as before they existed.
+comptime POINT_LIGHTS_WGSL = """
+struct PointLight { pos_range : vec4<f32>, color : vec4<f32> };
+struct Lights { n : vec4<f32>, l : array<PointLight, 16> };
+// the point lights' diffuse term at a world point with unit normal nrm: colour * intensity * N.L * (1 - (d / r)^2)^2
+fn point_lights(wpos : vec3<f32>, nrm : vec3<f32>) -> vec3<f32> {
+  var sum = vec3<f32>(0.0);
+  let count = min(u32(lights.n.x), 16u);
+  for (var i = 0u; i < count; i++) {
+    let d = lights.l[i].pos_range.xyz - wpos;
+    let dist = max(length(d), 1e-4);
+    let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
+    sum += lights.l[i].color.rgb * lights.l[i].color.w * max(dot(nrm, d / dist), 0.0) * x * x;
+  }
+  return sum;
+}
+fn has_point_lights() -> bool {
+  return lights.n.x > 0.5;
+}
+"""
