@@ -5,7 +5,8 @@ Float32x4 (5). A draw item with pose_id >= 0 is skinned: pose_id is the index of
 the instance record carries it in info.x, so the vertex shader reads palette[pose_id + joint].
 
 The palette is a vertex-stage read-only storage buffer of 4096 matrices (256 KB: 64 instances x 64 joints, the step 5
-capacity). The skinning arithmetic is SKIN_FN, the same source the compute path uses (app/skin_gpu.mojo)."""
+capacity). The skinning arithmetic is the pass's SkinBlend (app/skin_blend.mojo); LinearBlend is SKIN_FN, the source
+the compute path uses (app/skin_gpu.mojo)."""
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPU_WHOLE_SIZE, WGPUBufferBindingType,
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
@@ -35,7 +36,7 @@ from game.camera_view import View
 from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
 from app.gpu_mesh import GpuMeshCache, MeshBatches, SKINNED_BUFFERS, K_POS, K_NRM, K_UV, K_JNT, K_WGT
 from app.textures import TextureArray
-from app.skin_gpu import SKIN_FN
+from app.skin_blend import SkinBlend, LinearBlend, MotorBlend
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL
@@ -52,7 +53,7 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(5) var shadow_cmp : sampler_comparison;
 @group(0) @binding(6) var<uniform> shadow : Shadow;
 @group(0) @binding(7) var<uniform> lights : Lights;
-""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + PBR_WGSL + """
+""" + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + PBR_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -196,7 +197,7 @@ def _build_skin_pipeline(
     return result^
 
 
-struct SkinnedPassOf[*Ms: Material](RenderPass):
+struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
     """The skinned pass. Built once per device; prepare() syncs the shared GpuMeshCache and writes the palette and the
     instance records; record() draws, in the arena's render pass. The camera, shadow and atmosphere uniforms are the
     renderer's RenderResources."""
@@ -219,7 +220,7 @@ struct SkinnedPassOf[*Ms: Material](RenderPass):
         caps.check()
         self.max_instances = caps.mesh_instances
         self.max_palette = caps.palette_matrices
-        var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL + Materials[*Self.Ms].wgsl(), "skin_draw")
+        var shader = device.create_shader_module_wgsl(SKIN_DRAW_WGSL + Self.B.WGSL + Materials[*Self.Ms].wgsl(), "skin_draw")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),  # the fragment reads the eye (fog)
@@ -363,5 +364,8 @@ struct SkinnedPassOf[*Ms: Material](RenderPass):
             )
 
 
-comptime SkinnedPass = SkinnedPassOf[MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
-"""The skinned pass with the built-in materials (the mesh pass's set)."""
+comptime SkinnedPass = SkinnedPassOf[LinearBlend, MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
+"""The skinned pass with linear blend skinning and the built-in materials (the mesh pass's set)."""
+
+comptime MotorSkinnedPass = SkinnedPassOf[MotorBlend, MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
+"""The skinned pass with motor blending (app/skin_blend.mojo): no candy-wrapper collapse under twist."""

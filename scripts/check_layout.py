@@ -29,7 +29,7 @@ BUILTIN_EDITOR_ALLOWED = {"editor.ext", "editor.state"}  # R4, see issue #18
 SHELL_SOURCE_SUFFIXES = {".ts", ".tsx", ".js", ".mjs", ".html", ".css", ".py"}
 MOJO_ONLY_ALLOWED_SUFFIXES = {".mojo", ".md"}
 RENDER_MODULES = {"render3d", "render_pass", "render_res", "primitive_pass", "mesh_pass", "mesh_data", "skin_draw",
-                  "shadow_pass", "gpu_mesh", "material", "wgsl", "debug_view"}  # R5: app/<name>.mojo
+                  "shadow_pass", "gpu_mesh", "material", "wgsl", "debug_view", "skin_blend"}  # R5: app/<name>.mojo
 RENDER_GAME_ALLOWED = {"game.draw_item", "game.camera_view"}
 
 EDITOR_SYMBOL = re.compile(r"\b(?:editor|ed|ui)_[A-Za-z0-9_]*")
