@@ -41,6 +41,20 @@ trait Material:
     """The value of DrawItem.material that selects this material."""
     comptime BODY: StaticString
     """The statements of `fn mat_<ID>(s : Surface) -> vec4<f32>`."""
+    comptime NAME: StaticString = ""
+    """A short name for listing a pass's material pack; the built-in materials leave it empty."""
+    # The rest configure the pass, not one item, and are read from the pack's first material only:
+    comptime BLEND: Int = 0
+    """How the pass's fragments meet what is already in the target (app/gpu_blend.mojo): BLEND_NONE, BLEND_ALPHA,
+    BLEND_ADD or BLEND_MULTIPLY."""
+    comptime CULL: Int = 0
+    """CULL_NONE, CULL_FRONT or CULL_BACK."""
+    comptime DEPTH_WRITE: Bool = True
+    comptime VERT_WORLD: StaticString = ""
+    """WGSL statements in the vertex stage that may move `world` (and read `n`, the world normal, and `v`, the
+    vertex input) before it is projected: an outline hull pushed out along the normal, a wobble."""
+    comptime VERT_CLIP: StaticString = ""
+    """WGSL statements that may change `out.pos`, the clip-space position, after projection: snapping to a grid."""
 
 
 struct MatColor(Material):

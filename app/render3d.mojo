@@ -27,7 +27,8 @@ from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
 from app.skin_draw import SkinnedPass
 from app.primitive_pass import PrimitivePass
-from app.render_pass import RenderPass, Then
+from app.render_pass import RenderPass, Then, AuxTarget, NoAux
+from app.post import PostEffect, NoPost, PostInputs, Stage, Copy, begin_load_pass
 from app.shadow_pass import begin_depth_pass
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, PointLight
@@ -42,8 +43,33 @@ comptime DefaultPasses = Then[PrimitivePass, Then[MeshPass, SkinnedPass]]
 comptime ArenaRenderer = ArenaRendererOf[DefaultPasses]
 
 
-struct ArenaRendererOf[P: RenderPass](Movable):
+struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux](Movable):
     var passes: Self.P
+    var post: Self.F  # the post-processing stages (app/post.mojo); NoPost draws straight into the frame
+    var post_time: Float32  # Frame.t.x of the stages: seconds, set by the host (0 keeps a still frame repeatable)
+    var post_frame: Int  # Frame.t.y: counts draw() calls
+    var post_seed: Float32  # Frame.t.z
+    var post_user: SIMD[DType.float32, 4]  # Frame.user: four numbers of the host's, read by its styles
+    var color_format: UInt32
+    var scene: Optional[Texture]  # the passes' colour target while post is on
+    var scene_view: Optional[TextureView]
+    var aux_passes: Self.A  # the aux target's own pass list (app/render_pass.mojo Aux); NoAux draws nothing
+    var aux: Optional[Texture]
+    var aux_view: Optional[TextureView]
+    var aux_depth: Optional[Texture]
+    var aux_depth_view: Optional[TextureView]
+    var kept: Optional[Texture]  # F.HISTORY: the stages draw here, and it is copied to the frame and to `prev`
+    var kept_view: Optional[TextureView]
+    var prev: Optional[Texture]
+    var prev_view: Optional[TextureView]
+    var blit: Optional[Stage[Copy]]
+    var hud_depth: Optional[Texture]  # F.SCENE_W: a frame-size depth buffer for the HUD's pass (the scene's is smaller)
+    var hud_depth_view: Optional[TextureView]
+    var scene2: Optional[Texture]  # F.VIEWS == 2: the right eye's colour and depth
+    var scene2_view: Optional[TextureView]
+    var depth2: Optional[Texture]
+    var depth2_view: Optional[TextureView]
+    var eye_sep: Float32  # F.VIEWS == 2: the distance between the eyes, metres
     var res: RenderResources  # camera, shadow map and uniform, atmosphere, AO: bound by the passes, set by the host
     var textures: TextureArray  # layer 0 white, layer 1 the placeholder wall (PR D loads the real one)
     var meshes: MeshRegistry
@@ -71,6 +97,33 @@ struct ArenaRendererOf[P: RenderPass](Movable):
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
         self.res = RenderResources(device)
         self.passes = Self.P.create(device, color_format, DEPTH_FORMAT, tex, self.res, caps)  # before the move: they read the array's views
+        self.post = Self.F.create(device, color_format)
+        self.aux_passes = Self.A.create(device, color_format, DEPTH_FORMAT, tex, self.res, caps)
+        self.aux = None
+        self.aux_view = None
+        self.aux_depth = None
+        self.aux_depth_view = None
+        self.kept = None
+        self.kept_view = None
+        self.prev = None
+        self.prev_view = None
+        self.blit = None
+        self.hud_depth = None
+        self.hud_depth_view = None
+        self.scene2 = None
+        self.scene2_view = None
+        self.depth2 = None
+        self.depth2_view = None
+        self.eye_sep = 0.065
+        comptime if Self.F.HISTORY:
+            self.blit = Stage[Copy](device, color_format)
+        self.post_time = 0.0
+        self.post_frame = 0
+        self.post_seed = 0.0
+        self.post_user = SIMD[DType.float32, 4](0.0)
+        self.color_format = color_format
+        self.scene = None
+        self.scene_view = None
         self.textures = tex^
         self.meshes = MeshRegistry()
         self.gpu = GpuMeshCache()
@@ -110,6 +163,31 @@ struct ArenaRendererOf[P: RenderPass](Movable):
 
     def __init__(out self, *, deinit move: Self):
         self.passes = move.passes^
+        self.post = move.post^
+        self.post_time = move.post_time
+        self.post_frame = move.post_frame
+        self.post_seed = move.post_seed
+        self.post_user = move.post_user
+        self.color_format = move.color_format
+        self.scene = move.scene^
+        self.scene_view = move.scene_view^
+        self.aux_passes = move.aux_passes^
+        self.aux = move.aux^
+        self.aux_view = move.aux_view^
+        self.aux_depth = move.aux_depth^
+        self.aux_depth_view = move.aux_depth_view^
+        self.kept = move.kept^
+        self.kept_view = move.kept_view^
+        self.prev = move.prev^
+        self.prev_view = move.prev_view^
+        self.blit = move.blit^
+        self.hud_depth = move.hud_depth^
+        self.hud_depth_view = move.hud_depth_view^
+        self.scene2 = move.scene2^
+        self.scene2_view = move.scene2_view^
+        self.depth2 = move.depth2^
+        self.depth2_view = move.depth2_view^
+        self.eye_sep = move.eye_sep
         self.res = move.res^
         self.textures = move.textures^
         self.meshes = move.meshes^
@@ -173,14 +251,87 @@ struct ArenaRendererOf[P: RenderPass](Movable):
         self.items.append(item^)
 
     def _depth_view(mut self, device: Device, width: UInt32, height: UInt32) raises:
+        """The targets, made when the frame's size changes. With stages the scene's colour, depth and aux are F's
+        scene size (the frame's unless SceneSize names one), and the stages are bound to them."""
         if not self.depth_view or self.depth_w != width or self.depth_h != height:
             self.depth_view = None
-            self.depth = device.create_texture(
-                width, height, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_depth",
-            )
+            var usage = WGPUTextureUsage.RENDER_ATTACHMENT
+            var sw = width
+            var sh = height
+            comptime if Self.F.ON:  # the stages read depth
+                usage = WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING
+            comptime if Self.F.SCENE_W > 0:
+                sw = UInt32(Self.F.SCENE_W)
+                sh = UInt32(Self.F.SCENE_H)
+            self.depth = device.create_texture(sw, sh, 1, DEPTH_FORMAT, usage, label="arena_depth")
             self.depth_view = self.depth.value().create_view_default()
             self.depth_w = width
             self.depth_h = height
+            comptime if Self.F.ON:
+                var both = WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING
+                self.scene_view = None
+                self.scene = device.create_texture(sw, sh, 1, self.color_format, both, label="arena_scene")
+                self.scene_view = self.scene.value().create_view_default()
+                comptime if Self.F.SCENE_W > 0:
+                    self.hud_depth_view = None
+                    self.hud_depth = device.create_texture(
+                        width, height, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_hud_depth",
+                    )
+                    self.hud_depth_view = self.hud_depth.value().create_view_default()
+                else:
+                    self.hud_depth_view = self.depth_view.value().clone()
+                comptime if Self.A.ON:
+                    self.aux_view = None
+                    self.aux_depth_view = None
+                    self.aux = device.create_texture(sw, sh, 1, self.color_format, both, label="arena_aux")
+                    self.aux_view = self.aux.value().create_view_default()
+                    self.aux_depth = device.create_texture(
+                        sw, sh, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_aux_depth",
+                    )
+                    self.aux_depth_view = self.aux_depth.value().create_view_default()
+                else:
+                    self.aux_view = self.scene_view.value().clone()
+                comptime if Self.F.HISTORY:
+                    self.kept_view = None
+                    self.prev_view = None
+                    self.kept = device.create_texture(width, height, 1, self.color_format, both, label="arena_kept")
+                    self.kept_view = self.kept.value().create_view_default()
+                    self.prev = device.create_texture(width, height, 1, self.color_format, both, label="arena_prev")
+                    self.prev_view = self.prev.value().create_view_default()
+                else:
+                    self.prev_view = self.scene_view.value().clone()
+                var inp = PostInputs(
+                    self.scene_view.value(), self.scene_view.value(), self.depth_view.value(), self.aux_view.value(),
+                    self.prev_view.value(),
+                )
+                comptime if Self.F.VIEWS == 2:
+                    self.scene2_view = None
+                    self.depth2_view = None
+                    self.scene2 = device.create_texture(sw, sh, 1, self.color_format, both, label="arena_scene_right")
+                    self.scene2_view = self.scene2.value().create_view_default()
+                    self.depth2 = device.create_texture(sw, sh, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_depth_right")
+                    self.depth2_view = self.depth2.value().create_view_default()
+                    inp = inp.with_src2(self.scene_view.value(), self.scene2_view.value())
+                self.post.bind(device, self.color_format, width, height, inp)
+                comptime if Self.F.HISTORY:
+                    # the blit must not hold `prev` (it draws into it): every input but its source is the scene
+                    var binp = PostInputs(
+                        self.kept_view.value(), self.scene_view.value(), self.depth_view.value(), self.scene_view.value(),
+                        self.scene_view.value(),
+                    )
+                    self.blit.value().bind(device, self.color_format, width, height, binp)
+
+    def _post_frame(self, v: View, width: UInt32, height: UInt32) -> List[Float32]:
+        var f = List[Float32]()
+        for x in [Float32(width), Float32(height), Float32(1.0) / Float32(width), Float32(1.0) / Float32(height)]:
+            f.append(x)
+        for x in cam_floats(v):
+            f.append(x)
+        for x in [self.post_time, Float32(self.post_frame), self.post_seed, Float32(0.0)]:
+            f.append(x)
+        for i in range(4):
+            f.append(self.post_user[i])
+        return f^
 
     def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:
         var v = self.view.copy()
@@ -202,17 +353,68 @@ struct ArenaRendererOf[P: RenderPass](Movable):
         self.res.debug_sky(device, self.debug_view == DEBUG_SKY)
         hud.upload(device)
         self._depth_view(device, width, height)
+        comptime if Self.F.VIEWS == 2:  # the right eye first, in its own command buffer; then v is the left eye
+            var h = Real(self.eye_sep) * Real(0.5)
+            var vr = v.copy()
+            vr.eye = Vec3(v.eye[0] + v.right[0] * h, v.eye[1] + v.right[1] * h, v.eye[2] + v.right[2] * h, Real(0.0))
+            v.eye = Vec3(v.eye[0] - v.right[0] * h, v.eye[1] - v.right[1] * h, v.eye[2] - v.right[2] * h, Real(0.0))
+            self.res.write_camera(device, vr)
+            self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, vr, self.res)
+            var renc = device.create_command_encoder("right_eye")
+            comptime if Self.P.SHADOW:
+                if self.res.shadow_on:
+                    var rsp = begin_depth_pass(renc, self.res.shadow_view)
+                    self.passes.record_shadow(rsp, self.meshes, self.gpu)
+                    rsp^.end()
+            var rpass2 = renc.begin_render_pass_clear_depth(
+                self.scene2_view.value().clone(), self.depth2_view.value(), CLEAR, 1.0, "arena_pass_right",
+            )
+            self.passes.record_color(rpass2, self.meshes, self.gpu)
+            rpass2^.end()
+            var rcmd = renc^.finish()
+            device.queue_submit(rcmd^)
         self.res.write_camera(device, v)
         self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
+        comptime if Self.F.ON:
+            var pf = self._post_frame(v, width, height)
+            self.post.update(device, pf)
+            comptime if Self.F.HISTORY:
+                self.blit.value().update(device, pf)
+            comptime if Self.A.ON:
+                self.aux_passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
+            self.post_frame += 1
         var enc = device.create_command_encoder("frame")
         comptime if Self.P.SHADOW:  # a shadow pass in the list: the depth pass first, in this command buffer
             if self.res.shadow_on:
                 var srp = begin_depth_pass(enc, self.res.shadow_view)
                 self.passes.record_shadow(srp, self.meshes, self.gpu)
                 srp^.end()
-        var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
-        self.passes.record_color(rpass, self.meshes, self.gpu)
-        hud.record(rpass)
-        rpass^.end()
+        comptime if Self.F.ON:  # the passes into the scene target, the aux list into its own, then the stages
+            var spass = enc.begin_render_pass_clear_depth(
+                self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "arena_pass",
+            )
+            self.passes.record_color(spass, self.meshes, self.gpu)
+            spass^.end()
+            comptime if Self.A.ON:
+                var apass = enc.begin_render_pass_clear_depth(
+                    self.aux_view.value().clone(), self.aux_depth_view.value(), WGPUColor(0.5, 0.5, 1.0, 0.0), 1.0, "aux_pass",
+                )
+                self.aux_passes.record(apass, self.meshes, self.gpu)
+                apass^.end()
+            comptime if Self.F.HISTORY:  # into the kept frame, which is then copied to the frame and to `prev`
+                self.post.record(enc, self.kept_view.value().clone())
+                self.blit.value().record(enc, device.create_texture_view(target))
+                self.blit.value().record(enc, self.prev_view.value().clone())
+            else:
+                self.post.record(enc, device.create_texture_view(target))
+            # the HUD on top of the finished frame, not through the stages
+            var hpass = begin_load_pass(device, enc, device.create_texture_view(target), self.hud_depth_view.value())
+            hud.record(hpass)
+            hpass^.end()
+        else:
+            var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
+            self.passes.record_color(rpass, self.meshes, self.gpu)
+            hud.record(rpass)
+            rpass^.end()
         var cmd = enc^.finish()
         device.queue_submit(cmd^)

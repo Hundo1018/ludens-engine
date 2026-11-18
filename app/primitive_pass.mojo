@@ -136,6 +136,11 @@ def _put(mut staging: List[Float32], it: DrawItem):
 
 struct PrimitivePass(RenderPass):
     comptime SHADOW: Bool = False
+
+    @staticmethod
+    def sig() -> String:
+        return "Prim"
+
     var pipeline: RenderPipeline
     var buffer: Buffer
     var group: BindGroup
