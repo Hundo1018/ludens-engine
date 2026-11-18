@@ -32,7 +32,19 @@ trait Command(Defaultable, Deinitable):
         ...
 
 
-struct Registry[*Cmds: Command]:
+trait CommandSet:
+    """A set of commands the entry points dispatch into by name (`Registry[...]`)."""
+
+    @staticmethod
+    def names() -> List[String]:
+        ...
+
+    @staticmethod
+    def run(mut ed: Editor, name: String, args: List[String]) raises:
+        ...
+
+
+struct Registry[*Cmds: Command](CommandSet):
     @staticmethod
     def names() -> List[String]:
         var out = List[String]()

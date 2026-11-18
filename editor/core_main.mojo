@@ -8,6 +8,7 @@
     ludens-core cmd    <scene> [-o <out>] -- <command> <args...>
     ludens-core script <scene> <file> [-o <out>]
     ludens-core gui-move <scene> <handle> <x> <y> <z> [-o <out>]
+    ludens-core commands                  (the command names `cmd` and `script` accept, one per line)
 
 A scene file is the flat text form of `embed.scene_io`. Commands and scripts edit in place unless `-o` names
 another file; nothing is written when a command fails. `gui-move` goes through the GUI entry of the command
@@ -15,10 +16,10 @@ layer and `cmd` through the CLI entry, so a test can compare the two across proc
 
 Exit code: 0 ok, 1 error (message on stderr)."""
 from std.sys import argv, exit, stderr
-from editor.builtin import MoveBody
+from editor.command import Standard
 from game.eventsheet import Sheet
 from editor.state import Editor
-from editor.entry import cli_run, gui_move_body
+from editor.entry import cli_run_in, gui_move_body_in
 from editor.scene_text import (
     scene_rows_from_text, scene_rows_to_text, scene_sheet_from_text, scene_sheet_rows, sheet_to_rows, sheet_with_handles,
 )
@@ -297,6 +298,10 @@ def run_command(args: List[String]) raises:
             print("mismatch at frame", first_bad, "of", rd.frame_count())
             exit(1)
         print("verified", rd.frame_count(), "frames")
+    elif sub == "commands":
+        Standard.check()
+        for n in Standard.names():
+            print(n)
     elif sub == "cmd":
         var dash = -1
         for i in range(len(args)):
@@ -308,7 +313,7 @@ def run_command(args: List[String]) raises:
         var argv_ = List[String]()
         for i in range(dash + 1, len(args)):
             argv_.append(args[i])
-        cli_run[MoveBody](ed, argv_)
+        cli_run_in[Standard](ed, argv_)
         report(ed)
         save(ed, out_path(args, dash, args[1]))
     elif sub == "script":
@@ -329,7 +334,7 @@ def run_command(args: List[String]) raises:
                     if not ed.redo():
                         raise Error("nothing to redo")
                 else:
-                    cli_run[MoveBody](ed, w)
+                    cli_run_in[Standard](ed, w)
             except e:
                 raise Error(args[2] + ":" + String(i + 1) + ": " + String(e))
         report(ed)
@@ -340,7 +345,7 @@ def run_command(args: List[String]) raises:
         var ed = load(args[1])
         var h = Int64(Int(real_arg(args[2], "handle")))
         var p = Vec3(Real(real_arg(args[3], "x")), Real(real_arg(args[4], "y")), Real(real_arg(args[5], "z")), 0.0)
-        gui_move_body[MoveBody](ed, h, p)
+        gui_move_body_in[Standard](ed, h, p)
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:

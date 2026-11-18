@@ -8,8 +8,15 @@ A command that changes the world runs inside an undo transaction (engine 17.43),
 
 Commands are registered through `editor.ext`; `Standard` is the registry of this repository's built-ins. A build that
 links plugins declares its own `Registry[...]` listing them after the built-ins."""
-from editor.builtin import MoveBody
+from editor.builtin import MoveBody, Play, Tick, Stop, Select
+from editor.builtin_curve import CurveAdd, CurveMove, CurveDelete
+from editor.builtin_graph import GraphAdd, GraphSet, GraphConnect, GraphDisconnect, GraphRemove
 from editor.ext import Registry
 from editor.state import Editor
 
-comptime Standard = Registry[MoveBody]
+comptime Standard = Registry[
+    MoveBody, Play, Tick, Stop, Select,
+    CurveAdd, CurveMove, CurveDelete,
+    GraphAdd, GraphSet, GraphConnect, GraphDisconnect, GraphRemove,
+]
+"""Every built-in command (editor/builtin*.mojo), the set `ludens cmd` / `script` / `gui-move` dispatch into."""
