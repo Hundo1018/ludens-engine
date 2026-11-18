@@ -14,6 +14,10 @@
 # A fourth: materials (app/material.mojo) shade the same on both mesh passes. A skinned cube at the identity pose in each
 # built-in material gives the frame of the static unit cube in that material (shadow and AO off: the skinned pass has
 # no AO).
+# A seventh: the engine-specific view (#90 step 5), motor skinning beside LBS. A bar along x whose right end is
+# twisted 170 degrees about its axis: with LinearBlend (the default renderer) its middle collapses toward the axis (the
+# candy wrapper); ArenaRendererOf[..MotorSkinnedPass] keeps its cross-section. Measured as the bar's height on screen at
+# its middle column over its height near the ends; --dump writes both frames (out.rgba.lbs.rgba / .motor.rgba).
 # A sixth: MAT_PBR (#90 step 4). A smooth PBR sphere has a highlight brighter than the colour-only sphere's brightest
 # pixel; a rough one's is lower than the smooth one's.
 # A fifth: point lights (#90 step 3). A red light beside the floor adds red to many pixels and takes no more than 1 / 255
@@ -22,7 +26,7 @@
 # `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at, and the
 # three spheres of the MAT_PBR checks as out.rgba.color.rgba / .pbr_smooth.rgba / .pbr_rough.rgba.
 # The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
-from std.math import sqrt
+from std.math import sqrt, sin, cos
 from std.sys import argv
 from harness.runner import Suite
 from wgpu import Instance
@@ -42,6 +46,11 @@ from app.ao_bake import ao_bake
 from app.render_res import PointLight
 from app.render3d import ArenaRenderer, ArenaRendererOf, DefaultPasses
 from app.render_pass import RenderPass, Then
+from app.primitive_pass import PrimitivePass
+from app.mesh_pass import MeshPass
+from app.skin_draw import MotorSkinnedPass
+from app.skin_pass import build_palette
+from geometry.mat import Mat4
 from app.shadow_pass import ShadowPass
 
 comptime W: UInt32 = 960
@@ -126,6 +135,97 @@ def _sphere_peak(
     for i in range(0, len(px), 4):
         peak = max(peak, Int(px[i]) + Int(px[i + 1]) + Int(px[i + 2]))
     return peak
+
+
+def _rot_x(deg: Float64) -> Mat4:
+    var a = deg * 3.141592653589793 / 180.0
+    var m = Mat4.identity()
+    m.set(1, 1, Real(cos(a)))
+    m.set(1, 2, Real(-sin(a)))
+    m.set(2, 1, Real(sin(a)))
+    m.set(2, 2, Real(cos(a)))
+    return m^
+
+
+def _twist_bar[P: RenderPass](mut r: ArenaRendererOf[P]) raises -> Int:
+    """Register the bar (x from -2 to 2, 16 segments, square cross-section 0.6 wide; joint 0 at the left end, joint 1
+    at the right, weights linear in x) and set the palette: joint 0 identity, joint 1 turned 170 degrees about x.
+    Returns the skinned mesh id."""
+    var pos = List[Float32]()
+    var nrm = List[Float32]()
+    var uv = List[Float32]()
+    var jt = List[UInt16]()
+    var wt = List[Float32]()
+    var idx = List[UInt32]()
+    comptime SEG = 16
+    for i in range(SEG + 1):
+        var t = Float32(i) / Float32(SEG)
+        for c in range(4):
+            var a = Float64(c) * 1.5707963267948966 + 0.7853981633974483
+            pos.append(Float32(-2.0) + 4.0 * t)
+            pos.append(Float32(0.42 * cos(a)))
+            pos.append(Float32(0.42 * sin(a)))
+            nrm.append(0.0)
+            nrm.append(Float32(cos(a)))
+            nrm.append(Float32(sin(a)))
+            uv.append(t)
+            uv.append(Float32(c) / 4.0)
+            for k in [UInt16(0), UInt16(1), UInt16(0), UInt16(0)]:
+                jt.append(k)
+            for w in [1.0 - t, t, Float32(0), Float32(0)]:
+                wt.append(w)
+    for i in range(SEG):
+        for c in range(4):
+            var a0 = UInt32(4 * i + c)
+            var a1 = UInt32(4 * i + (c + 1) % 4)
+            var b0 = a0 + 4
+            var b1 = a1 + 4
+            for v in [a0, b0, a1, a1, b0, b1]:
+                idx.append(v)
+    var id = r.meshes.add_skinned(pos^, nrm^, uv^, jt^, wt^, idx^)
+    var locals = List[Mat4]()
+    locals.append(Mat4.identity())
+    locals.append(_rot_x(170.0))
+    var parents: List[Int] = [-1, -1]
+    var ibm = List[Mat4]()
+    ibm.append(Mat4.identity())
+    ibm.append(Mat4.identity())
+    r.skin_palette = build_palette(locals, parents, ibm)
+    return id
+
+
+def _bar_heights[P: RenderPass](
+    device: Device, mut r: ArenaRendererOf[P], mesh: Int, mut cap: FrameCapture, target: Texture, hud: Hud, dump: String,
+) raises -> Tuple[Int, Int]:
+    """Draw the bar alone and measure it: (pixels it covers in the middle column, the mean over the columns a tenth of
+    its width in from each end). A pixel is the bar's when it differs from the top-left (clear colour) pixel."""
+    r.probe = 0
+    r.begin(r.view.copy())
+    r.push(DrawItem(0, _v(0, 1.2, 4), 0.0, 0.0, 0.0, 1.0, _v(1, 1, 1), _v(0.8, 0.6, 0.3), mesh, 0, 0, 1))
+    r.draw(device, target.handle().raw, W, H, hud)
+    var px = _capture_pixels(device, cap, target)
+    if dump.byte_length() > 0:
+        with open(dump, "w") as f:
+            f.write_bytes(px)
+    var cols = List[Int]()
+    for x in range(Int(W)):
+        var n = 0
+        for y in range(Int(H)):
+            var o = (y * Int(W) + x) * 4
+            if px[o] != px[0] or px[o + 1] != px[1] or px[o + 2] != px[2]:
+                n += 1
+        cols.append(n)
+    var first = -1
+    var last = -1
+    for x in range(Int(W)):
+        if cols[x] > 0:
+            if first < 0:
+                first = x
+            last = x
+    if first < 0:
+        return (0, 0)
+    var inset = (last - first) // 10
+    return (cols[(first + last) // 2], (cols[first + inset] + cols[last - inset]) // 2)
 
 
 def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: List[Float32], ao: List[Float32]) raises:
@@ -282,6 +382,22 @@ def main() raises:
         s.check(h_skin == h_static, "a skinned cube in " + names_m[m] + " gives the static cube's frame")
         seen.append(h_static)
     s.check(seen[0] != seen[1] and seen[1] != seen[2] and seen[2] != seen[3], "the four materials give four different frames")
+
+    # the engine-specific view: motor skinning beside LBS on a twisted bar
+    renderer.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.0, 1.0, False, False)
+    renderer.set_shadow(device, light, False)
+    var bar_lbs = _twist_bar(renderer)
+    var motor = ArenaRendererOf[Then[PrimitivePass, Then[MeshPass, MotorSkinnedPass]]](device, format, view)
+    var bar_motor = _twist_bar(motor)
+    var lbs_h = _bar_heights(device, renderer, bar_lbs, cap, target, hud, dump + ".lbs.rgba" if dump.byte_length() > 0 else String())
+    var mot_h = _bar_heights(device, motor, bar_motor, cap, target, hud, dump + ".motor.rgba" if dump.byte_length() > 0 else String())
+    var lbs_ratio = Float64(lbs_h[0]) / Float64(max(lbs_h[1], 1))
+    var mot_ratio = Float64(mot_h[0]) / Float64(max(mot_h[1], 1))
+    print("twisted bar, middle / ends height (px): LBS", lbs_h[0], "/", lbs_h[1], "=", lbs_ratio, "; motor", mot_h[0], "/", mot_h[1], "=", mot_ratio)
+    s.check(lbs_h[1] > 20 and mot_h[1] > 20, "the bar is on screen in both renderers")
+    s.check(lbs_ratio < 0.5, "LBS collapses the twisted middle to under half the ends' height (candy wrapper)")
+    s.check(mot_ratio > 0.8, "motor skinning keeps the twisted middle at over 0.8 of the ends' height")
+    renderer.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.02, 1.0, True, True)  # back as before
 
     # MAT_PBR: the specular highlight follows the roughness
     var d0 = dump + ".color.rgba" if dump.byte_length() > 0 else String()
