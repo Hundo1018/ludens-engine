@@ -219,6 +219,19 @@ def main() -> int:
         r = core_run("capture", str(root / "copy.scene"), "0", str(root / "z.cap"))
         check(r.returncode == 1 and not (root / "z.cap").exists(), "capture: zero ticks is refused and writes nothing")
 
+        # ---- every built-in command is reachable from the CLI (editor/command.mojo Standard)
+        r = core_run("commands")
+        names = r.stdout.split()
+        want = ["move_body", "play", "tick", "stop", "select", "curve_add", "curve_move", "curve_delete",
+                "graph_add", "graph_set", "graph_connect", "graph_disconnect", "graph_remove"]
+        check(r.returncode == 0 and names == want, f"commands: the {len(want)} built-ins, in registry order ({names})")
+        pl = root / "play.scene"
+        pl.write_bytes(original)
+        play = root / "play.txt"
+        play.write_text("select " + handle + "\nplay\ntick 30\nstop\n")
+        r = core_run("script", str(pl), str(play))
+        check(r.returncode == 0 and world_hash(r) == h0, f"script: select, play, tick 30, stop run and leave the world as it was (hash {world_hash(r)})")
+
         # ---- errors write nothing
         f = root / "f.scene"
         f.write_bytes(original)

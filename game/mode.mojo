@@ -4,7 +4,7 @@ A host (`app/`) is generic over a `GameMode` (`app/main.mojo` `AppOf[M, P]`), so
 program is built and nothing is looked up at run time. A game conforms by wrapping its state in a struct that implements
 these methods; see `game/arena_mode.mojo`. The game's own rules never import this file."""
 from game.intent import Intent
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from procedural.camera_math import CameraPose
 from ui.draw import DrawList
 

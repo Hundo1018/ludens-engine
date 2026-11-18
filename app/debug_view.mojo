@@ -11,7 +11,7 @@ tell apart.
 DEBUG_SKY, overrides the atmosphere's fog and linear flags.
 """
 from geometry.vec import Real, Vec3
-from game.arena import DrawItem, MAT_COLOR, MAT_SKY
+from game.draw_item import DrawItem, MAT_COLOR, MAT_SKY
 
 comptime DEBUG_NONE = 0
 comptime DEBUG_FLAT = 1

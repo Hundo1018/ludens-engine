@@ -30,7 +30,7 @@ from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from wgpu.texture import TextureView
 from wgpu.sampler import Sampler
-from game.arena import DrawItem
+from game.draw_item import DrawItem
 from game.camera_view import View
 from app.mesh_pass import MeshRegistry, model_floats, FLOATS_PER_INSTANCE, RenderCaps
 from app.gpu_mesh import GpuMeshCache, MeshBatches, SKINNED_BUFFERS, K_POS, K_NRM, K_UV, K_JNT, K_WGT
