@@ -14,10 +14,13 @@
 # A fourth: materials (app/material.mojo) shade the same on both mesh passes. A skinned cube at the identity pose in each
 # built-in material gives the frame of the static unit cube in that material (shadow and AO off: the skinned pass has
 # no AO).
+# A sixth: MAT_PBR (#90 step 4). A smooth PBR sphere has a highlight brighter than the colour-only sphere's brightest
+# pixel; a rough one's is lower than the smooth one's.
 # A fifth: point lights (#90 step 3). A red light beside the floor adds red to many pixels and takes no more than 1 / 255
 # from any; with the lights cleared again the frame is the no-light frame exactly.
 # `arena_frame_native --record` rewrites the tile file (a deliberate change of the picture);
-# `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at.
+# `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at, and the
+# three spheres of the MAT_PBR checks as out.rgba.color.rgba / .pbr_smooth.rgba / .pbr_rough.rgba.
 # The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
 from std.math import sqrt
 from std.sys import argv
@@ -27,7 +30,7 @@ from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
 from wgpu.device import Device
-from game.draw_item import DrawItem, MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY
+from game.draw_item import DrawItem, MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY, MAT_PBR
 from game.camera_view import View
 from geometry.aabb import AABB
 from geometry.quat import Quat
@@ -103,6 +106,26 @@ def _capture_pixels(device: Device, mut cap: FrameCapture, target: Texture) rais
             out.append(px[unsafe_offset=y * pitch + x])
     cap.unmap()
     return out^
+
+
+def _sphere_peak(
+    device: Device, mut r: ArenaRenderer, mut cap: FrameCapture, target: Texture, hud: Hud, material: Int,
+    roughness: Float32, metallic: Float32, dump: String = String(),
+) raises -> Int:
+    """The brightest pixel (r + g + b) of a grey sphere (radius 1, the unit sphere mesh) alone in front of the camera."""
+    r.probe = 0
+    r.begin(r.view.copy())
+    # on the unit sphere mesh (1 across, so half 2 is radius 1): all three through the mesh pass and its atmosphere
+    r.push(DrawItem(1, _v(0, 1.2, 4), 0.0, 0.0, 0.0, 1.0, _v(2, 2, 2), _v(0.6, 0.6, 0.6), r.sphere, -1, material, 1, roughness, metallic))
+    r.draw(device, target.handle().raw, W, H, hud)
+    var px = _capture_pixels(device, cap, target)
+    if dump.byte_length() > 0:
+        with open(dump, "w") as f:
+            f.write_bytes(px)
+    var peak = 0
+    for i in range(0, len(px), 4):
+        peak = max(peak, Int(px[i]) + Int(px[i + 1]) + Int(px[i + 2]))
+    return peak
 
 
 def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: List[Float32], ao: List[Float32]) raises:
@@ -250,15 +273,26 @@ def main() raises:
     # materials: the skinned pass shades each built-in material as the mesh pass does
     renderer.set_shadow(device, light, False)
     renderer.set_ao(device, ao, 32, 32, -8.0, -8.0, 16.0, 16.0, False)
-    var names_m: List[String] = ["MAT_COLOR", "MAT_UV", "MAT_TRIPLANAR", "MAT_SKY"]
+    var names_m: List[String] = ["MAT_COLOR", "MAT_UV", "MAT_TRIPLANAR", "MAT_SKY", "MAT_PBR"]
     var seen = List[UInt64]()
-    for m in [MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY]:
+    for m in [MAT_COLOR, MAT_UV, MAT_TRIPLANAR, MAT_SKY, MAT_PBR]:
         var h_static = _one_cube_hash(device, renderer, cap, target, hud, m, False)
         var h_skin = _one_cube_hash(device, renderer, cap, target, hud, m, True)
         print("material", names_m[m], "static", h_static, "skinned", h_skin)
         s.check(h_skin == h_static, "a skinned cube in " + names_m[m] + " gives the static cube's frame")
         seen.append(h_static)
     s.check(seen[0] != seen[1] and seen[1] != seen[2] and seen[2] != seen[3], "the four materials give four different frames")
+
+    # MAT_PBR: the specular highlight follows the roughness
+    var d0 = dump + ".color.rgba" if dump.byte_length() > 0 else String()
+    var d1 = dump + ".pbr_smooth.rgba" if dump.byte_length() > 0 else String()
+    var d2 = dump + ".pbr_rough.rgba" if dump.byte_length() > 0 else String()
+    var peak_color = _sphere_peak(device, renderer, cap, target, hud, MAT_COLOR, 0.5, 0.0, d0)
+    var peak_smooth = _sphere_peak(device, renderer, cap, target, hud, MAT_PBR, 0.15, 0.0, d1)
+    var peak_rough = _sphere_peak(device, renderer, cap, target, hud, MAT_PBR, 0.9, 0.0, d2)
+    print("sphere peak (r + g + b): colour", peak_color, "; PBR roughness 0.15", peak_smooth, "; PBR roughness 0.9", peak_rough)
+    s.check(peak_smooth > peak_color + 30, "a smooth PBR sphere has a highlight brighter than the colour-only sphere")
+    s.check(peak_rough < peak_smooth, "a rough PBR sphere's highlight is dimmer than a smooth one's")
 
     # point lights: a red one at the pillars' feet, then none again
     _options(device, renderer, light, ao)

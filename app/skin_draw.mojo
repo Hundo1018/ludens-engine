@@ -37,7 +37,7 @@ from app.gpu_mesh import GpuMeshCache, MeshBatches, SKINNED_BUFFERS, K_POS, K_NR
 from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
-from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky
+from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL
 from app.render_res import RenderResources, LIGHTS_BYTES
 from app.render_pass import RenderPass
@@ -52,7 +52,7 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(5) var shadow_cmp : sampler_comparison;
 @group(0) @binding(6) var<uniform> shadow : Shadow;
 @group(0) @binding(7) var<uniform> lights : Lights;
-""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + """
+""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + PBR_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -78,6 +78,7 @@ struct VOut {
   @location(6) wpos : vec3<f32>,
   @location(7) base : vec3<f32>,
   @location(8) lit : f32,
+  @location(9) @interpolate(flat) rm : vec2<f32>,
 };
 
 @vertex
@@ -101,6 +102,7 @@ fn vs_skin(v : SVIn) -> VOut {
   out.wpos = world;
   out.base = v.color.rgb;
   out.lit = lit;
+  out.rm = vec2<f32>(floor(v.info.w / 256.0) / 255.0, (v.info.w - floor(v.info.w / 256.0) * 256.0) / 255.0);  // MAT_PBR: roughness, metallic
   return out;
 }
 
@@ -117,7 +119,7 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
     lit3 = lit3 + point_lights(in.wpos, normalize(in.wnrm));
     color = in.base * lit3;
   }
-  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf));
+  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf, in.rm.x, in.rm.y));
 }
 """
 
@@ -361,5 +363,5 @@ struct SkinnedPassOf[*Ms: Material](RenderPass):
             )
 
 
-comptime SkinnedPass = SkinnedPassOf[MatColor, MatUv, MatTriplanar, MatSky]
+comptime SkinnedPass = SkinnedPassOf[MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
 """The skinned pass with the built-in materials (the mesh pass's set)."""
