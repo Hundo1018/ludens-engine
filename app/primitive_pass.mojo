@@ -20,7 +20,8 @@ from wgpu.bind_group import BindGroup
 from wgpu.render_pass import FrameRenderPass
 from app.mesh_data import MeshRegistry
 from app.gpu_mesh import GpuMeshCache, cam_floats
-from app.render_res import RenderResources, RenderCaps
+from app.render_res import RenderResources, RenderCaps, LIGHTS_BYTES
+from app.wgsl import POINT_LIGHTS_WGSL
 from app.render_pass import RenderPass
 from app.textures import TextureArray
 
@@ -30,7 +31,15 @@ comptime VERTS_PER_INSTANCE = 1152
 comptime WGSL = """
 @group(0) @binding(0) var<storage, read> data : array<vec4<f32>>;
 
-struct VOut { @builtin(position) pos : vec4<f32>, @location(0) color : vec3<f32> };
+struct VOut {
+  @builtin(position) pos : vec4<f32>,
+  @location(0) color : vec3<f32>,
+  @location(1) wpos : vec3<f32>,
+  @location(2) wnrm : vec3<f32>,
+  @location(3) base : vec3<f32>,
+  @location(4) lit : f32,
+};
+@group(0) @binding(1) var<uniform> lights : Lights;
 
 const NORMAL = array<vec3<f32>, 6>(
   vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(-1.0, 0.0, 0.0),
@@ -96,14 +105,22 @@ fn vs_main(@builtin(vertex_index) vi : u32, @builtin(instance_index) ii : u32) -
   }
   let lit = 0.4 + 0.6 * max(dot(normal, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   out.color = base * lit;
+  out.wpos = world;
+  out.wnrm = normal;
+  out.base = base;
+  out.lit = lit;
   return out;
 }
 
 @fragment
 fn fs_main(in : VOut) -> @location(0) vec4<f32> {
+  // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
+  if has_point_lights() {
+    return vec4<f32>(in.base * (vec3<f32>(in.lit) + point_lights(in.wpos, normalize(in.wnrm))), 1.0);
+  }
   return vec4<f32>(in.color, 1.0);
 }
-"""
+""" + POINT_LIGHTS_WGSL
 
 
 def _put(mut staging: List[Float32], it: DrawItem):
@@ -126,7 +143,7 @@ struct PrimitivePass(RenderPass):
     var max_items: Int  # RenderCaps.arena_instances
     var count: Int  # primitives this frame (prepare)
 
-    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, caps: RenderCaps) raises:
+    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref res: RenderResources, caps: RenderCaps) raises:
         caps.check()
         self.max_items = caps.arena_instances
         var shader = device.create_shader_module_wgsl(WGSL, "arena")
@@ -134,6 +151,13 @@ struct PrimitivePass(RenderPass):
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
                 WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.ReadOnlyStorage, UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(1), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
                 WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
@@ -148,6 +172,7 @@ struct PrimitivePass(RenderPass):
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
         var bg_entries: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.buffer.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 1, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "arena_group")
         self.staging = List[Float32]()
@@ -158,7 +183,7 @@ struct PrimitivePass(RenderPass):
         device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
         ref res: RenderResources, caps: RenderCaps,
     ) raises -> Self:
-        return Self(device, color_format, depth_format, caps)
+        return Self(device, color_format, depth_format, res, caps)
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], meshes: MeshRegistry, mut gpu: GpuMeshCache,

@@ -30,7 +30,7 @@ from app.primitive_pass import PrimitivePass
 from app.render_pass import RenderPass, Then
 from app.shadow_pass import begin_depth_pass
 from app.gpu_mesh import GpuMeshCache, cam_floats
-from app.render_res import RenderResources
+from app.render_res import RenderResources, PointLight
 from app.skin_pass import build_palette, rot_y
 from app.textures import TextureArray, box_levels, checker_base
 from app.debug_view import DEBUG_NONE, DEBUG_SKY, debug_recolor
@@ -142,6 +142,10 @@ struct ArenaRendererOf[P: RenderPass](Movable):
                sx: Float32, sz: Float32, on: Bool) raises:
         """RenderResources.set_ao: the ambient-occlusion grid over the floor."""
         self.res.set_ao(device, cells, nx, ny, x0, z0, sx, sz, on)
+
+    def set_lights(mut self, device: Device, lights: List[PointLight]) raises:
+        """RenderResources.set_lights: point lights, per pixel, on top of the sun (at most MAX_POINT_LIGHTS)."""
+        self.res.set_lights(device, lights)
 
     def shadow_target(self) raises -> TextureView:
         """A view of the shadow map, for a shadow pass to render depth into."""

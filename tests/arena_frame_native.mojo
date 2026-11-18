@@ -14,6 +14,8 @@
 # A fourth: materials (app/material.mojo) shade the same on both mesh passes. A skinned cube at the identity pose in each
 # built-in material gives the frame of the static unit cube in that material (shadow and AO off: the skinned pass has
 # no AO).
+# A fifth: point lights (#90 step 3). A red light beside the floor adds red to many pixels and takes no more than 1 / 255
+# from any; with the lights cleared again the frame is the no-light frame exactly.
 # `arena_frame_native --record` rewrites the tile file (a deliberate change of the picture);
 # `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at.
 # The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
@@ -34,6 +36,7 @@ from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
 from app.ao_bake import ao_bake
+from app.render_res import PointLight
 from app.render3d import ArenaRenderer, ArenaRendererOf, DefaultPasses
 from app.render_pass import RenderPass, Then
 from app.shadow_pass import ShadowPass
@@ -86,6 +89,20 @@ def _capture_hash(device: Device, mut cap: FrameCapture, target: Texture) raises
                 h = (h ^ UInt64(px[unsafe_offset=y * pitch + x * 4 + c])) * UInt64(0x100000001B3)
     cap.unmap()
     return h
+
+
+def _capture_pixels(device: Device, mut cap: FrameCapture, target: Texture) raises -> List[UInt8]:
+    """The target's pixels, 960 x 540 RGBA8, tightly packed."""
+    var req = cap.capture(device, target.handle().raw)
+    req.wait()
+    var px = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(req.take()))
+    var pitch = Int(padded_row_pitch(W))
+    var out = List[UInt8]()
+    for y in range(Int(H)):
+        for x in range(Int(W) * 4):
+            out.append(px[unsafe_offset=y * pitch + x])
+    cap.unmap()
+    return out^
 
 
 def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: List[Float32], ao: List[Float32]) raises:
@@ -242,6 +259,36 @@ def main() raises:
         s.check(h_skin == h_static, "a skinned cube in " + names_m[m] + " gives the static cube's frame")
         seen.append(h_static)
     s.check(seen[0] != seen[1] and seen[1] != seen[2] and seen[2] != seen[3], "the four materials give four different frames")
+
+    # point lights: a red one at the pillars' feet, then none again
+    _options(device, renderer, light, ao)
+    renderer.draw(device, target.handle().raw, W, H, hud)
+    var dark = _capture_pixels(device, cap, target)
+    var lamps = List[PointLight]()
+    lamps.append(PointLight(_v(0, 0.6, 1.5), 4.0, _v(1, 0, 0), 2.0))
+    renderer.set_lights(device, lamps)
+    _options(device, renderer, light, ao)
+    renderer.draw(device, target.handle().raw, W, H, hud)
+    var lit = _capture_pixels(device, cap, target)
+    var redder = 0
+    var worst_loss = 0
+    for i in range(0, len(lit), 4):
+        if Int(lit[i]) > Int(dark[i]) + 8:
+            redder += 1
+        for c in range(3):
+            worst_loss = max(worst_loss, Int(dark[i + c]) - Int(lit[i + c]))
+    renderer.set_lights(device, List[PointLight]())
+    _options(device, renderer, light, ao)
+    renderer.draw(device, target.handle().raw, W, H, hud)
+    var again = _capture_pixels(device, cap, target)
+    var same = len(again) == len(dark)
+    for i in range(min(len(again), len(dark))):
+        if again[i] != dark[i]:
+            same = False
+    print("point light: redder by more than 8 / 255 on", redder, "pixels; worst channel loss", worst_loss)
+    s.check(redder > 5000, "a red point light adds red to the floor and the pillars around it")
+    s.check(worst_loss <= 1, "and takes no more than 1 / 255 from any channel")
+    s.check(same, "with the lights cleared the frame is the no-light frame, every byte")
 
     var lines = List[String]()
     for t in range(tx * ty):

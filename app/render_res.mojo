@@ -19,6 +19,8 @@ comptime SHADOW_MAP_SIZE = 1024  # the shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
 comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per frame: 8192 x 24 floats = 768 KB
 comptime DEFAULT_ARENA_INSTANCES = 8192  # default: arena (primitive) items per frame
+comptime MAX_POINT_LIGHTS = 16  # app/wgsl.mojo POINT_LIGHTS_WGSL's array size
+comptime LIGHTS_BYTES = 16 + MAX_POINT_LIGHTS * 32  # count vec4, then (pos + range, rgb + intensity) per light
 comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
 
 
@@ -41,6 +43,17 @@ struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
             raise Error("RenderCaps: every capacity must be at least 1")
 
 
+@fieldwise_init
+struct PointLight(Copyable, ImplicitlyCopyable, Movable):
+    """A point light: position (m), range (m; no light beyond it, falling off as (1 - (d / range)^2)^2), colour (linear
+    0..1 per channel) and intensity (a multiplier on the colour, at the light)."""
+
+    var pos: Vec3
+    var range: Float32
+    var color: Vec3
+    var intensity: Float32
+
+
 struct RenderResources(Movable):
     var camera: Buffer  # the camera header (64 bytes, app/gpu_mesh.mojo cam_floats), written once per frame
     var shadow_tex: Texture  # the shadow map: a shadow pass renders depth into it (shadow_target())
@@ -49,6 +62,7 @@ struct RenderResources(Movable):
     var shadow_ubo: Buffer  # light view-projection (64 bytes), params (16 bytes; params.x 1 turns the shadow on), atmosphere (48 bytes)
     var ao_cells: Buffer  # the AO grid: AO_MAX_CELLS floats, all 1 (open) until set_ao
     var ao_ubo: Buffer  # AO extent, dims and the on-flag (48 bytes)
+    var lights: Buffer  # the point lights (LIGHTS_BYTES): count, then MAX_POINT_LIGHTS records; none until set_lights
     var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
     var atmo_linear: Bool
     var sky_overridden: Bool
@@ -58,6 +72,8 @@ struct RenderResources(Movable):
     def __init__(out self, device: Device) raises:
         self.light_vp = List[Float32]()
         self.shadow_on = False
+        self.lights = device.create_buffer(UInt64(LIGHTS_BYTES), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="lights")
+        device.queue_write_data(self.lights, UInt64(0), List[Float32](length=LIGHTS_BYTES // 4, fill=Float32(0)))
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
@@ -91,6 +107,25 @@ struct RenderResources(Movable):
         for _ in range(12):
             ao_off.append(0.0)
         device.queue_write_data(self.ao_ubo, UInt64(0), ao_off)
+
+    def set_lights(mut self, device: Device, lights: List[PointLight]) raises:
+        """Replace the point lights (at most MAX_POINT_LIGHTS; an empty list turns them off). They light the
+        primitives, the meshes and the skinned meshes per pixel, on top of the sun."""
+        if len(lights) > MAX_POINT_LIGHTS:
+            raise Error("renderer: at most " + String(MAX_POINT_LIGHTS) + " point lights, got " + String(len(lights)))
+        var data = List[Float32](length=LIGHTS_BYTES // 4, fill=Float32(0))
+        data[0] = Float32(len(lights))
+        for i in range(len(lights)):
+            ref l = lights[i]
+            if not (l.range > 0) or not (l.intensity >= 0):
+                raise Error("renderer: a point light needs range > 0 and intensity >= 0")
+            var o = 4 + 8 * i
+            for c in range(3):
+                data[o + c] = Float32(l.pos[c])
+                data[o + 4 + c] = Float32(l.color[c])
+            data[o + 3] = l.range
+            data[o + 7] = l.intensity
+        device.queue_write_data(self.lights, UInt64(0), data)
 
     def write_camera(self, device: Device, v: View) raises:
         """The camera header for this frame (every pass that binds `camera` reads it)."""

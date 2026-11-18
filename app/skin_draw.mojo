@@ -38,8 +38,8 @@ from app.textures import TextureArray
 from app.skin_gpu import SKIN_FN
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky
-from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL
-from app.render_res import RenderResources
+from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL
+from app.render_res import RenderResources, LIGHTS_BYTES
 from app.render_pass import RenderPass
 
 
@@ -51,7 +51,8 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(4) var shadow_map : texture_depth_2d;
 @group(0) @binding(5) var shadow_cmp : sampler_comparison;
 @group(0) @binding(6) var<uniform> shadow : Shadow;
-""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + """
+@group(0) @binding(7) var<uniform> lights : Lights;
+""" + SKIN_FN + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -109,7 +110,14 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   let ndl = max(dot(normalize(in.wnrm), normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
   // the item's material, shaded as on the mesh pass (app/material.mojo; the same pack)
-  return shade(in.mat, Surface(in.base, in.color, in.lit, in.uv, in.layer, in.wpos, in.wnrm, sf));
+  // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
+  var lit3 = vec3<f32>(in.lit);
+  var color = in.color;
+  if has_point_lights() {
+    lit3 = lit3 + point_lights(in.wpos, normalize(in.wnrm));
+    color = in.base * lit3;
+  }
+  return shade(in.mat, Surface(in.base, color, lit3, in.uv, in.layer, in.wpos, in.wnrm, sf));
 }
 """
 
@@ -260,6 +268,13 @@ struct SkinnedPassOf[*Ms: Material](RenderPass):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(7), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), WGPUBufferBindingType.Uniform, UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "skin_layout")
@@ -282,6 +297,7 @@ struct SkinnedPassOf[*Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), null_opaque(), res.shadow_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), res.shadow_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 6, res.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 7, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.batches = MeshBatches[True]()
