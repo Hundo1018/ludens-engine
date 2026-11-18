@@ -204,6 +204,10 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
 
     comptime SHADOW: Bool = False
 
+    @staticmethod
+    def sig() -> String:
+        return "Skin"
+
     var pipeline: RenderPipeline
     var palette: Buffer
     var instances: Buffer

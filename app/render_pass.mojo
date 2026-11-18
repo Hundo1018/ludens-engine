@@ -53,6 +53,11 @@ trait RenderPass(Movable, Deinitable):
         """Draw into the shadow map's depth pass, opened before the colour pass while the renderer's shadow is on."""
         pass
 
+    @staticmethod
+    def sig() -> String:
+        """A short name of the pass (and of what configures it), for listing a pipeline's structure."""
+        return "pass"
+
 
 struct Then[P: RenderPass, Q: RenderPass](RenderPass):
     """P, then Q: prepared and recorded in that order."""
@@ -86,6 +91,10 @@ struct Then[P: RenderPass, Q: RenderPass](RenderPass):
         self.first.record_color(rpass, meshes, gpu)
         self.second.record_color(rpass, meshes, gpu)
 
+    @staticmethod
+    def sig() -> String:
+        return Self.P.sig() + " + " + Self.Q.sig()
+
     def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.first.record_shadow(rpass, meshes, gpu)
         self.second.record_shadow(rpass, meshes, gpu)
@@ -112,6 +121,10 @@ trait AuxTarget(Movable, Deinitable):
 
     def record(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
         ...
+
+    @staticmethod
+    def sig() -> String:
+        return ""
 
 
 struct NoAux(AuxTarget):
@@ -163,3 +176,7 @@ struct Aux[G: RenderPass](AuxTarget):
 
     def record(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.passes.record_color(rpass, meshes, gpu)
+
+    @staticmethod
+    def sig() -> String:
+        return "Aux[" + Self.G.sig() + "]"

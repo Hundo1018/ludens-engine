@@ -43,6 +43,7 @@ from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
 from app.render_pass import RenderPass
+from app.gpu_blend import blend_state, cull_mode, BLEND_NONE, CULL_NONE
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
 
@@ -95,10 +96,12 @@ struct VOut {
 @vertex
 fn vs_main(v : VIn) -> VOut {
   let m = mat4x4<f32>(v.m0, v.m1, v.m2, v.m3);
-  let world = (m * vec4<f32>(v.pos, 1.0)).xyz;
+  var world = (m * vec4<f32>(v.pos, 1.0)).xyz;
   let n = normalize((m * vec4<f32>(v.nrm, 0.0)).xyz);
+  /*VERT_WORLD*/
   var out : VOut;
   out.pos = cam_clip(world);
+  /*VERT_CLIP*/
   let lit = 0.4 + 0.6 * max(dot(n, normalize(vec3<f32>(0.4, 1.0, 0.6))), 0.0);
   out.color = v.color.rgb * lit;
   out.wpos = world;
@@ -358,6 +361,16 @@ struct MeshPassOf[*Ms: Material](RenderPass):
 
     var pipeline: RenderPipeline
     var instances: Buffer
+
+    @staticmethod
+    def sig() -> String:
+        """Mesh, with the names of the pack's materials that have one (the built-in materials do not)."""
+        var names = String()
+        comptime for i in range(len(Self.Ms)):
+            if String(Self.Ms[i].NAME).byte_length() > 0:
+                names += (", " if names.byte_length() > 0 else "") + String(Self.Ms[i].NAME)
+        return "Mesh[" + names + "]" if names.byte_length() > 0 else String("Mesh")
+
     var group: BindGroup
     var staging: List[Float32]
     var batches: MeshBatches[False]  # this frame's static mesh items by mesh (prepare)
@@ -367,7 +380,9 @@ struct MeshPassOf[*Ms: Material](RenderPass):
                  ref res: RenderResources, caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
         self.max_instances = caps.mesh_instances
-        var shader = device.create_shader_module_wgsl(MESH_WGSL + Materials[*Self.Ms].wgsl(), "mesh")
+        # the pack's first material configures the pass: its vertex hooks, blend, cull and depth write
+        var wgsl = String(MESH_WGSL).replace("/*VERT_WORLD*/", String(Self.Ms[0].VERT_WORLD)).replace("/*VERT_CLIP*/", String(Self.Ms[0].VERT_CLIP))
+        var shader = device.create_shader_module_wgsl(wgsl + Materials[*Self.Ms].wgsl(), "mesh")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value | WGPUShaderStage.FRAGMENT.value, UInt32(0),  # the fragment reads the eye (fog, sky)
@@ -435,7 +450,9 @@ struct MeshPassOf[*Ms: Material](RenderPass):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "mesh_layout")
-        self.pipeline = _build_pipeline(device, shader, layout, color_format, depth_format)
+        self.pipeline = _build_pipeline(
+            device, shader, layout, color_format, depth_format, Self.Ms[0].BLEND, Self.Ms[0].CULL, Self.Ms[0].DEPTH_WRITE,
+        )
         self.instances = device.create_buffer(
             UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4),
             WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST,
@@ -512,9 +529,10 @@ comptime MeshPass = MeshPassOf[MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
 
 def _build_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout,
-    color_format: UInt32, depth_format: UInt32,
+    color_format: UInt32, depth_format: UInt32, blend: Int = BLEND_NONE, cull: Int = CULL_NONE, depth_write: Bool = True,
 ) raises -> RenderPipeline:
-    """The mesh pipeline: vertex buffers 0-2 per vertex, 3 per instance, the arena's depth state."""
+    """The mesh pipeline: vertex buffers 0-2 per vertex, 3 per instance, the arena's depth state; blend, cull and
+    depth write as the pack's first material asks (app/material.mojo)."""
     var vs_name = String("vs_main")
     var fs_name = String("fs_main")
     var label_name = String("mesh_pipeline")
@@ -543,19 +561,25 @@ def _build_pipeline(
         UInt(4), vb,
     )
     var target_p = raw_alloc[WGPUColorTargetState](1)
-    target_p[unsafe_offset=0] = WGPUColorTargetState(null_opaque(), color_format, null_ptr[WGPUBlendState](), UInt64(0xF))
+    var blend_p = raw_alloc[WGPUBlendState](1)
+    blend_p[unsafe_offset=0] = blend_state(blend)
+    target_p[unsafe_offset=0] = WGPUColorTargetState(
+        null_opaque(), color_format, blend_p if blend != BLEND_NONE else null_ptr[WGPUBlendState](), UInt64(0xF),
+    )
     var fragment_p = raw_alloc[WGPUFragmentState](1)
     fragment_p[unsafe_offset=0] = WGPUFragmentState(
         null_opaque(), shader.handle().raw, str_to_sv(fs_name),
         UInt(0), null_ptr[WGPUConstantEntry](),
         UInt(1), target_p,
     )
-    var primitive = WGPUPrimitiveState(null_opaque(), 4, UInt32(0), UInt32(1), UInt32(0), UInt32(0))
+    var primitive = WGPUPrimitiveState(
+        null_opaque(), 4, UInt32(0), UInt32(1), cull_mode(cull) if cull != CULL_NONE else UInt32(0), UInt32(0),
+    )
     var multisample = WGPUMultisampleState(null_opaque(), UInt32(1), UInt32(0xFFFFFFFF), UInt32(0))
     var face = WGPUStencilFaceState(UInt32(8), UInt32(1), UInt32(1), UInt32(1))
     var dp = raw_alloc[WGPUDepthStencilState](1)
     dp[unsafe_offset=0] = WGPUDepthStencilState(
-        null_opaque(), depth_format, UInt32(1), UInt32(4), face, face,
+        null_opaque(), depth_format, UInt32(1) if depth_write else UInt32(0), UInt32(4), face, face,
         UInt32(0xFFFFFFFF), UInt32(0xFFFFFFFF), Int32(0), Float32(0.0), Float32(0.0),
     )
     var desc = WGPURenderPipelineDescriptor(
@@ -571,6 +595,7 @@ def _build_pipeline(
     ai.unsafe_free()
     vb.unsafe_free()
     target_p.unsafe_free()
+    blend_p.unsafe_free()
     fragment_p.unsafe_free()
     dp.unsafe_free()
     return result^

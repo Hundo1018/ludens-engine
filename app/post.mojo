@@ -8,6 +8,11 @@ runs F over them into the frame. The pieces of F:
     Join[A, B, C]     A and B side by side from the same input, then C reading A's output as `src` and B's as `src2`
     Scaled[A, D]      A at 1 / D of the size (a wide blur for the price of a small one; the next stage filters it up)
     History[A]        A, with the renderer keeping the finished frame for the next one to read as `prev`
+    Sized[A, W, H]    A into a target of exactly W x H
+    SceneSize[A, W, H]  the scene itself rasterised at W x H
+    Stereo[A]         the scene drawn from two eyes; the second is `src2`
+    Strokes[K]        instanced quads, one per cell of a grid, each placed, sized, turned and coloured from the
+                      source in the vertex stage and blended over a canvas (app/strokes.mojo)
 
     struct Sepia(Style):
         comptime NAME: StaticString = "sepia"
@@ -71,19 +76,23 @@ struct Frame {
 const SUN = vec3<f32>(0.3244, 0.8111, 0.4867);  // the passes' light direction, normalize(0.4, 1.0, 0.6)
 const TAU = 6.2831853;
 
-struct PostV { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32> };
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi : u32) -> PostV {
-  var o : PostV;
-  let p = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
-  o.pos = vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
-  o.uv = vec2<f32>(p.x, 1.0 - p.y);
-  return o;
-}
-
 fn src_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(src, lin, uv, 0.0).rgb; }
+// the source's own texel under uv, unfiltered: the pixels of a low-resolution scene (SceneSize) or table (Sized)
+fn src_texel(uv : vec2<f32>) -> vec3<f32> {
+  let d = vec2<i32>(textureDimensions(src));
+  return textureLoad(src, clamp(vec2<i32>(uv * vec2<f32>(d)), vec2<i32>(0), d - vec2<i32>(1)), 0).rgb;
+}
+fn src2_texel(uv : vec2<f32>) -> vec4<f32> {
+  let d = vec2<i32>(textureDimensions(src2));
+  return textureLoad(src2, clamp(vec2<i32>(uv * vec2<f32>(d)), vec2<i32>(0), d - vec2<i32>(1)), 0);
+}
+fn src_size() -> vec2<f32> { return vec2<f32>(textureDimensions(src)); }
 fn scene_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(scene, lin, uv, 0.0).rgb; }
+fn scene_texel(uv : vec2<f32>) -> vec3<f32> {
+  let d = vec2<i32>(textureDimensions(scene));
+  return textureLoad(scene, clamp(vec2<i32>(uv * vec2<f32>(d)), vec2<i32>(0), d - vec2<i32>(1)), 0).rgb;
+}
+fn scene_size() -> vec2<f32> { return vec2<f32>(textureDimensions(scene)); }
 fn src2_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(src2, lin, uv, 0.0).rgb; }
 fn prev_at(uv : vec2<f32>) -> vec3<f32> { return textureSampleLevel(prev, lin, uv, 0.0).rgb; }
 // the texel of the scene's full-size targets (depth, aux) under uv, whatever this stage's own size
@@ -96,6 +105,13 @@ fn aux_at(uv : vec2<f32>) -> vec4<f32> { return textureLoad(aux, texel(uv), 0); 
 fn gnormal(uv : vec2<f32>) -> vec3<f32> { return normalize(aux_at(uv).xyz * 2.0 - 1.0); }
 // the uv of the centre of the `cell`-pixel block that holds px: a lower-resolution grid over the frame
 fn cell_uv(px : vec2<f32>, cell : vec2<f32>) -> vec2<f32> { return (floor(px / cell) + 0.5) * cell * frame.res.zw; }
+// A screen of the given proportions shown as large as fits the frame, centred: the uv on that screen under px
+// (outside 0 .. 1 beyond its border); `inside` tests it.
+fn fit_uv(px : vec2<f32>, size : vec2<f32>) -> vec2<f32> {
+  let k = min(frame.res.x / size.x, frame.res.y / size.y);
+  return (px - (frame.res.xy - size * k) * 0.5) / (size * k);
+}
+fn inside(u : vec2<f32>) -> bool { return u.x >= 0.0 && u.x < 1.0 && u.y >= 0.0 && u.y < 1.0; }
 fn luma(c : vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.299, 0.587, 0.114)); }
 
 // view depth in metres (distance along the camera's forward axis)
@@ -115,7 +131,7 @@ fn world_at(uv : vec2<f32>) -> vec3<f32> {
 }
 // the surface normal from depth: the cross product of the nearer of the two one-pixel steps along each axis
 fn normal_at(uv : vec2<f32>) -> vec3<f32> {
-  let e = frame.res.zw;
+  let e = 1.0 / vec2<f32>(textureDimensions(zbuf));
   let c = world_at(uv);
   let l = world_at(uv - vec2<f32>(e.x, 0.0));
   let r = world_at(uv + vec2<f32>(e.x, 0.0));
@@ -163,7 +179,7 @@ fn bayer8(px : vec2<f32>) -> f32 {
 
 // 0..1 where depth or the normal breaks within `w` pixels: the silhouettes and creases of the scene
 fn edge(uv : vec2<f32>, w : f32) -> f32 {
-  let e = frame.res.zw * w;
+  let e = w / vec2<f32>(textureDimensions(zbuf));
   let z = view_z(uv);
   let za = view_z(uv + vec2<f32>(e.x, e.y));
   let zb = view_z(uv - vec2<f32>(e.x, e.y));
@@ -176,7 +192,7 @@ fn edge(uv : vec2<f32>, w : f32) -> f32 {
 }
 // `edge` with the aux target's normals in place of the ones rebuilt from depth: smooth on a curved surface
 fn gedge(uv : vec2<f32>, w : f32) -> f32 {
-  let e = frame.res.zw * w;
+  let e = w / vec2<f32>(textureDimensions(zbuf));
   let z = view_z(uv);
   let dz = (abs(view_z(uv + e) + view_z(uv - e) - 2.0 * z) + abs(view_z(uv + vec2<f32>(e.x, -e.y)) + view_z(uv - vec2<f32>(e.x, -e.y)) - 2.0 * z)) / z;
   let n = gnormal(uv);
@@ -219,6 +235,21 @@ fn blur9(uv : vec2<f32>, w : f32) -> vec3<f32> {
 fn vignette(uv : vec2<f32>, k : f32) -> f32 {
   let d = uv - 0.5;
   return clamp(1.0 - k * dot(d, d), 0.0, 1.0);
+}
+
+"""
+
+# the full-screen triangle of a Stage and its fragment entry, after the style's own WGSL
+comptime POST_MAIN_WGSL = """
+struct PostV { @builtin(position) pos : vec4<f32>, @location(0) uv : vec2<f32> };
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi : u32) -> PostV {
+  var o : PostV;
+  let p = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
+  o.pos = vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
+  o.uv = vec2<f32>(p.x, 1.0 - p.y);
+  return o;
 }
 
 @fragment
@@ -277,6 +308,24 @@ trait PostEffect(Movable, Deinitable):
     """The effect's output is 1 / DIV of the size it is given (Scaled)."""
     comptime HISTORY: Bool = False
     """True if a stage reads `prev`: the renderer then keeps each finished frame for the next (History)."""
+    comptime OUT_W: Int = 0
+    comptime OUT_H: Int = 0
+    """Not 0: the effect's output has exactly this size (Sized), whatever the frame's."""
+    comptime SCENE_W: Int = 0
+    comptime SCENE_H: Int = 0
+    """Not 0: the renderer rasterises the scene (colour, depth, aux) at this size instead of the frame's (SceneSize)."""
+    comptime ASPECT_W: Int = 0
+    comptime ASPECT_H: Int = 0
+    """Not 0: the proportions of the picture the scene is drawn for (SceneSize), for the host's camera; `scene_aspect`."""
+    comptime VIEWS: Int = 1
+    """2: the renderer draws the scene a second time from the other eye, into the top-level `src2` (Stereo)."""
+    comptime PLAIN: Bool = False
+    """True for no stage or one bare Stage: nothing about the pipeline's structure differs from the default."""
+
+    @staticmethod
+    def sig() -> String:
+        """The effect's structure in one line, for listing a pipeline."""
+        return "post"
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
@@ -302,6 +351,11 @@ struct NoPost(PostEffect):
     comptime STAGES: Int = 0
     comptime ON: Bool = False
 
+    comptime PLAIN: Bool = True
+
+    @staticmethod
+    def sig() -> String:
+        return "none"
     def __init__(out self):
         pass
 
@@ -333,9 +387,12 @@ def _view_entry(binding: UInt32, v: TextureView) -> WGPUBindGroupEntry:
     return WGPUBindGroupEntry(null_opaque(), binding, null_opaque(), 0, UInt64(0), null_opaque(), v.handle().raw)
 
 
-def _target(device: Device, color_format: UInt32, width: UInt32, height: UInt32) raises -> Texture:
+def _target(device: Device, color_format: UInt32, width: UInt32, height: UInt32, div: Int, ow: Int, oh: Int) raises -> Texture:
+    """The texture an effect draws into: ow x oh if it names a size, else 1 / div of width x height."""
+    var w = UInt32(ow) if ow > 0 else max(width // UInt32(div), 1)
+    var h = UInt32(oh) if oh > 0 else max(height // UInt32(div), 1)
     return device.create_texture(
-        max(width, 1), max(height, 1), 1, color_format,
+        w, h, 1, color_format,
         WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING, label="post_target",
     )
 
@@ -347,6 +404,11 @@ struct Stage[S: Style](PostEffect):
     comptime AFTER: StaticString = Self.S.AFTER
     comptime STAGES: Int = 1
     comptime ON: Bool = True
+    comptime PLAIN: Bool = True
+
+    @staticmethod
+    def sig() -> String:
+        return String(Self.S.NAME)
     var pipeline: RenderPipeline
     var layout: BindGroupLayout
     var ubo: Buffer
@@ -354,7 +416,7 @@ struct Stage[S: Style](PostEffect):
     var group: Optional[BindGroup]
 
     def __init__(out self, device: Device, color_format: UInt32) raises:
-        var shader = device.create_shader_module_wgsl(POST_WGSL + String(Self.S.WGSL), String(Self.S.NAME))
+        var shader = device.create_shader_module_wgsl(POST_WGSL + String(Self.S.WGSL) + POST_MAIN_WGSL, String(Self.S.NAME))
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.FRAGMENT.value, UInt32(0),
@@ -421,6 +483,17 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
     comptime ON: Bool = True
     comptime DIV: Int = Self.B.DIV
     comptime HISTORY: Bool = Self.A.HISTORY or Self.B.HISTORY
+    comptime OUT_W: Int = Self.B.OUT_W
+    comptime OUT_H: Int = Self.B.OUT_H
+    comptime SCENE_W: Int = Self.A.SCENE_W if Self.A.SCENE_W > 0 else Self.B.SCENE_W
+    comptime SCENE_H: Int = Self.A.SCENE_H if Self.A.SCENE_H > 0 else Self.B.SCENE_H
+    comptime ASPECT_W: Int = Self.A.ASPECT_W if Self.A.ASPECT_W > 0 else Self.B.ASPECT_W
+    comptime ASPECT_H: Int = Self.A.ASPECT_H if Self.A.ASPECT_H > 0 else Self.B.ASPECT_H
+    comptime VIEWS: Int = max(Self.A.VIEWS, Self.B.VIEWS)
+
+    @staticmethod
+    def sig() -> String:
+        return Self.A.sig() + " > " + Self.B.sig()
     var first: Self.A
     var second: Self.B
     var mid: Optional[Texture]
@@ -440,7 +513,7 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
 
     def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         self.mid_view = None
-        self.mid = _target(device, color_format, width // UInt32(Self.A.DIV), height // UInt32(Self.A.DIV))
+        self.mid = _target(device, color_format, width, height, Self.A.DIV, Self.A.OUT_W, Self.A.OUT_H)
         self.mid_view = self.mid.value().create_view_default()
         self.first.bind(device, color_format, width, height, inp)
         self.second.bind(device, color_format, width, height, inp.with_src(self.mid_view.value()))
@@ -464,6 +537,17 @@ struct Join[A: PostEffect, B: PostEffect, C: PostEffect](PostEffect):
     comptime ON: Bool = True
     comptime DIV: Int = Self.C.DIV
     comptime HISTORY: Bool = Self.A.HISTORY or Self.B.HISTORY or Self.C.HISTORY
+    comptime OUT_W: Int = Self.C.OUT_W
+    comptime OUT_H: Int = Self.C.OUT_H
+    comptime SCENE_W: Int = max(Self.A.SCENE_W, max(Self.B.SCENE_W, Self.C.SCENE_W))
+    comptime SCENE_H: Int = max(Self.A.SCENE_H, max(Self.B.SCENE_H, Self.C.SCENE_H))
+    comptime ASPECT_W: Int = max(Self.A.ASPECT_W, max(Self.B.ASPECT_W, Self.C.ASPECT_W))
+    comptime ASPECT_H: Int = max(Self.A.ASPECT_H, max(Self.B.ASPECT_H, Self.C.ASPECT_H))
+    comptime VIEWS: Int = max(Self.A.VIEWS, max(Self.B.VIEWS, Self.C.VIEWS))
+
+    @staticmethod
+    def sig() -> String:
+        return "(" + Self.A.sig() + " | " + Self.B.sig() + ") > " + Self.C.sig()
     var a: Self.A
     var b: Self.B
     var c: Self.C
@@ -491,8 +575,8 @@ struct Join[A: PostEffect, B: PostEffect, C: PostEffect](PostEffect):
     def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         self.va = None
         self.vb = None
-        self.ta = _target(device, color_format, width // UInt32(Self.A.DIV), height // UInt32(Self.A.DIV))
-        self.tb = _target(device, color_format, width // UInt32(Self.B.DIV), height // UInt32(Self.B.DIV))
+        self.ta = _target(device, color_format, width, height, Self.A.DIV, Self.A.OUT_W, Self.A.OUT_H)
+        self.tb = _target(device, color_format, width, height, Self.B.DIV, Self.B.OUT_W, Self.B.OUT_H)
         self.va = self.ta.value().create_view_default()
         self.vb = self.tb.value().create_view_default()
         self.a.bind(device, color_format, width, height, inp)
@@ -520,6 +604,15 @@ struct Scaled[A: PostEffect, D: Int](PostEffect):
     comptime ON: Bool = True
     comptime DIV: Int = Self.A.DIV * Self.D
     comptime HISTORY: Bool = Self.A.HISTORY
+    comptime SCENE_W: Int = Self.A.SCENE_W
+    comptime SCENE_H: Int = Self.A.SCENE_H
+    comptime ASPECT_W: Int = Self.A.ASPECT_W
+    comptime ASPECT_H: Int = Self.A.ASPECT_H
+    comptime VIEWS: Int = Self.A.VIEWS
+
+    @staticmethod
+    def sig() -> String:
+        return "(" + Self.A.sig() + ") / " + String(Self.D)
     var inner: Self.A
 
     def __init__(out self, var inner: Self.A):
@@ -553,6 +646,143 @@ struct History[A: PostEffect](PostEffect):
     comptime ON: Bool = True
     comptime DIV: Int = Self.A.DIV
     comptime HISTORY: Bool = True
+    comptime OUT_W: Int = Self.A.OUT_W
+    comptime OUT_H: Int = Self.A.OUT_H
+    comptime SCENE_W: Int = Self.A.SCENE_W
+    comptime SCENE_H: Int = Self.A.SCENE_H
+    comptime ASPECT_W: Int = Self.A.ASPECT_W
+    comptime ASPECT_H: Int = Self.A.ASPECT_H
+    comptime VIEWS: Int = Self.A.VIEWS
+
+    @staticmethod
+    def sig() -> String:
+        return "History[" + Self.A.sig() + "]"
+    var inner: Self.A
+
+    def __init__(out self, var inner: Self.A):
+        self.inner = inner^
+
+    @staticmethod
+    def create(device: Device, color_format: UInt32) raises -> Self:
+        return Self(Self.A.create(device, color_format))
+
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        self.inner.bind(device, color_format, width, height, inp)
+
+    def update(self, device: Device, frame: List[Float32]) raises:
+        self.inner.update(device, frame)
+
+    def record(self, enc: CommandEncoder, var dst: TextureView):
+        self.inner.record(enc, dst^)
+
+
+struct Sized[A: PostEffect, W: Int, H: Int](PostEffect):
+    """A into a target of exactly W x H pixels: a table the next stage looks things up in (one texel per character
+    cell, per tile, per panel)."""
+
+    comptime NAME: StaticString = Self.A.NAME
+    comptime AFTER: StaticString = Self.A.AFTER
+    comptime STAGES: Int = Self.A.STAGES
+    comptime ON: Bool = True
+    comptime HISTORY: Bool = Self.A.HISTORY
+    comptime OUT_W: Int = Self.W
+    comptime OUT_H: Int = Self.H
+    comptime SCENE_W: Int = Self.A.SCENE_W
+    comptime SCENE_H: Int = Self.A.SCENE_H
+    comptime ASPECT_W: Int = Self.A.ASPECT_W
+    comptime ASPECT_H: Int = Self.A.ASPECT_H
+    comptime VIEWS: Int = Self.A.VIEWS
+
+    @staticmethod
+    def sig() -> String:
+        return "(" + Self.A.sig() + ") @ " + String(Self.W) + "x" + String(Self.H)
+    var inner: Self.A
+
+    def __init__(out self, var inner: Self.A):
+        self.inner = inner^
+
+    @staticmethod
+    def create(device: Device, color_format: UInt32) raises -> Self:
+        return Self(Self.A.create(device, color_format))
+
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        self.inner.bind(device, color_format, UInt32(Self.W), UInt32(Self.H), inp)
+
+    def update(self, device: Device, frame: List[Float32]) raises:
+        var f = frame.copy()
+        f[0] = Float32(Self.W)
+        f[1] = Float32(Self.H)
+        f[2] = Float32(1.0) / f[0]
+        f[3] = Float32(1.0) / f[1]
+        self.inner.update(device, f)
+
+    def record(self, enc: CommandEncoder, var dst: TextureView):
+        self.inner.record(enc, dst^)
+
+
+struct SceneSize[A: PostEffect, W: Int, H: Int, AW: Int = 0, AH: Int = 0](PostEffect):
+    """A, with the scene rasterised at W x H: the triangles themselves are sampled on that grid (and the depth and aux
+    targets with them), which no filter over a full-size frame gives back. AW : AH is the picture's proportions when
+    the pixels are not square (0: W : H)."""
+
+    comptime NAME: StaticString = Self.A.NAME
+    comptime AFTER: StaticString = Self.A.AFTER
+    comptime STAGES: Int = Self.A.STAGES
+    comptime ON: Bool = True
+    comptime DIV: Int = Self.A.DIV
+    comptime HISTORY: Bool = Self.A.HISTORY
+    comptime OUT_W: Int = Self.A.OUT_W
+    comptime OUT_H: Int = Self.A.OUT_H
+    comptime SCENE_W: Int = Self.W
+    comptime SCENE_H: Int = Self.H
+    comptime ASPECT_W: Int = Self.AW if Self.AW > 0 else Self.W
+    comptime ASPECT_H: Int = Self.AH if Self.AH > 0 else Self.H
+    comptime VIEWS: Int = Self.A.VIEWS
+
+    @staticmethod
+    def sig() -> String:
+        return "scene " + String(Self.W) + "x" + String(Self.H) + ": " + Self.A.sig()
+    var inner: Self.A
+
+    def __init__(out self, var inner: Self.A):
+        self.inner = inner^
+
+    @staticmethod
+    def create(device: Device, color_format: UInt32) raises -> Self:
+        return Self(Self.A.create(device, color_format))
+
+    def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
+        self.inner.bind(device, color_format, width, height, inp)
+
+    def update(self, device: Device, frame: List[Float32]) raises:
+        self.inner.update(device, frame)
+
+    def record(self, enc: CommandEncoder, var dst: TextureView):
+        self.inner.record(enc, dst^)
+
+
+struct Stereo[A: PostEffect](PostEffect):
+    """A, with the scene drawn from two eyes (ArenaRendererOf.eye_sep apart, parallel): the left eye is `src` and
+    `scene`, the right eye the top-level `src2`. Each eye sees round the near objects differently, which shifting one
+    picture by its depth cannot show."""
+
+    comptime NAME: StaticString = Self.A.NAME
+    comptime AFTER: StaticString = Self.A.AFTER
+    comptime STAGES: Int = Self.A.STAGES
+    comptime ON: Bool = True
+    comptime DIV: Int = Self.A.DIV
+    comptime HISTORY: Bool = Self.A.HISTORY
+    comptime OUT_W: Int = Self.A.OUT_W
+    comptime OUT_H: Int = Self.A.OUT_H
+    comptime SCENE_W: Int = Self.A.SCENE_W
+    comptime SCENE_H: Int = Self.A.SCENE_H
+    comptime ASPECT_W: Int = Self.A.ASPECT_W
+    comptime ASPECT_H: Int = Self.A.ASPECT_H
+    comptime VIEWS: Int = 2
+
+    @staticmethod
+    def sig() -> String:
+        return "two eyes: " + Self.A.sig()
     var inner: Self.A
 
     def __init__(out self, var inner: Self.A):
@@ -578,6 +808,15 @@ struct Copy(Style):
     comptime NAME: StaticString = "copy"
     comptime AFTER: StaticString = ""
     comptime WGSL: StaticString = "fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> { return src_at(uv); }"
+
+
+def scene_aspect[F: PostEffect](frame_aspect: Float64) -> Float64:
+    """The width over height a host's camera should use with the effect F: the frame's, unless F draws the scene for
+    a picture of its own proportions (SceneSize)."""
+    comptime if F.ASPECT_W > 0:
+        return Float64(F.ASPECT_W) / Float64(F.ASPECT_H)
+    else:
+        return frame_aspect
 
 
 def begin_load_pass(device: Device, enc: CommandEncoder, var view: TextureView, depth_view: TextureView) -> FrameRenderPass:

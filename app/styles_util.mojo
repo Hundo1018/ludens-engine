@@ -61,3 +61,30 @@ fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
   return s / wsum;
 }
 """
+
+
+struct Blur13(Style):
+    """A 13-tap disc blur, 2.5 texels wide: run inside Scaled it covers 4 or 8 times that for the same cost."""
+
+    comptime NAME: StaticString = "blur"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
+  var s = src_at(uv);
+  for (var i = 0; i < 12; i++) {
+    let a = f32(i) * 2.39996;
+    s += src_at(uv + vec2<f32>(cos(a), sin(a)) * sqrt(f32(i) + 1.0) * 0.72 * frame.res.zw);
+  }
+  return s / 13.0;
+}
+"""
+
+
+struct AddGlow(Style):
+    """`src` plus 1.4 times `src2`: the last stage of a Join whose second branch is the blurred light."""
+
+    comptime NAME: StaticString = "add_glow"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> { return src_at(uv) + 1.4 * src2_at(uv); }
+"""

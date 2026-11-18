@@ -378,6 +378,10 @@ struct ShadowPass(RenderPass):
         frame's command buffer before the colour pass, from the renderer's mesh copies."""
 
     comptime SHADOW: Bool = True
+    @staticmethod
+    def sig() -> String:
+        return "Shadow"
+
     var caster: ShadowCaster
     var gpu: GpuMeshCache  # draw()'s mesh copies; unused in a renderer's pass list
     var active: Bool  # prepared this frame in a pass list (the renderer's shadow is on)

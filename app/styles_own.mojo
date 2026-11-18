@@ -60,6 +60,11 @@ struct ScrewAxisPass(RenderPass):
     pure translation (axis at infinity) is a yellow bar through the body along its direction."""
 
     comptime SHADOW: Bool = False
+
+    @staticmethod
+    def sig() -> String:
+        return "ScrewAxes"
+
     var inner: PrimitivePass
     var prev: List[DrawItem]
     var marks: List[DrawItem]
@@ -187,6 +192,11 @@ struct FingerprintPass(RenderPass):
     whose state differs by one unit in the last place from another run's has another colour."""
 
     comptime SHADOW: Bool = False
+
+    @staticmethod
+    def sig() -> String:
+        return "Fingerprint"
+
     var inner: PrimitivePass
     var marks: List[DrawItem]
 
@@ -255,6 +265,7 @@ struct MatGeometricProduct(Material):
     on a sphere, none on a flat face."""
 
     comptime ID: Int = MAT_COLOR
+    comptime NAME: StaticString = "geometric product"
     comptime BODY: StaticString = """
   let n = normalize(s.wnrm);
   let l = normalize(vec3<f32>(0.4, 1.0, 0.6));
