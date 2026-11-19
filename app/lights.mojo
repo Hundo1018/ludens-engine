@@ -12,9 +12,8 @@ of the `Lights` uniform, the environment as order-2 spherical harmonics, and the
 Units: a light's colour times intensity is what a white matte surface facing it reflects (at the light, for a point or
 spot light; with the panel filling its view, for an area light; anywhere, for a directional light).
 
-Shadows: the sun has its map (set_shadow). A spot light takes one tile of the 4 x 4 shadow atlas, a point light six
-(a cube); 16 tiles in all, so e.g. two point lights and four spot lights. Directional lights other than the sun and
-area lights cast none. Only items with a mesh cast, as for the sun.
+Shadows: the sun has its map (set_shadow). The others take tiles of the 4 x 4 shadow atlas when asked: a point light
+six (a cube), a spot, directional or area light one; 16 tiles in all. Only items with a mesh cast, as for the sun.
 """
 from std.math import sqrt, sin, cos, tan, pi
 from geometry.vec import Real, Vec3
@@ -91,25 +90,57 @@ struct SpotLight(Copyable, ImplicitlyCopyable, Movable):
         self.shadow = shadow
 
 
-@fieldwise_init
 struct DirLight(Copyable, ImplicitlyCopyable, Movable):
-    """Light from one direction everywhere (`dir` points toward the light), without a shadow."""
+    """Light from one direction everywhere (`dir` points toward the light). With `shadow` it takes one tile of the
+    atlas: a box of 2 half_extent across around `centre`, seen from `depth` metres toward the light (as
+    sun_shadow_vp); nothing outside the box is shadowed."""
 
     var dir: Vec3
     var color: Vec3
     var intensity: Float32
+    var shadow: Bool
+    var centre: Vec3
+    var half_extent: Float32
+    var depth: Float32
+
+    def __init__(
+        out self, dir: Vec3, color: Vec3, intensity: Float32, shadow: Bool = False,
+        centre: Vec3 = Vec3(0, 0, 0, 0), half_extent: Float32 = 20.0, depth: Float32 = 40.0,
+    ):
+        self.dir = dir
+        self.color = color
+        self.intensity = intensity
+        self.shadow = shadow
+        self.centre = centre
+        self.half_extent = half_extent
+        self.depth = depth
 
 
-@fieldwise_init
 struct AreaLight(Copyable, ImplicitlyCopyable, Movable):
     """A rectangular panel: centre `pos`, half-edges `ex` and `ey` (perpendicular), emitting from the side
-    cross(ex, ey) points to, evenly and by the cosine of its normal."""
+    cross(ex, ey) points to, evenly and by the cosine of its normal. With `shadow` it takes one tile of the atlas: a
+    view from its centre along its normal, 120 degrees across and `shadow_range` metres deep; the shadow's edge is as
+    soft as the panel is large."""
 
     var pos: Vec3
     var ex: Vec3
     var ey: Vec3
     var color: Vec3
     var intensity: Float32
+    var shadow: Bool
+    var shadow_range: Float32
+
+    def __init__(
+        out self, pos: Vec3, ex: Vec3, ey: Vec3, color: Vec3, intensity: Float32, shadow: Bool = False,
+        shadow_range: Float32 = 30.0,
+    ):
+        self.pos = pos
+        self.ex = ex
+        self.ey = ey
+        self.color = color
+        self.intensity = intensity
+        self.shadow = shadow
+        self.shadow_range = shadow_range
 
 
 struct Environment(Copyable, Movable):
@@ -282,6 +313,21 @@ def point_face_vp(pos: Vec3, face: Int, range: Float64) raises -> List[Float32]:
     """Face 0 .. 5 (+x, -x, +y, -y, +z, -z) of a point light's shadow cube: 90 degrees across."""
     var axes = [_v(1, 0, 0), _v(-1, 0, 0), _v(0, 1, 0), _v(0, -1, 0), _v(0, 0, 1), _v(0, 0, -1)]
     return perspective_vp(pos, axes[face], 1.0, 0.05, range)
+
+
+def dir_vp(l: DirLight) raises -> List[Float32]:
+    """The parallel view a directional light's shadow tile is drawn from."""
+    return sun_shadow_vp(l.dir, l.centre, Float64(l.half_extent), Float64(l.depth))
+
+
+def area_vp(l: AreaLight) raises -> List[Float32]:
+    """The view an area light's shadow tile is drawn from: its centre, along its normal, 120 degrees across."""
+    return perspective_vp(l.pos, _cross(l.ex, l.ey), 1.7320508, 0.05, Float64(l.shadow_range))
+
+
+def area_size(l: AreaLight) -> Float64:
+    """The panel's size for the softness of its shadow: the mean of its two edges."""
+    return sqrt(_dot(l.ex, l.ex)) + sqrt(_dot(l.ey, l.ey))
 
 
 def apply_vp(m: List[Float32], p: Vec3) -> Tuple[Float64, Float64, Float64, Float64]:

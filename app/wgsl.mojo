@@ -77,13 +77,14 @@ struct Lights {
   sun_color : vec4<f32>,            // rgb times intensity (0.6 white until set)
   amb : vec4<f32>,                  // w 1: the ambient is `sh` (set_ambient / set_environment), not the fixed 0.4
   sh : array<vec4<f32>, 9>,         // the environment's radiance, order-2 spherical harmonics (rgb)
-  env_top : vec4<f32>,              // the environment for reflections: zenith, horizon, nadir (rgb)
-  env_hor : vec4<f32>,
+  env_top : vec4<f32>,              // the environment for reflections: zenith, horizon, nadir (rgb); env_top.w 1
+  env_hor : vec4<f32>,              // when a captured cube map is used instead (ENV_WGSL), env_hor.w its blurriest mip
   env_gnd : vec4<f32>,
   pshadow : array<vec4<f32>, 4>,    // per point light: its first atlas tile + 1 (six tiles), 0 for no shadow
   spots : array<SpotLight, 8>,      // cone.x cos(inner), dir_cos.w cos(outer), cone.y atlas tile + 1 or 0
-  dirs : array<DirLight, 4>,
-  areas : array<AreaLight, 4>,      // a rectangle: centre, two half-edge vectors; it emits toward cross(ex, ey)
+  dirs : array<DirLight, 4>,        // dir.w atlas tile + 1 or 0
+  areas : array<AreaLight, 4>,      // a rectangle: centre, two half-edge vectors; it emits toward cross(ex, ey).
+                                    // pos.w atlas tile + 1 or 0, ex.w the shadow view's far distance, ey.w its size
   tiles : array<mat4x4<f32>, 16>,   // the atlas tiles' view-projections
 };
 const L_PI = 3.14159265;
@@ -155,15 +156,18 @@ fn env_brdf(f0 : vec3<f32>, rough : f32, ndv : f32) -> vec3<f32> {
 struct LSample { l : vec3<f32>, e : vec3<f32> };
 const AREA_TAPS = 9u;
 fn extra_count() -> u32 {
-  return min(u32(lights.n.y), 8u) + min(u32(lights.n.z), 4u) + min(u32(lights.n.w), 4u) * AREA_TAPS;
+  return min(u32(lights.n.y), 8u) + min(u32(lights.n.z), 4u);
 }
-// sample k of the spot, directional and area lights. An area light is AREA_TAPS samples: the 3 x 3 Gauss-Legendre
-// points of the rectangle, each a patch of its area (by the point's weight) that emits by the cosine of its normal:
-// e = colour * intensity * cos(at the light) * patch area / (pi d^2), so the sum times N.L is colour * intensity times
-// the rectangle's form factor (within 0.5 % from one panel width away, 6 % at half a width, too dark nearer; tests/lights_native.mojo).
+// the shadow of a directional light: its tile is a parallel view, whose scale gives the size of a texel
+fn dir_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 {
+  if tile1 < 0.5 { return 1.0; }
+  let m = lights.tiles[u32(tile1) - 1u];
+  let half = 1.0 / max(length(vec3<f32>(m[0][0], m[1][0], m[2][0])), 1e-6);
+  return local_shadow(tile1, wpos, nrm, half * 0.5);
+}
+// sample k of the spot and directional lights
 fn extra_sample(k : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> LSample {
   let ns = min(u32(lights.n.y), 8u);
-  let nd = min(u32(lights.n.z), 4u);
   if k < ns {
     let s = lights.spots[k];
     let d = s.pos_range.xyz - wpos;
@@ -174,13 +178,22 @@ fn extra_sample(k : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> LSample {
     if cone > 0.0 { e *= local_shadow(s.cone.y, wpos, nrm, dist); }
     return LSample(l, e);
   }
-  if k < ns + nd {
-    let dl = lights.dirs[k - ns];
-    return LSample(dl.dir.xyz, dl.color.rgb * dl.color.w);
-  }
-  let j = k - ns - nd;
-  let a = lights.areas[j / AREA_TAPS];
-  let t = j % AREA_TAPS;
+  let dl = lights.dirs[k - ns];
+  return LSample(dl.dir.xyz, dl.color.rgb * dl.color.w * dir_shadow(dl.dir.w, wpos, nrm));
+}
+fn area_count() -> u32 { return min(u32(lights.n.w), 4u); }
+// how much of area light j reaches a point (1 without a shadow): app/wgsl.mojo LOCAL_SHADOW_WGSL area_shadow
+fn area_light_shadow(j : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 {
+  let a = lights.areas[j];
+  return area_shadow(a.pos.w, a.ey.w, a.ex.w, wpos, nrm);
+}
+// tap t (0 .. AREA_TAPS - 1) of area light j: the 3 x 3 Gauss-Legendre points of the rectangle, each a patch of its
+// area (by the point's weight) that emits by the cosine of its normal:
+// e = colour * intensity * cos(at the light) * patch area / (pi d^2), so the sum times N.L is colour * intensity times
+// the rectangle's form factor (within 0.5 % from one panel width away, 6 % at half a width, too dark nearer;
+// tests/lights_native.mojo).
+fn area_tap(j : u32, t : u32, wpos : vec3<f32>) -> LSample {
+  let a = lights.areas[j];
   let ti = t % 3u;
   let tj = t / 3u;
   let w = select(0.55555556, 0.88888889, ti == 1u) * select(0.55555556, 0.88888889, tj == 1u);  // sums to 4
@@ -212,6 +225,14 @@ fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
     let s = extra_sample(k, wpos, n);
     extra += s.e * max(dot(n, s.l), 0.0);
   }
+  let na = area_count();
+  for (var j = 0u; j < na; j++) {
+    let sh = area_light_shadow(j, wpos, n);
+    for (var t = 0u; t < AREA_TAPS; t++) {
+      let s = area_tap(j, t, wpos);
+      extra += s.e * max(dot(n, s.l), 0.0) * sh;
+    }
+  }
   return Rig(lit, extra);
 }
 """
@@ -241,8 +262,69 @@ fn local_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>, dist : f32) -> f
   }
   return acc / 9.0;
 }
+
+// An area light's shadow, soft by the light's size (percentage-closer soft shadows, Fernando 2005): one view from the
+// panel's centre along its normal. The blockers between the panel and the point are averaged over the part of the
+// view the panel's size covers; the penumbra at the point is size * (receiver - blocker) / blocker wide (similar
+// triangles), and that width is filtered with 25 depth comparisons.
+fn area_depth(px : vec2<f32>, lo : vec2<f32>, hi : vec2<f32>, far : f32) -> f32 {
+  let d = textureLoad(atlas_map, vec2<i32>(clamp(px, lo, hi)), 0);
+  return 0.05 * far / (far - d * (far - 0.05));
+}
+fn area_shadow(tile1 : f32, size : f32, far : f32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 {
+  if tile1 < 0.5 { return 1.0; }
+  let t = u32(tile1) - 1u;
+  let m = lights.tiles[t];
+  let c = m * vec4<f32>(wpos + nrm * 0.04, 1.0);
+  if c.w <= 0.06 { return 1.0; }
+  let p = c.xyz / c.w;
+  if abs(p.x) > 1.0 || abs(p.y) > 1.0 || p.z > 1.0 { return 1.0; }
+  let tile_px = f32(textureDimensions(atlas_map).x) * 0.25;
+  let org = vec2<f32>(f32(t % 4u), f32(t / 4u)) * tile_px;
+  let lo = org + vec2<f32>(0.5);
+  let hi = org + vec2<f32>(tile_px - 0.5);
+  let q = org + vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5) * tile_px;
+  let zr = c.w;
+  let px_per_m = tile_px * 0.5 * length(vec3<f32>(m[0][0], m[1][0], m[2][0])) / zr;   // at the receiver's depth
+  let search = clamp(size * 0.5 * px_per_m, 1.0, 48.0);
+  var zb = 0.0;
+  var nb = 0.0;
+  for (var j = 0; j < 5; j++) {
+    for (var i = 0; i < 5; i++) {
+      let z = area_depth(q + (vec2<f32>(f32(i), f32(j)) * 0.5 - 1.0) * search, lo, hi, far);
+      if z < zr - 0.06 { zb += z; nb += 1.0; }
+    }
+  }
+  if nb < 0.5 { return 1.0; }
+  zb /= nb;
+  let pen = clamp(size * (zr - zb) / zb * 0.5 * px_per_m, 1.0, 64.0);
+  var lit = 0.0;
+  for (var j = 0; j < 5; j++) {
+    for (var i = 0; i < 5; i++) {
+      let z = area_depth(q + (vec2<f32>(f32(i), f32(j)) * 0.5 - 1.0) * pen, lo, hi, far);
+      lit += step(zr - 0.06, z);
+    }
+  }
+  return lit / 25.0;
+}
 """
 
 comptime NO_LOCAL_SHADOW_WGSL = """
 fn local_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>, dist : f32) -> f32 { return 1.0; }
+fn area_shadow(tile1 : f32, size : f32, far : f32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 { return 1.0; }
+"""
+
+# What MatPbr reflects (the mesh and skinned passes, which bind `env_cube` and `samp`): the cube map captured by an
+# EnvProbe (app/env_probe.mojo) while one is in use, else the environment's three-colour gradient. A rougher surface
+# reads a smaller mip (each mip is the mean of four texels of the one above, not a GGX filter) and, from roughness 0.7
+# up, the environment's irradiance. The cube map is looked up by direction alone: reflections are right at the
+# probe's position and shift with distance from it (no parallax correction).
+comptime ENV_WGSL = """
+fn env_reflect(r : vec3<f32>, rough : f32) -> vec3<f32> {
+  if lights.env_top.w > 0.5 {
+    let c = atmo_lin(textureSampleLevel(env_cube, samp, r, clamp(rough, 0.0, 1.0) * lights.env_hor.w).rgb);
+    return mix(c, sh_lit(r), smoothstep(0.7, 1.0, rough));
+  }
+  return env_radiance(r, rough);
+}
 """

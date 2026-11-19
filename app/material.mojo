@@ -138,7 +138,7 @@ struct MatPbr(Material):
   if ambient_set() {
     // the environment: its irradiance on the diffuse part, and its reflection through the split-sum fit
     let ndv = max(dot(n, v), 1e-4);
-    c = albedo * sh_lit(n) * (1.0 - s.metal) + env_radiance(reflect(-v, n), s.rough) * env_brdf(f0, s.rough, ndv);
+    c = albedo * sh_lit(n) * (1.0 - s.metal) + env_reflect(reflect(-v, n), s.rough) * env_brdf(f0, s.rough, ndv);
   }
   if sun_custom() { sun = lights.sun_color.rgb * PBR_PI; }
   c += pbr_light(n, v, sun_dir(), sun * s.sf, albedo, f0, a, s.metal);
@@ -153,6 +153,14 @@ struct MatPbr(Material):
   for (var k = 0u; k < more; k++) {
     let ls = extra_sample(k, s.wpos, n);
     c += pbr_light(n, v, ls.l, ls.e * PBR_PI, albedo, f0, a, s.metal);
+  }
+  let na = area_count();
+  for (var j = 0u; j < na; j++) {
+    let ash = area_light_shadow(j, s.wpos, n);
+    for (var t = 0u; t < AREA_TAPS; t++) {
+      let ls = area_tap(j, t, s.wpos);
+      c += pbr_light(n, v, ls.l, ls.e * PBR_PI * ash, albedo, f0, a, s.metal);
+    }
   }
   return atmo_out(atmo_fog(c, s.wpos));"""
 
