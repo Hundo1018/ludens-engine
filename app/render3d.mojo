@@ -143,6 +143,8 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.gpu = GpuMeshCache()
         self.cube = add_unit_cube(self.meshes)
         self.sphere = add_unit_sphere(self.meshes)
+        self.res.unit_cube = self.cube
+        self.res.unit_sphere = self.sphere
         self.debug_view = DEBUG_NONE
         self.probe = 0
         var c = unit_cube_arrays()

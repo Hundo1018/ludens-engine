@@ -14,9 +14,10 @@ on the sensor, f the focal length and N the f-number. f follows from the view's 
 surface no further than the pixel's own disc, so a sharp surface is not smeared by the blurred ground behind it.
 It is one pass of a gather, not a simulation of the lens: discs are flat and have no shape.
 
-Motion blur follows the camera only: each pixel's world point (from depth) is projected with the previous frame's
+MotionBlur follows the camera only: each pixel's world point (from depth) is projected with the previous frame's
 camera, and the stage averages 16 samples from where the point is to where it was, scaled by the shutter. A body that
-moves while the camera stands still is not blurred (there is no per-object velocity).
+moves while the camera stands still is not blurred by it. ObjectMotionBlur also blurs bodies that move, from the
+velocity target of app/velocity.mojo.
 """
 from game.camera_view import View
 from app.post import Style
@@ -100,6 +101,53 @@ fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
   var sum = vec3<f32>(0.0);
   for (var i = 0; i < 16; i++) {
     sum += src_at(uv + v * (f32(i) / 15.0));
+  }
+  return sum / 16.0;
+}
+"""
+
+
+struct ObjectMotionBlur(Style):
+    """Motion blur of the camera and of the bodies: needs `Aux[VelocityPass]` (app/velocity.mojo) as the pipeline's
+    aux target. A pixel a body covers blurs along that body's move on screen; a pixel next to a faster body takes
+    that body's velocity when the move reaches it, so the smear leaves the silhouette; elsewhere the camera's motion
+    decides, as in MotionBlur."""
+
+    comptime NAME: StaticString = "object_motion_blur"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn prev_uv(world : vec3<f32>, now : vec2<f32>) -> vec2<f32> {
+  let d = world - frame.peye.xyz;
+  let x = dot(d, frame.pright.xyz);
+  let y = dot(d, frame.pup.xyz);
+  let z = dot(d, frame.pfwd.xyz);
+  if frame.peye.w < 0.0 { return vec2<f32>(-x * frame.peye.w * 0.5 + 0.5, 0.5 - y * frame.pright.w * 0.5); }
+  if z <= 1e-3 { return now; }
+  return vec2<f32>(x * frame.peye.w / z * 0.5 + 0.5, 0.5 - y * frame.pright.w / z * 0.5);
+}
+// the move in uv, over the exposure, of what is at uv: the velocity target where a body was drawn, else the camera's
+fn move_at(uv : vec2<f32>) -> vec2<f32> {
+  let a = aux_at(uv);
+  if a.a > 0.5 { return (a.rg * 255.0 - 128.0) / 127.0 * 0.125 * frame.lens.w; }
+  return (uv - prev_uv(world_at(uv), uv)) * frame.lens.w;
+}
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
+  if frame.lens.w <= 0.0 { return src_at(uv); }
+  var v = move_at(uv);
+  var best = length(v * frame.res.xy);
+  // a faster neighbour whose move reaches this pixel: 8 directions at 3 distances
+  for (var k = 0; k < 24; k++) {
+    let a = f32(k % 8) * 0.78539816;
+    let r = 6.0 * f32(1 << u32(k / 8));   // 6, 12, 24 pixels
+    let n = move_at(uv + vec2<f32>(cos(a), sin(a)) * r * frame.res.zw);
+    let len_n = length(n * frame.res.xy);
+    if len_n > best && len_n >= r { v = n; best = len_n; }
+  }
+  if best < 0.5 { return src_at(uv); }
+  v *= min(1.0, 96.0 / best);
+  var sum = vec3<f32>(0.0);
+  for (var i = 0; i < 16; i++) {
+    sum += src_at(uv - v * (f32(i) / 15.0 - 0.5));
   }
   return sum / 16.0;
 }

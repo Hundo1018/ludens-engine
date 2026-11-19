@@ -111,6 +111,8 @@ struct RenderResources(Movable):
     var tiles: Int  # atlas tiles in use this frame; a shadow pass draws tile k with tile_vp(k)
     var env_tex: Texture  # the environment cube map MatPbr reflects (app/env_probe.mojo fills it): 6 faces, ENV_MIPS mips
     var env_view: TextureView
+    var unit_cube: Int  # the mesh ids of the renderer's unit cube and sphere (boxes and spheres drawn as meshes)
+    var unit_sphere: Int
 
     def __init__(out self, device: Device) raises:
         self.light_vp = List[Float32]()
@@ -137,6 +139,8 @@ struct RenderResources(Movable):
             dimension=2, mip_level_count=UInt32(ENV_MIPS), label="env_cube",
         )
         self.env_view = env_sub_view(self.env_tex, 4, 0, ENV_MIPS, 0, 6)
+        self.unit_cube = 0
+        self.unit_sphere = 1
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
