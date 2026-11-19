@@ -154,6 +154,14 @@ struct MatPbr(Material):
     let ls = extra_sample(k, s.wpos, n);
     c += pbr_light(n, v, ls.l, ls.e * PBR_PI, albedo, f0, a, s.metal);
   }
+  let na = area_count();
+  for (var j = 0u; j < na; j++) {
+    let ash = area_light_shadow(j, s.wpos, n);
+    for (var t = 0u; t < AREA_TAPS; t++) {
+      let ls = area_tap(j, t, s.wpos);
+      c += pbr_light(n, v, ls.l, ls.e * PBR_PI * ash, albedo, f0, a, s.metal);
+    }
+  }
   return atmo_out(atmo_fog(c, s.wpos));"""
 
 

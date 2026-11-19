@@ -421,6 +421,12 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             for l in self.res.spots:
                 if l.shadow:
                     casting.append(Vec3(l.pos[0], l.pos[1], l.pos[2], Real(l.range)))
+            for l in self.res.dirs:
+                if l.shadow:  # everything that can reach the light's box
+                    casting.append(Vec3(l.centre[0], l.centre[1], l.centre[2], Real(l.half_extent * 1.5 + l.depth)))
+            for l in self.res.areas:
+                if l.shadow:
+                    casting.append(Vec3(l.pos[0], l.pos[1], l.pos[2], Real(l.shadow_range)))
             var reach = ShadowReach(self.res.shadow_on, sun, self.cull_shadow_reach, casting^)
             var pad = 0.0
             comptime if Self.F.VIEWS == 2:

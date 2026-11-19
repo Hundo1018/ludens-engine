@@ -16,7 +16,7 @@ from std.math import cos
 from geometry.vec import Real, Vec3
 from app.gpu_mesh import cam_floats
 from app.lights import (
-    SpotLight, DirLight, AreaLight, Environment, unit, spot_vp, point_face_vp, ATLAS_SIZE, ATLAS_TILES,
+    SpotLight, DirLight, AreaLight, Environment, unit, spot_vp, point_face_vp, dir_vp, area_vp, area_size, ATLAS_SIZE, ATLAS_TILES,
     MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS,
     L_POINTS, L_SUN_DIR, L_SUN_COLOR, L_AMB, L_SH, L_ENV_TOP, L_ENV_HOR, L_ENV_GND, L_PSHADOW, L_SPOTS, L_DIRS, L_AREAS, L_TILES,
 )
@@ -85,6 +85,8 @@ struct RenderResources(Movable):
     var rig: List[Float32]  # the `Lights` uniform as last written (LIGHTS_FLOATS)
     var points: List[PointLight]  # the lights as last set: the atlas tiles are assigned from these
     var spots: List[SpotLight]
+    var dirs: List[DirLight]
+    var areas: List[AreaLight]
     var atlas_tex: Texture  # the spot and point lights' shadow atlas: 4 x 4 tiles of depth
     var atlas_view: TextureView
     var tiles: Int  # atlas tiles in use this frame; a shadow pass draws tile k with tile_vp(k)
@@ -99,6 +101,8 @@ struct RenderResources(Movable):
         device.queue_write_data(self.lights, UInt64(0), self.rig)
         self.points = List[PointLight]()
         self.spots = List[SpotLight]()
+        self.dirs = List[DirLight]()
+        self.areas = List[AreaLight]()
         self.tiles = 0
         self.atlas_tex = device.create_texture(
             UInt32(ATLAS_SIZE), UInt32(ATLAS_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
@@ -170,6 +174,28 @@ struct RenderResources(Movable):
                 for k in range(16):
                     self.rig[L_TILES + 16 * next + k] = m[k]
                 next += 1
+        for i in range(len(self.dirs)):
+            self.rig[L_DIRS + 8 * i + 3] = 0.0
+            if self.dirs[i].shadow:
+                if next + 1 > ATLAS_TILES:
+                    raise Error("renderer: the shadow atlas has " + String(ATLAS_TILES) + " tiles (a point light takes 6, the others 1)")
+                self.rig[L_DIRS + 8 * i + 3] = Float32(next + 1)
+                var m = dir_vp(self.dirs[i])
+                for k in range(16):
+                    self.rig[L_TILES + 16 * next + k] = m[k]
+                next += 1
+        for i in range(len(self.areas)):
+            self.rig[L_AREAS + 16 * i + 3] = 0.0
+            if self.areas[i].shadow:
+                if next + 1 > ATLAS_TILES:
+                    raise Error("renderer: the shadow atlas has " + String(ATLAS_TILES) + " tiles (a point light takes 6, the others 1)")
+                self.rig[L_AREAS + 16 * i + 3] = Float32(next + 1)
+                self.rig[L_AREAS + 16 * i + 7] = self.areas[i].shadow_range
+                self.rig[L_AREAS + 16 * i + 11] = Float32(area_size(self.areas[i]))
+                var m = area_vp(self.areas[i])
+                for k in range(16):
+                    self.rig[L_TILES + 16 * next + k] = m[k]
+                next += 1
         self.tiles = next
         device.queue_write_data(self.lights, UInt64(0), self.rig)
 
@@ -216,25 +242,27 @@ struct RenderResources(Movable):
         self._upload(device)
 
     def set_dir_lights(mut self, device: Device, lights: List[DirLight]) raises:
-        """Replace the directional lights other than the sun (at most MAX_DIR_LIGHTS). They cast no shadow."""
+        """Replace the directional lights other than the sun (at most MAX_DIR_LIGHTS)."""
         if len(lights) > MAX_DIR_LIGHTS:
             raise Error("renderer: at most " + String(MAX_DIR_LIGHTS) + " directional lights, got " + String(len(lights)))
         self.rig[2] = Float32(len(lights))
+        self.dirs = lights.copy()
         for i in range(len(lights)):
-            if not (lights[i].intensity >= 0):
-                raise Error("renderer: a directional light needs intensity >= 0")
+            if not (lights[i].intensity >= 0) or not (lights[i].half_extent > 0) or not (lights[i].depth > 0):
+                raise Error("renderer: a directional light needs intensity >= 0 and a shadow box of positive size")
             self._put3(L_DIRS + 8 * i, unit(lights[i].dir), 0.0)
             self._put3(L_DIRS + 8 * i + 4, lights[i].color, lights[i].intensity)
         self._upload(device)
 
     def set_area_lights(mut self, device: Device, lights: List[AreaLight]) raises:
-        """Replace the rectangular area lights (at most MAX_AREA_LIGHTS). They cast no shadow."""
+        """Replace the rectangular area lights (at most MAX_AREA_LIGHTS)."""
         if len(lights) > MAX_AREA_LIGHTS:
             raise Error("renderer: at most " + String(MAX_AREA_LIGHTS) + " area lights, got " + String(len(lights)))
         self.rig[3] = Float32(len(lights))
+        self.areas = lights.copy()
         for i in range(len(lights)):
-            if not (lights[i].intensity >= 0):
-                raise Error("renderer: an area light needs intensity >= 0")
+            if not (lights[i].intensity >= 0) or not (lights[i].shadow_range > 0.1):
+                raise Error("renderer: an area light needs intensity >= 0 and shadow_range > 0.1")
             _ = unit(lights[i].ex)
             _ = unit(lights[i].ey)
             var o = L_AREAS + 16 * i

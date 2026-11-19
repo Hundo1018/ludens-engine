@@ -74,12 +74,14 @@ struct Rig(Movable):
         self.r.set_sun(self.device, _v(0, 1, 0), _v(1, 1, 1), 0.0)
         self.r.set_environment(self.device, uniform_environment(_v(0, 0, 0)))
 
-    def shoot(mut self, cube: Bool = False, primitive_floor: Bool = False, material: Int = MAT_COLOR, rough: Float32 = 0.5, metal: Float32 = 0.0) raises:
+    def shoot(mut self, cube: Bool = False, primitive_floor: Bool = False, slab: Bool = False, material: Int = MAT_COLOR, rough: Float32 = 0.5, metal: Float32 = 0.0) raises:
         self.r.begin(self.view.copy())
         if primitive_floor:
             self.r.push(DrawItem(0, _v(0, -0.25, 0), 0.0, 0.0, 0.0, 1.0, _v(30, 0.25, 30), _v(1, 1, 1)))
         else:
             self.r.push(DrawItem(0, _v(0, -0.25, 0), 0.0, 0.0, 0.0, 1.0, _v(60, 0.5, 60), _v(1, 1, 1), self.r.cube, -1, material, 1, rough, metal))
+        if slab:  # a thin plate 2 m up, from x = 0.5 to 4.5
+            self.r.push(DrawItem(0, _v(2.5, 2, 0), 0.0, 0.0, 0.0, 1.0, _v(4, 0.1, 6), _v(1, 1, 1), self.r.cube, -1, MAT_COLOR))
         if cube:
             self.r.push(DrawItem(0, _v(0, 2, 0), 0.0, 0.0, 0.0, 1.0, _v(1, 1, 1), _v(1, 1, 1), self.r.cube, -1, MAT_COLOR))
         self.r.draw(self.device, self.target.handle().raw, W, H, self.hud)
@@ -283,6 +285,59 @@ def main() raises:
     s.eqi(seam, total, "point shadow: lit across the seam between two faces of the cube")
     var zs = sqrt(16.0 + 25.0 + 0.25)
     near(s, g.at(0.5, -5.0), grey(falloff(zs, 12.0) * 4.0 / zs), "point shadow: lit in the -z face")
+    # 8b. a directional light's shadow: light from (1, 1, 0); the cube's shadow lies from x = -3 to -1 on the floor
+    g.dark()
+    g.r.set_dir_lights(g.device, [DirLight(_v(1, 1, 0), _v(1, 1, 1), 0.8, True, _v(0, 0, 0), 8.0, 20.0)])
+    g.shoot(cube=True)
+    near(s, g.at(-2.0, 0), grey(0.0), "directional shadow: the floor at x = -2 is in the cube's shadow")
+    near(s, g.at(2.0, 0), grey(0.8 * sqrt(0.5)), "directional shadow: the floor at x = 2 is lit, colour * intensity * N.L")
+    near(s, g.at(-2.0, 1.5), grey(0.8 * sqrt(0.5)), "directional shadow: beside the shadow the floor is lit")
+    var acne = 0
+    for i in range(60):
+        if abs(Float64(g.at(1.0 + 0.05 * Float64(i), -2.0)[0]) - 0.8 * sqrt(0.5)) > 0.02:
+            acne += 1
+    s.eqi(acne, 0, "directional shadow: 60 lit floor points in a row, none darkened by the map's own surface")
+    # 8c. an area light's shadow is as soft as the panel is large. A panel 5 m up over x = 4, a plate 2 m up whose
+    #     edge is at x = 0.5: by similar triangles the penumbra on the floor runs from 0.5 + (0.5 - (4 + L / 2)) * 2 / 3
+    #     to 0.5 + (0.5 - (4 - L / 2)) * 2 / 3, which is L * 2 / 3 wide. Measured: the floor's light with the plate over
+    #     the light without it, and the distance between 10 % and 90 % of that (0.8 of the width for an even ramp).
+    var widths = List[Float64]()
+    for size in [1.0, 3.0]:
+        g.dark()
+        g.r.set_area_lights(g.device, [AreaLight(_v(4, 5, 0), _v(size / 2, 0, 0), _v(0, 0, size / 2), _v(1, 1, 1), 4.0, True, 20.0)])
+        g.shoot()
+        var open_floor = g.px.copy()
+        g.shoot(slab=True)
+        var lo = 99.0
+        var hi = -99.0
+        var x = -4.0
+        var umbra = 1.0
+        var clear = 0.0
+        while x <= 0.3:
+            var p = g.pixel(x, 0.0)
+            var o = (p[1] * Int(W) + p[0]) * 4
+            var ratio = Float64(Int(g.px[o])) / max(Float64(Int(open_floor[o])), 1.0)
+            if ratio > 0.1 and ratio < 0.9:
+                lo = min(lo, x)
+                hi = max(hi, x)
+            if abs(x - 0.0) < 0.03:
+                umbra = ratio
+            if abs(x + 3.8) < 0.03:
+                clear = ratio
+            x += 0.02
+        var want = size * 2.0 / 3.0
+        print("   area shadow, panel", size, "m: penumbra by similar triangles", want, "m (10 to 90 %:", 0.8 * want, "); measured 10 to 90 %:", hi - lo, "m ; under the plate's edge", umbra, ", in the open", clear)
+        widths.append(hi - lo)
+        s.check(umbra < 0.05 and clear > 0.95, "area shadow, panel " + String(size) + " m: dark behind the plate's edge, untouched in the open")
+        s.check(hi - lo > 0.4 * 0.8 * want and hi - lo < 1.6 * 0.8 * want, "area shadow, panel " + String(size) + " m: the penumbra is 0.4 to 1.6 of the width similar triangles give")
+    s.check(widths[1] > 1.8 * widths[0], "area shadow: a panel three times as large has a penumbra more than 1.8 times as wide")
+    g.dark()
+    g.r.set_area_lights(g.device, [AreaLight(_v(4, 5, 0), _v(0.5, 0, 0), _v(0, 0, 0.5), _v(1, 1, 1), 4.0, False)])
+    g.shoot()
+    var before = g.px.copy()
+    g.shoot(slab=True)
+    var p0 = g.pixel(0.0, 0.0)
+    s.check(g.px[(p0[1] * Int(W) + p0[0]) * 4] == before[(p0[1] * Int(W) + p0[0]) * 4], "the same panel without `shadow`: the plate changes nothing on the floor")
     # 9. MatPbr reflects the environment: a rough metal floor under a uniform environment of radiance c reflects
     #    c * (f0 * A + B), the split-sum fit at roughness 1 and N.V = 1: A = 0.4524, B = -0.0024
     g.dark()
