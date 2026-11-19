@@ -161,7 +161,62 @@ a41b77d3020c9e58.light.shadow = true
 - Rows the loading build does not know are kept and written back, so an older editor does not delete what a newer one
   wrote.
 
-@@MERGE@@
+## 5. Merging
+
+Measured with `pixi run -e wasm scene-merge-probe` (`scripts/scene_merge_probe.py`; seed 2026, git 2.43.0). One scene
+of 1000 entities is written in several forms. Two editors start from the same base and each apply N random operations
+(70 % set a field, 15 % add an entity, 10 % delete one, 5 % reparent). The three files go through `git merge-file`,
+git's own three-way file merge; it agreed with a real two-branch `git merge` in 84 of 84 cross-checked cases. A trial
+has a *true* conflict when both changed one key to different values, or one deleted an entity the other changed.
+
+- **false conflict**: git reports a conflict in a trial that has no true conflict.
+- **wrong**: git merges cleanly but the result is not the key-wise merge of the two edits.
+
+100 trials per cell; the denominators are the trials without a true conflict.
+
+| form | N = 5: false | wrong | N = 20: false | wrong | N = 80: false | wrong |
+|---|---:|---:|---:|---:|---:|---:|
+| positional: index, count row, every field (the structure of v1) | 72 / 100 | 2 / 100 | 90 / 90 | 0 / 90 | 28 / 28 | 0 / 28 |
+| sections (`[node <id>]` then fields), non-default fields | 1 / 100 | 0 | 6 / 90 | 0 | 25 / 28 | 0 |
+| TOML tables, non-default fields | 1 / 100 | 0 | 6 / 90 | 0 | 25 / 28 | 0 |
+| flat rows, non-default fields | 1 / 100 | 0 | 7 / 90 | 0 | 25 / 28 | 0 |
+| flat rows, an empty line after each row | 1 / 100 | 0 | 6 / 90 | 0 | 25 / 28 | 0 |
+| flat rows, every field of a present component written | 0 / 100 | 0 | 4 / 90 | 1 / 90 | 23 / 28 | 0 |
+| flat rows, one file per entity | 1 / 100 | 0 | 3 / 90 | 0 | 14 / 28 | 0 |
+| flat rows + the key-wise merge driver | 0 / 100 | 0 | 0 / 90 | 0 | 0 / 28 | 0 |
+
+No form merged cleanly in a trial that had a true conflict (0 missed in every cell).
+
+What the numbers say, including where they contradict the first draft of this design:
+
+1. **Positional numbering is the thing to remove.** With five operations each, 72 % of merges that should be clean
+   conflict, and 2 % merge "cleanly" into a wrong scene: after one side deletes an entity, the other side's edit lands
+   on a different entity's rows. This is v1's structure.
+2. **Without a merge tool, flat rows are no better than sections or TOML.** The draft claimed they were. They are
+   not: all three give the same rate (89 % at N = 80). The cause is "write only non-default fields": setting a field is
+   often an *inserted* line, and two insertions at one place always conflict in a line merge. An empty line between
+   rows does not help, and writing every field helps little (82 %) while tripling the file (§6a) and producing one
+   wrong clean merge in 90.
+3. **One file per entity roughly halves it** (50 % at N = 80): edits to different entities never meet in a file.
+4. **The key-wise merge is what removes false conflicts**: 0 in every cell. It is a three-way merge over keys — the
+   union of two `scene_diff`s against the base — and reports only keys changed to different values.
+
+Decisions that follow:
+
+- **The merge driver is part of the format, not an option.** `ludens merge <base> <ours> <theirs>`, installed by
+  `.gitattributes` (`*.scene merge=ludens-scene`, and the shard files likewise) and one line of git config that
+  `ludens new` writes. A repository without it still works; it just conflicts as often as any text format.
+- **The default source layout is one file per entity** (§6), which is also the best case for a host that cannot run a
+  merge driver.
+- **Flat rows are chosen for a different reason than the draft gave**: the row is the one unit that is saved,
+  diffed, merged, journalled, overridden by a prefab instance and sent to a running game. With sections or TOML the
+  merge tool, the journal and the override would each need a second representation of the same thing.
+
+After a merge, `ludens check` (also run at load) reports: an entity whose parent does not exist (attached to the root,
+with a warning), a reference to an entity or asset that does not exist (named), and an override on an entity the
+prefab no longer has (kept as an orphan row).
+
+Limit: GitHub's web merge does not run custom merge drivers. When the web page shows a conflict, merge locally.
 
 ## 6. Large scenes: source and compiled forms are different files
 
@@ -389,7 +444,75 @@ a behaviour script.
 **Layer 3, reaction to events: exists.** The event sheet's `when … do …` is that layer. The format changes its
 subjects from `@<i>` to `#id` and makes an event a component of an entity.
 
-@@PYTHON@@
+## 13. Where Python fits
+
+**The scene file is data, not a Python program.** By the four criteria this design was asked to weigh:
+
+| criterion | a Python program as the scene |
+|---|---|
+| people working in parallel, git conflicts | code cannot be merged by key; two edits to one loop are a text conflict |
+| editing | the editor would have to write source back. In a `for` loop that makes 100 crates there is nowhere to write "move the 37th". Restricted to a declarative subset the editor can write back, it is a data file with a different grammar |
+| loading | loading a scene is running a program: every platform's run time carries Python, and opening someone's scene runs their code |
+| expressiveness | the one gain: loops, functions, parameterised generation |
+
+Bevy is the nearby case: `bsn!` is written in code, and the project is still building a separate `.bsn` asset format
+for its editor to edit.
+
+Python is used where code fits, and the data format does not change:
+
+1. **Generators.** `generator.source = @<script>.py` runs at **build time** under native CPython and emits rows that
+   are compiled into `.lscene`. The run time needs no Python, so this works for the web build. A generator may depend
+   on its seed and parameters only. The playground's `_cell` is this kind of code.
+2. **A Python API for scenes.** A `ludens.scene` module reads and writes rows: batch edits, importers, upgrades,
+   scenes for tests. A scene being a set of keys, this layer is thin.
+3. **Behaviour scripts.** `script.source = @<script>.py`; the keys it exposes are declared by type annotations and
+   become schema source 2 (§8), so placeholders and overrides apply to them as to any field. Natively this is
+   ludens-core's existing binding (17.21). For the browser, see the measurement below.
+
+### 13a. Measured: Python in the browser beside the engine
+
+`pixi run -e wasm python-web-probe` (`scripts/python_web_probe.py`, `.mjs`). The engine is one wasm64 module; CPython
+for the web (Pyodide 314.0.8, Python 3.14.2) is a wasm32 module, so they cannot be linked. The probe loads both in one
+JS realm and Python calls the engine's C-ABI exports through a JS object. The same script source runs natively under
+CPython 3.14.10 with ctypes against the same C-ABI built from the same pinned ludens-core (`6aac9401`). Hosts: node
+24.22 and headless Chrome 153. Ranges are over three runs on one machine.
+
+| | native CPython + ctypes | Pyodide in node | Pyodide in Chrome |
+|---|---:|---:|---:|
+| world hash after 600 ticks, script applies an impulse each tick | `1b6a50030efc1b08` | equal | equal |
+| the same, the script using `math.sin` / `math.cos` | `89aa5c7be8c4e2c8` | equal | equal |
+| one behaviour call (host → Python → one engine call) | 0.87 – 1.16 µs | 3.9 – 4.3 µs | 2.7 – 3.5 µs |
+| Python → engine, one call | 175 – 332 ns | 233 – 472 ns | 332 – 870 ns |
+| behaviour calls that fit in 1 % of a 60 Hz tick | 143 – 191 | 38 – 43 | 47 – 61 |
+| load of the Python run time | — | 2.2 – 2.3 s | 2.5 – 2.8 s |
+| start to first world hash | — | 2.4 – 2.5 s | 2.7 – 3.0 s |
+
+Download: Pyodide's five run-time files are 13,530,536 bytes (6,343,086 with gzip -6), of which `pyodide.asm.wasm` is
+9,597,892 and the standard library 2,545,550. The engine's C-ABI module is 1,016,231 bytes (307,284 gzipped).
+
+`math.*` on 20,000 inputs, Pyodide against native CPython, as float64: `sin` differs in 596 results, `cos` 606, `tan`
+746, `atan2` 824, `pow` 17, `exp` 8, `log` 1, `sqrt` 0, each by one unit in the last place. Chrome's results equal
+node's. Rounded to float32, which is what the C-ABI's arguments are, none of the 160,000 differ.
+
+What this supports, and what it does not:
+
+- **It works.** A Python script drives the wasm64 engine in a browser and the world hash equals the native one.
+- **The equal hash with `math.sin` is not a guarantee.** The two interpreters use different libm builds and do
+  disagree in the last bit of a float64; here every difference vanished when the value was narrowed to float32. A
+  script that accumulates in float64 across ticks, or compares two close values, can diverge. Scripts that must be
+  deterministic across hosts need the engine's own math functions, as the engine's Mojo code already uses for
+  native / wasm parity.
+- **The criterion written before the run was not met by any host.** It asked for 1000 behaviour calls within 1 % of a
+  tick (167 ns each). Native CPython takes 0.87 – 1.16 µs per call. The criterion was wrong for per-entity calls in
+  any Python; the usable shape is one call per system per tick that works on a batch, where 40 to 190 calls fit.
+- **The download is the real cost on the web**: 6.3 MB gzipped against the engine's 0.3 MB, and 2.5 to 3 s before the
+  first tick.
+- Not measured: Safari (no memory64, so the engine module itself does not run there), mobile browsers, memory use,
+  and a script that allocates per tick.
+
+Decision for the format: `script` is a component whose source is an asset, and the format does not depend on the
+language. Which languages a behaviour script may be written in, and how the same script is made bit-identical on every
+host, is the subject of a separate study of the scripting layer; this document does not settle it.
 
 ## 14. Who provides what
 

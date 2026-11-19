@@ -574,6 +574,7 @@ def size_table(sizes: list[int], seed: int) -> list[str]:
                 git = lambda *a: subprocess.run(["git", "-c", "user.name=probe", "-c", "user.email=probe@example.invalid",
                                                  *a], cwd=repo, check=True, capture_output=True)
                 git("init", "-q", "-b", "main")
+                git("config", "gc.auto", "0")  # a commit would start a background gc that collides with pack_bytes
                 write_scene(repo, text, shards)
                 git("add", "-A"); git("commit", "-q", "-m", "base")
                 first = pack_bytes(repo)
@@ -630,6 +631,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--sizes-only", action="store_true", help="skip the merge table")
     ap.add_argument("--trials", type=int, default=100)
     ap.add_argument("--seed", type=int, default=2026)
     args = ap.parse_args()
@@ -639,8 +641,9 @@ def main() -> int:
     sizes = [1000, 10000] if args.quick else [1000, 10000, 100000]
     git_version = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout.strip()
     print(f"scene_merge_probe: seed {args.seed}, {git_version}, python {sys.version.split()[0]}\n")
-    print("\n".join(merge_table(1000, trials, [5, 20, 80], args.seed)))
-    print()
+    if not args.sizes_only:
+        print("\n".join(merge_table(1000, trials, [5, 20, 80], args.seed)))
+        print()
     print("\n".join(size_table(sizes, args.seed)))
     return 0
 
