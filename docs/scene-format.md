@@ -195,7 +195,7 @@ What the numbers say, including where they contradict the first draft of this de
 2. **Without a merge tool, flat rows are no better than sections or TOML.** The draft claimed they were. They are
    not: all three give the same rate (89 % at N = 80). The cause is "write only non-default fields": setting a field is
    often an *inserted* line, and two insertions at one place always conflict in a line merge. An empty line between
-   rows does not help, and writing every field helps little (82 %) while tripling the file (§6a) and producing one
+   rows does not help, and writing every field helps little (82 %) while making the file 2.7 times larger (§6a) and producing one
    wrong clean merge in 90.
 3. **One file per entity roughly halves it** (50 % at N = 80): edits to different entities never meet in a file.
 4. **The key-wise merge is what removes false conflicts**: 0 in every cell. It is a three-way merge over keys — the
@@ -206,8 +206,8 @@ Decisions that follow:
 - **The merge driver is part of the format, not an option.** `ludens merge <base> <ours> <theirs>`, installed by
   `.gitattributes` (`*.scene merge=ludens-scene`, and the shard files likewise) and one line of git config that
   `ludens new` writes. A repository without it still works; it just conflicts as often as any text format.
-- **The default source layout is one file per entity** (§6), which is also the best case for a host that cannot run a
-  merge driver.
+- **The source is split into shard files by entity id** (§6, §6a). One file per entity is the layout for a
+  repository that cannot run a merge driver; it costs pack size.
 - **Flat rows are chosen for a different reason than the draft gave**: the row is the one unit that is saved,
   diffed, merged, journalled, overridden by a prefab instance and sent to a running game. With sections or TOML the
   merge tool, the journal and the override would each need a second representation of the same thing.
@@ -222,8 +222,7 @@ Limit: GitHub's web merge does not run custom merge drivers. When the web page s
 
 - **Source** is one file, or a directory `world.scene/` of shard files. The meaning is the union of the rows of all
   the files. Shards are cut by entity id, not by place in the world: moving an object does not move its rows between
-  files, and a save rewrites only the shards that changed. §5 gives the measured reason the default shard is one
-  entity.
+  files, and a save rewrites only the shards that changed. §6a gives the measured sizes behind the shard count.
 - **Compiled** is `.lscene`: binary, untracked, made by `ludens build` and the asset database. Prefabs are expanded,
   assets are resolved to content hashes, entities are in canonical order (§10), components are written with
   `ecs/schema.mojo` `write_values`. A large world gets one compiled file per streaming cell, matching
@@ -231,7 +230,62 @@ Limit: GitHub's web merge does not run custom merge drivers. When the web page s
 - The run time, wasm included, reads compiled bytes only and never parses text. ludens-core measured the text path at
   about two orders of magnitude slower than the snapshot (ROADMAP 17.12: 285 ms to build 1e4 bodies from rows).
 
-@@SIZE@@
+### 6a. Size and cost, measured
+
+`pixi run -e wasm scene-merge-probe --sizes-only`. The same scenes as §5 (about nine rows per entity when only
+non-default fields are written). "Pack" is the size of `.git/objects` after `git gc`; "growth" is how much it grew over
+20 further commits of 5 edits each; "rewritten" is the largest file a commit had to write.
+
+| entities | form | rows | bytes | gzip | pack | growth, 20 commits | rewritten per commit | Python splits all rows in |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1,000 | positional, every field (v1 structure) | 46,001 | 1,185,361 | 184,388 | 187,246 | 722,388 | 1,191,734 | 14 ms |
+| 1,000 | sections, one file | 8,241 | 200,299 | 51,760 | 54,614 | 12,100 | 202,638 | 1 ms |
+| 1,000 | flat rows, one file | 8,924 | 333,161 | 77,070 | 79,924 | 12,626 | 337,098 | 2 ms |
+| 1,000 | flat rows, 256 shards | 8,924 | 333,161 | 77,070 | 122,563 | 20,863 | 3,236 | 1 ms |
+| 1,000 | flat rows, one file per entity | 8,924 | 333,161 | 77,070 | 261,640 | 28,651 | 478 | 2 ms |
+| 10,000 | positional, every field (v1 structure) | 460,001 | 12,308,445 | 1,852,585 | 1,855,445 | 9,175,333 | 12,309,871 | 84 ms |
+| 10,000 | sections, one file | 82,240 | 1,997,217 | 510,674 | 513,533 | 14,262 | 1,998,525 | 19 ms |
+| 10,000 | flat rows, one file | 89,297 | 3,328,786 | 765,181 | 768,037 | 15,514 | 3,330,952 | 27 ms |
+| 10,000 | flat rows, 256 shards | 89,297 | 3,328,786 | 765,181 | 833,727 | 20,865 | 18,575 | 14 ms |
+| 10,000 | flat rows, every field written, one file | 241,346 | 9,111,214 | 1,321,322 | 1,324,176 | 23,646 | 9,112,128 | 67 ms |
+| 10,000 | flat rows, one file per entity | 89,297 | 3,328,786 | 765,181 | 2,376,738 | 27,585 | 476 | 25 ms |
+| 100,000 | positional, every field (v1 structure) | 4,600,001 | 127,690,761 | 18,631,325 | 18,634,182 | 85,345,840 | 127,698,927 | 892 ms |
+| 100,000 | sections, one file | 823,769 | 19,997,774 | 5,063,530 | 5,066,386 | 23,616 | 20,000,165 | 134 ms |
+| 100,000 | flat rows, one file | 893,903 | 33,325,338 | 7,595,439 | 7,598,297 | 31,807 | 33,329,373 | 166 ms |
+| 100,000 | flat rows, 256 shards | 893,903 | 33,325,338 | 7,595,439 | 7,702,182 | 19,916 | 145,254 | 257 ms |
+
+One file per entity was not run at 100,000 (that many files in one repository is a separate measurement).
+
+What the numbers say:
+
+- **A flat-row scene is about 333 bytes per entity** (33 MB at 100,000), 77 bytes gzipped. The first draft estimated
+  500. It is 1.67 times the sections form on disk and 1.5 times in the git pack: the repeated id prefix costs that
+  much after compression, not nothing as the draft assumed.
+- **v1's structure costs 3.6 times the rows of §4 on disk, and its history is the real problem**: 20 small commits
+  add 85 MB to the pack at 100,000 entities, against 0.02 to 0.03 MB for any id-keyed form. A delete shifts every
+  later index, so every later line changes.
+- **History is cheap for every id-keyed form**: 12 to 32 KB for 20 commits, almost independent of scene size.
+- **Shards trade pack size for write size.** 256 shards add 1 to 9 % to the pack at 10,000 entities and above, and a
+  save rewrites 18 KB (at 10,000) or 145 KB (at 100,000) where one file rewrites 3.3 MB or 33 MB. One file per entity
+  rewrites under 500 bytes but triples the pack at 10,000 entities (2.4 MB against 0.77 MB), because git compresses
+  small files one by one.
+- **Parsing is not a concern at editor scale**: Python splits 894,000 rows in 166 ms. This is the split only, not
+  building a world; ludens-core's measured 285 ms for 1e4 bodies from rows (17.12) is the cost of that second part.
+
+**The source layout, decided from these and from §5:** shard files by the leading hex digits of the entity id, the
+number of digits recorded in the scene directory and chosen so that a shard stays in the tens of kilobytes (two
+digits up to about 10,000 entities, three or four beyond; extrapolated from the table, not measured). One file per
+entity is offered for a repository that cannot install the merge driver: it halves false conflicts there (§5) at
+three times the pack.
+
+Kept out of the row count by design, not by the layout: a prefab instance is two rows plus its overrides, and
+procedural content is a `generator` entity, not its output (the playground's 256 cells of scenery are a few generator
+entities, not 2,560 entities of rows).
+
+Costs accepted knowingly:
+
+- A text source is larger than a binary one and slower to open than a snapshot. It buys merging.
+- Random ids make a raw diff unreadable. `ludens diff` has to show changes by name and hierarchy.
 
 ## 7. Reuse: a scene is a prefab
 
