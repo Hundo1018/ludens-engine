@@ -8,6 +8,9 @@ colour it drew before the option existed, bit for bit.
 from wgpu import WGPUBufferUsage
 from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.buffer import Buffer
+from wgpu._ffi.nulls import null_opaque
+from wgpu._backend.wgpu_native.structs import WGPUStringView, WGPUTextureViewDescriptor
+from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
 from wgpu.device import Device
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
@@ -20,6 +23,22 @@ from app.lights import (
     MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS,
     L_POINTS, L_SUN_DIR, L_SUN_COLOR, L_AMB, L_SH, L_ENV_TOP, L_ENV_HOR, L_ENV_GND, L_PSHADOW, L_SPOTS, L_DIRS, L_AREAS, L_TILES,
 )
+
+comptime ENV_SIZE = 128  # the environment cube map's faces
+comptime ENV_MIPS = 8  # 128 down to 1
+
+
+def env_sub_view(tex: Texture, dimension: Int, mip: Int, mips: Int, layer: Int, layers: Int) raises -> TextureView:
+    """A view of part of a layered texture: dimension 2 (one face as a 2D texture) or 4 (a cube)."""
+    var d = raw_alloc[WGPUTextureViewDescriptor](1)
+    d[unsafe_offset=0] = WGPUTextureViewDescriptor(
+        null_opaque(), WGPUStringView.null_view(), UInt32(0), UInt32(dimension), UInt32(mip), UInt32(mips),
+        UInt32(layer), UInt32(layers), UInt32(1), UInt64(0),
+    )
+    var v = tex.create_view(d)
+    d.unsafe_free()
+    return v^
+
 
 comptime SHADOW_MAP_SIZE = 1024  # the shadow map, square; 4 MB of depth
 comptime AO_MAX_CELLS = 16384  # the ambient-occlusion grid: up to 128 by 128 floats over the floor (64 KB)
@@ -90,6 +109,8 @@ struct RenderResources(Movable):
     var atlas_tex: Texture  # the spot and point lights' shadow atlas: 4 x 4 tiles of depth
     var atlas_view: TextureView
     var tiles: Int  # atlas tiles in use this frame; a shadow pass draws tile k with tile_vp(k)
+    var env_tex: Texture  # the environment cube map MatPbr reflects (app/env_probe.mojo fills it): 6 faces, ENV_MIPS mips
+    var env_view: TextureView
 
     def __init__(out self, device: Device) raises:
         self.light_vp = List[Float32]()
@@ -110,6 +131,12 @@ struct RenderResources(Movable):
             dimension=2, mip_level_count=1, label="shadow_atlas",
         )
         self.atlas_view = self.atlas_tex.create_view_default()
+        self.env_tex = device.create_texture(
+            UInt32(ENV_SIZE), UInt32(ENV_SIZE), UInt32(6), WGPUTextureFormat.RGBA8Unorm,
+            WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
+            dimension=2, mip_level_count=UInt32(ENV_MIPS), label="env_cube",
+        )
+        self.env_view = env_sub_view(self.env_tex, 4, 0, ENV_MIPS, 0, 6)
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
@@ -300,6 +327,12 @@ struct RenderResources(Movable):
         self._put3(L_ENV_HOR, env.horizon, 0.0)
         self._put3(L_ENV_GND, env.ground, 0.0)
         self.rig[L_AMB + 3] = 1.0
+        self._upload(device)
+
+    def use_env_cube(mut self, device: Device, on: Bool) raises:
+        """Whether MatPbr reflects the cube map (EnvProbe.finish turns it on; set_environment turns it off)."""
+        self.rig[L_ENV_TOP + 3] = Float32(1.0) if on else Float32(0.0)
+        self.rig[L_ENV_HOR + 3] = Float32(ENV_MIPS - 3)  # the blurriest mip read: 4 x 4 texels a face
         self._upload(device)
 
     def reset_environment(mut self, device: Device) raises:

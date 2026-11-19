@@ -77,8 +77,8 @@ struct Lights {
   sun_color : vec4<f32>,            // rgb times intensity (0.6 white until set)
   amb : vec4<f32>,                  // w 1: the ambient is `sh` (set_ambient / set_environment), not the fixed 0.4
   sh : array<vec4<f32>, 9>,         // the environment's radiance, order-2 spherical harmonics (rgb)
-  env_top : vec4<f32>,              // the environment for reflections: zenith, horizon, nadir (rgb)
-  env_hor : vec4<f32>,
+  env_top : vec4<f32>,              // the environment for reflections: zenith, horizon, nadir (rgb); env_top.w 1
+  env_hor : vec4<f32>,              // when a captured cube map is used instead (ENV_WGSL), env_hor.w its blurriest mip
   env_gnd : vec4<f32>,
   pshadow : array<vec4<f32>, 4>,    // per point light: its first atlas tile + 1 (six tiles), 0 for no shadow
   spots : array<SpotLight, 8>,      // cone.x cos(inner), dir_cos.w cos(outer), cone.y atlas tile + 1 or 0
@@ -312,4 +312,19 @@ fn area_shadow(tile1 : f32, size : f32, far : f32, wpos : vec3<f32>, nrm : vec3<
 comptime NO_LOCAL_SHADOW_WGSL = """
 fn local_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>, dist : f32) -> f32 { return 1.0; }
 fn area_shadow(tile1 : f32, size : f32, far : f32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 { return 1.0; }
+"""
+
+# What MatPbr reflects (the mesh and skinned passes, which bind `env_cube` and `samp`): the cube map captured by an
+# EnvProbe (app/env_probe.mojo) while one is in use, else the environment's three-colour gradient. A rougher surface
+# reads a smaller mip (each mip is the mean of four texels of the one above, not a GGX filter) and, from roughness 0.7
+# up, the environment's irradiance. The cube map is looked up by direction alone: reflections are right at the
+# probe's position and shift with distance from it (no parallax correction).
+comptime ENV_WGSL = """
+fn env_reflect(r : vec3<f32>, rough : f32) -> vec3<f32> {
+  if lights.env_top.w > 0.5 {
+    let c = atmo_lin(textureSampleLevel(env_cube, samp, r, clamp(rough, 0.0, 1.0) * lights.env_hor.w).rgb);
+    return mix(c, sh_lit(r), smoothstep(0.7, 1.0, rough));
+  }
+  return env_radiance(r, rough);
+}
 """
