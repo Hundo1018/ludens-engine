@@ -133,7 +133,8 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
    `pixi run -e wasm test-editor` moves a body once through the GUI entry and once through the CLI entry and compares
    `EmbedWorld.hash()`.
 3. **Scene format.** Defined by this repo (#9). The engine provides schema read/write, diffs and parity with the
-   deterministic snapshot (ludens-core #82).
+   deterministic snapshot (ludens-core #82). The design of the next version (entities and components with rendering,
+   prefabs, asset references, merging) is `docs/scene-format.md`; it is not implemented.
 4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
    `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
 5. **The renderer knows no game** (#90). The render modules in `app/` (`RENDER_MODULES` in `check_layout.py`) import from
