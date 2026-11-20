@@ -3,7 +3,8 @@
 //   os_clipboard_read_request()             -> 0 queued
 //   os_file_write(path_ptr, path_len, data_ptr, data_len) -> 0 queued, -1 invalid path / too large
 //   os_file_read_request(id, path_ptr, path_len)          -> 0 queued, -1 invalid path
-//   os_poll(buf, cap)                       -> bytes of the next result copied to buf, 0 if none, -1 if larger than cap
+//   os_poll(buf, cap)                       -> bytes of the next result copied to buf, 0 if none, -1 if the next one was larger
+//                                              than cap (it is dropped and counted in status.dropped; poll again for the next)
 // A result packet is [kind u8][id u32 LE][status u8][payload]: kind 1 = clipboard text (id 0), kind 2 = file read
 // (id of the request; status 0 ok, 1 not found, 2 error). Asynchronous work never calls back into wasm: its result
 // is queued and the game takes it with os_poll inside a frame (ludens-wasm-rt's re-entry rule).
@@ -52,7 +53,7 @@ export function opfsStorage() {
 
 export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboard, storage = memoryStorage() } = {}) {
   const inbox = [];
-  const status = { clipboardWrites: 0, fileWrites: 0, fileReads: 0, refused: 0 };
+  const status = { clipboardWrites: 0, fileWrites: 0, fileReads: 0, refused: 0, dropped: 0 };
   const packet = (kind, id, st, payload) => {
     const out = new Uint8Array(6 + payload.length);
     out[0] = kind;
@@ -101,7 +102,12 @@ export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboar
       os_poll(buf, cap) {
         const next = inbox[0];
         if (!next) return 0n;
-        if (next.length > Number(cap)) return -1n;
+        if (next.length > Number(cap)) {
+          // Same rule as net_poll: a result larger than cap is dropped and counted, not left to block the queue.
+          inbox.shift();
+          status.dropped++;
+          return -1n;
+        }
         inbox.shift();
         rt.put(buf, next);
         return BigInt(next.length);

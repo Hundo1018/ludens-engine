@@ -1,7 +1,8 @@
 """WebSocket bridge: two imports the JS host (shell/web/net_host.mjs) provides; declared in wasm.toml `host_imports`.
 
 net_send(ptr, len) -> 0 queued/sent, -1 no socket.  net_poll(buf, cap) -> bytes of the next packet copied to
-`buf`, 0 if none, -1 if the next packet is larger than `cap` (it stays queued)."""
+`buf`, 0 if none, -1 if the next packet was larger than `cap`: the host drops it and counts it (`status.dropped`), so the next call
+returns the packet behind it."""
 from std.ffi import external_call
 
 
