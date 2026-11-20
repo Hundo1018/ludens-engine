@@ -26,8 +26,8 @@ from geometry.vec import Vec3
 from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureHandle, WGPUTextureUsage
+from wgpu import raw_alloc
+from wgpu import WGPUTextureFormat, WGPUTextureHandle, WGPUTextureUsage
 from wgpu.buffer import MapRequest
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture

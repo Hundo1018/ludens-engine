@@ -10,8 +10,8 @@ from harness.runner import Suite
 from wgpu import Instance, WGPUBindGroupEntry, WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout
 from wgpu import WGPUBufferBindingType, WGPUBufferUsage, WGPUShaderStage, WGPUColor
 from wgpu import WGPUSamplerBindingLayout, WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout
-from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import null_opaque
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture
 from app.textures import TextureArray, box_levels, checker_base, TRI_WGSL, level_size
 

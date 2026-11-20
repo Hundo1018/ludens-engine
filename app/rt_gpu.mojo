@@ -13,7 +13,7 @@ from wgpu import (
     WGPUSamplerBindingLayout, WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
     WGPUMapMode,
 )
-from wgpu._ffi.nulls import null_opaque
+from wgpu import null_opaque
 from wgpu.bind_group import BindGroupLayout, BindGroup
 from wgpu.buffer import Buffer
 from wgpu.device import Device

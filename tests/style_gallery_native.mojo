@@ -11,7 +11,7 @@
 from std.sys import argv
 from harness.runner import Suite
 from wgpu import Instance
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.texture import Texture
 from wgpu.device import Device

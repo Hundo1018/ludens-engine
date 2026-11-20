@@ -5,7 +5,7 @@
 # buffer). Needs a GPU adapter: lavapipe in the parity job.
 from harness.runner import Suite
 from wgpu import Instance
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from game.arena_mode import ArenaMode
 from game.camera_view import View

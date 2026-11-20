@@ -18,22 +18,22 @@ from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOC
 from app.render_res import RenderResources, LIGHTS_BYTES, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_ARENA_INSTANCES, DEFAULT_PALETTE_MATRICES
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
-from wgpu._ffi.types import WGPUTextureUsage
+from wgpu import WGPUTextureUsage
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPU_WHOLE_SIZE, WGPUBufferBindingType,
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
     WGPUVertexFormat, WGPUVertexStepMode, WGPUIndexFormat,
 )
-from wgpu._ffi.nulls import null_opaque, null_ptr
-from wgpu._ffi.structs import (
+from wgpu import null_opaque, null_ptr
+from wgpu import (
     WGPURenderPipelineDescriptor, WGPUVertexState, WGPUVertexBufferLayout, WGPUVertexAttribute,
     WGPUFragmentState, WGPUColorTargetState, WGPUPrimitiveState, WGPUMultisampleState,
     WGPUDepthStencilState, WGPUStencilFaceState, WGPUBlendState, WGPUConstantEntry, WGPUStringView,
 )
-from wgpu._backend.wgpu_native.structs import str_to_sv
-from wgpu._ffi.types import WGPUTextureFormat
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu import str_to_sv
+from wgpu import WGPUTextureFormat
+from wgpu import raw_alloc
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline

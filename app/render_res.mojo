@@ -6,11 +6,11 @@ Everything here is off by default (identity light, shadow off, atmosphere off, A
 colour it drew before the option existed, bit for bit.
 """
 from wgpu import WGPUBufferUsage
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.buffer import Buffer
-from wgpu._ffi.nulls import null_opaque
-from wgpu._backend.wgpu_native.structs import WGPUStringView, WGPUTextureViewDescriptor
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu import null_opaque
+from wgpu import WGPUStringView, WGPUTextureViewDescriptor
+from wgpu import raw_alloc
 from wgpu.device import Device
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView

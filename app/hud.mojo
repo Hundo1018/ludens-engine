@@ -10,12 +10,12 @@ from wgpu import (
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
 )
-from wgpu._ffi.nulls import null_opaque
+from wgpu import null_opaque
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
-from wgpu._ffi.types import WGPUTextureFormat
+from wgpu import WGPUTextureFormat
 from wgpu.render_pass import FrameRenderPass
 
 comptime MAX_VERTS = 65536

@@ -1,12 +1,12 @@
 """Blend and cull modes for the passes that build their own pipeline descriptor (mesh, wire, strokes)."""
-from wgpu._ffi.nulls import null_opaque, null_ptr
-from wgpu._ffi.structs import (
+from wgpu import null_opaque, null_ptr
+from wgpu import (
     WGPUBlendState, WGPUBlendComponent, WGPURenderPipelineDescriptor, WGPUVertexState, WGPUVertexBufferLayout,
     WGPUFragmentState, WGPUColorTargetState, WGPUPrimitiveState, WGPUMultisampleState, WGPUDepthStencilState,
     WGPUStencilFaceState, WGPUConstantEntry,
 )
-from wgpu._backend.wgpu_native.structs import str_to_sv
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu import str_to_sv
+from wgpu import raw_alloc
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.pipeline_layout import PipelineLayout
