@@ -7,7 +7,7 @@
 from std.math import sqrt, pi, cos, sin
 from harness.runner import Suite
 from wgpu import Instance
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage, WGPUTextureHandle
+from wgpu import WGPUTextureFormat, WGPUTextureUsage, WGPUTextureHandle
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.device import Device
 from game.draw_item import DrawItem, MAT_COLOR, MAT_PBR

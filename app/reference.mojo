@@ -2,7 +2,7 @@
 RGBA8Unorm target, read back through FrameCapture. Same code natively (app/pixels.mojo) and in the web app."""
 from render import Renderer
 from sim import Sim
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.buffer import MapRequest
 from wgpu.capture import FrameCapture
 from wgpu.device import Device

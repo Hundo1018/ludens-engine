@@ -14,14 +14,14 @@ from wgpu import (
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
 )
-from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.structs import WGPUColor
-from wgpu._ffi.types import WGPUTextureHandle
+from wgpu import null_opaque
+from wgpu import WGPUColor
+from wgpu import WGPUTextureHandle
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.texture import Texture, TextureView
 from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps

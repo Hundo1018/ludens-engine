@@ -13,6 +13,9 @@ Rules (README "Rules"):
   R4  editor/ built-ins (editor/builtin*.mojo) reach the rest of editor/ only through the extension API: they may
       import `editor.ext` (the registration traits) and `editor.state` (the `Editor` a command is handed), and no
       other editor module (not the entry points, the CLI core, the command facade or the scene text).
+  R6  no module reaches into wgpu-mojo's private namespaces (`wgpu._ffi`, `wgpu._backend`, `wgpu._core`, ...): what the
+      repo needs from wgpu-mojo is imported from the top-level `wgpu` package, which is its public surface. The
+      private paths are free to change, and used to be imported at 76 places.
   R5  the renderer (RENDER_MODULES in app/) knows no game: from game/ it may import only RENDER_GAME_ALLOWED (what a
       game hands it: the draw items and the camera view). The arena, its HUD and its rules stay out of the renderer.
 """
@@ -32,6 +35,7 @@ RENDER_MODULES = {"render3d", "render_pass", "render_res", "primitive_pass", "me
                   "shadow_pass", "gpu_mesh", "material", "wgsl", "debug_view", "skin_blend"}  # R5: app/<name>.mojo
 RENDER_GAME_ALLOWED = {"game.draw_item", "game.camera_view"}
 
+PRIVATE_WGPU = re.compile(r"^\s*(?:from|import)\s+(wgpu\._[\w.]*)", re.MULTILINE)
 EDITOR_SYMBOL = re.compile(r"\b(?:editor|ed|ui)_[A-Za-z0-9_]*")
 EDITOR_PATH = re.compile(r"(?:^|[/'\"])(?:editor|ui)/")
 IMPORT = re.compile(r"^\s*(?:from\s+([A-Za-z_][\w.]*)\s+import|import\s+([A-Za-z_][\w.]*))", re.MULTILINE)
@@ -102,6 +106,14 @@ def check(root: Path) -> list[str]:
             if mod.split(".")[0] == "game" and mod not in RENDER_GAME_ALLOWED:
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append(f"R5 {p.relative_to(root)}:{line}: the renderer imports `{mod}` (allowed from game/: {', '.join(sorted(RENDER_GAME_ALLOWED))})")
+
+    # R6: only the public wgpu surface.
+    for sub in ("app", "game", "editor", "ui", "tests", "scripts"):
+        for p in files(root, sub, {".mojo"}):
+            text = p.read_text(encoding="utf-8")
+            for m in PRIVATE_WGPU.finditer(text):
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append(f"R6 {p.relative_to(root)}:{line}: imports a private wgpu path (`{m.group(1)}`): import it from the top-level `wgpu` package")
     return problems
 
 
@@ -146,6 +158,10 @@ def selftest() -> int:
     expect("the renderer imports the arena", {**clean, "app/render3d.mojo": "from game.arena import DrawItem\n"}, ["R5"])
     expect("the renderer imports the HUD layout", {**clean, "app/skin_draw.mojo": "import game.hud_layout\n"}, ["R5"])
     expect("a non-renderer app module may import the game", {**clean, "app/game_parity.mojo": "from game.arena import Arena\n"}, [])
+    expect("the public wgpu package is fine", {**clean, "app/gpu_user.mojo": "from wgpu import null_opaque, WGPUTextureFormat\nfrom wgpu.device import Device\n"}, [])
+    expect("a private wgpu path in app/", {**clean, "app/gpu_user.mojo": "from wgpu._ffi.nulls import null_opaque\n"}, ["R6"])
+    expect("a private wgpu path in tests/", {**clean, "tests/t.mojo": "import wgpu._backend.wgpu_native.alloc_guard\n"}, ["R6"])
+    expect("a private wgpu path in game/", {**clean, "game/x.mojo": "from wgpu._core.session import Session\n"}, ["R6"])
     expect("markdown and a dotfile are fine", {**clean, "editor/NOTES.md": "# n\n", "ui/.gitkeep": ""}, [])
     print(f"layout selftest: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

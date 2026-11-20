@@ -6,7 +6,7 @@
 # Expected centre: (200, 30, 30) * 0.5947 = (118.9, 17.8, 17.8), within 2 counts.
 from harness.runner import Suite
 from wgpu import Instance
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
 from game.camera_view import View
 from game.draw_item import DrawItem

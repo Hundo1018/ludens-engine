@@ -13,15 +13,15 @@ from wgpu import (
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
     WGPUVertexFormat, WGPUVertexStepMode, WGPUIndexFormat,
 )
-from wgpu._ffi.nulls import null_opaque, null_ptr
-from wgpu._ffi.structs import (
+from wgpu import null_opaque, null_ptr
+from wgpu import (
     WGPURenderPipelineDescriptor, WGPUVertexState, WGPUVertexBufferLayout, WGPUVertexAttribute,
     WGPUFragmentState, WGPUColorTargetState, WGPUPrimitiveState, WGPUMultisampleState,
     WGPUDepthStencilState, WGPUStencilFaceState, WGPUBlendState, WGPUConstantEntry, WGPUStringView,
 )
-from wgpu._backend.wgpu_native.structs import str_to_sv
-from wgpu._ffi.types import WGPUTextureFormat
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu import str_to_sv
+from wgpu import WGPUTextureFormat
+from wgpu import raw_alloc
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline

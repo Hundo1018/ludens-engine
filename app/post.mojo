@@ -33,16 +33,16 @@ from wgpu import (
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
 )
-from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.nulls import null_ptr
-from wgpu._ffi.structs import (
+from wgpu import null_opaque
+from wgpu import null_ptr
+from wgpu import (
     WGPUColor, WGPURenderPassColorAttachment, WGPURenderPassDepthStencilAttachment, WGPURenderPassDescriptor,
     WGPUPassTimestampWrites,
 )
-from wgpu._backend.wgpu_native.structs import WGPUStringView
-from wgpu._backend.wgpu_native.alloc_guard import raw_alloc
+from wgpu import WGPUStringView
+from wgpu import raw_alloc
 from wgpu.render_pass import FrameRenderPass
-from wgpu._ffi.types import WGPUTextureUsage
+from wgpu import WGPUTextureUsage
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.command import CommandEncoder

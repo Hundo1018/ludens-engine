@@ -12,10 +12,10 @@ Materials, read in the fragment shader (see MATERIAL_WGSL):
      (normalised). Triplanar lives in TRI_WGSL and uses explicit lod 0 (textureSampleLevel: textureSample needs
      uniform control flow, and the blend branches on the material)."""
 from wgpu import WGPUBindGroupEntry
-from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage
-from wgpu._backend.wgpu_native.types import WGPUTextureAspect
-from wgpu._ffi.structs import WGPUOrigin3D
+from wgpu import null_opaque
+from wgpu import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureAspect
+from wgpu import WGPUOrigin3D
 from wgpu.device import Device
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler

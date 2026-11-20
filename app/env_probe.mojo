@@ -21,9 +21,9 @@ from wgpu import (
     WGPUShaderStage, WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
 )
-from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.types import WGPUTextureFormat, WGPUTextureUsage, WGPUTextureHandle
-from wgpu._ffi.structs import WGPUColor
+from wgpu import null_opaque
+from wgpu import WGPUTextureFormat, WGPUTextureUsage, WGPUTextureHandle
+from wgpu import WGPUColor
 from wgpu.capture import FrameCapture, padded_row_pitch
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline

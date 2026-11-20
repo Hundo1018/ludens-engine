@@ -7,9 +7,9 @@ from wgpu import (
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
     WGPUTextureBindingLayout, WGPUStorageTextureBindingLayout, WGPUBindGroupEntry,
 )
-from wgpu._ffi.nulls import null_opaque
-from wgpu._ffi.structs import WGPUColor
-from wgpu._ffi.types import WGPUTextureHandle
+from wgpu import null_opaque
+from wgpu import WGPUColor
+from wgpu import WGPUTextureHandle
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
