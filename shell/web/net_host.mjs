@@ -3,7 +3,7 @@
 let ws = null;
 const out = [];  // packets sent before the socket opened
 const inbox = []; // received packets, Uint8Array each
-export const status = { opened: false, sent: 0, received: 0, error: "" };
+export const status = { opened: false, sent: 0, received: 0, dropped: 0, error: "" };
 
 export function connect(url) {
   ws = new WebSocket(url);
@@ -26,7 +26,13 @@ export function createImports(rt) {
       net_poll(buf, cap) {
         const next = inbox[0];
         if (!next) return 0n;
-        if (next.length > Number(cap)) return -1n;
+        if (next.length > Number(cap)) {
+          // It can never fit, and left at the head it would hide every packet behind it: drop it, count it (status.dropped)
+          // and answer -1 once. The next call returns the next packet.
+          inbox.shift();
+          status.dropped++;
+          return -1n;
+        }
         inbox.shift();
         rt.put(buf, next);
         return BigInt(next.length);
