@@ -159,7 +159,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
         for _ in range(NET_PER_FRAME):
             var n = net_poll(UInt64(Int(self.net_rx.unsafe_ptr())), UInt64(NET_CAP))
-            if n <= 0:
+            if n < 0:
+                continue  # a packet larger than NET_CAP: the host dropped it (net_host status.dropped); take the next
+            if n == 0:
                 break
             self.net_len = Int(n)
             self.net_packets += 1

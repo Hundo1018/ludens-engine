@@ -1,15 +1,20 @@
 # ludens-engine
 
-ludens-engine is three things around one general core, a single wasm64 module:
+ludens-engine is three things around one general core. The game and the shells make one wasm64 module; the editor is a native
+process that shares the same libraries and the same scene format (it is not compiled into the module):
 
 - **Platform shells** (`shell/web/`; `shell/desktop/` and `shell/mobile/` would sit beside it) put the module into a
   platform's host program. A shell does one thing: implement the module's imports (`host_*` belongs to
   [ludens-wasm-rt](https://github.com/Hundo1018/ludens-wasm-rt), `wgpu*` mirrors `webgpu.h`, `net_*` is the
   WebSocket pair, `os_*` is the platform services planned in #8). It knows no application.
 - **Shared UI** (`ui/`): text, layout, input and widgets for both the game and the editor. Mojo, drawn through wgpu.
-- **Applications**: the game (`app/`) and the editor (`editor/`). Both are Mojo, compiled into the same module.
+- **Applications**: the game (`app/`) is compiled into the wasm64 module. The editor (`editor/`) is Mojo too, but built
+  natively: its process is `ludens-core` (`editor/core_main.mojo`), driven by the `ludens` command line. No editor code is in
+  `build/app.wasm`.
 
-Dependency direction: ludens-engine → {ludens-core, wgpu-mojo, miniaudio-mojo} → ludens-wasm-rt.
+Dependency direction: ludens-engine → {ludens-core, wgpu-mojo, miniaudio-mojo}, and ludens-engine → ludens-wasm-rt directly
+(the build driver and `host.mjs`: `scripts/build_web.py`, `pixi.toml`). ludens-core builds with ludens-wasm-rt too, but as
+a sibling build tool, not through ludens-engine; wgpu-mojo and miniaudio-mojo use it for their own web tests.
 
 ## The arena game
 
@@ -68,7 +73,7 @@ A buffer of 10 000 items (80 000 f32) takes a median 0.1 ms from the worker's `p
 50). Each module's linear memory was 37 to 69 MiB. Ticks fall short of 60 a second because single ticks reach about
 40 ms while the boxes land, and the worker drops time when more than 4 ticks are due. Not measured: a phone.
 
-Frontier, the streamed world, now lives in ludens-playground (its own repository): it runs through the seam below.
+Frontier, the streamed world, now lives in ludens-playground (its own repository): it runs through the `GameMode` seam (`game/mode.mojo`).
 
 ### Virtual pad kit
 
@@ -105,7 +110,7 @@ input is keys, and an analog axis needs a new event kind through `app_input`.
 | `app/main.mojo` | The one Mojo entry. Calls `EmbedWorld`, wgpu and miniaudio Mojo to Mojo; the `app_*` exports are only the JS face. |
 | `app/render.mojo` | Draws the bodies as boxes: one storage buffer, vertex pulling, no vertex buffer. |
 | `app/bench.mojo` | The B3 bench entry (same source for native and wasm64). |
-| `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Empty until #17. |
+| `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Text, font, layout, focus, gesture, immediate-mode widgets, batching; tests are `tests/ui_*.mojo` (`pixi run -e wasm test-ui`). |
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
 | `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |
@@ -264,7 +269,7 @@ path would need its own WebM muxer. `?selftest=record` records 5 s in Firefox, u
 | Import | Meaning |
 |---|---|
 | `net_send(ptr, len) -> i32` | one WebSocket binary message; 0 sent or queued until the socket opens, -1 no socket |
-| `net_poll(buf, cap) -> i64` | next received message copied to `buf`: its length, 0 if none, -1 if it exceeds `cap` (stays queued) |
+| `net_poll(buf, cap) -> i64` | next received message copied to `buf`: its length, 0 if none, -1 if it exceeded `cap` (the host drops it and counts it in `status.dropped`; the next call returns the next one) |
 
 The socket opens from `?ws=<url>`. `app_frame` drains up to 16 packets per frame into a 64 KiB buffer
 (one `net_poll` import call per frame when idle, not counted in the wgpu table above); `app_net_send`,

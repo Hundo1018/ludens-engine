@@ -65,18 +65,28 @@ await tick();
 check(refused === 12 && storage.files.size === before, "12 paths that leave the app's storage or are malformed are all refused, nothing written");
 check(validPath("a/b-c_d.e/f1") && !validPath("a/b/../c"), "validPath agrees on the allowed and the refused form");
 
-// packet larger than the buffer stays queued
+// a packet larger than the buffer is dropped and counted; it must not block the packets behind it
 const big = new Uint8Array(100); big.fill(5);
 const bp2 = rt.alloc(100); rt.put(bp2, big);
 [pp, pl] = str("big.bin");
 rt.call("p_file_write", pp, pl, bp2, 100n);
+const tiny = Uint8Array.from([1, 2, 3, 4]);
+const tp = rt.alloc(4); rt.put(tp, tiny);
+const [tnp, tnl] = str("tiny.bin");
+rt.call("p_file_write", tnp, tnl, tp, 4n);
 await tick();
-rt.call("p_file_request", 5, pp, pl);
+rt.call("p_file_request", 5, pp, pl);      // answer: 106 bytes
+rt.call("p_file_request", 6, tnp, tnl);    // answer: 10 bytes
 await tick();
 const small = rt.alloc(16);
-check(rt.call("p_poll", small, 16n) === -1n, "a packet larger than the buffer returns -1");
-pk = poll();
-check(pk && pk.id === 5 && pk.payload.length === 100, "...and it is still queued: a big enough buffer takes it");
+check(os.status.dropped === 0, "nothing dropped so far");
+check(rt.call("p_poll", small, 16n) === -1n, "a packet larger than the buffer returns -1 once");
+check(os.status.dropped === 1, "...the host counted it (status.dropped)");
+const n2 = Number(rt.call("p_poll", small, 16n));
+const b2 = rt.bytes(small, n2).slice();
+check(n2 === 10 && b2[0] === KIND_FILE && new DataView(b2.buffer).getUint32(1, true) === 6 && b2.slice(6).every((v, i) => v === tiny[i]),
+      "...and the next poll returns the packet behind it, not the same -1 again");
+check(rt.call("p_poll", small, 16n) === 0n, "the queue is then empty");
 
 // no clipboard (a browser that refuses): the call says so
 os = null;
