@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The arena game gives the same numbers natively and as the wasm64 app driven through its `app_*` exports under node.
+"""The demo game gives the same numbers natively and as the wasm64 app driven through its `app_*` exports under node.
 
 Native runs app/game_parity.mojo (serial engine); node loads build/app.wasm, switches to game mode, feeds the same key events
 through app_input and steps app_frame. Also checks the jump's sound effect came out of app_audio_render.
@@ -31,7 +31,7 @@ def main() -> int:
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
     out = subprocess.run([str(ROOT / "build/game_parity")], capture_output=True, text=True, check=True).stdout
-    nat = dict(zip(("hash", "score", "collected", "status"), re.search(r"hash (\d+) score (\d+) collected (\d+) status (\d+)", out).groups()))
+    nat = {"hash": re.search(r"^hash (\d+)", out, re.M).group(1)}
     nat["mesh_hash"] = re.search(r"mesh_hash (\d+)", out).group(1)
     r = subprocess.run(["node", str(ROOT / "scripts/game_node.mjs"), str(ROOT / "build/app.wasm"), str(ludens_wasm_rt.HOST_MJS),
                         str(D / "wgpu-mojo"), str(D / "miniaudio-mojo")], capture_output=True, text=True)
@@ -39,7 +39,7 @@ def main() -> int:
         sys.exit(r.stdout + r.stderr[-2000:])
     wasm = json.loads(r.stdout.strip().splitlines()[-1])
     ok = True
-    for k in ("mesh_hash", "hash", "score", "collected", "status"):
+    for k in ("mesh_hash", "hash"):
         same = str(wasm[{"mesh_hash": "meshHash"}.get(k, k)]) == nat[k]
         ok &= same
         print(f"{k:10} native {nat[k]:>22}  wasm64 {str(wasm[{'mesh_hash': 'meshHash'}.get(k, k)]):>22}  {'equal' if same else 'DIFFERENT'}")

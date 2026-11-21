@@ -17,7 +17,10 @@ Rules (README "Rules"):
       repo needs from wgpu-mojo is imported from the top-level `wgpu` package, which is its public surface. The
       private paths are free to change, and used to be imported at 76 places.
   R5  the renderer (RENDER_MODULES in app/) knows no game: from game/ it may import only RENDER_GAME_ALLOWED (what a
-      game hands it: the draw items and the camera view). The arena, its HUD and its rules stay out of the renderer.
+      game hands it: the draw items and the camera view). A game, its HUD and its rules stay out of the renderer.
+  R7  no module in app/, editor/ or ui/ imports a concrete game (a `game/<name>_mode.mojo`, e.g. `game.demo_mode`) except
+      the shell that runs one (CONCRETE_GAME_IMPORTERS). The engine is independent of any one game: games live in their
+      own repositories (ludens-playground) and reach the shell through `GameMode` (`game/mode.mojo`).
 """
 import argparse
 import re
@@ -34,6 +37,8 @@ MOJO_ONLY_ALLOWED_SUFFIXES = {".mojo", ".md"}
 RENDER_MODULES = {"render3d", "render_pass", "render_res", "primitive_pass", "mesh_pass", "mesh_data", "skin_draw",
                   "shadow_pass", "gpu_mesh", "material", "wgsl", "debug_view", "skin_blend"}  # R5: app/<name>.mojo
 RENDER_GAME_ALLOWED = {"game.draw_item", "game.camera_view"}
+CONCRETE_GAME = re.compile(r"^game\.\w+_mode$")  # R7: game.demo_mode; game.mode is the seam, not a game
+CONCRETE_GAME_IMPORTERS = {"app/main.mojo", "app/game_parity.mojo"}
 
 PRIVATE_WGPU = re.compile(r"^\s*(?:from|import)\s+(wgpu\._[\w.]*)", re.MULTILINE)
 EDITOR_SYMBOL = re.compile(r"\b(?:editor|ed|ui)_[A-Za-z0-9_]*")
@@ -107,6 +112,19 @@ def check(root: Path) -> list[str]:
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append(f"R5 {p.relative_to(root)}:{line}: the renderer imports `{mod}` (allowed from game/: {', '.join(sorted(RENDER_GAME_ALLOWED))})")
 
+    # R7: no concrete game outside the shell that runs one.
+    for sub in ("app", "editor", "ui"):
+        for p in files(root, sub, {".mojo"}):
+            rel = p.relative_to(root).as_posix()
+            if rel in CONCRETE_GAME_IMPORTERS:
+                continue
+            text = p.read_text(encoding="utf-8")
+            for m in IMPORT.finditer(text):
+                mod = m.group(1) or m.group(2)
+                if CONCRETE_GAME.match(mod):
+                    line = text.count("\n", 0, m.start()) + 1
+                    problems.append(f"R7 {rel}:{line}: imports the concrete game `{mod}` (only {', '.join(sorted(CONCRETE_GAME_IMPORTERS))} may)")
+
     # R6: only the public wgpu surface.
     for sub in ("app", "game", "editor", "ui", "tests", "scripts"):
         for p in files(root, sub, {".mojo"}):
@@ -155,9 +173,12 @@ def selftest() -> int:
     expect("built-in imports the command facade", {**clean, "editor/builtin_panels.mojo": "import editor.command\n"}, ["R4"])
     expect("a non-built-in module may import editor internals", {**clean, "editor/entry.mojo": "from editor.command import Standard\n"}, [])
     expect("the renderer imports the draw items and the view", {**clean, "app/mesh_pass.mojo": "from game.draw_item import DrawItem\nfrom game.camera_view import View\n"}, [])
-    expect("the renderer imports the arena", {**clean, "app/render3d.mojo": "from game.arena import DrawItem\n"}, ["R5"])
-    expect("the renderer imports the HUD layout", {**clean, "app/skin_draw.mojo": "import game.hud_layout\n"}, ["R5"])
-    expect("a non-renderer app module may import the game", {**clean, "app/game_parity.mojo": "from game.arena import Arena\n"}, [])
+    expect("the renderer imports a game", {**clean, "app/render3d.mojo": "from game.demo_mode import DemoMode\n"}, ["R5", "R7"])
+    expect("the renderer imports a HUD layout", {**clean, "app/skin_draw.mojo": "import game.hud_layout\n"}, ["R5"])
+    expect("the shell may import the concrete game", {**clean, "app/main.mojo": "from game.demo_mode import DemoMode\n"}, [])
+    expect("a non-shell app module may not", {**clean, "app/other.mojo": "from game.demo_mode import DemoMode\n"}, ["R7"])
+    expect("the editor may not", {**clean, "editor/x.mojo": "from game.arena_mode import ArenaMode\n"}, ["R7"])
+    expect("the seam is not a game", {**clean, "app/other.mojo": "from game.mode import GameMode\n"}, [])
     expect("the public wgpu package is fine", {**clean, "app/gpu_user.mojo": "from wgpu import null_opaque, WGPUTextureFormat\nfrom wgpu.device import Device\n"}, [])
     expect("a private wgpu path in app/", {**clean, "app/gpu_user.mojo": "from wgpu._ffi.nulls import null_opaque\n"}, ["R6"])
     expect("a private wgpu path in tests/", {**clean, "tests/t.mojo": "import wgpu._backend.wgpu_native.alloc_guard\n"}, ["R6"])

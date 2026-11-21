@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the arena game as a static site for GitHub Pages: build/pages.
+"""Build the demo game as a static site for GitHub Pages: build/pages.
 
 `ludens build --target web`, then a copy of build/web without the files only the self-tests read, plus `.nojekyll`
 (Pages must serve every file as it is) and `build.txt` (the commit). The site needs no server-side headers: without

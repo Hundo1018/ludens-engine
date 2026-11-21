@@ -40,7 +40,7 @@ test-editor = "python3 scripts/test_editor.py"
 build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
-test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py arena arena_controls arena_camera arena_sfx arena_hud arena_input game_mode mesh_pass debug_view ao_bake palette_table"
+test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_controls camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
 test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-scene-probe = "python3 scripts/test_native.py scene_probe_native"
 # #90: a whole SceneRenderer frame with every pass and option on (tile means against tests/golden/scene_frame_tiles.txt).

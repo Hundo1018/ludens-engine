@@ -1,8 +1,6 @@
-"""The camera view (game/camera_view.mojo): what lands where on screen, and the chase camera of a played game.
+"""The camera view (game/camera_view.mojo): what lands where on screen.
 Native only: `pixi run -e wasm test-game`."""
-from game.arena import Arena, DT
 from game.camera_view import View
-from game.intent import Intent
 from geometry.quat import Quat
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
@@ -43,19 +41,6 @@ def main() raises:
     var farp = v.project(Vec3(0.0, 0.0, -100.0, 0.0))
     c.ok(abs(nearp.z) < 1e-4 and abs(farp.z - farp.w) < 1e-3, "the near plane maps to z = 0 and the far plane to z = w")
 
-    # the chase camera of a real game sees the player near the centre of the screen
-    var a = Arena()
-    for _ in range(120):
-        a.update(Intent.idle(), 1.0 / 60.0)
-    var view = View(a.cam, 1.78)
-    var p = view.project(a.player_pos())
-    c.ok(p.on_screen() and abs(p.x / p.w) < 0.3, "the player is on screen, near the middle (x = " + String(p.x / p.w) + ", y = " + String(p.y / p.w) + ")")
-    var seen = 0
-    for it in a.draw_items():
-        if view.project(it.pos).on_screen():
-            seen += 1
-    c.ok(seen >= 5, String(seen) + " of the items are on screen from the start")
-
-    print("arena_camera:", c.passed, "/", c.passed + c.failed, "checks")
+    print("camera_view:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
-        raise Error("arena_camera: " + String(c.failed) + " checks failed")
+        raise Error("camera_view: " + String(c.failed) + " checks failed")

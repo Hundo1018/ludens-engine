@@ -60,6 +60,6 @@ def main() raises:
     i = look.poll(m)
     c.ok(i.look_dx == 0 and i.look_dy == 0, "moving the pointer without the button does not turn it")
 
-    print("arena_controls:", c.passed, "/", c.passed + c.failed, "checks")
+    print("game_controls:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
-        raise Error("arena_controls: " + String(c.failed) + " checks failed")
+        raise Error("game_controls: " + String(c.failed) + " checks failed")

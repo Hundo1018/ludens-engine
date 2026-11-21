@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Play the arena game in headless Chrome (SwiftShader WebGPU, no GPU needed) and save PNG frames to build/shots/.
+"""Play the demo game in headless Chrome (SwiftShader WebGPU, no GPU needed) and save PNG frames to build/shots/.
 
 Builds the web bundle, serves it, drives the keyboard (hold W+D, then pause) through scripts/game_screenshot.mjs.
 Run: pixi run -e wasm game-shot"""

@@ -1,6 +1,6 @@
 name: pages
 
-# The arena game as a static site: https://hundo1018.github.io/ludens-engine/
+# The demo game as a static site: https://hundo1018.github.io/ludens-engine/
 # Needs, once: repository Settings -> Pages -> Source: GitHub Actions.
 on:
   push:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase A of the arena sample game: engine gameplay / ai / nav compile and agree on native and wasm64.
+"""Phase A of a sample game: engine gameplay / ai / nav compile and agree on native and wasm64.
 
 Builds app/spike_probe.mojo natively (serial engine) and as wasm64, runs both and compares every number.
 

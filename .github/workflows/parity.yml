@@ -37,9 +37,9 @@ jobs:
       - name: Skinning parity (B1 CPU and GPU, B2 GPU against CPU) on lavapipe
         run: pixi run -e wasm test-skinning
 
-      - name: Arena centre probe on native wgpu (rigid and skinned, lavapipe)
+      - name: Centre probe on native wgpu (rigid and skinned, lavapipe)
         run: pixi run -e wasm test-scene-probe
-      - name: Whole arena frame, every pass and option on (#90), on lavapipe
+      - name: Whole scene frame, every pass and option on (#90), on lavapipe
         run: pixi run -e wasm test-scene-frame
       - name: Render pipelines (a user-defined one, the 53 style pipelines, their listing) on lavapipe
         run: |
@@ -60,5 +60,5 @@ jobs:
           export CHROME="$(command -v google-chrome)"
           pixi run -e wasm parity-gate
 
-      - name: Arena game in headless Chrome (software WebGPU), frames checked
+      - name: Demo game in headless Chrome (software WebGPU), frames checked
         run: pixi run -e wasm game-shot

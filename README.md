@@ -16,7 +16,12 @@ Dependency direction: ludens-engine → {ludens-core, wgpu-mojo, miniaudio-mojo}
 (the build driver and `host.mjs`: `scripts/build_web.py`, `pixi.toml`). ludens-core builds with ludens-wasm-rt too, but as
 a sibling build tool, not through ludens-engine; wgpu-mojo and miniaudio-mojo use it for their own web tests.
 
-## The arena game
+## The demo game
+
+The engine ships one small game, `game/demo_mode.mojo`, so the shell has something to play and the checks have something to
+measure. It is not a showcase: the engine knows no game beyond the `GameMode` seam (`game/mode.mojo`; layout rule R7). A
+full game built on it is [ludens-playground](https://github.com/Hundo1018/ludens-playground) (the Frontier, and the
+old arena game).
 
 Play it in the browser: https://hundo1018.github.io/ludens-engine/ (Chrome 133+ or Firefox 134+ on a desktop; the page
 says so if the browser lacks WebGPU or 64-bit WebAssembly memory). The site is `pixi run -e wasm build-pages`
@@ -26,9 +31,8 @@ audio blocks to the worklet instead of sharing a ring with it. `build-pages --ch
 headers and plays it in headless Chrome, sound included.
 
 
-Open the page (`pixi run -e wasm serve-web`, Chrome 133+ or Firefox 134+) and you are in a walled arena. Collect the 8 gold spheres
-within 90 seconds; two red chasers walk the navmesh after you, a bar sweeps the middle, and after the 4th sphere crates rain.
-Each hit costs 25 of 100 health and gives one second of immunity. Win by collecting all 8, lose at 0 health or when time is up.
+Open the page (`pixi run -e wasm serve-web`, Chrome 133+ or Firefox 134+) and you control a ball on a floor with four pillars and
+three crates to push; Space jumps with a sound, P pauses.
 
 | Input | Action |
 |---|---|
@@ -42,9 +46,9 @@ Each hit costs 25 of 100 health and gives one second of immunity. Win by collect
 
 `?demo` or any `?selftest` loads the old physics demo instead; the parity gates and selftests measure that one.
 
-Where it lives: rules in `game/arena.mojo` (no window, no GPU), input in `game/controls.mojo`, `app/controls.mojo` and
+Where it lives: the game in `game/demo_mode.mojo` (no window, no GPU), input in `game/controls.mojo`, `app/controls.mojo` and
 `shell/web/pad.ts` (gamepad) and the virtual pad kit below (touch), which become the same key and pointer events, drawing in `app/render3d.mojo` and
-`app/hud.mojo` (text from `ui/font.mojo`), sound synthesised in `game/sfx.mojo` and played as clips by the audio scene.
+`app/hud.mojo` (text from `ui/font.mojo`), its sound clip from `GameMode.sounds`, played by the audio scene.
 
 Tests: `pixi run -e wasm test-game` plays whole games from scripts and drives the real `InputState`; `test-pad` and `test-vpad` check the
 gamepad mapping and the virtual pad under node; `game-parity` compares native with the wasm64 app driven through its `app_*` exports;
@@ -86,10 +90,10 @@ On-screen controls for touch players, in two files with no dependency on the res
   touched), placed from the viewport edges plus the safe-area inset. Hidden until the page sees a touch or the device's
   main pointer is coarse; `?touch` forces it.
 
-The arena's layout is `ARENA_PAD` in `shell/web/app.ts`:
+The shell's layout is `DEFAULT_PAD` in `shell/web/app.ts`:
 
 ```ts
-const ARENA_PAD: PadLayout = {
+const DEFAULT_PAD: PadLayout = {
   sticks: [{ id: "move", radius: 56, dead: 0.2, at: { left: 36, bottom: 36 }, keys: { up: KEY.W, down: KEY.S, left: KEY.A, right: KEY.D } }],
   buttons: [
     { id: "jump", key: KEY.SPACE, label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
@@ -100,7 +104,7 @@ const ARENA_PAD: PadLayout = {
 };
 ```
 
-A stick reports its vector (`PadSink.stick(id, x, y)`, -1..1), but the arena reads it as eight directions: the game's
+A stick reports its vector (`PadSink.stick(id, x, y)`, -1..1), but the game reads it as eight directions: the game's
 input is keys, and an analog axis needs a new event kind through `app_input`.
 
 ## Layout
@@ -142,8 +146,8 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
 4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
    `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
 5. **The renderer knows no game** (#90). The render modules in `app/` (`RENDER_MODULES` in `check_layout.py`) import from
-   `game/` only `game.draw_item` (the draw items and material IDs) and `game.camera_view`. `game.arena` re-exports
-   `DrawItem` for existing hosts.
+   `game/` only `game.draw_item` (the draw items and material IDs) and `game.camera_view`. No module in `app/`, `editor/` or `ui/` imports a concrete game except the shell
+   (`CONCRETE_GAME_IMPORTERS`, R7).
 
 ## Command line
 

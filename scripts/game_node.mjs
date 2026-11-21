@@ -19,7 +19,7 @@ wrt.attach(rt);
 const [ptr, len] = rt.str_in("#canvas");
 const app = rt.call("app_init", ptr, len, 640, 480);
 if (app === 0n) throw new Error("app_init returned 0");
-if (rt.call("app_game_status", app) !== -1) throw new Error("a game before app_set_mode");
+if (rt.call("app_game_hash", app) !== 0n) throw new Error("a game before app_set_mode");
 if (rt.call("app_set_mode", app, 1) !== 0) throw new Error("app_set_mode failed");
 
 const KEY = 1, DOWN = 1, UP = 0;
@@ -40,6 +40,5 @@ for (let f = 0; f < 240; f++) {
 const g = (n) => rt.call(n, app);
 console.log(JSON.stringify({
   meshHash: BigInt.asUintN(64, rt.call("app_mesh_hash")).toString(),
-  hash: BigInt.asUintN(64, g("app_game_hash")).toString(), score: Number(g("app_game_score")),
-  collected: Number(g("app_game_collected")), status: Number(g("app_game_status")), rmsAfterJump,
+  hash: BigInt.asUintN(64, g("app_game_hash")).toString(), rmsAfterJump,
 }));

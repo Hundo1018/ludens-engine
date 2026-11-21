@@ -1,4 +1,4 @@
-"""Phase A probe for the arena sample game: do the engine's gameplay, ai and nav packages compile here, native and wasm64,
+"""Phase A probe for a sample game: do the engine's gameplay, ai and nav packages compile here, native and wasm64,
 and do they give the same answer? One world, a dynamic character, a spring-arm camera, rules, a behavior tree, a navmesh
 path, a game flow and a timer heap, stepped and hashed.
 

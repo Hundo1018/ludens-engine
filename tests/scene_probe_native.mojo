@@ -1,5 +1,5 @@
 # tier: integration
-# The arena's centre probe on native wgpu: the rigid cube (mode 1) and the skinned cube with the identity joint (2)
+# The centre probe on native wgpu: the rigid cube (mode 1) and the skinned cube with the identity joint (2)
 # and with its joint turned 20 deg (3), drawn into an RGBA8 target, read back, centre pixel checked against the
 # derived colours. This is the native half of design 1.10 A.2 and the lavapipe half of U3 (a vertex-stage storage
 # buffer). Needs a GPU adapter: lavapipe in the parity job.
@@ -7,7 +7,7 @@ from harness.runner import Suite
 from wgpu import Instance
 from wgpu import WGPUTextureFormat, WGPUTextureUsage
 from wgpu.capture import FrameCapture, padded_row_pitch
-from game.arena_mode import ArenaMode
+from game.demo_mode import DemoMode
 from game.camera_view import View
 from geometry.vec import Real
 from hud import Hud
@@ -25,7 +25,7 @@ def main() raises:
     var target = device.create_texture(
         W, H, 1, format, WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.COPY_SRC, label="probe_target",
     )
-    var m = ArenaMode()
+    var m = DemoMode()
     var view = View(m.camera(), Real(Float32(W) / Float32(H)))
     var hud = Hud(device, format)
     hud.set(m.hud(Float32(W), Float32(H), 0.0), Float32(W), Float32(H))

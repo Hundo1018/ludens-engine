@@ -2,7 +2,7 @@
 
 A host (`app/`) is generic over a `GameMode` (`app/main.mojo` `AppOf[M, P]`), so the call to the game is resolved when the
 program is built and nothing is looked up at run time. A game conforms by wrapping its state in a struct that implements
-these methods; see `game/arena_mode.mojo`. The game's own rules never import this file."""
+these methods; see `game/demo_mode.mojo`. The game's own rules never import this file."""
 from game.intent import Intent
 from game.draw_item import DrawItem
 from procedural.camera_math import CameraPose
@@ -28,6 +28,11 @@ trait GameMode(Movable, Deinitable):
 
     def cues(mut self) -> List[Int]:
         """Sound cues raised since the last call; a game with no sound returns an empty list."""
+        ...
+
+    def sounds(self, rate: Int) -> List[List[Float32]]:
+        """The game's sound clips as interleaved stereo samples at `rate` Hz; `cues()` numbers them from 1 (clip i is
+        cue i + 1). The host registers them once. A game with no sound returns an empty list."""
         ...
 
     def hud(self, width: Float32, height: Float32, frame_ms: Float32) raises -> DrawList:
