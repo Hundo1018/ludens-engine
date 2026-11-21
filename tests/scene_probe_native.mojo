@@ -11,14 +11,14 @@ from game.arena_mode import ArenaMode
 from game.camera_view import View
 from geometry.vec import Real
 from hud import Hud
-from app.render3d import ArenaRenderer
+from app.render3d import SceneRenderer
 
 comptime W: UInt32 = 960
 comptime H: UInt32 = 540
 
 
 def main() raises:
-    var s = Suite("arena_probe_native")
+    var s = Suite("scene_probe_native")
     var instance = Instance()
     var device = instance.request_adapter().request_device()
     var format = WGPUTextureFormat.RGBA8Unorm
@@ -29,7 +29,7 @@ def main() raises:
     var view = View(m.camera(), Real(Float32(W) / Float32(H)))
     var hud = Hud(device, format)
     hud.set(m.hud(Float32(W), Float32(H), 0.0), Float32(W), Float32(H))
-    var renderer = ArenaRenderer(device, format, view)
+    var renderer = SceneRenderer(device, format, view)
     var cap = FrameCapture(device, W, H)
     var items = m.scene()
     var pitch = Int(padded_row_pitch(W))

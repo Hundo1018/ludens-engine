@@ -1,4 +1,4 @@
-"""Skinning for the arena's meshes (step 5 PR B): the palette a skinned draw reads, and the CPU reference it is
+"""Skinning for the scene's meshes (step 5 PR B): the palette a skinned draw reads, and the CPU reference it is
 checked against. The GPU path (compute and vertex) builds on the same palette.
 
 A palette holds one 4x4 matrix per joint, world * inverse bind, written column-major: the layout WGSL's mat4x4<f32>

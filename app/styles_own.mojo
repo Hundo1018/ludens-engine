@@ -157,7 +157,7 @@ def frame_hash(items: List[DrawItem]) -> UInt64:
 
 
 def hash_user(h: UInt64) -> SIMD[DType.float32, 4]:
-    """A 64-bit hash as four 16-bit numbers, for ArenaRendererOf.post_user (the cells FingerprintLook draws)."""
+    """A 64-bit hash as four 16-bit numbers, for SceneRendererOf.post_user (the cells FingerprintLook draws)."""
     return SIMD[DType.float32, 4](
         Float32(Int(h & 0xFFFF)), Float32(Int((h >> 16) & 0xFFFF)), Float32(Int((h >> 32) & 0xFFFF)), Float32(Int((h >> 48) & 0xFFFF)),
     )

@@ -16,7 +16,7 @@ the paint order, however large it is and whatever it overlaps.
     fn place(cell : vec2<f32>, layer : u32) -> Stroke { ... }       // pixels
     fn shape(q : vec2<f32>, color : vec4<f32>, seed : f32) -> vec4<f32> { ... }   // q in -1 .. 1 across the quad
     '''
-    ArenaRendererOf[Passes, Strokes[Dots]]
+    SceneRendererOf[Passes, Strokes[Dots]]
 """
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPUBufferBindingType,

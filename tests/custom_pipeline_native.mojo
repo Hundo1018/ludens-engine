@@ -21,7 +21,7 @@ from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, Then, AuxTarget, NoAux, Aux
 from app.render_res import RenderResources, RenderCaps
 from app.mesh_data import MeshRegistry
@@ -116,7 +116,7 @@ def frame[P: RenderPass, F: PostEffect, A: AuxTarget](device: Device, mut cap: F
     var aspect = Real(Float32(W) / Float32(H))
     var eye = _v(0, 2.5, 7)
     var view = View(CameraPose(eye, look_rotation(_v(0, 0.8, 0) - eye, _v(0, 1, 0)), 0.9, aspect, 0.1, 500.0), aspect)
-    var r = ArenaRendererOf[P, F, A](device, WGPUTextureFormat.RGBA8Unorm, view)
+    var r = SceneRendererOf[P, F, A](device, WGPUTextureFormat.RGBA8Unorm, view)
     r.begin(view.copy())
     r.push(DrawItem(0, _v(0, -0.25, 0), 0.0, 0.0, 0.0, 1.0, _v(16, 0.5, 16), _v(0.6, 0.65, 0.55), r.cube, -1, MAT_COLOR))
     r.push(DrawItem(0, _v(-1.5, 1.0, 0), 0.0, 0.2, 0.0, 0.98, _v(1.2, 2.0, 1.2), _v(0.85, 0.3, 0.25), r.cube, -1, MAT_COLOR))

@@ -2,7 +2,7 @@
 ObjectMotionBlur).
 
     comptime Blur = Stage[ObjectMotionBlur]
-    var r = ArenaRendererOf[MyPasses, Blur, Aux[VelocityPass]](device, format, view)
+    var r = SceneRendererOf[MyPasses, Blur, Aux[VelocityPass]](device, format, view)
     r.shutter = 0.5
 
 VelocityPass draws every rigid item (meshes, and boxes and spheres as the unit cube and sphere) into the aux target with
@@ -138,7 +138,7 @@ def _build(device: Device, shader: ShaderModule, layout: PipelineLayout, color_f
 
 
 def as_mesh(it: DrawItem, res: RenderResources) -> DrawItem:
-    """A box or sphere primitive as the unit cube or sphere mesh (as ArenaRendererOf.push does for textured ones)."""
+    """A box or sphere primitive as the unit cube or sphere mesh (as SceneRendererOf.push does for textured ones)."""
     var o = it.copy()
     if o.mesh_id < 0 and o.pose_id < 0:
         if o.kind == 1:

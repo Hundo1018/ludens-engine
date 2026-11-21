@@ -16,7 +16,7 @@ from game.controls import Controls
 from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
-from render3d import ArenaRendererOf, DefaultPasses
+from render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget, NoAux
 from app.post import PostEffect, NoPost, scene_aspect
 from app.mesh_pass import mesh_probe_hash
@@ -75,7 +75,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
-    var arena_renderer: Optional[ArenaRendererOf[Self.P, Self.F, Self.A]]
+    var arena_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
     var game_format: UInt32
 
@@ -201,7 +201,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         if not self.hud:
             self.hud = Hud(self.boot.device(), format)
         if not self.arena_renderer:
-            self.arena_renderer = ArenaRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
+            self.arena_renderer = SceneRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
         self.arena_renderer.value().begin(view)
         self.arena_renderer.value().probe = self.probe_cube
         for it in m.scene():

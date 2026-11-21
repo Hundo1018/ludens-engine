@@ -6,13 +6,13 @@ into the frame's colour pass. `Then[P, Q]` is itself a RenderPass that runs P, t
 `Then`, chosen at compile time:
 
     comptime MyPasses = Then[PrimitivePass, Then[MeshPass, Then[SkinnedPass, MyOutlinePass]]]
-    var r = ArenaRendererOf[MyPasses](device, format, view)
+    var r = SceneRendererOf[MyPasses](device, format, view)
 
 The renderer (app/render3d.mojo) owns what the passes share and hands it to them: the draw items, the mesh registry and
 its GPU copies (GpuMeshCache), the skinning palette, the view, the textures and RenderResources (camera, shadow map and
 uniform, atmosphere, AO). The camera header is written by the renderer before `prepare`.
 
-Why a binary composite and not `Pipeline[*Ps]`: the renderer must build its passes itself (`ArenaRenderer(device,
+Why a binary composite and not `Pipeline[*Ps]`: the renderer must build its passes itself (`SceneRenderer(device,
 format, view)`), and Mojo 1.2.0 has no safe way to build the elements of a `Tuple[*Ps]` one by one inside a
 `comptime for`; `Then.create` builds both halves with ordinary calls.
 """

@@ -38,9 +38,9 @@ jobs:
         run: pixi run -e wasm test-skinning
 
       - name: Arena centre probe on native wgpu (rigid and skinned, lavapipe)
-        run: pixi run -e wasm test-arena-probe
+        run: pixi run -e wasm test-scene-probe
       - name: Whole arena frame, every pass and option on (#90), on lavapipe
-        run: pixi run -e wasm test-arena-frame
+        run: pixi run -e wasm test-scene-frame
       - name: Render pipelines (a user-defined one, the 53 style pipelines, their listing) on lavapipe
         run: |
           pixi run -e wasm python3 scripts/test_native.py style_own custom_pipeline_native

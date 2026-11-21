@@ -1,29 +1,29 @@
 # tier: integration
-# A whole frame of ArenaRenderer with every pass and option on (issue #90, step 1): colour primitives, textured
+# A whole frame of SceneRenderer with every pass and option on (issue #90, step 1): colour primitives, textured
 # primitives on the mesh pass (uv and triplanar), the skinned probe cube, the shadow pass, the baked AO grid, the
 # atmosphere (sky sphere, fog, linear workflow with ACES) and the HUD. 960 x 540 on native wgpu, read back.
 #
 # Two results:
-#   - the mean colour of each 60 x 60 tile (16 x 9 tiles) against tests/golden/arena_frame_tiles.txt, within 2 / 255.
+#   - the mean colour of each 60 x 60 tile (16 x 9 tiles) against tests/golden/scene_frame_tiles.txt, within 2 / 255.
 #     This is what CI checks: it holds across Mesa versions and catches a pass that stopped drawing or changed its
 #     shading.
 #   - "frame hash", an FNV-1a of every pixel. It is printed, not checked: it is exact only for one driver build. A
 #     change that claims to leave the renderer's output unchanged quotes this line before and after, from one machine.
-# A third result: the pass list is customisable. ArenaRendererOf[Then[ShadowPass, DefaultPasses]] renders the shadow map
+# A third result: the pass list is customisable. SceneRendererOf[Then[ShadowPass, DefaultPasses]] renders the shadow map
 # itself, in its own command buffer; its frame must equal the default renderer's after a separate ShadowPass.draw.
 # A fourth: materials (app/material.mojo) shade the same on both mesh passes. A skinned cube at the identity pose in each
 # built-in material gives the frame of the static unit cube in that material (shadow and AO off: the skinned pass has
 # no AO).
 # A seventh: the engine-specific view (#90 step 5), motor skinning beside LBS. A bar along x whose right end is
 # twisted 170 degrees about its axis: with LinearBlend (the default renderer) its middle collapses toward the axis (the
-# candy wrapper); ArenaRendererOf[..MotorSkinnedPass] keeps its cross-section. Measured as the bar's height on screen at
+# candy wrapper); SceneRendererOf[..MotorSkinnedPass] keeps its cross-section. Measured as the bar's height on screen at
 # its middle column over its height near the ends; --dump writes both frames (out.rgba.lbs.rgba / .motor.rgba).
 # A sixth: MAT_PBR (#90 step 4). A smooth PBR sphere has a highlight brighter than the colour-only sphere's brightest
 # pixel; a rough one's is lower than the smooth one's.
 # A fifth: point lights (#90 step 3). A red light beside the floor adds red to many pixels and takes no more than 1 / 255
 # from any; with the lights cleared again the frame is the no-light frame exactly.
-# `arena_frame_native --record` rewrites the tile file (a deliberate change of the picture);
-# `arena_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at, and the
+# `scene_frame_native --record` rewrites the tile file (a deliberate change of the picture);
+# `scene_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at, and the
 # three spheres of the MAT_PBR checks as out.rgba.color.rgba / .pbr_smooth.rgba / .pbr_rough.rgba.
 # The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
 from std.math import sqrt, sin, cos
@@ -44,7 +44,7 @@ from hud import Hud
 from ui.draw import DrawList
 from app.ao_bake import ao_bake
 from app.render_res import PointLight
-from app.render3d import ArenaRenderer, ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRenderer, SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, Then
 from app.primitive_pass import PrimitivePass
 from app.mesh_pass import MeshPass
@@ -56,7 +56,7 @@ from app.shadow_pass import ShadowPass
 comptime W: UInt32 = 960
 comptime H: UInt32 = 540
 comptime TILE = 60
-comptime TILES_FILE = "tests/golden/arena_frame_tiles.txt"
+comptime TILES_FILE = "tests/golden/scene_frame_tiles.txt"
 
 
 def _v(x: Float64, y: Float64, z: Float64) -> Vec3:
@@ -118,7 +118,7 @@ def _capture_pixels(device: Device, mut cap: FrameCapture, target: Texture) rais
 
 
 def _sphere_peak(
-    device: Device, mut r: ArenaRenderer, mut cap: FrameCapture, target: Texture, hud: Hud, material: Int,
+    device: Device, mut r: SceneRenderer, mut cap: FrameCapture, target: Texture, hud: Hud, material: Int,
     roughness: Float32, metallic: Float32, dump: String = String(),
 ) raises -> Int:
     """The brightest pixel (r + g + b) of a grey sphere (radius 1, the unit sphere mesh) alone in front of the camera."""
@@ -147,7 +147,7 @@ def _rot_x(deg: Float64) -> Mat4:
     return m^
 
 
-def _twist_bar[P: RenderPass](mut r: ArenaRendererOf[P]) raises -> Int:
+def _twist_bar[P: RenderPass](mut r: SceneRendererOf[P]) raises -> Int:
     """Register the bar (x from -2 to 2, 16 segments, square cross-section 0.6 wide; joint 0 at the left end, joint 1
     at the right, weights linear in x) and set the palette: joint 0 identity, joint 1 turned 170 degrees about x.
     Returns the skinned mesh id."""
@@ -195,7 +195,7 @@ def _twist_bar[P: RenderPass](mut r: ArenaRendererOf[P]) raises -> Int:
 
 
 def _bar_heights[P: RenderPass](
-    device: Device, mut r: ArenaRendererOf[P], mesh: Int, mut cap: FrameCapture, target: Texture, hud: Hud, dump: String,
+    device: Device, mut r: SceneRendererOf[P], mesh: Int, mut cap: FrameCapture, target: Texture, hud: Hud, dump: String,
 ) raises -> Tuple[Int, Int]:
     """Draw the bar alone and measure it: (pixels it covers in the middle column, the mean over the columns a tenth of
     its width in from each end). A pixel is the bar's when it differs from the top-left (clear colour) pixel."""
@@ -228,7 +228,7 @@ def _bar_heights[P: RenderPass](
     return (cols[(first + last) // 2], (cols[first + inset] + cols[last - inset]) // 2)
 
 
-def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: List[Float32], ao: List[Float32]) raises:
+def _options[P: RenderPass](device: Device, mut r: SceneRendererOf[P], light: List[Float32], ao: List[Float32]) raises:
     """Every option on, as frame 0 of the reference; no probe cube (it is added inside draw(), after a separate shadow
     pass has run, so only a shadow pass inside the list would see it)."""
     r.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.02, 1.0, True, True)
@@ -241,7 +241,7 @@ def _options[P: RenderPass](device: Device, mut r: ArenaRendererOf[P], light: Li
 
 
 def _one_cube_hash(
-    device: Device, mut r: ArenaRenderer, mut cap: FrameCapture, target: Texture, hud: Hud, material: Int, skinned: Bool,
+    device: Device, mut r: SceneRenderer, mut cap: FrameCapture, target: Texture, hud: Hud, material: Int, skinned: Bool,
 ) raises -> UInt64:
     """A unit cube (half 1) turned 30 degrees about y in front of the camera, on texture layer 1, alone."""
     r.probe = 0
@@ -268,7 +268,7 @@ def scene() -> List[DrawItem]:
 
 
 def main() raises:
-    var s = Suite("arena_frame_native")
+    var s = Suite("scene_frame_native")
     var record = len(argv()) > 1 and String(argv()[1]) == "--record"
     var dump = String(argv()[2]) if len(argv()) > 2 and String(argv()[1]) == "--dump" else String()
     var device = Instance().request_adapter().request_device()
@@ -283,7 +283,7 @@ def main() raises:
     var hud = Hud(device, format)
     var dl = DrawList()
     hud.set(dl, Float32(W), Float32(H))
-    var renderer = ArenaRenderer(device, format, view)
+    var renderer = SceneRenderer(device, format, view)
     var shadow = ShadowPass(device, WGPUTextureFormat.Depth32Float)
     var light = sun_light_vp()
 
@@ -355,7 +355,7 @@ def main() raises:
     shadow.draw(device, casters, renderer.meshes, light, renderer.shadow_target(), renderer.skin_palette.copy())
     renderer.draw(device, target.handle().raw, W, H, hud)
     var h_separate = _capture_hash(device, cap, target)
-    var inside = ArenaRendererOf[Then[ShadowPass, DefaultPasses]](device, format, view)
+    var inside = SceneRendererOf[Then[ShadowPass, DefaultPasses]](device, format, view)
     _options(device, inside, light, ao)
     inside.draw(device, target.handle().raw, W, H, hud)
     var h_inside = _capture_hash(device, cap, target)
@@ -367,7 +367,7 @@ def main() raises:
     var h_off = _capture_hash(device, cap, target)
     _keep(target)
     print("pass list: separate shadow pass", h_separate, "; shadow pass in the list", h_inside, "; in the list, shadow off", h_off)
-    s.check(h_inside == h_separate, "ArenaRendererOf[Then[ShadowPass, DefaultPasses]] draws the frame of a separate ShadowPass.draw")
+    s.check(h_inside == h_separate, "SceneRendererOf[Then[ShadowPass, DefaultPasses]] draws the frame of a separate ShadowPass.draw")
     s.check(h_off != h_inside, "with the renderer's shadow off, the listed shadow pass does not draw (the frame changes)")
 
     # materials: the skinned pass shades each built-in material as the mesh pass does
@@ -387,7 +387,7 @@ def main() raises:
     renderer.set_atmosphere(device, _v(0.25, 0.45, 0.8), _v(0.75, 0.8, 0.85), 0.0, 1.0, False, False)
     renderer.set_shadow(device, light, False)
     var bar_lbs = _twist_bar(renderer)
-    var motor = ArenaRendererOf[Then[PrimitivePass, Then[MeshPass, MotorSkinnedPass]]](device, format, view)
+    var motor = SceneRendererOf[Then[PrimitivePass, Then[MeshPass, MotorSkinnedPass]]](device, format, view)
     var bar_motor = _twist_bar(motor)
     var lbs_h = _bar_heights(device, renderer, bar_lbs, cap, target, hud, dump + ".lbs.rgba" if dump.byte_length() > 0 else String())
     var mot_h = _bar_heights(device, motor, bar_motor, cap, target, hud, dump + ".motor.rgba" if dump.byte_length() > 0 else String())

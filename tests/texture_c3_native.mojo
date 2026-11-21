@@ -13,7 +13,7 @@ from game.draw_item import DrawItem
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
-from app.render3d import ArenaRenderer
+from app.render3d import SceneRenderer
 
 comptime W: UInt32 = 960
 comptime H: UInt32 = 540
@@ -31,7 +31,7 @@ def main() raises:
     var cam = CameraPose(Vec3(Real(4.0), Real(0.0625), Real(0.0625), Real(0.0)), rot, Real(0.7), Real(Float32(W) / Float32(H)), Real(0.1), Real(100.0))
     var view = View(cam, Real(Float32(W) / Float32(H)))
     var hud = Hud(device, format)
-    var renderer = ArenaRenderer(device, format, view)
+    var renderer = SceneRenderer(device, format, view)
     renderer.begin(view)
     # a 1 m cube at the origin: the unit mesh (half-extent 0.5) scaled by half = 1, material 2 on layer 1
     renderer.push(DrawItem(-1, Vec3(Real(0.0), Real(0.0), Real(0.0), Real(0.0)), 0.0, 0.0, 0.0, 1.0,

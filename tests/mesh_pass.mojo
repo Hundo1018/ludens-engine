@@ -133,8 +133,8 @@ def main() raises:
 
     # ludens-engine#71: the capacities are chosen at creation; the defaults are the former constants
     var d = RenderCaps.default()
-    s.check(d.arena_instances == 8192 and d.mesh_instances == 8192 and d.palette_matrices == 4096,
-            "RenderCaps defaults: 8192 arena items, 8192 mesh instances, 4096 palette matrices")
+    s.check(d.primitive_instances == 8192 and d.mesh_instances == 8192 and d.palette_matrices == 4096,
+            "RenderCaps defaults: 8192 primitive items, 8192 mesh instances, 4096 palette matrices")
     var bad = 0
     try:
         RenderCaps(8192, 0, 4096).check()

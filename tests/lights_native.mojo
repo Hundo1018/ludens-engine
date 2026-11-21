@@ -18,7 +18,7 @@ from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import Then
 from app.render_res import PointLight
 from app.shadow_pass import ShadowPass
@@ -41,7 +41,7 @@ struct Rig(Movable):
     var target: Texture
     var cap: FrameCapture
     var hud: Hud
-    var r: ArenaRendererOf[Lit]
+    var r: SceneRendererOf[Lit]
     var view: View
     var px: List[UInt8]
 
@@ -56,7 +56,7 @@ struct Rig(Movable):
         var aspect = Real(Float32(W) / Float32(H))
         var eye = _v(0, 12, 0)
         self.view = View(CameraPose(eye, look_rotation(_v(0, -1, 0), _v(0, 0, -1)), 0.9, aspect, 0.1, 100.0), aspect)
-        self.r = ArenaRendererOf[Lit](self.device, format, self.view)
+        self.r = SceneRendererOf[Lit](self.device, format, self.view)
         self.px = List[UInt8]()
 
     def clear(mut self) raises:

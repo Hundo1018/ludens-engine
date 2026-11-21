@@ -1,5 +1,5 @@
-"""The arena's primitives (boxes and spheres by vertex pulling, lit and coloured per instance) as a RenderPass: the
-items with no mesh (mesh_id < 0), up to RenderCaps.arena_instances per frame (the rest are dropped).
+"""The scene's primitives (boxes and spheres by vertex pulling, lit and coloured per instance) as a RenderPass: the
+items with no mesh (mesh_id < 0), up to RenderCaps.primitive_instances per frame (the rest are dropped).
 
 Buffer layout (vec4<f32> elements): [0] eye.xyz + sx, [1] right.xyz + sy, [2] up.xyz + near, [3] fwd.xyz + far, [4] (count);
 instance i is four elements at 5 + 4 i: position + kind (0 box, 1 sphere), rotation xyzw, half extents, colour.
@@ -150,13 +150,13 @@ struct PrimitivePass(RenderPass):
     var buffer: Buffer
     var group: BindGroup
     var staging: List[Float32]
-    var max_items: Int  # RenderCaps.arena_instances
+    var max_items: Int  # RenderCaps.primitive_instances
     var count: Int  # primitives this frame (prepare)
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref res: RenderResources, caps: RenderCaps) raises:
         caps.check()
-        self.max_items = caps.arena_instances
-        var shader = device.create_shader_module_wgsl(WGSL, "arena")
+        self.max_items = caps.primitive_instances
+        var shader = device.create_shader_module_wgsl(WGSL, "primitives")
         var entries: List[WGPUBindGroupLayoutEntry] = [
             WGPUBindGroupLayoutEntry(
                 null_opaque(), UInt32(0), WGPUShaderStage.VERTEX.value, UInt32(0),
@@ -174,17 +174,17 @@ struct PrimitivePass(RenderPass):
             ),
         ]
         var bgl = device.create_bind_group_layout(entries)
-        var layout = device.create_pipeline_layout(bgl, "arena_layout")
+        var layout = device.create_pipeline_layout(bgl, "primitives_layout")
         self.pipeline = device.create_render_pipeline(
             shader, "vs_main", "fs_main", color_format, layout, depth_format=depth_format
         )
-        var bytes = UInt64((5 + 4 * caps.arena_instances) * 16)
-        self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="arena")
+        var bytes = UInt64((5 + 4 * caps.primitive_instances) * 16)
+        self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="primitives")
         var bg_entries: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.buffer.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 1, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
         ]
-        self.group = device.create_bind_group(bgl, bg_entries, "arena_group")
+        self.group = device.create_bind_group(bgl, bg_entries, "primitives_group")
         self.staging = List[Float32]()
         self.count = 0
 

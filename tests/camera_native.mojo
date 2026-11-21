@@ -21,7 +21,7 @@ from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, Then, AuxTarget, NoAux
 from app.render_res import PointLight
 from app.shadow_pass import ShadowPass
@@ -68,7 +68,7 @@ def read(device: Device, mut cap: FrameCapture, tex: WGPUTextureHandle, w: Int, 
     return out^
 
 
-def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: ArenaRendererOf[P, F, A], many: Bool):
+def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: SceneRendererOf[P, F, A], many: Bool):
     """A floor, two boxes 2 m wide at z = 0 and z = -20, a ball, a tall box off to the side whose shadow reaches the
     middle; with `many`, 300 more boxes in a ring 60 to 90 m out."""
     r.push(DrawItem(0, _v(0, -0.25, 0), 0.0, 0.0, 0.0, 1.0, _v(120, 0.5, 120), _v(0.7, 0.7, 0.7), r.cube, -1, MAT_COLOR))
@@ -132,7 +132,7 @@ def main() raises:
     # ---- orthographic
     var persp = View(cam, Real(aspect))
     var ortho = View.orthographic(cam, 4.0, Real(aspect))
-    var r = ArenaRendererOf[Lit](device, format, persp)
+    var r = SceneRendererOf[Lit](device, format, persp)
     r.set_shadow(device, sun_shadow_vp(_v(0.4, 1.0, 0.6), _v(0, 0, -8), 30.0, 60.0), True)
     r.begin(persp.copy())
     scene(r, False)
@@ -168,7 +168,7 @@ def main() raises:
     s.check(Int(fi[o_sun]) > 100 and Int(fi[o_sh]) < 10, "orthographic: the sun's shadow falls where the geometry puts it")
     # a stage that turns depth back into world positions, in both projections: the ball's top (y up to 1.2) is white,
     # the floor black
-    var rw = ArenaRendererOf[DefaultPasses, Stage[WorldHeight]](device, format, persp)
+    var rw = SceneRendererOf[DefaultPasses, Stage[WorldHeight]](device, format, persp)
     for k in range(2):
         var vw = persp.copy() if k == 0 else iso.copy()
         rw.begin(vw.copy())
