@@ -136,7 +136,7 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
 def _build_skin_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout, color_format: UInt32, depth_format: UInt32,
 ) raises -> RenderPipeline:
-    """Six vertex buffers (see the module comment) and the arena's depth state."""
+    """Six vertex buffers (see the module comment) and the scene's depth state."""
     var vs_name = String("vs_skin")
     var fs_name = String("fs_skin")
     var label_name = String("skin_pipeline")
@@ -207,7 +207,7 @@ def _build_skin_pipeline(
 
 struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
     """The skinned pass. Built once per device; prepare() syncs the shared GpuMeshCache and writes the palette and the
-    instance records; record() draws, in the arena's render pass. The camera, shadow and atmosphere uniforms are the
+    instance records; record() draws, in the scene's render pass. The camera, shadow and atmosphere uniforms are the
     renderer's RenderResources."""
 
     comptime SHADOW: Bool = False

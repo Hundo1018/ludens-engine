@@ -21,7 +21,7 @@ from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, Then, AuxTarget, NoAux, Aux
 from app.render_res import PointLight
 from app.shadow_pass import ShadowPass
@@ -49,7 +49,7 @@ from app.styles_print import (
 from app.styles_own import frame_hash, hash_user
 from geometry.quat import Quat
 from app.mesh_pass import MeshPassOf
-from arena_frame_native import sun_light_vp
+from scene_frame_native import sun_light_vp
 
 comptime W: UInt32 = 640
 comptime H: UInt32 = 360
@@ -157,7 +157,7 @@ struct Gallery(Movable):
         var aspect = Real(scene_aspect[F](Float64(W) / Float64(H)))
         var eye = _v(0.6, 3.2, 9.5)
         var view = View(CameraPose(eye, look_rotation(_v(0, 1.0, 0) - eye, _v(0, 1, 0)), 0.9, aspect, 0.1, 500.0), aspect)
-        var r = ArenaRendererOf[P, F, A](self.device, WGPUTextureFormat.RGBA8Unorm, view)
+        var r = SceneRendererOf[P, F, A](self.device, WGPUTextureFormat.RGBA8Unorm, view)
         r.set_atmosphere(self.device, _v(0.25, 0.45, 0.8), _v(0.78, 0.82, 0.86), 0.012, 1.0, True, True)
         r.set_shadow(self.device, sun_light_vp(), True)
         r.set_lights(self.device, [PointLight(_v(-2.2, 1.2, -1.2), 5.0, _v(1.0, 0.6, 0.3), 2.0)])

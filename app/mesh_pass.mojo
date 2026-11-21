@@ -1,7 +1,7 @@
-"""Indexed meshes (step 5, PR A): static geometry with one transform per instance, drawn in the arena's render pass.
+"""Indexed meshes (step 5, PR A): static geometry with one transform per instance, drawn in the scene's render pass.
 
 A draw item with mesh_id >= 0 takes this path; mesh_id -1 keeps the primitive path in app/render3d.mojo. The camera
-header is the arena's (same projection), so a mesh and a sphere at the same place line up.
+header is the scene's (same projection), so a mesh and a sphere at the same place line up.
 
 Vertex buffers (step mode vertex): 0 position float32x3, 1 normal float32x3, 2 uv float32x2.
 Instance buffer (step mode instance, 24 floats = 96 bytes per instance): model matrix as four columns (16 floats,
@@ -15,7 +15,7 @@ from geometry.vec import Real, Vec3
 from std.math import sin, cos
 from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, ENV_WGSL
-from app.render_res import RenderResources, LIGHTS_BYTES, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_ARENA_INSTANCES, DEFAULT_PALETTE_MATRICES
+from app.render_res import RenderResources, LIGHTS_BYTES, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_PRIMITIVE_INSTANCES, DEFAULT_PALETTE_MATRICES
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
 from wgpu import WGPUTextureUsage
@@ -555,7 +555,7 @@ def _build_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout,
     color_format: UInt32, depth_format: UInt32, blend: Int = BLEND_NONE, cull: Int = CULL_NONE, depth_write: Bool = True,
 ) raises -> RenderPipeline:
-    """The mesh pipeline: vertex buffers 0-2 per vertex, 3 per instance, the arena's depth state; blend, cull and
+    """The mesh pipeline: vertex buffers 0-2 per vertex, 3 per instance, the scene's depth state; blend, cull and
     depth write as the pack's first material asks (app/material.mojo)."""
     var vs_name = String("vs_main")
     var fs_name = String("fs_main")

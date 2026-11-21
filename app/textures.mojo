@@ -1,4 +1,4 @@
-"""Textures for the arena (step 5 PR C): a texture_2d_array, rgba8unorm (not sRGB in step 5), 256x256, 9 mip levels.
+"""Textures for the scene (step 5 PR C): a texture_2d_array, rgba8unorm (not sRGB in step 5), 256x256, 9 mip levels.
 
 Layer 0 is white and generated here. A layer is loaded one mip level at a time with queue.writeTexture, which has no
 256-byte row rule (copyBufferToTexture does). The main sampler is linear with repeat; the test sampler is nearest with
@@ -121,7 +121,7 @@ def box_levels(base: List[UInt8]) raises -> List[List[UInt8]]:
 
 
 struct TextureArray(Movable):
-    """The arena's texture_2d_array. Built once per device; load_layer fills a layer's nine levels."""
+    """The scene's texture_2d_array. Built once per device; load_layer fills a layer's nine levels."""
 
     var texture: Texture
     var view: TextureView
@@ -139,18 +139,18 @@ struct TextureArray(Movable):
         self.texture = device.create_texture(
             TEX_SIZE, TEX_SIZE, layers, WGPUTextureFormat.RGBA8Unorm,
             WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.COPY_DST | WGPUTextureUsage.COPY_SRC,
-            dimension=2, mip_level_count=TEX_LEVELS, label="arena_textures",
+            dimension=2, mip_level_count=TEX_LEVELS, label="scene_textures",
         )
         self.view = self.texture.create_view_default()
         self.main_sampler = device.create_sampler(
             address_mode_u=2, address_mode_v=2, address_mode_w=2,
-            mag_filter=2, min_filter=2, mipmap_filter=2, lod_max_clamp=32.0, label="arena_main",
+            mag_filter=2, min_filter=2, mipmap_filter=2, lod_max_clamp=32.0, label="scene_main",
         )
         # nearest texels, repeat addressing, and no interpolation between mips (mipmap_filter nearest). The level is still
         # chosen by the lod the shader passes, so the clamp stays at 32.
         self.test_sampler = device.create_sampler(
             address_mode_u=2, address_mode_v=2, address_mode_w=2,
-            mag_filter=1, min_filter=1, mipmap_filter=1, lod_max_clamp=32.0, label="arena_test",
+            mag_filter=1, min_filter=1, mipmap_filter=1, lod_max_clamp=32.0, label="scene_test",
         )
         # layer 0 is white, every level
         var white = List[UInt8](length=Int(TEX_SIZE) * Int(TEX_SIZE) * 4, fill=255)

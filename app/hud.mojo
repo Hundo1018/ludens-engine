@@ -61,7 +61,7 @@ struct Hud(Movable):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "hud_layout")
-        # Drawn in the arena pass, which has a depth attachment: same depth format, always passes, writes nothing.
+        # Drawn in the scene pass, which has a depth attachment: same depth format, always passes, writes nothing.
         self.pipeline = device.create_render_pipeline(
             shader, "vs_main", "fs_main", color_format, layout,
             depth_format=WGPUTextureFormat.Depth32Float, depth_write=False, depth_compare=UInt32(8),

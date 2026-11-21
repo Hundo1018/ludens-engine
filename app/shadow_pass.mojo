@@ -417,7 +417,7 @@ struct ShadowPass(RenderPass):
 
       - on its own: `draw(device, casters, registry, light_vp, depth_view, palette)` renders the given casters into
         `depth_view` (its own command buffer, its own copies of the meshes);
-      - in a renderer's pass list, e.g. `ArenaRendererOf[Then[ShadowPass, DefaultPasses]]`: while the renderer's
+      - in a renderer's pass list, e.g. `SceneRendererOf[Then[ShadowPass, DefaultPasses]]`: while the renderer's
         shadow is on (set_shadow), it renders every item that casts_shadow() into the renderer's shadow map, in the
         frame's command buffer before the colour pass, from the renderer's mesh copies."""
 

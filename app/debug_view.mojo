@@ -1,4 +1,4 @@
-"""Visual-test modes for ArenaRenderer (ludens-engine#80): a capture can count what the renderer knows and a picture cannot
+"""Visual-test modes for SceneRenderer (ludens-engine#80): a capture can count what the renderer knows and a picture cannot
 tell apart.
 
   DEBUG_FLAT  every colour-only item (material 0) is drawn magenta: the share of magenta pixels is the share of the frame
@@ -7,7 +7,7 @@ tell apart.
               workflow off for the frame: a sky pixel is then told from far ground that fog has faded to the horizon
               colour.
 
-`debug_recolor` changes the items only; ArenaRenderer.draw calls it after the frame's items are pushed and, for
+`debug_recolor` changes the items only; SceneRenderer.draw calls it after the frame's items are pushed and, for
 DEBUG_SKY, overrides the atmosphere's fog and linear flags.
 """
 from geometry.vec import Real, Vec3

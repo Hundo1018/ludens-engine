@@ -152,7 +152,7 @@ struct SplitScreen(Movable):
         return len(self.rects)
 
     def target(self, i: Int) -> WGPUTextureHandle:
-        """The texture view i is drawn into (ArenaRendererOf.draw's target)."""
+        """The texture view i is drawn into (SceneRendererOf.draw's target)."""
         return self.textures[i].handle().raw
 
     def width(self, i: Int) -> UInt32:

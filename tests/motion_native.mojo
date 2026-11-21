@@ -18,7 +18,7 @@ from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget, Aux
 from app.post import PostEffect, Style, Stage
 from app.lens import MotionBlur, ObjectMotionBlur
@@ -56,7 +56,7 @@ def read(device: Device, mut cap: FrameCapture, tex: WGPUTextureHandle) raises -
     return out^
 
 
-def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: ArenaRendererOf[P, F, A], step: Int):
+def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: SceneRendererOf[P, F, A], step: Int):
     """Frame `step`: the standing box at x = -4, the moving box at x = 0.5 * step, the turning box at x = 4 turned
     0.2 * step rad about z."""
     var dark = _v(0.05, 0.05, 0.05)
@@ -128,7 +128,7 @@ def main() raises:
     s.check(m2[0] == 0 and m2[1] == 1, "items in the same order are matched in place")
 
     # ---- the velocity target
-    var rv = ArenaRendererOf[DefaultPasses, Stage[ShowAux], Aux[VelocityPass]](device, format, view)
+    var rv = SceneRendererOf[DefaultPasses, Stage[ShowAux], Aux[VelocityPass]](device, format, view)
     rv.begin(view.copy())
     scene(rv, 0)
     rv.draw(device, target.handle().raw, W, H, hud)
@@ -166,12 +166,12 @@ def main() raises:
     s.check(got_c[0] < 0.0 and got_d[0] > 0.0, "above its centre the turning box moves left, below it right")
 
     # ---- the blur
-    var plain = ArenaRendererOf[DefaultPasses](device, format, view)
+    var plain = SceneRendererOf[DefaultPasses](device, format, view)
     plain.begin(view.copy())
     scene(plain, 1)
     plain.draw(device, target.handle().raw, W, H, hud)
     var sharp = read(device, cap, target.handle().raw)
-    var rb = ArenaRendererOf[DefaultPasses, Stage[ObjectMotionBlur], Aux[VelocityPass]](device, format, view)
+    var rb = SceneRendererOf[DefaultPasses, Stage[ObjectMotionBlur], Aux[VelocityPass]](device, format, view)
     rb.shutter = 1.0
     for step in range(2):
         rb.begin(view.copy())
@@ -188,7 +188,7 @@ def main() raises:
     s.check(Float64(wb) > 0.55 * move_px and Float64(wb) < 1.05 * move_px, "the moving box's edge is smeared over its move")
     s.check(wa <= 1, "the standing box's edge is not smeared")
     # the camera-only stage leaves the moving box as it is
-    var rc = ArenaRendererOf[DefaultPasses, Stage[MotionBlur]](device, format, view)
+    var rc = SceneRendererOf[DefaultPasses, Stage[MotionBlur]](device, format, view)
     rc.shutter = 1.0
     for step in range(2):
         rc.begin(view.copy())

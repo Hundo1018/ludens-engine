@@ -16,7 +16,7 @@ from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_res import ENV_SIZE
 from app.lights import uniform_environment, sh_lit
 from app.env_probe import EnvProbe, face_axes, cube_environment
@@ -46,7 +46,7 @@ def wall_of(d: Vec3) -> Int:
     return 4 if d[2] > 0 else 5
 
 
-def walls(mut r: ArenaRendererOf[DefaultPasses]):
+def walls(mut r: SceneRendererOf[DefaultPasses]):
     for k in range(6):
         var ax = face_axes(k)[0]
         var size = _v(22, 22, 22) - _v(abs(Float64(ax[0])), abs(Float64(ax[1])), abs(Float64(ax[2]))) * Real(21.0)
@@ -96,7 +96,7 @@ def main() raises:
     var aspect = Real(Float32(W) / Float32(H))
     var eye = _v(0, 0, 4)
     var view = View(CameraPose(eye, look_rotation(_v(0, 0, -1), _v(0, 1, 0)), 0.9, aspect, 0.1, 100.0), aspect)
-    var r = ArenaRendererOf[DefaultPasses](device, format, view)
+    var r = SceneRendererOf[DefaultPasses](device, format, view)
     # every wall shows its own colour: no sun, an even white ambient
     r.set_sun(device, _v(0, 1, 0), _v(1, 1, 1), 0.0)
     r.set_environment(device, uniform_environment(_v(1, 1, 1)))

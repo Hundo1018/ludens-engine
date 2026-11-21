@@ -1,8 +1,8 @@
-"""The arena renderer: the frame's draw items through a compile-time list of passes (app/render_pass.mojo).
+"""The scene renderer: the frame's draw items through a compile-time list of passes (app/render_pass.mojo).
 
-`ArenaRenderer` is `ArenaRendererOf[DefaultPasses]`: the primitives (app/primitive_pass.mojo), the indexed meshes
+`SceneRenderer` is `SceneRendererOf[DefaultPasses]`: the primitives (app/primitive_pass.mojo), the indexed meshes
 (app/mesh_pass.mojo) and the skinned meshes (app/skin_draw.mojo), in that order, then the HUD. A game that wants other
-passes names its own list, e.g. `ArenaRendererOf[Then[DefaultPasses, MyPass]]`.
+passes names its own list, e.g. `SceneRendererOf[Then[DefaultPasses, MyPass]]`.
 
 A Depth32Float buffer does the hidden-surface work (wgpu-mojo's `create_render_pipeline(depth_format=)` and
 `begin_surface_clear_pass_depth`). `app/render.mojo` stays as it was: the parity gates compare its pixels."""
@@ -43,10 +43,14 @@ from geometry.mat import Mat4
 comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
 comptime DefaultPasses = Then[PrimitivePass, Then[MeshPass, SkinnedPass]]
-comptime ArenaRenderer = ArenaRendererOf[DefaultPasses]
+comptime SceneRenderer = SceneRendererOf[DefaultPasses]
+# The names before 2026-11-21, when the renderer was called after the sample game. ludens-playground still imports them;
+# delete these two lines once it has moved to SceneRenderer / SceneRendererOf.
+comptime ArenaRenderer = SceneRenderer
+comptime ArenaRendererOf = SceneRendererOf
 
 
-struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux](Movable):
+struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux](Movable):
     var passes: Self.P
     var post: Self.F  # the post-processing stages (app/post.mojo); NoPost draws straight into the frame
     var post_time: Float32  # Frame.t.x of the stages: seconds, set by the host (0 keeps a still frame repeatable)
@@ -317,19 +321,19 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             comptime if Self.F.SCENE_W > 0:
                 sw = UInt32(Self.F.SCENE_W)
                 sh = UInt32(Self.F.SCENE_H)
-            self.depth = device.create_texture(sw, sh, 1, DEPTH_FORMAT, usage, label="arena_depth")
+            self.depth = device.create_texture(sw, sh, 1, DEPTH_FORMAT, usage, label="scene_depth")
             self.depth_view = self.depth.value().create_view_default()
             self.depth_w = width
             self.depth_h = height
             comptime if Self.F.ON:
                 var both = WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING
                 self.scene_view = None
-                self.scene = device.create_texture(sw, sh, 1, self.color_format, both, label="arena_scene")
+                self.scene = device.create_texture(sw, sh, 1, self.color_format, both, label="scene_scene")
                 self.scene_view = self.scene.value().create_view_default()
                 comptime if Self.F.SCENE_W > 0:
                     self.hud_depth_view = None
                     self.hud_depth = device.create_texture(
-                        width, height, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_hud_depth",
+                        width, height, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="scene_hud_depth",
                     )
                     self.hud_depth_view = self.hud_depth.value().create_view_default()
                 else:
@@ -337,10 +341,10 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 comptime if Self.A.ON:
                     self.aux_view = None
                     self.aux_depth_view = None
-                    self.aux = device.create_texture(sw, sh, 1, self.color_format, both, label="arena_aux")
+                    self.aux = device.create_texture(sw, sh, 1, self.color_format, both, label="scene_aux")
                     self.aux_view = self.aux.value().create_view_default()
                     self.aux_depth = device.create_texture(
-                        sw, sh, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_aux_depth",
+                        sw, sh, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="scene_aux_depth",
                     )
                     self.aux_depth_view = self.aux_depth.value().create_view_default()
                 else:
@@ -348,9 +352,9 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 comptime if Self.F.HISTORY:
                     self.kept_view = None
                     self.prev_view = None
-                    self.kept = device.create_texture(width, height, 1, self.color_format, both, label="arena_kept")
+                    self.kept = device.create_texture(width, height, 1, self.color_format, both, label="scene_kept")
                     self.kept_view = self.kept.value().create_view_default()
-                    self.prev = device.create_texture(width, height, 1, self.color_format, both, label="arena_prev")
+                    self.prev = device.create_texture(width, height, 1, self.color_format, both, label="scene_prev")
                     self.prev_view = self.prev.value().create_view_default()
                 else:
                     self.prev_view = self.scene_view.value().clone()
@@ -361,9 +365,9 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 comptime if Self.F.VIEWS == 2:
                     self.scene2_view = None
                     self.depth2_view = None
-                    self.scene2 = device.create_texture(sw, sh, 1, self.color_format, both, label="arena_scene_right")
+                    self.scene2 = device.create_texture(sw, sh, 1, self.color_format, both, label="scene_scene_right")
                     self.scene2_view = self.scene2.value().create_view_default()
-                    self.depth2 = device.create_texture(sw, sh, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="arena_depth_right")
+                    self.depth2 = device.create_texture(sw, sh, 1, DEPTH_FORMAT, WGPUTextureUsage.RENDER_ATTACHMENT, label="scene_depth_right")
                     self.depth2_view = self.depth2.value().create_view_default()
                     inp = inp.with_src2(self.scene_view.value(), self.scene2_view.value())
                 self.post.bind(device, self.color_format, width, height, inp)
@@ -455,7 +459,7 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 if self.res.tiles > 0:
                     record_atlas(self.passes, renc, self.res, self.meshes, self.gpu)
             var rpass2 = renc.begin_render_pass_clear_depth(
-                self.scene2_view.value().clone(), self.depth2_view.value(), CLEAR, 1.0, "arena_pass_right",
+                self.scene2_view.value().clone(), self.depth2_view.value(), CLEAR, 1.0, "scene_pass_right",
             )
             self.passes.record_color(rpass2, self.meshes, self.gpu)
             rpass2^.end()
@@ -482,7 +486,7 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 record_atlas(self.passes, enc, self.res, self.meshes, self.gpu)
         comptime if Self.F.ON:  # the passes into the scene target, the aux list into its own, then the stages
             var spass = enc.begin_render_pass_clear_depth(
-                self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "arena_pass",
+                self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "scene_pass",
             )
             self.passes.record_color(spass, self.meshes, self.gpu)
             spass^.end()
@@ -503,7 +507,7 @@ struct ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             hud.record(hpass)
             hpass^.end()
         else:
-            var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "arena_pass")
+            var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "scene_pass")
             self.passes.record_color(rpass, self.meshes, self.gpu)
             hud.record(rpass)
             rpass^.end()

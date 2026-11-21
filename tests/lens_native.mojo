@@ -19,7 +19,7 @@ from geometry.quat import Quat
 from procedural.camera_math import CameraPose, look_rotation
 from hud import Hud
 from ui.draw import DrawList
-from app.render3d import ArenaRendererOf, DefaultPasses
+from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget
 from app.post import PostEffect, Stage, ThenPost
 from app.lens import DepthOfField, MotionBlur, coc_pixels, coc_scale, focal_length
@@ -45,7 +45,7 @@ def read(device: Device, mut cap: FrameCapture, tex: WGPUTextureHandle) raises -
     return out^
 
 
-def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: ArenaRendererOf[P, F, A]):
+def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: SceneRendererOf[P, F, A]):
     """Three dark boxes whose left edges stand against the sky: 3 m, 8 m and 25 m in front of a camera at the origin
     looking along -z. Sizes grow with distance so each is about as large on screen."""
     r.push(DrawItem(0, _v(-1.6, 0, -3.5), 0.0, 0.0, 0.0, 1.0, _v(1, 1.2, 1), _v(0.05, 0.05, 0.05), r.cube, -1, MAT_COLOR))
@@ -120,12 +120,12 @@ def main() raises:
     s.check(coc_scale(view, 8.0, 0.0, sensor, Float32(H)) == 0.0, "f-number 0 is a pinhole: no disc")
 
     # ---- depth of field
-    var plain = ArenaRendererOf[DefaultPasses](device, format, view)
+    var plain = SceneRendererOf[DefaultPasses](device, format, view)
     plain.begin(view.copy())
     scene(plain)
     plain.draw(device, target.handle().raw, W, H, hud)
     var sharp = read(device, cap, target.handle().raw)
-    var r = ArenaRendererOf[DefaultPasses, Stage[DepthOfField]](device, format, view)
+    var r = SceneRendererOf[DefaultPasses, Stage[DepthOfField]](device, format, view)
     r.lens_sensor = sensor
     r.lens_focus = 8.0
     r.lens_max_coc = 40.0
@@ -168,7 +168,7 @@ def main() raises:
     s.check(Float64(wb) > 0.35 * Float64(wa) and Float64(wb) < 0.7 * Float64(wa), "twice the f-number: about half the edge width")
 
     # ---- motion blur
-    var m = ArenaRendererOf[DefaultPasses, Stage[MotionBlur]](device, format, view)
+    var m = SceneRendererOf[DefaultPasses, Stage[MotionBlur]](device, format, view)
     m.shutter = 1.0
     var turned = View(CameraPose(_v(0, 0, 0), look_rotation(_v(-0.05, 0, -1), _v(0, 1, 0)), 0.9, aspect, 0.1, 200.0), aspect)
     # frame 1 from the turned camera, frame 2 from `view`: the picture moved by tan(0.05) * sx * W / 2 at the centre
@@ -208,7 +208,7 @@ def main() raises:
     print("shutter 0.5: the vertical edge is", wv2, "px wide")
     s.check(Float64(wv2) > 0.35 * Float64(wv) and Float64(wv2) < 0.7 * Float64(wv), "half the shutter: about half the smear")
     # both stages in one pipeline
-    var both = ArenaRendererOf[DefaultPasses, ThenPost[Stage[MotionBlur], Stage[DepthOfField]]](device, format, view)
+    var both = SceneRendererOf[DefaultPasses, ThenPost[Stage[MotionBlur], Stage[DepthOfField]]](device, format, view)
     both.begin(view.copy())
     scene(both)
     both.draw(device, target.handle().raw, W, H, hud)

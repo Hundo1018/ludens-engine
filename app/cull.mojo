@@ -1,4 +1,4 @@
-"""Frustum culling of a frame's draw items (ArenaRendererOf.cull).
+"""Frustum culling of a frame's draw items (SceneRendererOf.cull).
 
 An item is dropped when its bounding sphere lies wholly outside one of the view's six planes. Dropping it must not
 change a pixel, so an item that could still throw a shadow into the view is kept:

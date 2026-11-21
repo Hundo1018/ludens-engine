@@ -1,7 +1,7 @@
 """The camera's lens as stages (app/post.mojo): depth of field and motion blur.
 
     comptime Lens = ThenPost[Stage[MotionBlur], Stage[DepthOfField]]
-    var r = ArenaRendererOf[MyPasses, Lens](device, format, view)
+    var r = SceneRendererOf[MyPasses, Lens](device, format, view)
     r.lens_focus = 8.0      # metres
     r.lens_fstop = 2.0      # 0 (the default) is a pinhole: DepthOfField then returns its input unchanged
     r.shutter = 0.5         # the shutter is open for half the time between two frames; 0 (default): no motion blur

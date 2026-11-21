@@ -1,11 +1,11 @@
 # Lights and camera
 
-What the renderer (`ArenaRendererOf`, app/render3d.mojo) offers for lighting a scene and for looking at it. Every
+What the renderer (`SceneRendererOf`, app/render3d.mojo) offers for lighting a scene and for looking at it. Every
 number below is printed by a test: `pixi run -e wasm test-lights-camera` (tests/lights_native.mojo, camera_native.mojo,
 lens_native.mojo, env_probe_native.mojo, motion_native.mojo), on lavapipe.
 
 With nothing set the renderer is as it was: a fixed white sun toward (0.4, 1.0, 0.6) at 0.6 on a 0.4 ambient, a
-perspective view, no culling. `tests/arena_frame_native.mojo` prints the same frame hash (6884648193079427197) before
+perspective view, no culling. `tests/scene_frame_native.mojo` prints the same frame hash (6884648193079427197) before
 and after this file's features were added.
 
 ## Lights

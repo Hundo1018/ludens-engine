@@ -8,7 +8,7 @@ A line pass with the depth test reversed (DEPTH_GREATER) draws exactly the edges
 how a drawing shows hidden lines; with BLEND_ADD and no solids at all it is a vector display, where every line shows
 and crossings are brighter.
 
-An item on the unit cube or sphere mesh keeps its size (half extents halved, as ArenaRendererOf.push doubled them);
+An item on the unit cube or sphere mesh keeps its size (half extents halved, as SceneRendererOf.push doubled them);
 the sky is skipped. Buffer layout: the primitive pass's (5 header vec4, then 4 per instance)."""
 from game.draw_item import DrawItem, MAT_SKY
 from game.camera_view import View
@@ -123,7 +123,7 @@ struct WirePassOf[K: WireKind](RenderPass):
     var count: Int
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, caps: RenderCaps) raises:
-        self.max_items = caps.arena_instances
+        self.max_items = caps.primitive_instances
         var shader = device.create_shader_module_wgsl(
             String(WIRE_WGSL) + "@fragment\nfn fs_main(in : WOut) -> @location(0) vec4<f32> {" + String(Self.K.FRAG) + "\n}\n", "wire",
         )
@@ -143,7 +143,7 @@ struct WirePassOf[K: WireKind](RenderPass):
             Self.K.DEPTH_COMPARE,
         )
         self.buffer = device.create_buffer(
-            UInt64((5 + 4 * caps.arena_instances) * 16), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="wire",
+            UInt64((5 + 4 * caps.primitive_instances) * 16), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="wire",
         )
         var bg: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.buffer.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),

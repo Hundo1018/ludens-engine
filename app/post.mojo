@@ -1,6 +1,6 @@
 """Post-processing as a compile-time graph of stages, beside the pass list (app/render_pass.mojo).
 
-`ArenaRendererOf[P, F, A]` draws its passes P into an offscreen colour and depth target when F is not `NoPost`, then
+`SceneRendererOf[P, F, A]` draws its passes P into an offscreen colour and depth target when F is not `NoPost`, then
 runs F over them into the frame. The pieces of F:
 
     Stage[S]          one full-screen fragment shader, the `Style` S
@@ -18,7 +18,7 @@ runs F over them into the frame. The pieces of F:
         comptime NAME: StaticString = "sepia"
         comptime AFTER: StaticString = "..."
         comptime WGSL: StaticString = "fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> { ... }"
-    var r = ArenaRendererOf[DefaultPasses, Join[Stage[Sepia], Scaled[Stage[Blur], 4], Stage[Add]]](device, format, view)
+    var r = SceneRendererOf[DefaultPasses, Join[Stage[Sepia], Scaled[Stage[Blur], 4], Stage[Add]]](device, format, view)
 
 What a style's `style(uv, px)` can read (POST_WGSL below): `src` and `src2`, `scene` (always the scene's colour),
 `prev` (History), the scene's depth, `aux` (what the renderer's A drew: by convention the surface normals, see
@@ -62,7 +62,7 @@ struct Frame {
   up : vec4<f32>,     // xyz, w = near
   fwd : vec4<f32>,    // xyz, w = far
   t : vec4<f32>,      // time (s), frame number, seed, unused
-  user : vec4<f32>,   // the host's four numbers (ArenaRendererOf.post_user)
+  user : vec4<f32>,   // the host's four numbers (SceneRendererOf.post_user)
   lens : vec4<f32>,   // focus distance (m), blur circle scale (pixels across), largest blur circle (pixels), shutter
   peye : vec4<f32>,   // the previous frame's camera, as eye / right / up / fwd (this frame's on the first)
   pright : vec4<f32>,
@@ -772,7 +772,7 @@ struct SceneSize[A: PostEffect, W: Int, H: Int, AW: Int = 0, AH: Int = 0](PostEf
 
 
 struct Stereo[A: PostEffect](PostEffect):
-    """A, with the scene drawn from two eyes (ArenaRendererOf.eye_sep apart, parallel): the left eye is `src` and
+    """A, with the scene drawn from two eyes (SceneRendererOf.eye_sep apart, parallel): the left eye is `src` and
     `scene`, the right eye the top-level `src2`. Each eye sees round the near objects differently, which shifting one
     picture by its depth cannot show."""
 

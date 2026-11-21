@@ -3,7 +3,7 @@
 A render pipeline is a type:
 
 ```mojo
-ArenaRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux]   # app/render3d.mojo
+SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux]   # app/render3d.mojo
 AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux] # app/main.mojo, the shell around a game
 ```
 
@@ -12,7 +12,7 @@ AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux] 
 - `F`: the graph of full-frame stages that turns those targets into the frame. `NoPost` draws `P` straight into the frame.
 
 All three are chosen at compile time; the renderer has no list of known passes, materials or stages. The default,
-`ArenaRendererOf[DefaultPasses]`, is the engine's renderer as it was before any of this: `tests/arena_frame_native.mojo`
+`SceneRendererOf[DefaultPasses]`, is the engine's renderer as it was before any of this: `tests/scene_frame_native.mojo`
 prints the same frame hash (6884648193079427197 on lavapipe) with and without the code described here.
 
 Two files show the whole surface in use:
@@ -100,7 +100,7 @@ Inputs: `src` (the stage before it, or the scene), `src2` (the second branch of 
 `aux_at`, `gnormal`, `view_z`, `world_at`, `is_far`, `normal_at`, `edge`, `gedge`, `cell_uv`, `fit_uv`, `luma`,
 `hash21`, `vnoise`, `fbm`, `bayer4`, `bayer8`, `sobel`, `rgb2hsv`, `hsv2rgb`, `blur9`. The uniform `frame` carries the
 size, the camera basis, `t` (time, frame number, seed) and `user`: four numbers the host sets each frame through
-`ArenaRendererOf.post_user` (`state_fingerprint` passes a 64-bit hash of the simulation state this way).
+`SceneRendererOf.post_user` (`state_fingerprint` passes a 64-bit hash of the simulation state this way).
 
 ### Combining stages
 
@@ -122,7 +122,7 @@ The HUD is drawn after the last stage, at the frame's size.
 
 ```mojo
 comptime MyPasses = Then[Rings, Then[WirePassOf[OrangeEdges], MarkerPass]]
-var r = ArenaRendererOf[MyPasses, Stage[Split], Aux[NormalPasses]](device, format, view)
+var r = SceneRendererOf[MyPasses, Stage[Split], Aux[NormalPasses]](device, format, view)
 
 comptime MyApp = AppOf[MyMode, MyPasses, Stage[Split], Aux[NormalPasses]]   # the same pipeline as a whole program
 ```

@@ -1,7 +1,7 @@
 """Pass lists and materials that draw surface data instead of a lit colour: what `Aux[...]` (app/render_pass.mojo)
 puts in the aux target for the post stages, and the outline hull.
 
-    ArenaRendererOf[Lit, Stage[MyStyle], Aux[NormalPasses]]    # the stages' gnormal / gedge read true normals
+    SceneRendererOf[Lit, Stage[MyStyle], Aux[NormalPasses]]    # the stages' gnormal / gedge read true normals
     comptime Outlined = Then[MyMeshPass, HullPass]                # an ink line as geometry, not as an edge filter
 """
 from game.draw_item import MAT_COLOR, MAT_SKY
