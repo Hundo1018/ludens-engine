@@ -83,6 +83,6 @@ def main() raises:
     i = frame(ctl, input)
     c.ok(i.forward == 0 and i.right == 0 and not i.jump, "after a focus loss nothing is held")
 
-    print("arena_input:", c.passed, "/", c.passed + c.failed, "checks")
+    print("input_path:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
-        raise Error("arena_input: " + String(c.failed) + " checks failed")
+        raise Error("input_path: " + String(c.failed) + " checks failed")

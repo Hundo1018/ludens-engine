@@ -1,6 +1,6 @@
 """Shell entry: one Mojo program, the C-ABI below is only the JS face.
 
-`App` is `AppOf[ArenaMode, DefaultPasses]`: the shell around one game (a `GameMode`, game/mode.mojo) drawn through one
+`App` is `AppOf[DemoMode, DefaultPasses]`: the shell around one game (a `GameMode`, game/mode.mojo) drawn through one
 render pipeline: a pass list (app/render_pass.mojo), a graph of post stages (app/post.mojo) and an aux pass list.
 Another game reuses this shell by naming its own types, e.g.
 `AppOf[MyMode, Then[ShadowPass, DefaultPasses], History[Stage[MyStyle]], Aux[NormalPasses]]` (docs/PIPELINES.md);
@@ -8,12 +8,11 @@ the C-ABI below exports the default instance.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from controls import read_keys
-from game.arena_mode import ArenaMode
+from game.demo_mode import DemoMode
 from game.mode import GameMode
 from geometry.vec import Real
 from game.camera_view import View
 from game.controls import Controls
-from game.sfx import cue_clip, CUE_COUNT
 from hud import Hud
 from net import net_poll, net_send
 from render3d import SceneRendererOf, DefaultPasses
@@ -39,7 +38,7 @@ from wgpu.web.boot import GPUBoot
 comptime NET_CAP = 65536
 comptime NET_PER_FRAME = 16
 comptime MODE_DEMO = 0  # the physics demo the parity gates and selftests compare
-comptime MODE_GAME = 1  # the arena game
+comptime MODE_GAME = 1  # the game (App.M)
 
 
 struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux](Movable):
@@ -71,11 +70,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var net_len: Int
     var net_packets: Int
     var mode: Int
-    var arena: Optional[Self.M]  # the game, behind the GameMode seam (game/mode.mojo)
+    var game: Optional[Self.M]  # the game, behind the GameMode seam (game/mode.mojo)
     var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
-    var arena_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
+    var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
     var game_format: UInt32
 
@@ -110,11 +109,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.net_len = 0
         self.net_packets = 0
         self.mode = MODE_DEMO
-        self.arena = None
+        self.game = None
         self.frame_ms = 0
         self.controls = Controls()
         self.cue_clips = List[Int]()
-        self.arena_renderer = None
+        self.game_renderer = None
         self.hud = None
         self.game_format = 0
 
@@ -147,11 +146,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.net_len = move.net_len
         self.net_packets = move.net_packets
         self.mode = move.mode
-        self.arena = move.arena^
+        self.game = move.game^
         self.frame_ms = move.frame_ms
         self.controls = move.controls^
         self.cue_clips = move.cue_clips^
-        self.arena_renderer = move.arena_renderer^
+        self.game_renderer = move.game_renderer^
         self.hud = move.hud^
         self.game_format = move.game_format
 
@@ -174,12 +173,12 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.reference_ptr = self.reference.value().poll()
 
     def start_game(mut self) raises:
-        if not self.arena:
-            self.arena = Self.M.create()
+        if not self.game:
+            self.game = Self.M.create()
             # The game's sounds go through the audio scene: each cue is synthesised once and registered as a clip.
             self.cue_clips.append(-1)  # cue numbers start at 1
-            for cue in range(1, CUE_COUNT + 1):
-                self.cue_clips.append(self.sim.scene.add_clip_pcm(cue_clip(cue, Int(SAMPLE_RATE))))
+            for clip in self.game.value().sounds(Int(SAMPLE_RATE)):
+                self.cue_clips.append(self.sim.scene.add_clip_pcm(clip.copy()))
         self.sim.scene.set_tone(330.0, 0.0)  # the demo's contact tone is silent while the game plays
         self.mode = MODE_GAME
 
@@ -196,30 +195,30 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         var view = View(m.camera(), Real(scene_aspect[Self.F](Float64(aspect))))
         if self.game_format != format:  # the pipelines are built for one target format
             self.hud = None
-            self.arena_renderer = None
+            self.game_renderer = None
             self.game_format = format
         if not self.hud:
             self.hud = Hud(self.boot.device(), format)
-        if not self.arena_renderer:
-            self.arena_renderer = SceneRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
-        self.arena_renderer.value().begin(view)
-        self.arena_renderer.value().probe = self.probe_cube
+        if not self.game_renderer:
+            self.game_renderer = SceneRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
+        self.game_renderer.value().begin(view)
+        self.game_renderer.value().probe = self.probe_cube
         for it in m.scene():
-            self.arena_renderer.value().push(it)
+            self.game_renderer.value().push(it)
         self.hud.value().set(m.hud(Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
-        self.arena_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+        self.game_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
         if self.mode == MODE_GAME:
-            var m = self.arena.take()
+            var m = self.game.take()
             # the mode goes back into its slot even when the call raises: the next frame takes it again
             var failed = String()
             try:
                 self._draw_mode(m, target, format, aspect)
             except e:
                 failed = String(e)
-            self.arena = m^
+            self.game = m^
             if failed.byte_length() > 0:
                 raise Error(failed)
             return
@@ -263,14 +262,14 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     def _frame(mut self, dt: Float64) raises -> Int32:
         self._net()
         if self.mode == MODE_GAME:
-            var m = self.arena.take()
+            var m = self.game.take()
             # the mode goes back into its slot even when the call raises: the next frame takes it again
             var failed = String()
             try:
                 self._step_mode(m, dt)
             except e:
                 failed = String(e)
-            self.arena = m^
+            self.game = m^
             if failed.byte_length() > 0:
                 raise Error(failed)
         else:
@@ -301,8 +300,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         return 1
 
 
-comptime App = AppOf[ArenaMode, DefaultPasses]
-"""The shell the C-ABI exports: the arena game, the default passes."""
+comptime App = AppOf[DemoMode, DefaultPasses]
+"""The shell the C-ABI exports: the demo game, the default passes."""
 
 
 def _app(handle: UInt64) -> Pointer[App, MutUntrackedOrigin]:
@@ -441,7 +440,7 @@ def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
 
 @export
 def app_probe_cube(app: UInt64, mode: Int32) abi("C"):
-    """The arena's centre probe, for the frame check: 0 off, 1 a rigid unit cube (A.2), 2 a skinned cube with the
+    """The centre probe, for the frame check: 0 off, 1 a rigid unit cube (A.2), 2 a skinned cube with the
     identity joint, 3 a skinned cube with its joint turned 20 degrees about Y (B3)."""
     _app(app)[].probe_cube = Int(mode)
 
@@ -522,7 +521,7 @@ def app_net_last_len(app: UInt64) abi("C") -> Int32:
 
 @export
 def app_set_mode(app: UInt64, mode: Int32) abi("C") -> Int32:
-    """0 = the physics demo (what the selftests and parity gates compare), 1 = the arena game. 0 = ok."""
+    """0 = the physics demo (what the selftests and parity gates compare), 1 = the game. 0 = ok."""
     try:
         var a = _app(app)
         if mode == MODE_GAME:
@@ -533,27 +532,6 @@ def app_set_mode(app: UInt64, mode: Int32) abi("C") -> Int32:
     except e:
         print("app_set_mode:", e)
         return -1
-
-
-@export
-def app_game_status(app: UInt64) abi("C") -> Int32:
-    """The game's state: 0 playing, 1 won, 2 lost; -1 when no game is running."""
-    var a = _app(app)
-    if not a[].arena:
-        return -1
-    return Int32(a[].arena.value().arena.status())
-
-
-@export
-def app_game_score(app: UInt64) abi("C") -> Int32:
-    var a = _app(app)
-    return Int32(a[].arena.value().arena.score) if a[].arena else -1
-
-
-@export
-def app_game_collected(app: UInt64) abi("C") -> Int32:
-    var a = _app(app)
-    return Int32(a[].arena.value().arena.collected()) if a[].arena else -1
 
 
 @export
@@ -570,7 +548,7 @@ def app_mesh_hash() abi("C") -> UInt64:
 def app_game_hash(app: UInt64) abi("C") -> UInt64:
     """The game state's hash, for comparing runs."""
     var a = _app(app)
-    return a[].arena.value().arena.hash() if a[].arena else 0
+    return a[].game.value().hash() if a[].game else 0
 
 
 @export

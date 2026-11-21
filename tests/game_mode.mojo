@@ -1,12 +1,11 @@
 # tier: integration
-"""The game seam (game/mode.mojo): a host drives each game only through `GameMode`, and the wrappers change nothing.
+"""The game seam (game/mode.mojo): a host drives each game only through `GameMode`.
 Native only: `pixi run -e wasm test-game`.
 
-The same frames are played twice: once through the concrete type, once through a generic host that knows only the trait.
-Every number the host sees must match. Compile-time dispatch is the point: the host below is `Drive[M]`, not a trait object."""
-from game.arena import Arena, DrawItem
-from game.arena_mode import ArenaMode
-from game.arena import DrawItem
+Two implementations (the demo game and `Pulse`) are driven by one generic host that knows only the trait.
+Compile-time dispatch is the point: the host below is `drive[M]`, not a trait object."""
+from game.demo_mode import DemoMode
+from game.draw_item import DrawItem
 from game.intent import Intent
 from game.mode import GameMode
 from geometry.quat import Quat
@@ -45,6 +44,9 @@ struct Pulse(GameMode):
 
     def cues(mut self) -> List[Int]:
         return List[Int]()
+
+    def sounds(self, rate: Int) -> List[List[Float32]]:
+        return List[List[Float32]]()
 
     def hud(self, width: Float32, height: Float32, frame_ms: Float32) raises -> DrawList:
         var dl = DrawList()
@@ -96,34 +98,9 @@ struct Check:
 
 def main() raises:
     var c = Check()
-    comptime FRAMES = 300
-
-    # the arena: the wrapper and the concrete type agree frame by frame
-    var direct = Arena()
-    var wrapped = ArenaMode()
-    var hashes_direct = List[UInt64]()
-    var hashes_wrapped = List[UInt64]()
-    var items_direct = 0
-    var items_wrapped = 0
-    var cues_wrapped = 0
-    for t in range(FRAMES):
-        direct.update(intent_at(t), 1.0 / 60.0)
-        wrapped.step(intent_at(t), 1.0 / 60.0)
-        items_direct = len(direct.draw_items())
-        var scene = wrapped.scene()
-        items_wrapped = len(scene)
-        cues_wrapped += len(wrapped.cues())
-        _ = direct.take_cues()
-        if t % 30 == 29:
-            hashes_direct.append(direct.hash())
-            hashes_wrapped.append(wrapped.hash())
-    c.ok(len(hashes_direct) == 10 and hashes_direct == hashes_wrapped, "arena: the wrapper's hashes equal the concrete arena's, every 30 frames")
-    c.ok(items_direct == items_wrapped and items_wrapped > 0, "arena: the scene has the same items (" + String(items_wrapped) + ")")
-    c.ok(wrapped.camera().position[1] == direct.cam.position[1], "arena: the camera is the same")
-    c.ok(cues_wrapped > 0, "arena: cues come through the wrapper (" + String(cues_wrapped) + " raised)")
 
     # the generic host, instantiated once per game: the same code path for both
-    var a = ArenaMode()
+    var a = DemoMode()
     var f = Pulse()
     var seen_a = drive(a, 120)
     var seen_f = drive(f, 120)
