@@ -58,9 +58,9 @@ jobs:
         run: pixi run -e wasm test-net
       - name: ludens build --target web twice, byte-identical manifests
         run: pixi run -e wasm test-build
-      - name: Arena game, scripted games natively
+      - name: Demo game, scripted games natively
         run: pixi run -e wasm test-game
-      - name: Arena game, native == wasm64 through the app exports
+      - name: Demo game, native == wasm64 through the app exports
         run: pixi run -e wasm game-parity
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad

@@ -85,7 +85,7 @@ async function boot(canvas: HTMLCanvasElement) {
   const [sel, len] = rt.str_in("#" + canvas.id);
   const app = x.app_init(sel, len, canvas.width, canvas.height);
   if (app === 0n) throw new Error("app_init failed");
-  // The arena game is the app; ?selftest keeps the physics demo that the parity gates and selftests measure.
+  // The demo game is the app; ?selftest keeps the physics demo that the parity gates and selftests measure.
   if (!location.search.includes("selftest") && !location.search.includes("demo")) x.app_set_mode(app, 1);
   if (location.search.includes("offscreen") && !location.search.includes("selftest")) x.app_offscreen(app, 1); // headless Chrome: never draw to the canvas
   // Non-enumerable: bigint is not JSON-serialisable and the automated checks stringify window.shell.
@@ -111,9 +111,9 @@ async function boot(canvas: HTMLCanvasElement) {
 }
 
 // Keyboard, mouse, touch and gamepads, all as the GLFW-coded events app_input takes. Returns the per-frame gamepad poll.
-// The arena game's touch controls, as data for the virtual pad kit (vpad.ts): a move stick under the left thumb, Jump
+// The demo game's touch controls, as data for the virtual pad kit (vpad.ts): a move stick under the left thumb, Jump
 // under the right, Pause and Restart out of the way at the top. A drag anywhere else on the canvas turns the camera.
-const ARENA_PAD: PadLayout = {
+const DEFAULT_PAD: PadLayout = {
   sticks: [{ id: "move", radius: 56, dead: 0.2, at: { left: 36, bottom: 36 }, keys: { up: KEY.W, down: KEY.S, left: KEY.A, right: KEY.D } }],
   buttons: [
     { id: "jump", key: KEY.SPACE, label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
@@ -149,7 +149,7 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
     lookEnd: () => { if (turning) { turning = false; send(EV.MOUSE_BUTTON, 0, ACTION.UP, 0, vx, vy); } },
   };
   const logged = (what: string) => { stats.padLog.push(what); if (stats.padLog.length > 64) stats.padLog.shift(); };
-  const touch = mountVirtualPad(canvas, ARENA_PAD, {
+  const touch = mountVirtualPad(canvas, DEFAULT_PAD, {
     key: (code, down) => { logged(`${down ? "+" : "-"}${code}`); sink.key(code, down); },
     look: (dx, dy) => { logged("look"); sink.look(dx, dy); },
     lookEnd: () => { logged("end"); sink.lookEnd(); },

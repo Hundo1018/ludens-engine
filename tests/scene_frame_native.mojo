@@ -25,7 +25,7 @@
 # `scene_frame_native --record` rewrites the tile file (a deliberate change of the picture);
 # `scene_frame_native --dump out.rgba` also writes the frame (960 x 540 RGBA8, tightly packed) to look at, and the
 # three spheres of the MAT_PBR checks as out.rgba.color.rgba / .pbr_smooth.rgba / .pbr_rough.rgba.
-# The scene and camera are written out here, not taken from the arena game, so a change to the game does not move them.
+# The scene and camera are written out here, not taken from a game, so a change to the demo game does not move them.
 from std.math import sqrt, sin, cos
 from std.sys import argv
 from harness.runner import Suite

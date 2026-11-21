@@ -1,4 +1,4 @@
-// Play the arena game by touch only, in headless Chrome emulating a phone, and check the virtual pad (shell/web/vpad*.ts).
+// Play the demo game by touch only, in headless Chrome emulating a phone, and check the virtual pad (shell/web/vpad*.ts).
 // usage: node scripts/touch_check.mjs <chrome> <url> <out-prefix> [timeout_s]
 // Touches are sent with the DevTools Input.dispatchTouchEvent, so they are trusted events with pointer capture and user
 // activation, and Chrome is started WITHOUT an autoplay override: the sound check means a touch really started it.

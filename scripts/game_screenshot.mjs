@@ -1,4 +1,4 @@
-// Play the arena game in headless Chrome (SwiftShader WebGPU) and save frames as PNG, so the renderer and HUD get looked at.
+// Play the demo game in headless Chrome (SwiftShader WebGPU) and save frames as PNG, so the renderer and HUD get looked at.
 // usage: node scripts/game_screenshot.mjs <chrome> <url> <out-prefix> [timeout_s] [shared|posted]
 // With `shared` or `posted` it also requires sound: frames played through the SharedArrayBuffer ring (an isolated
 // page) or through posted blocks (a page with no COOP/COEP headers, as on GitHub Pages).
@@ -58,8 +58,7 @@ const GRAB = `(async () => {
   const pitch = x.app_capture_pitch(app), w = s.canvasW, h = s.canvasH;
   const d = s.rt.bytes(p, pitch * h).slice(); x.app_capture_release(app);
   let bin = ''; for (let i = 0; i < d.length; i += 8192) bin += String.fromCharCode(...d.subarray(i, i + 8192));
-  return { w, h, pitch, format: Number(x.app_format(app)), b64: btoa(bin),
-    status: x.app_game_status(app), score: x.app_game_score(app), collected: x.app_game_collected(app) };
+  return { w, h, pitch, format: Number(x.app_format(app)), b64: btoa(bin) };
 })()`;
 async function shot(name) {
   const r = await js(GRAB);
@@ -77,7 +76,7 @@ async function shot(name) {
   // A cleared frame has one colour. The paused frame has measured 49 to 52
   // across runs, so the old limit of 50 failed by chance; 30 is well clear of both.
   if (colours.size < 30) problems.push(`${name}: only ${colours.size} colours, not a scene`);
-  console.log(`${name}: ${r.w}x${r.h} format ${r.format} status ${r.status} score ${r.score} collected ${r.collected}, ${colours.size} colours`);
+  console.log(`${name}: ${r.w}x${r.h} format ${r.format}, ${colours.size} colours`);
 }
 const key = (type, code) => js(`window.dispatchEvent(new KeyboardEvent('${type}', { code: '${code}', bubbles: true }))`);
 // wait for the app to have drawn frames
@@ -86,7 +85,7 @@ console.log('frames', await js('window.shell.frames'), 'error', await js('window
 await js('window.shell.canvasW = document.querySelector("canvas").width; window.shell.canvasH = document.querySelector("canvas").height');
 await shot('start');
 // A.2: one unit cube at the centre of the view (app_probe_cube), colour (0.8, 0.2, 0.2) before lighting. Taken while
-// the game runs: a paused frame draws no arena geometry. The centre pixel must turn that red; the start frame has none.
+// the game runs: a paused frame draws no game geometry. The centre pixel must turn that red; the start frame has none.
 await js('window.shell.x.app_probe_cube(window.shell.app, 1)'); await sleep(500);
 await shot('probe');
 await js('window.shell.x.app_probe_cube(window.shell.app, 0)');

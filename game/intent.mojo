@@ -1,7 +1,7 @@
 """What the player asked for in one frame, independent of the device that produced it.
 
-`app/controls.mojo` fills it from the keyboard and mouse; tests fill it from a script. The game logic in
-`game/arena.mojo` reads only this, so it needs neither a window nor an input library."""
+`app/controls.mojo` fills it from the keyboard and mouse; tests fill it from a script. A game's logic
+reads only this, so it needs neither a window nor an input library."""
 from geometry.vec import Real
 
 

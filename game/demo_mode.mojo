@@ -79,7 +79,7 @@ struct DemoMode(GameMode):
     def _build(mut self) raises:
         self.floor = self._box(Vec3(0.0, -0.5, 0.0, 0.0), Vec3(30.0, 0.5, 30.0, 0.0), 0.0, Vec3(0.42, 0.56, 0.42, 0.0))
         for i in range(4):  # pillars, so moving changes the picture
-            var x = Real(-9.0 + 6.0 * i)
+            var x = Real(-9.0) + 6.0 * Real(i)
             var z = Real(-6.0 - 4.0 * Real(i % 2))
             _ = self._box(Vec3(x, 1.5, z, 0.0), Vec3(0.6, 1.5, 0.6, 0.0), 0.0, Vec3(0.62, 0.64, 0.76, 0.0))
         for i in range(3):  # crates to push

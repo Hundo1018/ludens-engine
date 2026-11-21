@@ -44,10 +44,6 @@ comptime DEPTH_FORMAT = WGPUTextureFormat.Depth32Float
 comptime CLEAR = WGPUColor(0.55, 0.68, 0.85, 1.0)
 comptime DefaultPasses = Then[PrimitivePass, Then[MeshPass, SkinnedPass]]
 comptime SceneRenderer = SceneRendererOf[DefaultPasses]
-# The names before 2026-11-21, when the renderer was called after the sample game. ludens-playground still imports them;
-# delete these two lines once it has moved to SceneRenderer / SceneRendererOf.
-comptime ArenaRenderer = SceneRenderer
-comptime ArenaRendererOf = SceneRendererOf
 
 
 struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoAux](Movable):

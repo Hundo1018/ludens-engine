@@ -103,7 +103,7 @@ def main() raises:
     more.append(_item(0, 1.0))
     s.check(mesh_draw_hash(more, reg) != mesh_draw_hash(List[DrawItem](), reg), "one more instance changes the hash")
 
-    # the unit cube the probe and the arena use: 6 faces of 4 vertices, 12 triangles
+    # the unit cube the probe and the games use: 6 faces of 4 vertices, 12 triangles
     var cube_reg = MeshRegistry()
     var cube_id = add_unit_cube(cube_reg)
     s.check(cube_id == 0 and len(cube_reg.meshes[0].positions) == 72 and len(cube_reg.meshes[0].indices) == 36,
