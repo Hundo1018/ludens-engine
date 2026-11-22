@@ -48,9 +48,12 @@ Left out of the file on purpose, each because it makes two unrelated edits touch
 - **Positional indices**: replaced by stable ids.
 - **A list of children on the parent**: the parent is recorded on the child only.
 - **Ordered arrays**: every element has its own key, and order is a fractional index inside the key (`a0`, `a0V`,
-  `a1`), so two insertions at one place do not rewrite each other's rows.
+  `a1`), so two insertions at one place do not rewrite each other's rows. An index is a string over the 62 characters
+  `0-9A-Za-z` in byte order; a key between two others is the shortest string that sorts strictly between them, so
+  the byte order of keys is the element order.
 - **Derived data**: world transforms, content hashes, time stamps.
 - **Editor state** (selection, the editor camera, what is expanded): written to an untracked `<scene>.user` file.
+  `ludens new` writes `.gitignore` entries for `*.user`, `*.journal` and `*.conflicts`.
 
 ## 2. Identity
 
@@ -90,7 +93,7 @@ One value per row, on one line.
 |---|---|
 | boolean | `true` |
 | numbers, one or several, separated by spaces | `3`, `0 -9.81 0` |
-| string | `"floor"` |
+| string | `"floor"`; the only escapes are `\"`, `\\` and `\n`, any other control character is an error |
 | word | `point` |
 | entity reference | `#a41b77d3020c9e58` |
 | asset reference | `@9c1d22aa5e0b7f31:clip/Walk` |
@@ -418,7 +421,8 @@ cannot assemble a new pipeline from data.
   save an old scene after the bump would commit every upgraded row beside their own edit: with 30 lights gaining
   `light.range = 10`, a one-line move becomes a 31-row commit. Two people saving at once would not conflict (both
   write the same rows, and the key-wise merge keeps one), but the review would no longer show what they changed.
-- v1 to v2: `body.<i>` becomes an entity whose id is derived from `i` (one v1 file always gives the same ids),
+- v1 to v2: `body.<i>` becomes an entity whose id is `hash64("v1-body:" + i)`, drawn again with a counter suffix if
+  it falls in the reserved range (one v1 file always gives the same ids),
   `@<i>` becomes `#id`, and the count rows are dropped.
 
 ## 10. Determinism
@@ -426,6 +430,11 @@ cannot assemble a new pipeline from data.
 - The order in which bodies enter the physics world changes the simulation and the world hash. The canonical build
   order is "sorted by entity id, a parent before its children". It does not depend on who merged what, in which
   order.
+- A known consequence, accepted (2026-11-22): ids are random, so a new entity lands somewhere in that order, and the
+  solver visits the other bodies of its contact island in a different order. Their results can change in the last
+  bits (a stack of five crates, plus a sixth, can move the first five slightly); bodies in other islands do not
+  change. The same document always gives the same hash. Storing a creation order instead would add a row that two
+  people adding entities at once always collide on.
 - In the editor the document is the truth and the world is derived from it. Play builds the world from the document
   in canonical order and does not reuse the world edited so far, so "save, then load" and "press Play" give the same
   hash.
@@ -467,7 +476,9 @@ Recovery:
   touched, so there is no restore step.
 - **A merge conflict**: the merge tool writes no conflict markers into the scene. The file keeps our value and still
   loads; the conflicting keys, each with its base, ours and theirs values, go to `<scene>.conflicts`, the editor lists
-  them for a choice per key, and the file is deleted when none is left.
+  them for a choice per key, and the file is deleted when none is left. While a `.conflicts` file exists, the
+  pre-commit hook refuses the commit and the CI scene check fails, so a merge cannot be committed with the other
+  side's values silently dropped (decided 2026-11-22).
 - **A damaged file**: rows are parsed one by one and an error names its line. A last row cut short (no line end) is
   an error, not a row. There is no checksum row: it would change on every save and collide on every merge, and git
   already verifies its objects.
@@ -599,6 +610,10 @@ language. Which languages a behaviour script may be written in, and how the same
 host, is the subject of a separate study of the scripting layer; this document does not settle it.
 
 ## 14. Who provides what
+
+Order (decided 2026-11-22): the file layer first, in ludens-engine, while ludens-core does 17.97 in parallel. The file
+layer handles rows only and needs no ECS: the grammar and canonical writer, the 256 shards, the key-wise merge driver
+and its CI check, `ludens check`, and the v1 to v2 converter. The two meet when 17.97 lands.
 
 - **ludens-core (17.97, first)**: an ECS world and `ChildOf` inside `EmbedWorld`; every rigid body an entity; a
   64-bit stable id component; groups; generic component ↔ rows through schema reflection, with the field kinds of §8;
