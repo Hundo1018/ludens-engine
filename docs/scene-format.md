@@ -412,6 +412,12 @@ cannot assemble a new pipeline from data.
   otherwise change old scenes silently when a default moves. The upgrade function writes the old default into old
   files as a row. A CI check compares every schema default with the previous release and fails when one changed
   without a version bump.
+- **An upgrade lands in one dedicated commit** (decided 2026-11-22). The pull request that raises a component's
+  version also runs `ludens upgrade --all`, which loads every scene and writes the upgraded rows, so the repository
+  never holds a scene below the current versions. A CI check fails when one does. Without this, the first person to
+  save an old scene after the bump would commit every upgraded row beside their own edit: with 30 lights gaining
+  `light.range = 10`, a one-line move becomes a 31-row commit. Two people saving at once would not conflict (both
+  write the same rows, and the key-wise merge keeps one), but the review would no longer show what they changed.
 - v1 to v2: `body.<i>` becomes an entity whose id is derived from `i` (one v1 file always gives the same ids),
   `@<i>` becomes `#id`, and the count rows are dropped.
 
