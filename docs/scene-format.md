@@ -222,7 +222,12 @@ After a merge, `ludens check` (also run at load) reports: an entity whose parent
 with a warning), a reference to an entity or asset that does not exist (named), and an override on an entity the
 prefab no longer has (kept as an orphan row).
 
-Limit: GitHub's web merge does not run custom merge drivers. When the web page shows a conflict, merge locally.
+Limit: GitHub's web merge does not run custom merge drivers, so a pull request that touches a scene another merged
+pull request touched shows a conflict there even when the key-wise merge is clean. **A CI job closes that gap**
+(decided 2026-11-22): on every pull request that changes a scene file it merges the base branch into the head with
+the driver and reports the result as a check, with the keys that really conflict (entity name, key, base / ours /
+theirs). A clean result tells the author to merge locally with `ludens merge` (one command, no hand editing); the web
+button stays unusable for that case.
 
 ## 6. Large scenes: source and compiled forms are different files
 
@@ -278,11 +283,12 @@ What the numbers say:
 - **Parsing is not a concern at editor scale**: Python splits 894,000 rows in 166 ms. This is the split only, not
   building a world; ludens-core's measured 285 ms for 1e4 bodies from rows (17.12) is the cost of that second part.
 
-**The source layout, decided from these and from §5:** shard files by the leading hex digits of the entity id, the
-number of digits recorded in the scene directory and chosen so that a shard stays in the tens of kilobytes (two
-digits up to about 10,000 entities, three or four beyond; extrapolated from the table, not measured). One file per
-entity is offered for a repository that cannot install the merge driver: it halves false conflicts there (§5) at
-three times the pack.
+**The source layout, decided from these and from §5 (2026-11-22):** 256 shard files, named by the first two hex
+digits of the entity id (`00.rows` to `ff.rows`), fixed for every scene size. A shard never changes its name, so no
+save moves rows between files. Measured above: at 100,000 entities a save rewrites 145 KB, and the shards add 1 to
+9 % to the pack against one file. A small scene with fewer entities than shards simply has fewer files (an empty
+shard is not written). One file per entity is offered for a repository that cannot install the merge driver: it
+halves false conflicts there (§5) at three times the pack.
 
 Kept out of the row count by design, not by the layout: a prefab instance is two rows plus its overrides, and
 procedural content is a `generator` entity, not its output (the playground's 256 cells of scenery are a few generator
@@ -307,7 +313,8 @@ Costs accepted knowingly:
   expansion that prints the path.
 - In the editor, "apply to prefab" moves override rows into the prefab's file and "revert" deletes them.
 - An override that targets an entity the prefab no longer has is kept as an orphan row and reported; it is not
-  deleted for the user.
+  deleted for the user, so a removal on another branch or one that is undone later loses nothing. `ludens check
+  --prune-orphans` lists them and deletes them on request (decided 2026-11-22).
 
 ## 8. Types: the file grammar is closed, the schema is open
 
