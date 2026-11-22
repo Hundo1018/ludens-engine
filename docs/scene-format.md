@@ -15,7 +15,7 @@ an estimate, it says so.
   `bodies.count` row. `scene_diff`'s own comment: inserting a body in the middle shows up as the changes of every body
   after it.
 - Nothing a player sees is in the file: meshes, colours, render materials, textures, lights, the camera, the
-  environment and the post stages are set from code (`game/arena.mojo`, and in ludens-playground `frontier/world.mojo`
+  environment and the post stages are set from code (in ludens-playground `arena/arena.mojo`, `frontier/world.mojo`
   and `app/host.mojo`). The light and camera features of `docs/LIGHTS_CAMERA.md` cannot be written to a scene.
 - `export_scene` drops `per_meter` and about twenty solver settings that `embed/transfer.mojo` `settings_hash` counts
   as affecting the result.
@@ -36,7 +36,7 @@ A key is `<entity path>.<component>.<field>`.
 
 | row | meaning |
 |---|---|
-| `<id>.node = <parent id>` or `= -` | the entity exists, and its parent (`-`: the scene root). Reparenting changes this one row |
+| `<id>.node = #<parent id>` or `= none` | the entity exists, and its parent (`none`: the scene root). Reparenting changes this one row |
 | `<id>.name = "crate"` | a display name; not an identity |
 | `<id>.<component> = +` | the entity has the component (needed when every field is at its default) |
 | `<id>.<component>.<field> = <value>` | written only when it differs from the default |
@@ -62,7 +62,7 @@ Left out of the file on purpose, each because it makes two unrelated edits touch
 - **A reference to an asset** is the value `@<asset id>`, and `@<asset id>:clip/Walk` for a part of one. The asset id
   is a stable id kept beside the asset's import settings. The content hash lives in the asset database's lock file,
   one row per asset, not in the scene.
-  - This differs from issue #9 ("assets by content hash") for one reason: with the hash in the scene, re-importing
+  - Decided 2026-11-22. This differs from issue #9 ("assets by content hash") for one reason: with the hash in the scene, re-importing
     one texture edits every scene that uses it, and two people re-importing conflict. The compiled scene (§6) pins
     hashes.
 
@@ -70,7 +70,9 @@ Left out of the file on purpose, each because it makes two unrelated edits touch
 
 One value per row, on one line.
 
-- Reals are written as the **shortest decimal that reads back to the same float32**. Today `String(Float64(r))` writes
+- Reals are written as the **shortest decimal that reads back to the same float32**, in every build, the f64 build of
+  ludens-core (`build64`) included: a scene saved from either build has the same bytes, and the extra precision of an
+  f64 world exists at run time only (decided 2026-11-22). Today `String(Float64(r))` writes
   `-9.81` as `-9.8100004196167`.
 - A vector is one row (`pos = 1 2.5 -3`), not three: two people moving one object is a real conflict.
 
@@ -129,13 +131,13 @@ Rules:
 
 ```
 ludens-scene 2
-0000000000000001.node = -
+0000000000000001.node = none
 0000000000000001.settings = +
 0000000000000001.settings.gravity = 0 -9.81 0
 0000000000000001.environment = +
 0000000000000001.environment.kind = sky
 0000000000000001.environment.top = 0.22 0.42 0.8
-3f9a1c0e77b2d410.node = -
+3f9a1c0e77b2d410.node = none
 3f9a1c0e77b2d410.name = "floor"
 3f9a1c0e77b2d410.transform.pos = 0 -0.5 0
 3f9a1c0e77b2d410.body = +
@@ -146,7 +148,7 @@ ludens-scene 2
 3f9a1c0e77b2d410.material = +
 3f9a1c0e77b2d410.material.kind = triplanar
 3f9a1c0e77b2d410.material.texture = @9c1d22aa5e0b7f31
-a41b77d3020c9e58.node = 3f9a1c0e77b2d410
+a41b77d3020c9e58.node = #3f9a1c0e77b2d410
 a41b77d3020c9e58.transform.pos = 0 4 0
 a41b77d3020c9e58.light = +
 a41b77d3020c9e58.light.kind = point
@@ -289,12 +291,13 @@ Costs accepted knowingly:
 
 ## 7. Reuse: a scene is a prefab
 
-- Any scene can be instanced: `<id>.node = <parent>` and `<id>.instance = @<scene asset>`.
+- Any scene can be instanced: `<id>.node = #<parent>` and `<id>.instance = @<scene asset>`.
 - Expansion: read the referenced scene's rows, prefix every key with `<id>/`, then lay the outer scene's rows that
   start with `<id>/` over them. An override is an ordinary row, with no second syntax:
   - change a property: `<id>/<inner>.light.intensity = 5`
   - add or remove a component: `<id>/<inner>.<component> = +` / `= -`
-  - remove an inner entity: `<id>/<inner>.node = -`
+  - remove an inner entity: `<id>/<inner>.node = -`. `-` means "remove" everywhere (an entity, a component); the
+    scene root as a parent is `none`, so the two are never the same row (decided 2026-11-22)
   - add a child: an ordinary entity whose parent is `<id>/<inner>`
 - A variant is a scene whose root is an instance of another scene. Nesting has no depth limit. A cycle is an error at
   expansion that prints the path.
@@ -377,7 +380,7 @@ Fields are the parameters the code takes today.
 | `rope`, `cloth`, `fracture`, `character`, `nav_region`, `trigger` | their parameters | hard-coded in the playground |
 | `editor` | locked, hidden, folder colour; stripped at compile | — |
 
-A limit to state plainly: a render pipeline is a compile-time type (`ArenaRendererOf[P, F, A]`,
+A limit to state plainly: a render pipeline is a compile-time type (`SceneRendererOf[P, F, A]`,
 `docs/PIPELINES.md`). A scene can name one of the pipelines compiled into the program and set its parameters. It
 cannot assemble a new pipeline from data.
 
