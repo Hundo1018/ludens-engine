@@ -36,7 +36,7 @@ A key is `<entity path>.<component>.<field>`.
 
 | row | meaning |
 |---|---|
-| `<id>.node = #<parent id>` | the entity exists, and its parent. Reparenting changes this one row. Only the scene root writes `= none` |
+| `<id>.node = #<parent id>` | the entity exists, and its parent (`#~` for a top-level entity). Reparenting changes this one row |
 | `<id>.name = "crate"` | a display name; not an identity |
 | `<id>.<component> = +` | the entity has the component (needed when every field is at its default) |
 | `<id>.<component>.<field> = <value>` | written only when it differs from the default |
@@ -54,10 +54,14 @@ Left out of the file on purpose, each because it makes two unrelated edits touch
 
 ## 2. Identity
 
-- **The scene root** is an entity with the fixed id `0000000000000001`. It is in every scene, cannot be removed, and holds
-  the scene-wide components (`settings`, `environment`, `sun`, `atmosphere`, `ao`, `pipeline`). It is the only entity
-  with `node = none`; a top-level entity has `node = #0000000000000001`. Ids `0000000000000000` to `000000000000ffff`
-  are reserved for entities the engine defines; a random id is drawn again if it falls there (decided 2026-11-22).
+- **The scene root** is written `~` (decided 2026-11-22): `~` as a key's entity part, `#~` as a reference. It is in
+  every scene, cannot be removed, has no `node` row, and holds the scene-wide components (`settings`, `environment`,
+  `sun`, `atmosphere`, `ao`, `pipeline`). A top-level entity has `node = #~`. `~` always means the root of the scene
+  the row is in, so a prefab names its own root the same way wherever it is placed (§7). There is no upward path
+  (`..`): a reference that climbed out of a prefab would depend on where the prefab is placed (§3b). In memory the
+  root has the fixed id `0000000000000001`; ids `0000000000000000` to `000000000000ffff` are reserved for entities
+  the engine defines, and a random id is drawn again if it falls there. A reference cannot be mistaken for a file:
+  entities are always `#…` and assets always `@<asset id>`, never a path.
 - **Entity id**: 64 random bits made when the entity is created, written as 16 hex digits. It is not derived from a
   name or a position, so renaming, moving, and two people adding at once do not collide.
 - **An entity inside a prefab instance** is named by an id path, `<instance id>/<inner id>`, to any depth.
@@ -135,13 +139,12 @@ Rules:
 
 ```
 ludens-scene 2
-0000000000000001.node = none
-0000000000000001.settings = +
-0000000000000001.settings.gravity = 0 -9.81 0
-0000000000000001.environment = +
-0000000000000001.environment.kind = sky
-0000000000000001.environment.top = 0.22 0.42 0.8
-3f9a1c0e77b2d410.node = #0000000000000001
+~.settings = +
+~.settings.gravity = 0 -9.81 0
+~.environment = +
+~.environment.kind = sky
+~.environment.top = 0.22 0.42 0.8
+3f9a1c0e77b2d410.node = #~
 3f9a1c0e77b2d410.name = "floor"
 3f9a1c0e77b2d410.transform.pos = 0 -0.5 0
 3f9a1c0e77b2d410.body = +
@@ -306,14 +309,13 @@ Costs accepted knowingly:
   start with `<id>/` over them. An override is an ordinary row, with no second syntax:
   - change a property: `<id>/<inner>.light.intensity = 5`
   - add or remove a component: `<id>/<inner>.<component> = +` / `= -`
-  - remove an inner entity: `<id>/<inner>.node = -`. `-` means "remove" everywhere (an entity, a component); `none`
-    appears only on the scene root, so the two are never the same row (decided 2026-11-22)
+  - remove an inner entity: `<id>/<inner>.node = -`. `-` means "remove" everywhere (an entity, a component); a
+    parent is always a reference (`#…`), so the two are never the same row (decided 2026-11-22)
   - add a child: an ordinary entity whose parent is `<id>/<inner>`
-- **The prefab's root is the instance entity** (decided 2026-11-22). The prefab's own root (`0000000000000001`) is not
-  expanded as a separate entity: its children become children of `<id>`. The scene-wide components on the prefab's
+- **The prefab's root is the instance entity** (decided 2026-11-22). The prefab's own root (`~`) is not expanded as
+  a separate entity: `#~` inside the prefab becomes `#<id>`, so its top-level entities become children of `<id>`. The scene-wide components on the prefab's
   root (`settings`, `environment`, `sun`, `atmosphere`, `ao`, `pipeline`) are ignored when it is instanced, with one
-  warning per instance; the outer scene's own settings apply. How a row names the root of the scene it is in (a
-  literal id, or a symbol such as `#~`) is still open.
+  warning per instance; the outer scene's own settings apply.
 - A variant is a scene whose root is an instance of another scene. Nesting has no depth limit. A cycle is an error at
   expansion that prints the path.
 - In the editor, "apply to prefab" moves override rows into the prefab's file and "revert" deletes them.
