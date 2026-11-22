@@ -309,6 +309,11 @@ Costs accepted knowingly:
   - remove an inner entity: `<id>/<inner>.node = -`. `-` means "remove" everywhere (an entity, a component); `none`
     appears only on the scene root, so the two are never the same row (decided 2026-11-22)
   - add a child: an ordinary entity whose parent is `<id>/<inner>`
+- **The prefab's root is the instance entity** (decided 2026-11-22). The prefab's own root (`0000000000000001`) is not
+  expanded as a separate entity: its children become children of `<id>`. The scene-wide components on the prefab's
+  root (`settings`, `environment`, `sun`, `atmosphere`, `ao`, `pipeline`) are ignored when it is instanced, with one
+  warning per instance; the outer scene's own settings apply. How a row names the root of the scene it is in (a
+  literal id, or a symbol such as `#~`) is still open.
 - A variant is a scene whose root is an instance of another scene. Nesting has no depth limit. A cycle is an error at
   expansion that prints the path.
 - In the editor, "apply to prefab" moves override rows into the prefab's file and "revert" deletes them.
@@ -367,7 +372,8 @@ new type is a new registered struct or a new word, with no change to the schema 
 
 ### 8a. Components of the first version
 
-Fields are the parameters the code takes today.
+All of the components below are in the first version (decided 2026-11-22). Fields are the parameters the code takes
+today.
 
 | component | holds | today |
 |---|---|---|
@@ -400,8 +406,10 @@ cannot assemble a new pipeline from data.
 - The first line, `ludens-scene 2`, is the grammar version.
 - Each component has a version. The file writes `version.<component> = N` only when N is above 1. An upgrade is a
   registered function from rows to rows, run in order at load.
-- **Changing a default is a version change.** "Write only what differs from the default" would otherwise change old
-  scenes silently when a default moves. The upgrade function writes the old default into old files as a row.
+- **Changing a default is a version change** (decided 2026-11-22). "Write only what differs from the default" would
+  otherwise change old scenes silently when a default moves. The upgrade function writes the old default into old
+  files as a row. A CI check compares every schema default with the previous release and fails when one changed
+  without a version bump.
 - v1 to v2: `body.<i>` becomes an entity whose id is derived from `i` (one v1 file always gives the same ids),
   `@<i>` becomes `#id`, and the count rows are dropped.
 
@@ -487,7 +495,7 @@ Rules, for determinism and against re-entry:
 - The simulation's inner loops do not use the reactive backend (a write costs 40 to 80 times the SoA write). The
   editor and the scene layer use change detection or observers.
 
-**Layer 2, data binding: adopted within limits, with no new grammar.** "This field follows that source" is rows of a
+**Layer 2, data binding: adopted within limits, with no new grammar, and in the first version (decided 2026-11-22).** "This field follows that source" is rows of a
 `bind` component:
 
 ```
@@ -528,7 +536,7 @@ for its editor to edit.
 
 Python is used where code fits, and the data format does not change:
 
-1. **Generators.** `generator.source = @<script>.py` runs at **build time** under native CPython and emits rows that
+1. **Generators** (deferred with the scripting layer, 2026-11-22). `generator.source = @<script>.py` runs at **build time** under native CPython and emits rows that
    are compiled into `.lscene`. The run time needs no Python, so this works for the web build. A generator may depend
    on its seed and parameters only. The playground's `_cell` is this kind of code.
 2. **A Python API for scenes.** A `ludens.scene` module reads and writes rows: batch edits, importers, upgrades,
