@@ -183,6 +183,7 @@ pixi run -e wasm test-web       # headless Firefox (all checks) and Chrome (all 
 pixi run -e wasm serve-web      # http://127.0.0.1:8000 (needs a WebGPU browser; memory64 needs Chrome 133+ / Firefox 134+)
 pixi run -e wasm parity         # native vs wasm64 hash of a sin/cos orbit (the B4 gate's first step)
 pixi run -e wasm bench          # B3 table below
+pixi run -e wasm frame-pacing   # step pattern at 60-240 Hz displays, physics against a 144 Hz frame (#126)
 ```
 
 Safari has no memory64, so the web shell does not run on iOS.
