@@ -29,6 +29,10 @@ build-web = { cmd = "python3 scripts/build_web.py", depends-on = ["build-wasm"] 
 test-web = { cmd = "bash scripts/test_web.sh", depends-on = ["build-web"] }
 bench = "python3 scripts/bench.py"
 multi-wasm-probe = "python3 scripts/multi_wasm_probe.py"
+# docs/scene-format.md: how four ways of writing a scene merge under git and what they cost to store; and whether a
+# Python behaviour script can run beside the wasm64 module in a browser (Pyodide from npm, built into build/py_probe/).
+scene-merge-probe = "python3 scripts/scene_merge_probe.py"
+python-web-probe = "python3 scripts/python_web_probe.py"
 parity-gate = "python3 scripts/parity_gate.py"
 serve-web = { cmd = "python3 shell/web/serve.py 8000 build/web", depends-on = ["build-web"] }
 # B1 acceptance: app_init + 1 frame under node must not trap.
