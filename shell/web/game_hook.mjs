@@ -5,6 +5,11 @@
 //   press(key)       a tap: down and up inside one frame (the game sees the press edge, not a held key)
 //   hold(key)        key down until release(key)
 //   release(key)     key up;  releaseAll() lets go of everything
+//   axis(device, axis, v)    set an analog axis (device 0..2 gamepad, 3 on-screen pad; axis 0 / 1 left stick x / y, y down): the AXIS event
+//   padButton(device, b, down)   a gamepad or on-screen button (its key code is 400 + 20 * device + b)
+//   rebind(line)     `jump key:KeyJ`, `move.up key:KeyI take`: {ok: true}, or {ok: false, conflicts: ["jump.main"]}; saved to the profile
+//   resetBindings()  every action back to its default bindings
+//   prompt(action, device)   the name to show for an action on a device ("keyboard", "mouse", "gamepad", "touch"): "Space", "A"
 //   step(n, draw)    n frames of 1/60 s; draw = false (default true) steps with no drawing and no presenting
 //   hash()           the game state's hash, a decimal string (a u64 does not fit a JS number)
 //   events()         the sound cues raised since the last call: [{frame, cue}]
@@ -16,6 +21,9 @@ export const DT = 1 / 60; // seconds per stepped frame: the demo game runs one f
 const KEY_EVENT = 1; // keys.ts EV.KEY
 const DOWN = 1;
 const UP = 0;
+const AXIS_EVENT = 5; // keys.ts EV.AXIS: key = axis index, action = device, x = value
+const PAD_BUTTON_BASE = 400, PAD_BUTTON_STRIDE = 20; // pad.ts
+const DEVICES = { keyboard: 0, mouse: 1, gamepad: 2, touch: 3 };
 
 // DOM code -> GLFW code, the table of keys.ts (that file is TypeScript, which node reads only with --experimental-strip-types
 // and the page loads through build_web.py, so the hook takes `keyCode` from its caller instead of importing it).
@@ -44,6 +52,38 @@ export function createGameHook({ rt, app, keyCode }) {
     hold(key) { send(code(key), DOWN); },
     release(key) { send(code(key), UP); },
     releaseAll() { rt.call("app_release_input", app); },
+    axis(device, axis, value) {
+      if (!Number.isInteger(device) || device < 0 || device > 3 || !Number.isInteger(axis) || axis < 0 || axis > 7) throw new Error(`game: axis(${device}, ${axis}): device 0..3, axis 0..7`);
+      rt.call("app_input", app, AXIS_EVENT, axis, device, 0, Number(value), 0);
+    },
+    padButton(device, button, down = true) {
+      if (!Number.isInteger(device) || device < 0 || device > 3 || !Number.isInteger(button) || button < 0 || button >= PAD_BUTTON_STRIDE) throw new Error(`game: padButton(${device}, ${button}): device 0..3, button 0..${PAD_BUTTON_STRIDE - 1}`);
+      send(PAD_BUTTON_BASE + PAD_BUTTON_STRIDE * device + button, down ? DOWN : UP);
+    },
+    rebind(line) {
+      const [ptr, len] = rt.str_in(line);
+      try {
+        const rc = rt.call("app_rebind", app, ptr, len);
+        if (rc === 0) return { ok: true };
+        if (rc > 0) return { ok: false, conflicts: text(rt.call("app_text_len", app)).split(" ") };
+        throw new Error(`game: rebind(${JSON.stringify(line)}) failed, see the console`);
+      } finally {
+        rt.free(ptr);
+      }
+    },
+    resetBindings() { rt.call("app_bindings_reset", app); },
+    prompt(action, device = "keyboard") {
+      const d = DEVICES[device];
+      if (d === undefined) throw new Error(`game: prompt: device must be one of ${Object.keys(DEVICES).join(", ")}`);
+      const [ptr, len] = rt.str_in(action);
+      try {
+        const n = rt.call("app_prompt", app, ptr, len, d);
+        if (n < 0) throw new Error(`game: prompt: no action or slot ${JSON.stringify(action)}`);
+        return n === 0 ? "" : text(n);
+      } finally {
+        rt.free(ptr);
+      }
+    },
     step(n = 1, draw = true) { frames(n, draw); return hook.hash(); },
     hash: () => BigInt.asUintN(64, rt.call("app_game_hash", app)).toString(),
     events: () => JSON.parse(text(rt.call("app_events", app))),

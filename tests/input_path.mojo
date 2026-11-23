@@ -1,6 +1,6 @@
-"""The shell's input path with the real device struct: events into wgpu's `InputState`, `app/controls.read_keys` into
-`Keys`, `game/controls` into an `Intent`, frame by frame as `App.frame` does it. Native only: `pixi run -e wasm test-game`."""
-from controls import read_keys
+"""The shell's input path with the real device struct: events into wgpu's `InputState`, `app/controls.read_frame` into
+`InputFrame`, `game/controls` into an `Intent`, frame by frame as `App.frame` does it. Native only: `pixi run -e wasm test-game`."""
+from controls import read_frame
 from game.controls import Controls
 from game.intent import Intent
 from wgpu.rendercanvas.glfw import MojoInputEvent
@@ -11,6 +11,7 @@ comptime BUTTON: Int32 = 2
 comptime CURSOR: Int32 = 3
 comptime UP: Int32 = 0
 comptime DOWN: Int32 = 1
+comptime AXIS: Int32 = 5
 
 
 struct Check:
@@ -32,7 +33,7 @@ struct Check:
 
 def frame(mut ctl: Controls, mut input: InputState) -> Intent:
     """One app frame: read the intent, then end the frame."""
-    var i = ctl.poll(read_keys(input))
+    var i = ctl.poll(read_frame(input))
     input.begin_frame()
     return i
 
@@ -77,6 +78,26 @@ def main() raises:
     input.process_event(MojoInputEvent(CURSOR, 0, 0, 0, 600.0, 296.0))
     i = frame(ctl, input)
     c.ok(i.look_dx == 0, "moving the pointer with no button held does not")
+
+    # a gamepad: AXIS events (device 0, left stick) and button 0 as key code 400 (PAD_BUTTON_BASE)
+    input.process_event(MojoInputEvent(KEY, 87, UP, 0, 0.0, 0.0))  # let go of W and the right arrow from above
+    input.process_event(MojoInputEvent(KEY, 262, UP, 0, 0.0, 0.0))
+    input.process_event(MojoInputEvent(AXIS, 0, 0, 0, 0.6, 0.0))
+    i = frame(ctl, input)
+    c.ok(abs(Float64(i.right) - 0.5) < 1.0e-6 and i.forward == 0, "AXIS events: stick x = 0.6 gives right 0.5 ((0.6 - 0.2) / 0.8, dead zone 0.2)")
+    input.process_event(MojoInputEvent(AXIS, 0, 0, 0, 0.0, 0.0))
+    input.process_event(MojoInputEvent(AXIS, 1, 0, 0, -1.0, 0.0))
+    i = frame(ctl, input)
+    c.ok(i.right == 0 and abs(Float64(i.forward) - 1.0) < 1.0e-6, "stick up (y = -1) is forward 1")
+    input.process_event(MojoInputEvent(AXIS, 1, 0, 0, 0.0, 0.0))
+    input.process_event(MojoInputEvent(KEY, 400, DOWN, 0, 0.0, 0.0))  # gamepad 0, button 0
+    i = frame(ctl, input)
+    c.ok(i.jump, "a gamepad button sent as key code 400 jumps")
+    input.process_event(MojoInputEvent(KEY, 400, UP, 0, 0.0, 0.0))
+    input.process_event(MojoInputEvent(AXIS, 0, 3, 0, -1.0, 0.0))  # axis 0 of device 3, the on-screen pad
+    i = frame(ctl, input)
+    c.ok(i.right == -1, "the on-screen pad's stick (device 3) moves left")
+    input.process_event(MojoInputEvent(AXIS, 0, 3, 0, 0.0, 0.0))
 
     # focus is lost while W is held: the key-up never arrives
     input.release_all()

@@ -1,6 +1,7 @@
 """The controls (game/controls.mojo): held keys become movement, edges become one-shot actions, the camera turns
 only while the left button is held, and the pointer's first jump is not a turn. Native only: `pixi run -e wasm test-game`."""
-from game.controls import Controls, Keys
+from game.action_map import InputFrame, key_code
+from game.controls import Controls
 
 
 struct Check:
@@ -24,30 +25,30 @@ def main() raises:
     var c = Check()
     var ctl = Controls()
 
-    var k = Keys()
-    k.up = True
-    k.right = True
+    var k = InputFrame()
+    k.hold(key_code("KeyW"))
+    k.hold(key_code("KeyD"))
     var i = ctl.poll(k)
     c.ok(i.forward == 1 and i.right == 1 and not i.jump, "W + D: forward and right")
 
-    k.down = True
-    k.left = True
+    k.hold(key_code("KeyS"))
+    k.hold(key_code("KeyA"))
     i = ctl.poll(k)
     c.ok(i.forward == 0 and i.right == 0, "opposite keys cancel")
 
-    var e = Keys()
-    e.jump = True
-    e.pause = True
-    e.restart = True
+    var e = InputFrame()
+    e.press(key_code("Space"))
+    e.press(key_code("KeyP"))
+    e.press(key_code("KeyR"))
     i = ctl.poll(e)
     c.ok(i.jump and i.pause and i.restart, "edges pass through")
-    i = ctl.poll(Keys())
-    c.ok(not i.jump and not i.pause and not i.restart, "an edge lasts one frame because Keys is rebuilt each frame")
+    i = ctl.poll(InputFrame())
+    c.ok(not i.jump and not i.pause and not i.restart, "an edge lasts one frame because the frame is rebuilt each time")
 
     # the first pointer event is a jump from (0, 0): no turn, even with the button held
     var look = Controls()
-    var m = Keys()
-    m.look_held = True
+    var m = InputFrame()
+    m.mouse_down[0] = True
     m.mouse_dx = 640
     m.mouse_dy = 360
     i = look.poll(m)
@@ -56,7 +57,7 @@ def main() raises:
     m.mouse_dy = -4
     i = look.poll(m)
     c.ok(i.look_dx == 12 and i.look_dy == -4, "after that, a drag with the button held turns the camera")
-    m.look_held = False
+    m.mouse_down[0] = False
     i = look.poll(m)
     c.ok(i.look_dx == 0 and i.look_dy == 0, "moving the pointer without the button does not turn it")
 

@@ -37,5 +37,9 @@ export interface AppExports {
   app_configure(app: bigint, seed: bigint, scene_ptr: bigint, scene_len: bigint): number;
   app_state(app: bigint): number;
   app_events(app: bigint): number;
+  app_rebind(app: bigint, ptr: bigint, length: bigint): number;
+  app_bindings_reset(app: bigint): number;
+  app_prompt(app: bigint, ptr: bigint, length: bigint, device: number): number;
+  app_text_len(app: bigint): number;
   app_text_ptr(app: bigint): bigint;
 }

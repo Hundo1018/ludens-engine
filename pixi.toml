@@ -57,9 +57,11 @@ test-editor = "python3 scripts/test_editor.py"
 build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
-test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_controls camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
+test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_controls action_map camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
 # #119: data tables (game/table.mojo), live tuning (game/tuning.mojo, game/tuning_panel.mojo), the generated accessors and `ludens check` on tables.
 gen-table = "python3 scripts/gen_table.py"
+# #117: game/demo_actions.mojo is game/data/demo.actions embedded as a constant
+gen-actions = "python3 scripts/gen_actions.py"
 test-tables = "python3 scripts/gen_table.py game/data/demo.schema --table game/data/demo.table -o game/demo_table.mojo --check && python3 scripts/test_native.py game_table && python3 tests/test_tables.py"
 test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-scene-probe = "python3 scripts/test_native.py scene_probe_native"
@@ -102,6 +104,8 @@ test-transport = "python3 scripts/test_native.py platform_transport platform_ser
 test-build = "python3 tests/test_build.py"
 # #115 (E21): window.game under node, divergence trace, `ludens sim` batch runner (docs/automation.md); builds build/app.wasm first.
 test-automation = { cmd = "python3 tests/test_automation.py", depends-on = ["build-wasm"] }
+# #117 (E23): axes, gamepad / on-screen pad events, rebinding and the saved profile through window.game (docs/input.md); builds build/app.wasm first.
+test-input = { cmd = "python3 scripts/test_input.py", depends-on = ["build-wasm"] }
 divergence = "python3 scripts/divergence.py"
 # window.game in headless Chrome (?manual&seed=&scene=) against the same job under node.
 hook-web = { cmd = "python3 scripts/hook_web_check.py", depends-on = ["build-wasm"] }

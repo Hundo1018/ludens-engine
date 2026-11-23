@@ -92,22 +92,23 @@ On-screen controls for touch players, in two files with no dependency on the res
   touched), placed from the viewport edges plus the safe-area inset. Hidden until the page sees a touch or the device's
   main pointer is coarse; `?touch` forces it.
 
-The shell's layout is `DEFAULT_PAD` in `shell/web/app.ts`:
+The shell's layout is `DEFAULT_PAD` in `shell/web/app.ts`. It names controls, not actions: the stick is axes 0 and 1 of the on-screen pad
+(`vpad:a0`, `vpad:a1`, sent raw with `dead: 0`) and the buttons are `vpad:b0`, `vpad:b9`, `vpad:b3`. What they do is
+`game/data/demo.actions` (`docs/input.md`):
 
 ```ts
 const DEFAULT_PAD: PadLayout = {
-  sticks: [{ id: "move", radius: 56, dead: 0.2, at: { left: 36, bottom: 36 }, keys: { up: KEY.W, down: KEY.S, left: KEY.A, right: KEY.D } }],
+  sticks: [{ id: "move", radius: 56, dead: 0, at: { left: 36, bottom: 36 }, axes: { x: 0, y: 1 } }],
   buttons: [
-    { id: "jump", key: KEY.SPACE, label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
-    { id: "pause", key: KEY.P, label: "II", size: 44, at: { right: 12, top: 12 } },
-    { id: "restart", key: KEY.R, label: "R", size: 44, at: { right: 68, top: 12 } },
+    { id: "jump", key: vpadButton(0), label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
+    { id: "pause", key: vpadButton(9), label: "II", size: 44, at: { right: 12, top: 12 } },
+    { id: "restart", key: vpadButton(3), label: "R", size: 44, at: { right: 68, top: 12 } },
   ],
   look: {},
 };
 ```
 
-A stick reports its vector (`PadSink.stick(id, x, y)`, -1..1), but the game reads it as eight directions: the game's
-input is keys, and an analog axis needs a new event kind through `app_input`.
+A stick reports its vector as two `AXIS` events (`PadSink.axis`); the game's action map applies the dead zone and response curve.
 
 ## Layout
 
@@ -121,6 +122,7 @@ input is keys, and an analog axis needs a new event kind through `app_input`.
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
 | `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |
+| `game/action_map.mojo`, `game/controls.mojo`, `game/data/demo.actions`, `game/input_strings.mojo`, `app/profile.mojo` | Input actions by intent, analog sticks, rebinding with conflicts, the saved profile, the input buffer, prompts: `docs/input.md` (#117). Test: `pixi run -e wasm test-game`, `test-input`. |
 | `game/table.mojo`, `game/tuning.mojo`, `game/tuning_panel.mojo`, `game/data/` | Data tables with a schema, live tuning and its panel (F2 in the demo game), `ludens check` / `ludens tune` on tables: `docs/data-tables.md` (#119). Test: `pixi run -e wasm test-tables`, `tuning-web`. |
 | `scripts/ludens.py`, `scripts/build_core.py` | The `ludens` command line and the build of the native core. |
 | `tests/test_cli.py` | The command line end to end, across processes. |

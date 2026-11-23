@@ -139,5 +139,22 @@ t.pad.move(1, 0, 0); t.pad.up(2, 10); t.pad.up(3, 10);
 ok(t.log.length === 0, "events for forgotten fingers are ignored");
 ok(t.pad.stickDown("move", 9, 50, 50), "and the stick takes a new finger");
 
+// a stick with `axes` sends its vector as two axes, raw when `dead` is 0, and zeroes them when the finger lifts or focus is lost
+{
+  const log = [];
+  const sink = { key: () => {}, look: () => {}, lookEnd: () => {}, axis: (a, v) => log.push(`a${a}=${v.toFixed(2)}`) };
+  const pad = new VirtualPad({ sticks: [{ id: "m", radius: 50, dead: 0, axes: { x: 0, y: 1 }, at: { left: 0, bottom: 0 } }], buttons: [] }, sink);
+  pad.stickDown("m", 1, 100, 100);
+  pad.move(1, 110, 100); // 10 px right of the centre, radius 50: x = 0.2, no dead zone of the pad's own
+  pad.move(1, 110, 75);  // and 25 px up: y = -0.5 (down is positive)
+  pad.up(1, 0);
+  ok(log.join(" ") === "a0=0.20 a1=0.00 a0=0.20 a1=-0.50 a0=0.00 a1=0.00", `axes follow the finger, raw, and return to 0: ${log.join(" ")}`);
+  log.length = 0;
+  pad.stickDown("m", 2, 100, 100);
+  pad.move(2, 150, 100);
+  pad.release();
+  ok(log.join(" ") === "a0=1.00 a1=0.00 a0=0.00 a1=0.00", `focus lost zeroes the axes: ${log.join(" ")}`);
+}
+
 console.log(`test_vpad: ${passed} / ${passed + failed} checks`);
 process.exit(failed ? 1 : 0);

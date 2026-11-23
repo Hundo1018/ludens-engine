@@ -3,7 +3,8 @@
 //
 // A game describes its controls as data (`PadLayout`) and receives the same events a keyboard and mouse would give:
 // keys going down and up, and camera turns in pixels. A stick also reports its vector (`PadSink.stick`), for a game
-// that reads an analog direction; `keys` on a stick turns the vector into four keys, eight directions.
+// that reads an analog direction; `axes` on a stick sends the vector as two axes (`PadSink.axis`, no dead zone of its own when
+// `dead` is 0: the game's action map shapes it), `keys` turns it into four keys, eight directions.
 //
 // Every pointer belongs to the one control it went down on until it is lifted. A stick takes one pointer; its centre
 // is where that finger landed, so the thumb never has to find a fixed spot. A button is down while any finger is on it.
@@ -17,6 +18,7 @@ export interface StickSpec {
   radius: number; // CSS pixels: the knob stops here, and here the vector has length 1
   dead?: number; // 0..1 of the radius inside which the vector is zero (default 0.2)
   keys?: { up: number; down: number; left: number; right: number };
+  axes?: { x: number; y: number }; // axis indices the vector is sent on (`PadSink.axis`): x right, y down, -1..1, no key involved
   at: Placement; // where the stick rests when no finger is on it
   zone?: { width: string; height: string }; // CSS size of the area that takes the finger (default 46vw by 60vh)
 }
@@ -40,6 +42,7 @@ export interface PadSink {
   look(dx: number, dy: number): void; // camera turn in pixels; (0, 0) is never sent
   lookEnd(): void;
   stick?(id: string, x: number, y: number): void; // -1..1, y down like the Gamepad API; sent on change
+  axis?(axis: number, value: number): void; // a stick's `axes`: one call per axis, sent on change
 }
 
 export interface StickState { active: boolean; ox: number; oy: number; dx: number; dy: number; x: number; y: number }
@@ -128,7 +131,7 @@ export class VirtualPad {
       const v = stickVector(x - s.state.ox, y - s.state.oy, s.spec.radius, s.spec.dead);
       const changed = v.x !== s.state.x || v.y !== s.state.y;
       s.state = { active: true, ox: s.state.ox, oy: s.state.oy, ...v };
-      if (changed) { this.sink.stick?.(o.id, v.x, v.y); this.sync(); }
+      if (changed) { this.sink.stick?.(o.id, v.x, v.y); this.emitAxes(s.spec, v.x, v.y); this.sync(); }
     } else if (o.kind === "look") {
       const dx = x - o.x, dy = y - o.y;
       o.x = x; o.y = y;
@@ -147,7 +150,7 @@ export class VirtualPad {
       const moved = s.state.x !== 0 || s.state.y !== 0;
       s.pointer = null;
       s.state = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, x: 0, y: 0 };
-      if (moved) this.sink.stick?.(o.id, 0, 0);
+      if (moved) { this.sink.stick?.(o.id, 0, 0); this.emitAxes(s.spec, 0, 0); }
       this.sync();
     } else if (o.kind === "button") {
       this.buttons.get(o.id)!.pointers.delete(pointer);
@@ -169,7 +172,7 @@ export class VirtualPad {
       const moved = s.state.x !== 0 || s.state.y !== 0;
       s.pointer = null;
       s.state = { active: false, ox: 0, oy: 0, dx: 0, dy: 0, x: 0, y: 0 };
-      if (moved) this.sink.stick?.(id, 0, 0);
+      if (moved) { this.sink.stick?.(id, 0, 0); this.emitAxes(s.spec, 0, 0); }
     }
     for (const b of this.buttons.values()) b.pointers.clear();
     this.sync();
@@ -178,6 +181,12 @@ export class VirtualPad {
 
   stick(id: string): StickState { return this.sticks.get(id)!.state; }
   pressed(id: string): boolean { return this.buttons.get(id)!.pointers.size > 0; }
+
+  private emitAxes(spec: StickSpec, x: number, y: number) {
+    if (!spec.axes) return;
+    this.sink.axis?.(spec.axes.x, x);
+    this.sink.axis?.(spec.axes.y, y);
+  }
 
   // Keys are held by the pad as a whole, so a stick and a button that map to the same key do not release each other.
   private sync() {

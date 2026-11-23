@@ -6,6 +6,7 @@ from embed.world import EmbedWorld
 from game.draw_item import DrawItem
 from game.demo_table import DemoRow, demo_default_table, demo_row, DEMO_TABLE_TEXT
 from game.table import table_load
+from game.action_map import InputBuffer
 from game.intent import Intent
 from game.mode import GameMode
 from game.tuning import Tuner
@@ -58,6 +59,7 @@ struct DemoMode(GameMode):
     var tick: Int
     var jumps: Int
     var paused: Bool
+    var jump_buffer: InputBuffer  # a jump pressed up to `Intent.jump_buffer_ms` before landing still fires
     var seed: UInt64  # 0 = the fixed layout; any other value moves the crates and the ball's start (`_build`)
     var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
@@ -88,6 +90,7 @@ struct DemoMode(GameMode):
         self.tick = 0
         self.jumps = 0
         self.paused = False
+        self.jump_buffer = InputBuffer()
         self.seed = 0
         self.scene_name = String("arena")
         self.cue_queue = List[Int]()
@@ -132,6 +135,7 @@ struct DemoMode(GameMode):
         self.tick = move.tick
         self.jumps = move.jumps
         self.paused = move.paused
+        self.jump_buffer = move.jump_buffer.copy()
         self.seed = move.seed
         self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
@@ -236,6 +240,7 @@ struct DemoMode(GameMode):
         self.tick = 0
         self.jumps = 0
         self.paused = False
+        self.jump_buffer = InputBuffer()
         self._build()
 
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
@@ -252,7 +257,8 @@ struct DemoMode(GameMode):
             self.yaw -= intent.look_dx * Real(self.tune.look_sensitivity)
         if self.paused:
             return
-        var jump = intent.jump
+        if intent.jump:
+            self.jump_buffer.press(Float64(intent.jump_buffer_ms))
         for _ in range(self.world.ticks_due(frame_dt)):
             if self.tuner.apply() > 0:  # queued edits take effect here, between two ticks
                 self.tune = demo_row(self.tuner.table, "main")
@@ -261,16 +267,17 @@ struct DemoMode(GameMode):
             var right = Vec3(cos(self.yaw), 0.0, -sin(self.yaw), 0.0)
             var v = (fwd * intent.forward + right * intent.right) * Real(self.tune.speed)
             var vy = self.world.state(self.ball).vel[1]
-            if jump and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
+            if self.jump_buffer.live() and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
+                _ = self.jump_buffer.take()
                 vy = Real(self.tune.jump_speed)
                 self.jumps += 1
                 self.cue_queue.append(CUE_JUMP)
-            jump = False
             self.world.set_velocity(self.ball, Vec3(v[0], vy, v[2], 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
             var t0 = perf_counter_ns()
             self.world.physics_tick()
             self.step_physics_ns += Int64(perf_counter_ns() - t0)
             self.tick += 1
+        self.jump_buffer.age(frame_dt * 1000.0)
 
     def overlay(mut self, width: Float32, height: Float32, pointer_x: Float32, pointer_y: Float32, pointer_down: Bool, toggle: Bool) raises -> DrawList:
         if toggle:
@@ -398,4 +405,6 @@ struct DemoMode(GameMode):
         h = (h ^ UInt64(self.tick)) * UInt64(0x100000001B3)
         h = (h ^ UInt64(self.jumps)) * UInt64(0x100000001B3)
         h = (h ^ UInt64(1 if self.paused else 0)) * UInt64(0x100000001B3)
+        if self.jump_buffer.left_ms > 0.0:  # a press still pending is part of what the next ticks do
+            h = (h ^ UInt64(Int(self.jump_buffer.left_ms * 1000.0))) * UInt64(0x100000001B3)
         return h

@@ -17,11 +17,12 @@ const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
 const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
 const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
 const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url));
+const { createOsImports } = await import(new URL("../shell/web/os_host.mjs", import.meta.url)); // os_*: the saved input profile (app/profile.mojo)
 const { createGameHook } = await import(new URL("../shell/web/game_hook.mjs", import.meta.url));
 const { keyCode } = await import(new URL("../shell/web/keys.ts", import.meta.url));
 const json = (p) => JSON.parse(readFileSync(p, "utf8"));
 const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net] });
+const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net, (r) => createOsImports(r)] });
 wrt.attach(rt);
 
 const job = { ticks: 600, seed: 0, scene: "", state: true, events: false, draw: false, script: [], ...json(jobFile) };

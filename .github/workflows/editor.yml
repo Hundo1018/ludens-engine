@@ -72,6 +72,8 @@ jobs:
         run: pixi run -e wasm test-tables
       - name: Automation hook under node, divergence trace, batch runner (#115)
         run: pixi run -e wasm test-automation
+      - name: Input actions through the wasm64 app (axes, rebinding, saved profile), node (#117)
+        run: pixi run -e wasm test-input
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node

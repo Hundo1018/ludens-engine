@@ -12,11 +12,13 @@ const { instantiate } = await load(hostMjs);
 const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
 const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
 const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
-const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url)); // no ?ws: net_send answers -1, net_poll 0
+const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url));
+// no ?ws: net_send answers -1, net_poll 0
+const { createOsImports } = await import(new URL("../shell/web/os_host.mjs", import.meta.url)); // os_*: the saved input profile (app/profile.mojo)
 const json = (p) => JSON.parse(readFileSync(p, "utf8"));
 // wgpu's createImports takes its own handle-table Runtime and returns the flat `env` table.
 const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net] });
+const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net, (r) => createOsImports(r)] });
 wrt.attach(rt);
 
 const [ptr, len] = rt.str_in("#canvas");

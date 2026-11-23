@@ -48,7 +48,7 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
     if engine:
         if "LUDENS_CORE_SRC" not in os.environ and "LUDENS_ENGINE" not in os.environ:
             subprocess.run(["bash", "scripts/deps.sh"], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
-        # app/ too, with wgpu-mojo: a test can drive the shell's own device code (InputState -> Keys) natively.
+        # app/ too, with wgpu-mojo: a test can drive the shell's own device code (InputState -> InputFrame) natively.
         includes = ["-I", str(engine_dir()), "-I", str(ROOT / "build/deps/wgpu-mojo"), "-I", "app", "-I", "."]
     sources = native_sources(entry, engine)
     if not force and out.exists() and out.stat().st_mtime >= newest(sources):
