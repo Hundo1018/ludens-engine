@@ -48,7 +48,7 @@ three crates to push; Space jumps with a sound, P pauses.
 
 Where it lives: the game in `game/demo_mode.mojo` (no window, no GPU), input in `game/controls.mojo`, `app/controls.mojo` and
 `shell/web/pad.ts` (gamepad) and the virtual pad kit below (touch), which become the same key and pointer events, drawing in `app/render3d.mojo` and
-`app/hud.mojo` (text from `ui/font.mojo`), its sound clip from `GameMode.sounds`, played by the audio scene.
+`app/hud.mojo` (text from the SDF font `ui/sdf_font.mojo`, #116), its sound clip from `GameMode.sounds`, played by the audio scene.
 
 Automation (`window.game`, `?seed=` `?scene=` `?manual`, divergence trace, `ludens sim`): [docs/automation.md](docs/automation.md).
 

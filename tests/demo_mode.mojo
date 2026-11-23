@@ -6,6 +6,11 @@ from game.demo_mode import DemoMode, CUE_JUMP
 from game.camera_view import View
 from game.intent import Intent
 from geometry.vec import Real
+from ui.batch import build_batch_font
+from ui.draw import CMD_FILL, CMD_TEXT, DrawList
+from ui.geom import Insets, Rect
+from ui.scale import UiEnv
+from ui.sdf_font import SdfFont
 
 
 struct Check:
@@ -23,6 +28,55 @@ struct Check:
         else:
             self.failed += 1
             print("  [FAIL]", label)
+
+
+def overlaps(a: Rect, b: Rect) -> Bool:
+    return a.x < b.right() and b.x < a.right() and a.y < b.bottom() and b.y < a.bottom()
+
+
+def inside(inner: Rect, outer: Rect) -> Bool:
+    return inner.x >= outer.x - 0.01 and inner.y >= outer.y - 0.01 and inner.right() <= outer.right() + 0.01 and inner.bottom() <= outer.bottom() + 0.01
+
+
+def check_hud(mut c: Check, mut font: SdfFont, w: Float32, h: Float32, scale: Float32, locale: Int, pseudo: Bool, insets: Insets) raises -> Int:
+    """Lay the HUD out (paused, so all three panels show), then: panels do not overlap each other, lie inside the safe area,
+    each text run's wrapped height fits inside its panel, no string key is missing, no glyph is missing. Returns the number
+    of failed conditions."""
+    var g = DemoMode()
+    g.set_font_metrics(font.m)
+    g.set_ui_env(UiEnv(scale, insets, locale, pseudo))
+    g.paused = True
+    g.set_ui_env(UiEnv(scale, insets, locale, pseudo))  # texts again after the pause flag (the key does not include it)
+    var dl = g.hud(w, h, 1.0)
+    var safe = g.ui.safe_rect(w, h)
+    var fills = List[Rect]()
+    var texts = List[Int]()
+    for i in range(len(dl.cmds)):
+        if dl.cmds[i].kind == CMD_FILL:
+            fills.append(dl.cmds[i].rect)
+        elif dl.cmds[i].kind == CMD_TEXT:
+            texts.append(i)
+    var bad = 0
+    if len(fills) != 3 or len(texts) != 3:
+        bad += 1
+    for i in range(len(fills)):
+        if not inside(fills[i], safe):
+            bad += 1
+        for j in range(i + 1, len(fills)):
+            if overlaps(fills[i], fills[j]):
+                bad += 1
+    for k in range(min(len(texts), len(fills))):
+        ref cmd = dl.cmds[texts[k]]
+        var th = font.text_height(cmd.text, cmd.value, cmd.rect.w)
+        if cmd.rect.y + th > fills[k].bottom() + 0.01 or cmd.rect.x < fills[k].x or cmd.rect.x + cmd.rect.w > fills[k].right() + 0.5 + cmd.rect.w * 0.05:
+            bad += 1
+    font.reset_missing()
+    var batch = build_batch_font(dl, font)
+    if font.missing != 0 or g.loc.missing_keys != 0 or len(batch.glyph_verts) == 0:
+        bad += 1
+    var label = String("HUD ") + String(Int(w)) + "x" + String(Int(h)) + " text " + String(Int(scale * 100)) + "%, locale " + String(locale) + (", pseudo" if pseudo else "") + ", insets " + String(Int(insets.left)) + "/" + String(Int(insets.bottom))
+    c.ok(bad == 0, label + ": 3 panels, no overlap, inside the safe area, text fits, 0 missing keys, 0 missing glyphs")
+    return bad
 
 
 def script(t: Int) -> Intent:
@@ -102,6 +156,35 @@ def main() raises:
     var kj = k.hud_key(960.0, 540.0)
     k.step(Intent(Real(0), Real(0), Real(0), Real(0), False, True, False), 1.0 / 60.0)
     c.ok(k.paused and k.hud_key(960.0, 540.0) != kj, "pausing changes the HUD key (the banner is drawn)")
+
+    # HUD layout at text scale 100 % .. 200 %: three window sizes, both locales, pseudo-localization, a phone's safe area
+    var font: SdfFont
+    with open("assets/fonts/NotoSansTC-Regular-24.lfont", "r") as f:
+        font = SdfFont(f.read_bytes())
+    var sizes_w = [960.0, 640.0, 1280.0, 844.0]
+    var sizes_h = [540.0, 360.0, 720.0, 390.0]
+    var scales = [1.0, 1.5, 2.0]
+    for si in range(4):
+        for sc in range(3):
+            for loc in range(2):
+                _ = check_hud(c, font, Float32(sizes_w[si]), Float32(sizes_h[si]), Float32(scales[sc]), loc, False, Insets.none())
+    _ = check_hud(c, font, 960, 540, 2.0, 0, True, Insets.none())
+    _ = check_hud(c, font, 960, 540, 2.0, 1, True, Insets.none())
+    _ = check_hud(c, font, 844, 390, 2.0, 0, True, Insets(44, 0, 44, 21))
+    _ = check_hud(c, font, 844, 390, 2.0, 1, False, Insets(44, 0, 44, 21))
+
+    # the settings are part of the HUD key; a locale switch changes the drawn text
+    var u = DemoMode()
+    u.set_font_metrics(font.m)
+    var ku = u.hud_key(960.0, 540.0)
+    u.set_ui_env(UiEnv(2.0, Insets.none(), 0, False))
+    var k2 = u.hud_key(960.0, 540.0)
+    u.set_ui_env(UiEnv(2.0, Insets.none(), 1, False))
+    var k3 = u.hud_key(960.0, 540.0)
+    u.set_ui_env(UiEnv(2.0, Insets(10, 0, 0, 0), 1, False))
+    c.ok(ku != k2 and k2 != k3 and k3 != u.hud_key(960.0, 540.0), "text scale, locale and insets each change the HUD key")
+    c.ok(u.loc.missing_keys == 0, "the demo's strings resolve: 0 missing keys")
+    c.ok(len(u.loc.validate()) == 0 and len(u.loc.missing_glyphs(font)) == 0, "the demo's tables validate and every glyph they use is in the font atlas")
 
     # state(), seeds and scenes (the automation hook, docs/automation.md)
     var st = a.state()

@@ -5,10 +5,13 @@
 a list of text runs with the segment they belong to. Strokes become four rectangles inside the stroked one. Nested
 clips are intersected, so a segment's scissor is always the visible area. Text is not turned into glyph quads here: that
 needs a font atlas, which belongs to the renderer; the run carries the string, colour, size and rectangle.
+`build_batch_font` also turns every text run into glyph quads with an `SdfFont` (`Batch.glyph_verts`, 8 floats per vertex,
+see ui/sdf_font.mojo), cut to the scissor of the segment the run belongs to.
 
 Standard library only, so a renderer other than wgpu (or a test) can use the same batches."""
 from ui.draw import CMD_CLIP_POP, CMD_CLIP_PUSH, CMD_FILL, CMD_STROKE, CMD_TEXT, Color, DrawList
 from ui.geom import Rect
+from ui.sdf_font import SdfFont, append_text
 
 comptime FLOATS_PER_VERTEX = 6
 comptime VERTS_PER_QUAD = 6
@@ -35,11 +38,13 @@ struct Batch(Movable):
     var verts: List[Float32]
     var segments: List[Segment]
     var texts: List[TextRun]
+    var glyph_verts: List[Float32]  # `build_batch_font` only
 
     def __init__(out self):
         self.verts = List[Float32]()
         self.segments = List[Segment]()
         self.texts = List[TextRun]()
+        self.glyph_verts = List[Float32]()
 
     def vertex_count(self) -> Int:
         return len(self.verts) // FLOATS_PER_VERTEX
@@ -122,4 +127,14 @@ def build_batch(list: DrawList) -> Batch:
             if len(clips) > 0:
                 _ = clips.pop()
                 seg_open = False
+    return b^
+
+
+def build_batch_font(list: DrawList, mut font: SdfFont) -> Batch:
+    """`build_batch` plus the glyph quads of every text run, drawn from `font`. Code points the font lacks are counted in `font.missing`."""
+    var b = build_batch(list)
+    for i in range(len(b.texts)):
+        ref t = b.texts[i]
+        ref seg = b.segments[t.segment]
+        append_text(b.glyph_verts, font, t.rect, t.text, t.color, t.size, seg.scissor, seg.clipped)
     return b^
