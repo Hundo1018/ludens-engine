@@ -184,6 +184,7 @@ pixi run -e wasm serve-web      # http://127.0.0.1:8000 (needs a WebGPU browser;
 pixi run -e wasm parity         # native vs wasm64 hash of a sin/cos orbit (the B4 gate's first step)
 pixi run -e wasm bench          # B3 table below
 pixi run -e wasm frame-pacing   # step pattern at 60-240 Hz displays, physics against a 144 Hz frame (#126)
+pixi run -e wasm frame-budget   # per-segment frame breakdown, native and wasm64, against a 144 Hz frame (#123)
 ```
 
 Safari has no memory64, so the web shell does not run on iOS.
@@ -234,6 +235,27 @@ not GPU time. The hash column compares the final pose array bit for bit.
 
 Pins when measured: ludens-core `61a7bfd86f93`, wgpu-mojo `57d28106cd15`, miniaudio-mojo `fc84c21d045d`,
 ludens-wasm-rt `b23d53d`.
+
+## Frame breakdown
+
+`App.frame` times each part of its frame with one clock (`std.time.perf_counter_ns`: the OS monotonic clock natively,
+the runtime's `host_now_ns`, i.e. `performance.now()`, in wasm64) and keeps the last 256 frames in a ring
+(`app/frame_stats.mojo`). `app_frame_stats(app, out_ptr)` writes, for each of 9 segments in the order net, step,
+physics, scene, push, hud, draw, present, frame, `[p50, p95, max, frames it ran in]` as u64 nanoseconds (288 bytes)
+and returns the number of frames in the ring. `pixi run -e wasm frame-budget` prints them as a table against the
+6.94 ms frame of a 144 Hz display: natively at three resolutions (`app/frame_budget.mojo`, on lavapipe without a GPU)
+and for the real wasm64 app under node (`scripts/game_node.mjs`).
+
+How to read it:
+
+- *physics* is part of *step* (the game reports it through `GameMode.physics_ns`; a game that does not leaves the row
+  empty). Do not add the two rows. *frame* is the whole `app_frame` call, so it also holds what no row names.
+- A row is over the frames that segment ran in. "not run" means it does not exist on that target: natively there is
+  no net poll or present (the runner draws offscreen); under node there is no WebGPU, so the frame ends after the step.
+- Every number is CPU time. *draw* is encoding and submitting the passes, not the GPU executing them; GPU time needs
+  timestamp queries (a later slice of #123).
+- The browser clock is coarsened (100 µs in Chrome unless the page is cross-origin isolated), so read sub-ms browser
+  rows over many frames, not one.
 
 ## B4: native / web parity gate
 

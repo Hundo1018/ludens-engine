@@ -3,6 +3,7 @@
 export interface AppExports {
   app_init(selector: bigint, selector_len: bigint, width: number, height: number): bigint;
   app_frame(app: bigint, dt: number): number;
+  app_frame_stats(app: bigint, out_ptr: bigint): number;
   app_input(app: bigint, kind: number, key: number, action: number, mods: number, x: number, y: number): void;
   app_resize(app: bigint, width: number, height: number): void;
   app_audio_render(app: bigint, dst_ptr: bigint, frames: number): number;
