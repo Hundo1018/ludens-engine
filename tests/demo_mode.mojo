@@ -136,6 +136,31 @@ def main() raises:
         thud_peak = max(thud_peak, abs(v))
     c.ok(len(clips[1]) == 2 * 6720 and thud_peak > 0.2, "the impact clip of 0.14 s, audible (peak " + String(thud_peak) + ")")
 
+    # a host that never takes the cues: jumping every 40 frames lands many times, impacts stay at 4 per step and the list stays short
+    var deaf = DemoMode()
+    var worst_step = 0
+    for t in range(600):
+        var before = len(deaf.placed_cues)
+        deaf.step(Intent(Real(0), Real(0), Real(0), Real(0), t % 40 == 30, False, False), 1.0 / 60.0)
+        var added = 0
+        for pc in deaf.placed_cues[before:]:
+            if pc.cue == CUE_IMPACT:
+                added += 1
+        worst_step = max(worst_step, added)
+    var total_impacts = 0
+    for pc in deaf.placed_cues:
+        if pc.cue == CUE_IMPACT:
+            total_impacts += 1
+    c.ok(total_impacts > 4, "cues nobody takes are not capped at the first four impacts (" + String(total_impacts) + " queued)")
+    c.ok(worst_step <= 4 and len(deaf.placed_cues) <= 32 + 15, "at most 4 impacts per step, and the list is bounded (" + String(len(deaf.placed_cues)) + " cues after 600 steps)")
+    var jump_cues = 0
+    var jump_vy = Float32(0)
+    for pc in deaf.placed_cues:
+        if pc.cue == CUE_JUMP:
+            jump_cues += 1
+            jump_vy = pc.vy
+    c.ok(jump_cues > 0 and jump_vy > 1.0, "a jump cue carries the ball's upward velocity (" + String(jump_vy) + " m/s)")
+
     # an airborne ball cannot jump again
     var air = DemoMode()
     for t in range(60):

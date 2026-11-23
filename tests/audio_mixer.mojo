@@ -114,6 +114,7 @@ def test_parse(mut c: Check) raises:
     bad.append("event x\n  clips a\n  pitch 1.2 0.8\n")
     bad.append("clips a\n")
     bad.append("event x\n  clips a\n  limit lots\n")
+    bad.append("event x\n  clips a\n  bus master\n")
     var msgs = List[String]()
     for t in bad:
         try:
@@ -127,6 +128,7 @@ def test_parse(mut c: Check) raises:
     c.ok(msgs[3] == "line 3: pitch needs 0 < low <= high <= 4", "pitch range order: " + msgs[3])
     c.ok(msgs[4] == "line 1: `clips` before any `event`", "a key before an event: " + msgs[4])
     c.ok(msgs[5] == "line 3: `lots` is not a number", "a non-number: " + msgs[5])
+    c.ok(msgs[6].startswith("line 3: `bus` is one of music sfx ambience ui voice (master"), "an event on the master bus is refused, not silent: " + msgs[6])
 
 
 def make_jump_mixer(seed: UInt64) raises -> Mixer:
@@ -403,6 +405,45 @@ def test_moving_emitter(mut c: Check) raises:
     c.ok(crossed > blocks // 2 - 8 and crossed < blocks // 2 + 8, "left and right energy cross at the middle of the walk: block " + String(crossed))
 
 
+def test_doppler(mut c: Check) raises:
+    # A source 50 m ahead moving along the line to the listener at 34.33 m/s (0.1 c): the clip is read at c / (c - v) = 1.1111
+    # times the normal rate; receding it is c / (c + v) = 0.9091; across the line, 1.0; standing still, 1.0.
+    var rates = List[Float64]()
+    var speeds = List[Float32]()
+    speeds.append(34.33)
+    speeds.append(-34.33)
+    speeds.append(0.0)
+    for i in range(3):
+        var m = sources_mixer()
+        var id = m.play_event(0, 0, 0, -50, 0.0, False, 0.0, 0.0, speeds[i])
+        c.ok(id > 0, "a moving voice plays")
+        var out = List[Float32]()
+        m.render(out, 4800)
+        rates.append(Float64(m.voices[0].pos) / 65536.0 / 4800.0)
+    c.near(rates[0], 1.0 / 0.9, 1e-3, "approaching at 0.1 c: read at 1.1111 x")
+    c.near(rates[1], 1.0 / 1.1, 1e-3, "receding at 0.1 c: read at 0.9091 x")
+    c.near(rates[2], 1.0, 1e-6, "standing still: read at 1.0 x")
+    c.ok(rates[0] > rates[2] and rates[2] > rates[1], "approaching is higher than still, receding is lower")
+    var side = sources_mixer()
+    _ = side.play_event(0, 0, 0, -50, 0.0, False, 34.33, 0.0, 0.0)  # moving across the line of sight
+    var out2 = List[Float32]()
+    side.render(out2, 4800)
+    c.near(Float64(side.voices[0].pos) / 65536.0 / 4800.0, 1.0, 1e-6, "moving across the line to the listener: no shift")
+    # the event's own pitch range multiplies the shift
+    var m2 = sources_mixer()
+    m2.events[0].pitch_lo = 2.0
+    m2.events[0].pitch_hi = 2.0
+    _ = m2.play_event(0, 0, 0, -50, 0.0, False, 0.0, 0.0, 34.33)
+    m2.render(out2, 4800)
+    c.near(Float64(m2.voices[0].pos) / 65536.0 / 4800.0, 2.0 / 0.9, 2e-3, "pitch 2 and approaching at 0.1 c: 2.2222 x")
+    # move_voice updates the velocity
+    var m3 = sources_mixer()
+    var id3 = m3.play_event(0, 0, 0, -50)
+    m3.move_voice(id3, 0, 0, -50, 0.0, 0.0, 34.33)
+    m3.render(out2, 4800)
+    c.near(Float64(m3.voices[0].pos) / 65536.0 / 4800.0, 1.0 / 0.9, 1e-3, "move_voice with a velocity shifts the rate")
+
+
 def test_listener(mut c: Check) raises:
     # the camera faces +x: a source at -z is on its left, a source at +x is ahead
     var m = sources_mixer()
@@ -603,6 +644,7 @@ def main() raises:
     test_ducking(c)
     test_3d(c)
     test_moving_emitter(c)
+    test_doppler(c)
     test_listener(c)
     test_music(c)
     test_loudness(c)

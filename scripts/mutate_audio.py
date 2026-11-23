@@ -33,6 +33,10 @@ MUTATIONS = [
      "var pitch = Float32(1.0)", NATIVE, "pitch stays in 0.8 .. 1.2 and covers it"),
     ("an impact is raised for a contact that is not new", "game/demo_mode.mojo", "if e.kind != Int64(EVENT_BEGAN) or e.impulse < IMPACT_MIN_IMPULSE:",
      "if e.impulse < IMPACT_MIN_IMPULSE:", DEMO, "impact"),
+    ("Doppler ignores the velocity", "app/mixer.mojo", "        return SPEED_OF_SOUND / (SPEED_OF_SOUND - toward)\n", "        return 1.0\n", NATIVE, "approaching at 0.1 c"),
+    ("an event on the master bus is accepted", "app/audio_event.mojo", " or bus_by_name(toks[1]) == BUS_MASTER:", ":", NATIVE, "master bus is refused"),
+    ("impacts are counted over the whole queue, not per step", "game/demo_mode.mojo", "            if self.impacts_this_step >= IMPACTS_PER_FRAME or len(self.placed_cues) >= MAX_PLACED_CUES:",
+     "            if len(self.placed_cues) >= IMPACTS_PER_FRAME:", DEMO, "not capped at the first four"),
     ("native shim uses the approximate rsqrt", "scripts/native_libs.py", 'SHIM_DEFINES = ["-DMA_NO_SSE2"]', "SHIM_DEFINES = []", SAME, "DIFFERENT"),
 ]
 

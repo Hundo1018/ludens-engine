@@ -105,9 +105,9 @@ def parity_hashes() raises -> List[UInt64]:
         var t = Float32(block) / 1500.0
         m.set_listener(-10.0 + 20.0 * t, 0.0, 5.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0)
         if block % 40 == 0:
-            last_hit = m.play_event(hit, pos.range(-30.0, 30.0), pos.range(0.0, 3.0), pos.range(-30.0, 30.0))
+            last_hit = m.play_event(hit, pos.range(-30.0, 30.0), pos.range(0.0, 3.0), pos.range(-30.0, 30.0), 0.0, False, pos.range(-40.0, 40.0), 0.0, pos.range(-40.0, 40.0))
         if last_hit > 0 and block % 5 == 0:
-            m.move_voice(last_hit, -20.0 + 40.0 * t, 1.0, -8.0)
+            m.move_voice(last_hit, -20.0 + 40.0 * t, 1.0, -8.0, 30.0, 0.0, 0.0)
         if block % 211 == 0:
             _ = m.play_event(ui)
         if block == 100:

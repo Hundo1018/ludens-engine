@@ -5,7 +5,7 @@ Text format, one event per `event` line, keys indented, `#` starts a comment:
 
     event jump
       clips jump_a jump_b jump_c     # clip names; the mixer resolves them to registered clips
-      bus sfx                        # master | music | sfx | ambience | ui | voice (default sfx)
+      bus sfx                        # music | sfx | ambience | ui | voice (default sfx); master is the final mix and is refused
       pitch 0.95 1.05                # playback-rate range, 1.0 = unchanged
       volume -3 0                    # dB range added to the bus gain
       priority 5                     # higher wins when voices run out
@@ -111,8 +111,8 @@ def parse_events(text: String) raises -> List[AudioEvent]:
             for i in range(1, len(toks)):
                 out[e].clip_names.append(toks[i])
         elif key == "bus":
-            if len(toks) != 2 or bus_by_name(toks[1]) < 0:
-                raise Error(where + ": `bus` is one of master music sfx ambience ui voice")
+            if len(toks) != 2 or bus_by_name(toks[1]) < 0 or bus_by_name(toks[1]) == BUS_MASTER:
+                raise Error(where + ": `bus` is one of music sfx ambience ui voice (master is the final mix, not a bus to play on)")
             out[e].bus = bus_by_name(toks[1])
         elif key == "pitch":
             if len(toks) != 3:

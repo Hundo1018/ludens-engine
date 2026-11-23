@@ -23,7 +23,7 @@ An event asset names several clips, a bus, pitch and volume ranges, a priority a
 ```
 event cue2
   clips cue2 cue2b        # clip names; a game's own clips are cue1, cue2, ... (GameMode.sounds)
-  bus sfx                 # master music sfx ambience ui voice
+  bus sfx                 # music sfx ambience ui voice (master is the final mix: the parser refuses it)
   pitch 0.8 1.25          # playback rate, linear interpolation
   volume -4 0             # dB added to the bus gain
   priority 2
@@ -57,9 +57,11 @@ depend on how the output is cut into blocks (`tests/audio_mixer.mojo` renders 12
 - **Spatializer per voice.** A spatial voice owns a miniaudio `Spatializer` (1 channel in, 2 out): inverse attenuation
   between `min_distance` and `max_distance`, rolloff 1, panning from the direction in the listener's frame. The clip is
   averaged to mono before it goes in. `Mixer.move_voice` moves a playing voice.
-- **Velocity.** A cue carries no velocity. `Spatializer.process` computes a Doppler pitch from the velocities but does not
-  resample; the mixer's own resampler (pitch from the event's range) does not read it. `Mixer.move_voice` accepts a velocity
-  and passes it to the spatializer, with no audible effect today.
+- **Velocity.** A cue carries the source's velocity (the demo's jump carries the ball's). Each block the mixer shifts the voice's
+  playback rate by the Doppler factor `c / (c - v)`, `v` the speed toward the listener, `c = 343.3 m/s`, `v` capped at 0.9 c; the
+  listener is taken as still. miniaudio's standalone `Spatializer.process` computes a Doppler pitch but does not resample, and
+  the wrapper does not expose it, so the mixer computes it and applies it in its own resampler, multiplied with the event's
+  pitch. The velocity is also set on the voice's `Spatializer`.
 - **What it does not do.** Without HRTF a source ahead and a source behind give identical gains. This is documented in
   `docs/spatial-audio.md` and measured in `tests/audio_mixer.mojo`.
 

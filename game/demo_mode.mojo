@@ -29,6 +29,7 @@ comptime CUE_IMPACT = 2
 comptime IMPACT_MIN_IMPULSE: Float32 = 0.4  # contact impulses below this make no sound
 comptime IMPACT_FULL_IMPULSE: Float32 = 8.0  # at this impulse an impact plays at its full volume
 comptime IMPACTS_PER_FRAME = 4
+comptime MAX_PLACED_CUES = 32  # cues kept for a host that does not take them; impacts stop being queued at this length
 comptime IMPACT_SETTLE_TICKS = 30  # bodies placed overlapping the floor settle in the first ticks; that is not an impact
 comptime BALL: Real = 0.4
 comptime TAU: Float64 = 6.283185307179586
@@ -67,6 +68,7 @@ struct DemoMode(GameMode):
     var seed: UInt64  # 0 = the fixed layout; any other value moves the crates and the ball's start (`_build`)
     var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
+    var impacts_this_step: Int  # impacts queued by the current step(), at most IMPACTS_PER_FRAME
     var placed_cues: List[SoundCue]  # jump and impact cues with a position, until the host takes them
     var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
     var tuner: Tuner  # game/data/demo.table under its schema; edits apply at a tick boundary (#119)
@@ -99,6 +101,7 @@ struct DemoMode(GameMode):
         self.scene_name = String("arena")
         self.cue_queue = List[Int]()
         self.placed_cues = List[SoundCue]()
+        self.impacts_this_step = 0
         self.step_physics_ns = 0
         self.loc = demo_localizer()
         self.env = UiEnv.default()
@@ -144,6 +147,7 @@ struct DemoMode(GameMode):
         self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
         self.placed_cues = move.placed_cues^
+        self.impacts_this_step = move.impacts_this_step
         self.step_physics_ns = move.step_physics_ns
         self.tuner = move.tuner^
         self.tune = move.tune^
@@ -254,6 +258,7 @@ struct DemoMode(GameMode):
 
     def _step(mut self, intent: Intent, frame_dt: Float64) raises:
         self.step_physics_ns = 0
+        self.impacts_this_step = 0
         if intent.restart:
             self._restart()
         if intent.pause:
@@ -275,7 +280,7 @@ struct DemoMode(GameMode):
                 vy = Real(self.tune.jump_speed)
                 self.jumps += 1
                 var at = self.world.state(self.ball).pos
-                self.placed_cues.append(SoundCue(CUE_JUMP, Float32(at[0]), Float32(at[1]), Float32(at[2]), 0.0, True))
+                self.placed_cues.append(SoundCue(CUE_JUMP, Float32(at[0]), Float32(at[1]), Float32(at[2]), 0.0, True, Float32(v[0]), Float32(vy), Float32(v[2])))
             jump = False
             self.world.set_velocity(self.ball, Vec3(v[0], vy, v[2], 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
             var t0 = perf_counter_ns()
@@ -333,12 +338,8 @@ struct DemoMode(GameMode):
         impulse (-30 dB at the minimum, 0 dB at IMPACT_FULL_IMPULSE); at most IMPACTS_PER_FRAME per host frame."""
         if self.tick < IMPACT_SETTLE_TICKS:
             return
-        var this_frame = 0
-        for c in self.placed_cues:
-            if c.cue == CUE_IMPACT:
-                this_frame += 1
         for e in self.world.tick_events:
-            if this_frame >= IMPACTS_PER_FRAME:
+            if self.impacts_this_step >= IMPACTS_PER_FRAME or len(self.placed_cues) >= MAX_PLACED_CUES:
                 return
             if e.kind != Int64(EVENT_BEGAN) or e.impulse < IMPACT_MIN_IMPULSE:
                 continue
@@ -346,7 +347,7 @@ struct DemoMode(GameMode):
             if level > 1.0:
                 level = 1.0
             self.placed_cues.append(SoundCue(CUE_IMPACT, Float32(e.point[0]), Float32(e.point[1]), Float32(e.point[2]), -30.0 + 30.0 * level))
-            this_frame += 1
+            self.impacts_this_step += 1
 
     def audio_events(self) -> String:
         return String(

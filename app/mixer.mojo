@@ -21,6 +21,7 @@ frame. miniaudio smooths a gain change over the first block after it, so a voice
 exact gain until it stops (see tests/audio_mixer.mojo).
 
 Not here: occlusion, reverb and HRTF (#137)."""
+from std.math import sqrt
 from std.memory import ArcPointer
 
 from audio_event import AudioEvent, BUS_COUNT, BUS_MASTER, BUS_MUSIC, BUS_SFX, BUS_VOICE
@@ -33,6 +34,7 @@ from music import Music
 
 comptime MAX_VOICES = 24
 comptime MIXER_CHANNELS: UInt32 = 2
+comptime SPEED_OF_SOUND: Float32 = 343.3  # m/s, miniaudio's default for the listener
 
 
 struct Voice(Copyable, Movable):
@@ -46,6 +48,12 @@ struct Voice(Copyable, Movable):
     var gain: Float32
     var priority: Int
     var spatial: Bool
+    var x: Float32
+    var y: Float32
+    var z: Float32
+    var vx: Float32  # m/s; the playback rate follows the Doppler shift of the velocity toward the listener
+    var vy: Float32
+    var vz: Float32
 
     def __init__(out self):
         self.active = False
@@ -58,6 +66,12 @@ struct Voice(Copyable, Movable):
         self.gain = 1.0
         self.priority = 0
         self.spatial = False
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+        self.vx = 0.0
+        self.vy = 0.0
+        self.vz = 0.0
 
 
 struct Mixer(Movable):
@@ -70,6 +84,9 @@ struct Mixer(Movable):
     var voices: List[Voice]
     var spats: List[Spatializer]  # one per voice slot; valid while the slot's voice is spatial
     var listener: SpatializerListener
+    var listener_x: Float32
+    var listener_y: Float32
+    var listener_z: Float32
     var rng: Rng
     var plays: Int
     var dropped: Int
@@ -103,6 +120,9 @@ struct Mixer(Movable):
             self.voices.append(Voice())
             self.spats.append(Spatializer.create(self.lib, channels_in=1, channels_out=MIXER_CHANNELS))
         self.listener = SpatializerListener.create(self.lib, channels_out=MIXER_CHANNELS)
+        self.listener_x = 0.0
+        self.listener_y = 0.0
+        self.listener_z = 0.0
         self.rng = Rng(seed)
         self.plays = 0
         self.dropped = 0
@@ -139,6 +159,9 @@ struct Mixer(Movable):
         self.voices = move.voices^
         self.spats = move.spats^
         self.listener = move.listener^
+        self.listener_x = move.listener_x
+        self.listener_y = move.listener_y
+        self.listener_z = move.listener_z
         self.rng = move.rng^
         self.plays = move.plays
         self.dropped = move.dropped
@@ -238,16 +261,21 @@ struct Mixer(Movable):
     ) raises:
         """The ear: position, facing direction and world up (the camera's pose, every frame)."""
         self.listener.set_position(x, y, z)
+        self.listener_x = x
+        self.listener_y = y
+        self.listener_z = z
         self.listener.set_direction(fx, fy, fz)
         self.listener.set_world_up(ux, uy, uz)
 
     # ---- playing ------------------------------------------------------------------------------------------------
 
     def play_event(
-        mut self, event: Int, x: Float32 = 0.0, y: Float32 = 0.0, z: Float32 = 0.0, gain_db: Float32 = 0.0, flat: Bool = False
+        mut self, event: Int, x: Float32 = 0.0, y: Float32 = 0.0, z: Float32 = 0.0, gain_db: Float32 = 0.0, flat: Bool = False,
+        vx: Float32 = 0.0, vy: Float32 = 0.0, vz: Float32 = 0.0,
     ) raises -> Int:
         """Start `event`; returns the voice id, or -1 when the play is dropped (limit or priority). The position is used
-        when the event is spatial and `flat` is False (a cue that carries no position plays flat)."""
+        when the event is spatial and `flat` is False (a cue that carries no position plays flat); the velocity (m/s) Doppler-shifts
+        its playback rate by the speed toward the listener, c / (c - v) with c = SPEED_OF_SOUND, re-read every block."""
         if event < 0 or event >= len(self.events):
             raise Error("unknown event id")
         var n_clips = len(self.event_clips[event])
@@ -303,15 +331,28 @@ struct Mixer(Movable):
             self.spats[slot].set_min_distance(self.events[event].min_distance)
             self.spats[slot].set_max_distance(self.events[event].max_distance)
             self.spats[slot].set_position(x, y, z)
+            self.spats[slot].set_velocity(vx, vy, vz)
+        v.x = x
+        v.y = y
+        v.z = z
+        v.vx = vx
+        v.vy = vy
+        v.vz = vz
         self.voices[slot] = v^
         return self.plays
 
     def move_voice(mut self, id: Int, x: Float32, y: Float32, z: Float32, vx: Float32 = 0.0, vy: Float32 = 0.0, vz: Float32 = 0.0) raises:
-        """Move a positioned voice (no effect once it has ended or for a non-spatial voice)."""
+        """Move a positioned voice and set its velocity (no effect once it has ended or for a non-spatial voice)."""
         for i in range(len(self.voices)):
             if self.voices[i].active and self.voices[i].id == id and self.voices[i].spatial:
                 self.spats[i].set_position(x, y, z)
                 self.spats[i].set_velocity(vx, vy, vz)
+                self.voices[i].x = x
+                self.voices[i].y = y
+                self.voices[i].z = z
+                self.voices[i].vx = vx
+                self.voices[i].vy = vy
+                self.voices[i].vz = vz
 
     def active_voices(self) -> Int:
         var n = 0
@@ -322,6 +363,21 @@ struct Mixer(Movable):
 
     # ---- rendering ----------------------------------------------------------------------------------------------
 
+    def _doppler(self, slot: Int) -> Float32:
+        """Playback-rate factor of a moving positioned voice: c / (c - v), v the speed of the source toward the listener
+        (the listener is taken as still). 1 when the voice does not move or is at the listener; v is capped at 0.9 c."""
+        ref v = self.voices[slot]
+        var dx = self.listener_x - v.x
+        var dy = self.listener_y - v.y
+        var dz = self.listener_z - v.z
+        var d2 = dx * dx + dy * dy + dz * dz
+        if d2 < 1e-12:
+            return 1.0
+        var toward = (v.vx * dx + v.vy * dy + v.vz * dz) / sqrt(d2)
+        if toward > 0.9 * SPEED_OF_SOUND:
+            toward = 0.9 * SPEED_OF_SOUND
+        return SPEED_OF_SOUND / (SPEED_OF_SOUND - toward)
+
     def _mix_voice(mut self, slot: Int, frames: Int) raises:
         var bus = self.voices[slot].bus
         var n = len(self.clips[self.voices[slot].clip]) // 2
@@ -329,6 +385,8 @@ struct Mixer(Movable):
         var step = self.voices[slot].step
         var gain = self.voices[slot].gain
         var spatial = self.voices[slot].spatial
+        if spatial:
+            step = Int(Float32(step) * self._doppler(slot) + 0.5)
         var done = False
         var left = List[Float32](length=frames, fill=0.0)
         var right = List[Float32](length=frames, fill=0.0)

@@ -35,9 +35,7 @@ reverb zones, HRTF and impact sounds at core's contact positions.
 ## Phases
 
 1. **Positioned cues** (#120's 3D item). Built: `GameMode.positioned_cues()`, `SoundCue`, `Mixer`.
-   - A cue carries position and gain. Velocity is not carried yet: miniaudio's standalone `Spatializer.process` computes a
-     Doppler pitch from velocities but does not resample, so a velocity would change nothing audible without a per-voice
-     resampler that reads it.
+   - A cue carries position, velocity and gain.
    - Each playing voice gets a `Spatializer`.
    - The listener is set from the camera every frame.
    - Impact sounds take the position of core's contact events.

@@ -311,7 +311,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
                 self.event_log.append(self.game_frames)
                 self.event_log.append(c.cue)
             if c.cue > 0 and c.cue < len(self.cue_events):
-                _ = self.sim.mixer.play_event(self.cue_events[c.cue], c.x, c.y, c.z, c.gain_db)
+                _ = self.sim.mixer.play_event(self.cue_events[c.cue], c.x, c.y, c.z, c.gain_db, False, c.vx, c.vy, c.vz)
 
     def _draw_mode(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
         # a pipeline that draws the scene for a picture of its own proportions (SceneSize) sets the camera's
