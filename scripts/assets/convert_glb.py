@@ -21,7 +21,6 @@ import json
 import math
 import pathlib
 import struct
-import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent  # scripts/assets/<file> -> the repo
 MAGIC_GLTF = 0x46546C67  # "glTF"
@@ -109,7 +108,7 @@ def sample_clip(gltf, binchunk, anim, joint_nodes, rest_by_node, fps):
         t = min(f / fps, duration)
         for node in joint_nodes:
             pose = list(rest_by_node[node])
-            for path, slot, n in (("translation", slice(0, 3), 3), ("rotation", slice(3, 7), 4), ("scale", slice(7, 10), 3)):
+            for path, slot, _n in (("translation", slice(0, 3), 3), ("rotation", slice(3, 7), 4), ("scale", slice(7, 10), 3)):
                 tr = tracks.get(node, {}).get(path)
                 if tr is None:
                     continue
@@ -355,7 +354,7 @@ def write(out: pathlib.Path, d: dict):
             f.write(struct.pack("<III", kind, off, nbytes))
         f.write(struct.pack("<I", len(head)) + head)
         cur = 12 + 12 * count + 4 + len(head)
-        for (kind, off, nbytes), data in zip(directory, placed):
+        for (_kind, off, nbytes), data in zip(directory, placed, strict=True):
             f.write(b"\x00" * (off - cur))
             f.write(data)
             cur = off + nbytes
@@ -410,6 +409,7 @@ def selftest(src: pathlib.Path):
     wgt = _floats(blobs[5])
     idx = _floats(blobs[6], "I")
     check(len(pos) == 3 * json_count, "positions has 3 floats per vertex")
+    check(len(nrm) == 3 * json_count, "normals has 3 floats per vertex")
     check(len(jnt) == 4 * json_count and len(wgt) == 4 * json_count, "joints and weights have 4 per vertex")
     skin = gltf["skins"][0]
     check(header["joints"] == len(skin["joints"]), f"joints {header['joints']} == skin.joints in the glb JSON")

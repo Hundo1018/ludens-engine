@@ -30,7 +30,7 @@ from build_web import STRIP  # noqa: E402
 def build_zone(engine: Path, *extra: str) -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(engine), "--lib", ".", "-I", str(engine), "-I", ".",
            "app/zone_main.mojo", *extra]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
@@ -71,7 +71,7 @@ def main() -> int:
     try:
         time.sleep(2)
         url = f"http://127.0.0.1:{PORT}/zone_probe.html?n={args.bodies};live={args.live};expect={','.join(h for _, h in hashes)}"
-        r = subprocess.run(["node", "scripts/web_cdp.mjs", chrome, url, "150"], cwd=ROOT, capture_output=True, text=True)
+        r = subprocess.run(["node", "scripts/web_cdp.mjs", chrome, url, "150"], cwd=ROOT, capture_output=True, text=True, check=False)
     finally:
         server.kill()
     line = next((l for l in r.stdout.splitlines() if l.startswith("{")), "")
@@ -88,7 +88,7 @@ def main() -> int:
     print("| workers | ticks/s per worker | tick ms median (max) | transfer ms median (max) | floats/msg | MiB per module | page frame ms median (max) |")
     print("|---:|:--|:--|:--|---:|:--|:--|")
     for v in data["live"]:
-        pair = lambda a, b: ", ".join(f"{x} ({y})" for x, y in zip(v[a], v[b]))
+        pair = lambda a, b, v=v: ", ".join(f"{x} ({y})" for x, y in zip(v[a], v[b], strict=True))
         print(f"| {v['workers']} | {', '.join(str(t) for t in v['ticksPerSecond'])} | {pair('tickMsMedian', 'tickMsMax')} | "
               f"{pair('transferMsMedian', 'transferMsMax')} | {v['floatsPerMessage']} | {', '.join(str(m) for m in v['memoryMiB'])} | "
               f"{v['pageFrameMsMedian']} ({v['pageFrameMsMax']}) |")

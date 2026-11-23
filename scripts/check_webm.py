@@ -10,8 +10,8 @@ import sys
 def main() -> int:
     path, want = sys.argv[1], float(sys.argv[2])
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height",
-                            "-of", "csv=p=0", path], capture_output=True, text=True)
-    decode = subprocess.run(["ffmpeg", "-v", "error", "-stats", "-i", path, "-f", "null", "-"], capture_output=True, text=True)
+                            "-of", "csv=p=0", path], capture_output=True, text=True, check=False)
+    decode = subprocess.run(["ffmpeg", "-v", "error", "-stats", "-i", path, "-f", "null", "-"], capture_output=True, text=True, check=False)
     times = re.findall(r"time=(\d+):(\d+):([\d.]+)", decode.stderr)
     seconds = 0.0
     if times:

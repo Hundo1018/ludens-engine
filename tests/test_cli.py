@@ -39,7 +39,7 @@ def check(cond: bool, label: str) -> None:
 
 
 def run(args, cwd=None, env=None):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=env)
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=env, check=False)
 
 
 def world_hash(proc) -> str | None:
@@ -120,7 +120,7 @@ def main() -> int:
         # ---- trace: the engine's profiling spans as Chrome trace JSON, without changing the simulation
         tr = root / "trace.json"
         plain = core_run("run", str(root / "copy.scene"), "120")
-        traced = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "120", str(tr)], capture_output=True, text=True)
+        traced = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "120", str(tr)], capture_output=True, text=True, check=False)
         check(traced.returncode == 0 and world_hash(traced) is not None and world_hash(traced) == world_hash(plain), "trace: the world hash after 120 ticks equals a run without tracing")
         events = json.loads(tr.read_text(encoding="utf-8"))
         names = {e["name"] for e in events}
@@ -129,17 +129,17 @@ def main() -> int:
         zero = root / "zero.json"
         subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "0", str(zero)], check=True, capture_output=True)
         check(json.loads(zero.read_text(encoding="utf-8")) == [], "trace: zero ticks give an empty array")
-        r = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "-3", str(root / "x.json")], capture_output=True, text=True)
+        r = subprocess.run([str(build_core.core_trace()), "trace", str(root / "copy.scene"), "-3", str(root / "x.json")], capture_output=True, text=True, check=False)
         check(r.returncode == 1 and not (root / "x.json").exists(), "trace: negative ticks are refused and write nothing")
 
         # ---- overlay: the physics debug-draw (one arrow per contact point), without changing the simulation
         ov = root / "overlay.json"
-        ovr = subprocess.run([str(build_core.core_overlay()), "overlay", str(root / "copy.scene"), "120", str(ov)], capture_output=True, text=True)
+        ovr = subprocess.run([str(build_core.core_overlay()), "overlay", str(root / "copy.scene"), "120", str(ov)], capture_output=True, text=True, check=False)
         check(ovr.returncode == 0 and world_hash(ovr) is not None and world_hash(ovr) == world_hash(traced), "overlay: the world hash after 120 ticks equals a run without the overlay")
         total = int(next(l for l in ovr.stdout.splitlines() if l.startswith("overlay commands:")).split(":")[1])
         arrows = json.loads(ov.read_text(encoding="utf-8"))
         check(total > 0 and isinstance(arrows, list) and all(a["kind"] == 3 and len(a["p0"]) == 3 and len(a["color"]) == 4 for a in arrows), f"overlay: arrows were drawn ({total} over 120 ticks, {len(arrows)} in the last frame), each with kind ARROW, a point and an rgba colour")
-        plain_ov = subprocess.run([str(build_core.core_overlay().parent / "ludens-core"), "overlay", str(root / "copy.scene"), "120", str(root / "plain.json")], capture_output=True, text=True)
+        plain_ov = subprocess.run([str(build_core.core_overlay().parent / "ludens-core"), "overlay", str(root / "copy.scene"), "120", str(root / "plain.json")], capture_output=True, text=True, check=False)
         check(plain_ov.returncode == 0 and "overlay commands: 0" in plain_ov.stdout, "overlay: the plain build draws nothing (control)")
 
         # ---- sheet: an event sheet file is validated; errors name the line and the event

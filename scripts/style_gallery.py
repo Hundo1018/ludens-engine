@@ -71,7 +71,7 @@ def main() -> int:
     for old in OUT.glob("*.rgba"):
         old.unlink()
     exe = build_core.build_native("tests/style_gallery_native.mojo", ROOT / "build/style_gallery_native", asserts=True)
-    proc = subprocess.run([str(exe), "--dump", a.only], cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run([str(exe), "--dump", a.only], cwd=ROOT, capture_output=True, text=True, check=False)
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr[-4000:])
     size = None

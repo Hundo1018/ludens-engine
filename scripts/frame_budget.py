@@ -45,11 +45,11 @@ def native(w: int, h: int, frames: int, exe: Path) -> dict[str, list[int]]:
 
 def wasm(frames: int) -> dict[str, list[int]]:
     r = subprocess.run(["node", str(ROOT / "scripts/game_node.mjs"), str(ROOT / "build/app.wasm"), str(ludens_wasm_rt.HOST_MJS),
-                        str(D / "wgpu-mojo"), str(D / "miniaudio-mojo"), str(frames)], capture_output=True, text=True)
+                        str(D / "wgpu-mojo"), str(D / "miniaudio-mojo"), str(frames)], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-2000:])
     stats = json.loads(r.stdout.strip().splitlines()[-1])["stats"]
-    return dict(zip(SEGMENTS, stats))
+    return dict(zip(SEGMENTS, stats, strict=True))
 
 
 def cell(v: list[int]) -> str:

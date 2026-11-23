@@ -86,7 +86,7 @@ def math_tables(n):
 
 
 def run_cmd(cmd, **kw):
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, **kw)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, **kw, check=False)
     if proc.returncode:
         sys.exit(f"python_web_probe: {' '.join(map(str, cmd))}\n{proc.stdout[-3000:]}{proc.stderr[-3000:]}")
     return proc.stdout
@@ -224,7 +224,7 @@ def browser() -> dict | str:
     try:
         time.sleep(1.5)
         r = subprocess.run(["node", "scripts/web_cdp.mjs", chrome, f"http://127.0.0.1:{PORT}/index.html", "240"], cwd=ROOT,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, check=False)
     finally:
         server.kill()
     line = next((l for l in r.stdout.splitlines() if l.startswith("{")), "")
@@ -236,9 +236,9 @@ def ulps(a: bytes, b: bytes) -> tuple[int, int, int]:
     still differ once rounded to float32 (what the C-ABI's float arguments receive)."""
     n = len(a) // 8
     ia, ib = struct.unpack(f"<{n}q", a), struct.unpack(f"<{n}q", b)
-    diffs = [abs(x - y) for x, y in zip(ia, ib) if x != y]
+    diffs = [abs(x - y) for x, y in zip(ia, ib, strict=True) if x != y]
     fa, fb = struct.unpack(f"<{n}d", a), struct.unpack(f"<{n}d", b)
-    single = sum(1 for x, y in zip(fa, fb) if struct.pack("<f", x) != struct.pack("<f", y))
+    single = sum(1 for x, y in zip(fa, fb, strict=True) if struct.pack("<f", x) != struct.pack("<f", y))
     return len(diffs), max(diffs, default=0), single
 
 

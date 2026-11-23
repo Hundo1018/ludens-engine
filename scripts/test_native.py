@@ -18,7 +18,7 @@ import build_core  # noqa: E402
 def run_test(name: str) -> int:
     entry = f"tests/{name}.mojo"
     out = build_core.build_native(entry, ROOT / f"build/{name}", asserts=True, engine=not name.startswith("ui_"))
-    return subprocess.run([str(out)], cwd=ROOT).returncode
+    return subprocess.run([str(out)], cwd=ROOT, check=False).returncode
 
 
 def main(argv: list[str]) -> int:

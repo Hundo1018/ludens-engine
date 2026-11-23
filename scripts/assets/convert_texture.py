@@ -14,7 +14,6 @@ first: rgba8, tightly packed, each starting on a 16-byte boundary. No JSON.
 import argparse
 import pathlib
 import struct
-import sys
 
 from PIL import Image
 
@@ -57,7 +56,7 @@ def write(out: pathlib.Path, levels):
     with out.open("wb") as f:
         f.write(header)
         cur = len(header)
-        for lvl, off in zip(levels, directory):
+        for lvl, off in zip(levels, directory, strict=True):
             f.write(b"\x00" * (off - cur))
             f.write(lvl.tobytes())
             cur = off + lvl.width * lvl.height * 4
@@ -105,7 +104,7 @@ def selftest(src: pathlib.Path, size: int) -> int:
     check(back[0][1] == base, "level 0 reads back equal to the Pillow resize")
     last = back[-1]
     check(last[2] == 1 and last[3] == 1 and len(last[1]) == 4, "the last level is 1x1 rgba8")
-    avg = [sum(channel) for channel in zip(*[levels[-2].getpixel((x, y)) for x in (0, 1) for y in (0, 1)])]
+    avg = [sum(channel) for channel in zip(*[levels[-2].getpixel((x, y)) for x in (0, 1) for y in (0, 1)], strict=True)]
     check(all(abs(levels[-1].getpixel((0, 0))[c] - (avg[c] + 2) // 4) == 0 for c in range(4)), "the last mip equals the 2x2 average of the level above")
     print(f"convert_texture selftest: {sum(checks)} / {len(checks)} checks; wrote {out}")
     return 0 if all(checks) else 1

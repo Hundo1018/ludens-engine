@@ -49,7 +49,7 @@ def parallel_engine() -> Path:
 def build(*extra: str, engine: Path = D / "ludens-core") -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(engine), "--lib", ".",
            "-I", str(engine), "app/bench.mojo", *extra]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
@@ -78,7 +78,7 @@ def main() -> int:
       }}
       console.log(JSON.stringify(out));
     }})"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-1500:])
     wasm = __import__("json").loads(r.stdout)

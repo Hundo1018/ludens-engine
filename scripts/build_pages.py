@@ -30,7 +30,7 @@ def build() -> None:
         if f.name not in TEST_ONLY:
             shutil.copy(f, OUT / f.name)
     (OUT / ".nojekyll").write_text("")
-    rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     (OUT / "build.txt").write_text(f"ludens-engine {rev}\n")
     files = sorted(p for p in OUT.iterdir() if p.is_file())
     print(f"build-pages: {len(files)} files, {sum(p.stat().st_size for p in files)} bytes in {OUT}")
@@ -47,9 +47,9 @@ def check() -> int:
     try:
         time.sleep(2)
         base = f"http://127.0.0.1:{PORT}/index.html?offscreen"
-        r = subprocess.run(["node", "scripts/game_screenshot.mjs", chrome, base, str(shots / "pages"), "150", "posted"], cwd=ROOT)
+        r = subprocess.run(["node", "scripts/game_screenshot.mjs", chrome, base, str(shots / "pages"), "150", "posted"], cwd=ROOT, check=False)
         # the same site played by touch only, on an emulated phone (scripts/touch_check.mjs)
-        t = subprocess.run(["node", "scripts/touch_check.mjs", chrome, base, str(shots / "touch"), "150"], cwd=ROOT)
+        t = subprocess.run(["node", "scripts/touch_check.mjs", chrome, base, str(shots / "touch"), "150"], cwd=ROOT, check=False)
     finally:
         server.kill()
     return r.returncode or t.returncode

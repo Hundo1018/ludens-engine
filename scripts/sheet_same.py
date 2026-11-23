@@ -18,7 +18,7 @@ from bench import serial_engine  # noqa: E402
 def build(eng: Path, *extra: str) -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(eng), "--lib", ".", "-I", str(eng), "-I", ".",
            "app/sheet_parity.mojo", *extra]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
@@ -39,12 +39,12 @@ def main() -> int:
       const v = new BigUint64Array(rt.mem(), Number(p), 4);
       console.log([...v].join(' '));
     }})"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-1500:])
     wasm = r.stdout.split()
     ok = True
-    for name, a, b in zip(("world hash", "kicks", "fell", "cut"), nat, wasm):
+    for name, a, b in zip(("world hash", "kicks", "fell", "cut"), nat, wasm, strict=True):
         ok &= a == b
         print(f"{name:11} native {a}  wasm64 {b}  {'equal' if a == b else 'DIFFERENT'}")
     print("sheet parity:", "PASS" if ok else "FAIL")

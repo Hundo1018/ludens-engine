@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 D = ROOT / "build/deps"
 FRAMES, BLOCKS = 240, 4
 sys.path.insert(0, str(ROOT / "scripts"))
-from bench import build, serial_engine  # noqa: E402  (the same driver wrapper and serial-native engine copy)
+from bench import serial_engine  # noqa: E402  (the same driver wrapper and serial-native engine copy)
 
 
 def entry_build(entry: str, libs: list[Path], includes: list[Path], *extra: str) -> None:
@@ -20,7 +20,7 @@ def entry_build(entry: str, libs: list[Path], includes: list[Path], *extra: str)
         cmd += ["--lib", str(lib)]
     for inc in includes:
         cmd += ["-I", str(inc)]
-    proc = subprocess.run([*cmd, entry, *extra], cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run([*cmd, entry, *extra], cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
