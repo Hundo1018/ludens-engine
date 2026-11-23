@@ -78,6 +78,12 @@ font-same = "python3 scripts/font_same.py"
 xfer-same = "python3 scripts/xfer_same.py"
 sheet-same = "python3 scripts/sheet_same.py"
 game-same = "python3 scripts/game_same.py"
+# #121: particle simulation, packing, budgets, LOD and the `particles` component (CPU only); the emitter table's accessors are current
+test-particles = "python3 scripts/gen_table.py game/data/particles.schema --table game/data/particles.table -o game/particles_table.mojo --check && python3 scripts/test_native.py particles"
+# #121: the particle pass on lavapipe (depth, alpha order, additive, tile means, frame cost at 1k / 10k / 100k)
+test-particles-native = "python3 scripts/test_native.py particles_native"
+# #121: particle state and uploaded records, native against wasm64 (equal bytes)
+particles-same = "python3 scripts/particles_same.py"
 game-shot = "python3 scripts/game_shot.py"
 tuning-web = "python3 scripts/tuning_web.py"
 # #116: the HUD text at 100 % and 200 %, in English and Traditional Chinese, pseudo-localized, with a safe area (frames in build/shots/text_*.png)
