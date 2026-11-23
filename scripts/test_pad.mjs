@@ -1,7 +1,7 @@
 // Gamepad mapping (shell/web/pad.ts) under node: buttons become key codes, axes become AXIS events, the right stick turns the camera.
 // usage: node --experimental-strip-types scripts/test_pad.mjs
 import { HeldKeys, PAD_BUTTON_BASE, PadInput, VPAD_DEVICE, padButtonKey, padButtons, padLook } from "../shell/web/pad.ts";
-import { EV } from "../shell/web/keys.ts";
+import { ACTION, BUTTONS, EV, keyCode } from "../shell/web/keys.ts";
 
 let passed = 0, failed = 0;
 const ok = (cond, label) => { cond ? passed++ : failed++; console.log(`  [${cond ? "PASS" : "FAIL"}] ${label}`); };
@@ -16,6 +16,7 @@ const btn = (...on) => { const b = Array(17).fill(false); for (const i of on) b[
 const set = (s) => [...s].sort((a, b) => a - b).join(",");
 
 ok(padButtonKey(0, 0) === 400 && padButtonKey(1, 0) === 420 && padButtonKey(VPAD_DEVICE, 9) === 469 && PAD_BUTTON_BASE === 400, "button b of device d is key 400 + 20 d + b (game/action_map.mojo pad_button_key)");
+ok(ACTION.DOWN === 1 && ACTION.UP === 0 && ACTION.REPEAT === 2 && BUTTONS.length === 3 && keyCode("KeyW") === 87 && keyCode("F2") === 291, "keys.ts still exports what app.ts imports (ACTION, BUTTONS, keyCode)");
 ok(EV.AXIS === 5, "AXIS is event kind 5 (wgpu-mojo InputEventType.AXIS)");
 ok(set(padButtons(0, btn())) === "", "no button, no key");
 ok(set(padButtons(0, btn(0, 9, 3))) === "400,403,409", "A, Y and Start of gamepad 0 are keys 400, 403, 409");
