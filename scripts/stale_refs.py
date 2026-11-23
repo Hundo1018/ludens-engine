@@ -12,7 +12,7 @@ code that does not exist yet.
 Two rules:
 
   dead name    A backticked token that reads as a code name -- `_private`, `snake_case_name`, `CamelCase`,
-               `Type.member`, `pkg.module` / `pkg.module.Name` for a package of this repo (app, editor, game, ui) --
+               `Type.member`, `pkg.module` / `pkg.module.Name` for a package of this repo (app, editor, game, platform, ui) --
                must exist. A plain name must appear in code (comments and docstrings removed); `pkg.module` must be
                the file `pkg/module.mojo`, and `pkg.module.Name` must also have `Name` in that file.
   resolved     A sentence that says a named thing is missing ("a future `X`", "until `X` exists", "`X` does
