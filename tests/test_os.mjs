@@ -88,6 +88,38 @@ check(n2 === 10 && b2[0] === KIND_FILE && new DataView(b2.buffer).getUint32(1, t
       "...and the next poll returns the packet behind it, not the same -1 again");
 check(rt.call("p_poll", small, 16n) === 0n, "the queue is then empty");
 
+// OsCloudSave (app/os_cloud_save.mojo): the CloudSave seam over the file imports. Packet kinds: 19 write ack, 20 read result.
+const KIND_SAVE_WRITE = 19, KIND_SAVE_READ = 20;
+const cs = rt.call("p_cs_new");
+const csPoll = () => {
+  const buf = rt.alloc(4096);
+  const n = Number(rt.call("p_cs_poll", cs, buf, 4096));
+  if (n <= 0) return n;
+  const b = rt.bytes(buf, n).slice();
+  return { kind: b[0], id: new DataView(b.buffer).getUint32(1, true), status: b[5], payload: b.slice(6), n };
+};
+const saveBytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 13 + 1) & 255);
+const sdp = rt.alloc(saveBytes.length); rt.put(sdp, saveBytes);
+let [sp, sl] = str("run/a.0");
+check(rt.call("p_cs_write", cs, 31, sp, sl, sdp, BigInt(saveBytes.length)) === 0, "OsCloudSave: write of run/a.0 is queued");
+let ack = csPoll();
+check(ack.kind === KIND_SAVE_WRITE && ack.id === 31 && ack.status === 0, "OsCloudSave: the ack is KIND_SAVE_WRITE with the request id, made when the write was queued");
+await tick();
+check(storage.files.has("saves/run/a.0") && storage.files.get("saves/run/a.0").length === 300, "OsCloudSave: the file is saves/run/a.0 in the app's storage, 300 bytes");
+check(rt.call("p_cs_read", cs, 32, sp, sl) === 0 && csPoll() === 0, "OsCloudSave: a read queues and nothing is there before the promise settles");
+await tick();
+let rd = csPoll();
+check(rd.kind === KIND_SAVE_READ && rd.id === 32 && rd.status === 0 && rd.payload.length === 300 && rd.payload.every((v, i) => v === saveBytes[i]),
+      "OsCloudSave: the read comes back as KIND_SAVE_READ, same id, same 300 bytes");
+[sp, sl] = str("run/none.1");
+rt.call("p_cs_read", cs, 33, sp, sl);
+await tick();
+rd = csPoll();
+check(rd.kind === KIND_SAVE_READ && rd.id === 33 && rd.status === 1, "OsCloudSave: a missing file is STATUS_NOT_FOUND (1)");
+[sp, sl] = str("../x");
+check(rt.call("p_cs_write", cs, 34, sp, sl, sdp, 4n) === -3 && rt.call("p_cs_read", cs, 35, sp, sl) === -3, "OsCloudSave: a path that leaves the storage is REQ_INVALID (-3), nothing queued");
+check(csPoll() === 0, "OsCloudSave: the queue is empty after the refusals");
+
 // no clipboard (a browser that refuses): the call says so
 os = null;
 const rt2 = await instantiate(readFileSync(wasm), { libs: [(r) => (os = createOsImports(r, { clipboard: null, storage }))] });

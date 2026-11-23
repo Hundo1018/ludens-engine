@@ -157,7 +157,7 @@ events). Nothing in `app/` uses these seams yet.
 
 | Implementation | Seams | What it needs |
 |---|---|---|
-| Local (in memory, or the app's own storage) | all four | Nothing. The in-memory ones are built (above). A cloud save kept in the app's own storage, through `os_file_write` and `os_file_read_request` on the web, is not written yet |
+| Local (in memory, or the app's own storage) | all four | Nothing. The in-memory ones are built (above). A cloud save kept in the app's own storage is `app/os_cloud_save.mojo` (web, through `os_file_write` and `os_file_read_request`) and `platform/file_cloud_save.mojo` (native files); the save format and slots on top are in `docs/save-games.md` |
 | Steam | all four | The Steamworks SDK's flat C API, in a future steamworks-mojo repository. Native only. Steam must be running, and a Steam app id is required. Ticket verification on the server side uses the Steam Web API |
 | Google Play Games Services | identity, achievements and stats, cloud save (saved games) | The Android SDK, through a native Android shell (`shell/mobile/`, which does not exist yet). There is no web SDK |
 | Web OAuth / OIDC with PKCE | identity | A redirect flow in `shell/web/` and an identity provider configured for the site's origin. The token goes to the game's own server for verification. Achievements, cloud save and lobbies then need that server |

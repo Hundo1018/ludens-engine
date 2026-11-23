@@ -89,3 +89,17 @@ trait GameMode(Movable, Deinitable):
         the host calls it for `?seed=` / `?scene=`, the batch runner once per seed. Raise for an unknown scene. False
         (the default) means the game has no seeds or scenes: the host then reports it instead of ignoring the request."""
         return False
+
+    def save_version(self) -> Int:
+        """The version of the bytes `save_state` writes, 1 or more; 0 (the default) means the game cannot be saved. A game
+        raises it whenever the layout of `save_state` changes and registers a migration for the step (platform/save_store.mojo)."""
+        return 0
+
+    def save_state(self) raises -> List[UInt8]:
+        """What a save keeps: the data that rebuilds the run (seed, scene, counters, body poses), not objects. Empty by default."""
+        return List[UInt8]()
+
+    def load_state(mut self, data: List[UInt8]) raises -> Bool:
+        """Restore a `save_state` payload of the current `save_version` (older ones are migrated first). Raise when the bytes
+        do not parse; the game is then unchanged. False (the default) means the game cannot load saves."""
+        return False
