@@ -16,21 +16,25 @@ def native_env() -> dict[str, str]:
     return env
 
 
-# miniaudio's ma_rsqrtf is the x86 `rsqrtss` instruction, an approximation (about 12 bits) whose result differs between CPU
-# models, and the spatializer normalizes every direction with it. The wasm build computes 1 / sqrt(x). MA_NO_SSE2 makes the
-# native build do the same, so a positioned voice has the same bytes natively and in wasm64 (scripts/audio_same.py; measured
-# in the PR for #120: without it the native gain at 7 m was 0.035723 against 0.035714 from the model).
-SHIM_DEFINES = ["-DMA_NO_SSE2"]
+# Two things in miniaudio's C make a native result depend on the machine, and neither exists in the wasm build:
+#  - ma_rsqrtf is the x86 `rsqrtss` instruction, an approximation (about 12 bits) that differs between CPU models, and the
+#    spatializer normalizes every direction with it. -DMA_NO_SSE2 makes it 1 / sqrt(x), as in wasm. Without it the native gain at
+#    7 m was 0.035723 against 0.035714 from the model and from wasm64.
+#  - a C compiler that fuses a * b + c into one fused multiply-add changes the last bit. wasm64 never fuses; a compiler whose default
+#    target has FMA does (the CI runner's: audio-same failed there with 11483798732328314178 for the moving-source scene, and the
+#    same hash is reproduced here with -mfma -ffp-contract=fast). -ffp-contract=off forbids it on every compiler and CPU.
+# scripts/audio_same.py compares the output byte for byte; scripts/mutate_audio.py breaks each flag and expects it to fail.
+SHIM_FLAGS = ["-DMA_NO_SSE2", "-ffp-contract=off"]
 
 
 def build_shim() -> None:
-    """build/deps/miniaudio-mojo/build/libma_shim.a: the sources and flags of that repo's tools/build_shim_static.py, plus SHIM_DEFINES."""
+    """build/deps/miniaudio-mojo/build/libma_shim.a: the sources and flags of that repo's tools/build_shim_static.py, plus SHIM_FLAGS."""
     out_dir = MA / "build" / "static_ludens"
     archive = MA / "build" / "libma_shim.a"
     out_dir.mkdir(parents=True, exist_ok=True)
     sources = sorted((MA / "src" / "native").glob("ma_shim*.c")) + [MA / "vendor" / "miniaudio" / "miniaudio.c"]
     headers = sorted((MA / "src" / "native").glob("*.h")) + [MA / "vendor" / "miniaudio" / "miniaudio.h"]
-    flags = ["-O2", "-fPIC", f"-I{MA / 'vendor' / 'miniaudio'}", f"-I{MA / 'src' / 'native'}", *SHIM_DEFINES]
+    flags = ["-O2", "-fPIC", f"-I{MA / 'vendor' / 'miniaudio'}", f"-I{MA / 'src' / 'native'}", *SHIM_FLAGS]
     stamp = out_dir / "flags.txt"
     if not stamp.exists() or stamp.read_text() != " ".join(flags):
         for old in out_dir.glob("*.o"):

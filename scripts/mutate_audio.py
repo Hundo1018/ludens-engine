@@ -37,7 +37,8 @@ MUTATIONS = [
     ("an event on the master bus is accepted", "app/audio_event.mojo", " or bus_by_name(toks[1]) == BUS_MASTER:", ":", NATIVE, "master bus is refused"),
     ("impacts are counted over the whole queue, not per step", "game/demo_mode.mojo", "            if self.impacts_this_step >= IMPACTS_PER_FRAME or len(self.placed_cues) >= MAX_PLACED_CUES:",
      "            if len(self.placed_cues) >= IMPACTS_PER_FRAME:", DEMO, "not capped at the first four"),
-    ("native shim uses the approximate rsqrt", "scripts/native_libs.py", 'SHIM_DEFINES = ["-DMA_NO_SSE2"]', "SHIM_DEFINES = []", SAME, "DIFFERENT"),
+    ("native shim uses the approximate rsqrt", "scripts/native_libs.py", 'SHIM_FLAGS = ["-DMA_NO_SSE2", "-ffp-contract=off"]', 'SHIM_FLAGS = ["-ffp-contract=off"]', SAME, "DIFFERENT"),
+    ("native shim fuses multiply-add (what the CI compiler did)", "scripts/native_libs.py", 'SHIM_FLAGS = ["-DMA_NO_SSE2", "-ffp-contract=off"]', 'SHIM_FLAGS = ["-DMA_NO_SSE2", "-mfma", "-ffp-contract=fast"]', SAME, "DIFFERENT"),
 ]
 
 
