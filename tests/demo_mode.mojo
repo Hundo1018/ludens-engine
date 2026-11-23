@@ -103,6 +103,42 @@ def main() raises:
     k.step(Intent(Real(0), Real(0), Real(0), Real(0), False, True, False), 1.0 / 60.0)
     c.ok(k.paused and k.hud_key(960.0, 540.0) != kj, "pausing changes the HUD key (the banner is drawn)")
 
+    # state(), seeds and scenes (the automation hook, docs/automation.md)
+    var st = a.state()
+    c.ok(st.startswith('{"tick":180,') and '"ball":{"pos":[' in st and st.endswith('"hash":"' + String(a.hash()) + '"}'), "state() is JSON with the tick, the ball and the hash: " + st)
+    var s0 = DemoMode()
+    c.ok(s0.reset(0, ""), "reset(0, \"\") is supported")
+    for t in range(180):
+        s0.step(script(t), 1.0 / 60.0)
+    c.ok(s0.hash() == a.hash(), "seed 0, default scene: the hash of a run with no reset (" + String(a.hash()) + ")")
+    var s1 = DemoMode()
+    var s1b = DemoMode()
+    var s2 = DemoMode()
+    _ = s1.reset(1, "arena")
+    _ = s1b.reset(1, "arena")
+    _ = s2.reset(2, "arena")
+    for t in range(180):
+        s1.step(script(t), 1.0 / 60.0)
+        s1b.step(script(t), 1.0 / 60.0)
+        s2.step(script(t), 1.0 / 60.0)
+    c.ok(s1.hash() == s1b.hash(), "the same seed gives the same hash")
+    c.ok(s1.hash() != a.hash() and s1.hash() != s2.hash(), "different seeds give different hashes")
+    var bare = DemoMode()
+    _ = bare.reset(0, "bare")
+    c.ok(len(bare.scene()) == 2 and '"crates":[]' in bare.state(), "scene bare: the floor and the ball, no crates")
+    var bad = False
+    try:
+        _ = bare.reset(0, "nope")
+    except:
+        bad = True
+    c.ok(bad, "an unknown scene raises")
+    var kept = DemoMode()
+    _ = kept.reset(7, "arena")
+    var h7 = kept.hash()
+    kept.step(Intent(Real(1), Real(0), Real(0), Real(0), False, False, False), 1.0 / 60.0)
+    kept.step(Intent(Real(0), Real(0), Real(0), Real(0), False, False, True), 1.0 / 60.0)
+    c.ok(kept.seed == 7 and kept.hash() != h7, "R restarts with the same seed (the tick counts one step after the restart)")
+
     print("demo_mode:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
         raise Error("demo_mode: " + String(c.failed) + " checks failed")

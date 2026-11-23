@@ -30,4 +30,9 @@ export interface AppExports {
   app_mesh_hash(): bigint;
   app_game_hash(app: bigint): bigint;
   app_release_input(app: bigint): void;
+  app_step(app: bigint, dt: number): number;
+  app_configure(app: bigint, seed: bigint, scene_ptr: bigint, scene_len: bigint): number;
+  app_state(app: bigint): number;
+  app_events(app: bigint): number;
+  app_text_ptr(app: bigint): bigint;
 }

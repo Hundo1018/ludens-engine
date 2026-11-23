@@ -76,6 +76,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var mode: Int
     var game: Optional[Self.M]  # the game, behind the GameMode seam (game/mode.mojo)
     var frame_ms: Float32  # CPU time of the previous frame, as the page measured it
+    var game_frames: Int  # game frames stepped since the game started (`window.game` events carry it)
+    var event_log: List[Int]  # (game frame, cue) pairs raised since the last app_events, flattened
+    var out_text: String  # what app_state / app_events last wrote; app_text_ptr is its address
     var controls: Controls
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
     var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
@@ -117,6 +120,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.mode = MODE_DEMO
         self.game = None
         self.frame_ms = 0
+        self.game_frames = 0
+        self.event_log = List[Int]()
+        self.out_text = String()
         self.controls = Controls()
         self.cue_clips = List[Int]()
         self.game_renderer = None
@@ -156,6 +162,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.mode = move.mode
         self.game = move.game^
         self.frame_ms = move.frame_ms
+        self.game_frames = move.game_frames
+        self.event_log = move.event_log^
+        self.out_text = move.out_text^
         self.controls = move.controls^
         self.cue_clips = move.cue_clips^
         self.game_renderer = move.game_renderer^
@@ -191,12 +200,45 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.sim.scene.set_tone(330.0, 0.0)  # the demo's contact tone is silent while the game plays
         self.mode = MODE_GAME
 
+    def _advance(mut self, dt: Float64) raises:
+        """The simulation half of a frame: the game (or the physics demo) takes its step."""
+        if self.mode == MODE_GAME:
+            var m = self.game.take()
+            # the mode goes back into its slot even when the call raises: the next frame takes it again
+            var failed = String()
+            try:
+                self._step_mode(m, dt)
+            except e:
+                failed = String(e)
+            self.game = m^
+            if failed.byte_length() > 0:
+                raise Error(failed)
+        else:
+            self.sim.step(dt)
+
+    def step_only(mut self, dt: Float64) raises:
+        """A frame with no drawing and no presenting (`window.game.step(n, false)`): the packets are read, the game steps, and the
+        key edges of this frame end. The GPU is not touched, so it works before the device is ready and under node."""
+        self._net()
+        self._advance(dt)
+        self.input.begin_frame()
+
+    def configure_game(mut self, seed: UInt64, scene: String) raises -> Int32:
+        """Start the game over in `scene` with `seed` (`?seed=`, `?scene=`). 0 = ok, -1 = the game has no seeds or scenes."""
+        self.start_game()
+        self.game_frames = 0
+        self.event_log.clear()
+        return 0 if self.game.value().reset(seed, scene) else -1
+
     def _step_mode(mut self, mut m: Self.M, dt: Float64) raises:
         """One frame of a game: read the keys, step it (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
         var intent = self.controls.poll(read_keys(self.input))
         m.step(intent, min(dt, 0.1))
+        self.game_frames += 1
         self.stats.add(SEG_PHYSICS, m.physics_ns())  # inside the step segment; -1 (not measured) records nothing
         for cue in m.cues():
+            self.event_log.append(self.game_frames)
+            self.event_log.append(cue)
             if cue > 0 and cue < len(self.cue_clips):
                 self.sim.scene.play(self.cue_clips[cue])
 
@@ -287,19 +329,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         var t = now_ns()
         self._net()
         t = self.stats.lap(SEG_NET, t)
-        if self.mode == MODE_GAME:
-            var m = self.game.take()
-            # the mode goes back into its slot even when the call raises: the next frame takes it again
-            var failed = String()
-            try:
-                self._step_mode(m, dt)
-            except e:
-                failed = String(e)
-            self.game = m^
-            if failed.byte_length() > 0:
-                raise Error(failed)
-        else:
-            self.sim.step(dt)
+        self._advance(dt)
         _ = self.stats.lap(SEG_STEP, t)
         if not self.boot.step():
             return 0
@@ -594,3 +624,58 @@ def app_game_hash(app: UInt64) abi("C") -> UInt64:
 def app_release_input(app: UInt64) abi("C"):
     """The page lost focus: let go of every held key and button (their releases happen elsewhere and never arrive)."""
     _app(app)[].input.release_all()
+
+
+@export
+def app_step(app: UInt64, dt: Float64) abi("C") -> Int32:
+    """Advance one frame without drawing (`window.game.step(n, false)`). 1 = ok, -1 = error."""
+    try:
+        _app(app)[].step_only(dt)
+        return 1
+    except e:
+        print("app_step:", e)
+        return -1
+
+
+@export
+def app_configure(app: UInt64, seed: UInt64, scene_ptr: UInt64, scene_len: UInt64) abi("C") -> Int32:
+    """Switch to the game and start it over with `seed` and the scene named by the UTF-8 bytes at `scene_ptr` (empty = the
+    game's default). 0 = ok, -1 = the game has no seeds or scenes, -2 = error (an unknown scene), printed."""
+    try:
+        var bytes = Span(
+            unsafe_ptr=Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(scene_ptr)),
+            length=Int(scene_len),
+        )
+        return _app(app)[].configure_game(seed, String(StringSlice(unsafe_from_utf8=bytes)))
+    except e:
+        print("app_configure:", e)
+        return -2
+
+
+@export
+def app_state(app: UInt64) abi("C") -> Int32:
+    """The game's `state()` JSON, written to the text buffer: returns its byte length (read at app_text_ptr), -1 = no game."""
+    var a = _app(app)
+    if not a[].game:
+        return -1
+    a[].out_text = a[].game.value().state()
+    return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_events(app: UInt64) abi("C") -> Int32:
+    """The sound cues raised since the last call as a JSON array [{"frame":N,"cue":C}, ...] (N counts game frames since
+    the game started), written to the text buffer and cleared here. Returns the byte length."""
+    var a = _app(app)
+    var out = String("[")
+    for i in range(0, len(a[].event_log), 2):
+        out += String("," if i > 0 else "") + String('{"frame":') + String(a[].event_log[i]) + String(',"cue":') + String(a[].event_log[i + 1]) + String("}")
+    a[].event_log.clear()
+    a[].out_text = out + String("]")
+    return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_text_ptr(app: UInt64) abi("C") -> UInt64:
+    """Address of the text app_state / app_events last wrote (not NUL-terminated; valid until the next call of either)."""
+    return UInt64(Int(_app(app)[].out_text.unsafe_ptr()))
