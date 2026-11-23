@@ -25,9 +25,9 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 
 | # | capability | imp. | here | gap | issue |
 |---|---|---|---|---|---|
-| 1 | A scriptable game hook: read state, inject input, step without drawing, start in a scene with a seed | H | L2: `scripts/game_node.mjs` drives the app through `app_input` / `app_frame` | no published contract, no `?seed=` / `?scene=` / manual stepping | #115 |
-| 2 | Determinism: same seed and input give the same hash; find the tick where two runs diverge | H | L1: golden, parity gates, fp / FMA probes | the divergence trace has no tool or test | #115 |
-| 3 | Batch simulation over many seeds or levels (balance tables, solvers) | H | L3: headless `EmbedWorld` | no batch runner for game modes | #115 |
+| 1 | A scriptable game hook: read state, inject input, step without drawing, start in a scene with a seed | H | L2: `scripts/game_node.mjs` drives the app through `app_input` / `app_frame` | contract published (`docs/automation.md`); playground's modes still need `state()` / `reset()` | #115 |
+| 2 | Determinism: same seed and input give the same hash; find the tick where two runs diverge | H | L1: golden, parity gates, fp / FMA probes | `scripts/divergence.py` prints the first differing tick and keys; tested | #115 |
+| 3 | Batch simulation over many seeds or levels (balance tables, solvers) | H | L3: headless `EmbedWorld` | `ludens sim` runs the demo game; other games add an entry (`docs/automation.md`) | #115 |
 | 4 | Data tables with a validated schema, and a live tuning panel | H | L2: `editor/cvar.mojo` (native); core `ecs/schema` numeric only | missing | #119 |
 | 5 | Save games: versioned with migrations, atomic, slots, corruption handling | H | L3: core `gameplay/save`, `EmbedWorld.save` | no consumer saves anything | #122 |
 | 6 | Profiler with per-subsystem budgets, p95 / p99, draw calls, CI gates | H | L2/L3: `diag/` trace and counters, `icount`, benchmark report | no frame breakdown, GPU timing or budgets | #123 |

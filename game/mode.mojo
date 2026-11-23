@@ -53,3 +53,15 @@ trait GameMode(Movable, Deinitable):
     def hash(self) -> UInt64:
         """A value that changes exactly when the game state changes, for parity checks between targets."""
         ...
+
+    def state(self) -> String:
+        """The game's state as one JSON object, for a test or an agent to read (`window.game.state()`, docs/automation.md).
+        Numbers are written the way `String(Float64)` prints them, so two runs with the same state give the same text.
+        The default is the hash alone; a game overrides it with the fields a script needs, e.g. positions and counters."""
+        return String('{"hash":"') + String(self.hash()) + String('"}')
+
+    def reset(mut self, seed: UInt64, scene: String) raises -> Bool:
+        """Start over in the named scene ("" = the game's default) with the given seed (0 = the game's fixed layout);
+        the host calls it for `?seed=` / `?scene=`, the batch runner once per seed. Raise for an unknown scene. False
+        (the default) means the game has no seeds or scenes: the host then reports it instead of ignoring the request."""
+        return False
