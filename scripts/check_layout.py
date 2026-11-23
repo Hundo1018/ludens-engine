@@ -38,7 +38,7 @@ RENDER_MODULES = {"render3d", "render_pass", "render_res", "primitive_pass", "me
                   "shadow_pass", "gpu_mesh", "material", "wgsl", "debug_view", "skin_blend"}  # R5: app/<name>.mojo
 RENDER_GAME_ALLOWED = {"game.draw_item", "game.camera_view"}
 CONCRETE_GAME = re.compile(r"^game\.\w+_mode$")  # R7: game.demo_mode; game.mode is the seam, not a game
-CONCRETE_GAME_IMPORTERS = {"app/main.mojo", "app/game_parity.mojo"}
+CONCRETE_GAME_IMPORTERS = {"app/main.mojo", "app/game_parity.mojo", "app/frame_budget.mojo"}  # the shell and the two scripted native runners
 
 PRIVATE_WGPU = re.compile(r"^\s*(?:from|import)\s+(wgpu\._[\w.]*)", re.MULTILINE)
 EDITOR_SYMBOL = re.compile(r"\b(?:editor|ed|ui)_[A-Za-z0-9_]*")

@@ -30,6 +30,8 @@ test-web = { cmd = "bash scripts/test_web.sh", depends-on = ["build-web"] }
 bench = "python3 scripts/bench.py"
 # E31 (#126): step pattern at 60-240 Hz displays and physics cost against a 144 Hz frame (scripts/frame_pacing.py)
 frame-pacing = "python3 scripts/frame_pacing.py"
+# #123: per-segment frame breakdown (net, step, physics, scene, push, HUD, draw, present) against a 144 Hz frame (scripts/frame_budget.py)
+frame-budget = "python3 scripts/frame_budget.py"
 # per-tick physics cost against a ludens-core checkout, native + wasm64 (scripts/phys_profile.py --core DIR)
 phys-profile = "python3 scripts/phys_profile.py"
 multi-wasm-probe = "python3 scripts/multi_wasm_probe.py"

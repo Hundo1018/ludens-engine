@@ -39,6 +39,11 @@ trait GameMode(Movable, Deinitable):
         """The 2D overlay in pixels, origin top-left."""
         ...
 
+    def physics_ns(self) -> Int64:
+        """Nanoseconds the last `step` spent in fixed physics ticks, for the frame breakdown (app/frame_stats.mojo).
+        -1 (the default) means the game does not measure it; the host then shows no physics row."""
+        return -1
+
     def hash(self) -> UInt64:
         """A value that changes exactly when the game state changes, for parity checks between targets."""
         ...

@@ -10,6 +10,7 @@ from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
+from std.time import perf_counter_ns
 from ui.draw import Color, DrawList
 from ui.font import draw_text, text_width
 from ui.geom import Rect
@@ -43,6 +44,7 @@ struct DemoMode(GameMode):
     var jumps: Int
     var paused: Bool
     var cue_queue: List[Int]
+    var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
 
     def __init__(out self) raises:
         self.world = EmbedWorld(1.0 / 60.0, G)
@@ -54,6 +56,7 @@ struct DemoMode(GameMode):
         self.jumps = 0
         self.paused = False
         self.cue_queue = List[Int]()
+        self.step_physics_ns = 0
         self._build()
 
     @staticmethod
@@ -70,6 +73,7 @@ struct DemoMode(GameMode):
         self.jumps = move.jumps
         self.paused = move.paused
         self.cue_queue = move.cue_queue^
+        self.step_physics_ns = move.step_physics_ns
 
     def _box(mut self, pos: Vec3, half: Vec3, mass: Real, color: Vec3) raises -> Int64:
         var h = self.world.add_box(pos, half, mass, mass == 0.0)
@@ -96,6 +100,7 @@ struct DemoMode(GameMode):
         self._build()
 
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
+        self.step_physics_ns = 0
         if intent.restart:
             self._restart()
         if intent.pause:
@@ -115,7 +120,9 @@ struct DemoMode(GameMode):
                 self.cue_queue.append(CUE_JUMP)
             jump = False
             self.world.set_velocity(self.ball, Vec3(v[0], vy, v[2], 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
+            var t0 = perf_counter_ns()
             self.world.physics_tick()
+            self.step_physics_ns += Int64(perf_counter_ns() - t0)
             self.tick += 1
 
     def scene(mut self) raises -> List[DrawItem]:
@@ -175,6 +182,9 @@ struct DemoMode(GameMode):
             dl.fill(Rect(width * 0.5 - bw * 0.5, height * 0.5 - 8 * s, bw, 16 * s), panel)
             draw_text(dl, width * 0.5 - text_width("PAUSED", 2 * s) * 0.5, height * 0.5 - 6 * s, "PAUSED", 2 * s, white)
         return dl^
+
+    def physics_ns(self) -> Int64:
+        return self.step_physics_ns
 
     def hash(self) -> UInt64:
         var h = self.world.hash()

@@ -8,6 +8,7 @@ the C-ABI below exports the default instance.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from controls import read_keys
+from frame_stats import FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME
 from game.demo_mode import DemoMode
 from game.mode import GameMode
 from geometry.vec import Real
@@ -77,6 +78,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
     var game_format: UInt32
+    var stats: FrameStats  # per-segment CPU time of the last FRAME_RING frames (app/frame_stats.mojo, app_frame_stats)
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-engine")
@@ -116,6 +118,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.game_renderer = None
         self.hud = None
         self.game_format = 0
+        self.stats = FrameStats()
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -153,6 +156,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.game_renderer = move.game_renderer^
         self.hud = move.hud^
         self.game_format = move.game_format
+        self.stats = move.stats^
 
     def _net(mut self):
         """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
@@ -186,6 +190,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         """One frame of a game: read the keys, step it (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
         var intent = self.controls.poll(read_keys(self.input))
         m.step(intent, min(dt, 0.1))
+        self.stats.add(SEG_PHYSICS, m.physics_ns())  # inside the step segment; -1 (not measured) records nothing
         for cue in m.cues():
             if cue > 0 and cue < len(self.cue_clips):
                 self.sim.scene.play(self.cue_clips[cue])
@@ -203,10 +208,16 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.game_renderer = SceneRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
         self.game_renderer.value().begin(view)
         self.game_renderer.value().probe = self.probe_cube
-        for it in m.scene():
+        var t = now_ns()
+        var items = m.scene()
+        t = self.stats.lap(SEG_SCENE, t)
+        for it in items:
             self.game_renderer.value().push(it)
+        t = self.stats.lap(SEG_PUSH, t)
         self.hud.value().set(m.hud(Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
+        t = self.stats.lap(SEG_HUD, t)
         self.game_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+        _ = self.stats.lap(SEG_DRAW, t)
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
@@ -224,8 +235,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             return
         if not self.renderer:
             self.renderer = Renderer(self.boot.device(), format)
+        var t = now_ns()
         fill(self.renderer.value(), self.sim, aspect)
+        t = self.stats.lap(SEG_SCENE, t)
         self.renderer.value().draw(self.boot.device(), target)
+        _ = self.stats.lap(SEG_DRAW, t)
 
     def _capture(mut self, format: UInt32) raises:
         if self.want_capture and not self.capture_req:
@@ -254,13 +268,19 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
 
     def frame(mut self, dt: Float64) raises -> Int32:
         """0 while the GPU is still being set up, 1 once a frame was drawn."""
+        self.stats.begin()
+        var t0 = now_ns()
         var rc = self._frame(dt)
         # Every frame ends here, drawn or not: a key edge or a pointer movement lasts exactly one frame.
         self.input.begin_frame()
+        _ = self.stats.lap(SEG_FRAME, t0)
+        self.stats.end()
         return rc
 
     def _frame(mut self, dt: Float64) raises -> Int32:
+        var t = now_ns()
         self._net()
+        t = self.stats.lap(SEG_NET, t)
         if self.mode == MODE_GAME:
             var m = self.game.take()
             # the mode goes back into its slot even when the call raises: the next frame takes it again
@@ -274,6 +294,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
                 raise Error(failed)
         else:
             self.sim.step(dt)
+        _ = self.stats.lap(SEG_STEP, t)
         if not self.boot.step():
             return 0
         if self.offscreen:
@@ -289,11 +310,15 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
                 self.width, self.height,
             )
             self.configured = True
+        t = now_ns()
         var tex = self.surface.get_current_texture()
+        t = self.stats.lap(SEG_PRESENT, t)
         if tex.is_renderable():
             self._draw_scene(tex.texture, self.surface.format())
             self._capture(self.surface.format())
+            t = now_ns()
             self.surface.present()
+            _ = self.stats.lap(SEG_PRESENT, t)
             self.frames += 1
         self._reference()
         self._finish_capture()
@@ -332,6 +357,14 @@ def app_frame(app: UInt64, dt: Float64) abi("C") -> Int32:
     except e:
         print("app_frame:", e)
         return -1
+
+
+@export
+def app_frame_stats(app: UInt64, out_ptr: UInt64) abi("C") -> Int32:
+    """Per-segment CPU time over the last 256 frames (app/frame_stats.mojo): writes 9 segments x [p50, p95, max ns,
+    frames it ran in] as u64 to `out_ptr` (288 bytes), in the order net, step, physics (inside step), scene, push, hud,
+    draw, present, frame. Returns the frames in the ring."""
+    return _app(app)[].stats.write(out_ptr)
 
 
 @export
