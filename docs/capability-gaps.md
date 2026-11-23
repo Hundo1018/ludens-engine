@@ -112,6 +112,28 @@ Development tooling gaps (wasm crash symbolication, project template, API docs f
 harness, wasm memory profiling, store release pipelines, a Windows shell, a scripting layer, asset licence tracking)
 were listed the same day and deliberately left off the roadmap for now.
 
+## Assets and production flow (2026-11-23)
+
+Assets today: converters for glb meshes, skins and clips, textures and wav (`scripts/assets/`), read through
+`app/assets.mojo`. Already planned: the asset database #12, textures and materials #16, packing #15, hot reload #14,
+fonts #116, data tables #119, automation and batch runs #115, frame budgets #123, scene merging #125, Android
+packaging #22 and #23. The items below had no issue. Put on the roadmap on 2026-11-23; none is built. Version control
+for large binary files (LFS policy, asset locking) was considered and left off.
+
+| issue | area | what |
+|---|---|---|
+| #150 | assets | 2D: sprites, sprite sheets, tilemaps, atlas, a 2D render path (nothing 2D exists today) |
+| #151 | assets | animation retargeting between skeletons |
+| #152 | assets | material graph editor, compiling to the existing material interface |
+| #153 | assets | FBX import and DCC exporters, import validation rules, per-platform variants |
+| #154 | assets | asynchronous streaming of meshes, textures and audio at run time |
+| #155 | assets | starter asset pack for prototyping (CC0 or own work) |
+| #156 | flow | one-key bug report with replay and state; playtest analytics and heatmaps |
+| #157 | flow | level blockout (greybox) tools |
+| #158 | flow | localization workflow: export, import, missing / stale / overflow checks, pseudo-locale |
+| #159 | flow | compliance checklists: platform requirements, age ratings, privacy inventory, accessibility |
+| #160 | flow | release pipeline: game versions, player changelog, store submission |
+
 ## Limits of this comparison
 
 - Both skill sets target mainstream engines (Godot, Unity, Unreal, three.js, Roblox) and a web scaffold of their own;
