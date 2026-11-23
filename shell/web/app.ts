@@ -5,6 +5,7 @@ import { createImports as wgpuImports } from "./webgpu_host.mjs";
 import { Runtime } from "./webgpu_runtime.mjs";
 import * as miniaudio from "./miniaudio_host.mjs";
 import * as net from "./net_host.mjs";
+import { createGameHook } from "./game_hook.mjs";
 import { createOsImports, opfsStorage } from "./os_host.mjs";
 import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
@@ -86,8 +87,50 @@ async function boot(canvas: HTMLCanvasElement) {
   const [sel, len] = rt.str_in("#" + canvas.id);
   const app = x.app_init(sel, len, canvas.width, canvas.height);
   if (app === 0n) throw new Error("app_init failed");
+  // #116: the HUD's SDF font (assets/fonts, copied to ./font.lfont by build_web.py), loaded only for the game: ?selftest and
+  // ?demo pages draw no text and do not fetch it. A failed load is logged and the game runs without text.
+  if (!location.search.includes("selftest") && !location.search.includes("demo")) {
+    try {
+      const res = await fetch("./font.lfont");
+      if (!res.ok) throw new Error("font.lfont: HTTP " + res.status);
+      const fontBytes = new Uint8Array(await res.arrayBuffer());
+      const fontPtr = rt.alloc(fontBytes.length);
+      rt.put(fontPtr, fontBytes);
+      const fontOk = x.app_load_font(app, fontPtr, BigInt(fontBytes.length));
+      rt.free(fontPtr);
+      if (fontOk !== 0) throw new Error("app_load_font returned " + fontOk);
+    } catch (e) {
+      console.warn("HUD font not loaded, text is not drawn: " + String(e));
+    }
+  }
+  // Safe-area insets from the browser (CSS px -> canvas px), text scale and language from ?textscale=, ?lang=, ?pseudo and
+  // ?safe=l,t,r,b (CSS px, for testing). setUi() changes them at run time.
+  const ui = { textScale: Number(params.get("textscale") ?? 1), lang: params.get("lang") ?? navigator.language, pseudo: params.has("pseudo") };
+  const applyUi = () => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;top:0;visibility:hidden;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+    document.body.append(probe);
+    const cs = getComputedStyle(probe);
+    let [l, t, r, b] = [cs.paddingLeft, cs.paddingTop, cs.paddingRight, cs.paddingBottom].map(parseFloat);
+    probe.remove();
+    const forced = params.get("safe");
+    if (forced) [l, t, r, b] = forced.split(",").map(Number);
+    const k = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1;
+    x.app_set_ui(app, ui.textScale, l * k, t * k, r * k, b * k, /^zh/i.test(ui.lang) ? 1 : 0, ui.pseudo ? 1 : 0);
+  };
+  applyUi();
+  addEventListener("resize", applyUi);
+  Object.defineProperty(stats, "setUi", {
+    value: (o: Partial<typeof ui>) => { Object.assign(ui, o); applyUi(); }, enumerable: false, configurable: true,
+  });
   // The demo game is the app; ?selftest keeps the physics demo that the parity gates and selftests measure.
-  if (!location.search.includes("selftest") && !location.search.includes("demo")) x.app_set_mode(app, 1);
+  const gameMode = !location.search.includes("selftest") && !location.search.includes("demo");
+  if (gameMode) x.app_set_mode(app, 1);
+  // window.game (docs/automation.md): read the state, press keys, step with or without drawing. ?seed=N and ?scene=NAME start
+  // the game over with that seed and scene; ?manual stops the animation loop, so frames come only from window.game.step.
+  const game = createGameHook({ rt, app, keyCode });
+  if (gameMode && (params.has("seed") || params.has("scene"))) game.configure(params.get("seed") ?? "0", params.get("scene") ?? "");
+  (window as any).game = game;
   if (location.search.includes("offscreen") && !location.search.includes("selftest")) x.app_offscreen(app, 1); // headless Chrome: never draw to the canvas
   // Non-enumerable: bigint is not JSON-serialisable and the automated checks stringify window.shell.
   // Read one frame back through wgpu's FrameCapture (rendered into an app-owned target; see app/main.mojo).
@@ -110,6 +153,8 @@ async function boot(canvas: HTMLCanvasElement) {
   for (const [k, v] of Object.entries({ app, x, rt, capturePixels })) Object.defineProperty(stats, k, { value: v, enumerable: false });
   return { rt, x, app };
 }
+
+const MANUAL = params.has("manual");
 
 // Keyboard, mouse, touch and gamepads, all as the GLFW-coded events app_input takes. Returns the per-frame gamepad poll.
 // The demo game's touch controls, as data for the virtual pad kit (vpad.ts): a move stick under the left thumb, Jump
@@ -330,7 +375,8 @@ async function main() {
       requestAnimationFrame(frame);
     } catch (e) { stats.error = String(e); }
   };
-  requestAnimationFrame(frame);
+  if (MANUAL) stats.started = true; // frames come only from window.game.step
+  else requestAnimationFrame(frame);
   if (location.search.includes("selftest")) selftest(x, rt, app);
 }
 

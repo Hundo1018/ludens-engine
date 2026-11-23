@@ -14,10 +14,14 @@ from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
+from scheduler.rng import SplitMix64
 from std.time import perf_counter_ns
+from game.demo_strings import demo_localizer
 from ui.draw import Color, DrawList
-from ui.font import draw_text, text_width
 from ui.geom import Rect
+from ui.loc import Localizer
+from ui.scale import UiEnv, UiScale
+from ui.sdf_font import FontMetrics
 
 comptime CUE_JUMP = 1
 comptime BALL: Real = 0.4
@@ -32,11 +36,17 @@ struct Prop(Copyable, Movable):
     var handle: Int64
     var half: Vec3
     var color: Vec3
+    var dynamic: Bool  # moves under physics (the crates): listed in `state()`
 
-    def __init__(out self, handle: Int64, half: Vec3, color: Vec3):
+    def __init__(out self, handle: Int64, half: Vec3, color: Vec3, dynamic: Bool = False):
         self.handle = handle
         self.half = half
         self.color = color
+        self.dynamic = dynamic
+
+
+def _vec(v: Vec3) -> String:
+    return String("[") + String(Float64(v[0])) + String(",") + String(Float64(v[1])) + String(",") + String(Float64(v[2])) + String("]")
 
 
 struct DemoMode(GameMode):
@@ -48,12 +58,22 @@ struct DemoMode(GameMode):
     var tick: Int
     var jumps: Int
     var paused: Bool
+    var seed: UInt64  # 0 = the fixed layout; any other value moves the crates and the ball's start (`_build`)
+    var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
     var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
     var tuner: Tuner  # game/data/demo.table under its schema; edits apply at a tick boundary (#119)
     var tune: DemoRow  # the tuned values the ticks read
     var panel: TuningPanel  # F2: the live tuning panel built from the schema
     var export_file: String  # table text to save, "<file name>\n<text>", until the host takes it
+    var loc: Localizer  # the HUD's strings; the host picks the locale and pseudo-localization (set_ui_env)
+    var env: UiEnv
+    var ui: UiScale  # the HUD is laid out for 960 x 540
+    var metrics: Optional[FontMetrics]  # glyph advances for sizing panels; none until the host has loaded a font
+    var t_jumps: String  # this frame's HUD texts, resolved in `step` and `set_ui_env` (a lookup counts errors, so it needs `mut`)
+    var t_hint: String
+    var t_paused: String
+    var text_key: UInt64
 
     def __init__(out self) raises:
         self.tuner = Tuner(demo_default_table(), DEMO_TABLE_TEXT)
@@ -68,9 +88,20 @@ struct DemoMode(GameMode):
         self.tick = 0
         self.jumps = 0
         self.paused = False
+        self.seed = 0
+        self.scene_name = String("arena")
         self.cue_queue = List[Int]()
         self.step_physics_ns = 0
+        self.loc = demo_localizer()
+        self.env = UiEnv.default()
+        self.ui = UiScale.reference(960, 540)
+        self.metrics = None
+        self.t_jumps = String()
+        self.t_hint = String()
+        self.t_paused = String()
+        self.text_key = 0
         self._build()
+        self._refresh_texts()
 
     @staticmethod
     def create() raises -> Self:
@@ -101,27 +132,102 @@ struct DemoMode(GameMode):
         self.tick = move.tick
         self.jumps = move.jumps
         self.paused = move.paused
+        self.seed = move.seed
+        self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
         self.step_physics_ns = move.step_physics_ns
         self.tuner = move.tuner^
         self.tune = move.tune^
         self.panel = move.panel^
         self.export_file = move.export_file^
+        self.loc = move.loc^
+        self.env = move.env
+        self.ui = move.ui
+        self.metrics = move.metrics^
+        self.t_jumps = move.t_jumps^
+        self.t_hint = move.t_hint^
+        self.t_paused = move.t_paused^
+        self.text_key = move.text_key
+
+    def _refresh_texts(mut self):
+        var key = (UInt64(self.jumps) << 20) ^ UInt64(self.loc.version) ^ (self.env.key() << 1)
+        if key == self.text_key and self.t_hint.byte_length() > 0:
+            return
+        self.text_key = key
+        self.t_jumps = self.loc.plural("hud.jumps", self.jumps)
+        self.t_hint = self.loc.get("hud.hint")
+        self.t_paused = self.loc.get("hud.paused")
+
+    def set_ui_env(mut self, env: UiEnv):
+        self.env = env
+        self.ui.insets = env.insets
+        self.ui.set_text_scale(env.text_scale)
+        var tag = "zh-TW" if env.locale == 1 else "en"
+        if self.loc.locale() != tag:
+            _ = self.loc.set_locale(tag)
+        self.loc.set_pseudo(env.pseudo)
+        self._refresh_texts()
+
+    def set_font_metrics(mut self, metrics: FontMetrics):
+        self.metrics = metrics.copy()
 
     def _box(mut self, pos: Vec3, half: Vec3, mass: Real, color: Vec3) raises -> Int64:
         var h = self.world.add_box(pos, half, mass, mass == 0.0)
-        self.props.append(Prop(h, half, color))
+        self.props.append(Prop(h, half, color, mass != 0.0))
         return h
 
     def _build(mut self) raises:
         self.floor = self._box(Vec3(0.0, -0.5, 0.0, 0.0), Vec3(30.0, 0.5, 30.0, 0.0), 0.0, Vec3(0.42, 0.56, 0.42, 0.0))
-        for i in range(4):  # pillars, so moving changes the picture
-            var x = Real(-9.0) + 6.0 * Real(i)
-            var z = Real(-6.0 - 4.0 * Real(i % 2))
-            _ = self._box(Vec3(x, 1.5, z, 0.0), Vec3(0.6, 1.5, 0.6, 0.0), 0.0, Vec3(0.62, 0.64, 0.76, 0.0))
-        for i in range(3):  # crates to push
-            _ = self._box(Vec3(Real(2 * i) - 2.0, 0.5, -2.5, 0.0), Vec3(0.5, 0.5, 0.5, 0.0), 6.0, Vec3(0.62, 0.45, 0.28, 0.0))
-        self.ball = self.world.add_sphere(Vec3(0.0, BALL, 3.0, 0.0), BALL, 70.0, False)
+        # A seed moves each crate by up to 0.6 m in x and 0.4 m in z and the ball's start by up to 0.5 m in x, drawn in this
+        # order from one SplitMix64 stream. Seed 0 draws nothing: the layout (and hash) of a run with no seed is unchanged.
+        var rng = SplitMix64.seeded(self.seed)
+        var arena = self.scene_name == "arena"
+        if arena:
+            for i in range(4):  # pillars, so moving changes the picture
+                var x = Real(-9.0) + 6.0 * Real(i)
+                var z = Real(-6.0 - 4.0 * Real(i % 2))
+                _ = self._box(Vec3(x, 1.5, z, 0.0), Vec3(0.6, 1.5, 0.6, 0.0), 0.0, Vec3(0.62, 0.64, 0.76, 0.0))
+            for i in range(3):  # crates to push
+                var jx = Real(0)
+                var jz = Real(0)
+                if self.seed != 0:
+                    jx = (Real(rng.next_f32()) - 0.5) * 1.2
+                    jz = (Real(rng.next_f32()) - 0.5) * 0.8
+                _ = self._box(Vec3(Real(2 * i) - 2.0 + jx, 0.5, -2.5 + jz, 0.0), Vec3(0.5, 0.5, 0.5, 0.0), 6.0, Vec3(0.62, 0.45, 0.28, 0.0))
+        var bx = Real(0)
+        if self.seed != 0:
+            bx = Real(rng.next_f32()) - 0.5
+        self.ball = self.world.add_sphere(Vec3(bx, BALL, 3.0, 0.0), BALL, 70.0, False)
+
+    def reset(mut self, seed: UInt64, scene: String) raises -> Bool:
+        """Scenes: "arena" (the default, also for ""), "bare". The seed is kept by R (restart)."""
+        var name = scene if scene.byte_length() > 0 else String("arena")
+        if name != "arena" and name != "bare":
+            raise Error("unknown scene `" + name + "` (arena, bare)")
+        self.seed = seed
+        self.scene_name = name
+        self._restart()
+        return True
+
+    def state(self) -> String:
+        """JSON: counters, the yaw, the ball's position and velocity and the crates' positions, then the hash."""
+        var out = String('{"tick":') + String(self.tick) + String(',"jumps":') + String(self.jumps)
+        out += String(',"paused":') + String("true" if self.paused else "false")
+        out += String(',"seed":"') + String(self.seed) + String('","scene":"') + self.scene_name + String('"')
+        out += String(',"yaw":') + String(Float64(self.yaw))
+        try:
+            var b = self.world.state(self.ball)
+            out += String(',"ball":{"pos":') + _vec(b.pos) + String(',"vel":') + _vec(b.vel) + String("}")
+            out += String(',"crates":[')
+            var first = True
+            for p in self.props:
+                if p.dynamic:
+                    out += String("" if first else ",") + _vec(self.world.state(p.handle).pos)
+                    first = False
+            out += String("]")
+        except:
+            out += String(',"error":"body state unavailable"')
+        return out + String(',"hash":"') + String(self.hash()) + String('"}')
 
     def _restart(mut self) raises:
         self.world = EmbedWorld(1.0 / 60.0, self._gravity())
@@ -133,6 +239,10 @@ struct DemoMode(GameMode):
         self._build()
 
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
+        self._step(intent, frame_dt)
+        self._refresh_texts()
+
+    def _step(mut self, intent: Intent, frame_dt: Float64) raises:
         self.step_physics_ns = 0
         if intent.restart:
             self._restart()
@@ -216,32 +326,68 @@ struct DemoMode(GameMode):
         out.append(clip^)
         return out^
 
+    def _width(self, text: String, size: Float32) -> Float32:
+        """The width of `text` at `size`: the font's advances, or 0.55 em a character (1 em for a CJK one) before a font is loaded."""
+        if self.metrics:
+            return self.metrics.value().measure(text, size)
+        var w = Float32(0)
+        for ch in text.codepoints():
+            w += Float32(1.0) if ch.to_u32() >= 0x2E80 else Float32(0.55)
+        return w * size
+
+    def _height(self, text: String, size: Float32, max_w: Float32) -> Float32:
+        if self.metrics:
+            return self.metrics.value().text_height(text, size, max_w)
+        var lines = Float32(1)
+        if max_w > 0 and self._width(text, size) > max_w:
+            lines = Float32(Int(self._width(text, size) / max_w) + 1)
+        return lines * size * 1.45
+
     def hud(self, width: Float32, height: Float32, frame_ms: Float32) raises -> DrawList:
+        """Three panels: the jump counter at the top-left of the safe area, the controls hint along its bottom edge
+        (wrapped to its width), and the pause banner in the middle. Sizes come from the reference layout (960 x 540) times
+        the window factor; font sizes also times the player's text scale. Each panel is as large as its text needs."""
         var dl = DrawList()
-        var s = max(Float32(Int(height / 200.0)), 2.0)
+        var safe = self.ui.safe_rect(width, height)
+        var margin = self.ui.px(8, width, height)
+        var pad = self.ui.px(6, width, height)
+        var size = self.ui.font_px(16, width, height)
+        var big = self.ui.font_px(28, width, height)
         var panel = Color(0.05, 0.06, 0.1, 0.9)
         var white = Color(1.0, 1.0, 1.0, 1.0)
-        var line = "JUMPS " + String(self.jumps)
-        dl.fill(Rect(4 * s, 4 * s, text_width(line, s) + 4 * s, 9 * s), panel)
-        draw_text(dl, 6 * s, 6 * s, line, s, white)
-        var hint = "WASD MOVE   SPACE JUMP   DRAG MOUSE LOOK   P PAUSE   R RESTART"
-        var hw = text_width(hint, s) + 4 * s
-        dl.fill(Rect(width * 0.5 - hw * 0.5, height - 12 * s, hw, 9 * s), panel)
-        draw_text(dl, width * 0.5 - hw * 0.5 + 2 * s, height - 10 * s, hint, s, white)
+
+        var jw = self._width(self.t_jumps, size)
+        var jh = self._height(self.t_jumps, size, 0)
+        dl.fill(Rect(safe.x + margin, safe.y + margin, jw + 2 * pad, jh + 2 * pad), panel)
+        dl.text(Rect(safe.x + margin + pad, safe.y + margin + pad, jw * 1.02 + 1, jh), self.t_jumps, white, size)
+
+        var avail = safe.w - 2 * margin
+        var hw = self._width(self.t_hint, size) + 2 * pad
+        var pw = hw if hw < avail else avail
+        var hh = self._height(self.t_hint, size, pw - 2 * pad)
+        var hx = safe.x + (safe.w - pw) * 0.5
+        var hy = safe.bottom() - margin - hh - 2 * pad
+        dl.fill(Rect(hx, hy, pw, hh + 2 * pad), panel)
+        dl.text(Rect(hx + pad, hy + pad, pw - 2 * pad, hh), self.t_hint, white, size)
+
         if self.paused:
-            var bw = 60.0 * s
-            dl.fill(Rect(width * 0.5 - bw * 0.5, height * 0.5 - 8 * s, bw, 16 * s), panel)
-            draw_text(dl, width * 0.5 - text_width("PAUSED", 2 * s) * 0.5, height * 0.5 - 6 * s, "PAUSED", 2 * s, white)
+            var bw = self._width(self.t_paused, big)
+            var bh = self._height(self.t_paused, big, 0)
+            var bx = safe.x + (safe.w - bw - 2 * pad) * 0.5
+            var by = safe.y + (safe.h - bh - 2 * pad) * 0.5
+            dl.fill(Rect(bx, by, bw + 2 * pad, bh + 2 * pad), panel)
+            dl.text(Rect(bx + pad, by + pad, bw * 1.02 + 1, bh), self.t_paused, white, big)
         return dl^
 
     def hud_key(self, width: Float32, height: Float32) -> Int64:
-        """The HUD shows the jump count, the pause banner and a fixed hint, laid out for the size: those are the key
-        (frame_ms is not drawn)."""
+        """The HUD shows the jump count, the pause banner and a fixed hint, laid out for the size, the safe area, the text
+        scale and the locale: those are the key (frame_ms is not drawn)."""
         var h = UInt64(14695981039346656037)
         h = (h ^ UInt64(self.jumps)) * UInt64(0x100000001B3)
         h = (h ^ UInt64(1 if self.paused else 0)) * UInt64(0x100000001B3)
-        h = (h ^ UInt64(width.to_bits())) * UInt64(0x100000001B3)
-        h = (h ^ UInt64(height.to_bits())) * UInt64(0x100000001B3)
+        h = (h ^ self.ui.key(width, height)) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(self.loc.version)) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(1 if self.metrics else 0)) * UInt64(0x100000001B3)
         return Int64(h >> 1)
 
     def physics_ns(self) -> Int64:

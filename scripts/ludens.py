@@ -12,6 +12,7 @@
     ludens sheet <file>                 validate an event sheet (errors name the line and the event)
     ludens tune <table> <entry>.<field> <value> [...]   edit rows of a data table in place, checked by its schema
     ludens overlay <ticks> -o OUT.json  step the scene with the physics debug-draw on; prints the arrow count, writes the last frame as JSON
+    ludens sim <mode> --seeds 1..1000 --ticks N --report FIELDS   run a game headless over many seeds and print a table
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
 these do. Nothing is written when a command fails. Subcommands for assets, builds and replay follow with their
@@ -180,6 +181,12 @@ def cmd_tune(a) -> int:
     return run_core("tune", str(table.with_suffix(".schema")), str(table), *a.rest)
 
 
+def cmd_sim(a) -> int:
+    """Batch runs of a game over seeds (ludens-engine #115); the options are scripts/sim_batch.py's."""
+    import sim_batch
+    return sim_batch.main(a.rest)
+
+
 def simple(sub: str):
     return lambda a: run_core(sub, scene_of(find_project(a.project)))
 
@@ -227,6 +234,9 @@ def main() -> int:
     p = sp.add_parser("sheet", help="validate an event sheet file")
     p.add_argument("file")
     p.set_defaults(f=cmd_sheet)
+    p = sp.add_parser("sim", help="run a game headless over many seeds and print a table (ludens sim -h for the options)")
+    p.add_argument("rest", nargs=argparse.REMAINDER, metavar="mode --seeds A..B --ticks N --report FIELDS")
+    p.set_defaults(f=cmd_sim)
     p = sp.add_parser("cmd", help="run one editor command (in place)")
     p.add_argument("-o", "--output")
     p.add_argument("rest", nargs=argparse.REMAINDER, metavar="name args")

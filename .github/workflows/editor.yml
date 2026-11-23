@@ -54,6 +54,10 @@ jobs:
         run: pixi run -e wasm sheet-same
       - name: ui/ layout and widgets, native == wasm64
         run: pixi run -e wasm ui-same
+      - name: SDF font (#116), native == wasm64
+        run: pixi run -e wasm font-same
+      - name: Font importer self-test, asset hash and license
+        run: pixi run -e wasm test-font
       - name: os_* imports through a wasm64 module, node
         run: pixi run -e wasm test-os
       - name: net_poll drops an oversized packet and delivers the next, node
@@ -66,6 +70,8 @@ jobs:
         run: pixi run -e wasm game-same
       - name: Data tables, live tuning, `ludens check` / `ludens tune` on tables
         run: pixi run -e wasm test-tables
+      - name: Automation hook under node, divergence trace, batch runner (#115)
+        run: pixi run -e wasm test-automation
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node

@@ -20,7 +20,7 @@ def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
     shutil.copy(ROOT / "build/app.wasm", OUT / "app.wasm")
-    for f in ("index.html", "worklet.js", "net_host.mjs", "os_host.mjs"):
+    for f in ("index.html", "worklet.js", "net_host.mjs", "os_host.mjs", "game_hook.mjs"):
         shutil.copy(ROOT / "shell/web" / f, OUT / f)
     shutil.copy(ludens_wasm_rt.HOST_MJS, OUT / "host.mjs")
     for f in ("webgpu_host.mjs", "webgpu_impl.mjs", "webgpu_runtime.mjs", "webgpu_layout.json"):
@@ -29,11 +29,18 @@ def main() -> None:
     native_px = ROOT / "build/pixels_native.rgba"
     if native_px.exists():  # the native reference for ?selftest=parity (scripts/parity_pixels_native.py)
         shutil.copy(native_px, OUT / "pixels_native.rgba")
+    shutil.copy(ROOT / "assets/fonts/NotoSansTC-Regular-24.lfont", OUT / "font.lfont")  # the HUD's SDF font (#116)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import check_font_asset
+    check_font_asset.write_built_license(OUT)  # the OFL requires the license and copyright with every copy
     shutil.copy(WGPU / "scripts/webgpu_enum_strings.json", OUT / "webgpu_enum_strings.json")
     shutil.copy(MA / "web/miniaudio_host.mjs", OUT / "miniaudio_host.mjs")
     for ts, js in (("app.ts", "app.js"), ("keys.ts", "keys.js"), ("record.ts", "record.js"), ("pad.ts", "pad.js"),
                    ("vpad.ts", "vpad.js"), ("vpad_view.ts", "vpad_view.js")):
         subprocess.run(["node", "--input-type=module", "-e", STRIP, str(ROOT / "shell/web" / ts), str(OUT / js)], check=True)
+    problems = check_font_asset.check_built(OUT)
+    if problems:
+        sys.exit("build_web: " + "; ".join(problems))
     print(f"build_web: {OUT} ({sum(1 for _ in OUT.iterdir())} files)")
 
 

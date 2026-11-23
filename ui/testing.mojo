@@ -3,7 +3,9 @@ the rectangles they lay out to. Standard library only. The unit tests and the na
 (`app/ui_parity.mojo`) share them, so both look at the same trees."""
 from ui.batch import build_batch
 from ui.geom import Insets, Rect
+from ui.draw import Color
 from ui.layout import COLUMN, ROW, Node, Tree
+from ui.sdf_font import GLYPH_VERT_FLOATS, SdfFont, append_text, hash_bytes, render_text
 
 
 def box(direction: Int = ROW, width: Float32 = -1, height: Float32 = -1, grow: Float32 = 0) -> Node:
@@ -153,3 +155,35 @@ def widget_parity_hash() raises -> UInt64:
             acc = fnv(acc, e.dy)
             acc = fnv(acc, e.scale)
     return acc
+
+
+comptime FONT_PARITY_TEXT = "臺灣繁體中文 Taiwan 永遠，「你好」😀 ÅÉÎÕÜ 0123"
+comptime FONT_PARITY_VALUES = 6
+
+
+def font_parity_hashes(var file: List[UInt8]) raises -> List[UInt64]:
+    """Six values from an `.lfont` file's bytes, for the native / wasm64 comparison (`app/font_parity.mojo`): a hash of the
+    glyph table, the hash of the rasterised sample text at 16, 24 and 48 px, a hash of the glyph quads of the sample wrapped
+    to 200 px at 20 px, and the number of missing glyphs that wrapped layout counted."""
+    var font = SdfFont(file^)
+    var out = List[UInt64]()
+    var h = UInt64(0xCBF29CE484222325)
+    for i in range(len(font.m.glyphs)):
+        ref g = font.m.glyphs[i]
+        for v in [g.cp, g.x, g.y, g.w, g.h, g.xoff, g.yoff]:
+            h = (h ^ UInt64(v + 40000)) * UInt64(0x100000001B3)
+        h = fnv(h, g.advance)
+    out.append(h)
+    var sizes = [16, 24, 48]
+    for k in range(3):
+        var size = Float32(sizes[k])
+        out.append(hash_bytes(render_text(font, FONT_PARITY_TEXT, size, 600, 640, Int(size * 1.6))))
+    var verts = List[Float32]()
+    font.reset_missing()
+    append_text(verts, font, Rect(10, 10, 200, 0), FONT_PARITY_TEXT, Color.rgb(1, 1, 1), 20, Rect(0, 0, 0, 0), False)
+    var vh = UInt64(0xCBF29CE484222325)
+    for i in range(len(verts)):
+        vh = fnv(vh, verts[i])
+    out.append(vh)
+    out.append(UInt64(font.missing))
+    return out^
