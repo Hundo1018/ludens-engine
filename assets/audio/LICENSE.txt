@@ -1,0 +1,15 @@
+Audio assets of ludens-engine (assets/audio/)
+
+calm_pad.lsound, calm_perc.lsound, tense_pad.lsound and music.music were synthesized by scripts/assets/gen_audio.py from
+sums of sine partials, a decaying sine and a linear congruential noise. No recording, sample library or third-party
+material is in them.
+
+Copyright (c) 2026 Hundo1018
+
+They are distributed under the MIT License, the license of this repository (the LICENSE file at its root). Permission is
+hereby granted, free of charge, to any person obtaining a copy of these files, to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of them, provided the copyright notice and this permission notice are included
+in all copies or substantial portions of them.
+
+THE FILES ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. See the repository's LICENSE for the full
+text.

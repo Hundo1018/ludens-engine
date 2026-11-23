@@ -3,6 +3,7 @@
 A host (`app/`) is generic over a `GameMode` (`app/main.mojo` `AppOf[M, P]`), so the call to the game is resolved when the
 program is built and nothing is looked up at run time. A game conforms by wrapping its state in a struct that implements
 these methods; see `game/demo_mode.mojo`. The game's own rules never import this file."""
+from game.cue import SoundCue
 from game.intent import Intent
 from game.draw_item import DrawItem
 from procedural.camera_math import CameraPose
@@ -36,6 +37,18 @@ trait GameMode(Movable, Deinitable):
         """The game's sound clips as interleaved stereo samples at `rate` Hz; `cues()` numbers them from 1 (clip i is
         cue i + 1). The host registers them once. A game with no sound returns an empty list."""
         ...
+
+    def positioned_cues(mut self) -> List[SoundCue]:
+        """Sound cues with a position raised since the last call (a jump at the ball, an impact at a contact point). They
+        play through the mixer's spatializers, heard from the camera; `cues()` stays for sounds with no place. The
+        default returns none."""
+        return List[SoundCue]()
+
+    def audio_events(self) -> String:
+        """The game's audio events as text (app/audio_event.mojo: clips, pitch and volume ranges, priority, limit). Clip names
+        are `cue1`, `cue2`, ... for the clips of `sounds()`; an event named `cueN` is what cue N plays. The default is
+        empty: the host then makes one spatial event per cue."""
+        return String()
 
     def hud(self, width: Float32, height: Float32, frame_ms: Float32) raises -> DrawList:
         """The 2D overlay in pixels, origin top-left."""

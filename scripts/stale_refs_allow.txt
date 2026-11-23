@@ -14,4 +14,4 @@ docs/platform.md:SensorManager  # Android platform API named in the device-seam 
 docs/platform.md:AudioRecord  # Android platform API named in the device-seam plan (#135)
 docs/platform.md:DeviceOrientation  # web platform event named in the device-seam plan (#135)
 docs/platform.md:DeviceMotion  # web platform event named in the device-seam plan (#135)
-docs/spatial-audio.md:SpatializerListener  # miniaudio-mojo type (src/miniaudio/spatializer.mojo), a dependency
+docs/audio.md:ma_rsqrtf  # miniaudio's C function (vendored in miniaudio-mojo), a dependency

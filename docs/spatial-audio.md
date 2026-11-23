@@ -1,6 +1,6 @@
-# Spatial audio (planned, issue #137, a sub-issue of #120)
+# Spatial audio (issue #137, a sub-issue of #120)
 
-Not built. Decided 2026-11-23: on the roadmap now, built later. This note records what each layer already offers,
+Phase 1 is built (#120, `docs/audio.md`); phases 2 to 4 are not. Decided 2026-11-23: on the roadmap now, built later. This note records what each layer already offers,
 what the engine lacks, and the phases.
 
 #120 (E26, `docs/capability-gaps.md`) already asks for the basic 3D part: a listener on the camera and positioned
@@ -34,8 +34,10 @@ reverb zones, HRTF and impact sounds at core's contact positions.
 
 ## Phases
 
-1. **Positioned cues** (#120's 3D item).
-   - A cue carries position, velocity and gain.
+1. **Positioned cues** (#120's 3D item). Built: `GameMode.positioned_cues()`, `SoundCue`, `Mixer`.
+   - A cue carries position and gain. Velocity is not carried yet: miniaudio's standalone `Spatializer.process` computes a
+     Doppler pitch from velocities but does not resample, so a velocity would change nothing audible without a per-voice
+     resampler that reads it.
    - Each playing voice gets a `Spatializer`.
    - The listener is set from the camera every frame.
    - Impact sounds take the position of core's contact events.
