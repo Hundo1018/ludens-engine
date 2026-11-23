@@ -89,7 +89,8 @@ within a frame or two.
 `buffer_ms` on a button is passed to the game as `Intent.jump_buffer_ms` (for `jump`). The game keeps an `InputBuffer`: `press(window)`
 when `Intent.jump` arrives, `take()` where the action can happen (it answers once), `age(dt_ms)` once per frame. The demo game
 (`game/demo_mode.mojo`) buffers its jump: with `buffer_ms=100` a press in the 5 frames (60 Hz) before landing jumps on landing.
-Its hash includes a pending press.
+Its hash includes a pending press. `game/data/demo.actions` ships `buffer_ms=0`: `tests/golden/sim_demo_table.txt` was made with
+no window, and 100 changes the end state of 4 of its seeds (1, 3, 11, 16), which this change does not regenerate.
 
 ## Prompts
 

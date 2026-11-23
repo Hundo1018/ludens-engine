@@ -51,7 +51,7 @@ def main() raises:
     # --- the asset: the file on disk is the text the game embeds, and it parses
     var m = demo()
     c.ok(len(m.actions) == 5, "the demo map has 5 actions: move, look, jump, pause, restart")
-    c.ok(near(m.buffer_ms("jump"), 100.0) and near(m.actions[m.index("move")].deadzone, 0.2), "buffer_ms and deadzone come from the asset")
+    c.ok(near(m.buffer_ms("jump"), 0.0) and near(m.actions[m.index("move")].deadzone, 0.2), "buffer_ms and deadzone come from the asset (0 and 0.2)")
     var on_disk = String()
     with open("game/data/demo.actions", "r") as f:
         on_disk = f.read()
@@ -145,7 +145,10 @@ def main() raises:
     f = InputFrame()
     f.press(key_code("Space"))
     intent = i.poll(f)
-    c.ok(intent.jump and intent.jump_buffer_ms == 100, "Space jumps and carries the 100 ms buffer window")
+    c.ok(intent.jump and intent.jump_buffer_ms == 0, "Space jumps; the demo map's window is 0")
+    var windowed = Controls(ActionMap.parse("ludens-actions 1\naction jump button buffer_ms=100\nbind jump key:Space\n"))
+    intent = windowed.poll(f)
+    c.ok(intent.jump and intent.jump_buffer_ms == 100, "a map with buffer_ms=100 puts 100 ms in the Intent")
     f = InputFrame()
     f.hold(key_code("Space"))
     intent = i.poll(f)
