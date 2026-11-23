@@ -20,6 +20,9 @@ from platform.save_store import (
     SaveEvent,
     SaveStore,
     decode_save,
+    fnv1a64,
+    FNV_BASIS,
+    put_uint,
     encode_save,
     migrate_payload,
 )
@@ -116,6 +119,16 @@ def load(mut store: SaveStore[FaultyCloudSave], slot: String, current: Int) -> S
 def save(mut store: SaveStore[FaultyCloudSave], slot: String, version: Int, payload: List[UInt8]) -> SaveEvent:
     _ = store.save(slot, version, payload)
     return one(store.poll())
+
+
+def refresh_checksum(mut data: List[UInt8]):
+    """Recompute the checksum of a file whose header or payload a test has changed on purpose."""
+    var h = fnv1a64(data, 0, 22, FNV_BASIS)
+    h = fnv1a64(data, HEADER_BYTES, len(data), h)
+    var tail = List[UInt8]()
+    put_uint(tail, h, 8)
+    for i in range(8):
+        data[22 + i] = tail[i]
 
 
 def same(a: List[UInt8], b: List[UInt8]) -> Bool:
@@ -245,10 +258,71 @@ def main() raises:
     var before = read_file(n, "run/n.0")
     c.check(len(before) == HEADER_BYTES + 3, "the newer build's file is intact")
     var fmt = read_file(n, "run/n.0")
-    fmt[4] = 9  # container format 9
+    fmt[4] = 9  # container format 9, with a checksum that is correct for it
+    refresh_checksum(fmt)
     put_file(n, "run/n.0", fmt)
     e = load(n, "n", 5)
-    c.check(e.status == SAVE_NEWER and "file format 9" in e.message, "a file format newer than SAVE_FORMAT is refused: " + e.message)
+    c.check(e.status == SAVE_NEWER and "file format 9" in e.message, "a file format newer than SAVE_FORMAT, checksum valid, is refused: " + e.message)
+    c.check(n.save("n", 5, bytes_of([9])) == -1, "and that slot cannot be overwritten either")
+
+    # One damaged byte in `format` is corruption, not a newer build: the other copy is offered and the slot stays writable
+    var all_cut_ok = True
+    var ff = SaveStore[FaultyCloudSave](FaultyCloudSave())
+    _ = load(ff, "f", 1)
+    _ = save(ff, "f", 1, bytes_of([1, 1]))
+    _ = save(ff, "f", 1, bytes_of([2, 2]))  # f.1 holds generation 2
+    var fbad = read_file(ff, "run/f.1")
+    fbad[4] = 9  # the format byte alone, checksum untouched
+    put_file(ff, "run/f.1", fbad)
+    e = load(ff, "f", 1)
+    c.check(e.status == SAVE_BACKUP_OFFERED and "checksum mismatch" in e.message and same(e.payload, bytes_of([1, 1])),
+            "a flipped format byte is a checksum mismatch and generation 1 is offered: " + e.message)
+    e = save(ff, "f", 1, bytes_of([3, 3]))
+    c.check(e.status == SAVE_OK, "the slot is still writable after that")
+    for b in range(4, 6):
+        for bit in range(8):
+            var g = SaveStore[FaultyCloudSave](FaultyCloudSave())
+            _ = load(g, "g", 1)
+            _ = save(g, "g", 1, bytes_of([1]))
+            _ = save(g, "g", 1, bytes_of([2]))
+            var gb = read_file(g, "run/g.1")
+            gb[b] ^= UInt8(1 << bit)
+            put_file(g, "run/g.1", gb)
+            e = load(g, "g", 1)
+            if e.status != SAVE_BACKUP_OFFERED:
+                all_cut_ok = False
+    c.check(all_cut_ok, "each of the 16 bits of the format field, flipped alone, gives SAVE_BACKUP_OFFERED (never SAVE_NEWER)")
+
+    # A file larger than max_payload: the load ends with an error, it does not wait for ever
+    var big = SaveStore[FaultyCloudSave](FaultyCloudSave(), 64)
+    _ = load(big, "z", 1)
+    _ = save(big, "z", 1, bytes_of([1, 2, 3]))
+    put_file(big, "run/z.1", encode_save(1, 7, List[UInt8](length=500, fill=3)))  # a file this build would not have written
+    _ = big.begin_load("z", 1)
+    var bevents = big.poll()
+    c.check(len(bevents) == 1 and bevents[0].status == SAVE_CORRUPT and "larger than max_payload (64 bytes)" in bevents[0].message,
+            "a file over max_payload: the load ends with SAVE_CORRUPT naming the limit: " + (bevents[0].message if len(bevents) == 1 else String("no event")))
+    c.check(big.save("z", 1, bytes_of([4])) == -1, "and the slot is not writable, since an unread file may be the newest save")
+    c.check(big.cloud.dropped() == 1, "the backend counted the dropped result (1)")
+
+    # A backup written by an older version: the offer says it needs migrating
+    var ob = SaveStore[FaultyCloudSave](FaultyCloudSave())
+    _ = load(ob, "o2", 1)
+    _ = save(ob, "o2", 1, bytes_of([5]))
+    _ = save(ob, "o2", 1, bytes_of([6]))
+    var obad = read_file(ob, "run/o2.1")
+    obad[HEADER_BYTES] ^= 1
+    put_file(ob, "run/o2.1", obad)
+    e = load(ob, "o2", 2)  # the build is at version 2, the files at 1
+    c.check(e.status == SAVE_BACKUP_OFFERED and e.version == 1 and e.needs_migration and same(e.payload, bytes_of([5])),
+            "a backup at version 1 offered to a version 2 build: SAVE_BACKUP_OFFERED with needs_migration set")
+    e = load(ob, "o2", 1)
+    c.check(e.status == SAVE_BACKUP_OFFERED and not e.needs_migration, "the same backup at the build's own version: needs_migration clear")
+    var plain = SaveStore[FaultyCloudSave](FaultyCloudSave())
+    _ = load(plain, "p", 1)
+    _ = save(plain, "p", 1, bytes_of([5]))
+    e = load(plain, "p", 2)
+    c.check(e.status == SAVE_NEEDS_MIGRATION and e.needs_migration, "an older valid save: SAVE_NEEDS_MIGRATION and needs_migration set")
 
     # An interrupted write keeps the previous save
     var w = SaveStore[FaultyCloudSave](FaultyCloudSave())
@@ -266,7 +340,7 @@ def main() raises:
     e = load(w, "w", 1)
     c.check(e.status == SAVE_OK and e.generation == 3 and same(e.payload, bytes_of([4, 4, 4, 4])), "and the slot is clean again")
     # Interrupt at every possible length: the previous generation is always recoverable
-    var all_cut_ok = True
+    all_cut_ok = True
     var cut_cases = 0
     for keep in range(0, HEADER_BYTES + 4):
         var t = SaveStore[FaultyCloudSave](FaultyCloudSave())

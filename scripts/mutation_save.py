@@ -23,6 +23,10 @@ MUTATIONS = [
     ("M4", STORE, "        data = m.migrate(v, data)\n", "        pass\n", "platform_save", "a migration step is skipped"),
     ("M5", STORE, "            if corrupt >= 0:\n                ev.status = SAVE_CORRUPT", "            if False:\n                ev.status = SAVE_CORRUPT", "platform_save", "two corrupt files are not reported"),
     ("M6", STORE, "        self._slots[s].repair_both = False\n        self._slots[s].generation = files[best].generation", "        self._slots[s].known = False\n        self._slots[s].generation = files[best].generation", "platform_save", "a loaded slot is not marked writable"),
+    ("M9", STORE, '        return DecodedFile(FILE_CORRUPT, String("checksum mismatch"))', '        return DecodedFile(FILE_FORMAT_NEWER if Int(get_uint(data, 4, 2)) > SAVE_FORMAT else FILE_CORRUPT, String("checksum mismatch"))', "platform_save", "`format` is trusted before the checksum has passed"),
+    ("M10", STORE, "                done.extend(self._fail_pending_loads())", "                pass", "platform_save", "a load over max_payload waits for ever"),
+    ("M11", STORE, "        ev.needs_migration = files[best].version < current", "        ev.needs_migration = False", "platform_save", "the migration need is not reported"),
+    ("M12", DEMO, "        scratch.load(blob)  # raises on a damaged blob, before the running game is touched\n        _ = self.reset(seed, name)", "        _ = self.reset(seed, name)", "game_save", "a damaged world blob is found only after the game was reset"),
     ("M7", DEMO, "        put_uint(out, UInt64(self.tick), 8)", "        put_uint(out, UInt64(0), 8)", "game_save", "the tick counter is not saved"),
     ("M8", DEMO, "        self.world.load(blob)\n", "", "game_save", "the world blob is not loaded"),
 ]

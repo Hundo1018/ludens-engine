@@ -251,8 +251,8 @@ struct DemoMode(GameMode):
         return out^
 
     def load_state(mut self, data: List[UInt8]) raises -> Bool:
-        """Parse everything first, then rebuild the scene for the seed and name, then load the world over it; a payload
-        that does not parse raises before anything changes."""
+        """Parse everything first, check the world blob by loading it into a scratch world, then rebuild the scene for the
+        seed and name and load the world over it; a payload that does not parse raises before anything changes."""
         var pos = 0
         if len(data) < 8 + 1:
             raise Error("demo save: truncated")
@@ -277,6 +277,8 @@ struct DemoMode(GameMode):
         var blob = List[UInt8](capacity=len(data) - pos)
         for i in range(pos, len(data)):
             blob.append(data[i])
+        var scratch = EmbedWorld(1.0 / 60.0, self._gravity())
+        scratch.load(blob)  # raises on a damaged blob, before the running game is touched
         _ = self.reset(seed, name)
         self.world.load(blob)
         self.yaw = Real(yaw)

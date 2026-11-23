@@ -20,12 +20,17 @@ All integers little-endian. 30 header bytes, then the payload.
 | 22 | 8 | `checksum`: FNV-1a 64 over bytes 0-21 and the payload |
 | 30 | n | payload |
 
+Every `format` version keeps the magic, `format`, payload length and checksum at these offsets, with the same checksum
+coverage (bytes 0-21 and the payload). A build checks magic, length and checksum first and reads `format` only after the
+checksum passes, so one damaged byte in `format` is a corrupt file (and the other copy is offered), not a "newer build"
+refusal. A new format may add fields after offset 30 or change the payload encoding; it may not move these four.
+
 ## Version field and loading older saves
 
 `version` is the game's. A build declares its current version (`GameMode.save_version`). A load returns the stored version:
 
 - stored = current: `SAVE_OK`.
-- stored < current: `SAVE_NEEDS_MIGRATION`. The game passes the payload through `migrate_payload(migrator, payload, stored,
+- stored < current: `SAVE_NEEDS_MIGRATION`, and `needs_migration` is set on the event (it is also set on a `SAVE_BACKUP_OFFERED` event whose backup is older than the build). The game passes the payload through `migrate_payload(migrator, payload, stored,
   current)`, which calls the game's `Migrator.migrate(v, payload)` for v = stored, stored + 1, ..., current - 1. A missing
   step raises `save: no migration from version v to v+1`. Tested: a version 1 payload `[42]` becomes `[42, 3]` at version 2
   and `[42, 3, 7]` at version 3 (`tests/platform_save.mojo`).
@@ -49,6 +54,7 @@ payload, and never throws away a file.
 - No valid file and at least one corrupt: `SAVE_CORRUPT`, no payload. The next save writes both files, so no corrupt file
   stays behind.
 - Neither file exists: `SAVE_NOT_FOUND`.
+- A file larger than `max_payload` (default 4 MiB; the poll buffer is sized from it): the backend drops the result, and every load then waiting ends with `SAVE_CORRUPT` and a message naming `max_payload`. Those slots are not marked writable, since the unread file may be the newest save.
 - Storage returns an error for a read: that file counts as corrupt with the message `the storage could not read it`.
 - Storage reports a failed write: `SAVE_WRITE_FAILED`, and the slot must be loaded again before the next save.
 
@@ -84,8 +90,8 @@ generation: a corrupt run slot does not touch it (tested). Call `autosave` at a 
 ## The demo game
 
 `DemoMode.save_state` version 1: seed u64, scene name (length u8 and bytes), yaw (Float64 bits) u64, tick u64, jumps u64,
-paused u8, then the `EmbedWorld.save` blob. `load_state` parses everything, rebuilds the scene for the seed and name, loads
-the world over it, then sets the counters. Tuned values (`game/data/demo.table`) are settings and are not saved.
+paused u8, then the `EmbedWorld.save` blob. `load_state` parses everything, loads the world blob into a scratch world to find a
+damaged blob, and only then rebuilds the scene for the seed and name, loads the world over it and sets the counters. Tuned values (`game/data/demo.table`) are settings and are not saved.
 `tests/game_save.mojo` saves at frame 90, 150, 205 (paused) and 60 (scene `bare`), loads into a new `DemoMode` through a
 `SaveStore` that was reset with `forget()`, plays the remaining frames and compares `hash()` and `state()` with the
 uninterrupted run.

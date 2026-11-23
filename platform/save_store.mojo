@@ -6,7 +6,8 @@ File format (all integers little-endian), HEADER_BYTES = 30 bytes and then the p
 
     magic u32 "LSVE" | format u16 | version u32 | generation u64 | payload_length u32 | checksum u64 | payload
 
-`format` is this container's layout (SAVE_FORMAT = 1). `version` is the game's own payload version, 1 or more.
+`format` is this container's layout (SAVE_FORMAT = 1). Every format version keeps the magic, `format`, payload length and
+checksum at these offsets, with the same checksum coverage, so an older build can verify a newer file before it reads `format`. `version` is the game's own payload version, 1 or more.
 `generation` counts the writes to the slot. `checksum` is FNV-1a 64 over the first 22 header bytes and the payload.
 
 A slot is two files, `<key>.0` and `<key>.1`. os_file_* has write and read but no rename, so a write goes to the file that
@@ -14,7 +15,7 @@ does NOT hold the newest generation and the older generation stays untouched unt
 off, the other file is still complete. A load reads both files and takes the valid one with the higher generation.
 
 Rules a load follows:
-  - version greater than the build's: refused (SAVE_NEWER, with a message). The slot is not marked writable, so this build
+  - version greater than the build's: refused (SAVE_NEWER, with a message). `format` is read only after the checksum passes. The slot is not marked writable, so this build
     cannot overwrite a newer build's save. The same for a `format` greater than SAVE_FORMAT.
   - version smaller than the build's: SAVE_NEEDS_MIGRATION. `migrate_payload` applies one registered step per version.
   - bad magic, a length that is not header + payload_length (truncated or extended) or a checksum mismatch: the file is
@@ -109,9 +110,6 @@ def decode_save(data: List[UInt8]) -> DecodedFile:
         return DecodedFile(FILE_CORRUPT, String("truncated: ") + String(len(data)) + String(" bytes, the header alone is ") + String(HEADER_BYTES))
     if get_uint(data, 0, 4) != UInt64(SAVE_MAGIC):
         return DecodedFile(FILE_CORRUPT, String("not a save file (bad magic)"))
-    var fmt = Int(get_uint(data, 4, 2))
-    if fmt > SAVE_FORMAT:
-        return DecodedFile(FILE_FORMAT_NEWER, String("file format ") + String(fmt) + String(" is newer than this build reads (") + String(SAVE_FORMAT) + String(")"))
     var n = Int(get_uint(data, 18, 4))
     if len(data) != HEADER_BYTES + n:
         return DecodedFile(FILE_CORRUPT, String("truncated or extended: the header says ") + String(n) + String(" payload bytes, the file has ") + String(len(data) - HEADER_BYTES))
@@ -119,6 +117,10 @@ def decode_save(data: List[UInt8]) -> DecodedFile:
     h = fnv1a64(data, HEADER_BYTES, len(data), h)
     if h != get_uint(data, CHECKED_HEADER, 8):
         return DecodedFile(FILE_CORRUPT, String("checksum mismatch"))
+    # `format` is trusted only after the checksum has passed, so one damaged byte there is corruption, not a newer build's file
+    var fmt = Int(get_uint(data, 4, 2))
+    if fmt > SAVE_FORMAT:
+        return DecodedFile(FILE_FORMAT_NEWER, String("file format ") + String(fmt) + String(" is newer than this build reads (") + String(SAVE_FORMAT) + String(")"))
     var d = DecodedFile(FILE_VALID)
     d.version = Int(get_uint(data, 6, 4))
     d.generation = Int(get_uint(data, 10, 8))
@@ -157,6 +159,7 @@ struct SaveEvent(Copyable, Movable):
     var message: String
     var version: Int  # of the payload, as stored (a load)
     var generation: Int
+    var needs_migration: Bool  # the payload's version is older than the build's, whatever the status (a backup can be older too)
     var payload: List[UInt8]
 
     def __init__(out self, op: Int, is_load: Bool, key: String, status: Int):
@@ -167,6 +170,7 @@ struct SaveEvent(Copyable, Movable):
         self.message = String()
         self.version = 0
         self.generation = 0
+        self.needs_migration = False
         self.payload = List[UInt8]()
 
     def usable(self) -> Bool:
@@ -353,7 +357,10 @@ struct SaveStore[C: CloudSave & Deinitable](Movable):
             if n == 0:
                 break
             if n < 0:
-                continue  # a result over the buffer was dropped and counted by the backend
+                # A result over the buffer was dropped by the backend, and which request it answered is not known. Every
+                # load still waiting would wait for ever, so each ends with an error that names the limit.
+                done.extend(self._fail_pending_loads())
+                continue
             if n < PACKET_HEADER:
                 continue
             var kind = Int(self._buf[0])
@@ -393,6 +400,22 @@ struct SaveStore[C: CloudSave & Deinitable](Movable):
                     done.append(self._finish_load(oi))
                     self._remove(oi)
         return done^
+
+    def _fail_pending_loads(mut self) -> List[SaveEvent]:
+        var failed = List[SaveEvent]()
+        var keep = List[_Op]()
+        while len(self._ops) > 0:
+            var op = self._ops.pop()
+            if op.is_load:
+                var ev = SaveEvent(op.id, True, op.key, SAVE_CORRUPT)
+                ev.message = String("a file of ") + op.key + String(" is larger than max_payload (") + String(self.max_payload) + String(" bytes) and was dropped by the storage; raise max_payload to load it")
+                self._slots[self._slot(op.key)].known = False  # an unread file may hold the newest save: no write over it
+                failed.append(ev^)
+            else:
+                keep.append(op^)
+        while len(keep) > 0:
+            self._ops.append(keep.pop())
+        return failed^
 
     def _remove(mut self, oi: Int):
         _ = self._ops.pop(oi)
@@ -440,7 +463,8 @@ struct SaveStore[C: CloudSave & Deinitable](Movable):
             self._slots[s].known = False
             return ev^
         ev.payload = files[best].payload.copy()
-        ev.status = SAVE_NEEDS_MIGRATION if files[best].version < current else SAVE_OK
+        ev.needs_migration = files[best].version < current
+        ev.status = SAVE_NEEDS_MIGRATION if ev.needs_migration else SAVE_OK
         self._slots[s].known = True
         self._slots[s].repair_both = False
         self._slots[s].generation = files[best].generation

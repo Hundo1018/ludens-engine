@@ -124,6 +124,15 @@ def main() raises:
     except err:
         raised = "truncated" in String(err)
     c.ok(raised and g.hash() == before, "a truncated payload raises `truncated` and the game keeps its state")
+    var cut_blob = List[UInt8]()
+    for i in range(len(good) - 60):  # the header fields are whole, the world blob ends 60 bytes early
+        cut_blob.append(good[i])
+    raised = False
+    try:
+        _ = g.load_state(cut_blob)
+    except err:
+        raised = True
+    c.ok(raised and g.hash() == before and g.tick == 40, "a truncated world blob raises and the running game keeps its state (hash and tick 40)")
     var bad_scene = good.copy()
     bad_scene[9] = UInt8(ord("x"))  # first letter of the scene name
     raised = False
