@@ -29,6 +29,7 @@ def main() -> None:
     native_px = ROOT / "build/pixels_native.rgba"
     if native_px.exists():  # the native reference for ?selftest=parity (scripts/parity_pixels_native.py)
         shutil.copy(native_px, OUT / "pixels_native.rgba")
+    shutil.copy(ROOT / "assets/fonts/NotoSansTC-Regular-24.lfont", OUT / "font.lfont")  # the HUD's SDF font (#116)
     shutil.copy(WGPU / "scripts/webgpu_enum_strings.json", OUT / "webgpu_enum_strings.json")
     shutil.copy(MA / "web/miniaudio_host.mjs", OUT / "miniaudio_host.mjs")
     for ts, js in (("app.ts", "app.js"), ("keys.ts", "keys.js"), ("record.ts", "record.js"), ("pad.ts", "pad.js"),

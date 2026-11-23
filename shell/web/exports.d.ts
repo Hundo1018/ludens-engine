@@ -29,5 +29,7 @@ export interface AppExports {
   app_set_mode(app: bigint, mode: number): number;
   app_mesh_hash(): bigint;
   app_game_hash(app: bigint): bigint;
+  app_load_font(app: bigint, ptr: bigint, length: bigint): number;
+  app_set_ui(app: bigint, text_scale: number, left: number, top: number, right: number, bottom: number, locale: number, pseudo: number): void;
   app_release_input(app: bigint): void;
 }

@@ -11,9 +11,12 @@ from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
 from std.time import perf_counter_ns
+from game.demo_strings import demo_localizer
 from ui.draw import Color, DrawList
-from ui.font import draw_text, text_width
 from ui.geom import Rect
+from ui.loc import Localizer
+from ui.scale import UiEnv, UiScale
+from ui.sdf_font import FontMetrics
 
 comptime CUE_JUMP = 1
 comptime SPEED: Real = 5.0
@@ -45,6 +48,14 @@ struct DemoMode(GameMode):
     var paused: Bool
     var cue_queue: List[Int]
     var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
+    var loc: Localizer  # the HUD's strings; the host picks the locale and pseudo-localization (set_ui_env)
+    var env: UiEnv
+    var ui: UiScale  # the HUD is laid out for 960 x 540
+    var metrics: Optional[FontMetrics]  # glyph advances for sizing panels; none until the host has loaded a font
+    var t_jumps: String  # this frame's HUD texts, resolved in `step` and `set_ui_env` (a lookup counts errors, so it needs `mut`)
+    var t_hint: String
+    var t_paused: String
+    var text_key: UInt64
 
     def __init__(out self) raises:
         self.world = EmbedWorld(1.0 / 60.0, G)
@@ -57,7 +68,16 @@ struct DemoMode(GameMode):
         self.paused = False
         self.cue_queue = List[Int]()
         self.step_physics_ns = 0
+        self.loc = demo_localizer()
+        self.env = UiEnv.default()
+        self.ui = UiScale.reference(960, 540)
+        self.metrics = None
+        self.t_jumps = String()
+        self.t_hint = String()
+        self.t_paused = String()
+        self.text_key = 0
         self._build()
+        self._refresh_texts()
 
     @staticmethod
     def create() raises -> Self:
@@ -74,6 +94,36 @@ struct DemoMode(GameMode):
         self.paused = move.paused
         self.cue_queue = move.cue_queue^
         self.step_physics_ns = move.step_physics_ns
+        self.loc = move.loc^
+        self.env = move.env
+        self.ui = move.ui
+        self.metrics = move.metrics^
+        self.t_jumps = move.t_jumps^
+        self.t_hint = move.t_hint^
+        self.t_paused = move.t_paused^
+        self.text_key = move.text_key
+
+    def _refresh_texts(mut self):
+        var key = (UInt64(self.jumps) << 20) ^ UInt64(self.loc.version) ^ (self.env.key() << 1)
+        if key == self.text_key and self.t_hint.byte_length() > 0:
+            return
+        self.text_key = key
+        self.t_jumps = self.loc.plural("hud.jumps", self.jumps)
+        self.t_hint = self.loc.get("hud.hint")
+        self.t_paused = self.loc.get("hud.paused")
+
+    def set_ui_env(mut self, env: UiEnv):
+        self.env = env
+        self.ui.insets = env.insets
+        self.ui.set_text_scale(env.text_scale)
+        var tag = "zh-TW" if env.locale == 1 else "en"
+        if self.loc.locale() != tag:
+            _ = self.loc.set_locale(tag)
+        self.loc.set_pseudo(env.pseudo)
+        self._refresh_texts()
+
+    def set_font_metrics(mut self, metrics: FontMetrics):
+        self.metrics = metrics.copy()
 
     def _box(mut self, pos: Vec3, half: Vec3, mass: Real, color: Vec3) raises -> Int64:
         var h = self.world.add_box(pos, half, mass, mass == 0.0)
@@ -100,6 +150,10 @@ struct DemoMode(GameMode):
         self._build()
 
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
+        self._step(intent, frame_dt)
+        self._refresh_texts()
+
+    def _step(mut self, intent: Intent, frame_dt: Float64) raises:
         self.step_physics_ns = 0
         if intent.restart:
             self._restart()
@@ -165,32 +219,68 @@ struct DemoMode(GameMode):
         out.append(clip^)
         return out^
 
+    def _width(self, text: String, size: Float32) -> Float32:
+        """The width of `text` at `size`: the font's advances, or 0.55 em a character (1 em for a CJK one) before a font is loaded."""
+        if self.metrics:
+            return self.metrics.value().measure(text, size)
+        var w = Float32(0)
+        for ch in text.codepoints():
+            w += Float32(1.0) if ch.to_u32() >= 0x2E80 else Float32(0.55)
+        return w * size
+
+    def _height(self, text: String, size: Float32, max_w: Float32) -> Float32:
+        if self.metrics:
+            return self.metrics.value().text_height(text, size, max_w)
+        var lines = Float32(1)
+        if max_w > 0 and self._width(text, size) > max_w:
+            lines = Float32(Int(self._width(text, size) / max_w) + 1)
+        return lines * size * 1.45
+
     def hud(self, width: Float32, height: Float32, frame_ms: Float32) raises -> DrawList:
+        """Three panels: the jump counter at the top-left of the safe area, the controls hint along its bottom edge
+        (wrapped to its width), and the pause banner in the middle. Sizes come from the reference layout (960 x 540) times
+        the window factor; font sizes also times the player's text scale. Each panel is as large as its text needs."""
         var dl = DrawList()
-        var s = max(Float32(Int(height / 200.0)), 2.0)
+        var safe = self.ui.safe_rect(width, height)
+        var margin = self.ui.px(8, width, height)
+        var pad = self.ui.px(6, width, height)
+        var size = self.ui.font_px(16, width, height)
+        var big = self.ui.font_px(28, width, height)
         var panel = Color(0.05, 0.06, 0.1, 0.9)
         var white = Color(1.0, 1.0, 1.0, 1.0)
-        var line = "JUMPS " + String(self.jumps)
-        dl.fill(Rect(4 * s, 4 * s, text_width(line, s) + 4 * s, 9 * s), panel)
-        draw_text(dl, 6 * s, 6 * s, line, s, white)
-        var hint = "WASD MOVE   SPACE JUMP   DRAG MOUSE LOOK   P PAUSE   R RESTART"
-        var hw = text_width(hint, s) + 4 * s
-        dl.fill(Rect(width * 0.5 - hw * 0.5, height - 12 * s, hw, 9 * s), panel)
-        draw_text(dl, width * 0.5 - hw * 0.5 + 2 * s, height - 10 * s, hint, s, white)
+
+        var jw = self._width(self.t_jumps, size)
+        var jh = self._height(self.t_jumps, size, 0)
+        dl.fill(Rect(safe.x + margin, safe.y + margin, jw + 2 * pad, jh + 2 * pad), panel)
+        dl.text(Rect(safe.x + margin + pad, safe.y + margin + pad, jw * 1.02 + 1, jh), self.t_jumps, white, size)
+
+        var avail = safe.w - 2 * margin
+        var hw = self._width(self.t_hint, size) + 2 * pad
+        var pw = hw if hw < avail else avail
+        var hh = self._height(self.t_hint, size, pw - 2 * pad)
+        var hx = safe.x + (safe.w - pw) * 0.5
+        var hy = safe.bottom() - margin - hh - 2 * pad
+        dl.fill(Rect(hx, hy, pw, hh + 2 * pad), panel)
+        dl.text(Rect(hx + pad, hy + pad, pw - 2 * pad, hh), self.t_hint, white, size)
+
         if self.paused:
-            var bw = 60.0 * s
-            dl.fill(Rect(width * 0.5 - bw * 0.5, height * 0.5 - 8 * s, bw, 16 * s), panel)
-            draw_text(dl, width * 0.5 - text_width("PAUSED", 2 * s) * 0.5, height * 0.5 - 6 * s, "PAUSED", 2 * s, white)
+            var bw = self._width(self.t_paused, big)
+            var bh = self._height(self.t_paused, big, 0)
+            var bx = safe.x + (safe.w - bw - 2 * pad) * 0.5
+            var by = safe.y + (safe.h - bh - 2 * pad) * 0.5
+            dl.fill(Rect(bx, by, bw + 2 * pad, bh + 2 * pad), panel)
+            dl.text(Rect(bx + pad, by + pad, bw * 1.02 + 1, bh), self.t_paused, white, big)
         return dl^
 
     def hud_key(self, width: Float32, height: Float32) -> Int64:
-        """The HUD shows the jump count, the pause banner and a fixed hint, laid out for the size: those are the key
-        (frame_ms is not drawn)."""
+        """The HUD shows the jump count, the pause banner and a fixed hint, laid out for the size, the safe area, the text
+        scale and the locale: those are the key (frame_ms is not drawn)."""
         var h = UInt64(14695981039346656037)
         h = (h ^ UInt64(self.jumps)) * UInt64(0x100000001B3)
         h = (h ^ UInt64(1 if self.paused else 0)) * UInt64(0x100000001B3)
-        h = (h ^ UInt64(width.to_bits())) * UInt64(0x100000001B3)
-        h = (h ^ UInt64(height.to_bits())) * UInt64(0x100000001B3)
+        h = (h ^ self.ui.key(width, height)) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(self.loc.version)) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(1 if self.metrics else 0)) * UInt64(0x100000001B3)
         return Int64(h >> 1)
 
     def physics_ns(self) -> Int64:

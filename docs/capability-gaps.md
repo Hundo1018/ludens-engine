@@ -32,8 +32,8 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 | 5 | Save games: versioned with migrations, atomic, slots, corruption handling | H | L3: core `gameplay/save`, `EmbedWorld.save` | no consumer saves anything | #122 |
 | 6 | Profiler with per-subsystem budgets, p95 / p99, draw calls, CI gates | H | L2/L3: `diag/` trace and counters, `icount`, benchmark report | no frame breakdown, GPU timing or budgets | #123 |
 | 7 | Input actions by intent, rebinding, analog axes, device prompts | H | L1: fixed `Keys` → `Intent` (`game/controls.mojo`) | no rebinding; a stick is eight directions (wgpu-mojo #29) | #117 |
-| 8 | UI: scaling and safe area, gamepad focus, screen stack, data binding | H | L1: `ui/` layout, focus, gestures | **5 x 7 ASCII dot font only: no Chinese glyphs**; no scaling | #116, #17 |
-| 9 | Localization: string tables, plurals, font coverage, RTL | H | L3: core `gameplay/loc_keys` (ids only) | missing | #116 |
+| 8 | UI: scaling and safe area, gamepad focus, screen stack, data binding | H | L1: `ui/` layout, focus, gestures | SDF font with 5984 glyphs incl. Traditional Chinese, reference-resolution scale, text scale to 200 %, safe-area insets (#116); the 5 x 7 `ui/font.mojo` remains; no screen stack or data binding | #116, #17 |
+| 9 | Localization: string tables, plurals, font coverage, RTL | H | L1: `ui/loc.mojo` string tables (fallback chain, plurals for 4 rule families, pseudo-localization, glyph check); L3: core `gameplay/loc_keys` (ids only) | RTL shaping, plural categories zero / two, gender agreement not handled (follow-up) | #116 |
 | 10 | Audio: events, buses with ducking, adaptive music, 3D attenuation | H | L1: deterministic one-shots, 8 voices | no buses, music or positions (miniaudio binds them, unused) | #120 |
 
 Next in emphasis: **accessibility** (H in one set, M in the other; nothing exists here, #118), a **dialogue graph

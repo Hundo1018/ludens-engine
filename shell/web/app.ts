@@ -85,6 +85,33 @@ async function boot(canvas: HTMLCanvasElement) {
   const [sel, len] = rt.str_in("#" + canvas.id);
   const app = x.app_init(sel, len, canvas.width, canvas.height);
   if (app === 0n) throw new Error("app_init failed");
+  // #116: the HUD's SDF font (assets/fonts, copied to ./font.lfont by build_web.py) and the page's UI settings.
+  const fontBytes = new Uint8Array(await (await fetch("./font.lfont")).arrayBuffer());
+  const fontPtr = rt.alloc(fontBytes.length);
+  rt.put(fontPtr, fontBytes);
+  const fontOk = x.app_load_font(app, fontPtr, BigInt(fontBytes.length));
+  rt.free(fontPtr);
+  if (fontOk !== 0) throw new Error("app_load_font failed");
+  // Safe-area insets from the browser (CSS px -> canvas px), text scale and language from ?textscale=, ?lang=, ?pseudo and
+  // ?safe=l,t,r,b (CSS px, for testing). setUi() changes them at run time.
+  const ui = { textScale: Number(params.get("textscale") ?? 1), lang: params.get("lang") ?? navigator.language, pseudo: params.has("pseudo") };
+  const applyUi = () => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;top:0;visibility:hidden;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+    document.body.append(probe);
+    const cs = getComputedStyle(probe);
+    let [l, t, r, b] = [cs.paddingLeft, cs.paddingTop, cs.paddingRight, cs.paddingBottom].map(parseFloat);
+    probe.remove();
+    const forced = params.get("safe");
+    if (forced) [l, t, r, b] = forced.split(",").map(Number);
+    const k = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1;
+    x.app_set_ui(app, ui.textScale, l * k, t * k, r * k, b * k, /^zh/i.test(ui.lang) ? 1 : 0, ui.pseudo ? 1 : 0);
+  };
+  applyUi();
+  addEventListener("resize", applyUi);
+  Object.defineProperty(stats, "setUi", {
+    value: (o: Partial<typeof ui>) => { Object.assign(ui, o); applyUi(); }, enumerable: false, configurable: true,
+  });
   // The demo game is the app; ?selftest keeps the physics demo that the parity gates and selftests measure.
   if (!location.search.includes("selftest") && !location.search.includes("demo")) x.app_set_mode(app, 1);
   if (location.search.includes("offscreen") && !location.search.includes("selftest")) x.app_offscreen(app, 1); // headless Chrome: never draw to the canvas

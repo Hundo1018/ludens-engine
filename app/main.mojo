@@ -27,6 +27,9 @@ from geometry.vec import Vec3
 from reference import Reference, fill
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
+from ui.scale import UiEnv
+from ui.sdf_font import FontMetrics, SdfFont
+from ui.geom import Insets
 from wgpu import raw_alloc
 from wgpu import WGPUTextureFormat, WGPUTextureHandle, WGPUTextureUsage
 from wgpu.buffer import MapRequest
@@ -80,6 +83,10 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
     var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
+    var font_data: List[UInt8]  # the .lfont the page loaded (app_load_font); the HUD's atlas is made from it
+    var font_metrics: Optional[FontMetrics]
+    var font_dirty: Bool  # the game has not been given font_metrics yet
+    var ui_env: UiEnv  # safe-area insets, text scale and locale from the page (app_set_ui)
     var game_format: UInt32
     var stats: FrameStats  # per-segment CPU time of the last FRAME_RING frames (app/frame_stats.mojo, app_frame_stats)
 
@@ -121,6 +128,10 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.cue_clips = List[Int]()
         self.game_renderer = None
         self.hud = None
+        self.font_data = List[UInt8]()
+        self.font_metrics = None
+        self.font_dirty = False
+        self.ui_env = UiEnv.default()
         self.game_format = 0
         self.stats = FrameStats()
 
@@ -160,6 +171,10 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.cue_clips = move.cue_clips^
         self.game_renderer = move.game_renderer^
         self.hud = move.hud^
+        self.font_data = move.font_data^
+        self.font_metrics = move.font_metrics^
+        self.font_dirty = move.font_dirty
+        self.ui_env = move.ui_env
         self.game_format = move.game_format
         self.stats = move.stats^
 
@@ -209,6 +224,12 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.game_format = format
         if not self.hud:
             self.hud = Hud(self.boot.device(), format)
+            if len(self.font_data) > 0:
+                self.hud.value().set_font(self.boot.device(), self.font_data.copy())
+        if self.font_dirty and self.font_metrics:
+            m.set_font_metrics(self.font_metrics.value())
+            self.font_dirty = False
+        m.set_ui_env(self.ui_env)
         if not self.game_renderer:
             self.game_renderer = SceneRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
         self.game_renderer.value().begin(view)
@@ -588,6 +609,36 @@ def app_game_hash(app: UInt64) abi("C") -> UInt64:
     """The game state's hash, for comparing runs."""
     var a = _app(app)
     return a[].game.value().hash() if a[].game else 0
+
+
+@export
+def app_load_font(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Hand over an `.lfont` file (scripts/assets/convert_font.py, ui/sdf_font.mojo): the HUD draws its text runs from it. The
+    bytes are copied, so the page may free its buffer. 0 = ok, -1 = the file does not parse (the HUD keeps drawing no text)."""
+    try:
+        var a = _app(app)
+        var bytes = List[UInt8](length=Int(length), fill=0)
+        var src = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(ptr))
+        for i in range(Int(length)):
+            bytes[i] = src[i]
+        var probe = SdfFont(bytes.copy())  # parse once here so a bad file is reported to the page
+        a[].font_metrics = probe.m.copy()
+        a[].font_data = bytes^
+        a[].font_dirty = True
+        a[].hud = None  # rebuilt with the atlas on the next frame
+        return 0
+    except e:
+        print("app_load_font:", e)
+        return -1
+
+
+@export
+def app_set_ui(
+    app: UInt64, text_scale: Float32, left: Float32, top: Float32, right: Float32, bottom: Float32, locale: Int32, pseudo: Int32,
+) abi("C"):
+    """The player's UI settings and the window's safe area (`UiEnv`): text scale (clamped by the game to 0.5 .. 2), insets in
+    window pixels, the locale index in the game's own list and the pseudo-localization flag. Applied from the next frame."""
+    _app(app)[].ui_env = UiEnv(text_scale, Insets(left, top, right, bottom), Int(locale), pseudo != 0)
 
 
 @export
