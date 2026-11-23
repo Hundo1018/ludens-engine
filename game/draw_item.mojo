@@ -1,6 +1,6 @@
 """What a game hands the renderer each frame: one DrawItem per thing to draw, and the built-in material IDs.
 
-Renderer code imports this module, not a game; `game.arena` re-exports both names for existing hosts."""
+Renderer code imports this module, not a game."""
 from geometry.vec import Real, Vec3
 
 
