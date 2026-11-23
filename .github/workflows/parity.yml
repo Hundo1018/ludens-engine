@@ -64,3 +64,6 @@ jobs:
         run: pixi run -e wasm game-shot
       - name: HUD text at 100 and 200 %, en and zh-TW, pseudo-localized, safe area (#116), headless Chrome
         run: pixi run -e wasm text-shot --no-build
+
+      - name: window.game, ?seed / ?scene / ?manual in headless Chrome, hash equal to node (#115)
+        run: pixi run -e wasm hook-web

@@ -110,6 +110,9 @@ def main() raises:
     var hud_a = a.hud(960.0, 540.0, 2.0)
     var hud_f = f.hud(960.0, 540.0, 2.0)
     c.ok(len(hud_a.cmds) > 0 and len(hud_f.cmds) > 0, "both produce a HUD")
+    # a game that overrides neither state() nor reset() still has the default readout and says it has no seeds or scenes
+    c.ok(f.state() == '{"hash":"120"}', "the default state() is the hash: " + f.state())
+    c.ok(not f.reset(1, ""), "the default reset() reports that the game has no seeds or scenes")
 
     print("game_mode:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

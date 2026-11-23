@@ -96,6 +96,11 @@ test-net = "node tests/test_net.mjs"
 # and TCP on loopback; then the local identity, achievements, cloud save and lobby implementations.
 test-transport = "python3 scripts/test_native.py platform_transport platform_services"
 test-build = "python3 tests/test_build.py"
+# #115 (E21): window.game under node, divergence trace, `ludens sim` batch runner (docs/automation.md); builds build/app.wasm first.
+test-automation = { cmd = "python3 tests/test_automation.py", depends-on = ["build-wasm"] }
+divergence = "python3 scripts/divergence.py"
+# window.game in headless Chrome (?manual&seed=&scene=) against the same job under node.
+hook-web = { cmd = "python3 scripts/hook_web_check.py", depends-on = ["build-wasm"] }
 
 [environments]
 wasm = { features = ["wasm"] }

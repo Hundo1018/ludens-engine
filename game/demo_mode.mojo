@@ -10,6 +10,7 @@ from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
+from scheduler.rng import SplitMix64
 from std.time import perf_counter_ns
 from game.demo_strings import demo_localizer
 from ui.draw import Color, DrawList
@@ -30,11 +31,17 @@ struct Prop(Copyable, Movable):
     var handle: Int64
     var half: Vec3
     var color: Vec3
+    var dynamic: Bool  # moves under physics (the crates): listed in `state()`
 
-    def __init__(out self, handle: Int64, half: Vec3, color: Vec3):
+    def __init__(out self, handle: Int64, half: Vec3, color: Vec3, dynamic: Bool = False):
         self.handle = handle
         self.half = half
         self.color = color
+        self.dynamic = dynamic
+
+
+def _vec(v: Vec3) -> String:
+    return String("[") + String(Float64(v[0])) + String(",") + String(Float64(v[1])) + String(",") + String(Float64(v[2])) + String("]")
 
 
 struct DemoMode(GameMode):
@@ -46,6 +53,8 @@ struct DemoMode(GameMode):
     var tick: Int
     var jumps: Int
     var paused: Bool
+    var seed: UInt64  # 0 = the fixed layout; any other value moves the crates and the ball's start (`_build`)
+    var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
     var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
     var loc: Localizer  # the HUD's strings; the host picks the locale and pseudo-localization (set_ui_env)
@@ -66,6 +75,8 @@ struct DemoMode(GameMode):
         self.tick = 0
         self.jumps = 0
         self.paused = False
+        self.seed = 0
+        self.scene_name = String("arena")
         self.cue_queue = List[Int]()
         self.step_physics_ns = 0
         self.loc = demo_localizer()
@@ -92,6 +103,8 @@ struct DemoMode(GameMode):
         self.tick = move.tick
         self.jumps = move.jumps
         self.paused = move.paused
+        self.seed = move.seed
+        self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
         self.step_physics_ns = move.step_physics_ns
         self.loc = move.loc^
@@ -127,18 +140,61 @@ struct DemoMode(GameMode):
 
     def _box(mut self, pos: Vec3, half: Vec3, mass: Real, color: Vec3) raises -> Int64:
         var h = self.world.add_box(pos, half, mass, mass == 0.0)
-        self.props.append(Prop(h, half, color))
+        self.props.append(Prop(h, half, color, mass != 0.0))
         return h
 
     def _build(mut self) raises:
         self.floor = self._box(Vec3(0.0, -0.5, 0.0, 0.0), Vec3(30.0, 0.5, 30.0, 0.0), 0.0, Vec3(0.42, 0.56, 0.42, 0.0))
-        for i in range(4):  # pillars, so moving changes the picture
-            var x = Real(-9.0) + 6.0 * Real(i)
-            var z = Real(-6.0 - 4.0 * Real(i % 2))
-            _ = self._box(Vec3(x, 1.5, z, 0.0), Vec3(0.6, 1.5, 0.6, 0.0), 0.0, Vec3(0.62, 0.64, 0.76, 0.0))
-        for i in range(3):  # crates to push
-            _ = self._box(Vec3(Real(2 * i) - 2.0, 0.5, -2.5, 0.0), Vec3(0.5, 0.5, 0.5, 0.0), 6.0, Vec3(0.62, 0.45, 0.28, 0.0))
-        self.ball = self.world.add_sphere(Vec3(0.0, BALL, 3.0, 0.0), BALL, 70.0, False)
+        # A seed moves each crate by up to 0.6 m in x and 0.4 m in z and the ball's start by up to 0.5 m in x, drawn in this
+        # order from one SplitMix64 stream. Seed 0 draws nothing: the layout (and hash) of a run with no seed is unchanged.
+        var rng = SplitMix64.seeded(self.seed)
+        var arena = self.scene_name == "arena"
+        if arena:
+            for i in range(4):  # pillars, so moving changes the picture
+                var x = Real(-9.0) + 6.0 * Real(i)
+                var z = Real(-6.0 - 4.0 * Real(i % 2))
+                _ = self._box(Vec3(x, 1.5, z, 0.0), Vec3(0.6, 1.5, 0.6, 0.0), 0.0, Vec3(0.62, 0.64, 0.76, 0.0))
+            for i in range(3):  # crates to push
+                var jx = Real(0)
+                var jz = Real(0)
+                if self.seed != 0:
+                    jx = (Real(rng.next_f32()) - 0.5) * 1.2
+                    jz = (Real(rng.next_f32()) - 0.5) * 0.8
+                _ = self._box(Vec3(Real(2 * i) - 2.0 + jx, 0.5, -2.5 + jz, 0.0), Vec3(0.5, 0.5, 0.5, 0.0), 6.0, Vec3(0.62, 0.45, 0.28, 0.0))
+        var bx = Real(0)
+        if self.seed != 0:
+            bx = Real(rng.next_f32()) - 0.5
+        self.ball = self.world.add_sphere(Vec3(bx, BALL, 3.0, 0.0), BALL, 70.0, False)
+
+    def reset(mut self, seed: UInt64, scene: String) raises -> Bool:
+        """Scenes: "arena" (the default, also for ""), "bare". The seed is kept by R (restart)."""
+        var name = scene if scene.byte_length() > 0 else String("arena")
+        if name != "arena" and name != "bare":
+            raise Error("unknown scene `" + name + "` (arena, bare)")
+        self.seed = seed
+        self.scene_name = name
+        self._restart()
+        return True
+
+    def state(self) -> String:
+        """JSON: counters, the yaw, the ball's position and velocity and the crates' positions, then the hash."""
+        var out = String('{"tick":') + String(self.tick) + String(',"jumps":') + String(self.jumps)
+        out += String(',"paused":') + String("true" if self.paused else "false")
+        out += String(',"seed":"') + String(self.seed) + String('","scene":"') + self.scene_name + String('"')
+        out += String(',"yaw":') + String(Float64(self.yaw))
+        try:
+            var b = self.world.state(self.ball)
+            out += String(',"ball":{"pos":') + _vec(b.pos) + String(',"vel":') + _vec(b.vel) + String("}")
+            out += String(',"crates":[')
+            var first = True
+            for p in self.props:
+                if p.dynamic:
+                    out += String("" if first else ",") + _vec(self.world.state(p.handle).pos)
+                    first = False
+            out += String("]")
+        except:
+            out += String(',"error":"body state unavailable"')
+        return out + String(',"hash":"') + String(self.hash()) + String('"}')
 
     def _restart(mut self) raises:
         self.world = EmbedWorld(1.0 / 60.0, G)

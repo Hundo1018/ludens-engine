@@ -32,4 +32,9 @@ export interface AppExports {
   app_load_font(app: bigint, ptr: bigint, length: bigint): number;
   app_set_ui(app: bigint, text_scale: number, left: number, top: number, right: number, bottom: number, locale: number, pseudo: number): void;
   app_release_input(app: bigint): void;
+  app_step(app: bigint, dt: number): number;
+  app_configure(app: bigint, seed: bigint, scene_ptr: bigint, scene_len: bigint): number;
+  app_state(app: bigint): number;
+  app_events(app: bigint): number;
+  app_text_ptr(app: bigint): bigint;
 }
