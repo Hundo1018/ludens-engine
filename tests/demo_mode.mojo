@@ -134,10 +134,15 @@ def main() raises:
     c.ok(bad, "an unknown scene raises")
     var kept = DemoMode()
     _ = kept.reset(7, "arena")
-    var h7 = kept.hash()
     kept.step(Intent(Real(1), Real(0), Real(0), Real(0), False, False, False), 1.0 / 60.0)
-    kept.step(Intent(Real(0), Real(0), Real(0), Real(0), False, False, True), 1.0 / 60.0)
-    c.ok(kept.seed == 7 and kept.hash() != h7, "R restarts with the same seed (the tick counts one step after the restart)")
+    kept.step(Intent(Real(0), Real(0), Real(0), Real(0), False, False, True), 1.0 / 60.0)  # R: restart, then one zero-input tick
+    var fresh = DemoMode()
+    _ = fresh.reset(7, "arena")
+    fresh.step(Intent.idle(), 1.0 / 60.0)
+    var unseeded = DemoMode()
+    unseeded.step(Intent.idle(), 1.0 / 60.0)
+    c.ok(kept.hash() == fresh.hash(), "R restarts into the seeded layout: the hash equals a fresh reset(7) plus one idle step (" + String(fresh.hash()) + ")")
+    c.ok(fresh.hash() != unseeded.hash(), "that layout is not the unseeded one, so the comparison above would catch a restart that dropped the seed")
 
     print("demo_mode:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

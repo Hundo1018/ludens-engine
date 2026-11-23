@@ -62,3 +62,6 @@ jobs:
 
       - name: Demo game in headless Chrome (software WebGPU), frames checked
         run: pixi run -e wasm game-shot
+
+      - name: window.game, ?seed / ?scene / ?manual in headless Chrome, hash equal to node (#115)
+        run: pixi run -e wasm hook-web
