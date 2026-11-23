@@ -2,10 +2,9 @@
 // click on Export, then the downloaded table file is read back. Writes <out-prefix>_closed.png and _open.png.
 // usage: node scripts/tuning_shot.mjs <chrome> <url> <out-prefix> [timeout_s]
 // Exits non-zero unless: the panel changes the frame, the drag queues a speed inside the slider's range at the pointer's
-// position, Export offers one download named demo.table whose speed row holds that value, and nothing else in the
-// file changed.
+// position, Export offers one file demo.table is saved to disk by the page's own download path, with that speed row added to game/data/demo.table and nothing else changed.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -21,10 +20,11 @@ const port = await new Promise((res) => { let b = ''; proc.stderr.on('data', (d)
 const target = await (await fetch(`http://127.0.0.1:${port}/json/new?${url}`, { method: 'PUT' })).json();
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener('open', r));
-let id = 0; const pending = new Map(); const problems = [];
+let id = 0; const pending = new Map(); const problems = []; const downloads = [];
 ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
+  if (m.method === 'Browser.downloadProgress' || m.method === 'Browser.downloadWillBegin') downloads.push(m);
   if (m.method === 'Runtime.consoleAPICalled') {
     const text = m.params.args.map((a) => a.value ?? a.description).join(' ');
     if (/wgpu uncaptured error|app_frame:/.test(text)) problems.push('browser console: ' + text.split('\n')[0]);
@@ -72,8 +72,9 @@ const mouse = (type, x, y) => send('Input.dispatchMouseEvent', { type, x, y, but
 
 for (let i = 0; i < 200; i++) { if ((await js('window.shell && window.shell.frames')) > 10) break; await sleep(250); }
 console.log('frames', await js('window.shell.frames'), 'error', await js('window.shell.error'));
-// record the downloads the page offers: name and text
-await js(`window.__files = []; HTMLAnchorElement.prototype.click = function () { const n = this.download, u = this.href; fetch(u).then((r) => r.text()).then((t) => window.__files.push({ name: n, text: t })); };`);
+// The page's own download path runs unmodified (a.click() then URL.revokeObjectURL); Chrome saves the file into dlDir.
+const dlDir = mkdtempSync(join(tmpdir(), 'tuning-dl-'));
+await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dlDir, eventsEnabled: true });
 const closed = await shot('closed');
 await js(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F2', bubbles: true }))`);
 const hold = shot('held');  // a capture while F2 is down: the app draws on capture requests only
@@ -103,21 +104,23 @@ const dragged = await shot('dragged');
 await mouse('mouseMoved', px, py); await settle();
 await mouse('mousePressed', px, py); await settle();
 await mouse('mouseReleased', px, py); await settle(); await sleep(500);
-const files = await js('window.__files');
-console.log('downloads:', JSON.stringify(files));
-if (!files || files.length !== 1) problems.push('expected one download, got ' + (files ? files.length : 'none'));
+for (let i = 0; i < 40 && !downloads.some((d) => d.params.state === 'completed'); i++) await sleep(250);
+console.log('download events:', downloads.map((d) => d.method.replace('Browser.', '') + (d.params.state ? ':' + d.params.state : '') + (d.params.suggestedFilename ? ':' + d.params.suggestedFilename : '')).join(' '));
+const saved = readdirSync(dlDir);
+console.log('saved files:', JSON.stringify(saved), 'exported counter', await js('window.shell.exported'));
+if (saved.length !== 1 || saved[0] !== 'demo.table') problems.push('expected one saved file demo.table, got ' + JSON.stringify(saved));
 else {
-  const f = files[0];
-  if (f.name !== 'demo.table') problems.push('download name ' + f.name);
-  const m = f.text.match(/^demo\.main\.speed = ([0-9.]+)$/m);
+  const text = readFileSync(join(dlDir, saved[0]), 'utf8');
+  const m = text.match(/^demo\.main\.speed = ([0-9.]+)$/m);
   const want = 0.5 + 19.5 * target_t;
-  if (!m) problems.push('the exported table has no speed row');
+  if (!m) problems.push('the saved table has no speed row');
   else if (Math.abs(Number(m[1]) - want) > 0.3) problems.push(`speed ${m[1]} is not near ${want} (the slider position)`);
-  else console.log(`exported speed ${m[1]} for a slider position of ${target_t} (${want} expected)`);
-  const rest = f.text.split('\n').filter((l) => !l.startsWith('demo.main.speed')).join('\n');
-  const orig = 'ludens-table 1 schema 1\n# One entry, every value at its schema default: the game plays as it did before the table existed.\ndemo.main = +\n';
-  if (rest !== orig) problems.push('the exported file changed rows other than speed:\n' + f.text);
+  else console.log(`saved speed ${m[1]} for a slider position of ${target_t} (${want} expected)`);
+  // the expected file: game/data/demo.table plus that one row, byte for byte
+  const orig = readFileSync(new URL('../game/data/demo.table', import.meta.url), 'utf8');
+  if (text !== orig + `demo.main.speed = ${m ? m[1] : '?'}\n`) problems.push('the saved file is not game/data/demo.table plus the speed row:\n' + text);
 }
+try { rmSync(dlDir, { recursive: true, force: true }); } catch {}
 if (await js('window.shell.error')) problems.push('page error: ' + (await js('window.shell.error')));
 if (problems.length) { console.log('FAIL:\n  ' + problems.join('\n  ')); done(1); }
 console.log('tuning_shot: ok');

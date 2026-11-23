@@ -304,10 +304,11 @@ async function main() {
     const text = new TextDecoder().decode(rt.bytes(exportBuf, n).slice());
     const nl = text.indexOf("\n");
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([text.slice(nl + 1)], { type: "text/plain" }));
+    const url = URL.createObjectURL(new Blob([text.slice(nl + 1)], { type: "text/plain" }));
+    a.href = url;
     a.download = text.slice(0, nl);
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(url), 10000); // not at once: some browsers read the blob after the click returns
     stats.exported = (stats.exported ?? 0) + 1;
   };
   let last = performance.now();

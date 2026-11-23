@@ -105,7 +105,11 @@ DEMO_<FIELD>_<WORD>` constants, and `has_<field>` beside an optional field), `de
 and the schema and table text as constants so a wasm64 module needs no file. The accessors refuse a table read under a
 different schema than the one they were generated from. `pixi run -e wasm lint` fails when the generated file is not
 what the generator writes. `game/demo_mode.mojo` reads `speed`, `jump_speed`, `jump_enabled`, `gravity_y` and
-`look_sensitivity` through `DemoRow`; with the default table the game's hash is unchanged (`test-game`).
+`look_sensitivity` through `DemoRow`. The game reads the table text baked into the generated `game/demo_table.mojo`, not
+`game/data/demo.table` at run time (a wasm64 module has no file access). A table exported from the panel or edited with
+`ludens tune` therefore has no effect on the game until `pixi run -e wasm gen-table game/data/demo.schema --table
+game/data/demo.table -o game/demo_table.mojo` regenerates that file; `pixi run -e wasm lint` and `test-tables` fail
+while the two disagree; with the default table the game's hash is unchanged (`test-game`).
 
 ## Live tuning
 
