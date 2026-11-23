@@ -39,7 +39,7 @@ multi-wasm-probe = "python3 scripts/multi_wasm_probe.py"
 # Python behaviour script can run beside the wasm64 module in a browser (Pyodide from npm, built into build/py_probe/).
 scene-merge-probe = "python3 scripts/scene_merge_probe.py"
 python-web-probe = "python3 scripts/python_web_probe.py"
-parity-gate = "python3 scripts/parity_gate.py"
+web-check = "python3 scripts/web_check.py"
 serve-web = { cmd = "python3 shell/web/serve.py 8000 build/web", depends-on = ["build-web"] }
 # B1 acceptance: app_init + 1 frame under node must not trap.
 smoke-node = { cmd = "python3 scripts/smoke_node.py", depends-on = ["build-wasm"] }
@@ -62,10 +62,10 @@ style-gallery = "python3 scripts/style_gallery.py"
 test-lights-camera = "python3 scripts/test_native.py lights_native camera_native lens_native env_probe_native motion_native"
 test-texture = "python3 scripts/test_native.py texture_native"
 test-texture-c3 = "python3 scripts/test_native.py texture_c3_native"
-ui-parity = "python3 scripts/ui_parity.py"
-xfer-parity = "python3 scripts/xfer_parity.py"
-sheet-parity = "python3 scripts/sheet_parity.py"
-game-parity = "python3 scripts/game_parity.py"
+ui-same = "python3 scripts/ui_same.py"
+xfer-same = "python3 scripts/xfer_same.py"
+sheet-same = "python3 scripts/sheet_same.py"
+game-same = "python3 scripts/game_same.py"
 game-shot = "python3 scripts/game_shot.py"
 build-pages = "python3 scripts/build_pages.py"
 sheet-cost = "python3 scripts/sheet_cost.py"

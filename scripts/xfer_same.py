@@ -2,7 +2,7 @@
 """ludens-core 17.91 / ludens-engine #14: hand a world between two separately built modules, native and wasm64.
 
 Four numbers must be equal: native uninterrupted, native after the swap, wasm64 uninterrupted, wasm64 after a swap
-from module A into module B (B has extra code). Run: pixi run -e wasm xfer-parity"""
+from module A into module B (B has extra code). Run: pixi run -e wasm xfer-same"""
 import re
 import subprocess
 import sys

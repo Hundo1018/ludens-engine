@@ -1,4 +1,4 @@
-"""The scripted run `scripts/game_parity.py` compares: native prints the numbers, the wasm64 app produces the same ones
+"""The scripted run `scripts/game_same.py` compares: native prints the numbers, the wasm64 app produces the same ones
 through its `app_*` exports (D held for 240 frames, Space pressed on frame 10)."""
 from game.demo_mode import DemoMode
 from game.intent import Intent
