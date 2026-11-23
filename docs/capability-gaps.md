@@ -90,6 +90,28 @@ roadmap on 2026-11-23 in this order; none is built. The tiers rank how many game
 Related, already planned: particles #121, audio events / buses / music / 3D #120, spatial audio beyond it #137,
 water / reflections / ray tracing #138, device seams #135.
 
+## Gameplay support (2026-11-23)
+
+ludens-core already has most gameplay systems: abilities, combat and a hit pipeline, inventory, objectives, dialogue,
+level flow, checkpoints, saves, a camera rig, characters, vehicles, rule tables, achievements, balance, and AI
+(behaviour trees, GOAP, EQS, perception, steering, influence maps). Most of them are not exposed to a host: the
+exposure list (core ROADMAP 17.101, Hundo1018/ludens-core#159) marks them pending. That is the largest gameplay gap.
+The items below are absent everywhere and had no issue. Put on the roadmap on 2026-11-23; none is built.
+
+| issue | what |
+|---|---|
+| #143 | game feel: hitstop, time scale, screen shake, rumble timing (deterministic under replay) |
+| #144 | object pools and runtime spawning of prefabs (generational handles, capacity, deterministic order) |
+| #145 | difficulty and assist modes, tutorials and hints, dialogue graph validator |
+| #146 | in-game console and cheats (debug builds), photo mode |
+| #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport) |
+| #148 | mod support: wasm mods in a checked instance, a narrow versioned mod API |
+| #149 | live operations, monetization (store seam, receipts verified by a backend) and anti-cheat |
+
+Development tooling gaps (wasm crash symbolication, project template, API docs for game developers, multiplayer test
+harness, wasm memory profiling, store release pipelines, a Windows shell, a scripting layer, asset licence tracking)
+were listed the same day and deliberately left off the roadmap for now.
+
 ## Limits of this comparison
 
 - Both skill sets target mainstream engines (Godot, Unity, Unreal, three.js, Roblox) and a web scaffold of their own;
