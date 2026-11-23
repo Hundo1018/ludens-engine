@@ -134,6 +134,28 @@ for large binary files (LFS policy, asset locking) was considered and left off.
 | #159 | flow | compliance checklists: platform requirements, age ratings, privacy inventory, accessibility |
 | #160 | flow | release pipeline: game versions, player changelog, store submission |
 
+## Narrative (2026-11-23)
+
+ludens-core already runs narrative: dialogue graphs with flag conditions and effects (`gameplay/dialogue`), world flags
+and a state stack (`gameplay/flow`), event-driven objectives (`gameplay/objectives`), level transitions (`gameplay/level_flow`), timeline playback
+(`gameplay/sequence_player`), checkpoints that carry all of it (`gameplay/checkpoint`) and localization keys
+(`gameplay/loc_keys`). None is exposed
+to a host yet (Hundo1018/ludens-core#159). The dialogue validator is #145. The items below had no issue. Put on the
+roadmap on 2026-11-23; none is built.
+
+| issue | what |
+|---|---|
+| #161 | a writing format for dialogue and quests; Ink / Yarn / Twine import |
+| #162 | dialogue and quest graph editor with in-editor preview |
+| #163 | quest structure: stages, failure, timers, exclusive branches, journal |
+| #164 | barks: contextual one-liners with priority, cooldown, repetition limits |
+| #165 | staging cues in dialogue (camera, animation, audio, cutscenes) through core `gameplay/sequence_player`; skip = play-through |
+| #166 | voice-over timing and lip sync |
+| #167 | text effects, markup and variables in lines |
+| #168 | relationships, affinity and reputation |
+| #169 | automated branch coverage of dialogue and quests |
+| #170 | storylets: quality-based, systemic narrative (lowest priority) |
+
 ## Limits of this comparison
 
 - Both skill sets target mainstream engines (Godot, Unity, Unreal, three.js, Roblox) and a web scaffold of their own;
