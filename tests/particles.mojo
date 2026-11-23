@@ -199,6 +199,19 @@ def main() raises:
         nl.step(DT, 0.0, 0.0, 500.0)
     s.eqi(nl.emitters[0].spawned, 600, "lod_far = 0 turns the LOD off at any distance")
 
+    # a manual burst under the LOD: all n spawn, and nothing is counted as skipped
+    var mb = plain(0)
+    mb.lod_near = 20.0
+    mb.lod_far = 60.0
+    mb.lod_min = 0.25
+    var mbs = ParticleSystem(1000)
+    var mi = mbs.add(mb^, 0.0, 0.0, 0.0, 1)
+    mbs.emitters[mi].burst(40)
+    mbs.step(DT, 0.0, 0.0, 100.0)  # past lod_far
+    print("manual burst of 40 past lod_far: live", mbs.live_total, "lod_skipped", mbs.lod_skipped())
+    s.eqi(mbs.live_total, 40, "burst(40) spawns 40 even past lod_far")
+    s.eqi(mbs.lod_skipped(), 0, "a manual burst is not counted as LOD-skipped")
+
     # curves
     var sc: List[Float64] = [0.0, 1.0, 0.5]
     s.check(curve_at(sc, 0.0) == 0.0 and curve_at(sc, 1.0) == 0.5 and abs(curve_at(sc, 0.5) - 1.0) < 1e-12 and abs(curve_at(sc, 0.25) - 0.5) < 1e-12 and abs(curve_at(sc, 0.75) - 0.75) < 1e-12, "size curve is linear between equally spaced samples")
@@ -264,7 +277,12 @@ def main() raises:
     var rec2 = List[Float32]()
     var small = po.pack(0.0, 0.0, -100.0, 0.0, 0.0, 1.0, rec2, 3)
     s.eqi(small[0] + small[1], 3, "pack stops at max_records")
-    s.check(float_hash(rec) == float_hash(rec), "float_hash is a function of the bytes")
+    var rec3 = List[Float32]()
+    _ = po.pack(0.0, 0.0, -100.0, 0.0, 0.0, 1.0, rec3, 100)
+    s.check(float_hash(rec) == float_hash(rec3), "packing the same state again gives the same bytes")
+    var moved = List[Float32]()
+    _ = po.pack(0.0, 0.0, -100.0, 0.0, 0.0, -1.0, moved, 100)  # camera looks the other way: the alpha order reverses
+    s.check(float_hash(rec) != float_hash(moved), "a different camera gives different bytes (the sort order changes)")
 
     # scene component
     var comp = particles_component("particles.rate = 30\nparticles.size_curve.0 = 0.2\nparticles.seed = 42\nparticles.cone_deg = 10\nparticles.blend = add\n")

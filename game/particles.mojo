@@ -97,6 +97,7 @@ struct Emitter(Movable):
     var time: Float64
     var accum: Float64  # fractional particles owed at the LOD-scaled rate
     var accum_full: Float64  # the same at the full rate, to count what the LOD removed
+    var pending: Int  # particles queued by `burst`, emitted at full count in the next step (no LOD, not counted as skipped)
     var next_burst: Float64
     # particles, one array per field
     var px: List[Float64]
@@ -124,6 +125,7 @@ struct Emitter(Movable):
         self.time = 0.0
         self.accum = 0.0
         self.accum_full = 0.0
+        self.pending = 0
         self.next_burst = 0.0 if self.row.burst_count > 0 else -1.0
         self.px = List[Float64]()
         self.py = List[Float64]()
@@ -143,8 +145,8 @@ struct Emitter(Movable):
         return len(self.px)
 
     def burst(mut self, n: Int):
-        """Queue n particles for the next step, at full rate (no LOD)."""
-        self.accum += Float64(n)
+        """Queue n particles for the next step: all n, not scaled by the LOD and not counted in `lod_skipped`."""
+        self.pending += n
 
     def _spawn(mut self, room: Int) -> Bool:
         """One particle, or a counted drop (False). `room` is what the system's cap still allows."""
@@ -211,7 +213,8 @@ struct Emitter(Movable):
             self.accum -= Float64(n)
             self.accum_full -= Float64(n_full)
             self.lod_skipped += n_full - n
-            wanted += n
+            wanted += n + self.pending
+            self.pending = 0
             var end = self.time + dt
             while self.next_burst >= 0.0 and self.next_burst <= end:
                 var scaled = Int(Float64(self.row.burst_count) * scale)

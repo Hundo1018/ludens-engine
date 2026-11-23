@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Show that a test fails under one deliberate change to the code it tests (#121).
 
-    pixi run -e wasm python3 scripts/mutation_check.py --list
-    pixi run -e wasm python3 scripts/mutation_check.py                  # every mutation, one after the other
-    pixi run -e wasm python3 scripts/mutation_check.py seed-ignored     # one
+    pixi run -e wasm python3 scripts/mutation_particles.py --list
+    pixi run -e wasm python3 scripts/mutation_particles.py                  # every mutation, one after the other
+    pixi run -e wasm python3 scripts/mutation_particles.py seed-ignored     # one
 
 Each mutation replaces one exact string in one source file, runs the named native test (scripts/test_native.py) and
 prints the checks that failed. The file is restored afterwards, also when the run is interrupted. A mutation whose test
@@ -27,6 +27,7 @@ MUTATIONS = {
     "drag-wrong": ("game/particles.mojo", "var drag = 1.0 / (1.0 + self.row.drag * dt)", "var drag = 1.0 / (1.0 + self.row.drag)", "particles", "drag ignores dt"),
     "gravity-dropped": ("game/particles.mojo", "self.vy[i] = (self.vy[i] + gy) * drag", "self.vy[i] = self.vy[i] * drag", "particles", "no gravity on y"),
     "live-total-not-freed": ("game/particles.mojo", "                total -= 1\n", "", "particles", "a dead particle keeps its room under the cap"),
+    "burst-through-lod-accum": ("game/particles.mojo", "        self.pending += n", "        self.accum += Float64(n)", "particles", "a manual burst is added to the LOD-scaled accumulator (lod_skipped goes negative)"),
     "sort-near-first": ("game/particles.mojo", "if key[ia] > key[ib] or (key[ia] == key[ib] and ia < ib):", "if key[ia] < key[ib] or (key[ia] == key[ib] and ia < ib):", "particles", "alpha particles are packed near to far"),
     "frame-index-fixed": ("game/particles.mojo", "var frame = min(Int(t * Float64(cols * rows)), cols * rows - 1)", "var frame = 0", "particles", "the flipbook never advances"),
     "sort-near-first-gpu": ("game/particles.mojo", "if key[ia] > key[ib] or (key[ia] == key[ib] and ia < ib):", "if key[ia] < key[ib] or (key[ia] == key[ib] and ia < ib):", "particles_native", "alpha particles are drawn near to far"),
