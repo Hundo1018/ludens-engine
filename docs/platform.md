@@ -3,8 +3,9 @@
 The host-side services this engine offers a game: network transports, player identity, achievements and stats,
 cloud saves, lobbies. This note records what is decided, what is built, and the questions that are still open.
 
-Status on 2026-11-23: the Transport seam is built (phase 1, below). The other four seams are designs only: no code
-exists for them yet.
+Status on 2026-11-23 (phase 1): the Transport seam is built with web, native UDP, native TCP and in-memory backends.
+The other four seams exist as traits with one local implementation each; no platform implementation of them exists
+yet.
 
 ## Rules every seam follows
 
@@ -113,10 +114,13 @@ WebTransport, and streams only from WebSocket, WebTransport or WebRTC.
   - an empty message and one over `max_message()`, both refused;
   - a message over `cap`: answered `NET_DROPPED` once and counted, and the next one arrives intact;
   - for TCP only, a 1 MiB message over `cap` is skipped as well;
-  - the closed-peer behaviour above.
+  - the closed-peer behaviour above;
+  - the sockaddr bytes for 127.0.0.1 and ::1, built without a socket, so the IPv6 layout is checked even where the
+    kernel has no IPv6.
 
   Every wait has a 2 s deadline. ::1 is tested when the host has IPv6 loopback. On the development container it has
-  none (`socket()` fails with errno 97), so IPv6 is untested. Result there: 41 checks passed, 0 failed.
+  none (`socket()` fails with errno 97), so IPv6 socket I/O is untested. Result on the container: 44 checks passed, 0
+  failed. A host with ::1 (the GitHub runner may have it) runs 27 more.
 
 ### Transport: open questions
 
@@ -132,36 +136,28 @@ WebTransport, and streams only from WebSocket, WebTransport or WebRTC.
 
 ## Identity, achievements and stats, cloud save, lobby
 
-For these seams only the trait and a local, in-memory implementation are planned for the next phase. The other
-implementations are listed with what each one needs. The names below are a sketch, not code.
+Each seam is a trait with one local implementation, so a game can be written against it before any platform backend
+exists. A request returns at once; its result is a packet the game takes with `poll(buf, cap)`, in the layout
+`os_poll` already uses: `[kind u8][id u32 LE][status u8][payload]` (`platform/packets.mojo`, `PacketQueue`). `id`
+is the caller's number for the request. Every queue follows the drop-and-count rule: a result over `cap` is answered
+-1 once and counted (`dropped()`); a full queue of 1024 results drops the new one and counts it.
 
-```
-trait Identity:
-    player_id(self) -> String          # stable for this player on this backend
-    token(self) -> List[UInt8]         # opaque bytes a game server sends to the backend's verify endpoint
-    poll(mut self, buf, cap) -> Int    # sign-in result and token refreshes, as packets
+| Seam | Module | Trait methods (besides `poll` and `dropped`) | Local implementation |
+|---|---|---|---|
+| Identity | `platform/identity.mojo` | `player_id()`, `token()` (opaque bytes for a game server to verify with the backend), `sign_in(id)` | `LocalIdentity(name)`: the token is "local:" and the name, which no server can trust |
+| Achievements and stats | `platform/achievements.mojo` | `unlock(id, name)`, `set_stat(id, name, value)`, `is_unlocked(name)`, `stat(name)` | `LocalAchievements`, in memory |
+| Cloud save | `platform/cloud_save.mojo` | `write_request(id, slot, ptr, length)`, `read_request(id, slot)`; up to 64 MiB a slot, the os_host.mjs file limit | `MemoryCloudSave`, in memory |
+| Lobby | `platform/lobby.mojo` | `create(id, name, max_members)`, `join(id, name)`, `leave(id)`, `current()`; events for members joining and leaving | `MemoryLobbyHub().member(player_id)`: every member of one hub sees the same lobbies |
 
-trait Achievements:                    # achievements and stats in one seam: every listed backend has both
-    unlock(mut self, name) -> Int
-    set_stat(mut self, name, value: Int64) -> Int
-    poll(mut self, buf, cap) -> Int    # confirmations and errors
-
-trait CloudSave:
-    write_request(mut self, id, slot, data) -> Int    # bytes, e.g. the output of ludens-core's ld_world_save
-    read_request(mut self, id, slot) -> Int
-    poll(mut self, buf, cap) -> Int    # [id][status][bytes], as os_poll's file reads
-
-trait Lobby:
-    create / join / leave / list requests, then poll for members, metadata and the peer address
-    to open a Transport to
-```
-
-Results come back through `poll` as packets, the same way `os_poll` returns file reads. The drop-and-count rule
-applies to each queue.
+They are one seam per trait, not one combined service, because the platforms differ in which ones they offer. Achievements and stats
+share a trait because every listed backend has both. A cloud save is bytes, for example the output of
+ludens-core's ld_world_save. `pixi run -e wasm test-transport` also runs `tests/platform_services.mojo`: 33 checks
+on the four local implementations (results in order, invalid requests refused, the over-cap drop, lobby membership
+events). Nothing in `app/` uses these seams yet.
 
 | Implementation | Seams | What it needs |
 |---|---|---|
-| Local (in memory, or the app's own storage) | all four | Nothing. Built first, for tests and offline play. Cloud save can use `os_file_write` and `os_file_read_request` on the web |
+| Local (in memory, or the app's own storage) | all four | Nothing. The in-memory ones are built (above). A cloud save kept in the app's own storage, through `os_file_write` and `os_file_read_request` on the web, is not written yet |
 | Steam | all four | The Steamworks SDK's flat C API, in a future steamworks-mojo repository. Native only. Steam must be running, and a Steam app id is required. Ticket verification on the server side uses the Steam Web API |
 | Google Play Games Services | identity, achievements and stats, cloud save (saved games) | The Android SDK, through a native Android shell (`shell/mobile/`, which does not exist yet). There is no web SDK |
 | Web OAuth / OIDC with PKCE | identity | A redirect flow in `shell/web/` and an identity provider configured for the site's origin. The token goes to the game's own server for verification. Achievements, cloud save and lobbies then need that server |

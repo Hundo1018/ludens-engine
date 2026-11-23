@@ -84,5 +84,5 @@ jobs:
           environments: wasm
       - name: Layout and focus tests, built without the engine on the include path
         run: pixi run -e wasm test-ui
-      - name: Transport seam over memory, UDP and TCP on loopback, built without the engine
+      - name: platform/ seams (Transport over memory, UDP and TCP on loopback; local identity, achievements, save, lobby)
         run: pixi run -e wasm test-transport

@@ -115,7 +115,7 @@ input is keys, and an analog axis needs a new event kind through `app_input`.
 | `app/render.mojo` | Draws the bodies as boxes: one storage buffer, vertex pulling, no vertex buffer. |
 | `app/bench.mojo` | The B3 bench entry (same source for native and wasm64). |
 | `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Text, font, layout, focus, gesture, immediate-mode widgets, batching; tests are `tests/ui_*.mojo` (`pixi run -e wasm test-ui`). |
-| `platform/` | Host-side seams (`docs/platform.md`). Standard library only. The Transport trait and its backends: WebSocket (web), UDP and TCP (native, libc), an in-memory pipe; test `pixi run -e wasm test-transport`. |
+| `platform/` | Host-side seams (`docs/platform.md`). Standard library only. The Transport trait and its backends (WebSocket on the web, UDP and TCP natively through libc, an in-memory pipe), and the Identity, Achievements, CloudSave and Lobby traits with local implementations; test `pixi run -e wasm test-transport`. |
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
 | `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |

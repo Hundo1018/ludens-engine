@@ -20,6 +20,7 @@ from platform.transport import (
     poll_bytes,
     send_bytes,
 )
+from platform.socket import SockAddr
 from platform.transport_memory import MemoryPipe
 from platform.transport_tcp import TcpListener, TcpTransport
 from platform.transport_udp import UdpTransport
@@ -234,8 +235,30 @@ def memory_case(mut c: Check, want: UInt64):
     closed_reliable(c, name, a, b)
 
 
+def addr_layout(mut c: Check) raises:
+    """The sockaddr bytes, checked without a socket (inet_pton is libc only), so the IPv6 layout is checked even where
+    the kernel has no IPv6 (Linux layout: family u16 little-endian, port big-endian)."""
+    var v4 = SockAddr("127.0.0.1", 0x1234)
+    var want4: List[UInt8] = [2, 0, 0x12, 0x34, 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+    c.check(v4.bytes == want4, "sockaddr_in for 127.0.0.1:0x1234")
+    var v6 = SockAddr("::1", 0x1234)
+    var want6 = List[UInt8](length=28, fill=0)
+    want6[0] = 10
+    want6[2] = 0x12
+    want6[3] = 0x34
+    want6[23] = 1  # sin6_addr is bytes 8..23; flowinfo (4..7) and scope_id (24..27) stay 0
+    c.check(v6.bytes == want6, "sockaddr_in6 for [::1]:0x1234")
+    var bad = False
+    try:
+        _ = SockAddr("localhost", 1)
+    except:
+        bad = True
+    c.check(bad, "a host name (not a numeric address) is refused")
+
+
 def main() raises:
     var c = Check()
+    addr_layout(c)
     var want = script_hash()
     memory_case(c, want)
     udp_case(c, "127.0.0.1", want)
