@@ -21,6 +21,9 @@ Rules (README "Rules"):
   R7  no module in app/, editor/ or ui/ imports a concrete game (a `game/<name>_mode.mojo`, e.g. `game.demo_mode`) except
       the shell that runs one (CONCRETE_GAME_IMPORTERS). The engine is independent of any one game: games live in their
       own repositories (ludens-playground) and reach the shell through `GameMode` (`game/mode.mojo`).
+  R8  platform/ (the host-side seams, docs/platform.md) imports only the standard library and itself, and holds Mojo and
+      Markdown only. A seam's backends are what the shell plugs in, so they know no engine, app, game, editor or UI, and
+      the native ones build and test without the engine (`pixi run -e wasm test-transport`).
 """
 import argparse
 import re
@@ -31,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 UI_ALLOWED_IMPORTS = {"std", "wgpu", "ui"}
+PLATFORM_ALLOWED_IMPORTS = {"std", "platform"}  # R8
 BUILTIN_EDITOR_ALLOWED = {"editor.ext", "editor.state"}  # R4, see issue #18
 SHELL_SOURCE_SUFFIXES = {".ts", ".tsx", ".js", ".mjs", ".html", ".css", ".py"}
 MOJO_ONLY_ALLOWED_SUFFIXES = {".mojo", ".md"}
@@ -83,6 +87,18 @@ def check(root: Path) -> list[str]:
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append(f"R2 {p.relative_to(root)}:{line}: ui/ imports `{mod}` (allowed: {', '.join(sorted(UI_ALLOWED_IMPORTS))})")
 
+    # R8: platform/ depends on std and itself only.
+    for p in files(root, "platform", {".mojo"}):
+        text = p.read_text(encoding="utf-8")
+        for m in IMPORT.finditer(text):
+            mod = m.group(1) or m.group(2)
+            if mod.split(".")[0] not in PLATFORM_ALLOWED_IMPORTS:
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append(f"R8 {p.relative_to(root)}:{line}: platform/ imports `{mod}` (allowed: {', '.join(sorted(PLATFORM_ALLOWED_IMPORTS))})")
+    for p in files(root, "platform"):
+        if not (p.name.startswith(".") or p.suffix in MOJO_ONLY_ALLOWED_SUFFIXES):
+            problems.append(f"R8 {p.relative_to(root)}: platform/ holds Mojo and Markdown only, not `{p.suffix or p.name}`")
+
     # R3: editor/ and ui/ are Mojo.
     for sub in ("editor", "ui"):
         for p in files(root, sub):
@@ -126,7 +142,7 @@ def check(root: Path) -> list[str]:
                     problems.append(f"R7 {rel}:{line}: imports the concrete game `{mod}` (only {', '.join(sorted(CONCRETE_GAME_IMPORTERS))} may)")
 
     # R6: only the public wgpu surface.
-    for sub in ("app", "game", "editor", "ui", "tests", "scripts"):
+    for sub in ("app", "game", "editor", "ui", "platform", "tests", "scripts"):
         for p in files(root, sub, {".mojo"}):
             text = p.read_text(encoding="utf-8")
             for m in PRIVATE_WGPU.finditer(text):
@@ -156,6 +172,7 @@ def selftest() -> int:
         "shell/web/exports.d.ts": "export interface AppExports {\n  app_frame(app: bigint, dt: number): number;\n}\n",
         "ui/button.mojo": "from std.ffi import external_call\nfrom wgpu.device import Device\nfrom ui.text import Label\n",
         "editor/command.mojo": "from embed.world import EmbedWorld\n",
+        "platform/transport_udp.mojo": "from std.ffi import external_call\nfrom platform.transport import Transport\n",
     }
     expect("clean tree", clean, [])
     expect("editor symbol in a shell", {**clean, "shell/web/panel.ts": "editor_open_panel();\n"}, ["R1"])
@@ -183,7 +200,12 @@ def selftest() -> int:
     expect("a private wgpu path in app/", {**clean, "app/gpu_user.mojo": "from wgpu._ffi.nulls import null_opaque\n"}, ["R6"])
     expect("a private wgpu path in tests/", {**clean, "tests/t.mojo": "import wgpu._backend.wgpu_native.alloc_guard\n"}, ["R6"])
     expect("a private wgpu path in game/", {**clean, "game/x.mojo": "from wgpu._core.session import Session\n"}, ["R6"])
-    expect("markdown and a dotfile are fine", {**clean, "editor/NOTES.md": "# n\n", "ui/.gitkeep": ""}, [])
+    expect("platform imports the engine", {**clean, "platform/x.mojo": "from embed.world import EmbedWorld\n"}, ["R8"])
+    expect("platform imports app", {**clean, "platform/x.mojo": "import app.main\n"}, ["R8"])
+    expect("platform imports ui", {**clean, "platform/x.mojo": "from ui.draw import DrawList\n"}, ["R8"])
+    expect("C inside platform", {**clean, "platform/shim.c": "int x;\n"}, ["R8"])
+    expect("a private wgpu path in platform/", {**clean, "platform/x.mojo": "from wgpu._ffi.nulls import null_opaque\n"}, ["R6", "R8"])
+    expect("markdown and a dotfile are fine", {**clean, "editor/NOTES.md": "# n\n", "ui/.gitkeep": "", "platform/NOTES.md": "# n\n"}, [])
     print(f"layout selftest: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

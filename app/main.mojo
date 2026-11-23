@@ -15,7 +15,8 @@ from geometry.vec import Real
 from game.camera_view import View
 from game.controls import Controls
 from hud import Hud, refresh_hud
-from net import net_poll, net_send
+from platform.transport import NET_DROPPED, NET_NONE
+from platform.transport_web import WebSocketTransport
 from render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget, NoAux
 from app.post import PostEffect, NoPost, scene_aspect
@@ -36,6 +37,7 @@ from wgpu.rendercanvas.input import InputState
 from wgpu.surface import Surface, create_surface_canvas
 from wgpu.web.boot import GPUBoot
 
+comptime NetTransport = WebSocketTransport  # the Transport backend (platform/transport.mojo), chosen at build time
 comptime NET_CAP = 65536
 comptime NET_PER_FRAME = 16
 comptime MODE_DEMO = 0  # the physics demo the parity gates and selftests compare
@@ -67,6 +69,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var skin_job: Optional[SkinJob]
     var skin_cpu: List[Vec3]
     var skin_max: Float64  # -1 pending, -2 failed, else max |GPU - CPU|
+    var net: NetTransport
     var net_rx: List[UInt8]
     var net_len: Int
     var net_packets: Int
@@ -107,6 +110,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.skin_job = None
         self.skin_cpu = List[Vec3]()
         self.skin_max = -1.0
+        self.net = NetTransport()
         self.net_rx = List[UInt8](length=NET_CAP, fill=0)
         self.net_len = 0
         self.net_packets = 0
@@ -145,6 +149,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.skin_job = move.skin_job^
         self.skin_cpu = move.skin_cpu^
         self.skin_max = move.skin_max
+        self.net = move.net^
         self.net_rx = move.net_rx^
         self.net_len = move.net_len
         self.net_packets = move.net_packets
@@ -161,11 +166,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     def _net(mut self):
         """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
         for _ in range(NET_PER_FRAME):
-            var n = net_poll(UInt64(Int(self.net_rx.unsafe_ptr())), UInt64(NET_CAP))
-            if n < 0:
+            var n = self.net.poll(UInt64(Int(self.net_rx.unsafe_ptr())), NET_CAP)
+            if n == NET_DROPPED:
                 continue  # a packet larger than NET_CAP: the host dropped it (net_host status.dropped); take the next
-            if n == 0:
-                break
+            if n <= NET_NONE:
+                break  # nothing waiting, or (another backend) NET_CLOSED
             self.net_len = Int(n)
             self.net_packets += 1
 
@@ -532,8 +537,8 @@ def app_offscreen(app: UInt64, on: Int32) abi("C"):
 
 @export
 def app_net_send(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
-    """Send `length` bytes at `ptr` as one packet through the host's net_send. 0 = ok."""
-    return net_send(ptr, length)
+    """Send `length` bytes at `ptr` as one packet through the app's Transport (the host's net_send). 0 = ok."""
+    return Int32(_app(app)[].net.send(ptr, Int(length)))
 
 
 @export

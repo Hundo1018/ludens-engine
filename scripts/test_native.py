@@ -3,9 +3,10 @@
 
     pixi run -e wasm test-editor        # tests/editor_command.mojo (needs the engine)
     pixi run -e wasm test-ui            # tests/ui_*.mojo (standard library only: ui/ stands alone)
+    pixi run -e wasm test-transport     # tests/platform_transport.mojo (standard library only: platform/ stands alone)
 
-Each test is a program that exits non-zero on a failed check. `ui_*` tests are built without the engine on the
-include path, which is the check that `ui/` imports nothing but the standard library."""
+Each test is a program that exits non-zero on a failed check. `ui_*` and `platform_*` tests are built without the
+engine on the include path, which is the check that `ui/` and `platform/` import nothing but the standard library."""
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ import build_core  # noqa: E402
 
 def run_test(name: str) -> int:
     entry = f"tests/{name}.mojo"
-    out = build_core.build_native(entry, ROOT / f"build/{name}", asserts=True, engine=not name.startswith("ui_"))
+    out = build_core.build_native(entry, ROOT / f"build/{name}", asserts=True, engine=not name.startswith(("ui_", "platform_")))
     return subprocess.run([str(out)], cwd=ROOT, check=False).returncode
 
 

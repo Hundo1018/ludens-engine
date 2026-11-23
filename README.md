@@ -115,6 +115,7 @@ input is keys, and an analog axis needs a new event kind through `app_input`.
 | `app/render.mojo` | Draws the bodies as boxes: one storage buffer, vertex pulling, no vertex buffer. |
 | `app/bench.mojo` | The B3 bench entry (same source for native and wasm64). |
 | `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Text, font, layout, focus, gesture, immediate-mode widgets, batching; tests are `tests/ui_*.mojo` (`pixi run -e wasm test-ui`). |
+| `platform/` | Host-side seams (`docs/platform.md`). Standard library only. The Transport trait and its backends (WebSocket on the web, UDP and TCP natively through libc, an in-memory pipe), and the Identity, Achievements, CloudSave and Lobby traits with local implementations; test `pixi run -e wasm test-transport`. |
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
 | `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |
@@ -157,6 +158,9 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
    native runners `app/game_parity.mojo` and `app/frame_budget.mojo` (`CONCRETE_GAME_IMPORTERS` in `check_layout.py`).
    The engine is independent of any one game: games live in their own repositories (ludens-playground) and reach the
    shell through `GameMode` (`game/mode.mojo`).
+7. **Platform seams stand alone** (R8). `platform/` imports only the standard library and itself and holds Mojo and
+   Markdown only. Its native backends call libc and must not be reachable from the wasm64 module, so `app/main.mojo`
+   imports only the web backend's module and `platform/__init__.mojo` re-exports nothing.
 
 ## Command line
 
@@ -300,7 +304,8 @@ AV1 with Opus, first supported). MediaRecorder is used instead of WebCodecs beca
 path would need its own WebM muxer. `?selftest=record` records 5 s in Firefox, uploads the file to the dev server
 (`PUT /upload/recorded.webm` -> `build/recorded.webm`), and `scripts/check_webm.py` decodes it end to end with ffmpeg.
 
-**Network** (`app/net.mojo`, `shell/web/net_host.mjs`): two scalar imports, declared in `wasm.toml` as `net_*`.
+**Network** (`platform/transport_web.mojo`, `shell/web/net_host.mjs`): two scalar imports, declared in `wasm.toml` as `net_*`.
+The app reaches them through the Transport seam (`WebSocketTransport`; `docs/platform.md`).
 
 | Import | Meaning |
 |---|---|

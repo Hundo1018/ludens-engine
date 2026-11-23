@@ -31,7 +31,7 @@ def native_sources(entry: str, engine: bool = True) -> list:
     that is all of this repo's packages (app/ included: tests import app.mesh_pass, app.ao_bake, ...), every package of
     the ludens-core checkout and wgpu-mojo's sources, since the include path is `-I <core> -I wgpu-mojo -I app -I .`."""
     sources = [ROOT / entry]
-    for d in ("editor", "ui", "game"):
+    for d in ("editor", "ui", "game", "platform"):
         sources += ROOT.glob(d + "/**/*.mojo")
     if engine:
         sources += ROOT.glob("app/**/*.mojo")
