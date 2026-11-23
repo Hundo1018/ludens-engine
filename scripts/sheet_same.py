@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Event sheet: the same sheet on the same world gives the same hash on native and on wasm64.
 
-Run: pixi run -e wasm sheet-parity"""
+Run: pixi run -e wasm sheet-same"""
 import re
 import subprocess
 import sys

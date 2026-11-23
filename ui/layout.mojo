@@ -2,7 +2,7 @@
 
 One pass to measure, one to arrange, both plain `Float32` arithmetic in a fixed order: laying the same tree out
 twice gives identical bits (tested). Measured: 200 generated trees (seed 12345) hash to 13514690443309195779 on native
-x86-64 and on wasm64 (`pixi run -e wasm ui-parity`, scripts/ui_parity.py). Neither build contracts to FMA; a target
+x86-64 and on wasm64 (`pixi run -e wasm ui-same`, scripts/ui_same.py). Neither build contracts to FMA; a target
 that does (aarch64) may differ in the last bit and has not been measured.
 
 A node is a box with a direction (`ROW` or `COLUMN`), an optional fixed `width` / `height` (< 0 = size to content),

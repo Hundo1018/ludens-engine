@@ -51,7 +51,7 @@ Where it lives: the game in `game/demo_mode.mojo` (no window, no GPU), input in 
 `app/hud.mojo` (text from `ui/font.mojo`), its sound clip from `GameMode.sounds`, played by the audio scene.
 
 Tests: `pixi run -e wasm test-game` plays whole games from scripts and drives the real `InputState`; `test-pad` and `test-vpad` check the
-gamepad mapping and the virtual pad under node; `game-parity` compares native with the wasm64 app driven through its `app_*` exports;
+gamepad mapping and the virtual pad under node; `game-same` compares native with the wasm64 app driven through its `app_*` exports;
 `game-shot` plays it in headless Chrome on a software WebGPU adapter, writes PNG frames to `build/shots/` and fails unless the
 frames show a scene that reacts to the keys. `build-pages --check` also plays the site by touch only on an emulated phone
 (`scripts/touch_check.mjs`). Neither gamepad nor touch has been tested on real hardware.

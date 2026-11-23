@@ -47,11 +47,11 @@ jobs:
       - name: World hand-over between two modules (native == wasm64 == across modules)
         run: |
           bash scripts/deps.sh
-          pixi run -e wasm xfer-parity
+          pixi run -e wasm xfer-same
       - name: Event sheet, native == wasm64
-        run: pixi run -e wasm sheet-parity
+        run: pixi run -e wasm sheet-same
       - name: ui/ layout and widgets, native == wasm64
-        run: pixi run -e wasm ui-parity
+        run: pixi run -e wasm ui-same
       - name: os_* imports through a wasm64 module, node
         run: pixi run -e wasm test-os
       - name: net_poll drops an oversized packet and delivers the next, node
@@ -61,7 +61,7 @@ jobs:
       - name: Demo game, scripted games natively
         run: pixi run -e wasm test-game
       - name: Demo game, native == wasm64 through the app exports
-        run: pixi run -e wasm game-parity
+        run: pixi run -e wasm game-same
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node

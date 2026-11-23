@@ -4,7 +4,7 @@
 Native runs app/game_parity.mojo (serial engine); node loads build/app.wasm, switches to game mode, feeds the same key events
 through app_input and steps app_frame. Also checks the jump's sound effect came out of app_audio_render.
 
-Run: pixi run -e wasm python3 scripts/game_parity.py   (builds build/app.wasm first if it is missing)"""
+Run: pixi run -e wasm python3 scripts/game_same.py   (builds build/app.wasm first if it is missing)"""
 import json
 import re
 import subprocess
