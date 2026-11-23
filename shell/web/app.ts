@@ -85,13 +85,22 @@ async function boot(canvas: HTMLCanvasElement) {
   const [sel, len] = rt.str_in("#" + canvas.id);
   const app = x.app_init(sel, len, canvas.width, canvas.height);
   if (app === 0n) throw new Error("app_init failed");
-  // #116: the HUD's SDF font (assets/fonts, copied to ./font.lfont by build_web.py) and the page's UI settings.
-  const fontBytes = new Uint8Array(await (await fetch("./font.lfont")).arrayBuffer());
-  const fontPtr = rt.alloc(fontBytes.length);
-  rt.put(fontPtr, fontBytes);
-  const fontOk = x.app_load_font(app, fontPtr, BigInt(fontBytes.length));
-  rt.free(fontPtr);
-  if (fontOk !== 0) throw new Error("app_load_font failed");
+  // #116: the HUD's SDF font (assets/fonts, copied to ./font.lfont by build_web.py), loaded only for the game: ?selftest and
+  // ?demo pages draw no text and do not fetch it. A failed load is logged and the game runs without text.
+  if (!location.search.includes("selftest") && !location.search.includes("demo")) {
+    try {
+      const res = await fetch("./font.lfont");
+      if (!res.ok) throw new Error("font.lfont: HTTP " + res.status);
+      const fontBytes = new Uint8Array(await res.arrayBuffer());
+      const fontPtr = rt.alloc(fontBytes.length);
+      rt.put(fontPtr, fontBytes);
+      const fontOk = x.app_load_font(app, fontPtr, BigInt(fontBytes.length));
+      rt.free(fontPtr);
+      if (fontOk !== 0) throw new Error("app_load_font returned " + fontOk);
+    } catch (e) {
+      console.warn("HUD font not loaded, text is not drawn: " + String(e));
+    }
+  }
   // Safe-area insets from the browser (CSS px -> canvas px), text scale and language from ?textscale=, ?lang=, ?pseudo and
   // ?safe=l,t,r,b (CSS px, for testing). setUi() changes them at run time.
   const ui = { textScale: Number(params.get("textscale") ?? 1), lang: params.get("lang") ?? navigator.language, pseudo: params.has("pseudo") };
