@@ -1,0 +1,35 @@
+ludens-schema 1
+# A table with one field of every kind.
+weapons.schema.version = 2
+weapons.schema.damage.kind = integer
+weapons.schema.damage.required = true
+weapons.schema.damage.min = 0
+weapons.schema.damage.max = 100
+weapons.schema.reach.kind = real
+weapons.schema.reach.default = 1.5
+weapons.schema.reach.min = 0
+weapons.schema.reach.max = 10
+weapons.schema.two_handed.kind = boolean
+weapons.schema.two_handed.default = false
+weapons.schema.style.kind = enumeration
+weapons.schema.style.values = melee ranged magic
+weapons.schema.style.default = melee
+weapons.schema.tint.kind = vector
+weapons.schema.tint.size = 3
+weapons.schema.tint.min = 0
+weapons.schema.tint.max = 1
+weapons.schema.tint.default = 1 1 1
+weapons.schema.ammo.kind = ref
+weapons.schema.ammo.ref = ammo
+weapons.schema.ammo.optional = true
+weapons.schema.icon.kind = asset
+weapons.schema.icon.optional = true
+weapons.schema.label.kind = string
+weapons.schema.label.default = ""
+weapons.schema.tags.kind = list
+weapons.schema.tags.of = string
+weapons.schema.levels.kind = list
+weapons.schema.levels.of = integer
+weapons.schema.levels.min = 1
+weapons.schema.levels.max = 99
+weapons.schema.levels.max_count = 4

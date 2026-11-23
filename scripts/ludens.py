@@ -10,6 +10,7 @@
     ludens capture <ticks> -o OUT.cap   record every tick;  ludens replay <file.cap>  verify it, naming the first bad frame
     ludens trace <ticks> -o OUT.json    step the scene with profiling spans on and write a Chrome trace (Perfetto) file
     ludens sheet <file>                 validate an event sheet (errors name the line and the event)
+    ludens tune <table> <entry>.<field> <value> [...]   edit rows of a data table in place, checked by its schema
     ludens overlay <ticks> -o OUT.json  step the scene with the physics debug-draw on; prints the arrow count, writes the last frame as JSON
 
 Everything runs in `ludens-core`, the native build of the editor's Mojo command layer, so what the GUI does is what
@@ -147,6 +148,38 @@ def cmd_script(a) -> int:
     return run_core("script", scene_of(find_project(a.project)), a.file, *extra)
 
 
+def table_files(project: Path) -> list[tuple[Path, Path]]:
+    """(schema, table) of every `<name>.table` with a `<name>.schema` beside it under the project's table directory
+    (`tables = "data"` in ludens.toml; default `data`). A table with no schema is an error `ludens check` reports."""
+    cfg = tomllib.loads((project / "ludens.toml").read_text(encoding="utf-8"))
+    d = project / str(cfg.get("tables", "data"))
+    return [(t.with_suffix(".schema"), t) for t in sorted(d.rglob("*.table"))] if d.is_dir() else []
+
+
+def cmd_check(a) -> int:
+    """The scene, then the project's data tables (docs/data-tables.md): kind, range, required fields and references."""
+    project = find_project(a.project)
+    rc = run_core("check", scene_of(project))
+    pairs = table_files(project)
+    for schema, table in pairs:
+        if not schema.exists():
+            print(f"ludens: {table}: no schema {schema.name} beside it", file=sys.stderr)
+            rc = 1
+    pairs = [(s, t) for s, t in pairs if s.exists()]
+    if pairs:
+        rc |= run_core("tables", *[str(p) for pair in pairs for p in pair])
+    return 1 if rc else 0
+
+
+def cmd_tune(a) -> int:
+    """Set rows of a data table: `ludens tune data/weapons.table sword.damage 14`. The value is checked against the
+    table's schema and only the changed rows of the file are rewritten."""
+    table = Path(a.table)
+    if len(a.rest) < 2 or len(a.rest) % 2:
+        sys.exit("ludens: tune needs <entry>.<field> <value> pairs")
+    return run_core("tune", str(table.with_suffix(".schema")), str(table), *a.rest)
+
+
 def simple(sub: str):
     return lambda a: run_core(sub, scene_of(find_project(a.project)))
 
@@ -159,9 +192,15 @@ def main() -> int:
     p = sp.add_parser("new", help="create a project")
     p.add_argument("dir")
     p.set_defaults(f=cmd_new)
-    for name in ("hash", "list", "check"):
+    for name in ("hash", "list"):
         p = sp.add_parser(name, help=f"{name} of the project's scene")
         p.set_defaults(f=simple(name))
+    p = sp.add_parser("check", help="validate the project's scene and data tables")
+    p.set_defaults(f=cmd_check)
+    p = sp.add_parser("tune", help="edit rows of a data table, checked by its schema")
+    p.add_argument("table")
+    p.add_argument("rest", nargs="+", metavar="entry.field value")
+    p.set_defaults(f=cmd_tune)
     p = sp.add_parser("run", help="step the scene")
     p.add_argument("ticks", type=int)
     p.add_argument("-o", "--output")

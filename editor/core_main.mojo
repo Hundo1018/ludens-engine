@@ -9,6 +9,8 @@
     ludens-core script <scene> <file> [-o <out>]
     ludens-core gui-move <scene> <handle> <x> <y> <z> [-o <out>]
     ludens-core commands                  (the command names `cmd` and `script` accept, one per line)
+    ludens-core tables <schema> <table> [<schema> <table> ...]     validate data tables (#119); every error on stderr
+    ludens-core tune   <schema> <table> <entry>.<field> <value> [...]   edit rows of a table in place, checked by the schema
 
 A scene file is the flat text form of `embed.scene_io`. Commands and scripts edit in place unless `-o` names
 another file; nothing is written when a command fails. `gui-move` goes through the GUI entry of the command
@@ -18,6 +20,8 @@ Exit code: 0 ok, 1 error (message on stderr)."""
 from std.sys import argv, exit, stderr
 from editor.command import Standard
 from game.eventsheet import Sheet
+from game.table import Table, check_refs, schema_from_text, table_from_text, table_load
+from game.tuning import Tuner
 from editor.state import Editor
 from editor.entry import cli_run_in, gui_move_body_in
 from editor.scene_text import (
@@ -275,6 +279,41 @@ def run_command(args: List[String]) raises:
             raise Error("usage: sheet <file>")
         var sh = Sheet.parse(read_file(args[1]))
         print("sheet ok:", len(sh.events), "events")
+    elif sub == "tables":
+        # data tables (#119): every error names the file, the line and the column
+        if len(args) < 3 or len(args) % 2 != 1:
+            raise Error("usage: tables <schema> <table> [<schema> <table> ...]")
+        var errors = List[String]()
+        var tables = List[Table]()
+        for i in range(1, len(args), 2):
+            var sch = schema_from_text(read_file(args[i]), args[i], errors)
+            var path_parts = args[i + 1].split("/")
+            var stem = String(String(path_parts[len(path_parts) - 1]).split(".")[0])
+            if sch.table != stem and sch.table.byte_length() > 0:
+                errors.append(args[i] + ": the schema is for table `" + sch.table + "`, but it sits beside `" + args[i + 1] + "` (the file name is the table name)")
+            tables.append(table_from_text(sch^, read_file(args[i + 1]), args[i + 1], errors))
+        check_refs(tables, errors)
+        if len(errors) > 0:
+            for e in errors:
+                print(e, file=stderr)
+            raise Error(String(len(errors)) + " error(s) in " + String(len(tables)) + " table(s)")
+        var entries = 0
+        for t in tables:
+            entries += len(t.entries)
+        print("tables ok:", len(tables), "tables,", entries, "entries")
+    elif sub == "tune":
+        if len(args) < 5 or len(args) % 2 != 1:
+            raise Error("usage: tune <schema> <table> <entry>.<field> <value> [<entry>.<field> <value> ...]")
+        var text = read_file(args[2])
+        var tuner = Tuner(table_load(read_file(args[1]), args[1], text, args[2]), text)
+        for i in range(3, len(args), 2):
+            var dot = args[i].find(".")
+            if dot < 1:
+                raise Error("`" + args[i] + "` is not <entry>.<field>")
+            tuner.set(String(args[i][byte=:dot]), String(args[i][byte = dot + 1 :]), args[i + 1])
+        var n = tuner.apply()
+        write_file(args[2], tuner.export_text())
+        print("tuned", n, "value(s) in", args[2])
     elif sub == "capture":
         if len(args) != 4:
             raise Error("usage: capture <scene> <ticks> <out.cap>")
@@ -349,7 +388,7 @@ def run_command(args: List[String]) raises:
         report(ed)
         save(ed, out_path(args, len(args), args[1]))
     else:
-        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, overlay, sheet, capture, replay, cmd, script, gui-move)")
+        raise Error("unknown subcommand `" + sub + "` (demo, hash, list, check, run, trace, overlay, sheet, tables, tune, capture, replay, cmd, script, gui-move)")
 
 
 def main():
@@ -358,7 +397,7 @@ def main():
     for i in range(1, len(a)):
         args.append(String(a[i]))
     if len(args) == 0:
-        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, overlay, sheet, capture, replay, cmd, script, gui-move)")
+        print("ludens-core: expected a subcommand (demo, hash, list, check, run, trace, overlay, sheet, tables, tune, capture, replay, cmd, script, gui-move)")
         exit(1)
     try:
         run_command(args)

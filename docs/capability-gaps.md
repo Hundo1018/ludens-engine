@@ -28,7 +28,7 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 | 1 | A scriptable game hook: read state, inject input, step without drawing, start in a scene with a seed | H | L2: `scripts/game_node.mjs` drives the app through `app_input` / `app_frame` | no published contract, no `?seed=` / `?scene=` / manual stepping | #115 |
 | 2 | Determinism: same seed and input give the same hash; find the tick where two runs diverge | H | L1: golden, parity gates, fp / FMA probes | the divergence trace has no tool or test | #115 |
 | 3 | Batch simulation over many seeds or levels (balance tables, solvers) | H | L3: headless `EmbedWorld` | no batch runner for game modes | #115 |
-| 4 | Data tables with a validated schema, and a live tuning panel | H | L2: `editor/cvar.mojo` (native); core `ecs/schema` numeric only | missing | #119 |
+| 4 | Data tables with a validated schema, and a live tuning panel | H | L2: `editor/cvar.mojo` (native); core `ecs/schema` numeric only | built in #119: `docs/data-tables.md` | #119 |
 | 5 | Save games: versioned with migrations, atomic, slots, corruption handling | H | L3: core `gameplay/save`, `EmbedWorld.save` | no consumer saves anything | #122 |
 | 6 | Profiler with per-subsystem budgets, p95 / p99, draw calls, CI gates | H | L2/L3: `diag/` trace and counters, `icount`, benchmark report | no frame breakdown, GPU timing or budgets | #123 |
 | 7 | Input actions by intent, rebinding, analog axes, device prompts | H | L1: fixed `Keys` → `Intent` (`game/controls.mojo`) | no rebinding; a stick is eight directions (wgpu-mojo #29) | #117 |

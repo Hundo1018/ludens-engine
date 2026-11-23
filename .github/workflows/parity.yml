@@ -62,3 +62,6 @@ jobs:
 
       - name: Demo game in headless Chrome (software WebGPU), frames checked
         run: pixi run -e wasm game-shot
+
+      - name: Live tuning panel in headless Chrome (F2, a slider drag, Export)
+        run: pixi run -e wasm tuning-web

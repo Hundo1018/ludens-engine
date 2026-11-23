@@ -58,6 +58,9 @@ build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
 test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_controls camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
+# #119: data tables (game/table.mojo), live tuning (game/tuning.mojo, game/tuning_panel.mojo), the generated accessors and `ludens check` on tables.
+gen-table = "python3 scripts/gen_table.py"
+test-tables = "python3 scripts/gen_table.py game/data/demo.schema --table game/data/demo.table -o game/demo_table.mojo --check && python3 scripts/test_native.py game_table && python3 tests/test_tables.py"
 test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-scene-probe = "python3 scripts/test_native.py scene_probe_native"
 # #90: a whole SceneRenderer frame with every pass and option on (tile means against tests/golden/scene_frame_tiles.txt).
@@ -74,6 +77,7 @@ xfer-same = "python3 scripts/xfer_same.py"
 sheet-same = "python3 scripts/sheet_same.py"
 game-same = "python3 scripts/game_same.py"
 game-shot = "python3 scripts/game_shot.py"
+tuning-web = "python3 scripts/tuning_web.py"
 build-pages = "python3 scripts/build_pages.py"
 sheet-cost = "python3 scripts/sheet_cost.py"
 test-pad = "node --experimental-strip-types --no-warnings scripts/test_pad.mjs"

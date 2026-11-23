@@ -45,6 +45,17 @@ trait GameMode(Movable, Deinitable):
         means "unknown, rebuild every frame", so a game that does not override it behaves as before."""
         return -1
 
+    def overlay(mut self, width: Float32, height: Float32, pointer_x: Float32, pointer_y: Float32, pointer_down: Bool, toggle: Bool) raises -> DrawList:
+        """A panel the game draws above its HUD and operates with the pointer (the live tuning panel, `game/tuning_panel.mojo`).
+        Called every frame with the pointer in canvas pixels, origin top-left; `toggle` is True in the frame the host's
+        panel key (F2) went down. An empty list (the default) means no overlay."""
+        return DrawList()
+
+    def take_export(mut self) -> String:
+        """A file the game wants the host to save, once: the file name, a newline, then its text; empty when there is none
+        (the tuning panel's Export button, `game/tuning.mojo`)."""
+        return String()
+
     def physics_ns(self) -> Int64:
         """Nanoseconds the last `step` spent in fixed physics ticks, for the frame breakdown (app/frame_stats.mojo).
         -1 (the default) means the game does not measure it; the host then shows no physics row."""

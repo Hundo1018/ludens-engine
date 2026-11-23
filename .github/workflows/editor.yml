@@ -64,6 +64,8 @@ jobs:
         run: pixi run -e wasm test-game
       - name: Demo game, native == wasm64 through the app exports
         run: pixi run -e wasm game-same
+      - name: Data tables, live tuning, `ludens check` / `ludens tune` on tables
+        run: pixi run -e wasm test-tables
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node
