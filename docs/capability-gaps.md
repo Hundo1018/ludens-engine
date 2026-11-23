@@ -75,6 +75,21 @@ are worth closing before more simulation breadth.
 | 7 | #122 E28 save games | — |
 | 7 | #123 E29 frame budgets and CI gates | #115 (scripted scene) |
 
+## Rendering and audio beyond the top ten (2026-11-23)
+
+Rendering and media features that had no issue, found by searching `app/`, `game/`, `ui/` and `docs/`. Put on the
+roadmap on 2026-11-23 in this order; none is built. The tiers rank how many games need a feature against its cost.
+
+| tier | issue | features | today |
+|---:|---|---|---|
+| 1 | #139 | anti-aliasing (MSAA, FXAA, TAA after measuring), bloom, colour-grading LUT | sample count 1, no AA; ACES tone mapping but no LUT; glow only inside some styles |
+| 2 | #140 | terrain renderer, decals, trails and ribbons | core generates terrain (`procedural/terrain_gen.mojo`), nothing draws it |
+| 3 | #141 | mesh LOD, volumetric fog / clouds / light shafts, global illumination | instancing, distance fog only |
+| 4 | #142 | video playback, audio streaming and compressed formats, voice chat | clips are PCM in memory; miniaudio-mojo's decoders are bound but unused |
+
+Related, already planned: particles #121, audio events / buses / music / 3D #120, spatial audio beyond it #137,
+water / reflections / ray tracing #138, device seams #135.
+
 ## Limits of this comparison
 
 - Both skill sets target mainstream engines (Godot, Unity, Unreal, three.js, Roblox) and a web scaffold of their own;
