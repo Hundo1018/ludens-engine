@@ -6,8 +6,8 @@ Every call that could wait is made non-blocking per call: `MSG_DONTWAIT` on send
 timeout before `accept`. No `fcntl` (a variadic C function, which `external_call` cannot call correctly on arm64).
 `connect` for TCP does block, once, while the connection is set up.
 
-The constants are Linux x86-64 / arm64 values, measured by this repo's test; the macOS branch is from the macOS
-headers and has not been built or run."""
+The constants are the Linux values; this repo's test has run them on x86-64 only. The macOS branch is taken from the
+macOS headers and has not been built or run."""
 from std.ffi import external_call
 from std.sys import CompilationTarget
 
