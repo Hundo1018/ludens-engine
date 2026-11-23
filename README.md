@@ -147,8 +147,12 @@ Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selfte
 4. **Built-ins use the extension API** (#18). Pending until the registration points exist; the check is listed in
    `check_layout.py` and switched on by `EXTENSION_API_ENFORCED`.
 5. **The renderer knows no game** (#90). The render modules in `app/` (`RENDER_MODULES` in `check_layout.py`) import from
-   `game/` only `game.draw_item` (the draw items and material IDs) and `game.camera_view`. No module in `app/`, `editor/` or `ui/` imports a concrete game except the shell
-   (`CONCRETE_GAME_IMPORTERS`, R7).
+   `game/` only `game.draw_item` (the draw items and material IDs) and `game.camera_view` (R5).
+6. **No concrete game outside the shell** (R7). No module in `app/`, `editor/` or `ui/` imports a concrete game (a
+   `game/<name>_mode.mojo`, e.g. `game.demo_mode`) except the shell that runs one: `app/main.mojo` and the two scripted
+   native runners `app/game_parity.mojo` and `app/frame_budget.mojo` (`CONCRETE_GAME_IMPORTERS` in `check_layout.py`).
+   The engine is independent of any one game: games live in their own repositories (ludens-playground) and reach the
+   shell through `GameMode` (`game/mode.mojo`).
 
 ## Command line
 
