@@ -1,0 +1,11 @@
+# Allow list for scripts/stale_refs.py: backticked names in comments, docstrings and docs that are correct as written
+# although no such code is in this checkout (a dependency's API, an external API, history).
+# Format: `path:token  # reason` (one file) or `token  # reason` (any file). Every entry needs a reason.
+
+host_now_ns  # ludens-wasm-rt's clock import, which std.time reaches in wasm64; not code of this repo
+editor/ext.mojo:TypeSchema  # ludens-core's ecs/schema.mojo type (core ROADMAP 17.11)
+docs/audit-2026-11-response.md:c_defines  # ludens-wasm-rt build option the audit finding is about
+docs/audit-2026-11-response.md:bench_contact_model  # ludens-core benchmark cited
+docs/audit-2026-11-response.md:OwnedDLHandle.call  # Mojo standard library API, quoted from the audit reports
+docs/audit-2026-11-response.md:Runtime._tick  # ludens-core gameplay/runtime.mojo method named by a deferred finding
+docs/audit-2026-11-response.md:GPU.dispatch  # wgpu-mojo wgpu/gpu.mojo method named by a deferred finding

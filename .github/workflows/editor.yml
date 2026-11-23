@@ -20,6 +20,8 @@ jobs:
         run: |
           pixi run -e wasm check-layout --selftest
           pixi run -e wasm check-layout
+      - name: Lint (ruff, shellcheck, stale names in comments and docs, Mojo code rules)
+        run: pixi run -e wasm lint
 
   command-layer:
     name: GUI/CLI command parity
