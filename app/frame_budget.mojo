@@ -15,7 +15,7 @@ from game.demo_mode import DemoMode
 from game.intent import Intent
 from game.mode import GameMode
 from geometry.vec import Real
-from hud import Hud
+from hud import Hud, refresh_hud
 from app.render3d import SceneRendererOf, DefaultPasses
 from app.frame_stats import (
     FrameStats, now_ns, segment_name, SEGMENTS, FRAME_RING,
@@ -50,9 +50,10 @@ def run[M: GameMode](width: UInt32, height: UInt32, frames: Int) raises:
         for it in items:
             renderer.push(it)
         t = stats.lap(SEG_PUSH, t)
-        hud.set(m.hud(Float32(width), Float32(height), 0.0), Float32(width), Float32(height))
+        refresh_hud(hud, m, Float32(width), Float32(height), 0.0)
         t = stats.lap(SEG_HUD, t)
         renderer.draw(device, target.handle().raw, width, height, hud)
+        hud.uploaded()
         _ = stats.lap(SEG_DRAW, t)
         _ = stats.lap(SEG_FRAME, t0)
         stats.end()

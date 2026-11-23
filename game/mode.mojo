@@ -39,6 +39,12 @@ trait GameMode(Movable, Deinitable):
         """The 2D overlay in pixels, origin top-left."""
         ...
 
+    def hud_key(self, width: Float32, height: Float32) -> Int64:
+        """A version of what `hud` would draw at this size: while it stays the same (and >= 0), the host keeps the
+        last HUD instead of calling `hud` and rebuilding its vertices (app/hud.mojo `refresh_hud`). -1 (the default)
+        means "unknown, rebuild every frame", so a game that does not override it behaves as before."""
+        return -1
+
     def physics_ns(self) -> Int64:
         """Nanoseconds the last `step` spent in fixed physics ticks, for the frame breakdown (app/frame_stats.mojo).
         -1 (the default) means the game does not measure it; the host then shows no physics row."""

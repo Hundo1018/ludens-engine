@@ -183,6 +183,16 @@ struct DemoMode(GameMode):
             draw_text(dl, width * 0.5 - text_width("PAUSED", 2 * s) * 0.5, height * 0.5 - 6 * s, "PAUSED", 2 * s, white)
         return dl^
 
+    def hud_key(self, width: Float32, height: Float32) -> Int64:
+        """The HUD shows the jump count, the pause banner and a fixed hint, laid out for the size: those are the key
+        (frame_ms is not drawn)."""
+        var h = UInt64(14695981039346656037)
+        h = (h ^ UInt64(self.jumps)) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(1 if self.paused else 0)) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(width.to_bits())) * UInt64(0x100000001B3)
+        h = (h ^ UInt64(height.to_bits())) * UInt64(0x100000001B3)
+        return Int64(h >> 1)
+
     def physics_ns(self) -> Int64:
         return self.step_physics_ns
 

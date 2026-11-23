@@ -85,6 +85,23 @@ def main() raises:
     p.step(Intent(Real(0), Real(0), Real(0), Real(0), False, False, True), 1.0 / 60.0)
     c.ok(p.tick == 1 or p.tick == 0, "restart returns the tick count to the start")
     c.ok(len(p.hud(960.0, 540.0, 1.0).cmds) > 0, "the HUD draws")
+    # hud_key (the host's HUD cache, app/hud.mojo refresh_hud): unchanged while what the HUD shows is unchanged,
+    # different when the jump count, the pause banner or the size changes
+    var k = DemoMode()
+    var k0 = k.hud_key(960.0, 540.0)
+    for t in range(20):
+        k.step(Intent(Real(1), Real(0), Real(0), Real(0), False, False, False), 1.0 / 60.0)
+    c.ok(k0 >= 0 and k.hud_key(960.0, 540.0) == k0, "moving without jumping keeps the HUD key")
+    c.ok(k.hud_key(1280.0, 720.0) != k0, "a new size changes the HUD key")
+    var jumped = False
+    for t in range(60):
+        k.step(Intent(Real(0), Real(0), Real(0), Real(0), t == 0, False, False), 1.0 / 60.0)
+        if k.jumps > 0:
+            jumped = True
+    c.ok(jumped and k.hud_key(960.0, 540.0) != k0, "a jump changes the HUD key (the count is drawn)")
+    var kj = k.hud_key(960.0, 540.0)
+    k.step(Intent(Real(0), Real(0), Real(0), Real(0), False, True, False), 1.0 / 60.0)
+    c.ok(k.paused and k.hud_key(960.0, 540.0) != kj, "pausing changes the HUD key (the banner is drawn)")
 
     print("demo_mode:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

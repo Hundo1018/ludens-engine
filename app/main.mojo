@@ -14,7 +14,7 @@ from game.mode import GameMode
 from geometry.vec import Real
 from game.camera_view import View
 from game.controls import Controls
-from hud import Hud
+from hud import Hud, refresh_hud
 from net import net_poll, net_send
 from render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget, NoAux
@@ -214,9 +214,10 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         for it in items:
             self.game_renderer.value().push(it)
         t = self.stats.lap(SEG_PUSH, t)
-        self.hud.value().set(m.hud(Float32(self.width), Float32(self.height), self.frame_ms), Float32(self.width), Float32(self.height))
+        refresh_hud(self.hud.value(), m, Float32(self.width), Float32(self.height), self.frame_ms)
         t = self.stats.lap(SEG_HUD, t)
         self.game_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
+        self.hud.value().uploaded()
         _ = self.stats.lap(SEG_DRAW, t)
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:

@@ -5,6 +5,7 @@ blend state, so panels are solid.
 Buffer (f32): 4 header floats (width, height, 0, 0), then 6 per vertex: x y r g b a. Vertices come from `ui.batch.build_batch`."""
 from ui.batch import FLOATS_PER_VERTEX, build_batch
 from ui.draw import DrawList
+from game.mode import GameMode
 from wgpu import (
     WGPUBufferUsage, WGPUShaderStage, WGPU_WHOLE_SIZE, WGPUBufferBindingType,
     WGPUBindGroupLayoutEntry, WGPUBufferBindingLayout, WGPUSamplerBindingLayout,
@@ -47,6 +48,10 @@ struct Hud(Movable):
     var group: BindGroup
     var staging: List[Float32]
     var verts: Int
+    var key: Int64  # the game's hud_key for the vertices held (-2 = none yet)
+    var width: Float32
+    var height: Float32
+    var dirty: Bool  # staging changed since the last upload
 
     def __init__(out self, device: Device, color_format: UInt32) raises:
         var shader = device.create_shader_module_wgsl(WGSL, "hud")
@@ -74,6 +79,10 @@ struct Hud(Movable):
         self.group = device.create_bind_group(bgl, bg_entries, "hud_group")
         self.staging = List[Float32]()
         self.verts = 0
+        self.key = -2
+        self.width = 0
+        self.height = 0
+        self.dirty = False
 
     def __init__(out self, *, deinit move: Self):
         self.pipeline = move.pipeline^
@@ -81,9 +90,17 @@ struct Hud(Movable):
         self.group = move.group^
         self.staging = move.staging^
         self.verts = move.verts
+        self.key = move.key
+        self.width = move.width
+        self.height = move.height
+        self.dirty = move.dirty
 
     def set(mut self, list: DrawList, width: Float32, height: Float32):
         """Take this frame's draw list; the vertices are uploaded by `upload`."""
+        self.key = -1
+        self.width = width
+        self.height = height
+        self.dirty = True
         var b = build_batch(list)
         self.staging.clear()
         self.staging.append(width)
@@ -95,11 +112,27 @@ struct Hud(Movable):
             self.staging.append(b.verts[i])
 
     def upload(self, device: Device) raises:
-        if len(self.staging) > 0:
+        """Write the vertices to the GPU buffer when they changed since the last `uploaded` (the buffer keeps them)."""
+        if self.dirty and len(self.staging) > 0:
             device.queue_write_data(self.buffer, UInt64(0), self.staging)
+
+    def uploaded(mut self):
+        """The host calls this after the frame that uploaded the vertices was drawn."""
+        self.dirty = False
 
     def record(self, rpass: FrameRenderPass):
         if self.verts > 0:
             rpass.set_pipeline(self.pipeline)
             rpass.set_bind_group(UInt32(0), self.group)
             rpass.draw(UInt32(self.verts), UInt32(1), UInt32(0), UInt32(0))
+
+
+def refresh_hud[M: GameMode](mut hud: Hud, m: M, width: Float32, height: Float32, frame_ms: Float32) raises:
+    """Rebuild the HUD only when the game's `hud_key` or the size changed (a key < 0 always rebuilds). The HUD was the
+    largest CPU segment of the default frame (about 0.18 ms of 0.32 ms, `pixi run frame-budget`) while drawing the
+    same thing frame after frame."""
+    var key = m.hud_key(width, height)
+    if key >= 0 and key == hud.key and width == hud.width and height == hud.height:
+        return
+    hud.set(m.hud(width, height, frame_ms), width, height)
+    hud.key = key
