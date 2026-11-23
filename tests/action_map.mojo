@@ -248,6 +248,44 @@ def main() raises:
     var garbage_map = demo()
     c.ok(len(garbage_map.load_profile("garbage\n")) == 1, "a file with the wrong header is one problem and changes nothing")
 
+    # --- take, save, restart: a profile whose row takes a control from a slot whose own row follows it
+    var tk = demo()
+    var took = tk.rebind("jump", SLOT_MAIN, parse_source("key:KeyP"), True)  # KeyP is pause's default key
+    c.ok(len(took) == 0, "jump takes KeyP from pause")
+    var tk_text = tk.profile()
+    var tk_fresh = demo()
+    var tk_problems = tk_fresh.load_profile(tk_text)
+    c.ok(len(tk_problems) == 0, "the profile after a take loads with no problems (" + String(len(tk_problems)) + ")")
+    c.ok(tk_fresh.prompt_source("jump", SLOT_MAIN, DEV_KEY) == "input.key.key_p", "after the restart jump is on P")
+    c.ok(tk_fresh.prompt_source("pause", SLOT_MAIN, DEV_KEY) == "input.key.escape", "and pause keeps Escape, without P")
+    var tk_f = InputFrame()
+    tk_f.press(key_code("KeyP"))
+    tk_fresh.update(tk_f)
+    c.ok(tk_fresh.pressed("jump") and not tk_fresh.pressed("pause"), "P jumps and does not pause after the restart")
+    c.ok(tk_fresh.profile() == tk_text, "and saves back to the same text")
+    # a swap: two takes in a row, then a restart
+    var sw = demo()
+    _ = sw.rebind("jump", SLOT_MAIN, parse_source("key:KeyR"), True)  # jump takes R from restart
+    _ = sw.rebind("restart", SLOT_MAIN, parse_source("key:Space"), True)  # restart takes Space from nothing (jump left it)
+    var sw_fresh = demo()
+    c.ok(len(sw_fresh.load_profile(sw.profile())) == 0 and sw_fresh.profile() == sw.profile(), "two takes in a row restore too")
+    # a hand-edited profile that really conflicts: two rows set the same key; the later row loses and its slot is back to its defaults
+    var clash_map = demo()
+    var clash_problems = clash_map.load_profile("ludens-profile 1\nset jump.main key:KeyJ\nset restart.main key:KeyJ\n")
+    c.ok(len(clash_problems) == 1 and clash_problems[0].startswith("3:"), "two rows with one key: the later is named and skipped")
+    c.ok(clash_map.prompt_source("jump", SLOT_MAIN, DEV_KEY) == "input.key.key_j" and clash_map.prompt_source("restart", SLOT_MAIN, DEV_KEY) == "input.key.key_r", "the first keeps J and the second is back on R")
+
+    # --- a button bound to an axis reads every gamepad, like a stick does
+    var trig = ActionMap.parse("ludens-actions 1\naction fire button\nbind fire pad:a4\n")
+    var tf = InputFrame()
+    tf.set_axis(1, 4, 0.9)  # the second gamepad's trigger
+    trig.update(tf)
+    c.ok(trig.pressed("fire") and trig.down("fire"), "a trigger on the second gamepad presses a button bound to pad:a4")
+    tf = InputFrame()
+    tf.set_axis(1, 4, 0.3)
+    trig.update(tf)
+    c.ok(trig.released("fire") and not trig.down("fire"), "below the threshold it is released")
+
     # --- the input buffer
     var b = InputBuffer()
     b.press(100.0)

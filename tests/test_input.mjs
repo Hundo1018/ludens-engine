@@ -114,6 +114,21 @@ const jr = game.state().jumps;
 game.press("KeyJ"); await run(game, 3);
 check(game.state().jumps === jr + 1, "after a restart J jumps");
 
+// take, then restart: jump takes P from pause (P is pause's default), the saved profile restores both
+game.resetBindings();
+await tick();
+r = game.rebind("jump key:KeyP take");
+check(r.ok === true, "jump takes KeyP from pause");
+await tick();
+game = await boot();
+await run(game, 5);
+check(game.prompt("jump", "keyboard") === "P" && game.prompt("pause", "keyboard") === "Esc", "after a restart jump is on P and pause keeps Esc only");
+game.configure(0, "bare");
+await run(game, 60);
+const jp = game.state().jumps;
+game.press("KeyP"); await run(game, 3);
+check(game.state().jumps === jp + 1 && game.state().paused === false, "after a restart P jumps and does not pause");
+
 // a profile row that is wrong does not stop the others from loading
 const enc = new TextEncoder();
 await storage.write("profile/actions.txt", enc.encode("ludens-profile 1\nset jump.main key:KeyQ\nset nothing.main key:KeyX\nset move.up key:Nope\n"));

@@ -416,7 +416,7 @@ struct ActionMap(Copyable, Movable):
             return f.mouse_down[b.code]
         var dev = 0 if b.device == DEV_PAD else VPAD_DEVICE
         if b.analog:
-            return Float64(b.sign) * f.axis(dev, b.code) > BUTTON_AXIS_THRESHOLD
+            return self._analog(b, f) > BUTTON_AXIS_THRESHOLD  # any gamepad, like a stick's axis
         return f.down[pad_button_key(dev, b.code)] or (b.device == DEV_PAD and _any_pad_button(f, b.code))
 
     def _edge(self, b: Binding, f: InputFrame) -> Bool:
@@ -715,11 +715,21 @@ struct ActionMap(Copyable, Movable):
         return out^
 
     def load_profile(mut self, text: String) -> List[String]:
-        """Put a profile over the current bindings. A row that is wrong (unknown action, slot or source, a control another
-        slot holds) is skipped and named in the result; the rows before and after it still apply."""
+        """Put a profile over the current bindings. A row that is wrong (unknown action, slot or source) is skipped and named in
+        the result; the rows before and after it still apply. Every good row is applied first and conflicts are looked for after:
+        a profile saved after `rebind(..., take=True)` has a row that takes a control from a slot whose own row comes later, and
+        the two rows are only consistent together. A control that two slots end up holding is given back: a slot the profile
+        did not set wins over one it did, and of two profile rows the later loses (its slot returns to its bindings from before the
+        load); the row is named in the result."""
         var problems = List[String]()
         var lines = text.split("\n")
         var first = True
+        var before = List[List[SlotBinding]]()
+        for i in range(len(self.actions)):
+            before.append(self.actions[i].bindings.copy())
+        var set_action = List[Int]()  # the profile rows that were applied: action index, slot, line number
+        var set_slot = List[Int]()
+        var set_line = List[String]()
         for n in range(len(lines)):
             var line = String(lines[n].strip())
             if line.byte_length() == 0 or line.startswith("#"):
@@ -761,14 +771,6 @@ struct ActionMap(Copyable, Movable):
                     break
             if bad:
                 continue
-            var clash = False
-            for k in range(len(parsed)):
-                if len(self.conflicts(an, slot, parsed[k])) > 0:
-                    problems.append(ln + ": `" + parsed[k].source() + "` is already used by " + self.conflicts(an, slot, parsed[k])[0])
-                    clash = True
-                    break
-            if clash:
-                continue
             var kept = List[SlotBinding]()
             for s in range(len(self.actions[ai].bindings)):
                 if self.actions[ai].bindings[s].slot != slot:
@@ -776,6 +778,58 @@ struct ActionMap(Copyable, Movable):
             for k in range(len(parsed)):
                 kept.append(SlotBinding(slot, parsed[k]))
             self.actions[ai].bindings = kept^
+            set_action.append(ai)
+            set_slot.append(slot)
+            set_line.append(ln)
+        # give back what two slots hold at once (at most one pass per applied row: each pass reverts one row)
+        for _ in range(len(set_action) + 1):
+            var found = False
+            var a1 = 0
+            var s1 = 0
+            var a2 = 0
+            var s2 = 0
+            var shared = String()
+            for i in range(len(self.actions)):
+                for x in range(len(self.actions[i].bindings)):
+                    for j in range(i, len(self.actions)):
+                        for y in range(len(self.actions[j].bindings)):
+                            var bx = self.actions[i].bindings[x]
+                            var by = self.actions[j].bindings[y]
+                            if bx.slot == by.slot and i == j:
+                                continue
+                            if not found and bx.b.same_source(by.b):
+                                found = True
+                                a1 = i
+                                s1 = bx.slot
+                                a2 = j
+                                s2 = by.slot
+                                shared = bx.b.source()
+            if not found:
+                break
+            var row1 = -1
+            var row2 = -1
+            for r in range(len(set_action)):
+                if set_action[r] == a1 and set_slot[r] == s1:
+                    row1 = r
+                if set_action[r] == a2 and set_slot[r] == s2:
+                    row2 = r
+            var loser = row1 if row1 >= row2 else row2  # a slot the profile did not set (-1) never loses; of two rows the later does
+            if loser < 0:
+                break  # a conflict that was there before the load: not this profile's
+            var la = set_action[loser]
+            var ls = set_slot[loser]
+            var other = self.actions[a2].name + "." + slot_name(self.actions[a2].kind, s2) if loser == row1 else self.actions[a1].name + "." + slot_name(self.actions[a1].kind, s1)
+            problems.append(set_line[loser] + ": `" + shared + "` is already used by " + other)
+            var back = List[SlotBinding]()
+            for s in range(len(self.actions[la].bindings)):
+                if self.actions[la].bindings[s].slot != ls:
+                    back.append(self.actions[la].bindings[s])
+            for s in range(len(before[la])):
+                if before[la][s].slot == ls:
+                    back.append(before[la][s])
+            self.actions[la].bindings = back^
+            set_action[loser] = -1  # this row is spent
+            set_slot[loser] = -1
         return problems^
 
     # ------------------------------------------------------------------ prompts
