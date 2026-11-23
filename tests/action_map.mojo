@@ -141,6 +141,19 @@ def main() raises:
     intent = i.poll(f)
     c.ok(intent.forward == 1, "d-pad up (button 12) moves forward")
 
+    f = InputFrame()
+    f.press(420)  # the wire number itself (shell/web/pad.ts): 400 + 20 * 1 + 0
+    intent = i.poll(f)
+    c.ok(intent.jump, "key code 420 is button 0 of the second gamepad")
+    f = InputFrame()
+    f.press(460)  # 400 + 20 * 3 + 0
+    intent = i.poll(f)
+    c.ok(intent.jump, "key code 460 is button 0 of the on-screen pad")
+    f = InputFrame()
+    f.press(409)  # button 9 of the first gamepad: Start, which pauses
+    intent = i.poll(f)
+    c.ok(intent.pause and not intent.jump, "key code 409 is gamepad button 9 (pause), not a jump")
+
     # --- edges: one frame, whatever is held after
     f = InputFrame()
     f.press(key_code("Space"))
