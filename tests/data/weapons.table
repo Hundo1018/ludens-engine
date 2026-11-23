@@ -1,0 +1,15 @@
+ludens-table 1 schema 2
+weapons.bow.ammo = arrows
+weapons.bow.damage = 8
+weapons.bow.reach = 9
+weapons.bow.style = ranged
+weapons.sword.damage = 12
+weapons.sword.icon = @9c1d22aa5e0b7f31:icon/sword
+weapons.sword.label = "Short \"blade\""
+weapons.sword.levels.1 = 5
+weapons.sword.levels.10 = 30
+weapons.sword.levels.2 = 10
+weapons.sword.levels.2.5 = 15
+weapons.sword.tags.1 = "sharp"
+weapons.sword.tags.2 = "metal"
+weapons.sword.tint = 0.5 0.5 0.75

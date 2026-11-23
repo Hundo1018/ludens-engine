@@ -14,6 +14,7 @@ comptime KEY_R: Int32 = 82
 comptime KEY_S: Int32 = 83
 comptime KEY_W: Int32 = 87
 comptime KEY_ESCAPE: Int32 = 256
+comptime KEY_F2: Int32 = 291  # opens the game's overlay panel (GameMode.overlay)
 comptime KEY_RIGHT: Int32 = 262
 comptime KEY_LEFT: Int32 = 263
 comptime KEY_DOWN: Int32 = 264

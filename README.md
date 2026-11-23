@@ -121,6 +121,7 @@ input is keys, and an analog axis needs a new event kind through `app_input`.
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
 | `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |
+| `game/table.mojo`, `game/tuning.mojo`, `game/tuning_panel.mojo`, `game/data/` | Data tables with a schema, live tuning and its panel (F2 in the demo game), `ludens check` / `ludens tune` on tables: `docs/data-tables.md` (#119). Test: `pixi run -e wasm test-tables`, `tuning-web`. |
 | `scripts/ludens.py`, `scripts/build_core.py` | The `ludens` command line and the build of the native core. |
 | `tests/test_cli.py` | The command line end to end, across processes. |
 | `scripts/check_layout.py` | The directory rules below, as a check with a selftest. |

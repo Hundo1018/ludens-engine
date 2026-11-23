@@ -7,7 +7,7 @@ Another game reuses this shell by naming its own types, e.g.
 the C-ABI below exports the default instance.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
-from controls import read_keys
+from controls import KEY_F2, MOUSE_LEFT, read_keys
 from frame_stats import FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME
 from game.demo_mode import DemoMode
 from game.mode import GameMode
@@ -91,6 +91,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var font_dirty: Bool  # the game has not been given font_metrics yet
     var ui_env: UiEnv  # safe-area insets, text scale and locale from the page (app_set_ui)
     var game_format: UInt32
+    var overlay_key_was: Bool  # the overlay key (F2) was down at the last draw: `toggle` is its rising edge as drawn
+    var export_file: String  # a file the game asked the host to save and the host has not taken yet (app_take_export)
     var stats: FrameStats  # per-segment CPU time of the last FRAME_RING frames (app/frame_stats.mojo, app_frame_stats)
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
@@ -140,6 +142,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.ui_env = UiEnv.default()
         self.game_format = 0
         self.stats = FrameStats()
+        self.export_file = String()
+        self.overlay_key_was = False
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -186,6 +190,25 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.ui_env = move.ui_env
         self.game_format = move.game_format
         self.stats = move.stats^
+        self.export_file = move.export_file^
+        self.overlay_key_was = move.overlay_key_was
+
+    def take_export(mut self, out_ptr: UInt64, cap: UInt64) -> Int32:
+        if self.export_file.byte_length() == 0 and self.mode == MODE_GAME and self.game:
+            var m = self.game.take()
+            self.export_file = m.take_export()
+            self.game = m^
+        var n = self.export_file.byte_length()
+        if n == 0:
+            return 0
+        if UInt64(n) > cap:
+            return Int32(-n)
+        var dst = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(out_ptr))
+        var bytes = self.export_file.as_bytes()
+        for i in range(n):
+            dst[i] = bytes[i]
+        self.export_file = String()
+        return Int32(n)
 
     def _net(mut self):
         """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
@@ -282,7 +305,19 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         for it in items:
             self.game_renderer.value().push(it)
         t = self.stats.lap(SEG_PUSH, t)
-        refresh_hud(self.hud.value(), m, Float32(self.width), Float32(self.height), self.frame_ms)
+        var f2 = self.input.is_key_pressed(KEY_F2)  # the edge is taken here, so a draw that skips frames cannot miss a tap
+        var over = m.overlay(
+            Float32(self.width), Float32(self.height), Float32(self.input.mouse_x), Float32(self.input.mouse_y),
+            self.input.is_mouse_button_pressed(MOUSE_LEFT), f2 and not self.overlay_key_was,
+        )
+        self.overlay_key_was = f2
+        if over.count() > 0:  # a panel is open: the HUD and the panel are rebuilt every frame
+            var list = m.hud(Float32(self.width), Float32(self.height), self.frame_ms)
+            for i in range(over.count()):
+                list.cmds.append(over.cmds[i].copy())
+            self.hud.value().set(list, Float32(self.width), Float32(self.height))
+        else:
+            refresh_hud(self.hud.value(), m, Float32(self.width), Float32(self.height), self.frame_ms)
         t = self.stats.lap(SEG_HUD, t)
         self.game_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
         self.hud.value().uploaded()
@@ -414,6 +449,14 @@ def app_frame(app: UInt64, dt: Float64) abi("C") -> Int32:
     except e:
         print("app_frame:", e)
         return -1
+
+
+@export
+def app_take_export(app: UInt64, out_ptr: UInt64, cap: UInt64) abi("C") -> Int32:
+    """A file the game wants saved (`GameMode.take_export`: file name, newline, text, UTF-8) is copied to `out_ptr`, at most
+    `cap` bytes, and cleared. Returns its length, 0 when there is none, or -(its length) when `cap` is too small (nothing
+    is copied and the file stays for the next call)."""
+    return _app(app)[].take_export(out_ptr, cap)
 
 
 @export

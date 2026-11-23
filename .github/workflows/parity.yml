@@ -67,3 +67,6 @@ jobs:
 
       - name: window.game, ?seed / ?scene / ?manual in headless Chrome, hash equal to node (#115)
         run: pixi run -e wasm hook-web
+
+      - name: Live tuning panel in headless Chrome (F2, a slider drag, Export)
+        run: pixi run -e wasm tuning-web

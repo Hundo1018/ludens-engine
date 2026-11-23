@@ -1,0 +1,4 @@
+ludens-table 1 schema 1
+ammo.arrows.name = "Arrow"
+ammo.arrows.stack = 40
+ammo.bolts.name = "Crossbow bolt"

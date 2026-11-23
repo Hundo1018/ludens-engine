@@ -29,6 +29,7 @@ interface Stats {
   underruns: number;
   rendered: number;
   audioStarts: number;
+  exported?: number; // files the game asked to save and the page offered as downloads
   padLog: string[]; // what the virtual pad last sent (the newest 64 events), for the touch check
   error: string;
 }
@@ -202,18 +203,21 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
   const pads = new Map<number, PadInput>();
   canvas.style.touchAction = "none"; // a drag on the canvas is input, not a page scroll
   const isTouch = (e: PointerEvent) => e.pointerType === "touch";
+  // The pointer in canvas pixels: the page may show the canvas smaller than its 960 x 540 backing store.
+  const cx = (e: PointerEvent) => (e.offsetX * canvas.width) / (canvas.clientWidth || canvas.width);
+  const cy = (e: PointerEvent) => (e.offsetY * canvas.height) / (canvas.clientHeight || canvas.height);
   canvas.addEventListener("pointermove", (e) => {
     if (isTouch(e)) return; // the virtual pad has it
-    vx = e.offsetX; vy = e.offsetY;
-    send(EV.CURSOR_POS, 0, 0, mods(e), e.offsetX, e.offsetY);
+    vx = cx(e); vy = cy(e);
+    send(EV.CURSOR_POS, 0, 0, mods(e), vx, vy);
   });
   canvas.addEventListener("pointerdown", (e) => {
     if (isTouch(e)) return;
-    send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), e.offsetX, e.offsetY);
+    send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.DOWN, mods(e), cx(e), cy(e));
   });
   const up = (e: PointerEvent) => {
     if (isTouch(e)) return;
-    send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), e.offsetX, e.offsetY);
+    send(EV.MOUSE_BUTTON, BUTTONS[e.button] ?? 0, ACTION.UP, mods(e), cx(e), cy(e));
   };
   canvas.addEventListener("pointerup", up);
   canvas.addEventListener("pointercancel", up);
@@ -336,6 +340,22 @@ async function main() {
   };
   // A touch counts as a user gesture when it is lifted, not when it lands, so the lift is listened for as well.
   for (const ev of ["pointerdown", "pointerup", "touchend", "keydown"]) addEventListener(ev, start);
+  // A file the game asked to save (the tuning panel's Export): `<name>\n<text>`, offered as a download.
+  const exportBuf = rt.alloc(1 << 20);
+  const takeExport = () => {
+    const n = x.app_take_export(app, exportBuf, BigInt(1 << 20));
+    if (n === 0) return;
+    if (n < 0) { stats.error = `export of ${-n} bytes does not fit its 1 MiB buffer`; return; }
+    const text = new TextDecoder().decode(rt.bytes(exportBuf, n).slice());
+    const nl = text.indexOf("\n");
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(new Blob([text.slice(nl + 1)], { type: "text/plain" }));
+    a.href = url;
+    a.download = text.slice(0, nl);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000); // not at once: some browsers read the blob after the click returns
+    stats.exported = (stats.exported ?? 0) + 1;
+  };
   let last = performance.now();
   const frame = (now: number) => {
     try {
@@ -344,6 +364,7 @@ async function main() {
       pollPads(dt * 1000);
       const r = x.app_frame(app, dt);
       if (r < 0) throw new Error("app_frame returned " + r);
+      takeExport();
       if (r === 1) {
         stats.frames++;
         if (SELFTEST) stats.boundary = { exports: 1, imports: calls.imports, webgpu: calls.webgpu, names: { ...calls.names } };

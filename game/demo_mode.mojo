@@ -4,8 +4,12 @@ camera, Space jumps (with a sound), dragging turns the camera, P pauses, R resta
 repositories (ludens-playground has one); nothing in `app/` or `ui/` knows this one except the shell's `App` alias."""
 from embed.world import EmbedWorld
 from game.draw_item import DrawItem
+from game.demo_table import DemoRow, demo_default_table, demo_row, DEMO_TABLE_TEXT
+from game.table import table_load
 from game.intent import Intent
 from game.mode import GameMode
+from game.tuning import Tuner
+from game.tuning_panel import TuningPanel
 from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
@@ -20,11 +24,12 @@ from ui.scale import UiEnv, UiScale
 from ui.sdf_font import FontMetrics
 
 comptime CUE_JUMP = 1
-comptime SPEED: Real = 5.0
-comptime JUMP_SPEED: Real = 5.0
 comptime BALL: Real = 0.4
-comptime G = Vec3(0.0, -9.81, 0.0, 0.0)
 comptime TAU: Float64 = 6.283185307179586
+
+
+def _gravity_of(row: DemoRow) -> Vec3:
+    return Vec3(0.0, Real(row.gravity_y), 0.0, 0.0)
 
 
 struct Prop(Copyable, Movable):
@@ -57,6 +62,10 @@ struct DemoMode(GameMode):
     var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
     var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
+    var tuner: Tuner  # game/data/demo.table under its schema; edits apply at a tick boundary (#119)
+    var tune: DemoRow  # the tuned values the ticks read
+    var panel: TuningPanel  # F2: the live tuning panel built from the schema
+    var export_file: String  # table text to save, "<file name>\n<text>", until the host takes it
     var loc: Localizer  # the HUD's strings; the host picks the locale and pseudo-localization (set_ui_env)
     var env: UiEnv
     var ui: UiScale  # the HUD is laid out for 960 x 540
@@ -67,7 +76,11 @@ struct DemoMode(GameMode):
     var text_key: UInt64
 
     def __init__(out self) raises:
-        self.world = EmbedWorld(1.0 / 60.0, G)
+        self.tuner = Tuner(demo_default_table(), DEMO_TABLE_TEXT)
+        self.tune = demo_row(self.tuner.table, "main")
+        self.panel = TuningPanel()
+        self.export_file = String()
+        self.world = EmbedWorld(1.0 / 60.0, _gravity_of(self.tune))
         self.props = List[Prop]()
         self.ball = 0
         self.floor = 0
@@ -94,6 +107,22 @@ struct DemoMode(GameMode):
     def create() raises -> Self:
         return Self()
 
+    @staticmethod
+    def with_table(schema_text: String, table_text: String) raises -> Self:
+        """The game started from a table file (a tuned copy of `game/data/demo.table`), read under the demo schema."""
+        var m = Self()
+        m.tuner = Tuner(table_load(schema_text, "demo.schema", table_text, "demo.table"), table_text)
+        m.tune = demo_row(m.tuner.table, "main")
+        m.world.set_gravity(m._gravity())
+        return m^
+
+    def _gravity(self) -> Vec3:
+        return _gravity_of(self.tune)
+
+    def set_tuning(mut self, field: String, text: String) raises:
+        """Queue an edit of `demo.main.<field>`; it applies when the next tick starts."""
+        self.tuner.set("main", field, text)
+
     def __init__(out self, *, deinit move: Self):
         self.world = move.world^
         self.props = move.props^
@@ -107,6 +136,10 @@ struct DemoMode(GameMode):
         self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
         self.step_physics_ns = move.step_physics_ns
+        self.tuner = move.tuner^
+        self.tune = move.tune^
+        self.panel = move.panel^
+        self.export_file = move.export_file^
         self.loc = move.loc^
         self.env = move.env
         self.ui = move.ui
@@ -197,7 +230,7 @@ struct DemoMode(GameMode):
         return out + String(',"hash":"') + String(self.hash()) + String('"}')
 
     def _restart(mut self) raises:
-        self.world = EmbedWorld(1.0 / 60.0, G)
+        self.world = EmbedWorld(1.0 / 60.0, self._gravity())
         self.props = List[Prop]()
         self.yaw = 0.0
         self.tick = 0
@@ -215,17 +248,21 @@ struct DemoMode(GameMode):
             self._restart()
         if intent.pause:
             self.paused = not self.paused
-        self.yaw -= intent.look_dx * 0.006
+        if not self.panel.open:  # a drag on the panel's sliders is not a camera turn
+            self.yaw -= intent.look_dx * Real(self.tune.look_sensitivity)
         if self.paused:
             return
         var jump = intent.jump
         for _ in range(self.world.ticks_due(frame_dt)):
+            if self.tuner.apply() > 0:  # queued edits take effect here, between two ticks
+                self.tune = demo_row(self.tuner.table, "main")
+                self.world.set_gravity(self._gravity())
             var fwd = Vec3(-sin(self.yaw), 0.0, -cos(self.yaw), 0.0)
             var right = Vec3(cos(self.yaw), 0.0, -sin(self.yaw), 0.0)
-            var v = (fwd * intent.forward + right * intent.right) * SPEED
+            var v = (fwd * intent.forward + right * intent.right) * Real(self.tune.speed)
             var vy = self.world.state(self.ball).vel[1]
-            if jump and self.world.touching(self.ball, self.floor):
-                vy = JUMP_SPEED
+            if jump and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
+                vy = Real(self.tune.jump_speed)
                 self.jumps += 1
                 self.cue_queue.append(CUE_JUMP)
             jump = False
@@ -234,6 +271,20 @@ struct DemoMode(GameMode):
             self.world.physics_tick()
             self.step_physics_ns += Int64(perf_counter_ns() - t0)
             self.tick += 1
+
+    def overlay(mut self, width: Float32, height: Float32, pointer_x: Float32, pointer_y: Float32, pointer_down: Bool, toggle: Bool) raises -> DrawList:
+        if toggle:
+            self.panel.open = not self.panel.open
+        if not self.panel.open:
+            return DrawList()
+        if self.panel.frame(self.tuner, 8.0, 40.0, 420.0, pointer_x, pointer_y, pointer_down):
+            self.export_file = "demo.table\n" + self.tuner.export_text()
+        return self.panel.take_list()
+
+    def take_export(mut self) -> String:
+        var out = self.export_file
+        self.export_file = String()
+        return out^
 
     def scene(mut self) raises -> List[DrawItem]:
         var out = List[DrawItem]()

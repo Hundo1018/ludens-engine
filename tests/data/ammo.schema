@@ -1,0 +1,8 @@
+ludens-schema 1
+ammo.schema.version = 1
+ammo.schema.name.kind = string
+ammo.schema.name.required = true
+ammo.schema.stack.kind = integer
+ammo.schema.stack.default = 20
+ammo.schema.stack.min = 1
+ammo.schema.stack.max = 99

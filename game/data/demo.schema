@@ -1,0 +1,25 @@
+ludens-schema 1
+# The demo game's tuning values (game/demo_mode.mojo). Every field is read once per tick, so a live edit applies at a tick boundary.
+demo.schema.version = 1
+demo.schema.speed.kind = real
+demo.schema.speed.default = 5
+demo.schema.speed.min = 0.5
+demo.schema.speed.max = 20
+demo.schema.speed.doc = "ball speed, m/s"
+demo.schema.jump_speed.kind = real
+demo.schema.jump_speed.default = 5
+demo.schema.jump_speed.min = 0
+demo.schema.jump_speed.max = 20
+demo.schema.jump_speed.doc = "vertical speed of a jump, m/s"
+demo.schema.jump_enabled.kind = boolean
+demo.schema.jump_enabled.default = true
+demo.schema.gravity_y.kind = real
+demo.schema.gravity_y.default = -9.81
+demo.schema.gravity_y.min = -50
+demo.schema.gravity_y.max = 0
+demo.schema.gravity_y.doc = "m/s^2, negative is down"
+demo.schema.look_sensitivity.kind = real
+demo.schema.look_sensitivity.default = 0.006
+demo.schema.look_sensitivity.min = 0.0005
+demo.schema.look_sensitivity.max = 0.05
+demo.schema.look_sensitivity.doc = "radians of yaw per pixel of mouse movement"
