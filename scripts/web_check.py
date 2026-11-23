@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """B4 gate: native vs web in three comparisons, each printing PASS/FAIL; non-zero exit if any fails.
 
-    pixi run -e wasm parity-gate
+    pixi run -e wasm web-check
 
 1. world hash   native == wasm64 (equality)           scripts/parity_hashes.py
 2. PCM hash     native == wasm64 (equality)           scripts/parity_hashes.py
@@ -29,7 +29,7 @@ def main() -> int:
     }
     results["web build"] = step("web build", ["pixi", "run", "-e", "wasm", "build-web"])
     results["pixels (browser vs native, tolerance)"] = step("browsers", ["bash", "scripts/test_web.sh"])
-    print("\nparity gate")
+    print("\nweb check")
     for k, v in results.items():
         print(f"  {'PASS' if v else 'FAIL'}  {k}")
     return 0 if all(results.values()) else 1

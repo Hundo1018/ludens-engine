@@ -260,7 +260,7 @@ How to read it:
 ## B4: native / web parity gate
 
 ```
-pixi run -e wasm parity-gate    # scripts/parity_gate.py; exit 1 if any comparison fails
+pixi run -e wasm web-check      # scripts/web_check.py; exit 1 if any comparison fails
 ```
 
 | Comparison | Native side | Web side | Rule |

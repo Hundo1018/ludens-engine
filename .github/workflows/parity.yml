@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# One job, three comparisons (world hash, PCM hash, pixels), run by scripts/parity_gate.py.
+# One job, three comparisons (world hash, PCM hash, pixels), run by scripts/web_check.py.
 # Pixels render on Mesa lavapipe (software Vulkan) natively and in the runner's Firefox / Chrome.
 # Needs deps.lock revs to be reachable on GitHub (the clone fallback in scripts/deps.sh).
 jobs:
@@ -54,11 +54,11 @@ jobs:
       - name: Triplanar box face (C3) on lavapipe
         run: pixi run -e wasm test-texture-c3
 
-      - name: Parity gate
+      - name: Web check
         run: |
           export GECKODRIVER="${GECKOWEBDRIVER:+$GECKOWEBDRIVER/geckodriver}"
           export CHROME="$(command -v google-chrome)"
-          pixi run -e wasm parity-gate
+          pixi run -e wasm web-check
 
       - name: Demo game in headless Chrome (software WebGPU), frames checked
         run: pixi run -e wasm game-shot

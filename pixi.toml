@@ -39,7 +39,7 @@ multi-wasm-probe = "python3 scripts/multi_wasm_probe.py"
 # Python behaviour script can run beside the wasm64 module in a browser (Pyodide from npm, built into build/py_probe/).
 scene-merge-probe = "python3 scripts/scene_merge_probe.py"
 python-web-probe = "python3 scripts/python_web_probe.py"
-parity-gate = "python3 scripts/parity_gate.py"
+web-check = "python3 scripts/web_check.py"
 serve-web = { cmd = "python3 shell/web/serve.py 8000 build/web", depends-on = ["build-web"] }
 # B1 acceptance: app_init + 1 frame under node must not trap.
 smoke-node = { cmd = "python3 scripts/smoke_node.py", depends-on = ["build-wasm"] }
