@@ -75,6 +75,87 @@ are worth closing before more simulation breadth.
 | 7 | #122 E28 save games | — |
 | 7 | #123 E29 frame budgets and CI gates | #115 (scripted scene) |
 
+## Rendering and audio beyond the top ten (2026-11-23)
+
+Rendering and media features that had no issue, found by searching `app/`, `game/`, `ui/` and `docs/`. Put on the
+roadmap on 2026-11-23 in this order; none is built. The tiers rank how many games need a feature against its cost.
+
+| tier | issue | features | today |
+|---:|---|---|---|
+| 1 | #139 | anti-aliasing (MSAA, FXAA, TAA after measuring), bloom, colour-grading LUT | sample count 1, no AA; ACES tone mapping but no LUT; glow only inside some styles |
+| 2 | #140 | terrain renderer, decals, trails and ribbons | core generates terrain (`procedural/terrain_gen.mojo`), nothing draws it |
+| 3 | #141 | mesh LOD, volumetric fog / clouds / light shafts, global illumination | instancing, distance fog only |
+| 4 | #142 | video playback, audio streaming and compressed formats, voice chat | clips are PCM in memory; miniaudio-mojo's decoders are bound but unused |
+
+Related, already planned: particles #121, audio events / buses / music / 3D #120, spatial audio beyond it #137,
+water / reflections / ray tracing #138, device seams #135.
+
+## Gameplay support (2026-11-23)
+
+ludens-core already has most gameplay systems: abilities, combat and a hit pipeline, inventory, objectives, dialogue,
+level flow, checkpoints, saves, a camera rig, characters, vehicles, rule tables, achievements, balance, and AI
+(behaviour trees, GOAP, EQS, perception, steering, influence maps). Most of them are not exposed to a host: the
+exposure list (core ROADMAP 17.101, Hundo1018/ludens-core#159) marks them pending. That is the largest gameplay gap.
+The items below are absent everywhere and had no issue. Put on the roadmap on 2026-11-23; none is built.
+
+| issue | what |
+|---|---|
+| #143 | game feel: hitstop, time scale, screen shake, rumble timing (deterministic under replay) |
+| #144 | object pools and runtime spawning of prefabs (generational handles, capacity, deterministic order) |
+| #145 | difficulty and assist modes, tutorials and hints, dialogue graph validator |
+| #146 | in-game console and cheats (debug builds), photo mode |
+| #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport) |
+| #148 | mod support: wasm mods in a checked instance, a narrow versioned mod API |
+| #149 | live operations, monetization (store seam, receipts verified by a backend) and anti-cheat |
+
+Development tooling gaps (wasm crash symbolication, project template, API docs for game developers, multiplayer test
+harness, wasm memory profiling, store release pipelines, a Windows shell, a scripting layer, asset licence tracking)
+were listed the same day and deliberately left off the roadmap for now.
+
+## Assets and production flow (2026-11-23)
+
+Assets today: converters for glb meshes, skins and clips, textures and wav (`scripts/assets/`), read through
+`app/assets.mojo`. Already planned: the asset database #12, textures and materials #16, packing #15, hot reload #14,
+fonts #116, data tables #119, automation and batch runs #115, frame budgets #123, scene merging #125, Android
+packaging #22 and #23. The items below had no issue. Put on the roadmap on 2026-11-23; none is built. Version control
+for large binary files (LFS policy, asset locking) was considered and left off.
+
+| issue | area | what |
+|---|---|---|
+| #150 | assets | 2D: sprites, sprite sheets, tilemaps, atlas, a 2D render path (nothing 2D exists today) |
+| #151 | assets | animation retargeting between skeletons |
+| #152 | assets | material graph editor, compiling to the existing material interface |
+| #153 | assets | FBX import and DCC exporters, import validation rules, per-platform variants |
+| #154 | assets | asynchronous streaming of meshes, textures and audio at run time |
+| #155 | assets | starter asset pack for prototyping (CC0 or own work) |
+| #156 | flow | one-key bug report with replay and state; playtest analytics and heatmaps |
+| #157 | flow | level blockout (greybox) tools |
+| #158 | flow | localization workflow: export, import, missing / stale / overflow checks, pseudo-locale |
+| #159 | flow | compliance checklists: platform requirements, age ratings, privacy inventory, accessibility |
+| #160 | flow | release pipeline: game versions, player changelog, store submission |
+
+## Narrative (2026-11-23)
+
+ludens-core already runs narrative: dialogue graphs with flag conditions and effects (`gameplay/dialogue`), world flags
+and a state stack (`gameplay/flow`), event-driven objectives (`gameplay/objectives`), level transitions (`gameplay/level_flow`), timeline playback
+(`gameplay/sequence_player`), checkpoints that carry all of it (`gameplay/checkpoint`) and localization keys
+(`gameplay/loc_keys`). None is exposed
+to a host yet (Hundo1018/ludens-core#159). The dialogue validator is #145. The items below had no issue. Put on the
+roadmap on 2026-11-23; none is built.
+
+| issue | what |
+|---|---|
+| #161 | a writing format for dialogue and quests; Ink / Yarn / Twine import |
+| #162 | dialogue and quest graph editor with in-editor preview |
+| #163 | quest structure: stages, failure, timers, exclusive branches, journal |
+| #164 | barks: contextual one-liners with priority, cooldown, repetition limits |
+| #165 | staging cues in dialogue (camera, animation, audio, cutscenes) through core `gameplay/sequence_player`; skip = play-through |
+| #166 | voice-over timing and lip sync |
+| #167 | text effects, markup and variables in lines |
+| #168 | relationships, affinity and reputation |
+| #169 | automated branch coverage of dialogue and quests |
+| #170 | storylets: quality-based, systemic narrative (lowest priority) |
+
 ## Limits of this comparison
 
 - Both skill sets target mainstream engines (Godot, Unity, Unreal, three.js, Roblox) and a web scaffold of their own;

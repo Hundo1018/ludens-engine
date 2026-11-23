@@ -89,7 +89,29 @@ Pose helpers (springs, shake, framing, rails, the simulation's frustum tests) ar
   the previous frame by mesh, size and nearest position within 64 places of the list. Skinned items are not drawn
   into the velocity target; moves beyond an eighth of the frame are clipped.
 
-## Not here
+## Planned: water, reflections, ray tracing (issue #138)
+
+Not built. Decided 2026-11-23: on the roadmap now, built later.
+
+1. **Water surface.**
+   - A heightfield mesh from ludens-core's FFT ocean or shallow water (core ROADMAP 17.60).
+   - A Fresnel term.
+   - Refraction from a copy of the scene's colour and depth, offset by depth.
+   - Foam.
+2. **Water reflections.** Two candidates, compared on cost and image:
+   - **Planar reflection:** the scene drawn again, mirrored at the water plane, through the existing passes. Exact,
+     but it costs a second scene draw each frame.
+   - **Screen-space reflection (SSR):** reflects only what is on screen, and the probe fills in what is not.
+3. **Probes.** Parallax correction, several probes blended by position, and recapture when the surroundings change.
+4. **Compute ray tracing.**
+   - `app/rt_gpu.mojo` extended from AABBs to a triangle BVH.
+   - Ray-traced shadows, reflections or AO.
+   - WebGPU has no hardware ray-tracing API, so this runs in compute shaders. Its cost decides whether it is a
+     default or a high-end option.
+
+Every phase reports the frame time it adds at 1080p, natively and in a browser, and keeps a reference image per
+pipeline.
+
 
 - Reflection parallax, several probes, light probes for moving bodies, global illumination.
 - Per-bone velocity for skinned meshes; bokeh shapes.

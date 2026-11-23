@@ -171,3 +171,33 @@ events). Nothing in `app/` uses these seams yet.
 - **Lobby addresses.** A lobby hands back a peer to connect to. That address is an IP and port for UDP or TCP, a
   Steam id for Steam networking, or a signalling session for WebRTC. The Transport API takes host strings now, which
   covers only the first case.
+
+## Device seams (planned, issue #135)
+
+Not built. Decided 2026-11-23: on the roadmap now, built later. Today the only device input is touch (the virtual
+pad in `shell/web/vpad_view.ts` and `pointerdown` in `shell/web/app.ts`) and gamepads (`getGamepads` in
+`shell/web/app.ts`).
+
+Each seam follows the rules above: a trait chosen at compile time, a web implementation, a native implementation once
+the native shell exists (ludens-core ROADMAP 17.104), and a mock for tests. Reads use the `os_poll` packet layout.
+Sensors are read once per tick; camera frames go into a buffer the host allocated in wasm memory.
+
+| seam | web | native Android shell | notes |
+|---|---|---|---|
+| Haptics | `navigator.vibrate` (on/off pattern); `Gamepad.vibrationActuator` (dual rumble with strength) | `VibratorManager` (amplitude, waveforms) | iOS Safari has no `navigator.vibrate` |
+| Motion: gyroscope, accelerometer, orientation | `DeviceOrientation` / `DeviceMotion`, Generic Sensor API | `SensorManager` | HTTPS only; iOS asks the user |
+| Camera | `getUserMedia` video | Camera2 | permission; the per-frame copy into wasm memory has to be measured |
+| Microphone | `getUserMedia` audio into an AudioWorklet | `AudioRecord` | joins the existing audio path |
+| Screen: orientation lock, fullscreen, wake lock | Screen Orientation, Fullscreen and Wake Lock APIs | native | orientation lock usually needs fullscreen |
+| Pointer lock | Pointer Lock API | owned by the shell | mouse look on desktop web |
+| Later | Geolocation, Web Share, Clipboard, Notifications | native | lower priority |
+
+Phases:
+1. Web: haptics, motion, screen, pointer lock, with mocks and tests.
+2. Web: camera and microphone, with the per-frame copy cost measured.
+3. Native Android shell implementations, after 17.104.
+4. Geolocation, share, clipboard, notifications.
+
+Testing limit: headless Chrome has no real sensors, camera or vibration motor. CI can check the path from the web API
+through the JS bridge into wasm (Chrome's sensor overrides, a fake media stream) and that the mock follows the
+contract. Latency, sample rate and camera copy cost need a real phone.
