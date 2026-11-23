@@ -38,7 +38,7 @@ def core_path() -> Path:
 
 
 def run_core(*args: str) -> int:
-    return subprocess.run([str(core_path()), *args]).returncode
+    return subprocess.run([str(core_path()), *args], check=False).returncode
 
 
 def find_project(explicit: str | None) -> Path:
@@ -77,7 +77,7 @@ def cmd_trace(a) -> int:
     """Step the scene with the engine's profiling spans on and write a Chrome Trace / Perfetto JSON file."""
     import build_core
     out = Path(a.output)
-    rc = subprocess.run([str(build_core.core_trace()), "trace", scene_of(find_project(a.project)), str(a.ticks), str(out)]).returncode
+    rc = subprocess.run([str(build_core.core_trace()), "trace", scene_of(find_project(a.project)), str(a.ticks), str(out)], check=False).returncode
     if rc:
         return rc
     events = json.loads(out.read_text(encoding="utf-8"))
@@ -89,7 +89,7 @@ def cmd_trace(a) -> int:
 def cmd_overlay(a) -> int:
     """Step the scene with the physics debug-draw compiled in: one arrow per contact point per step."""
     import build_core
-    return subprocess.run([str(build_core.core_overlay()), "overlay", scene_of(find_project(a.project)), str(a.ticks), a.output]).returncode
+    return subprocess.run([str(build_core.core_overlay()), "overlay", scene_of(find_project(a.project)), str(a.ticks), a.output], check=False).returncode
 
 
 def cmd_sheet(a) -> int:
@@ -104,10 +104,10 @@ def cmd_build(a) -> int:
     if a.target != "web":
         print(f"ludens: build --target {a.target} is not implemented yet (web only); native needs the wgpu native libraries and an app entry (ludens-engine #15)", file=sys.stderr)
         return 2
-    rc = subprocess.run(["bash", str(ROOT / "scripts/build_wasm.sh")], cwd=ROOT).returncode
+    rc = subprocess.run(["bash", str(ROOT / "scripts/build_wasm.sh")], cwd=ROOT, check=False).returncode
     if rc:
         return rc
-    rc = subprocess.run([sys.executable, str(ROOT / "scripts/build_web.py")], cwd=ROOT).returncode
+    rc = subprocess.run([sys.executable, str(ROOT / "scripts/build_web.py")], cwd=ROOT, check=False).returncode
     if rc:
         return rc
     out = ROOT / "build/web"

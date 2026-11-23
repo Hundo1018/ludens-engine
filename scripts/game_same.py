@@ -27,14 +27,14 @@ def main() -> int:
     eng = serial_engine()
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(eng), "--lib", ".", "-I", str(eng), "-I", ".",
            "app/game_parity.mojo", "--target", "native", "-o", "build/game_parity"]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
     out = subprocess.run([str(ROOT / "build/game_parity")], capture_output=True, text=True, check=True).stdout
     nat = {"hash": re.search(r"^hash (\d+)", out, re.M).group(1)}
     nat["mesh_hash"] = re.search(r"mesh_hash (\d+)", out).group(1)
     r = subprocess.run(["node", str(ROOT / "scripts/game_node.mjs"), str(ROOT / "build/app.wasm"), str(ludens_wasm_rt.HOST_MJS),
-                        str(D / "wgpu-mojo"), str(D / "miniaudio-mojo")], capture_output=True, text=True)
+                        str(D / "wgpu-mojo"), str(D / "miniaudio-mojo")], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-2000:])
     wasm = json.loads(r.stdout.strip().splitlines()[-1])

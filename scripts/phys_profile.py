@@ -39,7 +39,7 @@ def variant(src: Path, tag: str) -> Path:
 def build(core: Path, *extra: str) -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(core), "--lib", ".", "-I", str(core), "-I", ".",
            "app/phys_profile.mojo", *extra]
-    p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if p.returncode:
         sys.exit(p.stdout + p.stderr[-3000:])
 
@@ -94,7 +94,7 @@ def main() -> int:
           }}
           console.log(JSON.stringify(out));
         }})"""
-        r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+        r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
         if r.returncode:
             sys.exit(r.stdout + r.stderr[-2000:])
         for n, it, sub, ms, h in json.loads(r.stdout):

@@ -56,7 +56,7 @@ def build_native(entry: str, out: Path, *, asserts: bool = False, force: bool = 
     out.parent.mkdir(exist_ok=True)
     mojo = Path(os.environ["CONDA_PREFIX"]) / "bin/mojo"
     cmd = [str(mojo), "build", *(["-D", "ASSERT=all"] if asserts else []), *[x for d in defines for x in ("-D", d)], *includes, entry, "-o", str(out)]
-    proc = subprocess.run(cmd, cwd=ROOT, env=native_libs.native_env(), capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, env=native_libs.native_env(), capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
     return out

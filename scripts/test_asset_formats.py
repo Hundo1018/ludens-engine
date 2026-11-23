@@ -40,7 +40,7 @@ def check(cond, label):
 
 
 def run(*args):
-    r = subprocess.run([sys.executable, *map(str, args)], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run([sys.executable, *map(str, args)], cwd=ROOT, capture_output=True, text=True, check=False)
     if r.returncode != 0:
         print(r.stdout + r.stderr)
     return r
@@ -243,7 +243,7 @@ def main() -> int:
           "two bones in id order, b under a, two frames")
     p0 = motion_fk.positions(asf, frames[0])
     p1 = motion_fk.positions(asf, frames[1])
-    near = lambda u, v: max(abs(x - y) for x, y in zip(u, v)) < 1e-9  # noqa: E731
+    near = lambda u, v: max(abs(x - y) for x, y in zip(u, v, strict=True)) < 1e-9  # noqa: E731
     check(near(p0["a"], [0, 1, 0]) and near(p0["b"], [2, 1, 0]), "frame 1: a ends at (0, 1, 0), b at (2, 1, 0)")
     check(near(p1["a"], [0, 0, 0]) and near(p1["b"], [0, 2, 0]),
           "frame 2 (root moved +1 x, a turned 90 deg about z): a ends at (0, 0, 0), b at (0, 2, 0)")
@@ -255,7 +255,7 @@ def main() -> int:
     print("app/assets.mojo")
     import build_core
     exe = build_core.build_native("tests/asset_formats.mojo", ROOT / "build/asset_formats", asserts=True, engine=True)
-    check(subprocess.run([str(exe)], cwd=ROOT).returncode == 0, "tests/asset_formats.mojo passes")
+    check(subprocess.run([str(exe)], cwd=ROOT, check=False).returncode == 0, "tests/asset_formats.mojo passes")
 
     print(f"asset formats: {sum(results)} / {len(results)} checks")
     return 0 if all(results) else 1

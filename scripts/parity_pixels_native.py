@@ -26,7 +26,7 @@ def main() -> int:
                 "--target", "native", "-o", "build/pixels")
     env = dict(os.environ, CONDA_PREFIX=str(ROOT / ".pixi/envs/wasm"))
     r = subprocess.run([str(ROOT / "build/pixels"), str(ROOT / "build/pixels_native.rgba"), str(FRAMES)],
-                       capture_output=True, text=True, env=env)
+                       capture_output=True, text=True, env=env, check=False)
     print((r.stdout + r.stderr).strip()[-600:])
     return r.returncode
 

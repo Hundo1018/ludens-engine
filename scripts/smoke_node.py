@@ -10,4 +10,4 @@ ROOT = Path(__file__).resolve().parent.parent
 wgpu = ROOT / "build/deps/wgpu-mojo"
 ma = ROOT / "build/deps/miniaudio-mojo"
 sys.exit(subprocess.run(["node", str(ROOT / "scripts/node_smoke.mjs"), str(ROOT / "build/app.wasm"),
-                         str(ludens_wasm_rt.HOST_MJS), str(wgpu), str(ma)]).returncode)
+                         str(ludens_wasm_rt.HOST_MJS), str(wgpu), str(ma)], check=False).returncode)

@@ -22,7 +22,7 @@ NAMES = ("hash", "lost", "bt", "runs0", "polys", "path", "rng", "fired", "cam")
 def build(eng: Path, *extra: str) -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(eng), "--lib", ".", "-I", str(eng), "-I", ".",
            "app/spike_probe.mojo", *extra]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
@@ -47,12 +47,12 @@ def main(argv: list[str]) -> int:
       const v = new BigUint64Array(rt.mem(), Number(p), {len(NAMES)});
       console.log([...v].join(' '));
     }})"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-1500:])
     wasm = r.stdout.split()
     ok = True
-    for name, a, b in zip(NAMES, nat, wasm):
+    for name, a, b in zip(NAMES, nat, wasm, strict=True):
         ok &= a == b
         print(f"{name:6} native {a:>22}  wasm64 {b:>22}  {'equal' if a == b else 'DIFFERENT'}")
     print("spike probe:", "PASS" if ok else "FAIL")

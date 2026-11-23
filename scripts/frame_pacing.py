@@ -28,7 +28,7 @@ BUDGET_MS = 1000.0 / 144.0
 def build(entry: str, *extra: str, engine: Path) -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(engine), "--lib", ".", "-I", str(engine),
            "-I", ".", entry, *extra]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
@@ -44,7 +44,7 @@ def wasm_costs() -> dict[int, float]:
       }}
       console.log(JSON.stringify(out));
     }})"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-1500:])
     return {int(k): v for k, v in json.loads(r.stdout).items()}

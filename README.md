@@ -129,6 +129,10 @@ input is keys, and an analog axis needs a new event kind through `app_input`.
 
 Checked by `scripts/check_layout.py` (`pixi run -e wasm check-layout`; `--selftest` injects one violation per rule).
 
+`pixi run -e wasm lint` (`scripts/lint.py`, about 4 s) runs the fast static checks beside it: ruff's bug-finding rules
+(`ruff.toml`), shellcheck, backticked names in comments and docs that no code defines (`scripts/stale_refs.py`, allow list
+`scripts/stale_refs_allow.txt`) and the Mojo rules in `scripts/code_rules.py`.
+
 1. **Directories.**
    - `shell/<platform>/` implements imports only. It holds no editor or UI symbol (`editor_*`, `ed_*`, `ui_*`),
      no path into `editor/` or `ui/`, and uses only generic `app_*` exports.

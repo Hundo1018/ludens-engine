@@ -18,7 +18,6 @@ import io
 import json
 import pathlib
 import struct
-import sys
 import wave
 import zipfile
 

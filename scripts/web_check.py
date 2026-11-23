@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def step(name: str, cmd: list[str]) -> bool:
     print(f"\n=== {name}", flush=True)
-    ok = subprocess.run(cmd, cwd=ROOT).returncode == 0
+    ok = subprocess.run(cmd, cwd=ROOT, check=False).returncode == 0
     print(f"=== {name}: {'PASS' if ok else 'FAIL'}", flush=True)
     return ok
 

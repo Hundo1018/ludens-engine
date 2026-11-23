@@ -20,7 +20,7 @@ from bench import serial_engine  # noqa: E402
 def build(entry: str, eng: Path, *extra: str) -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(eng), "--lib", ".", "-I", str(eng), "-I", "app",
            entry, *extra]
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
 
@@ -51,7 +51,7 @@ def main() -> int:
       const vb = new BigUint64Array(b.mem(), Number(outB), 1);
       console.log(len + ' ' + va[0] + ' ' + vb[0]);
     }})"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stdout + r.stderr[-1500:])
     wlen, wref, wswap = r.stdout.split()

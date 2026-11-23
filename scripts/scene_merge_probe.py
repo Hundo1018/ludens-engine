@@ -403,7 +403,7 @@ def git_merge_file(d: Path, base: str, a: str, b: str) -> tuple[bool, str]:
     (d / "a").write_text(a)
     (d / "b").write_text(b)
     r = subprocess.run(["git", "merge-file", "-p", str(d / "a"), str(d / "base"), str(d / "b")],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=False)
     if r.returncode < 0 or r.returncode > 127:
         raise RuntimeError(r.stderr)
     return r.returncode == 0, r.stdout
@@ -418,7 +418,7 @@ def git_merge_repo(d: Path, base: str, a: str, b: str) -> bool:
 
     def git(*args, ok=(0,)):
         r = subprocess.run(["git", "-c", "user.name=probe", "-c", "user.email=probe@example.invalid", *args],
-                           cwd=repo, capture_output=True, text=True)
+                           cwd=repo, capture_output=True, text=True, check=False)
         if r.returncode not in ok:
             raise RuntimeError(r.stderr + r.stdout)
         return r.returncode
@@ -493,7 +493,7 @@ def merge_table(entities: int, trials: int, ops_list: list[int], seed: int) -> l
                     else:
                         try:
                             ok = read(text) == want
-                        except Exception:
+                        except Exception:  # noqa: BLE001  -- any error reading a merged text is a failed merge, counted
                             ok = False
                         stats[name][1] += not ok
                 for name, spaced in PER_ENTITY.items():
@@ -571,7 +571,7 @@ def size_table(sizes: list[int], seed: int) -> list[str]:
             split_ms = (time.perf_counter() - t0) * 1000
             with tempfile.TemporaryDirectory() as tmp:
                 repo = Path(tmp)
-                git = lambda *a: subprocess.run(["git", "-c", "user.name=probe", "-c", "user.email=probe@example.invalid",
+                git = lambda *a, repo=repo: subprocess.run(["git", "-c", "user.name=probe", "-c", "user.email=probe@example.invalid",
                                                  *a], cwd=repo, check=True, capture_output=True)
                 git("init", "-q", "-b", "main")
                 git("config", "gc.auto", "0")  # a commit would start a background gc that collides with pack_bytes
@@ -584,7 +584,7 @@ def size_table(sizes: list[int], seed: int) -> list[str]:
                     s, o = edit(random.Random(f"{seed}/size/{n}/{c}"), s, o, 5)
                     write_scene(repo, write(s, o), shards)
                     changed = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True,
-                                             text=True).stdout.split("\n")
+                                             text=True, check=True).stdout.split("\n")
                     for line in changed:
                         p = repo / line[3:].strip() if line else None
                         if p and p.is_file():
@@ -639,7 +639,7 @@ def main() -> int:
         return selftest()
     trials = 12 if args.quick else args.trials
     sizes = [1000, 10000] if args.quick else [1000, 10000, 100000]
-    git_version = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout.strip()
+    git_version = subprocess.run(["git", "--version"], capture_output=True, text=True, check=True).stdout.strip()
     print(f"scene_merge_probe: seed {args.seed}, {git_version}, python {sys.version.split()[0]}\n")
     if not args.sizes_only:
         print("\n".join(merge_table(1000, trials, [5, 20, 80], args.seed)))

@@ -18,6 +18,9 @@ llvm-tools = "23.1.4.*"
 nodejs = "24.*"
 # scripts/assets/convert_texture.py resizes with Lanczos; the output bytes are only stable for a fixed Pillow (issue #12).
 pillow = "==13.0.0"
+# `pixi run -e wasm lint` (scripts/lint.py): only bug-finding ruff rules (ruff.toml), and shellcheck.
+ruff = ">=0.17.6,<0.18"
+shellcheck = ">=0.11.0,<0.12"
 
 [feature.wasm.pypi-dependencies]
 ludens-wasm-rt = { git = "https://github.com/Hundo1018/ludens-wasm-rt", rev = "1034e60e3ee4acf08970c7f48f2fd46eadea344c" }
@@ -45,6 +48,10 @@ serve-web = { cmd = "python3 shell/web/serve.py 8000 build/web", depends-on = ["
 smoke-node = { cmd = "python3 scripts/smoke_node.py", depends-on = ["build-wasm"] }
 # #6 (E1): the directory rules (selftest: `pixi run -e wasm check-layout --selftest`) and the command-layer test.
 check-layout = "python3 scripts/check_layout.py"
+# Fast static checks: ruff, shellcheck, stale names in comments and docs, Mojo code rules (scripts/lint.py).
+lint = "python3 scripts/lint.py"
+stale-refs = "python3 scripts/stale_refs.py"
+code-rules = "python3 scripts/code_rules.py"
 test-editor = "python3 scripts/test_editor.py"
 # #11 (E6): the native editor core, the `ludens` command line, and its test.
 build-core = "python3 scripts/build_core.py"

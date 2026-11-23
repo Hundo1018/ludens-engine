@@ -29,7 +29,7 @@ def check(cond: bool, label: str) -> None:
 
 
 def build() -> subprocess.CompletedProcess:
-    return subprocess.run([*LUDENS, "build", "--target", "web"], cwd=ROOT, capture_output=True, text=True)
+    return subprocess.run([*LUDENS, "build", "--target", "web"], cwd=ROOT, capture_output=True, text=True, check=False)
 
 
 def main() -> int:
@@ -56,7 +56,7 @@ def main() -> int:
 
     before = (WEB / "MANIFEST.sha256").read_bytes()
     for target in ("native", "android"):
-        r = subprocess.run([*LUDENS, "build", "--target", target], cwd=ROOT, capture_output=True, text=True)
+        r = subprocess.run([*LUDENS, "build", "--target", target], cwd=ROOT, capture_output=True, text=True, check=False)
         check(r.returncode != 0 and "not implemented" in r.stderr, f"--target {target} exits non-zero and says it is not implemented")
     check((WEB / "MANIFEST.sha256").read_bytes() == before, "...and leaves build/web as it was")
 

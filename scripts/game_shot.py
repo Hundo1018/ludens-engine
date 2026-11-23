@@ -25,7 +25,7 @@ def main() -> int:
     try:
         time.sleep(2)
         r = subprocess.run(["node", "scripts/game_screenshot.mjs", chrome, "http://127.0.0.1:8139/index.html?offscreen",
-                            str(out / "game"), "150"], cwd=ROOT)
+                            str(out / "game"), "150"], cwd=ROOT, check=False)
     finally:
         server.kill()
     print("frames in", out)
