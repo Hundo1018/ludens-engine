@@ -39,7 +39,7 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 Next in emphasis: **accessibility** (H in one set, M in the other; nothing exists here, #118), a **dialogue graph
 with a validator** (core `gameplay/dialogue` is L3 with no asset format or validator), **networking with a real
 server** (in-page rollback and prediction are L1; no remote server, matchmaking or relay), **telemetry and crash
-reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **particles** (none, #121).
+reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **particles** (built in #121: `docs/particles.md`).
 
 ## Domains that were never in focus
 
@@ -50,7 +50,7 @@ reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **par
    test or an agent can drive (#115).
 4. **Content as data.** Tables, schemas and tuning, which the scene format's schema (§8 of `docs/scene-format.md`)
    needs anyway (#119).
-5. **Common rendering features.** No particles, no terrain rendering, no bloom or anti-aliasing, while 53 style
+5. **Common rendering features.** Particles are built (#121, `docs/particles.md`); no terrain rendering, no bloom or anti-aliasing, while 53 style
    pipelines exist.
 
 ## Where the investment runs ahead of the need

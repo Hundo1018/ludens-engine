@@ -391,6 +391,7 @@ today.
 | `material` | kind (color / uv / triplanar / sky / pbr), color, texture, roughness, metallic | `MAT_*`, `layer` |
 | `skin` | skeleton asset, clip | `pose_id` |
 | `light` | kind (point / spot / dir / area) and that kind's fields, shadow | `PointLight`, `SpotLight`, `DirLight`, `AreaLight` |
+| `particles` | the emitter fields of `docs/particles.md` (rate, bursts, lifetime, velocity cone, gravity, drag, size and colour curves, blend, flipbook, budget, LOD), `seed`, `playing` | `game/particles.mojo` `ParticlesComponent` |
 | `sun`, `environment`, `atmosphere`, `ao` (scene root) | the sun; the environment (uniform / sky / equirect / probe); fog and exposure; the AO region | `set_sun`, `set_environment`, `set_atmosphere`, `set_ao` |
 | `camera` | perspective or orthographic, fov or half height, near, far, focus, f-stop, sensor, shutter | `CameraPose`, `View`, `lens_*` |
 | `pipeline` (scene root) | the name of a pipeline and its parameters | see below |

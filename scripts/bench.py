@@ -46,12 +46,48 @@ def parallel_engine() -> Path:
     return _engine_variant("ludens-core-parallel", False)
 
 
-def build(*extra: str, engine: Path = D / "ludens-core") -> None:
+def build(*extra: str, engine: Path = D / "ludens-core", entry: str = "app/bench.mojo") -> None:
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(engine), "--lib", ".",
-           "-I", str(engine), "app/bench.mojo", *extra]
+           "-I", str(engine), *(["-I", "."] if entry != "app/bench.mojo" else []), entry, *extra]
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
         sys.exit(proc.stdout + proc.stderr)
+
+
+PARTICLES = {1000: 20, 10000: 20, 100000: 5}
+
+
+def particles_report() -> bool:
+    """#121: CPU frame cost of the particle simulation (step + sort + pack) for 1k / 10k / 100k live particles, native
+    against wasm64, and whether the packed records are the same bytes."""
+    build("--target", "native", "-o", "build/particle_bench", engine=serial_engine(), entry="app/particle_bench.mojo")
+    build("--target", "wasm64", "-o", "build/particle_bench.wasm", "--export", "particle_bench_*", entry="app/particle_bench.mojo")
+    native = subprocess.run([str(ROOT / "build/particle_bench")], capture_output=True, text=True, check=True).stdout
+    nat = {int(m[0]): m[1:] for m in re.findall(r"n (\d+) frames \d+ step_ms ([\d.]+) pack_ms ([\d.]+) hash (\d+)", native)}
+    js = f"""import('{ludens_wasm_rt.HOST_MJS}').then(async m => {{
+      const rt = await m.instantiate(require('fs').readFileSync('{ROOT / 'build/particle_bench.wasm'}'));
+      const p = rt.alloc(24);
+      const out = {{}};
+      for (const [n, frames] of {__import__("json").dumps(list(PARTICLES.items()))}) {{
+        if (rt.call('particle_bench_run', n, frames, p) !== 0) throw new Error('particle_bench_run failed');
+        const v = new BigUint64Array(rt.mem(), Number(p), 3);
+        out[n] = [Number(v[0]) / 1e6, Number(v[1]) / 1e6, v[2].toString()];
+      }}
+      console.log(JSON.stringify(out));
+    }})"""
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=False)
+    if r.returncode:
+        sys.exit(r.stdout + r.stderr[-1500:])
+    wasm = __import__("json").loads(r.stdout)
+    print("\n| live particles | native ms/frame (step + pack) | wasm64 ms/frame | wasm / native | records equal |")
+    print("|---:|---:|---:|---:|:---:|")
+    ok = True
+    for n in PARTICLES:
+        ns, npk, nh = float(nat[n][0]), float(nat[n][1]), nat[n][2]
+        ws, wpk, wh = wasm[str(n)]
+        ok &= nh == wh
+        print(f"| {n} | {ns + npk:.2f} ({ns:.2f} + {npk:.2f}) | {ws + wpk:.2f} ({ws:.2f} + {wpk:.2f}) | {(ws + wpk) / (ns + npk):.2f}x | {'yes' if nh == wh else 'NO'} |")
+    return ok
 
 
 def main() -> int:
@@ -93,6 +129,7 @@ def main() -> int:
         pp, pg = float(par[n][0]), float(par[n][1])
         print(f"| {n} | {np_ + ng:.2f} ({np_:.2f} + {ng:.2f}) | {wp + wg:.2f} ({wp:.2f} + {wg:.2f}) | {(wp + wg) / (np_ + ng):.2f}x "
               f"| {pp + pg:.2f} ({pp:.2f} + {pg:.2f}) | {(wp + wg) / (pp + pg):.2f}x | {'yes' if same else 'NO'} |")
+    ok &= particles_report()
     return 0 if ok else 1
 
 

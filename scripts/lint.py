@@ -12,6 +12,7 @@ Each check prints its own findings under its line. The checks (ported from luden
   shellcheck   scripts/*.sh
   gen-table    game/demo_table.mojo is what scripts/gen_table.py writes from game/data/demo.schema (#119)
   gen-actions  game/demo_actions.mojo is what scripts/gen_actions.py writes from game/data/demo.actions (#117)
+  gen-particles game/particles_table.mojo is what scripts/gen_table.py writes from game/data/particles.schema (#121)
   selftests    the selftests of code_rules and stale_refs
 
 CI runs it in the `directory rules` job (.github/workflows/editor.yml), next to check-layout.
@@ -37,6 +38,7 @@ CHECKS = {
     "shellcheck": lambda: ["shellcheck", "-f", "gcc", *shell_files()],
     "gen-table": lambda: [PY, "scripts/gen_table.py", "game/data/demo.schema", "--table", "game/data/demo.table", "-o", "game/demo_table.mojo", "--check"],
     "gen-actions": lambda: [PY, "scripts/gen_actions.py", "--check"],
+    "gen-particles": lambda: [PY, "scripts/gen_table.py", "game/data/particles.schema", "--table", "game/data/particles.table", "-o", "game/particles_table.mojo", "--check"],
     "selftests": lambda: None,
 }
 
