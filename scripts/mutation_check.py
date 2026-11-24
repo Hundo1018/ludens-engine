@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NATIVE = ["python3", "scripts/test_native.py", "action_map"]
 DEMO = ["python3", "scripts/test_native.py", "demo_mode"]
+SAVE = ["python3", "scripts/test_native.py", "game_save"]
 INPUT_PATH = ["python3", "scripts/test_native.py", "input_path"]
 BUILD = ["bash", "scripts/build_wasm.sh"]
 E2E = ["bash", "-c", "bash scripts/build_wasm.sh > /dev/null && python3 scripts/test_input.py"]
@@ -29,6 +30,8 @@ MUTATIONS = {
     "pad-button": ("game/action_map.mojo", "return PAD_BUTTON_BASE + PAD_BUTTON_STRIDE * device + button", "return PAD_BUTTON_BASE + button", NATIVE, "device offset of a pad button is lost"),
     "buffer": ("game/action_map.mojo", "self.left_ms = window_ms if window_ms > 0.0 else 0.0", "self.left_ms = 0.0", NATIVE, "the buffer window is ignored"),
     "demo-buffer": ("game/demo_mode.mojo", "self.jump_buffer.press(Float64(intent.jump_buffer_ms))", "self.jump_buffer.press(0.0)", DEMO, "the demo game ignores the window"),
+    "save-buffer": ("game/demo_mode.mojo", "        self.jump_buffer.left_ms = left_ms\n", "", SAVE, "a save drops the pending jump press"),
+    "migrate-bytes": ("game/demo_mode.mojo", "        for _ in range(9):\n            out.append(0)\n", "        for _ in range(8):\n            out.append(0)\n", SAVE, "the 1 -> 2 migration inserts 8 bytes, not 9"),
     "axis-sign": ("game/data/demo.actions", "bind move.y -pad:a1", "bind move.y pad:a1", NATIVE, "stick up moves backward"),
     "profile-restore": ("app/profile.mojo", "self.problems = len(actions.load_profile(text))", "self.problems = 0", E2E, "the app never applies the saved profile"),
     "profile-save": ("app/main.mojo", "        _ = a[].profile.save(a[].controls.actions.profile())\n        return 0", "        return 0", E2E, "the app never saves the profile"),

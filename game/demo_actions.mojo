@@ -5,9 +5,8 @@ comptime DEMO_ACTIONS_TEXT = """ludens-actions 1
 # The demo game's input, by intent. A game reads these names, never a key. Format: docs/input.md
 action move stick deadzone=0.2 curve=1.0
 action look look
-# buffer_ms=0: a press only counts in its own frame. The golden tests/golden/sim_demo_table.txt was made that way; 100 buffers a press made
-# up to 100 ms before landing (tests/demo_mode.mojo runs the game with 100).
-action jump button buffer_ms=0
+# buffer_ms=100: a jump pressed up to 100 ms before landing fires on landing (the game keeps it in an InputBuffer).
+action jump button buffer_ms=100
 action pause button
 action restart button
 

@@ -14,15 +14,17 @@ struct SimInput(Copyable, Movable):
     var forward: Real
     var right: Real
     var jump_every: Int
+    var jump_buffer_ms: Real  # the window a player's jump press has, from the game's action map (Intent.jump_buffer_ms)
 
-    def __init__(out self, forward: Real, right: Real, jump_every: Int):
+    def __init__(out self, forward: Real, right: Real, jump_every: Int, jump_buffer_ms: Real = 0):
         self.forward = forward
         self.right = right
         self.jump_every = jump_every
+        self.jump_buffer_ms = jump_buffer_ms
 
     def at(self, frame: Int) -> Intent:
         var jump = self.jump_every > 0 and frame % self.jump_every == 0
-        return Intent(self.forward, self.right, Real(0), Real(0), jump, False, False)
+        return Intent(self.forward, self.right, Real(0), Real(0), jump, False, False, self.jump_buffer_ms)
 
 
 def simulate[M: GameMode](seeds: List[UInt64], ticks: Int, scene: String, input: SimInput) raises:

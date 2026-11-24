@@ -12,7 +12,7 @@ from game.intent import Intent
 from game.mode import GameMode
 from game.tuning import Tuner
 from game.tuning_panel import TuningPanel
-from platform.save_store import get_uint, put_uint
+from platform.save_store import Migrator, get_uint, put_uint
 from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
@@ -33,7 +33,7 @@ comptime IMPACT_FULL_IMPULSE: Float32 = 8.0  # at this impulse an impact plays a
 comptime IMPACTS_PER_FRAME = 4
 comptime MAX_PLACED_CUES = 32  # cues kept for a host that does not take them; impacts stop being queued at this length
 comptime IMPACT_SETTLE_TICKS = 30  # bodies placed overlapping the floor settle in the first ticks; that is not an impact
-comptime DEMO_SAVE_VERSION = 1
+comptime DEMO_SAVE_VERSION = 2  # 2: the pending jump press (`jump_buffer`) after `paused`; DemoMigrator turns a version 1 payload into it
 comptime BALL: Real = 0.4
 comptime TAU: Float64 = 6.283185307179586
 
@@ -252,8 +252,10 @@ struct DemoMode(GameMode):
         return DEMO_SAVE_VERSION
 
     def save_state(self) raises -> List[UInt8]:
-        """Version 1: seed u64, scene length u8 and bytes, yaw (Float64 bits) u64, tick u64, jumps u64, paused u8, then the
-        world blob (`EmbedWorld.save`) to the end. The tuned values (`tune`) are settings, not run state: not saved."""
+        """Version 2: seed u64, scene length u8 and bytes, yaw (Float64 bits) u64, tick u64, jumps u64, paused u8, the pending
+        jump press (milliseconds left, Float64 bits, u64; whether it was pressed in the frame being stepped, u8), then the
+        world blob (`EmbedWorld.save`) to the end. Version 1 had no pending press (`DemoMigrator` adds 0 and False). The tuned
+        values (`tune`) are settings, not run state: not saved."""
         var out = List[UInt8]()
         put_uint(out, self.seed, 8)
         var name = self.scene_name.as_bytes()
@@ -264,6 +266,8 @@ struct DemoMode(GameMode):
         put_uint(out, UInt64(self.tick), 8)
         put_uint(out, UInt64(self.jumps), 8)
         put_uint(out, UInt64(1 if self.paused else 0), 1)
+        put_uint(out, UInt64(self.jump_buffer.left_ms.to_bits()), 8)
+        put_uint(out, UInt64(1 if self.jump_buffer.fresh else 0), 1)
         out.extend(self.world.save())
         return out^
 
@@ -277,7 +281,7 @@ struct DemoMode(GameMode):
         pos = 8
         var n = Int(data[pos])
         pos += 1
-        if pos + n + 8 + 8 + 8 + 1 > len(data):
+        if pos + n + 8 + 8 + 8 + 1 + 8 + 1 > len(data):
             raise Error("demo save: truncated")
         var name = String()
         for i in range(n):
@@ -290,7 +294,10 @@ struct DemoMode(GameMode):
         var tick = Int(get_uint(data, pos + 8, 8))
         var jumps = Int(get_uint(data, pos + 16, 8))
         var paused = data[pos + 24] != 0
-        pos += 25
+        var left_bits = get_uint(data, pos + 25, 8)
+        var left_ms = Pointer(to=left_bits).unsafe_bitcast[Float64]()[]
+        var fresh = data[pos + 33] != 0
+        pos += 34
         var blob = List[UInt8](capacity=len(data) - pos)
         for i in range(pos, len(data)):
             blob.append(data[i])
@@ -302,6 +309,8 @@ struct DemoMode(GameMode):
         self.tick = tick
         self.jumps = jumps
         self.paused = paused
+        self.jump_buffer.left_ms = left_ms
+        self.jump_buffer.fresh = fresh
         self.cue_queue = List[Int]()
         self.placed_cues.clear()  # cues raised before the load are not replayed after it
         self._refresh_texts()
@@ -528,3 +537,32 @@ struct DemoMode(GameMode):
         if self.jump_buffer.left_ms > 0.0:  # a press still pending is part of what the next ticks do
             h = (h ^ UInt64(Int(self.jump_buffer.left_ms * 1000.0))) * UInt64(0x100000001B3)
         return h
+
+
+struct DemoMigrator(Migrator):
+    """The demo game's save migrations, one step per version (platform/save_store.mojo `migrate_payload`)."""
+
+    def __init__(out self):
+        pass
+
+    def can_migrate(self, from_version: Int) -> Bool:
+        return from_version == 1
+
+    def migrate(self, from_version: Int, payload: List[UInt8]) raises -> List[UInt8]:
+        """1 -> 2: a save from before the jump buffer has no pending press: insert 0.0 (8 bytes) and False (1 byte) after `paused`."""
+        if from_version != 1:
+            raise Error("demo save: no migration from version " + String(from_version))
+        if len(payload) < 9:
+            raise Error("demo save: truncated")
+        var n = Int(payload[8])
+        var at = 8 + 1 + n + 8 + 8 + 8 + 1  # seed, scene length and name, yaw, tick, jumps, paused
+        if at > len(payload):
+            raise Error("demo save: truncated")
+        var out = List[UInt8](capacity=len(payload) + 9)
+        for i in range(at):
+            out.append(payload[i])
+        for _ in range(9):
+            out.append(0)
+        for i in range(at, len(payload)):
+            out.append(payload[i])
+        return out^
