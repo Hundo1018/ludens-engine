@@ -1,0 +1,10 @@
+# Track list for the music mixer (app/audio_assets.mojo parse_music). A layer is a clip name: the .lsound file without its suffix.
+# Every layer of a track has the same length (two bars); a request to change track takes effect at the next bar line.
+track calm
+  bpm 120
+  beats 4
+  layers calm_pad calm_perc
+track tense
+  bpm 120
+  beats 4
+  layers tense_pad

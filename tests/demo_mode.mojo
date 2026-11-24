@@ -2,7 +2,7 @@
 """The demo game (game/demo_mode.mojo): the same input gives the same hash, the ball moves and jumps, a jump raises its
 cue once and its clip is audible, pause freezes the world, restart returns to the start. Native only:
 `pixi run -e wasm test-game`."""
-from game.demo_mode import DemoMode, CUE_JUMP
+from game.demo_mode import DemoMode, CUE_IMPACT, CUE_JUMP
 from game.camera_view import View
 from game.intent import Intent
 from geometry.vec import Real
@@ -99,13 +99,27 @@ def main() raises:
 
     var m = DemoMode()
     var start = m.camera().position
-    var cues = 0
+    var cues = 0  # the jump is a positioned cue now (#120): at the ball, and logged like a plain cue
+    var jump_y = Float32(9.0)
+    var impacts = 0
+    var impact_near_ball = False
     for t in range(180):
         m.step(script(t), 1.0 / 60.0)
+        var b = m.world.state(m.ball).pos
         for cue in m.cues():
-            if cue == CUE_JUMP:
+            cues += 1000  # a plain cue would be a second source of the jump
+        for pc in m.positioned_cues():
+            if pc.cue == CUE_JUMP and pc.logged:
                 cues += 1
+                jump_y = pc.y
+            if pc.cue == CUE_IMPACT:
+                impacts += 1
+                if abs(pc.x - Float32(b[0])) < 0.6 and abs(pc.z - Float32(b[2])) < 0.6 and pc.y < 0.15 and t > 30:
+                    impact_near_ball = True
+                c.ok(not pc.logged and pc.gain_db >= -30.0 and pc.gain_db <= 0.0 and t >= 30, "an impact is not logged, is -30 .. 0 dB and not in the settling ticks (frame " + String(t) + ")")
     c.ok(cues == 1 and m.jumps == 1, "one jump from one Space press (" + String(cues) + " cue, " + String(m.jumps) + " jumps)")
+    c.ok(abs(jump_y - 0.4) < 0.05, "the jump cue is at the ball on the floor: y = " + String(jump_y))
+    c.ok(impacts == 1 and impact_near_ball, "the ball's landing raises one impact, at the contact point under it; resting contacts raise none (" + String(impacts) + " impacts)")
     c.ok(abs(m.camera().position[0] - start[0]) + abs(m.camera().position[2] - start[2]) > 1.0, "the chase camera follows the ball")
     var view = View(m.camera(), 1.78)
     var ball = m.world.state(m.ball).pos
@@ -116,7 +130,44 @@ def main() raises:
     var peak = Float32(0)
     for v in clips[0]:
         peak = max(peak, abs(v))
-    c.ok(len(clips) == 1 and len(clips[0]) == 2 * 7680 and peak > 0.2, "one jump clip of 0.16 s, audible (peak " + String(peak) + ")")
+    c.ok(len(clips) == 2 and len(clips[0]) == 2 * 7680 and peak > 0.2, "the jump clip of 0.16 s, audible (peak " + String(peak) + ")")
+    var thud_peak = Float32(0)
+    for v in clips[1]:
+        thud_peak = max(thud_peak, abs(v))
+    c.ok(len(clips[1]) == 2 * 6720 and thud_peak > 0.2, "the impact clip of 0.14 s, audible (peak " + String(thud_peak) + ")")
+
+    # a host that never takes the cues: jumping every 40 frames lands many times, impacts stay at 4 per step and the list stays short
+    var deaf = DemoMode()
+    var worst_step = 0
+    for t in range(600):
+        var before = len(deaf.placed_cues)
+        deaf.step(Intent(Real(0), Real(0), Real(0), Real(0), t % 40 == 30, False, False), 1.0 / 60.0)
+        var added = 0
+        for pc in deaf.placed_cues[before:]:
+            if pc.cue == CUE_IMPACT:
+                added += 1
+        worst_step = max(worst_step, added)
+    var total_impacts = 0
+    for pc in deaf.placed_cues:
+        if pc.cue == CUE_IMPACT:
+            total_impacts += 1
+    c.ok(total_impacts > 4, "cues nobody takes are not capped at the first four impacts (" + String(total_impacts) + " queued)")
+    c.ok(worst_step <= 4 and len(deaf.placed_cues) <= 32 + 15, "at most 4 impacts per step, and the list is bounded (" + String(len(deaf.placed_cues)) + " cues after 600 steps)")
+    var jump_cues = 0
+    var jump_vy = Float32(0)
+    for pc in deaf.placed_cues:
+        if pc.cue == CUE_JUMP:
+            jump_cues += 1
+            jump_vy = pc.vy
+    c.ok(jump_cues > 0 and jump_vy > 1.0, "a jump cue carries the ball's upward velocity (" + String(jump_vy) + " m/s)")
+
+    # a load does not replay cues raised before it: the jump below is queued, a save taken, the queue is gone after load_state
+    var saved = DemoMode()
+    for t in range(35):
+        saved.step(Intent(Real(0), Real(0), Real(0), Real(0), t == 31, False, False), 1.0 / 60.0)
+    var blob = saved.save_state()
+    c.ok(len(saved.placed_cues) > 0, "a jump cue is queued before the load (" + String(len(saved.placed_cues)) + " cues)")
+    c.ok(saved.load_state(blob) and len(saved.positioned_cues()) == 0, "load_state drops the cues queued before it")
 
     # an airborne ball cannot jump again
     var air = DemoMode()

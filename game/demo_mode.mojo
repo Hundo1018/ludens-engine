@@ -2,7 +2,8 @@
 something to measure. A ball on a floor with four pillars and three crates to push. WASD moves it relative to the
 camera, Space jumps (with a sound), dragging turns the camera, P pauses, R restarts. Real games live in their own
 repositories (ludens-playground has one); nothing in `app/` or `ui/` knows this one except the shell's `App` alias."""
-from embed.world import EmbedWorld
+from embed.world import EmbedWorld, EVENT_BEGAN
+from game.cue import SoundCue
 from game.draw_item import DrawItem
 from game.demo_table import DemoRow, demo_default_table, demo_row, DEMO_TABLE_TEXT
 from game.table import table_load
@@ -25,6 +26,12 @@ from ui.scale import UiEnv, UiScale
 from ui.sdf_font import FontMetrics
 
 comptime CUE_JUMP = 1
+comptime CUE_IMPACT = 2
+comptime IMPACT_MIN_IMPULSE: Float32 = 0.4  # contact impulses below this make no sound
+comptime IMPACT_FULL_IMPULSE: Float32 = 8.0  # at this impulse an impact plays at its full volume
+comptime IMPACTS_PER_FRAME = 4
+comptime MAX_PLACED_CUES = 32  # cues kept for a host that does not take them; impacts stop being queued at this length
+comptime IMPACT_SETTLE_TICKS = 30  # bodies placed overlapping the floor settle in the first ticks; that is not an impact
 comptime DEMO_SAVE_VERSION = 1
 comptime BALL: Real = 0.4
 comptime TAU: Float64 = 6.283185307179586
@@ -63,6 +70,8 @@ struct DemoMode(GameMode):
     var seed: UInt64  # 0 = the fixed layout; any other value moves the crates and the ball's start (`_build`)
     var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
+    var impacts_this_step: Int  # impacts queued by the current step(), at most IMPACTS_PER_FRAME
+    var placed_cues: List[SoundCue]  # jump and impact cues with a position, until the host takes them
     var step_physics_ns: Int64  # time in physics_tick during the last step (not game state: not hashed)
     var tuner: Tuner  # game/data/demo.table under its schema; edits apply at a tick boundary (#119)
     var tune: DemoRow  # the tuned values the ticks read
@@ -93,6 +102,8 @@ struct DemoMode(GameMode):
         self.seed = 0
         self.scene_name = String("arena")
         self.cue_queue = List[Int]()
+        self.placed_cues = List[SoundCue]()
+        self.impacts_this_step = 0
         self.step_physics_ns = 0
         self.loc = demo_localizer()
         self.env = UiEnv.default()
@@ -137,6 +148,8 @@ struct DemoMode(GameMode):
         self.seed = move.seed
         self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
+        self.placed_cues = move.placed_cues^
+        self.impacts_this_step = move.impacts_this_step
         self.step_physics_ns = move.step_physics_ns
         self.tuner = move.tuner^
         self.tune = move.tune^
@@ -286,11 +299,13 @@ struct DemoMode(GameMode):
         self.jumps = jumps
         self.paused = paused
         self.cue_queue = List[Int]()
+        self.placed_cues.clear()  # cues raised before the load are not replayed after it
         self._refresh_texts()
         return True
 
     def _restart(mut self) raises:
         self.world = EmbedWorld(1.0 / 60.0, self._gravity())
+        self.placed_cues.clear()
         self.props = List[Prop]()
         self.yaw = 0.0
         self.tick = 0
@@ -304,6 +319,7 @@ struct DemoMode(GameMode):
 
     def _step(mut self, intent: Intent, frame_dt: Float64) raises:
         self.step_physics_ns = 0
+        self.impacts_this_step = 0
         if intent.restart:
             self._restart()
         if intent.pause:
@@ -324,12 +340,14 @@ struct DemoMode(GameMode):
             if jump and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
                 vy = Real(self.tune.jump_speed)
                 self.jumps += 1
-                self.cue_queue.append(CUE_JUMP)
+                var at = self.world.state(self.ball).pos
+                self.placed_cues.append(SoundCue(CUE_JUMP, Float32(at[0]), Float32(at[1]), Float32(at[2]), 0.0, True, Float32(v[0]), Float32(vy), Float32(v[2])))
             jump = False
             self.world.set_velocity(self.ball, Vec3(v[0], vy, v[2], 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
             var t0 = perf_counter_ns()
             self.world.physics_tick()
             self.step_physics_ns += Int64(perf_counter_ns() - t0)
+            self._impacts()
             self.tick += 1
 
     def overlay(mut self, width: Float32, height: Float32, pointer_x: Float32, pointer_y: Float32, pointer_down: Bool, toggle: Bool) raises -> DrawList:
@@ -371,6 +389,33 @@ struct DemoMode(GameMode):
         self.cue_queue.clear()
         return out^
 
+    def positioned_cues(mut self) -> List[SoundCue]:
+        var out = self.placed_cues.copy()
+        self.placed_cues.clear()
+        return out^
+
+    def _impacts(mut self):
+        """An impact sound at each contact point that began this tick with an impulse above IMPACT_MIN_IMPULSE, louder with the
+        impulse (-30 dB at the minimum, 0 dB at IMPACT_FULL_IMPULSE); at most IMPACTS_PER_FRAME per host frame."""
+        if self.tick < IMPACT_SETTLE_TICKS:
+            return
+        for e in self.world.tick_events:
+            if self.impacts_this_step >= IMPACTS_PER_FRAME or len(self.placed_cues) >= MAX_PLACED_CUES:
+                return
+            if e.kind != Int64(EVENT_BEGAN) or e.impulse < IMPACT_MIN_IMPULSE:
+                continue
+            var level = e.impulse / IMPACT_FULL_IMPULSE
+            if level > 1.0:
+                level = 1.0
+            self.placed_cues.append(SoundCue(CUE_IMPACT, Float32(e.point[0]), Float32(e.point[1]), Float32(e.point[2]), -30.0 + 30.0 * level))
+            self.impacts_this_step += 1
+
+    def audio_events(self) -> String:
+        return String(
+            "event cue1\n  clips cue1\n  bus sfx\n  pitch 0.97 1.03\n  volume -2 0\n  priority 6\n  limit 2\n  spatial 1\n  min_distance 8\n  max_distance 80\n"
+            "event cue2\n  clips cue2\n  bus sfx\n  pitch 0.8 1.25\n  volume -4 0\n  priority 2\n  limit 4\n  spatial 1\n  min_distance 6\n  max_distance 60\n"
+        )
+
     def sounds(self, rate: Int) -> List[List[Float32]]:
         """One clip: the jump, a rising sine of 0.16 s that fades to silence."""
         var clip = List[Float32]()
@@ -384,6 +429,21 @@ struct DemoMode(GameMode):
             clip.append(Float32(s))
         var out = List[List[Float32]]()
         out.append(clip^)
+        # cue 2, the impact: 0.14 s of a falling 140 -> 70 Hz sine with a noise burst, decaying
+        var thud = List[Float32]()
+        var m = Int(0.14 * Float64(rate))
+        var ph = 0.0
+        var noise = UInt32(2463534242)
+        for i in range(m):
+            var t = Float64(i) / Float64(rate)
+            ph += (140.0 - 70.0 * (t / 0.14)) / Float64(rate)
+            noise = noise * UInt32(1664525) + UInt32(1013904223)
+            var n = Float64(Int(noise >> 16) & 0xFFFF) / 32768.0 - 1.0
+            var env = (1.0 - t / 0.14) * (1.0 - t / 0.14)
+            var v = (sin(ph * TAU) * 0.7 + n * 0.3 * (1.0 - t / 0.14)) * env * 0.7
+            thud.append(Float32(v))
+            thud.append(Float32(v))
+        out.append(thud^)
         return out^
 
     def _width(self, text: String, size: Float32) -> Float32:

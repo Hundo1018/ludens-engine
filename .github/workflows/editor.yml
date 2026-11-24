@@ -80,6 +80,16 @@ jobs:
         run: pixi run -e wasm test-assets
       - name: Asset converters and readers on synthetic inputs (#12)
         run: pixi run -e wasm test-asset-formats
+      - name: "Audio mixer (#120): events, buses, ducking, music, positioned voices, LUFS"
+        run: pixi run -e wasm test-audio
+      - name: Audio mixer, native == wasm64 byte for byte (#120)
+        run: pixi run -e wasm audio-same
+      - name: Audio assets are what the generator makes, and carry their license (#120)
+        run: pixi run -e wasm test-audio-assets
+      - name: Audio mixer inside the app, under node (#120)
+        run: pixi run -e wasm test-audio-app
+      - name: "Audio mixing cost for N voices (#120, a report: CI timing has no threshold)"
+        run: pixi run -e wasm audio-bench
 
   ui:
     name: ui/ toolkit and platform/ seams (standard library only)

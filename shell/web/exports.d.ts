@@ -36,6 +36,10 @@ export interface AppExports {
   app_step(app: bigint, dt: number): number;
   app_configure(app: bigint, seed: bigint, scene_ptr: bigint, scene_len: bigint): number;
   app_state(app: bigint): number;
+  app_load_audio(app: bigint, name_ptr: bigint, name_len: bigint, ptr: bigint, length: bigint): number;
+  app_music(app: bigint, name_ptr: bigint, name_len: bigint): number;
+  app_set_bus(app: bigint, bus: number, db: number, mute: number): number;
+  app_loudness(app: bigint, which: number): number;
   app_events(app: bigint): number;
   app_text_ptr(app: bigint): bigint;
 }

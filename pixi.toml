@@ -93,6 +93,13 @@ test-assets = "node --no-warnings scripts/test_assets.mjs"
 test-asset-formats = "python3 scripts/test_asset_formats.py"
 # #116: the font importer on Pillow's bundled font, and the committed assets/fonts/*.lfont against the hash and license recorded beside them.
 test-font = "python3 scripts/assets/convert_font.py --selftest && python3 scripts/check_font_asset.py"
+# #120: the audio mixer (events, buses, ducking, music, positioned voices, LUFS) against worked values; native == wasm64 bytes; the shipped
+# music and its license; the mixer inside the real app under node; mixing cost for N voices.
+test-audio = "python3 scripts/test_audio.py audio_mixer"
+audio-same = "python3 scripts/audio_same.py"
+test-audio-assets = "python3 scripts/check_audio_asset.py"
+test-audio-app = "python3 scripts/audio_app_check.py"
+audio-bench = "python3 scripts/audio_bench.py"
 ludens = "python3 scripts/ludens.py"
 test-cli = "python3 tests/test_cli.py"
 test-os = "python3 scripts/test_os.py"
