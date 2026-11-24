@@ -70,6 +70,10 @@ jobs:
         run: pixi run -e wasm game-same
       - name: Data tables, live tuning, `ludens check` / `ludens tune` on tables
         run: pixi run -e wasm test-tables
+      - name: Particles (#121), simulation, budgets, LOD, packing, `particles` component
+        run: pixi run -e wasm test-particles
+      - name: Particles (#121), state and uploaded records, native == wasm64
+        run: pixi run -e wasm particles-same
       - name: Automation hook under node, divergence trace, batch runner (#115)
         run: pixi run -e wasm test-automation
       - name: Gamepad mapping, node

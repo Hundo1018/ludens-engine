@@ -443,6 +443,35 @@ async function pixelParity(x: AppExports, rt: any, app: bigint) {
   return { browser, stats, limits, ok };
 }
 
+// #121: the particle frame (app/particle_frame.mojo, 480 x 270) against build/particles_native.rgba, same tolerance row.
+async function particlePixelParity(x: AppExports, rt: any, app: bigint) {
+  const W = 480, H = 270;
+  x.app_particles_request(app);
+  for (let i = 0; i < 1200 && x.app_particles_ptr(app) === 0n; i++) await new Promise((r) => requestAnimationFrame(r));
+  const ptr = x.app_particles_ptr(app);
+  if (ptr === 0n) throw new Error("particle frame never completed");
+  const pitch = x.app_particles_pitch(app);
+  const web = rt.bytes(ptr, pitch * H).slice() as Uint8Array;
+  const native = new Uint8Array(await (await fetch("./particles_native.rgba")).arrayBuffer());
+  if (native.length !== W * H * 4) throw new Error("particles_native.rgba has the wrong size " + native.length);
+  let maxDelta = 0, over8 = 0, over32 = 0, lit = 0;
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+    const a = y * pitch + xx * 4, b = (y * W + xx) * 4;
+    let d = 0;
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(web[a + c] - native[b + c]));
+    if (d > maxDelta) maxDelta = d;
+    if (d > 8) over8++;
+    if (d > 32) over32++;
+    if (native[b] > 200 && native[b + 1] > 120 && native[b + 2] < 120) lit++; // spark colours: the burst is in the picture
+  }
+  const browser = navigator.userAgent.includes("Firefox") ? "firefox" : "chrome";
+  const table = await (await fetch("./pixel_tolerance.json")).json();
+  const limits = table[browser];
+  const stats = { maxDelta, fracOver8: over8 / (W * H), fracOver32: over32 / (W * H), sparkPixels: lit };
+  const ok = lit > 60 && maxDelta <= limits.maxDelta && stats.fracOver8 <= limits.fracOver8 && stats.fracOver32 <= limits.fracOver32;
+  return { browser, stats, limits, ok };
+}
+
 // ?selftest[&canvas-lost]: report PASS/FAIL in document.title and #log (the protocol of scripts/web_*.mjs).
 // Headless Chrome destroys the GPUDevice after a canvas draw, so ?canvas-lost skips the pixel check there.
 function selftest(x: AppExports, rt: any, app: bigint) {
@@ -485,6 +514,9 @@ function selftest(x: AppExports, rt: any, app: bigint) {
         const pp = await pixelParity(x, rt, app);
         log.push(`pixel parity vs native (${pp.browser}): ${JSON.stringify(pp.stats)} limits ${JSON.stringify(pp.limits)}`);
         if (!pp.ok) return fail("pixels differ from the native render beyond the tolerance row");
+        const pa = await particlePixelParity(x, rt, app);
+        log.push(`particle pixel parity vs native (${pa.browser}): ${JSON.stringify(pa.stats)} limits ${JSON.stringify(pa.limits)}`);
+        if (!pa.ok) return fail("particle pixels differ from the native render beyond the tolerance row");
       }
       finish(true);
     } catch (e) { clearInterval(timer); fail(String(e)); }
