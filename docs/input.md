@@ -89,8 +89,10 @@ within a frame or two.
 `buffer_ms` on a button is passed to the game as `Intent.jump_buffer_ms` (for `jump`). The game keeps an `InputBuffer`: `press(window)`
 when `Intent.jump` arrives, `take()` where the action can happen (it answers once), `age(dt_ms)` once per frame. The demo game
 (`game/demo_mode.mojo`) buffers its jump: with `buffer_ms=100` a press in the 5 frames (60 Hz) before landing jumps on landing.
-Its hash includes a pending press. `game/data/demo.actions` ships `buffer_ms=0`: `tests/golden/sim_demo_table.txt` was made with
-no window, and 100 changes the end state of 4 of its seeds (1, 3, 11, 16), which this change does not regenerate.
+Its hash includes a pending press, and `save_state` (save version 2) stores it; `DemoMigrator` migrates version 1 saves with no
+pending press. `game/data/demo.actions` ships `buffer_ms=100`, and the batch runner (`game/batch.mojo`, `SimInput.jump_buffer_ms`) takes the
+same window from the map, so `ludens sim` and the wasm64 hook run the same buffered path. Turning the window on changed all 16 rows of
+`tests/golden/sim_demo_table.txt` (the press at frame 0 is made while the ball is still falling and now fires on landing: 3 jumps per seed, not 2).
 
 ## Prompts
 
