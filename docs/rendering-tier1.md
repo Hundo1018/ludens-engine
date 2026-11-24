@@ -131,8 +131,7 @@ lavapipe is a CPU rasteriser: these numbers rank the work each effect adds; they
 | edge-dense scene: one copy stage | 32.07 | 27.85 | 37.88 | - |
 | edge-dense scene: FXAA | 42.60 | 40.76 | 56.12 | copy stage, same scene: +10.53 |
 
-Two runs of the table on one machine differed by 1 to 3 ms per row (the min and max columns show the spread inside a
-run), so read the rows to about 2 ms. FXAA returns after five taps on a pixel with no contrast, so its row in the first
+The min and max columns are the spread of the 11 rounds of one run; a second run of the table on the same machine moved the medians by 0.3 to 1.5 ms per row (FXAA 18.79 and 18.74; bloom 33.95 and 34.60; grade 23.71 and 24.94 ms). FXAA returns after five taps on a pixel with no contrast, so its row in the first
 scene (three boxes, a sphere, mostly sky) is the cheap case; the edge-dense scene (a grid of 336 turned boxes) is the
 expensive one: +10.5 ms instead of +7.4. Bloom costs the same on any content (nine passes over fixed-size targets, +23 ms
 here). Grade is eight texture reads a pixel on any content. MSAA costs +8.4 ms with no stages on this scene, whose

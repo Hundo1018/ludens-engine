@@ -6,8 +6,8 @@
     pixi run -e wasm python3 scripts/mutation_post_fx.py lut-axes-swapped   # one
 
 Each mutation replaces one exact string in one source file, runs the named test and prints the checks that failed. The
-file is restored afterwards, also when the run is interrupted. A mutation whose test still passes is reported as SURVIVED
-and makes the exit code 1: the test does not look at that behaviour. `native` tests are built and run by
+file is restored afterwards, also when the run is interrupted. A mutation whose test still passes, fails to compile or crashes without a failed check is reported
+and makes the exit code 1: the test did not notice that behaviour. `native` tests are built and run by
 scripts/test_native.py and need lavapipe (the script sets the same environment variables as .github/workflows/parity.yml);
 `node` tests run a script with node."""
 import os
@@ -65,7 +65,8 @@ def run_one(name: str) -> bool:
         print("    [FAIL]", line)
     if compile_error or crashed:
         print(out[-800:])
-    return p.returncode != 0 and not compile_error
+    # a compile error or a crash (no check reported a failure) is an escape: it shows the build or the process broke, not that a test noticed
+    return p.returncode != 0 and not compile_error and not crashed
 
 
 def main() -> int:
