@@ -8,6 +8,9 @@ const { bootApp } = await import(new URL("../scripts/node_app.mjs", import.meta.
 const { memoryStorage } = await import(new URL("../shell/web/os_host.mjs", import.meta.url));
 const { createGameHook } = await import(new URL("../shell/web/game_hook.mjs", import.meta.url));
 const { keyCode } = await import(new URL("../shell/web/keys.ts", import.meta.url));
+let passed = 0, failed = 0;
+const check = (cond, label) => { cond ? passed++ : failed++; console.log(`  [${cond ? "PASS" : "FAIL"}] ${label}`); };
+const tick = () => new Promise((r) => setTimeout(r, 0));
 const storage = memoryStorage(); // survives the "restart": the page's origin-private file system in a browser
 
 /** A fresh module instance (a restart) over the shared storage, the game running, its hook. */
