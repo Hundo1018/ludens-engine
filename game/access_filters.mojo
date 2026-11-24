@@ -129,11 +129,13 @@ def flash_count(lum: List[Float32], threshold: Float32, fps: Int) -> Int:
             if v - pivot >= threshold:
                 have_dir = True
                 rising = True
+                pivot = v
                 change_at.append(i)
                 change_up.append(True)
             elif pivot - v >= threshold:
                 have_dir = True
                 rising = False
+                pivot = v
                 change_at.append(i)
                 change_up.append(False)
             continue

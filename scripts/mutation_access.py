@@ -7,7 +7,7 @@
 
 Each mutation replaces one exact string in one source file, runs the named test and prints the checks that failed. The file is
 restored afterwards, also when the run is interrupted. A mutation whose test still passes is reported as SURVIVED and makes the exit
-code 1: the test does not look at that behaviour. A change that does not compile is reported as COMPILE ERROR (not a pass).
+code 1: the test does not look at that behaviour. A change that does not compile, or a test that crashes without naming a failed check, is reported as an escape, not as caught.
 
 Test names: `native:<name>` is scripts/test_native.py, `gpu:<name>` the same on lavapipe, `audio:<name>` scripts/test_audio.py,
 `node` builds build/app.wasm and runs scripts/test_access.py."""
@@ -41,6 +41,9 @@ MUTATIONS = {
     "host-no-mono": ("app/access_host.mojo", "        mixer.set_mono(self.access.mono)\n", "", "audio:access_app", "the host never sets the mixer's mono flag"),
     "host-no-caption-trigger": ("app/access_host.mojo", "            _ = self.captions.trigger(mixer.events[event].name)\n", "            pass\n", "audio:access_app", "audio events raise no captions"),
     "host-text-scale-ignored": ("app/access_host.mojo", "        if self.access.text_scale != 100:\n", "        if False:\n", "audio:access_app", "the profile's text scale never reaches the HUD"),
+    "node-no-mono": ("app/access_host.mojo", "        mixer.set_mono(self.access.mono)\n", "", "node", "the app never folds to mono (an off-centre impact stays stereo)"),
+    "node-mono-left-only": ("app/mixer.mojo", "                var m = (l + r) * 0.5\n", "                var m = l\n", "node", "mono copies the left channel (the fold is not the mean of left and right)"),
+    "flash-count-first-change-pivot": ("game/access_filters.mojo", "                have_dir = True\n                rising = True\n                pivot = v\n", "                have_dir = True\n                rising = True\n", "native:access", "a reversal right after the first change is missed"),
     "gpu-deutan-matrix": ("app/access_post.mojo", "vec3<f32>(0.367322, 0.280085, -0.011820)", "vec3<f32>(0.467322, 0.280085, -0.011820)", "gpu:access_native", "a matrix entry in the shader differs from the CPU model"),
     "gpu-correction-shift": ("app/access_post.mojo", "lin.g + 0.7 * e.r + e.g, lin.b + 0.7 * e.r + e.b", "lin.g + 0.5 * e.r + e.g, lin.b + 0.5 * e.r + e.b", "gpu:access_native", "the shader's correction shift differs from the CPU model"),
     "gpu-flash-limiter-off": ("app/access_post.mojo", "  return p + (c - p) * (limit / a);\n", "  return c;\n", "gpu:access_native", "the flash limiter returns its input"),
@@ -88,14 +91,18 @@ def run_one(name: str) -> bool:
         src.write_text(original)
     failed = re.findall(r"\[FAIL\] (.*)", out)
     compile_error = ("error:" in out or "build_wasm: mojo build" in out) and not failed
-    print(f"{name}: {what}; test `{test}` ->", "SURVIVED (test passed)" if code == 0 else ("COMPILE ERROR" if compile_error else "failed"))
+    # Caught only when the test names a check that failed: a crash, a missing GPU or a compile error with no `[FAIL]` line says
+    # nothing about the behaviour under test, so it counts as an escape.
+    caught = code != 0 and bool(failed)
+    verdict = "SURVIVED (test passed)" if code == 0 else ("COMPILE ERROR" if compile_error else ("failed" if failed else "CRASHED with no failed check"))
+    print(f"{name}: {what}; test `{test}` ->", verdict)
     for line in failed[:6]:
         print("    [FAIL]", line)
     if len(failed) > 6:
         print(f"    ... and {len(failed) - 6} more")
-    if compile_error:
+    if compile_error or (code != 0 and not failed):
         print(out[-800:])
-    return code != 0 and not compile_error
+    return caught
 
 
 def main() -> int:

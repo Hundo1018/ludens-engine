@@ -128,11 +128,11 @@ The page changes settings only through `access`; the demo page has no options sc
 | `test-access-gpu` | parity workflow (lavapipe) | the two stages and the reduce-motion flag on the GPU, pixel by pixel against the CPU model (`tests/access_native.mojo`) |
 | `test-access-app` | editor workflow | the wasm64 app under node: settings, the profile file restored by a second instance, captions from the jump's event, shake scale, master and music volume in the mixed audio (`tests/test_access.mjs`) |
 | `test-audio` | editor workflow | `tests/audio_mixer.mojo`: user volume per bus and mono on a clip with 0.8 left and 0.2 right |
-| `mutation-access` | no: about 30 builds, 6 to 15 minutes | one deliberate change at a time to the sources above; the covering test must fail |
+| `mutation-access` | no: about 35 builds, 30 to 40 minutes | one deliberate change at a time to the sources above; the covering test must fail |
 
 ## Not done here
 
 - No options screen, and the demo game does not raise camera trauma or use `AccessPost`: both are a game's to wire.
 - Subtitles follow audio events and dialogue lines a game gives; there is no timing track synchronised to a voice clip's samples.
-- A mono check in the app under node cannot show the fold (the demo's jump and music are centred before mono); it is the mixer's native test that does.
+- The mono check under node uses an off-centre impact (the ball walks into a crate in the arena scene): the stereo run has |L - R| above 0, the mono run has left equal to right and each frame is the mean of the stereo run's pair. The jump and the shipped music are centred and cannot show it.
 - Flash area and saturated-red rules; screen-reader text; high-contrast themes; input timing assists (hold-to-toggle) are not part of the acceptance list.

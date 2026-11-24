@@ -120,6 +120,7 @@ check(Math.hypot(...game.shakeOffset()) > 0.01, "reduce motion off: the shake is
 
 // ---- audio: the player's volume per bus and mono reach the mixed output
 async function jumpAudio(settings) {
+  storage.files.clear(); // a run starts with no profile: the settings of the run before are not loaded into this one
   const g = await boot();
   for (const s of settings) g.access(s);
   await run(g, 60);
@@ -132,14 +133,14 @@ const base = await jumpAudio([]);
 const master50 = await jumpAudio(["volume.master 50"]);
 const sfx0 = await jumpAudio(["volume.sfx 0"]);
 const music0 = await jumpAudio(["volume.music 0"]);
-const mono = await jumpAudio(["mono on"]);
 check(rms(base) > 1e-4, `the jump is audible: rms ${rms(base).toExponential(3)}`);
 check(Math.abs(rms(master50) / rms(base) - 0.5) < 0.005, `volume.master 50: rms ratio ${(rms(master50) / rms(base)).toFixed(4)} (0.5 expected)`);
 check(rms(sfx0) === 0, "volume.sfx 0: the jump (an sfx event) is silent");
 check(rms(music0) === rms(base), "volume.music 0 does not change the jump");
-// the shipped stereo music: left and right differ there, so mono has something to fold
+// the shipped music (centred: only the volume check below uses it)
 const { readFileSync } = await import("node:fs");
 async function musicAudio(settings) {
+  storage.files.clear(); // a run starts with no profile: the settings of the run before are not loaded into this one
   const g = await boot();
   const put = (bytes) => { const p = g.rt.alloc(Math.max(1, bytes.length)); g.rt.put(p, bytes); return p; };
   for (const name of readFileSync(`${audioDir}/index.txt`, "utf8").split("\n").filter(Boolean)) {
@@ -154,15 +155,33 @@ async function musicAudio(settings) {
   return g.audio(24000);
 }
 const musicBase = await musicAudio([]);
-const musicMono = await musicAudio(["mono on"]);
 const musicQuiet = await musicAudio(["volume.music 50"]);
+// Mono needs a source that is not centred. The jump and the music are, so: in the arena the ball walks forward and left into a
+// crate and the impact is a positioned sound off to one side. The same run is played without and with mono.
+async function impactAudio(settings) {
+  storage.files.clear(); // a run starts with no profile: the settings of the run before are not loaded into this one
+  const g = await boot();
+  g.configure(0, "arena");
+  for (const s of settings) g.access(s);
+  await run(g, 20);
+  g.hold("KeyW"); g.hold("KeyA");
+  const parts = [];
+  for (let i = 0; i < 300; i++) { g.step(1, false); await tick(); parts.push(g.audio(800)); }
+  const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+const impact = await impactAudio([]);
+const impactMono = await impactAudio(["mono on"]);
 const lr = (a) => { let m = 0; for (let i = 0; i < a.length; i += 2) m = Math.max(m, Math.abs(a[i] - a[i + 1])); return m; };
-check(lr(mono) === 0, "mono on: the jump has left equal to right in every frame");
-// The jump and the shipped music are both centred (L == R before mono), so these two checks cannot show the fold itself; that is
-// tests/audio_mixer.mojo (a clip of 0.8 left and 0.2 right becomes 0.5 and 0.5). Here: the setting reaches the mixer without a crash.
+check(lr(impact) > 1e-3, `stereo: the impact is off-centre, largest |L - R| ${lr(impact).toExponential(3)} (the mono checks below need this to be above 0)`);
+check(lr(impactMono) === 0, "mono on: left equals right in every frame");
+let worstFold = 0;
+for (let i = 0; i < impact.length; i += 2) worstFold = Math.max(worstFold, Math.abs(impactMono[i] - (impact[i] + impact[i + 1]) / 2));
+check(worstFold < 1e-6, `mono on: each frame is the mean of the stereo run's left and right (largest difference ${worstFold.toExponential(2)})`);
+check(rms(impact) > 1e-4 && Math.abs(rms(impactMono) / rms(impact) - 1) < 0.2, `mono on keeps the level: rms ${rms(impactMono).toExponential(3)} against ${rms(impact).toExponential(3)}`);
 check(rms(musicBase) > 1e-4, `the music plays: rms ${rms(musicBase).toExponential(3)}`);
-check(lr(musicMono) === 0, "mono on: the music has left equal to right in every frame");
-check(rms(musicMono) > 0.3 * rms(musicBase), `mono on: the music is still there (rms ${rms(musicMono).toExponential(3)} against ${rms(musicBase).toExponential(3)})`);
 check(Math.abs(rms(musicQuiet) / rms(musicBase) - 0.5) < 0.01, `volume.music 50: the music's rms ratio ${(rms(musicQuiet) / rms(musicBase)).toFixed(4)} (0.5 expected)`);
 
 console.log(`test_access: ${passed} / ${passed + failed} checks`);

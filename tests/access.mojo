@@ -280,6 +280,13 @@ def test_flash(mut c: Check) raises:
     c.ok(flash_count(flashing_scene(120, 6), 0.1, 60) == 5, "6 / 6: 5 flashes a second")
     c.ok(flash_count(flashing_scene(120, 10), 0.1, 60) == 3, "10 / 10: 3 flashes a second (the allowed limit)")
     c.ok(flash_count(flashing_scene(120, 30), 0.1, 60) == 1, "30 / 30: 1 flash a second")
+    # a reversal on the very frame after the first change: two changes make one flash
+    c.ok(flash_count([Float32(0.0), 1.0, 0.0], 0.1, 60) == 1, "0, 1, 0: two opposing changes are 1 flash")
+    c.ok(flash_count([Float32(1.0), 0.0, 1.0], 0.1, 60) == 1, "1, 0, 1: 1 flash")
+    c.ok(flash_count([Float32(0.0), 1.0, 0.0, 1.0], 0.1, 60) == 1, "0, 1, 0, 1: three changes are 1 flash")
+    c.ok(flash_count([Float32(0.0), 1.0, 0.0, 1.0, 0.0], 0.1, 60) == 2, "0, 1, 0, 1, 0: four changes are 2 flashes")
+    c.ok(flash_count(flashing_scene(120, 1), 0.1, 60) == 30, "1 frame on / 1 frame off at 60 fps: 30 flashes a second (the most the frame rate allows)")
+    c.ok(flash_count([Float32(0.0), 1.0], 0.1, 60) == 0, "one change alone is no flash")
     var wobble = List[Float32]()
     for i in range(120):
         wobble.append(0.5 + (0.04 if i % 2 == 0 else Float32(-0.04)))
