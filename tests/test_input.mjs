@@ -2,32 +2,17 @@
 // analog axes, gamepad and on-screen pad events, rebinding with conflicts, the profile saved through os_file_write, and a second
 // instance of the module started on the same storage that restores it through os_file_read_request / os_poll.
 // usage: node --experimental-strip-types tests/test_input.mjs build/app.wasm <ludens-wasm-rt host.mjs> <wgpu-mojo dir> <miniaudio-mojo dir>
-import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-globalThis.document ??= { querySelector: () => ({ width: 640, height: 480, getContext: () => ({}) }) };
 const [wasm, hostMjs, wgpuDir, maDir] = process.argv.slice(2);
-const load = (p) => import(pathToFileURL(p));
-const { instantiate } = await load(hostMjs);
-const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
-const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
-const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
-const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url));
-const { createOsImports, memoryStorage } = await import(new URL("../shell/web/os_host.mjs", import.meta.url));
+const { bootApp } = await import(new URL("../scripts/node_app.mjs", import.meta.url));
+const { memoryStorage } = await import(new URL("../shell/web/os_host.mjs", import.meta.url));
 const { createGameHook } = await import(new URL("../shell/web/game_hook.mjs", import.meta.url));
 const { keyCode } = await import(new URL("../shell/web/keys.ts", import.meta.url));
-const json = (p) => JSON.parse(readFileSync(p, "utf8"));
-
-let passed = 0, failed = 0;
-const check = (cond, label) => { cond ? passed++ : failed++; console.log(`  [${cond ? "PASS" : "FAIL"}] ${label}`); };
-const tick = () => new Promise((r) => setTimeout(r, 0));
 const storage = memoryStorage(); // survives the "restart": the page's origin-private file system in a browser
 
 /** A fresh module instance (a restart) over the shared storage, the game running, its hook. */
 async function boot() {
-  const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-  const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net, (r) => createOsImports(r, { storage })] });
-  wrt.attach(rt);
+  const { rt } = await bootApp({ wasm, hostMjs, wgpuDir, maDir, storage });
   const [ptr, len] = rt.str_in("#canvas");
   const app = rt.call("app_init", ptr, len, 640, 480);
   if (rt.call("app_set_mode", app, 1) !== 0) throw new Error("app_set_mode failed");

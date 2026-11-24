@@ -2,22 +2,10 @@
 // the game's numbers and whether the sound effects came out. usage: node game_node.mjs app.wasm host.mjs wgpu-dir ma-dir [stats-frames]
 // With stats-frames (scripts/frame_budget.py), that many more frames run after the scripted ones and the JSON also
 // carries app_frame_stats: per segment [p50, p95, max ns, frames it ran in] (app/frame_stats.mojo).
-import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-globalThis.document ??= { querySelector: () => ({ width: 640, height: 480, getContext: () => ({}) }) };
 const [wasm, hostMjs, wgpuDir, maDir, statsFrames] = process.argv.slice(2);
-const load = (p) => import(pathToFileURL(p));
-const { instantiate } = await load(hostMjs);
-const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
-const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
-const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
-const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url));
-const { createOsImports } = await import(new URL("../shell/web/os_host.mjs", import.meta.url)); // os_*: the saved input profile (app/profile.mojo)
-const json = (p) => JSON.parse(readFileSync(p, "utf8"));
-const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net, (r) => createOsImports(r)] });
-wrt.attach(rt);
+const { bootApp } = await import(new URL("./node_app.mjs", import.meta.url));
+const { rt } = await bootApp({ wasm, hostMjs, wgpuDir, maDir });
 
 const [ptr, len] = rt.str_in("#canvas");
 const app = rt.call("app_init", ptr, len, 640, 480);
