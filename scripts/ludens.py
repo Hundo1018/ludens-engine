@@ -115,7 +115,7 @@ def cmd_build(a) -> int:
     out = ROOT / "build/web"
     lines = []
     total = 0
-    for f in sorted(p for p in out.rglob("*") if p.is_file() and p.name != "MANIFEST.sha256"):
+    for f in sorted((p for p in out.rglob("*") if p.is_file() and p.name != "MANIFEST.sha256"), key=lambda p: p.relative_to(out).as_posix()):  # by path string, so audio-LICENSE.txt sorts before audio/
         data = f.read_bytes()
         total += len(data)
         lines.append(f"{hashlib.sha256(data).hexdigest()}  {len(data)}  {f.relative_to(out).as_posix()}")

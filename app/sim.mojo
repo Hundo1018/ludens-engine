@@ -4,6 +4,7 @@ Everything the native/web parity gate compares (world hash, PCM) comes from here
 the same struct, so the two cannot drift apart."""
 from embed.world import EmbedWorld
 from geometry.vec import Real, Vec3
+from mixer import Mixer
 from scene import Scene
 
 comptime SAMPLE_RATE: UInt32 = 48000
@@ -13,6 +14,8 @@ comptime AUDIO_BLOCK = 128
 struct Sim(Movable):
     var world: EmbedWorld
     var scene: Scene
+    var mixer: Mixer  # events, buses, music and positioned voices (app/mixer.mojo); mixed on top of the contact tone
+    var mix: List[Float32]
     var pcm: List[Float32]
     var handles: List[Int64]
     var halves: List[Float64]
@@ -22,6 +25,8 @@ struct Sim(Movable):
     def __init__(out self) raises:
         self.world = EmbedWorld(1.0 / 60.0, Vec3(0.0, -9.81, 0.0, 0.0))
         self.scene = Scene(SAMPLE_RATE)
+        self.mixer = Mixer(Int(SAMPLE_RATE), 1)
+        self.mix = List[Float32]()
         self.pcm = List[Float32]()
         self.handles = List[Int64]()
         self.halves = List[Float64]()
@@ -37,6 +42,8 @@ struct Sim(Movable):
     def __init__(out self, *, deinit move: Self):
         self.world = move.world^
         self.scene = move.scene^
+        self.mixer = move.mixer^
+        self.mix = move.mix^
         self.pcm = move.pcm^
         self.handles = move.handles^
         self.halves = move.halves^
@@ -62,5 +69,15 @@ struct Sim(Movable):
         self.scene.set_tone(Float32(330.0 + 20.0 * Float64(min(hits, 20))), self.tone_gain)
 
     def render_audio(mut self, frames: Int) raises:
-        """Mix `frames` stereo f32 frames into self.pcm."""
+        """Mix `frames` stereo f32 frames into self.pcm: the contact tone, plus the mixer's output when it is not all zero (a block
+        of zeros is not added, so an idle mixer leaves the tone's bits as they were)."""
         self.scene.render(self.pcm, UInt64(frames))
+        self.mixer.render(self.mix, frames)
+        var audible = False
+        for i in range(2 * frames):
+            if self.mix[i] != 0.0:
+                audible = True
+                break
+        if audible:
+            for i in range(2 * frames):
+                self.pcm[i] += self.mix[i]

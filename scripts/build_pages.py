@@ -28,7 +28,10 @@ def build() -> None:
     OUT.mkdir(parents=True)
     for f in sorted(WEB.iterdir()):
         if f.name not in TEST_ONLY:
-            shutil.copy(f, OUT / f.name)
+            if f.is_dir():
+                shutil.copytree(f, OUT / f.name)  # audio/ (#120)
+            else:
+                shutil.copy(f, OUT / f.name)
     (OUT / ".nojekyll").write_text("")
     rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
     (OUT / "build.txt").write_text(f"ludens-engine {rev}\n")

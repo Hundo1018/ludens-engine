@@ -7,6 +7,9 @@ Another game reuses this shell by naming its own types, e.g.
 the C-ABI below exports the default instance.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
+from audio_assets import load_music, lsound_to_mono
+from audio_event import AudioEvent, BUS_MUSIC, parse_events
+from audio_math import Rng
 from controls import KEY_F2, MOUSE_LEFT, read_frame
 from frame_stats import FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME
 from game.demo_mode import DemoMode
@@ -91,7 +94,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var os_router: OsRouter  # the one reader of os_poll; the profile, and later the saves, take their results from it
     var profile: ProfileStore  # the saved bindings (app/profile.mojo)
     var input_loc: Localizer  # display names of the input sources (game/input_strings.mojo)
-    var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
+    var cue_events: List[Int]  # the mixer's event id of each game cue, by cue number (-1 for cue 0)
     var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
     var font_data: List[UInt8]  # the .lfont the page loaded (app_load_font); the HUD's atlas is made from it
@@ -144,7 +147,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.os_router = OsRouter()
         self.profile = ProfileStore(self.os_router)
         self.input_loc = input_localizer()
-        self.cue_clips = List[Int]()
+        self.cue_events = List[Int]()
         self.game_renderer = None
         self.hud = None
         self.font_data = List[UInt8]()
@@ -195,7 +198,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.os_router = move.os_router
         self.profile = move.profile^
         self.input_loc = move.input_loc^
-        self.cue_clips = move.cue_clips^
+        self.cue_events = move.cue_events^
         self.game_renderer = move.game_renderer^
         self.hud = move.hud^
         self.font_data = move.font_data^
@@ -248,10 +251,24 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     def start_game(mut self) raises:
         if not self.game:
             self.game = Self.M.create()
-            # The game's sounds go through the audio scene: each cue is synthesised once and registered as a clip.
-            self.cue_clips.append(-1)  # cue numbers start at 1
-            for clip in self.game.value().sounds(Int(SAMPLE_RATE)):
-                self.cue_clips.append(self.sim.scene.add_clip_pcm(clip.copy()))
+            # The game's sounds go through the mixer: each clip is registered as `cueN`, and cue N plays the event of that name (the
+            # game's own `audio_events()`, or a default spatial event).
+            var clips = self.game.value().sounds(Int(SAMPLE_RATE))
+            for i in range(len(clips)):
+                _ = self.sim.mixer.add_clip("cue" + String(i + 1), clips[i].copy())
+            for ev in parse_events(self.game.value().audio_events()):
+                _ = self.sim.mixer.add_event(ev.copy())
+            self.cue_events.append(-1)  # cue numbers start at 1
+            for i in range(len(clips)):
+                var name = "cue" + String(i + 1)
+                if self.sim.mixer.event_id(name) < 0:
+                    var ev = AudioEvent(name)
+                    ev.clip_names.append(name)
+                    ev.spatial = True
+                    ev.min_distance = 8.0
+                    _ = self.sim.mixer.add_event(ev^)
+                self.cue_events.append(self.sim.mixer.event_id(name))
+        self.sim.mixer.set_bus_db(BUS_MUSIC, -14.0)  # music sits under the effects by default
         self.sim.scene.set_tone(330.0, 0.0)  # the demo's contact tone is silent while the game plays
         self.mode = MODE_GAME
 
@@ -283,6 +300,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.start_game()
         self.game_frames = 0
         self.event_log.clear()
+        self.sim.mixer.rng = Rng(seed)  # the clip and pitch drawn for each play follow the seed, so a replay sounds the same
         return 0 if self.game.value().reset(seed, scene) else -1
 
     def _step_mode(mut self, mut m: Self.M, dt: Float64) raises:
@@ -291,11 +309,26 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         m.step(intent, min(dt, 0.1))
         self.game_frames += 1
         self.stats.add(SEG_PHYSICS, m.physics_ns())  # inside the step segment; -1 (not measured) records nothing
+        # The listener is the camera: its position, the direction it looks along and its up axis (the mixer's spatializers
+        # place every positioned voice relative to it).
+        var cam = m.camera()
+        var fwd = cam.forward()
+        var up = cam.up()
+        self.sim.mixer.set_listener(
+            Float32(cam.position[0]), Float32(cam.position[1]), Float32(cam.position[2]),
+            Float32(fwd[0]), Float32(fwd[1]), Float32(fwd[2]), Float32(up[0]), Float32(up[1]), Float32(up[2]),
+        )
         for cue in m.cues():
             self.event_log.append(self.game_frames)
             self.event_log.append(cue)
-            if cue > 0 and cue < len(self.cue_clips):
-                self.sim.scene.play(self.cue_clips[cue])
+            if cue > 0 and cue < len(self.cue_events):
+                _ = self.sim.mixer.play_event(self.cue_events[cue], flat=True)  # no position: heard from the center
+        for c in m.positioned_cues():
+            if c.logged:
+                self.event_log.append(self.game_frames)
+                self.event_log.append(c.cue)
+            if c.cue > 0 and c.cue < len(self.cue_events):
+                _ = self.sim.mixer.play_event(self.cue_events[c.cue], c.x, c.y, c.z, c.gain_db, False, c.vx, c.vy, c.vz)
 
     def _draw_mode(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
         # a pipeline that draws the scene for a picture of its own proportions (SceneSize) sets the camera's
@@ -771,6 +804,72 @@ def app_state(app: UInt64) abi("C") -> Int32:
         return -1
     a[].out_text = a[].game.value().state()
     return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_load_audio(app: UInt64, name_ptr: UInt64, name_len: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Hand over an audio file by name: `<clip>.lsound` registers a clip, `<name>.audio` adds the events of an event asset,
+    `<name>.music` adds the tracks of a track list (its layers must be loaded already). The bytes are copied. 0 = ok, -1 = the
+    file does not parse or names something unknown (the error is printed)."""
+    try:
+        var a = _app(app)
+        var name_src = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(name_ptr))
+        var name_bytes = List[UInt8](length=Int(name_len), fill=0)
+        for i in range(Int(name_len)):
+            name_bytes[i] = name_src[i]
+        var name = String(unsafe_from_utf8=Span(name_bytes))
+        var bytes = List[UInt8](length=Int(length), fill=0)
+        var src = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(ptr))
+        for i in range(Int(length)):
+            bytes[i] = src[i]
+        if name.endswith(".lsound"):
+            _ = a[].sim.mixer.add_clip_mono(String(name[byte = 0 : name.byte_length() - 7]), lsound_to_mono(bytes))
+        elif name.endswith(".audio"):
+            for ev in parse_events(String(unsafe_from_utf8=Span(bytes))):
+                _ = a[].sim.mixer.add_event(ev.copy())
+        elif name.endswith(".music"):
+            _ = load_music(a[].sim.mixer, String(unsafe_from_utf8=Span(bytes)))
+        else:
+            raise Error("unknown audio file type: " + name)
+        return 0
+    except e:
+        print("app_load_audio:", e)
+        return -1
+
+
+@export
+def app_music(app: UInt64, name_ptr: UInt64, name_len: UInt64) abi("C") -> Int32:
+    """Play the music track `name` from the loaded track list: at once when nothing plays, else from the next bar line. 0 = ok,
+    -1 = no such track."""
+    var a = _app(app)
+    var src = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(name_ptr))
+    var bytes = List[UInt8](length=Int(name_len), fill=0)
+    for i in range(Int(name_len)):
+        bytes[i] = src[i]
+    var id = a[].sim.mixer.track_id(String(unsafe_from_utf8=Span(bytes)))
+    if id < 0:
+        return -1
+    a[].sim.mixer.music.request_track(id)
+    return 0
+
+
+@export
+def app_set_bus(app: UInt64, bus: Int32, db: Float32, mute: Int32) abi("C") -> Int32:
+    """Volume in dB and mute of a bus (0 master, 1 music, 2 sfx, 3 ambience, 4 ui, 5 voice): the per-bus volume settings of
+    the accessibility menu. 0 = ok, -1 = no such bus."""
+    var a = _app(app)
+    if bus < 0 or bus > 5:
+        return -1
+    a[].sim.mixer.set_bus_db(Int(bus), db)
+    a[].sim.mixer.set_bus_mute(Int(bus), mute != 0)
+    return 0
+
+
+@export
+def app_loudness(app: UInt64, which: Int32) abi("C") -> Float64:
+    """Loudness of the master bus in LUFS: 0 = momentary (last 400 ms), 1 = integrated (gated, since the start). -120 = silent."""
+    var a = _app(app)
+    return a[].sim.mixer.meter.momentary() if which == 0 else a[].sim.mixer.meter.integrated()
 
 
 @export

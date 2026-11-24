@@ -48,7 +48,7 @@ three crates to push; Space jumps with a sound, P pauses.
 
 Where it lives: the game in `game/demo_mode.mojo` (no window, no GPU), input in `game/controls.mojo`, `app/controls.mojo` and
 `shell/web/pad.ts` (gamepad) and the virtual pad kit below (touch), which become the same key and pointer events, drawing in `app/render3d.mojo` and
-`app/hud.mojo` (text from the SDF font `ui/sdf_font.mojo`, #116), its sound clip from `GameMode.sounds`, played by the audio scene.
+`app/hud.mojo` (text from the SDF font `ui/sdf_font.mojo`, #116), its sound clips from `GameMode.sounds`, played by the mixer (`docs/audio.md`).
 
 Automation (`window.game`, `?seed=` `?scene=` `?manual`, divergence trace, `ludens sim`): [docs/automation.md](docs/automation.md).
 
@@ -117,6 +117,7 @@ A stick reports its vector as two `AXIS` events (`PadSink.axis`); the game's act
 | `app/main.mojo` | The one Mojo entry. Calls `EmbedWorld`, wgpu and miniaudio Mojo to Mojo; the `app_*` exports are only the JS face. |
 | `app/render.mojo` | Draws the bodies as boxes: one storage buffer, vertex pulling, no vertex buffer. |
 | `app/bench.mojo` | The B3 bench entry (same source for native and wasm64). |
+| `app/mixer.mojo`, `app/music.mojo`, `app/audio_*.mojo`, `app/loudness.mojo`, `assets/audio/` | The audio mixer: events, buses with ducking, music on the bar line, positioned voices through miniaudio's spatializer, LUFS (#120): `docs/audio.md`. Tests: `test-audio`, `audio-same`, `test-audio-assets`, `test-audio-app`. |
 | `ui/` | Shared UI toolkit (#17). Depends on the standard library and wgpu-mojo only. Text, font, layout, focus, gesture, immediate-mode widgets, batching; tests are `tests/ui_*.mojo` (`pixi run -e wasm test-ui`). |
 | `platform/` | Host-side seams (`docs/platform.md`). Standard library only. The Transport trait and its backends (WebSocket on the web, UDP and TCP natively through libc, an in-memory pipe), and the Identity, Achievements, CloudSave and Lobby traits with local implementations; test `pixi run -e wasm test-transport`. |
 | `editor/` | The editor: command layer (`command.mojo`, `entry.mojo`) now; panels, gizmos, undo and play-in-editor follow (#10). Mojo only. |

@@ -103,6 +103,40 @@ async function boot(canvas: HTMLCanvasElement) {
       console.warn("HUD font not loaded, text is not drawn: " + String(e));
     }
   }
+  // #120: the music loops and the track list (assets/audio, copied to ./audio/ with audio-LICENSE.txt by build_web.py), loaded for the
+  // game only. audio/index.txt lists the files, the clips first and music.music last; the module decodes them. A failed load is logged
+  // and the game runs without music.
+  const toWasm = (b: Uint8Array) => { const p = rt.alloc(Math.max(1, b.length)); rt.put(p, b); return p; };
+  const sendAudio = (name: string, data: Uint8Array) => {
+    const n = new TextEncoder().encode(name), np = toWasm(n), dp = toWasm(data);
+    const rc = x.app_load_audio(app, np, BigInt(n.length), dp, BigInt(data.length));
+    rt.free(np); rt.free(dp);
+    if (rc !== 0) throw new Error("app_load_audio(" + name + ") returned " + rc);
+  };
+  const playMusic = (name: string) => {
+    const n = new TextEncoder().encode(name), np = toWasm(n);
+    const rc = x.app_music(app, np, BigInt(n.length));
+    rt.free(np);
+    return rc;
+  };
+  if (!location.search.includes("selftest") && !location.search.includes("demo")) {
+    try {
+      const list = (await (await fetch("./audio/index.txt")).text()).split("\n").filter(Boolean);
+      for (const name of list) {
+        const res = await fetch("./audio/" + name);
+        if (!res.ok) throw new Error(name + ": HTTP " + res.status);
+        sendAudio(name, new Uint8Array(await res.arrayBuffer()));
+      }
+      if (!params.has("nomusic")) playMusic("calm");
+    } catch (e) {
+      console.warn("music not loaded: " + String(e));
+    }
+  }
+  // Volume per bus (0 master, 1 music, 2 sfx, 3 ambience, 4 ui, 5 voice; dB, mute: the accessibility menu's settings), the music
+  // track (changes at the next bar line) and the master bus loudness in LUFS (0 momentary, 1 integrated).
+  Object.defineProperty(stats, "setBus", { value: (bus: number, db: number, mute = false) => x.app_set_bus(app, bus, db, mute ? 1 : 0), enumerable: false, configurable: true });
+  Object.defineProperty(stats, "music", { value: playMusic, enumerable: false, configurable: true });
+  Object.defineProperty(stats, "loudness", { value: (which = 0) => x.app_loudness(app, which), enumerable: false, configurable: true });
   // Safe-area insets from the browser (CSS px -> canvas px), text scale and language from ?textscale=, ?lang=, ?pseudo and
   // ?safe=l,t,r,b (CSS px, for testing). setUi() changes them at run time.
   const ui = { textScale: Number(params.get("textscale") ?? 1), lang: params.get("lang") ?? navigator.language, pseudo: params.has("pseudo") };
