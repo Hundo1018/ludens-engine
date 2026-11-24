@@ -13,6 +13,7 @@
     counter; a counter budget lowered to the observed value passes and to one below it fails; a tiny `frame_ms` only warns.
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -38,11 +39,17 @@ def check(cond: bool, label: str) -> None:
         print(f"  [FAIL] {label}")
 
 
-def gate(budgets_text: str, *extra: str) -> subprocess.CompletedProcess:
+def gate(budgets_text: str, *extra: str, actions: bool = False) -> subprocess.CompletedProcess:
+    """Run scripts/perf_gate.py on `budgets_text`. The environment is fixed: the gate prints `FAIL:` / `WARNING:` lines, or GitHub
+    annotations (`::error ...`) when GITHUB_ACTIONS is set, and appends to $GITHUB_STEP_SUMMARY when that is set, so the caller's
+    values of both are removed and `actions=True` sets GITHUB_ACTIONS on purpose."""
+    env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_ACTIONS", "GITHUB_STEP_SUMMARY")}
+    if actions:
+        env["GITHUB_ACTIONS"] = "true"
     with tempfile.TemporaryDirectory() as d:
         f = Path(d) / "budgets.toml"
         f.write_text(budgets_text)
-        return subprocess.run([sys.executable, str(ROOT / "scripts/perf_gate.py"), "--budgets", str(f), *extra], cwd=ROOT, capture_output=True, text=True, check=False)
+        return subprocess.run([sys.executable, str(ROOT / "scripts/perf_gate.py"), "--budgets", str(f), *extra], cwd=ROOT, capture_output=True, text=True, check=False, env=env)
 
 
 SCENE = '[scene]\nname = "arena"\nseed = 7\nframes = 600\nwidth = 1280\nheight = 720\n'
@@ -161,6 +168,11 @@ def gate_runs(budgets_text: str) -> None:
     check(r.returncode == 1 and "triangles" in r.stdout, "triangles one below the observed value fails")
     r = gate(budgets_text.replace("frame = 0.5", "frame = 0.0001"))
     check(r.returncode == 0 and "WARNING" in r.stdout and "p95 of `frame`" in r.stdout, "a p95 budget of 0.0001 ms warns and does not fail")
+    # under GitHub Actions the same findings are annotations
+    r = gate(budgets_text.replace("draw_calls = 4", "draw_calls = 1"), "--no-wasm", actions=True)
+    check(r.returncode == 1 and "::error title=perf-gate::run 1: counter `draw_calls`: 2 > budget 1" in r.stdout, "under GITHUB_ACTIONS a breach is an ::error annotation and still exits 1")
+    r = gate(budgets_text.replace("frame = 0.5", "frame = 0.0001"), "--no-wasm", actions=True)
+    check(r.returncode == 0 and "::warning title=perf-gate::p95 of `frame`" in r.stdout, "under GITHUB_ACTIONS a slow p95 is a ::warning annotation and exits 0")
 
 
 def main() -> int:
