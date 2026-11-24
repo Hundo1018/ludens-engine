@@ -123,6 +123,15 @@ test-build = "python3 tests/test_build.py"
 test-automation = { cmd = "python3 tests/test_automation.py", depends-on = ["build-wasm"] }
 # #117 (E23): axes, gamepad / on-screen pad events, rebinding and the saved profile through window.game (docs/input.md); builds build/app.wasm first.
 test-input = { cmd = "python3 scripts/test_input.py", depends-on = ["build-wasm"] }
+# #118 (E24): accessibility. Settings and their profile rows, camera shake, captions, the CPU side of the colour-blind and flash filters (standard
+# library + ui/), then the host side (text scale into the HUD, volumes and mono into the mixer, events into captions; links miniaudio).
+test-access = "python3 scripts/test_native.py access && python3 scripts/test_audio.py access_app"
+# #118: the colour-blind stage, the flash limiter and the reduce-motion flag on lavapipe, pixel by pixel against the CPU model
+test-access-gpu = "python3 scripts/test_native.py access_native"
+# #118: the settings, profile file, captions, shake and the mixed audio through the wasm64 app under node; builds build/app.wasm first
+test-access-app = { cmd = "python3 scripts/test_access.py", depends-on = ["build-wasm"] }
+# #118: one source change at a time; the covering test must fail (not in CI: about 6 minutes of builds)
+mutation-access = "python3 scripts/mutation_access.py"
 divergence = "python3 scripts/divergence.py"
 # window.game in headless Chrome (?manual&seed=&scene=) against the same job under node.
 hook-web = { cmd = "python3 scripts/hook_web_check.py", depends-on = ["build-wasm"] }

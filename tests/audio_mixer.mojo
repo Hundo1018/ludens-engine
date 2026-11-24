@@ -5,7 +5,7 @@ Native only here; native == wasm64 is `pixi run -e wasm audio-same`. Run: `pixi 
 from std.math import sin
 
 from audio_assets import load_music, lsound_to_mono, parse_music
-from audio_event import AudioEvent, BUS_MASTER, BUS_MUSIC, BUS_SFX, BUS_VOICE, parse_events
+from audio_event import AudioEvent, BUS_MASTER, BUS_MUSIC, BUS_SFX, BUS_UI, BUS_VOICE, parse_events
 from audio_math import Rng, db_to_gain
 from loudness import LUFS_FLOOR, LoudnessMeter
 from mixer import MAX_VOICES, Mixer
@@ -634,6 +634,67 @@ def test_assets(mut c: Check) raises:
     c.ok(refused, "a file without the LSND magic is refused")
 
 
+def test_player_settings(mut c: Check) raises:
+    """The player's volume per bus and mono output (game/access.mojo, ludens-engine #118)."""
+    var m = Mixer(RATE, 1)
+    _ = m.add_clip("k", constant_clip(48000, 0.5))
+    var ev = m.add_event(event("k", "k"))
+    var ui_ev = m.add_event(event("u", "k", BUS_UI))
+    _ = m.play_event(ev)
+    _ = m.play_event(ui_ev)
+    var out = List[Float32]()
+    m.render(out, 64)
+    c.near(Float64(out[100]), 1.0, 1e-7, "sfx and ui voices of 0.5 each add up to 1.0")
+    m.set_user_volume(BUS_SFX, 0.5)
+    m.render(out, 64)
+    c.near(Float64(out[100]), 0.75, 1e-7, "player volume 0.5 on sfx: 0.25 + 0.5 = 0.75 (ui untouched)")
+    m.set_user_volume(BUS_SFX, 0.0)
+    m.render(out, 64)
+    c.near(Float64(out[100]), 0.5, 1e-7, "player volume 0 on sfx: only the ui voice is left")
+    m.set_user_volume(BUS_SFX, 1.0)
+    m.set_bus_db(BUS_SFX, -6.0206)
+    m.set_user_volume(BUS_SFX, 0.5)
+    m.render(out, 64)
+    c.near(Float64(out[100]), 0.5 * 0.5 * 0.5 + 0.5, 1e-5, "the game's -6 dB (x0.5) and the player's 0.5 multiply: 0.125 + 0.5")
+    m.set_user_volume(BUS_SFX, 1.0)
+    m.set_bus_db(BUS_SFX, 0.0)
+    m.set_user_volume(BUS_MASTER, 0.5)
+    m.render(out, 64)
+    c.near(Float64(out[100]), 0.5, 1e-7, "player volume 0.5 on master halves the sum of both: 1.0 -> 0.5")
+    m.set_user_volume(BUS_MASTER, 7.0)
+    m.set_user_volume(BUS_UI, -3.0)
+    c.ok(m.user_gain[BUS_MASTER] == 1.0 and m.user_gain[BUS_UI] == 0.0, "a volume is clamped to 0 .. 1")
+
+    # mono: a clip with 0.8 on the left and 0.2 on the right
+    var st = List[Float32]()
+    for _ in range(4800):
+        st.append(0.8)
+        st.append(0.2)
+    var m2 = Mixer(RATE, 1)
+    _ = m2.add_clip("lr", st^)
+    var e2 = m2.add_event(event("lr", "lr"))
+    _ = m2.play_event(e2)
+    m2.render(out, 64)
+    c.near(Float64(out[100]), 0.8, 1e-7, "stereo: left 0.8")
+    c.near(Float64(out[101]), 0.2, 1e-7, "stereo: right 0.2")
+    m2.set_mono(True)
+    m2.render(out, 64)
+    c.near(Float64(out[100]), 0.5, 1e-7, "mono: left is the mean, 0.5")
+    c.near(Float64(out[101]), 0.5, 1e-7, "mono: right is the mean, 0.5")
+    var all_equal = True
+    for i in range(0, 128, 2):
+        if out[i] != out[i + 1]:
+            all_equal = False
+    c.ok(all_equal, "mono: every frame has left == right")
+    m2.set_user_volume(BUS_MASTER, 0.5)
+    m2.render(out, 64)
+    c.near(Float64(out[100]), 0.25, 1e-7, "mono and master 0.5: 0.25 on both channels")
+    m2.set_mono(False)
+    m2.render(out, 64)
+    c.near(Float64(out[100]), 0.4, 1e-7, "mono off again: left 0.8 x 0.5 = 0.4")
+    c.near(Float64(out[101]), 0.1, 1e-7, "mono off again: right 0.2 x 0.5 = 0.1")
+
+
 def main() raises:
     var c = Check()
     test_math(c)
@@ -641,6 +702,7 @@ def main() raises:
     test_events(c)
     test_limits(c)
     test_buses(c)
+    test_player_settings(c)
     test_ducking(c)
     test_3d(c)
     test_moving_emitter(c)

@@ -51,6 +51,9 @@ jobs:
       - name: Particle pass (#121) on lavapipe
         run: pixi run -e wasm test-particles-native
 
+      - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
+        run: pixi run -e wasm test-access-gpu
+
       - name: Texture checks (mip levels and triplanar, exact texels) on lavapipe
         run: pixi run -e wasm test-texture
 
