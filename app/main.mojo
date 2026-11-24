@@ -33,6 +33,7 @@ from app.skin_pass import CpuSkinning, Skinning, synthetic_scene
 from geometry.vec import Vec3
 from reference import Reference, fill
 from particle_frame import ParticleReference
+from post_fx_frame import PostFxFrames
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
 from ui.loc import Localizer
@@ -79,6 +80,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var particle_reference: Optional[ParticleReference]  # #121: the particle frame of the pixel parity
     var particles_requested: Bool
     var particles_ptr: UInt64
+    var post_fx_frames: Optional[PostFxFrames]  # #139: the picture-effects frames of the pixel parity
+    var post_fx_requested: Bool
+    var post_fx_ptr: List[UInt64]
     var offscreen: Bool
     var probe_cube: Int
     var skin_job: Optional[SkinJob]
@@ -135,6 +139,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.particle_reference = None
         self.particles_requested = False
         self.particles_ptr = 0
+        self.post_fx_frames = None
+        self.post_fx_requested = False
+        self.post_fx_ptr = [UInt64(0), UInt64(0)]
         self.offscreen = False
         self.probe_cube = 0
         self.skin_job = None
@@ -189,6 +196,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.particle_reference = move.particle_reference^
         self.particles_requested = move.particles_requested
         self.particles_ptr = move.particles_ptr
+        self.post_fx_frames = move.post_fx_frames^
+        self.post_fx_requested = move.post_fx_requested
+        self.post_fx_ptr = move.post_fx_ptr^
         self.offscreen = move.offscreen
         self.probe_cube = move.probe_cube
         self.skin_job = move.skin_job^
@@ -262,6 +272,13 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.particle_reference.value().start(self.boot.device())
         if self.particle_reference and self.particles_ptr == 0:
             self.particles_ptr = self.particle_reference.value().poll()
+        if self.post_fx_requested and not self.post_fx_frames:
+            self.post_fx_frames = PostFxFrames(self.boot.device())
+            self.post_fx_frames.value().start(self.boot.device())
+        if self.post_fx_frames:
+            for i in range(2):
+                if self.post_fx_ptr[i] == 0:
+                    self.post_fx_ptr[i] = self.post_fx_frames.value().poll(i)
 
     def start_game(mut self) raises:
         if not self.game:
@@ -655,6 +672,29 @@ def app_particles_pitch(app: UInt64) abi("C") -> UInt32:
     if not a[].particle_reference:
         return 0
     return a[].particle_reference.value().pitch()
+
+
+@export
+def app_post_fx_request(app: UInt64) abi("C"):
+    """Render the picture-effects frames (app/post_fx_frame.mojo, 480 x 270) for the native/web pixel parity (#139)."""
+    _app(app)[].post_fx_requested = True
+
+
+@export
+def app_post_fx_ptr(app: UInt64, which: Int32) abi("C") -> UInt64:
+    """Address of the pixels of frame `which` (0 FXAA + bloom + grade, 1 MSAA 4x + bloom + grade; RGBA8, rows of
+    app_post_fx_pitch bytes), 0 until ready."""
+    var a = _app(app)
+    return a[].post_fx_ptr[Int(which)] if which == 0 or which == 1 else UInt64(0)
+
+
+@export
+def app_post_fx_pitch(app: UInt64) abi("C") -> UInt32:
+    """Bytes per row of the picture-effects frames; 0 before app_post_fx_request has started them."""
+    var a = _app(app)
+    if not a[].post_fx_frames:
+        return 0
+    return a[].post_fx_frames.value().pitch()
 
 
 @export

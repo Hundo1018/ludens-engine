@@ -36,6 +36,14 @@ def main() -> int:
     r = subprocess.run([str(ROOT / "build/particle_pixels"), str(ROOT / "build/particles_native.rgba")],
                        capture_output=True, text=True, env=env, check=False)
     print((r.stdout + r.stderr).strip()[-600:])
+    if r.returncode:
+        return r.returncode
+    # #139: the picture-effects frames (app/post_fx_frame.mojo), 480 x 270 each, same device and driver
+    entry_build("app/post_fx_pixels.mojo", [eng, wg, ma, Path(".")], [eng, wg, ma, ma / "examples/web", ROOT / "app", ROOT],
+                "--target", "native", "-o", "build/post_fx_pixels")
+    r = subprocess.run([str(ROOT / "build/post_fx_pixels"), str(ROOT / "build/post_fx_native.rgba"),
+                        str(ROOT / "build/post_fx_msaa_native.rgba")], capture_output=True, text=True, env=env, check=False)
+    print((r.stdout + r.stderr).strip()[-600:])
     return r.returncode
 
 

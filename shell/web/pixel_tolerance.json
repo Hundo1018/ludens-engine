@@ -1,5 +1,6 @@
 {
-  "_comment": "Max channel delta of any pixel, and the fraction of pixels whose delta exceeds 8 / 32, between the browser's render of the reference frame and wgpu-native's. Measured on Intel Iris Xe (Vulkan): firefox 0 / 0 / 0, chrome 113 / 8.7e-5 / 8.3e-5. Limits sit just above those; re-measure per CI rasterizer (lavapipe, SwiftShader).",
+  "_comment": "Max channel delta of any pixel, and the fraction of pixels whose delta exceeds 8 / 32, between the browser's render of the reference frame and wgpu-native's. Measured on Intel Iris Xe (Vulkan): firefox 0 / 0 / 0, chrome 113 / 8.7e-5 / 8.3e-5. Limits sit just above those; re-measure per CI rasterizer (lavapipe, SwiftShader). msaaEdge (#139): the rows above apply to the MSAA 4x frame away from edges; its edge pixels get a row of their own because the position of the 4 samples in a pixel is the rasteriser's choice. Measured in headless Chrome (SwiftShader) against lavapipe: of 3122 edge pixels 218 (0.070) differ by more than 8, 8 (0.0026) by more than 32, largest 79; pixels away from edges differ by at most 2. The same frame without MSAA: 24 of 2816 edge pixels over 8, none over 32, largest 66. Limits are 0.10 / 0.005 / 96.",
   "firefox": {"maxDelta": 2, "fracOver8": 0, "fracOver32": 0},
-  "chrome": {"maxDelta": 160, "fracOver8": 0.0003, "fracOver32": 0.0003}
+  "chrome": {"maxDelta": 160, "fracOver8": 0.0003, "fracOver32": 0.0003},
+  "msaaEdge": {"maxDelta": 96, "fracOver8": 0.10, "fracOver32": 0.005}
 }

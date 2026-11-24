@@ -11,6 +11,7 @@
 #   cost      the frame time at 1920 x 1080 of each effect added to the same scene (printed; lavapipe is a CPU rasteriser,
 #             so these are not GPU times).
 # `post_fx_native --dump DIR` writes the frames of the AA comparison as DIR/*.rgba (320 x 180).
+# `post_fx_native --cost` runs only the frame-cost table (scripts/post_fx_cost.py, `pixi run -e wasm post-fx-cost`).
 from std.math import sqrt, sin, cos
 from std.sys import argv
 from std.time import perf_counter_ns
@@ -30,7 +31,7 @@ from ui.geom import Rect
 from app.render_res import RenderCaps
 from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget
-from app.post import PostEffect, Stage, ThenPost, Style
+from app.post import PostEffect, Stage, ThenPost, Style, Copy
 from app.post_fx import Fxaa, Bloom, Grade, neutral_lut, graded_lut, lut_lookup
 
 comptime W: UInt32 = 320
@@ -232,6 +233,97 @@ def msaa_caps() -> RenderCaps:
     return c
 
 
+def _median(mut v: List[Float64]) -> Float64:
+    for i in range(1, len(v)):
+        var x = v[i]
+        var j = i - 1
+        while j >= 0 and v[j] > x:
+            v[j + 1] = v[j]
+            j -= 1
+        v[j + 1] = x
+    return v[len(v) // 2]
+
+
+def once[P: RenderPass, F: PostEffect, A: AuxTarget](
+    device: Device, mut r: SceneRendererOf[P, F, A], mut rig: Rig,
+) raises -> Float64:
+    """One frame: the scene is pushed before the timer starts; the timer covers draw() (encode, submit) and the wait for
+    the GPU to finish and the pixels to be mapped. The read-back is the same for every pipeline."""
+    r.begin(view_for(rig.w, rig.h))
+    scene(r, SCENE_EDGES)
+    var t0 = perf_counter_ns()
+    r.draw(device, rig.target.handle().raw, rig.w, rig.h, rig.hud)
+    var req = rig.cap.capture(device, rig.target.handle().raw)
+    req.wait()
+    var t1 = perf_counter_ns()
+    _ = req.take()
+    rig.cap.unmap()
+    return Float64(t1 - t0) / 1e6
+
+
+def cost(device: Device, format: UInt32) raises:
+    comptime CW: UInt32 = 1920
+    comptime CH: UInt32 = 1080
+    comptime ROUNDS = 11
+    var rig = Rig(device, format, CW, CH)
+    var v = view_for(CW, CH)
+    var plain = SceneRendererOf[DefaultPasses](device, format, v)
+    var copy = SceneRendererOf[DefaultPasses, Stage[Copy]](device, format, v)
+    var fxaa = SceneRendererOf[DefaultPasses, Fxaa](device, format, v)
+    var bloom = SceneRendererOf[DefaultPasses, Bloom](device, format, v)
+    var grade = SceneRendererOf[DefaultPasses, Grade](device, format, v)
+    var msaa = SceneRendererOf[DefaultPasses](device, format, v, caps=msaa_caps())
+    var msaa_copy = SceneRendererOf[DefaultPasses, Stage[Copy]](device, format, v, caps=msaa_caps())
+    comptime Look = ThenPost[Fxaa, ThenPost[Bloom, Grade]]
+    comptime LookNoAa = ThenPost[Bloom, Grade]
+    var look = SceneRendererOf[DefaultPasses, Look](device, format, v)
+    var msaa_look = SceneRendererOf[DefaultPasses, LookNoAa](device, format, v, caps=msaa_caps())
+    var t = List[List[Float64]]()
+    for _ in range(9):
+        t.append(List[Float64]())
+    for round in range(ROUNDS + 2):  # two rounds to warm up (pipelines, targets, lavapipe's JIT), then ROUNDS timed
+        var ms = [
+            once(device, plain, rig), once(device, copy, rig), once(device, fxaa, rig), once(device, bloom, rig),
+            once(device, grade, rig), once(device, msaa, rig), once(device, msaa_copy, rig), once(device, look, rig),
+            once(device, msaa_look, rig),
+        ]
+        if round >= 2:
+            for i in range(9):
+                t[i].append(ms[i])
+    var names = [
+        "no stages (frame drawn directly)", "one copy stage (the baseline for every stage below)", "FXAA", "bloom (5 levels)",
+        "grade (LUT 16^3)", "MSAA 4x, no stages", "MSAA 4x + one copy stage", "FXAA + bloom + grade", "MSAA 4x + bloom + grade",
+    ]
+    var med = List[Float64]()
+    for i in range(9):
+        med.append(_median(t[i]))
+    print("frame cost at", Int(CW), "x", Int(CH), "on lavapipe (a CPU rasteriser: not GPU times), median of", ROUNDS, "frames; draw + submit + wait for the pixels")
+    print("| pipeline | ms / frame | min | max | added over |")
+    print("|---|---:|---:|---:|---|")
+    for i in range(9):
+        var lo = t[i][0]
+        var hi = t[i][0]
+        for x in t[i]:
+            lo = min(lo, x)
+            hi = max(hi, x)
+        var base = 0
+        var base_name = String("-")
+        if i == 1 or i == 5:
+            base = 0
+            base_name = "no stages: " + String(med[i] - med[0])
+        elif i >= 2 and i <= 4:
+            base = 1
+            base_name = "copy stage: " + String(med[i] - med[1])
+        elif i == 6:
+            base = 5
+            base_name = "MSAA alone: " + String(med[i] - med[5]) + " ; no-MSAA copy: " + String(med[i] - med[1])
+        elif i == 7:
+            base_name = "copy stage: " + String(med[i] - med[1])
+        elif i == 8:
+            base_name = "MSAA + copy stage: " + String(med[i] - med[6])
+        print("|", names[i], "|", med[i], "|", lo, "|", hi, "|", base_name, "|")
+
+
 def main() raises:
     var s = Suite("post_fx_native")
     var device = Instance().request_adapter().request_device()
@@ -241,6 +333,10 @@ def main() raises:
     for i in range(len(args)):
         if args[i] == "--dump" and i + 1 < len(args):
             dump = String(args[i + 1])
+    for i in range(len(args)):
+        if args[i] == "--cost":
+            cost(device, format)
+            return
     var view = view_for(W, H)
 
     # ---- anti-aliasing: the error against a 4 x 4 supersampled reference, over the reference's edges

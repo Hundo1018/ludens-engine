@@ -76,6 +76,8 @@ style-gallery = "python3 scripts/style_gallery.py"
 test-lights-camera = "python3 scripts/test_native.py lights_native camera_native lens_native env_probe_native motion_native"
 # #139: FXAA, bloom, colour-grading LUT (app/post_fx.mojo) and MSAA 4x (app/msaa.mojo), each against a number, on lavapipe
 test-post-fx = "python3 scripts/test_native.py post_fx_native"
+# #139: the frame time of each effect at 1920 x 1080 on lavapipe (not run in CI: it takes minutes and is a CPU rasteriser's time)
+post-fx-cost = "python3 scripts/post_fx_cost.py"
 test-texture = "python3 scripts/test_native.py texture_native"
 test-texture-c3 = "python3 scripts/test_native.py texture_c3_native"
 ui-same = "python3 scripts/ui_same.py"
@@ -99,6 +101,8 @@ sheet-cost = "python3 scripts/sheet_cost.py"
 test-pad = "node --experimental-strip-types --no-warnings scripts/test_pad.mjs"
 test-vpad = "node --experimental-strip-types --no-warnings scripts/test_vpad.mjs"
 test-assets = "node --no-warnings scripts/test_assets.mjs"
+# #139: TextureView.clone() on the web: the reference counts in shell/web/view_refs.mjs
+test-view-refs = "node --no-warnings tests/test_view_refs.mjs"
 # #12: the asset converters (scripts/assets/) and readers (app/assets.mojo) on synthetic inputs.
 test-asset-formats = "python3 scripts/test_asset_formats.py"
 # #116: the font importer on Pillow's bundled font, and the committed assets/fonts/*.lfont against the hash and license recorded beside them.

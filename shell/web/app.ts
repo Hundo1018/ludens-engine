@@ -7,6 +7,7 @@ import * as miniaudio from "./miniaudio_host.mjs";
 import * as net from "./net_host.mjs";
 import { createGameHook } from "./game_hook.mjs";
 import { createOsImports, opfsStorage } from "./os_host.mjs";
+import { withViewRefs } from "./view_refs.mjs";
 import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
 import { PadInput, VPAD_DEVICE, padButtonKey, type Sink } from "./pad.js";
@@ -81,7 +82,7 @@ async function boot(canvas: HTMLCanvasElement) {
   ]);
   const wrt = new Runtime(layout, enums);
   // wgpu's createImports returns the flat env table; the shared host wants {namespace: table}.
-  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(wgpuImports(wrt)) }), miniaudio, net, (r) => createOsImports(r, { storage: opfsStorage() })] });
+  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(withViewRefs(wgpuImports(wrt))) }), miniaudio, net, (r) => createOsImports(r, { storage: opfsStorage() })] });
   wrt.attach(rt);
   const x = rt.exports as unknown as AppExports;
   const [sel, len] = rt.str_in("#" + canvas.id);
@@ -478,6 +479,57 @@ async function particlePixelParity(x: AppExports, rt: any, app: bigint) {
   return { browser, stats, limits, ok };
 }
 
+// #139: the picture-effects frames (app/post_fx_frame.mojo, 480 x 270; 0 FXAA + bloom + grade, 1 MSAA 4x + bloom + grade)
+// against build/post_fx_native.rgba and build/post_fx_msaa_native.rgba, same tolerance row.
+async function postFxPixelParity(x: AppExports, rt: any, app: bigint, which: number) {
+  const W = 480, H = 270;
+  x.app_post_fx_request(app);
+  for (let i = 0; i < 1200 && x.app_post_fx_ptr(app, which) === 0n; i++) await new Promise((r) => requestAnimationFrame(r));
+  const ptr = x.app_post_fx_ptr(app, which);
+  if (ptr === 0n) throw new Error("post fx frame " + which + " never completed");
+  const pitch = x.app_post_fx_pitch(app);
+  const web = rt.bytes(ptr, pitch * H).slice() as Uint8Array;
+  const file = which === 0 ? "./post_fx_native.rgba" : "./post_fx_msaa_native.rgba";
+  const native = new Uint8Array(await (await fetch(file)).arrayBuffer());
+  if (native.length !== W * H * 4) throw new Error(file + " has the wrong size " + native.length);
+  let maxDelta = 0, over8 = 0, over32 = 0, graded = 0;
+  // pixels on an edge of the native frame (a luma step of more than 8 levels in the 3 x 3 around them), counted apart
+  const luma = (o: number) => (native[o] + native[o + 1] + native[o + 2]) / 3;
+  const edge = { pixels: 0, over8: 0, over32: 0, maxDelta: 0 }, flat = { over8: 0, over32: 0, maxDelta: 0 };
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+    const a = y * pitch + xx * 4, b = (y * W + xx) * 4;
+    let d = 0;
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(web[a + c] - native[b + c]));
+    if (d > maxDelta) maxDelta = d;
+    if (d > 8) over8++;
+    if (d > 32) over32++;
+    if (native[b] > native[b + 2] + 40) graded++; // the warm grade: red well above blue; most of the picture
+    let lo = 255, hi = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const l = luma((Math.min(Math.max(y + j, 0), H - 1) * W + Math.min(Math.max(xx + i, 0), W - 1)) * 4);
+      lo = Math.min(lo, l); hi = Math.max(hi, l);
+    }
+    const part = hi - lo > 8 ? edge : flat;
+    if (part === edge) edge.pixels++;
+    part.maxDelta = Math.max(part.maxDelta, d);
+    if (d > 8) part.over8++;
+    if (d > 32) part.over32++;
+  }
+  const browser = navigator.userAgent.includes("Firefox") ? "firefox" : "chrome";
+  const table = await (await fetch("./pixel_tolerance.json")).json();
+  const limits = table[browser];
+  const stats = { maxDelta, fracOver8: over8 / (W * H), fracOver32: over32 / (W * H), gradedPixels: graded, edge, flat };
+  // The MSAA frame (1): where the 4 samples of a pixel lie is up to the rasteriser, so a pixel on an edge can get a
+  // different coverage (one step of the 4-sample pattern) than natively. Its pixels away from edges meet the row as for
+  // any frame; its edge pixels meet the "msaaEdge" row of pixel_tolerance.json, measured and recorded there.
+  const flatOk = flat.maxDelta <= limits.maxDelta && flat.over8 / (W * H) <= limits.fracOver8 && flat.over32 / (W * H) <= limits.fracOver32;
+  const el = table.msaaEdge;
+  const edgeOk = edge.maxDelta <= el.maxDelta && edge.over8 / edge.pixels <= el.fracOver8 && edge.over32 / edge.pixels <= el.fracOver32;
+  const rowOk = maxDelta <= limits.maxDelta && stats.fracOver8 <= limits.fracOver8 && stats.fracOver32 <= limits.fracOver32;
+  const ok = graded > 2000 && (which === 1 ? flatOk && edgeOk : rowOk);
+  return { browser, stats, limits, ok };
+}
+
 // ?selftest[&canvas-lost]: report PASS/FAIL in document.title and #log (the protocol of scripts/web_*.mjs).
 // Headless Chrome destroys the GPUDevice after a canvas draw, so ?canvas-lost skips the pixel check there.
 function selftest(x: AppExports, rt: any, app: bigint) {
@@ -523,6 +575,11 @@ function selftest(x: AppExports, rt: any, app: bigint) {
         const pa = await particlePixelParity(x, rt, app);
         log.push(`particle pixel parity vs native (${pa.browser}): ${JSON.stringify(pa.stats)} limits ${JSON.stringify(pa.limits)}`);
         if (!pa.ok) return fail("particle pixels differ from the native render beyond the tolerance row");
+        for (const which of [0, 1]) {
+          const pf = await postFxPixelParity(x, rt, app, which);
+          log.push(`post fx frame ${which} pixel parity vs native (${pf.browser}): ${JSON.stringify(pf.stats)} limits ${JSON.stringify(pf.limits)}`);
+          if (!pf.ok) return fail("post fx frame " + which + " differs from the native render beyond the tolerance row");
+        }
       }
       finish(true);
     } catch (e) { clearInterval(timer); fail(String(e)); }
