@@ -1,3 +1,5 @@
+import { browserDevice, createDeviceImports } from "./device_host.mjs";
+
 // os_* imports (ludens-engine #8): the platform services a game or an editor needs, as generic imports.
 //   os_clipboard_write(ptr, len)            -> 0 queued, -1 refused
 //   os_clipboard_read_request()             -> 0 queued
@@ -8,6 +10,7 @@
 // A result packet is [kind u8][id u32 LE][status u8][payload]: kind 1 = clipboard text (id 0), kind 2 = file read
 // (id of the request; status 0 ok, 1 not found, 2 error). Asynchronous work never calls back into wasm: its result
 // is queued and the game takes it with os_poll inside a frame (ludens-wasm-rt's re-entry rule).
+// The device imports (os_dev_*: haptics, motion, screen, pointer lock, camera, microphone; #135) are in device_host.mjs, and use the same os_poll queue.
 // What it cannot do, on purpose (Play policy, ludens-engine #23): load code, run commands, install anything, or touch a
 // path outside the app's own storage. File paths are relative, `/`-separated, with no `.` / `..` / empty segment.
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
@@ -51,7 +54,7 @@ export function opfsStorage() {
   };
 }
 
-export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboard, storage = memoryStorage() } = {}) {
+export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboard, storage = memoryStorage(), device = browserDevice() } = {}) {
   const inbox = [];
   const status = { clipboardWrites: 0, fileWrites: 0, fileReads: 0, refused: 0, dropped: 0 };
   const packet = (kind, id, st, payload) => {
@@ -62,9 +65,12 @@ export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboar
     out.set(payload, 6);
     return out;
   };
+  const dev = createDeviceImports(rt, (p) => inbox.push(p), device); // os_dev_*: shell/web/device_host.mjs
   return {
     status,
+    device: dev.status,
     env: {
+      ...dev.env,
       os_clipboard_write(ptr, len) {
         if (!clipboard || Number(len) > MAX_CLIPBOARD_BYTES) { status.refused++; return -1; }
         const text = rt.str(ptr, len);

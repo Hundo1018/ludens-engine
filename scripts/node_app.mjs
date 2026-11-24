@@ -5,10 +5,11 @@
 //   const { rt, wrt, os } = await bootApp({ wasm, hostMjs, wgpuDir, maDir, storage? })
 //
 // `storage` is the os_* file storage (default: a fresh in-memory one); pass the same object to a second `bootApp` to model a restart.
+// `device` replaces the browser objects the os_dev_* imports read (shell/web/device_host.mjs `browserDevice()`), so a test can fake a phone.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export async function bootApp({ wasm, hostMjs, wgpuDir, maDir, storage, clipboard = null }) {
+export async function bootApp({ wasm, hostMjs, wgpuDir, maDir, storage, clipboard = null, device }) {
   // No DOM and no WebGPU under node: a stand-in canvas so surface creation has something to bind.
   globalThis.document ??= { querySelector: () => ({ width: 640, height: 480, getContext: () => ({}) }) };
   const load = (p) => import(pathToFileURL(p));
@@ -23,7 +24,7 @@ export async function bootApp({ wasm, hostMjs, wgpuDir, maDir, storage, clipboar
   const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
   let os;
   const rt = await instantiate(readFileSync(wasm), {
-    libs: [() => ({ env: createImports(wrt) }), ma, net, (r) => (os = createOsImports(r, { clipboard, ...(storage ? { storage } : {}) }))],
+    libs: [() => ({ env: createImports(wrt) }), ma, net, (r) => (os = createOsImports(r, { clipboard, ...(storage ? { storage } : {}), ...(device ? { device } : {}) }))],
   });
   wrt.attach(rt);
   return { rt, wrt, os };

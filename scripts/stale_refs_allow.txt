@@ -8,10 +8,7 @@ docs/audit-2026-11-response.md:c_defines  # ludens-wasm-rt build option the audi
 docs/audit-2026-11-response.md:bench_contact_model  # ludens-core benchmark cited
 docs/audit-2026-11-response.md:OwnedDLHandle.call  # Mojo standard library API, quoted from the audit reports
 docs/audit-2026-11-response.md:Runtime._tick  # ludens-core gameplay/runtime.mojo method named by a deferred finding
-docs/audit-2026-11-response.md:GPU.dispatch  # wgpu-mojo wgpu/gpu.mojo method named by a deferred finding
 docs/platform.md:VibratorManager  # Android platform API named in the device-seam plan (#135)
 docs/platform.md:SensorManager  # Android platform API named in the device-seam plan (#135)
 docs/platform.md:AudioRecord  # Android platform API named in the device-seam plan (#135)
-docs/platform.md:DeviceOrientation  # web platform event named in the device-seam plan (#135)
-docs/platform.md:DeviceMotion  # web platform event named in the device-seam plan (#135)
 docs/audio.md:ma_rsqrtf  # miniaudio's C function (vendored in miniaudio-mojo), a dependency
