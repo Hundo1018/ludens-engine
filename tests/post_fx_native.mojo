@@ -12,7 +12,7 @@
 #             so these are not GPU times).
 # `post_fx_native --dump DIR` writes the frames of the AA comparison as DIR/*.rgba (320 x 180).
 # `post_fx_native --cost` runs only the frame-cost table (scripts/post_fx_cost.py, `pixi run -e wasm post-fx-cost`).
-from std.math import sqrt, sin, cos
+from std.math import sqrt, sin, cos, tan
 from std.sys import argv
 from std.time import perf_counter_ns
 from harness.runner import Suite
@@ -45,6 +45,12 @@ def _v(x: Float64, y: Float64, z: Float64) -> Vec3:
 def view_for(w: UInt32, h: UInt32) -> View:
     var aspect = Real(Float32(w) / Float32(h))
     return View(CameraPose(_v(0, 0, 0), look_rotation(_v(0, 0, -1), _v(0, 1, 0)), 0.9, aspect, 0.1, 200.0), aspect)
+
+
+def view_at(w: UInt32, h: UInt32, eye_x: Float64) -> View:
+    """The camera moved sideways to x = eye_x, still looking along -z."""
+    var aspect = Real(Float32(w) / Float32(h))
+    return View(CameraPose(_v(eye_x, 0, 0), look_rotation(_v(0, 0, -1), _v(0, 1, 0)), 0.9, aspect, 0.1, 200.0), aspect)
 
 
 def read(device: Device, mut cap: FrameCapture, tex: WGPUTextureHandle, w: UInt32, h: UInt32) raises -> List[UInt8]:
@@ -88,9 +94,9 @@ struct Rig(Movable):
         self.hud = move.hud^
 
     def shoot[P: RenderPass, F: PostEffect, A: AuxTarget](
-        mut self, device: Device, mut r: SceneRendererOf[P, F, A], which: Int,
+        mut self, device: Device, mut r: SceneRendererOf[P, F, A], which: Int, eye_x: Float64 = 0.0,
     ) raises -> List[UInt8]:
-        r.begin(view_for(self.w, self.h))
+        r.begin(view_at(self.w, self.h, eye_x))
         scene(r, which)
         r.draw(device, self.target.handle().raw, self.w, self.h, self.hud)
         return read(device, self.cap, self.target.handle().raw, self.w, self.h)
@@ -99,6 +105,8 @@ struct Rig(Movable):
 comptime SCENE_EDGES = 0  # dark boxes with slanted edges against the sky
 comptime SCENE_GLOW = 1  # a bright box on a dark wall
 comptime SCENE_DIM = 2  # the same box, dim
+comptime SCENE_DENSE = 4  # a grid of 336 turned boxes: edges almost everywhere, FXAA's worst case
+comptime SCENE_EDGE = 3  # one dark box whose left edge is vertical, for the crawl measurement
 
 
 def _quat_z(a: Float64) -> List[Float64]:
@@ -106,7 +114,15 @@ def _quat_z(a: Float64) -> List[Float64]:
 
 
 def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: SceneRendererOf[P, F, A], which: Int):
-    if which == SCENE_EDGES:
+    if which == SCENE_DENSE:
+        for i in range(24):
+            for j in range(14):
+                var q = _quat_z(0.3 * Float64((i * 7 + j * 3) % 5))
+                var c = 0.1 + 0.15 * Float64((i + j) % 4)
+                r.push(DrawItem(0, _v((Float64(i) - 11.5) * 0.9, (Float64(j) - 6.5) * 0.9, -10.0), 0.0, 0.0, q[2], q[3], _v(0.6, 0.6, 0.6), _v(c, c * 0.8, 0.3), r.cube, -1, MAT_COLOR))
+    elif which == SCENE_EDGE:
+        r.push(DrawItem(0, _v(0.0, 0, -7.0), 0.0, 0.0, 0.0, 1.0, _v(1.5, 4.0, 1.0), _v(0.05, 0.05, 0.05), r.cube, -1, MAT_COLOR))
+    elif which == SCENE_EDGES:
         var q = _quat_z(0.52)
         r.push(DrawItem(0, _v(-1.4, 0.2, -6), 0.0, 0.0, q[2], q[3], _v(1.2, 0.8, 1), _v(0.05, 0.05, 0.05), r.cube, -1, MAT_COLOR))
         var q2 = _quat_z(-0.2)
@@ -116,6 +132,36 @@ def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: SceneRendererOf[P, 
         r.push(DrawItem(0, _v(0, 0, -30), 0.0, 0.0, 0.0, 1.0, _v(60, 40, 1), _v(0.02, 0.02, 0.02), r.cube, -1, MAT_COLOR))
         var c = 1.0 if which == SCENE_GLOW else 0.25
         r.push(DrawItem(0, _v(0, 0, -6), 0.0, 0.0, 0.0, 1.0, _v(1.0, 1.0, 1.0), _v(c, c, c), r.cube, -1, MAT_COLOR))
+
+
+def project_col(v: View, x: Float64, y: Float64, z: Float64) -> Float64:
+    """The column (in pixels, fractional) of the world point (x, y, z) in the view."""
+    var c = v.project(_v(x, y, z))
+    return (Float64(c.x) / Float64(c.w) * 0.5 + 0.5) * Float64(W)
+
+
+def edge_cross(px: List[UInt8], w: Int, y: Int, x0: Int, n: Int) -> Float64:
+    """Where the run x0 .. x0 + n, sky on the left and the dark box on the right, crosses half way between the two: the
+    first pixel below the middle luma and the one before it, interpolated linearly, in pixel units from the left of
+    pixel x0 (pixel centres at +0.5). This is the edge position the eye follows; the sum of the run's coverage would
+    not do, because a filter that conserves energy leaves that sum where it was."""
+    var sky = lum(px, w, x0, y)
+    var dark = lum(px, w, x0 + n - 1, y)
+    var mid = 0.5 * (sky + dark)
+    for i in range(1, n):
+        var b = lum(px, w, x0 + i, y)
+        if b < mid:
+            var a = lum(px, w, x0 + i - 1, y)
+            return Float64(x0 + i - 1) + 0.5 + (a - mid) / (a - b)
+    return Float64(x0 + n)
+
+
+def pop(prev: List[UInt8], now: List[UInt8], w: Int, y: Int, x0: Int, n: Int) -> Float64:
+    """The largest change of one pixel's luma between two frames, over the run (levels)."""
+    var worst = 0.0
+    for i in range(n):
+        worst = max(worst, abs(lum(now, w, x0 + i, y) - lum(prev, w, x0 + i, y)))
+    return worst
 
 
 def lum(px: List[UInt8], w: Int, x: Int, y: Int) -> Float64:
@@ -179,6 +225,28 @@ def edge_count(truth: List[UInt8], w: Int, h: Int) -> Int:
             if on_edge(truth, w, h, x, y):
                 n += 1
     return n
+
+
+def gate_stats(none: List[UInt8], filtered: List[UInt8], w: Int, h: Int) -> List[Int]:
+    """[pixels whose own 3 x 3 luma range is 1 .. 7 levels (below FXAA's contrast gate, 0.0312 of full scale = 7.96 levels),
+    how many of them the filter changed]."""
+    var low = 0
+    var changed = 0
+    for y in range(h):
+        for x in range(w):
+            var lo = 255.0
+            var hi = 0.0
+            for j in range(-1, 2):
+                for i in range(-1, 2):
+                    var l = lum(none, w, min(max(x + i, 0), w - 1), min(max(y + j, 0), h - 1))
+                    lo = min(lo, l)
+                    hi = max(hi, l)
+            if hi - lo >= 1.0 and hi - lo <= 7.0:
+                low += 1
+                var o = (y * w + x) * 4
+                if none[o] != filtered[o] or none[o + 1] != filtered[o + 1] or none[o + 2] != filtered[o + 2]:
+                    changed += 1
+    return [low, changed]
 
 
 def far_change(a: List[UInt8], b: List[UInt8], truth: List[UInt8], w: Int, h: Int) -> Int:
@@ -245,12 +313,12 @@ def _median(mut v: List[Float64]) -> Float64:
 
 
 def once[P: RenderPass, F: PostEffect, A: AuxTarget](
-    device: Device, mut r: SceneRendererOf[P, F, A], mut rig: Rig,
+    device: Device, mut r: SceneRendererOf[P, F, A], mut rig: Rig, which: Int = SCENE_EDGES,
 ) raises -> Float64:
     """One frame: the scene is pushed before the timer starts; the timer covers draw() (encode, submit) and the wait for
     the GPU to finish and the pixels to be mapped. The read-back is the same for every pipeline."""
     r.begin(view_for(rig.w, rig.h))
-    scene(r, SCENE_EDGES)
+    scene(r, which)
     var t0 = perf_counter_ns()
     r.draw(device, rig.target.handle().raw, rig.w, rig.h, rig.hud)
     var req = rig.cap.capture(device, rig.target.handle().raw)
@@ -259,6 +327,13 @@ def once[P: RenderPass, F: PostEffect, A: AuxTarget](
     _ = req.take()
     rig.cap.unmap()
     return Float64(t1 - t0) / 1e6
+
+
+def ms2(x: Float64) -> String:
+    """x with two decimals."""
+    var n = Int(x * 100.0 + 0.5)
+    var frac = n % 100
+    return String(n // 100) + "." + ("0" if frac < 10 else "") + String(frac)
 
 
 def cost(device: Device, format: UInt32) raises:
@@ -279,49 +354,48 @@ def cost(device: Device, format: UInt32) raises:
     var look = SceneRendererOf[DefaultPasses, Look](device, format, v)
     var msaa_look = SceneRendererOf[DefaultPasses, LookNoAa](device, format, v, caps=msaa_caps())
     var t = List[List[Float64]]()
-    for _ in range(9):
+    for _ in range(11):
         t.append(List[Float64]())
     for round in range(ROUNDS + 2):  # two rounds to warm up (pipelines, targets, lavapipe's JIT), then ROUNDS timed
         var ms = [
             once(device, plain, rig), once(device, copy, rig), once(device, fxaa, rig), once(device, bloom, rig),
             once(device, grade, rig), once(device, msaa, rig), once(device, msaa_copy, rig), once(device, look, rig),
-            once(device, msaa_look, rig),
+            once(device, msaa_look, rig), once(device, copy, rig, SCENE_DENSE), once(device, fxaa, rig, SCENE_DENSE),
         ]
         if round >= 2:
-            for i in range(9):
+            for i in range(11):
                 t[i].append(ms[i])
     var names = [
         "no stages (frame drawn directly)", "one copy stage (the baseline for every stage below)", "FXAA", "bloom (5 levels)",
         "grade (LUT 16^3)", "MSAA 4x, no stages", "MSAA 4x + one copy stage", "FXAA + bloom + grade", "MSAA 4x + bloom + grade",
+        "edge-dense scene: one copy stage", "edge-dense scene: FXAA",
     ]
     var med = List[Float64]()
-    for i in range(9):
+    for i in range(11):
         med.append(_median(t[i]))
     print("frame cost at", Int(CW), "x", Int(CH), "on lavapipe (a CPU rasteriser: not GPU times), median of", ROUNDS, "frames; draw + submit + wait for the pixels")
     print("| pipeline | ms / frame | min | max | added over |")
     print("|---|---:|---:|---:|---|")
-    for i in range(9):
+    for i in range(11):
         var lo = t[i][0]
         var hi = t[i][0]
         for x in t[i]:
             lo = min(lo, x)
             hi = max(hi, x)
-        var base = 0
         var base_name = String("-")
         if i == 1 or i == 5:
-            base = 0
-            base_name = "no stages: " + String(med[i] - med[0])
+            base_name = "no stages: +" + ms2(med[i] - med[0])
         elif i >= 2 and i <= 4:
-            base = 1
-            base_name = "copy stage: " + String(med[i] - med[1])
+            base_name = "copy stage: +" + ms2(med[i] - med[1])
         elif i == 6:
-            base = 5
-            base_name = "MSAA alone: " + String(med[i] - med[5]) + " ; no-MSAA copy: " + String(med[i] - med[1])
+            base_name = "MSAA alone: +" + ms2(med[i] - med[5]) + " ; copy stage: +" + ms2(med[i] - med[1])
         elif i == 7:
-            base_name = "copy stage: " + String(med[i] - med[1])
+            base_name = "copy stage: +" + ms2(med[i] - med[1])
         elif i == 8:
-            base_name = "MSAA + copy stage: " + String(med[i] - med[6])
-        print("|", names[i], "|", med[i], "|", lo, "|", hi, "|", base_name, "|")
+            base_name = "MSAA + copy stage: +" + ms2(med[i] - med[6])
+        elif i == 10:
+            base_name = "copy stage, same scene: +" + ms2(med[i] - med[9])
+        print("|", names[i], "|", ms2(med[i]), "|", ms2(lo), "|", ms2(hi), "|", base_name, "|")
 
 
 def main() raises:
@@ -358,6 +432,10 @@ def main() raises:
     var far = far_change(none, filtered, truth, Int(W), Int(H))
     print("pixels farther than 2 px from an edge that FXAA changed:", far)
     s.eqi(far, 0, "FXAA leaves the flat areas alone")
+    var gate = gate_stats(none, filtered, Int(W), Int(H))
+    print("pixels with a local contrast of 1 to 7 levels (under FXAA's gate):", gate[0], "; changed by FXAA:", gate[1])
+    s.check(gate[0] > 100, "the scene has low-contrast detail under the gate")
+    s.eqi(gate[1], 0, "FXAA leaves detail under its contrast gate alone")
     fx.fxaa_strength = 0.0
     s.eqi(diff(none, small.shoot(device, fx, SCENE_EDGES)), 0, "strength 0: the frame without the stage, pixel for pixel")
     if dump.byte_length() > 0:
@@ -407,6 +485,48 @@ def main() raises:
     var e_both = edge_error(small.shoot(device, both, SCENE_EDGES), truth, Int(W), Int(H))
     print("edge error, MSAA 4x then FXAA:", e_both, "levels (FXAA moves edges the resolve already placed: worse than MSAA alone)")
     s.check(e_both > e_msaa, "FXAA on top of MSAA is not an improvement: use one of the two")
+
+
+    # ---- edge crawl: the camera slides sideways in steps of 0.07 pixel; the box's left edge (sky on its left, dark on its
+    # right) is located on the middle row from the pixel values, as the sky width of a 24-pixel window; the crawl is the
+    # RMS distance of that position from where the projection puts the edge, once the constant offset is removed
+    var edge_x = -0.75  # the box's left face (the mesh cube is 1 across; its scale is 1.5): x = -0.75 on the front face, z = -7 + 0.5
+    var steps = 40
+    var px_per_m = Float64(H) * 0.5 / (6.5 * tan(0.45))
+    var step_m = 0.07 / px_per_m
+    var cm = SceneRendererOf[DefaultPasses](device, format, view, caps=msaa_caps())
+    fx.fxaa_strength = 1.0
+    var errs = List[List[Float64]]()
+    var pops = List[Float64]()
+    var last = List[List[UInt8]]()
+    for _ in range(3):
+        errs.append(List[Float64]())
+        pops.append(0.0)
+        last.append(List[UInt8]())
+    for k in range(steps):
+        var eye = Float64(k) * step_m
+        var col_true = project_col(view_at(W, H, eye), edge_x, 0.0, -6.5)
+        var frames = [small.shoot(device, plain, SCENE_EDGE, eye), small.shoot(device, fx, SCENE_EDGE, eye), small.shoot(device, cm, SCENE_EDGE, eye)]
+        for m in range(3):
+            errs[m].append(edge_cross(frames[m], Int(W), Int(H) // 2, Int(col_true) - 12, 24) - col_true)
+            if k > 0:
+                pops[m] = max(pops[m], pop(last[m], frames[m], Int(W), Int(H) // 2, Int(col_true) - 12, 24))
+            last[m] = frames[m].copy()
+    var rms = List[Float64]()
+    for m in range(3):
+        var mean = 0.0
+        for e in errs[m]:
+            mean += e
+        mean /= Float64(steps)
+        var sq = 0.0
+        for e in errs[m]:
+            sq += (e - mean) * (e - mean)
+        rms.append(sqrt(sq / Float64(steps)))
+    print("edge crawl over", steps, "steps of 0.07 px (RMS of the half-way crossing's error, pixels): none", rms[0], "; FXAA", rms[1], "; MSAA 4x", rms[2])
+    print("largest one-pixel change between two frames (levels; the step of the edge is 0.07 of a pixel, about 12 levels): none", pops[0], "; FXAA", pops[1], "; MSAA 4x", pops[2])
+    s.check(rms[2] < 0.5 * rms[0], "MSAA 4x halves the edge crawl of no filter (or better)")
+    s.check(rms[2] < rms[1], "MSAA 4x moves less than FXAA does")
+    s.check(pops[2] < 0.5 * pops[0], "MSAA 4x: no pixel jumps by more than half of what it does without a filter")
 
     # ---- bloom
     var base = SceneRendererOf[DefaultPasses](device, format, view)
@@ -510,6 +630,19 @@ def main() raises:
     print("graded table: largest difference from the CPU reading", worst, "levels ;", changed, "of", 8 * 86 * 86, "sampled inputs changed")
     s.check(worst <= 1.0, "a graded table: the stage gives the table's value within one level")
     s.check(changed > 8 * 86 * 86 // 2, "and the grade changes most colours")
+    g.lut_amount = 0.5
+    g.post_user = SIMD[DType.float32, 4](Float32(100.0), 0.0, 0.0, 0.0)
+    var half_amount = ramp.shoot(device, g, SCENE_EDGES)
+    var worst_half = 0.0
+    for y in range(0, 256, 3):
+        for x in range(0, 256, 3):
+            var want = lut_lookup(lut, 16, x, y, 100)
+            var o = (y * 256 + x) * 4
+            worst_half = max(worst_half, abs(Float64(Int(half_amount[o])) - 0.5 * (Float64(x) + want[0])))
+            worst_half = max(worst_half, abs(Float64(Int(half_amount[o + 1])) - 0.5 * (Float64(y) + want[1])))
+            worst_half = max(worst_half, abs(Float64(Int(half_amount[o + 2])) - 0.5 * (100.0 + want[2])))
+    print("amount 0.5: largest difference from the mean of input and grade", worst_half, "levels")
+    s.check(worst_half <= 1.0, "amount 0.5 gives the mean of the input and the grade, within one level")
     g.lut_amount = 0.0
     g.post_user = SIMD[DType.float32, 4](Float32(100.0), 0.0, 0.0, 0.0)
     var o0 = ramp.shoot(device, g, SCENE_EDGES)
