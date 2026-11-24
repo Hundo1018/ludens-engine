@@ -161,6 +161,14 @@ def main() raises:
             jump_vy = pc.vy
     c.ok(jump_cues > 0 and jump_vy > 1.0, "a jump cue carries the ball's upward velocity (" + String(jump_vy) + " m/s)")
 
+    # a load does not replay cues raised before it: the jump below is queued, a save taken, the queue is gone after load_state
+    var saved = DemoMode()
+    for t in range(35):
+        saved.step(Intent(Real(0), Real(0), Real(0), Real(0), t == 31, False, False), 1.0 / 60.0)
+    var blob = saved.save_state()
+    c.ok(len(saved.placed_cues) > 0, "a jump cue is queued before the load (" + String(len(saved.placed_cues)) + " cues)")
+    c.ok(saved.load_state(blob) and len(saved.positioned_cues()) == 0, "load_state drops the cues queued before it")
+
     # an airborne ball cannot jump again
     var air = DemoMode()
     for t in range(60):
