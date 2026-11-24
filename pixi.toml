@@ -57,10 +57,12 @@ test-editor = "python3 scripts/test_editor.py"
 build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
-test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_controls camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
+test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_save game_controls camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
 # #119: data tables (game/table.mojo), live tuning (game/tuning.mojo, game/tuning_panel.mojo), the generated accessors and `ludens check` on tables.
 gen-table = "python3 scripts/gen_table.py"
 test-tables = "python3 scripts/gen_table.py game/data/demo.schema --table game/data/demo.table -o game/demo_table.mojo --check && python3 scripts/test_native.py game_table && python3 tests/test_tables.py"
+# #122: one source change at a time to platform/save_store.mojo and game/demo_mode.mojo; the covering test must fail (not in CI: about 2 minutes)
+mutation-save = "python3 scripts/mutation_save.py"
 test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-scene-probe = "python3 scripts/test_native.py scene_probe_native"
 # #90: a whole SceneRenderer frame with every pass and option on (tile means against tests/golden/scene_frame_tiles.txt).
@@ -104,7 +106,7 @@ test-os = "python3 scripts/test_os.py"
 test-net = "node tests/test_net.mjs"
 # platform/ seams (docs/platform.md), standard library only: one Transport send / poll script over the memory pipe, UDP
 # and TCP on loopback; then the local identity, achievements, cloud save and lobby implementations.
-test-transport = "python3 scripts/test_native.py platform_transport platform_services"
+test-transport = "python3 scripts/test_native.py platform_transport platform_services platform_save"
 test-build = "python3 tests/test_build.py"
 # #115 (E21): window.game under node, divergence trace, `ludens sim` batch runner (docs/automation.md); builds build/app.wasm first.
 test-automation = { cmd = "python3 tests/test_automation.py", depends-on = ["build-wasm"] }

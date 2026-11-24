@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main() -> int:
     (ROOT / "build").mkdir(exist_ok=True)
-    cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", ".", "-I", "app", "app/os_probe.mojo",
+    cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", ".", "-I", "app", "-I", ".", "app/os_probe.mojo",
            "--target", "wasm64", "-o", "build/os_probe.wasm", "--export", "p_*"]
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
