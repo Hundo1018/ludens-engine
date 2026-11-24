@@ -146,7 +146,7 @@ def main() raises:
     var worst_model = 0
     var worst_step = Float32(0.0)
     var last_mean = Float32(-1.0)
-    for f in range(30):
+    for f in range(60):
         var level = 0.9 if (f // 2) % 2 == 0 else 0.03  # two frames bright, two frames dark: 15 flashes a second at 60 fps
         raw_r.begin(view.copy())
         flash_scene(raw_r, level)
@@ -170,7 +170,7 @@ def main() raises:
         prev_out = out^
     var raw_flashes = flash_count(raw_series, 0.1, 60)
     var out_flashes = flash_count(out_series, 0.1, 60)
-    print("synthetic flashing scene, 30 frames, 2 bright / 2 dark: mean luminance range", raw_series[0], "/", raw_series[2], "; flashes a second:", raw_flashes, "->", out_flashes, "; largest frame step of the mean:", worst_step, "(limit", step, "); largest difference from the CPU model:", worst_model, "of 255")
+    print("synthetic flashing scene, 60 frames (one second at 60 fps), 2 bright / 2 dark: mean luminance range", raw_series[0], "/", raw_series[2], "; flashes a second:", raw_flashes, "->", out_flashes, "; largest frame step of the mean:", worst_step, "(limit", step, "); largest difference from the CPU model:", worst_model, "of 255")
     s.check(raw_flashes > 3, "the unlimited scene fails the 3 flashes a second rule (" + String(raw_flashes) + ")")
     s.check(out_flashes <= 3, "the limited scene has at most 3 (" + String(out_flashes) + ")")
     s.check(worst_model <= 2, "each limited frame is within 2 of 255 of flash_limit(previous limited frame, unlimited frame)")
