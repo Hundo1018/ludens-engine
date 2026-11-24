@@ -27,7 +27,10 @@ from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
 from app.skin_draw import SkinnedPass
 from app.primitive_pass import PrimitivePass
-from app.render_pass import RenderPass, Then, AuxTarget, NoAux
+from app.render_pass import RenderPass, Then, AuxTarget, NoAux, DrawCounts
+from app.gpu_bytes import texture_bytes
+from app.gpu_timer import GpuTimer
+from wgpu.command import CommandEncoder
 from app.post import PostEffect, NoPost, PostInputs, Stage, Copy, begin_load_pass
 from app.shadow_pass import begin_depth_pass, record_atlas
 from app.gpu_mesh import GpuMeshCache, cam_floats
@@ -93,6 +96,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var depth_h: UInt32
     var cull: Bool  # drop the items that cannot change a pixel of the view before the passes see them (app/cull.mojo)
     var culled: Int  # how many the latest draw() dropped
+    var counts: DrawCounts  # draw calls and triangles of the latest draw(): the scene's colour pass and the HUD (not the shadow or post stages)
+    var tex_bytes: Int  # bytes of every texture this renderer holds, set when the targets are made (`texture_bytes`)
+    var gpu_timer: Optional[GpuTimer]  # timestamp queries around the passes of the frame; None where the device has none
     var cull_shadow_reach: Float64  # how far (m) a caster's sun shadow is followed when deciding to keep it
     var bounds: MeshBounds
     # the lens (app/lens.mojo's stages read these through the Frame uniform)
@@ -172,6 +178,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.view = view.copy()
         self.cull = False
         self.culled = 0
+        self.counts = DrawCounts()
+        self.tex_bytes = 0
+        self.gpu_timer = None
         self.cull_shadow_reach = 100.0
         self.bounds = MeshBounds()
         self.lens_focus = 5.0
@@ -228,6 +237,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.view = move.view^
         self.cull = move.cull
         self.culled = move.culled
+        self.counts = move.counts
+        self.tex_bytes = move.tex_bytes
+        self.gpu_timer = move.gpu_timer^
         self.cull_shadow_reach = move.cull_shadow_reach
         self.bounds = move.bounds^
         self.lens_focus = move.lens_focus
@@ -374,6 +386,56 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                         self.scene_view.value(),
                     )
                     self.blit.value().bind(device, self.color_format, width, height, binp)
+            self.tex_bytes = self._count_texture_bytes(width, height)
+
+    def _count_texture_bytes(self, width: UInt32, height: UInt32) raises -> Int:
+        """Bytes of the textures this renderer holds: the scene's texture array, the shadow, atlas and environment maps, and
+        the depth / colour targets `_depth_view` made for this frame size. From the sizes it created them with (the web host
+        cannot be asked: app/gpu_bytes.mojo)."""
+        var sw = Int(width)
+        var sh = Int(height)
+        comptime if Self.F.SCENE_W > 0:
+            sw = Self.F.SCENE_W
+            sh = Self.F.SCENE_H
+        var n = self.textures.bytes() + self.res.texture_bytes()
+        n += texture_bytes(sw, sh, 1, 1, DEPTH_FORMAT)  # the scene's depth
+        comptime if Self.F.ON:
+            n += texture_bytes(sw, sh, 1, 1, self.color_format)  # the scene's colour
+            comptime if Self.F.SCENE_W > 0:
+                n += texture_bytes(Int(width), Int(height), 1, 1, DEPTH_FORMAT)  # the HUD's depth
+            comptime if Self.A.ON:
+                n += texture_bytes(sw, sh, 1, 1, self.color_format) + texture_bytes(sw, sh, 1, 1, DEPTH_FORMAT)
+            comptime if Self.F.HISTORY:
+                n += 2 * texture_bytes(Int(width), Int(height), 1, 1, self.color_format)  # kept and prev
+            comptime if Self.F.VIEWS == 2:
+                n += texture_bytes(sw, sh, 1, 1, self.color_format) + texture_bytes(sw, sh, 1, 1, DEPTH_FORMAT)
+        return n
+
+    def enable_gpu_timing(mut self, device: Device) raises -> Bool:
+        """Time the frame's passes with timestamp queries if the device was made with the features
+        (`gpu_timer_features`); False, and no GPU timing, if not."""
+        self.gpu_timer = GpuTimer.create(device)
+        return Bool(self.gpu_timer)
+
+    def gpu_times(mut self) raises -> List[Int64]:
+        """[shadow, scene, post, whole] GPU nanoseconds of the latest draw, whose commands must have finished (the host waits
+        for the queue first). -1 = not measured: every entry without a timer, `post` when the pipeline has no stages. The
+        scene entry holds the HUD when there are no stages."""
+        var out = List[Int64](length=4, fill=-1)
+        if not self.gpu_timer:
+            return out^
+        var spans = self.gpu_timer.value().read()
+        var total: Int64 = 0
+        for k in range(min(len(spans), 3)):
+            out[k] = spans[k]
+            total += spans[k]
+        if len(spans) > 0:
+            out[3] = total
+        return out^
+
+    def _mark(mut self, enc: CommandEncoder):
+        if self.gpu_timer:
+            self.gpu_timer.value().mark(enc)
 
     def _post_frame(self, v: View, width: UInt32, height: UInt32) -> List[Float32]:
         var f = List[Float32]()
@@ -463,6 +525,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             device.queue_submit(rcmd^)
         self.res.write_camera(device, v)
         self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
+        self.counts = self.passes.counts(self.meshes) + DrawCounts(hud.draws(), hud.triangles())
         comptime if Self.F.ON:
             var pf = self._post_frame(v, width, height)
             self.post.update(device, pf)
@@ -473,6 +536,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 self.aux_passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
             self.post_frame += 1
         var enc = device.create_command_encoder("frame")
+        if self.gpu_timer:
+            self.gpu_timer.value().begin_frame()
+        self._mark(enc)  # GPU time: start, after the shadow passes, after the scene pass(es), after the last pass
         comptime if Self.P.SHADOW:  # a shadow pass in the list: the depth pass first, in this command buffer
             if self.res.shadow_on:
                 var srp = begin_depth_pass(enc, self.res.shadow_view)
@@ -480,12 +546,14 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 srp^.end()
             if self.res.tiles > 0:
                 record_atlas(self.passes, enc, self.res, self.meshes, self.gpu)
+        self._mark(enc)
         comptime if Self.F.ON:  # the passes into the scene target, the aux list into its own, then the stages
             var spass = enc.begin_render_pass_clear_depth(
                 self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "scene_pass",
             )
             self.passes.record_color(spass, self.meshes, self.gpu)
             spass^.end()
+            self._mark(enc)
             comptime if Self.A.ON:
                 var apass = enc.begin_render_pass_clear_depth(
                     self.aux_view.value().clone(), self.aux_depth_view.value(), WGPUColor(0.5, 0.5, 1.0, 0.0), 1.0, "aux_pass",
@@ -502,10 +570,14 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             var hpass = begin_load_pass(device, enc, device.create_texture_view(target), self.hud_depth_view.value())
             hud.record(hpass)
             hpass^.end()
+            self._mark(enc)
         else:
             var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "scene_pass")
             self.passes.record_color(rpass, self.meshes, self.gpu)
             hud.record(rpass)
             rpass^.end()
+            self._mark(enc)
+        if self.gpu_timer:
+            self.gpu_timer.value().resolve(enc)
         var cmd = enc^.finish()
         device.queue_submit(cmd^)

@@ -203,6 +203,7 @@ pixi run -e wasm parity         # native vs wasm64 hash of a sin/cos orbit (the 
 pixi run -e wasm bench          # B3 table below
 pixi run -e wasm frame-pacing   # step pattern at 60-240 Hz displays, physics against a 144 Hz frame (#126)
 pixi run -e wasm frame-budget   # per-segment frame breakdown, native and wasm64, against a 144 Hz frame (#123)
+pixi run -e wasm perf-gate      # the scripted scene against budgets.toml: counters fail, p95 warns (#123)
 ```
 
 Safari has no memory64, so the web shell does not run on iOS.
@@ -257,21 +258,25 @@ ludens-wasm-rt `b23d53d`.
 ## Frame breakdown
 
 `App.frame` times each part of its frame with one clock (`std.time.perf_counter_ns`: the OS monotonic clock natively,
-the runtime's `host_now_ns`, i.e. `performance.now()`, in wasm64) and keeps the last 256 frames in a ring
-(`app/frame_stats.mojo`). `app_frame_stats(app, out_ptr)` writes, for each of 9 segments in the order net, step,
-physics, scene, push, hud, draw, present, frame, `[p50, p95, max, frames it ran in]` as u64 nanoseconds (288 bytes)
-and returns the number of frames in the ring. `pixi run -e wasm frame-budget` prints them as a table against the
-6.94 ms frame of a 144 Hz display: natively at three resolutions (`app/frame_budget.mojo`, on lavapipe without a GPU)
-and for the real wasm64 app under node (`scripts/game_node.mjs`).
+the runtime's `host_now_ns`, i.e. `performance.now()`, in wasm64) and keeps the last 300 frames in a ring
+(`app/frame_stats.mojo`). `app_frame_stats(app, out_ptr)` writes, for each of 15 segments (net, step, physics, scene, push,
+hud, draw, present, frame, ai, audio, and the GPU passes shadow, scene, post, whole), `[avg, p50, p95, p99, max, frames it
+ran in]` as u64 nanoseconds, then for each of 6 counters (draw calls, triangles, texture bytes, particles, bodies, AI
+agents) `[last, avg, max]`: 864 bytes. It returns the number of frames in the ring. F3 shows the same numbers over the game.
+`pixi run -e wasm frame-budget` prints the first nine segments as a table against the 6.94 ms frame of a 144 Hz display:
+natively at three resolutions (`app/frame_budget.mojo`, on lavapipe without a GPU) and for the real wasm64 app under node
+(`scripts/game_node.mjs`). `pixi run -e wasm perf-gate` checks the counters of a fixed scripted scene against `budgets.toml`
+(docs/frame-budgets.md).
 
 How to read it:
 
-- *physics* is part of *step* (the game reports it through `GameMode.physics_ns`; a game that does not leaves the row
-  empty). Do not add the two rows. *frame* is the whole `app_frame` call, so it also holds what no row names.
+- *physics* and *ai* are part of *step* (the game reports them through `GameMode.physics_ns` and `GameMode.ai_ns`; a game that
+  does not leaves the row empty). Do not add them to *step*. *frame* is the whole `app_frame` call, so it also holds what no
+  row names.
 - A row is over the frames that segment ran in. "not run" means it does not exist on that target: natively there is
   no net poll or present (the runner draws offscreen); under node there is no WebGPU, so the frame ends after the step.
-- Every number is CPU time. *draw* is encoding and submitting the passes, not the GPU executing them; GPU time needs
-  timestamp queries (a later slice of #123).
+- Every number is CPU time except the `gpu_*` rows, which come from timestamp queries where the adapter has them (native; not
+  the browser, docs/frame-budgets.md). *draw* is encoding and submitting the passes, not the GPU executing them.
 - The browser clock is coarsened (100 µs in Chrome unless the page is cross-origin isolated), so read sub-ms browser
   rows over many frames, not one.
 

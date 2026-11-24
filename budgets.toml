@@ -1,0 +1,26 @@
+# Frame budgets of the demo game, checked by `pixi run -e wasm perf-gate` (scripts/perf_gate.py, docs/frame-budgets.md).
+# The scene is the scripted one of docs/automation.md: `arena`, seed 7, D held, a jump every 120 frames, 600 frames; the budgets
+# apply to the last 300 of them.
+[scene]
+name = "arena"
+seed = 7
+frames = 600
+width = 1280
+height = 720
+
+# Work counts: the largest value in the last 300 frames. They do not depend on the machine's speed, so a value above its
+# budget FAILS the gate. Observed when these were set (docs/frame-budgets.md): draw_calls 2, triangles 3,460, texture_bytes
+# 25,881,248, particles 0, bodies 9, ai_agents 0. A budget a little above what the scene needs lets a small change through and
+# stops a doubling.
+[counters]
+draw_calls = 4
+triangles = 4000
+texture_bytes = 27000000
+particles = 0
+bodies = 12
+ai_agents = 0
+
+# p95 of a segment in ms, native on lavapipe. Wall clock on a shared runner is noisy, so a value above its budget only WARNS.
+# 20 runs of this scene (10 idle, 10 with every core busy) gave a frame p95 of 0.124 to 0.208 ms; 0.5 ms is 2.4 times the largest.
+[frame_ms]
+frame = 0.5

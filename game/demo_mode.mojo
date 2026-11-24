@@ -9,7 +9,7 @@ from game.demo_table import DemoRow, demo_default_table, demo_row, DEMO_TABLE_TE
 from game.table import table_load
 from game.action_map import InputBuffer
 from game.intent import Intent
-from game.mode import GameMode
+from game.mode import GameMode, FrameCounters
 from game.tuning import Tuner
 from game.tuning_panel import TuningPanel
 from platform.save_store import Migrator, get_uint, put_uint
@@ -528,6 +528,11 @@ struct DemoMode(GameMode):
 
     def physics_ns(self) -> Int64:
         return self.step_physics_ns
+
+    def counters(self) -> FrameCounters:
+        var c = FrameCounters()
+        c.bodies = len(self.world.bodies())
+        return c
 
     def hash(self) -> UInt64:
         var h = self.world.hash()

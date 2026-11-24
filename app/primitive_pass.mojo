@@ -22,7 +22,7 @@ from app.mesh_data import MeshRegistry
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, RenderCaps, LIGHTS_BYTES
 from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL
-from app.render_pass import RenderPass
+from app.render_pass import RenderPass, DrawCounts
 from app.textures import TextureArray
 
 comptime VERTS_PER_INSTANCE = 1152
@@ -224,3 +224,6 @@ struct PrimitivePass(RenderPass):
         rpass.set_pipeline(self.pipeline)
         rpass.set_bind_group(UInt32(0), self.group)
         rpass.draw(UInt32(VERTS_PER_INSTANCE), UInt32(self.count), UInt32(0), UInt32(0))
+
+    def counts(self, meshes: MeshRegistry) -> DrawCounts:
+        return DrawCounts(1, VERTS_PER_INSTANCE // 3 * self.count)  # one instanced draw, even with no instance

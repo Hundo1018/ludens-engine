@@ -10,8 +10,12 @@ ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through lude
 from audio_assets import load_music, lsound_to_mono
 from audio_event import AudioEvent, BUS_MUSIC, parse_events
 from audio_math import Rng
-from controls import KEY_F2, MOUSE_LEFT, read_frame
-from frame_stats import FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME
+from controls import KEY_F2, KEY_F3, MOUSE_LEFT, read_frame
+from frame_stats import (
+    FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_AI, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME,
+    CTR_DRAWS, CTR_TRIANGLES, CTR_TEXTURE_BYTES, CTR_PARTICLES, CTR_BODIES, CTR_AI_AGENTS,
+)
+from perf_overlay import perf_overlay
 from game.demo_mode import DemoMode
 from game.mode import GameMode
 from geometry.vec import Real
@@ -106,6 +110,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var font_dirty: Bool  # the game has not been given font_metrics yet
     var ui_env: UiEnv  # safe-area insets, text scale and locale from the page (app_set_ui)
     var game_format: UInt32
+    var perf_shown: Bool  # F3: the frame-time overlay (app/perf_overlay.mojo) is drawn over the HUD
+    var perf_key_was: Bool
     var overlay_key_was: Bool  # the overlay key (F2) was down at the last draw: `toggle` is its rising edge as drawn
     var export_file: String  # a file the game asked the host to save and the host has not taken yet (app_take_export)
     var stats: FrameStats  # per-segment CPU time of the last FRAME_RING frames (app/frame_stats.mojo, app_frame_stats)
@@ -165,6 +171,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.stats = FrameStats()
         self.export_file = String()
         self.overlay_key_was = False
+        self.perf_shown = False
+        self.perf_key_was = False
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -219,6 +227,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.stats = move.stats^
         self.export_file = move.export_file^
         self.overlay_key_was = move.overlay_key_was
+        self.perf_shown = move.perf_shown
+        self.perf_key_was = move.perf_key_was
 
     def take_export(mut self, out_ptr: UInt64, cap: UInt64) -> Int32:
         if self.export_file.byte_length() == 0 and self.mode == MODE_GAME and self.game:
@@ -324,6 +334,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         m.step(intent, min(dt, 0.1))
         self.game_frames += 1
         self.stats.add(SEG_PHYSICS, m.physics_ns())  # inside the step segment; -1 (not measured) records nothing
+        self.stats.add(SEG_AI, m.ai_ns())
+        var gc = m.counters()
+        self.stats.set_counter(CTR_PARTICLES, gc.particles)
+        self.stats.set_counter(CTR_BODIES, gc.bodies)
+        self.stats.set_counter(CTR_AI_AGENTS, gc.ai_agents)
         # The listener is the camera: its position, the direction it looks along and its up axis (the mixer's spatializers
         # place every positioned voice relative to it).
         var cam = m.camera()
@@ -376,10 +391,19 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.input.is_mouse_button_pressed(MOUSE_LEFT), f2 and not self.overlay_key_was,
         )
         self.overlay_key_was = f2
-        if over.count() > 0:  # a panel is open: the HUD and the panel are rebuilt every frame
+        var f3 = self.input.is_key_pressed(KEY_F3)
+        if f3 and not self.perf_key_was:
+            self.perf_shown = not self.perf_shown
+            self.hud.value().key = -1  # the cached HUD no longer matches what is drawn
+        self.perf_key_was = f3
+        if over.count() > 0 or self.perf_shown:  # a panel is open: the HUD and the panel are rebuilt every frame
             var list = m.hud(Float32(self.width), Float32(self.height), self.frame_ms)
             for i in range(over.count()):
                 list.cmds.append(over.cmds[i].copy())
+            if self.perf_shown:
+                var pl = perf_overlay(self.stats, 8.0, 8.0)
+                for i in range(pl.count()):
+                    list.cmds.append(pl.cmds[i].copy())
             self.hud.value().set(list, Float32(self.width), Float32(self.height))
         else:
             refresh_hud(self.hud.value(), m, Float32(self.width), Float32(self.height), self.frame_ms)
@@ -387,6 +411,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.game_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.hud.value())
         self.hud.value().uploaded()
         _ = self.stats.lap(SEG_DRAW, t)
+        self.stats.set_counter(CTR_DRAWS, self.game_renderer.value().counts.draws)
+        self.stats.set_counter(CTR_TRIANGLES, self.game_renderer.value().counts.triangles)
+        self.stats.set_counter(CTR_TEXTURE_BYTES, self.game_renderer.value().tex_bytes)
 
     def _draw_scene(mut self, target: WGPUTextureHandle, format: UInt32) raises:
         var aspect = Float32(self.width) / Float32(self.height)
@@ -526,10 +553,19 @@ def app_take_export(app: UInt64, out_ptr: UInt64, cap: UInt64) abi("C") -> Int32
 
 @export
 def app_frame_stats(app: UInt64, out_ptr: UInt64) abi("C") -> Int32:
-    """Per-segment CPU time over the last 256 frames (app/frame_stats.mojo): writes 9 segments x [p50, p95, max ns,
-    frames it ran in] as u64 to `out_ptr` (288 bytes), in the order net, step, physics (inside step), scene, push, hud,
-    draw, present, frame. Returns the frames in the ring."""
+    """Frame timings and counters over the last 300 frames (app/frame_stats.mojo). Writes to `out_ptr`, as u64:
+    15 segments x [avg, p50, p95, p99, max ns, frames it ran in] in the order net, step, physics (inside step), scene, push,
+    hud, draw, present, frame, ai (inside step), audio, gpu_shadow, gpu_scene, gpu_post, gpu_frame; then 6 counters x
+    [last, avg, max] in the order draw calls, triangles, texture bytes, particles, bodies, ai agents. 15 * 6 + 6 * 3 = 108
+    u64 (864 bytes). A segment that never ran has count 0. Returns the frames in the ring."""
     return _app(app)[].stats.write(out_ptr)
+
+
+@export
+def app_frame_ring(app: UInt64, out_ptr: UInt64) abi("C") -> Int32:
+    """The frames in the ring, oldest first, 21 i64 each: the 15 segment times in ns (-1 = did not run) then the 6
+    counters. Room for 300 frames is 50400 bytes. Returns the number of frames written (scripts/frame_trace.py)."""
+    return _app(app)[].stats.write_ring(out_ptr)
 
 
 @export
@@ -554,9 +590,11 @@ def app_audio_render(app: UInt64, dst_ptr: UInt64, frames: UInt32) abi("C") -> I
     try:
         var a = _app(app)
         var dst = Pointer[Float32, MutUntrackedOrigin](unsafe_from_address=Int(dst_ptr))
+        var t0 = now_ns()
         a[].sim.render_audio(Int(frames))
         for i in range(Int(frames) * 2):
             dst[i] = a[].sim.pcm[i]
+        a[].stats.add_audio(Int64(now_ns() - t0))
         return 0
     except e:
         print("app_audio_render:", e)

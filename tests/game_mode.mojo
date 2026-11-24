@@ -7,7 +7,7 @@ Compile-time dispatch is the point: the host below is `drive[M]`, not a trait ob
 from game.demo_mode import DemoMode
 from game.draw_item import DrawItem
 from game.intent import Intent
-from game.mode import GameMode
+from game.mode import GameMode, FrameCounters
 from geometry.quat import Quat
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
@@ -56,6 +56,12 @@ struct Pulse(GameMode):
     def hash(self) -> UInt64:
         return UInt64(self.n)
 
+    def ai_ns(self) -> Int64:
+        return 1234
+
+    def counters(self) -> FrameCounters:
+        return FrameCounters(self.n, 2, 5)
+
 
 def intent_at(t: Int) -> Intent:
     # walk forward and turn a little, jump every 90 frames: exercises the controls, the camera and the physics
@@ -77,6 +83,12 @@ def drive[M: GameMode](mut m: M, frames: Int) raises -> List[UInt64]:
             out.append(m.hash())
     out.append(UInt64(items))
     return out^
+
+
+def report[M: GameMode](m: M) -> List[Int]:
+    """What the host reads for the frame counters and the `ai` row: ai ns, particles, bodies, AI agents."""
+    var c = m.counters()
+    return [Int(m.ai_ns()), c.particles, c.bodies, c.ai_agents]
 
 
 struct Check:
@@ -113,6 +125,13 @@ def main() raises:
     # a game that overrides neither state() nor reset() still has the default readout and says it has no seeds or scenes
     c.ok(f.state() == '{"hash":"120"}', "the default state() is the hash: " + f.state())
     c.ok(not f.reset(1, ""), "the default reset() reports that the game has no seeds or scenes")
+
+    # the frame counters and the AI row (#123): a game that reports nothing has -1 and zeros; one that does is read through the seam
+    var ra = report(a)
+    var rf = report(f)
+    c.ok(ra[0] == -1 and ra[1] == 0 and ra[3] == 0, "a game with no AI and no particles reports -1 ns and zeros by default")
+    c.ok(ra[2] == 9, "the demo game reports its 9 bodies")
+    c.ok(rf[0] == 1234 and rf[1] == 120 and rf[2] == 2 and rf[3] == 5, "overrides of ai_ns and counters reach the host through the trait")
 
     print("game_mode:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:

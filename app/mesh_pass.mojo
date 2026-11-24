@@ -42,7 +42,7 @@ from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
 from app.mesh_data import MeshData, SkinnedMeshData, MeshRegistry
-from app.render_pass import RenderPass
+from app.render_pass import RenderPass, DrawCounts
 from app.gpu_blend import blend_state, cull_mode, BLEND_NONE, CULL_NONE
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.gpu_mesh import GpuMeshCache, MeshBatches, cam_floats, STATIC_BUFFERS, S_POS, S_NRM, S_UV
@@ -546,6 +546,14 @@ struct MeshPassOf[*Ms: Material](RenderPass):
             rpass.draw_indexed(
                 UInt32(n_idx), UInt32(self.batches.counts[k]), UInt32(0), Int32(0), UInt32(self.batches.base[k]),
             )
+
+    def counts(self, registry: MeshRegistry) -> DrawCounts:
+        var out = DrawCounts()
+        for k in range(len(self.batches.order)):
+            var n_idx = len(registry.meshes[self.batches.order[k]].indices)
+            out.draws += 1
+            out.triangles += n_idx // 3 * self.batches.counts[k]
+        return out
 
 
 comptime MeshPass = MeshPassOf[MatColor, MatUv, MatTriplanar, MatSky, MatPbr]

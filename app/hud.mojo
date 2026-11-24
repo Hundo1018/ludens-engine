@@ -251,6 +251,13 @@ struct Hud(Movable):
         if self.dirty and self.glyph_buffer and len(self.glyph_staging) > 0:
             device.queue_write_data(self.glyph_buffer.value(), UInt64(0), self.glyph_staging)
 
+    def draws(self) -> Int:
+        """Draw calls `record` issues."""
+        return (1 if self.verts > 0 else 0) + (1 if self.glyph_verts > 0 and self.glyph_pipeline else 0)
+
+    def triangles(self) -> Int:
+        return self.verts // 3 + (self.glyph_verts // 3 if self.glyph_pipeline else 0)
+
     def uploaded(mut self):
         """The host calls this after the frame that uploaded the vertices was drawn."""
         self.dirty = False
