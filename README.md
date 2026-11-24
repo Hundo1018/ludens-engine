@@ -124,6 +124,7 @@ A stick reports its vector as two `AXIS` events (`PadSink.axis`); the game's act
 | `tests/editor_command.mojo` | Command-layer test: the GUI and CLI entries give the same world hash. |
 | `editor/scene_text.mojo`, `editor/core_main.mojo` | The flat text form of a scene (`path = value` rows) and `ludens-core`, the native process the command line drives. |
 | `game/action_map.mojo`, `game/controls.mojo`, `game/data/demo.actions`, `game/input_strings.mojo`, `app/profile.mojo` | Input actions by intent, analog sticks, rebinding with conflicts, the saved profile, the input buffer, prompts: `docs/input.md` (#117). Test: `pixi run -e wasm test-game`, `test-input`. |
+| `game/access.mojo`, `game/captions.mojo`, `game/camera_shake.mojo`, `game/access_filters.mojo`, `app/access_host.mojo`, `app/access_post.mojo` | Accessibility: captions, text scale, camera shake and reduce motion, flash limiter, colour-blind stages, volume per bus, mono, one profile file: `docs/accessibility.md` (#118). Test: `pixi run -e wasm test-access`, `test-access-gpu`, `test-access-app`. |
 | `game/table.mojo`, `game/tuning.mojo`, `game/tuning_panel.mojo`, `game/data/` | Data tables with a schema, live tuning and its panel (F2 in the demo game), `ludens check` / `ludens tune` on tables: `docs/data-tables.md` (#119). Test: `pixi run -e wasm test-tables`, `tuning-web`. |
 | `scripts/ludens.py`, `scripts/build_core.py` | The `ludens` command line and the build of the native core. |
 | `tests/test_cli.py` | The command line end to end, across processes. |

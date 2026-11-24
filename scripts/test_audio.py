@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+import build_core  # noqa: E402
 
 
 def build_native(entry: str, out: str) -> Path:
@@ -21,6 +22,7 @@ def build_native(entry: str, out: str) -> Path:
     native_libs.build_all()
     ma = ROOT / "build/deps/miniaudio-mojo"
     cmd = [sys.executable, "-m", "ludens_wasm_rt.build_wasm", "--lib", str(ma), "--lib", ".", "-I", str(ma), "-I", str(ROOT / "app"),
+           "-I", str(build_core.engine_dir()), "-I", str(ROOT),  # ludens-core and the engine's own packages (game/, ui/): tests/access_host.mojo
            entry, "--target", "native", "-o", out]
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:

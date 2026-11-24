@@ -10,6 +10,10 @@
 //   rebind(line)     `jump key:KeyJ`, `move.up key:KeyI take`: {ok: true}, or {ok: false, conflicts: ["jump.main"]}; saved to the profile
 //   resetBindings()  every action back to its default bindings
 //   prompt(action, device)   the name to show for an action on a device ("keyboard", "mouse", "gamepad", "touch"): "Space", "A"
+//   access(line)     one accessibility setting, `text_scale 150`, `volume.music 40`, `mono on` (docs/accessibility.md); throws for a bad key or value
+//   accessText()     the settings that differ from the defaults as profile rows;  resetAccess() puts them all back
+//   captionsLoad(text)   a caption track;  say(speaker, line, ms)   a dialogue line as a caption;  captions()   the strings up now
+//   shake(trauma)    camera shake trauma 0..1;  shakeOffset()   [x, y] metres the camera is moved at the player's scale
 //   step(n, draw)    n frames of 1/60 s; draw = false (default true) steps with no drawing and no presenting
 //   hash()           the game state's hash, a decimal string (a u64 does not fit a JS number)
 //   events()         the sound cues raised since the last call: [{frame, cue}]
@@ -72,6 +76,35 @@ export function createGameHook({ rt, app, keyCode }) {
       }
     },
     resetBindings() { rt.call("app_bindings_reset", app); },
+    access(line) {
+      const [ptr, len] = rt.str_in(line);
+      try {
+        if (rt.call("app_access_set", app, ptr, len) !== 0) throw new Error(`game: access(${JSON.stringify(line)}) refused, see the console`);
+      } finally {
+        rt.free(ptr);
+      }
+    },
+    accessText() { const n = rt.call("app_access_text", app); return n === 0 ? "" : text(n); },
+    resetAccess() { rt.call("app_access_reset", app); },
+    captionsLoad(track) {
+      const [ptr, len] = rt.str_in(track);
+      try {
+        if (rt.call("app_captions_load", app, ptr, len) !== 0) throw new Error("game: captionsLoad: the track was refused, see the console");
+      } finally {
+        rt.free(ptr);
+      }
+    },
+    say(speaker, line, ms = 3000) {
+      const [ptr, len] = rt.str_in(speaker ? `${speaker}\t${line}` : line);
+      try {
+        rt.call("app_caption_say", app, ptr, len, ms);
+      } finally {
+        rt.free(ptr);
+      }
+    },
+    captions: () => JSON.parse(text(rt.call("app_captions_state", app))),
+    shake(trauma) { rt.call("app_shake", app, trauma); },
+    shakeOffset: () => [rt.call("app_shake_offset", app, 0), rt.call("app_shake_offset", app, 1)],
     prompt(action, device = "keyboard") {
       const d = DEVICES[device];
       if (d === undefined) throw new Error(`game: prompt: device must be one of ${Object.keys(DEVICES).join(", ")}`);
