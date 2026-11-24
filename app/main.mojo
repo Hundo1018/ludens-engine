@@ -25,6 +25,7 @@ from app.skin_gpu import GpuSkinning, SkinJob
 from app.skin_pass import CpuSkinning, Skinning, synthetic_scene
 from geometry.vec import Vec3
 from reference import Reference, fill
+from particle_frame import ParticleReference
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
 from ui.scale import UiEnv
@@ -67,6 +68,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var reference: Optional[Reference]
     var reference_frames: Int
     var reference_ptr: UInt64
+    var particle_reference: Optional[ParticleReference]  # #121: the particle frame of the pixel parity
+    var particles_requested: Bool
+    var particles_ptr: UInt64
     var offscreen: Bool
     var probe_cube: Int
     var skin_job: Optional[SkinJob]
@@ -117,6 +121,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.reference = None
         self.reference_frames = -1
         self.reference_ptr = 0
+        self.particle_reference = None
+        self.particles_requested = False
+        self.particles_ptr = 0
         self.offscreen = False
         self.probe_cube = 0
         self.skin_job = None
@@ -165,6 +172,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.reference = move.reference^
         self.reference_frames = move.reference_frames
         self.reference_ptr = move.reference_ptr
+        self.particle_reference = move.particle_reference^
+        self.particles_requested = move.particles_requested
+        self.particles_ptr = move.particles_ptr
         self.offscreen = move.offscreen
         self.probe_cube = move.probe_cube
         self.skin_job = move.skin_job^
@@ -227,6 +237,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.reference.value().start(self.boot.device(), self.reference_frames)
         if self.reference and self.reference_ptr == 0:
             self.reference_ptr = self.reference.value().poll()
+        if self.particles_requested and not self.particle_reference:
+            self.particle_reference = ParticleReference(self.boot.device())
+            self.particle_reference.value().start(self.boot.device())
+        if self.particle_reference and self.particles_ptr == 0:
+            self.particles_ptr = self.particle_reference.value().poll()
 
     def start_game(mut self) raises:
         if not self.game:
@@ -569,6 +584,27 @@ def app_reference_pitch(app: UInt64) abi("C") -> UInt32:
     if not a[].reference:
         return 0
     return a[].reference.value().pitch()
+
+
+@export
+def app_particles_request(app: UInt64) abi("C"):
+    """Render the particle frame (app/particle_frame.mojo, 480 x 270) for the native/web pixel parity (#121)."""
+    _app(app)[].particles_requested = True
+
+
+@export
+def app_particles_ptr(app: UInt64) abi("C") -> UInt64:
+    """Address of the particle frame's pixels (RGBA8, rows of app_particles_pitch bytes), 0 until ready."""
+    return _app(app)[].particles_ptr
+
+
+@export
+def app_particles_pitch(app: UInt64) abi("C") -> UInt32:
+    """Bytes per row of the particle frame; 0 before app_particles_request has started it."""
+    var a = _app(app)
+    if not a[].particle_reference:
+        return 0
+    return a[].particle_reference.value().pitch()
 
 
 @export

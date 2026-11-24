@@ -6,7 +6,7 @@ feedback use the same path.
 
 Code: `game/particles.mojo` (simulation, packing), `game/data/particles.schema` and `particles.table` (the emitter
 fields and three sample emitters), `game/particles_table.mojo` (generated accessors), `app/particle_pass.mojo` (the
-`RenderPass`). Tests: `pixi run -e wasm test-particles`, `test-particles-native`, `particles-same`.
+`RenderPass`). Tests: `pixi run -e wasm test-particles`, `test-particles-native`, `particles-same`, and the particle row of `web-check` (below).
 
 ## Emitter fields
 
@@ -83,6 +83,16 @@ r.passes.second.advance(1.0 / 60.0, view)
 - Particles are not lit, fogged, tone mapped or shadowed. Layer 0 (the white layer) draws a soft disc; another layer is
   sampled as it is, times the colour, with the flipbook cell for the particle's age.
 
+## Native against browser
+
+`app/particle_frame.mojo` draws a fixed frame (floor, a cube, the `spark` emitter additive and a burst of `smoke` alpha,
+20 steps from seeds 7 and 11, 480 x 270, RGBA8Unorm) with `SceneRendererOf[Then[DefaultPasses, ParticlePass]]`.
+`app/particle_pixels.mojo` writes it natively (`scripts/parity_pixels_native.py`, `build/particles_native.rgba`); the web
+app exports it (`app_particles_request`, `app_particles_ptr`, `app_particles_pitch`) and `?selftest=parity` compares the
+two with the per-browser limits of `shell/web/pixel_tolerance.json`, the same row as the reference frame, and requires at
+least 60 spark-coloured pixels so that an empty frame cannot pass. `scripts/web_check.py` and `.github/workflows/parity.yml`
+already run it.
+
 ## Measured
 
 Machine: this session's container (shared CPU), Mojo 1.2.0, 2026-11-23.
@@ -111,10 +121,6 @@ that the upload and sort are a small part at 1k and 10k.
 
 ## Not done here
 
-- Browser pixels: the native and wasm64 simulations and uploaded bytes are compared for equality (`particles-same`), and
-  the native frame is checked against tile means (`tests/golden/particles_frame_tiles.txt`). A native-against-browser
-  pixel row needs a page that draws a particle scene; the existing page (`shell/web/app.ts`, the `?selftest=parity` frame)
-  draws a fixed reference frame and was not changed.
 - A texture layer other than 0 in the pass is not drawn by any test; the flipbook cell is checked in the packed records
   (`tests/particles.mojo`), not in pixels.
 - Particle rotation, soft particles (fade against scene depth), collision with the world, trails and sub-emitters.

@@ -29,6 +29,9 @@ def main() -> None:
     native_px = ROOT / "build/pixels_native.rgba"
     if native_px.exists():  # the native reference for ?selftest=parity (scripts/parity_pixels_native.py)
         shutil.copy(native_px, OUT / "pixels_native.rgba")
+    native_particles = ROOT / "build/particles_native.rgba"
+    if native_particles.exists():  # #121: the native particle frame (scripts/parity_pixels_native.py)
+        shutil.copy(native_particles, OUT / "particles_native.rgba")
     shutil.copy(ROOT / "assets/fonts/NotoSansTC-Regular-24.lfont", OUT / "font.lfont")  # the HUD's SDF font (#116)
     sys.path.insert(0, str(ROOT / "scripts"))
     import check_font_asset

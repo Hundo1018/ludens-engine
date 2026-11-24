@@ -28,6 +28,14 @@ def main() -> int:
     r = subprocess.run([str(ROOT / "build/pixels"), str(ROOT / "build/pixels_native.rgba"), str(FRAMES)],
                        capture_output=True, text=True, env=env, check=False)
     print((r.stdout + r.stderr).strip()[-600:])
+    if r.returncode:
+        return r.returncode
+    # #121: the particle frame (app/particle_frame.mojo), 480 x 270, same device and driver
+    entry_build("app/particle_pixels.mojo", [eng, wg, ma, Path(".")], [eng, wg, ma, ma / "examples/web", ROOT / "app", ROOT],
+                "--target", "native", "-o", "build/particle_pixels")
+    r = subprocess.run([str(ROOT / "build/particle_pixels"), str(ROOT / "build/particles_native.rgba")],
+                       capture_output=True, text=True, env=env, check=False)
+    print((r.stdout + r.stderr).strip()[-600:])
     return r.returncode
 
 
