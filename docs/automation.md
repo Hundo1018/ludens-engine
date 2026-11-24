@@ -40,6 +40,8 @@ one `SplitMix64` stream; seed 0 draws nothing, so a run with no seed has the sam
 | `hash()` | the state hash as a decimal string (a u64 does not fit a JS number) |
 | `events()` | sound cues raised since the last call: `[{"frame": N, "cue": C}]`, `N` counting game frames since the game started; clears the list |
 | `configure(seed, scene)` | start over; what `?seed=` and `?scene=` call |
+| `axis(device, axis, v)` / `padButton(device, b, down)` | an analog axis or a gamepad / on-screen button (`docs/input.md`) |
+| `rebind(line)` / `resetBindings()` / `prompt(action, device)` | change and read the action bindings; `rebind` returns `{ok}` or `{ok: false, conflicts}` and saves the profile |
 
 A key is a DOM `KeyboardEvent.code` (`KeyW`, `Space`, `ArrowUp`, `Escape`) or a single letter or digit (`w`). One stepped frame is one
 game tick for the demo game (`state().tick` equals the frames stepped; checked for 600 frames).

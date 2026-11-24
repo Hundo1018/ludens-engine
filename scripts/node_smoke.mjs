@@ -1,23 +1,9 @@
 // B1 acceptance: app_init + 1 frame under node must not trap (no WebGPU -> wgpu* imports are stubs).
 // usage: node node_smoke.mjs app.wasm <ludens-wasm-rt host.mjs> <wgpu-mojo dir> <miniaudio-mojo dir>
-import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-
-// No DOM and no WebGPU under node: a stand-in canvas so surface creation has something to bind.
-globalThis.document ??= { querySelector: () => ({ width: 640, height: 480, getContext: () => ({}) }) };
 
 const [wasm, hostMjs, wgpuDir, maDir] = process.argv.slice(2);
-const load = (p) => import(pathToFileURL(p));
-const { instantiate } = await load(hostMjs);
-const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
-const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
-const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
-const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url)); // no ?ws: net_send answers -1, net_poll 0
-const json = (p) => JSON.parse(readFileSync(p, "utf8"));
-// wgpu's createImports takes its own handle-table Runtime and returns the flat `env` table.
-const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net] });
-wrt.attach(rt);
+const { bootApp } = await import(new URL("./node_app.mjs", import.meta.url));
+const { rt } = await bootApp({ wasm, hostMjs, wgpuDir, maDir });
 
 const [ptr, len] = rt.str_in("#canvas");
 const app = rt.call("app_init", ptr, len, 640, 480);

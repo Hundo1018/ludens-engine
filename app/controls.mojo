@@ -1,37 +1,28 @@
-"""Shell side of the controls: read `InputState` (filled by `app_input`) into the device-free `Keys`.
+"""Shell side of the controls: read `InputState` (filled by `app_input`) into the device-free `InputFrame`.
 
-WASD or the arrow keys move, Space jumps, R restarts, P or Esc pauses, the mouse turns the camera while the left
-button is held. The mapping from `Keys` to `Intent` is `game/controls.mojo`."""
-from game.controls import Keys
-from geometry.vec import Real
+Which key does what is the action map's business (`game/action_map.mojo`, `game/data/demo.actions`): this file only
+copies every key, mouse button and axis the frame saw. Gamepad and on-screen pad buttons arrive as key codes from
+`PAD_BUTTON_BASE` up (shell/web/pad.ts), their sticks as `AXIS` events."""
+from game.action_map import AXIS_DEVICES, InputFrame, MAX_AXES, MAX_KEYS, MAX_MOUSE
 from wgpu.rendercanvas.input import InputState
 
-comptime KEY_SPACE: Int32 = 32
-comptime KEY_A: Int32 = 65
-comptime KEY_D: Int32 = 68
-comptime KEY_P: Int32 = 80
-comptime KEY_R: Int32 = 82
-comptime KEY_S: Int32 = 83
-comptime KEY_W: Int32 = 87
-comptime KEY_ESCAPE: Int32 = 256
 comptime KEY_F2: Int32 = 291  # opens the game's overlay panel (GameMode.overlay)
-comptime KEY_RIGHT: Int32 = 262
-comptime KEY_LEFT: Int32 = 263
-comptime KEY_DOWN: Int32 = 264
-comptime KEY_UP: Int32 = 265
 comptime MOUSE_LEFT: Int32 = 0
 
 
-def read_keys(input: InputState) -> Keys:
-    var k = Keys()
-    k.up = input.is_key_pressed(KEY_W) or input.is_key_pressed(KEY_UP)
-    k.down = input.is_key_pressed(KEY_S) or input.is_key_pressed(KEY_DOWN)
-    k.left = input.is_key_pressed(KEY_A) or input.is_key_pressed(KEY_LEFT)
-    k.right = input.is_key_pressed(KEY_D) or input.is_key_pressed(KEY_RIGHT)
-    k.look_held = input.is_mouse_button_pressed(MOUSE_LEFT)
-    k.mouse_dx = Real(input.mouse_dx)
-    k.mouse_dy = Real(input.mouse_dy)
-    k.jump = input.is_key_just_pressed(KEY_SPACE)
-    k.pause = input.is_key_just_pressed(KEY_P) or input.is_key_just_pressed(KEY_ESCAPE)
-    k.restart = input.is_key_just_pressed(KEY_R)
-    return k^
+def read_frame(input: InputState) -> InputFrame:
+    var f = InputFrame()
+    for k in range(MAX_KEYS):
+        if input.is_key_pressed(Int32(k)):
+            f.down[k] = True
+        if input.is_key_just_pressed(Int32(k)):
+            f.edge[k] = True
+    for b in range(MAX_MOUSE):
+        f.mouse_down[b] = input.is_mouse_button_pressed(Int32(b))
+        f.mouse_edge[b] = input.is_mouse_button_just_pressed(Int32(b))
+    for d in range(AXIS_DEVICES):
+        for a in range(MAX_AXES):
+            f.axes[d * MAX_AXES + a] = input.get_axis(Int32(d), Int32(a))
+    f.mouse_dx = input.mouse_dx
+    f.mouse_dy = input.mouse_dy
+    return f^

@@ -9,7 +9,7 @@ import { createGameHook } from "./game_hook.mjs";
 import { createOsImports, opfsStorage } from "./os_host.mjs";
 import { record } from "./record.js";
 import { ACTION, BUTTONS, EV, keyCode } from "./keys.js";
-import { KEY, PadInput, type Sink } from "./pad.js";
+import { PadInput, VPAD_DEVICE, padButtonKey, type Sink } from "./pad.js";
 import type { PadLayout } from "./vpad.js";
 import { mountVirtualPad } from "./vpad_view.js";
 import type { AppExports } from "./exports";
@@ -190,19 +190,23 @@ async function boot(canvas: HTMLCanvasElement) {
 
 const MANUAL = params.has("manual");
 
-// Keyboard, mouse, touch and gamepads, all as the GLFW-coded events app_input takes. Returns the per-frame gamepad poll.
-// The demo game's touch controls, as data for the virtual pad kit (vpad.ts): a move stick under the left thumb, Jump
-// under the right, Pause and Restart out of the way at the top. A drag anywhere else on the canvas turns the camera.
+// The demo game's touch controls, as data for the virtual pad kit (vpad.ts): a move stick under the left thumb, Jump under the
+// right, Pause and Restart out of the way at the top. A drag anywhere else on the canvas turns the camera. What each control
+// does is not here: the stick is axes 0 / 1 of the on-screen pad (`vpad:a0`, `vpad:a1`) and the buttons are `vpad:b0`, `vpad:b9`,
+// `vpad:b3`, which game/data/demo.actions binds to move, jump, pause and restart. The stick sends its raw vector (`dead: 0`);
+// the map's dead zone shapes it.
+const vpadButton = (n: number) => padButtonKey(VPAD_DEVICE, n);
 const DEFAULT_PAD: PadLayout = {
-  sticks: [{ id: "move", radius: 56, dead: 0.2, at: { left: 36, bottom: 36 }, keys: { up: KEY.W, down: KEY.S, left: KEY.A, right: KEY.D } }],
+  sticks: [{ id: "move", radius: 56, dead: 0, at: { left: 36, bottom: 36 }, axes: { x: 0, y: 1 } }],
   buttons: [
-    { id: "jump", key: KEY.SPACE, label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
-    { id: "pause", key: KEY.P, label: "II", size: 44, at: { right: 12, top: 12 } },
-    { id: "restart", key: KEY.R, label: "R", size: 44, at: { right: 68, top: 12 } },
+    { id: "jump", key: vpadButton(0), label: "Jump", size: 84, at: { right: 32, bottom: 40 } },
+    { id: "pause", key: vpadButton(9), label: "II", size: 44, at: { right: 12, top: 12 } },
+    { id: "restart", key: vpadButton(3), label: "R", size: 44, at: { right: 68, top: 12 } },
   ],
   look: {},
 };
 
+// Keyboard, mouse, touch and gamepads, all as the GLFW-coded events app_input takes. Returns the per-frame gamepad poll.
 function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number, action: number, mods: number, x: number, y: number) => void,
                      releaseHeld: () => void): (dtMs: number) => void {
   const mods = (e: KeyboardEvent | MouseEvent) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
@@ -221,6 +225,7 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
   let vx = 0, vy = 0, turning = false;
   const sink: Sink = {
     key: (code, down) => send(EV.KEY, code, down ? ACTION.DOWN : ACTION.UP, 0, 0, 0),
+    axis: (device, axis, value) => send(EV.AXIS, axis, device, 0, value, 0), // key = axis index, action = device
     look: (dx, dy) => {
       if (!turning) { turning = true; send(EV.MOUSE_BUTTON, 0, ACTION.DOWN, 0, vx, vy); }
       vx += dx; vy += dy;
@@ -231,6 +236,7 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
   const logged = (what: string) => { stats.padLog.push(what); if (stats.padLog.length > 64) stats.padLog.shift(); };
   const touch = mountVirtualPad(canvas, DEFAULT_PAD, {
     key: (code, down) => { logged(`${down ? "+" : "-"}${code}`); sink.key(code, down); },
+    axis: (axis, value) => { logged(`a${axis}=${value}`); sink.axis!(VPAD_DEVICE, axis, value); },
     look: (dx, dy) => { logged("look"); sink.look(dx, dy); },
     lookEnd: () => { logged("end"); sink.lookEnd(); },
   }, location.search.includes("touch"));
@@ -267,7 +273,7 @@ function attachInput(canvas: HTMLCanvasElement, send: (kind: number, key: number
     for (const [i, p] of pads) if (!list[i]) { p.release(sink); pads.delete(i); }
     for (const g of list) {
       if (!g || g.mapping !== "standard") continue;
-      if (!pads.has(g.index)) pads.set(g.index, new PadInput());
+      if (!pads.has(g.index)) pads.set(g.index, new PadInput(g.index));
       pads.get(g.index)!.poll(g.axes, g.buttons.map((b) => b.pressed), dtMs, sink);
     }
   };

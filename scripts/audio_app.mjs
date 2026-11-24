@@ -2,20 +2,10 @@
 // plays a positioned cue, and the master loudness is read. Prints one JSON object; scripts/audio_app_check.py judges it.
 // usage: node audio_app.mjs app.wasm host.mjs wgpu-dir ma-dir audio-dir
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-globalThis.document ??= { querySelector: () => ({ width: 640, height: 480, getContext: () => ({}) }) };
 const [wasm, hostMjs, wgpuDir, maDir, audioDir] = process.argv.slice(2);
-const load = (p) => import(pathToFileURL(p));
-const { instantiate } = await load(hostMjs);
-const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
-const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
-const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
-const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url));
-const json = (p) => JSON.parse(readFileSync(p, "utf8"));
-const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net] });
-wrt.attach(rt);
+const { bootApp } = await import(new URL("./node_app.mjs", import.meta.url));
+const { rt } = await bootApp({ wasm, hostMjs, wgpuDir, maDir });
 
 const out = {};
 const newApp = () => {

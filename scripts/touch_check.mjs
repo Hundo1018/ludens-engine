@@ -4,7 +4,7 @@
 // activation, and Chrome is started WITHOUT an autoplay override: the sound check means a touch really started it.
 // Landscape (844x390): the controls are shown and inside the viewport; the left thumb holds the stick up while a second
 // finger taps Jump; a drag on the canvas turns the camera; Pause is tapped. The frames must change, the pad must have
-// sent exactly those keys, and audio must be running from one start. Portrait (390x844): the layout is checked again.
+// sent exactly those events, and audio must be running from one start. Portrait (390x844): the layout is checked again.
 // Writes <out-prefix>_landscape.png and <out-prefix>_portrait.png (the page as a phone shows it).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -123,7 +123,13 @@ await sleep(600);
 const log = JSON.parse(await js('JSON.stringify(window.shell.padLog)'));
 const keys = log.filter((e) => /^[+-]\d/.test(e)).join(' ');
 console.log('pad sent:', log.join(' '));
-need(keys === '+87 +32 -32 -87 +80 -80', `keys: W held, Space tapped while it is held, W released, P tapped (got: ${keys})`);
+// The pad sends no keys for the stick any more: two AXIS values (x, y; up is y = -1) and the buttons as key codes 400 + 20 * 3 + n
+// (Jump 460, Pause 469; docs/input.md). The stick is held up while Jump is tapped, then released, then Pause is tapped.
+need(keys === '+460 -460 +469 -469', `keys: Jump tapped (460) while the stick is held, then Pause tapped (469) (got: ${keys})`);
+const axes = log.filter((e) => /^a\d=/.test(e)).join(' ');
+need(axes === 'a0=0 a1=-1 a0=0 a1=0', `axes: the stick up (x 0, y -1), then back to 0 (got: ${axes})`);
+const at = (e) => log.indexOf(e);
+need(at('a1=-1') < at('+460') && at('-460') < at('a1=0') && at('a1=0') < at('+469'), `the stick is up while Jump is tapped and released before Pause (got: ${log.join(' ')})`);
 need(log.filter((e) => e === 'look').length === 2 && log.filter((e) => e === 'end').length === 1, 'the canvas drag turned the camera twice and ended once');
 if (start && moved) { const n = differ(start, moved); need(n > 300, `holding the stick changed the picture (${n} of ${start.length / 3} sampled pixels)`); }
 if (moved && paused) { const n = differ(moved, paused); need(n > 120, `tapping II changed the picture (${n} sampled pixels)`); }

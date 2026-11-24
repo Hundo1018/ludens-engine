@@ -14,5 +14,5 @@ export function keyCode(code: string): number {
 }
 
 export const BUTTONS = [0, 2, 1]; // DOM left/middle/right -> GLFW
-export const EV = { KEY: 1, MOUSE_BUTTON: 2, CURSOR_POS: 3, SCROLL: 4 } as const;
+export const EV = { KEY: 1, MOUSE_BUTTON: 2, CURSOR_POS: 3, SCROLL: 4, AXIS: 5 } as const; // AXIS: key = axis index, action = device, x = value
 export const ACTION = { UP: 0, DOWN: 1, REPEAT: 2 } as const;

@@ -57,9 +57,11 @@ test-editor = "python3 scripts/test_editor.py"
 build-core = "python3 scripts/build_core.py"
 # #17 (E12): the ui/ toolkit tests, built with the standard library only.
 test-ui = "python3 scripts/test_native.py"
-test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_save game_controls camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
+test-game = "python3 scripts/build_core.py --selftest && python3 scripts/test_native.py demo_mode game_save game_controls action_map camera_view input_path game_mode mesh_pass debug_view ao_bake palette_table"
 # #119: data tables (game/table.mojo), live tuning (game/tuning.mojo, game/tuning_panel.mojo), the generated accessors and `ludens check` on tables.
 gen-table = "python3 scripts/gen_table.py"
+# #117: game/demo_actions.mojo is game/data/demo.actions embedded as a constant
+gen-actions = "python3 scripts/gen_actions.py"
 test-tables = "python3 scripts/gen_table.py game/data/demo.schema --table game/data/demo.table -o game/demo_table.mojo --check && python3 scripts/test_native.py game_table && python3 tests/test_tables.py"
 # #122: one source change at a time to platform/save_store.mojo and game/demo_mode.mojo; the covering test must fail (not in CI: about 2 minutes)
 mutation-save = "python3 scripts/mutation_save.py"
@@ -109,6 +111,8 @@ audio-bench = "python3 scripts/audio_bench.py"
 ludens = "python3 scripts/ludens.py"
 test-cli = "python3 tests/test_cli.py"
 test-os = "python3 scripts/test_os.py"
+# #117: the input profile, the save seam and the clipboard share one os_poll reader (app/os_router.mojo); their requests in flight together.
+test-os-router = "python3 scripts/test_os_router.py"
 # net_poll / os_poll: an oversized packet is dropped and counted, the packets behind it still arrive.
 test-net = "node tests/test_net.mjs"
 # platform/ seams (docs/platform.md), standard library only: one Transport send / poll script over the memory pipe, UDP
@@ -117,6 +121,8 @@ test-transport = "python3 scripts/test_native.py platform_transport platform_ser
 test-build = "python3 tests/test_build.py"
 # #115 (E21): window.game under node, divergence trace, `ludens sim` batch runner (docs/automation.md); builds build/app.wasm first.
 test-automation = { cmd = "python3 tests/test_automation.py", depends-on = ["build-wasm"] }
+# #117 (E23): axes, gamepad / on-screen pad events, rebinding and the saved profile through window.game (docs/input.md); builds build/app.wasm first.
+test-input = { cmd = "python3 scripts/test_input.py", depends-on = ["build-wasm"] }
 divergence = "python3 scripts/divergence.py"
 # window.game in headless Chrome (?manual&seed=&scene=) against the same job under node.
 hook-web = { cmd = "python3 scripts/hook_web_check.py", depends-on = ["build-wasm"] }

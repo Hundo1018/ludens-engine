@@ -10,15 +10,19 @@ ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through lude
 from audio_assets import load_music, lsound_to_mono
 from audio_event import AudioEvent, BUS_MUSIC, parse_events
 from audio_math import Rng
-from controls import KEY_F2, MOUSE_LEFT, read_keys
+from controls import KEY_F2, MOUSE_LEFT, read_frame
 from frame_stats import FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME
 from game.demo_mode import DemoMode
 from game.mode import GameMode
 from geometry.vec import Real
 from game.camera_view import View
+from game.action_map import parse_source, slot_of
 from game.controls import Controls
+from game.input_strings import input_localizer, prompt_text
 from hud import Hud, refresh_hud
 from platform.transport import NET_DROPPED, NET_NONE
+from os_router import OsRouter
+from profile import ProfileStore
 from platform.transport_web import WebSocketTransport
 from render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import RenderPass, AuxTarget, NoAux
@@ -31,6 +35,7 @@ from reference import Reference, fill
 from particle_frame import ParticleReference
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
+from ui.loc import Localizer
 from ui.scale import UiEnv
 from ui.sdf_font import FontMetrics, SdfFont
 from ui.geom import Insets
@@ -90,6 +95,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var event_log: List[Int]  # (game frame, cue) pairs raised since the last app_events, flattened
     var out_text: String  # what app_state / app_events last wrote; app_text_ptr is its address
     var controls: Controls
+    var os_router: OsRouter  # the one reader of os_poll; the profile, and later the saves, take their results from it
+    var profile: ProfileStore  # the saved bindings (app/profile.mojo)
+    var input_loc: Localizer  # display names of the input sources (game/input_strings.mojo)
     var cue_events: List[Int]  # the mixer's event id of each game cue, by cue number (-1 for cue 0)
     var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
     var hud: Optional[Hud]
@@ -143,6 +151,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.event_log = List[Int]()
         self.out_text = String()
         self.controls = Controls()
+        self.os_router = OsRouter()
+        self.profile = ProfileStore(self.os_router)
+        self.input_loc = input_localizer()
         self.cue_events = List[Int]()
         self.game_renderer = None
         self.hud = None
@@ -194,6 +205,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.event_log = move.event_log^
         self.out_text = move.out_text^
         self.controls = move.controls^
+        self.os_router = move.os_router
+        self.profile = move.profile^
+        self.input_loc = move.input_loc^
         self.cue_events = move.cue_events^
         self.game_renderer = move.game_renderer^
         self.hud = move.hud^
@@ -224,7 +238,10 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         return Int32(n)
 
     def _net(mut self):
-        """Take every packet the host has queued; the newest stays readable through app_net_last_*."""
+        """Take every packet the host has queued; the newest stays readable through app_net_last_*. The saved input profile
+        is asked for on the first frame and applied when it arrives."""
+        _ = self.profile.request()
+        self.profile.poll(self.controls.actions)
         for _ in range(NET_PER_FRAME):
             var n = self.net.poll(UInt64(Int(self.net_rx.unsafe_ptr())), NET_CAP)
             if n == NET_DROPPED:
@@ -303,7 +320,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
 
     def _step_mode(mut self, mut m: Self.M, dt: Float64) raises:
         """One frame of a game: read the keys, step it (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
-        var intent = self.controls.poll(read_keys(self.input))
+        var intent = self.controls.poll(read_frame(self.input))
         m.step(intent, min(dt, 0.1))
         self.game_frames += 1
         self.stats.add(SEG_PHYSICS, m.physics_ns())  # inside the step segment; -1 (not measured) records nothing
@@ -902,6 +919,78 @@ def app_events(app: UInt64) abi("C") -> Int32:
     a[].event_log.clear()
     a[].out_text = out + String("]")
     return Int32(a[].out_text.byte_length())
+
+
+def _text_of(ptr: UInt64, length: UInt64) -> String:
+    var bytes = Span(unsafe_ptr=Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(ptr)), length=Int(length))
+    return String(StringSlice(unsafe_from_utf8=bytes))
+
+
+@export
+def app_rebind(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Rebind from one line of text, `<action>[.<slot>] <source> [take]` (for example `jump key:KeyJ`, `move.up key:KeyI take`),
+    and save the profile. 0 = applied. n > 0 = n slots already use that control and nothing changed (their names, space
+    separated, are in the text buffer); `take` moves the control here instead. -1 = the line is wrong (printed)."""
+    try:
+        var a = _app(app)
+        var words = List[String]()
+        for w in _text_of(ptr, length).split():
+            words.append(String(w))
+        if len(words) < 2 or len(words) > 3 or (len(words) == 3 and words[2] != "take"):
+            raise Error("expected `<action>[.<slot>] <source> [take]`")
+        var dot = words[0].find(".")
+        var name = words[0] if dot < 0 else String(words[0][byte=:dot])
+        var ai = a[].controls.actions.index(name)
+        if ai < 0:
+            raise Error("no action `" + name + "`")
+        var slot = slot_of(a[].controls.actions.actions[ai].kind, "main" if dot < 0 else String(words[0][byte = dot + 1 :]))
+        if slot < 0:
+            raise Error("no such slot in `" + words[0] + "`")
+        var clash = a[].controls.actions.rebind(name, slot, parse_source(words[1]), len(words) == 3)
+        if len(clash) > 0:
+            var out = String()
+            for i in range(len(clash)):
+                out += String(" " if i > 0 else "") + clash[i]
+            a[].out_text = out
+            return Int32(len(clash))
+        _ = a[].profile.save(a[].controls.actions.profile())
+        return 0
+    except e:
+        print("app_rebind:", e)
+        return -1
+
+
+@export
+def app_bindings_reset(app: UInt64) abi("C") -> Int32:
+    """Every action back to its default bindings; the saved profile is rewritten (empty). 0 = ok."""
+    var a = _app(app)
+    a[].controls.actions.reset()
+    return a[].profile.save(a[].controls.actions.profile())
+
+
+@export
+def app_prompt(app: UInt64, ptr: UInt64, length: UInt64, device: Int32) abi("C") -> Int32:
+    """What to show for an action: `<action>[.<slot>]` on `device` (0 keyboard, 1 mouse, 2 gamepad, 3 on-screen pad), in the
+    text buffer (`Space`, `A`, `W`), in the UI locale. Returns its byte length, 0 = no binding on that device, -1 = no such action."""
+    var a = _app(app)
+    var name = _text_of(ptr, length)
+    var dot = name.find(".")
+    var an = name if dot < 0 else String(name[byte=:dot])
+    var ai = a[].controls.actions.index(an)
+    if ai < 0:
+        return -1
+    var slot = slot_of(a[].controls.actions.actions[ai].kind, "main" if dot < 0 else String(name[byte = dot + 1 :]))
+    if slot < 0:
+        return -1
+    _ = a[].input_loc.set_locale("zh-TW" if a[].ui_env.locale == 1 else "en")
+    a[].out_text = prompt_text(a[].controls.actions, a[].input_loc, an, slot, Int(device))
+    return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_text_len(app: UInt64) abi("C") -> Int32:
+    """Byte length of the text app_state / app_events / app_rebind / app_prompt last wrote."""
+    return Int32(_app(app)[].out_text.byte_length())
 
 
 @export

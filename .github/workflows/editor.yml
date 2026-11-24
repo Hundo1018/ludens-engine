@@ -60,6 +60,8 @@ jobs:
         run: pixi run -e wasm test-font
       - name: os_* imports through a wasm64 module, node
         run: pixi run -e wasm test-os
+      - name: Input profile, save seam and clipboard share one os_poll reader, node (#117)
+        run: pixi run -e wasm test-os-router
       - name: net_poll drops an oversized packet and delivers the next, node
         run: pixi run -e wasm test-net
       - name: ludens build --target web twice, byte-identical manifests
@@ -76,6 +78,8 @@ jobs:
         run: pixi run -e wasm particles-same
       - name: Automation hook under node, divergence trace, batch runner (#115)
         run: pixi run -e wasm test-automation
+      - name: Input actions through the wasm64 app (axes, rebinding, saved profile), node (#117)
+        run: pixi run -e wasm test-input
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node

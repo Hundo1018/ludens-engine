@@ -7,22 +7,13 @@
 // (no WebGPU) draws nothing either, so it checks that the draw flag does not change the simulation.
 // A script entry applies before step number `tick` (counting from 0), so its effect is first visible in the line with tick + 1.
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
-globalThis.document ??= { querySelector: () => ({ width: 640, height: 480, getContext: () => ({}) }) };
 const [wasm, hostMjs, wgpuDir, maDir, jobFile] = process.argv.slice(2);
-const load = (p) => import(pathToFileURL(p));
-const { instantiate } = await load(hostMjs);
-const { createImports } = await load(`${wgpuDir}/web/webgpu_host.mjs`);
-const { Runtime } = await load(`${wgpuDir}/web/webgpu_runtime.mjs`);
-const ma = await load(`${maDir}/web/miniaudio_host.mjs`);
-const net = await import(new URL("../shell/web/net_host.mjs", import.meta.url));
+const { bootApp } = await import(new URL("./node_app.mjs", import.meta.url));
 const { createGameHook } = await import(new URL("../shell/web/game_hook.mjs", import.meta.url));
 const { keyCode } = await import(new URL("../shell/web/keys.ts", import.meta.url));
 const json = (p) => JSON.parse(readFileSync(p, "utf8"));
-const wrt = new Runtime(json(`${wgpuDir}/web/webgpu_layout.json`), json(`${wgpuDir}/scripts/webgpu_enum_strings.json`));
-const rt = await instantiate(readFileSync(wasm), { libs: [() => ({ env: createImports(wrt) }), ma, net] });
-wrt.attach(rt);
+const { rt } = await bootApp({ wasm, hostMjs, wgpuDir, maDir });
 
 const job = { ticks: 600, seed: 0, scene: "", state: true, events: false, draw: false, script: [], ...json(jobFile) };
 const [ptr, len] = rt.str_in("#canvas");

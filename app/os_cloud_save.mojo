@@ -6,8 +6,11 @@ moment: it says "queued", not "stored". The two-file scheme of platform/save_sto
 finishes from damaging the previous save. A read result arrives through `os_poll` as a file packet (kind 2) and is
 re-labelled KIND_SAVE_READ with the same id and status. `os_poll` is the host's one result queue: a clipboard packet
 (kind 1) taken here is dropped and counted in `foreign()`, so an app that also reads the clipboard polls in one place
-and passes the file packets on."""
+and passes the file packets on. Built with an `OsRouter` (app/os_router.mojo, `OsCloudSave(router)`) it does not call `os_poll`
+at all: it takes its file packets from the router, which keeps the input profile's and the clipboard's packets for their
+owners. An app with more than one consumer of `os_poll` uses the router."""
 from os import os_file_read_request, os_file_write, os_poll
+from os_router import OsRouter
 from platform.cloud_save import CloudSave, MAX_SAVE_BYTES, MAX_SLOT
 from platform.file_cloud_save import valid_path
 from platform.packets import KIND_SAVE_READ, KIND_SAVE_WRITE, PACKET_HEADER, PacketQueue, REQ_INVALID, STATUS_ERROR, STATUS_OK, packet
@@ -19,10 +22,17 @@ comptime SAVE_DIR = "saves/"
 struct OsCloudSave(CloudSave):
     var _acks: PacketQueue
     var _foreign: Int
+    var _router: Optional[OsRouter]
 
     def __init__(out self):
         self._acks = PacketQueue()
         self._foreign = 0
+        self._router = None
+
+    def __init__(out self, router: OsRouter):
+        self._acks = PacketQueue()
+        self._foreign = 0
+        self._router = router
 
     def write_request(mut self, id: Int, slot: String, ptr: UInt64, length: Int) -> Int:
         if not valid_path(slot) or length < 0 or length > MAX_SAVE_BYTES:
@@ -46,6 +56,11 @@ struct OsCloudSave(CloudSave):
         var n = self._acks.poll(buf, cap)
         if n != 0:
             return n
+        if self._router:
+            var got = self._router.value().take_file(buf, cap)
+            if got >= PACKET_HEADER:
+                Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(buf))[0] = UInt8(KIND_SAVE_READ)
+            return got
         while True:
             var got = Int(os_poll(buf, UInt64(cap)))
             if got <= 0:

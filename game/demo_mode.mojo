@@ -7,11 +7,12 @@ from game.cue import SoundCue
 from game.draw_item import DrawItem
 from game.demo_table import DemoRow, demo_default_table, demo_row, DEMO_TABLE_TEXT
 from game.table import table_load
+from game.action_map import InputBuffer
 from game.intent import Intent
 from game.mode import GameMode
 from game.tuning import Tuner
 from game.tuning_panel import TuningPanel
-from platform.save_store import get_uint, put_uint
+from platform.save_store import Migrator, get_uint, put_uint
 from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
@@ -32,7 +33,7 @@ comptime IMPACT_FULL_IMPULSE: Float32 = 8.0  # at this impulse an impact plays a
 comptime IMPACTS_PER_FRAME = 4
 comptime MAX_PLACED_CUES = 32  # cues kept for a host that does not take them; impacts stop being queued at this length
 comptime IMPACT_SETTLE_TICKS = 30  # bodies placed overlapping the floor settle in the first ticks; that is not an impact
-comptime DEMO_SAVE_VERSION = 1
+comptime DEMO_SAVE_VERSION = 2  # 2: the pending jump press (`jump_buffer`) after `paused`; DemoMigrator turns a version 1 payload into it
 comptime BALL: Real = 0.4
 comptime TAU: Float64 = 6.283185307179586
 
@@ -67,6 +68,7 @@ struct DemoMode(GameMode):
     var tick: Int
     var jumps: Int
     var paused: Bool
+    var jump_buffer: InputBuffer  # a jump pressed up to `Intent.jump_buffer_ms` before landing still fires
     var seed: UInt64  # 0 = the fixed layout; any other value moves the crates and the ball's start (`_build`)
     var scene_name: String  # "arena" (pillars and crates) or "bare" (floor and ball)
     var cue_queue: List[Int]
@@ -99,6 +101,7 @@ struct DemoMode(GameMode):
         self.tick = 0
         self.jumps = 0
         self.paused = False
+        self.jump_buffer = InputBuffer()
         self.seed = 0
         self.scene_name = String("arena")
         self.cue_queue = List[Int]()
@@ -145,6 +148,7 @@ struct DemoMode(GameMode):
         self.tick = move.tick
         self.jumps = move.jumps
         self.paused = move.paused
+        self.jump_buffer = move.jump_buffer.copy()
         self.seed = move.seed
         self.scene_name = move.scene_name^
         self.cue_queue = move.cue_queue^
@@ -248,8 +252,10 @@ struct DemoMode(GameMode):
         return DEMO_SAVE_VERSION
 
     def save_state(self) raises -> List[UInt8]:
-        """Version 1: seed u64, scene length u8 and bytes, yaw (Float64 bits) u64, tick u64, jumps u64, paused u8, then the
-        world blob (`EmbedWorld.save`) to the end. The tuned values (`tune`) are settings, not run state: not saved."""
+        """Version 2: seed u64, scene length u8 and bytes, yaw (Float64 bits) u64, tick u64, jumps u64, paused u8, the pending
+        jump press (milliseconds left, Float64 bits, u64; whether it was pressed in the frame being stepped, u8), then the
+        world blob (`EmbedWorld.save`) to the end. Version 1 had no pending press (`DemoMigrator` adds 0 and False). The tuned
+        values (`tune`) are settings, not run state: not saved."""
         var out = List[UInt8]()
         put_uint(out, self.seed, 8)
         var name = self.scene_name.as_bytes()
@@ -260,6 +266,8 @@ struct DemoMode(GameMode):
         put_uint(out, UInt64(self.tick), 8)
         put_uint(out, UInt64(self.jumps), 8)
         put_uint(out, UInt64(1 if self.paused else 0), 1)
+        put_uint(out, UInt64(self.jump_buffer.left_ms.to_bits()), 8)
+        put_uint(out, UInt64(1 if self.jump_buffer.fresh else 0), 1)
         out.extend(self.world.save())
         return out^
 
@@ -273,7 +281,7 @@ struct DemoMode(GameMode):
         pos = 8
         var n = Int(data[pos])
         pos += 1
-        if pos + n + 8 + 8 + 8 + 1 > len(data):
+        if pos + n + 8 + 8 + 8 + 1 + 8 + 1 > len(data):
             raise Error("demo save: truncated")
         var name = String()
         for i in range(n):
@@ -286,7 +294,10 @@ struct DemoMode(GameMode):
         var tick = Int(get_uint(data, pos + 8, 8))
         var jumps = Int(get_uint(data, pos + 16, 8))
         var paused = data[pos + 24] != 0
-        pos += 25
+        var left_bits = get_uint(data, pos + 25, 8)
+        var left_ms = Pointer(to=left_bits).unsafe_bitcast[Float64]()[]
+        var fresh = data[pos + 33] != 0
+        pos += 34
         var blob = List[UInt8](capacity=len(data) - pos)
         for i in range(pos, len(data)):
             blob.append(data[i])
@@ -298,6 +309,8 @@ struct DemoMode(GameMode):
         self.tick = tick
         self.jumps = jumps
         self.paused = paused
+        self.jump_buffer.left_ms = left_ms
+        self.jump_buffer.fresh = fresh
         self.cue_queue = List[Int]()
         self.placed_cues.clear()  # cues raised before the load are not replayed after it
         self._refresh_texts()
@@ -311,6 +324,7 @@ struct DemoMode(GameMode):
         self.tick = 0
         self.jumps = 0
         self.paused = False
+        self.jump_buffer = InputBuffer()
         self._build()
 
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
@@ -328,7 +342,8 @@ struct DemoMode(GameMode):
             self.yaw -= intent.look_dx * Real(self.tune.look_sensitivity)
         if self.paused:
             return
-        var jump = intent.jump
+        if intent.jump:
+            self.jump_buffer.press(Float64(intent.jump_buffer_ms))
         for _ in range(self.world.ticks_due(frame_dt)):
             if self.tuner.apply() > 0:  # queued edits take effect here, between two ticks
                 self.tune = demo_row(self.tuner.table, "main")
@@ -337,18 +352,19 @@ struct DemoMode(GameMode):
             var right = Vec3(cos(self.yaw), 0.0, -sin(self.yaw), 0.0)
             var v = (fwd * intent.forward + right * intent.right) * Real(self.tune.speed)
             var vy = self.world.state(self.ball).vel[1]
-            if jump and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
+            if self.jump_buffer.live() and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
+                _ = self.jump_buffer.take()
                 vy = Real(self.tune.jump_speed)
                 self.jumps += 1
                 var at = self.world.state(self.ball).pos
                 self.placed_cues.append(SoundCue(CUE_JUMP, Float32(at[0]), Float32(at[1]), Float32(at[2]), 0.0, True, Float32(v[0]), Float32(vy), Float32(v[2])))
-            jump = False
             self.world.set_velocity(self.ball, Vec3(v[0], vy, v[2], 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
             var t0 = perf_counter_ns()
             self.world.physics_tick()
             self.step_physics_ns += Int64(perf_counter_ns() - t0)
             self._impacts()
             self.tick += 1
+        self.jump_buffer.age(frame_dt * 1000.0)
 
     def overlay(mut self, width: Float32, height: Float32, pointer_x: Float32, pointer_y: Float32, pointer_down: Bool, toggle: Bool) raises -> DrawList:
         if toggle:
@@ -518,4 +534,35 @@ struct DemoMode(GameMode):
         h = (h ^ UInt64(self.tick)) * UInt64(0x100000001B3)
         h = (h ^ UInt64(self.jumps)) * UInt64(0x100000001B3)
         h = (h ^ UInt64(1 if self.paused else 0)) * UInt64(0x100000001B3)
+        if self.jump_buffer.left_ms > 0.0:  # a press still pending is part of what the next ticks do
+            h = (h ^ UInt64(Int(self.jump_buffer.left_ms * 1000.0))) * UInt64(0x100000001B3)
         return h
+
+
+struct DemoMigrator(Migrator):
+    """The demo game's save migrations, one step per version (platform/save_store.mojo `migrate_payload`)."""
+
+    def __init__(out self):
+        pass
+
+    def can_migrate(self, from_version: Int) -> Bool:
+        return from_version == 1
+
+    def migrate(self, from_version: Int, payload: List[UInt8]) raises -> List[UInt8]:
+        """1 -> 2: a save from before the jump buffer has no pending press: insert 0.0 (8 bytes) and False (1 byte) after `paused`."""
+        if from_version != 1:
+            raise Error("demo save: no migration from version " + String(from_version))
+        if len(payload) < 9:
+            raise Error("demo save: truncated")
+        var n = Int(payload[8])
+        var at = 8 + 1 + n + 8 + 8 + 8 + 1  # seed, scene length and name, yaw, tick, jumps, paused
+        if at > len(payload):
+            raise Error("demo save: truncated")
+        var out = List[UInt8](capacity=len(payload) + 9)
+        for i in range(at):
+            out.append(payload[i])
+        for _ in range(9):
+            out.append(0)
+        for i in range(at, len(payload)):
+            out.append(payload[i])
+        return out^

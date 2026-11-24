@@ -90,6 +90,14 @@ def run(frames: Int) raises -> DemoMode:
     return m^
 
 
+def jumps_with_press_at(offset: Int, buffer_ms: Int) raises -> Int:
+    """The jump count after: settle for 30 frames, press jump (frame 30), then press jump again `offset` frames later, 120 frames in all."""
+    var m = DemoMode()
+    for t in range(120):
+        m.step(Intent(Real(0), Real(0), Real(0), Real(0), t == 30 or t == 30 + offset, False, False, Real(buffer_ms)), 1.0 / 60.0)
+    return m.jumps
+
+
 def main() raises:
     var c = Check()
     var a = run(180)
@@ -277,6 +285,38 @@ def main() raises:
     unseeded.step(Intent.idle(), 1.0 / 60.0)
     c.ok(kept.hash() == fresh.hash(), "R restarts into the seeded layout: the hash equals a fresh reset(7) plus one idle step (" + String(fresh.hash()) + ")")
     c.ok(fresh.hash() != unseeded.hash(), "that layout is not the unseeded one, so the comparison above would catch a restart that dropped the seed")
+
+    # the input buffer: a second press while airborne fires on landing when it came within the action's window before it.
+    # Press the second jump at every offset 1..90 frames after the first; collect the offsets that give 2 jumps.
+    var plain = List[Int]()
+    var buffered = List[Int]()
+    for off in range(1, 91):
+        if jumps_with_press_at(off, 0) == 2:
+            plain.append(off)
+        if jumps_with_press_at(off, 100) == 2:
+            buffered.append(off)
+    # the offsets only the buffered run jumps at: the frames just before the ball is back on the floor
+    var extra = List[Int]()
+    for i in range(len(buffered)):
+        var found = False
+        for k in range(len(plain)):
+            if plain[k] == buffered[i]:
+                found = True
+        if not found:
+            extra.append(buffered[i])
+    var contiguous = len(extra) > 0 and extra[len(extra) - 1] - extra[0] == len(extra) - 1
+    var lands = -1
+    for k in range(len(plain)):
+        if plain[k] > extra[0] if len(extra) > 0 else False:
+            lands = plain[k]
+            break
+    c.ok(len(extra) >= 5 and len(extra) <= 7, "a 100 ms window at 60 Hz is 6 frames: the press fires at " + String(len(extra)) + " offsets that fail without it")
+    c.ok(contiguous and lands == extra[len(extra) - 1] + 1, "they are the frames right before landing (offsets " + String(extra[0] if len(extra) > 0 else -1) + ".." + String(extra[len(extra) - 1] if len(extra) > 0 else -1) + ", first jump possible without a buffer at " + String(lands) + ")")
+    var mid_air = 0
+    for k in range(len(buffered)):
+        if buffered[k] >= 10 and buffered[k] < extra[0]:
+            mid_air += 1
+    c.ok(mid_air == 0, "a press in mid-air more than 100 ms before landing does nothing, with or without the window")
 
     print("demo_mode:", c.passed, "/", c.passed + c.failed, "checks")
     if c.failed > 0:
