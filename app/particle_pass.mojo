@@ -118,7 +118,7 @@ struct ParticlePass(RenderPass):
     var n_add: Int
     var dropped_render: Int  # live particles this frame past PARTICLE_RECORDS, not drawn
 
-    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray) raises:
+    def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray, samples: UInt32 = 1) raises:
         var alpha_shader = device.create_shader_module_wgsl("const ADDITIVE : bool = false;\n" + String(PARTICLE_WGSL), "particles_alpha")
         var add_shader = device.create_shader_module_wgsl("const ADDITIVE : bool = true;\n" + String(PARTICLE_WGSL), "particles_add")
         var entries: List[WGPUBindGroupLayoutEntry] = [
@@ -147,10 +147,10 @@ struct ParticlePass(RenderPass):
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "particles_layout")
         self.alpha_pipeline = pulled_pipeline(
-            device, alpha_shader, layout, color_format, depth_format, 4, BLEND_ALPHA, 0, False, DEPTH_LESS_EQUAL,
+            device, alpha_shader, layout, color_format, depth_format, 4, BLEND_ALPHA, 0, False, DEPTH_LESS_EQUAL, samples,
         )
         self.add_pipeline = pulled_pipeline(
-            device, add_shader, layout, color_format, depth_format, 4, BLEND_ADD, 0, False, DEPTH_LESS_EQUAL,
+            device, add_shader, layout, color_format, depth_format, 4, BLEND_ADD, 0, False, DEPTH_LESS_EQUAL, samples,
         )
         self.buffer = device.create_buffer(
             UInt64((5 + 3 * PARTICLE_RECORDS) * 16), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="particles",
@@ -172,7 +172,7 @@ struct ParticlePass(RenderPass):
         device: Device, color_format: UInt32, depth_format: UInt32, ref textures: TextureArray,
         ref res: RenderResources, caps: RenderCaps,
     ) raises -> Self:
-        return Self(device, color_format, depth_format, textures)
+        return Self(device, color_format, depth_format, textures, UInt32(caps.samples))
 
     def advance(mut self, dt: Float64, view: View):
         """One simulation step, with the camera at `view` for the emission LOD."""

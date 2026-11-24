@@ -74,6 +74,8 @@ test-styles = "python3 scripts/test_native.py style_own custom_pipeline_native s
 style-gallery = "python3 scripts/style_gallery.py"
 # The lights, the camera's projection / culling / viewports and the lens stages, each against worked values, on lavapipe.
 test-lights-camera = "python3 scripts/test_native.py lights_native camera_native lens_native env_probe_native motion_native"
+# #139: FXAA, bloom, colour-grading LUT (app/post_fx.mojo) and MSAA 4x (app/msaa.mojo), each against a number, on lavapipe
+test-post-fx = "python3 scripts/test_native.py post_fx_native"
 test-texture = "python3 scripts/test_native.py texture_native"
 test-texture-c3 = "python3 scripts/test_native.py texture_c3_native"
 ui-same = "python3 scripts/ui_same.py"

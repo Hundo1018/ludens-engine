@@ -51,7 +51,7 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 
-comptime FRAME_FLOATS = 48  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16)
+comptime FRAME_FLOATS = 52  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16), fx (4)
 comptime FRAME_BYTES = FRAME_FLOATS * 4
 
 comptime POST_WGSL = """
@@ -68,6 +68,7 @@ struct Frame {
   pright : vec4<f32>,
   pup : vec4<f32>,
   pfwd : vec4<f32>,
+  fx : vec4<f32>,     // the picture effects of app/post_fx.mojo: bloom threshold, bloom intensity, LUT amount, FXAA strength
 };
 @group(0) @binding(0) var<uniform> frame : Frame;
 @group(0) @binding(1) var src : texture_2d<f32>;
@@ -77,6 +78,7 @@ struct Frame {
 @group(0) @binding(5) var src2 : texture_2d<f32>;
 @group(0) @binding(6) var aux : texture_2d<f32>;
 @group(0) @binding(7) var prev : texture_2d<f32>;
+@group(0) @binding(8) var lutt : texture_2d<f32>;  // a colour-grading LUT as a strip (SceneRendererOf.set_lut); the scene's colour if none was set
 
 const SUN = vec3<f32>(0.3244, 0.8111, 0.4867);  // the passes' light direction, normalize(0.4, 1.0, 0.6)
 const TAU = 6.2831853;
@@ -287,6 +289,7 @@ struct PostInputs(Movable):
     var depth: TextureView
     var aux: TextureView
     var prev: TextureView
+    var lut: TextureView
 
     def __init__(out self, src: TextureView, scene: TextureView, depth: TextureView, aux: TextureView, prev: TextureView):
         self.src = src.clone()
@@ -295,15 +298,24 @@ struct PostInputs(Movable):
         self.depth = depth.clone()
         self.aux = aux.clone()
         self.prev = prev.clone()
+        self.lut = scene.clone()
 
     def with_src(self, src: TextureView) -> Self:
         var o = Self(src, self.scene, self.depth, self.aux, self.prev)
         o.src2 = self.src2.clone()
+        o.lut = self.lut.clone()
         return o^
 
     def with_src2(self, src: TextureView, src2: TextureView) -> Self:
         var o = Self(src, self.scene, self.depth, self.aux, self.prev)
         o.src2 = src2.clone()
+        o.lut = self.lut.clone()
+        return o^
+
+    def with_lut(self, lut: TextureView) -> Self:
+        var o = Self(self.src, self.scene, self.depth, self.aux, self.prev)
+        o.src2 = self.src2.clone()
+        o.lut = lut.clone()
         return o^
 
 
@@ -448,6 +460,7 @@ struct Stage[S: Style](PostEffect):
             _tex_entry(UInt32(5), UInt32(2)),
             _tex_entry(UInt32(6), UInt32(2)),
             _tex_entry(UInt32(7), UInt32(2)),
+            _tex_entry(UInt32(8), UInt32(2)),
         ]
         self.layout = device.create_bind_group_layout(entries)
         var pl = device.create_pipeline_layout(self.layout, "post_layout")
@@ -470,6 +483,7 @@ struct Stage[S: Style](PostEffect):
             _view_entry(5, inp.src2),
             _view_entry(6, inp.aux),
             _view_entry(7, inp.prev),
+            _view_entry(8, inp.lut),
         ]
         self.group = device.create_bind_group(self.layout, e, "post_group")
 
