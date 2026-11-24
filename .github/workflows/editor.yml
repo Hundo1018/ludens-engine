@@ -60,6 +60,8 @@ jobs:
         run: pixi run -e wasm test-font
       - name: os_* imports through a wasm64 module, node
         run: pixi run -e wasm test-os
+      - name: Input profile, save seam and clipboard share one os_poll reader, node (#117)
+        run: pixi run -e wasm test-os-router
       - name: net_poll drops an oversized packet and delivers the next, node
         run: pixi run -e wasm test-net
       - name: ludens build --target web twice, byte-identical manifests

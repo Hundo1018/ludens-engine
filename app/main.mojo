@@ -18,6 +18,7 @@ from game.controls import Controls
 from game.input_strings import input_localizer, prompt_text
 from hud import Hud, refresh_hud
 from platform.transport import NET_DROPPED, NET_NONE
+from os_router import OsRouter
 from profile import ProfileStore
 from platform.transport_web import WebSocketTransport
 from render3d import SceneRendererOf, DefaultPasses
@@ -87,6 +88,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var event_log: List[Int]  # (game frame, cue) pairs raised since the last app_events, flattened
     var out_text: String  # what app_state / app_events last wrote; app_text_ptr is its address
     var controls: Controls
+    var os_router: OsRouter  # the one reader of os_poll; the profile, and later the saves, take their results from it
     var profile: ProfileStore  # the saved bindings (app/profile.mojo)
     var input_loc: Localizer  # display names of the input sources (game/input_strings.mojo)
     var cue_clips: List[Int]  # the scene's clip id of each game cue, by cue number
@@ -139,7 +141,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.event_log = List[Int]()
         self.out_text = String()
         self.controls = Controls()
-        self.profile = ProfileStore()
+        self.os_router = OsRouter()
+        self.profile = ProfileStore(self.os_router)
         self.input_loc = input_localizer()
         self.cue_clips = List[Int]()
         self.game_renderer = None
@@ -189,6 +192,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.event_log = move.event_log^
         self.out_text = move.out_text^
         self.controls = move.controls^
+        self.os_router = move.os_router
         self.profile = move.profile^
         self.input_loc = move.input_loc^
         self.cue_clips = move.cue_clips^

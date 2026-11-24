@@ -11,6 +11,7 @@ from game.intent import Intent
 from game.mode import GameMode
 from game.tuning import Tuner
 from game.tuning_panel import TuningPanel
+from platform.save_store import get_uint, put_uint
 from geometry.quat import Quat
 from geometry.trig import sin, cos
 from geometry.vec import Real, Vec3
@@ -25,6 +26,7 @@ from ui.scale import UiEnv, UiScale
 from ui.sdf_font import FontMetrics
 
 comptime CUE_JUMP = 1
+comptime DEMO_SAVE_VERSION = 1
 comptime BALL: Real = 0.4
 comptime TAU: Float64 = 6.283185307179586
 
@@ -232,6 +234,64 @@ struct DemoMode(GameMode):
         except:
             out += String(',"error":"body state unavailable"')
         return out + String(',"hash":"') + String(self.hash()) + String('"}')
+
+    def save_version(self) -> Int:
+        return DEMO_SAVE_VERSION
+
+    def save_state(self) raises -> List[UInt8]:
+        """Version 1: seed u64, scene length u8 and bytes, yaw (Float64 bits) u64, tick u64, jumps u64, paused u8, then the
+        world blob (`EmbedWorld.save`) to the end. The tuned values (`tune`) are settings, not run state: not saved."""
+        var out = List[UInt8]()
+        put_uint(out, self.seed, 8)
+        var name = self.scene_name.as_bytes()
+        put_uint(out, UInt64(len(name)), 1)
+        for b in name:
+            out.append(b)
+        put_uint(out, UInt64(Float64(self.yaw).to_bits()), 8)
+        put_uint(out, UInt64(self.tick), 8)
+        put_uint(out, UInt64(self.jumps), 8)
+        put_uint(out, UInt64(1 if self.paused else 0), 1)
+        out.extend(self.world.save())
+        return out^
+
+    def load_state(mut self, data: List[UInt8]) raises -> Bool:
+        """Parse everything first, check the world blob by loading it into a scratch world, then rebuild the scene for the
+        seed and name and load the world over it; a payload that does not parse raises before anything changes."""
+        var pos = 0
+        if len(data) < 8 + 1:
+            raise Error("demo save: truncated")
+        var seed = get_uint(data, 0, 8)
+        pos = 8
+        var n = Int(data[pos])
+        pos += 1
+        if pos + n + 8 + 8 + 8 + 1 > len(data):
+            raise Error("demo save: truncated")
+        var name = String()
+        for i in range(n):
+            name += chr(Int(data[pos + i]))
+        pos += n
+        if name != "arena" and name != "bare":
+            raise Error("demo save: unknown scene `" + name + "`")
+        var yaw_bits = get_uint(data, pos, 8)
+        var yaw = Pointer(to=yaw_bits).unsafe_bitcast[Float64]()[]
+        var tick = Int(get_uint(data, pos + 8, 8))
+        var jumps = Int(get_uint(data, pos + 16, 8))
+        var paused = data[pos + 24] != 0
+        pos += 25
+        var blob = List[UInt8](capacity=len(data) - pos)
+        for i in range(pos, len(data)):
+            blob.append(data[i])
+        var scratch = EmbedWorld(1.0 / 60.0, self._gravity())
+        scratch.load(blob)  # raises on a damaged blob, before the running game is touched
+        _ = self.reset(seed, name)
+        self.world.load(blob)
+        self.yaw = Real(yaw)
+        self.tick = tick
+        self.jumps = jumps
+        self.paused = paused
+        self.cue_queue = List[Int]()
+        self._refresh_texts()
+        return True
 
     def _restart(mut self) raises:
         self.world = EmbedWorld(1.0 / 60.0, self._gravity())
