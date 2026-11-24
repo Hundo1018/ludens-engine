@@ -77,6 +77,7 @@ def checks() -> None:
     check(f == [] and len(w) == 1 and "frame" in w[0], "a p95 over its budget is a warning, not a failure")
     f, w = perf_gate.check(b, {"counters": {}, "ms": {}})
     check(len(f) == 1 and len(w) == 1, "a counter the run did not report fails; a segment that did not run warns")
+    check(perf_gate.unique(["a", "b", "a", "a", "c", "b"]) == ["a", "b", "c"], "a finding that every run makes is reported once, in order")
 
 
 def budgets_file() -> None:

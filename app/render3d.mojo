@@ -409,6 +409,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 n += 2 * texture_bytes(Int(width), Int(height), 1, 1, self.color_format)  # kept and prev
             comptime if Self.F.VIEWS == 2:
                 n += texture_bytes(sw, sh, 1, 1, self.color_format) + texture_bytes(sw, sh, 1, 1, DEPTH_FORMAT)
+        n += self.post.target_bytes()  # the targets between the post stages (ThenPost, Join)
         return n
 
     def enable_gpu_timing(mut self, device: Device) raises -> Bool:

@@ -78,6 +78,15 @@ def check(budgets: dict, measured: dict) -> tuple[list[str], list[str]]:
     return failures, warnings
 
 
+def unique(xs: list[str]) -> list[str]:
+    """`xs` without repeats, in order: a finding that every run makes is reported once."""
+    out: list[str] = []
+    for x in xs:
+        if x not in out:
+            out.append(x)
+    return out
+
+
 def _env() -> dict:
     env = dict(os.environ)
     env.setdefault("VK_ICD_FILENAMES", "/usr/share/vulkan/icd.d/lvp_icd.json")
@@ -170,10 +179,13 @@ def main(argv: list[str] | None = None) -> int:
     wasm = None if a.no_wasm else measure_wasm(budgets)
     failures: list[str] = []
     warnings: list[str] = []
+    mismatch: list[str] = []
     for i, nat in enumerate(runs):
         m = merge(nat, wasm)
         f, _ = check(budgets, m)
-        failures += [f"run {i + 1}: {x}" for x in f] + m["mismatch"]
+        failures += [f"run {i + 1}: {x}" for x in f]
+        mismatch += m["mismatch"]
+    failures += unique(mismatch)
     mid = sorted(runs, key=lambda r: r["stats"]["frame"]["p95"])[len(runs) // 2]
     measured = merge(mid, wasm)
     _, warnings = check(budgets, measured)

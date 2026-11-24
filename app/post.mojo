@@ -45,6 +45,7 @@ from wgpu.render_pass import FrameRenderPass
 from wgpu import WGPUTextureUsage
 from wgpu.buffer import Buffer
 from wgpu.device import Device
+from app.gpu_bytes import texture_bytes
 from wgpu.command import CommandEncoder
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup, BindGroupLayout
@@ -354,6 +355,11 @@ trait PostEffect(Movable, Deinitable):
         """Run the stages; the last one draws into `dst`."""
         ...
 
+    def target_bytes(self) raises -> Int:
+        """Bytes of the intermediate textures this effect made in its latest `bind` (a composite's targets between its
+        parts, and its parts' own), for the renderer's texture counter. The default, an effect that makes none, is 0."""
+        return 0
+
 
 struct NoPost(PostEffect):
     comptime NAME: StaticString = "plain"
@@ -397,10 +403,24 @@ def _view_entry(binding: UInt32, v: TextureView) -> WGPUBindGroupEntry:
     return WGPUBindGroupEntry(null_opaque(), binding, null_opaque(), 0, UInt64(0), null_opaque(), v.handle().raw)
 
 
-def _target(device: Device, color_format: UInt32, width: UInt32, height: UInt32, div: Int, ow: Int, oh: Int) raises -> Texture:
-    """The texture an effect draws into: ow x oh if it names a size, else 1 / div of width x height."""
+def _target_size(width: UInt32, height: UInt32, div: Int, ow: Int, oh: Int) -> Tuple[UInt32, UInt32]:
+    """The size of the texture an effect draws into: ow x oh if it names a size, else 1 / div of width x height."""
     var w = UInt32(ow) if ow > 0 else max(width // UInt32(div), 1)
     var h = UInt32(oh) if oh > 0 else max(height // UInt32(div), 1)
+    return (w, h)
+
+
+def _target_bytes(color_format: UInt32, width: UInt32, height: UInt32, div: Int, ow: Int, oh: Int) raises -> Int:
+    """Bytes of the texture `_target` makes for the same arguments (app/gpu_bytes.mojo: from sizes, not read back)."""
+    var sz = _target_size(width, height, div, ow, oh)
+    return texture_bytes(Int(sz[0]), Int(sz[1]), 1, 1, color_format)
+
+
+def _target(device: Device, color_format: UInt32, width: UInt32, height: UInt32, div: Int, ow: Int, oh: Int) raises -> Texture:
+    """The texture an effect draws into: ow x oh if it names a size, else 1 / div of width x height."""
+    var sz = _target_size(width, height, div, ow, oh)
+    var w = sz[0]
+    var h = sz[1]
     return device.create_texture(
         w, h, 1, color_format,
         WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING, label="post_target",
@@ -508,12 +528,17 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
     var second: Self.B
     var mid: Optional[Texture]
     var mid_view: Optional[TextureView]
+    var mid_bytes: Int
 
     def __init__(out self, var first: Self.A, var second: Self.B):
         self.first = first^
         self.second = second^
         self.mid = None
         self.mid_view = None
+        self.mid_bytes = 0
+
+    def target_bytes(self) raises -> Int:
+        return self.mid_bytes + self.first.target_bytes() + self.second.target_bytes()
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
@@ -524,6 +549,7 @@ struct ThenPost[A: PostEffect, B: PostEffect](PostEffect):
     def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         self.mid_view = None
         self.mid = _target(device, color_format, width, height, Self.A.DIV, Self.A.OUT_W, Self.A.OUT_H)
+        self.mid_bytes = _target_bytes(color_format, width, height, Self.A.DIV, Self.A.OUT_W, Self.A.OUT_H)
         self.mid_view = self.mid.value().create_view_default()
         self.first.bind(device, color_format, width, height, inp)
         self.second.bind(device, color_format, width, height, inp.with_src(self.mid_view.value()))
@@ -565,6 +591,7 @@ struct Join[A: PostEffect, B: PostEffect, C: PostEffect](PostEffect):
     var tb: Optional[Texture]
     var va: Optional[TextureView]
     var vb: Optional[TextureView]
+    var target_size: Int  # bytes of ta and tb
 
     def __init__(out self, var a: Self.A, var b: Self.B, var c: Self.C):
         self.a = a^
@@ -574,6 +601,10 @@ struct Join[A: PostEffect, B: PostEffect, C: PostEffect](PostEffect):
         self.tb = None
         self.va = None
         self.vb = None
+        self.target_size = 0
+
+    def target_bytes(self) raises -> Int:
+        return self.target_size + self.a.target_bytes() + self.b.target_bytes() + self.c.target_bytes()
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
@@ -587,6 +618,10 @@ struct Join[A: PostEffect, B: PostEffect, C: PostEffect](PostEffect):
         self.vb = None
         self.ta = _target(device, color_format, width, height, Self.A.DIV, Self.A.OUT_W, Self.A.OUT_H)
         self.tb = _target(device, color_format, width, height, Self.B.DIV, Self.B.OUT_W, Self.B.OUT_H)
+        self.target_size = (
+            _target_bytes(color_format, width, height, Self.A.DIV, Self.A.OUT_W, Self.A.OUT_H)
+            + _target_bytes(color_format, width, height, Self.B.DIV, Self.B.OUT_W, Self.B.OUT_H)
+        )
         self.va = self.ta.value().create_view_default()
         self.vb = self.tb.value().create_view_default()
         self.a.bind(device, color_format, width, height, inp)
@@ -627,6 +662,9 @@ struct Scaled[A: PostEffect, D: Int](PostEffect):
 
     def __init__(out self, var inner: Self.A):
         self.inner = inner^
+
+    def target_bytes(self) raises -> Int:
+        return self.inner.target_bytes()
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
@@ -672,6 +710,9 @@ struct History[A: PostEffect](PostEffect):
     def __init__(out self, var inner: Self.A):
         self.inner = inner^
 
+    def target_bytes(self) raises -> Int:
+        return self.inner.target_bytes()
+
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
         return Self(Self.A.create(device, color_format))
@@ -710,6 +751,9 @@ struct Sized[A: PostEffect, W: Int, H: Int](PostEffect):
 
     def __init__(out self, var inner: Self.A):
         self.inner = inner^
+
+    def target_bytes(self) raises -> Int:
+        return self.inner.target_bytes()
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
@@ -757,6 +801,9 @@ struct SceneSize[A: PostEffect, W: Int, H: Int, AW: Int = 0, AH: Int = 0](PostEf
     def __init__(out self, var inner: Self.A):
         self.inner = inner^
 
+    def target_bytes(self) raises -> Int:
+        return self.inner.target_bytes()
+
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
         return Self(Self.A.create(device, color_format))
@@ -797,6 +844,9 @@ struct Stereo[A: PostEffect](PostEffect):
 
     def __init__(out self, var inner: Self.A):
         self.inner = inner^
+
+    def target_bytes(self) raises -> Int:
+        return self.inner.target_bytes()
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:

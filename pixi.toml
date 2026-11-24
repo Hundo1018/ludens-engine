@@ -44,7 +44,7 @@ test-perf-gate = { cmd = "python3 tests/test_perf_gate.py", depends-on = ["build
 frame-trace = "python3 scripts/frame_trace.py"
 # the F3 overlay and the counters in headless Chrome
 perf-overlay-web = "python3 scripts/perf_overlay_web.py"
-# one source change at a time to the counters and the gate; the covering test must fail (not in CI: about 5 minutes)
+# one source change at a time to the counters and the gate; the covering test must fail (not in CI: about 40 minutes for all 33)
 mutation-perf = "python3 scripts/mutation_perf.py"
 # per-tick physics cost against a ludens-core checkout, native + wasm64 (scripts/phys_profile.py --core DIR)
 phys-profile = "python3 scripts/phys_profile.py"

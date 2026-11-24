@@ -7,7 +7,8 @@
 
 Each mutation replaces one exact string in one source file, runs the covering test and prints its failed checks. The file is
 restored afterwards, also when the run is interrupted. A mutation whose test still passes is reported as SURVIVED and makes the
-exit code 1: the test does not look at that behaviour. A test is either a native Mojo test (scripts/test_native.py NAME) or
+exit code 1: the test does not look at that behaviour. A test that exits non-zero without naming a failed check (a crash, a compile
+error, a timeout) is also an escape: only a named failed check counts as caught. A test is either a native Mojo test (scripts/test_native.py NAME) or
 tests/test_perf_gate.py with the named sections. The GPU tests need lavapipe (see .github/workflows/parity.yml); the
 environment variables are set as there."""
 import os
@@ -53,6 +54,10 @@ MUTATIONS = {
     "gate-ignores-failures": ("scripts/perf_gate.py", "return 1 if failures else 0", "return 0", f"{PG}:gate", "the gate exits 0 on a breach"),
     "gate-unknown-key": ("scripts/perf_gate.py", "            if k not in KEYS[table]:", "            if False:", f"{PG}:budgets", "a mistyped key is accepted"),
     "gate-ring-short": ("scripts/perf_gate.py", "    if scene[\"frames\"] < L.FRAME_RING:", "    if False:", f"{PG}:budgets", "a scene shorter than the ring is accepted"),
+    "post-mid-not-counted": ("app/post.mojo", "return self.mid_bytes + self.first.target_bytes() + self.second.target_bytes()", "return self.first.target_bytes() + self.second.target_bytes()", FC, "the texture between ThenPost's two parts is not counted"),
+    "join-targets-not-counted": ("app/post.mojo", "return self.target_size + self.a.target_bytes()", "return self.a.target_bytes()", FC, "the two textures a Join makes are not counted"),
+    "post-bytes-not-summed": ("app/render3d.mojo", "        n += self.post.target_bytes()  # the targets between the post stages (ThenPost, Join)\n", "", FC, "the renderer ignores the post effect's targets"),
+    "gate-unique": ("scripts/perf_gate.py", "        if x not in out:\n            out.append(x)", "        out.append(x)", f"{PG}:check", "a finding every run makes is reported once per run"),
     "f3-never-hides": ("app/main.mojo", "            self.perf_shown = not self.perf_shown\n", "            self.perf_shown = True\n", "web", "F3 shows the overlay but a second F3 does not hide it"),
     "bodies-not-set-in-host": ("app/main.mojo", "        self.stats.set_counter(CTR_BODIES, gc.bodies)\n", "", "web", "the host never records the game's body count"),
     "texture-bytes-not-set-in-host": ("app/main.mojo", "        self.stats.set_counter(CTR_TEXTURE_BYTES, self.game_renderer.value().tex_bytes)\n", "", "web", "the host never records the renderer's texture bytes"),
@@ -88,13 +93,18 @@ def run_one(name: str) -> bool:
         src.write_text(original)
     out = p.stdout + p.stderr
     failed = re.findall(r"\[FAIL\] (.*)", out)
-    compile_error = "error:" in out and not failed and p.returncode != 0
-    print(f"{name}: {what}; test `{test}` ->", "SURVIVED (test passed)" if p.returncode == 0 else ("COMPILE ERROR" if compile_error else "failed"))
+    problems = "problems:" in out  # scripts/perf_overlay_shot.mjs names what failed under this heading
+    compile_error = "error:" in out and not failed and not problems and p.returncode != 0
+    # A mutation is caught only when the test says which check failed. A non-zero exit with no failed check (a crash, a
+    # timeout, a signal) is not evidence that the test looks at the behaviour, so it counts as an escape.
+    caught = p.returncode != 0 and bool(failed or problems)
+    verdict = "SURVIVED (test passed)" if p.returncode == 0 else ("COMPILE ERROR (escape)" if compile_error else ("failed" if caught else "CRASH, no failed check (escape)"))
+    print(f"{name}: {what}; test `{test}` ->", verdict)
     for line in failed:
         print("    [FAIL]", line)
-    if compile_error:
+    if compile_error or (p.returncode != 0 and not caught):
         print(out[-800:])
-    return p.returncode != 0 and not compile_error
+    return caught
 
 
 def main() -> int:

@@ -56,7 +56,7 @@ jobs:
           pixi run -e wasm test-frame-counters
       - name: Frame budgets (#123), the scripted scene native and wasm64 against budgets.toml; the gate's own test
         run: |
-          pixi run -e wasm perf-gate
+          pixi run -e wasm perf-gate --runs 3
           pixi run -e wasm test-perf-gate
       - name: Frame trace of the scripted scene
         if: always()

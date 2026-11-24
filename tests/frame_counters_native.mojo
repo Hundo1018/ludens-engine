@@ -10,8 +10,12 @@
 #   texture bytes    the texture array (256 x 256 x 2 layers, 9 levels), the shadow map (1024^2 depth), the atlas
 #                    (2048^2 depth), the environment cube (128^2, 6 faces, 8 levels) and the frame's depth (W x H), 4 bytes a texel
 #   a resize changes the depth part by the new W x H and nothing else
+#   post pipelines  one stage adds the scene's colour target (W x H x 4); ThenPost adds the texture between its two parts, Join the two
+#                   between its three, Scaled[_, 2] makes its neighbour's target a quarter of that
 from harness.runner import Suite
 from wgpu import Instance, WGPUTextureFormat, WGPUTextureUsage
+from wgpu.device import Device
+from wgpu.texture import Texture
 from game.draw_item import DrawItem, MAT_COLOR
 from game.camera_view import View
 from geometry.vec import Real, Vec3
@@ -21,6 +25,8 @@ from ui.draw import Color, DrawList
 from ui.geom import Rect
 from app.render3d import SceneRendererOf, DefaultPasses
 from app.primitive_pass import VERTS_PER_INSTANCE
+from app.post import Stage, Copy, ThenPost, Join, Scaled, PostEffect
+from app.render_pass import RenderPass
 
 comptime W: UInt32 = 640
 comptime H: UInt32 = 360
@@ -35,6 +41,14 @@ def mip_texels(side: Int, levels: Int) -> Int:
     for l in range(levels):
         n += max(1, side >> l) * max(1, side >> l)
     return n
+
+
+def post_bytes[F: PostEffect](device: Device, format: UInt32, view: View, target: Texture, hud: Hud) raises -> Int:
+    """The texture bytes of a renderer with the post effect F, after one draw at W x H."""
+    var r = SceneRendererOf[DefaultPasses, F](device, format, view.copy())
+    r.begin(view.copy())
+    r.draw(device, target.handle().raw, W, H, hud)
+    return r.tex_bytes
 
 
 def main() raises:
@@ -93,5 +107,16 @@ def main() raises:
     s.eqi(r.tex_bytes, expect - Int(W) * Int(H) * 4 + 1280 * 720 * 4, "after a resize to 1280 x 720 only the depth part changed")
     s.eqi(base_draws, 3, "(the first scene's draw calls were 3)")
     s.eqi(base_tris, 3 * 384 + 5 * 12 + 2 * sphere_tris, "(and its triangles as computed)")
+    # post pipelines: the targets the stages draw into are counted
+    var fixed = mip_texels(256, 9) * 2 * 4 + 1024 * 1024 * 4 + 2048 * 2048 * 4 + mip_texels(128, 8) * 6 * 4
+    var px = Int(W) * Int(H) * 4  # one full-size RGBA8 or depth target
+    var one = post_bytes[Stage[Copy]](device, format, view, target, hud)
+    s.eqi(one, fixed + 2 * px, "one stage: the fixed textures + the scene's depth and colour")
+    var two = post_bytes[ThenPost[Stage[Copy], Stage[Copy]]](device, format, view, target, hud)
+    s.eqi(two, fixed + 3 * px, "ThenPost of two stages adds the texture between them")
+    var three = post_bytes[Join[Stage[Copy], Stage[Copy], Stage[Copy]]](device, format, view, target, hud)
+    s.eqi(three, fixed + 4 * px, "Join of three stages adds the two textures its first two make")
+    var small = post_bytes[ThenPost[Scaled[Stage[Copy], 2], Stage[Copy]]](device, format, view, target, hud)
+    s.eqi(small, fixed + 2 * px + Int(W // 2) * Int(H // 2) * 4, "a Scaled[_, 2] first part makes a half-size texture between the parts")
     s.check(target.handle().raw == target.handle().raw and t2.handle().raw == t2.handle().raw, "the targets are alive until here")  # their last use: not before the draws
     s.finish()

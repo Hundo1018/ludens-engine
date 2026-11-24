@@ -26,7 +26,7 @@ runtime's `host_now_ns` = `performance.now()` in wasm64) and keeps the last 300 
 | `draw` | the renderer's encode and submit (CPU side) |
 | `present` | surface acquire and present |
 | `audio` | the mixer's work in `app_audio_render` since the previous frame ended (it runs from the audio callback, not inside a frame; the time is attached to the next frame) |
-| `frame` | the whole `app_frame` call |
+| `frame` | the whole `app_frame` call: CPU time of the frame's own work. In the native runner the wait for the GPU (`device.poll`) is outside it |
 | `gpu_shadow`, `gpu_scene`, `gpu_post`, `gpu_frame` | GPU time from timestamp queries, below |
 
 A segment that did not run in a frame is recorded as "did not run" (-1 in the ring), never as 0. Its percentiles are over the
@@ -46,7 +46,7 @@ Set once per frame; the stats are `[last, avg, max]` over the ring.
 A frame that did not draw (the browser's `?offscreen` mode draws only on capture requests) keeps the draw counters of the last frame
 that did: a counter that is not set again holds its value.
 
-Not counted: the shadow passes' and the post stages' draws, the right eye of a stereo pipeline, the aux pass. A game that
+Texture bytes include the targets between post stages (`PostEffect.target_bytes`: `ThenPost`'s and `Join`'s). Not counted: the shadow passes' and the post stages' draws, the right eye of a stereo pipeline, the aux pass. A game that
 draws a lot there has more draw calls than `draw_calls` says.
 
 ## Overlay
@@ -111,6 +111,10 @@ Exit codes: 0 passed (warnings possible), 1 a counter is over its budget or the 
 (unknown key, negative or non-numeric budget, a scene shorter than the ring). A budget is a maximum: a value equal to it passes.
 Under GitHub Actions the failures and warnings are annotations, and the table goes to the job summary.
 
+The scripted scene's three crates are asleep by frame 100 (the world's sleeping flag read at frames 100, 300, 450 and 600), so the timed
+frames step the ball and sleeping crates: `step` and `physics` are the cost of a settled scene, not of a pile in motion. The
+counters do not change (`bodies` counts every body). CI runs `perf-gate --runs 3` and judges the run with the median frame p95.
+
 Why counters fail and times warn: a draw-call count is the same on every machine, so a rise is a change in the code. A p95
 on a shared runner moves with the machine. `--runs N --spread` runs the native scene N times and prints the min, median and max
 of each p95, which is the room a time budget needs.
@@ -153,7 +157,7 @@ frame. The two were not measured apart.
 | `pixi run -e wasm test-perf-gate` | the stats layout against the Mojo source; the gate's pass / fail / warn rules; the trace; the wasm64 and native runs; an injected breach (`draw_calls = 1`) exits 1 | parity.yml |
 | `pixi run -e wasm perf-overlay-web` | in headless Chrome: F3 draws the overlay and F3 again hides it; `app_frame_stats` after 300 frames has the demo scene's counters (texture bytes equal to the sizes of the 960x540 canvas) and no GPU rows | parity.yml |
 | `pixi run -e wasm perf-gate` | the shipped `budgets.toml` against the scripted scene | parity.yml |
-| `pixi run -e wasm mutation-perf` | each test above fails under one deliberate change to the code it covers | not in CI (about 40 minutes) |
+| `pixi run -e wasm mutation-perf` | each test above fails under one deliberate change to the code it covers; a test that exits non-zero without naming a failed check (a crash) counts as an escape | not in CI (about 40 minutes) |
 
 ## Not done
 
