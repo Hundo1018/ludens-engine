@@ -89,11 +89,17 @@ F9 enters and leaves it. While it is on:
 - the camera is `PhotoMode.pose()`: it starts at the game's camera and flies with the intent (W A S D along the view, E / Q up and
   down, pointer drag to look; 4 m/s). It stays within 12 m of where it started and above the floor height (0.05 m, or the camera's
   start if that is lower); pitch is limited to 1.5 rad.
+- the lens has a focal length in mm (`game/zoom_lens.mojo`). It starts at the focal length of the game camera's field on a
+  24 mm sensor (fov_y 1.0 rad is 22.0 mm) and stays between 12 and 300 mm. Holding Z zooms in and X zooms out, 1.5 stops (doublings
+  of the focal length) a second; the cvar `photo.focal` (or `photoSet("focal", mm)`) sets a target, which the lens reaches on a log
+  scale: 63 % of the remaining ratio every 0.25 s. The field of view follows the focal length, and so does the depth-of-field blur,
+  since app/lens.mojo computes its f from the field. Looking around turns by 0.004 rad per pixel times the field over the field at
+  entry, so at 4 times the focal length the pointer turns the view a quarter as fast.
 - the HUD is not drawn (the console still is, when open). In headless Chrome the photo frame differs from the paused frame where
   the pause banner and the counters were (`scripts/game_screenshot.mjs`).
 - the frame is drawn by a second renderer with `PhotoPost`: depth of field, bloom, then exposure (app/photo.mojo). The settings are
-  the cvars `photo.focus` (m), `photo.fstop` (0 = pinhole, else 1 to 32), `photo.exposure` (EV, -4 to 4), `photo.bloom` (0 to 4)
-  and `photo.scale` (1 to 8), or `app_photo_set` / `window.game.photoSet`. The game's own post stages are not part of the photo
+  the cvars `photo.focus` (m), `photo.fstop` (0 = pinhole, else 1 to 32), `photo.exposure` (EV, -4 to 4), `photo.bloom` (0 to 4),
+  `photo.scale` (1 to 8) and `photo.focal` (mm, 12 to 300), or `app_photo_set` / `window.game.photoSet`. The game's own post stages are not part of the photo
   pipeline.
 - F8 (or `app_photo_capture`) draws the next frame again at the capture size (the window times `photo.scale`, 2 by default; a side
   is kept at most 8192 with the proportions) into a texture of its own, reads it back and encodes a PNG (platform/png.mojo). The
@@ -115,7 +121,7 @@ small: the 256 x 128 test picture is 12 841 bytes.
 
 ## Not done
 
-- No key binding screen for the console or photo keys: they are fixed (backquote, F9, F8; `app/controls.mojo`).
+- No key binding screen for the console or photo keys: they are fixed (backquote, F9, F8, Z / X; `app/controls.mojo`).
 - Photo mode has no on-screen panel for its settings; the console cvars and the hook set them.
 - A game's own post stages are not drawn in photo mode.
 - The demo game unlocks no achievements, so the guard has nothing to refuse there; `tests/console.mojo` drives it directly.

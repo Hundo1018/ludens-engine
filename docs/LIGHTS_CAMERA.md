@@ -59,6 +59,7 @@ Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL`
 | orthographic | `View.orthographic(pose, half_height, aspect)` |
 | frustum culling | `r.cull = True`; `r.culled` is the number dropped by the latest draw |
 | viewports | `SplitScreen(device, format, w, h, split_rects(n, w, h))`, `draw` into `split.target(i)`, `split.compose(device, frame, hud)` |
+| focal length, zoom | `ZoomLens` (game/zoom_lens.mojo): `zoom_to(mm)`, `step(dt)`, `fov_y()` into `CameraPose.fov_y` |
 | depth of field | `Stage[DepthOfField]` in the stage graph; `r.lens_focus`, `r.lens_fstop`, `r.lens_sensor`, `r.lens_max_coc` |
 | motion blur, camera | `Stage[MotionBlur]`; `r.shutter` (0 .. 1) |
 | motion blur, bodies too | `Stage[ObjectMotionBlur]` with `Aux[VelocityPass]` as the aux target; `r.shutter` |
@@ -80,6 +81,11 @@ Pose helpers (springs, shake, framing, rails, the simulation's frustum tests) ar
 - **Depth of field** is the thin lens: disc diameter `f^2 / (N (zf - f)) * |1 - zf / z|` on the sensor. Focused at
   8 m: a box at 3 m (disc 17.6 px) has an edge 9 px wide, one at 25 m (7.2 px) 5 px, the one in focus 0 px. One gather
   pass of 48 samples; discs are flat and round, and no larger than twice the disc of a point at infinity.
+- **Focal length and zoom.** `fov_from_focal(mm)` is `2 atan(24 / 2 / mm)` and `focal_from_fov` its inverse, on the
+  same 24 mm sensor as `r.lens_sensor`, so the depth of field's f is the focal length set. `ZoomLens.step(dt)` moves
+  toward the target on a log scale, 63 % of the remaining ratio per `zoom_time` (0.25 s): measured in tests/console.mojo,
+  24 -> 96 mm stepped at 60 Hz is at 57.6 mm after 0.25 s (24 x 4^0.632) and stops at 96 mm after 109 frames (1.8 s). Photo mode uses it
+  (docs/console.md); a game's own camera can hold one the same way.
 - **MotionBlur** follows the camera only: the camera turned 0.05 rad moves the picture 19 px, and a vertical edge is
   16 px wide (a 19 px ramp measures 15.2); the edge along the motion stays 1 px.
 - **ObjectMotionBlur** also blurs bodies that move (app/velocity.mojo): `VelocityPass` draws every rigid item with

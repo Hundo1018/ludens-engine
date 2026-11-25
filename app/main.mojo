@@ -12,7 +12,7 @@ from access_host import AccessHost
 from audio_event import AudioEvent, BUS_MUSIC, parse_events
 from audio_math import Rng
 from controls import (
-    KEY_BACKSPACE, KEY_E, KEY_ENTER, KEY_F2, KEY_F3, KEY_F8, KEY_F9, KEY_GRAVE, KEY_Q, MOUSE_LEFT, read_frame, typed_text,
+    KEY_BACKSPACE, KEY_E, KEY_ENTER, KEY_F2, KEY_F3, KEY_F8, KEY_F9, KEY_GRAVE, KEY_Q, KEY_X, KEY_Z, MOUSE_LEFT, read_frame, typed_text,
 )
 from frame_stats import (
     FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_AI, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME,
@@ -413,6 +413,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.console.register(CommandSpec.cvar("photo.exposure", False, 0.0, -4.0, 4.0))
         self.console.register(CommandSpec.cvar("photo.bloom", False, 0.0, 0.0, 4.0))
         self.console.register(CommandSpec.cvar("photo.scale", True, 2.0, 1.0, 8.0))
+        self.console.register(CommandSpec.cvar("photo.focal", False, self.photo.lens.target_mm, 12.0, 300.0))
 
     def run_console(mut self, mut m: Self.M) raises:
         """The console's lines for this game frame: a loaded replay's first, then the queue, each run before `step`. A
@@ -444,6 +445,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             return self.photo.set_exposure(v)
         if name == "photo.bloom":
             return self.photo.set_bloom(v)
+        if name == "photo.focal":
+            return self.photo.set_focal(v)
         return Float32(self.photo.set_scale(Int(v)))
 
     def toggle_photo(mut self, m: Self.M):
@@ -474,8 +477,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             intent = Intent.idle()  # the keys are typing
         if self.photo.active:
             var up = Real(0)
+            var zoom = Real(0)
             if not self.console.open:
                 up = Real(1 if self.input.is_key_pressed(KEY_E) else 0) - Real(1 if self.input.is_key_pressed(KEY_Q) else 0)
+                zoom = Real(1 if self.input.is_key_pressed(KEY_Z) else 0) - Real(1 if self.input.is_key_pressed(KEY_X) else 0)
+            self.photo.zoom(zoom, min(dt, 0.1))
             self.photo.move(intent.forward, intent.right, up, intent.look_dx, intent.look_dy, min(dt, 0.1))
             return  # the simulation stands still: no step, no game frame, no cues
         m.step(intent, min(dt, 0.1))
@@ -1449,10 +1455,11 @@ def app_photo(app: UInt64, on: Int32) abi("C") -> Int32:
 
 @export
 def app_photo_set(app: UInt64, which: Int32, value: Float32) abi("C") -> Float32:
-    """Set a photo setting: 0 focus (m), 1 f-number (0 = pinhole), 2 exposure (EV), 3 bloom, 4 capture scale. Returns the
-    value kept after clamping (game/photo_camera.mojo)."""
-    var names = ["photo.focus", "photo.fstop", "photo.exposure", "photo.bloom", "photo.scale"]
-    if which < 0 or which > 4:
+    """Set a photo setting: 0 focus (m), 1 f-number (0 = pinhole), 2 exposure (EV), 3 bloom, 4 capture scale, 5 focal
+    length (mm; the zoom gets there over game/zoom_lens.mojo's ZOOM_TIME). Returns the value kept after clamping
+    (game/photo_camera.mojo)."""
+    var names = ["photo.focus", "photo.fstop", "photo.exposure", "photo.bloom", "photo.scale", "photo.focal"]
+    if which < 0 or which > 5:
         return -1
     return _app(app)[]._photo_set(names[Int(which)], value)
 
