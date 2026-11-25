@@ -2,6 +2,7 @@
 
 | feature | how | file | test |
 |---|---|---|---|
+| ambient occlusion | horizon-based, 6 directions x 5 samples from the depth prepass, a depth-aware 5 x 5 blur and temporal accumulation; the result darkens the ambient light only | `app/ssao.mojo` | `tests/ssao_native.mojo` |
 | screen-space reflections | a post stage that walks the reflected ray through the depth buffer and replaces the environment's reflection (which the mesh pass already drew) with the hit; a miss keeps the environment | `app/ssr.mojo` | `tests/ssr_native.mojo` |
 | bokeh shape | the gather of `DepthOfField` over a polygon aperture (blades, rotation, roundness) narrowed by an anamorphic squeeze; `Bokeh` adds the highlights as aperture-shaped sprites | `app/lens.mojo` | `tests/bokeh_native.mojo` |
 | anamorphic streak | the highlights blurred along x only, four passes in half-float targets, tinted and added | `app/lens.mojo` | `tests/bokeh_native.mojo` |
@@ -19,7 +20,7 @@ Every post stage reads `Frame` (app/post.mojo). It grew from 60 to 88 floats; th
 | field | read by | set from |
 |---|---|---|
 | `tone` | `to_linear` / `to_display` in every stage | `set_atmosphere`: the linear workflow's flag and its exposure |
-| `ao` | screen-space ambient occlusion (later PR) | `ao_radius`, `ao_intensity`, `ao_temporal` |
+| `ao` | not read: the occlusion is computed by compute passes (app/ssao.mojo), not a post stage | `ao_radius`, `ao_intensity`, `ao_temporal` |
 | `ssr` | `Ssr` | `ssr_intensity`, `ssr_max_distance`, `ssr_thickness`, `ssr_max_roughness` |
 | `bokeh`, `bokeh2` | `DepthOfField`, `Bokeh` | `bokeh_blades`, `bokeh_rotation`, `bokeh_roundness`, `bokeh_squeeze`, `bokeh_gain`, `bokeh_threshold` |
 | `streak`, `stint` | `AnamorphicStreak` | `streak_intensity`, `streak_threshold`, `streak_length`, `streak_tint` |
@@ -93,6 +94,41 @@ the frame the tail would otherwise be a few levels at most: the streak is a look
 | how far the streak stays above a tenth of its value 12 px out | 258 px at length 1 (0.40 of the width), 127 px at length 0.5 |
 
 ![streak off](images/tier4/streak_off.png) ![streak on](images/tier4/streak_on.png)
+
+## Ambient occlusion
+
+```mojo
+var r = SceneRendererOf[Then[ShadowPass, DefaultPasses]](device, format, view)
+r.set_environment(device, sky_environment(...))   # an ambient is what the occlusion darkens
+r.ao_intensity = 1.0     # 0 off: the colour is unchanged bit for bit and the textures are 1 x 1
+r.ao_radius = 0.5        # metres
+r.ao_temporal = 0.9      # the share of the previous frames kept, 0 .. 0.95
+```
+
+The algorithm is in the header of `app/ssao.mojo`. It reuses the contact shadows' depth prepass
+(`RenderResources.scene_depth`, drawn while `screen_users` is not 0) and writes the screen mask's G channel, which the
+mesh and skinned passes read (`screen_ao`) and subtract from `rig().amb`, the ambient part of the light the sun's shadow
+does not touch: `extra - amb * (1 - ao)`. With the occlusion off the factor is 1 and `extra` is the same bits. Needs a
+`ShadowPass` in the list and an ambient set; not drawn with Stereo. The sun, point lights, specular reflection and the
+fixed 0.4 ambient of a scene with no environment are not occluded.
+
+`tests/ssao_native.mojo`, a grey floor and a 1 m cube, uniform environment, no sun, 640 x 360, radius 0.5 m:
+
+| check | measured |
+|---|---|
+| floor 0.1 m in front of the cube's foot, mean of RGB, without / with | 107 / 88 |
+| floor 2.5 m away (outside the radius) | 107 / 107 |
+| the cube's top centre | 95 / 95 |
+| intensity back to 0 after a frame with it on, pixels differing from the frame without | 0 |
+| texture bytes, off / on | 24 / 5,529,600 (640 x 360 x 24) |
+| mean level difference between two frames in a row near the foot, temporal 0 / 0.9 | 0.273 / 0.025 |
+
+![occlusion off](images/tier4/ssao_off.png) ![occlusion on](images/tier4/ssao_on.png)
+
+Cost, `ssao_native --cost`, 1920 x 1080, median of 9 frames (lavapipe, a CPU rasteriser): no occlusion 68.69 ms,
+occlusion with temporal 0.9 418.41 ms, +349.72 ms. That includes the depth prepass and the contact-shadow compute pass
+that carries the result into the mask. The generation runs at the full scene size (not half), which is where most of
+the time goes on a CPU rasteriser.
 
 ## Screen-space reflections
 

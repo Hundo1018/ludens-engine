@@ -525,7 +525,14 @@ struct RenderResources(Movable):
         self.contact_steps = steps
         self.contact_thickness = thickness
         self.contact_strength = strength
-        self.screen_users = (self.screen_users | 1) if on else (self.screen_users & ~1)
+        self.set_screen_user(device, 1, on)
+
+    def set_screen_user(mut self, device: Device, bit: Int, on: Bool) raises:
+        """Set or clear one bit of `screen_users` (1 contact shadows, 2 ambient occlusion) and tell the shaders."""
+        var want = (self.screen_users | bit) if on else (self.screen_users & ~bit)
+        if want == self.screen_users:
+            return
+        self.screen_users = want
         device.queue_write_data(self.shadow_ubo, UInt64(424), [Float32(self.screen_users)])
 
     def set_shadow_atlas(mut self, device: Device, size: Int) raises:
