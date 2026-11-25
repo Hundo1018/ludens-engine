@@ -2,7 +2,8 @@
 const KEYS: Record<string, number> = {
   Space: 32, Escape: 256, Enter: 257, Tab: 258, Backspace: 259,
   ArrowRight: 262, ArrowLeft: 263, ArrowDown: 264, ArrowUp: 265,
-  F2: 291, F3: 292,
+  F2: 291, F3: 292, F8: 297, F9: 298,
+  Backquote: 96, Minus: 45, Period: 46,
   ShiftLeft: 340, ControlLeft: 341, AltLeft: 342,
 };
 

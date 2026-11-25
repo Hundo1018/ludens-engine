@@ -3,6 +3,7 @@
 A host (`app/`) is generic over a `GameMode` (`app/main.mojo` `AppOf[M, P]`), so the call to the game is resolved when the
 program is built and nothing is looked up at run time. A game conforms by wrapping its state in a struct that implements
 these methods; see `game/demo_mode.mojo`. The game's own rules never import this file."""
+from game.console import CommandSpec, ConsoleLine
 from game.cue import SoundCue
 from game.intent import Intent
 from game.draw_item import DrawItem
@@ -124,6 +125,22 @@ trait GameMode(Movable, Deinitable):
         """Start over in the named scene ("" = the game's default) with the given seed (0 = the game's fixed layout);
         the host calls it for `?seed=` / `?scene=`, the batch runner once per seed. Raise for an unknown scene. False
         (the default) means the game has no seeds or scenes: the host then reports it instead of ignoring the request."""
+        return False
+
+    def console_commands(self) -> List[CommandSpec]:
+        """The commands and cvars the game offers the in-game console (game/console.mojo; cheats: game/cheats.mojo).
+        The host registers them once. The default is none."""
+        return List[CommandSpec]()
+
+    def run_command(mut self, line: ConsoleLine) raises -> String:
+        """Run one console line the host took at the start of a frame, before `step` (so a replay runs it at the same
+        place). Returns what the console prints; raises for a line the game refuses. A cvar arrives as its name and the
+        new value, already checked against its type and bounds."""
+        raise Error("this game has no console commands")
+
+    def cheated(self) -> Bool:
+        """True once the run used a cheat (and for a game loaded from a save that did). The host then refuses
+        achievements and stats (platform/achievements.mojo `CheatGuard`). The default is False."""
         return False
 
     def save_version(self) -> Int:

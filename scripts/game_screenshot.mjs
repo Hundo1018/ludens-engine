@@ -154,6 +154,34 @@ for (let i = 0; i < 400; i++) {
 }
 console.log(`skinning B2 on web: max |GPU - CPU| = ${skinErr}`);
 if (!(skinErr >= 0 && skinErr < 1e-5)) problems.push(`skinning B2 on web: max |GPU - CPU| is ${skinErr}, not below 1e-5`);
+// #146 photo mode: F9 enters it (the game stands still, the HUD is hidden); a capture asked for is drawn with the next frame
+// at twice the canvas and handed over as a PNG (app_take_photo); F9 leaves it.
+await key('keydown', 'F9'); await key('keyup', 'F9'); await sleep(300);
+const photoRc = await js('window.shell.x.app_photo_capture(window.shell.app)');
+console.log(`photo mode: app_photo_capture returned ${photoRc}`);
+await shot('photo');
+// the page takes the PNG as soon as it is ready and offers it as a download (shell/web/app.ts takePhoto); it keeps the last one
+const photo = await js(`(async () => {
+  const s = window.shell;
+  for (let i = 0; i < 600 && !s.lastPhoto; i++) await new Promise((r) => requestAnimationFrame(r));
+  const d = s.lastPhoto; if (!d) return null;
+  let bin = ''; for (let i = 0; i < d.length; i += 8192) bin += String.fromCharCode(...d.subarray(i, i + 8192));
+  return btoa(bin);
+})()`);
+if (!photo) problems.push(`photo mode: no capture arrived (page error: ${await js('window.shell.error')})`);
+else {
+  const b = Buffer.from(photo, 'base64');
+  writeFileSync(`${prefix}_photo_capture.png`, b);
+  const w = b.readUInt32BE(16), h = b.readUInt32BE(20), cw = shots.photo?.w ?? 0, ch = shots.photo?.h ?? 0;
+  console.log(`photo capture: ${w}x${h} PNG, ${b.length} bytes (canvas ${cw}x${ch})`);
+  if (b[1] !== 80 || w !== 2 * cw || h !== 2 * ch) problems.push(`photo capture is ${w}x${h}, not twice the canvas ${cw}x${ch}`);
+}
+if (shots.paused && shots.photo) {
+  const n = differ(shots.paused.rgba, shots.photo.rgba);
+  console.log(`paused vs photo mode: ${n} pixels differ (the pause banner and the HUD are hidden)`);
+  if (n < 2000) problems.push(`entering photo mode changed only ${n} pixels: the HUD is still drawn`);
+}
+await key('keydown', 'F9'); await key('keyup', 'F9');
 for (const p of problems) console.log('PROBLEM:', p);
 console.log('game-shot:', problems.length ? 'FAIL' : 'PASS');
 done(problems.length ? 1 : 0);

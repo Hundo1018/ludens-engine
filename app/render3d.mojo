@@ -57,6 +57,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var post_time: Float32  # Frame.t.x of the stages: seconds, set by the host (0 keeps a still frame repeatable)
     var post_frame: Int  # Frame.t.y: counts draw() calls
     var post_seed: Float32  # Frame.t.z
+    var exposure_ev: Float32  # Frame.t.w: the photo mode's exposure in EV, read by app/lens.mojo `Exposure` (2^EV); 0 elsewhere
     var post_user: SIMD[DType.float32, 4]  # Frame.user: four numbers of the host's, read by its styles
     var color_format: UInt32
     var scene: Optional[Texture]  # the passes' colour target while post is on
@@ -159,6 +160,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.post_time = 0.0
         self.post_frame = 0
         self.post_seed = 0.0
+        self.exposure_ev = 0.0
         self.post_user = SIMD[DType.float32, 4](0.0)
         self.color_format = color_format
         self.scene = None
@@ -237,6 +239,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.post_time = move.post_time
         self.post_frame = move.post_frame
         self.post_seed = move.post_seed
+        self.exposure_ev = move.exposure_ev
         self.post_user = move.post_user
         self.color_format = move.color_format
         self.scene = move.scene^
@@ -521,7 +524,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             f.append(x)
         for x in cam_floats(v):
             f.append(x)
-        for x in [self.post_time, Float32(self.post_frame), self.post_seed, Float32(0.0)]:
+        for x in [self.post_time, Float32(self.post_frame), self.post_seed, self.exposure_ev]:
             f.append(x)
         for i in range(4):
             f.append(self.post_user[i])

@@ -11,7 +11,9 @@ from audio_assets import load_music, lsound_to_mono
 from access_host import AccessHost
 from audio_event import AudioEvent, BUS_MUSIC, parse_events
 from audio_math import Rng
-from controls import KEY_F2, KEY_F3, MOUSE_LEFT, read_frame
+from controls import (
+    KEY_BACKSPACE, KEY_E, KEY_ENTER, KEY_F2, KEY_F3, KEY_F8, KEY_F9, KEY_GRAVE, KEY_Q, MOUSE_LEFT, read_frame, typed_text,
+)
 from frame_stats import (
     FrameStats, now_ns, SEG_NET, SEG_STEP, SEG_PHYSICS, SEG_AI, SEG_SCENE, SEG_PUSH, SEG_HUD, SEG_DRAW, SEG_PRESENT, SEG_FRAME,
     CTR_DRAWS, CTR_TRIANGLES, CTR_TEXTURE_BYTES, CTR_PARTICLES, CTR_BODIES, CTR_AI_AGENTS,
@@ -19,6 +21,14 @@ from frame_stats import (
 from perf_overlay import perf_overlay
 from game.demo_mode import DemoMode
 from game.mode import GameMode
+from game.console import CONSOLE_BUILT, CommandSpec, Console, ConsoleLine
+from game.intent import Intent
+from game.photo_camera import PhotoMode
+from std.math import sqrt
+from photo import PhotoCapture, PhotoPost, apply_photo
+from platform.achievements import CheatGuard, LocalAchievements
+from ui.draw import Color, DrawList
+from ui.geom import Rect
 from geometry.vec import Real
 from game.camera_view import View
 from game.action_map import parse_source, slot_of
@@ -121,6 +131,15 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var overlay_key_was: Bool  # the overlay key (F2) was down at the last draw: `toggle` is its rising edge as drawn
     var export_file: String  # a file the game asked the host to save and the host has not taken yet (app_take_export)
     var stats: FrameStats  # per-segment CPU time of the last FRAME_RING frames (app/frame_stats.mojo, app_frame_stats)
+    var console: Console  # ` opens it (game/console.mojo); empty and inert in a release build
+    var console_ready: Bool  # the game's commands and the host's photo cvars are registered
+    var photo: PhotoMode  # F9 (game/photo_camera.mojo): the game stands still, a free camera, F8 captures
+    var photo_renderer: Optional[SceneRendererOf[Self.P, PhotoPost, Self.A]]  # made on the first photo frame (app/photo.mojo)
+    var photo_hud: Optional[Hud]  # an empty HUD for photo frames (the HUD is hidden) and the capture
+    var photo_capture: Optional[PhotoCapture]
+    var photo_want: Bool  # F8 or app_photo_capture: capture on the next drawn photo frame
+    var photo_png: List[UInt8]  # the latest capture, until the page takes it (app_take_photo)
+    var achievements: CheatGuard[LocalAchievements]  # refuses unlocks once the game reports a cheat (platform/achievements.mojo)
 
     def __init__(out self, selector: String, width: UInt32, height: UInt32) raises:
         self.boot = GPUBoot("ludens-engine")
@@ -183,6 +202,15 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.overlay_key_was = False
         self.perf_shown = False
         self.perf_key_was = False
+        self.console = Console()
+        self.console_ready = False
+        self.photo = PhotoMode()
+        self.photo_renderer = None
+        self.photo_hud = None
+        self.photo_capture = None
+        self.photo_want = False
+        self.photo_png = List[UInt8]()
+        self.achievements = CheatGuard[LocalAchievements](LocalAchievements())
 
     def __init__(out self, *, deinit move: Self):
         self.boot = move.boot^
@@ -243,6 +271,15 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.overlay_key_was = move.overlay_key_was
         self.perf_shown = move.perf_shown
         self.perf_key_was = move.perf_key_was
+        self.console = move.console^
+        self.console_ready = move.console_ready
+        self.photo = move.photo^
+        self.photo_renderer = move.photo_renderer^
+        self.photo_hud = move.photo_hud^
+        self.photo_capture = move.photo_capture^
+        self.photo_want = move.photo_want
+        self.photo_png = move.photo_png^
+        self.achievements = move.achievements^
 
     def take_export(mut self, out_ptr: UInt64, cap: UInt64) -> Int32:
         if self.export_file.byte_length() == 0 and self.mode == MODE_GAME and self.game:
@@ -349,9 +386,83 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.sim.mixer.rng = Rng(seed)  # the clip and pitch drawn for each play follow the seed, so a replay sounds the same
         return 0 if self.game.value().reset(seed, scene) else -1
 
+    def _console_setup(mut self, m: Self.M) raises:
+        if self.console_ready:
+            return
+        self.console_ready = True
+        for spec in m.console_commands():
+            self.console.register(spec.copy())
+        # the photo settings (game/photo_camera.mojo), applied by the host and never passed to the game
+        self.console.register(CommandSpec.cvar("photo.focus", False, Float64(self.photo.focus), 0.2, 1000.0))
+        self.console.register(CommandSpec.cvar("photo.fstop", False, 0.0, 0.0, 32.0))
+        self.console.register(CommandSpec.cvar("photo.exposure", False, 0.0, -4.0, 4.0))
+        self.console.register(CommandSpec.cvar("photo.bloom", False, 0.0, 0.0, 4.0))
+        self.console.register(CommandSpec.cvar("photo.scale", True, 2.0, 1.0, 8.0))
+
+    def run_console(mut self, mut m: Self.M) raises:
+        """The console's lines for this game frame: a loaded replay's first, then the queue, each run before `step`. A
+        line the game refuses is printed, not raised; a cheat marks the achievements guard."""
+        self._console_setup(m)
+        try:
+            self.console.due(self.game_frames)
+        except e:
+            self.console.print_line(String(e))
+        for line in self.console.take():
+            if line.name.startswith("photo."):
+                self._photo_set(line.name, Float32(line.number(0)))
+                continue
+            try:
+                var answer = m.run_command(line)
+                if answer.byte_length() > 0:
+                    self.console.print_line(answer)
+            except e:
+                self.console.print_line(String(e))
+        if m.cheated():
+            self.achievements.mark_cheated()
+
+    def _photo_set(mut self, name: String, v: Float32) -> Float32:
+        if name == "photo.focus":
+            return self.photo.set_focus(v)
+        if name == "photo.fstop":
+            return self.photo.set_fstop(v)
+        if name == "photo.exposure":
+            return self.photo.set_exposure(v)
+        if name == "photo.bloom":
+            return self.photo.set_bloom(v)
+        return Float32(self.photo.set_scale(Int(v)))
+
+    def toggle_photo(mut self, m: Self.M):
+        if self.photo.active:
+            self.photo.leave()
+        else:
+            self.photo.enter(self.acc.camera(m.camera()))
+
     def _step_mode(mut self, mut m: Self.M, dt: Float64) raises:
-        """One frame of a game: read the keys, step it (at most 0.1 s, so a hidden tab does not fast-forward), play its cues."""
+        """One frame of a game: read the keys, run the console's lines, step it (at most 0.1 s, so a hidden tab does not
+        fast-forward), play its cues. With the console open the keys type into it; in photo mode the game is not
+        stepped and the keys fly the free camera."""
+        if self.input.is_key_just_pressed(KEY_GRAVE):
+            self.console.toggle()
+        elif self.console.open:
+            self.console.type_text(typed_text(self.input))
+            if self.input.is_key_just_pressed(KEY_BACKSPACE):
+                self.console.backspace()
+            if self.input.is_key_just_pressed(KEY_ENTER):
+                self.console.enter(self.game_frames)
+        if self.input.is_key_just_pressed(KEY_F9):
+            self.toggle_photo(m)
+        if self.photo.active and self.input.is_key_just_pressed(KEY_F8):
+            self.photo_want = True
+        self.run_console(m)
         var intent = self.controls.poll(read_frame(self.input))
+        if self.console.open:
+            intent = Intent.idle()  # the keys are typing
+        if self.photo.active:
+            var up = Real(0)
+            if not self.console.open:
+                up = Real(1 if self.input.is_key_pressed(KEY_E) else 0) - Real(1 if self.input.is_key_pressed(KEY_Q) else 0)
+            self.photo.move(intent.forward, intent.right, up, intent.look_dx, intent.look_dy, min(dt, 0.1))
+            return  # the simulation stands still: no step, no game frame, no cues
         m.step(intent, min(dt, 0.1))
         self.game_frames += 1
         self.stats.add(SEG_PHYSICS, m.physics_ns())  # inside the step segment; -1 (not measured) records nothing
@@ -384,7 +495,70 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
                 self.acc.heard(self.sim.mixer, self.cue_events[c.cue])
         self.acc.step(self.sim.mixer, min(dt, 0.1))
 
+    def _console_list(self, width: Float32) -> DrawList:
+        """The console panel: its last lines and the line being typed, across the top of the frame."""
+        var dl = DrawList()
+        comptime if CONSOLE_BUILT:
+            if self.console.open:
+                var size = Float32(15)
+                var lh = size * 1.4
+                var n = len(self.console.lines)
+                dl.fill(Rect(0, 0, width, lh * Float32(n + 1) + 12), Color(0.02, 0.03, 0.05, 0.88))
+                for i in range(n):
+                    dl.text(Rect(8, 6 + lh * Float32(i), width - 16, lh), self.console.lines[i], Color(0.85, 0.9, 1.0, 1.0), size)
+                dl.text(Rect(8, 6 + lh * Float32(n), width - 16, lh), "] " + self.console.edit + "_", Color(1.0, 1.0, 0.6, 1.0), size)
+        return dl^
+
+    def _draw_photo(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
+        """A photo frame: the free camera through the photo pipeline (app/photo.mojo), no HUD (only the console, when
+        open); a capture asked for is drawn at the capture size into its own texture and read back."""
+        var view = View(self.photo.pose(), Real(aspect))
+        if not self.photo_renderer:
+            self.photo_renderer = SceneRendererOf[Self.P, PhotoPost, Self.A](self.boot.device(), format, view)
+            self.photo_hud = Hud(self.boot.device(), format)
+            if len(self.font_data) > 0:
+                self.photo_hud.value().set_font(self.boot.device(), self.font_data.copy())
+        apply_photo(self.photo_renderer.value(), self.photo)
+        var items = m.scene()
+        if self.photo_want and not self.photo_capture:
+            self.photo_want = False
+            var size = self.photo.capture_size(Int(self.width), Int(self.height))
+            var pc = PhotoCapture(self.boot.device(), UInt32(size[0]), UInt32(size[1]), format)
+            self.photo_hud.value().set(DrawList(), Float32(size[0]), Float32(size[1]))
+            self.photo_renderer.value().begin(view.copy())
+            for it in items:
+                self.photo_renderer.value().push(it)
+            pc.start(self.boot.device(), self.photo_renderer.value(), self.photo_hud.value())
+            self.photo_hud.value().uploaded()
+            self.photo_capture = pc^
+        self.photo_renderer.value().begin(view.copy())
+        for it in items:
+            self.photo_renderer.value().push(it)
+        self.photo_hud.value().set(self._console_list(Float32(self.width)), Float32(self.width), Float32(self.height))
+        self.photo_renderer.value().draw(self.boot.device(), target, self.width, self.height, self.photo_hud.value())
+        self.photo_hud.value().uploaded()
+
+    def _finish_photo(mut self) raises:
+        if self.photo_capture and self.photo_capture.value().poll():
+            self.photo_png = self.photo_capture.value().png.copy()
+            self.photo_capture = None
+
+    def take_photo(mut self, out_ptr: UInt64, cap: UInt64) -> Int32:
+        var n = len(self.photo_png)
+        if n == 0:
+            return 0
+        if UInt64(n) > cap:
+            return Int32(-n)
+        var dst = Pointer[UInt8, MutUntrackedOrigin](unsafe_from_address=Int(out_ptr))
+        for i in range(n):
+            dst[i] = self.photo_png[i]
+        self.photo_png = List[UInt8]()
+        return Int32(n)
+
     def _draw_mode(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
+        if self.photo.active:
+            self._draw_photo(m, target, format, aspect)
+            return
         # a pipeline that draws the scene for a picture of its own proportions (SceneSize) sets the camera's
         var view = View(self.acc.camera(m.camera()), Real(scene_aspect[Self.F](Float64(aspect))))
         if self.game_format != format:  # the pipelines are built for one target format
@@ -424,6 +598,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.hud.value().key = -1  # the cached HUD no longer matches what is drawn
         self.perf_key_was = f3
         self.acc.captions_into(over, Float32(self.width), Float32(self.height), env, self.font_metrics)
+        var con = self._console_list(Float32(self.width))
+        for i in range(con.count()):
+            over.cmds.append(con.cmds[i].copy())
         if over.count() > 0 or self.perf_shown:  # a panel, a caption or the frame-time overlay is up: the HUD and they are rebuilt every frame
             var list = m.hud(Float32(self.width), Float32(self.height), self.frame_ms)
             for i in range(over.count()):
@@ -515,6 +692,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
                 self._capture(WGPUTextureFormat.RGBA8Unorm)  # the game still can be looked at, with no canvas draw
             self._reference()
             self._finish_capture()
+            self._finish_photo()
             return 1
         if not self.configured:
             self.surface.configure(
@@ -534,6 +712,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.frames += 1
         self._reference()
         self._finish_capture()
+        self._finish_photo()
         return 1
 
 
@@ -1170,3 +1349,99 @@ def app_shake_offset(app: UInt64, axis: Int32) abi("C") -> Float64:
     var a = _app(app)
     var scale = a[].acc.access.shake_factor()
     return Float64(a[].acc.shake.offset_x(scale) if axis == 0 else a[].acc.shake.offset_y(scale))
+
+
+@export
+def app_console(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Submit one console line (UTF-8) as if typed (`window.game.console`): it runs before the next game frame and is
+    logged. 0 = accepted, -1 = refused (the reason is in the text buffer: app_text_len / app_text_ptr), -2 = no game.
+    The answer of a cvar read or `help` is in the text buffer too. In a release build every line is accepted and does
+    nothing (game/console.mojo)."""
+    var a = _app(app)
+    if not a[].game:
+        return -2
+    try:
+        var m = a[].game.take()
+        a[]._console_setup(m)
+        a[].game = m^
+        a[].out_text = a[].console.submit(_text_of(ptr, length), a[].game_frames)
+        return 0
+    except e:
+        a[].out_text = String(e)
+        return -1
+
+
+@export
+def app_console_log(app: UInt64) abi("C") -> Int32:
+    """The console log (`frame line` per line, game/console.mojo) written to the text buffer; returns its byte length."""
+    var a = _app(app)
+    a[].out_text = a[].console.log_text()
+    return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_console_replay(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Load a console log to play back: each line is submitted at the start of its game frame. 0 = loaded, -1 = it does
+    not parse (the reason is in the text buffer)."""
+    var a = _app(app)
+    try:
+        a[].console.load_replay(_text_of(ptr, length))
+        return 0
+    except e:
+        a[].out_text = String(e)
+        return -1
+
+
+@export
+def app_cheated(app: UInt64) abi("C") -> Int32:
+    """1 once the game reports a cheat (achievements and stats are then refused), else 0."""
+    return Int32(1 if _app(app)[].achievements.cheated else 0)
+
+
+@export
+def app_photo(app: UInt64, on: Int32) abi("C") -> Int32:
+    """Enter (1) or leave (0) photo mode, as F9 does. Returns 1 if photo mode is on afterwards, -1 = no game."""
+    var a = _app(app)
+    if not a[].game:
+        return -1
+    if (on != 0) != a[].photo.active:
+        var m = a[].game.take()
+        a[].toggle_photo(m)
+        a[].game = m^
+    return Int32(1 if a[].photo.active else 0)
+
+
+@export
+def app_photo_set(app: UInt64, which: Int32, value: Float32) abi("C") -> Float32:
+    """Set a photo setting: 0 focus (m), 1 f-number (0 = pinhole), 2 exposure (EV), 3 bloom, 4 capture scale. Returns the
+    value kept after clamping (game/photo_camera.mojo)."""
+    var names = ["photo.focus", "photo.fstop", "photo.exposure", "photo.bloom", "photo.scale"]
+    if which < 0 or which > 4:
+        return -1
+    return _app(app)[]._photo_set(names[Int(which)], value)
+
+
+@export
+def app_photo_move(app: UInt64, forward: Float32, right: Float32, up: Float32, seconds: Float32) abi("C") -> Float64:
+    """Fly the photo camera as the keys would for `seconds`; returns its distance from where photo mode started."""
+    var a = _app(app)
+    a[].photo.move(Real(forward), Real(right), Real(up), 0.0, 0.0, Float64(seconds))
+    var d = a[].photo.pos - a[].photo.origin
+    return sqrt(Float64(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]))
+
+
+@export
+def app_photo_capture(app: UInt64) abi("C") -> Int32:
+    """Capture the next photo frame at the capture size, as F8 does. -1 = not in photo mode."""
+    var a = _app(app)
+    if not a[].photo.active:
+        return -1
+    a[].photo_want = True
+    return 0
+
+
+@export
+def app_take_photo(app: UInt64, out_ptr: UInt64, cap: UInt64) abi("C") -> Int32:
+    """The latest capture as a PNG file, copied to `out_ptr` and cleared. Returns its length, 0 when there is none, or
+    -(its length) when `cap` is too small (nothing is copied; the file stays)."""
+    return _app(app)[].take_photo(out_ptr, cap)

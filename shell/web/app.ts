@@ -31,6 +31,8 @@ interface Stats {
   rendered: number;
   audioStarts: number;
   exported?: number; // files the game asked to save and the page offered as downloads
+  photos?: number; // photo-mode captures offered as downloads (#146)
+  lastPhoto?: Uint8Array; // the latest of them, a PNG file, for scripts/game_screenshot.mjs
   padLog: string[]; // what the virtual pad last sent (the newest 64 events), for the touch check
   error: string;
 }
@@ -397,6 +399,27 @@ async function main() {
     setTimeout(() => URL.revokeObjectURL(url), 10000); // not at once: some browsers read the blob after the click returns
     stats.exported = (stats.exported ?? 0) + 1;
   };
+  // A photo-mode capture (F8, game/photo_camera.mojo): a PNG of unknown size, so it is asked for with no room first.
+  const takePhoto = () => {
+    const n = x.app_take_photo(app, 0n, 0n);
+    if (n >= 0) return;
+    const buf = rt.alloc(-n);
+    try {
+      const got = x.app_take_photo(app, buf, BigInt(-n));
+      if (got <= 0) return;
+      const a = document.createElement("a");
+      const png = rt.bytes(buf, got).slice();
+      const url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
+      stats.photos = (stats.photos ?? 0) + 1;
+      stats.lastPhoto = png;
+      a.href = url;
+      a.download = `photo-${stats.photos}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } finally {
+      rt.free(buf);
+    }
+  };
   let last = performance.now();
   const frame = (now: number) => {
     try {
@@ -406,6 +429,7 @@ async function main() {
       const r = x.app_frame(app, dt);
       if (r < 0) throw new Error("app_frame returned " + r);
       takeExport();
+      takePhoto();
       if (r === 1) {
         stats.frames++;
         if (SELFTEST) stats.boundary = { exports: 1, imports: calls.imports, webgpu: calls.webgpu, names: { ...calls.names } };

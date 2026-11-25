@@ -42,6 +42,8 @@ three crates to push; Space jumps with a sound, P pauses.
 | P / Esc | pause |
 | R | restart |
 | gamepad (standard mapping) | left stick or d-pad moves, right stick turns the camera, A jumps, Start pauses, Y restarts |
+| ` (backquote) | the console: commands, cvars and cheats (`help` lists them; not in a release build, docs/console.md) |
+| F9 / F8 | photo mode: the game stands still, W A S D / E Q / drag fly a camera, F8 saves a PNG at twice the window |
 | touch | on-screen pad: a stick under the left thumb moves, Jump is on the right, II pauses, R restarts, a drag anywhere else turns the camera |
 
 `?demo` or any `?selftest` loads the old physics demo instead; the parity gates and selftests measure that one.

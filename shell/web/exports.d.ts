@@ -61,4 +61,13 @@ export interface AppExports {
   app_captions_state(app: bigint): number;
   app_shake(app: bigint, trauma: number): number;
   app_shake_offset(app: bigint, axis: number): number;
+  app_console(app: bigint, ptr: bigint, length: bigint): number;
+  app_console_log(app: bigint): number;
+  app_console_replay(app: bigint, ptr: bigint, length: bigint): number;
+  app_cheated(app: bigint): number;
+  app_photo(app: bigint, on: number): number;
+  app_photo_set(app: bigint, which: number, value: number): number;
+  app_photo_move(app: bigint, forward: number, right: number, up: number, seconds: number): number;
+  app_photo_capture(app: bigint): number;
+  app_take_photo(app: bigint, out_ptr: bigint, cap: bigint): number;
 }

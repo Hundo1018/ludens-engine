@@ -146,7 +146,7 @@ is the caller's number for the request. Every queue follows the drop-and-count r
 | Seam | Module | Trait methods (besides `poll` and `dropped`) | Local implementation |
 |---|---|---|---|
 | Identity | `platform/identity.mojo` | `player_id()`, `token()` (opaque bytes for a game server to verify with the backend), `sign_in(id)` | `LocalIdentity(name)`: the token is "local:" and the name, which no server can trust |
-| Achievements and stats | `platform/achievements.mojo` | `unlock(id, name)`, `set_stat(id, name, value)`, `is_unlocked(name)`, `stat(name)` | `LocalAchievements`, in memory |
+| Achievements and stats | `platform/achievements.mojo` | `unlock(id, name)`, `set_stat(id, name, value)`, `is_unlocked(name)`, `stat(name)` | `LocalAchievements`, in memory; `CheatGuard[A]` wraps any backend and returns `REQ_CHEATED` once the run used a cheat (docs/console.md) |
 | Cloud save | `platform/cloud_save.mojo` | `write_request(id, slot, ptr, length)`, `read_request(id, slot)`; up to 64 MiB a slot, the os_host.mjs file limit | `MemoryCloudSave`, in memory |
 | Lobby | `platform/lobby.mojo` | `create(id, name, max_members)`, `join(id, name)`, `leave(id)`, `current()`; events for members joining and leaving | `MemoryLobbyHub().member(player_id)`: every member of one hub sees the same lobbies |
 

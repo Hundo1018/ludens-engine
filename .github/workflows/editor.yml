@@ -72,6 +72,10 @@ jobs:
         run: pixi run -e wasm test-game
       - name: Demo game, native == wasm64 through the app exports
         run: pixi run -e wasm game-same
+      - name: "In-game console, cheats, photo mode settings (#146): native, release build without the console, PNG writer"
+        run: pixi run -e wasm test-console
+      - name: "In-game console (#146): wasm64 under node, replay, photo pause, release module"
+        run: pixi run -e wasm test-console-web
       - name: Data tables, live tuning, `ludens check` / `ludens tune` on tables
         run: pixi run -e wasm test-tables
       - name: Particles (#121), simulation, budgets, LOD, packing, `particles` component

@@ -6,8 +6,9 @@
 otherwise the request is REQ_INVALID.
 
 LocalAchievements keeps them in memory (a game that wants them kept across runs saves them through CloudSave).
-Standard library only."""
-from platform.packets import KIND_STAT, KIND_UNLOCK, PacketQueue, REQ_INVALID, STATUS_OK, packet, text_bytes
+CheatGuard wraps any backend: once `mark_cheated()` is called (the run used a cheat, game/cheats.mojo), `unlock` and
+`set_stat` return REQ_CHEATED and reach no backend; reads still answer. Standard library only."""
+from platform.packets import KIND_STAT, KIND_UNLOCK, PacketQueue, REQ_CHEATED, REQ_INVALID, STATUS_OK, packet, text_bytes
 
 comptime MAX_NAME = 128
 
@@ -83,3 +84,43 @@ struct LocalAchievements(Achievements):
 
     def dropped(self) -> Int:
         return self._q.dropped()
+
+
+struct CheatGuard[A: Achievements & Deinitable](Achievements):
+    """An Achievements backend that refuses unlocks and stats after a cheat (docs/console.md). The mark is not undone:
+    a run that cheated stays marked, and a save loaded from it marks the guard again (the host calls `mark_cheated`)."""
+    var inner: Self.A
+    var cheated: Bool
+    var refused: Int  # requests refused because of the mark
+
+    def __init__(out self, var inner: Self.A):
+        self.inner = inner^
+        self.cheated = False
+        self.refused = 0
+
+    def mark_cheated(mut self):
+        self.cheated = True
+
+    def unlock(mut self, id: Int, name: String) -> Int:
+        if self.cheated:
+            self.refused += 1
+            return REQ_CHEATED
+        return self.inner.unlock(id, name)
+
+    def set_stat(mut self, id: Int, name: String, value: Int64) -> Int:
+        if self.cheated:
+            self.refused += 1
+            return REQ_CHEATED
+        return self.inner.set_stat(id, name, value)
+
+    def is_unlocked(self, name: String) -> Bool:
+        return self.inner.is_unlocked(name)
+
+    def stat(self, name: String) -> Int64:
+        return self.inner.stat(name)
+
+    def poll(mut self, buf: UInt64, cap: Int) -> Int:
+        return self.inner.poll(buf, cap)
+
+    def dropped(self) -> Int:
+        return self.inner.dropped()

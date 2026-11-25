@@ -3,6 +3,8 @@ something to measure. A ball on a floor with four pillars and three crates to pu
 camera, Space jumps (with a sound), dragging turns the camera, P pauses, R restarts. Real games live in their own
 repositories (ludens-playground has one); nothing in `app/` or `ui/` knows this one except the shell's `App` alias."""
 from embed.world import EmbedWorld, EVENT_BEGAN
+from game.cheats import CheatMark, cheat_commands
+from game.console import CommandSpec, ConsoleLine
 from game.cue import SoundCue
 from game.draw_item import DrawItem
 from game.demo_table import DemoRow, demo_default_table, demo_row, DEMO_TABLE_TEXT
@@ -33,7 +35,8 @@ comptime IMPACT_FULL_IMPULSE: Float32 = 8.0  # at this impulse an impact plays a
 comptime IMPACTS_PER_FRAME = 4
 comptime MAX_PLACED_CUES = 32  # cues kept for a host that does not take them; impacts stop being queued at this length
 comptime IMPACT_SETTLE_TICKS = 30  # bodies placed overlapping the floor settle in the first ticks; that is not an impact
-comptime DEMO_SAVE_VERSION = 2  # 2: the pending jump press (`jump_buffer`) after `paused`; DemoMigrator turns a version 1 payload into it
+comptime DEMO_SAVE_VERSION = 3  # 2: the pending jump press (`jump_buffer`) after `paused`; 3: the cheat mark and the spawned crates after it (#146)
+comptime MAX_SPAWNED = 64  # crates `spawn` may add
 comptime BALL: Real = 0.4
 comptime TAU: Float64 = 6.283185307179586
 
@@ -87,6 +90,9 @@ struct DemoMode(GameMode):
     var t_hint: String
     var t_paused: String
     var text_key: UInt64
+    var cheats: CheatMark  # god / noclip and whether any cheat ran (game/cheats.mojo); saved, hashed when not all clear
+    var spawned: Int  # crates added by `spawn`, after the scene's own bodies
+    var cam_back: Real  # the `cam.distance` cvar: metres the camera sits behind the ball (a setting: not saved, not hashed)
 
     def __init__(out self) raises:
         self.tuner = Tuner(demo_default_table(), DEMO_TABLE_TEXT)
@@ -116,6 +122,9 @@ struct DemoMode(GameMode):
         self.t_hint = String()
         self.t_paused = String()
         self.text_key = 0
+        self.cheats = CheatMark()
+        self.spawned = 0
+        self.cam_back = 7.0
         self._build()
         self._refresh_texts()
 
@@ -167,6 +176,9 @@ struct DemoMode(GameMode):
         self.t_hint = move.t_hint^
         self.t_paused = move.t_paused^
         self.text_key = move.text_key
+        self.cheats = move.cheats
+        self.spawned = move.spawned
+        self.cam_back = move.cam_back
 
     def _refresh_texts(mut self):
         var key = (UInt64(self.jumps) << 20) ^ UInt64(self.loc.version) ^ (self.env.key() << 1)
@@ -246,15 +258,75 @@ struct DemoMode(GameMode):
             out += String("]")
         except:
             out += String(',"error":"body state unavailable"')
+        if self.cheats.bits() != 0:  # a run with no cheat keeps the fields (and text) it had before #146
+            out += String(',"cheats":') + String(Int(self.cheats.bits())) + String(',"spawned":') + String(self.spawned)
         return out + String(',"hash":"') + String(self.hash()) + String('"}')
+
+    def console_commands(self) -> List[CommandSpec]:
+        """The cheats of game/cheats.mojo and one cvar, `cam.distance` (metres behind the ball, 2 .. 30)."""
+        var out = cheat_commands()
+        out.append(CommandSpec.cvar("cam.distance", False, 7.0, 2.0, 30.0))
+        return out^
+
+    def cheated(self) -> Bool:
+        return self.cheats.marked
+
+    def run_command(mut self, line: ConsoleLine) raises -> String:
+        """What the cheats do in this game, which has no health:
+          god       jumps work in the air too (the only limit the ball has is the ground check)
+          noclip    the ball collides with nothing and gravity does not pull it: it moves where the intent points, at
+                    its height (teleport changes the height)
+          spawn     a crate 2 m ahead of the ball, 1 m above the floor (at most MAX_SPAWNED)
+          teleport  the ball to x y z, at rest
+        Each one marks the run as cheated."""
+        if line.name == "cam.distance":
+            self.cam_back = Real(line.number(0))
+            return String()
+        if line.name == "god":
+            self.cheats.mark()
+            self.cheats.god = not self.cheats.god
+            return "god " + ("on" if self.cheats.god else "off")
+        if line.name == "noclip":
+            self.cheats.mark()
+            self.cheats.noclip = not self.cheats.noclip
+            self._apply_noclip()
+            return "noclip " + ("on" if self.cheats.noclip else "off")
+        if line.name == "spawn":
+            if len(line.args) == 1 and line.args[0] != "crate":
+                raise Error("spawn: unknown kind `" + line.args[0] + "` (crate)")
+            if self.spawned >= MAX_SPAWNED:
+                raise Error("spawn: " + String(MAX_SPAWNED) + " crates already")
+            self.cheats.mark()
+            var b = self.world.state(self.ball).pos
+            var fwd = Vec3(-sin(self.yaw), 0.0, -cos(self.yaw), 0.0)
+            _ = self._spawn_crate(Vec3(b[0] + fwd[0] * 2.0, 1.0, b[2] + fwd[2] * 2.0, 0.0))
+            return "spawned crate " + String(self.spawned)
+        if line.name == "teleport":
+            var p = Vec3(Real(line.number(0)), Real(line.number(1)), Real(line.number(2)), 0.0)
+            self.cheats.mark()
+            self.world.teleport(self.ball, p, Quat(0.0, 0.0, 0.0, 1.0))
+            self.world.set_velocity(self.ball, Vec3(0.0, 0.0, 0.0, 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
+            return "teleported"
+        raise Error("demo: no command `" + line.name + "`")
+
+    def _spawn_crate(mut self, pos: Vec3) raises -> Int64:
+        self.spawned += 1
+        return self._box(pos, Vec3(0.5, 0.5, 0.5, 0.0), 6.0, Vec3(0.75, 0.3, 0.3, 0.0))
+
+    def _apply_noclip(mut self) raises:
+        if self.cheats.noclip:
+            self.world.set_layer(self.ball, 1, 0)
+        else:
+            self.world.set_layer(self.ball, 1, 0xFFFFFFFF)
 
     def save_version(self) -> Int:
         return DEMO_SAVE_VERSION
 
     def save_state(self) raises -> List[UInt8]:
         """Version 2: seed u64, scene length u8 and bytes, yaw (Float64 bits) u64, tick u64, jumps u64, paused u8, the pending
-        jump press (milliseconds left, Float64 bits, u64; whether it was pressed in the frame being stepped, u8), then the
-        world blob (`EmbedWorld.save`) to the end. Version 1 had no pending press (`DemoMigrator` adds 0 and False). The tuned
+        jump press (milliseconds left, Float64 bits, u64; whether it was pressed in the frame being stepped, u8), then (version 3)
+        the cheat mark (CheatMark.bits, u8) and the number of spawned crates (u8), then the world blob (`EmbedWorld.save`)
+        to the end. Version 1 had no pending press (`DemoMigrator` adds 0 and False); version 2 no cheat mark (adds 0, 0). The tuned
         values (`tune`) are settings, not run state: not saved."""
         var out = List[UInt8]()
         put_uint(out, self.seed, 8)
@@ -268,6 +340,8 @@ struct DemoMode(GameMode):
         put_uint(out, UInt64(1 if self.paused else 0), 1)
         put_uint(out, UInt64(self.jump_buffer.left_ms.to_bits()), 8)
         put_uint(out, UInt64(1 if self.jump_buffer.fresh else 0), 1)
+        put_uint(out, UInt64(self.cheats.bits()), 1)
+        put_uint(out, UInt64(self.spawned), 1)
         out.extend(self.world.save())
         return out^
 
@@ -281,7 +355,7 @@ struct DemoMode(GameMode):
         pos = 8
         var n = Int(data[pos])
         pos += 1
-        if pos + n + 8 + 8 + 8 + 1 + 8 + 1 > len(data):
+        if pos + n + 8 + 8 + 8 + 1 + 8 + 1 + 2 > len(data):
             raise Error("demo save: truncated")
         var name = String()
         for i in range(n):
@@ -297,14 +371,22 @@ struct DemoMode(GameMode):
         var left_bits = get_uint(data, pos + 25, 8)
         var left_ms = Pointer(to=left_bits).unsafe_bitcast[Float64]()[]
         var fresh = data[pos + 33] != 0
-        pos += 34
+        var cheats = CheatMark.from_bits(data[pos + 34])
+        var spawned = Int(data[pos + 35])
+        if spawned > MAX_SPAWNED:
+            raise Error("demo save: " + String(spawned) + " spawned crates (at most " + String(MAX_SPAWNED) + ")")
+        pos += 36
         var blob = List[UInt8](capacity=len(data) - pos)
         for i in range(pos, len(data)):
             blob.append(data[i])
         var scratch = EmbedWorld(1.0 / 60.0, self._gravity())
         scratch.load(blob)  # raises on a damaged blob, before the running game is touched
         _ = self.reset(seed, name)
+        for _ in range(spawned):  # the same bodies in the same order as the saved world, before its state is loaded over them
+            _ = self._spawn_crate(Vec3(0.0, 1.0, 0.0, 0.0))
         self.world.load(blob)
+        self.cheats = cheats
+        self._apply_noclip()
         self.yaw = Real(yaw)
         self.tick = tick
         self.jumps = jumps
@@ -325,6 +407,9 @@ struct DemoMode(GameMode):
         self.jumps = 0
         self.paused = False
         self.jump_buffer = InputBuffer()
+        self.spawned = 0
+        self.cheats.god = False
+        self.cheats.noclip = False  # a restart turns the toggles off; the mark stays (`marked` is never cleared)
         self._build()
 
     def step(mut self, intent: Intent, frame_dt: Float64) raises:
@@ -352,7 +437,16 @@ struct DemoMode(GameMode):
             var right = Vec3(cos(self.yaw), 0.0, -sin(self.yaw), 0.0)
             var v = (fwd * intent.forward + right * intent.right) * Real(self.tune.speed)
             var vy = self.world.state(self.ball).vel[1]
-            if self.jump_buffer.live() and self.tune.jump_enabled and self.world.touching(self.ball, self.floor):
+            if self.cheats.noclip:
+                var at = self.world.state(self.ball).pos
+                self.world.physics_tick()
+                self.world.teleport(self.ball, at + Vec3(v[0], 0.0, v[2], 0.0) * Real(1.0 / 60.0), Quat(0.0, 0.0, 0.0, 1.0))
+                self.world.set_velocity(self.ball, Vec3(0.0, 0.0, 0.0, 0.0), Vec3(0.0, 0.0, 0.0, 0.0))
+                self._impacts()
+                self.tick += 1
+                continue
+            var grounded = self.cheats.god or self.world.touching(self.ball, self.floor)
+            if self.jump_buffer.live() and self.tune.jump_enabled and grounded:
                 _ = self.jump_buffer.take()
                 vy = Real(self.tune.jump_speed)
                 self.jumps += 1
@@ -397,7 +491,7 @@ struct DemoMode(GameMode):
             pass
         # 7 m behind the ball and 2.2 m above it, looking along the heading (yaw 0 looks down -z)
         var back = Vec3(sin(self.yaw), 0.0, cos(self.yaw), 0.0)
-        var pos = target + back * 7.0 + Vec3(0.0, 2.2, 0.0, 0.0)
+        var pos = target + back * self.cam_back + Vec3(0.0, 2.2, 0.0, 0.0)
         return CameraPose(pos, Quat.from_axis_angle(Vec3(0.0, 1.0, 0.0, 0.0), self.yaw), 1.0, 1.78, 0.1, 400.0)
 
     def cues(mut self) -> List[Int]:
@@ -541,6 +635,8 @@ struct DemoMode(GameMode):
         h = (h ^ UInt64(1 if self.paused else 0)) * UInt64(0x100000001B3)
         if self.jump_buffer.left_ms > 0.0:  # a press still pending is part of what the next ticks do
             h = (h ^ UInt64(Int(self.jump_buffer.left_ms * 1000.0))) * UInt64(0x100000001B3)
+        if self.cheats.bits() != 0:  # a run with no cheat hashes as it did before #146
+            h = (h ^ (UInt64(self.cheats.bits()) << 32)) * UInt64(0x100000001B3)
         return h
 
 
@@ -551,10 +647,13 @@ struct DemoMigrator(Migrator):
         pass
 
     def can_migrate(self, from_version: Int) -> Bool:
-        return from_version == 1
+        return from_version == 1 or from_version == 2
 
     def migrate(self, from_version: Int, payload: List[UInt8]) raises -> List[UInt8]:
-        """1 -> 2: a save from before the jump buffer has no pending press: insert 0.0 (8 bytes) and False (1 byte) after `paused`."""
+        """1 -> 2: a save from before the jump buffer has no pending press: insert 0.0 (8 bytes) and False (1 byte) after `paused`.
+        2 -> 3: a save from before the cheats has no mark and no spawned crates: insert 0 and 0 (2 bytes) after the press."""
+        if from_version == 2:
+            return _insert_zeros(payload, 8 + 1 + 8 + 8 + 8 + 1 + 8 + 1, 2)
         if from_version != 1:
             raise Error("demo save: no migration from version " + String(from_version))
         if len(payload) < 9:
@@ -571,3 +670,20 @@ struct DemoMigrator(Migrator):
         for i in range(at, len(payload)):
             out.append(payload[i])
         return out^
+
+
+def _insert_zeros(payload: List[UInt8], at_after_name: Int, count: Int) raises -> List[UInt8]:
+    """`count` zero bytes inserted at `at_after_name` + the scene name's length (byte 8 of the payload)."""
+    if len(payload) < 9:
+        raise Error("demo save: truncated")
+    var at = at_after_name + Int(payload[8])
+    if at > len(payload):
+        raise Error("demo save: truncated")
+    var out = List[UInt8](capacity=len(payload) + count)
+    for i in range(at):
+        out.append(payload[i])
+    for _ in range(count):
+        out.append(0)
+    for i in range(at, len(payload)):
+        out.append(payload[i])
+    return out^
