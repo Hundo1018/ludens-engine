@@ -47,7 +47,7 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 from app.post import PostEffect, PostInputs, FRAME_WGSL, FRAME_BYTES, POST_MAIN_WGSL
-from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL
+from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL, NO_LIGHT_TEX_WGSL
 from app.lights import LIGHTS_BYTES
 from app.gpu_bytes import texture_bytes
 
@@ -125,7 +125,7 @@ fn inject(@builtin(global_invocation_id) id : vec3<u32>) {
   for (var i = 0u; i < np; i++) {
     let d = lights.l[i].pos_range.xyz - w;
     let dist = max(length(d), 1e-4);
-    l += lights.l[i].color.rgb * lights.l[i].color.w * falloff(dist, lights.l[i].pos_range.w) * hg(dot(view_dir, d / dist), g);
+    l += lights.l[i].color.rgb * lights.l[i].color.w * point_atten(i, w) * hg(dot(view_dir, d / dist), g);
   }
   var amb = vec3<f32>(0.4);
   if ambient_set() { amb = lights.sh[0].rgb * 0.2820948; }  // the mean radiance: Y00 times its coefficient
@@ -262,7 +262,7 @@ struct VolumetricFog(PostEffect):
 
     def __init__(out self, device: Device, color_format: UInt32) raises:
         var common = String(FRAME_WGSL) + String(FROXEL_WGSL)
-        var lit = String(SHADOW_UBO_WGSL) + String(POINT_LIGHTS_WGSL) + String(NO_LOCAL_SHADOW_WGSL) + String(NO_PROBES_WGSL)
+        var lit = String(SHADOW_UBO_WGSL) + String(POINT_LIGHTS_WGSL) + String(NO_LOCAL_SHADOW_WGSL) + String(NO_PROBES_WGSL) + String(NO_LIGHT_TEX_WGSL)
         var cs = WGPUShaderStage.COMPUTE.value
         var fs = WGPUShaderStage.FRAGMENT.value
         var e1: List[WGPUBindGroupLayoutEntry] = [

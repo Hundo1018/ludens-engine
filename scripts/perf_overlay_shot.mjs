@@ -97,7 +97,7 @@ if (stats.frames !== 300) problems.push(`the ring holds ${stats.frames} frames, 
 if (ctr('bodies')[2] !== 9) problems.push(`bodies max ${ctr('bodies')[2]}, expected 9`);
 if (ctr('draw_calls')[2] < 2) problems.push(`draw calls max ${ctr('draw_calls')[2]}, expected at least the primitive draw and the HUD`);
 if (ctr('triangles')[2] < 9 * 384) problems.push(`triangles max ${ctr('triangles')[2]}, expected at least 9 * 384`);
-const expectBytes = 22194848 + stats.w * stats.h * 4; // the texture array, atlas, environment and shadow map + the depth buffer
+const expectBytes = 24423072 + stats.w * stats.h * 4; // the texture array, atlas, environment, shadow map, IES table (128 KB) and light cookies (2 MB) + the depth buffer
 if (ctr('texture_bytes')[2] !== expectBytes) problems.push(`texture bytes ${ctr('texture_bytes')[2]}, expected ${expectBytes}`);
 for (const n of ['gpu_shadow', 'gpu_scene', 'gpu_post', 'gpu_frame']) if (seg(n)[5] !== 0) problems.push(`${n} has ${seg(n)[5]} frames in a browser without timestamp queries`);
 // ?offscreen draws on capture requests only, so `draw` ran in the frames that were captured, not in all 300
