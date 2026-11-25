@@ -3,7 +3,8 @@ the binding declarations stay in each shader, because the binding numbers differ
 
   CAM_WGSL         the camera header (`Cam`, binding 0 in both colour passes) and `cam_clip`, its projection
   SHADOW_UBO_WGSL  the `Shadow` uniform's layout: the light's view-projection, the shadow on-flag and the atmosphere
-  PCF_WGSL         `shadow_factor`: the 3 x 3 percentage-closer lookup; needs `shadow_map` and `shadow_cmp` declared
+  PCF_WGSL         `shadow_factor`: the 3 x 3 percentage-closer lookup; needs `shadow_map` and `shadow_cmp` declared;
+                   `shadow_at`: the same at a world point moved along its normal (also needs `shadow`)
   LIGHT_WGSL       the shadow pass's `light` uniform (binding 0): the light's view-projection
 """
 
@@ -49,6 +50,17 @@ fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
   let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && p.z <= 1.0;
   return select(1.0, acc / 9.0, inside);
 }
+
+// shadow_factor at a world point, moved along its normal before the lookup (normal offset): by one shadow-map texel, up
+// to three where the surface turns from the sun. Without it a curved or faceted surface lit head-on (N.L near 1, where
+// the depth bias above is near 0) shadows itself in stripes and rings (acne). Needs `shadow` (the Shadow uniform).
+fn shadow_at(wpos : vec3<f32>, n : vec3<f32>, ndl : f32) -> f32 {
+  // the world size of one texel: the orthographic projection's x scale is 1 / half extent
+  let sx = length(vec3<f32>(shadow.vp[0].x, shadow.vp[1].x, shadow.vp[2].x));
+  let texel = 2.0 / (max(sx, 1e-6) * f32(textureDimensions(shadow_map).x));
+  let lp = shadow.vp * vec4<f32>(wpos + n * texel * (1.0 + 2.0 * (1.0 - ndl)), 1.0);
+  return shadow_factor(lp.xyz / lp.w, ndl);
+}
 """
 
 comptime LIGHT_WGSL = """
@@ -86,6 +98,9 @@ struct Lights {
   areas : array<AreaLight, 4>,      // a rectangle: centre, two half-edge vectors; it emits toward cross(ex, ey).
                                     // pos.w atlas tile + 1 or 0, ex.w the shadow view's far distance, ey.w its size
   tiles : array<mat4x4<f32>, 16>,   // the atlas tiles' view-projections
+  probe_org : vec4<f32>,            // the irradiance probe grid (app/irradiance.mojo): first probe, w 1 when on;
+  probe_cell : vec4<f32>,           // the spacing (m) and the counts along x, y, z. Read by sh_lit_at (PROBES_WGSL)
+  probe_dim : vec4<f32>,
 };
 const L_PI = 3.14159265;
 fn falloff(dist : f32, range : f32) -> f32 {
@@ -215,7 +230,7 @@ fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
   var extra = vec3<f32>(0.0);
   if ambient_set() {
     lit = lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0);
-    extra = sh_lit(n) + point_lights(wpos, n);
+    extra = sh_lit_at(wpos, n) + point_lights(wpos, n);
   } else {
     if sun_custom() { lit = vec3<f32>(0.4) + lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0); }
     lit += point_lights(wpos, n);
@@ -327,4 +342,39 @@ fn env_reflect(r : vec3<f32>, rough : f32) -> vec3<f32> {
   }
   return env_radiance(r, rough);
 }
+"""
+
+
+# The ambient from baked irradiance probes (app/irradiance.mojo): a grid of order-2 spherical harmonics, 9 vec4 per
+# probe (rgb), probe (ix, iy, iz) at index (iz * ny + iy) * nx + ix, in a storage buffer each shader declares as
+# `probes`. At a world point the eight probes around it are blended by trilinear weights (outside the grid, the nearest
+# face's); with no grid set, the environment's harmonics as before. NO_PROBES_WGSL is for shaders without the buffer.
+comptime PROBES_WGSL = """
+fn probe_irr(i : u32, n : vec3<f32>) -> vec3<f32> {
+  let b = i * 9u;
+  let e = 0.429043 * probes[b + 8u].rgb * (n.x * n.x - n.y * n.y) + 0.743125 * probes[b + 6u].rgb * n.z * n.z
+        + 0.886227 * probes[b].rgb - 0.247708 * probes[b + 6u].rgb
+        + 2.0 * 0.429043 * (probes[b + 4u].rgb * n.x * n.y + probes[b + 7u].rgb * n.x * n.z + probes[b + 5u].rgb * n.y * n.z)
+        + 2.0 * 0.511664 * (probes[b + 3u].rgb * n.x + probes[b + 1u].rgb * n.y + probes[b + 2u].rgb * n.z);
+  return max(e, vec3<f32>(0.0)) / L_PI;
+}
+fn sh_lit_at(wpos : vec3<f32>, n : vec3<f32>) -> vec3<f32> {
+  if lights.probe_org.w < 0.5 { return sh_lit(n); }
+  let dim = vec3<i32>(lights.probe_dim.xyz);
+  let g = clamp((wpos - lights.probe_org.xyz) / lights.probe_cell.xyz, vec3<f32>(0.0), vec3<f32>(dim - vec3<i32>(1)));
+  let lo = min(vec3<i32>(floor(g)), max(dim - vec3<i32>(2), vec3<i32>(0)));
+  let f = g - vec3<f32>(lo);
+  var e = vec3<f32>(0.0);
+  for (var k = 0u; k < 8u; k++) {
+    let o = vec3<i32>(i32(k & 1u), i32((k >> 1u) & 1u), i32((k >> 2u) & 1u));
+    let c = min(lo + o, dim - vec3<i32>(1));
+    let w = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1) * select(1.0 - f.z, f.z, o.z == 1);
+    if w > 0.0 { e += w * probe_irr(u32((c.z * dim.y + c.y) * dim.x + c.x), n); }
+  }
+  return e;
+}
+"""
+
+comptime NO_PROBES_WGSL = """
+fn sh_lit_at(wpos : vec3<f32>, n : vec3<f32>) -> vec3<f32> { return sh_lit(n); }
 """

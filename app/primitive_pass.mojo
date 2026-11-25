@@ -21,7 +21,7 @@ from wgpu.render_pass import FrameRenderPass
 from app.mesh_data import MeshRegistry
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, RenderCaps, LIGHTS_BYTES
-from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL
+from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL
 from app.render_pass import RenderPass, DrawCounts
 from app.gpu_blend import pulled_pipeline
 from app.textures import TextureArray
@@ -126,7 +126,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   }
   return vec4<f32>(in.color, 1.0);
 }
-""" + POINT_LIGHTS_WGSL + NO_LOCAL_SHADOW_WGSL
+""" + POINT_LIGHTS_WGSL + NO_LOCAL_SHADOW_WGSL + NO_PROBES_WGSL
 
 
 def _put(mut staging: List[Float32], it: DrawItem):

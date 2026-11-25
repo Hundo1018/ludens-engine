@@ -85,7 +85,7 @@ roadmap on 2026-11-23 in this order; none is built. The tiers rank how many game
 |---:|---|---|---|
 | 1 | #139 | anti-aliasing (MSAA, FXAA, TAA after measuring), bloom, colour-grading LUT | built: MSAA 4x, FXAA, bloom, LUT (`docs/rendering-tier1.md`); TAA measured, not built |
 | 2 | #140 | terrain renderer, decals, trails and ribbons | built: chunked LOD terrain from the collider's heights with splat map, projected decals with a budget, trails (`docs/rendering-tier2.md`) |
-| 3 | #141 | mesh LOD, volumetric fog / clouds / light shafts, global illumination | instancing, distance fog only |
+| 3 | #141 | mesh LOD, volumetric fog / clouds / light shafts, global illumination | built: mesh LOD, froxel volumetric fog with light shafts, baked irradiance probes (`docs/rendering-tier3.md`); clouds and dynamic GI not built |
 | 4 | #142 | video playback, audio streaming and compressed formats, voice chat | clips are PCM in memory; miniaudio-mojo's decoders are bound but unused |
 
 Related, already planned: particles #121, audio events / buses / music / 3D #120, spatial audio beyond it #137,
