@@ -116,6 +116,14 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var bloom_intensity: Float32  # how much of the blurred highlights is added back
     var lut_amount: Float32  # 0 the frame as it was, 1 the full grade of the LUT (set_lut)
     var fxaa_strength: Float32  # 0 off, 1 the full filter
+    # the volumetric fog (app/volumetric.mojo reads these through Frame.vol and Frame.vol2)
+    var vol_density: Float32  # extinction per metre at the base height; 0 returns the input unchanged
+    var vol_anisotropy: Float32  # Henyey-Greenstein g, -1 .. 1: > 0 scatters forward (bright toward the sun)
+    var vol_falloff: Float32  # per metre above the base height: the density times exp(-falloff * height)
+    var vol_base: Float32  # metres: the height below which the density is vol_density
+    var vol_albedo: Float32  # the scattered share of the extinction, 0 .. 1
+    var vol_far: Float32  # metres along the view: the far end of the froxel grid
+    var vol_ambient: Float32  # the share of the environment's light scattered evenly by the fog
     var lut: Optional[Texture]  # the grading LUT as a strip, size * size by size texels
     var lut_view: Optional[TextureView]
     var lut_bytes: Int  # bytes of `lut` (set_lut)
@@ -213,6 +221,13 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.bloom_intensity = 0.6
         self.lut_amount = 1.0
         self.fxaa_strength = 1.0
+        self.vol_density = 0.0
+        self.vol_anisotropy = 0.6
+        self.vol_falloff = 0.0
+        self.vol_base = 0.0
+        self.vol_albedo = 0.9
+        self.vol_far = 64.0
+        self.vol_ambient = 0.3
         self.lut = None
         self.lut_view = None
         self.lut_bytes = 0
@@ -288,6 +303,13 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.bloom_intensity = move.bloom_intensity
         self.lut_amount = move.lut_amount
         self.fxaa_strength = move.fxaa_strength
+        self.vol_density = move.vol_density
+        self.vol_anisotropy = move.vol_anisotropy
+        self.vol_falloff = move.vol_falloff
+        self.vol_base = move.vol_base
+        self.vol_albedo = move.vol_albedo
+        self.vol_far = move.vol_far
+        self.vol_ambient = move.vol_ambient
         self.lut = move.lut^
         self.lut_view = move.lut_view^
         self.lut_bytes = move.lut_bytes
@@ -332,6 +354,13 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32) raises:
         """The sun's direction, colour and intensity (RenderResources.set_sun)."""
         self.res.set_sun(device, to_sun, color, intensity)
+
+    def set_probes(mut self, device: Device, origin: Vec3, cell: Vec3, nx: Int, ny: Int, nz: Int, sh: List[Float32]) raises:
+        """RenderResources.set_probes: the ambient from a grid of baked irradiance probes (app/irradiance.mojo)."""
+        self.res.set_probes(device, origin, cell, nx, ny, nz, sh)
+
+    def clear_probes(mut self, device: Device) raises:
+        self.res.clear_probes(device)
 
     def set_environment(mut self, device: Device, env: Environment) raises:
         """The ambient light and MatPbr's reflections from an environment (RenderResources.set_environment)."""
@@ -444,6 +473,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 )
                 if self.lut_view:
                     inp = inp.with_lut(self.lut_view.value())
+                inp = inp.with_lights(self.res.shadow_view, self.res.lights.handle(), self.res.shadow_ubo.handle())
                 comptime if Self.F.VIEWS == 2:
                     self.scene2_view = None
                     self.depth2_view = None
@@ -536,6 +566,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         f.append(self.bloom_intensity)
         f.append(self.lut_amount)
         f.append(self.fxaa_strength)
+        for x in [self.vol_density, self.vol_anisotropy, self.vol_falloff, self.vol_base,
+                  self.vol_albedo, self.vol_far, self.vol_ambient, Float32(0.0)]:
+            f.append(x)
         return f^
 
     def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:

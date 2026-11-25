@@ -74,6 +74,8 @@ jobs:
           pixi run -e wasm test-tier2
           pixi run -e wasm test-tier2-native
           pixi run -e wasm tier2-same
+      - name: Mesh LOD, volumetric fog and irradiance probes (#141) on lavapipe
+        run: pixi run -e wasm test-tier3
 
       - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
         run: pixi run -e wasm test-access-gpu

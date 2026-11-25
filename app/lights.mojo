@@ -40,7 +40,10 @@ comptime L_SPOTS = 208  # 8 x 16
 comptime L_DIRS = 336  # 4 x 8
 comptime L_AREAS = 368  # 4 x 16
 comptime L_TILES = 432  # 16 x 16
-comptime LIGHTS_FLOATS = 688
+comptime L_PROBE_ORG = 688  # the irradiance probe grid (app/irradiance.mojo): its first probe's position, w 1 when on
+comptime L_PROBE_CELL = 692  # the spacing of the probes along x, y, z (m)
+comptime L_PROBE_DIM = 696  # the probe counts along x, y, z
+comptime LIGHTS_FLOATS = 700
 comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4
 
 

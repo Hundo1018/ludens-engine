@@ -23,6 +23,7 @@ from app.lights import (
     SpotLight, DirLight, AreaLight, Environment, unit, spot_vp, point_face_vp, dir_vp, area_vp, area_size, ATLAS_SIZE, ATLAS_TILES,
     MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS,
     L_POINTS, L_SUN_DIR, L_SUN_COLOR, L_AMB, L_SH, L_ENV_TOP, L_ENV_HOR, L_ENV_GND, L_PSHADOW, L_SPOTS, L_DIRS, L_AREAS, L_TILES,
+    L_PROBE_ORG, L_PROBE_CELL, L_PROBE_DIM,
 )
 
 comptime ENV_SIZE = 128  # the environment cube map's faces
@@ -47,6 +48,8 @@ comptime MAX_MESH_INSTANCES = 8192  # default: mesh and skinned instances per fr
 comptime DEFAULT_PRIMITIVE_INSTANCES = 8192  # default: primitive items per frame
 comptime MAX_POINT_LIGHTS = 16  # app/wgsl.mojo POINT_LIGHTS_WGSL's array size
 comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4  # the `Lights` uniform (app/lights.mojo): the point lights first, as before
+comptime MAX_PROBES = 2048  # irradiance probes (app/irradiance.mojo), e.g. 16 x 8 x 16
+comptime PROBE_BYTES = MAX_PROBES * 9 * 16  # 9 vec4 per probe: 288 KB, always bound to the mesh and skinned passes
 comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
 
 
@@ -122,6 +125,7 @@ struct RenderResources(Movable):
     var env_view: TextureView
     var unit_cube: Int  # the mesh ids of the renderer's unit cube and sphere (boxes and spheres drawn as meshes)
     var unit_sphere: Int
+    var probes: Buffer  # the irradiance probes' harmonics (PROBE_BYTES), read while the grid is on (set_probes)
 
     def texture_bytes(self) raises -> Int:
         """Size of the textures this struct creates: the shadow atlas, the environment cube and the shadow map (sizes are
@@ -159,6 +163,8 @@ struct RenderResources(Movable):
         self.env_view = env_sub_view(self.env_tex, 4, 0, ENV_MIPS, 0, 6)
         self.unit_cube = 0
         self.unit_sphere = 1
+        self.probes = device.create_buffer(UInt64(PROBE_BYTES), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="probes")
+        device.queue_write_data(self.probes, UInt64(0), List[Float32](length=PROBE_BYTES // 4, fill=Float32(0)))
         self.camera = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="mesh_cam")
         # shadow resources, always bound; with the shadow off the sampled value is ignored (factor 1.0)
         self.shadow_tex = device.create_texture(
@@ -349,6 +355,41 @@ struct RenderResources(Movable):
         self._put3(L_ENV_HOR, env.horizon, 0.0)
         self._put3(L_ENV_GND, env.ground, 0.0)
         self.rig[L_AMB + 3] = 1.0
+        self._upload(device)
+
+    def set_probes(
+        mut self, device: Device, origin: Vec3, cell: Vec3, nx: Int, ny: Int, nz: Int, sh: List[Float32],
+    ) raises:
+        """The ambient from a grid of irradiance probes (app/irradiance.mojo ProbeGrid) in place of the environment's
+        one set of harmonics: nx * ny * nz probes from `origin`, `cell` metres apart, 27 floats each (9 coefficients,
+        rgb) in the order x fastest, then y, then z. Like set_environment it turns the ambient on (the sun's shadow then
+        darkens the sun only). Reflections still use the environment."""
+        var n = nx * ny * nz
+        if nx < 1 or ny < 1 or nz < 1 or n > MAX_PROBES:
+            raise Error("renderer: a probe grid has 1 .. " + String(MAX_PROBES) + " probes")
+        if len(sh) != 27 * n:
+            raise Error("renderer: a probe grid has 27 harmonic floats per probe")
+        for a in range(3):
+            if not (Float64(cell[a]) > 0.0):
+                raise Error("renderer: the probes' spacing is above 0 on every axis")
+        var data = List[Float32]()
+        for i in range(n):
+            for k in range(9):
+                for c in range(3):
+                    data.append(sh[27 * i + 3 * k + c])
+                data.append(0.0)
+        device.queue_write_data(self.probes, UInt64(0), data)
+        self._put3(L_PROBE_ORG, origin, 1.0)
+        self._put3(L_PROBE_CELL, cell, 0.0)
+        self.rig[L_PROBE_DIM] = Float32(nx)
+        self.rig[L_PROBE_DIM + 1] = Float32(ny)
+        self.rig[L_PROBE_DIM + 2] = Float32(nz)
+        self.rig[L_AMB + 3] = 1.0
+        self._upload(device)
+
+    def clear_probes(mut self, device: Device) raises:
+        """Back to the environment's harmonics for the ambient."""
+        self.rig[L_PROBE_ORG + 3] = 0.0
         self._upload(device)
 
     def use_env_cube(mut self, device: Device, on: Bool) raises:

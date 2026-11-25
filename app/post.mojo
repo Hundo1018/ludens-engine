@@ -44,6 +44,7 @@ from wgpu import raw_alloc
 from wgpu.render_pass import FrameRenderPass
 from wgpu import WGPUTextureUsage
 from wgpu.buffer import Buffer
+from wgpu import BufferHandle
 from wgpu.device import Device
 from app.gpu_bytes import texture_bytes
 from wgpu.command import CommandEncoder
@@ -52,10 +53,10 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 
-comptime FRAME_FLOATS = 52  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16), fx (4)
+comptime FRAME_FLOATS = 60  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16), fx (4), vol (8)
 comptime FRAME_BYTES = FRAME_FLOATS * 4
 
-comptime POST_WGSL = """
+comptime FRAME_WGSL = """
 struct Frame {
   res : vec4<f32>,    // width, height, 1 / width, 1 / height
   eye : vec4<f32>,    // xyz, w = sx
@@ -70,7 +71,12 @@ struct Frame {
   pup : vec4<f32>,
   pfwd : vec4<f32>,
   fx : vec4<f32>,     // the picture effects of app/post_fx.mojo: bloom threshold, bloom intensity, LUT amount, FXAA strength
+  vol : vec4<f32>,    // app/volumetric.mojo: extinction per metre at the base height, anisotropy g, height falloff per metre, base height (m)
+  vol2 : vec4<f32>,   // app/volumetric.mojo: albedo (scattered share of the extinction), far end of the volume (m), ambient, unused
 };
+"""
+
+comptime POST_WGSL = FRAME_WGSL + """
 @group(0) @binding(0) var<uniform> frame : Frame;
 @group(0) @binding(1) var src : texture_2d<f32>;
 @group(0) @binding(2) var scene : texture_2d<f32>;
@@ -291,6 +297,12 @@ struct PostInputs(Movable):
     var aux: TextureView
     var prev: TextureView
     var lut: TextureView
+    # the renderer's sun shadow map and its lights and shadow uniforms (app/render_res.mojo), for effects that light
+    # the scene's air (app/volumetric.mojo). The buffers are handles the renderer owns (a Buffer cannot be shared on
+    # the web host: wgpuBufferAddRef traps there); null and the depth view until the renderer sets them (with_lights).
+    var shadow: TextureView
+    var lights: BufferHandle
+    var shadow_ubo: BufferHandle
 
     def __init__(out self, src: TextureView, scene: TextureView, depth: TextureView, aux: TextureView, prev: TextureView):
         self.src = src.clone()
@@ -300,23 +312,43 @@ struct PostInputs(Movable):
         self.aux = aux.clone()
         self.prev = prev.clone()
         self.lut = scene.clone()
+        self.shadow = depth.clone()
+        self.lights = BufferHandle.null()
+        self.shadow_ubo = BufferHandle.null()
+
+    def _keep(self, mut o: Self):
+        o.shadow = self.shadow.clone()
+        o.lights = self.lights
+        o.shadow_ubo = self.shadow_ubo
+
+    def with_lights(self, shadow: TextureView, lights: BufferHandle, shadow_ubo: BufferHandle) -> Self:
+        var o = Self(self.src, self.scene, self.depth, self.aux, self.prev)
+        o.src2 = self.src2.clone()
+        o.lut = self.lut.clone()
+        o.shadow = shadow.clone()
+        o.lights = lights
+        o.shadow_ubo = shadow_ubo
+        return o^
 
     def with_src(self, src: TextureView) -> Self:
         var o = Self(src, self.scene, self.depth, self.aux, self.prev)
         o.src2 = self.src2.clone()
         o.lut = self.lut.clone()
+        self._keep(o)
         return o^
 
     def with_src2(self, src: TextureView, src2: TextureView) -> Self:
         var o = Self(src, self.scene, self.depth, self.aux, self.prev)
         o.src2 = src2.clone()
         o.lut = self.lut.clone()
+        self._keep(o)
         return o^
 
     def with_lut(self, lut: TextureView) -> Self:
         var o = Self(self.src, self.scene, self.depth, self.aux, self.prev)
         o.src2 = self.src2.clone()
         o.lut = lut.clone()
+        self._keep(o)
         return o^
 
 
