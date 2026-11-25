@@ -303,6 +303,7 @@ struct PostInputs(Movable):
     var shadow: TextureView
     var lights: BufferHandle
     var shadow_ubo: BufferHandle
+    var atlas: TextureView  # the renderer's local-light shadow atlas (the scene's depth until with_lights)
 
     def __init__(out self, src: TextureView, scene: TextureView, depth: TextureView, aux: TextureView, prev: TextureView):
         self.src = src.clone()
@@ -315,16 +316,19 @@ struct PostInputs(Movable):
         self.shadow = depth.clone()
         self.lights = BufferHandle.null()
         self.shadow_ubo = BufferHandle.null()
+        self.atlas = depth.clone()
 
     def _keep(self, mut o: Self):
+        o.atlas = self.atlas.clone()
         o.shadow = self.shadow.clone()
         o.lights = self.lights
         o.shadow_ubo = self.shadow_ubo
 
-    def with_lights(self, shadow: TextureView, lights: BufferHandle, shadow_ubo: BufferHandle) -> Self:
+    def with_lights(self, shadow: TextureView, lights: BufferHandle, shadow_ubo: BufferHandle, atlas: TextureView) -> Self:
         var o = Self(self.src, self.scene, self.depth, self.aux, self.prev)
         o.src2 = self.src2.clone()
         o.lut = self.lut.clone()
+        o.atlas = atlas.clone()
         o.shadow = shadow.clone()
         o.lights = lights
         o.shadow_ubo = shadow_ubo
