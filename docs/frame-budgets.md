@@ -46,7 +46,7 @@ Set once per frame; the stats are `[last, avg, max]` over the ring.
 A frame that did not draw (the browser's `?offscreen` mode draws only on capture requests) keeps the draw counters of the last frame
 that did: a counter that is not set again holds its value.
 
-Texture bytes include the targets between post stages (`PostEffect.target_bytes`: `ThenPost`'s and `Join`'s). Not counted: the shadow passes' and the post stages' draws, the right eye of a stereo pipeline, the aux pass. A game that
+Texture bytes include the targets between post stages (`PostEffect.target_bytes`: `ThenPost`'s, `Join`'s and the nine of `Bloom`), the colour-grading LUT (16 ^ 3 by default, `set_lut` changes it) and the multisampled colour and depth of MSAA 4x (`MsaaTargets.bytes`, four samples each). Not counted: the shadow passes' and the post stages' draws, the right eye of a stereo pipeline, the aux pass. A game that
 draws a lot there has more draw calls than `draw_calls` says.
 
 ## Overlay

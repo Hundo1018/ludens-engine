@@ -474,6 +474,7 @@ struct MeshPassOf[*Ms: Material](RenderPass):
         var layout = device.create_pipeline_layout(bgl, "mesh_layout")
         self.pipeline = _build_pipeline(
             device, shader, layout, color_format, depth_format, Self.Ms[0].BLEND, Self.Ms[0].CULL, Self.Ms[0].DEPTH_WRITE,
+            UInt32(caps.samples),
         )
         self.instances = device.create_buffer(
             UInt64(caps.mesh_instances * FLOATS_PER_INSTANCE * 4),
@@ -562,6 +563,7 @@ comptime MeshPass = MeshPassOf[MatColor, MatUv, MatTriplanar, MatSky, MatPbr]
 def _build_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout,
     color_format: UInt32, depth_format: UInt32, blend: Int = BLEND_NONE, cull: Int = CULL_NONE, depth_write: Bool = True,
+    samples: UInt32 = 1,
 ) raises -> RenderPipeline:
     """The mesh pipeline: vertex buffers 0-2 per vertex, 3 per instance, the scene's depth state; blend, cull and
     depth write as the pack's first material asks (app/material.mojo)."""
@@ -607,7 +609,7 @@ def _build_pipeline(
     var primitive = WGPUPrimitiveState(
         null_opaque(), 4, UInt32(0), UInt32(1), cull_mode(cull) if cull != CULL_NONE else UInt32(0), UInt32(0),
     )
-    var multisample = WGPUMultisampleState(null_opaque(), UInt32(1), UInt32(0xFFFFFFFF), UInt32(0))
+    var multisample = WGPUMultisampleState(null_opaque(), samples, UInt32(0xFFFFFFFF), UInt32(0))
     var face = WGPUStencilFaceState(UInt32(8), UInt32(1), UInt32(1), UInt32(1))
     var dp = raw_alloc[WGPUDepthStencilState](1)
     dp[unsafe_offset=0] = WGPUDepthStencilState(

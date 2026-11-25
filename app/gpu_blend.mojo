@@ -46,7 +46,7 @@ def cull_mode(cull: Int) -> UInt32:
 def pulled_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout, color_format: UInt32, depth_format: UInt32 = 0,
     topology: Int = TOPOLOGY_TRIANGLES, blend: Int = BLEND_NONE, cull: Int = CULL_NONE, depth_write: Bool = True,
-    depth_compare: Int = DEPTH_LESS_EQUAL,
+    depth_compare: Int = DEPTH_LESS_EQUAL, samples: UInt32 = 1,
 ) raises -> RenderPipeline:
     """A pipeline with no vertex buffers (the vertex stage builds its geometry from the vertex and instance index),
     entry points vs_main and fs_main, one colour target. depth_format 0 is a pass without a depth attachment."""
@@ -70,7 +70,7 @@ def pulled_pipeline(
     var primitive = WGPUPrimitiveState(
         null_opaque(), UInt32(topology), UInt32(0), UInt32(1), cull_mode(cull) if cull != CULL_NONE else UInt32(0), UInt32(0),
     )
-    var multisample = WGPUMultisampleState(null_opaque(), UInt32(1), UInt32(0xFFFFFFFF), UInt32(0))
+    var multisample = WGPUMultisampleState(null_opaque(), samples, UInt32(0xFFFFFFFF), UInt32(0))
     var face = WGPUStencilFaceState(UInt32(8), UInt32(1), UInt32(1), UInt32(1))
     var dp = raw_alloc[WGPUDepthStencilState](1)
     dp[unsafe_offset=0] = WGPUDepthStencilState(

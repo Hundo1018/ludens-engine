@@ -135,6 +135,7 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
 
 def _build_skin_pipeline(
     device: Device, shader: ShaderModule, layout: PipelineLayout, color_format: UInt32, depth_format: UInt32,
+    samples: UInt32 = 1,
 ) raises -> RenderPipeline:
     """Six vertex buffers (see the module comment) and the scene's depth state."""
     var vs_name = String("vs_skin")
@@ -178,7 +179,7 @@ def _build_skin_pipeline(
         UInt(1), target_p,
     )
     var primitive = WGPUPrimitiveState(null_opaque(), 4, UInt32(0), UInt32(1), UInt32(0), UInt32(0))
-    var multisample = WGPUMultisampleState(null_opaque(), UInt32(1), UInt32(0xFFFFFFFF), UInt32(0))
+    var multisample = WGPUMultisampleState(null_opaque(), samples, UInt32(0xFFFFFFFF), UInt32(0))
     var face = WGPUStencilFaceState(UInt32(8), UInt32(1), UInt32(1), UInt32(1))
     var dp = raw_alloc[WGPUDepthStencilState](1)
     dp[unsafe_offset=0] = WGPUDepthStencilState(
@@ -307,7 +308,7 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "skin_layout")
-        self.pipeline = _build_skin_pipeline(device, shader, layout, color_format, depth_format)
+        self.pipeline = _build_skin_pipeline(device, shader, layout, color_format, depth_format, UInt32(caps.samples))
         self.palette = device.create_buffer(
             UInt64(caps.palette_matrices * 64), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="skin_palette_vs",
         )

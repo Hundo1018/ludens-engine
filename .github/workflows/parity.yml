@@ -66,6 +66,9 @@ jobs:
           path: build/perf_gate/trace.json
           if-no-files-found: ignore
 
+      - name: FXAA, bloom, colour-grading LUT and MSAA (#139) on lavapipe
+        run: pixi run -e wasm test-post-fx
+
       - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
         run: pixi run -e wasm test-access-gpu
 
@@ -88,6 +91,11 @@ jobs:
 
       - name: window.game, ?seed / ?scene / ?manual in headless Chrome, hash equal to node (#115)
         run: pixi run -e wasm hook-web
+
+      - name: Device seams in headless Chrome (synthetic camera and microphone, sensor overrides, user activation), camera copy time (#135)
+        run: |
+          export CHROME="$(command -v google-chrome)"
+          pixi run -e wasm device-web
 
       - name: Live tuning panel in headless Chrome (F2, a slider drag, Export)
         run: pixi run -e wasm tuning-web

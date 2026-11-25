@@ -26,6 +26,8 @@ from ui.geom import Rect
 from app.render3d import SceneRendererOf, DefaultPasses
 from app.primitive_pass import VERTS_PER_INSTANCE
 from app.post import Stage, Copy, ThenPost, Join, Scaled, PostEffect
+from app.post_fx import Bloom
+from app.render_res import RenderCaps
 from app.render_pass import RenderPass
 
 comptime W: UInt32 = 640
@@ -43,9 +45,16 @@ def mip_texels(side: Int, levels: Int) -> Int:
     return n
 
 
-def post_bytes[F: PostEffect](device: Device, format: UInt32, view: View, target: Texture, hud: Hud) raises -> Int:
-    """The texture bytes of a renderer with the post effect F, after one draw at W x H."""
-    var r = SceneRendererOf[DefaultPasses, F](device, format, view.copy())
+def post_bytes[F: PostEffect](
+    device: Device, format: UInt32, view: View, target: Texture, hud: Hud, samples: Int = 1, lut_size: Int = 0,
+) raises -> Int:
+    """The texture bytes of a renderer with the post effect F (and `samples`, and a LUT of `lut_size` if not 0), after one
+    draw at W x H."""
+    var caps = RenderCaps.default()
+    caps.samples = samples
+    var r = SceneRendererOf[DefaultPasses, F](device, format, view.copy(), caps=caps)
+    if lut_size > 0:
+        r.set_lut(device, lut_size, List[UInt8](length=lut_size * lut_size * lut_size * 4, fill=128))
     r.begin(view.copy())
     r.draw(device, target.handle().raw, W, H, hud)
     return r.tex_bytes
@@ -110,13 +119,24 @@ def main() raises:
     # post pipelines: the targets the stages draw into are counted
     var fixed = mip_texels(256, 9) * 2 * 4 + 1024 * 1024 * 4 + 2048 * 2048 * 4 + mip_texels(128, 8) * 6 * 4
     var px = Int(W) * Int(H) * 4  # one full-size RGBA8 or depth target
+    var lut16 = 16 * 16 * 16 * 4  # a pipeline with stages holds the neutral colour-grading LUT, 16 x 16 x 16 RGBA8
     var one = post_bytes[Stage[Copy]](device, format, view, target, hud)
-    s.eqi(one, fixed + 2 * px, "one stage: the fixed textures + the scene's depth and colour")
+    s.eqi(one, fixed + 2 * px + lut16, "one stage: the fixed textures + the scene's depth and colour")
     var two = post_bytes[ThenPost[Stage[Copy], Stage[Copy]]](device, format, view, target, hud)
-    s.eqi(two, fixed + 3 * px, "ThenPost of two stages adds the texture between them")
+    s.eqi(two, fixed + 3 * px + lut16, "ThenPost of two stages adds the texture between them")
     var three = post_bytes[Join[Stage[Copy], Stage[Copy], Stage[Copy]]](device, format, view, target, hud)
-    s.eqi(three, fixed + 4 * px, "Join of three stages adds the two textures its first two make")
+    s.eqi(three, fixed + 4 * px + lut16, "Join of three stages adds the two textures its first two make")
     var small = post_bytes[ThenPost[Scaled[Stage[Copy], 2], Stage[Copy]]](device, format, view, target, hud)
-    s.eqi(small, fixed + 2 * px + Int(W // 2) * Int(H // 2) * 4, "a Scaled[_, 2] first part makes a half-size texture between the parts")
+    s.eqi(small, fixed + 2 * px + lut16 + Int(W // 2) * Int(H // 2) * 4, "a Scaled[_, 2] first part makes a half-size texture between the parts")
+    # the picture effects: the colour-grading LUT, the multisampled targets, the bloom chain
+    var lut32 = post_bytes[Stage[Copy]](device, format, view, target, hud, 1, 32)
+    s.eqi(lut32, one - lut16 + 32 * 32 * 32 * 4, "set_lut with 32 ^ 3 entries replaces the 16 ^ 3 table: 4 * 32768 bytes")
+    var plain_ms = post_bytes[Stage[Copy]](device, format, view, target, hud, 4)
+    s.eqi(plain_ms, one + 2 * px * 4, "MSAA 4x adds the multisampled colour and depth: 2 targets x 4 samples x W x H x 4 bytes")
+    var bloom = post_bytes[Bloom](device, format, view, target, hud)
+    var chain = 0
+    for d in [2, 4, 8, 16, 32, 16, 8, 4, 2]:
+        chain += Int(W // UInt32(d)) * Int(H // UInt32(d)) * 4
+    s.eqi(bloom, one + chain, "Bloom adds its nine targets, 1 / 2 down to 1 / 32 and back up to 1 / 2: " + String(chain) + " bytes")
     s.check(target.handle().raw == target.handle().raw and t2.handle().raw == t2.handle().raw, "the targets are alive until here")  # their last use: not before the draws
     s.finish()
