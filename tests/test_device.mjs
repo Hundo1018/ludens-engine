@@ -263,6 +263,7 @@ console.log("Camera");
   check(px[24] === 11 && px[25] === 19 && px[26] === 3 && px[27] === 255, "pixel (2, 1) is RGBA (11, 19, 3, 255)");
   check(t.call("p_cam_frame", t.buf, 48) === 0, "the same frame is not returned twice");
   cam.seed = 3; cam.seq = 4;
+  check(t.call("p_cam_frame", t.buf, 47) === -1 && t.call("p_cam_frame", t.buf, 47) === -1 && t.call("p_cam_skipped") === 0, "two reads with a too small buffer return -1 and count no skipped frames");
   check(t.call("p_cam_frame", t.buf, 48) === 48 && rt_bytes(t, 1)[0] === 3 && t.call("p_cam_skipped") === 2, "three frames between reads: the newest is read, 2 skipped");
   t.call("p_cam_close");
   check(t.call("p_cam_frame", t.buf, 48) === 0 && t.call("p_cam_size") === 0, "a closed camera reads 0");

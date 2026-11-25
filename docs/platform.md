@@ -244,18 +244,24 @@ Not verified on real hardware, by anyone, for any backend:
 - iOS Safari (no `navigator.vibrate`, the motion permission prompt), Firefox, Android Chrome.
 - Orientation lock: no real browser run (headless Chrome desktop). It was checked against the fake `screen.orientation` only.
 
-**Camera copy cost** (phase 2 of the issue): Chrome 158 headless on the 4-core development container, Chrome's synthetic camera,
-120 new frames read through `WebCamera.read_frame` into wasm memory, each timed over that one call (open, waiting for the
-frame and the checks are outside the timed region; `performance.now()` has 0.1 ms resolution):
+**Camera copy cost** (phase 2 of the issue): Chrome 158 headless, Chrome's synthetic camera, 4-core Linux container. Five full
+runs of `pixi run -e wasm device-web`; each run reads 120 new frames per size through `WebCamera.read_frame` into wasm memory, each
+timed over that one call (opening, waiting for the frame and the checks are outside the timed region; `performance.now()` has 0.1 ms
+resolution). The table gives the range of each statistic over the five runs. No frames were skipped in any run.
 
-| Size | Bytes per frame | Median | p95 | Max |
+| Size | Bytes per frame | Median per frame | p95 | Max |
 |---|---:|---:|---:|---:|
-| 640 x 480 | 1228800 | 2.1 ms | 3.1 ms | 3.8 ms |
-| 1280 x 720 | 3686400 | 5.6 ms | 8.1 ms | 18.3 ms |
+| 640 x 480 | 1228800 | 2.9 to 3.4 ms (middle run 3.0) | 4.3 to 6.4 ms | 6.0 to 12.8 ms |
+| 1280 x 720 | 3686400 | 7.3 to 8.5 ms (middle run 8.0) | 12.3 to 13.4 ms | 16.0 to 22.3 ms |
 
-The same copy in its three steps, 60 frames, medians (640 x 480 / 1280 x 720): `drawImage` 1.3 / 3.4 ms, `getImageData` 0.8 / 2.1 ms,
-`Uint8Array.set` into wasm memory 0.1 / 0.4 ms. The three sum to the measured per-frame cost. At 1280 x 720 the copy takes a third of a
-16.7 ms frame. A phone's camera, its resolution and its frame rate were not measured; the owner has to measure those.
+The first single run on an earlier container gave medians of 2.1 and 5.6 ms. The five runs above ran on a rebuilt container (different
+host) and are 40 % slower; the machine, not the code, is the likely cause, but I did not test that. Quote the ranges, not the first run.
 
-Mutation check: `pixi run -e wasm mutation-device` applies 34 one-line breaks of the contract to the memory backends, the host and the
+The same copy in its three steps (60 frames per run, median of the run, range over the five runs; 640 x 480 / 1280 x 720): `drawImage`
+1.2 to 1.8 / 3.7 to 4.9 ms, `getImageData` 1.0 to 1.3 / 2.7 to 3.7 ms, `Uint8Array.set` into wasm memory 0.1 to 0.2 / 0.5 ms. The copy
+into wasm is 4 to 7 % of the per-frame cost; the rest is the canvas draw and read-back. At 1280 x 720 the copy takes about half of a
+16.7 ms frame at its median and more than one frame at its maximum. A phone's camera, resolution and frame rate were not measured; the
+owner has to measure those.
+
+Mutation check: `pixi run -e wasm mutation-device` applies 35 one-line breaks of the contract to the memory backends, the host and the
 router, and requires the covering test to fail. It is not in CI (it builds a test per mutation, about 2 minutes). Result in the PR.

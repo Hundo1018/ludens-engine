@@ -254,9 +254,9 @@ export function createDeviceImports(rt, push, dev = browserDevice()) {
       if (!cam) return 0n;
       const seq = cam.frameSeq();
       if (seq === camSeq) return 0n;
-      if (camSeq !== 0) camSkipped += seq - camSeq - 1; // frames the camera made that the game never read
       const need = cam.width * cam.height * 4;
-      if (need > Number(cap)) return -1n;
+      if (need > Number(cap)) return -1n; // the frame stays; nothing is counted until it is taken
+      if (camSeq !== 0) camSkipped += seq - camSeq - 1; // frames the camera made that the game never read
       cam.copyTo(rt.bytes(p, need));
       camSeq = seq; status.cameraFrames++; status.cameraBytes += need;
       return BigInt(need);
