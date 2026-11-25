@@ -64,6 +64,8 @@ jobs:
         run: pixi run -e wasm test-os-router
       - name: Device seams (haptics, motion, screen, pointer lock, camera, microphone), web backends over fake browser objects, node (#135)
         run: pixi run -e wasm test-device
+      - name: "Telemetry and crash reports (#147): queue, consent, batches; a wasm64 trap saved, mapped to its .mojo line and sent on the next launch, node"
+        run: pixi run -e wasm test-telemetry
       - name: net_poll drops an oversized packet and delivers the next, node
         run: pixi run -e wasm test-net
       - name: ludens build --target web twice, byte-identical manifests

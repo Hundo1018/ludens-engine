@@ -142,6 +142,10 @@ test-device = "python3 scripts/test_device.py"
 mutation-device = "python3 scripts/mutation_device.py"
 # #135: the device web backends in headless Chrome: synthetic camera and microphone, sensor overrides, a user activation; prints the camera copy time per frame (scripts/device_web_check.py)
 device-web = "python3 scripts/device_web_check.py"
+# #147: telemetry (opt-in, bounded queue, batches over a Transport) and crash reports (saved, sent on the next launch), standard
+# library only; then a wasm64 module that traps under node: the host writes the report, its stack mapped to the .mojo line
+# by a source map from the DWARF line tables (scripts/wasm_sourcemap.py); every file read back by scripts/telemetry_read.py.
+test-telemetry = "python3 scripts/test_native.py platform_telemetry outbox_forward && python3 scripts/test_crash.py"
 # net_poll / os_poll: an oversized packet is dropped and counted, the packets behind it still arrive.
 test-net = "node tests/test_net.mjs"
 # platform/ seams (docs/platform.md), standard library only: one Transport send / poll script over the memory pipe, UDP

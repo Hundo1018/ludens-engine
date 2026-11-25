@@ -39,7 +39,7 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 Next in emphasis: **accessibility** (H in one set, M in the other; built in #118: `docs/accessibility.md`), a **dialogue graph
 with a validator** (core `gameplay/dialogue` is L3 with no asset format or validator), **networking with a real
 server** (in-page rollback and prediction are L1; no remote server, matchmaking or relay), **telemetry and crash
-reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **particles** (built in #121: `docs/particles.md`).
+reporting** (built in #147: `docs/telemetry.md`; the demo game does not use it yet), and **particles** (built in #121: `docs/particles.md`).
 
 ## Domains that were never in focus
 
@@ -105,7 +105,7 @@ The items below are absent everywhere and had no issue. Put on the roadmap on 20
 | #144 | object pools and runtime spawning of prefabs (generational handles, capacity, deterministic order) |
 | #145 | difficulty and assist modes, tutorials and hints, dialogue graph validator |
 | #146 | in-game console and cheats (debug builds), photo mode |
-| #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport) |
+| #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport): built, `docs/telemetry.md` |
 | #148 | mod support: wasm mods in a checked instance, a narrow versioned mod API |
 | #149 | live operations, monetization (store seam, receipts verified by a backend) and anti-cheat |
 
