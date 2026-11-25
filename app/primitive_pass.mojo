@@ -21,7 +21,7 @@ from wgpu.render_pass import FrameRenderPass
 from app.mesh_data import MeshRegistry
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, RenderCaps, LIGHTS_BYTES
-from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL
+from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, NO_PROBES_WGSL
 from app.render_pass import RenderPass, DrawCounts
 from app.gpu_blend import pulled_pipeline
 from app.textures import TextureArray
@@ -41,6 +41,9 @@ struct VOut {
   @location(4) lit : f32,
 };
 @group(0) @binding(1) var<uniform> lights : Lights;
+@group(0) @binding(2) var ies_tab : texture_2d<f32>;
+@group(0) @binding(3) var cookies : texture_2d_array<f32>;
+@group(0) @binding(4) var light_samp : sampler;
 
 const NORMAL = array<vec3<f32>, 6>(
   vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(-1.0, 0.0, 0.0),
@@ -126,7 +129,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   }
   return vec4<f32>(in.color, 1.0);
 }
-""" + POINT_LIGHTS_WGSL + NO_LOCAL_SHADOW_WGSL + NO_PROBES_WGSL
+""" + POINT_LIGHTS_WGSL + NO_LOCAL_SHADOW_WGSL + LIGHT_TEX_WGSL + NO_PROBES_WGSL
 
 
 def _put(mut staging: List[Float32], it: DrawItem):
@@ -172,6 +175,26 @@ struct PrimitivePass(RenderPass):
                 WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(2), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(3), UInt32(2), UInt32(0)),  # unfilterable float, 2D: the IES table
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(3), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(2), UInt32(3), UInt32(0)),  # float, 2D array: the light cookies
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(4), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(2)),  # filtering: the cookies
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
         ]
         var bgl = device.create_bind_group_layout(entries)
@@ -182,6 +205,9 @@ struct PrimitivePass(RenderPass):
         var bg_entries: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.buffer.handle().raw, 0, WGPU_WHOLE_SIZE, null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 1, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), res.ies_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), res.cookie_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), res.light_sampler.handle().raw, null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "primitives_group")
         self.staging = List[Float32]()

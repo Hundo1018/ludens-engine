@@ -83,6 +83,80 @@ Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL`
   materials add it; a material that reads only `s.lit` shows the sun and, before an environment is set, the point
   lights.
 
+## Colour temperature, photometric units, IES profiles, cookies
+
+CPU side in app/photometry.mojo, the fields on each light type in app/lights.mojo, the shader side in app/wgsl.mojo
+(`point_scale`, `spot_atten`, `ies_dir`, `LIGHT_TEX_WGSL`). Tests: tests/photometry.mojo (no GPU) and
+tests/light_profiles_native.mojo (lavapipe), both in `pixi run -e wasm test-lights-camera`.
+
+```mojo
+r.set_exposure(device, Exposure(16.0, 1.0 / 100.0, 100.0))           # f/16, 1/100 s, ISO 100: EV100 14.64
+r.set_sun(device, to_sun, white, 100000.0, kelvin=5800.0, units=UNITS_LUX)
+r.set_ies(device, 0, IesProfile.parse(open("assets/lights/downlight_cos8.ies", "r").read()))
+r.set_cookie(device, 0, rgba)                                        # 256 x 256 sRGB rgba8
+r.set_lights(device, [PointLight(pos, 12.0, white, 800.0, kelvin=2700.0, units=UNITS_LUMEN, ies=0)])
+r.set_spot_lights(device, [SpotLight(pos, dir, 20.0, 0.3, 0.4, white, 1000.0, units=UNITS_CANDELA, cookie=0)])
+r.set_sun_light(device, DirLight(to_sun, white, 0.8, cookie=1, cookie_size=40.0, cookie_u=t * 0.01))  # cloud shadows
+```
+
+Before (left) and after (right), `pixi run -e wasm light-profiles-shots --docs`, lavapipe:
+
+Four spot lights, all white, then 1900, 2700, 4000 and 8000 K:
+![](images/light_profiles/kelvin.png)
+
+Three point lights 0.4 m from a wall, no profile, then the downlight profile twice and the street-light profile (its
+street side toward the room):
+![](images/light_profiles/ies.png)
+
+A spot light through a window cookie and the sun through a cloud cookie:
+![](images/light_profiles/cookie.png)
+
+- **Colour temperature.** `kelvin` on every light and on `set_sun` (1667 .. 25000 K; 0 leaves the colour as given)
+  multiplies the colour by `kelvin_rgb`: the black body's chromaticity from the cubic splines of Kim et al. (2002),
+  turned into linear Rec. 709 at luminance 1, so the temperature changes the hue and not the brightness. Against
+  Planck's law integrated with the CIE 1931 observer (Wyman et al. 2013 fit) the splines are within 0.0027 in x and y
+  from 2000 to 15000 K (0.0033 at 1800 K); 2856 K is CIE illuminant A within 0.0005. 6504 K gives rgb
+  (1.042, 0.984, 1.036), not exactly white, because D65 lies off the black-body curve. It is done on the CPU: the
+  shaders see the tinted colour.
+- **Units.** `units` on every light: `UNITS_RELATIVE` (as before: colour times intensity is what a white matte
+  surface facing the light reflects), `UNITS_CANDELA` and `UNITS_LUMEN` (point and spot), `UNITS_LUX` (directional
+  and the sun), `UNITS_NIT` and `UNITS_LUMEN` (area). The renderer turns them into its value through the camera's
+  exposure (`set_exposure`, default f/16 1/100 s ISO 100): display = luminance / (1.2 * 2^EV100) (Lagarde and
+  de Rousiers 2014). A point light sends lm / 4 pi cd; a spot light sends its flux into its cone only, whose solid
+  angle with the smoothstep edge is 2 pi (1 - (cos inner + cos outer) / 2) (checked against the integral to 1e-10);
+  an area light of A m^2 has lm / (pi A) nit. Measured on the floor of tests/light_profiles_native.mojo (8-bit
+  target): a 1000 cd spot 4 m up at EV100 5 shows 0.518 (0.516 worked out), 2 m off its axis 0.369 (0.369), the same
+  light given in lumens, and a point light of 12 566 lm, the same pixel; one EV more halves it (0.259); the sun at
+  100 000 lx and 30 degrees shows 0.518 (0.518) at the default exposure. A light type given units it does not have
+  raises.
+- **Falloff.** Photometric point and spot lights fall off by the inverse square, brought to 0 at `range` by
+  (1 - (d / range)^4)^2. `inverse_square=True` does the same for a light in relative units (its intensity is then
+  the value at 1 m). Relative lights keep (1 - (d / range)^2)^2.
+- **IES profiles** (`IesProfile.parse`: LM-63-1995 and -2002, TILT=NONE, type C photometry; others raise). Up to 8
+  profiles (`set_ies`), each baked into 128 vertical x 32 horizontal samples of a 128 x 256 R32Float table (128 KB),
+  read with two or four `textureLoad` and filtered in the shader. A point light's profile points along `axis`
+  (default straight down), a spot light's along its direction; `spin` turns the horizontal angles. With a profile
+  the intensity is the light's at the profile's peak; in lumens the peak is lm * peak / the file's own flux. The
+  table follows the profile within 0.15 % of the peak for the sample downlight and 4.2 % for the narrow street-light
+  lobe (32 horizontal rows). On the GPU, five angles of the downlight are within 0.007 of the CPU value, the street
+  light's two sides within 0.007, a spot light with a profile and MatPbr (ratio 0.317 against 0.317) too. A profile
+  the same all round skips the horizontal angle (one row read). Two sample files are in assets/lights/
+  (scripts/assets/gen_light_profiles.py writes them from formulas; they are not measured luminaires).
+- **Cookies.** Up to 8 pictures of 256 x 256 (`set_cookie`, sRGB rgba8; a 2 MB texture array). A spot light's is
+  projected along its cone, the picture's edges at `outer`; a directional light's and the sun's repeat every
+  `cookie_size` metres across the light, shifted by `cookie_u`, `cookie_v` (move them each frame for drifting
+  clouds). The light is multiplied by the picture's colour. One level, linear filtering: a cookie repeated small on
+  a far floor shimmers. Point lights have no cookie (it would need a cube).
+- **Where they apply.** Meshes, skinned meshes and primitives (bindings 12-14, 11-13 and 2-4). The volumetric fog
+  (app/volumetric.mojo) has the falloff but not the profiles or cookies (`NO_LIGHT_TEX_WGSL`).
+- **Nothing set, nothing changed.** With no light naming a profile or a cookie the frame is the same pixel for pixel
+  (checked after loading a profile and three cookies), and tests/scene_frame_native.mojo's hash did not move. The
+  renderer's textures grow by 2,228,224 bytes (the table and the cookie array; budgets.toml raised to 30 MB).
+- **Cost** (`pixi run -e wasm light-profiles-shots --cost`, 1920 x 1080, 8 spot and 16 point lights all reaching most
+  of the floor, no shadows; lavapipe is a CPU rasteriser on 4 cores, so these are not GPU times, and two runs differ
+  by about 30 ms): plain 289 and 320 ms; with an IES profile on every light 388 and 415 ms; with a cookie on every
+  spot too 382 and 395 ms. The profile is looked up only where the light reaches.
+
 ## Camera
 
 | feature | how |
@@ -91,6 +165,7 @@ Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL`
 | orthographic | `View.orthographic(pose, half_height, aspect)` |
 | frustum culling | `r.cull = True`; `r.culled` is the number dropped by the latest draw |
 | viewports | `SplitScreen(device, format, w, h, split_rects(n, w, h))`, `draw` into `split.target(i)`, `split.compose(device, frame, hud)` |
+| focal length, zoom | `ZoomLens` (game/zoom_lens.mojo): `zoom_to(mm)`, `step(dt)`, `fov_y()` into `CameraPose.fov_y` |
 | depth of field | `Stage[DepthOfField]` in the stage graph; `r.lens_focus`, `r.lens_fstop`, `r.lens_sensor`, `r.lens_max_coc` |
 | motion blur, camera | `Stage[MotionBlur]`; `r.shutter` (0 .. 1) |
 | motion blur, bodies too | `Stage[ObjectMotionBlur]` with `Aux[VelocityPass]` as the aux target; `r.shutter` |
@@ -112,6 +187,11 @@ Pose helpers (springs, shake, framing, rails, the simulation's frustum tests) ar
 - **Depth of field** is the thin lens: disc diameter `f^2 / (N (zf - f)) * |1 - zf / z|` on the sensor. Focused at
   8 m: a box at 3 m (disc 17.6 px) has an edge 9 px wide, one at 25 m (7.2 px) 5 px, the one in focus 0 px. One gather
   pass of 48 samples; discs are flat and round, and no larger than twice the disc of a point at infinity.
+- **Focal length and zoom.** `fov_from_focal(mm)` is `2 atan(24 / 2 / mm)` and `focal_from_fov` its inverse, on the
+  same 24 mm sensor as `r.lens_sensor`, so the depth of field's f is the focal length set. `ZoomLens.step(dt)` moves
+  toward the target on a log scale, 63 % of the remaining ratio per `zoom_time` (0.25 s): measured in tests/console.mojo,
+  24 -> 96 mm stepped at 60 Hz is at 57.6 mm after 0.25 s (24 x 4^0.632) and stops at 96 mm after 109 frames (1.8 s). Photo mode uses it
+  (docs/console.md); a game's own camera can hold one the same way.
 - **MotionBlur** follows the camera only: the camera turned 0.05 rad moves the picture 19 px, and a vertical edge is
   16 px wide (a 19 px ramp measures 15.2); the edge along the motion stays 1 px.
 - **ObjectMotionBlur** also blurs bodies that move (app/velocity.mojo): `VelocityPass` draws every rigid item with
@@ -148,4 +228,5 @@ pipeline.
 - Reflection parallax, several reflection probes, dynamic global illumination. Baked irradiance probes, which also light
   moving bodies, are in `docs/rendering-tier3.md`.
 - Per-bone velocity for skinned meshes; bokeh shapes.
+- Cookies on point lights (a cube map), mips for cookies, IES type A and B photometry and TILT=INCLUDE.
 - All of this has run on lavapipe only (native wgpu); none of it has been run in a browser.

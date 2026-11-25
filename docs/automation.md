@@ -43,7 +43,7 @@ one `SplitMix64` stream; seed 0 draws nothing, so a run with no seed has the sam
 | `axis(device, axis, v)` / `padButton(device, b, down)` | an analog axis or a gamepad / on-screen button (`docs/input.md`) |
 | `rebind(line)` / `resetBindings()` / `prompt(action, device)` | change and read the action bindings; `rebind` returns `{ok}` or `{ok: false, conflicts}` and saves the profile |
 | `console(line)` / `consoleLog()` / `consoleReplay(log)` / `cheated()` | the in-game console (docs/console.md): a line as if typed (returns what it prints, throws for a refused line), the log as `frame line` lines, a log to play back, whether the run used a cheat |
-| `photo(on)` / `photoSet(name, v)` / `photoMove(f, r, u, s)` / `photoCapture()` | photo mode (docs/console.md): enter or leave, set `focus`, `fstop`, `exposure`, `bloom` or `scale`, fly the camera, capture a PNG with the next drawn frame |
+| `photo(on)` / `photoSet(name, v)` / `photoMove(f, r, u, s)` / `photoCapture()` | photo mode (docs/console.md): enter or leave, set `focus`, `fstop`, `exposure`, `bloom`, `scale` or `focal` (mm), fly the camera, capture a PNG with the next drawn frame |
 
 A key is a DOM `KeyboardEvent.code` (`KeyW`, `Space`, `ArrowUp`, `Escape`) or a single letter or digit (`w`). One stepped frame is one
 game tick for the demo game (`state().tick` equals the frames stepped; checked for 600 frames).

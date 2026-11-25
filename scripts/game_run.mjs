@@ -7,7 +7,8 @@
 // (no WebGPU) draws nothing either, so it checks that the draw flag does not change the simulation.
 // A script entry applies before step number `tick` (counting from 0), so its effect is first visible in the line with tick + 1.
 // #146: an entry { "tick": 30, "console": "god" } submits a console line (game/console.mojo); "replay": "<log>" in the job loads a
-// console log to play back; { "tick": 100, "photo": true } enters photo mode (false leaves it); "console_log": true prints one more line at the end, {"console_log": "...", "cheated": bool}.
+// console log to play back; { "tick": 100, "photo": true } enters photo mode (false leaves it); { "tick": 110, "photo_set": ["focal", 1000] } sets a photo setting (game.photoSet); "console_log": true prints
+// one more line at the end, {"console_log": "...", "cheated": bool, "photo_set": [the values photoSet kept, in order]}.
 import { readFileSync } from "node:fs";
 
 const [wasm, hostMjs, wgpuDir, maDir, jobFile] = process.argv.slice(2);
@@ -30,6 +31,7 @@ const line = (tick) => JSON.stringify({
   tick, hash: game.hash(), ...(job.state ? { state: game.state() } : {}), ...(job.events && tick > 0 ? { events: game.events() } : {}),
 });
 const out = [line(0)];
+const kept = [];
 for (let tick = 0; tick < job.ticks; tick++) {
   for (const e of job.script) {
     if (e.tick !== tick) continue;
@@ -38,9 +40,10 @@ for (let tick = 0; tick < job.ticks; tick++) {
     if (e.press) game.press(e.press);
     if (e.console) game.console(e.console);
     if (e.photo !== undefined) game.photo(e.photo);
+    if (e.photo_set) kept.push(game.photoSet(e.photo_set[0], e.photo_set[1]));
   }
   game.step(1, job.draw);
   out.push(line(tick + 1));
 }
-if (job.console_log) out.push(JSON.stringify({ console_log: game.consoleLog(), cheated: game.cheated() }));
+if (job.console_log) out.push(JSON.stringify({ console_log: game.consoleLog(), cheated: game.cheated(), photo_set: kept }));
 process.stdout.write(out.join("\n") + "\n");

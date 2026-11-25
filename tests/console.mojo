@@ -1,14 +1,17 @@
 # tier: integration
 """The in-game console, the cheats and photo mode (issue #146; docs/console.md): what the console accepts and refuses,
 that a log played back reaches the same hash as the run that typed it, what each cheat does in the demo game, that the
-cheat mark is saved and refuses achievements, and photo mode's bound, settings and capture size. Native only:
+cheat mark is saved and refuses achievements, photo mode's bound, settings and capture size, and the focal length and
+zoom (game/zoom_lens.mojo). Native only:
 `pixi run -e wasm test-console` (scripts/test_console.py also builds the release variant, tests/console_release.mojo)."""
 from game.cheats import CHEAT_GOD, CHEAT_MARKED, CheatMark
 from game.console import CONSOLE_BUILT, CommandSpec, Console, ConsoleLine
 from game.demo_mode import DEMO_SAVE_VERSION, DemoMigrator, DemoMode
 from game.intent import Intent
 from game.mode import GameMode
-from game.photo_camera import MAX_CAPTURE_SIDE, PhotoMode
+from game.camera_view import View
+from game.photo_camera import MAX_CAPTURE_SIDE, PHOTO_MAX_MM, PHOTO_MIN_MM, PhotoMode
+from game.zoom_lens import ZoomLens, focal_from_fov, fov_from_focal
 from geometry.quat import Quat
 from geometry.vec import Real, Vec3
 from platform.achievements import CheatGuard, LocalAchievements
@@ -260,6 +263,70 @@ def main() raises:
     c.ok(big[0] == MAX_CAPTURE_SIDE and big[1] == 4608, "a capture past 8192 is scaled down with its proportions: " + String(big[0]) + " x " + String(big[1]))
     pm.leave()
     c.ok(not pm.active, "leave")
+
+    # --- focal length and zoom (game/zoom_lens.mojo)
+    var f50 = fov_from_focal(50.0)
+    c.ok(abs(Float64(f50) - 0.4710899) < 1e-6, "50 mm on a 24 mm sensor is 2 atan(0.24) = 0.4710899 rad: " + String(Float64(f50)))
+    c.ok(abs(focal_from_fov(f50) - 50.0) < 1e-4, "focal_from_fov inverts it: " + String(focal_from_fov(f50)))
+    var v50 = View(CameraPose(Vec3(0.0, 0.0, 0.0, 0.0), Quat.identity(), f50, 1.78, 0.1, 400.0), 1.78)
+    var f_dof = 0.024 * 0.5 * Float64(v50.sy) * 1000.0  # app/lens.mojo focal_length, in mm
+    c.ok(abs(f_dof - 50.0) < 1e-3, "the depth of field's focal length from that view is " + String(f_dof) + " mm")
+    var zl = ZoomLens(24.0)
+    _ = zl.zoom_to(96.0)
+    var at_quarter = Float64(0)
+    var frames = 0
+    while zl.moving() and frames < 1000:
+        zl.step(1.0 / 60.0)
+        frames += 1
+        if frames == 15:
+            at_quarter = zl.focal_mm
+    var want_q = 24.0 * (4.0 ** (1.0 - 0.36787944117144233))  # 63 % of the log ratio after one zoom_time (0.25 s)
+    c.ok(abs(at_quarter - want_q) < 1e-6, "24 -> 96 mm at 60 Hz: " + String(at_quarter) + " mm after 0.25 s (want " + String(want_q) + ")")
+    c.ok(zl.focal_mm == 96.0, "and arrives at 96 mm after " + String(frames) + " frames")
+    var monotone = True
+    var z2 = ZoomLens(100.0)
+    _ = z2.zoom_to(20.0)
+    var last = z2.focal_mm
+    for _ in range(300):
+        z2.step(1.0 / 60.0)
+        monotone = monotone and z2.focal_mm <= last and z2.focal_mm >= 20.0
+        last = z2.focal_mm
+    c.ok(monotone and z2.focal_mm == 20.0, "zooming out never passes the target and ends on it: " + String(z2.focal_mm))
+    var z3 = ZoomLens(50.0)
+    z3.zoom_time = 0.0
+    _ = z3.zoom_to(135.0)
+    z3.step(1.0 / 60.0)
+    c.ok(z3.focal_mm == 135.0, "zoom_time 0 jumps in one step")
+    c.ok(z3.zoom_to(5000.0) == 400.0 and z3.zoom_to(0.0) == 10.0 and z3.jump_to(Float64.MAX) == 400.0, "the target is clamped to 10 .. 400 mm")
+
+    var pz = PhotoMode()
+    pz.enter(cam)
+    var entry_mm = pz.lens.focal_mm
+    c.ok(abs(entry_mm - focal_from_fov(1.0)) < 1e-9 and abs(Float64(pz.fov_y) - 1.0) < 1e-6, "photo mode starts at the game's field: fov 1.0 rad is " + String(entry_mm) + " mm")
+    c.ok(pz.set_focal(1000.0) == Float32(PHOTO_MAX_MM) and pz.set_focal(1.0) == Float32(PHOTO_MIN_MM), "photo.focal is clamped to 12 .. 300 mm")
+    _ = pz.set_focal(88.0)
+    for _ in range(240):
+        pz.move(0.0, 0.0, 0.0, 0.0, 0.0, 1.0 / 60.0)
+    c.ok(pz.lens.focal_mm == 88.0 and abs(Float64(pz.fov_y) - Float64(fov_from_focal(88.0))) < 1e-7 and abs(Float64(pz.pose().fov_y) - Float64(pz.fov_y)) < 1e-9, "photo.focal 88 mm: after 4 s the pose's field is " + String(Float64(pz.pose().fov_y)) + " rad")
+    var yaw0 = pz.yaw
+    pz.move(0.0, 0.0, 0.0, 100.0, 0.0, 1.0 / 60.0)
+    var turned = Float64(yaw0 - pz.yaw)
+    var want_turn = 100.0 * 0.004 * Float64(pz.fov_y) / Float64(pz.enter_fov)
+    c.ok(abs(turned - want_turn) < 1e-5, "at 88 mm 100 px of pointer turns " + String(turned) + " rad (" + String(want_turn) + "; 0.4 at entry)")
+    var pz2 = PhotoMode()
+    pz2.enter(cam)
+    var held = 0
+    while held < 60:  # Z held for 1 s
+        pz2.zoom(1.0, 1.0 / 60.0)
+        pz2.move(0.0, 0.0, 0.0, 0.0, 0.0, 1.0 / 60.0)
+        held += 1
+    var target_ratio = pz2.lens.target_mm / entry_mm
+    c.ok(abs(target_ratio - 2.0 ** 1.5) < 1e-6, "Z held 1 s: the target is 2^1.5 = " + String(target_ratio) + " times the entry focal length")
+    c.ok(pz2.lens.focal_mm > entry_mm and pz2.lens.focal_mm < pz2.lens.target_mm, "and the lens is between the two: " + String(pz2.lens.focal_mm) + " mm")
+    for _ in range(600):
+        pz2.zoom(-1.0, 1.0 / 60.0)
+        pz2.move(0.0, 0.0, 0.0, 0.0, 0.0, 1.0 / 60.0)
+    c.ok(pz2.lens.focal_mm == PHOTO_MIN_MM, "X held 10 s stops at the shortest lens, 12 mm: " + String(pz2.lens.focal_mm))
 
     print("console:", c.passed, "passed,", c.failed, "failed")
     if c.failed > 0:

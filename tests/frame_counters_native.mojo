@@ -8,7 +8,8 @@
 #       draw calls   +1, triangles + 4 * 2 (a filled rectangle is two triangles)
 #   an empty scene: 1 draw call (the primitive draw runs with zero instances), 0 triangles
 #   texture bytes    the texture array (256 x 256 x 2 layers, 9 levels), the shadow map (1024^2 depth), the atlas
-#                    (2048^2 depth), the environment cube (128^2, 6 faces, 8 levels) and the frame's depth (W x H), 4 bytes a texel
+#                    (2048^2 depth), the environment cube (128^2, 6 faces, 8 levels), the IES table (128 x 256 floats), the light
+#                    cookies (256^2, 8 layers) and the frame's depth (W x H), 4 bytes a texel
 #   a resize changes the depth part by the new W x H and nothing else
 #   post pipelines  one stage adds the scene's colour target (W x H x 4); ThenPost adds the texture between its two parts, Join the two
 #                   between its three, Scaled[_, 2] makes its neighbour's target a quarter of that
@@ -108,8 +109,8 @@ def main() raises:
     hud.set(empty, Float32(W), Float32(H))
 
     # texture bytes
-    var expect = mip_texels(256, 9) * 2 * 4 + 1024 * 1024 * 4 + 2048 * 2048 * 4 + mip_texels(128, 8) * 6 * 4 + Int(W) * Int(H) * 4
-    s.eqi(r.tex_bytes, expect, "texture bytes: array + shadow + atlas + environment + depth = " + String(expect))
+    var expect = mip_texels(256, 9) * 2 * 4 + 1024 * 1024 * 4 + 2048 * 2048 * 4 + mip_texels(128, 8) * 6 * 4 + 128 * 256 * 4 + 256 * 256 * 8 * 4 + Int(W) * Int(H) * 4
+    s.eqi(r.tex_bytes, expect, "texture bytes: array + shadow + atlas + environment + IES table + cookies + depth = " + String(expect))
     var t2 = device.create_texture(1280, 720, 1, format, WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.COPY_SRC, label="t2")
     r.begin(view.copy())
     r.draw(device, t2.handle().raw, 1280, 720, hud)
@@ -117,7 +118,7 @@ def main() raises:
     s.eqi(base_draws, 3, "(the first scene's draw calls were 3)")
     s.eqi(base_tris, 3 * 384 + 5 * 12 + 2 * sphere_tris, "(and its triangles as computed)")
     # post pipelines: the targets the stages draw into are counted
-    var fixed = mip_texels(256, 9) * 2 * 4 + 1024 * 1024 * 4 + 2048 * 2048 * 4 + mip_texels(128, 8) * 6 * 4
+    var fixed = mip_texels(256, 9) * 2 * 4 + 1024 * 1024 * 4 + 2048 * 2048 * 4 + mip_texels(128, 8) * 6 * 4 + 128 * 256 * 4 + 256 * 256 * 8 * 4
     var px = Int(W) * Int(H) * 4  # one full-size RGBA8 or depth target
     var lut16 = 16 * 16 * 16 * 4  # a pipeline with stages holds the neutral colour-grading LUT, 16 x 16 x 16 RGBA8
     var one = post_bytes[Stage[Copy]](device, format, view, target, hud)

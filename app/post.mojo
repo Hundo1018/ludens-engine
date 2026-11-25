@@ -53,7 +53,8 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 
-comptime FRAME_FLOATS = 60  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16), fx (4), vol (8)
+comptime FRAME_FLOATS = 88  # res (4), camera (16), t (4), user (4), lens (4), the previous camera (16), fx (4), vol (8),
+# tone (4), ao (4), ssr (4), bokeh (8), streak (8)
 comptime FRAME_BYTES = FRAME_FLOATS * 4
 
 comptime FRAME_WGSL = """
@@ -73,6 +74,13 @@ struct Frame {
   fx : vec4<f32>,     // the picture effects of app/post_fx.mojo: bloom threshold, bloom intensity, LUT amount, FXAA strength
   vol : vec4<f32>,    // app/volumetric.mojo: extinction per metre at the base height, anisotropy g, height falloff per metre, base height (m)
   vol2 : vec4<f32>,   // app/volumetric.mojo: albedo (scattered share of the extinction), far end of the volume (m), ambient, unused
+  tone : vec4<f32>,   // the passes' tone mapping (app/textures.mojo atmo_out): 1 when the linear workflow is on, exposure, unused, unused
+  ao : vec4<f32>,     // app/ssao.mojo: radius (m), intensity (0 off), temporal blend (0 .. 0.95), unused
+  ssr : vec4<f32>,    // app/ssr.mojo: intensity (0 off), longest ray (m), thickness (m), roughest surface traced
+  bokeh : vec4<f32>,  // app/lens.mojo DepthOfField: aperture blades (0 round), blade rotation (rad), roundness (0 .. 1), anamorphic squeeze (1 spherical)
+  bokeh2 : vec4<f32>, // app/lens.mojo Bokeh: the highlight sprites' gain (0 none), their threshold (0 .. 1), unused, unused
+  streak : vec4<f32>, // app/lens.mojo AnamorphicStreak: intensity (0 off), threshold (0 .. 1), length (1 = about a third of the frame), unused
+  stint : vec4<f32>,  // app/lens.mojo AnamorphicStreak: the streak's colour (rgb), unused
 };
 """
 
@@ -127,6 +135,25 @@ fn fit_uv(px : vec2<f32>, size : vec2<f32>) -> vec2<f32> {
 }
 fn inside(u : vec2<f32>) -> bool { return u.x >= 0.0 && u.x < 1.0 && u.y >= 0.0 && u.y < 1.0; }
 fn luma(c : vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.299, 0.587, 0.114)); }
+// The passes' tone curve and its inverse (app/textures.mojo atmo_out: exposure, Narkowicz's ACES fit, 1 / 2.2), so a
+// stage can add or remove light in the units the passes lit with. With the linear workflow off both return c.
+fn tone_aces(x : vec3<f32>) -> vec3<f32> {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+fn to_display(c : vec3<f32>) -> vec3<f32> {
+  if frame.tone.x < 0.5 { return c; }
+  return pow(tone_aces(max(c, vec3<f32>(0.0)) * frame.tone.y), vec3<f32>(1.0 / 2.2));
+}
+// the root of (2.43 y - 2.51) x^2 + (0.59 y - 0.03) x + 0.14 y = 0 that the fit maps to y; y is kept below 0.999,
+// where the curve is still steep enough to invert (its top end is reached only at infinity)
+fn to_linear(c : vec3<f32>) -> vec3<f32> {
+  if frame.tone.x < 0.5 { return c; }
+  let y = min(pow(max(c, vec3<f32>(0.0)), vec3<f32>(2.2)), vec3<f32>(0.999));
+  let a = 2.43 * y - 2.51;
+  let b = 0.59 * y - 0.03;
+  let x = (-b - sqrt(max(b * b - 4.0 * a * 0.14 * y, vec3<f32>(0.0)))) / (2.0 * a);
+  return max(x, vec3<f32>(0.0)) / max(frame.tone.y, 1e-6);
+}
 
 // view depth in metres (distance along the camera's forward axis)
 fn view_z(uv : vec2<f32>) -> f32 {

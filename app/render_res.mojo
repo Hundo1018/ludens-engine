@@ -19,12 +19,19 @@ from std.math import cos
 from geometry.vec import Real, Vec3
 from app.gpu_mesh import cam_floats
 from app.gpu_bytes import texture_bytes
+from std.math import tan, sqrt
 from app.lights import (
-    SpotLight, DirLight, AreaLight, Environment, unit, spot_vp, point_face_vp, dir_vp, area_vp, area_size, ATLAS_SIZE, MAX_TILES,
-    MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS, MAX_CASCADES, TILE_MIN,
+    PointLight, SpotLight, DirLight, AreaLight, Environment, unit, spun, spot_vp, point_face_vp, dir_vp, area_vp, area_size,
+    ATLAS_SIZE, MAX_TILES, MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS, MAX_CASCADES, TILE_MIN,
     L_POINTS, L_SUN_DIR, L_SUN_COLOR, L_AMB, L_SH, L_ENV_TOP, L_ENV_HOR, L_ENV_GND, L_PSHADOW, L_SPOTS, L_DIRS, L_AREAS, L_TILES,
-    L_TILE_RECT, L_PROBE_ORG, L_PROBE_CELL, L_PROBE_DIM, atlas_sizes, atlas_place, cascade_splits, cascade_sphere, cascade_vp,
+    L_TILE_RECT, L_PROBE_ORG, L_PROBE_CELL, L_PROBE_DIM, atlas_sizes, atlas_place, cascade_splits, cascade_sphere, cascade_vp, L_PEXT, L_SEXT, L_DEXT, L_SUNEXT, L_IES_SYM,
 )
+from app.photometry import (
+    Exposure, IesProfile, tinted, relative_from_candela, relative_from_lux, relative_from_nit, candela_from_lumens_point,
+    candela_from_lumens_spot, nit_from_lumens_area, UNITS_RELATIVE, UNITS_CANDELA, UNITS_LUMEN, UNITS_LUX, UNITS_NIT,
+    IES_THETA, IES_PHI, MAX_IES_PROFILES,
+)
+from wgpu import WGPUOrigin3D, WGPUTextureAspect
 
 comptime ENV_SIZE = 128  # the environment cube map's faces
 comptime ENV_MIPS = 8  # 128 down to 1
@@ -42,6 +49,19 @@ def env_sub_view(tex: Texture, dimension: Int, mip: Int, mips: Int, layer: Int, 
     return v^
 
 
+def _f32_bytes(v: List[Float32]) -> List[UInt8]:
+    """Little-endian bytes of floats, for a float texture's upload."""
+    var out = List[UInt8](capacity=len(v) * 4)
+    for x in v:
+        var f = x
+        var bits = Pointer(to=f).unsafe_bitcast[UInt32]()[]
+        out.append(UInt8(bits & 255))
+        out.append(UInt8((bits >> 8) & 255))
+        out.append(UInt8((bits >> 16) & 255))
+        out.append(UInt8((bits >> 24) & 255))
+    return out^
+
+
 comptime SHADOW_MAP_SIZE = 1024  # the sun's shadow map before set_sun_cascades, square; 4 MB of depth
 comptime SHADOW_UBO_BYTES = 432  # the `Shadow` uniform (app/wgsl.mojo SHADOW_UBO_WGSL): 108 floats
 comptime SHADOW_BIAS = Float32(0.003)  # a fixed box's depth bias (NDC), as before cascades
@@ -53,6 +73,8 @@ comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4  # the `Lights` uniform (app/lights.mo
 comptime MAX_PROBES = 2048  # irradiance probes (app/irradiance.mojo), e.g. 16 x 8 x 16
 comptime PROBE_BYTES = MAX_PROBES * 9 * 16  # 9 vec4 per probe: 288 KB, always bound to the mesh and skinned passes
 comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
+comptime COOKIE_SIZE = 256  # a light cookie's picture, square (set_cookie)
+comptime MAX_COOKIES = 8  # layers of the cookie array: 8 x 256 KB
 
 
 struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
@@ -82,25 +104,6 @@ struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
             raise Error("RenderCaps: samples is 1 or 4, the counts every WebGPU device supports for a renderable format")
 
 
-struct PointLight(Copyable, ImplicitlyCopyable, Movable):
-    """A point light: position (m), range (m; no light beyond it, falling off as (1 - (d / range)^2)^2), colour (linear
-    0..1 per channel) and intensity (a multiplier on the colour, at the light). With `shadow` it takes six tiles of the
-    shadow atlas (app/lights.mojo)."""
-
-    var pos: Vec3
-    var range: Float32
-    var color: Vec3
-    var intensity: Float32
-    var shadow: Bool
-
-    def __init__(out self, pos: Vec3, range: Float32, color: Vec3, intensity: Float32, shadow: Bool = False):
-        self.pos = pos
-        self.range = range
-        self.color = color
-        self.intensity = intensity
-        self.shadow = shadow
-
-
 struct RenderResources(Movable):
     var camera: Buffer  # the camera header (64 bytes, app/gpu_mesh.mojo cam_floats), written once per frame
     var shadow_tex: Texture  # the shadow map: a shadow pass renders depth into it (shadow_target())
@@ -112,6 +115,7 @@ struct RenderResources(Movable):
     var lights: Buffer  # the point lights (LIGHTS_BYTES): count, then MAX_POINT_LIGHTS records; none until set_lights
     var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
     var atmo_linear: Bool
+    var atmo_exposure: Float32  # the latest set_atmosphere's exposure (the post stages undo and redo the tone curve with it)
     var sky_overridden: Bool
     var light_vp: List[Float32]  # the latest set_shadow's light view-projection (a shadow pass in the pass list draws with it)
     var shadow_on: Bool  # the latest set_shadow's on-flag
@@ -141,14 +145,27 @@ struct RenderResources(Movable):
     var casc_reach: Float64
     var tile_sizes: List[Int]  # per light with a shadow (points, spots, dirs, areas in that order): its tiles' size
     var tile_px: List[Int]  # per tile: x, y, size in texels
+    var sun: DirLight  # the host's sun (set_sun / set_sun_light), used while sun_set
+    var sun_set: Bool
+    var exposure: Exposure  # turns the photometric units into the renderer's values (set_exposure)
+    var ies_tex: Texture  # the IES table: IES_THETA x (MAX_IES_PROFILES * IES_PHI) floats, R32Float (set_ies)
+    var ies_view: TextureView
+    var ies_peak: List[Float64]  # per slot: the profile's peak candela and its flux (0: no profile in the slot)
+    var ies_lumens: List[Float64]
+    var cookie_tex: Texture  # the light cookies: MAX_COOKIES layers of COOKIE_SIZE^2, RGBA8UnormSrgb (set_cookie)
+    var cookie_view: TextureView
+    var cookie_set: List[Bool]
+    var light_sampler: Sampler  # linear, repeat: the cookies
 
     def texture_bytes(self) raises -> Int:
-        """Size of the textures this struct creates: the shadow atlas, the environment cube and the shadow map (sizes are
-        constants, not read back: app/gpu_bytes.mojo)."""
+        """Size of the textures this struct creates: the shadow atlas, the environment cube, the shadow map, the IES table
+        and the cookie array (sizes are constants, not read back: app/gpu_bytes.mojo)."""
         return (
             texture_bytes(self.atlas_size, self.atlas_size, 1, 1, WGPUTextureFormat.Depth32Float)
             + texture_bytes(ENV_SIZE, ENV_SIZE, 6, ENV_MIPS, WGPUTextureFormat.RGBA8Unorm)
             + texture_bytes(self.shadow_size, self.shadow_size, 1, 1, WGPUTextureFormat.Depth32Float)
+            + texture_bytes(IES_THETA, MAX_IES_PROFILES * IES_PHI, 1, 1, WGPUTextureFormat.R32Float)
+            + texture_bytes(COOKIE_SIZE, COOKIE_SIZE, MAX_COOKIES, 1, WGPUTextureFormat.RGBA8UnormSrgb)
         )
 
     def __init__(out self, device: Device) raises:
@@ -177,6 +194,36 @@ struct RenderResources(Movable):
         self.casc_reach = 50.0
         self.tile_sizes = List[Int]()
         self.tile_px = List[Int]()
+        self.sun = DirLight(Vec3(0, 1, 0, 0), Vec3(1, 1, 1, 0), 0.6)
+        self.sun_set = False
+        self.exposure = Exposure()
+        self.ies_tex = device.create_texture(
+            UInt32(IES_THETA), UInt32(MAX_IES_PROFILES * IES_PHI), UInt32(1), WGPUTextureFormat.R32Float,
+            WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.COPY_DST, dimension=2, mip_level_count=1, label="ies_table",
+        )
+        self.ies_view = self.ies_tex.create_view_default()
+        self.ies_peak = List[Float64](length=MAX_IES_PROFILES, fill=0.0)
+        self.ies_lumens = List[Float64](length=MAX_IES_PROFILES, fill=0.0)
+        self.cookie_tex = device.create_texture(
+            UInt32(COOKIE_SIZE), UInt32(COOKIE_SIZE), UInt32(MAX_COOKIES), WGPUTextureFormat.RGBA8UnormSrgb,
+            WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.COPY_DST, dimension=2, mip_level_count=1, label="light_cookies",
+        )
+        self.cookie_view = env_sub_view(self.cookie_tex, 3, 0, 1, 0, MAX_COOKIES)
+        self.cookie_set = List[Bool](length=MAX_COOKIES, fill=False)
+        self.light_sampler = device.create_sampler(
+            address_mode_u=2, address_mode_v=2, address_mode_w=2, mag_filter=2, min_filter=2, label="light_cookie",
+        )
+        var white = List[UInt8](length=COOKIE_SIZE * COOKIE_SIZE * 4 * MAX_COOKIES, fill=255)
+        device.queue_write_texture(
+            self.cookie_tex, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(0)), WGPUTextureAspect.All,
+            white^, UInt32(COOKIE_SIZE * 4), UInt32(COOKIE_SIZE), UInt32(COOKIE_SIZE), UInt32(COOKIE_SIZE), UInt32(MAX_COOKIES),
+        )
+        var ies_ones = List[Float32](length=IES_THETA * MAX_IES_PROFILES * IES_PHI, fill=Float32(1.0))
+        device.queue_write_texture(
+            self.ies_tex, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(0)), WGPUTextureAspect.All,
+            _f32_bytes(ies_ones), UInt32(IES_THETA * 4), UInt32(MAX_IES_PROFILES * IES_PHI), UInt32(IES_THETA),
+            UInt32(MAX_IES_PROFILES * IES_PHI), UInt32(1),
+        )
         self.atlas_tex = device.create_texture(
             UInt32(ATLAS_SIZE), UInt32(ATLAS_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
             WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
@@ -203,6 +250,7 @@ struct RenderResources(Movable):
         self.shadow_view = self.shadow_tex.create_view_default()
         self.atmo_fog = False
         self.atmo_linear = False
+        self.atmo_exposure = 1.0
         self.sky_overridden = False
         self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
         self.shadow_ubo = device.create_buffer(
@@ -497,6 +545,113 @@ struct RenderResources(Movable):
             m.append(self.rig[L_TILES + 16 * k + i])
         return m^
 
+    def _value(self, intensity: Float32, units: Int, ies: Int, kind: Int, inner: Float64 = 0.0, outer: Float64 = 0.0,
+               area: Float64 = 0.0) raises -> Float32:
+        """A light's intensity in the renderer's value (photometry: UNITS_RELATIVE passes through). kind: 0 point, 1
+        spot, 2 directional or the sun, 3 area. With an IES profile the value is the light's at the profile's peak:
+        lumens become the peak's candela by the profile's own ratio of peak to flux."""
+        var v = Float64(intensity)
+        if units == UNITS_RELATIVE:
+            return intensity
+        if kind <= 1:
+            var cd = v
+            if units == UNITS_LUMEN:
+                if ies >= 0:
+                    cd = v * self.ies_peak[ies] / self.ies_lumens[ies]
+                elif kind == 0:
+                    cd = candela_from_lumens_point(v)
+                else:
+                    cd = candela_from_lumens_spot(v, inner, outer)
+            elif units != UNITS_CANDELA:
+                raise Error("renderer: a point or spot light's units are relative, candela or lumen")
+            return Float32(relative_from_candela(cd, self.exposure))
+        if kind == 2:
+            if units != UNITS_LUX:
+                raise Error("renderer: a directional light's or the sun's units are relative or lux")
+            return Float32(relative_from_lux(v, self.exposure))
+        var nit = v
+        if units == UNITS_LUMEN:
+            nit = nit_from_lumens_area(v, area)
+        elif units != UNITS_NIT:
+            raise Error("renderer: an area light's units are relative, nit or lumen")
+        return Float32(relative_from_nit(nit, self.exposure))
+
+    def _check_ies(self, ies: Int) raises:
+        if ies < -1 or ies >= MAX_IES_PROFILES or (ies >= 0 and not (self.ies_lumens[ies] > 0.0)):
+            raise Error("renderer: IES slot " + String(ies) + " holds no profile (set_ies first)")
+
+    def _check_cookie(self, cookie: Int) raises:
+        if cookie < -1 or cookie >= MAX_COOKIES or (cookie >= 0 and not self.cookie_set[cookie]):
+            raise Error("renderer: cookie layer " + String(cookie) + " holds no picture (set_cookie first)")
+
+    def _write_dir_ext(mut self, at: Int, l: DirLight) raises:
+        for k in range(12):
+            self.rig[at + k] = 0.0
+        if l.cookie >= 0:
+            var b = spun(Vec3(-l.dir[0], -l.dir[1], -l.dir[2], Real(0)), 0.0)
+            var inv = Real(1.0 / Float64(l.cookie_size))
+            self.rig[at + 1] = Float32(l.cookie + 1)
+            self._put3(at + 4, b[0] * inv, l.cookie_u)
+            self._put3(at + 8, b[1] * inv, l.cookie_v)
+
+    def _write_lights(mut self) raises:
+        """Every light's records from the stored lists (the setters and set_exposure end here)."""
+        for i in range(8 * MAX_POINT_LIGHTS):
+            self.rig[L_POINTS + i] = 0.0
+        for i in range(8 * MAX_POINT_LIGHTS):
+            self.rig[L_PEXT + i] = 0.0
+        self.rig[0] = Float32(len(self.points))
+        for i in range(len(self.points)):
+            var l = self.points[i]
+            self._put3(L_POINTS + 8 * i, l.pos, l.range)
+            self._put3(L_POINTS + 8 * i + 4, tinted(l.color, l.kelvin), self._value(l.intensity, l.units, l.ies, 0))
+            var b = spun(l.axis, Float64(l.spin))
+            self._put3(L_PEXT + 8 * i, unit(l.axis), Float32(l.ies + 1))
+            self._put3(L_PEXT + 8 * i + 4, b[0], Float32(1.0) if l.inverse_square or l.units != UNITS_RELATIVE else Float32(0.0))
+        self.rig[1] = Float32(len(self.spots))
+        for i in range(len(self.spots)):
+            var l = self.spots[i]
+            var o = L_SPOTS + 16 * i
+            self._put3(o, l.pos, l.range)
+            self._put3(o + 4, tinted(l.color, l.kelvin), self._value(l.intensity, l.units, l.ies, 1, Float64(l.inner), Float64(l.outer)))
+            self._put3(o + 8, unit(l.dir), Float32(cos(l.outer)))
+            self.rig[o + 12] = Float32(cos(l.inner))
+            var e = L_SEXT + 12 * i
+            var b = spun(l.dir, Float64(l.spin))
+            var inv = Real(1.0 / tan(Float64(l.outer)))
+            self.rig[e] = Float32(l.ies + 1)
+            self.rig[e + 1] = Float32(l.cookie + 1)
+            self.rig[e + 2] = Float32(1.0) if l.inverse_square or l.units != UNITS_RELATIVE else Float32(0.0)
+            self.rig[e + 3] = 0.0
+            self._put3(e + 4, b[0] * inv, 0.0)
+            self._put3(e + 8, b[1] * inv, 0.0)
+        self.rig[2] = Float32(len(self.dirs))
+        for i in range(len(self.dirs)):
+            var l = self.dirs[i]
+            self._put3(L_DIRS + 8 * i, unit(l.dir), 0.0)
+            self._put3(L_DIRS + 8 * i + 4, tinted(l.color, l.kelvin), self._value(l.intensity, l.units, -1, 2))
+            self._write_dir_ext(L_DEXT + 12 * i, l)
+        self.rig[3] = Float32(len(self.areas))
+        for i in range(len(self.areas)):
+            var l = self.areas[i]
+            var o = L_AREAS + 16 * i
+            var area = 4.0 * sqrt(Float64(l.ex[0] * l.ex[0] + l.ex[1] * l.ex[1] + l.ex[2] * l.ex[2])) * sqrt(Float64(l.ey[0] * l.ey[0] + l.ey[1] * l.ey[1] + l.ey[2] * l.ey[2]))
+            self._put3(o, l.pos, 0.0)
+            self._put3(o + 4, l.ex, 0.0)
+            self._put3(o + 8, l.ey, 0.0)
+            self._put3(o + 12, tinted(l.color, l.kelvin), self._value(l.intensity, l.units, -1, 3, area=area))
+        if self.sun_set:
+            var c = tinted(self.sun.color, self.sun.kelvin) * Real(self._value(self.sun.intensity, self.sun.units, -1, 2))
+            self._put3(L_SUN_DIR, unit(self.sun.dir), 1.0)
+            self._put3(L_SUN_COLOR, c, 0.0)
+            var sun = self.sun
+            self._write_dir_ext(L_SUNEXT, sun)
+        else:
+            self._put3(L_SUN_DIR, Vec3(0, 0, 0, 0), 0.0)
+            self._put3(L_SUN_COLOR, Vec3(Real(0.6), Real(0.6), Real(0.6), Real(0)), 0.0)
+            for k in range(12):
+                self.rig[L_SUNEXT + k] = 0.0
+
     def set_lights(mut self, device: Device, lights: List[PointLight]) raises:
         """Replace the point lights (at most MAX_POINT_LIGHTS; an empty list turns them off). They light the
         primitives, the meshes and the skinned meshes per pixel, on top of the sun."""
@@ -505,13 +660,12 @@ struct RenderResources(Movable):
         for i in range(len(lights)):
             if not (lights[i].range > 0) or not (lights[i].intensity >= 0):
                 raise Error("renderer: a point light needs range > 0 and intensity >= 0")
-        for i in range(8 * MAX_POINT_LIGHTS):
-            self.rig[L_POINTS + i] = 0.0
-        self.rig[0] = Float32(len(lights))
+            self._check_ies(lights[i].ies)
+            _ = unit(lights[i].axis)
+            _ = tinted(lights[i].color, lights[i].kelvin)
+            _ = self._value(lights[i].intensity, lights[i].units, lights[i].ies, 0)
         self.points = lights.copy()
-        for i in range(len(lights)):
-            self._put3(L_POINTS + 8 * i, lights[i].pos, lights[i].range)
-            self._put3(L_POINTS + 8 * i + 4, lights[i].color, lights[i].intensity)
+        self._write_lights()
         self._upload(device)
 
     def set_spot_lights(mut self, device: Device, lights: List[SpotLight]) raises:
@@ -522,61 +676,112 @@ struct RenderResources(Movable):
             ref l = lights[i]
             if not (l.range > 0) or not (l.intensity >= 0) or not (l.inner >= 0) or not (l.outer > l.inner) or not (l.outer < 1.5):
                 raise Error("renderer: a spot light needs range > 0, intensity >= 0 and 0 <= inner < outer < 1.5 rad")
-        self.rig[1] = Float32(len(lights))
+            self._check_ies(l.ies)
+            self._check_cookie(l.cookie)
+            _ = tinted(l.color, l.kelvin)
+            _ = self._value(l.intensity, l.units, l.ies, 1, Float64(l.inner), Float64(l.outer))
         self.spots = lights.copy()
-        for i in range(len(lights)):
-            var o = L_SPOTS + 16 * i
-            self._put3(o, lights[i].pos, lights[i].range)
-            self._put3(o + 4, lights[i].color, lights[i].intensity)
-            self._put3(o + 8, unit(lights[i].dir), Float32(cos(lights[i].outer)))
-            self.rig[o + 12] = Float32(cos(lights[i].inner))
+        self._write_lights()
         self._upload(device)
 
     def set_dir_lights(mut self, device: Device, lights: List[DirLight]) raises:
         """Replace the directional lights other than the sun (at most MAX_DIR_LIGHTS)."""
         if len(lights) > MAX_DIR_LIGHTS:
             raise Error("renderer: at most " + String(MAX_DIR_LIGHTS) + " directional lights, got " + String(len(lights)))
-        self.rig[2] = Float32(len(lights))
-        self.dirs = lights.copy()
         for i in range(len(lights)):
             if not (lights[i].intensity >= 0) or not (lights[i].half_extent > 0) or not (lights[i].depth > 0):
                 raise Error("renderer: a directional light needs intensity >= 0 and a shadow box of positive size")
-            self._put3(L_DIRS + 8 * i, unit(lights[i].dir), 0.0)
-            self._put3(L_DIRS + 8 * i + 4, lights[i].color, lights[i].intensity)
+            if not (lights[i].cookie_size > 0):
+                raise Error("renderer: a directional light's cookie_size must be > 0")
+            self._check_cookie(lights[i].cookie)
+            _ = unit(lights[i].dir)
+            _ = tinted(lights[i].color, lights[i].kelvin)
+            _ = self._value(lights[i].intensity, lights[i].units, -1, 2)
+        self.dirs = lights.copy()
+        self._write_lights()
         self._upload(device)
 
     def set_area_lights(mut self, device: Device, lights: List[AreaLight]) raises:
         """Replace the rectangular area lights (at most MAX_AREA_LIGHTS)."""
         if len(lights) > MAX_AREA_LIGHTS:
             raise Error("renderer: at most " + String(MAX_AREA_LIGHTS) + " area lights, got " + String(len(lights)))
-        self.rig[3] = Float32(len(lights))
-        self.areas = lights.copy()
         for i in range(len(lights)):
             if not (lights[i].intensity >= 0) or not (lights[i].shadow_range > 0.1):
                 raise Error("renderer: an area light needs intensity >= 0 and shadow_range > 0.1")
             _ = unit(lights[i].ex)
             _ = unit(lights[i].ey)
-            var o = L_AREAS + 16 * i
-            self._put3(o, lights[i].pos, 0.0)
-            self._put3(o + 4, lights[i].ex, 0.0)
-            self._put3(o + 8, lights[i].ey, 0.0)
-            self._put3(o + 12, lights[i].color, lights[i].intensity)
+            _ = tinted(lights[i].color, lights[i].kelvin)
+            _ = self._value(lights[i].intensity, lights[i].units, -1, 3, area=1.0)
+        self.areas = lights.copy()
+        self._write_lights()
         self._upload(device)
 
-    def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32) raises:
+    def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32, kelvin: Float32 = 0.0,
+                units: Int = UNITS_RELATIVE) raises:
         """The sun's direction (toward it), colour and intensity, in place of the fixed (0.4, 1.0, 0.6) white at 0.6.
         The shadow map follows only if set_shadow is given a matching view (app/lights.mojo sun_shadow_vp)."""
-        if not (intensity >= 0):
+        self.set_sun_light(device, DirLight(to_sun, color, intensity, kelvin=kelvin, units=units))
+
+    def set_sun_light(mut self, device: Device, sun: DirLight) raises:
+        """The sun as a directional light: its direction, colour, intensity, kelvin, units and cookie (cloud shadows);
+        its shadow fields are not read (the sun's shadow is set_shadow's map)."""
+        if not (sun.intensity >= 0):
             raise Error("renderer: the sun's intensity must be >= 0")
-        self._put3(L_SUN_DIR, unit(to_sun), 1.0)
-        self._put3(L_SUN_COLOR, color * Real(intensity), 0.0)
+        if not (sun.cookie_size > 0):
+            raise Error("renderer: the sun's cookie_size must be > 0")
+        self._check_cookie(sun.cookie)
+        _ = unit(sun.dir)
+        _ = tinted(sun.color, sun.kelvin)
+        _ = self._value(sun.intensity, sun.units, -1, 2)
+        self.sun = sun.copy()
+        self.sun_set = True
+        self._write_lights()
         self._upload(device)
 
     def reset_sun(mut self, device: Device) raises:
         """The fixed sun again."""
-        self._put3(L_SUN_DIR, Vec3(0, 0, 0, 0), 0.0)
-        self._put3(L_SUN_COLOR, Vec3(Real(0.6), Real(0.6), Real(0.6), Real(0)), 0.0)
+        self.sun_set = False
+        self._write_lights()
         self._upload(device)
+
+    def set_exposure(mut self, device: Device, e: Exposure) raises:
+        """The camera exposure the photometric units are seen through (app/photometry.mojo Exposure); lights in
+        UNITS_RELATIVE do not change."""
+        e.check()
+        self.exposure = e
+        self._write_lights()
+        self._upload(device)
+
+    def set_ies(mut self, device: Device, slot: Int, profile: IesProfile) raises:
+        """Put an IES profile into slot 0 .. MAX_IES_PROFILES - 1 of the table point and spot lights read (their `ies`)."""
+        if slot < 0 or slot >= MAX_IES_PROFILES:
+            raise Error("renderer: an IES slot is 0 .. " + String(MAX_IES_PROFILES - 1))
+        var peak = profile.peak()
+        if not (peak > 0.0):
+            raise Error("renderer: an IES profile that sends no light")
+        var table = profile.bake()
+        device.queue_write_texture(
+            self.ies_tex, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(slot * IES_PHI), UInt32(0)), WGPUTextureAspect.All,
+            _f32_bytes(table), UInt32(IES_THETA * 4), UInt32(IES_PHI), UInt32(IES_THETA), UInt32(IES_PHI), UInt32(1),
+        )
+        self.ies_peak[slot] = peak
+        self.ies_lumens[slot] = profile.lumens()
+        self.rig[L_IES_SYM + slot] = Float32(1.0) if len(profile.horiz) == 1 else Float32(0.0)
+        self._write_lights()
+        self._upload(device)
+
+    def set_cookie(mut self, device: Device, layer: Int, rgba: List[UInt8]) raises:
+        """Put a picture into layer 0 .. MAX_COOKIES - 1 of the cookie array spot and directional lights read (their
+        `cookie`): COOKIE_SIZE x COOKIE_SIZE texels of sRGB rgba8, row 0 at the top."""
+        if layer < 0 or layer >= MAX_COOKIES:
+            raise Error("renderer: a cookie layer is 0 .. " + String(MAX_COOKIES - 1))
+        if len(rgba) != COOKIE_SIZE * COOKIE_SIZE * 4:
+            raise Error("renderer: a cookie is " + String(COOKIE_SIZE) + " x " + String(COOKIE_SIZE) + " rgba8 texels")
+        device.queue_write_texture(
+            self.cookie_tex, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(layer)), WGPUTextureAspect.All,
+            rgba.copy(), UInt32(COOKIE_SIZE * 4), UInt32(COOKIE_SIZE), UInt32(COOKIE_SIZE), UInt32(COOKIE_SIZE), UInt32(1),
+        )
+        self.cookie_set[layer] = True
 
     def set_environment(mut self, device: Device, env: Environment) raises:
         """The ambient light from an environment (app/lights.mojo: uniform_environment, sky_environment,
@@ -682,6 +887,7 @@ struct RenderResources(Movable):
         device.queue_write_data(self.shadow_ubo, UInt64(80), data)
         self.atmo_fog = fog
         self.atmo_linear = linear
+        self.atmo_exposure = exposure
         self.sky_overridden = False
 
     def set_fog_linear(mut self, device: Device, fog: Bool, linear: Bool) raises:
