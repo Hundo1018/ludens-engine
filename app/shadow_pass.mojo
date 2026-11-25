@@ -31,7 +31,7 @@ from wgpu import raw_alloc
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
-from wgpu.bind_group import BindGroup
+from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.render_pass import FrameRenderPass
 from wgpu import (
     WGPURenderPassDescriptor, WGPURenderPassColorAttachment, WGPURenderPassDepthStencilAttachment,
@@ -48,8 +48,10 @@ from app.gpu_mesh import GpuMeshCache, MeshBatches, STATIC_BUFFERS, S_POS, SKINN
 from app.skin_gpu import SKIN_FN
 from app.wgsl import LIGHT_WGSL
 from app.render_res import RenderResources
-from app.lights import ATLAS_TILES, ATLAS_SIZE
+from app.lights import MAX_CASCADES
 from app.render_pass import RenderPass
+from app.cull import MeshBounds, item_radius
+from std.math import sqrt
 
 comptime SHADOW_WGSL = LIGHT_WGSL + """
 
@@ -243,6 +245,21 @@ struct ShadowCaster(Movable):
     var tile_lights: List[Buffer]
     var tile_groups: List[BindGroup]
     var tile_skin_groups: List[BindGroup]
+    var bgl: BindGroupLayout  # kept to make tile groups as more tiles are used
+    var skin_bgl: BindGroupLayout
+    var palette_bytes: Int
+    # the sun's cascades 1 .. 3 (cascade 0 is `light` / `group`)
+    var casc_lights: List[Buffer]
+    var casc_groups: List[BindGroup]
+    var casc_skin_groups: List[BindGroup]
+    # the static casters per view (prepare_views): each cascade and atlas tile draws only the casters inside its view
+    var culled: Bool  # prepare_views ran this frame; record_cascade / record_tile then draw per view
+    var ncasc: Int  # views 0 .. ncasc - 1 are the sun's cascades, then the atlas tiles
+    var vdraw: List[Int]  # per view, its mesh groups as (mesh, instances, first instance) triples
+    var vstart: List[Int]  # view v's triples are vstart[v] .. vstart[v + 1] - 1
+    var vinst: Buffer  # every view's instance records
+    var vcap: Int  # vinst's capacity, instances
+    var vtotal: Int
 
     def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
@@ -308,23 +325,150 @@ struct ShadowCaster(Movable):
         self.tile_lights = List[Buffer]()
         self.tile_groups = List[BindGroup]()
         self.tile_skin_groups = List[BindGroup]()
-        for _ in range(ATLAS_TILES):
-            var lb = device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="shadow_tile_light")
-            var te: List[WGPUBindGroupEntry] = [
-                WGPUBindGroupEntry(null_opaque(), UInt32(0), lb.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
-            ]
-            self.tile_groups.append(device.create_bind_group(bgl, te, "shadow_tile_group"))
-            var tse: List[WGPUBindGroupEntry] = [
-                WGPUBindGroupEntry(null_opaque(), UInt32(0), lb.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
-                WGPUBindGroupEntry(null_opaque(), UInt32(1), self.palette_buf.handle().raw, UInt64(0), UInt64(caps.palette_matrices * 64), null_opaque(), null_opaque()),
-            ]
-            self.tile_skin_groups.append(device.create_bind_group(skin_bgl, tse, "shadow_tile_skin_group"))
-            self.tile_lights.append(lb^)
+        self.casc_lights = List[Buffer]()
+        self.casc_groups = List[BindGroup]()
+        self.casc_skin_groups = List[BindGroup]()
+        self.palette_bytes = caps.palette_matrices * 64
+        self.culled = False
+        self.ncasc = 0
+        self.vdraw = List[Int]()
+        self.vstart = List[Int]()
+        self.vcap = 1024
+        self.vtotal = 0
+        self.vinst = device.create_buffer(
+            UInt64(1024 * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_view_instances",
+        )
+        self.bgl = bgl^
+        self.skin_bgl = skin_bgl^
+        for _ in range(MAX_CASCADES - 1):
+            var lb = self._light_buffer(device, "shadow_cascade_light")
+            self.casc_groups.append(self._group(device, lb, "shadow_cascade_group"))
+            self.casc_skin_groups.append(self._skin_group(device, lb, "shadow_cascade_skin_group"))
+            self.casc_lights.append(lb^)
 
-    def prepare_tiles(self, device: Device, res: RenderResources) raises:
-        """Write the view-projection of every atlas tile in use (after prepare, which writes the casters)."""
+    def _light_buffer(self, device: Device, label: String) raises -> Buffer:
+        return device.create_buffer(UInt64(64), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label=label)
+
+    def _group(self, device: Device, lb: Buffer, label: String) raises -> BindGroup:
+        var te: List[WGPUBindGroupEntry] = [
+            WGPUBindGroupEntry(null_opaque(), UInt32(0), lb.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
+        ]
+        return device.create_bind_group(self.bgl, te, label)
+
+    def _skin_group(self, device: Device, lb: Buffer, label: String) raises -> BindGroup:
+        var tse: List[WGPUBindGroupEntry] = [
+            WGPUBindGroupEntry(null_opaque(), UInt32(0), lb.handle().raw, UInt64(0), UInt64(64), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), UInt32(1), self.palette_buf.handle().raw, UInt64(0), UInt64(self.palette_bytes), null_opaque(), null_opaque()),
+        ]
+        return device.create_bind_group(self.skin_bgl, tse, label)
+
+    def prepare_tiles(mut self, device: Device, res: RenderResources) raises:
+        """Write the view-projection of every atlas tile in use (after prepare, which writes the casters); a tile's
+        uniform and groups are made the first time it is used."""
+        while len(self.tile_lights) < res.tiles:
+            var lb = self._light_buffer(device, "shadow_tile_light")
+            self.tile_groups.append(self._group(device, lb, "shadow_tile_group"))
+            self.tile_skin_groups.append(self._skin_group(device, lb, "shadow_tile_skin_group"))
+            self.tile_lights.append(lb^)
         for k in range(res.tiles):
             device.queue_write_data(self.tile_lights[k], UInt64(0), res.tile_vp(k))
+
+    def prepare_cascades(self, device: Device, res: RenderResources) raises:
+        """Write cascades 1 .. sun_count - 1's view-projections (cascade 0 is prepare's light_vp)."""
+        for i in range(1, res.sun_count):
+            device.queue_write_data(self.casc_lights[i - 1], UInt64(0), res.sun_vp(i))
+
+    def prepare_views(
+        mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut bounds: MeshBounds,
+        views: List[Float32], ncasc: Int,
+    ) raises:
+        """Sort the static casters into views (16 floats each: the cascades, then the atlas tiles): a caster goes to a
+        view when its bounding sphere is inside all six planes of the view's clip volume, so a point light's six faces
+        draw only what is in range, and a cascade only what reaches its square. The records of every view go into one
+        buffer, made larger when they outgrow it. Skinned casters have no bound and go to every view (record's path)."""
+        var n = len(views) // 16
+        self.ncasc = ncasc
+        self.vdraw = List[Int]()
+        self.vstart = [0]
+        var radius = List[Float64]()
+        for it in items:
+            radius.append(item_radius(it, registry, bounds) if MeshBatches[False].member(it) else -1.0)
+        var floats = List[Float32]()
+        var total = 0
+        for v in range(n):
+            # the planes of the clip volume (Gribb and Hartmann): w + x, w - x, w + y, w - y, z, w - z, from the rows
+            var planes = List[Float64]()
+            for k in range(6):
+                for c in range(4):
+                    var r0 = Float64(views[16 * v + 4 * c + 0])
+                    var r1 = Float64(views[16 * v + 4 * c + 1])
+                    var r2 = Float64(views[16 * v + 4 * c + 2])
+                    var r3 = Float64(views[16 * v + 4 * c + 3])
+                    var e = r3 + r0 if k == 0 else (r3 - r0 if k == 1 else (r3 + r1 if k == 2 else (r3 - r1 if k == 3 else (r2 if k == 4 else r3 - r2))))
+                    planes.append(e)
+            var subset = List[DrawItem]()
+            for i in range(len(items)):
+                if radius[i] < 0.0:
+                    continue
+                var inside = True
+                for k in range(6):
+                    var a = planes[4 * k]
+                    var b = planes[4 * k + 1]
+                    var c = planes[4 * k + 2]
+                    var d = a * Float64(items[i].pos[0]) + b * Float64(items[i].pos[1]) + c * Float64(items[i].pos[2]) + planes[4 * k + 3]
+                    if d < -radius[i] * sqrt(a * a + b * b + c * c):
+                        inside = False
+                        break
+                if inside:
+                    subset.append(items[i].copy())
+            var b = MeshBatches[False](subset)
+            for i in b.members:
+                model_floats(subset[i], floats)
+            for k in range(len(b.order)):
+                self.vdraw.append(b.order[k])
+                self.vdraw.append(b.counts[k])
+                self.vdraw.append(total + b.base[k])
+            total += b.total
+            self.vstart.append(len(self.vdraw) // 3)
+        if total > self.vcap:
+            while self.vcap < total:
+                self.vcap *= 2
+            self.vinst = device.create_buffer(
+                UInt64(self.vcap * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_view_instances",
+            )
+        self.vtotal = total
+        if total > 0:
+            device.queue_write_data(self.vinst, UInt64(0), floats)
+        self.culled = True
+
+    def _record_view(self, mut rpass: RenderPassEncoder, v: Int, group: BindGroup, skin_group: BindGroup, registry: MeshRegistry, gpu: GpuMeshCache):
+        """View v's static casters (prepare_views), then every skinned caster."""
+        var a = self.vstart[v]
+        var e = self.vstart[v + 1]
+        if e > a:
+            rpass.set_pipeline(self.pipeline)
+            rpass.set_bind_group(UInt32(0), group)
+            rpass.set_vertex_buffer(UInt32(1), self.vinst, UInt64(0), UInt64(self.vtotal * FLOATS_PER_INSTANCE * 4))
+            for k in range(a, e):
+                var mid = self.vdraw[3 * k]
+                var n_idx = len(registry.meshes[mid].indices)
+                rpass.set_vertex_buffer(UInt32(0), gpu.vbufs[STATIC_BUFFERS * mid + S_POS], UInt64(0), UInt64(len(registry.meshes[mid].positions) * 4))
+                rpass.set_index_buffer(gpu.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
+                rpass.draw_indexed(UInt32(n_idx), UInt32(self.vdraw[3 * k + 1]), UInt32(0), Int32(0), UInt32(self.vdraw[3 * k + 2]))
+        self._record_skinned(rpass, skin_group, registry, gpu)
+
+    def record_cascade(self, mut rpass: RenderPassEncoder, i: Int, registry: MeshRegistry, gpu: GpuMeshCache):
+        """The casters from cascade i's view; the caller has set the cascade's viewport."""
+        if i == 0:
+            self._record_either(rpass, 0, self.group, self.skin_group, registry, gpu)
+        else:
+            self._record_either(rpass, i, self.casc_groups[i - 1], self.casc_skin_groups[i - 1], registry, gpu)
+
+    def _record_either(self, mut rpass: RenderPassEncoder, v: Int, group: BindGroup, skin_group: BindGroup, registry: MeshRegistry, gpu: GpuMeshCache):
+        if self.culled:
+            self._record_view(rpass, v, group, skin_group, registry, gpu)
+        else:
+            self._record(rpass, group, skin_group, registry, gpu)
 
     def prepare(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry, mut gpu: GpuMeshCache,
@@ -334,6 +478,7 @@ struct ShadowCaster(Movable):
         items by mesh and write the casters' instance records and palette. Every item with a mesh casts."""
         if len(light_vp) != 16:
             raise Error("shadow pass: the light's view-projection is 16 floats")
+        self.culled = False
         gpu.sync(device, registry)
         device.queue_write_data(self.light, UInt64(0), light_vp)
         # the skinned casters: their palette goes to this pass's own buffer, so the shadow reads this frame's pose
@@ -366,8 +511,11 @@ struct ShadowCaster(Movable):
         self._record(rpass, self.group, self.skin_group, registry, gpu)
 
     def record_tile(self, mut rpass: RenderPassEncoder, tile: Int, registry: MeshRegistry, gpu: GpuMeshCache):
-        """The same casters from atlas tile `tile`'s view; the caller has set the tile's viewport."""
-        self._record(rpass, self.tile_groups[tile], self.tile_skin_groups[tile], registry, gpu)
+        """The casters from atlas tile `tile`'s view; the caller has set the tile's viewport."""
+        if self.culled:
+            self._record_view(rpass, self.ncasc + tile, self.tile_groups[tile], self.tile_skin_groups[tile], registry, gpu)
+        else:
+            self._record(rpass, self.tile_groups[tile], self.tile_skin_groups[tile], registry, gpu)
 
     def _record(self, mut rpass: RenderPassEncoder, group: BindGroup, skin_group: BindGroup, registry: MeshRegistry, gpu: GpuMeshCache):
         if len(self.stat.order) > 0:
@@ -380,6 +528,9 @@ struct ShadowCaster(Movable):
                 rpass.set_vertex_buffer(UInt32(0), gpu.vbufs[STATIC_BUFFERS * mid + S_POS], UInt64(0), UInt64(len(registry.meshes[mid].positions) * 4))
                 rpass.set_index_buffer(gpu.ibufs[mid], WGPUIndexFormat.Uint32, UInt64(0), UInt64(n_idx * 4))
                 rpass.draw_indexed(UInt32(n_idx), UInt32(self.stat.counts[k]), UInt32(0), Int32(0), UInt32(self.stat.base[k]))
+        self._record_skinned(rpass, skin_group, registry, gpu)
+
+    def _record_skinned(self, mut rpass: RenderPassEncoder, skin_group: BindGroup, registry: MeshRegistry, gpu: GpuMeshCache):
         if len(self.skin.order) > 0:
             rpass.set_pipeline(self.skin_pipeline)
             rpass.set_bind_group(UInt32(0), skin_group)
@@ -398,10 +549,10 @@ struct ShadowCaster(Movable):
 def record_atlas[P: RenderPass](passes: P, enc: CommandEncoder, res: RenderResources, meshes: MeshRegistry, gpu: GpuMeshCache):
     """The spot and point lights' shadow views (res.tiles of them), each into its tile of the atlas. Cannot fail."""
     var rp = begin_depth_pass(enc, res.atlas_view)
-    var t = ATLAS_SIZE // 4
     for k in range(res.tiles):
-        rp.set_viewport(Float32((k % 4) * t), Float32((k // 4) * t), Float32(t), Float32(t))
-        rp.set_scissor_rect(UInt32((k % 4) * t), UInt32((k // 4) * t), UInt32(t), UInt32(t))
+        var q = res.tile_place(k)
+        rp.set_viewport(Float32(q[0]), Float32(q[1]), Float32(q[2]), Float32(q[2]))
+        rp.set_scissor_rect(UInt32(q[0]), UInt32(q[1]), UInt32(q[2]), UInt32(q[2]))
         passes.record_local_shadow(rp, k, meshes, gpu)
     rp^.end()
 
@@ -429,11 +580,15 @@ struct ShadowPass(RenderPass):
     var caster: ShadowCaster
     var gpu: GpuMeshCache  # draw()'s mesh copies; unused in a renderer's pass list
     var active: Bool  # prepared this frame in a pass list (the renderer's shadow is on)
+    var places: List[Int]  # this frame's cascades: x, y, size in the sun's map
+    var bounds: MeshBounds  # the meshes' bounding radii, for sorting the casters into views
 
     def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
         self.caster = ShadowCaster(device, depth_format, caps)
         self.gpu = GpuMeshCache()
         self.active = False
+        self.places = List[Int]()
+        self.bounds = MeshBounds()
 
     def draw(
         mut self, device: Device, items: List[DrawItem], registry: MeshRegistry,
@@ -469,15 +624,31 @@ struct ShadowPass(RenderPass):
         for it in items:
             if casts_shadow(it):
                 casters.append(it.copy())
-        var vp = res.light_vp.copy()
-        if len(vp) != 16:  # the sun's shadow was never set: only the atlas is drawn
-            vp = List[Float32](length=16, fill=Float32(0))
+        var vp = res.sun_vp(0)
         self.caster.prepare(device, casters, meshes, gpu, vp, palette)
+        self.caster.prepare_cascades(device, res)
         self.caster.prepare_tiles(device, res)
+        var views = List[Float32]()
+        var ncasc = res.sun_count if self.active else 0
+        for i in range(ncasc):
+            views.extend(res.sun_vp(i))
+        for k in range(res.tiles):
+            views.extend(res.tile_vp(k))
+        self.caster.prepare_views(device, casters, meshes, self.bounds, views, ncasc)
+        self.places = List[Int]()
+        for i in range(res.sun_count):
+            var q = res.sun_place(i)
+            self.places.append(q[0]); self.places.append(q[1]); self.places.append(q[2])
 
     def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
         if self.active:
-            self.caster.record(rpass, meshes, gpu)
+            for i in range(len(self.places) // 3):
+                var x = self.places[3 * i]
+                var y = self.places[3 * i + 1]
+                var t = self.places[3 * i + 2]
+                rpass.set_viewport(Float32(x), Float32(y), Float32(t), Float32(t))
+                rpass.set_scissor_rect(UInt32(x), UInt32(y), UInt32(t), UInt32(t))
+                self.caster.record_cascade(rpass, i, meshes, gpu)
 
     def record_local_shadow(self, mut rpass: RenderPassEncoder, tile: Int, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.caster.record_tile(rpass, tile, meshes, gpu)

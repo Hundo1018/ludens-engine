@@ -12,8 +12,9 @@ of the `Lights` uniform, the environment as order-2 spherical harmonics, and the
 Units: a light's colour times intensity is what a white matte surface facing it reflects (at the light, for a point or
 spot light; with the panel filling its view, for an area light; anywhere, for a directional light).
 
-Shadows: the sun has its map (set_shadow). The others take tiles of the 4 x 4 shadow atlas when asked: a point light
-six (a cube), a spot, directional or area light one; 16 tiles in all. Only items with a mesh cast, as for the sun.
+Shadows: the sun has its map, in cascades along the view (set_sun_cascades) or one fixed box (set_shadow). The others
+take tiles of the shadow atlas when asked: a point light six (a cube), a spot, directional or area light one; up to
+MAX_TILES in all, sized per frame by atlas_sizes and placed by atlas_place. Only items with a mesh cast, as for the sun.
 """
 from std.math import sqrt, sin, cos, tan, pi
 from geometry.vec import Real, Vec3
@@ -22,8 +23,11 @@ comptime MAX_POINT_LIGHTS = 16
 comptime MAX_SPOT_LIGHTS = 8
 comptime MAX_DIR_LIGHTS = 4
 comptime MAX_AREA_LIGHTS = 4
-comptime ATLAS_TILES = 16  # 4 x 4
-comptime ATLAS_SIZE = 2048  # the atlas, square: 512 per tile, 16 MB of depth
+comptime MAX_TILES = 112  # atlas tiles: every light with a shadow (16 point lights x 6 + 8 spot + 4 directional + 4 area)
+comptime ATLAS_SIZE = 2048  # the atlas by default, square: 16 MB of depth (RenderResources.set_shadow_atlas changes it)
+comptime TILE_START = 512  # the size a tile is asked for; halved for the least important lights until all fit
+comptime TILE_MIN = 64  # the smallest tile: 112 of them take 0.46 M texels, so every light fits in a 1024 atlas
+comptime MAX_CASCADES = 4  # the sun's shadow cascades (set_sun_cascades), 2 x 2 squares of one map
 
 # float offsets into the uniform (the WGSL struct `Lights`)
 comptime L_COUNT = 0
@@ -39,11 +43,12 @@ comptime L_PSHADOW = 192  # 16
 comptime L_SPOTS = 208  # 8 x 16
 comptime L_DIRS = 336  # 4 x 8
 comptime L_AREAS = 368  # 4 x 16
-comptime L_TILES = 432  # 16 x 16
-comptime L_PROBE_ORG = 688  # the irradiance probe grid (app/irradiance.mojo): its first probe's position, w 1 when on
-comptime L_PROBE_CELL = 692  # the spacing of the probes along x, y, z (m)
-comptime L_PROBE_DIM = 696  # the probe counts along x, y, z
-comptime LIGHTS_FLOATS = 700
+comptime L_PROBE_ORG = 432  # the irradiance probe grid (app/irradiance.mojo): its first probe's position, w 1 when on
+comptime L_PROBE_CELL = 436  # the spacing of the probes along x, y, z (m)
+comptime L_PROBE_DIM = 440  # the probe counts along x, y, z
+comptime L_TILES = 444  # MAX_TILES x 16: the atlas tiles' view-projections
+comptime L_TILE_RECT = L_TILES + 16 * MAX_TILES  # MAX_TILES x 4: each tile's place in the atlas (u, v, uv size, texels)
+comptime LIGHTS_FLOATS = L_TILE_RECT + 4 * MAX_TILES
 comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4
 
 
@@ -365,3 +370,124 @@ def area_taps_factor(half_a: Float64, half_b: Float64, dist: Float64) -> Float64
         var cosine = dist / sqrt(d2)
         s += min(cosine * w * half_a * half_b / (pi * d2), w * 0.25) * cosine
     return s
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# the shadow atlas: tile sizes and places
+
+
+def atlas_sizes(faces: List[Int], scores: List[Float64], atlas: Int) raises -> List[Int]:
+    """The tile size (texels, a power of two) of each light with a shadow: `faces[i]` tiles of it (6 for a point light,
+    1 for the others), `scores[i]` how little it matters (larger: halved first; the renderer uses the camera's distance
+    over the light's range). Every light starts at TILE_START; while the tiles cover more than the atlas, the largest
+    tile of the least important light is halved, down to TILE_MIN. So all lights come down to 256 before any goes to 128."""
+    if len(faces) != len(scores):
+        raise Error("atlas_sizes: one score per light")
+    var size = List[Int](length=len(faces), fill=TILE_START)
+    var area = 0
+    var tiles = 0
+    for f in faces:
+        area += f * TILE_START * TILE_START
+        tiles += f
+    if tiles > MAX_TILES:
+        raise Error("renderer: " + String(tiles) + " shadow tiles asked for, at most " + String(MAX_TILES))
+    while area > atlas * atlas:
+        var pick = -1
+        for i in range(len(faces)):
+            if size[i] <= TILE_MIN:
+                continue
+            if pick < 0 or size[i] > size[pick] or (size[i] == size[pick] and scores[i] > scores[pick]):
+                pick = i
+        if pick < 0:
+            raise Error("renderer: the shadow tiles do not fit in a " + String(atlas) + " atlas at the smallest size")
+        var s = size[pick]
+        area -= faces[pick] * (s * s - (s // 2) * (s // 2))
+        size[pick] = s // 2
+    return size^
+
+
+def _morton_x(i: Int) -> Int:
+    """The even bits of i, packed: the x of Morton index i."""
+    var x = 0
+    var b = 0
+    var v = i
+    while v > 0:
+        x |= (v & 1) << b
+        v >>= 2
+        b += 1
+    return x
+
+
+def atlas_place(sizes: List[Int], atlas: Int) raises -> List[Int]:
+    """Where each tile goes: 2 ints per tile (x, y in texels). Tiles are placed largest first, each at the next free
+    place along the Morton (Z) order of TILE_MIN cells: a power-of-two square placed after larger ones starts on a
+    multiple of its own area, which that order maps to an aligned square, so the tiles never overlap and fill the atlas
+    without gaps up to its area."""
+    var order = List[Int]()
+    for s in [TILE_START, TILE_START // 2, TILE_START // 4, TILE_START // 8, TILE_MIN]:
+        for i in range(len(sizes)):
+            if sizes[i] == s:
+                order.append(i)
+    if len(order) != len(sizes):
+        raise Error("atlas_place: tile sizes are powers of two from TILE_MIN to TILE_START")
+    var out = List[Int](length=2 * len(sizes), fill=0)
+    var cell = 0  # in TILE_MIN x TILE_MIN cells, along the Morton order
+    for i in order:
+        var c = sizes[i] // TILE_MIN
+        var x = _morton_x(cell) * TILE_MIN
+        var y = _morton_x(cell >> 1) * TILE_MIN
+        if x + sizes[i] > atlas or y + sizes[i] > atlas:
+            raise Error("atlas_place: the tiles cover more than the atlas")
+        out[2 * i] = x
+        out[2 * i + 1] = y
+        cell += c * c
+    return out^
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# the sun's cascades
+
+
+def cascade_splits(near: Float64, far: Float64, count: Int, lam: Float64) -> List[Float64]:
+    """count + 1 view depths from `near` to `far`: the practical split scheme (Zhang et al. 2006), `lam` of the
+    logarithmic split plus 1 - lam of the even one."""
+    var out = List[Float64]()
+    for i in range(count + 1):
+        var f = Float64(i) / Float64(count)
+        var lg = near * (far / near) ** f
+        var ev = near + (far - near) * f
+        out.append(lam * lg + (1.0 - lam) * ev)
+    return out^
+
+
+def cascade_sphere(eye: Vec3, fwd: Vec3, sx: Float64, sy: Float64, ortho: Bool, z0: Float64, z1: Float64) -> Tuple[Vec3, Float64]:
+    """The smallest sphere about the view's axis around the part of the view between depths z0 and z1 (its centre and
+    radius). It depends on the slice only, not on the view's turn, so a cascade's size does not change as the camera
+    turns."""
+    if ortho:
+        var hx = 1.0 / sx
+        var hy = 1.0 / sy
+        var hz = (z1 - z0) * 0.5
+        return (eye + fwd * Real((z0 + z1) * 0.5), sqrt(hx * hx + hy * hy + hz * hz))
+    var k2 = 1.0 / (sx * sx) + 1.0 / (sy * sy)  # (half diagonal / depth)^2
+    var c = min((1.0 + k2) * (z0 + z1) * 0.5, z1)
+    var r = sqrt(max((z1 - c) * (z1 - c) + k2 * z1 * z1, (c - z0) * (c - z0) + k2 * z0 * z0))
+    return (eye + fwd * Real(c), r)
+
+
+def cascade_vp(to_sun: Vec3, centre: Vec3, radius: Float64, texels: Int, reach: Float64) raises -> List[Float32]:
+    """The parallel view of one cascade: a square of 2 radius around `centre` (the radius rounded up to 1/16 m), moved
+    in the sun's view plane to a whole number of texels so the shadow's edges stay still while the camera moves, and
+    reaching `reach` metres toward the sun past the sphere for the casters there."""
+    var d = unit(to_sun)
+    var f = _v(-Float64(d[0]), -Float64(d[1]), -Float64(d[2]))
+    var b = _basis(f)
+    var r = Float64(Int(radius * 16.0) + 1) / 16.0
+    var texel = 2.0 * r / Float64(texels)
+    var cx = _dot(centre, b[0])
+    var cy = _dot(centre, b[1])
+    cx = Float64(Int(cx / texel + (0.5 if cx >= 0 else -0.5))) * texel
+    cy = Float64(Int(cy / texel + (0.5 if cy >= 0 else -0.5))) * texel
+    var snapped = b[0] * Real(cx) + b[1] * Real(cy) + f * Real(_dot(centre, f))
+    var eye = snapped + d * Real(r + reach)
+    return _mat(b[0], b[1], f, eye, 1.0 / r, 1.0 / r, 1.0 / (2.0 * r + reach), 0.0, False)

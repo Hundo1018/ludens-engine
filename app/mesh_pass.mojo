@@ -15,7 +15,7 @@ from geometry.vec import Real, Vec3
 from std.math import sin, cos
 from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, ENV_WGSL, PROBES_WGSL
-from app.render_res import RenderResources, LIGHTS_BYTES, PROBE_BYTES, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_PRIMITIVE_INSTANCES, DEFAULT_PALETTE_MATRICES
+from app.render_res import RenderResources, SHADOW_UBO_BYTES, LIGHTS_BYTES, PROBE_BYTES, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_PRIMITIVE_INSTANCES, DEFAULT_PALETTE_MATRICES
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
 from wgpu import WGPUTextureUsage
@@ -37,7 +37,8 @@ from wgpu import raw_alloc
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
-from wgpu.bind_group import BindGroup
+from wgpu.bind_group import BindGroup, BindGroupLayout
+from wgpu import WGPUBindGroupEntry
 from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
@@ -381,6 +382,9 @@ struct MeshPassOf[*Ms: Material](RenderPass):
         return "Mesh[" + names + "]" if names.byte_length() > 0 else String("Mesh")
 
     var group: BindGroup
+    var bgl: BindGroupLayout  # kept to bind the renderer's textures again (_rebind)
+    var entries: List[WGPUBindGroupEntry]
+    var gen: Int  # the RenderResources.gen the group was made for
     var staging: List[Float32]
     var batches: MeshBatches[False]  # this frame's static mesh items by mesh (prepare)
     var max_instances: Int  # RenderCaps.mesh_instances
@@ -495,7 +499,7 @@ struct MeshPassOf[*Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), res.shadow_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), res.shadow_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 5, res.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 5, res.shadow_ubo.handle().raw, 0, UInt64(SHADOW_UBO_BYTES), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 6, res.ao_cells.handle().raw, 0, UInt64(AO_MAX_CELLS * 4), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 7, res.ao_ubo.handle().raw, 0, UInt64(48), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 8, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
@@ -504,8 +508,23 @@ struct MeshPassOf[*Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 11, res.probes.handle().raw, 0, UInt64(PROBE_BYTES), null_opaque(), null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
+        self.bgl = bgl^
+        self.entries = bg_entries^
+        self.gen = res.gen
         self.staging = List[Float32]()
         self.batches = MeshBatches[False]()
+
+    def _rebind(mut self, device: Device, res: RenderResources) raises:
+        """Bind the renderer's shadow map and atlas again after either was made anew (RenderResources.gen)."""
+        if self.gen == res.gen:
+            return
+        for k in range(len(self.entries)):
+            if self.entries[k].binding == 3:
+                self.entries[k].texture_view = res.shadow_view.handle().raw
+            elif self.entries[k].binding == 9:
+                self.entries[k].texture_view = res.atlas_view.handle().raw
+        self.group = device.create_bind_group(self.bgl, self.entries, "mesh_group")
+        self.gen = res.gen
 
     @staticmethod
     def create(
@@ -521,6 +540,7 @@ struct MeshPassOf[*Ms: Material](RenderPass):
         """Everything that can fail, done before the render pass opens: sync the meshes' GPU copies, group the mesh
         items by mesh, write the instance records. record() then only sets state and draws. The camera header is
         written by the renderer (RenderResources.write_camera)."""
+        self._rebind(device, res)
         gpu.sync(device, registry)
         self.batches = MeshBatches[False](items)
         if self.batches.total > self.max_instances:

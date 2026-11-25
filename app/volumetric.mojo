@@ -49,6 +49,7 @@ from wgpu.texture import Texture, TextureView
 from app.post import PostEffect, PostInputs, FRAME_WGSL, FRAME_BYTES, POST_MAIN_WGSL
 from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL
 from app.lights import LIGHTS_BYTES
+from app.render_res import SHADOW_UBO_BYTES
 from app.gpu_bytes import texture_bytes
 
 comptime FROXELS_X = 160
@@ -97,15 +98,16 @@ fn hg(c : f32, g : f32) -> f32 {
   let d = 1.0 + g * g - 2.0 * g * c;
   return (1.0 - g * g) / (4.0 * L_PI * d * sqrt(d));
 }
-fn sun_visible(w : vec3<f32>) -> f32 {
+// the sun's map at a world point: the cascade its view depth z falls in (app/wgsl.mojo SHADOW_UBO_WGSL)
+fn sun_visible(w : vec3<f32>, z : f32) -> f32 {
   if shadow.params.x < 0.5 { return 1.0; }
-  let c = shadow.vp * vec4<f32>(w, 1.0);
-  let p = c.xyz / c.w;
-  let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
-  if uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || p.z > 1.0 || p.z < 0.0 { return 1.0; }
+  let i = cascade_for(z);
+  if i >= cascade_count() { return 1.0; }
+  let q = cascade_uv(i, w);
+  if q.w < 0.5 || q.z < 0.0 { return 1.0; }
   let d = vec2<i32>(textureDimensions(shadow_map));
-  let t = clamp(vec2<i32>(uv * vec2<f32>(d)), vec2<i32>(0), d - vec2<i32>(1));
-  return select(0.0, 1.0, p.z <= textureLoad(shadow_map, t, 0) + 0.002);
+  let t = clamp(vec2<i32>(q.xy * vec2<f32>(d)), vec2<i32>(0), d - vec2<i32>(1));
+  return select(0.0, 1.0, q.z <= textureLoad(shadow_map, t, 0) + 0.002);
 }
 fn density(w : vec3<f32>) -> f32 {
   return frame.vol.x * exp(-frame.vol.z * max(w.y - frame.vol.w, 0.0));
@@ -120,7 +122,7 @@ fn inject(@builtin(global_invocation_id) id : vec3<u32>) {
   let sigma = density(w);
   let view_dir = normalize(w - frame.eye.xyz);  // from the eye
   let g = clamp(frame.vol.y, -0.95, 0.95);
-  var l = lights.sun_color.rgb * hg(dot(view_dir, sun_dir()), g) * sun_visible(w);
+  var l = lights.sun_color.rgb * hg(dot(view_dir, sun_dir()), g) * sun_visible(w, z);
   let np = min(u32(lights.n.x), 16u);
   for (var i = 0u; i < np; i++) {
     let d = lights.l[i].pos_range.xyz - w;
@@ -299,9 +301,9 @@ struct VolumetricFog(PostEffect):
         self.composite = device.create_render_pipeline(s3, "vs_main", "fs_main", color_format, device.create_pipeline_layout(self.composite_layout, "vol_composite"))
         self.ubo = device.create_buffer(UInt64(FRAME_BYTES), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="vol_frame")
         self.spare_lights = device.create_buffer(UInt64(LIGHTS_BYTES), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="vol_lights")
-        self.spare_shadow = device.create_buffer(UInt64(128), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="vol_shadow")
+        self.spare_shadow = device.create_buffer(UInt64(SHADOW_UBO_BYTES), WGPUBufferUsage.UNIFORM | WGPUBufferUsage.COPY_DST, label="vol_shadow")
         device.queue_write_data(self.spare_lights, UInt64(0), List[Float32](length=LIGHTS_BYTES // 4, fill=Float32(0)))
-        device.queue_write_data(self.spare_shadow, UInt64(0), List[Float32](length=32, fill=Float32(0)))
+        device.queue_write_data(self.spare_shadow, UInt64(0), List[Float32](length=SHADOW_UBO_BYTES // 4, fill=Float32(0)))
         self.sampler = device.create_sampler(mag_filter=2, min_filter=2, label="vol_linear")
         var usage = WGPUTextureUsage.STORAGE_BINDING | WGPUTextureUsage.TEXTURE_BINDING
         self.cells = device.create_texture(UInt32(FROXELS_X), UInt32(FROXELS_Y), UInt32(FROXELS_Z), VOLUME_FORMAT, usage, dimension=3, label="vol_cells")
@@ -325,7 +327,7 @@ struct VolumetricFog(PostEffect):
         var g1: List[WGPUBindGroupEntry] = [
             _buf(UInt32(0), self.ubo.handle(), FRAME_BYTES),
             _buf(UInt32(1), lights, LIGHTS_BYTES),
-            _buf(UInt32(2), shadow, 128),
+            _buf(UInt32(2), shadow, SHADOW_UBO_BYTES),
             _view(UInt32(3), inp.shadow),
             _view(UInt32(4), self.cells_view),
         ]
