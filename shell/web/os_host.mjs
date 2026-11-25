@@ -1,3 +1,4 @@
+import { createCrashImports } from "./crash_host.mjs";
 import { browserDevice, createDeviceImports } from "./device_host.mjs";
 
 // os_* imports (ludens-engine #8): the platform services a game or an editor needs, as generic imports.
@@ -10,6 +11,7 @@ import { browserDevice, createDeviceImports } from "./device_host.mjs";
 // A result packet is [kind u8][id u32 LE][status u8][payload]: kind 1 = clipboard text (id 0), kind 2 = file read
 // (id of the request; status 0 ok, 1 not found, 2 error). Asynchronous work never calls back into wasm: its result
 // is queued and the game takes it with os_poll inside a frame (ludens-wasm-rt's re-entry rule).
+// os_crash_arm(ptr, len) and `crash.capture(error)` (#147) are in crash_host.mjs; the report goes to the same storage.
 // The device imports (os_dev_*: haptics, motion, screen, pointer lock, camera, microphone; #135) are in device_host.mjs, and use the same os_poll queue.
 // What it cannot do, on purpose (Play policy, ludens-engine #23): load code, run commands, install anything, or touch a
 // path outside the app's own storage. File paths are relative, `/`-separated, with no `.` / `..` / empty segment.
@@ -54,7 +56,7 @@ export function opfsStorage() {
   };
 }
 
-export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboard, storage = memoryStorage(), device = browserDevice() } = {}) {
+export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboard, storage = memoryStorage(), device = browserDevice(), sourceMap = null } = {}) {
   const inbox = [];
   const status = { clipboardWrites: 0, fileWrites: 0, fileReads: 0, refused: 0, dropped: 0 };
   const packet = (kind, id, st, payload) => {
@@ -66,11 +68,14 @@ export function createOsImports(rt, { clipboard = globalThis.navigator?.clipboar
     return out;
   };
   const dev = createDeviceImports(rt, (p) => inbox.push(p), device); // os_dev_*: shell/web/device_host.mjs
+  const crash = createCrashImports(rt, storage, { sourceMap }); // os_crash_arm: shell/web/crash_host.mjs
   return {
     status,
     device: dev.status,
+    crash,
     env: {
       ...dev.env,
+      ...crash.env,
       os_clipboard_write(ptr, len) {
         if (!clipboard || Number(len) > MAX_CLIPBOARD_BYTES) { status.refused++; return -1; }
         const text = rt.str(ptr, len);
