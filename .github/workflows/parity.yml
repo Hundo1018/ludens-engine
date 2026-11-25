@@ -80,6 +80,9 @@ jobs:
       - name: Mesh LOD, volumetric fog and irradiance probes (#141) on lavapipe
         run: pixi run -e wasm test-tier3
 
+      - name: "Screen-space effects and lens shapes: bokeh, anamorphic streak, on lavapipe"
+        run: pixi run -e wasm test-tier4
+
       - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
         run: pixi run -e wasm test-access-gpu
 
