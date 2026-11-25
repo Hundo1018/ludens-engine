@@ -82,6 +82,10 @@ jobs:
         run: pixi run -e wasm test-automation
       - name: Input actions through the wasm64 app (axes, rebinding, saved profile), node (#117)
         run: pixi run -e wasm test-input
+      - name: "Accessibility (#118): settings, captions, shake, filters on the CPU, host wiring"
+        run: pixi run -e wasm test-access
+      - name: "Accessibility (#118): settings, profile file, captions, shake and volumes through the wasm64 app, node"
+        run: pixi run -e wasm test-access-app
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node
