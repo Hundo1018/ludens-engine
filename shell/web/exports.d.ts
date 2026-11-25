@@ -52,4 +52,12 @@ export interface AppExports {
   app_prompt(app: bigint, ptr: bigint, length: bigint, device: number): number;
   app_text_len(app: bigint): number;
   app_text_ptr(app: bigint): bigint;
+  app_access_set(app: bigint, ptr: bigint, length: bigint): number;
+  app_access_reset(app: bigint): number;
+  app_access_text(app: bigint): number;
+  app_captions_load(app: bigint, ptr: bigint, length: bigint): number;
+  app_caption_say(app: bigint, ptr: bigint, length: bigint, duration_ms: number): number;
+  app_captions_state(app: bigint): number;
+  app_shake(app: bigint, trauma: number): number;
+  app_shake_offset(app: bigint, axis: number): number;
 }

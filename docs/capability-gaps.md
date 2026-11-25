@@ -36,7 +36,7 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 | 9 | Localization: string tables, plurals, font coverage, RTL | H | L1: `ui/loc.mojo` string tables (fallback chain, plurals for 4 rule families, pseudo-localization, glyph check); L3: core `gameplay/loc_keys` (ids only) | RTL shaping, plural categories zero / two, gender agreement not handled (follow-up) | #116 |
 | 10 | Audio: events, buses with ducking, adaptive music, 3D attenuation | H | L1: `app/mixer.mojo` (events with seeded clip / pitch / volume, 6 buses with dB and mute, sidechain ducking, music layers changed on the bar line, a miniaudio `Spatializer` per positioned voice, BS.1770 LUFS), `docs/audio.md` | occlusion, reverb and HRTF (#137); music streams are PCM in memory (#142); no event editor | #120 |
 
-Next in emphasis: **accessibility** (H in one set, M in the other; nothing exists here, #118), a **dialogue graph
+Next in emphasis: **accessibility** (H in one set, M in the other; built in #118: `docs/accessibility.md`), a **dialogue graph
 with a validator** (core `gameplay/dialogue` is L3 with no asset format or validator), **networking with a real
 server** (in-page rollback and prediction are L1; no remote server, matchmaking or relay), **telemetry and crash
 reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **particles** (built in #121: `docs/particles.md`).

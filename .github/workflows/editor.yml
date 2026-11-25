@@ -62,6 +62,8 @@ jobs:
         run: pixi run -e wasm test-os
       - name: Input profile, save seam and clipboard share one os_poll reader, node (#117)
         run: pixi run -e wasm test-os-router
+      - name: Device seams (haptics, motion, screen, pointer lock, camera, microphone), web backends over fake browser objects, node (#135)
+        run: pixi run -e wasm test-device
       - name: net_poll drops an oversized packet and delivers the next, node
         run: pixi run -e wasm test-net
       - name: ludens build --target web twice, byte-identical manifests
@@ -80,6 +82,10 @@ jobs:
         run: pixi run -e wasm test-automation
       - name: Input actions through the wasm64 app (axes, rebinding, saved profile), node (#117)
         run: pixi run -e wasm test-input
+      - name: "Accessibility (#118): settings, captions, shake, filters on the CPU, host wiring"
+        run: pixi run -e wasm test-access
+      - name: "Accessibility (#118): settings, profile file, captions, shake and volumes through the wasm64 app, node"
+        run: pixi run -e wasm test-access-app
       - name: Gamepad mapping, node
         run: pixi run -e wasm test-pad
       - name: Virtual pad kit, node
@@ -112,5 +118,5 @@ jobs:
           environments: wasm
       - name: Layout and focus tests, built without the engine on the include path
         run: pixi run -e wasm test-ui
-      - name: platform/ seams (Transport over memory, UDP and TCP on loopback; local identity, achievements, save, lobby)
+      - name: platform/ seams (Transport over memory, UDP and TCP on loopback; local identity, achievements, save, lobby; device seams in memory)
         run: pixi run -e wasm test-transport

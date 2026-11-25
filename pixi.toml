@@ -119,16 +119,31 @@ test-cli = "python3 tests/test_cli.py"
 test-os = "python3 scripts/test_os.py"
 # #117: the input profile, the save seam and the clipboard share one os_poll reader (app/os_router.mojo); their requests in flight together.
 test-os-router = "python3 scripts/test_os_router.py"
+# #135: the web backends of the device seams (haptics, motion, screen, pointer lock, camera, microphone) over the real os_dev_* imports, against fake browser objects, node.
+test-device = "python3 scripts/test_device.py"
+# #135: one source change at a time to the device seams, the memory backends and the web host; the covering test must fail (not in CI: it builds once per mutation)
+mutation-device = "python3 scripts/mutation_device.py"
+# #135: the device web backends in headless Chrome: synthetic camera and microphone, sensor overrides, a user activation; prints the camera copy time per frame (scripts/device_web_check.py)
+device-web = "python3 scripts/device_web_check.py"
 # net_poll / os_poll: an oversized packet is dropped and counted, the packets behind it still arrive.
 test-net = "node tests/test_net.mjs"
 # platform/ seams (docs/platform.md), standard library only: one Transport send / poll script over the memory pipe, UDP
 # and TCP on loopback; then the local identity, achievements, cloud save and lobby implementations.
-test-transport = "python3 scripts/test_native.py platform_transport platform_services platform_save"
+test-transport = "python3 scripts/test_native.py platform_transport platform_services platform_save platform_device"
 test-build = "python3 tests/test_build.py"
 # #115 (E21): window.game under node, divergence trace, `ludens sim` batch runner (docs/automation.md); builds build/app.wasm first.
 test-automation = { cmd = "python3 tests/test_automation.py", depends-on = ["build-wasm"] }
 # #117 (E23): axes, gamepad / on-screen pad events, rebinding and the saved profile through window.game (docs/input.md); builds build/app.wasm first.
 test-input = { cmd = "python3 scripts/test_input.py", depends-on = ["build-wasm"] }
+# #118 (E24): accessibility. Settings and their profile rows, camera shake, captions, the CPU side of the colour-blind and flash filters (standard
+# library + ui/), then the host side (text scale into the HUD, volumes and mono into the mixer, events into captions; links miniaudio).
+test-access = "python3 scripts/test_native.py access && python3 scripts/test_audio.py access_app"
+# #118: the colour-blind stage, the flash limiter and the reduce-motion flag on lavapipe, pixel by pixel against the CPU model
+test-access-gpu = "python3 scripts/test_native.py access_native"
+# #118: the settings, profile file, captions, shake and the mixed audio through the wasm64 app under node; builds build/app.wasm first
+test-access-app = { cmd = "python3 scripts/test_access.py", depends-on = ["build-wasm"] }
+# #118: one source change at a time; the covering test must fail (not in CI: about 6 minutes of builds)
+mutation-access = "python3 scripts/mutation_access.py"
 divergence = "python3 scripts/divergence.py"
 # window.game in headless Chrome (?manual&seed=&scene=) against the same job under node.
 hook-web = { cmd = "python3 scripts/hook_web_check.py", depends-on = ["build-wasm"] }

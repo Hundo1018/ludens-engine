@@ -93,6 +93,8 @@ struct Mixer(Movable):
     var bus_db: List[Float32]
     var bus_mute: List[Bool]
     var bus_gain: List[Float32]  # linear, from bus_db and bus_mute
+    var user_gain: List[Float32]  # the player's volume per bus (game/access.mojo): 1.0 leaves the game's setting alone
+    var mono: Bool  # the player's mono output: left and right of the final mix both become their mean
     var duck_source: Int
     var duck_target: Int
     var duck_gain_target: Float32
@@ -129,11 +131,14 @@ struct Mixer(Movable):
         self.bus_db = List[Float32]()
         self.bus_mute = List[Bool]()
         self.bus_gain = List[Float32]()
+        self.user_gain = List[Float32]()
+        self.mono = False
         self.scratch = List[List[Float32]]()
         for _ in range(BUS_COUNT):
             self.bus_db.append(0.0)
             self.bus_mute.append(False)
             self.bus_gain.append(1.0)
+            self.user_gain.append(1.0)
             self.scratch.append(List[Float32]())
         self.duck_source = BUS_VOICE
         self.duck_target = BUS_MUSIC
@@ -168,6 +173,8 @@ struct Mixer(Movable):
         self.bus_db = move.bus_db^
         self.bus_mute = move.bus_mute^
         self.bus_gain = move.bus_gain^
+        self.user_gain = move.user_gain^
+        self.mono = move.mono
         self.duck_source = move.duck_source
         self.duck_target = move.duck_target
         self.duck_gain_target = move.duck_gain_target
@@ -238,6 +245,14 @@ struct Mixer(Movable):
     def set_bus_mute(mut self, bus: Int, mute: Bool):
         self.bus_mute[bus] = mute
         self._bus_changed(bus)
+
+    def set_user_volume(mut self, bus: Int, gain: Float32):
+        """The player's volume for a bus as an amplitude factor, 0 .. 1 (`Access.volume_gain`). It multiplies what `set_bus_db` and
+        `set_bus_mute` set, so a game's own mix (music at -14 dB) is kept and the player scales it."""
+        self.user_gain[bus] = 0.0 if gain < 0.0 else (1.0 if gain > 1.0 else gain)
+
+    def set_mono(mut self, on: Bool):
+        self.mono = on
 
     def _bus_changed(mut self, bus: Int):
         self.bus_gain[bus] = 0.0 if self.bus_mute[bus] else db_to_gain(self.bus_db[bus])
@@ -429,7 +444,7 @@ struct Mixer(Movable):
                 self._mix_voice(slot, frames)
         self.music.render(self.clips, self.scratch[BUS_MUSIC], frames)
         out.resize(2 * frames, 0.0)
-        var master = self.bus_gain[BUS_MASTER]
+        var master = self.bus_gain[BUS_MASTER] * self.user_gain[BUS_MASTER]
         for i in range(frames):
             ref s = self.scratch[self.duck_source]
             var peak = s[2 * i]
@@ -447,11 +462,15 @@ struct Mixer(Movable):
             var l = Float32(0.0)
             var r = Float32(0.0)
             for b in range(1, BUS_COUNT):
-                var g = self.bus_gain[b]
+                var g = self.bus_gain[b] * self.user_gain[b]
                 if b == self.duck_target:
                     g = g * self.duck_now
                 l += self.scratch[b][2 * i] * g
                 r += self.scratch[b][2 * i + 1] * g
+            if self.mono:
+                var m = (l + r) * 0.5
+                l = m
+                r = m
             out[2 * i] = l * master
             out[2 * i + 1] = r * master
         self.meter.feed(out, frames)

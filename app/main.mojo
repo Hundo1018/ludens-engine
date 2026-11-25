@@ -8,6 +8,7 @@ the C-ABI below exports the default instance.
 
 ludens, wgpu and miniaudio are called Mojo to Mojo; none of it goes through ludens' C-ABI."""
 from audio_assets import load_music, lsound_to_mono
+from access_host import AccessHost
 from audio_event import AudioEvent, BUS_MUSIC, parse_events
 from audio_math import Rng
 from controls import KEY_F2, MOUSE_LEFT, read_frame
@@ -100,7 +101,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var out_text: String  # what app_state / app_events last wrote; app_text_ptr is its address
     var controls: Controls
     var os_router: OsRouter  # the one reader of os_poll; the profile, and later the saves, take their results from it
-    var profile: ProfileStore  # the saved bindings (app/profile.mojo)
+    var profile: ProfileStore  # the saved bindings and accessibility settings (app/profile.mojo)
+    var acc: AccessHost  # the player's accessibility settings, captions and camera shake (app/access_host.mojo)
     var input_loc: Localizer  # display names of the input sources (game/input_strings.mojo)
     var cue_events: List[Int]  # the mixer's event id of each game cue, by cue number (-1 for cue 0)
     var game_renderer: Optional[SceneRendererOf[Self.P, Self.F, Self.A]]
@@ -160,6 +162,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.controls = Controls()
         self.os_router = OsRouter()
         self.profile = ProfileStore(self.os_router)
+        self.acc = AccessHost()
         self.input_loc = input_localizer()
         self.cue_events = List[Int]()
         self.game_renderer = None
@@ -217,6 +220,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.controls = move.controls^
         self.os_router = move.os_router
         self.profile = move.profile^
+        self.acc = move.acc^
         self.input_loc = move.input_loc^
         self.cue_events = move.cue_events^
         self.game_renderer = move.game_renderer^
@@ -251,7 +255,7 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         """Take every packet the host has queued; the newest stays readable through app_net_last_*. The saved input profile
         is asked for on the first frame and applied when it arrives."""
         _ = self.profile.request()
-        self.profile.poll(self.controls.actions)
+        self.profile.poll(self.controls.actions, self.acc.access)
         for _ in range(NET_PER_FRAME):
             var n = self.net.poll(UInt64(Int(self.net_rx.unsafe_ptr())), NET_CAP)
             if n == NET_DROPPED:
@@ -355,16 +359,19 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.event_log.append(cue)
             if cue > 0 and cue < len(self.cue_events):
                 _ = self.sim.mixer.play_event(self.cue_events[cue], flat=True)  # no position: heard from the center
+                self.acc.heard(self.sim.mixer, self.cue_events[cue])
         for c in m.positioned_cues():
             if c.logged:
                 self.event_log.append(self.game_frames)
                 self.event_log.append(c.cue)
             if c.cue > 0 and c.cue < len(self.cue_events):
                 _ = self.sim.mixer.play_event(self.cue_events[c.cue], c.x, c.y, c.z, c.gain_db, False, c.vx, c.vy, c.vz)
+                self.acc.heard(self.sim.mixer, self.cue_events[c.cue])
+        self.acc.step(self.sim.mixer, min(dt, 0.1))
 
     def _draw_mode(mut self, mut m: Self.M, target: WGPUTextureHandle, format: UInt32, aspect: Float32) raises:
         # a pipeline that draws the scene for a picture of its own proportions (SceneSize) sets the camera's
-        var view = View(m.camera(), Real(scene_aspect[Self.F](Float64(aspect))))
+        var view = View(self.acc.camera(m.camera()), Real(scene_aspect[Self.F](Float64(aspect))))
         if self.game_format != format:  # the pipelines are built for one target format
             self.hud = None
             self.game_renderer = None
@@ -376,11 +383,14 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         if self.font_dirty and self.font_metrics:
             m.set_font_metrics(self.font_metrics.value())
             self.font_dirty = False
-        m.set_ui_env(self.ui_env)
+        var env = self.acc.ui_env(self.ui_env)
+        m.set_ui_env(env)
         if not self.game_renderer:
             self.game_renderer = SceneRendererOf[Self.P, Self.F, Self.A](self.boot.device(), format, view)
         self.game_renderer.value().begin(view)
         self.game_renderer.value().probe = self.probe_cube
+        self.game_renderer.value().post_user = self.acc.access.post_user(self.acc.frame_dt)
+        self.game_renderer.value().reduce_motion = self.acc.access.reduce_motion
         var t = now_ns()
         var items = m.scene()
         t = self.stats.lap(SEG_SCENE, t)
@@ -393,7 +403,8 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.input.is_mouse_button_pressed(MOUSE_LEFT), f2 and not self.overlay_key_was,
         )
         self.overlay_key_was = f2
-        if over.count() > 0:  # a panel is open: the HUD and the panel are rebuilt every frame
+        self.acc.captions_into(over, Float32(self.width), Float32(self.height), env, self.font_metrics)
+        if over.count() > 0:  # a panel or a caption is up: the HUD and they are rebuilt every frame
             var list = m.hud(Float32(self.width), Float32(self.height), self.frame_ms)
             for i in range(over.count()):
                 list.cmds.append(over.cmds[i].copy())
@@ -1037,3 +1048,87 @@ def app_text_len(app: UInt64) abi("C") -> Int32:
 def app_text_ptr(app: UInt64) abi("C") -> UInt64:
     """Address of the text app_state / app_events last wrote (not NUL-terminated; valid until the next call of either)."""
     return UInt64(Int(_app(app)[].out_text.unsafe_ptr()))
+
+
+@export
+def app_access_set(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Change one accessibility setting from `<key> <value>` (game/access.mojo: `text_scale 150`, `volume.music 40`, `colorblind
+    deuteranopia`, `mono on`) and save the profile. 0 = applied; -1 = unknown key or value out of range (printed, nothing changed)."""
+    try:
+        var a = _app(app)
+        a[].acc.access.set_line(_text_of(ptr, length))
+        a[].profile.set_access(a[].acc.access)
+        _ = a[].profile.save(a[].controls.actions.profile())
+        return 0
+    except e:
+        print("app_access_set:", e)
+        return -1
+
+
+@export
+def app_access_reset(app: UInt64) abi("C") -> Int32:
+    """Every accessibility setting back to its default; the profile is rewritten without the access rows. 0 = ok."""
+    var a = _app(app)
+    a[].acc.access.reset()
+    a[].profile.set_access(a[].acc.access)
+    return a[].profile.save(a[].controls.actions.profile())
+
+
+@export
+def app_access_text(app: UInt64) abi("C") -> Int32:
+    """The settings that differ from their defaults as profile rows (`access <key> <value>`, one per line), in the text buffer.
+    Returns its byte length (0 = all defaults)."""
+    var a = _app(app)
+    a[].out_text = a[].acc.access.rows()
+    return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_captions_load(app: UInt64, ptr: UInt64, length: UInt64) abi("C") -> Int32:
+    """Load a caption track (game/captions.mojo: `ludens-captions 1`, `caption <event> ...`, `text <locale> <key> <string>`). The
+    host raises an event's caption when the mixer starts that event. 0 = ok; -1 = the track is wrong (printed, the old one stays)."""
+    try:
+        _app(app)[].acc.captions.load(_text_of(ptr, length))
+        return 0
+    except e:
+        print("app_captions_load:", e)
+        return -1
+
+
+@export
+def app_caption_say(app: UInt64, ptr: UInt64, length: UInt64, duration_ms: Int32) abi("C") -> Int32:
+    """Show a line of dialogue as a caption: the text is `<speaker>`, a tab, `<line>` (no tab: no speaker). 0 = ok."""
+    var line = _text_of(ptr, length)
+    var tab = line.find("\t")
+    var a = _app(app)
+    if tab < 0:
+        a[].acc.captions.say(String(), line, Int(duration_ms))
+    else:
+        a[].acc.captions.say(String(line[byte=:tab]), String(line[byte = tab + 1 :]), Int(duration_ms))
+    return 0
+
+
+@export
+def app_captions_state(app: UInt64) abi("C") -> Int32:
+    """The captions up now as a JSON array of the strings drawn (speaker names as the player's setting says), oldest first, in the
+    text buffer. Returns its byte length. Captions off in the settings only hides them from the screen: they are listed here."""
+    var a = _app(app)
+    a[].out_text = a[].acc.captions.state(a[].acc.access.caption_speaker)
+    return Int32(a[].out_text.byte_length())
+
+
+@export
+def app_shake(app: UInt64, trauma: Float32) abi("C") -> Int32:
+    """Add camera shake trauma (0 .. 1); the view moves by the player's shake scale (game/camera_shake.mojo). Reads back as
+    app_shake_offset. 0 = ok."""
+    _app(app)[].acc.shake.add(trauma)
+    return 0
+
+
+@export
+def app_shake_offset(app: UInt64, axis: Int32) abi("C") -> Float64:
+    """The camera offset now in metres along the camera's right (axis 0) or up (axis 1) at the player's shake scale: 0 at scale 0
+    or with reduce motion on."""
+    var a = _app(app)
+    var scale = a[].acc.access.shake_factor()
+    return Float64(a[].acc.shake.offset_x(scale) if axis == 0 else a[].acc.shake.offset_y(scale))
