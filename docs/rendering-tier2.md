@@ -142,6 +142,10 @@ frame (`app_tier2_request`, `app_tier2_ptr`, `app_tier2_pitch`); `?selftest=pari
 and requires at least 21 pixels of the cube's red decal and 41 of the blue tyre mark in the native frame so an empty or
 terrain-only frame cannot pass. `web-check` and `.github/workflows/parity.yml` run it.
 
+Measured with `pixi run -e wasm web-check` in this container's headless Chromium (SwiftShader) against lavapipe: largest
+channel difference 135, 1.0e-4 of the pixels differ by more than 8 and 9.3e-5 by more than 32 (Chrome's row allows 160 /
+3e-4 / 3e-4; the reference frame of the same run: 113 / 8.7e-5 / 8.3e-5); 37 decal and 354 tyre-mark pixels.
+
 ## Measured
 
 Machine: this session's container (shared CPU), Mojo 1.2.0, Mesa lavapipe (software Vulkan: a CPU rasteriser, so these
@@ -181,4 +185,4 @@ normal and the weights): at the same 43 414 triangles it adds 11.7 ms at 480 x 2
 - Decals: no normal or roughness decals (colour only); decals on skinned meshes are not supported (the mesh is taken in
   its bind pose); a coarse terrain chunk under a decal does not match the level-0 triangles it was cut from.
 - Trails: no texture along the strip (a solid colour with soft edges); no collision with the world.
-- Reference images: the browser row was run in this container's headless Chromium (see the PR); Firefox runs in CI.
+- Reference images: Firefox was not run here (no geckodriver in the container); CI's parity job runs it.
