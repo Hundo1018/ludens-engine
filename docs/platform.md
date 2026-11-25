@@ -6,6 +6,7 @@ cloud saves, lobbies. This note records what is decided, what is built, and the 
 Status on 2026-11-23 (phase 1): the Transport seam is built with web, native UDP, native TCP and in-memory backends.
 The other four seams exist as traits with one local implementation each; no platform implementation of them exists
 yet.
+Device seams (haptics, motion, screen, pointer lock, camera, microphone) are built for the web and in memory: see the last section.
 
 ## Rules every seam follows
 
@@ -172,32 +173,95 @@ events). Nothing in `app/` uses these seams yet.
   Steam id for Steam networking, or a signalling session for WebRTC. The Transport API takes host strings now, which
   covers only the first case.
 
-## Device seams (planned, issue #135)
+## Device seams (issue #135)
 
-Not built. Decided 2026-11-23: on the roadmap now, built later. Today the only device input is touch (the virtual
-pad in `shell/web/vpad_view.ts` and `pointerdown` in `shell/web/app.ts`) and gamepads (`getGamepads` in
-`shell/web/app.ts`).
+Built on 2026-11-24 for phases 1 and 2 of the issue: a trait, an in-memory backend and a web backend for each of haptics,
+motion, screen, pointer lock, camera and microphone. Not built: the native Android shell backends (phase 3, after
+ludens-core ROADMAP 17.104) and geolocation, share, clipboard and notifications (phase 4). Nothing in `app/main.mojo` uses
+these seams yet, like the identity and cloud save seams before them.
 
-Each seam follows the rules above: a trait chosen at compile time, a web implementation, a native implementation once
-the native shell exists (ludens-core ROADMAP 17.104), and a mock for tests. Reads use the `os_poll` packet layout.
-Sensors are read once per tick; camera frames go into a buffer the host allocated in wasm memory.
-
-| seam | web | native Android shell | notes |
+| Seam | Trait and memory backend | Web backend (`app/os_device.mojo`) | Browser API the host uses (`shell/web/device_host.mjs`) |
 |---|---|---|---|
-| Haptics | `navigator.vibrate` (on/off pattern); `Gamepad.vibrationActuator` (dual rumble with strength) | `VibratorManager` (amplitude, waveforms) | iOS Safari has no `navigator.vibrate` |
-| Motion: gyroscope, accelerometer, orientation | `DeviceOrientation` / `DeviceMotion`, Generic Sensor API | `SensorManager` | HTTPS only; iOS asks the user |
-| Camera | `getUserMedia` video | Camera2 | permission; the per-frame copy into wasm memory has to be measured |
-| Microphone | `getUserMedia` audio into an AudioWorklet | `AudioRecord` | joins the existing audio path |
-| Screen: orientation lock, fullscreen, wake lock | Screen Orientation, Fullscreen and Wake Lock APIs | native | orientation lock usually needs fullscreen |
-| Pointer lock | Pointer Lock API | owned by the shell | mouse look on desktop web |
-| Later | Geolocation, Web Share, Clipboard, Notifications | native | lower priority |
+| Haptics | `platform/haptics.mojo`, `MemoryHaptics` | `WebHaptics` | `navigator.vibrate`; `Gamepad.vibrationActuator.playEffect("dual-rumble")` |
+| Motion | `platform/motion.mojo`, `MemoryMotion` | `WebMotion` | `devicemotion`, `deviceorientation`; `DeviceMotionEvent.requestPermission` where it exists |
+| Screen | `platform/screen.mojo`, `MemoryScreen` | `WebScreen` | `requestFullscreen`, `screen.orientation.lock`, `navigator.wakeLock` |
+| Pointer lock | `platform/pointer_lock.mojo`, `MemoryPointerLock` | `WebPointerLock` | `requestPointerLock`, `movementX` / `movementY` |
+| Camera | `platform/camera.mojo`, `MemoryCamera` | `WebCamera` | `getUserMedia({video})`, a `<video>` drawn into a canvas, `getImageData` |
+| Microphone | `platform/microphone.mojo`, `MemoryMicrophone` | `WebMicrophone` | `getUserMedia({audio})` into an AudioWorklet, a 1 s ring in the host |
 
-Phases:
-1. Web: haptics, motion, screen, pointer lock, with mocks and tests.
-2. Web: camera and microphone, with the per-frame copy cost measured.
-3. Native Android shell implementations, after 17.104.
-4. Geolocation, share, clipboard, notifications.
+Shared pieces are in `platform/device.mojo`: the device ids, `AVAIL_*` states, `DEV_*` return codes, the packet kinds and
+`PermissionGate` (the permission state of an in-memory device).
 
-Testing limit: headless Chrome has no real sensors, camera or vibration motor. CI can check the path from the web API
-through the JS bridge into wasm (Chrome's sensor overrides, a fake media stream) and that the mock follows the
-contract. Latency, sample rate and camera copy cost need a real phone.
+Planned for the native Android shell (phase 3, not built): `VibratorManager` (amplitude and waveforms, which `vibrate_pattern` cannot
+express today), `SensorManager`, Camera2 and `AudioRecord`. Phase 4 (geolocation, Web Share, notifications) has no trait yet.
+
+**Availability.** `availability()` is `AVAIL_UNSUPPORTED` (no such API here, or an insecure page), `AVAIL_PROMPT` (usable
+after a request), `AVAIL_GRANTED` or `AVAIL_DENIED`. `request_permission(id)` (haptics, motion, camera, microphone) answers
+with a `KIND_DEV_PERMISSION` packet. A call on a device that is unsupported returns `DEV_UNSUPPORTED` (-5), on one that is denied
+or not yet granted `DEV_NOT_GRANTED` (-6), on one that is already open `DEV_BUSY` (-7), and with an argument out of range
+`DEV_INVALID` (-3). When a call can fail in more than one way the order is: haptics, unsupported then invalid; motion `start`, unsupported
+then not granted; camera and microphone `open`, unsupported, not granted, invalid (a size or rate out of range, which is
+refused before any prompt), then busy; screen requests, invalid then unsupported (which capability is needed depends on the op).
+
+**Results and reads.** A request returns at once. Its result is a packet in the `os_poll` layout, kinds 32 to 36
+(`KIND_DEV_PERMISSION`, `KIND_DEV_SCREEN`, `KIND_DEV_POINTER`, `KIND_DEV_CAMERA`, `KIND_DEV_MIC`), taken with the seam's `poll(buf, cap)`; `OsRouter`
+(`app/os_router.mojo`) keeps one queue per kind, and per device for permission results, so the seams do not take each
+other's packets. Reads of an open device are plain calls into a buffer the game owns, once per tick:
+
+| Read | Returns |
+|---|---|
+| `Motion.read(ptr)` | the sequence number of the newest sample and 9 f32 (accel m/s², rotation rate deg/s, orientation deg), or 0 with the buffer untouched when nothing is newer |
+| `Camera.read_frame(buf, cap)` | `w * h * 4` bytes of RGBA, or 0 when no frame is newer, or -1 when `cap` is too small (the frame stays). Frames the game did not read are counted in `skipped()` |
+| `Microphone.read(buf, n)` | up to `n` f32 samples, oldest first. Over one second of unread samples the oldest are discarded and counted in `overruns()` |
+| `PointerLock.take_delta(ptr)` | 1 and 2 f32 (dx, dy, pixels) since the last call while locked, else 0 |
+
+**Browser rules the seams expose, not hide.** Fullscreen, pointer lock and (on iOS) the motion permission need a user
+gesture; a request made without one answers `STATUS_ERROR`. Orientation lock works only while fullscreen, and leaving
+fullscreen releases it. `navigator.vibrate` is missing on iOS Safari: `capabilities()` lacks `HAP_VIBRATE` there.
+Motion needs a secure context (HTTPS or localhost). Chrome 158 defines `DeviceMotionEvent.requestPermission`, so
+`availability()` is `AVAIL_PROMPT` there until the request is made. In headless Chrome the request was then granted at once.
+
+**Rotation rate axes.** The W3C text puts `rotationRate.alpha` about z, `beta` about x and `gamma` about y. Chrome 158
+reports alpha = x, beta = y, gamma = z (measured with DevTools sensor overrides, `scripts/device_web.mjs`). The host uses
+Chrome's order when the user agent contains `Chrome/` and the W3C order otherwise. The second branch is a reading of the
+text: no Firefox or Safari was available to check it.
+
+**Microphone range.** Samples are nominally in [-1, 1]. Chrome's synthetic microphone peaks at 1.13 and nothing clamps it.
+
+### Device seams: verified
+
+| Layer | Test | What it shows | What it does not |
+|---|---|---|---|
+| In-memory backends | `tests/platform_device.mojo`, 89 checks, in `pixi run -e wasm test-transport` | the contract above on each fake: limits and their order, permission states and packets, reads that return 0, drop-and-count, one-shot gestures | that a browser agrees |
+| Web backends, fake browser objects | `tests/test_device.mjs`, 91 checks, `pixi run -e wasm test-device`: `app/device_probe.mojo` compiled to wasm64, booted through `scripts/node_app.mjs`, over the real `os_dev_*` imports and `shell/web/device_host.mjs` | the Mojo to JS to browser-API path: argument limits, packets and ids, the router giving each seam its own result when four are in flight, the unsupported / prompt / denied paths (iOS-style `requestPermission`, no `getUserMedia`, no vibrate, an insecure page) | that a real browser behaves like the fakes |
+| Real Chrome 158, headless, Linux container | `scripts/device_web_check.py`, 47 checks, `pixi run -e wasm device-web`, with a synthetic camera and microphone, DevTools sensor overrides and a user activation | `navigator.vibrate` accepts a call; motion samples carry the overridden accelerometer, gyroscope and orientation values; the camera opens at 640 x 480 and 1280 x 720 and its frames have colour and alpha 255; the microphone opens at 48000 Hz and delivers about one second of non-silent samples; fullscreen, the wake lock and pointer lock are granted from a gesture and a mouse move reaches `take_delta`; release works | any hardware, see below |
+
+Not verified on real hardware, by anyone, for any backend:
+
+- The vibration motor and gamepad rumble: headless Chrome accepts `navigator.vibrate` and has no gamepad, so `rumble` is checked only against the fake actuator (`playEffect("dual-rumble", ...)` arguments).
+- A real gyroscope, accelerometer and magnetometer: sample rate, latency, the axis signs on a phone, and the rotation rate axes outside Chrome.
+- A real camera and microphone: the permission prompt UI, device selection, front and back cameras, the real frame rate and the real microphone latency.
+- iOS Safari (no `navigator.vibrate`, the motion permission prompt), Firefox, Android Chrome.
+- Orientation lock: no real browser run (headless Chrome desktop). It was checked against the fake `screen.orientation` only.
+
+**Camera copy cost** (phase 2 of the issue): Chrome 158 headless, Chrome's synthetic camera, 4-core Linux container. Five full
+runs of `pixi run -e wasm device-web`; each run reads 120 new frames per size through `WebCamera.read_frame` into wasm memory, each
+timed over that one call (opening, waiting for the frame and the checks are outside the timed region; `performance.now()` has 0.1 ms
+resolution). The table gives the range of each statistic over the five runs. No frames were skipped in any run.
+
+| Size | Bytes per frame | Median per frame | p95 | Max |
+|---|---:|---:|---:|---:|
+| 640 x 480 | 1228800 | 2.9 to 3.4 ms (middle run 3.0) | 4.3 to 6.4 ms | 6.0 to 12.8 ms |
+| 1280 x 720 | 3686400 | 7.3 to 8.5 ms (middle run 8.0) | 12.3 to 13.4 ms | 16.0 to 22.3 ms |
+
+The first single run on an earlier container gave medians of 2.1 and 5.6 ms. The five runs above ran on a rebuilt container (different
+host) and are 40 % slower; the machine, not the code, is the likely cause, but I did not test that. Quote the ranges, not the first run.
+
+The same copy in its three steps (60 frames per run, median of the run, range over the five runs; 640 x 480 / 1280 x 720): `drawImage`
+1.2 to 1.8 / 3.7 to 4.9 ms, `getImageData` 1.0 to 1.3 / 2.7 to 3.7 ms, `Uint8Array.set` into wasm memory 0.1 to 0.2 / 0.5 ms. The copy
+into wasm is 4 to 7 % of the per-frame cost; the rest is the canvas draw and read-back. At 1280 x 720 the copy takes about half of a
+16.7 ms frame at its median and more than one frame at its maximum. A phone's camera, resolution and frame rate were not measured; the
+owner has to measure those.
+
+Mutation check: `pixi run -e wasm mutation-device` applies 35 one-line breaks of the contract to the memory backends, the host and the
+router, and requires the covering test to fail. It is not in CI (it builds a test per mutation, about 2 minutes). Result in the PR.
