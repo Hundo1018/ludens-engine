@@ -3,7 +3,8 @@ the binding declarations stay in each shader, because the binding numbers differ
 
   CAM_WGSL         the camera header (`Cam`, binding 0 in both colour passes) and `cam_clip`, its projection
   SHADOW_UBO_WGSL  the `Shadow` uniform's layout: the light's view-projection, the shadow on-flag and the atmosphere
-  PCF_WGSL         `shadow_factor`: the 3 x 3 percentage-closer lookup; needs `shadow_map` and `shadow_cmp` declared
+  PCF_WGSL         `shadow_factor`: the 3 x 3 percentage-closer lookup; needs `shadow_map` and `shadow_cmp` declared;
+                   `shadow_at`: the same at a world point moved along its normal (also needs `shadow`)
   LIGHT_WGSL       the shadow pass's `light` uniform (binding 0): the light's view-projection
 """
 
@@ -48,6 +49,17 @@ fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
   }
   let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && p.z <= 1.0;
   return select(1.0, acc / 9.0, inside);
+}
+
+// shadow_factor at a world point, moved along its normal before the lookup (normal offset): by one shadow-map texel, up
+// to three where the surface turns from the sun. Without it a curved or faceted surface lit head-on (N.L near 1, where
+// the depth bias above is near 0) shadows itself in stripes and rings (acne). Needs `shadow` (the Shadow uniform).
+fn shadow_at(wpos : vec3<f32>, n : vec3<f32>, ndl : f32) -> f32 {
+  // the world size of one texel: the orthographic projection's x scale is 1 / half extent
+  let sx = length(vec3<f32>(shadow.vp[0].x, shadow.vp[1].x, shadow.vp[2].x));
+  let texel = 2.0 / (max(sx, 1e-6) * f32(textureDimensions(shadow_map).x));
+  let lp = shadow.vp * vec4<f32>(wpos + n * texel * (1.0 + 2.0 * (1.0 - ndl)), 1.0);
+  return shadow_factor(lp.xyz / lp.w, ndl);
 }
 """
 

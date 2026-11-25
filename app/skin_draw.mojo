@@ -113,7 +113,7 @@ fn vs_skin(v : SVIn) -> VOut {
 fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0: the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), sun_dir()), 0.0);
-  let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5);
+  let sf = select(1.0, shadow_at(in.wpos, normalize(in.wnrm), ndl), shadow.params.x > 0.5);
   // the item's material, shaded as on the mesh pass (app/material.mojo; the same pack)
   // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
   var lit3 = vec3<f32>(in.lit);
