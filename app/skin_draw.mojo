@@ -25,7 +25,8 @@ from wgpu import raw_alloc
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
-from wgpu.bind_group import BindGroup
+from wgpu.bind_group import BindGroup, BindGroupLayout
+from wgpu import WGPUBindGroupEntry
 from wgpu.render_pass import FrameRenderPass
 from wgpu.pipeline_layout import PipelineLayout
 from wgpu.shader import ShaderModule
@@ -40,7 +41,7 @@ from app.skin_blend import SkinBlend, LinearBlend, MotorBlend
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, ENV_WGSL, PROBES_WGSL
-from app.render_res import RenderResources, LIGHTS_BYTES, PROBE_BYTES
+from app.render_res import RenderResources, SHADOW_UBO_BYTES, LIGHTS_BYTES, PROBE_BYTES
 from app.render_pass import RenderPass, DrawCounts
 
 
@@ -225,6 +226,9 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
     var palette: Buffer
     var instances: Buffer
     var group: BindGroup
+    var bgl: BindGroupLayout  # kept to bind the renderer's textures again (_rebind)
+    var entries: List[WGPUBindGroupEntry]
+    var gen: Int  # the RenderResources.gen the group was made for
     var batches: MeshBatches[True]  # this frame's skinned items by mesh (prepare)
     var max_instances: Int  # RenderCaps.mesh_instances
     var max_palette: Int  # RenderCaps.palette_matrices
@@ -357,7 +361,7 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), textures.main_sampler.handle().raw, null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 4, null_opaque(), 0, UInt64(0), null_opaque(), res.shadow_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 5, null_opaque(), 0, UInt64(0), res.shadow_sampler.handle().raw, null_opaque()),
-            WGPUBindGroupEntry(null_opaque(), 6, res.shadow_ubo.handle().raw, 0, UInt64(128), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 6, res.shadow_ubo.handle().raw, 0, UInt64(SHADOW_UBO_BYTES), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 7, res.lights.handle().raw, 0, UInt64(LIGHTS_BYTES), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 8, null_opaque(), 0, UInt64(0), null_opaque(), res.atlas_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 9, null_opaque(), 0, UInt64(0), null_opaque(), res.env_view.handle().raw),
@@ -367,7 +371,22 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 13, null_opaque(), 0, UInt64(0), res.light_sampler.handle().raw, null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
+        self.bgl = bgl^
+        self.entries = bg_entries^
+        self.gen = res.gen
         self.batches = MeshBatches[True]()
+
+    def _rebind(mut self, device: Device, res: RenderResources) raises:
+        """Bind the renderer's shadow map and atlas again after either was made anew (RenderResources.gen)."""
+        if self.gen == res.gen:
+            return
+        for k in range(len(self.entries)):
+            if self.entries[k].binding == 4:
+                self.entries[k].texture_view = res.shadow_view.handle().raw
+            elif self.entries[k].binding == 8:
+                self.entries[k].texture_view = res.atlas_view.handle().raw
+        self.group = device.create_bind_group(self.bgl, self.entries, "skin_group")
+        self.gen = res.gen
 
     @staticmethod
     def create(
@@ -382,6 +401,7 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
     ) raises:
         """Everything that can fail: sync the meshes' GPU copies, group the skinned items by mesh, check the palette
         and instance limits, write the palette and the instance records. record() then only draws."""
+        self._rebind(device, res)
         gpu.sync(device, registry)
         for it in items:
             if it.pose_id >= 0 and (it.mesh_id < 0 or it.mesh_id >= len(registry.skinned)):

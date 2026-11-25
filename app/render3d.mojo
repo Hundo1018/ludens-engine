@@ -152,6 +152,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var samples: Int  # RenderCaps.samples: 1, or 4 for MSAA (app/msaa.mojo)
     var msaa: Optional[MsaaTargets]  # samples > 1: the multisampled colour and depth of the scene
     var depth_resolve: Optional[DepthResolve]  # samples > 1 with stages: sample 0 of the depth, for the stages
+    var res_gen: Int  # the RenderResources.gen the stages were bound for (a new shadow map or atlas binds them again)
 
     def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
                  caps: RenderCaps = RenderCaps.default()) raises:
@@ -277,6 +278,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         comptime if Self.F.ON:
             if caps.samples > 1:
                 self.depth_resolve = DepthResolve(device, DEPTH_FORMAT)
+        self.res_gen = 0
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
         self.depth = None
@@ -374,6 +376,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.samples = move.samples
         self.msaa = move.msaa^
         self.depth_resolve = move.depth_resolve^
+        self.res_gen = move.res_gen
         self.floor = move.floor^
         self.items = move.items^
         self.depth = move.depth^
@@ -384,6 +387,17 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     def set_shadow(mut self, device: Device, light_vp: List[Float32], on: Bool) raises:
         """RenderResources.set_shadow: the light's view-projection and whether the shadow factor is applied."""
         self.res.set_shadow(device, light_vp, on)
+
+    def set_sun_cascades(
+        mut self, device: Device, count: Int = 4, distance: Float64 = 100.0, split_lambda: Float64 = 0.75,
+        blend: Float64 = 0.1, reach: Float64 = 50.0, resolution: Int = 1024,
+    ) raises:
+        """RenderResources.set_sun_cascades: the sun's shadow in cascades along the view, recomputed every draw."""
+        self.res.set_sun_cascades(device, count, distance, split_lambda, blend, reach, resolution)
+
+    def set_shadow_atlas(mut self, device: Device, size: Int) raises:
+        """RenderResources.set_shadow_atlas: the local lights' shadow atlas, `size` texels across."""
+        self.res.set_shadow_atlas(device, size)
 
     def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
                        fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
@@ -490,8 +504,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     def _depth_view(mut self, device: Device, width: UInt32, height: UInt32) raises:
         """The targets, made when the frame's size changes. With stages the scene's colour, depth and aux are F's
         scene size (the frame's unless SceneSize names one), and the stages are bound to them."""
-        if not self.depth_view or self.depth_w != width or self.depth_h != height:
+        if not self.depth_view or self.depth_w != width or self.depth_h != height or self.res_gen != self.res.gen:
             self.depth_view = None
+            self.res_gen = self.res.gen
             var usage = WGPUTextureUsage.RENDER_ATTACHMENT
             var sw = width
             var sh = height
@@ -705,6 +720,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             vr.eye = Vec3(v.eye[0] + v.right[0] * h, v.eye[1] + v.right[1] * h, v.eye[2] + v.right[2] * h, Real(0.0))
             v.eye = Vec3(v.eye[0] - v.right[0] * h, v.eye[1] - v.right[1] * h, v.eye[2] - v.right[2] * h, Real(0.0))
             self.res.write_camera(device, vr)
+            self.res.frame_shadows(device, vr)
             self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, vr, self.res)
             var renc = device.create_command_encoder("right_eye")
             comptime if Self.P.SHADOW:
@@ -722,6 +738,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             var rcmd = renc^.finish()
             device.queue_submit(rcmd^)
         self.res.write_camera(device, v)
+        self.res.frame_shadows(device, v)
         self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
         self.counts = self.passes.counts(self.meshes) + DrawCounts(hud.draws(), hud.triangles())
         comptime if Self.F.ON:

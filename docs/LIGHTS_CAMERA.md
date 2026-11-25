@@ -12,7 +12,7 @@ and after this file's features were added.
 
 | light | call | limit | shadow |
 |---|---|---:|---|
-| the sun | `set_sun(device, to_sun, color, intensity)`; `set_shadow(device, sun_shadow_vp(to_sun, centre, half_extent, depth), True)` | 1 | a 1024 x 1024 map |
+| the sun | `set_sun(device, to_sun, color, intensity)`; `set_sun_cascades(device, count, distance)`, or one fixed box: `set_shadow(device, sun_shadow_vp(to_sun, centre, half_extent, depth), True)` | 1 | 1 to 4 cascades along the view, 1024 x 1024 each (one fixed box: a 1024 x 1024 map) |
 | directional | `set_dir_lights(device, [DirLight(dir, color, intensity, True, centre, half_extent, depth)])` | 4 | one atlas tile (a box) |
 | point | `set_lights(device, [PointLight(pos, range, color, intensity, shadow=True)])` | 16 | six atlas tiles (a cube) |
 | spot | `set_spot_lights(device, [SpotLight(pos, dir, range, inner, outer, color, intensity, True)])` | 8 | one atlas tile |
@@ -41,9 +41,41 @@ Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL`
   ambient is within 0.001 of the room's exact irradiance. Limits: one probe; looked up by direction only, so
   reflections shift for surfaces away from the probe; rougher surfaces read box-filtered mips, not a GGX filter;
   nothing recaptures on its own.
-- **Shadow atlas.** 2048 x 2048, 4 x 4 tiles of 512: 16 tiles; a point light takes six, a spot, directional or area
-  light one. A pipeline needs `ShadowPass` in its pass list (as for the sun). Only items with a mesh cast, and primitives
-  do not receive shadows, as for the sun.
+- **Sun cascades** (`set_sun_cascades(device, count=4, distance=100, split_lambda=0.75, blend=0.1, reach=50,
+  resolution=1024)`). The view from its near plane to `distance` (or its far plane) is cut into `count` depth ranges by
+  the practical split scheme (`split_lambda` of the logarithmic split plus the rest of the even one: 0.1, 6.7, 14.9, 32.1,
+  100 m for the defaults). Each range gets the smallest sphere around it on the view's axis; its square in the sun's map
+  is that sphere, so a cascade's size does not change as the camera turns, and its centre is moved to a whole number of
+  texels so the shadow's edges stay still as the camera moves (over 19 small moves a fixed point moved by at most
+  4.6e-5 of a texel). A pixel reads the cascade its view depth falls in, blended into the next over the last `blend` of
+  the range; the last cascade fades to lit. Casters up to `reach` metres toward the sun beyond the sphere are drawn.
+  Four cascades take a 2048 x 2048 map (16 MB; the fixed box keeps 1024 x 1024, 4 MB). `tests/shadows_native.mojo`:
+  a wall's shadow edge is where similar triangles put it at every depth from 4 to 85 m (82 of 82 depths); a pole 0.1 m
+  across 6 m away casts a shadow 0.12 m wide at the shadowed level, where a fixed 140 m box (0.14 m texels) loses it
+  (darkest 0.91 of 0.91 lit). The renderer recomputes the cascades every draw from its view (`RenderResources.frame_shadows`).
+- **Shadow atlas.** 2048 x 2048 by default (`set_shadow_atlas(device, size)`, 1024 .. 8192). Tiles are square, a
+  power of two from 64 to 512 texels; a point light takes six, a spot, directional or area light one; at most 112 tiles
+  (every light of every kind with a shadow). Every frame each light asks for 512; while the tiles cover more than the
+  atlas, the largest tile of the light farthest from the camera (distance over range) is halved, so all come down to
+  256 before any goes to 128. Tiles are placed largest first along the Morton order, which never overlaps and leaves no
+  gap. With up to 16 tiles at 512 nothing changes from the fixed 4 x 4 grid of before (the 44 checks of
+  `lights_native` print the same numbers). Each tile and cascade draws only the casters whose bounding sphere is inside
+  its view (skinned casters, which have no bound, are drawn into every view). A pipeline needs `ShadowPass` in its pass
+  list (as for the sun). Only items with a mesh cast, and primitives do not receive shadows, as for the sun.
+- **Cost** (`pixi run -e wasm python3 scripts/native_shots.py shadows_native --cost`; 1920 x 1080, lavapipe, a CPU
+  rasteriser, so these are not GPU times; a street of 78 items, median of 11 frames):
+
+  | sun / lights | ms / frame |
+  |---|---:|
+  | shadow off | 54.4 |
+  | fixed box, 1024 over 120 m | 60.0 |
+  | 4 cascades of 1024 | 70.1 |
+  | 24 lights with shadows (104 atlas tiles) | 190.5 |
+  | the same 24 lights without shadows | 138.1 |
+
+  Before the casters were sorted into views, the 104 tiles cost 716 ms on the same scene.
+  Pictures (`scripts/native_shots.py shadows_native 960x540 --docs images/shadows`): `docs/images/shadows/town_before.png`
+  (the fixed box), `town_after.png` (four cascades), `town_night.png` (24 shadowed lights).
 - **What the sun's shadow darkens.** Until an environment is set, the fixed 0.4 ambient and the point lights are inside
   the sun's shadow factor, as before. After `set_environment` the factor applies to the sun's light only. Spot,
   directional and area lights are never inside it.
@@ -196,6 +228,5 @@ pipeline.
 - Reflection parallax, several reflection probes, dynamic global illumination. Baked irradiance probes, which also light
   moving bodies, are in `docs/rendering-tier3.md`.
 - Per-bone velocity for skinned meshes; bokeh shapes.
-- More than 16 shadow tiles; cascaded sun shadows.
 - Cookies on point lights (a cube map), mips for cookies, IES type A and B photometry and TILT=INCLUDE.
 - All of this has run on lavapipe only (native wgpu); none of it has been run in a browser.

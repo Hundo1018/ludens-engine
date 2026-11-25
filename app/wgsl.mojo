@@ -3,8 +3,9 @@ the binding declarations stay in each shader, because the binding numbers differ
 
   CAM_WGSL         the camera header (`Cam`, binding 0 in both colour passes) and `cam_clip`, its projection
   SHADOW_UBO_WGSL  the `Shadow` uniform's layout: the light's view-projection, the shadow on-flag and the atmosphere
-  PCF_WGSL         `shadow_factor`: the 3 x 3 percentage-closer lookup; needs `shadow_map` and `shadow_cmp` declared;
-                   `shadow_at`: the same at a world point moved along its normal (also needs `shadow`)
+  PCF_WGSL         `cascade_pcf`: the 3 x 3 percentage-closer lookup in one cascade; needs `shadow_map`, `shadow_cmp`,
+                   `shadow`; `shadow_at`: the sun's shadow at a world point (cascade by view depth, blended, normal
+                   offset; also needs `cam`); `shadow_factor`: cascade 0 at a light-space position
   LIGHT_WGSL       the shadow pass's `light` uniform (binding 0): the light's view-projection
 """
 
@@ -27,39 +28,97 @@ fn cam_clip(world : vec3<f32>) -> vec4<f32> {
 """
 
 comptime SHADOW_UBO_WGSL = """
-// shadow: the light's view-projection (orthographic, z in [0, 1]); params.x 1 turns the shadow factor on. sky_top, sky_hor
-// and atmo are the atmosphere (app/textures.mojo ATMO_WGSL), all zero (off) until set_atmosphere.
-struct Shadow { vp : mat4x4<f32>, params : vec4<f32>, sky_top : vec4<f32>, sky_hor : vec4<f32>, atmo : vec4<f32> };
+// shadow: the sun's shadow. vp is cascade 0's view-projection (orthographic, z in [0, 1]); params.x 1 turns the shadow factor
+// on, params.y the number of cascades (1 for a fixed box, set_shadow), params.z the share of a cascade's depth range over
+// which it blends into the next. sky_top, sky_hor and atmo are the atmosphere (app/textures.mojo ATMO_WGSL), all zero (off)
+// until set_atmosphere. casc: each cascade's view-projection; split: the view depth where cascade i ends; bias: its depth
+// bias (NDC); info.x the share of the map's width one cascade takes (1, or 0.5 for a 2 x 2 map), info.y a cascade's
+// texels across. Cascade i is the square (i % 2, i / 2) of the map.
+struct Shadow {
+  vp : mat4x4<f32>, params : vec4<f32>, sky_top : vec4<f32>, sky_hor : vec4<f32>, atmo : vec4<f32>,
+  casc : array<mat4x4<f32>, 4>, split : vec4<f32>, bias : vec4<f32>, info : vec4<f32>,
+};
+fn cascade_count() -> u32 { return clamp(u32(shadow.params.y), 1u, 4u); }
+// the cascade a point at view depth vz reads: the first whose range reaches past it; cascade_count() beyond the last
+fn cascade_for(vz : f32) -> u32 {
+  let n = cascade_count();
+  for (var i = 0u; i < n; i++) {
+    if vz < shadow.split[i] { return i; }
+  }
+  return n;
+}
+// where a world point falls in cascade i: xy its uv in the whole map, z its depth; w 1 inside the cascade, 0 outside
+fn cascade_uv(i : u32, w : vec3<f32>) -> vec4<f32> {
+  let c = shadow.casc[i] * vec4<f32>(w, 1.0);
+  let p = c.xyz / c.w;
+  let local = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+  let inside = local.x >= 0.0 && local.x <= 1.0 && local.y >= 0.0 && local.y <= 1.0 && p.z <= 1.0;
+  let org = vec2<f32>(f32(i % 2u), f32(i / 2u)) * shadow.info.x;
+  return vec4<f32>(org + local * shadow.info.x, p.z, select(0.0, 1.0, inside));
+}
 """
 
 comptime PCF_WGSL = """
-// p: the light-space position of a world point: NDC xy in [-1, 1], z in [0, 1]
-fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
-  // uv: NDC +y is the top row of the depth texture
-  let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+// cascade i at a light-space position p (NDC xy in [-1, 1], z in [0, 1]): a 3 x 3 percentage-closer filter inside the
+// cascade's square of the map
+fn cascade_pcf(i : u32, p : vec3<f32>, ndl : f32) -> f32 {
+  let local = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+  let s = shadow.info.x;
+  let org = vec2<f32>(f32(i % 2u), f32(i / 2u)) * s;
+  let uv = org + local * s;
   // a constant bias scaled by (1 - N.L) against acne on the faces turned from the light
-  let ref_z = p.z - 0.003 * (1.0 - ndl);
+  let ref_z = p.z - shadow.bias[i] * (1.0 - ndl);
   let texel = 1.0 / vec2<f32>(textureDimensions(shadow_map));
-  // 3x3 percentage-closer filter; every tap is uniform control flow, so textureSampleCompareLevel is valid
+  let lo = org + texel * 0.5;
+  let hi = org + vec2<f32>(s) - texel * 0.5;
+  // every tap is a comparison at level 0, valid in non-uniform control flow
   var acc = 0.0;
   for (var j = -1; j <= 1; j++) {
-    for (var i = -1; i <= 1; i++) {
-      acc += textureSampleCompareLevel(shadow_map, shadow_cmp, uv + vec2<f32>(f32(i), f32(j)) * texel, ref_z);
+    for (var k = -1; k <= 1; k++) {
+      acc += textureSampleCompareLevel(shadow_map, shadow_cmp, clamp(uv + vec2<f32>(f32(k), f32(j)) * texel, lo, hi), ref_z);
     }
   }
-  let inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && p.z <= 1.0;
+  let inside = local.x >= 0.0 && local.x <= 1.0 && local.y >= 0.0 && local.y <= 1.0 && p.z <= 1.0;
   return select(1.0, acc / 9.0, inside);
 }
 
-// shadow_factor at a world point, moved along its normal before the lookup (normal offset): by one shadow-map texel, up
-// to three where the surface turns from the sun. Without it a curved or faceted surface lit head-on (N.L near 1, where
-// the depth bias above is near 0) shadows itself in stripes and rings (acne). Needs `shadow` (the Shadow uniform).
-fn shadow_at(wpos : vec3<f32>, n : vec3<f32>, ndl : f32) -> f32 {
+// the first cascade's lookup at a light-space position (the form before cascades; a fixed box has only that one)
+fn shadow_factor(p : vec3<f32>, ndl : f32) -> f32 {
+  return cascade_pcf(0u, p, ndl);
+}
+
+// cascade i at a world point, moved along its normal before the lookup (normal offset): by one texel of the cascade, up to
+// three where the surface turns from the sun. Without it a curved or faceted surface lit head-on (N.L near 1, where the
+// depth bias is near 0) shadows itself in stripes and rings (acne).
+fn cascade_at(i : u32, wpos : vec3<f32>, n : vec3<f32>, ndl : f32) -> f32 {
+  let m = shadow.casc[i];
   // the world size of one texel: the orthographic projection's x scale is 1 / half extent
-  let sx = length(vec3<f32>(shadow.vp[0].x, shadow.vp[1].x, shadow.vp[2].x));
-  let texel = 2.0 / (max(sx, 1e-6) * f32(textureDimensions(shadow_map).x));
-  let lp = shadow.vp * vec4<f32>(wpos + n * texel * (1.0 + 2.0 * (1.0 - ndl)), 1.0);
-  return shadow_factor(lp.xyz / lp.w, ndl);
+  let sx = length(vec3<f32>(m[0].x, m[1].x, m[2].x));
+  let texel = 2.0 / (max(sx, 1e-6) * shadow.info.y);
+  let lp = m * vec4<f32>(wpos + n * texel * (1.0 + 2.0 * (1.0 - ndl)), 1.0);
+  return cascade_pcf(i, lp.xyz / lp.w, ndl);
+}
+
+// the sun's shadow at a world point: the cascade its view depth falls in, blended into the next one over the last
+// params.z of its range (the last cascade fades to lit), so no seam shows where one cascade hands over. Needs `cam`.
+fn shadow_at(wpos : vec3<f32>, n : vec3<f32>, ndl : f32) -> f32 {
+  let vz = dot(wpos - cam.eye.xyz, cam.fwd.xyz);
+  let count = cascade_count();
+  let i = cascade_for(vz);
+  if i >= count { return 1.0; }
+  var f = cascade_at(i, wpos, n, ndl);
+  if shadow.params.z > 0.0 {
+    let z0 = select(0.0, shadow.split[max(i, 1u) - 1u], i > 0u);
+    let z1 = shadow.split[i];
+    let band = shadow.params.z * (z1 - z0);
+    let t = (vz - (z1 - band)) / max(band, 1e-6);
+    if t > 0.0 {
+      var g = 1.0;
+      if i + 1u < count { g = cascade_at(i + 1u, wpos, n, ndl); }
+      f = mix(f, g, clamp(t, 0.0, 1.0));
+    }
+  }
+  return f;
 }
 """
 
@@ -104,10 +163,11 @@ struct Lights {
   dirs : array<DirLight, 4>,        // dir.w atlas tile + 1 or 0
   areas : array<AreaLight, 4>,      // a rectangle: centre, two half-edge vectors; it emits toward cross(ex, ey).
                                     // pos.w atlas tile + 1 or 0, ex.w the shadow view's far distance, ey.w its size
-  tiles : array<mat4x4<f32>, 16>,   // the atlas tiles' view-projections
   probe_org : vec4<f32>,            // the irradiance probe grid (app/irradiance.mojo): first probe, w 1 when on;
   probe_cell : vec4<f32>,           // the spacing (m) and the counts along x, y, z. Read by sh_lit_at (PROBES_WGSL)
   probe_dim : vec4<f32>,
+  tiles : array<mat4x4<f32>, 112>,  // the atlas tiles' view-projections (app/lights.mojo MAX_TILES)
+  tile_rect : array<vec4<f32>, 112>,  // each tile's square in the atlas: uv of its corner, uv size, texels across
   pext : array<PointExt, 16>,       // per point light: IES and falloff (app/photometry.mojo)
   sext : array<LightExt, 8>,        // per spot light: IES, cookie, falloff
   dext : array<LightExt, 4>,        // per directional light: cookie
@@ -211,7 +271,10 @@ fn point_lights(wpos : vec3<f32>, nrm : vec3<f32>) -> vec3<f32> {
   for (var i = 0u; i < count; i++) {
     let d = lights.l[i].pos_range.xyz - wpos;
     let dist = max(length(d), 1e-4);
-    sum += point_scale(i, lights.l[i].color.rgb * lights.l[i].color.w * max(dot(nrm, d / dist), 0.0), dist, d / dist) * point_shadow(i, wpos, nrm);
+    let c = lights.l[i].color.rgb * lights.l[i].color.w * max(dot(nrm, d / dist), 0.0);
+    let s = point_scale(i, c, dist, d / dist);
+    // the shadow is looked up only where the light arrives
+    if max(s.x, max(s.y, s.z)) > 0.0 { sum += s * point_shadow(i, wpos, nrm); }
   }
   return sum;
 }
@@ -280,8 +343,8 @@ fn extra_sample(k : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> LSample {
     let cone = smoothstep(s.dir_cos.w, s.cone.x, dot(-l, s.dir_cos.xyz));
     let x = lights.sext[k];
     var e = s.color.rgb * s.color.w * atten(dist, s.pos_range.w, x.idx.z) * cone;
-    if cone > 0.0 { e *= local_shadow(s.cone.y, wpos, nrm, dist); }
     let reaches = max(e.x, max(e.y, e.z)) > 0.0;
+    if reaches && dot(nrm, l) > 0.0 { e *= local_shadow(s.cone.y, wpos, nrm, dist); }
     if x.idx.x > 0.5 && reaches { e *= ies_dir(x.idx.x, -l, s.dir_cos.xyz, x.r.xyz); }
     if x.idx.y > 0.5 && reaches { e *= spot_cookie(k, wpos); }
     return LSample(l, e);
@@ -347,23 +410,25 @@ fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
 }
 """
 
-# The spot and point lights' shadows: a depth atlas of 4 x 4 tiles, one view per tile (lights.tiles). `tile1` is the
-# tile + 1 (0: the light casts none). The lookup is at the point moved along its normal by a length that grows with the
+# The local lights' shadows: a depth atlas of square tiles, one view per tile (lights.tiles), each tile's square in
+# lights.tile_rect (sizes chosen per frame, app/lights.mojo atlas_sizes). `tile1` is the tile + 1 (0: the light casts none). The lookup is at the point moved along its normal by a length that grows with the
 # distance to the light (a texel of the tile covers more there), then a 3 x 3 percentage-closer filter inside the tile.
 comptime LOCAL_SHADOW_WGSL = """
 fn local_shadow(tile1 : f32, wpos : vec3<f32>, nrm : vec3<f32>, dist : f32) -> f32 {
   if tile1 < 0.5 { return 1.0; }
   let t = u32(tile1) - 1u;
-  let c = lights.tiles[t] * vec4<f32>(wpos + nrm * (0.02 + 0.012 * dist), 1.0);
+  let r = lights.tile_rect[t];
+  // the offset grows as the tile's texels do (it was set for 512 across)
+  let c = lights.tiles[t] * vec4<f32>(wpos + nrm * (0.02 + 0.012 * dist) * max(512.0 / r.w, 1.0), 1.0);
   if c.w <= 0.0 { return 1.0; }
   let p = c.xyz / c.w;
   if abs(p.x) > 1.0 || abs(p.y) > 1.0 || p.z > 1.0 { return 1.0; }
   let size = vec2<f32>(textureDimensions(atlas_map));
-  let org = vec2<f32>(f32(t % 4u), f32(t / 4u)) * 0.25;
+  let org = r.xy;
   let half_texel = 0.5 / size;
   let lo = org + half_texel;
-  let hi = org + vec2<f32>(0.25) - half_texel;
-  let uv = org + vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5) * 0.25;
+  let hi = org + vec2<f32>(r.z) - half_texel;
+  let uv = org + vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5) * r.z;
   var acc = 0.0;
   for (var j = -1; j <= 1; j++) {
     for (var i = -1; i <= 1; i++) {
@@ -389,8 +454,9 @@ fn area_shadow(tile1 : f32, size : f32, far : f32, wpos : vec3<f32>, nrm : vec3<
   if c.w <= 0.06 { return 1.0; }
   let p = c.xyz / c.w;
   if abs(p.x) > 1.0 || abs(p.y) > 1.0 || p.z > 1.0 { return 1.0; }
-  let tile_px = f32(textureDimensions(atlas_map).x) * 0.25;
-  let org = vec2<f32>(f32(t % 4u), f32(t / 4u)) * tile_px;
+  let r = lights.tile_rect[t];
+  let tile_px = r.w;
+  let org = r.xy * f32(textureDimensions(atlas_map).x);
   let lo = org + vec2<f32>(0.5);
   let hi = org + vec2<f32>(tile_px - 0.5);
   let q = org + vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5) * tile_px;
