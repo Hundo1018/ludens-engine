@@ -587,7 +587,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 )
                 if self.lut_view:
                     inp = inp.with_lut(self.lut_view.value())
-                inp = inp.with_lights(self.res.shadow_view, self.res.lights.handle(), self.res.shadow_ubo.handle())
+                inp = inp.with_lights(self.res.shadow_view, self.res.lights.handle(), self.res.shadow_ubo.handle(), self.res.atlas_view)
                 comptime if Self.F.VIEWS == 2:
                     self.scene2_view = None
                     self.depth2_view = None

@@ -8,6 +8,8 @@
 #   shafts     a roof over the left half of the volume and the sun's shadow on: the fog's added light on the left is
 #              cut, on the right it is the same as with the shadow off.
 #   point      a point light inside the fog brightens the pixels around it, not the corners.
+#   local      spot, directional and area lights light the fog like the point light does (a spot only inside its cone), and
+#              a point, directional or area light's shadow cuts the fog behind a block or a roof.
 #   cost       frame time at 1920 x 1080 with and without the effect (printed; lavapipe is a CPU rasteriser).
 # `volumetric_native --dump DIR` writes the frames as DIR/vol_*.rgba (scripts/tier3_shots.py makes PNGs of them);
 # `volumetric_native --cost` runs only the cost table.
@@ -28,6 +30,7 @@ from hud import Hud
 from ui.draw import DrawList
 from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_res import PointLight
+from app.lights import SpotLight, DirLight, AreaLight, uniform_environment
 from app.render_pass import RenderPass, AuxTarget, Then
 from app.shadow_pass import ShadowPass
 from app.post import PostEffect, Stage, Copy
@@ -64,12 +67,15 @@ def read(device: Device, mut cap: FrameCapture, tex: WGPUTextureHandle, w: UInt3
 comptime SCENE_EMPTY = 0  # nothing: the sky (clear colour) everywhere
 comptime SCENE_ROOF = 1  # a roof over x < 0 at 6 m
 comptime SCENE_WALL = 2  # a dark wall 30 m away, and a pillar
+comptime SCENE_BLOCK = 3  # a dark block 2 x 4 x 1 m at z = -6 (between a light at z = -8 and the camera)
 
 
 def scene[P: RenderPass, F: PostEffect, A: AuxTarget](mut r: SceneRendererOf[P, F, A], which: Int):
     if which == SCENE_ROOF:
         r.push(DrawItem(0, _v(-40.0, 7.0, -40.0), 0.0, 0.0, 0.0, 1.0, _v(80.0, 2.0, 120.0), _v(0.2, 0.2, 0.2), r.cube, -1, MAT_COLOR))
         r.push(DrawItem(0, _v(0.0, -1.0, -40.0), 0.0, 0.0, 0.0, 1.0, _v(160.0, 1.0, 160.0), _v(0.0, 0.0, 0.0), r.cube, -1, MAT_COLOR))
+    elif which == SCENE_BLOCK:
+        r.push(DrawItem(0, _v(0.0, 1.0, -6.0), 0.0, 0.0, 0.0, 1.0, _v(2.0, 4.0, 1.0), _v(0.05, 0.05, 0.06), r.cube, -1, MAT_COLOR))
     elif which == SCENE_WALL:
         r.push(DrawItem(0, _v(0.0, 0.0, -30.0), 0.0, 0.0, 0.0, 1.0, _v(60.0, 40.0, 1.0), _v(0.05, 0.05, 0.06), r.cube, -1, MAT_COLOR))
         r.push(DrawItem(1, _v(2.0, 1.0, -10.0), 0.0, 0.0, 0.0, 1.0, _v(1.0, 4.0, 1.0), _v(0.4, 0.3, 0.2), r.cube, -1, MAT_COLOR))
@@ -172,6 +178,24 @@ def cost(device: Device, format: UInt32) raises:
     print("| one copy stage (the offscreen scene target every stage needs) |", t_copy, "|")
     print("| volumetric fog, 160 x 90 x 64 froxels |", t_fog, "|")
     print("| added by the fog over the copy stage |", t_fog - t_copy, "|")
+    var spots = List[SpotLight]()
+    var points = List[PointLight]()
+    var spots_off = List[SpotLight]()
+    var points_off = List[PointLight]()
+    for k in range(8):
+        spots.append(SpotLight(_v(-6.0 + 1.7 * Float64(k), 3.0, -8.0 - 2.0 * Float64(k)), _v(0.0, -1.0, 0.0), 10.0, 0.4, 0.7, _v(1.0, 0.8, 0.5), 8.0, True))
+        spots_off.append(SpotLight(_v(-6.0 + 1.7 * Float64(k), 3.0, -8.0 - 2.0 * Float64(k)), _v(0.0, -1.0, 0.0), 10.0, 0.4, 0.7, _v(1.0, 0.8, 0.5), 8.0, False))
+    for k in range(4):
+        points.append(PointLight(_v(-4.0 + 2.5 * Float64(k), 1.5, -6.0 - 3.0 * Float64(k)), 8.0, _v(0.6, 0.8, 1.0), 8.0, shadow=True))
+        points_off.append(PointLight(_v(-4.0 + 2.5 * Float64(k), 1.5, -6.0 - 3.0 * Float64(k)), 8.0, _v(0.6, 0.8, 1.0), 8.0, shadow=False))
+    fog.set_spot_lights(device, spots_off)
+    fog.set_lights(device, points_off)
+    var t_lights = _time(device, big, fog)
+    fog.set_spot_lights(device, spots)
+    fog.set_lights(device, points)
+    var t_shadow = _time(device, big, fog)
+    print("| the fog with 8 spot and 4 point lights, no shadows |", t_lights, "|")
+    print("| the same lights with shadows |", t_shadow, "|")
     print("froxel textures:", volume_bytes(), "bytes")
 
 
@@ -269,4 +293,80 @@ def main() raises:
     print("point light: added at the centre", centre, "levels, at the corner", corner)
     s.check(centre > 10.0 and corner < 1.0, "the point light lights the fog around it and not the corners")
     dump(dir, "vol_wall", rig.shoot(device, fog, SCENE_WALL))
+
+    # ---- spot, directional and area lights in the fog, and the shadows of the local lights
+    var lf = SceneRendererOf[Lit, VolumetricFog](device, format, view_for(W, H))
+    set_fog(lf, 0.03, 0.0, 0.0)
+    lf.set_sun(device, _v(0.0, 1.0, 0.0), _v(1.0, 1.0, 1.0), 0.0)  # no sun: only the lights under test scatter
+    var vw = view_for(W, H)
+    var left_px = vw.project(_v(-4.0, 1.0, -8.0))
+    var right_px = vw.project(_v(4.0, 1.0, -8.0))
+    var lx = Int((Float64(left_px.x) / Float64(left_px.w) * 0.5 + 0.5) * Float64(W))
+    var rx = Int((Float64(right_px.x) / Float64(right_px.w) * 0.5 + 0.5) * Float64(W))
+    var my = Int((0.5 - Float64(left_px.y) / Float64(left_px.w) * 0.5) * Float64(H))
+    var none = rig.shoot(device, lf, SCENE_EMPTY)
+    lf.set_spot_lights(device, [SpotLight(_v(0.0, 1.0, -8.0), _v(1.0, 0.0, 0.0), 12.0, 0.3, 0.6, _v(1.0, 0.8, 0.5), 20.0)])
+    var spot = rig.shoot(device, lf, SCENE_EMPTY)
+    dump(dir, "vol_spot", spot)
+    var sp_r = region(spot, rx - 6, rx + 6, my - 6, my + 6) - region(none, rx - 6, rx + 6, my - 6, my + 6)
+    var sp_l = region(spot, lx - 6, lx + 6, my - 6, my + 6) - region(none, lx - 6, lx + 6, my - 6, my + 6)
+    print("spot light at z = -8 aimed along +x: fog's added light on its axis (x = 4)", sp_r, "levels, behind it (x = -4)", sp_l)
+    s.check(sp_r > 8.0 and sp_l < 1.0, "a spot light lights the fog inside its cone and not behind it")
+    lf.set_spot_lights(device, List[SpotLight]())
+
+    lf.set_dir_lights(device, [DirLight(_v(0.0, 1.0, 0.0), _v(1.0, 0.95, 0.85), 3.0)])
+    var dirl = rig.shoot(device, lf, SCENE_EMPTY)
+    dump(dir, "vol_dir", dirl)
+    var d_add = region(dirl, 100, 220, 20, 160) - region(none, 100, 220, 20, 160)
+    print("directional light from above: fog's added light", d_add, "levels")
+    s.check(d_add > 8.0, "a directional light lights the fog")
+    lf.set_dir_lights(device, List[DirLight]())
+
+    lf.set_area_lights(device, [AreaLight(_v(0.0, 1.0, -8.0), _v(1.0, 0.0, 0.0), _v(0.0, 1.0, 0.0), _v(1.0, 0.8, 0.6), 60.0)])
+    var area = rig.shoot(device, lf, SCENE_EMPTY)
+    dump(dir, "vol_area", area)
+    var a_c = region(area, cx - 5, cx + 5, cy - 5, cy + 5) - region(none, cx - 5, cx + 5, cy - 5, cy + 5)
+    var a_k = region(area, 0, 10, 0, 10) - region(none, 0, 10, 0, 10)
+    print("area light panel at z = -8 facing the camera: added at the centre", a_c, "levels, at the corner (an area light has no range: it falls as 1 / d^2)", a_k)
+    s.check(a_c > 8.0 and a_k < 0.3 * a_c, "an area light lights the fog around it, and the far corners (no range, 1 / d^2) much less")
+    lf.set_area_lights(device, List[AreaLight]())
+
+    # shadows: a block between the light (z = -8) and the camera darkens the fog in the wedge behind it, which the camera
+    # sees beside the block (x = -3 at z = -6)
+    var side = vw.project(_v(-3.0, 1.0, -6.0))
+    var sx = Int((Float64(side.x) / Float64(side.w) * 0.5 + 0.5) * Float64(W))
+    var sy = Int((0.5 - Float64(side.y) / Float64(side.w) * 0.5) * Float64(H))
+    var block = rig.shoot(device, lf, SCENE_BLOCK)
+    var names = ["point", "area"]
+    for kind in range(2):
+        var added = List[Float64]()
+        for sh in range(2):
+            if kind == 0:
+                lf.set_lights(device, [PointLight(_v(0.0, 1.0, -8.0), 14.0, _v(1.0, 0.7, 0.4), 20.0, shadow=(sh == 1))])
+            else:
+                lf.set_area_lights(device, [AreaLight(_v(0.0, 1.0, -8.0), _v(1.0, 0.0, 0.0), _v(0.0, 1.0, 0.0), _v(1.0, 0.8, 0.6), 60.0, sh == 1, 20.0)])
+            var f = rig.shoot(device, lf, SCENE_BLOCK)
+            if sh == 1:
+                dump(dir, "vol_" + names[kind] + "_shadow", f)
+            added.append(region(f, sx - 6, sx + 6, sy - 6, sy + 6) - region(block, sx - 6, sx + 6, sy - 6, sy + 6))
+        print(names[kind], "light behind a block: the fog's added light beside it, without the shadow", added[0], "with it", added[1])
+        s.check(added[0] > 5.0 and added[1] < 0.7 * added[0], "a " + names[kind] + " light's shadow cuts the fog behind a block")
+        lf.set_lights(device, List[PointLight]())
+        lf.set_area_lights(device, List[AreaLight]())
+
+    # a directional light's shadow: the roof of the shafts test
+    lf.set_dir_lights(device, [DirLight(_v(0.15, 1.0, 0.1), _v(1.0, 0.95, 0.85), 3.0, True, _v(0.0, 3.0, -20.0), 40.0, 60.0)])
+    var roof_shadow = rig.shoot(device, lf, SCENE_ROOF)
+    lf.set_dir_lights(device, [DirLight(_v(0.15, 1.0, 0.1), _v(1.0, 0.95, 0.85), 3.0, False)])
+    var roof_open = rig.shoot(device, lf, SCENE_ROOF)
+    lf.set_dir_lights(device, List[DirLight]())
+    var roof_none = rig.shoot(device, lf, SCENE_ROOF)
+    dump(dir, "vol_dir_shadow", roof_shadow)
+    var dl_on = region(roof_shadow, 10, 70, y0, y1) - region(roof_none, 10, 70, y0, y1)
+    var dl_off = region(roof_open, 10, 70, y0, y1) - region(roof_none, 10, 70, y0, y1)
+    var dr_on = region(roof_shadow, 250, 310, y0, y1) - region(roof_none, 250, 310, y0, y1)
+    var dr_off = region(roof_open, 250, 310, y0, y1) - region(roof_none, 250, 310, y0, y1)
+    print("directional light, the roof: fog's added light under it, shadow on", dl_on, "off", dl_off, "; in the open, on", dr_on, "off", dr_off)
+    s.check(dl_off > 5.0 and dl_on < 0.6 * dl_off, "a directional light's shadow removes most of the fog's light under the roof")
+    s.check(abs(dr_on - dr_off) <= 1.5, "in the open a directional light's shadow changes the fog by at most 1.5 levels")
     s.finish()

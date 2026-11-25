@@ -16,8 +16,9 @@ Three steps per frame, all on the GPU:
    sliced exponentially in view depth from FROXEL_NEAR to `vol_far`. At each cell's centre: the extinction (the density
    with its height falloff), and the light scattered toward the eye: the sun (the renderer's `Lights.sun_*`) times the
    phase function and the sun's shadow map at that point (the renderer's `Shadow.vp`; a cell outside the map is lit),
-   each point light (colour times intensity, the passes' range falloff, no shadow), and `vol_ambient` times the
-   environment's mean radiance (the spherical harmonics' constant term, or 0.4 grey before an environment is set).
+   each point, spot, directional and area light (colour times intensity, the passes' range falloff and cone, the phase
+   function at the light's direction, and its shadow from the atlas where it has tiles; an area light is its nine taps
+   with one lookup in its view), and `vol_ambient` times the environment's mean radiance (the spherical harmonics' constant term, or 0.4 grey before an environment is set).
    Stored as (scattered light per metre, extinction) in an RGBA16Float 3D texture.
 2. integrate (compute, one invocation per column): front to back, each cell's light added with the energy-conserving
    form of Hillaire (Physically Based and Unified Volumetric Rendering in Frostbite, SIGGRAPH 2015):
@@ -27,8 +28,7 @@ Three steps per frame, all on the GPU:
    slice coordinate and the integrated grid read there with trilinear filtering: out = colour * T + S.
 
 The scene's colour is already tone mapped, so the fog's light adds to display colour: a sun of colour 1 seen through
-fog of optical depth tau gives (1 - exp(-tau)) * albedo * phase-weighted light. Not handled: spot, directional and area
-lights; the point lights' shadows; temporal reprojection (each frame is computed from scratch, so the slices show as
+fog of optical depth tau gives (1 - exp(-tau)) * albedo * phase-weighted light. Not handled: temporal reprojection (each frame is computed from scratch, so the slices show as
 bands where the density changes fast along the view; FROXELS_Z = 64 keeps them below 1 % of the grid's range).
 """
 from std.math import exp, log
@@ -47,7 +47,7 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 from app.post import PostEffect, PostInputs, FRAME_WGSL, FRAME_BYTES, POST_MAIN_WGSL
-from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL, NO_LIGHT_TEX_WGSL
+from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, NO_PROBES_WGSL, NO_LIGHT_TEX_WGSL
 from app.lights import LIGHTS_BYTES
 from app.render_res import SHADOW_UBO_BYTES
 from app.gpu_bytes import texture_bytes
@@ -93,6 +93,8 @@ comptime INJECT_WGSL = """
 @group(0) @binding(2) var<uniform> shadow : Shadow;
 @group(0) @binding(3) var shadow_map : texture_depth_2d;
 @group(0) @binding(4) var cells : texture_storage_3d<rgba16float, write>;
+@group(0) @binding(5) var atlas_map : texture_depth_2d;
+@group(0) @binding(6) var shadow_cmp : sampler_comparison;
 
 fn hg(c : f32, g : f32) -> f32 {
   let d = 1.0 + g * g - 2.0 * g * c;
@@ -123,11 +125,41 @@ fn inject(@builtin(global_invocation_id) id : vec3<u32>) {
   let view_dir = normalize(w - frame.eye.xyz);  // from the eye
   let g = clamp(frame.vol.y, -0.95, 0.95);
   var l = lights.sun_color.rgb * hg(dot(view_dir, sun_dir()), g) * sun_visible(w, z);
+  // the local lights: each one's colour times intensity, its range falloff (and cone), the phase function and, where it
+  // has a tile in the atlas, its shadow at this point (the lookup is moved toward the light, which keeps a point in the
+  // air from shadowing itself)
   let np = min(u32(lights.n.x), 16u);
   for (var i = 0u; i < np; i++) {
     let d = lights.l[i].pos_range.xyz - w;
     let dist = max(length(d), 1e-4);
-    l += lights.l[i].color.rgb * lights.l[i].color.w * point_atten(i, w) * hg(dot(view_dir, d / dist), g);
+    let f = point_atten(i, w);
+    if f > 0.0 {
+      l += lights.l[i].color.rgb * lights.l[i].color.w * f * hg(dot(view_dir, d / dist), g) * point_shadow(i, w, d / dist);
+    }
+  }
+  let ns = min(u32(lights.n.y), 8u);
+  for (var k = 0u; k < ns; k++) {
+    let s = lights.spots[k];
+    let d = s.pos_range.xyz - w;
+    let dist = max(length(d), 1e-4);
+    let dl = d / dist;
+    let f = spot_atten(k, w);
+    if max(f.x, max(f.y, f.z)) > 0.0 {
+      l += s.color.rgb * s.color.w * f * hg(dot(view_dir, dl), g) * local_shadow(s.cone.y, w, dl, dist);
+    }
+  }
+  let nd = min(u32(lights.n.z), 4u);
+  for (var k = 0u; k < nd; k++) {
+    let dl = lights.dirs[k];
+    l += dl.color.rgb * dl.color.w * dir_cookie(lights.dext[k], w) * hg(dot(view_dir, dl.dir.xyz), g) * dir_shadow(dl.dir.w, w, dl.dir.xyz);
+  }
+  for (var j = 0u; j < area_count(); j++) {
+    var e = vec3<f32>(0.0);
+    for (var t = 0u; t < AREA_TAPS; t++) { e += area_tap(j, t, w).e; }
+    let c = lights.areas[j].pos.xyz - w;
+    let cd = max(length(c), 1e-4);
+    // as the other lights: the panel's light times the phase function at its centre; the shadow view's from there
+    l += e * hg(dot(view_dir, c / cd), g) * area_light_shadow(j, w, c / cd);
   }
   var amb = vec3<f32>(0.4);
   if ambient_set() { amb = lights.sh[0].rgb * 0.2820948; }  // the mean radiance: Y00 times its coefficient
@@ -254,6 +286,7 @@ struct VolumetricFog(PostEffect):
     var spare_lights: Buffer  # bound when the renderer gave no lights (a light rig of zeros: the default sun only)
     var spare_shadow: Buffer
     var sampler: Sampler
+    var cmp_sampler: Sampler  # the shadows' comparison sampler
     var cells: Texture
     var cells_view: TextureView
     var sums: Texture
@@ -264,13 +297,21 @@ struct VolumetricFog(PostEffect):
 
     def __init__(out self, device: Device, color_format: UInt32) raises:
         var common = String(FRAME_WGSL) + String(FROXEL_WGSL)
-        var lit = String(SHADOW_UBO_WGSL) + String(POINT_LIGHTS_WGSL) + String(NO_LOCAL_SHADOW_WGSL) + String(NO_PROBES_WGSL) + String(NO_LIGHT_TEX_WGSL)
+        var lit = String(SHADOW_UBO_WGSL) + String(POINT_LIGHTS_WGSL) + String(LOCAL_SHADOW_WGSL) + String(NO_PROBES_WGSL) + String(NO_LIGHT_TEX_WGSL)
         var cs = WGPUShaderStage.COMPUTE.value
         var fs = WGPUShaderStage.FRAGMENT.value
         var e1: List[WGPUBindGroupLayoutEntry] = [
             _ubo_entry(UInt32(0), cs), _ubo_entry(UInt32(1), cs), _ubo_entry(UInt32(2), cs),
             _tex_entry(UInt32(3), cs, UInt32(4), UInt32(2)),  # depth, 2D
             _store_entry(UInt32(4)),
+            _tex_entry(UInt32(5), cs, UInt32(4), UInt32(2)),  # depth, 2D: the shadow atlas
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(6), cs, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(4)),  # comparison
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         self.inject_layout = device.create_bind_group_layout(e1)
         var s1 = device.create_shader_module_wgsl(common + lit + String(INJECT_WGSL), "vol_inject")
@@ -305,6 +346,7 @@ struct VolumetricFog(PostEffect):
         device.queue_write_data(self.spare_lights, UInt64(0), List[Float32](length=LIGHTS_BYTES // 4, fill=Float32(0)))
         device.queue_write_data(self.spare_shadow, UInt64(0), List[Float32](length=SHADOW_UBO_BYTES // 4, fill=Float32(0)))
         self.sampler = device.create_sampler(mag_filter=2, min_filter=2, label="vol_linear")
+        self.cmp_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="vol_shadow_cmp")
         var usage = WGPUTextureUsage.STORAGE_BINDING | WGPUTextureUsage.TEXTURE_BINDING
         self.cells = device.create_texture(UInt32(FROXELS_X), UInt32(FROXELS_Y), UInt32(FROXELS_Z), VOLUME_FORMAT, usage, dimension=3, label="vol_cells")
         self.cells_view = self.cells.create_view_default()
@@ -330,6 +372,8 @@ struct VolumetricFog(PostEffect):
             _buf(UInt32(2), shadow, SHADOW_UBO_BYTES),
             _view(UInt32(3), inp.shadow),
             _view(UInt32(4), self.cells_view),
+            _view(UInt32(5), inp.atlas),
+            WGPUBindGroupEntry(null_opaque(), 6, null_opaque(), 0, UInt64(0), self.cmp_sampler.handle().raw, null_opaque()),
         ]
         self.inject_group = device.create_bind_group(self.inject_layout, g1, "vol_inject")
         var g2: List[WGPUBindGroupEntry] = [

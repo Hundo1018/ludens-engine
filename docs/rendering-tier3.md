@@ -102,9 +102,35 @@ Cost, `volumetric_native --cost`, 1920 x 1080, two runs:
 | volumetric fog | 68.1 to 71.8 |
 | added by the fog over the copy stage | 32.9 to 35.2 |
 
-The two froxel textures are RGBA16Float, 14.7 MB together (counted by `target_bytes`). Not handled: spot,
-directional and area lights in the fog; the point lights' shadows; temporal reprojection (every frame is computed from
-scratch).
+The two froxel textures are RGBA16Float, 14.7 MB together (counted by `target_bytes`). Not handled: temporal
+reprojection (every frame is computed from scratch).
+
+### Lights in the fog
+
+Point, spot, directional and area lights all scatter in the fog (`inject`), with the shadows they have in the atlas
+(the inject pass binds the renderer's atlas and a comparison sampler; `PostInputs.with_lights` carries the atlas view).
+A light's contribution at a froxel is its colour times intensity, its range falloff and cone, the Henyey-Greenstein
+phase at the direction to the light, and its shadow. The shadow lookup is moved toward the light, which stops a point of
+air from shadowing itself. A directional light has no range, so it lights the whole grid; an area light follows its form
+factor (nine taps, one shadow lookup from its centre) and has no range either, so it lights the far corners too, only
+less (5.4 against 29.3 levels at the centre in the test). `tests/volumetric_native.mojo` (320 x 180, lavapipe):
+
+| check | measured |
+|---|---|
+| a spot light aimed along +x, fog's added light on the axis / behind it | 22.4 / 0.0 levels |
+| a directional light from above | 36.4 levels |
+| an area light facing the camera, at its centre / at the corner | 29.3 / 5.4 levels |
+| a point light behind a 2 x 4 x 1 m block, beside the block, shadow off / on | 69.8 / 45.6 levels |
+| an area light behind the block, shadow off / on | 8.2 / 3.9 levels |
+| a directional light's shadow under a roof, shadow off / on; in the open, off / on | 12.8 / 2.5; 12.8 / 12.8 levels |
+
+Frame time at 1920 x 1080 on lavapipe (a CPU rasteriser; wall clock with the read-back; not GPU times):
+
+| | ms |
+|---|---:|
+| the fog, no lights | 92.2 |
+| the fog with 8 spot and 4 point lights, no shadows | 169.7 |
+| the same lights with shadows | 200.8 |
 
 ## Baked irradiance probes
 
@@ -150,6 +176,9 @@ Leaks: a probe on one side of a thin wall lights the other side. Keep walls a ce
 | `vol_uniform.png` | uniform fog, density 0.03, over the sky |
 | `vol_shafts.png` | the roof's shadow in the fog: dark under the roof, lit in the open |
 | `vol_point.png` | a point light in the fog |
+| `vol_point_shadow.png` | a point light behind a block: the shadow cuts the fog around it |
+| `vol_spot.png`, `vol_dir.png`, `vol_area.png` | a spot light's cone, a directional light, an area light in the fog |
+| `vol_dir_shadow.png`, `vol_area_shadow.png` | the roof's shadow of a directional light; an area light behind a block |
 | `gi_environment.png`, `gi_probes.png` | the red and green room with the sky's ambient, then with the baked probes |
 
 ## Left open
