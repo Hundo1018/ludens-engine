@@ -7,6 +7,10 @@ While `active`:
     along the view, up / down with `move(..., up)`, look with the pointer). Its position is kept inside a sphere of
     `radius` metres around the start and above `floor_y`, so a player cannot fly out of the level or under it;
   - the HUD is not drawn (`hud_hidden`);
+  - the lens is a `ZoomLens` (game/zoom_lens.mojo): it starts at the focal length of the game's field of view and
+    `set_focal(mm)` (the cvar `photo.focal`) or `zoom(dir, dt)` (held Z / X) moves it, over `ZOOM_TIME`, between
+    PHOTO_MIN_MM and PHOTO_MAX_MM; `move` steps it and writes its field into `fov_y`. Looking around turns by
+    PHOTO_LOOK times fov_y over the field at `enter`, so a long lens does not swing the view faster on screen;
   - `focus` (m), `fstop` (0 = pinhole), `exposure` (EV, applied as 2^EV) and the post-effect numbers `bloom`,
     `grade` go to the photo pipeline (app/photo.mojo). Each setter clamps to its range and returns the value it kept;
   - `capture_size(w, h)` is the frame times `scale` (2 by default), each side at most MAX_CAPTURE_SIDE.
@@ -16,12 +20,16 @@ from std.math import atan2, sqrt
 from geometry.quat import Quat
 from geometry.vec import Real, Vec3
 from procedural.camera_math import CameraPose
+from game.zoom_lens import ZoomLens
 
 comptime PHOTO_RADIUS: Real = 12.0  # metres the camera may move away from where photo mode started
 comptime PHOTO_SPEED: Real = 4.0  # metres per second at full intent
 comptime PHOTO_LOOK: Real = 0.004  # radians per pixel of pointer movement
 comptime MAX_CAPTURE_SIDE: Int = 8192  # WebGPU's default maxTextureDimension2D
 comptime PITCH_LIMIT: Real = 1.5  # radians up or down (just under 90 degrees)
+comptime PHOTO_MIN_MM: Float64 = 12.0  # shortest focal length in photo mode (90 degrees vertical on a 24 mm sensor)
+comptime PHOTO_MAX_MM: Float64 = 300.0  # longest (4.6 degrees)
+comptime PHOTO_ZOOM_RATE: Float64 = 1.5  # stops per second (doublings of the focal length) while a zoom key is held
 
 
 struct PhotoMode(Copyable, Movable):
@@ -30,7 +38,9 @@ struct PhotoMode(Copyable, Movable):
     var pos: Vec3
     var yaw: Real  # about +y; 0 looks down -z
     var pitch: Real
-    var fov_y: Real
+    var fov_y: Real  # the lens's field (`lens.fov_y()`), kept here for `pose`
+    var lens: ZoomLens
+    var enter_fov: Real  # the field when photo mode started: looking is scaled by fov_y / enter_fov
     var aspect: Real
     var near: Real
     var far: Real
@@ -51,7 +61,11 @@ struct PhotoMode(Copyable, Movable):
         self.pos = self.origin
         self.yaw = 0.0
         self.pitch = 0.0
-        self.fov_y = 1.0
+        self.lens = ZoomLens()
+        self.lens.set_range(PHOTO_MIN_MM, PHOTO_MAX_MM)
+        self.lens.match_fov(1.0)
+        self.fov_y = self.lens.fov_y()
+        self.enter_fov = self.fov_y
         self.aspect = 1.78
         self.near = 0.1
         self.far = 400.0
@@ -75,7 +89,9 @@ struct PhotoMode(Copyable, Movable):
         self.yaw = _atan2(-f[0], -f[2])
         var h = sqrt(f[0] * f[0] + f[2] * f[2])
         self.pitch = _atan2(f[1], h)
-        self.fov_y = cam.fov_y
+        self.lens.match_fov(cam.fov_y)  # a field outside 12 .. 300 mm is clamped into it
+        self.fov_y = self.lens.fov_y()
+        self.enter_fov = self.fov_y
         self.aspect = cam.aspect
         self.near = cam.near
         self.far = cam.far
@@ -94,9 +110,13 @@ struct PhotoMode(Copyable, Movable):
         return CameraPose(self.pos, self.rotation(), self.fov_y, self.aspect, self.near, self.far)
 
     def move(mut self, forward: Real, right: Real, up: Real, look_dx: Real, look_dy: Real, dt: Float64):
-        """One frame of flying: turn by the pointer, then move along the view; the result is kept inside the bound."""
-        self.yaw -= look_dx * PHOTO_LOOK
-        self.pitch -= look_dy * PHOTO_LOOK
+        """One frame of flying: the zoom moves, the view turns by the pointer, then the camera moves along the view; the
+        result is kept inside the bound."""
+        self.lens.step(dt)
+        self.fov_y = self.lens.fov_y()
+        var look = PHOTO_LOOK * self.fov_y / self.enter_fov
+        self.yaw -= look_dx * look
+        self.pitch -= look_dy * look
         self.pitch = max(-PITCH_LIMIT, min(PITCH_LIMIT, self.pitch))
         var rot = self.rotation()
         var f = rot.rotate(Vec3(0.0, 0.0, -1.0, 0.0))
@@ -119,6 +139,16 @@ struct PhotoMode(Copyable, Movable):
         if cut:
             self.clamped += 1
         return q
+
+    def set_focal(mut self, mm: Float32) -> Float32:
+        """Zoom to this focal length (mm, PHOTO_MIN_MM .. PHOTO_MAX_MM); `move` gets there over ZOOM_TIME. Returns
+        the target kept."""
+        return Float32(self.lens.zoom_to(Float64(mm)))
+
+    def zoom(mut self, dir: Real, dt: Float64):
+        """A zoom key held for dt seconds: dir 1 zooms in (longer lens), -1 out, PHOTO_ZOOM_RATE stops a second."""
+        if dir != 0:
+            _ = self.lens.zoom_by(Float64(dir) * PHOTO_ZOOM_RATE * dt)
 
     def set_focus(mut self, m: Float32) -> Float32:
         self.focus = max(Float32(0.2), min(Float32(1000.0), m))

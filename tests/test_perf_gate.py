@@ -145,7 +145,7 @@ def native_run(budgets: dict) -> dict:
     check(c["draw_calls"]["max"] == 2, "native: 2 draw calls (the primitive draw and the HUD)")
     check(c["triangles"]["max"] == 9 * 384 + 4, "native: 9 primitives of 384 triangles and the HUD's 4")
     check(c["bodies"]["max"] == 9, "native: 9 bodies")
-    check(c["texture_bytes"]["max"] == 25_881_248, "native: 25,881,248 bytes of textures")
+    check(c["texture_bytes"]["max"] == 28_109_472, "native: 28,109,472 bytes of textures")
     check(n["stats"]["frame"]["count"] == 300 and n["stats"]["draw"]["count"] == 300, "native: frame and draw ran in all 300 frames")
     gi = {s: i for i, s in enumerate(L.SEGMENTS)}
     if n["gpu_timing"]:

@@ -21,7 +21,7 @@
 //   console(line)    a console line, as if typed (docs/console.md): returns what it prints; throws for a refused line
 //   consoleLog()     the console log, `frame line` per line;  consoleReplay(log)   play a log back, each line at its frame
 //   cheated()        true once the game reports a cheat (achievements and stats are then refused)
-//   photo(on)        enter / leave photo mode;  photoSet(name, v)  focus, fstop, exposure, bloom, scale (returns the value kept)
+//   photo(on)        enter / leave photo mode;  photoSet(name, v)  focus, fstop, exposure, bloom, scale, focal (returns the value kept)
 //   photoMove(forward, right, up, seconds)   fly the photo camera (returns metres from the start);  photoCapture()  PNG at the next drawn frame
 //
 // A key is a DOM `KeyboardEvent.code` ("KeyW", "Space", "ArrowUp", "Escape", "Enter") or a single letter or digit ("w", "7").
@@ -133,8 +133,8 @@ export function createGameHook({ rt, app, keyCode }) {
     cheated: () => rt.call("app_cheated", app) === 1,
     photo(on = true) { return rt.call("app_photo", app, on ? 1 : 0) === 1; },
     photoSet(name, value) {
-      const i = ["focus", "fstop", "exposure", "bloom", "scale"].indexOf(name);
-      if (i < 0) throw new Error(`game: photoSet: name must be focus, fstop, exposure, bloom or scale`);
+      const i = ["focus", "fstop", "exposure", "bloom", "scale", "focal"].indexOf(name);
+      if (i < 0) throw new Error(`game: photoSet: name must be focus, fstop, exposure, bloom, scale or focal`);
       return rt.call("app_photo_set", app, i, value);
     },
     photoMove: (forward, right, up, seconds) => rt.call("app_photo_move", app, forward, right, up, seconds),

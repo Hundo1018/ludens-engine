@@ -10,12 +10,13 @@ height = 720
 
 # Work counts: the largest value in the last 300 frames. They do not depend on the machine's speed, so a value above its
 # budget FAILS the gate. Observed when these were set (docs/frame-budgets.md): draw_calls 2, triangles 3,460, texture_bytes
-# 25,881,248, particles 0, bodies 9, ai_agents 0. A budget a little above what the scene needs lets a small change through and
+# 28,109,472 (25,881,248 before the IES table and the light cookies of docs/LIGHTS_CAMERA.md: +2,228,224), particles 0, bodies 9,
+# ai_agents 0. A budget a little above what the scene needs lets a small change through and
 # stops a doubling.
 [counters]
 draw_calls = 4
 triangles = 4000
-texture_bytes = 27000000
+texture_bytes = 30000000
 particles = 0
 bodies = 12
 ai_agents = 0
