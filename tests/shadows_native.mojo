@@ -6,6 +6,10 @@
 #   GPU: a 3 m wall 120 m long casts a shadow whose edge is where similar triangles put it at every depth from 3 to 95 m
 #   (all four cascades and the blends between them); a 0.1 m pole 6 m away against the fixed box of before; 16 shadowed
 #   point lights and 8 shadowed spot lights (104 tiles; the 4 x 4 atlas of before held 16) each shadow their own cube.
+#   Contact shadows (app/contact_shadows.mojo): the camera's view-projection equals View.project (perspective and parallel);
+#   a 1 m cube on the floor shadows the floor beside it over the ray's reach (0.6 m toward the sun = 0.27 m of floor) and
+#   no further, a floor without objects stays exactly as lit as with the effect off, and the mask and depth textures exist
+#   only while the effect is on.
 # `shadows_native --dump DIR` also writes before / after frames of a 100 m scene (DIR/*.rgba, 960 x 540; scripts/native_shots.py
 # makes PNGs); `--cost` prints the frame time at 1920 x 1080 of the fixed box, the cascades and a full atlas (lavapipe).
 from std.math import sqrt, tan
@@ -27,6 +31,7 @@ from app.render3d import SceneRendererOf, DefaultPasses
 from app.render_pass import Then
 from app.render_res import PointLight
 from app.shadow_pass import ShadowPass
+from app.contact_shadows import camera_vp
 from app.lights import (
     SpotLight, uniform_environment, sun_shadow_vp, apply_vp, atlas_sizes, atlas_place, cascade_splits, cascade_sphere,
     cascade_vp, TILE_MIN, TILE_START, MAX_TILES,
@@ -113,8 +118,22 @@ def _ms(x: Float64) -> String:
     return String(n // 10) + "." + String(n % 10)
 
 
+def _clip(m: List[Float32], p: Vec3) -> List[Float64]:
+    """A world point through a column-major view-projection: x, y, z, w."""
+    var out = List[Float64]()
+    for r in range(4):
+        out.append(
+            Float64(m[r]) * Float64(p[0]) + Float64(m[4 + r]) * Float64(p[1]) + Float64(m[8 + r]) * Float64(p[2]) + Float64(m[12 + r])
+        )
+    return out^
+
+
 def box(c: Vec3, half: Vec3, cube: Int) -> DrawItem:
     return DrawItem(0, c, 0.0, 0.0, 0.0, 1.0, half * Real(2.0), _v(1, 1, 1), cube, -1, MAT_COLOR)
+
+
+def coloured(c: Vec3, half: Vec3, colour: Vec3, cube: Int) -> DrawItem:
+    return DrawItem(0, c, 0.0, 0.0, 0.0, 1.0, half * Real(2.0), colour, cube, -1, MAT_COLOR)
 
 
 def town(cube: Int) -> List[DrawItem]:
@@ -146,9 +165,12 @@ def shots_and_cost(dir: String, cost: Bool) raises:
     g.r.set_environment(g.device, uniform_environment(_v(0.22, 0.24, 0.28)))
     g.r.set_sun(g.device, to_sun, _v(1.0, 0.93, 0.82), 0.9)
     var items = town(g.r.cube)
-    var names = ["shadow off", "fixed box, 1024 over 120 m (before)", "4 cascades of 1024 (after)", "24 shadowed lights, 104 atlas tiles", "the same 24 lights without shadows"]
+    var names = [
+        "shadow off", "fixed box, 1024 over 120 m (before)", "4 cascades of 1024 (after)", "24 shadowed lights, 104 atlas tiles",
+        "the same 24 lights without shadows", "contact shadows only (16 steps, 0.6 m)", "4 cascades + contact shadows",
+    ]
     var times = List[List[Float64]]()
-    for _ in range(5):
+    for _ in range(7):
         times.append(List[Float64]())
     var rounds = 13 if cost else 1
     for round in range(rounds):
@@ -164,6 +186,16 @@ def shots_and_cost(dir: String, cost: Bool) raises:
                 times[mode].append(ms)
             if not cost:
                 g.dump(dir, ["town_off", "town_before", "town_after"][mode])
+        for mode in range(2):  # contact shadows alone, then on top of the cascades
+            if mode == 0:
+                g.r.set_shadow(g.device, sun_shadow_vp(to_sun, _v(0, 0, -50), 60.0, 100.0), False)
+            g.r.set_contact_shadows(g.device, True, 0.6, 16, 0.3, 1.0)
+            var ms = g.shoot(items)
+            if round >= 2 or not cost:
+                times[5 + mode].append(ms)
+            g.r.set_contact_shadows(g.device, False)
+            if mode == 0:
+                g.r.set_sun_cascades(g.device, 4, 100.0, 0.75, 0.1, 50.0, 1024)
     # night: 16 point lights and 8 spots along the street, every one with a shadow
     g.r.set_shadow(g.device, sun_shadow_vp(to_sun, _v(0, 0, -50), 60.0, 100.0), False)
     g.r.set_sun(g.device, to_sun, _v(1, 1, 1), 0.0)
@@ -193,11 +225,32 @@ def shots_and_cost(dir: String, cost: Bool) raises:
                 times[3 + mode].append(ms)
     if not cost:
         g.dump(dir, "town_night")
+        # contact shadows: a close shot of crates, a stack and a fence under a coarse sun map (the fixed 140 m box), without and with
+        g.r.set_lights(g.device, List[PointLight]())
+        g.r.set_spot_lights(g.device, List[SpotLight]())
+        g.r.set_environment(g.device, uniform_environment(_v(0.22, 0.24, 0.28)))
+        g.r.set_sun(g.device, _v(0.6, 0.55, 0.35), _v(1.0, 0.93, 0.82), 0.9)
+        g.r.set_shadow(g.device, sun_shadow_vp(_v(0.6, 0.55, 0.35), _v(0, 0, -30), 70.0, 100.0), True)  # the fixed 140 m box: 0.14 m texels
+        g.view = Rig.look(_v(-2.4, 1.3, 0.3), _v(0.5, -0.2, -1.0), w, h)
+        var close = List[DrawItem]()
+        close.append(box(_v(0, -0.25, -150), _v(200, 0.25, 200), g.r.cube))
+        close.append(coloured(_v(0.0, 0.3, -4.0), _v(0.3, 0.3, 0.3), _v(0.85, 0.55, 0.3), g.r.cube))
+        close.append(coloured(_v(0.9, 0.2, -3.4), _v(0.2, 0.2, 0.2), _v(0.3, 0.6, 0.85), g.r.cube))
+        close.append(coloured(_v(0.0, 0.75, -4.0), _v(0.2, 0.15, 0.2), _v(0.85, 0.3, 0.3), g.r.cube))
+        close.append(coloured(_v(-1.0, 0.05, -2.6), _v(0.5, 0.05, 0.35), _v(0.4, 0.8, 0.4), g.r.cube))
+        for k in range(9):
+            close.append(coloured(_v(-0.2 + 0.45 * Float64(k), 0.45, -5.6), _v(0.03, 0.45, 0.03), _v(0.8, 0.8, 0.75), g.r.cube))
+        close.append(coloured(_v(1.6, 0.4, -5.6), _v(0.06, 0.4, 0.06), _v(0.9, 0.9, 0.9), g.r.cube))
+        _ = g.shoot(close)
+        g.dump(dir, "contact_off")
+        g.r.set_contact_shadows(g.device, True, 0.6, 16, 0.3, 1.0)
+        _ = g.shoot(close)
+        g.dump(dir, "contact_on")
         return
     print("frame cost at 1920 x 1080 on lavapipe (a CPU rasteriser: not GPU times), the street (", len(items), "items), median of 11 frames; draw + submit + wait for the pixels")
     print("| sun / lights | ms / frame | min | max |")
     print("|---|---:|---:|---:|")
-    for m in range(5):
+    for m in range(7):
         var t = times[m].copy()
         for i in range(len(t)):  # insertion sort
             var j = i
@@ -349,6 +402,58 @@ def main() raises:
     s.check(darkest[1] < 0.2 + 0.05, "cascades: the 0.1 m pole's shadow reaches the shadowed level")
     s.check(darkest[0] > darkest[1] + 0.2, "cascades: the fixed box of before (texels 0.14 m) loses most of that shadow")
     s.check(widths[1] >= 35 and widths[1] <= 65, "cascades: the pole's shadow is about 0.1 m wide")
+
+    # ---- the camera's view-projection (the depth prepass of the contact shadows) is View.project's map
+    var vp_persp = Rig.look(_v(1.5, 2.0, 0.5), _v(0.3, -0.4, -1.0))
+    var vp_ortho = View.orthographic(CameraPose(_v(1.5, 2.0, 0.5), look_rotation(_v(0.3, -0.4, -1.0), _v(0, 1, 0)), 0.9, Real(1.7), 0.1, 400.0), Real(6.0), Real(1.7))
+    var worst_vp = 0.0
+    for which in range(2):
+        var vw = vp_persp.copy() if which == 0 else vp_ortho.copy()
+        var m = camera_vp(vw)
+        for k in range(12):
+            var q = _v(-3.0 + 0.9 * Float64(k), 0.2 * Float64(k % 5), -2.0 - 3.7 * Float64(k))
+            var a = _clip(m, q)
+            var b = vw.project(q)
+            worst_vp = max(worst_vp, abs(a[0] - Float64(b.x)) / (1.0 + abs(a[0])), abs(a[1] - Float64(b.y)) / (1.0 + abs(a[1])))
+            worst_vp = max(worst_vp, abs(a[2] - Float64(b.z)) / (1.0 + abs(a[2])), abs(a[3] - Float64(b.w)) / (1.0 + abs(a[3])))
+    print("camera_vp against View.project, perspective and parallel, 24 points: largest relative difference", worst_vp)
+    s.check(worst_vp < 2e-6, "contact shadows: the camera's view-projection is View.project's map (perspective and parallel)")
+
+    # ---- contact shadows: a 1 m cube on the floor, the sun from +x at 2 : 1 up, no sun map at all
+    g.view = Rig.look(_v(-4.0, 3.0, 0.0), _v(0.5, -0.35, -1.0))
+    g.r.set_shadow(g.device, sun_shadow_vp(to_sun, _v(0, 0, -6), 20.0, 40.0), False)
+    var on_floor = List[DrawItem]()
+    on_floor.append(floor.copy())
+    on_floor.append(box(_v(0.0, 0.5, -6.0), _v(0.5, 0.5, 0.5), g.r.cube))
+    var bytes_off = g.r.res.texture_bytes()
+    g.shoot(on_floor)
+    var off_near = g.at(-0.55, -6.0)
+    g.r.set_contact_shadows(g.device, True, 0.6, 16, 0.3, 1.0)
+    g.shoot(on_floor)
+    var c05 = g.at(-0.55, -6.0)
+    var c12 = g.at(-0.62, -6.0)
+    var c40 = g.at(-0.90, -6.0)
+    var c_sun = g.at(0.0, -5.0)  # in front of the cube: the ray toward the sun passes beside it
+    var acne = 0.0
+    var plain = 0
+    for k in range(20):  # floor away from the cube: the effect changes nothing there
+        var q = g.at(-3.0 + 0.3 * Float64(k % 5), -2.0 - 1.3 * Float64(k))
+        if q >= 0.0:
+            plain += 1
+            acne = max(acne, abs(q - lit))
+    var bytes_on = g.r.res.texture_bytes()
+    print("contact shadows, a cube on the floor, the sun 2 : 1 up (floor lit", lit, ", in shadow 0.2): off, 0.05 m beside it", off_near,
+          "; on, 0.05 m", c05, ", 0.12 m", c12, ", 0.4 m", c40, ", in front", c_sun, "; 20 plain floor points off by at most", acne, "(", plain, "on screen )")
+    print("textures: off", bytes_off, "bytes, on", bytes_on, "(+", bytes_on - bytes_off, ", 8 bytes per pixel of the scene:", 8 * Int(W) * Int(H), ")")
+    s.check(abs(off_near - lit) < 0.03, "contact shadows: off, the floor beside the cube is lit (no sun map)")
+    s.check(abs(c05 - 0.2) < 0.04 and abs(c12 - 0.2) < 0.04, "contact shadows: on, the floor within the ray's reach of the cube is in shadow")
+    s.check(abs(c40 - lit) < 0.03 and abs(c_sun - lit) < 0.03, "contact shadows: beyond the ray's reach, and in front of the cube where the ray passes beside it, the floor is lit")
+    s.check(plain >= 12 and acne < 0.01, "contact shadows: the floor away from the cube is exactly as lit as with the effect off (no acne)")
+    s.eqi(bytes_on - bytes_off, 8 * Int(W) * Int(H), "contact shadows: the depth and mask textures take 8 bytes a pixel while on")
+    g.r.set_contact_shadows(g.device, False)
+    g.shoot(on_floor)
+    var back = g.at(-0.55, -6.0)
+    s.check(abs(back - lit) < 0.03 and g.r.res.texture_bytes() == bytes_off, "contact shadows: off again, the shadow and both textures are gone")
 
     # ---- many shadowed lights: 16 point lights and 8 spot lights with a shadow each (104 tiles)
     g.view = Rig.look(_v(0, 14, 0.01), _v(0, -1, -0.001))

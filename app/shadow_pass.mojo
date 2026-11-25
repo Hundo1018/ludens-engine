@@ -50,6 +50,7 @@ from app.wgsl import LIGHT_WGSL
 from app.render_res import RenderResources
 from app.lights import MAX_CASCADES
 from app.render_pass import RenderPass
+from app.contact_shadows import camera_vp
 from app.cull import MeshBounds, item_radius
 from std.math import sqrt
 
@@ -260,6 +261,11 @@ struct ShadowCaster(Movable):
     var vinst: Buffer  # every view's instance records
     var vcap: Int  # vinst's capacity, instances
     var vtotal: Int
+    # the camera's own view (contact shadows): drawn into the scene depth prepass, listed after the atlas tiles
+    var cam_lights: List[Buffer]
+    var cam_groups: List[BindGroup]
+    var cam_skin_groups: List[BindGroup]
+    var cam_view: Int  # its index among the views; -1 when this frame has none
 
     def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
@@ -335,6 +341,10 @@ struct ShadowCaster(Movable):
         self.vstart = List[Int]()
         self.vcap = 1024
         self.vtotal = 0
+        self.cam_lights = List[Buffer]()
+        self.cam_groups = List[BindGroup]()
+        self.cam_skin_groups = List[BindGroup]()
+        self.cam_view = -1
         self.vinst = device.create_buffer(
             UInt64(1024 * FLOATS_PER_INSTANCE * 4), WGPUBufferUsage.VERTEX | WGPUBufferUsage.COPY_DST, label="shadow_view_instances",
         )
@@ -372,6 +382,20 @@ struct ShadowCaster(Movable):
             self.tile_lights.append(lb^)
         for k in range(res.tiles):
             device.queue_write_data(self.tile_lights[k], UInt64(0), res.tile_vp(k))
+
+    def prepare_camera(mut self, device: Device, vp: List[Float32]) raises:
+        """Write the camera's view-projection for the depth prepass; its uniform and groups are made the first time."""
+        if len(self.cam_lights) == 0:
+            var lb = self._light_buffer(device, "shadow_camera_light")
+            self.cam_groups.append(self._group(device, lb, "shadow_camera_group"))
+            self.cam_skin_groups.append(self._skin_group(device, lb, "shadow_camera_skin_group"))
+            self.cam_lights.append(lb^)
+        device.queue_write_data(self.cam_lights[0], UInt64(0), vp)
+
+    def record_camera(self, mut rpass: RenderPassEncoder, registry: MeshRegistry, gpu: GpuMeshCache):
+        """The casters in the camera's view (prepare_views), into the scene depth prepass."""
+        if self.cam_view >= 0 and self.culled:
+            self._record_view(rpass, self.cam_view, self.cam_groups[0], self.cam_skin_groups[0], registry, gpu)
 
     def prepare_cascades(self, device: Device, res: RenderResources) raises:
         """Write cascades 1 .. sun_count - 1's view-projections (cascade 0 is prepare's light_vp)."""
@@ -581,6 +605,7 @@ struct ShadowPass(RenderPass):
     var gpu: GpuMeshCache  # draw()'s mesh copies; unused in a renderer's pass list
     var active: Bool  # prepared this frame in a pass list (the renderer's shadow is on)
     var places: List[Int]  # this frame's cascades: x, y, size in the sun's map
+    var contact: Bool  # prepared this frame with the camera's view for the depth prepass (res.contact_on)
     var bounds: MeshBounds  # the meshes' bounding radii, for sorting the casters into views
 
     def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
@@ -588,6 +613,7 @@ struct ShadowPass(RenderPass):
         self.gpu = GpuMeshCache()
         self.active = False
         self.places = List[Int]()
+        self.contact = False
         self.bounds = MeshBounds()
 
     def draw(
@@ -618,7 +644,9 @@ struct ShadowPass(RenderPass):
         palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         self.active = res.shadow_on
-        if not self.active and res.tiles == 0:
+        self.contact = res.contact_on
+        self.caster.cam_view = -1
+        if not self.active and res.tiles == 0 and not self.contact:
             return
         var casters = List[DrawItem]()
         for it in items:
@@ -634,7 +662,13 @@ struct ShadowPass(RenderPass):
             views.extend(res.sun_vp(i))
         for k in range(res.tiles):
             views.extend(res.tile_vp(k))
+        if self.contact:
+            var cvp = camera_vp(view)
+            self.caster.prepare_camera(device, cvp)
+            views.extend(cvp.copy())
         self.caster.prepare_views(device, casters, meshes, self.bounds, views, ncasc)
+        if self.contact:
+            self.caster.cam_view = ncasc + res.tiles
         self.places = List[Int]()
         for i in range(res.sun_count):
             var q = res.sun_place(i)
@@ -652,3 +686,7 @@ struct ShadowPass(RenderPass):
 
     def record_local_shadow(self, mut rpass: RenderPassEncoder, tile: Int, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.caster.record_tile(rpass, tile, meshes, gpu)
+
+    def record_view_depth(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
+        if self.contact:
+            self.caster.record_camera(rpass, meshes, gpu)

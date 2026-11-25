@@ -40,7 +40,7 @@ from app.textures import TextureArray
 from app.skin_blend import SkinBlend, LinearBlend, MotorBlend
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
-from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, ENV_WGSL, PROBES_WGSL
+from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, SCREEN_MASK_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, ENV_WGSL, PROBES_WGSL
 from app.render_res import RenderResources, SHADOW_UBO_BYTES, LIGHTS_BYTES, PROBE_BYTES
 from app.render_pass import RenderPass, DrawCounts
 
@@ -60,7 +60,8 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(11) var ies_tab : texture_2d<f32>;
 @group(0) @binding(12) var cookies : texture_2d_array<f32>;
 @group(0) @binding(13) var light_samp : sampler;
-""" + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + LIGHT_TEX_WGSL + PROBES_WGSL + ENV_WGSL + PBR_WGSL + """
+@group(0) @binding(14) var screen_mask : texture_2d<f32>;
+""" + ATMO_WGSL + PCF_WGSL + SCREEN_MASK_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + LIGHT_TEX_WGSL + PROBES_WGSL + ENV_WGSL + PBR_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -118,7 +119,7 @@ fn vs_skin(v : SVIn) -> VOut {
 fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0: the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), sun_dir()), 0.0);
-  let sf = select(1.0, shadow_at(in.wpos, normalize(in.wnrm), ndl), shadow.params.x > 0.5);
+  let sf = select(1.0, shadow_at(in.wpos, normalize(in.wnrm), ndl), shadow.params.x > 0.5) * contact_shadow(in.pos.xy);
   // the item's material, shaded as on the mesh pass (app/material.mojo; the same pack)
   // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
   var lit3 = vec3<f32>(in.lit);
@@ -340,6 +341,13 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(14), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(2), UInt32(2), UInt32(0)),  # float, 2D: the screen mask
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "skin_layout")
@@ -369,6 +377,7 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 11, null_opaque(), 0, UInt64(0), null_opaque(), res.ies_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 12, null_opaque(), 0, UInt64(0), null_opaque(), res.cookie_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 13, null_opaque(), 0, UInt64(0), res.light_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 14, null_opaque(), 0, UInt64(0), null_opaque(), res.screen_mask_view.handle().raw),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.bgl = bgl^
@@ -385,6 +394,8 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
                 self.entries[k].texture_view = res.shadow_view.handle().raw
             elif self.entries[k].binding == 8:
                 self.entries[k].texture_view = res.atlas_view.handle().raw
+            elif self.entries[k].binding == 14:
+                self.entries[k].texture_view = res.screen_mask_view.handle().raw
         self.group = device.create_bind_group(self.bgl, self.entries, "skin_group")
         self.gen = res.gen
 

@@ -67,15 +67,40 @@ Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL`
 
   | sun / lights | ms / frame |
   |---|---:|
-  | shadow off | 54.4 |
-  | fixed box, 1024 over 120 m | 60.0 |
-  | 4 cascades of 1024 | 70.1 |
-  | 24 lights with shadows (104 atlas tiles) | 190.5 |
-  | the same 24 lights without shadows | 138.1 |
+  | shadow off | 54.2 |
+  | fixed box, 1024 over 120 m | 62.0 |
+  | 4 cascades of 1024 | 75.3 |
+  | 24 lights with shadows (104 atlas tiles) | 189.3 |
+  | the same 24 lights without shadows | 135.3 |
+  | contact shadows only (16 steps, 0.6 m) | 188.2 |
+  | 4 cascades + contact shadows | 186.2 |
+
+  The contact shadows add about 110 to 130 ms here because lavapipe runs the compute pass, 16 depth reads per pixel,
+  on the CPU; the numbers say nothing about a GPU's cost.
 
   Before the casters were sorted into views, the 104 tiles cost 716 ms on the same scene.
   Pictures (`scripts/native_shots.py shadows_native 960x540 --docs images/shadows`): `docs/images/shadows/town_before.png`
   (the fixed box), `town_after.png` (four cascades), `town_night.png` (24 shadowed lights).
+- **Contact shadows** (`set_contact_shadows(device, on, distance=0.6, steps=16, thickness=0.3, strength=1.0)`;
+  app/contact_shadows.mojo). The sun's map has texels of centimetres, so a crate on the floor shows a light gap where it
+  touches. With the effect on, the frame's meshes (the shadow pass's casters, static and skinned) are first drawn from the
+  camera into a single-sample Depth32Float of the scene's size (`RenderResources.scene_depth`); a compute pass then
+  marches `steps` samples from each pixel toward the sun over `distance` metres. A sample behind the stored depth by more
+  than a bias (0.01 m + 0.3 % of the depth) and less than `thickness` hides the pixel; the shadow fades over the last third
+  of the ray, and `strength` is its darkness. The result is `RenderResources.screen_mask` (RGBA8: R the contact shadow,
+  G reserved for screen-space ambient occlusion and written as 1, B and A 1), read in the mesh pass (binding 15) and
+  the skinned pass (binding 14) as a factor on the sun's shadow (`contact_shadow(@builtin(position).xy)`;
+  `screen_ao` reads G). `RenderResources.screen_users` (bit 0 contact shadows, bit 1 ambient occlusion) says which
+  effects need the textures: with none, the mask is 1 x 1 and no depth texture exists, so the default memory and colour
+  are unchanged; while it is on they take 8 bytes a pixel (1,843,200 bytes at 640 x 360, checked). Needs `ShadowPass` in
+  the list; not drawn with Stereo. Limits: a ray that leaves the screen or passes behind a surface thicker than
+  `thickness` finds nothing; occluders are the shadow casters (primitives that are not meshes are not); a material's
+  vertex hook (wind, waves) is not in the depth pass. `tests/shadows_native.mojo`: `camera_vp` equals `View.project`
+  (perspective and parallel, relative difference 1.4e-7); a 1 m cube with the sun 2 : 1 up shadows the floor 0.05 and
+  0.12 m beside it (0.200 of 0.200), leaves 0.4 m beside it and the floor in front lit (0.914 of 0.915), and 19 plain
+  floor points differ from the effect-off colour by at most 0.0018; turning it off returns the texture memory. Pictures:
+  `docs/images/shadows/contact_off.png` and `contact_on.png` (a coarse 0.14 m sun map; 2,883 of 518,400 pixels
+  change by more than 8 of 255).
 - **What the sun's shadow darkens.** Until an environment is set, the fixed 0.4 ambient and the point lights are inside
   the sun's shadow factor, as before. After `set_environment` the factor applies to the sun's light only. Spot,
   directional and area lights are never inside it.

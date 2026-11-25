@@ -14,7 +14,7 @@ from game.camera_view import View
 from geometry.vec import Real, Vec3
 from std.math import sin, cos
 from app.textures import TextureArray, TRI_WGSL, ATMO_WGSL
-from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, ENV_WGSL, PROBES_WGSL
+from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, SCREEN_MASK_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, ENV_WGSL, PROBES_WGSL
 from app.render_res import RenderResources, SHADOW_UBO_BYTES, LIGHTS_BYTES, PROBE_BYTES, SHADOW_MAP_SIZE, AO_MAX_CELLS, RenderCaps, MAX_MESH_INSTANCES, DEFAULT_PRIMITIVE_INSTANCES, DEFAULT_PALETTE_MATRICES
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
@@ -65,6 +65,7 @@ struct Ao { ext : vec4<f32>, dims : vec4<f32>, params : vec4<f32> };
 @group(0) @binding(12) var ies_tab : texture_2d<f32>;
 @group(0) @binding(13) var cookies : texture_2d_array<f32>;
 @group(0) @binding(14) var light_samp : sampler;
+@group(0) @binding(15) var screen_mask : texture_2d<f32>;
 fn ao_factor(p : vec3<f32>) -> f32 {
   let uv = (p.xz - ao.ext.xy) / ao.ext.zw;
   if uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0 { return 1.0; }
@@ -72,7 +73,7 @@ fn ao_factor(p : vec3<f32>) -> f32 {
   let c = min(vec2<u32>(uv * vec2<f32>(n)), n - vec2<u32>(1u));
   return ao_cells[c.y * n.x + c.x];
 }
-""" + TRI_WGSL + ATMO_WGSL + PCF_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + LIGHT_TEX_WGSL + PROBES_WGSL + ENV_WGSL + PBR_WGSL + """
+""" + TRI_WGSL + ATMO_WGSL + PCF_WGSL + SCREEN_MASK_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + LIGHT_TEX_WGSL + PROBES_WGSL + ENV_WGSL + PBR_WGSL + """
 
 struct VIn {
   @location(0) pos : vec3<f32>,
@@ -129,7 +130,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0, so the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), sun_dir()), 0.0);
   // the AO factor multiplies the shadow factor; with AO off it is exactly 1.0, so the colour is unchanged bit for bit
-  let sf = select(1.0, shadow_at(in.wpos, normalize(in.wnrm), ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5);
+  let sf = select(1.0, shadow_at(in.wpos, normalize(in.wnrm), ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5) * contact_shadow(in.pos.xy);
   // the item's material (app/material.mojo): shade() is generated from the pass's material pack
   // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
   var lit3 = vec3<f32>(in.lit);
@@ -504,6 +505,13 @@ struct MeshPassOf[*Ms: Material](RenderPass):
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(15), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(2), UInt32(2), UInt32(0)),  # float, 2D: the screen mask
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "mesh_layout")
@@ -532,6 +540,7 @@ struct MeshPassOf[*Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 12, null_opaque(), 0, UInt64(0), null_opaque(), res.ies_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 13, null_opaque(), 0, UInt64(0), null_opaque(), res.cookie_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 14, null_opaque(), 0, UInt64(0), res.light_sampler.handle().raw, null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 15, null_opaque(), 0, UInt64(0), null_opaque(), res.screen_mask_view.handle().raw),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "mesh_group")
         self.bgl = bgl^
@@ -549,6 +558,8 @@ struct MeshPassOf[*Ms: Material](RenderPass):
                 self.entries[k].texture_view = res.shadow_view.handle().raw
             elif self.entries[k].binding == 9:
                 self.entries[k].texture_view = res.atlas_view.handle().raw
+            elif self.entries[k].binding == 15:
+                self.entries[k].texture_view = res.screen_mask_view.handle().raw
         self.group = device.create_bind_group(self.bgl, self.entries, "mesh_group")
         self.gen = res.gen
 
