@@ -48,6 +48,7 @@ from app.skin_pass import CpuSkinning, Skinning, synthetic_scene
 from geometry.vec import Vec3
 from reference import Reference, fill
 from particle_frame import ParticleReference
+from tier2_frame import Tier2Reference
 from post_fx_frame import PostFxFrames
 from render import Renderer
 from sim import Sim, SAMPLE_RATE
@@ -95,6 +96,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
     var particle_reference: Optional[ParticleReference]  # #121: the particle frame of the pixel parity
     var particles_requested: Bool
     var particles_ptr: UInt64
+    var tier2_reference: Optional[Tier2Reference]  # #140: terrain, decals and trails, for the pixel parity
+    var tier2_requested: Bool
+    var tier2_ptr: UInt64
     var post_fx_frames: Optional[PostFxFrames]  # #139: the picture-effects frames of the pixel parity
     var post_fx_requested: Bool
     var post_fx_ptr: List[UInt64]
@@ -166,6 +170,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.particle_reference = None
         self.particles_requested = False
         self.particles_ptr = 0
+        self.tier2_reference = None
+        self.tier2_requested = False
+        self.tier2_ptr = 0
         self.post_fx_frames = None
         self.post_fx_requested = False
         self.post_fx_ptr = [UInt64(0), UInt64(0)]
@@ -235,6 +242,9 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
         self.particle_reference = move.particle_reference^
         self.particles_requested = move.particles_requested
         self.particles_ptr = move.particles_ptr
+        self.tier2_reference = move.tier2_reference^
+        self.tier2_requested = move.tier2_requested
+        self.tier2_ptr = move.tier2_ptr
         self.post_fx_frames = move.post_fx_frames^
         self.post_fx_requested = move.post_fx_requested
         self.post_fx_ptr = move.post_fx_ptr^
@@ -323,6 +333,11 @@ struct AppOf[M: GameMode, P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = 
             self.particle_reference.value().start(self.boot.device())
         if self.particle_reference and self.particles_ptr == 0:
             self.particles_ptr = self.particle_reference.value().poll()
+        if self.tier2_requested and not self.tier2_reference:
+            self.tier2_reference = Tier2Reference(self.boot.device())
+            self.tier2_reference.value().start(self.boot.device())
+        if self.tier2_reference and self.tier2_ptr == 0:
+            self.tier2_ptr = self.tier2_reference.value().poll()
         if self.post_fx_requested and not self.post_fx_frames:
             self.post_fx_frames = PostFxFrames(self.boot.device())
             self.post_fx_frames.value().start(self.boot.device())
@@ -900,6 +915,27 @@ def app_particles_pitch(app: UInt64) abi("C") -> UInt32:
     if not a[].particle_reference:
         return 0
     return a[].particle_reference.value().pitch()
+
+
+@export
+def app_tier2_request(app: UInt64) abi("C"):
+    """Render the tier 2 frame (app/tier2_frame.mojo: terrain, decals, trails; 480 x 270) for the pixel parity (#140)."""
+    _app(app)[].tier2_requested = True
+
+
+@export
+def app_tier2_ptr(app: UInt64) abi("C") -> UInt64:
+    """Address of the tier 2 frame's pixels (RGBA8, rows of app_tier2_pitch bytes), 0 until ready."""
+    return _app(app)[].tier2_ptr
+
+
+@export
+def app_tier2_pitch(app: UInt64) abi("C") -> UInt32:
+    """Bytes per row of the tier 2 frame; 0 before app_tier2_request has started it."""
+    var a = _app(app)
+    if not a[].tier2_reference:
+        return 0
+    return a[].tier2_reference.value().pitch()
 
 
 @export

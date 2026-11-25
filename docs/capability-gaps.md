@@ -39,7 +39,7 @@ tested inside its own repository only, **L4** planned with an issue, **L5** abse
 Next in emphasis: **accessibility** (H in one set, M in the other; built in #118: `docs/accessibility.md`), a **dialogue graph
 with a validator** (core `gameplay/dialogue` is L3 with no asset format or validator), **networking with a real
 server** (in-page rollback and prediction are L1; no remote server, matchmaking or relay), **telemetry and crash
-reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **particles** (built in #121: `docs/particles.md`).
+reporting** (built in #147: `docs/telemetry.md`; the demo game does not use it yet), and **particles** (built in #121: `docs/particles.md`).
 
 ## Domains that were never in focus
 
@@ -51,7 +51,7 @@ reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **par
 4. **Content as data.** Tables, schemas and tuning, which the scene format's schema (§8 of `docs/scene-format.md`)
    needs anyway (#119).
 5. **Common rendering features.** Particles are built (#121, `docs/particles.md`); anti-aliasing, bloom and colour grading are built (#139,
-   `docs/rendering-tier1.md`); no terrain rendering, while 53 style
+   `docs/rendering-tier1.md`); terrain, decals and trails are built (#140, `docs/rendering-tier2.md`); 53 style
    pipelines exist.
 
 ## Where the investment runs ahead of the need
@@ -84,7 +84,7 @@ roadmap on 2026-11-23 in this order; none is built. The tiers rank how many game
 | tier | issue | features | today |
 |---:|---|---|---|
 | 1 | #139 | anti-aliasing (MSAA, FXAA, TAA after measuring), bloom, colour-grading LUT | built: MSAA 4x, FXAA, bloom, LUT (`docs/rendering-tier1.md`); TAA measured, not built |
-| 2 | #140 | terrain renderer, decals, trails and ribbons | core generates terrain (`procedural/terrain_gen.mojo`), nothing draws it |
+| 2 | #140 | terrain renderer, decals, trails and ribbons | built: chunked LOD terrain from the collider's heights with splat map, projected decals with a budget, trails (`docs/rendering-tier2.md`) |
 | 3 | #141 | mesh LOD, volumetric fog / clouds / light shafts, global illumination | instancing, distance fog only |
 | 4 | #142 | video playback, audio streaming and compressed formats, voice chat | clips are PCM in memory; miniaudio-mojo's decoders are bound but unused |
 
@@ -97,16 +97,16 @@ ludens-core already has most gameplay systems: abilities, combat and a hit pipel
 level flow, checkpoints, saves, a camera rig, characters, vehicles, rule tables, achievements, balance, and AI
 (behaviour trees, GOAP, EQS, perception, steering, influence maps). Most of them are not exposed to a host: the
 exposure list (core ROADMAP 17.101, Hundo1018/ludens-core#159) marks them pending. That is the largest gameplay gap.
-The items below are absent everywhere and had no issue. Put on the roadmap on 2026-11-23; #146 is built (2026-11-25), the
-others are not.
+The items below are absent everywhere and had no issue. Put on the roadmap on 2026-11-23; #146 and #147 are built (2026-11-25),
+the others are not.
 
 | issue | what |
 |---|---|
 | #143 | game feel: hitstop, time scale, screen shake, rumble timing (deterministic under replay) |
 | #144 | object pools and runtime spawning of prefabs (generational handles, capacity, deterministic order) |
 | #145 | difficulty and assist modes, tutorials and hints, dialogue graph validator |
-| #146 | in-game console and cheats (debug builds), photo mode. Built: docs/console.md |
-| #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport) |
+| #146 | in-game console and cheats (debug builds), photo mode: built, `docs/console.md` |
+| #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport): built, `docs/telemetry.md` |
 | #148 | mod support: wasm mods in a checked instance, a narrow versioned mod API |
 | #149 | live operations, monetization (store seam, receipts verified by a backend) and anti-cheat |
 

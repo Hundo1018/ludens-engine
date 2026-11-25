@@ -23,6 +23,9 @@ export interface AppExports {
   app_particles_request(app: bigint): void;
   app_particles_ptr(app: bigint): bigint;
   app_particles_pitch(app: bigint): number;
+  app_tier2_request(app: bigint): void;
+  app_tier2_ptr(app: bigint): bigint;
+  app_tier2_pitch(app: bigint): number;
   app_post_fx_request(app: bigint): void;
   app_post_fx_ptr(app: bigint, which: number): bigint;
   app_post_fx_pitch(app: bigint): number;

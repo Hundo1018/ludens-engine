@@ -83,8 +83,10 @@ async function boot(canvas: HTMLCanvasElement) {
     fetch("./app.wasm").then((r) => r.arrayBuffer()),
   ]);
   const wrt = new Runtime(layout, enums);
+  // #147: a throw out of app_frame is written as a crash report (shell/web/crash_host.mjs) when the module has armed one.
+  let osHost = undefined as { crash: { capture(e: unknown): Promise<Uint8Array | null> } } | undefined;
   // wgpu's createImports returns the flat env table; the shared host wants {namespace: table}.
-  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(withViewRefs(wgpuImports(wrt))) }), miniaudio, net, (r) => createOsImports(r, { storage: opfsStorage() })] });
+  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(withViewRefs(wgpuImports(wrt))) }), miniaudio, net, (r) => (osHost = createOsImports(r, { storage: opfsStorage() }))] });
   wrt.attach(rt);
   const x = rt.exports as unknown as AppExports;
   const [sel, len] = rt.str_in("#" + canvas.id);
@@ -188,7 +190,7 @@ async function boot(canvas: HTMLCanvasElement) {
     return { width: w, height: h, pitch, format: x.app_format(app), clear: ref, other };
   };
   for (const [k, v] of Object.entries({ app, x, rt, capturePixels })) Object.defineProperty(stats, k, { value: v, enumerable: false });
-  return { rt, x, app };
+  return { rt, x, app, crash: osHost?.crash };
 }
 
 const MANUAL = params.has("manual");
@@ -367,7 +369,7 @@ async function main() {
     if (note) note.textContent = why + " Chrome 133 or later, or Firefox 134 or later, on a desktop.";
     return;
   }
-  const { rt, x, app } = await boot(canvas);
+  const { rt, x, app, crash } = await boot(canvas);
   const pollPads = attachInput(canvas, (k, key, a, m, px, py) => x.app_input(app, k, key, a, m, px, py), () => x.app_release_input(app));
   let fillAudio: (() => void) | null = null;
   // Two keys pressed before the first start resolves must not start two contexts: both would render the same mixer.
@@ -438,7 +440,7 @@ async function main() {
       fillAudio?.();
       stats.started = true;
       requestAnimationFrame(frame);
-    } catch (e) { stats.error = String(e); }
+    } catch (e) { stats.error = String(e); crash?.capture(e).catch(() => {}); }
   };
   if (MANUAL) stats.started = true; // frames come only from window.game.step
   else requestAnimationFrame(frame);
@@ -500,6 +502,38 @@ async function particlePixelParity(x: AppExports, rt: any, app: bigint) {
   const limits = table[browser];
   const stats = { maxDelta, fracOver8: over8 / (W * H), fracOver32: over32 / (W * H), sparkPixels: lit };
   const ok = lit > 60 && maxDelta <= limits.maxDelta && stats.fracOver8 <= limits.fracOver8 && stats.fracOver32 <= limits.fracOver32;
+  return { browser, stats, limits, ok };
+}
+
+// #140: the tier 2 frame (app/tier2_frame.mojo: terrain, decals, trails; 480 x 270) against build/tier2_native.rgba, same
+// tolerance row. More than 20 pixels of the cube's red decal (37 natively) and 40 of the blue tyre mark (354) must be in the native frame, so an
+// empty or terrain-only frame cannot pass.
+async function tier2PixelParity(x: AppExports, rt: any, app: bigint) {
+  const W = 480, H = 270;
+  x.app_tier2_request(app);
+  for (let i = 0; i < 1200 && x.app_tier2_ptr(app) === 0n; i++) await new Promise((r) => requestAnimationFrame(r));
+  const ptr = x.app_tier2_ptr(app);
+  if (ptr === 0n) throw new Error("tier 2 frame never completed");
+  const pitch = x.app_tier2_pitch(app);
+  const web = rt.bytes(ptr, pitch * H).slice() as Uint8Array;
+  const native = new Uint8Array(await (await fetch("./tier2_native.rgba")).arrayBuffer());
+  if (native.length !== W * H * 4) throw new Error("tier2_native.rgba has the wrong size " + native.length);
+  let maxDelta = 0, over8 = 0, over32 = 0, red = 0, blue = 0;
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+    const a = y * pitch + xx * 4, b = (y * W + xx) * 4;
+    let d = 0;
+    for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(web[a + c] - native[b + c]));
+    if (d > maxDelta) maxDelta = d;
+    if (d > 8) over8++;
+    if (d > 32) over32++;
+    if (native[b] > 180 && native[b + 1] < 60 && native[b + 2] < 60) red++;
+    if (native[b + 2] > 200 && native[b] < 150) blue++;
+  }
+  const browser = navigator.userAgent.includes("Firefox") ? "firefox" : "chrome";
+  const table = await (await fetch("./pixel_tolerance.json")).json();
+  const limits = table[browser];
+  const stats = { maxDelta, fracOver8: over8 / (W * H), fracOver32: over32 / (W * H), decalPixels: red, tyrePixels: blue };
+  const ok = red > 20 && blue > 40 && maxDelta <= limits.maxDelta && stats.fracOver8 <= limits.fracOver8 && stats.fracOver32 <= limits.fracOver32;
   return { browser, stats, limits, ok };
 }
 
@@ -599,6 +633,9 @@ function selftest(x: AppExports, rt: any, app: bigint) {
         const pa = await particlePixelParity(x, rt, app);
         log.push(`particle pixel parity vs native (${pa.browser}): ${JSON.stringify(pa.stats)} limits ${JSON.stringify(pa.limits)}`);
         if (!pa.ok) return fail("particle pixels differ from the native render beyond the tolerance row");
+        const t2 = await tier2PixelParity(x, rt, app);
+        log.push(`tier 2 pixel parity vs native (${t2.browser}): ${JSON.stringify(t2.stats)} limits ${JSON.stringify(t2.limits)}`);
+        if (!t2.ok) return fail("tier 2 pixels (terrain, decals, trails) differ from the native render beyond the tolerance row");
         for (const which of [0, 1]) {
           const pf = await postFxPixelParity(x, rt, app, which);
           log.push(`post fx frame ${which} pixel parity vs native (${pf.browser}): ${JSON.stringify(pf.stats)} limits ${JSON.stringify(pf.limits)}`);

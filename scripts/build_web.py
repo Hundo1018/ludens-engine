@@ -20,7 +20,7 @@ def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
     shutil.copy(ROOT / "build/app.wasm", OUT / "app.wasm")
-    for f in ("index.html", "worklet.js", "net_host.mjs", "os_host.mjs", "device_host.mjs", "game_hook.mjs", "view_refs.mjs"):
+    for f in ("index.html", "worklet.js", "net_host.mjs", "os_host.mjs", "device_host.mjs", "crash_host.mjs", "game_hook.mjs", "view_refs.mjs"):
         shutil.copy(ROOT / "shell/web" / f, OUT / f)
     shutil.copy(ludens_wasm_rt.HOST_MJS, OUT / "host.mjs")
     for f in ("webgpu_host.mjs", "webgpu_impl.mjs", "webgpu_runtime.mjs", "webgpu_layout.json"):
@@ -32,7 +32,7 @@ def main() -> None:
     native_particles = ROOT / "build/particles_native.rgba"
     if native_particles.exists():  # #121: the native particle frame (scripts/parity_pixels_native.py)
         shutil.copy(native_particles, OUT / "particles_native.rgba")
-    for name in ("post_fx_native.rgba", "post_fx_msaa_native.rgba"):  # #139: the native picture-effects frames
+    for name in ("post_fx_native.rgba", "post_fx_msaa_native.rgba", "tier2_native.rgba"):  # #139 picture effects, #140 tier 2
         if (ROOT / "build" / name).exists():
             shutil.copy(ROOT / "build" / name, OUT / name)
     shutil.copy(ROOT / "assets/fonts/NotoSansTC-Regular-24.lfont", OUT / "font.lfont")  # the HUD's SDF font (#116)
