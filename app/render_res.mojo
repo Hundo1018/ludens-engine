@@ -6,7 +6,7 @@ Everything here is off by default (identity light, shadow off, atmosphere off, A
 colour it drew before the option existed, bit for bit.
 """
 from wgpu import WGPUBufferUsage
-from wgpu import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage, WGPUOrigin3D, WGPUTextureAspect
 from wgpu.buffer import Buffer
 from wgpu import null_opaque
 from wgpu import WGPUStringView, WGPUTextureViewDescriptor
@@ -141,6 +141,19 @@ struct RenderResources(Movable):
     var casc_reach: Float64
     var tile_sizes: List[Int]  # per light with a shadow (points, spots, dirs, areas in that order): its tiles' size
     var tile_px: List[Int]  # per tile: x, y, size in texels
+    # the screen-space mask (app/contact_shadows.mojo): scene-sized while a user needs it, 1 x 1 white otherwise
+    var screen_users: Int  # bit 0 contact shadows, bit 1 ambient occlusion: which effects read `screen_mask`
+    var screen_w: Int  # the size the scene depth and mask were made for; 0 while the mask is the 1 x 1 white one
+    var screen_h: Int
+    var screen_mask: Texture  # RGBA8Unorm: R the sun's contact shadow, G ambient occlusion (1 lit / open), B, A 1
+    var screen_mask_view: TextureView
+    var scene_depth: Optional[Texture]  # Depth32Float, single-sample: the frame's meshes drawn from the camera (contact shadows)
+    var scene_depth_view: Optional[TextureView]
+    var contact_on: Bool
+    var contact_distance: Float64  # metres a ray follows toward the sun
+    var contact_steps: Int
+    var contact_thickness: Float64  # metres: a surface further in front of the ray than this is not an occluder
+    var contact_strength: Float64
 
     def texture_bytes(self) raises -> Int:
         """Size of the textures this struct creates: the shadow atlas, the environment cube and the shadow map (sizes are
@@ -149,6 +162,8 @@ struct RenderResources(Movable):
             texture_bytes(self.atlas_size, self.atlas_size, 1, 1, WGPUTextureFormat.Depth32Float)
             + texture_bytes(ENV_SIZE, ENV_SIZE, 6, ENV_MIPS, WGPUTextureFormat.RGBA8Unorm)
             + texture_bytes(self.shadow_size, self.shadow_size, 1, 1, WGPUTextureFormat.Depth32Float)
+            + texture_bytes(max(self.screen_w, 1), max(self.screen_h, 1), 1, 1, WGPUTextureFormat.RGBA8Unorm)
+            + (texture_bytes(self.screen_w, self.screen_h, 1, 1, WGPUTextureFormat.Depth32Float) if self.screen_w > 0 else 0)
         )
 
     def __init__(out self, device: Device) raises:
@@ -177,6 +192,26 @@ struct RenderResources(Movable):
         self.casc_reach = 50.0
         self.tile_sizes = List[Int]()
         self.tile_px = List[Int]()
+        self.screen_users = 0
+        self.screen_w = 0
+        self.screen_h = 0
+        self.scene_depth = None
+        self.scene_depth_view = None
+        self.contact_on = False
+        self.contact_distance = 0.6
+        self.contact_steps = 16
+        self.contact_thickness = 0.3
+        self.contact_strength = 1.0
+        self.screen_mask = device.create_texture(
+            UInt32(1), UInt32(1), UInt32(1), WGPUTextureFormat.RGBA8Unorm,
+            WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.STORAGE_BINDING | WGPUTextureUsage.COPY_DST,
+            dimension=2, mip_level_count=1, label="screen_mask",
+        )
+        self.screen_mask_view = self.screen_mask.create_view_default()
+        device.queue_write_texture(
+            self.screen_mask, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(0)), WGPUTextureAspect.All,
+            List[UInt8](length=4, fill=UInt8(255)), UInt32(4), UInt32(1), UInt32(1), UInt32(1), UInt32(1),
+        )
         self.atlas_tex = device.create_texture(
             UInt32(ATLAS_SIZE), UInt32(ATLAS_SIZE), UInt32(1), WGPUTextureFormat.Depth32Float,
             WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
@@ -380,6 +415,68 @@ struct RenderResources(Movable):
         """Tile k's square in the atlas: x, y and size in texels (the shadow pass's viewport)."""
         return (self.tile_px[3 * k], self.tile_px[3 * k + 1], self.tile_px[3 * k + 2])
 
+    def ensure_screen(mut self, device: Device, w: Int, h: Int) raises:
+        """Make the scene depth and the screen mask `w` by `h` while an effect needs them (screen_users), or the 1 x 1 white
+        mask and no depth when none does. Counts gen when it makes them anew. The renderer calls it every draw."""
+        var want_w = w if self.screen_users != 0 else 0
+        var want_h = h if self.screen_users != 0 else 0
+        if want_w == self.screen_w and want_h == self.screen_h:
+            return
+        self.screen_w = want_w
+        self.screen_h = want_h
+        if want_w == 0:
+            self.scene_depth_view = None
+            self.scene_depth = None
+            self.screen_mask = device.create_texture(
+                UInt32(1), UInt32(1), UInt32(1), WGPUTextureFormat.RGBA8Unorm,
+                WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.STORAGE_BINDING | WGPUTextureUsage.COPY_DST,
+                dimension=2, mip_level_count=1, label="screen_mask",
+            )
+            self.screen_mask_view = self.screen_mask.create_view_default()
+            device.queue_write_texture(
+                self.screen_mask, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(0)), WGPUTextureAspect.All,
+                List[UInt8](length=4, fill=UInt8(255)), UInt32(4), UInt32(1), UInt32(1), UInt32(1), UInt32(1),
+            )
+        else:
+            self.scene_depth_view = None
+            self.scene_depth = device.create_texture(
+                UInt32(want_w), UInt32(want_h), UInt32(1), WGPUTextureFormat.Depth32Float,
+                WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING,
+                dimension=2, mip_level_count=1, label="scene_depth_prepass",
+            )
+            self.scene_depth_view = self.scene_depth.value().create_view_default()
+            self.screen_mask = device.create_texture(
+                UInt32(want_w), UInt32(want_h), UInt32(1), WGPUTextureFormat.RGBA8Unorm,
+                WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.STORAGE_BINDING | WGPUTextureUsage.COPY_DST,
+                dimension=2, mip_level_count=1, label="screen_mask",
+            )
+            self.screen_mask_view = self.screen_mask.create_view_default()
+            # white until a pass fills it: a frame that never runs the compute (Stereo) sees no shadow and full ambient light
+            device.queue_write_texture(
+                self.screen_mask, UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(0)), WGPUTextureAspect.All,
+                List[UInt8](length=want_w * want_h * 4, fill=UInt8(255)), UInt32(want_w * 4), UInt32(want_h),
+                UInt32(want_w), UInt32(want_h), UInt32(1),
+            )
+        self.gen += 1
+
+    def set_contact_shadows(
+        mut self, device: Device, on: Bool, distance: Float64 = 0.6, steps: Int = 16, thickness: Float64 = 0.3,
+        strength: Float64 = 1.0,
+    ) raises:
+        """Contact shadows (app/contact_shadows.mojo): the sun's shadow over its first `distance` metres, found by marching
+        `steps` samples of the frame's depth toward the sun; a surface up to `thickness` metres in front of a sample hides
+        it, and `strength` (0 .. 1) is how dark the shadow gets. Needs a ShadowPass in the pass list (it draws the depth). Off by
+        default: the colour is then unchanged bit for bit, and no texture is made."""
+        if not (distance > 0.0) or steps < 1 or steps > 64 or not (thickness > 0.0) or not (strength >= 0.0 and strength <= 1.0):
+            raise Error("renderer: contact shadows need distance > 0, 1 .. 64 steps, thickness > 0 and 0 <= strength <= 1")
+        self.contact_on = on
+        self.contact_distance = distance
+        self.contact_steps = steps
+        self.contact_thickness = thickness
+        self.contact_strength = strength
+        self.screen_users = (self.screen_users | 1) if on else (self.screen_users & ~1)
+        device.queue_write_data(self.shadow_ubo, UInt64(424), [Float32(self.screen_users)])
+
     def set_shadow_atlas(mut self, device: Device, size: Int) raises:
         """Make the atlas `size` texels across (a power of two, 1024 .. 8192; 2048 by default): tiles start at 512 and
         are halved for the least important lights until all fit, so a larger atlas keeps more of them at 512."""
@@ -424,6 +521,7 @@ struct RenderResources(Movable):
         head.append(0.0)
         device.queue_write_data(self.shadow_ubo, UInt64(0), head)
         var tail = List[Float32](length=76, fill=Float32(0))
+        tail[74] = Float32(self.screen_users)  # info.z: which screen-space effects read the mask
         for k in range(16 * count):
             tail[k] = vps[k]
         for i in range(MAX_CASCADES):

@@ -33,7 +33,7 @@ comptime SHADOW_UBO_WGSL = """
 // which it blends into the next. sky_top, sky_hor and atmo are the atmosphere (app/textures.mojo ATMO_WGSL), all zero (off)
 // until set_atmosphere. casc: each cascade's view-projection; split: the view depth where cascade i ends; bias: its depth
 // bias (NDC); info.x the share of the map's width one cascade takes (1, or 0.5 for a 2 x 2 map), info.y a cascade's
-// texels across. Cascade i is the square (i % 2, i / 2) of the map.
+// texels across, info.z the screen-space effects that read the mask (bit 0 contact shadows, bit 1 ambient occlusion). Cascade i is the square (i % 2, i / 2) of the map.
 struct Shadow {
   vp : mat4x4<f32>, params : vec4<f32>, sky_top : vec4<f32>, sky_hor : vec4<f32>, atmo : vec4<f32>,
   casc : array<mat4x4<f32>, 4>, split : vec4<f32>, bias : vec4<f32>, info : vec4<f32>,
@@ -119,6 +119,26 @@ fn shadow_at(wpos : vec3<f32>, n : vec3<f32>, ndl : f32) -> f32 {
     }
   }
   return f;
+}
+"""
+
+# the screen-space mask (app/contact_shadows.mojo): the pass declares `screen_mask` (texture_2d<f32>; its binding number
+# differs per pass) and needs the `Shadow` uniform. The mask is the colour target's size, so the fragment's position
+# indexes it; with the effect off the mask is 1 x 1 and not read.
+comptime SCREEN_MASK_WGSL = """
+fn screen_mask_at(frag : vec2<f32>) -> vec4<f32> {
+  let d = vec2<i32>(textureDimensions(screen_mask));
+  return textureLoad(screen_mask, clamp(vec2<i32>(frag), vec2<i32>(0), d - vec2<i32>(1)), 0);
+}
+// the sun's contact shadow at a fragment (@builtin(position).xy): 1 lit, 0 in shadow; 1 while contact shadows are off
+fn contact_shadow(frag : vec2<f32>) -> f32 {
+  if (u32(shadow.info.z) & 1u) == 0u { return 1.0; }
+  return screen_mask_at(frag).r;
+}
+// the screen-space ambient occlusion at a fragment: 1 open, 0 occluded; 1 while it is off
+fn screen_ao(frag : vec2<f32>) -> f32 {
+  if (u32(shadow.info.z) & 2u) == 0u { return 1.0; }
+  return screen_mask_at(frag).g;
 }
 """
 

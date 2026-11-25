@@ -37,6 +37,7 @@ from app.msaa import MsaaTargets, DepthResolve, begin_msaa_pass
 from app.shadow_pass import begin_depth_pass, record_atlas
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, PointLight
+from app.contact_shadows import ContactShadows
 from app.lights import SpotLight, DirLight, AreaLight, Environment, L_SUN_DIR
 from app.cull import MeshBounds, ShadowReach, visible_items
 from app.lens import coc_scale
@@ -132,6 +133,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var msaa: Optional[MsaaTargets]  # samples > 1: the multisampled colour and depth of the scene
     var depth_resolve: Optional[DepthResolve]  # samples > 1 with stages: sample 0 of the depth, for the stages
     var res_gen: Int  # the RenderResources.gen the stages were bound for (a new shadow map or atlas binds them again)
+    var contact: ContactShadows  # the contact-shadow compute pass (app/contact_shadows.mojo), run while res.contact_on
 
     def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
                  caps: RenderCaps = RenderCaps.default()) raises:
@@ -241,6 +243,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             if caps.samples > 1:
                 self.depth_resolve = DepthResolve(device, DEPTH_FORMAT)
         self.res_gen = 0
+        self.contact = ContactShadows(device)
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
         self.depth = None
@@ -322,6 +325,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.msaa = move.msaa^
         self.depth_resolve = move.depth_resolve^
         self.res_gen = move.res_gen
+        self.contact = move.contact^
         self.floor = move.floor^
         self.items = move.items^
         self.depth = move.depth^
@@ -343,6 +347,14 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     def set_shadow_atlas(mut self, device: Device, size: Int) raises:
         """RenderResources.set_shadow_atlas: the local lights' shadow atlas, `size` texels across."""
         self.res.set_shadow_atlas(device, size)
+
+    def set_contact_shadows(
+        mut self, device: Device, on: Bool, distance: Float64 = 0.6, steps: Int = 16, thickness: Float64 = 0.3,
+        strength: Float64 = 1.0,
+    ) raises:
+        """RenderResources.set_contact_shadows: the sun's shadow over its first `distance` metres, from the frame's depth.
+        Needs a ShadowPass in the pass list; not drawn with Stereo."""
+        self.res.set_contact_shadows(device, on, distance, steps, thickness, strength)
 
     def set_atmosphere(mut self, device: Device, sky_top: Vec3, sky_horizon: Vec3, fog_density: Float32, exposure: Float32,
                        fog: Bool, linear: Bool, sky_curve: Float32 = 0.5) raises:
@@ -429,9 +441,21 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             item.layer = 0
         self.items.append(item^)
 
+    def _to_sun(self) -> List[Float32]:
+        """The unit vector toward the sun as the lights uniform holds it (the default sun before set_sun)."""
+        if self.res.rig[L_SUN_DIR + 3] > 0.5:
+            return [self.res.rig[L_SUN_DIR], self.res.rig[L_SUN_DIR + 1], self.res.rig[L_SUN_DIR + 2]]
+        return [Float32(0.4), Float32(1.0), Float32(0.6)]
+
     def _depth_view(mut self, device: Device, width: UInt32, height: UInt32) raises:
         """The targets, made when the frame's size changes. With stages the scene's colour, depth and aux are F's
         scene size (the frame's unless SceneSize names one), and the stages are bound to them."""
+        var cw = Int(width)
+        var ch = Int(height)
+        comptime if Self.F.SCENE_W > 0:
+            cw = Self.F.SCENE_W
+            ch = Self.F.SCENE_H
+        self.res.ensure_screen(device, cw, ch)  # the contact shadows' depth and mask, at the scene's size; counts gen when made anew
         if not self.depth_view or self.depth_w != width or self.depth_h != height or self.res_gen != self.res.gen:
             self.depth_view = None
             self.res_gen = self.res.gen
@@ -660,6 +684,10 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.res.write_camera(device, v)
         self.res.frame_shadows(device, v)
         self.passes.prepare(device, self.items, self.meshes, self.gpu, self.skin_palette, v, self.res)
+        comptime if Self.P.SHADOW and Self.F.VIEWS != 2:
+            if self.res.contact_on and self.res.scene_depth_view:
+                self.contact.bind(device, self.res)
+                self.contact.update(device, v, self._to_sun(), self.res)
         self.counts = self.passes.counts(self.meshes) + DrawCounts(hud.draws(), hud.triangles())
         comptime if Self.F.ON:
             var pf = self._post_frame(v, width, height)
@@ -681,6 +709,12 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                 srp^.end()
             if self.res.tiles > 0:
                 record_atlas(self.passes, enc, self.res, self.meshes, self.gpu)
+        comptime if Self.P.SHADOW and Self.F.VIEWS != 2:  # the contact shadows: the frame's depth from the camera, then the mask
+            if self.res.contact_on and self.res.scene_depth_view:
+                var dpass = begin_depth_pass(enc, self.res.scene_depth_view.value())
+                self.passes.record_view_depth(dpass, self.meshes, self.gpu)
+                dpass^.end()
+                self.contact.record(enc, self.res)
         self._mark(enc)
         comptime if Self.F.ON:  # the passes into the scene target, the aux list into its own, then the stages
             if self.samples > 1:
