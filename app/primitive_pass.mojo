@@ -23,6 +23,7 @@ from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, RenderCaps, LIGHTS_BYTES
 from app.wgsl import POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL
 from app.render_pass import RenderPass
+from app.gpu_blend import pulled_pipeline
 from app.textures import TextureArray
 
 comptime VERTS_PER_INSTANCE = 1152
@@ -175,9 +176,7 @@ struct PrimitivePass(RenderPass):
         ]
         var bgl = device.create_bind_group_layout(entries)
         var layout = device.create_pipeline_layout(bgl, "primitives_layout")
-        self.pipeline = device.create_render_pipeline(
-            shader, "vs_main", "fs_main", color_format, layout, depth_format=depth_format
-        )
+        self.pipeline = pulled_pipeline(device, shader, layout, color_format, depth_format, samples=UInt32(caps.samples))
         var bytes = UInt64((5 + 4 * caps.primitive_instances) * 16)
         self.buffer = device.create_buffer(bytes, WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="primitives")
         var bg_entries: List[WGPUBindGroupEntry] = [

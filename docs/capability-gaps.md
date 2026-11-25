@@ -50,7 +50,8 @@ reporting** (core `diag/outbox`, `blackbox` are L3 with no transport), and **par
    test or an agent can drive (#115).
 4. **Content as data.** Tables, schemas and tuning, which the scene format's schema (§8 of `docs/scene-format.md`)
    needs anyway (#119).
-5. **Common rendering features.** Particles are built (#121, `docs/particles.md`); no terrain rendering, no bloom or anti-aliasing, while 53 style
+5. **Common rendering features.** Particles are built (#121, `docs/particles.md`); anti-aliasing, bloom and colour grading are built (#139,
+   `docs/rendering-tier1.md`); no terrain rendering, while 53 style
    pipelines exist.
 
 ## Where the investment runs ahead of the need
@@ -82,7 +83,7 @@ roadmap on 2026-11-23 in this order; none is built. The tiers rank how many game
 
 | tier | issue | features | today |
 |---:|---|---|---|
-| 1 | #139 | anti-aliasing (MSAA, FXAA, TAA after measuring), bloom, colour-grading LUT | sample count 1, no AA; ACES tone mapping but no LUT; glow only inside some styles |
+| 1 | #139 | anti-aliasing (MSAA, FXAA, TAA after measuring), bloom, colour-grading LUT | built: MSAA 4x, FXAA, bloom, LUT (`docs/rendering-tier1.md`); TAA measured, not built |
 | 2 | #140 | terrain renderer, decals, trails and ribbons | core generates terrain (`procedural/terrain_gen.mojo`), nothing draws it |
 | 3 | #141 | mesh LOD, volumetric fog / clouds / light shafts, global illumination | instancing, distance fog only |
 | 4 | #142 | video playback, audio streaming and compressed formats, voice chat | clips are PCM in memory; miniaudio-mojo's decoders are bound but unused |

@@ -22,6 +22,9 @@ export interface AppExports {
   app_particles_request(app: bigint): void;
   app_particles_ptr(app: bigint): bigint;
   app_particles_pitch(app: bigint): number;
+  app_post_fx_request(app: bigint): void;
+  app_post_fx_ptr(app: bigint, which: number): bigint;
+  app_post_fx_pitch(app: bigint): number;
   app_probe_cube(app: bigint, mode: number): void;
   app_skin_start(app: bigint): void;
   app_skin_result(app: bigint): number;

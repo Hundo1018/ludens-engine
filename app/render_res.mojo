@@ -49,7 +49,6 @@ comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4  # the `Lights` uniform (app/lights.mo
 comptime DEFAULT_PALETTE_MATRICES = 4096  # default: skinning matrices per frame (64 instances x 64 joints, 256 KB)
 
 
-@fieldwise_init
 struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
     """Per-frame capacities, chosen when the renderer is made (ludens-engine#71): primitive items, mesh and skinned instances
     (each pass's instance buffer) and skinning matrices (the palette buffers of the skinned and the shadow pass). The
@@ -58,6 +57,13 @@ struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
     var primitive_instances: Int
     var mesh_instances: Int
     var palette_matrices: Int
+    var samples: Int  # 1, or 4 for MSAA (app/msaa.mojo): the sample count of every pipeline drawn into the scene's colour target
+
+    def __init__(out self, primitive_instances: Int, mesh_instances: Int, palette_matrices: Int, samples: Int = 1):
+        self.primitive_instances = primitive_instances
+        self.mesh_instances = mesh_instances
+        self.palette_matrices = palette_matrices
+        self.samples = samples
 
     @staticmethod
     def default() -> Self:
@@ -66,6 +72,8 @@ struct RenderCaps(Copyable, ImplicitlyCopyable, Movable):
     def check(self) raises:
         if self.primitive_instances < 1 or self.mesh_instances < 1 or self.palette_matrices < 1:
             raise Error("RenderCaps: every capacity must be at least 1")
+        if self.samples != 1 and self.samples != 4:
+            raise Error("RenderCaps: samples is 1 or 4, the counts every WebGPU device supports for a renderable format")
 
 
 struct PointLight(Copyable, ImplicitlyCopyable, Movable):

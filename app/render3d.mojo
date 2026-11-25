@@ -21,7 +21,7 @@ from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.pipeline import RenderPipeline
 from wgpu.bind_group import BindGroup
-from wgpu import WGPUTextureFormat, WGPUTextureUsage
+from wgpu import WGPUTextureFormat, WGPUTextureUsage, WGPUOrigin3D, WGPUTextureAspect
 from wgpu.texture import Texture, TextureView
 from hud import Hud
 from app.mesh_pass import MeshPass, MeshRegistry, add_unit_cube, add_unit_sphere, unit_cube_arrays, RenderCaps
@@ -29,6 +29,8 @@ from app.skin_draw import SkinnedPass
 from app.primitive_pass import PrimitivePass
 from app.render_pass import RenderPass, Then, AuxTarget, NoAux
 from app.post import PostEffect, NoPost, PostInputs, Stage, Copy, begin_load_pass
+from app.post_fx import neutral_lut
+from app.msaa import MsaaTargets, DepthResolve, begin_msaa_pass
 from app.shadow_pass import begin_depth_pass, record_atlas
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, PointLight
@@ -103,17 +105,32 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var shutter: Float32  # the part of the time between two frames the shutter is open, 0 .. 1 (0: no motion blur)
     var reduce_motion: Bool  # the player's reduce-motion switch (game/access.mojo): the lens stages then see no blur circle and a closed shutter
     var prev_cam: List[Float32]  # the previous draw()'s camera (cam_floats), empty before the first
+    # the picture effects (app/post_fx.mojo's stages read these through Frame.fx)
+    var bloom_threshold: Float32  # brightness (0 .. 1, of the finished colour) above which a pixel feeds the bloom
+    var bloom_intensity: Float32  # how much of the blurred highlights is added back
+    var lut_amount: Float32  # 0 the frame as it was, 1 the full grade of the LUT (set_lut)
+    var fxaa_strength: Float32  # 0 off, 1 the full filter
+    var lut: Optional[Texture]  # the grading LUT as a strip, size * size by size texels
+    var lut_view: Optional[TextureView]
+    var samples: Int  # RenderCaps.samples: 1, or 4 for MSAA (app/msaa.mojo)
+    var msaa: Optional[MsaaTargets]  # samples > 1: the multisampled colour and depth of the scene
+    var depth_resolve: Optional[DepthResolve]  # samples > 1 with stages: sample 0 of the depth, for the stages
 
     def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
                  caps: RenderCaps = RenderCaps.default()) raises:
         caps.check()
+        comptime if Self.F.VIEWS == 2:
+            if caps.samples > 1:
+                raise Error("MSAA (RenderCaps.samples) is not supported with Stereo")
         # layer 0 white, layer 1 the placeholder checker; a game that loads more textures asks for more layers
         var tex = TextureArray(device, texture_layers)
         tex.load_layer(device, UInt32(1), box_levels(checker_base()))
         self.res = RenderResources(device)
         self.passes = Self.P.create(device, color_format, DEPTH_FORMAT, tex, self.res, caps)  # before the move: they read the array's views
         self.post = Self.F.create(device, color_format)
-        self.aux_passes = Self.A.create(device, color_format, DEPTH_FORMAT, tex, self.res, caps)
+        var aux_caps = caps  # the aux target is drawn with one sample
+        aux_caps.samples = 1
+        self.aux_passes = Self.A.create(device, color_format, DEPTH_FORMAT, tex, self.res, aux_caps)
         self.aux = None
         self.aux_view = None
         self.aux_depth = None
@@ -182,12 +199,26 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.shutter = 0.0
         self.reduce_motion = False
         self.prev_cam = List[Float32]()
+        self.bloom_threshold = 0.8
+        self.bloom_intensity = 0.6
+        self.lut_amount = 1.0
+        self.fxaa_strength = 1.0
+        self.lut = None
+        self.lut_view = None
+        self.samples = caps.samples
+        self.msaa = None
+        self.depth_resolve = None
+        comptime if Self.F.ON:
+            if caps.samples > 1:
+                self.depth_resolve = DepthResolve(device, DEPTH_FORMAT)
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
         self.depth = None
         self.depth_view = None
         self.depth_w = 0
         self.depth_h = 0
+        comptime if Self.F.ON:  # a Grade stage with no set_lut reads the identity table
+            self.set_lut(device, 16, neutral_lut(16))
 
     def __init__(out self, *, deinit move: Self):
         self.passes = move.passes^
@@ -239,6 +270,15 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.shutter = move.shutter
         self.reduce_motion = move.reduce_motion
         self.prev_cam = move.prev_cam^
+        self.bloom_threshold = move.bloom_threshold
+        self.bloom_intensity = move.bloom_intensity
+        self.lut_amount = move.lut_amount
+        self.fxaa_strength = move.fxaa_strength
+        self.lut = move.lut^
+        self.lut_view = move.lut_view^
+        self.samples = move.samples
+        self.msaa = move.msaa^
+        self.depth_resolve = move.depth_resolve^
         self.floor = move.floor^
         self.items = move.items^
         self.depth = move.depth^
@@ -286,6 +326,26 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         """A view of the shadow map, for a shadow pass to render depth into."""
         return self.res.shadow_target()
 
+    def set_lut(mut self, device: Device, size: Int, rgba: List[UInt8]) raises:
+        """The colour-grading LUT (app/post_fx.mojo `Lut`): `size` ^ 3 entries as a strip of `size` squares side by side,
+        texel (b * size + r, g) holding the output for input (r, g, b) / (size - 1). `rgba` is size * size * size * 4
+        bytes in rows of the strip. The stages bind it on the next draw."""
+        if size < 2 or size > 64:
+            raise Error("set_lut: the size is 2 .. 64")
+        if len(rgba) != size * size * size * 4:
+            raise Error("set_lut: the strip is size * size * size texels of 4 bytes")
+        self.lut_view = None
+        self.lut = device.create_texture(
+            UInt32(size * size), UInt32(size), 1, WGPUTextureFormat.RGBA8Unorm,
+            WGPUTextureUsage.TEXTURE_BINDING | WGPUTextureUsage.COPY_DST, label="grading_lut",
+        )
+        self.lut_view = self.lut.value().create_view_default()
+        device.queue_write_texture(
+            self.lut.value(), UInt32(0), WGPUOrigin3D(UInt32(0), UInt32(0), UInt32(0)), WGPUTextureAspect.All,
+            rgba.copy(), UInt32(size * size * 4), UInt32(size), UInt32(size * size), UInt32(size), UInt32(1),
+        )
+        self.depth_view = None  # the targets are made again on the next draw, and the stages bound to the LUT
+
     def begin(mut self, view: View):
         self.view = view.copy()
         self.floor.clear()
@@ -324,6 +384,11 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             self.depth_view = self.depth.value().create_view_default()
             self.depth_w = width
             self.depth_h = height
+            if self.samples > 1:
+                self.msaa = None
+                self.msaa = MsaaTargets(device, self.color_format, DEPTH_FORMAT, sw, sh)
+                comptime if Self.F.ON:
+                    self.depth_resolve.value().bind(device, self.msaa.value().depth_view)
             comptime if Self.F.ON:
                 var both = WGPUTextureUsage.RENDER_ATTACHMENT | WGPUTextureUsage.TEXTURE_BINDING
                 self.scene_view = None
@@ -361,6 +426,8 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
                     self.scene_view.value(), self.scene_view.value(), self.depth_view.value(), self.aux_view.value(),
                     self.prev_view.value(),
                 )
+                if self.lut_view:
+                    inp = inp.with_lut(self.lut_view.value())
                 comptime if Self.F.VIEWS == 2:
                     self.scene2_view = None
                     self.depth2_view = None
@@ -395,6 +462,10 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         var now = cam_floats(v)
         for i in range(16):
             f.append(self.prev_cam[i] if len(self.prev_cam) == 16 else now[i])
+        f.append(self.bloom_threshold)
+        f.append(self.bloom_intensity)
+        f.append(self.lut_amount)
+        f.append(self.fxaa_strength)
         return f^
 
     def draw(mut self, device: Device, target: WGPUTextureHandle, width: UInt32, height: UInt32, hud: Hud) raises:
@@ -484,11 +555,19 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             if self.res.tiles > 0:
                 record_atlas(self.passes, enc, self.res, self.meshes, self.gpu)
         comptime if Self.F.ON:  # the passes into the scene target, the aux list into its own, then the stages
-            var spass = enc.begin_render_pass_clear_depth(
-                self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "scene_pass",
-            )
-            self.passes.record_color(spass, self.meshes, self.gpu)
-            spass^.end()
+            if self.samples > 1:
+                var mpass = begin_msaa_pass(
+                    device, enc, self.msaa.value().color_view, self.scene_view.value(), self.msaa.value().depth_view, CLEAR, True,
+                )
+                self.passes.record_color(mpass, self.meshes, self.gpu)
+                mpass^.end()
+                self.depth_resolve.value().record(enc, self.depth_view.value())
+            else:
+                var spass = enc.begin_render_pass_clear_depth(
+                    self.scene_view.value().clone(), self.depth_view.value(), CLEAR, 1.0, "scene_pass",
+                )
+                self.passes.record_color(spass, self.meshes, self.gpu)
+                spass^.end()
             comptime if Self.A.ON:
                 var apass = enc.begin_render_pass_clear_depth(
                     self.aux_view.value().clone(), self.aux_depth_view.value(), WGPUColor(0.5, 0.5, 1.0, 0.0), 1.0, "aux_pass",
@@ -506,9 +585,20 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
             hud.record(hpass)
             hpass^.end()
         else:
-            var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "scene_pass")
-            self.passes.record_color(rpass, self.meshes, self.gpu)
-            hud.record(rpass)
-            rpass^.end()
+            if self.samples > 1:  # the scene into the multisampled target, resolved into the frame; the HUD on top
+                var mpass = begin_msaa_pass(
+                    device, enc, self.msaa.value().color_view, device.create_texture_view(target), self.msaa.value().depth_view,
+                    CLEAR, False,
+                )
+                self.passes.record_color(mpass, self.meshes, self.gpu)
+                mpass^.end()
+                var hpass = begin_load_pass(device, enc, device.create_texture_view(target), self.depth_view.value())
+                hud.record(hpass)
+                hpass^.end()
+            else:
+                var rpass = enc.begin_surface_clear_pass_depth(target, self.depth_view.value(), CLEAR, 1.0, "scene_pass")
+                self.passes.record_color(rpass, self.meshes, self.gpu)
+                hud.record(rpass)
+                rpass^.end()
         var cmd = enc^.finish()
         device.queue_submit(cmd^)

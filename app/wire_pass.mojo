@@ -140,7 +140,7 @@ struct WirePassOf[K: WireKind](RenderPass):
         var layout = device.create_pipeline_layout(bgl, "wire_layout")
         self.pipeline = pulled_pipeline(
             device, shader, layout, color_format, depth_format, TOPOLOGY_LINES, Self.K.BLEND, 0, Self.K.DEPTH_WRITE,
-            Self.K.DEPTH_COMPARE,
+            Self.K.DEPTH_COMPARE, UInt32(caps.samples),
         )
         self.buffer = device.create_buffer(
             UInt64((5 + 4 * caps.primitive_instances) * 16), WGPUBufferUsage.STORAGE | WGPUBufferUsage.COPY_DST, label="wire",

@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "build/web"
 OUT = ROOT / "build/pages"
-TEST_ONLY = {"pixels_native.rgba", "pixel_tolerance.json", "MANIFEST.sha256"}
+TEST_ONLY = {"pixels_native.rgba", "post_fx_native.rgba", "post_fx_msaa_native.rgba", "pixel_tolerance.json", "MANIFEST.sha256"}
 PORT = 8141
 
 

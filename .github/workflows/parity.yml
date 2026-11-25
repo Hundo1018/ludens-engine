@@ -51,6 +51,9 @@ jobs:
       - name: Particle pass (#121) on lavapipe
         run: pixi run -e wasm test-particles-native
 
+      - name: FXAA, bloom, colour-grading LUT and MSAA (#139) on lavapipe
+        run: pixi run -e wasm test-post-fx
+
       - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
         run: pixi run -e wasm test-access-gpu
 
