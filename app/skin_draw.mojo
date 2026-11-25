@@ -41,7 +41,7 @@ from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
 from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, ENV_WGSL
 from app.render_res import RenderResources, LIGHTS_BYTES
-from app.render_pass import RenderPass
+from app.render_pass import RenderPass, DrawCounts
 
 
 comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
@@ -391,6 +391,14 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
             rpass.draw_indexed(
                 UInt32(n_idx), UInt32(self.batches.counts[k]), UInt32(0), Int32(0), UInt32(self.batches.base[k]),
             )
+
+    def counts(self, registry: MeshRegistry) -> DrawCounts:
+        var out = DrawCounts()
+        for k in range(len(self.batches.order)):
+            var n_idx = len(registry.skinned[self.batches.order[k]].indices)
+            out.draws += 1
+            out.triangles += n_idx // 3 * self.batches.counts[k]
+        return out
 
 
 comptime SkinnedPass = SkinnedPassOf[LinearBlend, MatColor, MatUv, MatTriplanar, MatSky, MatPbr]

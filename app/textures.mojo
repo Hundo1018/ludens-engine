@@ -19,6 +19,7 @@ from wgpu import WGPUOrigin3D
 from wgpu.device import Device
 from wgpu.texture import Texture, TextureView
 from wgpu.sampler import Sampler
+from app.gpu_bytes import texture_bytes
 
 comptime TEX_SIZE: UInt32 = 256
 comptime TEX_LEVELS: UInt32 = 9
@@ -129,6 +130,10 @@ struct TextureArray(Movable):
     var test_sampler: Sampler  # nearest, no mip filtering: the test's exact texel reads
     var layers: UInt32
     var loaded: List[Bool]  # per layer: filled by load_layer (layer 0, white, from the start)
+
+    def bytes(self) raises -> Int:
+        """The array's size: TEX_SIZE squared, all TEX_LEVELS levels, every layer, RGBA8."""
+        return texture_bytes(Int(TEX_SIZE), Int(TEX_SIZE), Int(self.layers), Int(TEX_LEVELS), WGPUTextureFormat.RGBA8Unorm)
 
     def __init__(out self, device: Device, layers: UInt32) raises:
         if layers == 0:

@@ -18,6 +18,7 @@ from game.camera_view import View
 from std.math import cos
 from geometry.vec import Real, Vec3
 from app.gpu_mesh import cam_floats
+from app.gpu_bytes import texture_bytes
 from app.lights import (
     SpotLight, DirLight, AreaLight, Environment, unit, spot_vp, point_face_vp, dir_vp, area_vp, area_size, ATLAS_SIZE, ATLAS_TILES,
     MAX_SPOT_LIGHTS, MAX_DIR_LIGHTS, MAX_AREA_LIGHTS, LIGHTS_FLOATS,
@@ -121,6 +122,15 @@ struct RenderResources(Movable):
     var env_view: TextureView
     var unit_cube: Int  # the mesh ids of the renderer's unit cube and sphere (boxes and spheres drawn as meshes)
     var unit_sphere: Int
+
+    def texture_bytes(self) raises -> Int:
+        """Size of the textures this struct creates: the shadow atlas, the environment cube and the shadow map (sizes are
+        constants, not read back: app/gpu_bytes.mojo)."""
+        return (
+            texture_bytes(ATLAS_SIZE, ATLAS_SIZE, 1, 1, WGPUTextureFormat.Depth32Float)
+            + texture_bytes(ENV_SIZE, ENV_SIZE, 6, ENV_MIPS, WGPUTextureFormat.RGBA8Unorm)
+            + texture_bytes(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1, 1, WGPUTextureFormat.Depth32Float)
+        )
 
     def __init__(out self, device: Device) raises:
         self.light_vp = List[Float32]()

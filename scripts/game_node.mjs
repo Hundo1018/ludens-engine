@@ -1,7 +1,7 @@
 // Drives the real app under node (no WebGPU: the game steps before the GPU check) with keyboard events, then prints
 // the game's numbers and whether the sound effects came out. usage: node game_node.mjs app.wasm host.mjs wgpu-dir ma-dir [stats-frames]
 // With stats-frames (scripts/frame_budget.py), that many more frames run after the scripted ones and the JSON also
-// carries app_frame_stats: per segment [p50, p95, max ns, frames it ran in] (app/frame_stats.mojo).
+// carries app_frame_stats: per segment [avg, p50, p95, p99, max ns, frames it ran in] (app/frame_stats.mojo).
 
 const [wasm, hostMjs, wgpuDir, maDir, statsFrames] = process.argv.slice(2);
 const { bootApp } = await import(new URL("./node_app.mjs", import.meta.url));
@@ -35,7 +35,7 @@ const out = {
 };
 if (statsFrames) {
   for (let f = 0; f < Number(statsFrames); f++) rt.call("app_frame", app, 1 / 60);
-  const SEGMENTS = 9, FIELDS = 4, p = rt.alloc(SEGMENTS * FIELDS * 8);
+  const SEGMENTS = 15, FIELDS = 6, COUNTERS = 6, CTR = 3, p = rt.alloc((SEGMENTS * FIELDS + COUNTERS * CTR) * 8);
   out.statsFrames = rt.call("app_frame_stats", app, p);
   const v = new BigUint64Array(rt.mem(), Number(p), SEGMENTS * FIELDS);
   out.stats = Array.from({ length: SEGMENTS }, (_, s) => Array.from(v.subarray(s * FIELDS, s * FIELDS + FIELDS), Number));

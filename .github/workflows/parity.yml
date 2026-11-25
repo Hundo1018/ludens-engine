@@ -50,6 +50,21 @@ jobs:
 
       - name: Particle pass (#121) on lavapipe
         run: pixi run -e wasm test-particles-native
+      - name: Frame ring, counters and GPU timestamp timer (#123), on lavapipe
+        run: |
+          pixi run -e wasm test-frame-stats
+          pixi run -e wasm test-frame-counters
+      - name: Frame budgets (#123), the scripted scene native and wasm64 against budgets.toml; the gate's own test
+        run: |
+          pixi run -e wasm perf-gate --runs 3
+          pixi run -e wasm test-perf-gate
+      - name: Frame trace of the scripted scene
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-gate-trace
+          path: build/perf_gate/trace.json
+          if-no-files-found: ignore
 
       - name: FXAA, bloom, colour-grading LUT and MSAA (#139) on lavapipe
         run: pixi run -e wasm test-post-fx
@@ -84,3 +99,6 @@ jobs:
 
       - name: Live tuning panel in headless Chrome (F2, a slider drag, Export)
         run: pixi run -e wasm tuning-web
+
+      - name: Frame-time overlay (F3) and frame counters in headless Chrome (#123)
+        run: pixi run -e wasm perf-overlay-web

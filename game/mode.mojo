@@ -12,6 +12,19 @@ from ui.scale import UiEnv
 from ui.sdf_font import FontMetrics
 
 
+@fieldwise_init
+struct FrameCounters(Copyable, ImplicitlyCopyable, Movable):
+    """What a game reports about the work of its latest step, for the frame counters (app/frame_stats.mojo, docs/frame-budgets.md)."""
+    var particles: Int  # live particles
+    var bodies: Int  # physics bodies in the world
+    var ai_agents: Int  # AI agents updated in the step
+
+    def __init__(out self):
+        self.particles = 0
+        self.bodies = 0
+        self.ai_agents = 0
+
+
 trait GameMode(Movable, Deinitable):
     @staticmethod
     def create() raises -> Self:
@@ -86,6 +99,16 @@ trait GameMode(Movable, Deinitable):
         """Nanoseconds the last `step` spent in fixed physics ticks, for the frame breakdown (app/frame_stats.mojo).
         -1 (the default) means the game does not measure it; the host then shows no physics row."""
         return -1
+
+    def ai_ns(self) -> Int64:
+        """Nanoseconds the last `step` spent updating AI agents, for the frame breakdown (an `ai` row, like `physics_ns`:
+        inside the step). -1 (the default) means the game has no AI or does not measure it."""
+        return -1
+
+    def counters(self) -> FrameCounters:
+        """The particles, bodies and AI agents of the latest step, counted per frame and checked against `budgets.toml`
+        (scripts/perf_gate.py). The default is all zero: a game that reports nothing has nothing to exceed."""
+        return FrameCounters()
 
     def hash(self) -> UInt64:
         """A value that changes exactly when the game state changes, for parity checks between targets."""

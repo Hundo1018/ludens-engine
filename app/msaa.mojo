@@ -41,6 +41,7 @@ from wgpu import null_opaque, null_ptr, str_to_sv, raw_alloc
 from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.command import CommandEncoder
 from wgpu.device import Device
+from app.gpu_bytes import texture_bytes
 from wgpu.pipeline import RenderPipeline
 from wgpu.render_pass import FrameRenderPass
 from wgpu.texture import Texture, TextureView
@@ -71,8 +72,12 @@ struct MsaaTargets(Movable):
     var color_view: TextureView
     var depth: Texture
     var depth_view: TextureView
+    var bytes: Int  # both targets: width x height x MSAA_SAMPLES samples x texel size (app/gpu_bytes.mojo: from sizes)
 
     def __init__(out self, device: Device, color_format: UInt32, depth_format: UInt32, width: UInt32, height: UInt32) raises:
+        self.bytes = (
+            texture_bytes(Int(width), Int(height), 1, 1, color_format) + texture_bytes(Int(width), Int(height), 1, 1, depth_format)
+        ) * Int(MSAA_SAMPLES)
         self.color = device.create_texture(
             width, height, 1, color_format, WGPUTextureUsage.RENDER_ATTACHMENT, sample_count=MSAA_SAMPLES, label="msaa_color",
         )
@@ -88,6 +93,7 @@ struct MsaaTargets(Movable):
         self.color_view = move.color_view^
         self.depth = move.depth^
         self.depth_view = move.depth_view^
+        self.bytes = move.bytes
 
 
 def begin_msaa_pass(

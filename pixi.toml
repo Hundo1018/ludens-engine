@@ -35,6 +35,17 @@ bench = "python3 scripts/bench.py"
 frame-pacing = "python3 scripts/frame_pacing.py"
 # #123: per-segment frame breakdown (net, step, physics, scene, push, HUD, draw, present) against a 144 Hz frame (scripts/frame_budget.py)
 frame-budget = "python3 scripts/frame_budget.py"
+# #123: the frame ring (percentiles, 300 frames, counters, overlay text), no GPU; the renderer's draw / triangle / texture counters and the
+# GPU timestamp timer on lavapipe; the budget gate (budgets.toml) on the scripted scene, native and wasm64; the gate's own test
+test-frame-stats = "python3 scripts/test_native.py frame_stats"
+test-frame-counters = "python3 scripts/test_native.py frame_counters_native gpu_timer_native"
+perf-gate = { cmd = "python3 scripts/perf_gate.py", depends-on = ["build-wasm"] }
+test-perf-gate = { cmd = "python3 tests/test_perf_gate.py", depends-on = ["build-wasm"] }
+frame-trace = "python3 scripts/frame_trace.py"
+# the F3 overlay and the counters in headless Chrome
+perf-overlay-web = "python3 scripts/perf_overlay_web.py"
+# one source change at a time to the counters and the gate; the covering test must fail (not in CI: about 40 minutes for all 33)
+mutation-perf = "python3 scripts/mutation_perf.py"
 # per-tick physics cost against a ludens-core checkout, native + wasm64 (scripts/phys_profile.py --core DIR)
 phys-profile = "python3 scripts/phys_profile.py"
 multi-wasm-probe = "python3 scripts/multi_wasm_probe.py"

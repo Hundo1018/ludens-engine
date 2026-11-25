@@ -26,6 +26,20 @@ from app.render_res import RenderResources, RenderCaps
 from app.textures import TextureArray
 
 
+@fieldwise_init
+struct DrawCounts(Copyable, ImplicitlyCopyable, Movable):
+    """What a pass draws into the colour pass in a frame: draw calls, and triangles (index count / 3 times instances)."""
+    var draws: Int
+    var triangles: Int
+
+    def __init__(out self):
+        self.draws = 0
+        self.triangles = 0
+
+    def __add__(self, o: Self) -> Self:
+        return Self(self.draws + o.draws, self.triangles + o.triangles)
+
+
 trait RenderPass(Movable, Deinitable):
     comptime SHADOW: Bool
     """True if the pass records into the shadow map (record_shadow); the renderer opens the depth pass only then."""
@@ -48,6 +62,11 @@ trait RenderPass(Movable, Deinitable):
     def record_color(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
         """Set state and draw into the frame's colour pass. Nothing here can fail."""
         pass
+
+    def counts(self, meshes: MeshRegistry) -> DrawCounts:
+        """The draw calls and triangles `record_color` issues for what `prepare` was given (counted from the same batches
+        it draws, so a skipped draw is not counted). The default, a pass that does not report, is zero."""
+        return DrawCounts()
 
     def record_shadow(self, mut rpass: RenderPassEncoder, meshes: MeshRegistry, gpu: GpuMeshCache):
         """Draw into the shadow map's depth pass, opened before the colour pass while the renderer's shadow is on."""
@@ -94,6 +113,9 @@ struct Then[P: RenderPass, Q: RenderPass](RenderPass):
     def record_color(self, mut rpass: FrameRenderPass, meshes: MeshRegistry, gpu: GpuMeshCache):
         self.first.record_color(rpass, meshes, gpu)
         self.second.record_color(rpass, meshes, gpu)
+
+    def counts(self, meshes: MeshRegistry) -> DrawCounts:
+        return self.first.counts(meshes) + self.second.counts(meshes)
 
     @staticmethod
     def sig() -> String:

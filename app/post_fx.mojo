@@ -32,7 +32,7 @@ from wgpu.device import Device
 from wgpu.command import CommandEncoder
 from wgpu.texture import Texture, TextureView
 from app.post import (
-    PostEffect, PostInputs, Stage, Scaled, Style, _target,
+    PostEffect, PostInputs, Stage, Scaled, Style, _target, _target_bytes,
 )
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -226,6 +226,7 @@ struct Bloom(PostEffect):
     var mix: Stage[BloomMix]
     var targets: List[Texture]  # level 1 .. 5, then the sums at level 4, 3, 2, 1
     var views: List[TextureView]
+    var target_size: Int  # bytes of `targets`
 
     def __init__(
         out self,
@@ -247,6 +248,10 @@ struct Bloom(PostEffect):
         self.mix = mix^
         self.targets = List[Texture]()
         self.views = List[TextureView]()
+        self.target_size = 0
+
+    def target_bytes(self) raises -> Int:
+        return self.target_size
 
     @staticmethod
     def create(device: Device, color_format: UInt32) raises -> Self:
@@ -266,7 +271,9 @@ struct Bloom(PostEffect):
     def bind(mut self, device: Device, color_format: UInt32, width: UInt32, height: UInt32, inp: PostInputs) raises:
         self.views.clear()
         self.targets.clear()
+        self.target_size = 0
         for d in [2, 4, 8, 16, 32, 16, 8, 4, 2]:
+            self.target_size += _target_bytes(color_format, width, height, d, 0, 0)
             self.targets.append(_target(device, color_format, width, height, d, 0, 0))
             self.views.append(self.targets[len(self.targets) - 1].create_view_default())
         self.pre.bind(device, color_format, width, height, inp)

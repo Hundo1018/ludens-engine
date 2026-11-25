@@ -7,6 +7,7 @@ from game.action_map import AXIS_DEVICES, InputFrame, MAX_AXES, MAX_KEYS, MAX_MO
 from wgpu.rendercanvas.input import InputState
 
 comptime KEY_F2: Int32 = 291  # opens the game's overlay panel (GameMode.overlay)
+comptime KEY_F3: Int32 = 292  # shows the frame-time overlay (app/perf_overlay.mojo)
 comptime MOUSE_LEFT: Int32 = 0
 
 
