@@ -124,7 +124,8 @@ for large binary files (LFS policy, asset locking) was considered and left off.
 
 | issue | area | what |
 |---|---|---|
-| #150 | assets | 2D: sprites, sprite sheets, tilemaps, atlas, a 2D render path (nothing 2D exists today) |
+| #150 | assets | 2D editor tools: tile painter (depends on the editor #10 and on #191) |
+| #191 | assets | 2D runtime: sprites, sprite sheets, tilemaps, atlas, a 2D render path, draw layers separate from z (nothing 2D exists today; split from #150 on 2026-11-25, no editor dependency) |
 | #151 | assets | animation retargeting between skeletons |
 | #152 | assets | material graph editor, compiling to the existing material interface |
 | #153 | assets | FBX import and DCC exporters, import validation rules, per-platform variants |
