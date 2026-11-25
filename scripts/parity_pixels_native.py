@@ -44,6 +44,14 @@ def main() -> int:
     r = subprocess.run([str(ROOT / "build/post_fx_pixels"), str(ROOT / "build/post_fx_native.rgba"),
                         str(ROOT / "build/post_fx_msaa_native.rgba")], capture_output=True, text=True, env=env, check=False)
     print((r.stdout + r.stderr).strip()[-600:])
+    if r.returncode:
+        return r.returncode
+    # #140: terrain, decals and trails (app/tier2_frame.mojo), 480 x 270, same device and driver
+    entry_build("app/tier2_pixels.mojo", [eng, wg, ma, Path(".")], [eng, wg, ma, ma / "examples/web", ROOT / "app", ROOT],
+                "--target", "native", "-o", "build/tier2_pixels")
+    r = subprocess.run([str(ROOT / "build/tier2_pixels"), str(ROOT / "build/tier2_native.rgba")],
+                       capture_output=True, text=True, env=env, check=False)
+    print((r.stdout + r.stderr).strip()[-600:])
     return r.returncode
 
 

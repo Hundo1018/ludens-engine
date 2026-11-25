@@ -77,6 +77,16 @@ def curve_at(samples: List[Float64], t: Float64) -> Float64:
     return samples[i] + (samples[i + 1] - samples[i]) * u
 
 
+def color3(start: List[Float64], mid: List[Float64], end: List[Float64], t: Float64, j: Int) -> Float64:
+    """Channel j of a colour that goes from `start` at t = 0 to `mid` at 0.5 to `end` at 1, linear between. The particle
+    records and the trails (game/trails.mojo) both colour by age with it."""
+    var u = t * 2.0
+    if t < 0.5:
+        return start[j] + (mid[j] - start[j]) * u
+    u -= 1.0
+    return mid[j] + (end[j] - mid[j]) * u
+
+
 def lod_scale(row: ParticlesRow, distance: Float64) -> Float64:
     """1 up to lod_near, lod_min from lod_far, linear between. lod_far = 0 turns the LOD off."""
     if row.lod_far <= 0.0 or distance <= row.lod_near:
@@ -271,7 +281,7 @@ def _fnv(h: UInt64, bits: UInt64) -> UInt64:
     return (h ^ bits) * UInt64(0x100000001B3)
 
 
-def _merge_order(mut order: List[Int], key: List[Float64]):
+def merge_order(mut order: List[Int], key: List[Float64]):
     """Sort `order` by key descending, ties by the smaller index first. Bottom-up merge sort: O(n log n), the result
     does not depend on the sort's stability because the comparison is a total order."""
     var n = len(order)
@@ -394,7 +404,7 @@ struct ParticleSystem(Movable):
         var order = List[Int](capacity=len(self.key))
         for i in range(len(self.key)):
             order.append(i)
-        _merge_order(order, self.key)
+        merge_order(order, self.key)
         var n_alpha = 0
         for k in range(len(order)):
             if n_alpha >= max_records:
@@ -417,7 +427,6 @@ struct ParticleSystem(Movable):
         ref em = self.emitters[e]
         var t = em.age[i] / em.life[i]
         var size = curve_at(em.row.size_curve, t) * em.jit[i]
-        var u = t * 2.0
         var cols = em.row.flipbook_cols
         var rows = em.row.flipbook_rows
         var frame = min(Int(t * Float64(cols * rows)), cols * rows - 1)
@@ -425,13 +434,8 @@ struct ParticleSystem(Movable):
         out.append(Float32(em.py[i]))
         out.append(Float32(em.pz[i]))
         out.append(Float32(size))
-        if t < 0.5:
-            for j in range(4):
-                out.append(Float32(em.row.color_start[j] + (em.row.color_mid[j] - em.row.color_start[j]) * u))
-        else:
-            u -= 1.0
-            for j in range(4):
-                out.append(Float32(em.row.color_mid[j] + (em.row.color_end[j] - em.row.color_mid[j]) * u))
+        for j in range(4):
+            out.append(Float32(color3(em.row.color_start, em.row.color_mid, em.row.color_end, t, j)))
         out.append(Float32(em.row.layer))
         out.append(Float32(frame))
         out.append(Float32(cols))

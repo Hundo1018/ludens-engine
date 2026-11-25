@@ -103,6 +103,12 @@ test-particles = "python3 scripts/gen_table.py game/data/particles.schema --tabl
 test-particles-native = "python3 scripts/test_native.py particles_native"
 # #121: particle state and uploaded records, native against wasm64 (equal bytes)
 particles-same = "python3 scripts/particles_same.py"
+# #140: terrain (chunked LOD, stitched edges, splat), projected decals, trails / ribbons. CPU: tests/terrain.mojo, tests/decals_trails.mojo
+test-tier2 = "python3 scripts/test_native.py terrain decals_trails"
+# #140: the passes on lavapipe (cracks in pixels, splat, decal budget, trail order, tile means, frame cost incl. a 4097 x 4097 grid)
+test-tier2-native = "python3 scripts/test_native.py terrain_native tier2_native"
+# #140: stitched terrain vertices, decal triangles and trail records, native against wasm64 (equal bytes)
+tier2-same = "python3 scripts/tier2_same.py"
 game-shot = "python3 scripts/game_shot.py"
 tuning-web = "python3 scripts/tuning_web.py"
 # #116: the HUD text at 100 % and 200 %, in English and Traditional Chinese, pseudo-localized, with a safe area (frames in build/shots/text_*.png)

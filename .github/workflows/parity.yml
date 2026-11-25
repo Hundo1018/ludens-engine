@@ -69,6 +69,12 @@ jobs:
       - name: FXAA, bloom, colour-grading LUT and MSAA (#139) on lavapipe
         run: pixi run -e wasm test-post-fx
 
+      - name: "Terrain, decals, trails (#140): CPU, lavapipe, native against wasm64"
+        run: |
+          pixi run -e wasm test-tier2
+          pixi run -e wasm test-tier2-native
+          pixi run -e wasm tier2-same
+
       - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
         run: pixi run -e wasm test-access-gpu
 

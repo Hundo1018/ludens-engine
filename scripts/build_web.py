@@ -32,7 +32,7 @@ def main() -> None:
     native_particles = ROOT / "build/particles_native.rgba"
     if native_particles.exists():  # #121: the native particle frame (scripts/parity_pixels_native.py)
         shutil.copy(native_particles, OUT / "particles_native.rgba")
-    for name in ("post_fx_native.rgba", "post_fx_msaa_native.rgba"):  # #139: the native picture-effects frames
+    for name in ("post_fx_native.rgba", "post_fx_msaa_native.rgba", "tier2_native.rgba"):  # #139 picture effects, #140 tier 2
         if (ROOT / "build" / name).exists():
             shutil.copy(ROOT / "build" / name, OUT / name)
     shutil.copy(ROOT / "assets/fonts/NotoSansTC-Regular-24.lfont", OUT / "font.lfont")  # the HUD's SDF font (#116)
