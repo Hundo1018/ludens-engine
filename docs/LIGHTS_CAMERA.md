@@ -92,7 +92,7 @@ Types and helpers are in app/lights.mojo; the shader side is `POINT_LIGHTS_WGSL`
   the skinned pass (binding 14) as a factor on the sun's shadow (`contact_shadow(@builtin(position).xy)`;
   `screen_ao` reads G). `RenderResources.screen_users` (bit 0 contact shadows, bit 1 ambient occlusion) says which
   effects need the textures: with none, the mask is 1 x 1 and no depth texture exists, so the default memory and colour
-  are unchanged; while it is on they take 8 bytes a pixel (1,843,196 bytes at 640 x 360, checked). Needs `ShadowPass` in
+  are unchanged; while it is on they take 8 bytes a pixel (1,843,200 bytes at 640 x 360, checked). Needs `ShadowPass` in
   the list; not drawn with Stereo. Limits: a ray that leaves the screen or passes behind a surface thicker than
   `thickness` finds nothing; occluders are the shadow casters (primitives that are not meshes are not); a material's
   vertex hook (wind, waves) is not in the depth pass. `tests/shadows_native.mojo`: `camera_vp` equals `View.project`

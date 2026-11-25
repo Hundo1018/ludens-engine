@@ -162,8 +162,11 @@ struct RenderResources(Movable):
             texture_bytes(self.atlas_size, self.atlas_size, 1, 1, WGPUTextureFormat.Depth32Float)
             + texture_bytes(ENV_SIZE, ENV_SIZE, 6, ENV_MIPS, WGPUTextureFormat.RGBA8Unorm)
             + texture_bytes(self.shadow_size, self.shadow_size, 1, 1, WGPUTextureFormat.Depth32Float)
-            + texture_bytes(max(self.screen_w, 1), max(self.screen_h, 1), 1, 1, WGPUTextureFormat.RGBA8Unorm)
-            + (texture_bytes(self.screen_w, self.screen_h, 1, 1, WGPUTextureFormat.Depth32Float) if self.screen_w > 0 else 0)
+            + (  # the 1 x 1 white mask of an effect that is off is not counted
+                texture_bytes(self.screen_w, self.screen_h, 1, 1, WGPUTextureFormat.RGBA8Unorm)
+                + texture_bytes(self.screen_w, self.screen_h, 1, 1, WGPUTextureFormat.Depth32Float)
+                if self.screen_w > 0 else 0
+            )
         )
 
     def __init__(out self, device: Device) raises:
