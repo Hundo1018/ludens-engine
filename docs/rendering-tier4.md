@@ -2,6 +2,7 @@
 
 | feature | how | file | test |
 |---|---|---|---|
+| screen-space reflections | a post stage that walks the reflected ray through the depth buffer and replaces the environment's reflection (which the mesh pass already drew) with the hit; a miss keeps the environment | `app/ssr.mojo` | `tests/ssr_native.mojo` |
 | bokeh shape | the gather of `DepthOfField` over a polygon aperture (blades, rotation, roundness) narrowed by an anamorphic squeeze; `Bokeh` adds the highlights as aperture-shaped sprites | `app/lens.mojo` | `tests/bokeh_native.mojo` |
 | anamorphic streak | the highlights blurred along x only, four passes in half-float targets, tinted and added | `app/lens.mojo` | `tests/bokeh_native.mojo` |
 
@@ -19,7 +20,7 @@ Every post stage reads `Frame` (app/post.mojo). It grew from 60 to 88 floats; th
 |---|---|---|
 | `tone` | `to_linear` / `to_display` in every stage | `set_atmosphere`: the linear workflow's flag and its exposure |
 | `ao` | screen-space ambient occlusion (later PR) | `ao_radius`, `ao_intensity`, `ao_temporal` |
-| `ssr` | screen-space reflections (later PR) | `ssr_intensity`, `ssr_max_distance`, `ssr_thickness`, `ssr_max_roughness` |
+| `ssr` | `Ssr` | `ssr_intensity`, `ssr_max_distance`, `ssr_thickness`, `ssr_max_roughness` |
 | `bokeh`, `bokeh2` | `DepthOfField`, `Bokeh` | `bokeh_blades`, `bokeh_rotation`, `bokeh_roundness`, `bokeh_squeeze`, `bokeh_gain`, `bokeh_threshold` |
 | `streak`, `stint` | `AnamorphicStreak` | `streak_intensity`, `streak_threshold`, `streak_length`, `streak_tint` |
 
@@ -92,6 +93,46 @@ the frame the tail would otherwise be a few levels at most: the streak is a look
 | how far the streak stays above a tenth of its value 12 px out | 258 px at length 1 (0.40 of the width), 127 px at length 0.5 |
 
 ![streak off](images/tier4/streak_off.png) ![streak on](images/tier4/streak_on.png)
+
+## Screen-space reflections
+
+```mojo
+comptime Cine = Ssr
+var r = SceneRendererOf[DefaultPasses, Ssr, Aux[SurfacePasses]](device, format, view)
+r.set_environment(device, sky_environment(...))   # or an EnvProbe: what a ray that misses keeps
+r.ssr_intensity = 1.0        # 0 returns the frame unchanged
+r.ssr_max_distance = 20.0
+r.ssr_thickness = 0.3
+r.ssr_max_roughness = 0.6
+```
+
+The algorithm, the aux target's channel layout and the approximations are in the header of `app/ssr.mojo`. In short: the
+mesh pass has already added the environment's reflection to the colour; the aux target (`SurfacePasses`) records its
+luminance, the Fresnel weight, the roughness and metallic; the stage marches the reflected ray (40 steps, 6 halvings),
+and on a hit swaps the environment's part for the hit's colour. On a miss the frame is unchanged, so the fallback is the
+EnvProbe or gradient reflection. The normal is rebuilt from depth and turned toward the camera.
+
+`tests/ssr_native.mojo`, a glossy floor (roughness 0.05) with a red and a blue box, 640 x 360. Each check runs with the
+linear workflow off and on:
+
+| check | linear off | linear on |
+|---|---|---|
+| intensity 0, pixels differing from the frame without the stage | 0 | 0 |
+| floor under the red box: RGB without, with | 100 120 161, 101 99 140 | 134 148 171, 127 104 143 |
+| floor under the blue box: RGB without, with | 114 137 182, 78 107 195 | 155 168 187, 74 109 191 |
+| floor where rays leave the screen, largest channel difference | 0 | 0 |
+| roughness 0.9 (limit 0.6), pixels changed | 0 | 0 |
+| `NoAux` (no surface data), pixels changed | 0 | - |
+
+![reflections off](images/tier4/ssr_off.png) ![reflections on](images/tier4/ssr_on.png)
+
+Cost, `ssr_native --cost`, 1920 x 1080, median of 9 frames (lavapipe, a CPU rasteriser):
+
+| pipeline | ms / frame | added over one copy stage |
+|---|---:|---:|
+| one copy stage | 79.37 | - |
+| one copy stage + the surface aux pass | 97.09 | +17.72 |
+| Ssr + the surface aux pass | 308.49 | +229.12 |
 
 ## Cost
 
