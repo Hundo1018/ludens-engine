@@ -56,7 +56,7 @@ MUTATIONS = {
     "gate-ring-short": ("scripts/perf_gate.py", "    if scene[\"frames\"] < L.FRAME_RING:", "    if False:", f"{PG}:budgets", "a scene shorter than the ring is accepted"),
     "post-mid-not-counted": ("app/post.mojo", "return self.mid_bytes + self.first.target_bytes() + self.second.target_bytes()", "return self.first.target_bytes() + self.second.target_bytes()", FC, "the texture between ThenPost's two parts is not counted"),
     "join-targets-not-counted": ("app/post.mojo", "return self.target_size + self.a.target_bytes()", "return self.a.target_bytes()", FC, "the two textures a Join makes are not counted"),
-    "post-bytes-not-summed": ("app/render3d.mojo", "        n += self.post.target_bytes()  # the targets between the post stages (ThenPost, Join)\n", "", FC, "the renderer ignores the post effect's targets"),
+    "post-bytes-not-summed": ("app/render3d.mojo", "        n += self.post.target_bytes()  # the targets between the post stages (ThenPost, Join, Bloom)\n", "", FC, "the renderer ignores the post effect's targets"),
     "gate-unique": ("scripts/perf_gate.py", "        if x not in out:\n            out.append(x)", "        out.append(x)", f"{PG}:check", "a finding every run makes is reported once per run"),
     "msaa-not-counted": ("app/render3d.mojo", "            n += self.msaa.value().bytes  # the multisampled colour and depth\n", "            n += 0\n", FC, "the multisampled targets are not counted"),
     "msaa-one-sample": ("app/msaa.mojo", ") * Int(MSAA_SAMPLES)\n", ")\n", FC, "the multisampled targets are counted as one sample"),
