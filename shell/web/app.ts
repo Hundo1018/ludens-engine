@@ -81,8 +81,10 @@ async function boot(canvas: HTMLCanvasElement) {
     fetch("./app.wasm").then((r) => r.arrayBuffer()),
   ]);
   const wrt = new Runtime(layout, enums);
+  // #147: a throw out of app_frame is written as a crash report (shell/web/crash_host.mjs) when the module has armed one.
+  let osHost = undefined as { crash: { capture(e: unknown): Promise<Uint8Array | null> } } | undefined;
   // wgpu's createImports returns the flat env table; the shared host wants {namespace: table}.
-  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(withViewRefs(wgpuImports(wrt))) }), miniaudio, net, (r) => createOsImports(r, { storage: opfsStorage() })] });
+  const rt = await instantiate(bytes, { libs: [() => ({ env: countImports(withViewRefs(wgpuImports(wrt))) }), miniaudio, net, (r) => (osHost = createOsImports(r, { storage: opfsStorage() }))] });
   wrt.attach(rt);
   const x = rt.exports as unknown as AppExports;
   const [sel, len] = rt.str_in("#" + canvas.id);
@@ -186,7 +188,7 @@ async function boot(canvas: HTMLCanvasElement) {
     return { width: w, height: h, pitch, format: x.app_format(app), clear: ref, other };
   };
   for (const [k, v] of Object.entries({ app, x, rt, capturePixels })) Object.defineProperty(stats, k, { value: v, enumerable: false });
-  return { rt, x, app };
+  return { rt, x, app, crash: osHost?.crash };
 }
 
 const MANUAL = params.has("manual");
@@ -365,7 +367,7 @@ async function main() {
     if (note) note.textContent = why + " Chrome 133 or later, or Firefox 134 or later, on a desktop.";
     return;
   }
-  const { rt, x, app } = await boot(canvas);
+  const { rt, x, app, crash } = await boot(canvas);
   const pollPads = attachInput(canvas, (k, key, a, m, px, py) => x.app_input(app, k, key, a, m, px, py), () => x.app_release_input(app));
   let fillAudio: (() => void) | null = null;
   // Two keys pressed before the first start resolves must not start two contexts: both would render the same mixer.
@@ -414,7 +416,7 @@ async function main() {
       fillAudio?.();
       stats.started = true;
       requestAnimationFrame(frame);
-    } catch (e) { stats.error = String(e); }
+    } catch (e) { stats.error = String(e); crash?.capture(e).catch(() => {}); }
   };
   if (MANUAL) stats.started = true; // frames come only from window.game.step
   else requestAnimationFrame(frame);

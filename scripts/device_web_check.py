@@ -81,7 +81,7 @@ def main() -> int:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
     shutil.copy(ludens_wasm_rt.HOST_MJS, OUT / "host.mjs")
-    for f in ("os_host.mjs", "device_host.mjs"):
+    for f in ("os_host.mjs", "device_host.mjs", "crash_host.mjs"):
         shutil.copy(ROOT / "shell/web" / f, OUT / f)
     shutil.copy(ROOT / "build/device_probe.wasm", OUT / "device_probe.wasm")
     (OUT / "index.html").write_text(PAGE)
