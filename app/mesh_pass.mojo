@@ -124,7 +124,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
   // with the shadow off the factor is exactly 1.0, so the colour is unchanged bit for bit
   let ndl = max(dot(normalize(in.wnrm), sun_dir()), 0.0);
   // the AO factor multiplies the shadow factor; with AO off it is exactly 1.0, so the colour is unchanged bit for bit
-  let sf = select(1.0, shadow_factor(in.lpos, ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5);
+  let sf = select(1.0, shadow_at(in.wpos, normalize(in.wnrm), ndl), shadow.params.x > 0.5) * select(1.0, ao_factor(in.wpos), ao.params.x > 0.5);
   // the item's material (app/material.mojo): shade() is generated from the pass's material pack
   // the point lights, per pixel, on top of the per-vertex sun; with none the vertex colour is used as it was
   var lit3 = vec3<f32>(in.lit);
