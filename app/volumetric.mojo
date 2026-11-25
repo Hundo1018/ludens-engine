@@ -38,7 +38,7 @@ from wgpu import (
     WGPUTextureFormat, WGPUTextureUsage, WGPUColor,
 )
 from wgpu import null_opaque
-from wgpu._backend.wgpu_native.handles import BufferHandle
+from wgpu import BufferHandle
 from wgpu.buffer import Buffer
 from wgpu.device import Device
 from wgpu.command import CommandEncoder
@@ -47,7 +47,7 @@ from wgpu.bind_group import BindGroup, BindGroupLayout
 from wgpu.sampler import Sampler
 from wgpu.texture import Texture, TextureView
 from app.post import PostEffect, PostInputs, FRAME_WGSL, FRAME_BYTES, POST_MAIN_WGSL
-from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL
+from app.wgsl import SHADOW_UBO_WGSL, POINT_LIGHTS_WGSL, NO_LOCAL_SHADOW_WGSL, NO_PROBES_WGSL
 from app.lights import LIGHTS_BYTES
 from app.gpu_bytes import texture_bytes
 
@@ -262,7 +262,7 @@ struct VolumetricFog(PostEffect):
 
     def __init__(out self, device: Device, color_format: UInt32) raises:
         var common = String(FRAME_WGSL) + String(FROXEL_WGSL)
-        var lit = String(SHADOW_UBO_WGSL) + String(POINT_LIGHTS_WGSL) + String(NO_LOCAL_SHADOW_WGSL)
+        var lit = String(SHADOW_UBO_WGSL) + String(POINT_LIGHTS_WGSL) + String(NO_LOCAL_SHADOW_WGSL) + String(NO_PROBES_WGSL)
         var cs = WGPUShaderStage.COMPUTE.value
         var fs = WGPUShaderStage.FRAGMENT.value
         var e1: List[WGPUBindGroupLayoutEntry] = [

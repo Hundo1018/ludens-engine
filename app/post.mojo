@@ -44,7 +44,7 @@ from wgpu import raw_alloc
 from wgpu.render_pass import FrameRenderPass
 from wgpu import WGPUTextureUsage
 from wgpu.buffer import Buffer
-from wgpu._backend.wgpu_native.handles import BufferHandle
+from wgpu import BufferHandle
 from wgpu.device import Device
 from app.gpu_bytes import texture_bytes
 from wgpu.command import CommandEncoder

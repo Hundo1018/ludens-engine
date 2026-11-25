@@ -355,6 +355,13 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         """The sun's direction, colour and intensity (RenderResources.set_sun)."""
         self.res.set_sun(device, to_sun, color, intensity)
 
+    def set_probes(mut self, device: Device, origin: Vec3, cell: Vec3, nx: Int, ny: Int, nz: Int, sh: List[Float32]) raises:
+        """RenderResources.set_probes: the ambient from a grid of baked irradiance probes (app/irradiance.mojo)."""
+        self.res.set_probes(device, origin, cell, nx, ny, nz, sh)
+
+    def clear_probes(mut self, device: Device) raises:
+        self.res.clear_probes(device)
+
     def set_environment(mut self, device: Device, env: Environment) raises:
         """The ambient light and MatPbr's reflections from an environment (RenderResources.set_environment)."""
         self.res.set_environment(device, env)
