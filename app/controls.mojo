@@ -15,6 +15,8 @@ comptime KEY_ENTER: Int32 = 257
 comptime KEY_BACKSPACE: Int32 = 259
 comptime KEY_E: Int32 = 69  # photo mode: up
 comptime KEY_Q: Int32 = 81  # photo mode: down
+comptime KEY_Z: Int32 = 90  # photo mode: zoom in (longer focal length)
+comptime KEY_X: Int32 = 88  # photo mode: zoom out
 comptime MOUSE_LEFT: Int32 = 0
 
 
