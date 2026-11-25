@@ -39,7 +39,7 @@ from app.textures import TextureArray
 from app.skin_blend import SkinBlend, LinearBlend, MotorBlend
 from app.textures import ATMO_WGSL, TRIPLANAR_FN_WGSL
 from app.material import Material, Materials, MatColor, MatUv, MatTriplanar, MatSky, MatPbr, PBR_WGSL
-from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, ENV_WGSL, PROBES_WGSL
+from app.wgsl import CAM_WGSL, SHADOW_UBO_WGSL, PCF_WGSL, POINT_LIGHTS_WGSL, LOCAL_SHADOW_WGSL, LIGHT_TEX_WGSL, ENV_WGSL, PROBES_WGSL
 from app.render_res import RenderResources, LIGHTS_BYTES, PROBE_BYTES
 from app.render_pass import RenderPass, DrawCounts
 
@@ -56,7 +56,10 @@ comptime SKIN_DRAW_WGSL = CAM_WGSL + SHADOW_UBO_WGSL + """
 @group(0) @binding(8) var atlas_map : texture_depth_2d;
 @group(0) @binding(9) var env_cube : texture_cube<f32>;
 @group(0) @binding(10) var<storage, read> probes : array<vec4<f32>>;
-""" + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + PROBES_WGSL + ENV_WGSL + PBR_WGSL + """
+@group(0) @binding(11) var ies_tab : texture_2d<f32>;
+@group(0) @binding(12) var cookies : texture_2d_array<f32>;
+@group(0) @binding(13) var light_samp : sampler;
+""" + ATMO_WGSL + PCF_WGSL + TRIPLANAR_FN_WGSL + POINT_LIGHTS_WGSL + LOCAL_SHADOW_WGSL + LIGHT_TEX_WGSL + PROBES_WGSL + ENV_WGSL + PBR_WGSL + """
 
 struct SVIn {
   @location(0) pos : vec3<f32>,
@@ -312,6 +315,26 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
                 WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
                 WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(11), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(3), UInt32(2), UInt32(0)),  # unfilterable float, 2D: the IES table
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(12), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(2), UInt32(3), UInt32(0)),  # float, 2D array: the light cookies
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(13), WGPUShaderStage.FRAGMENT.value, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),  # not a buffer
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(2)),  # filtering: the cookies
+                WGPUTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
         ]
         var bgl = device.create_bind_group_layout(entries)
@@ -339,6 +362,9 @@ struct SkinnedPassOf[B: SkinBlend, *Ms: Material](RenderPass):
             WGPUBindGroupEntry(null_opaque(), 8, null_opaque(), 0, UInt64(0), null_opaque(), res.atlas_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 9, null_opaque(), 0, UInt64(0), null_opaque(), res.env_view.handle().raw),
             WGPUBindGroupEntry(null_opaque(), 10, res.probes.handle().raw, 0, UInt64(PROBE_BYTES), null_opaque(), null_opaque()),
+            WGPUBindGroupEntry(null_opaque(), 11, null_opaque(), 0, UInt64(0), null_opaque(), res.ies_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 12, null_opaque(), 0, UInt64(0), null_opaque(), res.cookie_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 13, null_opaque(), 0, UInt64(0), res.light_sampler.handle().raw, null_opaque()),
         ]
         self.group = device.create_bind_group(bgl, bg_entries, "skin_group")
         self.batches = MeshBatches[True]()

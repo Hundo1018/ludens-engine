@@ -92,7 +92,7 @@ height = 720
 [counters]              # work counts: FAIL when the largest value in the last 300 frames is above
 draw_calls = 4
 triangles = 4000
-texture_bytes = 27000000
+texture_bytes = 30000000
 particles = 0
 bodies = 12
 ai_agents = 0
@@ -131,7 +131,7 @@ The native scene, 1280x720, 600 frames, 10 runs each, on this container's 4 core
 | `gpu_frame` (lavapipe) | 1.926 / 2.164 / 2.308 | 8.831 / 9.734 / 10.393 |
 
 `frame` is budgeted at 0.5 ms, 2.4 times the largest of the 20 runs. `gpu_frame` is not budgeted: it moved 4.5 times between
-idle and loaded. The counters did not move in any run (2 draw calls, 3,460 triangles, 25,881,248 texture bytes, 9 bodies).
+idle and loaded. The counters did not move in any run (2 draw calls, 3,460 triangles, 25,881,248 texture bytes, 9 bodies; 28,109,472 since the IES table, 128 KB, and the 8 light cookies, 2 MB).
 
 ### Cost of the timers and counters
 

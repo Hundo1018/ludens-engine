@@ -140,14 +140,13 @@ struct MatPbr(Material):
     let ndv = max(dot(n, v), 1e-4);
     c = albedo * sh_lit(n) * (1.0 - s.metal) + env_reflect(reflect(-v, n), s.rough) * env_brdf(f0, s.rough, ndv);
   }
-  if sun_custom() { sun = lights.sun_color.rgb * PBR_PI; }
+  if sun_custom() { sun = lights.sun_color.rgb * PBR_PI * sun_cookie(s.wpos); }
   c += pbr_light(n, v, sun_dir(), sun * s.sf, albedo, f0, a, s.metal);
   let count = min(u32(lights.n.x), 16u);
   for (var i = 0u; i < count; i++) {
     let d = lights.l[i].pos_range.xyz - s.wpos;
     let dist = max(length(d), 1e-4);
-    let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
-    c += pbr_light(n, v, d / dist, lights.l[i].color.rgb * lights.l[i].color.w * PBR_PI * x * x * point_shadow(i, s.wpos, n), albedo, f0, a, s.metal);
+    c += pbr_light(n, v, d / dist, point_scale(i, lights.l[i].color.rgb * lights.l[i].color.w * PBR_PI, dist, d / dist) * point_shadow(i, s.wpos, n), albedo, f0, a, s.metal);
   }
   let more = extra_count();
   for (var k = 0u; k < more; k++) {

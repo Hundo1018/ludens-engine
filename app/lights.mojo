@@ -12,11 +12,15 @@ of the `Lights` uniform, the environment as order-2 spherical harmonics, and the
 Units: a light's colour times intensity is what a white matte surface facing it reflects (at the light, for a point or
 spot light; with the panel filling its view, for an area light; anywhere, for a directional light).
 
+Colour temperature, photometric units and exposure (lm, cd, lx, nit), IES profiles and cookies: app/photometry.mojo and
+the fields of each light type; the renderer's set_exposure, set_ies and set_cookie.
+
 Shadows: the sun has its map (set_shadow). The others take tiles of the 4 x 4 shadow atlas when asked: a point light
 six (a cube), a spot, directional or area light one; 16 tiles in all. Only items with a mesh cast, as for the sun.
 """
 from std.math import sqrt, sin, cos, tan, pi
 from geometry.vec import Real, Vec3
+from app.photometry import UNITS_RELATIVE
 
 comptime MAX_POINT_LIGHTS = 16
 comptime MAX_SPOT_LIGHTS = 8
@@ -43,7 +47,13 @@ comptime L_TILES = 432  # 16 x 16
 comptime L_PROBE_ORG = 688  # the irradiance probe grid (app/irradiance.mojo): its first probe's position, w 1 when on
 comptime L_PROBE_CELL = 692  # the spacing of the probes along x, y, z (m)
 comptime L_PROBE_DIM = 696  # the probe counts along x, y, z
-comptime LIGHTS_FLOATS = 700
+# per light, what app/photometry.mojo and the profiles add (IES table, cookies, the inverse-square falloff):
+comptime L_PEXT = 700  # 16 x 8: the IES axis, IES slot + 1; the IES horizontal-0 direction, falloff (1 inverse square)
+comptime L_SEXT = 828  # 8 x 12: IES slot + 1, cookie layer + 1, falloff; cookie right / tan(outer); cookie up / tan(outer)
+comptime L_DEXT = 924  # 4 x 12: (0, cookie layer + 1, 0, 0); right / cookie size, u offset; up / cookie size, v offset
+comptime L_SUNEXT = 972  # 12: the sun's, as a directional light's
+comptime L_IES_SYM = 984  # 8: per IES slot, 1 when its profile is the same all round
+comptime LIGHTS_FLOATS = 992
 comptime LIGHTS_BYTES = LIGHTS_FLOATS * 4
 
 
@@ -66,9 +76,55 @@ def unit(a: Vec3) raises -> Vec3:
     return _v(Float64(a[0]) / l, Float64(a[1]) / l, Float64(a[2]) / l)
 
 
+struct PointLight(Copyable, ImplicitlyCopyable, Movable):
+    """A point light: position (m), range (m; no light beyond it), colour (linear 0..1 per channel) and intensity (in
+    `units`, app/photometry.mojo). With `shadow` it takes six tiles of the shadow atlas.
+
+    Falloff: (1 - (d / range)^2)^2, or with `inverse_square` (and always in photometric units) 1 / d^2 times
+    (1 - (d / range)^4)^2, the window that brings it to 0 at the range.
+    `kelvin` (1667 .. 25000, 0 off) multiplies the colour by a black body's (photometry.kelvin_rgb, luminance 1).
+    `ies` is a slot of the renderer's IES table (set_ies) or -1: the profile's vertical 0 points along `axis`, its
+    horizontal 0 along the axis's right vector (lights._basis) turned by `spin` radians about the axis. With a profile,
+    the intensity is the light's at the profile's peak."""
+
+    var pos: Vec3
+    var range: Float32
+    var color: Vec3
+    var intensity: Float32
+    var shadow: Bool
+    var kelvin: Float32
+    var units: Int
+    var inverse_square: Bool
+    var ies: Int
+    var axis: Vec3
+    var spin: Float32
+
+    def __init__(
+        out self, pos: Vec3, range: Float32, color: Vec3, intensity: Float32, shadow: Bool = False,
+        kelvin: Float32 = 0.0, units: Int = UNITS_RELATIVE, inverse_square: Bool = False, ies: Int = -1,
+        axis: Vec3 = Vec3(0, -1, 0, 0), spin: Float32 = 0.0,
+    ):
+        self.pos = pos
+        self.range = range
+        self.color = color
+        self.intensity = intensity
+        self.shadow = shadow
+        self.kelvin = kelvin
+        self.units = units
+        self.inverse_square = inverse_square
+        self.ies = ies
+        self.axis = axis
+        self.spin = spin
+
+
 struct SpotLight(Copyable, ImplicitlyCopyable, Movable):
     """A cone of light from `pos` along `dir`: full inside `inner` radians of the axis, none beyond `outer`, falling
-    off with distance like a point light (nothing beyond `range`)."""
+    off with distance like a point light (nothing beyond `range`; `inverse_square` as PointLight's).
+
+    `kelvin`, `units` and `ies` as PointLight's, with `dir` as the IES axis. `cookie` is a layer of the renderer's
+    cookie array (set_cookie) or -1: the picture is projected along the cone, its edges at `outer` radians off the
+    axis, its top toward the axis's up vector (lights._basis), both turned by `spin` radians about the axis; the
+    light is multiplied by the picture's colour (linear; sRGB in the texture)."""
 
     var pos: Vec3
     var dir: Vec3
@@ -78,10 +134,17 @@ struct SpotLight(Copyable, ImplicitlyCopyable, Movable):
     var color: Vec3
     var intensity: Float32
     var shadow: Bool
+    var kelvin: Float32
+    var units: Int
+    var inverse_square: Bool
+    var ies: Int
+    var cookie: Int
+    var spin: Float32
 
     def __init__(
         out self, pos: Vec3, dir: Vec3, range: Float32, inner: Float32, outer: Float32, color: Vec3,
-        intensity: Float32, shadow: Bool = False,
+        intensity: Float32, shadow: Bool = False, kelvin: Float32 = 0.0, units: Int = UNITS_RELATIVE,
+        inverse_square: Bool = False, ies: Int = -1, cookie: Int = -1, spin: Float32 = 0.0,
     ):
         self.pos = pos
         self.dir = dir
@@ -91,12 +154,23 @@ struct SpotLight(Copyable, ImplicitlyCopyable, Movable):
         self.color = color
         self.intensity = intensity
         self.shadow = shadow
+        self.kelvin = kelvin
+        self.units = units
+        self.inverse_square = inverse_square
+        self.ies = ies
+        self.cookie = cookie
+        self.spin = spin
 
 
 struct DirLight(Copyable, ImplicitlyCopyable, Movable):
     """Light from one direction everywhere (`dir` points toward the light). With `shadow` it takes one tile of the
     atlas: a box of 2 half_extent across around `centre`, seen from `depth` metres toward the light (as
-    sun_shadow_vp); nothing outside the box is shadowed."""
+    sun_shadow_vp); nothing outside the box is shadowed.
+
+    `kelvin` and `units` (UNITS_RELATIVE or UNITS_LUX) as PointLight's. `cookie` is a layer of the cookie array or -1:
+    the picture is projected along the light, one repeat every `cookie_size` metres across the light's right and up
+    vectors (the axes of its shadow view, lights._basis of -dir), shifted by (cookie_u, cookie_v) repeats (move them
+    each frame for drifting cloud shadows)."""
 
     var dir: Vec3
     var color: Vec3
@@ -105,10 +179,18 @@ struct DirLight(Copyable, ImplicitlyCopyable, Movable):
     var centre: Vec3
     var half_extent: Float32
     var depth: Float32
+    var kelvin: Float32
+    var units: Int
+    var cookie: Int
+    var cookie_size: Float32
+    var cookie_u: Float32
+    var cookie_v: Float32
 
     def __init__(
         out self, dir: Vec3, color: Vec3, intensity: Float32, shadow: Bool = False,
         centre: Vec3 = Vec3(0, 0, 0, 0), half_extent: Float32 = 20.0, depth: Float32 = 40.0,
+        kelvin: Float32 = 0.0, units: Int = UNITS_RELATIVE, cookie: Int = -1, cookie_size: Float32 = 10.0,
+        cookie_u: Float32 = 0.0, cookie_v: Float32 = 0.0,
     ):
         self.dir = dir
         self.color = color
@@ -117,13 +199,19 @@ struct DirLight(Copyable, ImplicitlyCopyable, Movable):
         self.centre = centre
         self.half_extent = half_extent
         self.depth = depth
+        self.kelvin = kelvin
+        self.units = units
+        self.cookie = cookie
+        self.cookie_size = cookie_size
+        self.cookie_u = cookie_u
+        self.cookie_v = cookie_v
 
 
 struct AreaLight(Copyable, ImplicitlyCopyable, Movable):
     """A rectangular panel: centre `pos`, half-edges `ex` and `ey` (perpendicular), emitting from the side
     cross(ex, ey) points to, evenly and by the cosine of its normal. With `shadow` it takes one tile of the atlas: a
     view from its centre along its normal, 120 degrees across and `shadow_range` metres deep; the shadow's edge is as
-    soft as the panel is large."""
+    soft as the panel is large. `kelvin` and `units` (UNITS_RELATIVE, UNITS_NIT or UNITS_LUMEN) as PointLight's."""
 
     var pos: Vec3
     var ex: Vec3
@@ -132,10 +220,12 @@ struct AreaLight(Copyable, ImplicitlyCopyable, Movable):
     var intensity: Float32
     var shadow: Bool
     var shadow_range: Float32
+    var kelvin: Float32
+    var units: Int
 
     def __init__(
         out self, pos: Vec3, ex: Vec3, ey: Vec3, color: Vec3, intensity: Float32, shadow: Bool = False,
-        shadow_range: Float32 = 30.0,
+        shadow_range: Float32 = 30.0, kelvin: Float32 = 0.0, units: Int = UNITS_RELATIVE,
     ):
         self.pos = pos
         self.ex = ex
@@ -144,6 +234,8 @@ struct AreaLight(Copyable, ImplicitlyCopyable, Movable):
         self.intensity = intensity
         self.shadow = shadow
         self.shadow_range = shadow_range
+        self.kelvin = kelvin
+        self.units = units
 
 
 struct Environment(Copyable, Movable):
@@ -257,6 +349,20 @@ def sh_lit(sh: List[Float32], n: Vec3) -> Vec3:
         )
         o[c] = max(e, 0.0) / pi
     return _v(o[0], o[1], o[2])
+
+
+def basis(fwd: Vec3) raises -> Tuple[Vec3, Vec3]:
+    """The right and up vectors of a view along `fwd` (made unit): the frame the shadow views, the IES horizontal
+    angle and the cookies are measured in."""
+    return _basis(unit(fwd))
+
+
+def spun(fwd: Vec3, spin: Float64) raises -> Tuple[Vec3, Vec3]:
+    """basis(fwd) turned by `spin` radians about fwd (from right toward up)."""
+    var b = basis(fwd)
+    var c = Real(cos(spin))
+    var s = Real(sin(spin))
+    return (b[0] * c + b[1] * s, b[1] * c - b[0] * s)
 
 
 def _basis(fwd: Vec3) raises -> Tuple[Vec3, Vec3]:

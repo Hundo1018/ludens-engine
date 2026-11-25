@@ -45,7 +45,7 @@ jobs:
         run: |
           pixi run -e wasm python3 scripts/test_native.py style_own custom_pipeline_native
           pixi run -e wasm style-gallery --doc --check
-      - name: Lights, camera (orthographic, culling, viewports) and lens stages on lavapipe
+      - name: Lights (colour temperature, photometric units, IES, cookies), camera (orthographic, culling, viewports) and lens stages on lavapipe
         run: pixi run -e wasm test-lights-camera
 
       - name: Particle pass (#121) on lavapipe
