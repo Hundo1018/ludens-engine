@@ -113,7 +113,8 @@ Every phase reports the frame time it adds at 1080p, natively and in a browser, 
 pipeline.
 
 
-- Reflection parallax, several probes, light probes for moving bodies, global illumination.
+- Reflection parallax, several reflection probes, dynamic global illumination. Baked irradiance probes, which also light
+  moving bodies, are in `docs/rendering-tier3.md`.
 - Per-bone velocity for skinned meshes; bokeh shapes.
 - More than 16 shadow tiles; cascaded sun shadows.
 - All of this has run on lavapipe only (native wgpu); none of it has been run in a browser.

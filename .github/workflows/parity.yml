@@ -69,6 +69,9 @@ jobs:
       - name: FXAA, bloom, colour-grading LUT and MSAA (#139) on lavapipe
         run: pixi run -e wasm test-post-fx
 
+      - name: Mesh LOD, volumetric fog and irradiance probes (#141) on lavapipe
+        run: pixi run -e wasm test-tier3
+
       - name: "Accessibility stages (#118): colour-blind, flash limiter, reduce motion, on lavapipe"
         run: pixi run -e wasm test-access-gpu
 
