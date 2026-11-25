@@ -135,12 +135,19 @@ struct Light {
 #   point lights    per pixel, added to the per-vertex sun term (the first form of this file)
 #   a light rig     any of: a sun of the host's (set_sun), an ambient / environment (set_ambient, set_environment),
 #                   spot, directional or area lights. Then `rig()` computes the light per pixel.
-# A shader that includes this declares `local_shadow` (LOCAL_SHADOW_WGSL with the atlas bound, or NO_LOCAL_SHADOW_WGSL).
+# A shader that includes this declares `local_shadow` (LOCAL_SHADOW_WGSL with the atlas bound, or NO_LOCAL_SHADOW_WGSL)
+# and `ies_at` / `cookie_at` (LIGHT_TEX_WGSL with the IES table and the cookies bound, or NO_LIGHT_TEX_WGSL).
 comptime POINT_LIGHTS_WGSL = """
 struct PointLight { pos_range : vec4<f32>, color : vec4<f32> };
 struct SpotLight { pos_range : vec4<f32>, color : vec4<f32>, dir_cos : vec4<f32>, cone : vec4<f32> };
 struct DirLight { dir : vec4<f32>, color : vec4<f32> };
 struct AreaLight { pos : vec4<f32>, ex : vec4<f32>, ey : vec4<f32>, color : vec4<f32> };
+// app/lights.mojo L_PEXT: axis_ies.xyz the IES axis, .w the IES slot + 1 (0 none); right_mode.xyz the IES horizontal 0,
+// .w 1 for the inverse-square falloff
+struct PointExt { axis_ies : vec4<f32>, right_mode : vec4<f32> };
+// L_SEXT, L_DEXT, L_SUNEXT: idx.x IES slot + 1 (spots), idx.y cookie layer + 1, idx.z 1 for the inverse square (spots);
+// r and u: the cookie's right and up axes, scaled (spots: by 1 / tan(outer); directional: by 1 / cookie size, w the offset)
+struct LightExt { idx : vec4<f32>, r : vec4<f32>, u : vec4<f32> };
 struct Lights {
   n : vec4<f32>,                    // counts: point, spot, directional, area
   l : array<PointLight, 16>,
@@ -161,11 +168,89 @@ struct Lights {
   probe_dim : vec4<f32>,
   tiles : array<mat4x4<f32>, 112>,  // the atlas tiles' view-projections (app/lights.mojo MAX_TILES)
   tile_rect : array<vec4<f32>, 112>,  // each tile's square in the atlas: uv of its corner, uv size, texels across
+  pext : array<PointExt, 16>,       // per point light: IES and falloff (app/photometry.mojo)
+  sext : array<LightExt, 8>,        // per spot light: IES, cookie, falloff
+  dext : array<LightExt, 4>,        // per directional light: cookie
+  sunext : LightExt,                // the sun's cookie
+  ies_sym : array<vec4<f32>, 2>,    // per IES slot: 1 when the profile is the same all round (no horizontal angle to find)
 };
 const L_PI = 3.14159265;
 fn falloff(dist : f32, range : f32) -> f32 {
   let x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
   return x * x;
+}
+// the inverse square, brought to 0 at the range by (1 - (d / range)^4)^2 (Karis 2013); 1 at 1 m
+fn inv_square(dist : f32, range : f32) -> f32 {
+  let x = dist / range;
+  let w = clamp(1.0 - x * x * x * x, 0.0, 1.0);
+  return w * w / max(dist * dist, 1e-4);
+}
+fn atten(dist : f32, range : f32, mode : f32) -> f32 {
+  if mode > 0.5 { return inv_square(dist, range); }
+  return falloff(dist, range);
+}
+// the IES profile in slot1 - 1 toward the unit direction v (from the light), the profile's vertical 0 along `axis`, its
+// horizontal 0 along `right` (scaled or not); 1 with no profile
+fn ies_dir(slot1 : f32, v : vec3<f32>, axis : vec3<f32>, right : vec3<f32>) -> f32 {
+  if slot1 < 0.5 { return 1.0; }
+  let k = u32(slot1) - 1u;
+  let sym = lights.ies_sym[k / 4u][k % 4u] > 0.5;
+  var phi = 0.0;
+  if !sym {
+    let up = cross(right, axis);
+    phi = atan2(dot(v, up), dot(v, right));
+  }
+  return ies_at(slot1, fast_acos(dot(v, axis)), phi, sym);
+}
+// acos to within 7e-5 rad (Abramowitz and Stegun 4.4.45), cheaper than acos on some GPUs and on lavapipe
+fn fast_acos(x : f32) -> f32 {
+  let a = clamp(abs(x), 0.0, 1.0);
+  let r = sqrt(1.0 - a) * (1.5707288 + a * (-0.2121144 + a * (0.0742610 - 0.0187293 * a)));
+  return select(r, L_PI - r, x < 0.0);
+}
+// e (point light i's light before its falloff) times the falloff and its IES profile toward l (the unit direction from
+// the point to the light). Kept in this order so a light with neither is the same float operations as before.
+fn point_scale(i : u32, e : vec3<f32>, dist : f32, l : vec3<f32>) -> vec3<f32> {
+  let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
+  let ext = lights.pext[i];
+  var o = e * x * x;
+  if ext.right_mode.w > 0.5 { o = e * inv_square(dist, lights.l[i].pos_range.w); }
+  // the profile only where the light reaches (out of range the lookup would multiply 0)
+  if ext.axis_ies.w > 0.5 && max(o.x, max(o.y, o.z)) > 0.0 { o *= ies_dir(ext.axis_ies.w, -l, ext.axis_ies.xyz, ext.right_mode.xyz); }
+  return o;
+}
+// point light i's falloff and IES profile at a world point, without N.L and shadow (for the fog)
+fn point_atten(i : u32, wpos : vec3<f32>) -> f32 {
+  let d = lights.l[i].pos_range.xyz - wpos;
+  let dist = max(length(d), 1e-4);
+  return point_scale(i, vec3<f32>(1.0), dist, d / dist).x;
+}
+// spot light k's cookie at a world point: the picture projected along the cone, black outside it; 1 with none
+fn spot_cookie(k : u32, wpos : vec3<f32>) -> vec3<f32> {
+  let x = lights.sext[k];
+  if x.idx.y < 0.5 { return vec3<f32>(1.0); }
+  let s = lights.spots[k];
+  let d = wpos - s.pos_range.xyz;
+  let z = dot(d, s.dir_cos.xyz);
+  if z <= 1e-4 { return vec3<f32>(0.0); }
+  let uv = vec2<f32>(0.5 + 0.5 * dot(d, x.r.xyz) / z, 0.5 - 0.5 * dot(d, x.u.xyz) / z);
+  if uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 { return vec3<f32>(0.0); }
+  return cookie_at(x.idx.y, uv);
+}
+// a directional light's (or the sun's) cookie at a world point: repeats every cookie size; 1 with none
+fn dir_cookie(x : LightExt, wpos : vec3<f32>) -> vec3<f32> {
+  if x.idx.y < 0.5 { return vec3<f32>(1.0); }
+  return cookie_at(x.idx.y, vec2<f32>(dot(wpos, x.r.xyz) + x.r.w, x.u.w - dot(wpos, x.u.xyz)));
+}
+// spot light k at a world point, without its colour, N.L and shadow: falloff, cone, IES profile and cookie (for the fog)
+fn spot_atten(k : u32, wpos : vec3<f32>) -> vec3<f32> {
+  let s = lights.spots[k];
+  let d = s.pos_range.xyz - wpos;
+  let dist = max(length(d), 1e-4);
+  let l = d / dist;
+  let x = lights.sext[k];
+  let cone = smoothstep(s.dir_cos.w, s.cone.x, dot(-l, s.dir_cos.xyz));
+  return vec3<f32>(atten(dist, s.pos_range.w, x.idx.z) * cone * ies_dir(x.idx.x, -l, s.dir_cos.xyz, x.r.xyz)) * spot_cookie(k, wpos);
 }
 // the shadow of point light i at a world point: the cube face the point lies in
 fn point_shadow(i : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> f32 {
@@ -186,12 +271,10 @@ fn point_lights(wpos : vec3<f32>, nrm : vec3<f32>) -> vec3<f32> {
   for (var i = 0u; i < count; i++) {
     let d = lights.l[i].pos_range.xyz - wpos;
     let dist = max(length(d), 1e-4);
-    let x = clamp(1.0 - (dist / lights.l[i].pos_range.w) * (dist / lights.l[i].pos_range.w), 0.0, 1.0);
-    let ndl = max(dot(nrm, d / dist), 0.0);
-    // the shadow is looked up only where the light arrives (in range, facing it)
-    if x * ndl > 0.0 {
-      sum += lights.l[i].color.rgb * lights.l[i].color.w * ndl * x * x * point_shadow(i, wpos, nrm);
-    }
+    let c = lights.l[i].color.rgb * lights.l[i].color.w * max(dot(nrm, d / dist), 0.0);
+    let s = point_scale(i, c, dist, d / dist);
+    // the shadow is looked up only where the light arrives
+    if max(s.x, max(s.y, s.z)) > 0.0 { sum += s * point_shadow(i, wpos, nrm); }
   }
   return sum;
 }
@@ -199,6 +282,11 @@ fn has_point_lights() -> bool {
   return lights.n.x > 0.5;
 }
 fn sun_custom() -> bool { return lights.sun_dir.w > 0.5; }
+// the sun's cookie at a world point (cloud shadows), 1 with none
+fn sun_cookie(wpos : vec3<f32>) -> vec3<f32> {
+  if lights.sunext.idx.y < 0.5 { return vec3<f32>(1.0); }
+  return dir_cookie(lights.sunext, wpos);
+}
 fn ambient_set() -> bool { return lights.amb.w > 0.5; }
 // true when the light must be computed per pixel by rig()
 fn rig_on() -> bool {
@@ -253,12 +341,18 @@ fn extra_sample(k : u32, wpos : vec3<f32>, nrm : vec3<f32>) -> LSample {
     let dist = max(length(d), 1e-4);
     let l = d / dist;
     let cone = smoothstep(s.dir_cos.w, s.cone.x, dot(-l, s.dir_cos.xyz));
-    var e = s.color.rgb * s.color.w * falloff(dist, s.pos_range.w) * cone;
-    if cone > 0.0 && dist < s.pos_range.w && dot(nrm, l) > 0.0 { e *= local_shadow(s.cone.y, wpos, nrm, dist); }
+    let x = lights.sext[k];
+    var e = s.color.rgb * s.color.w * atten(dist, s.pos_range.w, x.idx.z) * cone;
+    let reaches = max(e.x, max(e.y, e.z)) > 0.0;
+    if reaches && dot(nrm, l) > 0.0 { e *= local_shadow(s.cone.y, wpos, nrm, dist); }
+    if x.idx.x > 0.5 && reaches { e *= ies_dir(x.idx.x, -l, s.dir_cos.xyz, x.r.xyz); }
+    if x.idx.y > 0.5 && reaches { e *= spot_cookie(k, wpos); }
     return LSample(l, e);
   }
   let dl = lights.dirs[k - ns];
-  return LSample(dl.dir.xyz, dl.color.rgb * dl.color.w * dir_shadow(dl.dir.w, wpos, nrm));
+  var e = dl.color.rgb * dl.color.w * dir_shadow(dl.dir.w, wpos, nrm);
+  if lights.dext[k - ns].idx.y > 0.5 { e *= dir_cookie(lights.dext[k - ns], wpos); }
+  return LSample(dl.dir.xyz, e);
 }
 fn area_count() -> u32 { return min(u32(lights.n.w), 4u); }
 // how much of area light j reaches a point (1 without a shadow): app/wgsl.mojo LOCAL_SHADOW_WGSL area_shadow
@@ -293,10 +387,10 @@ fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
   var lit = vec3<f32>(vlit);
   var extra = vec3<f32>(0.0);
   if ambient_set() {
-    lit = lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0);
+    lit = lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0) * sun_cookie(wpos);
     extra = sh_lit_at(wpos, n) + point_lights(wpos, n);
   } else {
-    if sun_custom() { lit = vec3<f32>(0.4) + lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0); }
+    if sun_custom() { lit = vec3<f32>(0.4) + lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0) * sun_cookie(wpos); }
     lit += point_lights(wpos, n);
   }
   let count = extra_count();
@@ -444,4 +538,39 @@ fn sh_lit_at(wpos : vec3<f32>, n : vec3<f32>) -> vec3<f32> {
 
 comptime NO_PROBES_WGSL = """
 fn sh_lit_at(wpos : vec3<f32>, n : vec3<f32>) -> vec3<f32> { return sh_lit(n); }
+"""
+
+
+# The IES table and the cookies (RenderResources.ies_tex, cookie_tex; app/photometry.mojo). Each shader that includes
+# this declares `ies_tab` (texture_2d<f32>, R32Float: unfilterable, so read with textureLoad and filtered here),
+# `cookies` (texture_2d_array<f32>) and `light_samp` (linear, repeat). IES_THETA and IES_PHI are app/photometry.mojo's.
+comptime LIGHT_TEX_WGSL = """
+const IES_THETA = 128u;
+const IES_PHI = 32u;
+// the baked profile in slot1 - 1 at theta (0 .. pi from the axis) and phi (around it): bilinear, phi wrapping round;
+// `sym`: the profile is the same all round, one row is read
+fn ies_at(slot1 : f32, theta : f32, phi : f32, sym : bool) -> f32 {
+  let u = clamp(theta / L_PI, 0.0, 1.0) * f32(IES_THETA - 1u);
+  var p = phi / (2.0 * L_PI);
+  p = p - floor(p);
+  let v = p * f32(IES_PHI);
+  let i0 = min(u32(u), IES_THETA - 2u);
+  let fu = u - f32(i0);
+  let j0 = min(u32(v), IES_PHI - 1u);
+  let fv = v - f32(j0);
+  let j1 = (j0 + 1u) % IES_PHI;
+  let row = (u32(slot1) - 1u) * IES_PHI;
+  let a = mix(textureLoad(ies_tab, vec2<u32>(i0, row + j0), 0).r, textureLoad(ies_tab, vec2<u32>(i0 + 1u, row + j0), 0).r, fu);
+  if sym { return a; }
+  let b = mix(textureLoad(ies_tab, vec2<u32>(i0, row + j1), 0).r, textureLoad(ies_tab, vec2<u32>(i0 + 1u, row + j1), 0).r, fu);
+  return mix(a, b, fv);
+}
+fn cookie_at(layer1 : f32, uv : vec2<f32>) -> vec3<f32> {
+  return textureSampleLevel(cookies, light_samp, uv, i32(layer1) - 1, 0.0).rgb;
+}
+"""
+
+comptime NO_LIGHT_TEX_WGSL = """
+fn ies_at(slot1 : f32, theta : f32, phi : f32, sym : bool) -> f32 { return 1.0; }
+fn cookie_at(layer1 : f32, uv : vec2<f32>) -> vec3<f32> { return vec3<f32>(1.0); }
 """

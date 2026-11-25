@@ -38,6 +38,7 @@ from app.shadow_pass import begin_depth_pass, record_atlas
 from app.gpu_mesh import GpuMeshCache, cam_floats
 from app.render_res import RenderResources, PointLight
 from app.lights import SpotLight, DirLight, AreaLight, Environment, L_SUN_DIR
+from app.photometry import Exposure, IesProfile, UNITS_RELATIVE
 from app.cull import MeshBounds, ShadowReach, visible_items
 from app.lens import coc_scale
 from app.skin_pass import build_palette, rot_y
@@ -422,9 +423,26 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     def set_area_lights(mut self, device: Device, lights: List[AreaLight]) raises:
         self.res.set_area_lights(device, lights)
 
-    def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32) raises:
-        """The sun's direction, colour and intensity (RenderResources.set_sun)."""
-        self.res.set_sun(device, to_sun, color, intensity)
+    def set_sun(mut self, device: Device, to_sun: Vec3, color: Vec3, intensity: Float32, kelvin: Float32 = 0.0,
+                units: Int = UNITS_RELATIVE) raises:
+        """The sun's direction, colour and intensity (RenderResources.set_sun); kelvin and units as a DirLight's."""
+        self.res.set_sun(device, to_sun, color, intensity, kelvin, units)
+
+    def set_sun_light(mut self, device: Device, sun: DirLight) raises:
+        """The sun as a DirLight: colour temperature, units and a cookie (RenderResources.set_sun_light)."""
+        self.res.set_sun_light(device, sun)
+
+    def set_exposure(mut self, device: Device, e: Exposure) raises:
+        """The camera exposure lights in photometric units are seen through (app/photometry.mojo)."""
+        self.res.set_exposure(device, e)
+
+    def set_ies(mut self, device: Device, slot: Int, profile: IesProfile) raises:
+        """An IES profile into a slot point and spot lights name by `ies` (RenderResources.set_ies)."""
+        self.res.set_ies(device, slot, profile)
+
+    def set_cookie(mut self, device: Device, layer: Int, rgba: List[UInt8]) raises:
+        """A 256 x 256 sRGB picture into a layer spot and directional lights name by `cookie` (RenderResources.set_cookie)."""
+        self.res.set_cookie(device, layer, rgba)
 
     def set_probes(mut self, device: Device, origin: Vec3, cell: Vec3, nx: Int, ny: Int, nz: Int, sh: List[Float32]) raises:
         """RenderResources.set_probes: the ambient from a grid of baked irradiance probes (app/irradiance.mojo)."""

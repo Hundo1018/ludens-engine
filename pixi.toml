@@ -89,7 +89,10 @@ test-scene-frame = "python3 scripts/test_native.py scene_frame_native"
 test-styles = "python3 scripts/test_native.py style_own custom_pipeline_native style_gallery_native"
 style-gallery = "python3 scripts/style_gallery.py"
 # The lights, the camera's projection / culling / viewports and the lens stages, each against worked values, on lavapipe.
-test-lights-camera = "python3 scripts/test_native.py lights_native shadows_native camera_native lens_native env_probe_native motion_native"
+test-lights-camera = "python3 scripts/assets/gen_light_profiles.py --check && python3 scripts/test_native.py lights_native shadows_native photometry light_profiles_native camera_native lens_native env_probe_native motion_native"
+# colour temperature, IES profiles and cookies: before / after pictures (build/shots/light_profiles/*.png; --docs copies them to
+# docs/images/light_profiles/) and, with --cost, the frame time at 1920 x 1080 on lavapipe
+light-profiles-shots = "python3 scripts/light_profiles_shots.py"
 # #139: FXAA, bloom, colour-grading LUT (app/post_fx.mojo) and MSAA 4x (app/msaa.mojo), each against a number, on lavapipe
 test-post-fx = "python3 scripts/test_native.py post_fx_native"
 # #139: the frame time of each effect at 1920 x 1080 on lavapipe (not run in CI: it takes minutes and is a CPU rasteriser's time)

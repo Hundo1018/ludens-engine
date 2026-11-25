@@ -8,7 +8,8 @@
   - lines submitted through the hook at ticks 30 .. 160 (teleport, god, spawn, noclip twice) give a log; that log loaded into
     a fresh run with the same keys (`replay`) gives the same hash at every one of the 240 ticks; without the lines the
     final hash differs;
-  - photo mode from tick 100 to 150 holds the hash still (the game is not stepped) while the keys stay held;
+  - photo mode from tick 100 to 150 holds the hash still (the game is not stepped) while the keys stay held; photoSet("focal")
+    keeps 12 .. 300 mm (game/zoom_lens.mojo through app_photo_set 5);
   - a release module (LUDENS_CONFIG=release scripts/build_wasm.sh build/app_release.wasm) has none of the console's strings
     that build/app.wasm has."""
 import os
@@ -57,7 +58,10 @@ def main() -> int:
     plain = run([])
     check(plain[-2]["hash"] != lined[-2]["hash"] and not plain[-1]["cheated"], f"without the lines the run ends at {plain[-2]['hash']}, unmarked")
 
-    photo = run([{"tick": 100, "photo": True}, {"tick": 150, "photo": False}])
+    photo = run([{"tick": 100, "photo": True}, {"tick": 110, "photo_set": ["focal", 1000]}, {"tick": 111, "photo_set": ["focal", 1]},
+                 {"tick": 112, "photo_set": ["focal", 85]}, {"tick": 150, "photo": False}])
+    kept = photo[-1]["photo_set"]
+    check(kept == [300, 12, 85], f"photoSet('focal', 1000 / 1 / 85) keeps {kept} mm (12 .. 300)")
     held = {photo[t]["hash"] for t in range(100, 151)}
     check(len(held) == 1, f"photo mode from tick 100 to 150: {len(held)} distinct hash over ticks 100..150")
     check(photo[151]["hash"] != photo[150]["hash"], "after leaving photo mode the game steps again")
