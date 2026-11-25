@@ -97,14 +97,15 @@ ludens-core already has most gameplay systems: abilities, combat and a hit pipel
 level flow, checkpoints, saves, a camera rig, characters, vehicles, rule tables, achievements, balance, and AI
 (behaviour trees, GOAP, EQS, perception, steering, influence maps). Most of them are not exposed to a host: the
 exposure list (core ROADMAP 17.101, Hundo1018/ludens-core#159) marks them pending. That is the largest gameplay gap.
-The items below are absent everywhere and had no issue. Put on the roadmap on 2026-11-23; none is built.
+The items below are absent everywhere and had no issue. Put on the roadmap on 2026-11-23; #146 and #147 are built (2026-11-25),
+the others are not.
 
 | issue | what |
 |---|---|
 | #143 | game feel: hitstop, time scale, screen shake, rumble timing (deterministic under replay) |
 | #144 | object pools and runtime spawning of prefabs (generational handles, capacity, deterministic order) |
 | #145 | difficulty and assist modes, tutorials and hints, dialogue graph validator |
-| #146 | in-game console and cheats (debug builds), photo mode |
+| #146 | in-game console and cheats (debug builds), photo mode: built, `docs/console.md` |
 | #147 | telemetry and crash reporting (opt-in; core `diag/outbox` and `gameplay/blackbox` get a transport): built, `docs/telemetry.md` |
 | #148 | mod support: wasm mods in a checked instance, a narrow versioned mod API |
 | #149 | live operations, monetization (store seam, receipts verified by a backend) and anti-cheat |

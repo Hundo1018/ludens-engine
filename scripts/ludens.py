@@ -106,7 +106,9 @@ def cmd_build(a) -> int:
     if a.target != "web":
         print(f"ludens: build --target {a.target} is not implemented yet (web only); native needs the wgpu native libraries and an app entry (ludens-engine #15)", file=sys.stderr)
         return 2
-    rc = subprocess.run(["bash", str(ROOT / "scripts/build_wasm.sh")], cwd=ROOT, check=False).returncode
+    # --config release (the default) leaves the in-game console out (-D LUDENS_RELEASE, docs/console.md); debug keeps it
+    env = {**os.environ, "LUDENS_CONFIG": a.config}
+    rc = subprocess.run(["bash", str(ROOT / "scripts/build_wasm.sh")], cwd=ROOT, check=False, env=env).returncode
     if rc:
         return rc
     rc = subprocess.run([sys.executable, str(ROOT / "scripts/build_web.py")], cwd=ROOT, check=False).returncode

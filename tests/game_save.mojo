@@ -163,7 +163,7 @@ def main() raises:
     play(old_game, 0, 150)
     var old_payload = v1_payload(old_game)
     var migrated = migrate_payload(DemoMigrator(), old_payload, 1, DEMO_SAVE_VERSION)
-    c.ok(len(migrated) == len(old_payload) + 9 and same(migrated, old_game.save_state()), "the migration adds 9 zero bytes: the result equals what version 2 writes for the same game")
+    c.ok(len(migrated) == len(old_payload) + 11 and same(migrated, old_game.save_state()), "the migrations add 9 zero bytes (1 -> 2) and 2 (2 -> 3): the result equals what version 3 writes for the same game")
     var from_old = DemoMode()
     c.ok(from_old.load_state(migrated) and from_old.hash() == old_game.hash() and from_old.jump_buffer.left_ms == 0.0, "the migrated save loads to the same hash with no pending press")
     var whole_old = DemoMode()
@@ -173,11 +173,11 @@ def main() raises:
     var raised_v1 = False
     var unmigrated = DemoMode()
     try:
-        _ = unmigrated.load_state(old_payload)  # a version 1 payload given to the version 2 loader, unmigrated
+        _ = unmigrated.load_state(old_payload)  # a version 1 payload given to the version 3 loader, unmigrated
     except err:
         raised_v1 = True
-    c.ok(raised_v1, "an unmigrated version 1 payload does not load as version 2")
-    c.ok(not DemoMigrator().can_migrate(2) and DemoMigrator().can_migrate(1), "only the 1 -> 2 step exists")
+    c.ok(raised_v1, "an unmigrated version 1 payload does not load as version 3")
+    c.ok(not DemoMigrator().can_migrate(3) and DemoMigrator().can_migrate(2) and DemoMigrator().can_migrate(1), "the 1 -> 2 and 2 -> 3 steps exist, none from 3")
     var cut_old = List[UInt8]()
     for i in range(12):
         cut_old.append(old_payload[i])

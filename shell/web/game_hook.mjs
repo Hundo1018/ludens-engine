@@ -18,6 +18,11 @@
 //   hash()           the game state's hash, a decimal string (a u64 does not fit a JS number)
 //   events()         the sound cues raised since the last call: [{frame, cue}]
 //   configure(seed, scene)   start the game over with a seed (a decimal string or integer) and a scene name
+//   console(line)    a console line, as if typed (docs/console.md): returns what it prints; throws for a refused line
+//   consoleLog()     the console log, `frame line` per line;  consoleReplay(log)   play a log back, each line at its frame
+//   cheated()        true once the game reports a cheat (achievements and stats are then refused)
+//   photo(on)        enter / leave photo mode;  photoSet(name, v)  focus, fstop, exposure, bloom, scale (returns the value kept)
+//   photoMove(forward, right, up, seconds)   fly the photo camera (returns metres from the start);  photoCapture()  PNG at the next drawn frame
 //
 // A key is a DOM `KeyboardEvent.code` ("KeyW", "Space", "ArrowUp", "Escape", "Enter") or a single letter or digit ("w", "7").
 
@@ -104,6 +109,36 @@ export function createGameHook({ rt, app, keyCode }) {
     },
     captions: () => JSON.parse(text(rt.call("app_captions_state", app))),
     shake(trauma) { rt.call("app_shake", app, trauma); },
+    // #146: the in-game console (game/console.mojo), its log and replay, and photo mode (game/photo_camera.mojo)
+    console(line) {
+      const [ptr, len] = rt.str_in(line);
+      try {
+        const rc = rt.call("app_console", app, ptr, len);
+        const out = text(rt.call("app_text_len", app));
+        if (rc !== 0) throw new Error(`game: console(${JSON.stringify(line)}): ${out}`);
+        return out;
+      } finally {
+        rt.free(ptr);
+      }
+    },
+    consoleLog: () => text(rt.call("app_console_log", app)),
+    consoleReplay(log) {
+      const [ptr, len] = rt.str_in(log);
+      try {
+        if (rt.call("app_console_replay", app, ptr, len) !== 0) throw new Error(`game: consoleReplay: ${text(rt.call("app_text_len", app))}`);
+      } finally {
+        rt.free(ptr);
+      }
+    },
+    cheated: () => rt.call("app_cheated", app) === 1,
+    photo(on = true) { return rt.call("app_photo", app, on ? 1 : 0) === 1; },
+    photoSet(name, value) {
+      const i = ["focus", "fstop", "exposure", "bloom", "scale"].indexOf(name);
+      if (i < 0) throw new Error(`game: photoSet: name must be focus, fstop, exposure, bloom or scale`);
+      return rt.call("app_photo_set", app, i, value);
+    },
+    photoMove: (forward, right, up, seconds) => rt.call("app_photo_move", app, forward, right, up, seconds),
+    photoCapture() { if (rt.call("app_photo_capture", app) !== 0) throw new Error("game: photoCapture: not in photo mode"); },
     shakeOffset: () => [rt.call("app_shake_offset", app, 0), rt.call("app_shake_offset", app, 1)],
     prompt(action, device = "keyboard") {
       const d = DEVICES[device];

@@ -76,6 +76,11 @@ gen-actions = "python3 scripts/gen_actions.py"
 test-tables = "python3 scripts/gen_table.py game/data/demo.schema --table game/data/demo.table -o game/demo_table.mojo --check && python3 scripts/test_native.py game_table && python3 tests/test_tables.py"
 # #122: one source change at a time to platform/save_store.mojo and game/demo_mode.mojo; the covering test must fail (not in CI: about 2 minutes)
 mutation-save = "python3 scripts/mutation_save.py"
+# #146: the in-game console, cheats and photo mode (docs/console.md): native tests, the release build without the console, the PNG writer
+# against Pillow; then the wasm64 module under node (console, replay, photo pause, release module); then the photo pipeline on lavapipe
+test-console = "python3 scripts/test_console.py"
+test-console-web = { cmd = "python3 scripts/test_console_web.py", depends-on = ["build-wasm"] }
+test-photo = "python3 scripts/test_native.py photo_native"
 test-skinning = "python3 scripts/test_native.py skinning_parity"
 test-scene-probe = "python3 scripts/test_native.py scene_probe_native"
 # #90: a whole SceneRenderer frame with every pass and option on (tile means against tests/golden/scene_frame_tiles.txt).

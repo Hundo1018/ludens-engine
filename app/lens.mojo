@@ -152,3 +152,18 @@ fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
   return sum / 16.0;
 }
 """
+
+
+struct Exposure(Style):
+    """The photo mode's exposure (game/photo_camera.mojo): the colour times 2^EV, EV from `SceneRendererOf.exposure_ev`
+    (Frame.t.w), clamped to the displayable range. EV 0 gives the input back."""
+
+    comptime NAME: StaticString = "exposure"
+    comptime AFTER: StaticString = ""
+    comptime WGSL: StaticString = """
+fn style(uv : vec2<f32>, px : vec2<f32>) -> vec3<f32> {
+  let c = src_texel(uv);
+  if frame.t.w == 0.0 { return c; }
+  return clamp(c * exp2(frame.t.w), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+"""

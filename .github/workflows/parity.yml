@@ -69,6 +69,9 @@ jobs:
       - name: FXAA, bloom, colour-grading LUT and MSAA (#139) on lavapipe
         run: pixi run -e wasm test-post-fx
 
+      - name: "Photo mode (#146): pipeline, exposure, depth of field, bloom, capture PNG on lavapipe"
+        run: pixi run -e wasm test-photo
+
       - name: "Terrain, decals, trails (#140): CPU, lavapipe, native against wasm64"
         run: |
           pixi run -e wasm test-tier2

@@ -90,7 +90,9 @@ generation: a corrupt run slot does not touch it (tested). Call `autosave` at a 
 ## The demo game
 
 `DemoMode.save_state` version 1: seed u64, scene name (length u8 and bytes), yaw (Float64 bits) u64, tick u64, jumps u64,
-paused u8, then the `EmbedWorld.save` blob. `load_state` parses everything, loads the world blob into a scratch world to find a
+paused u8, then the `EmbedWorld.save` blob. Version 2 adds the pending jump press after `paused`; version 3 (#146) adds the cheat
+mark (`CheatMark.bits`, u8) and the number of crates `spawn` added (u8) after it. `DemoMigrator` steps 1 -> 2 -> 3, each inserting
+zero bytes (docs/console.md). `load_state` parses everything, loads the world blob into a scratch world to find a
 damaged blob, and only then rebuilds the scene for the seed and name, loads the world over it and sets the counters. Tuned values (`game/data/demo.table`) are settings and are not saved.
 `tests/game_save.mojo` saves at frame 90, 150, 205 (paused) and 60 (scene `bare`), loads into a new `DemoMode` through a
 `SaveStore` that was reset with `forget()`, plays the remaining frames and compares `hash()` and `state()` with the

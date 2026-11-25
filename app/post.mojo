@@ -63,7 +63,7 @@ struct Frame {
   right : vec4<f32>,  // xyz, w = sy
   up : vec4<f32>,     // xyz, w = near
   fwd : vec4<f32>,    // xyz, w = far
-  t : vec4<f32>,      // time (s), frame number, seed, unused
+  t : vec4<f32>,      // time (s), frame number, seed, exposure (EV; app/lens.mojo Exposure, photo mode)
   user : vec4<f32>,   // the host's four numbers (SceneRendererOf.post_user)
   lens : vec4<f32>,   // focus distance (m), blur circle scale (pixels across), largest blur circle (pixels), shutter
   peye : vec4<f32>,   // the previous frame's camera, as eye / right / up / fwd (this frame's on the first)

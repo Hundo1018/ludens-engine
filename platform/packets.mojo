@@ -24,6 +24,8 @@ comptime REQ_INVALID = -3
 """A request was refused at once (empty or too long a name, a payload over the backend's limit); nothing is queued."""
 comptime REQ_FULL = -4
 """The result queue was full: the result is dropped and counted (`overflowed()`)."""
+comptime REQ_CHEATED = -5
+"""A request refused because the run used a cheat (platform/achievements.mojo `CheatGuard`); nothing is queued."""
 
 comptime KIND_SIGN_IN = 16
 comptime KIND_UNLOCK = 17
