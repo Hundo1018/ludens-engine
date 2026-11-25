@@ -10,8 +10,8 @@ floor shows a gap of light where it touches. This pass finds that shadow in scre
    an occluder; the pixel's mask R is then `1 - strength`, faded out over the last third of the ray;
 3. the mesh and skinned passes multiply the sun's shadow factor by R (`contact_shadow` in app/wgsl.mojo).
 
-`RenderResources.screen_mask` is RGBA8Unorm: R the sun's contact shadow (1 lit), G reserved for screen-space ambient
-occlusion (1 open; this pass writes 1.0), B and A 1. It is the scene's size while any user needs it
+`RenderResources.screen_mask` is RGBA8Unorm: R the sun's contact shadow (1 lit), G the screen-space ambient
+occlusion (1 open; app/ssao.mojo's result, 1 while that is off), B and A 1. It is the scene's size while any user needs it
 (`RenderResources.screen_users`: bit 0 contact shadows, bit 1 ambient occlusion) and 1 x 1 white otherwise, so a frame
 with the effect off costs no texture memory and its colour is unchanged bit for bit.
 
@@ -32,6 +32,7 @@ from wgpu.device import Device
 from wgpu.command import CommandEncoder
 from wgpu.pipeline import ComputePipeline
 from wgpu.bind_group import BindGroup, BindGroupLayout
+from wgpu.texture import TextureView
 from app.gpu_mesh import cam_floats
 from app.render_res import RenderResources
 
@@ -41,11 +42,12 @@ struct Contact {
   cam_eye : vec4<f32>, cam_right : vec4<f32>, cam_up : vec4<f32>, cam_fwd : vec4<f32>,  // cam_floats
   to_sun : vec4<f32>,  // xyz: unit vector toward the sun
   size : vec4<f32>,    // the target's width and height in pixels, the sample count, the ray's length in metres
-  tune : vec4<f32>,    // the thickness in metres, the strength 0 .. 1
+  tune : vec4<f32>,    // the thickness in metres, the strength 0 .. 1, 1 when contact shadows are on, the ambient occlusion's intensity (0: off)
 };
 @group(0) @binding(0) var<uniform> c : Contact;
 @group(0) @binding(1) var zbuf : texture_depth_2d;
 @group(0) @binding(2) var mask : texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(3) var ao : texture_2d<f32>;  // app/ssao.mojo's result (R); not read unless tune.w > 0
 
 // the view depth of a stored NDC depth (the inverse of app/wgsl.mojo cam_clip's z)
 fn lin_z(d : f32) -> f32 {
@@ -88,7 +90,7 @@ fn contact(@builtin(global_invocation_id) id : vec3<u32>) {
   let p0 = vec2<i32>(id.xy);
   let d0 = textureLoad(zbuf, p0, 0);
   var vis = 1.0;
-  if d0 < 1.0 {
+  if d0 < 1.0 && c.tune.z > 0.5 {
     let z0 = lin_z(d0);
     let w0 = to_world(vec2<f32>(id.xy) + vec2<f32>(0.5), z0);
     let steps = max(u32(c.size.z), 1u);
@@ -111,7 +113,9 @@ fn contact(@builtin(global_invocation_id) id : vec3<u32>) {
       }
     }
   }
-  textureStore(mask, p0, vec4<f32>(vis, 1.0, 1.0, 1.0));
+  var amb = 1.0;
+  if c.tune.w > 0.0 && d0 < 1.0 { amb = 1.0 - c.tune.w * (1.0 - textureLoad(ao, p0, 0).r); }
+  textureStore(mask, p0, vec4<f32>(vis, amb, 1.0, 1.0));
 }
 """
 
@@ -172,6 +176,7 @@ struct ContactShadows(Movable):
     var ubo: Buffer
     var group: Optional[BindGroup]
     var gen: Int  # the RenderResources.gen the group was made for; -1 none
+    var ao_key: Int
 
     def __init__(out self, device: Device) raises:
         var cs = WGPUShaderStage.COMPUTE.value
@@ -191,6 +196,13 @@ struct ContactShadows(Movable):
                 WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
             ),
             _store_entry(UInt32(2)),
+            WGPUBindGroupLayoutEntry(
+                null_opaque(), UInt32(3), cs, UInt32(0),
+                WGPUBufferBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt64(0)),
+                WGPUSamplerBindingLayout(null_opaque(), UInt32(0)),
+                WGPUTextureBindingLayout(null_opaque(), UInt32(3), UInt32(2), UInt32(0)),  # unfilterable float, 2D
+                WGPUStorageTextureBindingLayout(null_opaque(), UInt32(0), UInt32(0), UInt32(0)),
+            ),
         ]
         self.layout = device.create_bind_group_layout(entries)
         var shader = device.create_shader_module_wgsl(CONTACT_WGSL, "contact_shadows")
@@ -202,21 +214,25 @@ struct ContactShadows(Movable):
         )
         self.group = None
         self.gen = -1
+        self.ao_key = -1
 
-    def bind(mut self, device: Device, res: RenderResources) raises:
-        """The group over the renderer's scene depth and mask, made again when either is (RenderResources.gen)."""
-        if not res.scene_depth_view or self.gen == res.gen:
+    def bind(mut self, device: Device, res: RenderResources, ao: TextureView, ao_key: Int) raises:
+        """The group over the renderer's scene depth and mask and the occlusion `ao` (app/ssao.mojo), made again when
+        either is (RenderResources.gen) or `ao_key` changes (the occlusion's ping-pong)."""
+        if not res.scene_depth_view or (self.gen == res.gen and self.ao_key == ao_key):
             return
         var g: List[WGPUBindGroupEntry] = [
             WGPUBindGroupEntry(null_opaque(), 0, self.ubo.handle().raw, 0, UInt64(CONTACT_FLOATS * 4), null_opaque(), null_opaque()),
             WGPUBindGroupEntry(null_opaque(), 1, null_opaque(), 0, UInt64(0), null_opaque(), res.scene_depth_view.value().handle().raw),
             WGPUBindGroupEntry(null_opaque(), 2, null_opaque(), 0, UInt64(0), null_opaque(), res.screen_mask_view.handle().raw),
+            WGPUBindGroupEntry(null_opaque(), 3, null_opaque(), 0, UInt64(0), null_opaque(), ao.handle().raw),
         ]
         self.group = device.create_bind_group(self.layout, g, "contact_shadows")
         self.gen = res.gen
+        self.ao_key = ao_key
 
-    def update(self, device: Device, v: View, to_sun: List[Float32], res: RenderResources) raises:
-        """This frame's camera, sun direction and tuning."""
+    def update(self, device: Device, v: View, to_sun: List[Float32], res: RenderResources, ao: Float32 = 0.0) raises:
+        """This frame's camera, sun direction and tuning; `ao` is the ambient occlusion's intensity (0: off)."""
         var u = cam_floats(v)
         var l = Float32(0.0)
         for k in range(3):
@@ -228,7 +244,7 @@ struct ContactShadows(Movable):
         u.append(Float32(res.screen_w)); u.append(Float32(res.screen_h))
         u.append(Float32(res.contact_steps)); u.append(Float32(res.contact_distance))
         u.append(Float32(res.contact_thickness)); u.append(Float32(res.contact_strength))
-        u.append(0.0); u.append(0.0)
+        u.append(Float32(1.0) if res.contact_on else Float32(0.0)); u.append(ao)
         device.queue_write_data(self.ubo, UInt64(0), u)
 
     def record(self, enc: CommandEncoder, res: RenderResources):

@@ -605,7 +605,7 @@ struct ShadowPass(RenderPass):
     var gpu: GpuMeshCache  # draw()'s mesh copies; unused in a renderer's pass list
     var active: Bool  # prepared this frame in a pass list (the renderer's shadow is on)
     var places: List[Int]  # this frame's cascades: x, y, size in the sun's map
-    var contact: Bool  # prepared this frame with the camera's view for the depth prepass (res.contact_on)
+    var contact: Bool  # prepared this frame with the camera's view for the depth prepass (res.screen_users != 0: contact shadows or ambient occlusion)
     var bounds: MeshBounds  # the meshes' bounding radii, for sorting the casters into views
 
     def __init__(out self, device: Device, depth_format: UInt32, caps: RenderCaps = RenderCaps.default()) raises:
@@ -644,7 +644,7 @@ struct ShadowPass(RenderPass):
         palette: List[Float32], view: View, res: RenderResources,
     ) raises:
         self.active = res.shadow_on
-        self.contact = res.contact_on
+        self.contact = res.screen_users != 0
         self.caster.cam_view = -1
         if not self.active and res.tiles == 0 and not self.contact:
             return

@@ -128,7 +128,7 @@ fn fs_skin(in : VOut) -> @location(0) vec4<f32> {
   if rig_on() {
     let r = rig(in.lit, in.wpos, normalize(in.wnrm));
     lit3 = r.lit;
-    extra = r.extra;
+    extra = r.extra - r.amb * (1.0 - screen_ao(in.pos.xy));
     color = in.base * lit3;
   } else if has_point_lights() {
     lit3 = lit3 + point_lights(in.wpos, normalize(in.wnrm));

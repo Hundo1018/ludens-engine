@@ -402,13 +402,16 @@ fn area_tap(j : u32, t : u32, wpos : vec3<f32>) -> LSample {
 }
 // Rig.lit is the light a material multiplies by the sun's shadow factor (the sun, and what the first form put with it:
 // the fixed 0.4 ambient and the point lights); Rig.extra is light the sun's shadow does not touch.
-struct Rig { lit : vec3<f32>, extra : vec3<f32> };
+// amb is the part of extra that is the ambient (the probe or environment's irradiance): screen-space ambient occlusion takes it out of extra
+struct Rig { lit : vec3<f32>, extra : vec3<f32>, amb : vec3<f32> };
 fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
   var lit = vec3<f32>(vlit);
   var extra = vec3<f32>(0.0);
+  var amb = vec3<f32>(0.0);
   if ambient_set() {
     lit = lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0) * sun_cookie(wpos);
-    extra = sh_lit_at(wpos, n) + point_lights(wpos, n);
+    amb = sh_lit_at(wpos, n);
+    extra = amb + point_lights(wpos, n);
   } else {
     if sun_custom() { lit = vec3<f32>(0.4) + lights.sun_color.rgb * max(dot(n, sun_dir()), 0.0) * sun_cookie(wpos); }
     lit += point_lights(wpos, n);
@@ -426,7 +429,7 @@ fn rig(vlit : f32, wpos : vec3<f32>, n : vec3<f32>) -> Rig {
       extra += s.e * max(dot(n, s.l), 0.0) * sh;
     }
   }
-  return Rig(lit, extra);
+  return Rig(lit, extra, amb);
 }
 """
 
