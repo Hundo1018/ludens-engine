@@ -125,6 +125,26 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var vol_albedo: Float32  # the scattered share of the extinction, 0 .. 1
     var vol_far: Float32  # metres along the view: the far end of the froxel grid
     var vol_ambient: Float32  # the share of the environment's light scattered evenly by the fog
+    # the bokeh's shape (app/lens.mojo DepthOfField reads these through Frame.bokeh and Frame.bokeh2)
+    var bokeh_blades: Int  # aperture blades: 0 a round aperture, 3 .. 16 a polygon
+    var bokeh_rotation: Float32  # radians: the turn of the polygon
+    var bokeh_roundness: Float32  # 0 straight blades .. 1 a circle
+    var bokeh_squeeze: Float32  # an anamorphic lens's squeeze: the discs are this much taller than wide (1 spherical)
+    var bokeh_gain: Float32  # app/lens.mojo Bokeh: the brightness of the highlights' aperture-shaped sprites (0 none)
+    var bokeh_threshold: Float32  # brightness (0 .. 1, of the finished colour) above which a pixel draws a sprite
+    # the anamorphic lens's horizontal streaks (app/lens.mojo AnamorphicStreak reads these through Frame.streak, Frame.stint)
+    var streak_intensity: Float32  # 0 off
+    var streak_threshold: Float32  # brightness (0 .. 1) above which a pixel feeds the streak
+    var streak_length: Float32  # 1: the streak falls to a tenth about a sixth of the frame's width from its source
+    var streak_tint: Vec3  # the streak's colour (multiplied with the source's)
+    # the screen-space ambient occlusion and reflections (app/ssao.mojo, app/ssr.mojo: Frame.ao, Frame.ssr)
+    var ao_radius: Float32  # metres around a point searched for occluders
+    var ao_intensity: Float32  # 0 off, 1 the full occlusion
+    var ao_temporal: Float32  # the share of the previous frames kept (0 .. 0.95); 0 every frame from scratch
+    var ssr_intensity: Float32  # 0 off, 1 the reflection where the ray hits
+    var ssr_max_distance: Float32  # metres: the longest reflected ray traced
+    var ssr_thickness: Float32  # metres: how far behind a surface a ray still counts as hitting it
+    var ssr_max_roughness: Float32  # surfaces rougher than this keep the environment's reflection only
     var lut: Optional[Texture]  # the grading LUT as a strip, size * size by size texels
     var lut_view: Optional[TextureView]
     var lut_bytes: Int  # bytes of `lut` (set_lut)
@@ -231,6 +251,23 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.vol_albedo = 0.9
         self.vol_far = 64.0
         self.vol_ambient = 0.3
+        self.bokeh_blades = 0
+        self.bokeh_rotation = 0.0
+        self.bokeh_roundness = 0.0
+        self.bokeh_squeeze = 1.0
+        self.bokeh_gain = 0.0
+        self.bokeh_threshold = 0.8
+        self.streak_intensity = 0.0
+        self.streak_threshold = 0.85
+        self.streak_length = 1.0
+        self.streak_tint = Vec3(Real(0.45), Real(0.6), Real(1.0), Real(0.0))
+        self.ao_radius = 0.5
+        self.ao_intensity = 0.0
+        self.ao_temporal = 0.0
+        self.ssr_intensity = 0.0
+        self.ssr_max_distance = 20.0
+        self.ssr_thickness = 0.3
+        self.ssr_max_roughness = 0.6
         self.lut = None
         self.lut_view = None
         self.lut_bytes = 0
@@ -315,6 +352,23 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.vol_albedo = move.vol_albedo
         self.vol_far = move.vol_far
         self.vol_ambient = move.vol_ambient
+        self.bokeh_blades = move.bokeh_blades
+        self.bokeh_rotation = move.bokeh_rotation
+        self.bokeh_roundness = move.bokeh_roundness
+        self.bokeh_squeeze = move.bokeh_squeeze
+        self.bokeh_gain = move.bokeh_gain
+        self.bokeh_threshold = move.bokeh_threshold
+        self.streak_intensity = move.streak_intensity
+        self.streak_threshold = move.streak_threshold
+        self.streak_length = move.streak_length
+        self.streak_tint = move.streak_tint
+        self.ao_radius = move.ao_radius
+        self.ao_intensity = move.ao_intensity
+        self.ao_temporal = move.ao_temporal
+        self.ssr_intensity = move.ssr_intensity
+        self.ssr_max_distance = move.ssr_max_distance
+        self.ssr_thickness = move.ssr_thickness
+        self.ssr_max_roughness = move.ssr_max_roughness
         self.lut = move.lut^
         self.lut_view = move.lut_view^
         self.lut_bytes = move.lut_bytes
@@ -586,6 +640,14 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         f.append(self.fxaa_strength)
         for x in [self.vol_density, self.vol_anisotropy, self.vol_falloff, self.vol_base,
                   self.vol_albedo, self.vol_far, self.vol_ambient, Float32(0.0)]:
+            f.append(x)
+        for x in [Float32(1.0) if self.res.atmo_linear else Float32(0.0), self.res.atmo_exposure, Float32(0.0), Float32(0.0),
+                  self.ao_radius, self.ao_intensity, min(max(self.ao_temporal, Float32(0.0)), Float32(0.95)), Float32(0.0),
+                  self.ssr_intensity, self.ssr_max_distance, self.ssr_thickness, self.ssr_max_roughness,
+                  Float32(self.bokeh_blades), self.bokeh_rotation, self.bokeh_roundness, self.bokeh_squeeze,
+                  self.bokeh_gain, self.bokeh_threshold, Float32(0.0), Float32(0.0),
+                  self.streak_intensity, self.streak_threshold, self.streak_length, Float32(0.0),
+                  Float32(self.streak_tint[0]), Float32(self.streak_tint[1]), Float32(self.streak_tint[2]), Float32(0.0)]:
             f.append(x)
         return f^
 

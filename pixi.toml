@@ -99,6 +99,10 @@ post-fx-cost = "python3 scripts/post_fx_cost.py"
 test-tier3 = "python3 scripts/test_native.py mesh_lod volumetric_native probes_native mesh_lod_native"
 # #141: the reference images of tier 3 (build/shots/tier3/*.png; --docs also copies them to docs/images/tier3/)
 tier3-shots = "python3 scripts/tier3_shots.py"
+# Screen-space effects and lens shapes (docs/rendering-tier4.md): the bokeh's shape and the anamorphic streak on lavapipe
+test-tier4 = "python3 scripts/test_native.py bokeh_native ssr_native"
+# their reference images (build/shots/tier4/*.png; --docs also copies them to docs/images/tier4/)
+tier4-shots = "python3 scripts/tier4_shots.py"
 test-texture = "python3 scripts/test_native.py texture_native"
 test-texture-c3 = "python3 scripts/test_native.py texture_c3_native"
 ui-same = "python3 scripts/ui_same.py"

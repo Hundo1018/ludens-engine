@@ -112,6 +112,7 @@ struct RenderResources(Movable):
     var lights: Buffer  # the point lights (LIGHTS_BYTES): count, then MAX_POINT_LIGHTS records; none until set_lights
     var atmo_fog: Bool  # the flags of the latest set_atmosphere, restored after a DEBUG_SKY frame (debug_sky)
     var atmo_linear: Bool
+    var atmo_exposure: Float32  # the latest set_atmosphere's exposure (the post stages undo and redo the tone curve with it)
     var sky_overridden: Bool
     var light_vp: List[Float32]  # the latest set_shadow's light view-projection (a shadow pass in the pass list draws with it)
     var shadow_on: Bool  # the latest set_shadow's on-flag
@@ -203,6 +204,7 @@ struct RenderResources(Movable):
         self.shadow_view = self.shadow_tex.create_view_default()
         self.atmo_fog = False
         self.atmo_linear = False
+        self.atmo_exposure = 1.0
         self.sky_overridden = False
         self.shadow_sampler = device.create_sampler(mag_filter=1, min_filter=1, mipmap_filter=1, compare=UInt32(4), label="mesh_shadow_cmp")
         self.shadow_ubo = device.create_buffer(
@@ -682,6 +684,7 @@ struct RenderResources(Movable):
         device.queue_write_data(self.shadow_ubo, UInt64(80), data)
         self.atmo_fog = fog
         self.atmo_linear = linear
+        self.atmo_exposure = exposure
         self.sky_overridden = False
 
     def set_fog_linear(mut self, device: Device, fog: Bool, linear: Bool) raises:
