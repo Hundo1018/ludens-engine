@@ -107,6 +107,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
     var lens_sensor: Float32  # the sensor's height, metres (0.024: a 35 mm frame)
     var lens_max_coc: Float32  # the largest blur circle drawn, pixels across
     var shutter: Float32  # the part of the time between two frames the shutter is open, 0 .. 1 (0: no motion blur)
+    var reduce_motion: Bool  # the player's reduce-motion switch (game/access.mojo): the lens stages then see no blur circle and a closed shutter
     var prev_cam: List[Float32]  # the previous draw()'s camera (cam_floats), empty before the first
 
     def __init__(out self, device: Device, color_format: UInt32, view: View, texture_layers: UInt32 = 2,
@@ -188,6 +189,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.lens_sensor = 0.024
         self.lens_max_coc = 24.0
         self.shutter = 0.0
+        self.reduce_motion = False
         self.prev_cam = List[Float32]()
         self.floor = List[DrawItem]()
         self.items = List[DrawItem]()
@@ -247,6 +249,7 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         self.lens_sensor = move.lens_sensor
         self.lens_max_coc = move.lens_max_coc
         self.shutter = move.shutter
+        self.reduce_motion = move.reduce_motion
         self.prev_cam = move.prev_cam^
         self.floor = move.floor^
         self.items = move.items^
@@ -449,9 +452,9 @@ struct SceneRendererOf[P: RenderPass, F: PostEffect = NoPost, A: AuxTarget = NoA
         for i in range(4):
             f.append(self.post_user[i])
         f.append(self.lens_focus)
-        f.append(coc_scale(v, self.lens_focus, self.lens_fstop, self.lens_sensor, Float32(height)))
+        f.append(Float32(0.0) if self.reduce_motion else coc_scale(v, self.lens_focus, self.lens_fstop, self.lens_sensor, Float32(height)))
         f.append(self.lens_max_coc)
-        f.append(self.shutter)
+        f.append(Float32(0.0) if self.reduce_motion else self.shutter)
         var now = cam_floats(v)
         for i in range(16):
             f.append(self.prev_cam[i] if len(self.prev_cam) == 16 else now[i])
